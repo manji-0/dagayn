@@ -1967,3 +1967,238 @@ class TestRescriptCrossModuleResolver:
         # Second run should find nothing new — all already resolved.
         assert second["calls_resolved"] == 0
         assert second["imports_resolved"] == 0
+
+
+class _TempRepoBuildMixin:
+    def _full_build(self, tmp_path):
+        from code_review_graph.graph import GraphStore
+        from code_review_graph.incremental import full_build
+
+        (tmp_path / ".git").mkdir()
+        store = GraphStore(tmp_path / "graph.db")
+        result = full_build(tmp_path, store)
+        return store, result
+
+
+class TestMarkdownMultiFileBuild(_TempRepoBuildMixin):
+    def _build(self, tmp_path):
+        docs = tmp_path / "docs"
+        docs.mkdir()
+        (docs / "spec.md").write_text(
+            "# Spec\n\n"
+            "## API Design\n\n"
+            "See [Implementation](./impl.md#Implementation).\n",
+            encoding="utf-8",
+        )
+        (docs / "impl.md").write_text(
+            "# Implementation\n\n"
+            "<!-- derived-from ./spec.md#API Design -->\n\n"
+            "See [Spec](./spec.md#API Design).\n",
+            encoding="utf-8",
+        )
+        return self._full_build(tmp_path)
+
+    def test_build_indexes_multiple_markdown_files(self, tmp_path):
+        store, _ = self._build(tmp_path)
+        spec_path = str((tmp_path / "docs" / "spec.md").resolve())
+        impl_path = str((tmp_path / "docs" / "impl.md").resolve())
+
+        spec_nodes = store.get_nodes_by_file(spec_path)
+        impl_nodes = store.get_nodes_by_file(impl_path)
+        assert any(n.kind == "File" and n.language == "markdown" for n in spec_nodes)
+        assert any(n.kind == "Class" and n.name == "api-design" for n in spec_nodes)
+        assert any(n.kind == "File" and n.language == "markdown" for n in impl_nodes)
+        assert any(n.kind == "Class" and n.name == "implementation" for n in impl_nodes)
+
+    def test_build_links_directives_across_markdown_files(self, tmp_path):
+        store, _ = self._build(tmp_path)
+        spec_path = str((tmp_path / "docs" / "spec.md").resolve())
+        impl_path = str((tmp_path / "docs" / "impl.md").resolve())
+        cur = store._conn.cursor()
+
+        depends = cur.execute(
+            "SELECT source_qualified, target_qualified, extra FROM edges "
+            "WHERE kind='DEPENDS_ON' AND file_path=?",
+            (impl_path,),
+        ).fetchall()
+        assert any(
+            row["source_qualified"] == f"{impl_path}::implementation"
+            and row["target_qualified"] == f"{spec_path}::api-design"
+            and "derived-from" in row["extra"]
+            for row in depends
+        )
+
+        references = cur.execute(
+            "SELECT source_qualified, target_qualified FROM edges "
+            "WHERE kind='REFERENCES' AND file_path=?",
+            (impl_path,),
+        ).fetchall()
+        assert any(
+            row["source_qualified"] == f"{impl_path}::implementation"
+            and row["target_qualified"] == f"{spec_path}::api-design"
+            for row in references
+        )
+
+        imports = cur.execute(
+            "SELECT target_qualified FROM edges "
+            "WHERE kind='IMPORTS_FROM' AND file_path IN (?, ?)",
+            (spec_path, impl_path),
+        ).fetchall()
+        import_targets = {row["target_qualified"] for row in imports}
+        assert spec_path in import_targets
+        assert impl_path in import_targets
+
+
+class TestTerraformMultiFileBuild(_TempRepoBuildMixin):
+    def _build(self, tmp_path):
+        infra = tmp_path / "infra"
+        module_dir = infra / "modules" / "network"
+        module_dir.mkdir(parents=True)
+        (infra / "main.tf").write_text(
+            'terraform {\n  required_providers {\n    aws = {\n      source = "hashicorp/aws"\n'
+            '    }\n  }\n}\n\n'
+            'provider "aws" {\n  region = var.region\n}\n\n'
+            'module "network" {\n  source = "./modules/network"\n  cidr_block = var.vpc_cidr\n}\n',
+            encoding="utf-8",
+        )
+        (infra / "variables.tf").write_text(
+            'variable "region" { type = string }\n'
+            'variable "vpc_cidr" { type = string }\n',
+            encoding="utf-8",
+        )
+        (infra / "outputs.tf").write_text(
+            'output "vpc_id" {\n  value = module.network.vpc_id\n}\n',
+            encoding="utf-8",
+        )
+        (module_dir / "main.tf").write_text(
+            'variable "cidr_block" { type = string }\n\n'
+            'resource "aws_vpc" "main" {\n  cidr_block = var.cidr_block\n}\n',
+            encoding="utf-8",
+        )
+        (module_dir / "outputs.tf").write_text(
+            'output "vpc_id" {\n  value = resource.aws_vpc.main.id\n}\n',
+            encoding="utf-8",
+        )
+        return self._full_build(tmp_path)
+
+    def test_build_indexes_multiple_terraform_files(self, tmp_path):
+        store, _ = self._build(tmp_path)
+        root_main = str((tmp_path / "infra" / "main.tf").resolve())
+        root_vars = str((tmp_path / "infra" / "variables.tf").resolve())
+        module_main = str((tmp_path / "infra" / "modules" / "network" / "main.tf").resolve())
+
+        assert any(n.language == "terraform" for n in store.get_nodes_by_file(root_main))
+        assert any(n.name == "var.region" for n in store.get_nodes_by_file(root_vars))
+        assert any(n.name == "resource.aws_vpc.main" for n in store.get_nodes_by_file(module_main))
+
+    def test_build_preserves_module_and_reference_edges_across_files(self, tmp_path):
+        store, _ = self._build(tmp_path)
+        root_main = str((tmp_path / "infra" / "main.tf").resolve())
+        root_outputs = str((tmp_path / "infra" / "outputs.tf").resolve())
+        cur = store._conn.cursor()
+
+        imports = cur.execute(
+            "SELECT target_qualified FROM edges "
+            "WHERE kind='IMPORTS_FROM' AND file_path=?",
+            (root_main,),
+        ).fetchall()
+        assert any(row["target_qualified"] == "./modules/network" for row in imports)
+
+        references = cur.execute(
+            "SELECT target_qualified FROM edges "
+            "WHERE kind='REFERENCES' AND file_path=?",
+            (root_outputs,),
+        ).fetchall()
+        assert any("module.network" in row["target_qualified"] for row in references)
+
+
+class TestMixedMonorepoBuild(_TempRepoBuildMixin):
+    def _build(self, tmp_path):
+        docs = tmp_path / "docs"
+        svc = tmp_path / "services" / "api"
+        infra = tmp_path / "infra"
+        docs.mkdir(parents=True)
+        svc.mkdir(parents=True)
+        infra.mkdir(parents=True)
+
+        (docs / "spec.md").write_text(
+            "# API Contract\n\n"
+            "The service returns deployment metadata.\n",
+            encoding="utf-8",
+        )
+        (docs / "runbook.md").write_text(
+            "# Runbook\n\n"
+            "<!-- constrained-by ./spec.md#API Contract -->\n\n"
+            "See [Service entrypoint](../services/api/app.py).\n"
+            "See [Terraform stack](../infra/main.tf).\n",
+            encoding="utf-8",
+        )
+        (svc / "helpers.py").write_text(
+            "def helper() -> str:\n"
+            "    return 'ok'\n",
+            encoding="utf-8",
+        )
+        (svc / "app.py").write_text(
+            "from helpers import helper\n\n"
+            "def deploy() -> str:\n"
+            "    return helper()\n",
+            encoding="utf-8",
+        )
+        (infra / "main.tf").write_text(
+            'variable "region" { type = string }\n\n'
+            'provider "aws" {\n  region = var.region\n}\n',
+            encoding="utf-8",
+        )
+        return self._full_build(tmp_path)
+
+    def test_build_indexes_markdown_python_terraform_monorepo(self, tmp_path):
+        store, result = self._build(tmp_path)
+        docs_runbook = str((tmp_path / "docs" / "runbook.md").resolve())
+        svc_app = str((tmp_path / "services" / "api" / "app.py").resolve())
+        infra_main = str((tmp_path / "infra" / "main.tf").resolve())
+        cur = store._conn.cursor()
+
+        langs = {
+            row["language"] for row in cur.execute(
+                "SELECT DISTINCT language FROM nodes WHERE kind='File'"
+            ).fetchall()
+        }
+        assert {"markdown", "python", "terraform"} <= langs
+        assert result["files_parsed"] >= 5
+
+        imports = cur.execute(
+            "SELECT target_qualified FROM edges "
+            "WHERE kind='IMPORTS_FROM' AND file_path=?",
+            (docs_runbook,),
+        ).fetchall()
+        import_targets = {row["target_qualified"] for row in imports}
+        assert svc_app in import_targets
+        assert infra_main in import_targets
+
+        python_calls = cur.execute(
+            "SELECT target_qualified FROM edges "
+            "WHERE kind='CALLS' AND file_path=?",
+            (svc_app,),
+        ).fetchall()
+        assert any(row["target_qualified"].endswith("helpers.py::helper") for row in python_calls)
+
+        terraform_nodes = store.get_nodes_by_file(infra_main)
+        assert any(node.name == "provider.aws" for node in terraform_nodes)
+
+    def test_markdown_directive_links_into_monorepo_graph(self, tmp_path):
+        store, _ = self._build(tmp_path)
+        docs_runbook = str((tmp_path / "docs" / "runbook.md").resolve())
+        docs_spec = str((tmp_path / "docs" / "spec.md").resolve())
+        cur = store._conn.cursor()
+
+        depends = cur.execute(
+            "SELECT source_qualified, target_qualified, extra FROM edges "
+            "WHERE kind='DEPENDS_ON' AND file_path=?",
+            (docs_runbook,),
+        ).fetchall()
+        assert any(
+            row["source_qualified"] == f"{docs_runbook}::runbook"
+            and row["target_qualified"] == f"{docs_spec}::api-contract"
+            and "constrained-by" in row["extra"]
+            for row in depends
+        )
