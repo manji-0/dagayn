@@ -18,6 +18,10 @@ class TestCodeParser:
     def test_detect_language_typescript(self):
         assert self.parser.detect_language(Path("foo.ts")) == "typescript"
 
+    def test_detect_language_markdown(self):
+        assert self.parser.detect_language(Path("README.md")) == "markdown"
+        assert self.parser.detect_language(Path("design.markdown")) == "markdown"
+
     def test_detect_language_unknown(self):
         assert self.parser.detect_language(Path("foo.txt")) is None
 

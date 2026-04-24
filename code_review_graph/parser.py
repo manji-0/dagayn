@@ -49,6 +49,13 @@ _SQL_TABLE_RE = re.compile(
 logger = logging.getLogger(__name__)
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
+_MARKDOWN_VENDOR_DIR = _REPO_ROOT / "vendor" / "treesitter_md"
+_MARKDOWN_BINDING_DIR = _MARKDOWN_VENDOR_DIR / "bindings" / "python"
+_MARKDOWN_BINDING_MODULE = "markdown"
+_MARKDOWN_BINDING_CANDIDATES = (
+    _MARKDOWN_BINDING_DIR / "markdown.abi3.so",
+    _MARKDOWN_BINDING_DIR / "markdown.so",
+)
 _TERRAFORM_VENDOR_DIR = _REPO_ROOT / "vendor" / "treesitter_tf"
 _TERRAFORM_BINDING_DIR = _TERRAFORM_VENDOR_DIR / "bindings" / "python"
 _TERRAFORM_BINDING_MODULE = "terraform"
@@ -66,6 +73,12 @@ _TERRAFORM_REFERENCE_SKIP_ROOTS = frozenset({
     "count", "each", "ingress", "egress", "path", "self", "terraform",
 })
 _TERRAFORM_CALL_SKIP = frozenset({"for", "if"})
+_MARKDOWN_DIRECTIVE_RE = re.compile(
+    r"<!--\s*(constrained-by|blocked-by|supersedes|derived-from)\s+(.+?)\s*-->",
+    re.IGNORECASE,
+)
+_MARKDOWN_LINK_RE = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
+_MARKDOWN_REFERENCE_DEF_RE = re.compile(r"(?m)^\s*\[[^\]]+\]:\s*(\S+)")
 
 # ---------------------------------------------------------------------------
 # Data models for extracted entities
@@ -160,6 +173,8 @@ EXTENSION_TO_LANGUAGE: dict[str, str] = {
     ".gd": "gdscript",
     ".tf": "terraform",
     ".tfvars": "terraform",
+    ".md": "markdown",
+    ".markdown": "markdown",
 }
 
 SHEBANG_INTERPRETER_TO_LANGUAGE: dict[str, str] = {
@@ -703,6 +718,12 @@ class CodeParser:
 
     def _get_parser(self, language: str):  # type: ignore[arg-type]
         if language not in self._parsers:
+            if language == "markdown":
+                parser = self._get_markdown_parser()
+                if parser is None:
+                    return None
+                self._parsers[language] = parser
+                return parser
             if language == "terraform":
                 parser = self._get_terraform_parser()
                 if parser is None:
@@ -718,6 +739,116 @@ class CodeParser:
                 logger.debug("tree-sitter parser unavailable for %s: %s", language, exc)
                 return None
         return self._parsers[language]
+
+    def _get_markdown_parser(self):
+        """Prefer dagayn's vendored Markdown grammar, then fall back to tslp."""
+        language_obj = self._load_vendored_markdown_language()
+        if language_obj is not None and Parser is not None:
+            try:
+                parser = Parser()
+                try:
+                    parser.language = language_obj
+                except AttributeError:
+                    parser.set_language(language_obj)
+                return parser
+            except (AttributeError, TypeError, ValueError) as exc:
+                logger.warning("failed to initialize vendored Markdown parser: %s", exc)
+        try:
+            if tslp is None:
+                raise ImportError("tree_sitter_language_pack is not installed")
+            return tslp.get_parser("markdown")
+        except (LookupError, ValueError, ImportError) as exc:
+            logger.debug("fallback Markdown parser unavailable: %s", exc)
+            return None
+
+    def _load_vendored_markdown_language(self):
+        if Language is None:
+            return None
+        module = self._load_vendored_markdown_binding()
+        if module is None or not hasattr(module, "language"):
+            return None
+        try:
+            return Language(module.language())
+        except (TypeError, ValueError) as exc:
+            logger.warning("failed to load vendored Markdown language capsule: %s", exc)
+            return None
+
+    def _load_vendored_markdown_binding(self):
+        binding_path = self._ensure_vendored_markdown_binding()
+        if binding_path is None:
+            return None
+        try:
+            spec = importlib.util.spec_from_file_location(
+                _MARKDOWN_BINDING_MODULE, binding_path,
+            )
+            if spec is None or spec.loader is None:
+                raise ImportError(f"could not create import spec for {binding_path}")
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            return module
+        except (ImportError, OSError) as exc:
+            logger.warning("failed to import vendored Markdown binding %s: %s", binding_path, exc)
+            return None
+
+    def _ensure_vendored_markdown_binding(self) -> Optional[Path]:
+        for candidate in _MARKDOWN_BINDING_CANDIDATES:
+            if candidate.exists():
+                return candidate
+
+        binding_c = _MARKDOWN_BINDING_DIR / "binding.c"
+        parser_c = _MARKDOWN_VENDOR_DIR / "src" / "parser.c"
+        scanner_c = _MARKDOWN_VENDOR_DIR / "src" / "scanner.c"
+        header_dir = _MARKDOWN_VENDOR_DIR / "src" / "tree_sitter"
+        output_path = _MARKDOWN_BINDING_DIR / "markdown.abi3.so"
+
+        required = (binding_c, parser_c, scanner_c, header_dir)
+        if not all(path.exists() for path in required):
+            return None
+        if sys.platform.startswith("win"):
+            logger.warning("vendored Markdown binding auto-build is unsupported on Windows")
+            return None
+
+        include_dirs = []
+        include_path = sysconfig.get_paths().get("include")
+        platinclude_path = sysconfig.get_paths().get("platinclude")
+        for include_dir in (include_path, platinclude_path):
+            if include_dir and include_dir not in include_dirs:
+                include_dirs.append(include_dir)
+
+        cmd = [
+            "-shared",
+            "-fPIC",
+            "-O2",
+            "-std=c11",
+            "-DPy_LIMITED_API=0x030A0000",
+            "-I", str(_MARKDOWN_VENDOR_DIR / "src"),
+            "-I", str(header_dir),
+        ]
+        compiler = shlex.split(sysconfig.get_config_var("CC") or "cc")
+        for include_dir in include_dirs:
+            cmd.extend(["-I", include_dir])
+        if sys.platform == "darwin":
+            cmd.extend(["-undefined", "dynamic_lookup"])
+        cmd = compiler + cmd + [
+            str(binding_c),
+            str(parser_c),
+            str(scanner_c),
+            "-o",
+            str(output_path),
+        ]
+
+        _MARKDOWN_BINDING_DIR.mkdir(parents=True, exist_ok=True)
+        try:
+            subprocess.run(
+                cmd, check=True, capture_output=True, text=True,
+            )
+        except (OSError, subprocess.CalledProcessError) as exc:
+            logger.warning("failed to build vendored Markdown binding: %s", exc)
+            if isinstance(exc, subprocess.CalledProcessError):
+                logger.debug("Markdown binding build stdout: %s", exc.stdout)
+                logger.debug("Markdown binding build stderr: %s", exc.stderr)
+            return None
+        return output_path if output_path.exists() else None
 
     def _get_terraform_parser(self):
         """Prefer dagayn's vendored Terraform grammar, then fall back to tslp."""
@@ -905,6 +1036,10 @@ class CodeParser:
         # Jupyter notebooks: extract code cells and parse as Python
         if language == "notebook":
             return self._parse_notebook(path, source)
+
+        # Markdown docs: sections + links + dependency directives.
+        if language == "markdown":
+            return self._parse_markdown(path, source)
 
         # Databricks .py notebook exports
         if language == "python" and (
@@ -1212,6 +1347,344 @@ class CodeParser:
                     ))
 
         return all_nodes, all_edges
+
+    def _parse_markdown(
+        self, path: Path, source: bytes,
+    ) -> tuple[list[NodeInfo], list[EdgeInfo]]:
+        """Parse Markdown documents into section nodes and dependency edges."""
+        file_path_str = str(path)
+        test_file = _is_test_file(file_path_str)
+        text = source.decode("utf-8", errors="replace")
+        parser = self._get_parser("markdown")
+
+        nodes: list[NodeInfo] = [NodeInfo(
+            kind="File",
+            name=file_path_str,
+            file_path=file_path_str,
+            line_start=1,
+            line_end=source.count(b"\n") + 1,
+            language="markdown",
+            is_test=test_file,
+        )]
+        edges: list[EdgeInfo] = []
+
+        headings: list[dict[str, object]] = []
+        if parser:
+            tree = parser.parse(source)
+            headings = self._markdown_collect_headings(tree.root_node, source)
+
+        if not headings:
+            headings = self._markdown_collect_headings_from_text(text)
+
+        heading_stack: list[dict[str, object]] = []
+        for heading in headings:
+            level = int(heading["level"])
+            while heading_stack and int(heading_stack[-1]["level"]) >= level:
+                heading_stack.pop()
+
+            section_qname = self._qualify(str(heading["slug"]), file_path_str, None)
+            container = (
+                str(heading_stack[-1]["qname"])
+                if heading_stack
+                else file_path_str
+            )
+            nodes.append(NodeInfo(
+                kind="Class",
+                name=str(heading["slug"]),
+                file_path=file_path_str,
+                line_start=int(heading["line"]),
+                line_end=int(heading["line"]),
+                language="markdown",
+                extra={
+                    "markdown_kind": "section",
+                    "display_name": str(heading["text"]),
+                    "heading_level": level,
+                },
+            ))
+            edges.append(EdgeInfo(
+                kind="CONTAINS",
+                source=container,
+                target=section_qname,
+                file_path=file_path_str,
+                line=int(heading["line"]),
+            ))
+            heading_stack.append({
+                "level": level,
+                "slug": heading["slug"],
+                "line": heading["line"],
+                "qname": section_qname,
+            })
+
+        self._extract_markdown_directives(path, text, file_path_str, headings, edges)
+        self._extract_markdown_links(path, text, file_path_str, headings, edges)
+        return nodes, self._dedupe_markdown_edges(edges)
+
+    def _markdown_collect_headings(self, root, source: bytes) -> list[dict[str, object]]:
+        """Collect headings in document order with GitHub-style unique slugs."""
+        raw: list[dict[str, object]] = []
+
+        def visit(node) -> None:
+            if node.type in ("atx_heading", "setext_heading"):
+                text = self._markdown_heading_text(node, source)
+                if text:
+                    raw.append({
+                        "text": text,
+                        "level": self._markdown_heading_level(node),
+                        "line": node.start_point[0] + 1,
+                    })
+            for child in node.children:
+                visit(child)
+
+        visit(root)
+        return self._markdown_assign_heading_slugs(raw)
+
+    def _markdown_collect_headings_from_text(self, text: str) -> list[dict[str, object]]:
+        """Fallback heading extraction when no Markdown parser is available."""
+        raw: list[dict[str, object]] = []
+        lines = text.splitlines()
+        idx = 0
+        while idx < len(lines):
+            line = lines[idx]
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                marker = len(stripped) - len(stripped.lstrip("#"))
+                if 1 <= marker <= 6 and len(stripped) > marker and stripped[marker] == " ":
+                    title = stripped[marker + 1:].strip().rstrip("#").strip()
+                    if title:
+                        raw.append({
+                            "text": title,
+                            "level": marker,
+                            "line": idx + 1,
+                        })
+            elif idx + 1 < len(lines):
+                underline = lines[idx + 1].strip()
+                if stripped and underline and set(underline) <= {"="}:
+                    raw.append({"text": stripped, "level": 1, "line": idx + 1})
+                    idx += 1
+                elif stripped and underline and set(underline) <= {"-"}:
+                    raw.append({"text": stripped, "level": 2, "line": idx + 1})
+                    idx += 1
+            idx += 1
+        return self._markdown_assign_heading_slugs(raw)
+
+    def _markdown_assign_heading_slugs(
+        self, raw_headings: list[dict[str, object]],
+    ) -> list[dict[str, object]]:
+        counts: dict[str, int] = {}
+        assigned: set[str] = set()
+        headings: list[dict[str, object]] = []
+
+        for heading in raw_headings:
+            base = self._markdown_slugify(str(heading["text"]))
+            n = counts.get(base, 0)
+            if n == 0 and base not in assigned:
+                slug = base
+            else:
+                k = max(1, n)
+                while True:
+                    candidate = f"{base}-{k}"
+                    if candidate not in assigned:
+                        slug = candidate
+                        break
+                    k += 1
+            counts[base] = n + 1
+            assigned.add(slug)
+            headings.append({
+                "text": heading["text"],
+                "slug": slug,
+                "level": heading["level"],
+                "line": heading["line"],
+            })
+        return headings
+
+    @staticmethod
+    def _markdown_heading_level(node) -> int:
+        for child in node.children:
+            if child.type.startswith("atx_h") and child.type.endswith("_marker"):
+                text = child.text.decode("utf-8", errors="replace")
+                return len(text)
+            if child.type == "setext_h1_underline":
+                return 1
+            if child.type == "setext_h2_underline":
+                return 2
+        return 1
+
+    @staticmethod
+    def _markdown_heading_text(node, source: bytes) -> str:
+        parts: list[str] = []
+        for child in node.children:
+            if child.type in {
+                "atx_h1_marker", "atx_h2_marker", "atx_h3_marker",
+                "atx_h4_marker", "atx_h5_marker", "atx_h6_marker",
+                "setext_h1_underline", "setext_h2_underline",
+            }:
+                continue
+            text = source[child.start_byte:child.end_byte].decode("utf-8", errors="replace").strip()
+            if text:
+                parts.append(text)
+        return " ".join(parts).strip()
+
+    @staticmethod
+    def _markdown_slugify(text: str) -> str:
+        chars: list[str] = []
+        for char in text:
+            if char.isalnum():
+                chars.append(char.lower())
+            elif char in {" ", "-"}:
+                chars.append("-")
+            elif char == "_":
+                chars.append("_")
+        return "".join(chars)
+
+    def _markdown_section_for_line(
+        self, line: int, file_path: str, headings: list[dict[str, object]],
+    ) -> Optional[str]:
+        section_slug: Optional[str] = None
+        for heading in headings:
+            if int(heading["line"]) > line:
+                break
+            section_slug = str(heading["slug"])
+        if section_slug is None:
+            return None
+        return self._qualify(section_slug, file_path, None)
+
+    def _extract_markdown_directives(
+        self,
+        path: Path,
+        text: str,
+        file_path: str,
+        headings: list[dict[str, object]],
+        edges: list[EdgeInfo],
+    ) -> None:
+        for match in _MARKDOWN_DIRECTIVE_RE.finditer(text):
+            kind = match.group(1).lower()
+            raw_target = match.group(2).strip()
+            line = text.count("\n", 0, match.start()) + 1
+            source = self._markdown_section_for_line(line, file_path, headings) or file_path
+            target = self._markdown_target(raw_target, path)
+            if target is None:
+                continue
+            edges.append(EdgeInfo(
+                kind="DEPENDS_ON",
+                source=source,
+                target=target,
+                file_path=file_path,
+                line=line,
+                extra={"markdown_directive_kind": kind},
+            ))
+            if "::" in target:
+                target_file = target.split("::", 1)[0]
+            else:
+                target_file = target
+            if target_file != file_path:
+                edges.append(EdgeInfo(
+                    kind="IMPORTS_FROM",
+                    source=file_path,
+                    target=target_file,
+                    file_path=file_path,
+                    line=line,
+                    extra={"markdown_import_kind": "directive", "markdown_directive_kind": kind},
+                ))
+
+    def _extract_markdown_links(
+        self,
+        path: Path,
+        text: str,
+        file_path: str,
+        headings: list[dict[str, object]],
+        edges: list[EdgeInfo],
+    ) -> None:
+        for regex in (_MARKDOWN_LINK_RE, _MARKDOWN_REFERENCE_DEF_RE):
+            for match in regex.finditer(text):
+                raw_target = self._markdown_normalize_link_target(match.group(1))
+                if not raw_target or self._markdown_is_external_target(raw_target):
+                    continue
+                line = text.count("\n", 0, match.start()) + 1
+                source = self._markdown_section_for_line(line, file_path, headings) or file_path
+                target = self._markdown_target(raw_target, path)
+                if target is None:
+                    continue
+                if "::" in target:
+                    target_file, _target_section = target.split("::", 1)
+                    edges.append(EdgeInfo(
+                        kind="IMPORTS_FROM",
+                        source=file_path,
+                        target=target_file,
+                        file_path=file_path,
+                        line=line,
+                        extra={"markdown_import_kind": "link"},
+                    ))
+                    edges.append(EdgeInfo(
+                        kind="REFERENCES",
+                        source=source,
+                        target=target,
+                        file_path=file_path,
+                        line=line,
+                        extra={"markdown_reference_kind": "link"},
+                    ))
+                elif target != file_path:
+                    edges.append(EdgeInfo(
+                        kind="IMPORTS_FROM",
+                        source=file_path,
+                        target=target,
+                        file_path=file_path,
+                        line=line,
+                        extra={"markdown_import_kind": "link"},
+                    ))
+
+    @staticmethod
+    def _markdown_normalize_link_target(target: str) -> str:
+        target = target.strip()
+        if not target:
+            return ""
+        title_suffix = re.search(r"\s+(?:\"[^\"]*\"|'[^']*')\s*$", target)
+        if title_suffix:
+            target = target[: title_suffix.start()].rstrip()
+        if target.startswith("<") and target.endswith(">"):
+            target = target[1:-1].strip()
+        return target
+
+    @staticmethod
+    def _markdown_is_external_target(target: str) -> bool:
+        lowered = target.lower()
+        return lowered.startswith(("http://", "https://", "mailto:", "tel:"))
+
+    def _markdown_target(self, raw_target: str, source_file: Path) -> Optional[str]:
+        raw_target = raw_target.strip()
+        if not raw_target:
+            return None
+        if raw_target.startswith("#"):
+            slug = self._markdown_slugify(raw_target[1:].strip())
+            return f"{source_file.resolve(strict=False)}::{slug}" if slug else None
+        if raw_target.startswith("/"):
+            return None
+
+        path_part = raw_target
+        section_part: Optional[str] = None
+        if "#" in raw_target:
+            path_part, section_part = raw_target.split("#", 1)
+            section_part = section_part.strip()
+
+        resolved = (source_file.parent / path_part).resolve(strict=False)
+        target = str(resolved)
+        if section_part:
+            slug = self._markdown_slugify(section_part)
+            if not slug:
+                return target
+            return f"{target}::{slug}"
+        return target
+
+    @staticmethod
+    def _dedupe_markdown_edges(edges: list[EdgeInfo]) -> list[EdgeInfo]:
+        seen: set[tuple[str, str, str, int]] = set()
+        deduped: list[EdgeInfo] = []
+        for edge in edges:
+            key = (edge.kind, edge.source, edge.target, edge.line)
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(edge)
+        return deduped
 
     def _parse_notebook(
         self, path: Path, source: bytes,

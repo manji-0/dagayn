@@ -1,4 +1,4 @@
-"""Tests for Go, Rust, Java, C, C++, C#, Ruby, PHP, Kotlin, Swift, Solidity, and Vue parsing."""
+"""Tests for Go, Rust, Java, C, C++, C#, Ruby, PHP, Kotlin, Swift, Solidity, Vue, and Markdown parsing."""
 
 from pathlib import Path
 
@@ -781,6 +781,57 @@ class TestVueParsing:
     def test_finds_calls(self):
         calls = [e for e in self.edges if e.kind == "CALLS"]
         assert len(calls) >= 1
+
+
+class TestMarkdownParsing:
+    def setup_method(self):
+        self.parser = CodeParser()
+        self.nodes, self.edges = self.parser.parse_file(FIXTURES / "sample_markdown.md")
+
+    def test_detects_language(self):
+        assert self.parser.detect_language(Path("README.md")) == "markdown"
+        assert self.parser.detect_language(Path("design.markdown")) == "markdown"
+
+    def test_finds_section_nodes_with_unique_slugs(self):
+        sections = [n for n in self.nodes if n.kind == "Class"]
+        names = {s.name for s in sections}
+        assert "overview" in names
+        assert "usage" in names
+        assert "usage-1" in names
+
+        by_name = {s.name: s for s in sections}
+        assert by_name["overview"].extra["display_name"] == "Overview"
+        assert by_name["usage-1"].extra["heading_level"] == 2
+
+    def test_finds_nested_contains_edges(self):
+        contains = [e for e in self.edges if e.kind == "CONTAINS"]
+        pairs = {(e.source, e.target) for e in contains}
+        file_path = str(FIXTURES / "sample_markdown.md")
+        assert (file_path, f"{file_path}::overview") in pairs
+        assert (f"{file_path}::overview", f"{file_path}::usage") in pairs
+        assert (f"{file_path}::overview", f"{file_path}::usage-1") in pairs
+
+    def test_finds_directive_dependency_edges(self):
+        depends = [e for e in self.edges if e.kind == "DEPENDS_ON"]
+        by_kind = {e.extra.get("markdown_directive_kind"): e for e in depends}
+        dep_file = str((FIXTURES / "sample_markdown_dep.md").resolve())
+        src_file = str(FIXTURES / "sample_markdown.md")
+
+        assert by_kind["constrained-by"].source == f"{src_file}::overview"
+        assert by_kind["constrained-by"].target == f"{dep_file}::api-design"
+        assert by_kind["derived-from"].source == f"{src_file}::usage-1"
+        assert by_kind["derived-from"].target == f"{src_file}::usage"
+
+    def test_finds_imports_and_anchor_references(self):
+        imports = [e for e in self.edges if e.kind == "IMPORTS_FROM"]
+        references = [e for e in self.edges if e.kind == "REFERENCES"]
+        dep_file = str((FIXTURES / "sample_markdown_dep.md").resolve())
+        src_file = str(FIXTURES / "sample_markdown.md")
+
+        assert dep_file in {e.target for e in imports}
+        ref_targets = {e.target for e in references}
+        assert f"{dep_file}::api-design" in ref_targets
+        assert f"{src_file}::overview" in ref_targets
 
 
 class TestRParsing:

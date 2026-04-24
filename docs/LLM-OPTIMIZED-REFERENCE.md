@@ -49,8 +49,8 @@ Configure via CRG_EMBEDDING_MODEL env var or model parameter.
 </section>
 
 <section name="languages">
-Supported (19): Python, TypeScript/TSX, JavaScript, Vue, Go, Rust, Java, Scala, C#, Ruby, Kotlin, Swift, PHP, Solidity, C/C++, Dart, R, Perl, Lua
-Parser: Tree-sitter via tree-sitter-language-pack
+Supported (20): Python, TypeScript/TSX, JavaScript, Vue, Go, Rust, Java, Scala, C#, Ruby, Kotlin, Swift, PHP, Solidity, C/C++, Dart, R, Perl, Lua, Markdown
+Parser: Tree-sitter via tree-sitter-language-pack, plus vendored Markdown/Terraform grammars where needed
 </section>
 
 <section name="troubleshooting">
