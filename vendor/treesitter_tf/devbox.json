@@ -1,0 +1,14 @@
+{
+  "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/0.17.1/.schema/devbox.schema.json",
+  "packages": [
+    "tree-sitter@0.25.6",
+    "nodejs@22"
+  ],
+  "shell": {
+    "scripts": {
+      "generate": "tree-sitter generate",
+      "test": "tree-sitter test",
+      "parse": "tree-sitter parse"
+    }
+  }
+}

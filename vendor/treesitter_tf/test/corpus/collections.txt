@@ -1,0 +1,101 @@
+================================================================================
+empty list
+================================================================================
+
+locals {
+  x = []
+}
+
+--------------------------------------------------------------------------------
+
+(config_file
+  (locals_block
+    body: (block_body
+      (attribute
+        name: (identifier)
+        value: (expression
+          (collection_value
+            (tuple)))))))
+
+================================================================================
+list with elements
+================================================================================
+
+locals {
+  x = ["a", "b", "c"]
+}
+
+--------------------------------------------------------------------------------
+
+(config_file
+  (locals_block
+    body: (block_body
+      (attribute
+        name: (identifier)
+        value: (expression
+          (collection_value
+            (tuple
+              (expression
+                (template_expr
+                  (quoted_template)))
+              (expression
+                (template_expr
+                  (quoted_template)))
+              (expression
+                (template_expr
+                  (quoted_template))))))))))
+
+================================================================================
+empty object
+================================================================================
+
+locals {
+  x = {}
+}
+
+--------------------------------------------------------------------------------
+
+(config_file
+  (locals_block
+    body: (block_body
+      (attribute
+        name: (identifier)
+        value: (expression
+          (collection_value
+            (object)))))))
+
+================================================================================
+object with attributes
+================================================================================
+
+locals {
+  tags = {
+    Name = "web"
+    Env  = "prod"
+  }
+}
+
+--------------------------------------------------------------------------------
+
+(config_file
+  (locals_block
+    body: (block_body
+      (attribute
+        name: (identifier)
+        value: (expression
+          (collection_value
+            (object
+              (object_elem
+                key: (expression
+                  (variable_expr
+                    (identifier)))
+                value: (expression
+                  (template_expr
+                    (quoted_template))))
+              (object_elem
+                key: (expression
+                  (variable_expr
+                    (identifier)))
+                value: (expression
+                  (template_expr
+                    (quoted_template)))))))))))

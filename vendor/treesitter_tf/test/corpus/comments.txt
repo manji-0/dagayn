@@ -1,0 +1,73 @@
+================================================================================
+hash comment
+================================================================================
+
+# This is a comment
+resource "aws_instance" "web" {
+}
+
+--------------------------------------------------------------------------------
+
+(config_file
+  (comment)
+  (resource_block
+    type: (string_lit)
+    name: (string_lit)
+    body: (block_body)))
+
+================================================================================
+double slash comment
+================================================================================
+
+// This is a comment
+resource "aws_instance" "web" {
+}
+
+--------------------------------------------------------------------------------
+
+(config_file
+  (comment)
+  (resource_block
+    type: (string_lit)
+    name: (string_lit)
+    body: (block_body)))
+
+================================================================================
+block comment
+================================================================================
+
+/* This is a
+   multi-line comment */
+resource "aws_instance" "web" {
+}
+
+--------------------------------------------------------------------------------
+
+(config_file
+  (comment)
+  (resource_block
+    type: (string_lit)
+    name: (string_lit)
+    body: (block_body)))
+
+================================================================================
+inline comment after attribute
+================================================================================
+
+resource "aws_instance" "web" {
+  count = 1 # number of instances
+}
+
+--------------------------------------------------------------------------------
+
+(config_file
+  (resource_block
+    type: (string_lit)
+    name: (string_lit)
+    body: (block_body
+      (attribute
+        name: (identifier)
+        value: (expression
+          (literal_value
+            (numeric_lit)))
+        (comment)))))

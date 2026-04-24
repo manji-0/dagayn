@@ -1,0 +1,56 @@
+================================================================================
+simple conditional
+================================================================================
+
+locals {
+  x = a ? b : c
+}
+
+--------------------------------------------------------------------------------
+
+(config_file
+  (locals_block
+    body: (block_body
+      (attribute
+        name: (identifier)
+        value: (expression
+          (conditional
+            condition: (expression
+              (variable_expr
+                (identifier)))
+            true_val: (expression
+              (variable_expr
+                (identifier)))
+            false_val: (expression
+              (variable_expr
+                (identifier)))))))))
+
+================================================================================
+conditional with literals
+================================================================================
+
+locals {
+  env = var.prod ? "production" : "development"
+}
+
+--------------------------------------------------------------------------------
+
+(config_file
+  (locals_block
+    body: (block_body
+      (attribute
+        name: (identifier)
+        value: (expression
+          (conditional
+            condition: (expression
+              (expression
+                (variable_expr
+                  (identifier)))
+              (get_attr
+                name: (identifier)))
+            true_val: (expression
+              (template_expr
+                (quoted_template)))
+            false_val: (expression
+              (template_expr
+                (quoted_template)))))))))

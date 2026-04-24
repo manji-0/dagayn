@@ -1,0 +1,129 @@
+================================================================================
+for tuple expression
+================================================================================
+
+locals {
+  x = [for v in var.list : v]
+}
+
+--------------------------------------------------------------------------------
+
+(config_file
+  (locals_block
+    body: (block_body
+      (attribute
+        name: (identifier)
+        value: (expression
+          (for_expr
+            (for_tuple_expr
+              value: (identifier)
+              collection: (expression
+                (expression
+                  (variable_expr
+                    (identifier)))
+                (get_attr
+                  name: (identifier)))
+              (expression
+                (variable_expr
+                  (identifier))))))))))
+
+================================================================================
+for tuple with key and value
+================================================================================
+
+locals {
+  x = [for k, v in var.map : v]
+}
+
+--------------------------------------------------------------------------------
+
+(config_file
+  (locals_block
+    body: (block_body
+      (attribute
+        name: (identifier)
+        value: (expression
+          (for_expr
+            (for_tuple_expr
+              key: (identifier)
+              value: (identifier)
+              collection: (expression
+                (expression
+                  (variable_expr
+                    (identifier)))
+                (get_attr
+                  name: (identifier)))
+              (expression
+                (variable_expr
+                  (identifier))))))))))
+
+================================================================================
+for object expression
+================================================================================
+
+locals {
+  x = {for k, v in var.map : k => v}
+}
+
+--------------------------------------------------------------------------------
+
+(config_file
+  (locals_block
+    body: (block_body
+      (attribute
+        name: (identifier)
+        value: (expression
+          (for_expr
+            (for_object_expr
+              key: (identifier)
+              value: (identifier)
+              collection: (expression
+                (expression
+                  (variable_expr
+                    (identifier)))
+                (get_attr
+                  name: (identifier)))
+              key: (expression
+                (variable_expr
+                  (identifier)))
+              value: (expression
+                (variable_expr
+                  (identifier))))))))))
+
+================================================================================
+for expression with condition
+================================================================================
+
+locals {
+  x = [for v in var.list : v if v != null]
+}
+
+--------------------------------------------------------------------------------
+
+(config_file
+  (locals_block
+    body: (block_body
+      (attribute
+        name: (identifier)
+        value: (expression
+          (for_expr
+            (for_tuple_expr
+              value: (identifier)
+              collection: (expression
+                (expression
+                  (variable_expr
+                    (identifier)))
+                (get_attr
+                  name: (identifier)))
+              (expression
+                (variable_expr
+                  (identifier)))
+              (expression
+                (operation
+                  (binary_operation
+                    left: (expression
+                      (variable_expr
+                        (identifier)))
+                    right: (expression
+                      (literal_value
+                        (null_lit)))))))))))))

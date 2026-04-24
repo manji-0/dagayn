@@ -1,0 +1,127 @@
+================================================================================
+count meta-argument
+================================================================================
+
+resource "aws_instance" "web" {
+  count = 2
+  ami   = "ami-12345"
+}
+
+--------------------------------------------------------------------------------
+
+(config_file
+  (resource_block
+    type: (string_lit)
+    name: (string_lit)
+    body: (block_body
+      (attribute
+        name: (identifier)
+        value: (expression
+          (literal_value
+            (numeric_lit))))
+      (attribute
+        name: (identifier)
+        value: (expression
+          (template_expr
+            (quoted_template)))))))
+
+================================================================================
+for_each meta-argument
+================================================================================
+
+resource "aws_instance" "web" {
+  for_each = var.instances
+}
+
+--------------------------------------------------------------------------------
+
+(config_file
+  (resource_block
+    type: (string_lit)
+    name: (string_lit)
+    body: (block_body
+      (attribute
+        name: (identifier)
+        value: (expression
+          (expression
+            (variable_expr
+              (identifier)))
+          (get_attr
+            name: (identifier)))))))
+
+================================================================================
+depends_on meta-argument
+================================================================================
+
+resource "aws_instance" "web" {
+  depends_on = [aws_vpc.main, aws_subnet.primary]
+}
+
+--------------------------------------------------------------------------------
+
+(config_file
+  (resource_block
+    type: (string_lit)
+    name: (string_lit)
+    body: (block_body
+      (attribute
+        name: (identifier)
+        value: (expression
+          (collection_value
+            (tuple
+              (expression
+                (expression
+                  (variable_expr
+                    (identifier)))
+                (get_attr
+                  name: (identifier)))
+              (expression
+                (expression
+                  (variable_expr
+                    (identifier)))
+                (get_attr
+                  name: (identifier))))))))))
+
+================================================================================
+lifecycle block
+================================================================================
+
+resource "aws_instance" "web" {
+  lifecycle {
+    create_before_destroy = true
+    prevent_destroy       = false
+    ignore_changes        = [ami, tags]
+  }
+}
+
+--------------------------------------------------------------------------------
+
+(config_file
+  (resource_block
+    type: (string_lit)
+    name: (string_lit)
+    body: (block_body
+      (block
+        type: (identifier)
+        body: (block_body
+          (attribute
+            name: (identifier)
+            value: (expression
+              (literal_value
+                (bool_lit))))
+          (attribute
+            name: (identifier)
+            value: (expression
+              (literal_value
+                (bool_lit))))
+          (attribute
+            name: (identifier)
+            value: (expression
+              (collection_value
+                (tuple
+                  (expression
+                    (variable_expr
+                      (identifier)))
+                  (expression
+                    (variable_expr
+                      (identifier))))))))))))
