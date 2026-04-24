@@ -35,60 +35,110 @@ class TestWiki:
         # Auth cluster
         self.store.upsert_node(
             NodeInfo(
-                kind="File", name="auth.py", file_path="auth.py",
-                line_start=1, line_end=100, language="python",
-            ), file_hash="a1"
+                kind="File",
+                name="auth.py",
+                file_path="auth.py",
+                line_start=1,
+                line_end=100,
+                language="python",
+            ),
+            file_hash="a1",
         )
         self.store.upsert_node(
             NodeInfo(
-                kind="Function", name="login", file_path="auth.py",
-                line_start=5, line_end=20, language="python",
-            ), file_hash="a1"
+                kind="Function",
+                name="login",
+                file_path="auth.py",
+                line_start=5,
+                line_end=20,
+                language="python",
+            ),
+            file_hash="a1",
         )
         self.store.upsert_node(
             NodeInfo(
-                kind="Function", name="logout", file_path="auth.py",
-                line_start=25, line_end=40, language="python",
-            ), file_hash="a1"
+                kind="Function",
+                name="logout",
+                file_path="auth.py",
+                line_start=25,
+                line_end=40,
+                language="python",
+            ),
+            file_hash="a1",
         )
         self.store.upsert_node(
             NodeInfo(
-                kind="Function", name="check_token", file_path="auth.py",
-                line_start=45, line_end=60, language="python",
-            ), file_hash="a1"
+                kind="Function",
+                name="check_token",
+                file_path="auth.py",
+                line_start=45,
+                line_end=60,
+                language="python",
+            ),
+            file_hash="a1",
         )
-        self.store.upsert_edge(EdgeInfo(
-            kind="CALLS", source="auth.py::login",
-            target="auth.py::check_token", file_path="auth.py", line=10,
-        ))
-        self.store.upsert_edge(EdgeInfo(
-            kind="CALLS", source="auth.py::logout",
-            target="auth.py::check_token", file_path="auth.py", line=30,
-        ))
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CALLS",
+                source="auth.py::login",
+                target="auth.py::check_token",
+                file_path="auth.py",
+                line=10,
+            )
+        )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CALLS",
+                source="auth.py::logout",
+                target="auth.py::check_token",
+                file_path="auth.py",
+                line=30,
+            )
+        )
 
         # DB cluster
         self.store.upsert_node(
             NodeInfo(
-                kind="File", name="db.py", file_path="db.py",
-                line_start=1, line_end=100, language="python",
-            ), file_hash="b1"
+                kind="File",
+                name="db.py",
+                file_path="db.py",
+                line_start=1,
+                line_end=100,
+                language="python",
+            ),
+            file_hash="b1",
         )
         self.store.upsert_node(
             NodeInfo(
-                kind="Function", name="connect", file_path="db.py",
-                line_start=5, line_end=20, language="python",
-            ), file_hash="b1"
+                kind="Function",
+                name="connect",
+                file_path="db.py",
+                line_start=5,
+                line_end=20,
+                language="python",
+            ),
+            file_hash="b1",
         )
         self.store.upsert_node(
             NodeInfo(
-                kind="Function", name="query", file_path="db.py",
-                line_start=25, line_end=40, language="python",
-            ), file_hash="b1"
+                kind="Function",
+                name="query",
+                file_path="db.py",
+                line_start=25,
+                line_end=40,
+                language="python",
+            ),
+            file_hash="b1",
         )
-        self.store.upsert_edge(EdgeInfo(
-            kind="CALLS", source="db.py::query",
-            target="db.py::connect", file_path="db.py", line=30,
-        ))
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CALLS",
+                source="db.py::query",
+                target="db.py::connect",
+                file_path="db.py",
+                line=30,
+            )
+        )
         self.store.commit()
 
         communities = detect_communities(self.store, min_size=2)
@@ -147,6 +197,7 @@ class TestWiki:
         assert len(communities) > 0
 
         from code_review_graph.communities import get_communities
+
         stored = get_communities(self.store)
         assert len(stored) > 0
 
@@ -200,25 +251,40 @@ class TestWiki:
         #   "Data  Processing" -> data-processing
         colliding_communities = [
             {
-                "name": "Data Processing", "size": 5, "cohesion": 0.9,
-                "dominant_language": "python", "description": "first",
-                "members": [], "member_qns": set(),
+                "name": "Data Processing",
+                "size": 5,
+                "cohesion": 0.9,
+                "dominant_language": "python",
+                "description": "first",
+                "members": [],
+                "member_qns": set(),
             },
             {
-                "name": "data processing", "size": 4, "cohesion": 0.8,
-                "dominant_language": "python", "description": "second",
-                "members": [], "member_qns": set(),
+                "name": "data processing",
+                "size": 4,
+                "cohesion": 0.8,
+                "dominant_language": "python",
+                "description": "second",
+                "members": [],
+                "member_qns": set(),
             },
             {
-                "name": "Data  Processing", "size": 3, "cohesion": 0.7,
-                "dominant_language": "python", "description": "third",
-                "members": [], "member_qns": set(),
+                "name": "Data  Processing",
+                "size": 3,
+                "cohesion": 0.7,
+                "dominant_language": "python",
+                "description": "third",
+                "members": [],
+                "member_qns": set(),
             },
         ]
 
         import code_review_graph.wiki as wiki_mod
+
         monkeypatch.setattr(
-            wiki_mod, "get_communities", lambda store: colliding_communities,
+            wiki_mod,
+            "get_communities",
+            lambda store: colliding_communities,
         )
 
         result = generate_wiki(self.store, self.wiki_dir)
@@ -234,11 +300,7 @@ class TestWiki:
         assert set(wiki_files) == expected, wiki_files
 
         # Counter must match what actually hit the disk.
-        page_total = (
-            result["pages_generated"]
-            + result["pages_updated"]
-            + result["pages_unchanged"]
-        )
+        page_total = result["pages_generated"] + result["pages_updated"] + result["pages_unchanged"]
         assert page_total == len(wiki_files), (
             f"counter {result} but {len(wiki_files)} files on disk"
         )

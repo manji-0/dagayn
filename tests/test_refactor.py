@@ -36,34 +36,68 @@ class TestRenamePreview:
     def _seed(self):
         """Seed the store with test data for rename tests."""
         # File nodes
-        self.store.upsert_node(NodeInfo(
-            kind="File", name="/repo/utils.py", file_path="/repo/utils.py",
-            line_start=1, line_end=50, language="python",
-        ))
-        self.store.upsert_node(NodeInfo(
-            kind="File", name="/repo/main.py", file_path="/repo/main.py",
-            line_start=1, line_end=30, language="python",
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="File",
+                name="/repo/utils.py",
+                file_path="/repo/utils.py",
+                line_start=1,
+                line_end=50,
+                language="python",
+            )
+        )
+        self.store.upsert_node(
+            NodeInfo(
+                kind="File",
+                name="/repo/main.py",
+                file_path="/repo/main.py",
+                line_start=1,
+                line_end=30,
+                language="python",
+            )
+        )
         # Function to rename
-        self.store.upsert_node(NodeInfo(
-            kind="Function", name="helper", file_path="/repo/utils.py",
-            line_start=10, line_end=20, language="python",
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="helper",
+                file_path="/repo/utils.py",
+                line_start=10,
+                line_end=20,
+                language="python",
+            )
+        )
         # Caller function
-        self.store.upsert_node(NodeInfo(
-            kind="Function", name="run", file_path="/repo/main.py",
-            line_start=5, line_end=15, language="python",
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="run",
+                file_path="/repo/main.py",
+                line_start=5,
+                line_end=15,
+                language="python",
+            )
+        )
         # CALLS edge: run -> helper
-        self.store.upsert_edge(EdgeInfo(
-            kind="CALLS", source="/repo/main.py::run",
-            target="/repo/utils.py::helper", file_path="/repo/main.py", line=10,
-        ))
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CALLS",
+                source="/repo/main.py::run",
+                target="/repo/utils.py::helper",
+                file_path="/repo/main.py",
+                line=10,
+            )
+        )
         # IMPORTS_FROM edge: main.py imports helper
-        self.store.upsert_edge(EdgeInfo(
-            kind="IMPORTS_FROM", source="/repo/main.py",
-            target="/repo/utils.py::helper", file_path="/repo/main.py", line=1,
-        ))
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="IMPORTS_FROM",
+                source="/repo/main.py",
+                target="/repo/utils.py::helper",
+                file_path="/repo/main.py",
+                line=1,
+            )
+        )
         self.store.commit()
 
     def test_rename_preview_returns_edits_with_refactor_id(self):
@@ -89,7 +123,7 @@ class TestRenamePreview:
         assert len(edits) >= 3
         files = {e["file"] for e in edits}
         assert "/repo/utils.py" in files  # definition
-        assert "/repo/main.py" in files   # call site + import site
+        assert "/repo/main.py" in files  # call site + import site
 
     def test_rename_not_found(self):
         """rename_preview returns None if symbol not found."""
@@ -120,40 +154,82 @@ class TestFindDeadCode:
     def _seed(self):
         """Seed with a mix of used and unused functions."""
         # File
-        self.store.upsert_node(NodeInfo(
-            kind="File", name="/repo/app.py", file_path="/repo/app.py",
-            line_start=1, line_end=100, language="python",
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="File",
+                name="/repo/app.py",
+                file_path="/repo/app.py",
+                line_start=1,
+                line_end=100,
+                language="python",
+            )
+        )
         # A function that IS called
-        self.store.upsert_node(NodeInfo(
-            kind="Function", name="used_func", file_path="/repo/app.py",
-            line_start=10, line_end=20, language="python",
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="used_func",
+                file_path="/repo/app.py",
+                line_start=10,
+                line_end=20,
+                language="python",
+            )
+        )
         # A function that is NOT called (dead code)
-        self.store.upsert_node(NodeInfo(
-            kind="Function", name="dead_func", file_path="/repo/app.py",
-            line_start=30, line_end=40, language="python",
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="dead_func",
+                file_path="/repo/app.py",
+                line_start=30,
+                line_end=40,
+                language="python",
+            )
+        )
         # An entry point function (should be excluded)
-        self.store.upsert_node(NodeInfo(
-            kind="Function", name="main", file_path="/repo/app.py",
-            line_start=50, line_end=60, language="python",
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="main",
+                file_path="/repo/app.py",
+                line_start=50,
+                line_end=60,
+                language="python",
+            )
+        )
         # A test function (should be excluded)
-        self.store.upsert_node(NodeInfo(
-            kind="Test", name="test_something", file_path="/repo/test_app.py",
-            line_start=1, line_end=10, language="python", is_test=True,
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Test",
+                name="test_something",
+                file_path="/repo/test_app.py",
+                line_start=1,
+                line_end=10,
+                language="python",
+                is_test=True,
+            )
+        )
 
         # Caller for used_func
-        self.store.upsert_node(NodeInfo(
-            kind="Function", name="caller", file_path="/repo/app.py",
-            line_start=70, line_end=80, language="python",
-        ))
-        self.store.upsert_edge(EdgeInfo(
-            kind="CALLS", source="/repo/app.py::caller",
-            target="/repo/app.py::used_func", file_path="/repo/app.py", line=75,
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="caller",
+                file_path="/repo/app.py",
+                line_start=70,
+                line_end=80,
+                language="python",
+            )
+        )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CALLS",
+                source="/repo/app.py::caller",
+                target="/repo/app.py::used_func",
+                file_path="/repo/app.py",
+                line=75,
+            )
+        )
         self.store.commit()
 
     def test_find_dead_code(self):
@@ -193,11 +269,17 @@ class TestFindDeadCode:
 
     def test_find_dead_code_excludes_dunder(self):
         """Dunder methods are not flagged as dead code."""
-        self.store.upsert_node(NodeInfo(
-            kind="Function", name="__init__", file_path="/repo/app.py",
-            line_start=90, line_end=95, language="python",
-            parent_name="MyClass",
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="__init__",
+                file_path="/repo/app.py",
+                line_start=90,
+                line_end=95,
+                language="python",
+                parent_name="MyClass",
+            )
+        )
         self.store.commit()
         dead = find_dead_code(self.store)
         dead_names = {d["name"] for d in dead}
@@ -205,11 +287,17 @@ class TestFindDeadCode:
 
     def test_find_dead_code_excludes_constructor(self):
         """JS/TS constructors are not flagged as dead code."""
-        self.store.upsert_node(NodeInfo(
-            kind="Function", name="constructor", file_path="/repo/component.ts",
-            line_start=10, line_end=15, language="typescript",
-            parent_name="MyComponent",
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="constructor",
+                file_path="/repo/component.ts",
+                line_start=10,
+                line_end=15,
+                language="typescript",
+                parent_name="MyComponent",
+            )
+        )
         self.store.commit()
         dead = find_dead_code(self.store)
         dead_names = {d["name"] for d in dead}
@@ -217,27 +305,51 @@ class TestFindDeadCode:
 
     def test_find_dead_code_excludes_angular_lifecycle(self):
         """Angular lifecycle hooks are not flagged as dead code."""
-        for name in ("ngOnInit", "ngOnChanges", "ngOnDestroy", "transform",
-                     "writeValue", "canActivate"):
-            self.store.upsert_node(NodeInfo(
-                kind="Function", name=name, file_path="/repo/component.ts",
-                line_start=10, line_end=15, language="typescript",
-                parent_name="MyComponent",
-            ))
+        for name in (
+            "ngOnInit",
+            "ngOnChanges",
+            "ngOnDestroy",
+            "transform",
+            "writeValue",
+            "canActivate",
+        ):
+            self.store.upsert_node(
+                NodeInfo(
+                    kind="Function",
+                    name=name,
+                    file_path="/repo/component.ts",
+                    line_start=10,
+                    line_end=15,
+                    language="typescript",
+                    parent_name="MyComponent",
+                )
+            )
         self.store.commit()
         dead = find_dead_code(self.store)
         dead_names = {d["name"] for d in dead}
-        for name in ("ngOnInit", "ngOnChanges", "ngOnDestroy", "transform",
-                     "writeValue", "canActivate"):
+        for name in (
+            "ngOnInit",
+            "ngOnChanges",
+            "ngOnDestroy",
+            "transform",
+            "writeValue",
+            "canActivate",
+        ):
             assert name not in dead_names, f"{name} should not be dead"
 
     def test_find_dead_code_excludes_decorated_entry(self):
         """Functions with framework decorators are not flagged as dead code."""
-        self.store.upsert_node(NodeInfo(
-            kind="Function", name="get_users", file_path="/repo/app.py",
-            line_start=90, line_end=95, language="python",
-            extra={"decorators": ["app.get('/users')"]},
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="get_users",
+                file_path="/repo/app.py",
+                line_start=90,
+                line_end=95,
+                language="python",
+                extra={"decorators": ["app.get('/users')"]},
+            )
+        )
         self.store.commit()
         dead = find_dead_code(self.store)
         dead_names = {d["name"] for d in dead}
@@ -245,16 +357,28 @@ class TestFindDeadCode:
 
     def test_find_dead_code_excludes_type_referenced_class(self):
         """Classes referenced in function type annotations are not dead code."""
-        self.store.upsert_node(NodeInfo(
-            kind="Class", name="UserSchema", file_path="/repo/app.py",
-            line_start=5, line_end=15, language="python",
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Class",
+                name="UserSchema",
+                file_path="/repo/app.py",
+                line_start=5,
+                line_end=15,
+                language="python",
+            )
+        )
         # A function that uses UserSchema in its params
-        self.store.upsert_node(NodeInfo(
-            kind="Function", name="create_user", file_path="/repo/app.py",
-            line_start=20, line_end=30, language="python",
-            params="body: UserSchema",
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="create_user",
+                file_path="/repo/app.py",
+                line_start=20,
+                line_end=30,
+                language="python",
+                params="body: UserSchema",
+            )
+        )
         self.store.commit()
         dead = find_dead_code(self.store)
         dead_names = {d["name"] for d in dead}
@@ -262,15 +386,27 @@ class TestFindDeadCode:
 
     def test_find_dead_code_excludes_return_type_reference(self):
         """Classes referenced in return types are not dead code."""
-        self.store.upsert_node(NodeInfo(
-            kind="Class", name="UserResponse", file_path="/repo/app.py",
-            line_start=5, line_end=15, language="python",
-        ))
-        self.store.upsert_node(NodeInfo(
-            kind="Function", name="get_user", file_path="/repo/app.py",
-            line_start=20, line_end=30, language="python",
-            return_type="Optional[UserResponse]",
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Class",
+                name="UserResponse",
+                file_path="/repo/app.py",
+                line_start=5,
+                line_end=15,
+                language="python",
+            )
+        )
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="get_user",
+                file_path="/repo/app.py",
+                line_start=20,
+                line_end=30,
+                language="python",
+                return_type="Optional[UserResponse]",
+            )
+        )
         self.store.commit()
         dead = find_dead_code(self.store)
         dead_names = {d["name"] for d in dead}
@@ -278,14 +414,25 @@ class TestFindDeadCode:
 
     def test_find_dead_code_excludes_orm_model(self):
         """Classes inheriting from known ORM bases are not dead code."""
-        self.store.upsert_node(NodeInfo(
-            kind="Class", name="User", file_path="/repo/app.py",
-            line_start=5, line_end=20, language="python",
-        ))
-        self.store.upsert_edge(EdgeInfo(
-            kind="INHERITS", source="/repo/app.py::User",
-            target="Base", file_path="/repo/app.py", line=5,
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Class",
+                name="User",
+                file_path="/repo/app.py",
+                line_start=5,
+                line_end=20,
+                language="python",
+            )
+        )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="INHERITS",
+                source="/repo/app.py::User",
+                target="Base",
+                file_path="/repo/app.py",
+                line=5,
+            )
+        )
         self.store.commit()
         dead = find_dead_code(self.store)
         dead_names = {d["name"] for d in dead}
@@ -293,14 +440,25 @@ class TestFindDeadCode:
 
     def test_find_dead_code_excludes_pydantic_settings(self):
         """Classes inheriting from BaseSettings are not dead code."""
-        self.store.upsert_node(NodeInfo(
-            kind="Class", name="AppConfig", file_path="/repo/app.py",
-            line_start=5, line_end=15, language="python",
-        ))
-        self.store.upsert_edge(EdgeInfo(
-            kind="INHERITS", source="/repo/app.py::AppConfig",
-            target="BaseSettings", file_path="/repo/app.py", line=5,
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Class",
+                name="AppConfig",
+                file_path="/repo/app.py",
+                line_start=5,
+                line_end=15,
+                language="python",
+            )
+        )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="INHERITS",
+                source="/repo/app.py::AppConfig",
+                target="BaseSettings",
+                file_path="/repo/app.py",
+                line=5,
+            )
+        )
         self.store.commit()
         dead = find_dead_code(self.store)
         dead_names = {d["name"] for d in dead}
@@ -308,11 +466,17 @@ class TestFindDeadCode:
 
     def test_find_dead_code_excludes_agent_tool(self):
         """Functions with @agent.tool decorator are not dead code."""
-        self.store.upsert_node(NodeInfo(
-            kind="Function", name="query_data", file_path="/repo/app.py",
-            line_start=10, line_end=20, language="python",
-            extra={"decorators": ["health_agent.tool"]},
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="query_data",
+                file_path="/repo/app.py",
+                line_start=10,
+                line_end=20,
+                language="python",
+                extra={"decorators": ["health_agent.tool"]},
+            )
+        )
         self.store.commit()
         dead = find_dead_code(self.store)
         dead_names = {d["name"] for d in dead}
@@ -320,14 +484,26 @@ class TestFindDeadCode:
 
     def test_find_dead_code_excludes_alembic_upgrade(self):
         """upgrade() and downgrade() in alembic files are not dead code."""
-        self.store.upsert_node(NodeInfo(
-            kind="Function", name="upgrade", file_path="/repo/alembic/versions/001.py",
-            line_start=5, line_end=15, language="python",
-        ))
-        self.store.upsert_node(NodeInfo(
-            kind="Function", name="downgrade", file_path="/repo/alembic/versions/001.py",
-            line_start=20, line_end=30, language="python",
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="upgrade",
+                file_path="/repo/alembic/versions/001.py",
+                line_start=5,
+                line_end=15,
+                language="python",
+            )
+        )
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="downgrade",
+                file_path="/repo/alembic/versions/001.py",
+                line_start=20,
+                line_end=30,
+                language="python",
+            )
+        )
         self.store.commit()
         dead = find_dead_code(self.store)
         dead_names = {d["name"] for d in dead}
@@ -336,15 +512,26 @@ class TestFindDeadCode:
 
     def test_find_dead_code_excludes_subclassed_class(self):
         """Classes with subclasses (INHERITS edges) are not dead code."""
-        self.store.upsert_node(NodeInfo(
-            kind="Class", name="BaseConnector", file_path="/repo/connectors.py",
-            line_start=5, line_end=50, language="python",
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Class",
+                name="BaseConnector",
+                file_path="/repo/connectors.py",
+                line_start=5,
+                line_end=50,
+                language="python",
+            )
+        )
         # A subclass inherits from BaseConnector (bare-name target)
-        self.store.upsert_edge(EdgeInfo(
-            kind="INHERITS", source="/repo/connectors.py::GarminConnector",
-            target="BaseConnector", file_path="/repo/connectors.py", line=60,
-        ))
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="INHERITS",
+                source="/repo/connectors.py::GarminConnector",
+                target="BaseConnector",
+                file_path="/repo/connectors.py",
+                line=60,
+            )
+        )
         self.store.commit()
         dead = find_dead_code(self.store)
         dead_names = {d["name"] for d in dead}
@@ -354,23 +541,45 @@ class TestFindDeadCode:
         """Bare-name CALLS from unrelated files don't save a dead function
         when there are multiple definitions with the same name."""
         # Two unrelated functions named "processor" in different files
-        self.store.upsert_node(NodeInfo(
-            kind="Function", name="processor", file_path="/repo/api/routes.py",
-            line_start=10, line_end=20, language="python",
-        ))
-        self.store.upsert_node(NodeInfo(
-            kind="Function", name="processor", file_path="/repo/worker/tasks.py",
-            line_start=10, line_end=20, language="python",
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="processor",
+                file_path="/repo/api/routes.py",
+                line_start=10,
+                line_end=20,
+                language="python",
+            )
+        )
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="processor",
+                file_path="/repo/worker/tasks.py",
+                line_start=10,
+                line_end=20,
+                language="python",
+            )
+        )
         # A bare CALLS edge from a third file that imports only routes.py
-        self.store.upsert_edge(EdgeInfo(
-            kind="IMPORTS_FROM", source="/repo/main.py",
-            target="/repo/api/routes.py", file_path="/repo/main.py", line=1,
-        ))
-        self.store.upsert_edge(EdgeInfo(
-            kind="CALLS", source="/repo/main.py::start",
-            target="processor", file_path="/repo/main.py", line=10,
-        ))
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="IMPORTS_FROM",
+                source="/repo/main.py",
+                target="/repo/api/routes.py",
+                file_path="/repo/main.py",
+                line=1,
+            )
+        )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CALLS",
+                source="/repo/main.py::start",
+                target="processor",
+                file_path="/repo/main.py",
+                line=10,
+            )
+        )
         self.store.commit()
         dead = find_dead_code(self.store)
         dead_qnames = {d["qualified_name"] for d in dead}
@@ -382,10 +591,16 @@ class TestFindDeadCode:
     def test_find_dead_code_excludes_mock_variables(self):
         """Mock/stub variables in test files are not flagged as dead code."""
         for name in ("mockDynamoClient", "s3ClientMock", "MockService", "createMockRequest"):
-            self.store.upsert_node(NodeInfo(
-                kind="Function", name=name, file_path="/repo/tests/handler.spec.ts",
-                line_start=10, line_end=15, language="typescript",
-            ))
+            self.store.upsert_node(
+                NodeInfo(
+                    kind="Function",
+                    name=name,
+                    file_path="/repo/tests/handler.spec.ts",
+                    line_start=10,
+                    line_end=15,
+                    language="typescript",
+                )
+            )
         self.store.commit()
         dead = find_dead_code(self.store)
         dead_names = {d["name"] for d in dead}
@@ -394,12 +609,17 @@ class TestFindDeadCode:
 
     def test_find_dead_code_excludes_angular_decorated_class(self):
         """Angular @Component classes are not flagged as dead code."""
-        self.store.upsert_node(NodeInfo(
-            kind="Class", name="ClipboardButtonComponent",
-            file_path="/repo/src/app/clipboard.component.ts",
-            line_start=5, line_end=50, language="typescript",
-            extra={"decorators": ["Component({selector: 'app-clipboard'})"]},
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Class",
+                name="ClipboardButtonComponent",
+                file_path="/repo/src/app/clipboard.component.ts",
+                line_start=5,
+                line_end=50,
+                language="typescript",
+                extra={"decorators": ["Component({selector: 'app-clipboard'})"]},
+            )
+        )
         self.store.commit()
         dead = find_dead_code(self.store)
         dead_names = {d["name"] for d in dead}
@@ -407,11 +627,17 @@ class TestFindDeadCode:
 
     def test_find_dead_code_excludes_property(self):
         """Functions decorated with @property are not dead code."""
-        self.store.upsert_node(NodeInfo(
-            kind="Function", name="db", file_path="/repo/deps.py",
-            line_start=10, line_end=15, language="python",
-            extra={"decorators": ["property"]},
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="db",
+                file_path="/repo/deps.py",
+                line_start=10,
+                line_end=15,
+                language="python",
+                extra={"decorators": ["property"]},
+            )
+        )
         self.store.commit()
         dead = find_dead_code(self.store)
         dead_names = {d["name"] for d in dead}
@@ -432,15 +658,27 @@ class TestSuggestRefactorings:
 
     def _seed(self):
         """Seed with dead code to generate suggestions."""
-        self.store.upsert_node(NodeInfo(
-            kind="File", name="/repo/lib.py", file_path="/repo/lib.py",
-            line_start=1, line_end=50, language="python",
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="File",
+                name="/repo/lib.py",
+                file_path="/repo/lib.py",
+                line_start=1,
+                line_end=50,
+                language="python",
+            )
+        )
         # Unreferenced function -> removal suggestion
-        self.store.upsert_node(NodeInfo(
-            kind="Function", name="orphan_func", file_path="/repo/lib.py",
-            line_start=10, line_end=20, language="python",
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="orphan_func",
+                file_path="/repo/lib.py",
+                line_start=10,
+                line_end=20,
+                language="python",
+            )
+        )
         self.store.commit()
 
     def test_suggest_refactorings(self):
@@ -523,13 +761,15 @@ class TestApplyRefactor:
                     "type": "rename",
                     "old_name": "old",
                     "new_name": "new",
-                    "edits": [{
-                        "file": "/etc/passwd",
-                        "line": 1,
-                        "old": "old",
-                        "new": "new",
-                        "confidence": "high",
-                    }],
+                    "edits": [
+                        {
+                            "file": "/etc/passwd",
+                            "line": 1,
+                            "old": "old",
+                            "new": "new",
+                            "confidence": "high",
+                        }
+                    ],
                     "stats": {"high": 1, "medium": 0, "low": 0},
                     "created_at": time.time(),
                 }
@@ -554,13 +794,15 @@ class TestApplyRefactor:
                     "type": "rename",
                     "old_name": "old_func",
                     "new_name": "new_func",
-                    "edits": [{
-                        "file": str(target_file),
-                        "line": 1,
-                        "old": "old_func",
-                        "new": "new_func",
-                        "confidence": "high",
-                    }],
+                    "edits": [
+                        {
+                            "file": str(target_file),
+                            "line": 1,
+                            "old": "old_func",
+                            "new": "new_func",
+                            "confidence": "high",
+                        }
+                    ],
                     "stats": {"high": 1, "medium": 0, "low": 0},
                     "created_at": time.time(),
                 }
@@ -593,13 +835,15 @@ class TestApplyRefactor:
                     "type": "rename",
                     "old_name": "old_func",
                     "new_name": "new_func",
-                    "edits": [{
-                        "file": str(target_file),
-                        "line": 1,
-                        "old": "old_func",
-                        "new": "new_func",
-                        "confidence": "high",
-                    }],
+                    "edits": [
+                        {
+                            "file": str(target_file),
+                            "line": 1,
+                            "old": "old_func",
+                            "new": "new_func",
+                            "confidence": "high",
+                        }
+                    ],
                     "stats": {"high": 1, "medium": 0, "low": 0},
                     "created_at": time.time(),
                 }
@@ -717,42 +961,80 @@ class TestFindDeadCodeWithReferences:
     def _seed(self):
         """Seed with functions that have REFERENCES edges (map dispatch pattern)."""
         # File
-        self.store.upsert_node(NodeInfo(
-            kind="File", name="/repo/handlers.ts", file_path="/repo/handlers.ts",
-            line_start=1, line_end=100, language="typescript",
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="File",
+                name="/repo/handlers.ts",
+                file_path="/repo/handlers.ts",
+                line_start=1,
+                line_end=100,
+                language="typescript",
+            )
+        )
         # A function referenced in a map (should NOT be dead)
-        self.store.upsert_node(NodeInfo(
-            kind="Function", name="handleCreate", file_path="/repo/handlers.ts",
-            line_start=10, line_end=20, language="typescript",
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="handleCreate",
+                file_path="/repo/handlers.ts",
+                line_start=10,
+                line_end=20,
+                language="typescript",
+            )
+        )
         # A function with CALLS edge (should NOT be dead)
-        self.store.upsert_node(NodeInfo(
-            kind="Function", name="calledFunc", file_path="/repo/handlers.ts",
-            line_start=30, line_end=40, language="typescript",
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="calledFunc",
+                file_path="/repo/handlers.ts",
+                line_start=30,
+                line_end=40,
+                language="typescript",
+            )
+        )
         # A truly dead function (no edges at all)
-        self.store.upsert_node(NodeInfo(
-            kind="Function", name="deadFunc", file_path="/repo/handlers.ts",
-            line_start=50, line_end=60, language="typescript",
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="deadFunc",
+                file_path="/repo/handlers.ts",
+                line_start=50,
+                line_end=60,
+                language="typescript",
+            )
+        )
         # Caller
-        self.store.upsert_node(NodeInfo(
-            kind="Function", name="dispatch", file_path="/repo/handlers.ts",
-            line_start=70, line_end=80, language="typescript",
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="dispatch",
+                file_path="/repo/handlers.ts",
+                line_start=70,
+                line_end=80,
+                language="typescript",
+            )
+        )
         # REFERENCES edge: dispatch -> handleCreate (map dispatch pattern)
-        self.store.upsert_edge(EdgeInfo(
-            kind="REFERENCES", source="/repo/handlers.ts::dispatch",
-            target="/repo/handlers.ts::handleCreate",
-            file_path="/repo/handlers.ts", line=75,
-        ))
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="REFERENCES",
+                source="/repo/handlers.ts::dispatch",
+                target="/repo/handlers.ts::handleCreate",
+                file_path="/repo/handlers.ts",
+                line=75,
+            )
+        )
         # CALLS edge: dispatch -> calledFunc
-        self.store.upsert_edge(EdgeInfo(
-            kind="CALLS", source="/repo/handlers.ts::dispatch",
-            target="/repo/handlers.ts::calledFunc",
-            file_path="/repo/handlers.ts", line=76,
-        ))
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CALLS",
+                source="/repo/handlers.ts::dispatch",
+                target="/repo/handlers.ts::calledFunc",
+                file_path="/repo/handlers.ts",
+                line=76,
+            )
+        )
         self.store.commit()
 
     def test_referenced_function_not_dead(self):
@@ -787,34 +1069,60 @@ class TestTransitiveImportResolution:
     def setup_method(self):
         self.store = GraphStore(":memory:")
         for f in ("/repo/consumer.ts", "/repo/lib/index.ts", "/repo/lib/utils.ts"):
-            self.store.upsert_node(NodeInfo(
-                kind="File", name=f, file_path=f,
-                line_start=1, line_end=50, language="typescript",
-            ))
+            self.store.upsert_node(
+                NodeInfo(
+                    kind="File",
+                    name=f,
+                    file_path=f,
+                    line_start=1,
+                    line_end=50,
+                    language="typescript",
+                )
+            )
 
     def test_transitive_import_via_barrel_file(self):
         """consumer.ts imports index.ts which re-exports from utils.ts.
         A bare-name CALLS from consumer.ts should be plausible for utils.ts functions."""
         # Function defined in utils.ts
-        self.store.upsert_node(NodeInfo(
-            kind="Function", name="safeJsonParse",
-            file_path="/repo/lib/utils.ts",
-            line_start=10, line_end=20, language="typescript",
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="safeJsonParse",
+                file_path="/repo/lib/utils.ts",
+                line_start=10,
+                line_end=20,
+                language="typescript",
+            )
+        )
         # Import chain: consumer -> index -> utils
-        self.store.upsert_edge(EdgeInfo(
-            kind="IMPORTS_FROM", source="/repo/consumer.ts",
-            target="/repo/lib/index.ts", file_path="/repo/consumer.ts", line=1,
-        ))
-        self.store.upsert_edge(EdgeInfo(
-            kind="IMPORTS_FROM", source="/repo/lib/index.ts",
-            target="/repo/lib/utils.ts", file_path="/repo/lib/index.ts", line=1,
-        ))
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="IMPORTS_FROM",
+                source="/repo/consumer.ts",
+                target="/repo/lib/index.ts",
+                file_path="/repo/consumer.ts",
+                line=1,
+            )
+        )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="IMPORTS_FROM",
+                source="/repo/lib/index.ts",
+                target="/repo/lib/utils.ts",
+                file_path="/repo/lib/index.ts",
+                line=1,
+            )
+        )
         # Bare-name CALLS from consumer
-        self.store.upsert_edge(EdgeInfo(
-            kind="CALLS", source="/repo/consumer.ts::processData",
-            target="safeJsonParse", file_path="/repo/consumer.ts", line=5,
-        ))
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CALLS",
+                source="/repo/consumer.ts::processData",
+                target="safeJsonParse",
+                file_path="/repo/consumer.ts",
+                line=5,
+            )
+        )
         self.store.commit()
         dead = find_dead_code(self.store)
         dead_names = {d["name"] for d in dead}
@@ -854,12 +1162,7 @@ class TestFindDeadCodeModuleScope:
         # ``run_job`` has no non-dunder name match and no framework decorator,
         # so without the module-scope CALLS fix it would be flagged dead.
         path = tmp_path / "script.py"
-        path.write_bytes(
-            b"def run_job():\n"
-            b"    return 1\n"
-            b"\n"
-            b"run_job()\n"
-        )
+        path.write_bytes(b"def run_job():\n    return 1\n\nrun_job()\n")
         self._store_parsed(path, path.read_bytes())
 
         dead = find_dead_code(self.store)
@@ -872,11 +1175,7 @@ class TestFindDeadCodeModuleScope:
         """A function called only inside ``if __name__ == '__main__'`` is not dead."""
         path = tmp_path / "cli.py"
         path.write_bytes(
-            b"def launch():\n"
-            b"    return 1\n"
-            b"\n"
-            b"if __name__ == '__main__':\n"
-            b"    launch()\n"
+            b"def launch():\n    return 1\n\nif __name__ == '__main__':\n    launch()\n"
         )
         self._store_parsed(path, path.read_bytes())
 

@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from ..changes import analyze_changes, parse_diff_ranges, parse_git_diff_ranges
+from ..changes import analyze_changes, parse_diff_ranges, parse_git_diff_ranges  # noqa: F401
 from ..flows import get_affected_flows as _get_affected_flows
 from ..graph import edge_to_dict, node_to_dict
 from ..hints import generate_hints, get_session
@@ -77,22 +77,16 @@ def get_review_context(
             else:
                 risk = "low"
 
-            key_entities = [
-                n.name for n in impact["changed_nodes"][:5]
-            ]
+            key_entities = [n.name for n in impact["changed_nodes"][:5]]
 
             # Count test gaps among changed functions.
             changed_funcs = [
-                n for n in impact["changed_nodes"]
-                if n.kind == "Function" and not n.is_test
+                n for n in impact["changed_nodes"] if n.kind == "Function" and not n.is_test
             ]
-            test_edges = [
-                e for e in impact["edges"] if e.kind == "TESTED_BY"
-            ]
+            test_edges = [e for e in impact["edges"] if e.kind == "TESTED_BY"]
             tested_qualified = {e.source_qualified for e in test_edges}
             test_gap_count = sum(
-                1 for f in changed_funcs
-                if f.qualified_name not in tested_qualified
+                1 for f in changed_funcs if f.qualified_name not in tested_qualified
             )
 
             summary_parts = [
@@ -122,12 +116,8 @@ def get_review_context(
             "changed_files": changed_files,
             "impacted_files": impact["impacted_files"],
             "graph": {
-                "changed_nodes": [
-                    node_to_dict(n) for n in impact["changed_nodes"]
-                ],
-                "impacted_nodes": [
-                    node_to_dict(n) for n in impact["impacted_nodes"]
-                ],
+                "changed_nodes": [node_to_dict(n) for n in impact["changed_nodes"]],
+                "impacted_nodes": [node_to_dict(n) for n in impact["impacted_nodes"]],
                 "edges": [edge_to_dict(e) for e in impact["edges"]],
             },
         }
@@ -139,21 +129,18 @@ def get_review_context(
                 full_path = root / rel_path
                 if full_path.is_file():
                     try:
-                        lines = full_path.read_text(
-                            errors="replace"
-                        ).splitlines()
+                        lines = full_path.read_text(errors="replace").splitlines()
                         if len(lines) > max_lines_per_file:
                             # Include only the relevant functions/classes
                             relevant_lines = _extract_relevant_lines(
                                 lines,
                                 impact["changed_nodes"],
-                                str(full_path),
+                                rel_path,
                             )
                             snippets[rel_path] = relevant_lines
                         else:
                             snippets[rel_path] = "\n".join(
-                                f"{i+1}: {line}"
-                                for i, line in enumerate(lines)
+                                f"{i + 1}: {line}" for i, line in enumerate(lines)
                             )
                     except (OSError, UnicodeDecodeError):
                         snippets[rel_path] = "(could not read file)"
@@ -182,9 +169,7 @@ def get_review_context(
         store.close()
 
 
-def _extract_relevant_lines(
-    lines: list[str], nodes: list, file_path: str
-) -> str:
+def _extract_relevant_lines(lines: list[str], nodes: list, file_path: str) -> str:
     """Extract only the lines relevant to changed nodes."""
     ranges = []
     for n in nodes:
@@ -195,9 +180,7 @@ def _extract_relevant_lines(
 
     if not ranges:
         # Show first N lines as fallback
-        return "\n".join(
-            f"{i+1}: {line}" for i, line in enumerate(lines[:50])
-        )
+        return "\n".join(f"{i + 1}: {line}" for i, line in enumerate(lines[:50]))
 
     # Merge overlapping ranges
     ranges.sort()
@@ -213,28 +196,21 @@ def _extract_relevant_lines(
         if parts:
             parts.append("...")
         for i in range(start, end):
-            parts.append(f"{i+1}: {lines[i]}")
+            parts.append(f"{i + 1}: {lines[i]}")
 
     return "\n".join(parts)
 
 
-def _generate_review_guidance(
-    impact: dict, changed_files: list[str]
-) -> str:
+def _generate_review_guidance(impact: dict, changed_files: list[str]) -> str:
     """Generate review guidance based on the impact analysis."""
     guidance_parts = []
 
     # Check for test coverage
-    changed_funcs = [
-        n for n in impact["changed_nodes"] if n.kind == "Function"
-    ]
+    changed_funcs = [n for n in impact["changed_nodes"] if n.kind == "Function"]
     test_edges = [e for e in impact["edges"] if e.kind == "TESTED_BY"]
     tested_funcs = {e.source_qualified for e in test_edges}
 
-    untested = [
-        f for f in changed_funcs
-        if f.qualified_name not in tested_funcs and not f.is_test
-    ]
+    untested = [f for f in changed_funcs if f.qualified_name not in tested_funcs and not f.is_test]
     if untested:
         guidance_parts.append(
             f"- {len(untested)} changed function(s) lack test coverage: "
@@ -250,10 +226,7 @@ def _generate_review_guidance(
         )
 
     # Check for inheritance changes
-    inheritance_edges = [
-        e for e in impact["edges"]
-        if e.kind in ("INHERITS", "IMPLEMENTS")
-    ]
+    inheritance_edges = [e for e in impact["edges"] if e.kind in ("INHERITS", "IMPLEMENTS")]
     if inheritance_edges:
         guidance_parts.append(
             f"- {len(inheritance_edges)} inheritance/implementation "
@@ -270,9 +243,7 @@ def _generate_review_guidance(
         )
 
     if not guidance_parts:
-        guidance_parts.append(
-            "- Changes appear well-contained with minimal blast radius."
-        )
+        guidance_parts.append("- Changes appear well-contained with minimal blast radius.")
 
     return "\n".join(guidance_parts)
 
@@ -324,17 +295,12 @@ def get_affected_flows_func(
         total = result["total"]
         out = {
             "status": "ok",
-            "summary": (
-                f"{total} flow(s) affected by changes "
-                f"in {len(changed_files)} file(s)"
-            ),
+            "summary": (f"{total} flow(s) affected by changes in {len(changed_files)} file(s)"),
             "changed_files": changed_files,
             "affected_flows": result["affected_flows"],
             "total": total,
         }
-        out["_hints"] = generate_hints(
-            "get_affected_flows", out, get_session()
-        )
+        out["_hints"] = generate_hints("get_affected_flows", out, get_session())
         return out
     except Exception as exc:
         return {"status": "error", "error": str(exc)}
@@ -424,26 +390,22 @@ def detect_changes_func(
                 le = func.get("line_end")
                 if fp and ls and le:
                     file_path = Path(fp)
+                    if not file_path.is_absolute():
+                        file_path = root / file_path
                     if file_path.is_file():
                         try:
-                            lines = file_path.read_text(
-                                errors="replace"
-                            ).splitlines()
+                            lines = file_path.read_text(errors="replace").splitlines()
                             start = max(0, ls - 1)
                             end = min(len(lines), le)
                             func["source"] = "\n".join(
-                                f"{i + 1}: {lines[i]}"
-                                for i in range(start, end)
+                                f"{i + 1}: {lines[i]}" for i in range(start, end)
                             )
                         except (OSError, UnicodeDecodeError):
                             func["source"] = "(could not read file)"
 
         if detail_level == "minimal":
             priorities = analysis.get("review_priorities", [])
-            top_priorities = [
-                p.get("name", p.get("qualified_name", ""))
-                for p in priorities[:3]
-            ]
+            top_priorities = [p.get("name", p.get("qualified_name", "")) for p in priorities[:3]]
             result: dict[str, Any] = {
                 "status": "ok",
                 "summary": analysis.get("summary", ""),
@@ -458,9 +420,7 @@ def detect_changes_func(
                 "changed_files": changed_files,
                 **analysis,
             }
-        result["_hints"] = generate_hints(
-            "detect_changes", result, get_session()
-        )
+        result["_hints"] = generate_hints("detect_changes", result, get_session())
         return result
     except Exception as exc:
         return {"status": "error", "error": str(exc)}

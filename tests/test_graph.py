@@ -20,22 +20,34 @@ class TestGraphStore:
 
     def _make_file_node(self, path="/test/file.py"):
         return NodeInfo(
-            kind="File", name=path, file_path=path,
-            line_start=1, line_end=100, language="python",
+            kind="File",
+            name=path,
+            file_path=path,
+            line_start=1,
+            line_end=100,
+            language="python",
         )
 
     def _make_func_node(self, name="my_func", path="/test/file.py", parent=None, is_test=False):
         return NodeInfo(
             kind="Test" if is_test else "Function",
-            name=name, file_path=path,
-            line_start=10, line_end=20, language="python",
-            parent_name=parent, is_test=is_test,
+            name=name,
+            file_path=path,
+            line_start=10,
+            line_end=20,
+            language="python",
+            parent_name=parent,
+            is_test=is_test,
         )
 
     def _make_class_node(self, name="MyClass", path="/test/file.py"):
         return NodeInfo(
-            kind="Class", name=name, file_path=path,
-            line_start=5, line_end=50, language="python",
+            kind="Class",
+            name=name,
+            file_path=path,
+            line_start=5,
+            line_end=50,
+            language="python",
         )
 
     def test_upsert_and_get_node(self):
@@ -100,8 +112,10 @@ class TestGraphStore:
         nodes = [self._make_file_node(), self._make_func_node()]
         edges = [
             EdgeInfo(
-                kind="CONTAINS", source="/test/file.py",
-                target="/test/file.py::my_func", file_path="/test/file.py",
+                kind="CONTAINS",
+                source="/test/file.py",
+                target="/test/file.py::my_func",
+                file_path="/test/file.py",
             )
         ]
         self.store.store_file_nodes_edges("/test/file.py", nodes, edges)
@@ -138,7 +152,9 @@ class TestGraphStore:
         for i in range(5):
             path = f"/test/file_{i}.py"
             self.store.store_file_nodes_edges(
-                path, [self._make_file_node(path)], [],
+                path,
+                [self._make_file_node(path)],
+                [],
             )
 
         # Simulates full_build's stale-file purge: multiple deletes in a
@@ -170,10 +186,14 @@ class TestGraphStore:
         self.store.upsert_node(self._make_file_node())
         self.store.upsert_node(self._make_func_node())
         self.store.upsert_node(self._make_class_node())
-        self.store.upsert_edge(EdgeInfo(
-            kind="CONTAINS", source="/test/file.py",
-            target="/test/file.py::my_func", file_path="/test/file.py",
-        ))
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CONTAINS",
+                source="/test/file.py",
+                target="/test/file.py::my_func",
+                file_path="/test/file.py",
+            )
+        )
         self.store.commit()
 
         stats = self.store.get_stats()
@@ -190,10 +210,15 @@ class TestGraphStore:
         self.store.upsert_node(self._make_func_node("func_a", "/a.py"))
         self.store.upsert_node(self._make_file_node("/b.py"))
         self.store.upsert_node(self._make_func_node("func_b", "/b.py"))
-        self.store.upsert_edge(EdgeInfo(
-            kind="CALLS", source="/a.py::func_a",
-            target="/b.py::func_b", file_path="/a.py", line=10,
-        ))
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CALLS",
+                source="/a.py::func_a",
+                target="/b.py::func_b",
+                file_path="/a.py",
+                line=10,
+            )
+        )
         self.store.commit()
 
         result = self.store.get_impact_radius(["/a.py"], max_depth=2)
@@ -205,12 +230,18 @@ class TestGraphStore:
     def test_upsert_edge_preserves_multiple_call_sites(self):
         """Multiple CALLS edges to the same target from the same source on different lines."""
         edge1 = EdgeInfo(
-            kind="CALLS", source="/test/file.py::caller",
-            target="/test/file.py::helper", file_path="/test/file.py", line=10,
+            kind="CALLS",
+            source="/test/file.py::caller",
+            target="/test/file.py::helper",
+            file_path="/test/file.py",
+            line=10,
         )
         edge2 = EdgeInfo(
-            kind="CALLS", source="/test/file.py::caller",
-            target="/test/file.py::helper", file_path="/test/file.py", line=20,
+            kind="CALLS",
+            source="/test/file.py::caller",
+            target="/test/file.py::helper",
+            file_path="/test/file.py",
+            line=20,
         )
         self.store.upsert_edge(edge1)
         self.store.upsert_edge(edge2)
@@ -229,9 +260,7 @@ class TestGraphStore:
     def test_get_all_community_ids_logs_when_column_missing(self, caplog):
         conn = sqlite3.connect(":memory:")
         conn.row_factory = sqlite3.Row
-        conn.execute(
-            "CREATE TABLE nodes (qualified_name TEXT PRIMARY KEY)"
-        )
+        conn.execute("CREATE TABLE nodes (qualified_name TEXT PRIMARY KEY)")
         store = GraphStore.__new__(GraphStore)
         store._conn = conn
 
@@ -271,29 +300,58 @@ class TestImpactRadiusSql:
     def _build_chain(self):
         """Build A -> B -> C -> D chain for testing."""
         for name, path in [
-            ("func_a", "/a.py"), ("func_b", "/b.py"),
-            ("func_c", "/c.py"), ("func_d", "/d.py"),
+            ("func_a", "/a.py"),
+            ("func_b", "/b.py"),
+            ("func_c", "/c.py"),
+            ("func_d", "/d.py"),
         ]:
-            self.store.upsert_node(NodeInfo(
-                kind="File", name=path, file_path=path,
-                line_start=1, line_end=50, language="python",
-            ))
-            self.store.upsert_node(NodeInfo(
-                kind="Function", name=name, file_path=path,
-                line_start=5, line_end=20, language="python",
-            ))
-        self.store.upsert_edge(EdgeInfo(
-            kind="CALLS", source="/a.py::func_a",
-            target="/b.py::func_b", file_path="/a.py", line=10,
-        ))
-        self.store.upsert_edge(EdgeInfo(
-            kind="CALLS", source="/b.py::func_b",
-            target="/c.py::func_c", file_path="/b.py", line=10,
-        ))
-        self.store.upsert_edge(EdgeInfo(
-            kind="CALLS", source="/c.py::func_c",
-            target="/d.py::func_d", file_path="/c.py", line=10,
-        ))
+            self.store.upsert_node(
+                NodeInfo(
+                    kind="File",
+                    name=path,
+                    file_path=path,
+                    line_start=1,
+                    line_end=50,
+                    language="python",
+                )
+            )
+            self.store.upsert_node(
+                NodeInfo(
+                    kind="Function",
+                    name=name,
+                    file_path=path,
+                    line_start=5,
+                    line_end=20,
+                    language="python",
+                )
+            )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CALLS",
+                source="/a.py::func_a",
+                target="/b.py::func_b",
+                file_path="/a.py",
+                line=10,
+            )
+        )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CALLS",
+                source="/b.py::func_b",
+                target="/c.py::func_c",
+                file_path="/b.py",
+                line=10,
+            )
+        )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CALLS",
+                source="/c.py::func_c",
+                target="/d.py::func_d",
+                file_path="/c.py",
+                line=10,
+            )
+        )
         self.store.commit()
 
     def test_sql_matches_networkx(self):
@@ -308,7 +366,9 @@ class TestImpactRadiusSql:
     def test_max_nodes_truncation(self):
         """Setting max_nodes=2 should truncate results."""
         result = self.store.get_impact_radius_sql(
-            ["/a.py"], max_depth=3, max_nodes=2,
+            ["/a.py"],
+            max_depth=3,
+            max_nodes=2,
         )
         # With 4 files in chain + file nodes, max_nodes=2 should limit
         assert result["total_impacted"] <= 2 or result["truncated"]

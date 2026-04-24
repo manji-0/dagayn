@@ -56,7 +56,6 @@ def rebuild_fts_index(store: GraphStore) -> int:
         # Rebuild from the content table (nodes) using the FTS5 rebuild command
         conn.execute("INSERT INTO nodes_fts(nodes_fts) VALUES('rebuild')")
 
-
         conn.commit()
     except BaseException:
         conn.rollback()
@@ -91,16 +90,16 @@ def detect_query_kind_boost(query: str) -> dict[str, float]:
     q = query.strip()
 
     # PascalCase: starts with uppercase, has at least one lowercase after
-    if re.match(r'^[A-Z][a-z]', q) and not q.isupper():
+    if re.match(r"^[A-Z][a-z]", q) and not q.isupper():
         boosts["Class"] = 1.5
         boosts["Type"] = 1.5
 
     # snake_case or SCREAMING_SNAKE_CASE: contains underscore with letters
-    if '_' in q and re.search(r'[a-zA-Z]', q):
+    if "_" in q and re.search(r"[a-zA-Z]", q):
         boosts["Function"] = 1.5
 
     # Dotted path: boost qualified name matches
-    if '.' in q:
+    if "." in q:
         boosts["_qualified"] = 2.0
 
     return boosts
@@ -157,8 +156,7 @@ def _fts_search(
 
     try:
         rows = conn.execute(
-            "SELECT rowid, rank FROM nodes_fts WHERE nodes_fts MATCH ? "
-            "ORDER BY rank LIMIT ?",
+            "SELECT rowid, rank FROM nodes_fts WHERE nodes_fts MATCH ? ORDER BY rank LIMIT ?",
             (safe_query, limit),
         ).fetchall()
         # FTS5 rank is negative BM25 (lower = better), negate for consistency
@@ -233,9 +231,7 @@ def _keyword_search(
     conditions: list[str] = []
     params: list[str | int] = []
     for word in words:
-        conditions.append(
-            "(LOWER(name) LIKE ? OR LOWER(qualified_name) LIKE ?)"
-        )
+        conditions.append("(LOWER(name) LIKE ? OR LOWER(qualified_name) LIKE ?)")
         params.extend([f"%{word}%", f"%{word}%"])
 
     where = " AND ".join(conditions)
@@ -315,7 +311,11 @@ def hybrid_search(
 
     # Try embedding search
     emb_results = _embedding_search(
-        store, query, limit=fetch_limit, model=model, provider=provider,
+        store,
+        query,
+        limit=fetch_limit,
+        model=model,
+        provider=provider,
     )
 
     # ------ Phase 2: Merge via RRF or fallback ------
@@ -342,7 +342,7 @@ def hybrid_search(
     node_rows: dict[int, Any] = {}
     batch_size = 450
     for i in range(0, len(candidate_ids), batch_size):
-        batch = candidate_ids[i:i + batch_size]
+        batch = candidate_ids[i : i + batch_size]
         placeholders = ",".join("?" for _ in batch)
         rows = conn.execute(
             f"SELECT * FROM nodes WHERE id IN ({placeholders})",  # nosec B608
@@ -365,7 +365,7 @@ def hybrid_search(
         boost = 1.0
         if node_kind in kind_boosts:
             boost *= kind_boosts[node_kind]
-        if "_qualified" in kind_boosts and '.' in query:
+        if "_qualified" in kind_boosts and "." in query:
             if query.lower() in qualified_name.lower():
                 boost *= kind_boosts["_qualified"]
         if context_set and file_path in context_set:
@@ -389,18 +389,20 @@ def hybrid_search(
         if kind and node_kind != kind:
             continue
 
-        results.append({
-            "name": _sanitize_name(row["name"]),
-            "qualified_name": _sanitize_name(row["qualified_name"]),
-            "kind": node_kind,
-            "file_path": row["file_path"],
-            "line_start": row["line_start"],
-            "line_end": row["line_end"],
-            "language": row["language"] or "",
-            "params": row["params"],
-            "return_type": row["return_type"],
-            "signature": row["signature"] if "signature" in row.keys() else None,
-            "score": round(final_score, 6),
-        })
+        results.append(
+            {
+                "name": _sanitize_name(row["name"]),
+                "qualified_name": _sanitize_name(row["qualified_name"]),
+                "kind": node_kind,
+                "file_path": row["file_path"],
+                "line_start": row["line_start"],
+                "line_end": row["line_end"],
+                "language": row["language"] or "",
+                "params": row["params"],
+                "return_type": row["return_type"],
+                "signature": row["signature"] if "signature" in row.keys() else None,
+                "score": round(final_score, 6),
+            }
+        )
 
     return results

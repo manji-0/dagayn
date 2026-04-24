@@ -53,95 +53,216 @@ class TestV2Integration:
         s = self.store
 
         # --- auth.py: authentication module ---
-        s.upsert_node(NodeInfo(
-            kind="File", name="auth.py", file_path="auth.py",
-            line_start=1, line_end=100, language="python",
-        ), file_hash="a1")
-        s.upsert_node(NodeInfo(
-            kind="Function", name="login", file_path="auth.py",
-            line_start=5, line_end=20, language="python",
-            params="(username: str, password: str)", return_type="Token",
-            extra={"decorators": ["route"]},
-        ), file_hash="a1")
-        s.upsert_node(NodeInfo(
-            kind="Function", name="logout", file_path="auth.py",
-            line_start=25, line_end=40, language="python",
-            params="(token: str)", return_type="bool",
-            extra={"decorators": ["route"]},
-        ), file_hash="a1")
-        s.upsert_node(NodeInfo(
-            kind="Function", name="verify_token", file_path="auth.py",
-            line_start=45, line_end=60, language="python",
-            params="(token: str)", return_type="bool",
-        ), file_hash="a1")
+        s.upsert_node(
+            NodeInfo(
+                kind="File",
+                name="auth.py",
+                file_path="auth.py",
+                line_start=1,
+                line_end=100,
+                language="python",
+            ),
+            file_hash="a1",
+        )
+        s.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="login",
+                file_path="auth.py",
+                line_start=5,
+                line_end=20,
+                language="python",
+                params="(username: str, password: str)",
+                return_type="Token",
+                extra={"decorators": ["route"]},
+            ),
+            file_hash="a1",
+        )
+        s.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="logout",
+                file_path="auth.py",
+                line_start=25,
+                line_end=40,
+                language="python",
+                params="(token: str)",
+                return_type="bool",
+                extra={"decorators": ["route"]},
+            ),
+            file_hash="a1",
+        )
+        s.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="verify_token",
+                file_path="auth.py",
+                line_start=45,
+                line_end=60,
+                language="python",
+                params="(token: str)",
+                return_type="bool",
+            ),
+            file_hash="a1",
+        )
 
         # --- db.py: database layer ---
-        s.upsert_node(NodeInfo(
-            kind="File", name="db.py", file_path="db.py",
-            line_start=1, line_end=120, language="python",
-        ), file_hash="b1")
-        s.upsert_node(NodeInfo(
-            kind="Class", name="Database", file_path="db.py",
-            line_start=5, line_end=60, language="python",
-        ), file_hash="b1")
-        s.upsert_node(NodeInfo(
-            kind="Function", name="connect", file_path="db.py",
-            line_start=10, line_end=25, language="python",
-            parent_name="Database",
-            params="(self, dsn: str)", return_type="Connection",
-        ), file_hash="b1")
-        s.upsert_node(NodeInfo(
-            kind="Function", name="query", file_path="db.py",
-            line_start=30, line_end=50, language="python",
-            parent_name="Database",
-            params="(self, sql: str)", return_type="list[Row]",
-        ), file_hash="b1")
-        s.upsert_node(NodeInfo(
-            kind="Function", name="close", file_path="db.py",
-            line_start=55, line_end=60, language="python",
-            parent_name="Database",
-            params="(self)", return_type="None",
-        ), file_hash="b1")
+        s.upsert_node(
+            NodeInfo(
+                kind="File",
+                name="db.py",
+                file_path="db.py",
+                line_start=1,
+                line_end=120,
+                language="python",
+            ),
+            file_hash="b1",
+        )
+        s.upsert_node(
+            NodeInfo(
+                kind="Class",
+                name="Database",
+                file_path="db.py",
+                line_start=5,
+                line_end=60,
+                language="python",
+            ),
+            file_hash="b1",
+        )
+        s.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="connect",
+                file_path="db.py",
+                line_start=10,
+                line_end=25,
+                language="python",
+                parent_name="Database",
+                params="(self, dsn: str)",
+                return_type="Connection",
+            ),
+            file_hash="b1",
+        )
+        s.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="query",
+                file_path="db.py",
+                line_start=30,
+                line_end=50,
+                language="python",
+                parent_name="Database",
+                params="(self, sql: str)",
+                return_type="list[Row]",
+            ),
+            file_hash="b1",
+        )
+        s.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="close",
+                file_path="db.py",
+                line_start=55,
+                line_end=60,
+                language="python",
+                parent_name="Database",
+                params="(self)",
+                return_type="None",
+            ),
+            file_hash="b1",
+        )
 
         # --- api.py: API handlers ---
-        s.upsert_node(NodeInfo(
-            kind="File", name="api.py", file_path="api.py",
-            line_start=1, line_end=80, language="python",
-        ), file_hash="c1")
-        s.upsert_node(NodeInfo(
-            kind="Function", name="get_users", file_path="api.py",
-            line_start=5, line_end=20, language="python",
-            params="(request: Request)", return_type="Response",
-            extra={"decorators": ["route"]},
-        ), file_hash="c1")
-        s.upsert_node(NodeInfo(
-            kind="Function", name="create_user", file_path="api.py",
-            line_start=25, line_end=45, language="python",
-            params="(request: Request)", return_type="Response",
-            extra={"decorators": ["route"]},
-        ), file_hash="c1")
+        s.upsert_node(
+            NodeInfo(
+                kind="File",
+                name="api.py",
+                file_path="api.py",
+                line_start=1,
+                line_end=80,
+                language="python",
+            ),
+            file_hash="c1",
+        )
+        s.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="get_users",
+                file_path="api.py",
+                line_start=5,
+                line_end=20,
+                language="python",
+                params="(request: Request)",
+                return_type="Response",
+                extra={"decorators": ["route"]},
+            ),
+            file_hash="c1",
+        )
+        s.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="create_user",
+                file_path="api.py",
+                line_start=25,
+                line_end=45,
+                language="python",
+                params="(request: Request)",
+                return_type="Response",
+                extra={"decorators": ["route"]},
+            ),
+            file_hash="c1",
+        )
 
         # --- utils.py: orphaned helper (dead code candidate) ---
-        s.upsert_node(NodeInfo(
-            kind="File", name="utils.py", file_path="utils.py",
-            line_start=1, line_end=30, language="python",
-        ), file_hash="d1")
-        s.upsert_node(NodeInfo(
-            kind="Function", name="format_date", file_path="utils.py",
-            line_start=5, line_end=15, language="python",
-            params="(dt: datetime)", return_type="str",
-        ), file_hash="d1")
+        s.upsert_node(
+            NodeInfo(
+                kind="File",
+                name="utils.py",
+                file_path="utils.py",
+                line_start=1,
+                line_end=30,
+                language="python",
+            ),
+            file_hash="d1",
+        )
+        s.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="format_date",
+                file_path="utils.py",
+                line_start=5,
+                line_end=15,
+                language="python",
+                params="(dt: datetime)",
+                return_type="str",
+            ),
+            file_hash="d1",
+        )
 
         # --- test_auth.py: tests ---
-        s.upsert_node(NodeInfo(
-            kind="File", name="test_auth.py", file_path="test_auth.py",
-            line_start=1, line_end=40, language="python",
-        ), file_hash="e1")
-        s.upsert_node(NodeInfo(
-            kind="Test", name="test_login", file_path="test_auth.py",
-            line_start=5, line_end=15, language="python",
-            is_test=True,
-        ), file_hash="e1")
+        s.upsert_node(
+            NodeInfo(
+                kind="File",
+                name="test_auth.py",
+                file_path="test_auth.py",
+                line_start=1,
+                line_end=40,
+                language="python",
+            ),
+            file_hash="e1",
+        )
+        s.upsert_node(
+            NodeInfo(
+                kind="Test",
+                name="test_login",
+                file_path="test_auth.py",
+                line_start=5,
+                line_end=15,
+                language="python",
+                is_test=True,
+            ),
+            file_hash="e1",
+        )
 
         # --- Edges: calls ---
         call_edges = [
@@ -154,10 +275,15 @@ class TestV2Integration:
             ("db.py::Database.query", "db.py::Database.connect", "db.py", 35),
         ]
         for source, target, fp, ln in call_edges:
-            s.upsert_edge(EdgeInfo(
-                kind="CALLS", source=source, target=target,
-                file_path=fp, line=ln,
-            ))
+            s.upsert_edge(
+                EdgeInfo(
+                    kind="CALLS",
+                    source=source,
+                    target=target,
+                    file_path=fp,
+                    line=ln,
+                )
+            )
 
         # --- Edges: contains ---
         contains_edges = [
@@ -173,23 +299,31 @@ class TestV2Integration:
             ("utils.py", "utils.py::format_date", "utils.py"),
         ]
         for source, target, fp in contains_edges:
-            s.upsert_edge(EdgeInfo(
-                kind="CONTAINS", source=source, target=target,
-                file_path=fp, line=1,
-            ))
+            s.upsert_edge(
+                EdgeInfo(
+                    kind="CONTAINS",
+                    source=source,
+                    target=target,
+                    file_path=fp,
+                    line=1,
+                )
+            )
 
         # --- Edges: tested_by ---
-        s.upsert_edge(EdgeInfo(
-            kind="TESTED_BY", source="test_auth.py::test_login",
-            target="auth.py::login", file_path="test_auth.py", line=5,
-        ))
+        s.upsert_edge(
+            EdgeInfo(
+                kind="TESTED_BY",
+                source="test_auth.py::test_login",
+                target="auth.py::login",
+                file_path="test_auth.py",
+                line=5,
+            )
+        )
 
         s.commit()
 
         # Set signatures for non-File nodes
-        rows = s._conn.execute(
-            "SELECT id, name, kind, params, return_type FROM nodes"
-        ).fetchall()
+        rows = s._conn.execute("SELECT id, name, kind, params, return_type FROM nodes").fetchall()
         for row in rows:
             node_id, name, kind, params, ret = row[0], row[1], row[2], row[3], row[4]
             if kind in ("Function", "Test"):
@@ -297,9 +431,7 @@ class TestV2Integration:
         assert isinstance(dead, list)
         dead_names = [d["name"] for d in dead]
         # format_date has no callers, no tests, no importers -- should be dead
-        assert "format_date" in dead_names, (
-            f"format_date should be dead code, got: {dead_names}"
-        )
+        assert "format_date" in dead_names, f"format_date should be dead code, got: {dead_names}"
 
         # ---- Step 7: rename_preview ----
         preview = rename_preview(self.store, "verify_token", "validate_token")

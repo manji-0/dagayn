@@ -15,6 +15,7 @@ def __getattr__(name: str):
     _runner_names = {"load_all_configs", "load_config", "run_eval", "write_csv"}
     if name in _runner_names:
         from . import runner
+
         return getattr(runner, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 

@@ -27,27 +27,50 @@ class TestHybridSearch:
         """Seed test nodes into the graph store."""
         nodes = [
             NodeInfo(
-                kind="Function", name="get_users", file_path="api.py",
-                line_start=1, line_end=20, language="python",
-                params="(db: Session)", return_type="list[User]",
+                kind="Function",
+                name="get_users",
+                file_path="api.py",
+                line_start=1,
+                line_end=20,
+                language="python",
+                params="(db: Session)",
+                return_type="list[User]",
             ),
             NodeInfo(
-                kind="Function", name="create_user", file_path="api.py",
-                line_start=25, line_end=40, language="python",
-                params="(name: str, email: str)", return_type="User",
+                kind="Function",
+                name="create_user",
+                file_path="api.py",
+                line_start=25,
+                line_end=40,
+                language="python",
+                params="(name: str, email: str)",
+                return_type="User",
             ),
             NodeInfo(
-                kind="Class", name="UserService", file_path="services.py",
-                line_start=1, line_end=100, language="python",
+                kind="Class",
+                name="UserService",
+                file_path="services.py",
+                line_start=1,
+                line_end=100,
+                language="python",
             ),
             NodeInfo(
-                kind="Function", name="authenticate", file_path="auth.py",
-                line_start=5, line_end=30, language="python",
-                params="(token: str)", return_type="bool",
+                kind="Function",
+                name="authenticate",
+                file_path="auth.py",
+                line_start=5,
+                line_end=30,
+                language="python",
+                params="(token: str)",
+                return_type="bool",
             ),
             NodeInfo(
-                kind="Type", name="UserResponse", file_path="models.py",
-                line_start=1, line_end=15, language="python",
+                kind="Type",
+                name="UserResponse",
+                file_path="models.py",
+                line_start=1,
+                line_end=15,
+                language="python",
             ),
         ]
         for node in nodes:
@@ -193,9 +216,17 @@ class TestHybridSearch:
         assert len(results) > 0
 
         expected_fields = {
-            "name", "qualified_name", "kind", "file_path",
-            "line_start", "line_end", "language", "params",
-            "return_type", "signature", "score",
+            "name",
+            "qualified_name",
+            "kind",
+            "file_path",
+            "line_start",
+            "line_end",
+            "language",
+            "params",
+            "return_type",
+            "signature",
+            "score",
         }
         for result in results:
             assert expected_fields.issubset(result.keys()), (
@@ -218,9 +249,7 @@ class TestHybridSearch:
         rebuild_fts_index(self.store)
 
         # Search for "user" which matches multiple nodes
-        results_with_ctx = hybrid_search(
-            self.store, "user", context_files=["api.py"]
-        )
+        results_with_ctx = hybrid_search(self.store, "user", context_files=["api.py"])
 
         # Find get_users in both result sets
         if results_with_ctx:
@@ -244,7 +273,7 @@ class TestHybridSearch:
         """FTS5 special characters are safely handled."""
         rebuild_fts_index(self.store)
         # These should not crash — FTS5 operators like AND, OR, NOT, *, etc.
-        for dangerous_query in ['OR user', 'NOT thing', 'user*', '"user"', 'a AND b']:
+        for dangerous_query in ["OR user", "NOT thing", "user*", '"user"', "a AND b"]:
             results = hybrid_search(self.store, dangerous_query)
             # Just assert no exception was raised
             assert isinstance(results, list)

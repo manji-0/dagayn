@@ -16,16 +16,26 @@ from typing import Any
 
 _INTENT_TOOLS: dict[str, set[str]] = {
     "reviewing": {
-        "detect_changes", "get_review_context", "get_affected_flows", "get_impact_radius",
+        "detect_changes",
+        "get_review_context",
+        "get_affected_flows",
+        "get_impact_radius",
     },
     "debugging": {
-        "query_graph", "get_flow", "semantic_search_nodes",
+        "query_graph",
+        "get_flow",
+        "semantic_search_nodes",
     },
     "refactoring": {
-        "refactor", "find_dead_code", "suggest_refactorings",
+        "refactor",
+        "find_dead_code",
+        "suggest_refactorings",
     },
     "exploring": {
-        "list_communities", "get_architecture_overview", "list_flows", "list_graph_stats",
+        "list_communities",
+        "get_architecture_overview",
+        "list_flows",
+        "list_graph_stats",
     },
 }
 
@@ -302,9 +312,7 @@ def _track_result(result: dict[str, Any], session: SessionState) -> None:
         session.record_nodes(node_ids)
 
 
-def _build_next_steps(
-    tool_name: str, session: SessionState
-) -> list[dict[str, str]]:
+def _build_next_steps(tool_name: str, session: SessionState) -> list[dict[str, str]]:
     """Return next-step suggestions, filtering already-called tools."""
     called = set(session.tools_called)
     candidates = _WORKFLOW.get(tool_name, [])
@@ -323,9 +331,7 @@ def _extract_warnings(result: dict[str, Any]) -> list[str]:
     test_gaps = result.get("test_gaps")
     if isinstance(test_gaps, list) and test_gaps:
         names = [g.get("name", g) if isinstance(g, dict) else str(g) for g in test_gaps[:5]]
-        warnings.append(
-            f"Test coverage gaps: {', '.join(names)}"
-        )
+        warnings.append(f"Test coverage gaps: {', '.join(names)}")
 
     # High risk score
     risk = result.get("risk_score")

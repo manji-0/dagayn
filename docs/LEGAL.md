@@ -1,13 +1,17 @@
-# Legal & Privacy
+# Legal and data handling
 
-**License:** MIT (see [LICENSE](../LICENSE) in project root)
+## License
 
-**Privacy:**
-- Zero telemetry
-- All graph data stored locally in `.code-review-graph/graph.db`
-- No network calls during normal operation
-- Optional embeddings model downloaded once from HuggingFace (when using `[embeddings]` extra)
+`dagayn` is distributed under the MIT license in this repository.
 
-**Data:** Never leaves your machine.
+## Fork attribution
 
-**Warranty:** Provided as-is, without warranty of any kind.
+The project is a fork of `code-review-graph`, but the documentation and packaging in this repository describe the fork itself rather than treating upstream text as authoritative.
+
+## Local data
+
+The graph database and related artifacts are stored locally. They may contain file paths, symbol names, relationships, and review metadata derived from source code.
+
+## External services
+
+Some optional embedding providers can communicate with external APIs. Those paths are opt-in. Review the relevant environment variables before enabling them in private repositories.

@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 # GraphML export (for Gephi, yEd, Cytoscape)
 # -------------------------------------------------------------------
 
+
 def export_graphml(store: GraphStore, output_path: Path) -> Path:
     """Export the graph as GraphML XML for Gephi/yEd/Cytoscape.
 
@@ -31,57 +32,46 @@ def export_graphml(store: GraphStore, output_path: Path) -> Path:
         '<graphml xmlns="http://graphml.graphstruct.org/graphml"',
         '  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"',
         '  xsi:schemaLocation="http://graphml.graphstruct.org/graphml">',
-        '  <key id="kind" for="node" attr.name="kind" '
-        'attr.type="string"/>',
-        '  <key id="file" for="node" attr.name="file" '
-        'attr.type="string"/>',
-        '  <key id="language" for="node" attr.name="language" '
-        'attr.type="string"/>',
-        '  <key id="community" for="node" attr.name="community" '
-        'attr.type="int"/>',
-        '  <key id="edge_kind" for="edge" attr.name="kind" '
-        'attr.type="string"/>',
+        '  <key id="kind" for="node" attr.name="kind" attr.type="string"/>',
+        '  <key id="file" for="node" attr.name="file" attr.type="string"/>',
+        '  <key id="language" for="node" attr.name="language" attr.type="string"/>',
+        '  <key id="community" for="node" attr.name="community" attr.type="int"/>',
+        '  <key id="edge_kind" for="edge" attr.name="kind" attr.type="string"/>',
         '  <graph id="code-review-graph" edgedefault="directed">',
     ]
 
     for n in nodes:
         nid = html.escape(n["qualified_name"], quote=True)
         lines.append(f'    <node id="{nid}">')
-        lines.append(f'      <data key="kind">'
-                     f'{html.escape(n.get("kind", ""))}</data>')
-        lines.append(f'      <data key="file">'
-                     f'{html.escape(n.get("file_path", ""))}</data>')
+        lines.append(f'      <data key="kind">{html.escape(n.get("kind", ""))}</data>')
+        lines.append(f'      <data key="file">{html.escape(n.get("file_path", ""))}</data>')
         lang = n.get("language", "") or ""
-        lines.append(f'      <data key="language">'
-                     f'{html.escape(lang)}</data>')
+        lines.append(f'      <data key="language">{html.escape(lang)}</data>')
         cid = n.get("community_id")
         if cid is not None:
-            lines.append(f'      <data key="community">'
-                         f'{cid}</data>')
-        lines.append('    </node>')
+            lines.append(f'      <data key="community">{cid}</data>')
+        lines.append("    </node>")
 
     for i, e in enumerate(edges):
         src = html.escape(e["source"], quote=True)
         tgt = html.escape(e["target"], quote=True)
         kind = html.escape(e.get("kind", ""), quote=True)
-        lines.append(
-            f'    <edge id="e{i}" source="{src}" target="{tgt}">'
-        )
+        lines.append(f'    <edge id="e{i}" source="{src}" target="{tgt}">')
         lines.append(f'      <data key="edge_kind">{kind}</data>')
-        lines.append('    </edge>')
+        lines.append("    </edge>")
 
-    lines.append('  </graph>')
-    lines.append('</graphml>')
+    lines.append("  </graph>")
+    lines.append("</graphml>")
 
     output_path.write_text("\n".join(lines), encoding="utf-8")
-    logger.info("GraphML exported to %s (%d nodes, %d edges)",
-                output_path, len(nodes), len(edges))
+    logger.info("GraphML exported to %s (%d nodes, %d edges)", output_path, len(nodes), len(edges))
     return output_path
 
 
 # -------------------------------------------------------------------
 # Neo4j Cypher export
 # -------------------------------------------------------------------
+
 
 def export_neo4j_cypher(store: GraphStore, output_path: Path) -> Path:
     """Export the graph as Neo4j Cypher CREATE statements.
@@ -127,8 +117,9 @@ def export_neo4j_cypher(store: GraphStore, output_path: Path) -> Path:
         )
 
     output_path.write_text("\n".join(lines), encoding="utf-8")
-    logger.info("Neo4j Cypher exported to %s (%d nodes, %d edges)",
-                output_path, len(nodes), len(edges))
+    logger.info(
+        "Neo4j Cypher exported to %s (%d nodes, %d edges)", output_path, len(nodes), len(edges)
+    )
     return output_path
 
 
@@ -154,9 +145,8 @@ def _cypher_props(d: dict) -> str:
 # Obsidian vault export
 # -------------------------------------------------------------------
 
-def export_obsidian_vault(
-    store: GraphStore, output_dir: Path
-) -> Path:
+
+def export_obsidian_vault(store: GraphStore, output_dir: Path) -> Path:
     """Export the graph as an Obsidian vault with wikilinks.
 
     Creates:
@@ -179,12 +169,8 @@ def export_obsidian_vault(
         src = e["source"]
         tgt = e["target"]
         kind = e.get("kind", "RELATES_TO")
-        neighbors.setdefault(src, []).append(
-            {"target": tgt, "kind": kind}
-        )
-        neighbors.setdefault(tgt, []).append(
-            {"target": src, "kind": kind}
-        )
+        neighbors.setdefault(src, []).append({"target": tgt, "kind": kind})
+        neighbors.setdefault(tgt, []).append({"target": src, "kind": kind})
 
     # Node name -> slug mapping
     slugs: dict[str, str] = {}
@@ -238,10 +224,7 @@ def export_obsidian_vault(
                 if tgt_slug and tgt_slug not in seen:
                     seen.add(tgt_slug)
                     tgt_name = tgt_slug.replace("-", " ").title()
-                    lines.append(
-                        f"- {nb['kind']}: "
-                        f"[[{tgt_slug}|{tgt_name}]]"
-                    )
+                    lines.append(f"- {nb['kind']}: [[{tgt_slug}|{tgt_name}]]")
 
         page_path = output_dir / f"{slug}.md"
         page_path.write_text("\n".join(lines), encoding="utf-8")
@@ -251,9 +234,7 @@ def export_obsidian_vault(
     for n in nodes:
         cid = n.get("community_id")
         if cid is not None:
-            community_map.setdefault(cid, []).append(
-                n["qualified_name"]
-            )
+            community_map.setdefault(cid, []).append(n["qualified_name"])
 
     for c in communities:
         cid = c.get("id")
@@ -281,27 +262,18 @@ def export_obsidian_vault(
     index_lines = ["# Code Graph Index", ""]
     index_lines.append(f"**Nodes:** {len(nodes)}")
     index_lines.append(f"**Edges:** {len(edges)}")
-    index_lines.append(
-        f"**Communities:** {len(communities)}"
-    )
+    index_lines.append(f"**Communities:** {len(communities)}")
     index_lines.append("")
     index_lines.append("## All Nodes")
     index_lines.append("")
     for n in sorted(nodes, key=lambda x: x.get("name", "")):
         slug = slugs.get(n["qualified_name"])
         if slug:
-            index_lines.append(
-                f"- [[{slug}]] ({n.get('kind', '')})"
-            )
+            index_lines.append(f"- [[{slug}]] ({n.get('kind', '')})")
 
-    (output_dir / "_INDEX.md").write_text(
-        "\n".join(index_lines), encoding="utf-8"
-    )
+    (output_dir / "_INDEX.md").write_text("\n".join(index_lines), encoding="utf-8")
 
-    logger.info(
-        "Obsidian vault exported to %s (%d pages)",
-        output_dir, len(nodes)
-    )
+    logger.info("Obsidian vault exported to %s (%d pages)", output_dir, len(nodes))
     return output_dir
 
 
@@ -316,6 +288,7 @@ def _obsidian_slug(name: str) -> str:
 # SVG export (matplotlib-based)
 # -------------------------------------------------------------------
 
+
 def export_svg(store: GraphStore, output_path: Path) -> Path:
     """Export a static SVG graph visualization.
 
@@ -324,12 +297,12 @@ def export_svg(store: GraphStore, output_path: Path) -> Path:
     """
     try:
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
     except ImportError:
         raise ImportError(
-            "matplotlib is required for SVG export. "
-            "Install with: pip install matplotlib"
+            "matplotlib is required for SVG export. Install with: pip install matplotlib"
         )
 
     import networkx as nx
@@ -360,50 +333,26 @@ def export_svg(store: GraphStore, output_path: Path) -> Path:
         "Type": "#ffc107",
         "Test": "#dc3545",
     }
-    colors = [
-        kind_colors.get(
-            nxg.nodes[n].get("kind", ""), "#adb5bd"
-        )
-        for n in nxg.nodes()
-    ]
+    colors = [kind_colors.get(nxg.nodes[n].get("kind", ""), "#adb5bd") for n in nxg.nodes()]
 
     fig, ax = plt.subplots(1, 1, figsize=(16, 12))
-    pos = nx.spring_layout(
-        nxg, k=2 / (nxg.number_of_nodes() ** 0.5),
-        iterations=50, seed=42
-    )
+    pos = nx.spring_layout(nxg, k=2 / (nxg.number_of_nodes() ** 0.5), iterations=50, seed=42)
 
     # Limit labels to avoid clutter
     labels = {}
     if nxg.number_of_nodes() <= 100:
-        labels = {
-            n: nxg.nodes[n].get("label", n.split("::")[-1])
-            for n in nxg.nodes()
-        }
+        labels = {n: nxg.nodes[n].get("label", n.split("::")[-1]) for n in nxg.nodes()}
 
-    nx.draw_networkx_nodes(
-        nxg, pos, ax=ax, node_color=colors,
-        node_size=30, alpha=0.8
-    )
-    nx.draw_networkx_edges(
-        nxg, pos, ax=ax, alpha=0.2,
-        arrows=True, arrowsize=5
-    )
+    nx.draw_networkx_nodes(nxg, pos, ax=ax, node_color=colors, node_size=30, alpha=0.8)
+    nx.draw_networkx_edges(nxg, pos, ax=ax, alpha=0.2, arrows=True, arrowsize=5)
     if labels:
-        nx.draw_networkx_labels(
-            nxg, pos, labels=labels, ax=ax,
-            font_size=6
-        )
+        nx.draw_networkx_labels(nxg, pos, labels=labels, ax=ax, font_size=6)
 
     ax.set_title("Code Review Graph", fontsize=14)
     ax.axis("off")
 
-    fig.savefig(
-        str(output_path), format="svg",
-        bbox_inches="tight", dpi=150
-    )
+    fig.savefig(str(output_path), format="svg", bbox_inches="tight", dpi=150)
     plt.close(fig)
 
-    logger.info("SVG exported to %s (%d nodes)",
-                output_path, nxg.number_of_nodes())
+    logger.info("SVG exported to %s (%d nodes)", output_path, nxg.number_of_nodes())
     return output_path

@@ -101,7 +101,9 @@ def enrich_jedi_calls(store, repo_root: Path) -> dict:
 
     logger.debug(
         "Jedi: %d/%d Python files have pending calls (%d calls skipped — no project target)",
-        len(files_with_pending), len(py_files), total_skipped,
+        len(files_with_pending),
+        len(py_files),
+        total_skipped,
     )
 
     resolved_count = 0
@@ -118,8 +120,7 @@ def enrich_jedi_calls(store, repo_root: Path) -> dict:
 
         # Get function nodes from DB for enclosing-function lookup
         func_nodes = [
-            n for n in store.get_nodes_by_file(file_path)
-            if n.kind in ("Function", "Test")
+            n for n in store.get_nodes_by_file(file_path) if n.kind in ("Function", "Test")
         ]
 
         # Create Jedi script once per file
@@ -170,13 +171,15 @@ def enrich_jedi_calls(store, repo_root: Path) -> dict:
             else:
                 target = f"{target_file}::{name.name}"
 
-            store.upsert_edge(EdgeInfo(
-                kind="CALLS",
-                source=enclosing,
-                target=target,
-                file_path=file_path,
-                line=jedi_line,
-            ))
+            store.upsert_edge(
+                EdgeInfo(
+                    kind="CALLS",
+                    source=enclosing,
+                    target=target,
+                    file_path=file_path,
+                    line=jedi_line,
+                )
+            )
             existing.add((enclosing, jedi_line))
             file_resolved += 1
 
@@ -188,7 +191,8 @@ def enrich_jedi_calls(store, repo_root: Path) -> dict:
         store.commit()
         logger.info(
             "Jedi enrichment: resolved %d calls in %d files",
-            resolved_count, files_enriched,
+            resolved_count,
+            files_enriched,
         )
 
     return {
@@ -206,12 +210,15 @@ def _get_file_call_edges(store, file_path: str):
         (file_path,),
     ).fetchall()
     from .graph import GraphEdge
+
     return [
         GraphEdge(
-            id=r["id"], kind=r["kind"],
+            id=r["id"],
+            kind=r["kind"],
             source_qualified=r["source_qualified"],
             target_qualified=r["target_qualified"],
-            file_path=r["file_path"], line=r["line"],
+            file_path=r["file_path"],
+            line=r["line"],
             extra={},
         )
         for r in rows

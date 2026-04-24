@@ -83,8 +83,7 @@ def resolve_rescript_cross_module(store: GraphStore) -> dict:
 
     # --- 1 + 2. Resolve CALLS edges ---
     call_rows = conn.execute(
-        "SELECT id, source_qualified, target_qualified, file_path "
-        "FROM edges WHERE kind = 'CALLS'"
+        "SELECT id, source_qualified, target_qualified, file_path FROM edges WHERE kind = 'CALLS'"
     ).fetchall()
 
     call_updates: list[tuple[str, int]] = []
@@ -106,8 +105,7 @@ def resolve_rescript_cross_module(store: GraphStore) -> dict:
     # --- 3. Resolve IMPORTS_FROM edge targets to file paths ---
     import_updates: list[tuple[str, int]] = []
     import_rows_full = conn.execute(
-        "SELECT id, target_qualified, file_path FROM edges "
-        "WHERE kind = 'IMPORTS_FROM'"
+        "SELECT id, target_qualified, file_path FROM edges WHERE kind = 'IMPORTS_FROM'"
     ).fetchall()
     for row in import_rows_full:
         target = row["target_qualified"]
@@ -174,7 +172,9 @@ def _resolve_call_target(
 
 
 def _pick_existing_qualified(
-    target_file: str, rest: str, store: GraphStore,
+    target_file: str,
+    rest: str,
+    store: GraphStore,
 ) -> str | None:
     """Given ``LogicUtils.foo.bar``, try ``file::foo.bar`` then
     ``file::Foo.bar`` then ``file::foo``. Return the first one that

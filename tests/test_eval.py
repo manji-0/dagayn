@@ -18,6 +18,7 @@ try:
     import yaml as _yaml  # noqa: F401
 
     from code_review_graph.eval.runner import write_csv
+
     _HAS_YAML = True
 except ImportError:
     _HAS_YAML = False
@@ -119,9 +120,7 @@ def test_load_config():
     """Load a temp YAML config and verify structure."""
     import yaml
 
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".yaml", delete=False
-    ) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
         yaml.dump(
             {
                 "name": "test-repo",
@@ -131,9 +130,7 @@ def test_load_config():
                 "size_category": "small",
                 "test_commits": [{"sha": "abc123", "description": "test"}],
                 "entry_points": ["main.py::main"],
-                "search_queries": [
-                    {"query": "hello", "expected": "main.py::greet"}
-                ],
+                "search_queries": [{"query": "hello", "expected": "main.py::greet"}],
             },
             f,
         )
@@ -195,19 +192,31 @@ def test_generate_readme_tables():
             w = csv.DictWriter(
                 f,
                 fieldnames=[
-                    "repo", "commit", "description", "changed_files",
-                    "naive_tokens", "standard_tokens", "graph_tokens",
-                    "naive_to_graph_ratio", "standard_to_graph_ratio",
+                    "repo",
+                    "commit",
+                    "description",
+                    "changed_files",
+                    "naive_tokens",
+                    "standard_tokens",
+                    "graph_tokens",
+                    "naive_to_graph_ratio",
+                    "standard_to_graph_ratio",
                 ],
             )
             w.writeheader()
-            w.writerow({
-                "repo": "myrepo", "commit": "abc", "description": "test",
-                "changed_files": "3", "naive_tokens": "1000",
-                "standard_tokens": "500", "graph_tokens": "200",
-                "naive_to_graph_ratio": "5.0",
-                "standard_to_graph_ratio": "2.5",
-            })
+            w.writerow(
+                {
+                    "repo": "myrepo",
+                    "commit": "abc",
+                    "description": "test",
+                    "changed_files": "3",
+                    "naive_tokens": "1000",
+                    "standard_tokens": "500",
+                    "graph_tokens": "200",
+                    "naive_to_graph_ratio": "5.0",
+                    "standard_to_graph_ratio": "2.5",
+                }
+            )
 
         tables = generate_readme_tables(results_dir)
         assert "### Token Efficiency" in tables
@@ -226,18 +235,29 @@ def test_generate_full_report():
             w = csv.DictWriter(
                 f,
                 fieldnames=[
-                    "repo", "file_count", "node_count", "edge_count",
-                    "flow_detection_seconds", "community_detection_seconds",
-                    "search_avg_ms", "nodes_per_second",
+                    "repo",
+                    "file_count",
+                    "node_count",
+                    "edge_count",
+                    "flow_detection_seconds",
+                    "community_detection_seconds",
+                    "search_avg_ms",
+                    "nodes_per_second",
                 ],
             )
             w.writeheader()
-            w.writerow({
-                "repo": "testrepo", "file_count": "10", "node_count": "50",
-                "edge_count": "30", "flow_detection_seconds": "0.1",
-                "community_detection_seconds": "0.2",
-                "search_avg_ms": "5.0", "nodes_per_second": "500",
-            })
+            w.writerow(
+                {
+                    "repo": "testrepo",
+                    "file_count": "10",
+                    "node_count": "50",
+                    "edge_count": "30",
+                    "flow_detection_seconds": "0.1",
+                    "community_detection_seconds": "0.2",
+                    "search_avg_ms": "5.0",
+                    "nodes_per_second": "500",
+                }
+            )
 
         report = generate_full_report(results_dir)
         assert "# Evaluation Report" in report
@@ -254,16 +274,16 @@ def test_runner_with_mock_repo():
         repo_path.mkdir()
 
         # Init git repo
-        subprocess.run(
-            ["git", "init"], cwd=str(repo_path), capture_output=True
-        )
+        subprocess.run(["git", "init"], cwd=str(repo_path), capture_output=True)
         subprocess.run(
             ["git", "config", "user.email", "test@test.com"],
-            cwd=str(repo_path), capture_output=True,
+            cwd=str(repo_path),
+            capture_output=True,
         )
         subprocess.run(
             ["git", "config", "user.name", "Test"],
-            cwd=str(repo_path), capture_output=True,
+            cwd=str(repo_path),
+            capture_output=True,
         )
 
         # Create two Python files
@@ -276,12 +296,11 @@ def test_runner_with_mock_repo():
             encoding="utf-8",
         )
 
-        subprocess.run(
-            ["git", "add", "."], cwd=str(repo_path), capture_output=True
-        )
+        subprocess.run(["git", "add", "."], cwd=str(repo_path), capture_output=True)
         subprocess.run(
             ["git", "commit", "-m", "initial"],
-            cwd=str(repo_path), capture_output=True,
+            cwd=str(repo_path),
+            capture_output=True,
         )
 
         # Second commit: modify helper.py
@@ -289,12 +308,11 @@ def test_runner_with_mock_repo():
             'def greet(name):\n    print(f"Hi {name}!")\n',
             encoding="utf-8",
         )
-        subprocess.run(
-            ["git", "add", "."], cwd=str(repo_path), capture_output=True
-        )
+        subprocess.run(["git", "add", "."], cwd=str(repo_path), capture_output=True)
         subprocess.run(
             ["git", "commit", "-m", "update greeting"],
-            cwd=str(repo_path), capture_output=True,
+            cwd=str(repo_path),
+            capture_output=True,
         )
 
         # Build graph
@@ -319,6 +337,7 @@ def test_runner_with_mock_repo():
 
         # Run token_efficiency
         from code_review_graph.eval.benchmarks import token_efficiency
+
         te_results = token_efficiency.run(repo_path, store, config)
         assert len(te_results) >= 1
         assert "naive_tokens" in te_results[0]
@@ -326,6 +345,7 @@ def test_runner_with_mock_repo():
 
         # Run impact_accuracy
         from code_review_graph.eval.benchmarks import impact_accuracy
+
         ia_results = impact_accuracy.run(repo_path, store, config)
         assert len(ia_results) >= 1
         assert "precision" in ia_results[0]
@@ -333,12 +353,14 @@ def test_runner_with_mock_repo():
 
         # Run search_quality
         from code_review_graph.eval.benchmarks import search_quality
+
         sq_results = search_quality.run(repo_path, store, config)
         assert len(sq_results) == 1
         assert "reciprocal_rank" in sq_results[0]
 
         # Run build_performance
         from code_review_graph.eval.benchmarks import build_performance
+
         bp_results = build_performance.run(repo_path, store, config)
         assert len(bp_results) == 1
         assert "node_count" in bp_results[0]
@@ -398,15 +420,19 @@ def test_benchmark_review_workflow():
 
         # Init git repo with two commits
         subprocess.run(
-            ["git", "init"], cwd=str(repo_path), capture_output=True,
+            ["git", "init"],
+            cwd=str(repo_path),
+            capture_output=True,
         )
         subprocess.run(
             ["git", "config", "user.email", "test@test.com"],
-            cwd=str(repo_path), capture_output=True,
+            cwd=str(repo_path),
+            capture_output=True,
         )
         subprocess.run(
             ["git", "config", "user.name", "Test"],
-            cwd=str(repo_path), capture_output=True,
+            cwd=str(repo_path),
+            capture_output=True,
         )
 
         (repo_path / "main.py").write_text(
@@ -419,11 +445,14 @@ def test_benchmark_review_workflow():
         )
 
         subprocess.run(
-            ["git", "add", "."], cwd=str(repo_path), capture_output=True,
+            ["git", "add", "."],
+            cwd=str(repo_path),
+            capture_output=True,
         )
         subprocess.run(
             ["git", "commit", "-m", "initial"],
-            cwd=str(repo_path), capture_output=True,
+            cwd=str(repo_path),
+            capture_output=True,
         )
 
         # Second commit
@@ -432,11 +461,14 @@ def test_benchmark_review_workflow():
             encoding="utf-8",
         )
         subprocess.run(
-            ["git", "add", "."], cwd=str(repo_path), capture_output=True,
+            ["git", "add", "."],
+            cwd=str(repo_path),
+            capture_output=True,
         )
         subprocess.run(
             ["git", "commit", "-m", "update greeting"],
-            cwd=str(repo_path), capture_output=True,
+            cwd=str(repo_path),
+            capture_output=True,
         )
 
         # Build graph
@@ -450,7 +482,8 @@ def test_benchmark_review_workflow():
 
         # Run the review benchmark
         result = benchmark_review_workflow(
-            repo_root=str(repo_path), base="HEAD~1",
+            repo_root=str(repo_path),
+            base="HEAD~1",
         )
 
         assert result["workflow"] == "review"
@@ -472,15 +505,19 @@ def test_run_all_benchmarks():
         repo_path.mkdir()
 
         subprocess.run(
-            ["git", "init"], cwd=str(repo_path), capture_output=True,
+            ["git", "init"],
+            cwd=str(repo_path),
+            capture_output=True,
         )
         subprocess.run(
             ["git", "config", "user.email", "test@test.com"],
-            cwd=str(repo_path), capture_output=True,
+            cwd=str(repo_path),
+            capture_output=True,
         )
         subprocess.run(
             ["git", "config", "user.name", "Test"],
-            cwd=str(repo_path), capture_output=True,
+            cwd=str(repo_path),
+            capture_output=True,
         )
 
         (repo_path / "app.py").write_text(
@@ -489,11 +526,14 @@ def test_run_all_benchmarks():
         )
 
         subprocess.run(
-            ["git", "add", "."], cwd=str(repo_path), capture_output=True,
+            ["git", "add", "."],
+            cwd=str(repo_path),
+            capture_output=True,
         )
         subprocess.run(
             ["git", "commit", "-m", "initial"],
-            cwd=str(repo_path), capture_output=True,
+            cwd=str(repo_path),
+            capture_output=True,
         )
 
         (repo_path / "app.py").write_text(
@@ -501,11 +541,14 @@ def test_run_all_benchmarks():
             encoding="utf-8",
         )
         subprocess.run(
-            ["git", "add", "."], cwd=str(repo_path), capture_output=True,
+            ["git", "add", "."],
+            cwd=str(repo_path),
+            capture_output=True,
         )
         subprocess.run(
             ["git", "commit", "-m", "update"],
-            cwd=str(repo_path), capture_output=True,
+            cwd=str(repo_path),
+            capture_output=True,
         )
 
         from code_review_graph.graph import GraphStore
@@ -523,7 +566,11 @@ def test_run_all_benchmarks():
 
         workflow_names = {r["workflow"] for r in results}
         assert workflow_names == {
-            "review", "architecture", "debug", "onboard", "pre_merge",
+            "review",
+            "architecture",
+            "debug",
+            "onboard",
+            "pre_merge",
         }
 
         # Each successful result should have total_tokens

@@ -25,12 +25,14 @@ def run(repo_path: Path, store, config: dict) -> list[dict]:
 
     depths = [f.get("depth", 0) for f in flows]
 
-    return [{
-        "repo": config["name"],
-        "known_entry_points": len(known),
-        "detected_entry_points": found,
-        "recall": round(found / max(len(known), 1), 3),
-        "detected_flows": count,
-        "avg_flow_depth": round(sum(depths) / max(len(depths), 1), 1),
-        "max_flow_depth": max(depths, default=0),
-    }]
+    return [
+        {
+            "repo": config["name"],
+            "known_entry_points": len(known),
+            "detected_entry_points": found,
+            "recall": round(found / max(len(known), 1), 3),
+            "detected_flows": count,
+            "avg_flow_depth": round(sum(depths) / max(len(depths), 1), 1),
+            "max_flow_depth": max(depths, default=0),
+        }
+    ]

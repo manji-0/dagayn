@@ -18,13 +18,33 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # Flags that consume the next token in grep/rg commands
-_RG_FLAGS_WITH_VALUES = frozenset({
-    "-e", "-f", "-m", "-A", "-B", "-C", "-g", "--glob",
-    "-t", "--type", "--include", "--exclude", "--max-count",
-    "--max-depth", "--max-filesize", "--color", "--colors",
-    "--context-separator", "--field-match-separator",
-    "--path-separator", "--replace", "--sort", "--sortr",
-})
+_RG_FLAGS_WITH_VALUES = frozenset(
+    {
+        "-e",
+        "-f",
+        "-m",
+        "-A",
+        "-B",
+        "-C",
+        "-g",
+        "--glob",
+        "-t",
+        "--type",
+        "--include",
+        "--exclude",
+        "--max-count",
+        "--max-depth",
+        "--max-filesize",
+        "--color",
+        "--colors",
+        "--context-separator",
+        "--field-match-separator",
+        "--path-separator",
+        "--replace",
+        "--sort",
+        "--sortr",
+    }
+)
 
 
 def extract_pattern(tool_name: str, tool_input: dict[str, Any]) -> str | None:
@@ -78,9 +98,7 @@ def _make_relative(file_path: str, repo_root: str) -> str:
 
 def _get_community_name(conn: Any, community_id: int) -> str:
     """Fetch a community name by ID."""
-    row = conn.execute(
-        "SELECT name FROM communities WHERE id = ?", (community_id,)
-    ).fetchone()
+    row = conn.execute("SELECT name FROM communities WHERE id = ?", (community_id,)).fetchone()
     return row["name"] if row else ""
 
 
@@ -103,6 +121,7 @@ def _format_node_context(
 ) -> list[str]:
     """Format a single node's structural context as plain text lines."""
     from .graph import GraphNode
+
     assert isinstance(node, GraphNode)
 
     qn = node.qualified_name
@@ -119,9 +138,7 @@ def _format_node_context(
             header += f" [{cname}]"
     else:
         # Check via direct query
-        row = conn.execute(
-            "SELECT community_id FROM nodes WHERE id = ?", (node.id,)
-        ).fetchone()
+        row = conn.execute("SELECT community_id FROM nodes WHERE id = ?", (node.id,)).fetchone()
         if row and row["community_id"]:
             cname = _get_community_name(conn, row["community_id"])
             if cname:
@@ -233,10 +250,7 @@ def enrich_file_read(file_path: str, repo_root: str) -> str:
             return ""
 
         # Filter to functions/classes/types (skip File nodes), limit to 10
-        interesting = [
-            n for n in nodes
-            if n.kind in ("Function", "Class", "Type", "Test")
-        ][:10]
+        interesting = [n for n in nodes if n.kind in ("Function", "Class", "Type", "Test")][:10]
 
         if not interesting:
             return ""
@@ -248,9 +262,7 @@ def enrich_file_read(file_path: str, repo_root: str) -> str:
             all_lines.append("")
 
         rel_path = _make_relative(file_path, repo_root)
-        header = (
-            f"[code-review-graph] {len(interesting)} symbol(s) in {rel_path}:\n"
-        )
+        header = f"[code-review-graph] {len(interesting)} symbol(s) in {rel_path}:\n"
         return header + "\n".join(all_lines)
     finally:
         store.close()

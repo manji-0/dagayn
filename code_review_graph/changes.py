@@ -308,19 +308,18 @@ def analyze_changes(
             changed_nodes.extend(store.get_nodes_by_file(fp))
 
     # Filter to functions/tests for risk scoring (skip File nodes).
-    changed_funcs = [
-        n for n in changed_nodes
-        if n.kind in ("Function", "Test", "Class")
-    ]
+    changed_funcs = [n for n in changed_nodes if n.kind in ("Function", "Test", "Class")]
 
     # Compute per-node risk scores.
     node_risks: list[dict[str, Any]] = []
     for node in changed_funcs:
         risk = compute_risk_score(store, node)
-        node_risks.append({
-            **node_to_dict(node),
-            "risk_score": risk,
-        })
+        node_risks.append(
+            {
+                **node_to_dict(node),
+                "risk_score": risk,
+            }
+        )
 
     # Overall risk score: max of individual risks, or 0.
     overall_risk = max((nr["risk_score"] for nr in node_risks), default=0.0)
@@ -335,13 +334,15 @@ def analyze_changes(
             continue
         tested = store.get_edges_by_target(node.qualified_name)
         if not any(e.kind == "TESTED_BY" for e in tested):
-            test_gaps.append({
-                "name": _sanitize_name(node.name),
-                "qualified_name": _sanitize_name(node.qualified_name),
-                "file": node.file_path,
-                "line_start": node.line_start,
-                "line_end": node.line_end,
-            })
+            test_gaps.append(
+                {
+                    "name": _sanitize_name(node.name),
+                    "qualified_name": _sanitize_name(node.qualified_name),
+                    "file": node.file_path,
+                    "line_start": node.line_start,
+                    "line_end": node.line_end,
+                }
+            )
 
     # Review priorities: top 10 by risk score.
     review_priorities = sorted(node_risks, key=lambda x: x["risk_score"], reverse=True)[:10]

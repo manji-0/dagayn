@@ -18,16 +18,20 @@ def _has_git_changes(root: Path, base: str) -> bool:
     try:
         result = subprocess.run(
             ["git", "diff", "--name-only", base, "--"],
-            capture_output=True, text=True,
-            cwd=str(root), timeout=10,
+            capture_output=True,
+            text=True,
+            cwd=str(root),
+            timeout=10,
         )
         if result.returncode == 0 and result.stdout.strip():
             return True
         # Also check staged/unstaged
         result2 = subprocess.run(
             ["git", "status", "--porcelain"],
-            capture_output=True, text=True,
-            cwd=str(root), timeout=10,
+            capture_output=True,
+            text=True,
+            cwd=str(root),
+            timeout=10,
         )
         return bool(result2.stdout.strip())
     except (FileNotFoundError, subprocess.TimeoutExpired):
@@ -73,22 +77,23 @@ def get_minimal_context(
                 if files:
                     abs_files = [str(root / f) for f in files]
                     analysis = analyze_changes(
-                        store, abs_files, repo_root=str(root), base=base,
+                        store,
+                        abs_files,
+                        repo_root=str(root),
+                        base=base,
                     )
                     risk_score = analysis.get("risk_score", 0.0)
-                    risk = (
-                        "high" if risk_score > 0.7
-                        else "medium" if risk_score > 0.4
-                        else "low"
-                    )
+                    risk = "high" if risk_score > 0.7 else "medium" if risk_score > 0.4 else "low"
                     top_affected = [
-                        f.get("name", "")
-                        for f in analysis.get("changed_functions", [])[:5]
+                        f.get("name", "") for f in analysis.get("changed_functions", [])[:5]
                     ]
                     test_gap_count = len(analysis.get("test_gaps", []))
             except (
-                ImportError, OSError, ValueError,
-                sqlite3.Error, subprocess.SubprocessError,
+                ImportError,
+                OSError,
+                ValueError,
+                sqlite3.Error,
+                subprocess.SubprocessError,
             ):
                 logger.debug("Risk analysis failed in get_minimal_context", exc_info=True)
 
@@ -122,11 +127,14 @@ def get_minimal_context(
             suggestions = ["refactor", "find_large_functions", "get_architecture_overview"]
         elif any(w in task_lower for w in ("onboard", "understand", "explore", "arch")):
             suggestions = [
-                "get_architecture_overview", "list_communities", "list_flows",
+                "get_architecture_overview",
+                "list_communities",
+                "list_flows",
             ]
         else:
             suggestions = [
-                "detect_changes", "semantic_search_nodes",
+                "detect_changes",
+                "semantic_search_nodes",
                 "get_architecture_overview",
             ]
 

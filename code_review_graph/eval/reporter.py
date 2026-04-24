@@ -167,20 +167,27 @@ def generate_readme_tables(results_dir: str | Path) -> str:
         lines.append("### Token Efficiency")
         lines.append("")
         headers = [
-            "Repo", "Files", "Naive Tokens", "Standard Tokens",
-            "Graph Tokens", "Naive/Graph", "Std/Graph",
+            "Repo",
+            "Files",
+            "Naive Tokens",
+            "Standard Tokens",
+            "Graph Tokens",
+            "Naive/Graph",
+            "Std/Graph",
         ]
         table_rows = []
         for r in te_rows:
-            table_rows.append([
-                r.get("repo", "-"),
-                r.get("changed_files", "-"),
-                r.get("naive_tokens", "-"),
-                r.get("standard_tokens", "-"),
-                r.get("graph_tokens", "-"),
-                r.get("naive_to_graph_ratio", "-"),
-                r.get("standard_to_graph_ratio", "-"),
-            ])
+            table_rows.append(
+                [
+                    r.get("repo", "-"),
+                    r.get("changed_files", "-"),
+                    r.get("naive_tokens", "-"),
+                    r.get("standard_tokens", "-"),
+                    r.get("graph_tokens", "-"),
+                    r.get("naive_to_graph_ratio", "-"),
+                    r.get("standard_to_graph_ratio", "-"),
+                ]
+            )
         lines.append(_md_table(headers, table_rows))
         lines.append("")
 
@@ -211,17 +218,15 @@ def generate_readme_tables(results_dir: str | Path) -> str:
         table_rows = []
         for repo, d in sorted(repo_data.items()):
             mrr_vals = mrr_accum.get(repo, [])
-            mrr = (
-                str(round(sum(mrr_vals) / len(mrr_vals), 3))
-                if mrr_vals
-                else "-"
+            mrr = str(round(sum(mrr_vals) / len(mrr_vals), 3)) if mrr_vals else "-"
+            table_rows.append(
+                [
+                    repo,
+                    str(d.get("f1", "-")),
+                    str(d.get("recall", "-")),
+                    mrr,
+                ]
             )
-            table_rows.append([
-                repo,
-                str(d.get("f1", "-")),
-                str(d.get("recall", "-")),
-                mrr,
-            ])
         lines.append(_md_table(headers, table_rows))
         lines.append("")
 
@@ -233,13 +238,15 @@ def generate_readme_tables(results_dir: str | Path) -> str:
         headers = ["Repo", "Files", "Nodes", "Flow Det. (s)", "Search (ms)"]
         table_rows = []
         for r in bp_rows:
-            table_rows.append([
-                r.get("repo", "-"),
-                r.get("file_count", "-"),
-                r.get("node_count", "-"),
-                r.get("flow_detection_seconds", "-"),
-                r.get("search_avg_ms", "-"),
-            ])
+            table_rows.append(
+                [
+                    r.get("repo", "-"),
+                    r.get("file_count", "-"),
+                    r.get("node_count", "-"),
+                    r.get("flow_detection_seconds", "-"),
+                    r.get("search_avg_ms", "-"),
+                ]
+            )
         lines.append(_md_table(headers, table_rows))
         lines.append("")
 

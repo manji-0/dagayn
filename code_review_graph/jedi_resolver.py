@@ -52,7 +52,7 @@ def enrich_jedi_calls(store, repo_root: Path) -> dict:
     # non-Python files (e.g. node_modules, TS sources).  This matters for
     # polyglot monorepos where jedi.Project(path=repo_root) would scan
     # thousands of irrelevant files during initialization.
-    py_dirs = sorted({str(Path(f).parent) for f in py_files})
+    py_dirs = sorted({str(store.resolve_file_path(f).parent) for f in py_files})
     common_py_root = Path(os.path.commonpath(py_dirs)) if py_dirs else repo_root
     if not str(common_py_root).startswith(str(repo_root)):
         common_py_root = repo_root
@@ -83,7 +83,7 @@ def enrich_jedi_calls(store, repo_root: Path) -> dict:
     total_skipped = 0
     for file_path in py_files:
         try:
-            source = Path(file_path).read_bytes()
+            source = store.resolve_file_path(file_path).read_bytes()
         except (OSError, PermissionError):
             continue
         tree = ts_parser.parse(source)
@@ -101,7 +101,9 @@ def enrich_jedi_calls(store, repo_root: Path) -> dict:
 
     logger.debug(
         "Jedi: %d/%d Python files have pending calls (%d calls skipped — no project target)",
-        len(files_with_pending), len(py_files), total_skipped,
+        len(files_with_pending),
+        len(py_files),
+        total_skipped,
     )
 
     resolved_count = 0
@@ -118,13 +120,16 @@ def enrich_jedi_calls(store, repo_root: Path) -> dict:
 
         # Get function nodes from DB for enclosing-function lookup
         func_nodes = [
-            n for n in store.get_nodes_by_file(file_path)
-            if n.kind in ("Function", "Test")
+            n for n in store.get_nodes_by_file(file_path) if n.kind in ("Function", "Test")
         ]
 
         # Create Jedi script once per file
         try:
-            script = jedi.Script(source_text, path=file_path, project=project)
+            script = jedi.Script(
+                source_text,
+                path=str(store.resolve_file_path(file_path)),
+                project=project,
+            )
         except Exception as e:
             logger.debug("Jedi failed to load %s: %s", file_path, e)
             errors += 1
@@ -163,20 +168,22 @@ def enrich_jedi_calls(store, repo_root: Path) -> dict:
                 continue
 
             # Build qualified target: file_path::Class.method or file_path::func
-            target_file = str(module_path)
+            target_file = str(module_path.relative_to(repo_root))
             parent = name.parent()
             if parent and parent.type == "class":
                 target = f"{target_file}::{parent.name}.{name.name}"
             else:
                 target = f"{target_file}::{name.name}"
 
-            store.upsert_edge(EdgeInfo(
-                kind="CALLS",
-                source=enclosing,
-                target=target,
-                file_path=file_path,
-                line=jedi_line,
-            ))
+            store.upsert_edge(
+                EdgeInfo(
+                    kind="CALLS",
+                    source=enclosing,
+                    target=target,
+                    file_path=file_path,
+                    line=jedi_line,
+                )
+            )
             existing.add((enclosing, jedi_line))
             file_resolved += 1
 
@@ -188,7 +195,8 @@ def enrich_jedi_calls(store, repo_root: Path) -> dict:
         store.commit()
         logger.info(
             "Jedi enrichment: resolved %d calls in %d files",
-            resolved_count, files_enriched,
+            resolved_count,
+            files_enriched,
         )
 
     return {
@@ -201,17 +209,21 @@ def enrich_jedi_calls(store, repo_root: Path) -> dict:
 def _get_file_call_edges(store, file_path: str):
     """Get all CALLS edges originating from a file."""
     conn = store._conn
+    normalized = store._normalize_file_path_key(file_path)
     rows = conn.execute(
         "SELECT * FROM edges WHERE file_path = ? AND kind = 'CALLS'",
-        (file_path,),
+        (normalized,),
     ).fetchall()
     from .graph import GraphEdge
+
     return [
         GraphEdge(
-            id=r["id"], kind=r["kind"],
+            id=r["id"],
+            kind=r["kind"],
             source_qualified=r["source_qualified"],
             target_qualified=r["target_qualified"],
-            file_path=r["file_path"], line=r["line"],
+            file_path=r["file_path"],
+            line=r["line"],
             extra={},
         )
         for r in rows

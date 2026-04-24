@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
 from ..analysis import (
     find_bridge_nodes,
@@ -15,7 +15,7 @@ from ._common import _get_store
 
 
 def get_hub_nodes_func(
-    repo_root: str = "",
+    repo_root: Optional[str] = None,
     top_n: int = 10,
 ) -> dict[str, Any]:
     """Find the most connected nodes in the codebase graph.
@@ -28,7 +28,7 @@ def get_hub_nodes_func(
         repo_root: Repository root (auto-detected if empty).
         top_n: Number of top hubs to return (default 10).
     """
-    store, _root = _get_store(repo_root or None)
+    store, _root = _get_store(repo_root)
     hubs = find_hub_nodes(store, top_n=top_n)
     return {
         "hub_nodes": hubs,
@@ -42,7 +42,7 @@ def get_hub_nodes_func(
 
 
 def get_bridge_nodes_func(
-    repo_root: str = "",
+    repo_root: Optional[str] = None,
     top_n: int = 10,
 ) -> dict[str, Any]:
     """Find architectural chokepoints via betweenness centrality.
@@ -55,7 +55,7 @@ def get_bridge_nodes_func(
         repo_root: Repository root (auto-detected if empty).
         top_n: Number of top bridges to return (default 10).
     """
-    store, _root = _get_store(repo_root or None)
+    store, _root = _get_store(repo_root)
     bridges = find_bridge_nodes(store, top_n=top_n)
     return {
         "bridge_nodes": bridges,
@@ -69,7 +69,7 @@ def get_bridge_nodes_func(
 
 
 def get_knowledge_gaps_func(
-    repo_root: str = "",
+    repo_root: Optional[str] = None,
 ) -> dict[str, Any]:
     """Identify structural weaknesses in the codebase.
 
@@ -80,7 +80,7 @@ def get_knowledge_gaps_func(
     Args:
         repo_root: Repository root (auto-detected if empty).
     """
-    store, _root = _get_store(repo_root or None)
+    store, _root = _get_store(repo_root)
     gaps = find_knowledge_gaps(store)
     total = sum(len(v) for v in gaps.values())
     return {
@@ -88,15 +88,9 @@ def get_knowledge_gaps_func(
         "total_gaps": total,
         "summary": {
             "isolated_nodes": len(gaps["isolated_nodes"]),
-            "thin_communities": len(
-                gaps["thin_communities"]
-            ),
-            "untested_hotspots": len(
-                gaps["untested_hotspots"]
-            ),
-            "single_file_communities": len(
-                gaps["single_file_communities"]
-            ),
+            "thin_communities": len(gaps["thin_communities"]),
+            "untested_hotspots": len(gaps["untested_hotspots"]),
+            "single_file_communities": len(gaps["single_file_communities"]),
         },
         "next_tool_suggestions": [
             "refactor dead_code -- find unused symbols",
@@ -107,7 +101,7 @@ def get_knowledge_gaps_func(
 
 
 def get_surprising_connections_func(
-    repo_root: str = "",
+    repo_root: Optional[str] = None,
     top_n: int = 15,
 ) -> dict[str, Any]:
     """Find unexpected architectural coupling in the codebase.
@@ -119,10 +113,8 @@ def get_surprising_connections_func(
         repo_root: Repository root (auto-detected if empty).
         top_n: Number of top surprises to return (default 15).
     """
-    store, _root = _get_store(repo_root or None)
-    surprises = find_surprising_connections(
-        store, top_n=top_n
-    )
+    store, _root = _get_store(repo_root)
+    surprises = find_surprising_connections(store, top_n=top_n)
     return {
         "surprising_connections": surprises,
         "count": len(surprises),
@@ -135,7 +127,7 @@ def get_surprising_connections_func(
 
 
 def get_suggested_questions_func(
-    repo_root: str = "",
+    repo_root: Optional[str] = None,
 ) -> dict[str, Any]:
     """Auto-generate review questions from graph analysis.
 
@@ -146,10 +138,12 @@ def get_suggested_questions_func(
     Args:
         repo_root: Repository root (auto-detected if empty).
     """
-    store, _root = _get_store(repo_root or None)
+    store, _root = _get_store(repo_root)
     questions = generate_suggested_questions(store)
     by_priority: dict[str, list[dict[str, Any]]] = {
-        "high": [], "medium": [], "low": [],
+        "high": [],
+        "medium": [],
+        "low": [],
     }
     for q in questions:
         prio = q.get("priority", "medium")
@@ -158,9 +152,7 @@ def get_suggested_questions_func(
     return {
         "questions": questions,
         "count": len(questions),
-        "by_priority": {
-            k: len(v) for k, v in by_priority.items()
-        },
+        "by_priority": {k: len(v) for k, v in by_priority.items()},
         "next_tool_suggestions": [
             "get_knowledge_gaps -- structural weaknesses",
             "detect_changes -- risk-scored review",

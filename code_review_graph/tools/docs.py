@@ -87,9 +87,7 @@ def embed_graph(
 # ---------------------------------------------------------------------------
 
 
-def get_docs_section(
-    section_name: str, repo_root: str | None = None
-) -> dict[str, Any]:
+def get_docs_section(section_name: str, repo_root: str | None = None) -> dict[str, Any]:
     """Return a specific section from the LLM-optimized reference.
 
     Used by skills and Claude Code to load only the exact documentation
@@ -120,11 +118,7 @@ def get_docs_section(
         pass
 
     # Fallback: package directory (for uvx/pip installs)
-    pkg_docs = (
-        Path(__file__).parent.parent.parent
-        / "docs"
-        / "LLM-OPTIMIZED-REFERENCE.md"
-    )
+    pkg_docs = Path(__file__).parent.parent.parent / "docs" / "LLM-OPTIMIZED-REFERENCE.md"
     if pkg_docs.exists():
         pkg_root = pkg_docs.parent.parent
         if pkg_root not in search_roots:
@@ -148,15 +142,19 @@ def get_docs_section(
                 }
 
     available = [
-        "usage", "review-delta", "review-pr", "commands",
-        "legal", "watch", "embeddings", "languages", "troubleshooting",
+        "usage",
+        "review-delta",
+        "review-pr",
+        "commands",
+        "legal",
+        "watch",
+        "embeddings",
+        "languages",
+        "troubleshooting",
     ]
     return {
         "status": "not_found",
-        "error": (
-            f"Section '{section_name}' not found. "
-            f"Available: {', '.join(available)}"
-        ),
+        "error": (f"Section '{section_name}' not found. Available: {', '.join(available)}"),
     }
 
 
@@ -190,11 +188,7 @@ def generate_wiki_func(
     try:
         wiki_dir = get_data_dir(root) / "wiki"
         result = generate_wiki(store, wiki_dir, force=force)
-        total = (
-            result["pages_generated"]
-            + result["pages_updated"]
-            + result["pages_unchanged"]
-        )
+        total = result["pages_generated"] + result["pages_updated"] + result["pages_unchanged"]
         return {
             "status": "ok",
             "summary": (
@@ -246,8 +240,6 @@ def get_wiki_page_func(
         }
     return {
         "status": "ok",
-        "summary": (
-            f"Wiki page for '{community_name}' ({len(content)} chars)"
-        ),
+        "summary": (f"Wiki page for '{community_name}' ({len(content)} chars)"),
         "content": content,
     }

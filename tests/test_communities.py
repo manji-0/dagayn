@@ -35,76 +35,141 @@ class TestCommunities:
         # Auth cluster
         self.store.upsert_node(
             NodeInfo(
-                kind="File", name="auth.py", file_path="auth.py",
-                line_start=1, line_end=100, language="python",
-            ), file_hash="a1"
+                kind="File",
+                name="auth.py",
+                file_path="auth.py",
+                line_start=1,
+                line_end=100,
+                language="python",
+            ),
+            file_hash="a1",
         )
         self.store.upsert_node(
             NodeInfo(
-                kind="Function", name="login", file_path="auth.py",
-                line_start=5, line_end=20, language="python",
-            ), file_hash="a1"
+                kind="Function",
+                name="login",
+                file_path="auth.py",
+                line_start=5,
+                line_end=20,
+                language="python",
+            ),
+            file_hash="a1",
         )
         self.store.upsert_node(
             NodeInfo(
-                kind="Function", name="logout", file_path="auth.py",
-                line_start=25, line_end=40, language="python",
-            ), file_hash="a1"
+                kind="Function",
+                name="logout",
+                file_path="auth.py",
+                line_start=25,
+                line_end=40,
+                language="python",
+            ),
+            file_hash="a1",
         )
         self.store.upsert_node(
             NodeInfo(
-                kind="Function", name="check_token", file_path="auth.py",
-                line_start=45, line_end=60, language="python",
-            ), file_hash="a1"
+                kind="Function",
+                name="check_token",
+                file_path="auth.py",
+                line_start=45,
+                line_end=60,
+                language="python",
+            ),
+            file_hash="a1",
         )
-        self.store.upsert_edge(EdgeInfo(
-            kind="CALLS", source="auth.py::login",
-            target="auth.py::check_token", file_path="auth.py", line=10,
-        ))
-        self.store.upsert_edge(EdgeInfo(
-            kind="CALLS", source="auth.py::logout",
-            target="auth.py::check_token", file_path="auth.py", line=30,
-        ))
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CALLS",
+                source="auth.py::login",
+                target="auth.py::check_token",
+                file_path="auth.py",
+                line=10,
+            )
+        )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CALLS",
+                source="auth.py::logout",
+                target="auth.py::check_token",
+                file_path="auth.py",
+                line=30,
+            )
+        )
 
         # DB cluster
         self.store.upsert_node(
             NodeInfo(
-                kind="File", name="db.py", file_path="db.py",
-                line_start=1, line_end=100, language="python",
-            ), file_hash="b1"
+                kind="File",
+                name="db.py",
+                file_path="db.py",
+                line_start=1,
+                line_end=100,
+                language="python",
+            ),
+            file_hash="b1",
         )
         self.store.upsert_node(
             NodeInfo(
-                kind="Function", name="connect", file_path="db.py",
-                line_start=5, line_end=20, language="python",
-            ), file_hash="b1"
+                kind="Function",
+                name="connect",
+                file_path="db.py",
+                line_start=5,
+                line_end=20,
+                language="python",
+            ),
+            file_hash="b1",
         )
         self.store.upsert_node(
             NodeInfo(
-                kind="Function", name="query", file_path="db.py",
-                line_start=25, line_end=40, language="python",
-            ), file_hash="b1"
+                kind="Function",
+                name="query",
+                file_path="db.py",
+                line_start=25,
+                line_end=40,
+                language="python",
+            ),
+            file_hash="b1",
         )
         self.store.upsert_node(
             NodeInfo(
-                kind="Function", name="close", file_path="db.py",
-                line_start=45, line_end=60, language="python",
-            ), file_hash="b1"
+                kind="Function",
+                name="close",
+                file_path="db.py",
+                line_start=45,
+                line_end=60,
+                language="python",
+            ),
+            file_hash="b1",
         )
-        self.store.upsert_edge(EdgeInfo(
-            kind="CALLS", source="db.py::query",
-            target="db.py::connect", file_path="db.py", line=30,
-        ))
-        self.store.upsert_edge(EdgeInfo(
-            kind="CALLS", source="db.py::close",
-            target="db.py::connect", file_path="db.py", line=50,
-        ))
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CALLS",
+                source="db.py::query",
+                target="db.py::connect",
+                file_path="db.py",
+                line=30,
+            )
+        )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CALLS",
+                source="db.py::close",
+                target="db.py::connect",
+                file_path="db.py",
+                line=50,
+            )
+        )
 
         # One cross-cluster edge
-        self.store.upsert_edge(EdgeInfo(
-            kind="CALLS", source="auth.py::login",
-            target="db.py::query", file_path="auth.py", line=15,
-        ))
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CALLS",
+                source="auth.py::login",
+                target="db.py::query",
+                file_path="auth.py",
+                line=15,
+            )
+        )
         self.store.commit()
 
     def test_detect_communities_returns_list(self):
@@ -173,10 +238,15 @@ class TestCommunities:
 
         # Add many TESTED_BY cross-community edges (well above the threshold of 10)
         for i in range(20):
-            self.store.upsert_edge(EdgeInfo(
-                kind="TESTED_BY", source=f"auth.py::login",
-                target=f"db.py::query", file_path="auth.py", line=i + 100,
-            ))
+            self.store.upsert_edge(
+                EdgeInfo(
+                    kind="TESTED_BY",
+                    source="auth.py::login",
+                    target="db.py::query",
+                    file_path="auth.py",
+                    line=i + 100,
+                )
+            )
         self.store.commit()
 
         overview = get_architecture_overview(self.store)
@@ -238,16 +308,36 @@ class TestCommunities:
         """When a class dominates (>40%), it appears in the name."""
         nodes = [
             GraphNode(
-                id=1, kind="Class", name="AuthService", qualified_name="auth.py::AuthService",
-                file_path="auth.py", line_start=1, line_end=100, language="python",
-                parent_name=None, params=None, return_type=None, is_test=False,
-                file_hash="x", extra={},
+                id=1,
+                kind="Class",
+                name="AuthService",
+                qualified_name="auth.py::AuthService",
+                file_path="auth.py",
+                line_start=1,
+                line_end=100,
+                language="python",
+                parent_name=None,
+                params=None,
+                return_type=None,
+                is_test=False,
+                file_hash="x",
+                extra={},
             ),
             GraphNode(
-                id=2, kind="Function", name="login", qualified_name="auth.py::AuthService.login",
-                file_path="auth.py", line_start=10, line_end=20, language="python",
-                parent_name="AuthService", params=None, return_type=None, is_test=False,
-                file_hash="x", extra={},
+                id=2,
+                kind="Function",
+                name="login",
+                qualified_name="auth.py::AuthService.login",
+                file_path="auth.py",
+                line_start=10,
+                line_end=20,
+                language="python",
+                parent_name="AuthService",
+                params=None,
+                return_type=None,
+                is_test=False,
+                file_hash="x",
+                extra={},
             ),
         ]
         name = _generate_community_name(nodes)
@@ -264,12 +354,22 @@ class TestCommunities:
         member_qns = {"a", "b"}
         edges = [
             GraphEdge(
-                id=1, kind="CALLS", source_qualified="a",
-                target_qualified="b", file_path="f.py", line=1, extra={},
+                id=1,
+                kind="CALLS",
+                source_qualified="a",
+                target_qualified="b",
+                file_path="f.py",
+                line=1,
+                extra={},
             ),
             GraphEdge(
-                id=2, kind="CALLS", source_qualified="a",
-                target_qualified="c", file_path="f.py", line=2, extra={},
+                id=2,
+                kind="CALLS",
+                source_qualified="a",
+                target_qualified="c",
+                file_path="f.py",
+                line=2,
+                extra={},
             ),
         ]
         cohesion = _compute_cohesion(member_qns, edges)
@@ -281,8 +381,13 @@ class TestCommunities:
         member_qns = {"a", "b"}
         edges = [
             GraphEdge(
-                id=1, kind="CALLS", source_qualified="a",
-                target_qualified="b", file_path="f.py", line=1, extra={},
+                id=1,
+                kind="CALLS",
+                source_qualified="a",
+                target_qualified="b",
+                file_path="f.py",
+                line=1,
+                extra={},
             ),
         ]
         cohesion = _compute_cohesion(member_qns, edges)
@@ -302,28 +407,53 @@ class TestCommunities:
         edges = [
             # Internal to comm_a
             GraphEdge(
-                id=1, kind="CALLS", source_qualified="a::f1",
-                target_qualified="a::f2", file_path="a.py", line=1, extra={},
+                id=1,
+                kind="CALLS",
+                source_qualified="a::f1",
+                target_qualified="a::f2",
+                file_path="a.py",
+                line=1,
+                extra={},
             ),
             # Cross-community (a <-> b): external to both
             GraphEdge(
-                id=2, kind="CALLS", source_qualified="a::f1",
-                target_qualified="b::g1", file_path="a.py", line=2, extra={},
+                id=2,
+                kind="CALLS",
+                source_qualified="a::f1",
+                target_qualified="b::g1",
+                file_path="a.py",
+                line=2,
+                extra={},
             ),
             # Internal to comm_b
             GraphEdge(
-                id=3, kind="CALLS", source_qualified="b::g1",
-                target_qualified="b::g2", file_path="b.py", line=3, extra={},
+                id=3,
+                kind="CALLS",
+                source_qualified="b::g1",
+                target_qualified="b::g2",
+                file_path="b.py",
+                line=3,
+                extra={},
             ),
             # Half-in (b -> c): external to b, ignored by a
             GraphEdge(
-                id=4, kind="CALLS", source_qualified="b::g1",
-                target_qualified="c::h1", file_path="b.py", line=4, extra={},
+                id=4,
+                kind="CALLS",
+                source_qualified="b::g1",
+                target_qualified="c::h1",
+                file_path="b.py",
+                line=4,
+                extra={},
             ),
             # Neither endpoint in any tracked community — fully ignored
             GraphEdge(
-                id=5, kind="CALLS", source_qualified="c::h1",
-                target_qualified="d::k1", file_path="c.py", line=5, extra={},
+                id=5,
+                kind="CALLS",
+                source_qualified="c::h1",
+                target_qualified="d::k1",
+                file_path="c.py",
+                line=5,
+                extra={},
             ),
         ]
         comm_a = {"a::f1", "a::f2"}
@@ -358,19 +488,34 @@ class TestCommunities:
         Cohesions are deliberately distinct (1.0 vs 0.6667) so a swap would
         fail the assertions.
         """
+
         def mk_node(nid: int, name: str, fp: str) -> GraphNode:
             return GraphNode(
-                id=nid, kind="Function", name=name,
+                id=nid,
+                kind="Function",
+                name=name,
                 qualified_name=f"{fp}::{name}",
-                file_path=fp, line_start=1, line_end=10, language="python",
-                parent_name=None, params=None, return_type=None, is_test=False,
-                file_hash="h", extra={},
+                file_path=fp,
+                line_start=1,
+                line_end=10,
+                language="python",
+                parent_name=None,
+                params=None,
+                return_type=None,
+                is_test=False,
+                file_hash="h",
+                extra={},
             )
 
         def mk_edge(eid: int, src: str, tgt: str, fp: str) -> GraphEdge:
             return GraphEdge(
-                id=eid, kind="CALLS", source_qualified=src,
-                target_qualified=tgt, file_path=fp, line=1, extra={},
+                id=eid,
+                kind="CALLS",
+                source_qualified=src,
+                target_qualified=tgt,
+                file_path=fp,
+                line=1,
+                extra={},
             )
 
         nodes = [
@@ -400,10 +545,14 @@ class TestCommunities:
 
         # Member sets — catches wrong member_qns being passed to batch helper
         assert set(auth["members"]) == {
-            "auth.py::login", "auth.py::logout", "auth.py::check_token",
+            "auth.py::login",
+            "auth.py::logout",
+            "auth.py::check_token",
         }
         assert set(db["members"]) == {
-            "db.py::connect", "db.py::query", "db.py::close",
+            "db.py::connect",
+            "db.py::query",
+            "db.py::close",
         }
 
         # Cohesions are distinct — zip misalignment would swap these
@@ -438,10 +587,15 @@ class TestCommunities:
         # so auth.py cohesion != db.py cohesion. Without this, the seeded
         # fixture has both communities at 2/3 and a zip misalignment
         # would be silent.
-        self.store.upsert_edge(EdgeInfo(
-            kind="CALLS", source="auth.py::login",
-            target="auth.py::logout", file_path="auth.py", line=12,
-        ))
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CALLS",
+                source="auth.py::login",
+                target="auth.py::logout",
+                file_path="auth.py",
+                line=12,
+            )
+        )
         self.store.commit()
 
         communities = detect_communities(self.store, min_size=2)
@@ -527,42 +681,59 @@ class TestCommunities:
         # Seed nodes with only CONTAINS edges (no CALLS/IMPORTS -- sparse graph)
         self.store.upsert_node(
             NodeInfo(
-                kind="File", name="a.py", file_path="a.py",
-                line_start=1, line_end=100, language="python",
-            ), file_hash="a1"
+                kind="File",
+                name="a.py",
+                file_path="a.py",
+                line_start=1,
+                line_end=100,
+                language="python",
+            ),
+            file_hash="a1",
         )
         self.store.upsert_node(
             NodeInfo(
-                kind="Function", name="f1", file_path="a.py",
-                line_start=1, line_end=10, language="python",
+                kind="Function",
+                name="f1",
+                file_path="a.py",
+                line_start=1,
+                line_end=10,
+                language="python",
                 parent_name=None,
-            ), file_hash="a1"
+            ),
+            file_hash="a1",
         )
         self.store.upsert_node(
             NodeInfo(
-                kind="Function", name="f2", file_path="a.py",
-                line_start=11, line_end=20, language="python",
+                kind="Function",
+                name="f2",
+                file_path="a.py",
+                line_start=11,
+                line_end=20,
+                language="python",
                 parent_name=None,
-            ), file_hash="a1"
+            ),
+            file_hash="a1",
         )
         self.store.upsert_node(
             NodeInfo(
-                kind="Function", name="f3", file_path="a.py",
-                line_start=21, line_end=30, language="python",
+                kind="Function",
+                name="f3",
+                file_path="a.py",
+                line_start=21,
+                line_end=30,
+                language="python",
                 parent_name=None,
-            ), file_hash="a1"
+            ),
+            file_hash="a1",
         )
         self.store.upsert_edge(
-            EdgeInfo(kind="CONTAINS", source="a.py", target="a.py::f1",
-                     file_path="a.py", line=1)
+            EdgeInfo(kind="CONTAINS", source="a.py", target="a.py::f1", file_path="a.py", line=1)
         )
         self.store.upsert_edge(
-            EdgeInfo(kind="CONTAINS", source="a.py", target="a.py::f2",
-                     file_path="a.py", line=11)
+            EdgeInfo(kind="CONTAINS", source="a.py", target="a.py::f2", file_path="a.py", line=11)
         )
         self.store.upsert_edge(
-            EdgeInfo(kind="CONTAINS", source="a.py", target="a.py::f3",
-                     file_path="a.py", line=21)
+            EdgeInfo(kind="CONTAINS", source="a.py", target="a.py::f3", file_path="a.py", line=21)
         )
         # With high min_size, Leiden may produce tiny clusters that get dropped.
         # The fallback to file-based should still produce results.

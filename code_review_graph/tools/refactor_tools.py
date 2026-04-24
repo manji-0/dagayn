@@ -51,10 +51,7 @@ def refactor_func(
     if mode not in valid_modes:
         return {
             "status": "error",
-            "error": (
-                f"Invalid mode '{mode}'. "
-                f"Must be one of: {', '.join(sorted(valid_modes))}"
-            ),
+            "error": (f"Invalid mode '{mode}'. Must be one of: {', '.join(sorted(valid_modes))}"),
         }
 
     store, root = _get_store(repo_root)
@@ -63,9 +60,7 @@ def refactor_func(
             if not old_name or not new_name:
                 return {
                     "status": "error",
-                    "error": (
-                        "rename mode requires both old_name and new_name."
-                    ),
+                    "error": ("rename mode requires both old_name and new_name."),
                 }
             preview = rename_preview(store, old_name, new_name)
             if preview is None:
@@ -73,7 +68,7 @@ def refactor_func(
                     "status": "not_found",
                     "summary": f"No node found matching '{old_name}'.",
                 }
-            result = {
+            result: dict[str, Any] = {
                 "status": "ok",
                 "summary": (
                     f"Rename preview: {old_name} -> {new_name}, "
@@ -83,40 +78,29 @@ def refactor_func(
                 ),
                 **preview,
             }
-            result["_hints"] = generate_hints(
-                "refactor", result, get_session()
-            )
+            result["_hints"] = generate_hints("refactor", result, get_session())
             return result
 
         elif mode == "dead_code":
-            dead = find_dead_code(
-                store, kind=kind, file_pattern=file_pattern
-            )
-            result = {
+            dead = find_dead_code(store, kind=kind, file_pattern=file_pattern)
+            result: dict[str, Any] = {
                 "status": "ok",
                 "summary": f"Found {len(dead)} dead code symbol(s).",
                 "dead_code": dead,
                 "total": len(dead),
             }
-            result["_hints"] = generate_hints(
-                "refactor", result, get_session()
-            )
+            result["_hints"] = generate_hints("refactor", result, get_session())
             return result
 
         else:  # suggest
             suggestions = suggest_refactorings(store)
-            result = {
+            result: dict[str, Any] = {
                 "status": "ok",
-                "summary": (
-                    f"Generated {len(suggestions)} "
-                    "refactoring suggestion(s)."
-                ),
+                "summary": (f"Generated {len(suggestions)} refactoring suggestion(s)."),
                 "suggestions": suggestions,
                 "total": len(suggestions),
             }
-            result["_hints"] = generate_hints(
-                "refactor", result, get_session()
-            )
+            result["_hints"] = generate_hints("refactor", result, get_session())
             return result
 
     except Exception as exc:
@@ -156,11 +140,7 @@ def apply_refactor_func(
         string).
     """
     try:
-        root = (
-            _validate_repo_root(Path(repo_root))
-            if repo_root
-            else find_project_root()
-        )
+        root = _validate_repo_root(Path(repo_root)) if repo_root else find_project_root()
     except (RuntimeError, ValueError) as exc:
         return {"status": "error", "error": str(exc)}
 

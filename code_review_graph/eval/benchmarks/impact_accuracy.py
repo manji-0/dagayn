@@ -38,8 +38,11 @@ def run(repo_path: Path, store, config: dict) -> list[dict]:
         # Get predicted impact from our tool
         try:
             from code_review_graph.changes import analyze_changes
+
             analysis = analyze_changes(
-                store, changed, repo_root=str(repo_path),
+                store,
+                changed,
+                repo_root=str(repo_path),
                 base=tc["sha"] + "~1",
             )
             # Extract files from changed_functions and affected_flows
@@ -66,9 +69,7 @@ def run(repo_path: Path, store, config: dict) -> list[dict]:
                 for edge in store.get_edges_by_target(node.qualified_name):
                     if edge.kind in ("CALLS", "IMPORTS_FROM"):
                         src_qual = edge.source_qualified
-                        src_file = (
-                            src_qual.split("::")[0] if "::" in src_qual else ""
-                        )
+                        src_file = src_qual.split("::")[0] if "::" in src_qual else ""
                         if src_file:
                             actual.add(src_file)
 
@@ -77,14 +78,16 @@ def run(repo_path: Path, store, config: dict) -> list[dict]:
         recall = tp / max(len(actual), 1)
         f1 = 2 * precision * recall / max(precision + recall, 0.001)
 
-        results.append({
-            "repo": config["name"],
-            "commit": tc["sha"],
-            "predicted_files": len(predicted),
-            "actual_files": len(actual),
-            "true_positives": tp,
-            "precision": round(precision, 3),
-            "recall": round(recall, 3),
-            "f1": round(f1, 3),
-        })
+        results.append(
+            {
+                "repo": config["name"],
+                "commit": tc["sha"],
+                "predicted_files": len(predicted),
+                "actual_files": len(actual),
+                "true_positives": tp,
+                "precision": round(precision, 3),
+                "recall": round(recall, 3),
+                "f1": round(f1, 3),
+            }
+        )
     return results

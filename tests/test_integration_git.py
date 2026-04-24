@@ -61,8 +61,7 @@ def git_repo(tmp_path: Path) -> Path:
 
     # Second commit — modify the file
     py_file.write_text(
-        "def greet():\n    return 'hello'\n\n"
-        "def farewell():\n    return 'goodbye'\n"
+        "def greet():\n    return 'hello'\n\ndef farewell():\n    return 'goodbye'\n"
     )
     _git(repo, "add", "hello.py")
     _git(repo, "commit", "-m", "add farewell function")
@@ -118,9 +117,7 @@ def test_incremental_update_real_git(git_repo: Path) -> None:
 
         # Move back to tip (second commit) and do incremental update
         _git(git_repo, "checkout", "-")
-        result = incremental_update(
-            git_repo, store, changed_files=["hello.py"]
-        )
+        result = incremental_update(git_repo, store, changed_files=["hello.py"])
         assert result["files_updated"] >= 1
         assert "hello.py" in result["changed_files"]
 
@@ -171,8 +168,13 @@ def git_repo_with_submodule(tmp_path: Path) -> Path:
     _git(parent, "add", "main.py")
     _git(parent, "commit", "-m", "parent initial")
     _git(
-        parent, "-c", "protocol.file.allow=always",
-        "submodule", "add", str(lib_repo), "lib",
+        parent,
+        "-c",
+        "protocol.file.allow=always",
+        "submodule",
+        "add",
+        str(lib_repo),
+        "lib",
     )
     _git(parent, "commit", "-m", "add lib submodule")
 
@@ -183,9 +185,7 @@ def test_get_all_tracked_files_without_recurse(
     git_repo_with_submodule: Path,
 ) -> None:
     """Without recurse_submodules, submodule files are NOT listed."""
-    files = get_all_tracked_files(
-        git_repo_with_submodule, recurse_submodules=False
-    )
+    files = get_all_tracked_files(git_repo_with_submodule, recurse_submodules=False)
     assert "main.py" in files
     # Submodule entry appears as a gitlink, not as individual files
     assert not any(f.startswith("lib/") for f in files)
@@ -195,9 +195,7 @@ def test_get_all_tracked_files_with_recurse(
     git_repo_with_submodule: Path,
 ) -> None:
     """With recurse_submodules=True, submodule files ARE listed."""
-    files = get_all_tracked_files(
-        git_repo_with_submodule, recurse_submodules=True
-    )
+    files = get_all_tracked_files(git_repo_with_submodule, recurse_submodules=True)
     assert "main.py" in files
     assert "lib/util.py" in files
 
@@ -206,9 +204,7 @@ def test_collect_all_files_with_recurse(
     git_repo_with_submodule: Path,
 ) -> None:
     """collect_all_files with recurse_submodules includes submodule code."""
-    files = collect_all_files(
-        git_repo_with_submodule, recurse_submodules=True
-    )
+    files = collect_all_files(git_repo_with_submodule, recurse_submodules=True)
     assert "main.py" in files
     assert "lib/util.py" in files
 
@@ -221,19 +217,13 @@ def test_full_build_with_recurse_submodules(
     db_path.parent.mkdir(parents=True, exist_ok=True)
     store = GraphStore(db_path)
     try:
-        result = full_build(
-            git_repo_with_submodule, store, recurse_submodules=True
-        )
+        result = full_build(git_repo_with_submodule, store, recurse_submodules=True)
         assert result["files_parsed"] >= 2  # main.py + lib/util.py
         assert result["errors"] == []
 
         # Verify both parent and submodule nodes exist
-        parent_nodes = store.get_nodes_by_file(
-            str(git_repo_with_submodule / "main.py")
-        )
-        sub_nodes = store.get_nodes_by_file(
-            str(git_repo_with_submodule / "lib" / "util.py")
-        )
+        parent_nodes = store.get_nodes_by_file(str(git_repo_with_submodule / "main.py"))
+        sub_nodes = store.get_nodes_by_file(str(git_repo_with_submodule / "lib" / "util.py"))
         assert len(parent_nodes) > 0
         assert len(sub_nodes) > 0
     finally:

@@ -151,10 +151,7 @@ class TestEnsureRepoGitignoreExcludesCrg:
 
         gitignore = tmp_path / ".gitignore"
         assert gitignore.exists()
-        assert gitignore.read_text() == (
-            "# Added by code-review-graph\n"
-            ".code-review-graph/\n"
-        )
+        assert gitignore.read_text() == ("# Added by code-review-graph\n.code-review-graph/\n")
 
     def test_appends_rule_when_missing(self, tmp_path):
         gitignore = tmp_path / ".gitignore"
@@ -163,9 +160,7 @@ class TestEnsureRepoGitignoreExcludesCrg:
         state = ensure_repo_gitignore_excludes_crg(tmp_path)
         assert state == "updated"
         assert gitignore.read_text() == (
-            "node_modules/\n"
-            "# Added by code-review-graph\n"
-            ".code-review-graph/\n"
+            "node_modules/\n# Added by code-review-graph\n.code-review-graph/\n"
         )
 
     def test_idempotent_when_present(self, tmp_path):
@@ -211,7 +206,10 @@ class TestIgnorePatterns:
     def test_should_ignore_nested_dependency_dirs(self):
         """Nested node_modules / vendor / .gradle should be ignored (#91)."""
         patterns = [
-            "node_modules/**", "vendor/**", ".gradle/**", ".venv/**",
+            "node_modules/**",
+            "vendor/**",
+            ".gradle/**",
+            ".venv/**",
         ]
         # Monorepo: nested node_modules
         assert _should_ignore("packages/app/node_modules/react/index.js", patterns)
@@ -249,6 +247,7 @@ class TestDataDir:
         """Without CRG_DATA_DIR, graphs live at <repo>/.code-review-graph."""
         monkeypatch.delenv("CRG_DATA_DIR", raising=False)
         from code_review_graph.incremental import get_data_dir
+
         result = get_data_dir(tmp_path)
         assert result == tmp_path / ".code-review-graph"
         assert result.is_dir()
@@ -268,6 +267,7 @@ class TestDataDir:
         """
         monkeypatch.delenv("CRG_DATA_DIR", raising=False)
         from code_review_graph.incremental import get_data_dir
+
         data_dir = get_data_dir(tmp_path)
         gi = data_dir / ".gitignore"
         assert gi.is_file()
@@ -296,6 +296,7 @@ class TestDataDir:
         repo.mkdir()
         monkeypatch.setenv("CRG_DATA_DIR", str(external))
         from code_review_graph.incremental import get_data_dir
+
         result = get_data_dir(repo)
         assert result == external.resolve()
         assert result.is_dir()
@@ -309,6 +310,7 @@ class TestDataDir:
         repo.mkdir()
         monkeypatch.setenv("CRG_DATA_DIR", str(external))
         from code_review_graph.incremental import get_db_path
+
         db_path = get_db_path(repo)
         assert db_path == external.resolve() / "graph.db"
         assert db_path.parent.is_dir()
@@ -316,22 +318,28 @@ class TestDataDir:
     def test_find_project_root_env_override(self, tmp_path, monkeypatch):
         """CRG_REPO_ROOT should override normal git-root resolution."""
         from pathlib import Path as PathType
+
         external_repo = tmp_path / "elsewhere"
         external_repo.mkdir()
         monkeypatch.setenv("CRG_REPO_ROOT", str(external_repo))
         from code_review_graph.incremental import find_project_root
+
         result = find_project_root(PathType.cwd())
         assert result == external_repo.resolve()
 
     def test_find_project_root_env_override_missing_dir_falls_through(
-        self, tmp_path, monkeypatch,
+        self,
+        tmp_path,
+        monkeypatch,
     ):
         """CRG_REPO_ROOT pointing at a non-existent path falls back to
         the usual resolution rather than crashing."""
         monkeypatch.setenv(
-            "CRG_REPO_ROOT", str(tmp_path / "does-not-exist-123"),
+            "CRG_REPO_ROOT",
+            str(tmp_path / "does-not-exist-123"),
         )
         from code_review_graph.incremental import find_project_root
+
         result = find_project_root(tmp_path)
         # Should NOT equal the bogus env value
         assert result != tmp_path / "does-not-exist-123"
@@ -407,9 +415,7 @@ class TestGitOperations:
         assert result == ["a.py", "b.py", "c.go"]
 
     @patch("code_review_graph.incremental.subprocess.run")
-    def test_get_all_tracked_files_recurse_submodules_param(
-        self, mock_run, tmp_path
-    ):
+    def test_get_all_tracked_files_recurse_submodules_param(self, mock_run, tmp_path):
         mock_run.return_value = MagicMock(
             returncode=0,
             stdout="a.py\nsub/b.py\n",
@@ -420,9 +426,7 @@ class TestGitOperations:
         assert "--recurse-submodules" in cmd
 
     @patch("code_review_graph.incremental.subprocess.run")
-    def test_get_all_tracked_files_no_recurse_by_default(
-        self, mock_run, tmp_path
-    ):
+    def test_get_all_tracked_files_no_recurse_by_default(self, mock_run, tmp_path):
         mock_run.return_value = MagicMock(
             returncode=0,
             stdout="a.py\n",
@@ -434,9 +438,7 @@ class TestGitOperations:
 
     @patch("code_review_graph.incremental.subprocess.run")
     @patch("code_review_graph.incremental._RECURSE_SUBMODULES", True)
-    def test_get_all_tracked_files_env_var_fallback(
-        self, mock_run, tmp_path
-    ):
+    def test_get_all_tracked_files_env_var_fallback(self, mock_run, tmp_path):
         mock_run.return_value = MagicMock(
             returncode=0,
             stdout="a.py\nsub/c.py\n",
@@ -449,9 +451,7 @@ class TestGitOperations:
 
     @patch("code_review_graph.incremental.subprocess.run")
     @patch("code_review_graph.incremental._RECURSE_SUBMODULES", True)
-    def test_get_all_tracked_files_param_overrides_env(
-        self, mock_run, tmp_path
-    ):
+    def test_get_all_tracked_files_param_overrides_env(self, mock_run, tmp_path):
         mock_run.return_value = MagicMock(
             returncode=0,
             stdout="a.py\n",
@@ -501,9 +501,7 @@ class TestIncrementalUpdate:
         db_path = tmp_path / "test.db"
         store = GraphStore(db_path)
         try:
-            result = incremental_update(
-                tmp_path, store, changed_files=["mod.py"]
-            )
+            result = incremental_update(tmp_path, store, changed_files=["mod.py"])
             assert result["files_updated"] >= 1
             assert result["total_nodes"] > 0
         finally:
@@ -533,18 +531,14 @@ class TestParallelParsing:
     def test_parse_single_file(self, tmp_path):
         py_file = tmp_path / "single.py"
         py_file.write_text("def foo():\n    pass\n")
-        rel_path, nodes, edges, error, fhash = _parse_single_file(
-            ("single.py", str(tmp_path))
-        )
+        rel_path, nodes, edges, error, fhash = _parse_single_file(("single.py", str(tmp_path)))
         assert rel_path == "single.py"
         assert error is None
         assert len(nodes) > 0
         assert fhash != ""
 
     def test_parse_single_file_missing(self, tmp_path):
-        rel_path, nodes, edges, error, fhash = _parse_single_file(
-            ("missing.py", str(tmp_path))
-        )
+        rel_path, nodes, edges, error, fhash = _parse_single_file(("missing.py", str(tmp_path)))
         assert error is not None
         assert nodes == []
         assert edges == []
@@ -555,8 +549,7 @@ class TestParallelParsing:
         # Create several Python files
         for i in range(10):
             (tmp_path / f"mod{i}.py").write_text(
-                f"def func_{i}():\n    return {i}\n\n"
-                f"class Cls{i}:\n    pass\n"
+                f"def func_{i}():\n    return {i}\n\nclass Cls{i}:\n    pass\n"
             )
 
         tracked = [f"mod{i}.py" for i in range(10)]
@@ -603,23 +596,45 @@ class TestMultiHopDependents:
         db_path = tmp_path / "chain.db"
         store = GraphStore(db_path)
         for name, path in [("a", "/a.py"), ("b", "/b.py"), ("c", "/c.py")]:
-            store.upsert_node(NodeInfo(
-                kind="File", name=path, file_path=path,
-                line_start=1, line_end=10, language="python",
-            ))
-            store.upsert_node(NodeInfo(
-                kind="Function", name=f"func_{name}", file_path=path,
-                line_start=2, line_end=8, language="python",
-            ))
+            store.upsert_node(
+                NodeInfo(
+                    kind="File",
+                    name=path,
+                    file_path=path,
+                    line_start=1,
+                    line_end=10,
+                    language="python",
+                )
+            )
+            store.upsert_node(
+                NodeInfo(
+                    kind="Function",
+                    name=f"func_{name}",
+                    file_path=path,
+                    line_start=2,
+                    line_end=8,
+                    language="python",
+                )
+            )
         # A imports B, B imports C
-        store.upsert_edge(EdgeInfo(
-            kind="IMPORTS_FROM", source="/a.py::func_a",
-            target="/b.py::func_b", file_path="/a.py", line=1,
-        ))
-        store.upsert_edge(EdgeInfo(
-            kind="IMPORTS_FROM", source="/b.py::func_b",
-            target="/c.py::func_c", file_path="/b.py", line=1,
-        ))
+        store.upsert_edge(
+            EdgeInfo(
+                kind="IMPORTS_FROM",
+                source="/a.py::func_a",
+                target="/b.py::func_b",
+                file_path="/a.py",
+                line=1,
+            )
+        )
+        store.upsert_edge(
+            EdgeInfo(
+                kind="IMPORTS_FROM",
+                source="/b.py::func_b",
+                target="/c.py::func_c",
+                file_path="/b.py",
+                line=1,
+            )
+        )
         store.commit()
         return store
 
@@ -658,28 +673,57 @@ class TestMultiHopDependents:
         store = GraphStore(db_path)
         try:
             # Hub node that many files depend on
-            store.upsert_node(NodeInfo(
-                kind="File", name="/hub.py", file_path="/hub.py",
-                line_start=1, line_end=10, language="python",
-            ))
-            store.upsert_node(NodeInfo(
-                kind="Function", name="hub_func", file_path="/hub.py",
-                line_start=2, line_end=8, language="python",
-            ))
+            store.upsert_node(
+                NodeInfo(
+                    kind="File",
+                    name="/hub.py",
+                    file_path="/hub.py",
+                    line_start=1,
+                    line_end=10,
+                    language="python",
+                )
+            )
+            store.upsert_node(
+                NodeInfo(
+                    kind="Function",
+                    name="hub_func",
+                    file_path="/hub.py",
+                    line_start=2,
+                    line_end=8,
+                    language="python",
+                )
+            )
             for i in range(600):
                 path = f"/dep{i}.py"
-                store.upsert_node(NodeInfo(
-                    kind="File", name=path, file_path=path,
-                    line_start=1, line_end=10, language="python",
-                ))
-                store.upsert_node(NodeInfo(
-                    kind="Function", name=f"func_{i}", file_path=path,
-                    line_start=2, line_end=8, language="python",
-                ))
-                store.upsert_edge(EdgeInfo(
-                    kind="IMPORTS_FROM", source=f"{path}::func_{i}",
-                    target="/hub.py::hub_func", file_path=path, line=1,
-                ))
+                store.upsert_node(
+                    NodeInfo(
+                        kind="File",
+                        name=path,
+                        file_path=path,
+                        line_start=1,
+                        line_end=10,
+                        language="python",
+                    )
+                )
+                store.upsert_node(
+                    NodeInfo(
+                        kind="Function",
+                        name=f"func_{i}",
+                        file_path=path,
+                        line_start=2,
+                        line_end=8,
+                        language="python",
+                    )
+                )
+                store.upsert_edge(
+                    EdgeInfo(
+                        kind="IMPORTS_FROM",
+                        source=f"{path}::func_{i}",
+                        target="/hub.py::hub_func",
+                        file_path=path,
+                        line=1,
+                    )
+                )
             store.commit()
 
             # Even with high max_hops, cap should limit results
@@ -696,28 +740,57 @@ class TestMultiHopDependents:
         db_path = tmp_path / "trunc.db"
         store = GraphStore(db_path)
         try:
-            store.upsert_node(NodeInfo(
-                kind="File", name="/hub.py", file_path="/hub.py",
-                line_start=1, line_end=10, language="python",
-            ))
-            store.upsert_node(NodeInfo(
-                kind="Function", name="hub_func", file_path="/hub.py",
-                line_start=2, line_end=8, language="python",
-            ))
+            store.upsert_node(
+                NodeInfo(
+                    kind="File",
+                    name="/hub.py",
+                    file_path="/hub.py",
+                    line_start=1,
+                    line_end=10,
+                    language="python",
+                )
+            )
+            store.upsert_node(
+                NodeInfo(
+                    kind="Function",
+                    name="hub_func",
+                    file_path="/hub.py",
+                    line_start=2,
+                    line_end=8,
+                    language="python",
+                )
+            )
             for i in range(600):
                 path = f"/dep{i}.py"
-                store.upsert_node(NodeInfo(
-                    kind="File", name=path, file_path=path,
-                    line_start=1, line_end=10, language="python",
-                ))
-                store.upsert_node(NodeInfo(
-                    kind="Function", name=f"func_{i}", file_path=path,
-                    line_start=2, line_end=8, language="python",
-                ))
-                store.upsert_edge(EdgeInfo(
-                    kind="IMPORTS_FROM", source=f"{path}::func_{i}",
-                    target="/hub.py::hub_func", file_path=path, line=1,
-                ))
+                store.upsert_node(
+                    NodeInfo(
+                        kind="File",
+                        name=path,
+                        file_path=path,
+                        line_start=1,
+                        line_end=10,
+                        language="python",
+                    )
+                )
+                store.upsert_node(
+                    NodeInfo(
+                        kind="Function",
+                        name=f"func_{i}",
+                        file_path=path,
+                        line_start=2,
+                        line_end=8,
+                        language="python",
+                    )
+                )
+                store.upsert_edge(
+                    EdgeInfo(
+                        kind="IMPORTS_FROM",
+                        source=f"{path}::func_{i}",
+                        target="/hub.py::hub_func",
+                        file_path=path,
+                        line=1,
+                    )
+                )
             store.commit()
 
             deps = find_dependents(store, "/hub.py", max_hops=5)

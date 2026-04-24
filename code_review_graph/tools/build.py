@@ -79,7 +79,7 @@ def _run_postprocess(
         if use_incremental:
             from code_review_graph.flows import incremental_trace_flows
 
-            count = incremental_trace_flows(store, changed_files)
+            count = incremental_trace_flows(store, changed_files or [])
         else:
             from code_review_graph.flows import store_flows as _store_flows
             from code_review_graph.flows import trace_flows as _trace_flows
@@ -97,7 +97,7 @@ def _run_postprocess(
                 incremental_detect_communities,
             )
 
-            count = incremental_detect_communities(store, changed_files)
+            count = incremental_detect_communities(store, changed_files or [])
         else:
             from code_review_graph.communities import (
                 detect_communities as _detect_communities,

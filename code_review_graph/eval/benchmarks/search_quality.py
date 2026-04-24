@@ -18,13 +18,13 @@ def run(repo_path: Path, store, config: dict) -> list[dict]:
 
         try:
             from code_review_graph.search import hybrid_search
+
             search_results = hybrid_search(store, query, limit=20)
         except (ImportError, sqlite3.OperationalError) as exc:
             logger.debug("hybrid_search unavailable, using fallback: %s", exc)
             # Fallback to basic search
             search_results = [
-                {"qualified_name": n.qualified_name}
-                for n in store.search_nodes(query, limit=20)
+                {"qualified_name": n.qualified_name} for n in store.search_nodes(query, limit=20)
             ]
 
         rank = 0
@@ -49,11 +49,13 @@ def run(repo_path: Path, store, config: dict) -> list[dict]:
                 rank = i + 1
                 break
 
-        results.append({
-            "repo": config["name"],
-            "query": query,
-            "expected": expected,
-            "rank": rank,
-            "reciprocal_rank": round(1.0 / rank if rank > 0 else 0.0, 3),
-        })
+        results.append(
+            {
+                "repo": config["name"],
+                "query": query,
+                "expected": expected,
+                "rank": rank,
+                "reciprocal_rank": round(1.0 / rank if rank > 0 else 0.0, 3),
+            }
+        )
     return results

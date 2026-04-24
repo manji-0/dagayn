@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 from typing import Any, Callable
@@ -91,7 +92,9 @@ def benchmark_debug_workflow(repo_root: str) -> dict:
     calls.append({"tool": "get_minimal_context", "tokens": tokens})
 
     result = semantic_search_nodes(
-        query="login", repo_root=repo_root, detail_level="minimal",
+        query="login",
+        repo_root=repo_root,
+        detail_level="minimal",
     )
     tokens = estimate_tokens(result)
     total_tokens += tokens
@@ -171,7 +174,7 @@ def run_all_benchmarks(repo_root: str, base: str = "HEAD~1") -> list[dict]:
     results = []
     for name, fn in ALL_WORKFLOWS.items():
         try:
-            if "base" in fn.__code__.co_varnames:
+            if "base" in inspect.signature(fn).parameters:
                 result = fn(repo_root=repo_root, base=base)
             else:
                 result = fn(repo_root=repo_root)

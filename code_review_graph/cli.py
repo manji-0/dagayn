@@ -51,8 +51,19 @@ logger = logging.getLogger(__name__)
 
 # Shared platform choices for install and init commands
 _PLATFORM_CHOICES = [
-    "codex", "claude", "claude-code", "cursor", "windsurf", "zed",
-    "continue", "opencode", "antigravity", "qwen", "kiro", "qoder", "all",
+    "codex",
+    "claude",
+    "claude-code",
+    "cursor",
+    "windsurf",
+    "zed",
+    "continue",
+    "opencode",
+    "antigravity",
+    "qwen",
+    "kiro",
+    "qoder",
+    "all",
 ]
 
 
@@ -262,7 +273,6 @@ def _handle_init(args: argparse.Namespace) -> None:
             print("Skipped instruction injection (user declined).")
     elif skip_instructions:
         print("Skipped instruction injection (--no-instructions).")
-
 
     # Install Qoder skills (global user-level skills directory)
     if not skip_skills and target in ("qoder", "all"):
@@ -523,7 +533,8 @@ def main() -> None:
     )
     serve_cmd.add_argument("--repo", default=None, help="Repository root (auto-detected)")
     serve_cmd.add_argument(
-        "--tools", default=None,
+        "--tools",
+        default=None,
         help=(
             "Comma-separated list of tool names to expose "
             "(e.g. query_graph_tool,semantic_search_nodes_tool). "
@@ -870,6 +881,7 @@ def main() -> None:
             if stored_sha:
                 print(f"Built at commit: {stored_sha[:12]}")
             from .incremental import _git_branch_info, detect_vcs
+
             vcs = detect_vcs(repo_root)
             if vcs == "git":
                 current_branch, current_sha = _git_branch_info(repo_root)

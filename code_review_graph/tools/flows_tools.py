@@ -42,9 +42,7 @@ def list_flows(
     """
     store, root = _get_store(repo_root)
     try:
-        fetch_limit = (
-            limit if not kind else limit * 10
-        )  # fetch more when filtering
+        fetch_limit = limit if not kind else limit * 10  # fetch more when filtering
         flows = get_flows(store, sort_by=sort_by, limit=fetch_limit)
 
         if kind:
@@ -72,9 +70,7 @@ def list_flows(
             "summary": f"Found {len(flows)} execution flow(s)",
             "flows": flows,
         }
-        result["_hints"] = generate_hints(
-            "list_flows", result, get_session()
-        )
+        result["_hints"] = generate_hints("list_flows", result, get_session())
         return result
     except Exception as exc:
         return {"status": "error", "error": str(exc)}
@@ -117,9 +113,7 @@ def get_flow(
             flow = get_flow_by_id(store, flow_id)
         elif flow_name is not None:
             # Search flows by name match
-            all_flows = get_flows(
-                store, sort_by="criticality", limit=500
-            )
+            all_flows = get_flows(store, sort_by="criticality", limit=500)
             for f in all_flows:
                 if flow_name.lower() in f["name"].lower():
                     flow = get_flow_by_id(store, f["id"])
@@ -140,19 +134,14 @@ def get_flow(
                 file_path = fp
                 if file_path and file_path.is_file():
                     try:
-                        lines = file_path.read_text(
-                            errors="replace"
-                        ).splitlines()
-                        start = max(
-                            0, (step.get("line_start") or 1) - 1
-                        )
+                        lines = file_path.read_text(errors="replace").splitlines()
+                        start = max(0, (step.get("line_start") or 1) - 1)
                         end = min(
                             len(lines),
                             step.get("line_end") or len(lines),
                         )
                         step["source"] = "\n".join(
-                            f"{i + 1}: {lines[i]}"
-                            for i in range(start, end)
+                            f"{i + 1}: {lines[i]}" for i in range(start, end)
                         )
                     except (OSError, UnicodeDecodeError):
                         step["source"] = "(could not read file)"
@@ -166,9 +155,7 @@ def get_flow(
             ),
             "flow": flow,
         }
-        result["_hints"] = generate_hints(
-            "get_flow", result, get_session()
-        )
+        result["_hints"] = generate_hints("get_flow", result, get_session())
         return result
     except Exception as exc:
         return {"status": "error", "error": str(exc)}

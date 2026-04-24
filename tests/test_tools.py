@@ -31,48 +31,98 @@ class TestTools:
     def _seed_data(self):
         """Seed the store with test data."""
         # File nodes
-        self.store.upsert_node(NodeInfo(
-            kind="File", name="/repo/auth.py", file_path="/repo/auth.py",
-            line_start=1, line_end=50, language="python",
-        ))
-        self.store.upsert_node(NodeInfo(
-            kind="File", name="/repo/main.py", file_path="/repo/main.py",
-            line_start=1, line_end=30, language="python",
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="File",
+                name="/repo/auth.py",
+                file_path="/repo/auth.py",
+                line_start=1,
+                line_end=50,
+                language="python",
+            )
+        )
+        self.store.upsert_node(
+            NodeInfo(
+                kind="File",
+                name="/repo/main.py",
+                file_path="/repo/main.py",
+                line_start=1,
+                line_end=30,
+                language="python",
+            )
+        )
         # Class
-        self.store.upsert_node(NodeInfo(
-            kind="Class", name="AuthService", file_path="/repo/auth.py",
-            line_start=5, line_end=40, language="python",
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Class",
+                name="AuthService",
+                file_path="/repo/auth.py",
+                line_start=5,
+                line_end=40,
+                language="python",
+            )
+        )
         # Functions
-        self.store.upsert_node(NodeInfo(
-            kind="Function", name="login", file_path="/repo/auth.py",
-            line_start=10, line_end=20, language="python",
-            parent_name="AuthService",
-        ))
-        self.store.upsert_node(NodeInfo(
-            kind="Function", name="process", file_path="/repo/main.py",
-            line_start=5, line_end=15, language="python",
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="login",
+                file_path="/repo/auth.py",
+                line_start=10,
+                line_end=20,
+                language="python",
+                parent_name="AuthService",
+            )
+        )
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="process",
+                file_path="/repo/main.py",
+                line_start=5,
+                line_end=15,
+                language="python",
+            )
+        )
         # Test
-        self.store.upsert_node(NodeInfo(
-            kind="Test", name="test_login", file_path="/repo/test_auth.py",
-            line_start=1, line_end=10, language="python", is_test=True,
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Test",
+                name="test_login",
+                file_path="/repo/test_auth.py",
+                line_start=1,
+                line_end=10,
+                language="python",
+                is_test=True,
+            )
+        )
 
         # Edges
-        self.store.upsert_edge(EdgeInfo(
-            kind="CONTAINS", source="/repo/auth.py",
-            target="/repo/auth.py::AuthService", file_path="/repo/auth.py",
-        ))
-        self.store.upsert_edge(EdgeInfo(
-            kind="CONTAINS", source="/repo/auth.py::AuthService",
-            target="/repo/auth.py::AuthService.login", file_path="/repo/auth.py",
-        ))
-        self.store.upsert_edge(EdgeInfo(
-            kind="CALLS", source="/repo/main.py::process",
-            target="/repo/auth.py::AuthService.login", file_path="/repo/main.py", line=10,
-        ))
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CONTAINS",
+                source="/repo/auth.py",
+                target="/repo/auth.py::AuthService",
+                file_path="/repo/auth.py",
+            )
+        )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CONTAINS",
+                source="/repo/auth.py::AuthService",
+                target="/repo/auth.py::AuthService.login",
+                file_path="/repo/auth.py",
+            )
+        )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CALLS",
+                source="/repo/main.py::process",
+                target="/repo/auth.py::AuthService.login",
+                file_path="/repo/main.py",
+                line=10,
+            )
+        )
         self.store.commit()
 
     def test_search_nodes(self):
@@ -141,10 +191,15 @@ class TestTools:
     def test_search_edges_by_target_name(self):
         """Search for edges by unqualified target name."""
         # Add an edge with bare target name
-        self.store.upsert_edge(EdgeInfo(
-            kind="CALLS", source="/repo/main.py::process",
-            target="helper", file_path="/repo/main.py", line=20,
-        ))
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CALLS",
+                source="/repo/main.py::process",
+                target="helper",
+                file_path="/repo/main.py",
+                line=20,
+            )
+        )
         self.store.commit()
         edges = self.store.search_edges_by_target_name("helper")
         assert len(edges) == 1
@@ -196,22 +251,46 @@ class TestFindLargeFunctions:
         self.tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
         self.store = GraphStore(self.tmp.name)
         # Create functions of various sizes
-        self.store.upsert_node(NodeInfo(
-            kind="File", name="/repo/big.py", file_path="/repo/big.py",
-            line_start=1, line_end=500, language="python",
-        ))
-        self.store.upsert_node(NodeInfo(
-            kind="Function", name="huge_func", file_path="/repo/big.py",
-            line_start=1, line_end=200, language="python",
-        ))
-        self.store.upsert_node(NodeInfo(
-            kind="Function", name="small_func", file_path="/repo/big.py",
-            line_start=201, line_end=210, language="python",
-        ))
-        self.store.upsert_node(NodeInfo(
-            kind="Class", name="BigClass", file_path="/repo/big.py",
-            line_start=211, line_end=400, language="python",
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="File",
+                name="/repo/big.py",
+                file_path="/repo/big.py",
+                line_start=1,
+                line_end=500,
+                language="python",
+            )
+        )
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="huge_func",
+                file_path="/repo/big.py",
+                line_start=1,
+                line_end=200,
+                language="python",
+            )
+        )
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="small_func",
+                file_path="/repo/big.py",
+                line_start=201,
+                line_end=210,
+                language="python",
+            )
+        )
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Class",
+                name="BigClass",
+                file_path="/repo/big.py",
+                line_start=211,
+                line_end=400,
+                language="python",
+            )
+        )
         self.store.commit()
 
     def teardown_method(self):
@@ -280,12 +359,22 @@ class TestSanitizeName:
     def test_node_to_dict_uses_sanitize(self):
         """Verify that node_to_dict actually calls _sanitize_name."""
         from code_review_graph.graph import GraphNode
+
         node = GraphNode(
-            id=1, kind="Function", name="evil\x00name",
-            qualified_name="/test.py::evil\x00name", file_path="/test.py",
-            line_start=1, line_end=10, language="python",
-            parent_name=None, params=None, return_type=None,
-            is_test=False, file_hash=None, extra={},
+            id=1,
+            kind="Function",
+            name="evil\x00name",
+            qualified_name="/test.py::evil\x00name",
+            file_path="/test.py",
+            line_start=1,
+            line_end=10,
+            language="python",
+            parent_name=None,
+            params=None,
+            return_type=None,
+            is_test=False,
+            file_hash=None,
+            extra={},
         )
         d = node_to_dict(node)
         assert "\x00" not in d["name"]
@@ -314,64 +403,102 @@ class TestFlowTools:
     def teardown_method(self):
         self.store.close()
         import shutil
+
         shutil.rmtree(self.tmp_dir, ignore_errors=True)
 
     def _seed_data(self):
         """Seed the store with a multi-file call chain."""
         # File nodes
-        self.store.upsert_node(NodeInfo(
-            kind="File", name="app.py",
-            file_path=str(self.root / "app.py"),
-            line_start=1, line_end=50, language="python",
-        ))
-        self.store.upsert_node(NodeInfo(
-            kind="File", name="auth.py",
-            file_path=str(self.root / "auth.py"),
-            line_start=1, line_end=40, language="python",
-        ))
-        self.store.upsert_node(NodeInfo(
-            kind="File", name="db.py",
-            file_path=str(self.root / "db.py"),
-            line_start=1, line_end=30, language="python",
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="File",
+                name="app.py",
+                file_path=str(self.root / "app.py"),
+                line_start=1,
+                line_end=50,
+                language="python",
+            )
+        )
+        self.store.upsert_node(
+            NodeInfo(
+                kind="File",
+                name="auth.py",
+                file_path=str(self.root / "auth.py"),
+                line_start=1,
+                line_end=40,
+                language="python",
+            )
+        )
+        self.store.upsert_node(
+            NodeInfo(
+                kind="File",
+                name="db.py",
+                file_path=str(self.root / "db.py"),
+                line_start=1,
+                line_end=30,
+                language="python",
+            )
+        )
 
         # Functions forming a call chain: handle_request -> check_auth -> query_db
-        self.store.upsert_node(NodeInfo(
-            kind="Function", name="handle_request",
-            file_path=str(self.root / "app.py"),
-            line_start=10, line_end=25, language="python",
-        ))
-        self.store.upsert_node(NodeInfo(
-            kind="Function", name="check_auth",
-            file_path=str(self.root / "auth.py"),
-            line_start=5, line_end=20, language="python",
-        ))
-        self.store.upsert_node(NodeInfo(
-            kind="Function", name="query_db",
-            file_path=str(self.root / "db.py"),
-            line_start=3, line_end=15, language="python",
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="handle_request",
+                file_path=str(self.root / "app.py"),
+                line_start=10,
+                line_end=25,
+                language="python",
+            )
+        )
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="check_auth",
+                file_path=str(self.root / "auth.py"),
+                line_start=5,
+                line_end=20,
+                language="python",
+            )
+        )
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="query_db",
+                file_path=str(self.root / "db.py"),
+                line_start=3,
+                line_end=15,
+                language="python",
+            )
+        )
 
         # CALLS edges: handle_request -> check_auth -> query_db
         app_py = str(self.root / "app.py")
         auth_py = str(self.root / "auth.py")
-        self.store.upsert_edge(EdgeInfo(
-            kind="CALLS",
-            source=f"{app_py}::handle_request",
-            target=f"{auth_py}::check_auth",
-            file_path=app_py, line=15,
-        ))
-        self.store.upsert_edge(EdgeInfo(
-            kind="CALLS",
-            source=f"{auth_py}::check_auth",
-            target=f"{str(self.root / 'db.py')}::query_db",
-            file_path=auth_py, line=10,
-        ))
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CALLS",
+                source=f"{app_py}::handle_request",
+                target=f"{auth_py}::check_auth",
+                file_path=app_py,
+                line=15,
+            )
+        )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CALLS",
+                source=f"{auth_py}::check_auth",
+                target=f"{str(self.root / 'db.py')}::query_db",
+                file_path=auth_py,
+                line=10,
+            )
+        )
         self.store.commit()
 
     def _build_flows(self):
         """Trace and store flows."""
         from code_review_graph.flows import store_flows, trace_flows
+
         flows = trace_flows(self.store)
         store_flows(self.store, flows)
 
@@ -440,24 +567,15 @@ class TestFlowTools:
     def test_get_flow_include_source(self):
         # Create actual source files so include_source can read them
         app_py = self.root / "app.py"
-        app_py.write_text(
-            "# app\n" * 9
-            + "def handle_request():\n"
-            + "    pass\n" * 15
-            + "\n"
-        )
+        app_py.write_text("# app\n" * 9 + "def handle_request():\n" + "    pass\n" * 15 + "\n")
 
         flows_result = list_flows(repo_root=str(self.root))
         fid = flows_result["flows"][0]["id"]
 
-        result = get_flow(
-            flow_id=fid, include_source=True, repo_root=str(self.root)
-        )
+        result = get_flow(flow_id=fid, include_source=True, repo_root=str(self.root))
         assert result["status"] == "ok"
         # At least one step should have source (the app.py one)
-        steps_with_source = [
-            s for s in result["flow"]["steps"] if "source" in s
-        ]
+        steps_with_source = [s for s in result["flow"]["steps"] if "source" in s]
         assert len(steps_with_source) >= 1
 
     def test_get_flow_summary_format(self):
@@ -469,9 +587,7 @@ class TestFlowTools:
         assert "criticality" in result["summary"]
 
     def test_get_affected_flows_with_changed_file(self):
-        result = get_affected_flows_func(
-            changed_files=["auth.py"], repo_root=str(self.root)
-        )
+        result = get_affected_flows_func(changed_files=["auth.py"], repo_root=str(self.root))
         assert result["status"] == "ok"
         assert result["total"] >= 1
         # The handle_request flow passes through auth.py
@@ -479,24 +595,18 @@ class TestFlowTools:
         assert any("handle_request" in n for n in flow_names)
 
     def test_get_affected_flows_no_changed_files(self):
-        result = get_affected_flows_func(
-            changed_files=[], repo_root=str(self.root)
-        )
+        result = get_affected_flows_func(changed_files=[], repo_root=str(self.root))
         assert result["status"] == "ok"
         assert result["total"] == 0
         assert result["affected_flows"] == []
 
     def test_get_affected_flows_unrelated_file(self):
-        result = get_affected_flows_func(
-            changed_files=["unrelated.py"], repo_root=str(self.root)
-        )
+        result = get_affected_flows_func(changed_files=["unrelated.py"], repo_root=str(self.root))
         assert result["status"] == "ok"
         assert result["total"] == 0
 
     def test_get_affected_flows_summary(self):
-        result = get_affected_flows_func(
-            changed_files=["auth.py"], repo_root=str(self.root)
-        )
+        result = get_affected_flows_func(changed_files=["auth.py"], repo_root=str(self.root))
         assert "flow(s) affected" in result["summary"]
         assert "changed_files" in result
 
@@ -521,94 +631,166 @@ class TestCommunityTools:
     def teardown_method(self):
         self.store.close()
         import shutil
+
         shutil.rmtree(self.tmp_dir, ignore_errors=True)
 
     def _seed_data(self):
         """Seed the store with two clusters of related nodes."""
         # Cluster 1: auth module
         auth_py = str(self.root / "auth.py")
-        self.store.upsert_node(NodeInfo(
-            kind="File", name="auth.py",
-            file_path=auth_py,
-            line_start=1, line_end=60, language="python",
-        ))
-        self.store.upsert_node(NodeInfo(
-            kind="Class", name="AuthService",
-            file_path=auth_py,
-            line_start=5, line_end=50, language="python",
-        ))
-        self.store.upsert_node(NodeInfo(
-            kind="Function", name="login",
-            file_path=auth_py,
-            line_start=10, line_end=25, language="python",
-            parent_name="AuthService",
-        ))
-        self.store.upsert_node(NodeInfo(
-            kind="Function", name="logout",
-            file_path=auth_py,
-            line_start=30, line_end=45, language="python",
-            parent_name="AuthService",
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="File",
+                name="auth.py",
+                file_path=auth_py,
+                line_start=1,
+                line_end=60,
+                language="python",
+            )
+        )
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Class",
+                name="AuthService",
+                file_path=auth_py,
+                line_start=5,
+                line_end=50,
+                language="python",
+            )
+        )
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="login",
+                file_path=auth_py,
+                line_start=10,
+                line_end=25,
+                language="python",
+                parent_name="AuthService",
+            )
+        )
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="logout",
+                file_path=auth_py,
+                line_start=30,
+                line_end=45,
+                language="python",
+                parent_name="AuthService",
+            )
+        )
 
         # Cluster 2: db module
         db_py = str(self.root / "db.py")
-        self.store.upsert_node(NodeInfo(
-            kind="File", name="db.py",
-            file_path=db_py,
-            line_start=1, line_end=50, language="python",
-        ))
-        self.store.upsert_node(NodeInfo(
-            kind="Function", name="query",
-            file_path=db_py,
-            line_start=5, line_end=20, language="python",
-        ))
-        self.store.upsert_node(NodeInfo(
-            kind="Function", name="connect",
-            file_path=db_py,
-            line_start=25, line_end=40, language="python",
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="File",
+                name="db.py",
+                file_path=db_py,
+                line_start=1,
+                line_end=50,
+                language="python",
+            )
+        )
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="query",
+                file_path=db_py,
+                line_start=5,
+                line_end=20,
+                language="python",
+            )
+        )
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="connect",
+                file_path=db_py,
+                line_start=25,
+                line_end=40,
+                language="python",
+            )
+        )
 
         # Intra-cluster edges
-        self.store.upsert_edge(EdgeInfo(
-            kind="CONTAINS", source=auth_py,
-            target=f"{auth_py}::AuthService", file_path=auth_py,
-        ))
-        self.store.upsert_edge(EdgeInfo(
-            kind="CONTAINS", source=f"{auth_py}::AuthService",
-            target=f"{auth_py}::AuthService.login", file_path=auth_py,
-        ))
-        self.store.upsert_edge(EdgeInfo(
-            kind="CONTAINS", source=f"{auth_py}::AuthService",
-            target=f"{auth_py}::AuthService.logout", file_path=auth_py,
-        ))
-        self.store.upsert_edge(EdgeInfo(
-            kind="CALLS", source=f"{auth_py}::AuthService.login",
-            target=f"{auth_py}::AuthService.logout", file_path=auth_py, line=15,
-        ))
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CONTAINS",
+                source=auth_py,
+                target=f"{auth_py}::AuthService",
+                file_path=auth_py,
+            )
+        )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CONTAINS",
+                source=f"{auth_py}::AuthService",
+                target=f"{auth_py}::AuthService.login",
+                file_path=auth_py,
+            )
+        )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CONTAINS",
+                source=f"{auth_py}::AuthService",
+                target=f"{auth_py}::AuthService.logout",
+                file_path=auth_py,
+            )
+        )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CALLS",
+                source=f"{auth_py}::AuthService.login",
+                target=f"{auth_py}::AuthService.logout",
+                file_path=auth_py,
+                line=15,
+            )
+        )
 
-        self.store.upsert_edge(EdgeInfo(
-            kind="CONTAINS", source=db_py,
-            target=f"{db_py}::query", file_path=db_py,
-        ))
-        self.store.upsert_edge(EdgeInfo(
-            kind="CONTAINS", source=db_py,
-            target=f"{db_py}::connect", file_path=db_py,
-        ))
-        self.store.upsert_edge(EdgeInfo(
-            kind="CALLS", source=f"{db_py}::query",
-            target=f"{db_py}::connect", file_path=db_py, line=10,
-        ))
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CONTAINS",
+                source=db_py,
+                target=f"{db_py}::query",
+                file_path=db_py,
+            )
+        )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CONTAINS",
+                source=db_py,
+                target=f"{db_py}::connect",
+                file_path=db_py,
+            )
+        )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CALLS",
+                source=f"{db_py}::query",
+                target=f"{db_py}::connect",
+                file_path=db_py,
+                line=10,
+            )
+        )
 
         # Cross-cluster edge: login -> query
-        self.store.upsert_edge(EdgeInfo(
-            kind="CALLS", source=f"{auth_py}::AuthService.login",
-            target=f"{db_py}::query", file_path=auth_py, line=20,
-        ))
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CALLS",
+                source=f"{auth_py}::AuthService.login",
+                target=f"{db_py}::query",
+                file_path=auth_py,
+                line=20,
+            )
+        )
         self.store.commit()
 
     def _build_communities(self):
         """Detect and store communities."""
         from code_review_graph.communities import detect_communities, store_communities
+
         comms = detect_communities(self.store)
         store_communities(self.store, comms)
 
@@ -655,15 +837,11 @@ class TestCommunityTools:
         assert "community" in result
 
     def test_get_community_not_found(self):
-        result = get_community_func(
-            community_id=99999, repo_root=str(self.root)
-        )
+        result = get_community_func(community_id=99999, repo_root=str(self.root))
         assert result["status"] == "not_found"
 
     def test_get_community_name_not_found(self):
-        result = get_community_func(
-            community_name="nonexistent_xyz_zzz", repo_root=str(self.root)
-        )
+        result = get_community_func(community_name="nonexistent_xyz_zzz", repo_root=str(self.root))
         assert result["status"] == "not_found"
 
     def test_get_community_include_members(self):
@@ -710,12 +888,11 @@ class TestBuildPostprocess:
         self.tmp = tempfile.mkdtemp()
         self.root = Path(self.tmp)
         (self.root / ".git").mkdir()
-        (self.root / "sample.py").write_text(
-            "def hello():\n    pass\n\nclass Foo:\n    pass\n"
-        )
+        (self.root / "sample.py").write_text("def hello():\n    pass\n\nclass Foo:\n    pass\n")
 
     def teardown_method(self):
         import shutil
+
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_postprocess_none_produces_nodes_no_flows(self):
@@ -728,7 +905,8 @@ class TestBuildPostprocess:
             return_value=["sample.py"],
         ):
             result = build_or_update_graph(
-                full_rebuild=True, repo_root=str(self.root),
+                full_rebuild=True,
+                repo_root=str(self.root),
                 postprocess="none",
             )
         assert result["status"] == "ok"
@@ -748,7 +926,8 @@ class TestBuildPostprocess:
             return_value=["sample.py"],
         ):
             result = build_or_update_graph(
-                full_rebuild=True, repo_root=str(self.root),
+                full_rebuild=True,
+                repo_root=str(self.root),
                 postprocess="minimal",
             )
         assert result["status"] == "ok"
@@ -767,7 +946,8 @@ class TestBuildPostprocess:
             return_value=["sample.py"],
         ):
             result = build_or_update_graph(
-                full_rebuild=True, repo_root=str(self.root),
+                full_rebuild=True,
+                repo_root=str(self.root),
                 postprocess="full",
             )
         assert result["status"] == "ok"
@@ -810,66 +990,129 @@ class TestComputeSummaries:
             (query also calls login across the community boundary)
         """
         # Auth cluster files / nodes
-        self.store.upsert_node(NodeInfo(
-            kind="File", name="auth.py", file_path="auth.py",
-            line_start=1, line_end=100, language="python",
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="File",
+                name="auth.py",
+                file_path="auth.py",
+                line_start=1,
+                line_end=100,
+                language="python",
+            )
+        )
         for fn in ("login", "logout", "check_token"):
-            self.store.upsert_node(NodeInfo(
-                kind="Function", name=fn, file_path="auth.py",
-                line_start=1, line_end=10, language="python",
-            ))
-        self.store.upsert_node(NodeInfo(
-            kind="Test", name="test_login", file_path="tests/test_auth.py",
-            line_start=1, line_end=5, language="python",
-        ))
+            self.store.upsert_node(
+                NodeInfo(
+                    kind="Function",
+                    name=fn,
+                    file_path="auth.py",
+                    line_start=1,
+                    line_end=10,
+                    language="python",
+                )
+            )
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Test",
+                name="test_login",
+                file_path="tests/test_auth.py",
+                line_start=1,
+                line_end=5,
+                language="python",
+            )
+        )
 
         # DB cluster files / nodes
-        self.store.upsert_node(NodeInfo(
-            kind="File", name="db.py", file_path="db.py",
-            line_start=1, line_end=100, language="python",
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="File",
+                name="db.py",
+                file_path="db.py",
+                line_start=1,
+                line_end=100,
+                language="python",
+            )
+        )
         for fn in ("connect", "query", "close"):
-            self.store.upsert_node(NodeInfo(
-                kind="Function", name=fn, file_path="db.py",
-                line_start=1, line_end=10, language="python",
-            ))
+            self.store.upsert_node(
+                NodeInfo(
+                    kind="Function",
+                    name=fn,
+                    file_path="db.py",
+                    line_start=1,
+                    line_end=10,
+                    language="python",
+                )
+            )
 
         # Internal edges
-        self.store.upsert_edge(EdgeInfo(
-            kind="CALLS", source="auth.py::login",
-            target="auth.py::check_token", file_path="auth.py", line=5,
-        ))
-        self.store.upsert_edge(EdgeInfo(
-            kind="CALLS", source="auth.py::logout",
-            target="auth.py::check_token", file_path="auth.py", line=10,
-        ))
-        self.store.upsert_edge(EdgeInfo(
-            kind="CALLS", source="db.py::query",
-            target="db.py::connect", file_path="db.py", line=5,
-        ))
-        self.store.upsert_edge(EdgeInfo(
-            kind="CALLS", source="db.py::close",
-            target="db.py::connect", file_path="db.py", line=10,
-        ))
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CALLS",
+                source="auth.py::login",
+                target="auth.py::check_token",
+                file_path="auth.py",
+                line=5,
+            )
+        )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CALLS",
+                source="auth.py::logout",
+                target="auth.py::check_token",
+                file_path="auth.py",
+                line=10,
+            )
+        )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CALLS",
+                source="db.py::query",
+                target="db.py::connect",
+                file_path="db.py",
+                line=5,
+            )
+        )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CALLS",
+                source="db.py::close",
+                target="db.py::connect",
+                file_path="db.py",
+                line=10,
+            )
+        )
 
         # Cross-community CALLS — boosts login's caller_count.
-        self.store.upsert_edge(EdgeInfo(
-            kind="CALLS", source="db.py::query",
-            target="auth.py::login", file_path="db.py", line=3,
-        ))
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CALLS",
+                source="db.py::query",
+                target="auth.py::login",
+                file_path="db.py",
+                line=3,
+            )
+        )
 
         # TESTED_BY edges from the Test node back to auth functions.
-        self.store.upsert_edge(EdgeInfo(
-            kind="TESTED_BY", source="auth.py::login",
-            target="tests/test_auth.py::test_login",
-            file_path="tests/test_auth.py", line=1,
-        ))
-        self.store.upsert_edge(EdgeInfo(
-            kind="TESTED_BY", source="auth.py::logout",
-            target="tests/test_auth.py::test_login",
-            file_path="tests/test_auth.py", line=1,
-        ))
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="TESTED_BY",
+                source="auth.py::login",
+                target="tests/test_auth.py::test_login",
+                file_path="tests/test_auth.py",
+                line=1,
+            )
+        )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="TESTED_BY",
+                source="auth.py::logout",
+                target="tests/test_auth.py::test_login",
+                file_path="tests/test_auth.py",
+                line=1,
+            )
+        )
 
         self.store.commit()
 
@@ -888,12 +1131,10 @@ class TestComputeSummaries:
             ("db-cluster",),
         )
         # Assign community_id by looking up the auto-assigned ids.
-        auth_cid = conn.execute(
-            "SELECT id FROM communities WHERE name='auth-cluster'"
-        ).fetchone()[0]
-        db_cid = conn.execute(
-            "SELECT id FROM communities WHERE name='db-cluster'"
-        ).fetchone()[0]
+        auth_cid = conn.execute("SELECT id FROM communities WHERE name='auth-cluster'").fetchone()[
+            0
+        ]
+        db_cid = conn.execute("SELECT id FROM communities WHERE name='db-cluster'").fetchone()[0]
         conn.execute(
             "UPDATE nodes SET community_id = ? WHERE file_path = 'auth.py'",
             (auth_cid,),
@@ -1087,26 +1328,40 @@ class TestGetMinimalContext:
         # Create a small graph
         db_path = self.root / ".code-review-graph" / "graph.db"
         self.store = GraphStore(str(db_path))
-        self.store.upsert_node(NodeInfo(
-            kind="File", name="app.py", file_path=str(self.root / "app.py"),
-            line_start=1, line_end=50, language="python",
-        ))
-        self.store.upsert_node(NodeInfo(
-            kind="Function", name="main", file_path=str(self.root / "app.py"),
-            line_start=5, line_end=20, language="python",
-        ))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="File",
+                name="app.py",
+                file_path=str(self.root / "app.py"),
+                line_start=1,
+                line_end=50,
+                language="python",
+            )
+        )
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="main",
+                file_path=str(self.root / "app.py"),
+                line_start=5,
+                line_end=20,
+                language="python",
+            )
+        )
         self.store.commit()
         self.store.close()
 
     def teardown_method(self):
         import shutil
+
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_returns_required_keys(self):
         from code_review_graph.tools.context import get_minimal_context
 
         result = get_minimal_context(
-            task="explore codebase", repo_root=str(self.root),
+            task="explore codebase",
+            repo_root=str(self.root),
         )
         assert result["status"] == "ok"
         assert "summary" in result
@@ -1118,7 +1373,8 @@ class TestGetMinimalContext:
         from code_review_graph.tools.context import get_minimal_context
 
         result = get_minimal_context(
-            task="review changes", repo_root=str(self.root),
+            task="review changes",
+            repo_root=str(self.root),
         )
         serialized = json.dumps(result, default=str)
         assert len(serialized) < 800
@@ -1127,7 +1383,8 @@ class TestGetMinimalContext:
         from code_review_graph.tools.context import get_minimal_context
 
         result = get_minimal_context(
-            task="review PR #42", repo_root=str(self.root),
+            task="review PR #42",
+            repo_root=str(self.root),
         )
         assert "detect_changes" in result["next_tool_suggestions"]
 
@@ -1135,7 +1392,8 @@ class TestGetMinimalContext:
         from code_review_graph.tools.context import get_minimal_context
 
         result = get_minimal_context(
-            task="debug login bug", repo_root=str(self.root),
+            task="debug login bug",
+            repo_root=str(self.root),
         )
         assert "semantic_search_nodes" in result["next_tool_suggestions"]
 
@@ -1143,6 +1401,7 @@ class TestGetMinimalContext:
         from code_review_graph.tools.context import get_minimal_context
 
         result = get_minimal_context(
-            task="refactor auth module", repo_root=str(self.root),
+            task="refactor auth module",
+            repo_root=str(self.root),
         )
         assert "refactor" in result["next_tool_suggestions"]

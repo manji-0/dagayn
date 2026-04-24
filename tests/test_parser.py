@@ -35,74 +35,93 @@ class TestCodeParser:
 
     def test_detect_shebang_bin_bash(self, tmp_path):
         p = self._write_shebang_file(
-            tmp_path, "deploy", "#!/bin/bash\nfoo() { echo hi; }\n",
+            tmp_path,
+            "deploy",
+            "#!/bin/bash\nfoo() { echo hi; }\n",
         )
         assert self.parser.detect_language(p) == "bash"
 
     def test_detect_shebang_bin_sh_routed_to_bash(self, tmp_path):
         """/bin/sh scripts are parsed through the bash grammar."""
         p = self._write_shebang_file(
-            tmp_path, "install-hook", "#!/bin/sh\necho hello\n",
+            tmp_path,
+            "install-hook",
+            "#!/bin/sh\necho hello\n",
         )
         assert self.parser.detect_language(p) == "bash"
 
     def test_detect_shebang_env_bash(self, tmp_path):
         p = self._write_shebang_file(
-            tmp_path, "runner", "#!/usr/bin/env bash\nfoo() { echo hi; }\n",
+            tmp_path,
+            "runner",
+            "#!/usr/bin/env bash\nfoo() { echo hi; }\n",
         )
         assert self.parser.detect_language(p) == "bash"
 
     def test_detect_shebang_env_python3(self, tmp_path):
         p = self._write_shebang_file(
-            tmp_path, "myapp",
+            tmp_path,
+            "myapp",
             "#!/usr/bin/env python3\ndef main():\n    pass\n",
         )
         assert self.parser.detect_language(p) == "python"
 
     def test_detect_shebang_direct_python(self, tmp_path):
         p = self._write_shebang_file(
-            tmp_path, "tool", "#!/usr/bin/python3\nprint('hi')\n",
+            tmp_path,
+            "tool",
+            "#!/usr/bin/python3\nprint('hi')\n",
         )
         assert self.parser.detect_language(p) == "python"
 
     def test_detect_shebang_node(self, tmp_path):
         p = self._write_shebang_file(
-            tmp_path, "cli", "#!/usr/bin/env node\nconsole.log(1);\n",
+            tmp_path,
+            "cli",
+            "#!/usr/bin/env node\nconsole.log(1);\n",
         )
         assert self.parser.detect_language(p) == "javascript"
 
     def test_detect_shebang_env_dash_s_flag(self, tmp_path):
         """``#!/usr/bin/env -S node --flag`` (Linux -S) resolves to the interpreter."""
         p = self._write_shebang_file(
-            tmp_path, "esm-tool",
-            "#!/usr/bin/env -S node --experimental-vm-modules\n"
-            "console.log('esm');\n",
+            tmp_path,
+            "esm-tool",
+            "#!/usr/bin/env -S node --experimental-vm-modules\nconsole.log('esm');\n",
         )
         assert self.parser.detect_language(p) == "javascript"
 
     def test_detect_shebang_ruby(self, tmp_path):
         p = self._write_shebang_file(
-            tmp_path, "rake-task", "#!/usr/bin/env ruby\nputs 1\n",
+            tmp_path,
+            "rake-task",
+            "#!/usr/bin/env ruby\nputs 1\n",
         )
         assert self.parser.detect_language(p) == "ruby"
 
     def test_detect_shebang_perl(self, tmp_path):
         p = self._write_shebang_file(
-            tmp_path, "cgi-script", "#!/usr/bin/env perl\nprint 1;\n",
+            tmp_path,
+            "cgi-script",
+            "#!/usr/bin/env perl\nprint 1;\n",
         )
         assert self.parser.detect_language(p) == "perl"
 
     def test_detect_shebang_with_trailing_flags(self, tmp_path):
         """``#!/bin/bash -e`` still maps to bash (flags ignored)."""
         p = self._write_shebang_file(
-            tmp_path, "strict", "#!/bin/bash -e\nfoo() { echo hi; }\n",
+            tmp_path,
+            "strict",
+            "#!/bin/bash -e\nfoo() { echo hi; }\n",
         )
         assert self.parser.detect_language(p) == "bash"
 
     def test_detect_shebang_missing_returns_none(self, tmp_path):
         """Extension-less text files without a shebang return None, not bash."""
         p = self._write_shebang_file(
-            tmp_path, "README", "# just a readme, no shebang\nsome content\n",
+            tmp_path,
+            "README",
+            "# just a readme, no shebang\nsome content\n",
         )
         assert self.parser.detect_language(p) is None
 
@@ -122,7 +141,9 @@ class TestCodeParser:
         """A valid shebang to an interpreter we don't route is treated as
         'unknown language' — same as an unmapped extension."""
         p = self._write_shebang_file(
-            tmp_path, "ocaml-script", "#!/usr/bin/env ocaml\nlet x = 1\n",
+            tmp_path,
+            "ocaml-script",
+            "#!/usr/bin/env ocaml\nlet x = 1\n",
         )
         assert self.parser.detect_language(p) is None
 
@@ -239,9 +260,7 @@ class TestCodeParser:
         file_path = str(FIXTURES / "sample_python.py")
 
         # create_auth_service() calls AuthService() — a class defined in the same file
-        auth_service_calls = [
-            e for e in calls if e.target == f"{file_path}::AuthService"
-        ]
+        auth_service_calls = [e for e in calls if e.target == f"{file_path}::AuthService"]
         assert len(auth_service_calls) >= 1
 
     def test_calls_edge_cross_file_resolution(self):
@@ -251,9 +270,7 @@ class TestCodeParser:
 
         sample_path = str((FIXTURES / "sample_python.py").resolve())
         # setup_and_run() calls create_auth_service(), imported from sample_python
-        resolved_calls = [
-            e for e in calls if e.target == f"{sample_path}::create_auth_service"
-        ]
+        resolved_calls = [e for e in calls if e.target == f"{sample_path}::create_auth_service"]
         assert len(resolved_calls) == 1
 
     def test_same_file_calls_resolved(self):
@@ -272,8 +289,11 @@ class TestCodeParser:
 
         # guarded_process() calls process_request() — both in the same file,
         # but guarded_process is wrapped in a decorated_definition node
-        resolved = [e for e in calls if e.target == f"{file_path}::process_request"
-                    and "guarded_process" in e.source]
+        resolved = [
+            e
+            for e in calls
+            if e.target == f"{file_path}::process_request" and "guarded_process" in e.source
+        ]
         assert len(resolved) == 1
 
     def test_multiple_calls_to_same_function(self):
@@ -307,9 +327,10 @@ class TestCodeParser:
             _, edges = self.parser.parse_file(tmp)
             calls = [e for e in edges if e.kind == "CALLS"]
             module_scope_calls = [e for e in calls if e.source == str(tmp)]
-            assert any(
-                "helper" in e.target for e in module_scope_calls
-            ), f"Expected module-scope CALLS edge to helper(); got: {[(e.source, e.target) for e in calls]}"
+            assert any("helper" in e.target for e in module_scope_calls), (
+                "Expected module-scope CALLS edge to helper(); "
+                f"got: {[(e.source, e.target) for e in calls]}"
+            )
         finally:
             tmp.unlink()
 
@@ -339,9 +360,10 @@ class TestCodeParser:
         try:
             _, edges = self.parser.parse_file(tmp)
             calls = [e for e in edges if e.kind == "CALLS"]
-            assert any(
-                "do_work" in e.target and e.source == str(tmp) for e in calls
-            ), f"Expected notebook CALLS edge to do_work(); got: {[(e.source, e.target) for e in calls]}"
+            assert any("do_work" in e.target and e.source == str(tmp) for e in calls), (
+                "Expected notebook CALLS edge to do_work(); "
+                f"got: {[(e.source, e.target) for e in calls]}"
+            )
         finally:
             tmp.unlink()
 
@@ -373,6 +395,7 @@ class TestCodeParser:
         source = "\n".join(lines).encode("utf-8")
 
         import tempfile
+
         with tempfile.NamedTemporaryFile(suffix=".py", delete=False) as f:
             f.write(source)
             f.flush()
@@ -429,8 +452,10 @@ class TestCodeParser:
         nodes, edges = self.parser.parse_file(FIXTURES / "sample_vue.vue")
         calls = [e for e in edges if e.kind == "CALLS"]
         call_targets = {e.target for e in calls}
-        assert "log" in call_targets or "console.log" in call_targets or any(
-            "log" in t for t in call_targets
+        assert (
+            "log" in call_targets
+            or "console.log" in call_targets
+            or any("log" in t for t in call_targets)
         )
 
     def test_parse_vue_contains_edges(self):
@@ -536,7 +561,8 @@ class TestCodeParser:
         funcs = [n for n in nodes if n.kind == "Function"]
         # Both Animal and Dog define speak(); check Dog's specifically
         dog_speak = next(
-            (f for f in funcs if f.name == "speak" and f.parent_name == "Dog"), None,
+            (f for f in funcs if f.name == "speak" and f.parent_name == "Dog"),
+            None,
         )
         assert dog_speak is not None
 
@@ -616,13 +642,15 @@ class TestCodeParser:
         """describe Test nodes should CONTAIN it/test Test nodes."""
         nodes, edges = self.parser.parse_file(FIXTURES / "sample_vitest.test.ts")
         describe_nodes = [
-            n for n in nodes
+            n
+            for n in nodes
             if n.kind == "Test"
             and (n.name.startswith("describe") or n.name.startswith("describe:"))
         ]
         assert len(describe_nodes) >= 1
         it_tests = [
-            n for n in nodes
+            n
+            for n in nodes
             if n.kind == "Test" and (n.name.startswith("it:") or n.name.startswith("test:"))
         ]
         assert len(it_tests) >= 2
@@ -655,8 +683,9 @@ class TestCodeParser:
     def test_non_test_file_describe_not_special(self):
         """describe() in a non-test file should NOT create Test nodes."""
         import tempfile
+
         code = (
-            b'function describe(name, fn) { fn(); }\n'
+            b"function describe(name, fn) { fn(); }\n"
             b'describe("test", () => { console.log("hello"); });\n'
         )
         with tempfile.NamedTemporaryFile(suffix=".ts", delete=False, prefix="regular_") as f:
@@ -687,16 +716,13 @@ class TestCodeParser:
         calls = [e for e in edges if e.kind == "CALLS"]
         expected_target = f"{str((FIXTURES / 'MarkdownMsg.tsx').resolve())}::MarkdownMsg"
         jsx_calls = [
-            e for e in calls
-            if e.source == f"{path}::BookWorkspace" and e.target == expected_target
+            e for e in calls if e.source == f"{path}::BookWorkspace" and e.target == expected_target
         ]
         assert len(jsx_calls) == 1
 
     def test_tsx_intrinsic_dom_elements_do_not_create_call_edges(self):
         source = (
-            b"export function BookWorkspace() {\n"
-            b"  return <section><div /><span /></section>;\n"
-            b"}\n"
+            b"export function BookWorkspace() {\n  return <section><div /><span /></section>;\n}\n"
         )
         path = FIXTURES / "BookWorkspace.tsx"
 
@@ -707,9 +733,7 @@ class TestCodeParser:
 
     def test_tsx_member_component_invocation_creates_unqualified_call_edge(self):
         source = (
-            b"export function BookWorkspace() {\n"
-            b"  return <UI.MarkdownMsg text={value} />;\n"
-            b"}\n"
+            b"export function BookWorkspace() {\n  return <UI.MarkdownMsg text={value} />;\n}\n"
         )
         path = FIXTURES / "BookWorkspace.tsx"
 
@@ -717,8 +741,7 @@ class TestCodeParser:
 
         calls = [e for e in edges if e.kind == "CALLS"]
         jsx_calls = [
-            e for e in calls
-            if e.source == f"{path}::BookWorkspace" and e.target == "MarkdownMsg"
+            e for e in calls if e.source == f"{path}::BookWorkspace" and e.target == "MarkdownMsg"
         ]
         assert len(jsx_calls) == 1
 
@@ -736,8 +759,7 @@ class TestCodeParser:
         calls = [e for e in edges if e.kind == "CALLS"]
         expected_target = f"{str((FIXTURES / 'MarkdownMsg.tsx').resolve())}::MarkdownMsg"
         jsx_calls = [
-            e for e in calls
-            if e.source == f"{path}::BookWorkspace" and e.target == expected_target
+            e for e in calls if e.source == f"{path}::BookWorkspace" and e.target == expected_target
         ]
         assert len(jsx_calls) == 1
 
@@ -755,8 +777,7 @@ class TestCodeParser:
         calls = [e for e in edges if e.kind == "CALLS"]
         expected_target = f"{str((FIXTURES / 'MarkdownMsg.tsx').resolve())}::MarkdownMsg"
         jsx_calls = [
-            e for e in calls
-            if e.source == f"{path}::BookWorkspace" and e.target == expected_target
+            e for e in calls if e.source == f"{path}::BookWorkspace" and e.target == expected_target
         ]
         assert len(jsx_calls) == 1
 
@@ -784,11 +805,11 @@ class TestCodeParser:
 
             calls = [e for e in edges if e.kind == "CALLS"]
             expected_target = (
-                f"{str((root / 'components' / 'MarkdownMsg.tsx').resolve())}"
-                "::MarkdownMsg"
+                f"{str((root / 'components' / 'MarkdownMsg.tsx').resolve())}::MarkdownMsg"
             )
             jsx_calls = [
-                e for e in calls
+                e
+                for e in calls
                 if e.source == f"{consumer}::BookWorkspace" and e.target == expected_target
             ]
             assert len(jsx_calls) == 1
@@ -817,11 +838,11 @@ class TestCodeParser:
 
             calls = [e for e in edges if e.kind == "CALLS"]
             expected_target = (
-                f"{str((root / 'components' / 'MarkdownMsg.tsx').resolve())}"
-                "::MarkdownMsg"
+                f"{str((root / 'components' / 'MarkdownMsg.tsx').resolve())}::MarkdownMsg"
             )
             jsx_calls = [
-                e for e in calls
+                e
+                for e in calls
                 if e.source == f"{consumer}::BookWorkspace" and e.target == expected_target
             ]
             assert len(jsx_calls) == 1
@@ -850,11 +871,11 @@ class TestCodeParser:
 
             calls = [e for e in edges if e.kind == "CALLS"]
             expected_target = (
-                f"{str((root / 'components' / 'MarkdownMsg.tsx').resolve())}"
-                "::MarkdownMsg"
+                f"{str((root / 'components' / 'MarkdownMsg.tsx').resolve())}::MarkdownMsg"
             )
             jsx_calls = [
-                e for e in calls
+                e
+                for e in calls
                 if e.source == f"{consumer}::BookWorkspace" and e.target == expected_target
             ]
             assert len(jsx_calls) == 1
@@ -897,13 +918,8 @@ class TestCodeParser:
 
             _, edges = self.parser.parse_file(consumer)
 
-            expected_target = (
-                f"{str((components / 'MarkdownMsg.jsx').resolve())}::MarkdownMsg"
-            )
-            jsx_calls = [
-                e for e in edges
-                if e.kind == "CALLS" and e.target == expected_target
-            ]
+            expected_target = f"{str((components / 'MarkdownMsg.jsx').resolve())}::MarkdownMsg"
+            jsx_calls = [e for e in edges if e.kind == "CALLS" and e.target == expected_target]
             by_source = {}
             for edge in jsx_calls:
                 by_source[edge.source] = by_source.get(edge.source, 0) + 1
@@ -940,11 +956,10 @@ class TestCodeParser:
 
             _, edges = self.parser.parse_file(consumer)
 
-            expected_target = (
-                f"{str((messages / 'MarkdownMsg.jsx').resolve())}::MarkdownMsg"
-            )
+            expected_target = f"{str((messages / 'MarkdownMsg.jsx').resolve())}::MarkdownMsg"
             jsx_calls = [
-                e for e in edges
+                e
+                for e in edges
                 if e.kind == "CALLS"
                 and e.source == f"{consumer}::BookDashboard"
                 and e.target == expected_target
@@ -955,11 +970,7 @@ class TestCodeParser:
         """Java @Test annotation should mark functions as tests."""
         nodes, _ = self.parser.parse_bytes(
             Path("/src/MyTest.java"),
-            b"class MyTest {\n"
-            b"  @Test\n"
-            b"  void verifyBehavior() { }\n"
-            b"  void helperMethod() { }\n"
-            b"}\n",
+            b"class MyTest {\n  @Test\n  void verifyBehavior() { }\n  void helperMethod() { }\n}\n",
         )
         test_nodes = [n for n in nodes if n.is_test]
         test_names = {n.name for n in test_nodes}
@@ -970,10 +981,7 @@ class TestCodeParser:
         """Kotlin @Test annotation should mark functions as tests."""
         nodes, _ = self.parser.parse_bytes(
             Path("/src/SampleTest.kt"),
-            b"class SampleTest {\n"
-            b"  @Test fun checkResult() { }\n"
-            b"  fun setup() { }\n"
-            b"}\n",
+            b"class SampleTest {\n  @Test fun checkResult() { }\n  fun setup() { }\n}\n",
         )
         test_nodes = [n for n in nodes if n.is_test]
         test_names = {n.name for n in test_nodes}
@@ -984,8 +992,7 @@ class TestCodeParser:
         """Functions with test-like names should be marked is_test=True."""
         nodes, _ = self.parser.parse_bytes(
             Path("/src/test_example.py"),
-            b"def test_something(): pass\n"
-            b"def helper(): pass\n",
+            b"def test_something(): pass\ndef helper(): pass\n",
         )
         test_nodes = [n for n in nodes if n.is_test]
         test_names = {n.name for n in test_nodes}
@@ -1065,19 +1072,14 @@ class TestValueReferences:
         nodes, edges = self.parser.parse_file(FIXTURES / "sample_map_dispatch.ts")
         refs = [e for e in edges if e.kind == "REFERENCES"]
         # The register(handleCreate) call is inside 'dispatch'
-        dispatch_refs = [
-            e for e in refs
-            if "dispatch" in e.source and "handleCreate" in e.target
-        ]
+        dispatch_refs = [e for e in refs if "dispatch" in e.source and "handleCreate" in e.target]
         assert len(dispatch_refs) >= 1
 
     def test_no_references_for_unknown_identifiers(self):
         """Identifiers not in defined_names or import_map should NOT emit REFERENCES."""
         nodes, edges = self.parser.parse_bytes(
             Path("/test/example.ts"),
-            b"function outer() {\n"
-            b"  const map = { key: unknownFunc };\n"
-            b"}\n",
+            b"function outer() {\n  const map = { key: unknownFunc };\n}\n",
         )
         refs = [e for e in edges if e.kind == "REFERENCES"]
         ref_targets = {e.target for e in refs}
@@ -1087,10 +1089,7 @@ class TestValueReferences:
         """All-uppercase identifiers should NOT emit REFERENCES (likely constants)."""
         nodes, edges = self.parser.parse_bytes(
             Path("/test/example.ts"),
-            b"const MAX_SIZE = 100;\n"
-            b"function outer() {\n"
-            b"  const arr = [MAX_SIZE];\n"
-            b"}\n",
+            b"const MAX_SIZE = 100;\nfunction outer() {\n  const arr = [MAX_SIZE];\n}\n",
         )
         refs = [e for e in edges if e.kind == "REFERENCES"]
         ref_targets = {e.target for e in refs}
@@ -1100,7 +1099,6 @@ class TestValueReferences:
         """REFERENCES edges should have resolved (qualified) targets for local funcs."""
         nodes, edges = self.parser.parse_file(FIXTURES / "sample_map_dispatch.ts")
         refs = [e for e in edges if e.kind == "REFERENCES"]
-        file_path = str(FIXTURES / "sample_map_dispatch.ts")
         # At least some targets should be fully qualified
         qualified_refs = [e for e in refs if "::" in e.target]
         assert len(qualified_refs) > 0
@@ -1119,40 +1117,23 @@ class TestModuleScopeCalls:
         self.parser = CodeParser()
 
     def test_python_top_level_call_attributes_to_file(self):
-        source = (
-            b"def worker():\n"
-            b"    return 1\n"
-            b"\n"
-            b"worker()\n"
-        )
+        source = b"def worker():\n    return 1\n\nworker()\n"
         path = FIXTURES / "module_scope_py.py"
         _, edges = self.parser.parse_bytes(path, source)
 
         calls = [e for e in edges if e.kind == "CALLS"]
-        top_level = [
-            e for e in calls
-            if e.source == str(path) and e.target.endswith("worker")
-        ]
+        top_level = [e for e in calls if e.source == str(path) and e.target.endswith("worker")]
         assert len(top_level) == 1
         # Edge originates at the call site (line 4), not the def (line 1).
         assert top_level[0].line == 4
 
     def test_python_if_main_block_call_attributes_to_file(self):
-        source = (
-            b"def run_job():\n"
-            b"    return 1\n"
-            b"\n"
-            b"if __name__ == '__main__':\n"
-            b"    run_job()\n"
-        )
+        source = b"def run_job():\n    return 1\n\nif __name__ == '__main__':\n    run_job()\n"
         path = FIXTURES / "module_scope_cli.py"
         _, edges = self.parser.parse_bytes(path, source)
 
         calls = [e for e in edges if e.kind == "CALLS"]
-        top_level = [
-            e for e in calls
-            if e.source == str(path) and e.target.endswith("run_job")
-        ]
+        top_level = [e for e in calls if e.source == str(path) and e.target.endswith("run_job")]
         assert len(top_level) == 1
         # Edge originates inside the `if __name__` block (line 5).
         assert top_level[0].line == 5
@@ -1161,19 +1142,12 @@ class TestModuleScopeCalls:
         # Bare top-level JSX expression statement exercises the
         # _extract_jsx_child path specifically (not a value-reference
         # fallback from the `const element = ...` assignment).
-        source = (
-            b"import App from './App';\n"
-            b"\n"
-            b"<App />;\n"
-        )
+        source = b"import App from './App';\n\n<App />;\n"
         path = FIXTURES / "module_scope_entry.tsx"
         _, edges = self.parser.parse_bytes(path, source)
 
         calls = [e for e in edges if e.kind == "CALLS"]
-        top_level = [
-            e for e in calls
-            if e.source == str(path) and e.target.endswith("App")
-        ]
+        top_level = [e for e in calls if e.source == str(path) and e.target.endswith("App")]
         assert len(top_level) == 1
         # Edge originates at the JSX site (line 3), not the import (line 1).
         assert top_level[0].line == 3
@@ -1181,21 +1155,14 @@ class TestModuleScopeCalls:
     def test_r_top_level_call_attributes_to_file(self):
         # R scripts are overwhelmingly module-scope by convention; this is
         # the highest-leverage language for the fix after Python.
-        source = (
-            b"worker <- function() {\n"
-            b"  1\n"
-            b"}\n"
-            b"\n"
-            b"worker()\n"
-        )
+        source = b"worker <- function() {\n  1\n}\n\nworker()\n"
         path = FIXTURES / "module_scope_sample.R"
         _, edges = self.parser.parse_bytes(path, source)
 
         top_level = [
-            e for e in edges
-            if e.kind == "CALLS"
-            and e.source == str(path)
-            and e.target.endswith("worker")
+            e
+            for e in edges
+            if e.kind == "CALLS" and e.source == str(path) and e.target.endswith("worker")
         ]
         assert len(top_level) == 1
 
@@ -1207,9 +1174,8 @@ class TestModuleScopeCalls:
         _, edges = self.parser.parse_bytes(path, source)
 
         top_level = [
-            e for e in edges
-            if e.kind == "CALLS"
-            and e.source == str(path)
-            and e.target.endswith("puts")
+            e
+            for e in edges
+            if e.kind == "CALLS" and e.source == str(path) and e.target.endswith("puts")
         ]
         assert len(top_level) == 1

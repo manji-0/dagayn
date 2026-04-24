@@ -25,12 +25,22 @@ logger = logging.getLogger(__name__)
 # Base class names that indicate a framework-managed class (ORM models,
 # Pydantic schemas, settings).  Classes inheriting from these are invoked
 # via metaclass/framework magic and should not be flagged as dead code.
-_FRAMEWORK_BASE_CLASSES = frozenset({
-    "Base", "DeclarativeBase", "Model", "BaseModel", "BaseSettings",
-    "db.Model", "TableBase",
-    # AWS CDK constructs -- instantiated by CDK app wiring, not explicit CALLS.
-    "Stack", "NestedStack", "Construct", "Resource",
-})
+_FRAMEWORK_BASE_CLASSES = frozenset(
+    {
+        "Base",
+        "DeclarativeBase",
+        "Model",
+        "BaseModel",
+        "BaseSettings",
+        "db.Model",
+        "TableBase",
+        # AWS CDK constructs -- instantiated by CDK app wiring, not explicit CALLS.
+        "Stack",
+        "NestedStack",
+        "Construct",
+        "Resource",
+    }
+)
 
 # Class name suffixes that indicate CDK/IaC constructs.
 # These are instantiated by framework wiring, not direct CALLS edges.
@@ -40,7 +50,7 @@ _CDK_CLASS_SUFFIXES = ("Stack", "Construct", "Pipeline", "Resources", "Layer")
 # Patterns for mock/stub variables in test files that should not be flagged dead.
 _MOCK_NAME_RE = re.compile(
     r"^(mock[A-Z_]|Mock[A-Z]|createMock[A-Z])|"  # mockDynamoClient, MockService, createMockX
-    r"(Mock|Stub|Fake|Spy)$",                      # s3ClientMock, dbStub
+    r"(Mock|Stub|Fake|Spy)$",  # s3ClientMock, dbStub
     re.IGNORECASE,
 )
 
@@ -57,7 +67,8 @@ def _cleanup_expired() -> int:
     """Remove expired refactors from the pending dict.  Returns count removed."""
     now = time.time()
     expired = [
-        rid for rid, r in _pending_refactors.items()
+        rid
+        for rid, r in _pending_refactors.items()
         if now - r["created_at"] > REFACTOR_EXPIRY_SECONDS
     ]
     for rid in expired:
@@ -100,25 +111,29 @@ def rename_preview(
     edits: list[dict[str, Any]] = []
 
     # --- Definition site ---
-    edits.append({
-        "file": node.file_path,
-        "line": node.line_start,
-        "old": old_name,
-        "new": new_name,
-        "confidence": "high",
-    })
+    edits.append(
+        {
+            "file": node.file_path,
+            "line": node.line_start,
+            "old": old_name,
+            "new": new_name,
+            "confidence": "high",
+        }
+    )
 
     # --- Call sites (CALLS edges targeting this node) ---
     call_edges = store.get_edges_by_target(node.qualified_name)
     for edge in call_edges:
         if edge.kind == "CALLS":
-            edits.append({
-                "file": edge.file_path,
-                "line": edge.line,
-                "old": old_name,
-                "new": new_name,
-                "confidence": "high",
-            })
+            edits.append(
+                {
+                    "file": edge.file_path,
+                    "line": edge.line,
+                    "old": old_name,
+                    "new": new_name,
+                    "confidence": "high",
+                }
+            )
 
     # Also search by bare name for unqualified edges.
     bare_edges = store.search_edges_by_target_name(old_name, kind="CALLS")
@@ -126,13 +141,15 @@ def rename_preview(
     for edge in bare_edges:
         key = (edge.file_path, edge.line)
         if key not in seen:
-            edits.append({
-                "file": edge.file_path,
-                "line": edge.line,
-                "old": old_name,
-                "new": new_name,
-                "confidence": "high",
-            })
+            edits.append(
+                {
+                    "file": edge.file_path,
+                    "line": edge.line,
+                    "old": old_name,
+                    "new": new_name,
+                    "confidence": "high",
+                }
+            )
             seen.add(key)
 
     # --- Import sites (IMPORTS_FROM edges targeting this node) ---
@@ -141,13 +158,15 @@ def rename_preview(
         if edge.kind == "IMPORTS_FROM":
             key = (edge.file_path, edge.line)
             if key not in seen:
-                edits.append({
-                    "file": edge.file_path,
-                    "line": edge.line,
-                    "old": old_name,
-                    "new": new_name,
-                    "confidence": "high",
-                })
+                edits.append(
+                    {
+                        "file": edge.file_path,
+                        "line": edge.line,
+                        "old": old_name,
+                        "new": new_name,
+                        "confidence": "high",
+                    }
+                )
                 seen.add(key)
 
     # --- Stats ---
@@ -172,7 +191,10 @@ def rename_preview(
 
     logger.info(
         "rename_preview: created refactor %s (%s -> %s, %d edits)",
-        refactor_id, old_name, new_name, len(edits),
+        refactor_id,
+        old_name,
+        new_name,
+        len(edits),
     )
     return preview
 
@@ -218,7 +240,8 @@ def _path_segments(file_path: str) -> tuple[str, ...]:
     """Return directory segments long enough to serve as package-name anchors."""
     parts = file_path.replace("\\", "/").split("/")
     return tuple(
-        p for p in parts[:-1]  # skip the filename itself
+        p
+        for p in parts[:-1]  # skip the filename itself
         if len(p) >= _MIN_PKG_SEGMENT_LEN and p not in ("home", "src", "lib", "app")
     )
 
@@ -302,7 +325,9 @@ def find_dead_code(
         name_counts[row[0]] = row[1]
 
     def _is_plausible_caller(
-        edge_file: str, node_file: str, node_name: str = "",
+        edge_file: str,
+        node_file: str,
+        node_name: str = "",
     ) -> bool:
         """A bare-name edge is plausible if it comes from the same file,
         from a file that has an IMPORTS_FROM edge whose target matches
@@ -346,7 +371,6 @@ def find_dead_code(
     dead: list[dict[str, Any]] = []
 
     for node in candidates:
-
         # Skip test nodes and anything defined in test files.
         if node.is_test or _is_test_file(node.file_path):
             continue
@@ -388,14 +412,15 @@ def find_dead_code(
 
         # Skip classes (and their methods) inheriting from known framework bases.
         _is_framework_class = False
-        _check_qn = node.qualified_name if node.kind == "Class" else (
-            node.qualified_name.rsplit(".", 1)[0] if node.parent_name else None
+        _check_qn = (
+            node.qualified_name
+            if node.kind == "Class"
+            else (node.qualified_name.rsplit(".", 1)[0] if node.parent_name else None)
         )
         if _check_qn:
             outgoing = store.get_edges_by_source(_check_qn)
             base_names = {
-                e.target_qualified.rsplit("::", 1)[-1]
-                for e in outgoing if e.kind == "INHERITS"
+                e.target_qualified.rsplit("::", 1)[-1] for e in outgoing if e.kind == "INHERITS"
             }
             if base_names & _FRAMEWORK_BASE_CLASSES:
                 _is_framework_class = True
@@ -442,18 +467,14 @@ def find_dead_code(
         if node.kind == "Function" and node.parent_name:
             parent_qn = node.qualified_name.rsplit(".", 1)[0]
             parent_edges = store.get_edges_by_source(parent_qn)
-            base_class_names = [
-                e.target_qualified for e in parent_edges if e.kind == "INHERITS"
-            ]
+            base_class_names = [e.target_qualified for e in parent_edges if e.kind == "INHERITS"]
             for base_name in base_class_names:
                 # Try fully-qualified base first, then bare name match
                 base_method_qn = f"{base_name}.{node.name}"
                 base_nodes = store.get_node(base_method_qn)
                 if base_nodes is None:
                     # Base class may be bare name -- search in same file
-                    base_method_qn2 = (
-                        node.file_path + "::" + base_name + "." + node.name
-                    )
+                    base_method_qn2 = node.file_path + "::" + base_name + "." + node.name
                     base_nodes = store.get_node(base_method_qn2)
                 if base_nodes is not None:
                     base_decos = base_nodes.extra.get("decorators", ())
@@ -479,22 +500,19 @@ def find_dead_code(
             bare = store.search_edges_by_target_name(node.name, kind="CALLS")
             # Also search for partially-qualified targets ending with ::name
             suffix_rows = conn.execute(
-                "SELECT * FROM edges WHERE kind = 'CALLS'"
-                " AND target_qualified LIKE ?",
+                "SELECT * FROM edges WHERE kind = 'CALLS' AND target_qualified LIKE ?",
                 (f"%::{node.name}",),
             ).fetchall()
             suffix_edges = [store._row_to_edge(r) for r in suffix_rows]
             all_bare = bare + suffix_edges
             all_bare = [
-                e for e in all_bare
-                if _is_plausible_caller(e.file_path, node.file_path, node.name)
+                e for e in all_bare if _is_plausible_caller(e.file_path, node.file_path, node.name)
             ]
             incoming = incoming + all_bare
         if not any(e.kind == "TESTED_BY" for e in incoming):
             bare_tb = store.search_edges_by_target_name(node.name, kind="TESTED_BY")
             bare_tb = [
-                e for e in bare_tb
-                if _is_plausible_caller(e.file_path, node.file_path, node.name)
+                e for e in bare_tb if _is_plausible_caller(e.file_path, node.file_path, node.name)
             ]
             incoming = incoming + bare_tb
         # Check INHERITS -- classes with subclasses are not dead.
@@ -509,8 +527,7 @@ def find_dead_code(
 
         # For classes with no direct references, check if any member has callers.
         no_refs = not (
-            has_callers or has_test_refs or has_importers
-            or has_references or has_subclasses
+            has_callers or has_test_refs or has_importers or has_references or has_subclasses
         )
         if node.kind == "Class" and no_refs:
             member_prefix = node.qualified_name + "."
@@ -524,10 +541,7 @@ def find_dead_code(
             if member_calls > 0:
                 has_callers = True
 
-        if not (
-            has_callers or has_test_refs or has_importers
-            or has_references or has_subclasses
-        ):
+        if not (has_callers or has_test_refs or has_importers or has_references or has_subclasses):
             # Check if this is a method override where the base class method
             # has callers (polymorphic dispatch: callers of Base.method()
             # implicitly call SubClass.method() at runtime).
@@ -555,13 +569,15 @@ def find_dead_code(
                             break
 
             if not has_callers:
-                dead.append({
-                    "name": _sanitize_name(node.name),
-                    "qualified_name": _sanitize_name(node.qualified_name),
-                    "kind": node.kind,
-                    "file": node.file_path,
-                    "line": node.line_start,
-                })
+                dead.append(
+                    {
+                        "name": _sanitize_name(node.name),
+                        "qualified_name": _sanitize_name(node.qualified_name),
+                        "kind": node.kind,
+                        "file": node.file_path,
+                        "line": node.line_start,
+                    }
+                )
 
     logger.info("find_dead_code: found %d dead symbols", len(dead))
     return dead
@@ -587,12 +603,14 @@ def suggest_refactorings(store: GraphStore) -> list[dict[str, Any]]:
     # --- Dead code suggestions ---
     dead = find_dead_code(store)
     for d in dead:
-        suggestions.append({
-            "type": "remove",
-            "description": f"Remove unused {d['kind'].lower()} '{d['name']}'",
-            "symbols": [d["qualified_name"]],
-            "rationale": "No callers, no test references, no importers, not an entry point.",
-        })
+        suggestions.append(
+            {
+                "type": "remove",
+                "description": f"Remove unused {d['kind'].lower()} '{d['name']}'",
+                "symbols": [d["qualified_name"]],
+                "rationale": "No callers, no test references, no importers, not an entry point.",
+            }
+        )
 
     # --- Cross-community move suggestions ---
     # Only attempt if communities table exists and has data.
@@ -607,9 +625,7 @@ def suggest_refactorings(store: GraphStore) -> list[dict[str, Any]]:
             for qn in member_qns:
                 node_community[qn] = cid
 
-        community_names: dict[int, str] = {
-            r["id"]: r["name"] for r in community_rows
-        }
+        community_names: dict[int, str] = {r["id"]: r["name"] for r in community_rows}
 
         # Check functions called only by members of a different community.
         all_funcs = store.get_nodes_by_kind(["Function"])
@@ -620,8 +636,7 @@ def suggest_refactorings(store: GraphStore) -> list[dict[str, Any]]:
                 continue
 
             incoming_calls = [
-                e for e in store.get_edges_by_target(fnode.qualified_name)
-                if e.kind == "CALLS"
+                e for e in store.get_edges_by_target(fnode.qualified_name) if e.kind == "CALLS"
             ]
             if not incoming_calls:
                 continue
@@ -640,18 +655,20 @@ def suggest_refactorings(store: GraphStore) -> list[dict[str, Any]]:
                     tgt_name = community_names.get(
                         target_community, f"community-{target_community}"
                     )
-                    suggestions.append({
-                        "type": "move",
-                        "description": (
-                            f"Move '{_sanitize_name(fnode.name)}' from "
-                            f"'{src_name}' to '{tgt_name}'"
-                        ),
-                        "symbols": [_sanitize_name(fnode.qualified_name)],
-                        "rationale": (
-                            f"Function is in community '{src_name}' but only "
-                            f"called by members of community '{tgt_name}'."
-                        ),
-                    })
+                    suggestions.append(
+                        {
+                            "type": "move",
+                            "description": (
+                                f"Move '{_sanitize_name(fnode.name)}' from "
+                                f"'{src_name}' to '{tgt_name}'"
+                            ),
+                            "symbols": [_sanitize_name(fnode.qualified_name)],
+                            "rationale": (
+                                f"Function is in community '{src_name}' but only "
+                                f"called by members of community '{tgt_name}'."
+                            ),
+                        }
+                    )
 
     logger.info("suggest_refactorings: produced %d suggestions", len(suggestions))
     return suggestions
@@ -713,21 +730,29 @@ def apply_refactor(
     if not edits:
         if dry_run:
             return {
-                "status": "ok", "dry_run": True, "applied": 0,
-                "files_modified": [], "edits_applied": 0,
-                "would_modify": [], "diffs": {},
+                "status": "ok",
+                "dry_run": True,
+                "applied": 0,
+                "files_modified": [],
+                "edits_applied": 0,
+                "would_modify": [],
+                "diffs": {},
             }
         return {"status": "ok", "applied": 0, "files_modified": [], "edits_applied": 0}
 
     # --- Path traversal validation ---
     for edit in edits:
-        edit_path = Path(edit["file"]).resolve()
+        edit_path = Path(edit["file"])
+        if not edit_path.is_absolute():
+            edit_path = repo_root / edit_path
+        edit_path = edit_path.resolve()
         try:
             edit_path.relative_to(repo_root)
         except ValueError:
             logger.error(
                 "apply_refactor: path traversal blocked for %s (repo_root=%s)",
-                edit_path, repo_root,
+                edit_path,
+                repo_root,
             )
             return {
                 "status": "error",
@@ -739,6 +764,7 @@ def apply_refactor(
     # sequentially against the updated content rather than stomping each
     # other. Dry-run and write modes then share this computation.
     from collections import defaultdict
+
     edits_by_file: dict[str, list[dict]] = defaultdict(list)
     for edit in edits:
         edits_by_file[edit["file"]].append(edit)
@@ -746,6 +772,8 @@ def apply_refactor(
     planned: dict[str, tuple[str, str, int]] = {}  # file -> (old_content, new_content, edit_count)
     for file_str, file_edits in edits_by_file.items():
         file_path = Path(file_str)
+        if not file_path.is_absolute():
+            file_path = repo_root / file_path
         if not file_path.is_file():
             logger.warning("apply_refactor: file not found: %s", file_path)
             continue
@@ -763,7 +791,8 @@ def apply_refactor(
             if old_text not in content:
                 logger.warning(
                     "apply_refactor: old text %r not found in %s",
-                    old_text, file_path,
+                    old_text,
+                    file_path,
                 )
                 continue
             target_line = edit.get("line")
@@ -785,15 +814,18 @@ def apply_refactor(
     # --- Dry-run path: return diffs, no writes ---
     if dry_run:
         import difflib
+
         diffs: dict[str, str] = {}
         for file_str, (original, new_content, _count) in planned.items():
-            diff_lines = list(difflib.unified_diff(
-                original.splitlines(keepends=True),
-                new_content.splitlines(keepends=True),
-                fromfile=f"a/{file_str}",
-                tofile=f"b/{file_str}",
-                n=3,
-            ))
+            diff_lines = list(
+                difflib.unified_diff(
+                    original.splitlines(keepends=True),
+                    new_content.splitlines(keepends=True),
+                    fromfile=f"a/{file_str}",
+                    tofile=f"b/{file_str}",
+                    n=3,
+                )
+            )
             diffs[file_str] = "".join(diff_lines)
         total_edits = sum(count for _o, _n, count in planned.values())
         result = {
@@ -807,7 +839,9 @@ def apply_refactor(
         }
         logger.info(
             "apply_refactor: dry-run %s — %d edits would be applied to %d files",
-            refactor_id, total_edits, len(planned),
+            refactor_id,
+            total_edits,
+            len(planned),
         )
         # Do NOT pop the pending refactor — let the user commit via a
         # second call with dry_run=False.

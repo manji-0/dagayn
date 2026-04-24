@@ -17,7 +17,6 @@ else:  # pragma: no cover - Python 3.10 backport
 from code_review_graph.skills import (
     _CLAUDE_MD_SECTION_MARKER,
     PLATFORMS,
-    _build_server_entry,
     _cursor_hook_scripts,
     _detect_serve_command,
     _in_poetry_project,
@@ -41,7 +40,8 @@ except ModuleNotFoundError:
     tomllib = None  # type: ignore[assignment]
 
 _needs_tomllib = pytest.mark.skipif(
-    tomllib is None, reason="tomllib requires Python 3.11+",
+    tomllib is None,
+    reason="tomllib requires Python 3.11+",
 )
 
 
@@ -174,13 +174,11 @@ class TestGenerateHooksConfig:
                     f"{event_name} entry has a flat `command` field; "
                     "it must be wrapped in an inner `hooks` array"
                 )
-                assert "hooks" in entry, (
-                    f"{event_name} entry is missing the inner `hooks` array"
-                )
+                assert "hooks" in entry, f"{event_name} entry is missing the inner `hooks` array"
                 assert isinstance(entry["hooks"], list)
                 for hook in entry["hooks"]:
                     assert hook.get("type") == "command", (
-                        f"{event_name} inner hook missing type=\"command\""
+                        f'{event_name} inner hook missing type="command"'
                     )
                     assert "command" in hook
                     assert "timeout" in hook
@@ -329,11 +327,25 @@ class TestInjectClaudeMd:
 class TestInjectPlatformInstructionsFiltering:
     def test_all_writes_every_file(self, tmp_path):
         updated = inject_platform_instructions(tmp_path, target="all")
-        assert set(updated) == {"AGENTS.md", "GEMINI.md", ".cursorrules", ".windsurfrules", "QODER.md", ".kiro/steering/code-review-graph.md"}
+        assert set(updated) == {
+            "AGENTS.md",
+            "GEMINI.md",
+            ".cursorrules",
+            ".windsurfrules",
+            "QODER.md",
+            ".kiro/steering/code-review-graph.md",
+        }
 
     def test_default_is_all(self, tmp_path):
         updated = inject_platform_instructions(tmp_path)
-        assert set(updated) == {"AGENTS.md", "GEMINI.md", ".cursorrules", ".windsurfrules", "QODER.md", ".kiro/steering/code-review-graph.md"}
+        assert set(updated) == {
+            "AGENTS.md",
+            "GEMINI.md",
+            ".cursorrules",
+            ".windsurfrules",
+            "QODER.md",
+            ".kiro/steering/code-review-graph.md",
+        }
 
     def test_claude_writes_nothing(self, tmp_path):
         updated = inject_platform_instructions(tmp_path, target="claude")
@@ -663,6 +675,7 @@ class TestInstallPlatformConfigs:
         assert "code-review-graph" in data["mcpServers"]
         assert data["mcpServers"]["code-review-graph"]["type"] == "stdio"
         import shutil
+
         expected_cmd = "uvx" if shutil.which("uvx") else "code-review-graph"
         assert data["mcpServers"]["code-review-graph"]["command"] == expected_cmd
 

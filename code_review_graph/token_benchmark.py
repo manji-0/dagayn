@@ -30,15 +30,23 @@ def compute_naive_tokens(repo_root: Path) -> int:
     """Count tokens in all parseable source files."""
     total = 0
     exts = (
-        ".py", ".js", ".ts", ".go", ".rs", ".java",
-        ".c", ".cpp", ".rb", ".php", ".swift", ".kt",
+        ".py",
+        ".js",
+        ".ts",
+        ".go",
+        ".rs",
+        ".java",
+        ".c",
+        ".cpp",
+        ".rb",
+        ".php",
+        ".swift",
+        ".kt",
     )
     for ext in exts:
         for f in repo_root.rglob(f"*{ext}"):
             try:
-                total += estimate_tokens(
-                    f.read_text(errors="replace")
-                )
+                total += estimate_tokens(f.read_text(errors="replace"))
             except OSError:
                 continue
     return total
@@ -76,16 +84,19 @@ def run_token_benchmark(
             ratio = naive_total / graph_tokens
         else:
             ratio = 0
-        results.append({
-            "question": q,
-            "naive_tokens": naive_total,
-            "graph_tokens": graph_tokens,
-            "reduction_ratio": round(ratio, 1),
-        })
+        results.append(
+            {
+                "question": q,
+                "naive_tokens": naive_total,
+                "graph_tokens": graph_tokens,
+                "reduction_ratio": round(ratio, 1),
+            }
+        )
 
     if results:
         total = sum(
-            r["reduction_ratio"] for r in results  # type: ignore[misc]
+            r["reduction_ratio"]
+            for r in results  # type: ignore[misc]
         )
         avg_ratio = float(total) / len(results)  # type: ignore[arg-type]
     else:
@@ -96,7 +107,6 @@ def run_token_benchmark(
         "per_question": results,
         "average_reduction_ratio": round(avg_ratio, 1),
         "summary": (
-            f"Graph queries use ~{avg_ratio:.0f}x fewer tokens "
-            f"than reading all source files"
+            f"Graph queries use ~{avg_ratio:.0f}x fewer tokens than reading all source files"
         ),
     }

@@ -64,19 +64,11 @@ class TestGoParsing:
 
         contains = [(e.source, e.target) for e in self.edges if e.kind == "CONTAINS"]
         find_by_id_contains = [
-            (s, t) for (s, t) in contains
-            if t.endswith("::InMemoryRepo.FindByID")
+            (s, t) for (s, t) in contains if t.endswith("::InMemoryRepo.FindByID")
         ]
-        save_contains = [
-            (s, t) for (s, t) in contains
-            if t.endswith("::InMemoryRepo.Save")
-        ]
-        assert find_by_id_contains, (
-            f"no CONTAINS edge for InMemoryRepo.FindByID in {contains}"
-        )
-        assert save_contains, (
-            f"no CONTAINS edge for InMemoryRepo.Save in {contains}"
-        )
+        save_contains = [(s, t) for (s, t) in contains if t.endswith("::InMemoryRepo.Save")]
+        assert find_by_id_contains, f"no CONTAINS edge for InMemoryRepo.FindByID in {contains}"
+        assert save_contains, f"no CONTAINS edge for InMemoryRepo.Save in {contains}"
         # Source of each CONTAINS should be the InMemoryRepo type,
         # not the file path.
         assert find_by_id_contains[0][0].endswith("::InMemoryRepo")
@@ -175,9 +167,7 @@ class TestJavaParsing:
         """
         inherits = [e for e in self.edges if e.kind == "INHERITS"]
         # Must have both extends and implements edges to test both paths
-        assert len(inherits) >= 2, (
-            "Expected at least 2 INHERITS edges (extends + implements)"
-        )
+        assert len(inherits) >= 2, "Expected at least 2 INHERITS edges (extends + implements)"
         for e in inherits:
             assert not e.target.startswith("implements "), (
                 f"INHERITS target should be bare type name, got: {e.target!r}"
@@ -199,15 +189,11 @@ class TestJavaImportResolution:
         # Create a mini Java project with two packages
         auth = tmp_path / "src/main/java/com/example/auth"
         auth.mkdir(parents=True)
-        (auth / "User.java").write_text(
-            "package com.example.auth;\npublic class User {}\n"
-        )
+        (auth / "User.java").write_text("package com.example.auth;\npublic class User {}\n")
         svc = tmp_path / "src/main/java/com/example/service"
         svc.mkdir(parents=True)
         (svc / "App.java").write_text(
-            "package com.example.service;\n"
-            "import com.example.auth.User;\n"
-            "public class App {}\n"
+            "package com.example.service;\nimport com.example.auth.User;\npublic class App {}\n"
         )
 
         parser = CodeParser()
@@ -232,8 +218,7 @@ class TestJavaImportResolution:
         pkg = tmp_path / "src/main/java/com/example/util"
         pkg.mkdir(parents=True)
         (pkg / "Helper.java").write_text(
-            "package com.example.util;\n"
-            "public class Helper { public static int MAX = 1; }\n"
+            "package com.example.util;\npublic class Helper { public static int MAX = 1; }\n"
         )
         app_dir = tmp_path / "src/main/java/com/example/app"
         app_dir.mkdir(parents=True)
@@ -254,9 +239,7 @@ class TestJavaImportResolution:
         app_dir = tmp_path / "src/main/java/com/example"
         app_dir.mkdir(parents=True)
         (app_dir / "App.java").write_text(
-            "package com.example;\n"
-            "import java.util.*;\n"
-            "public class App {}\n"
+            "package com.example;\nimport java.util.*;\npublic class App {}\n"
         )
 
         parser = CodeParser()
@@ -319,6 +302,7 @@ class TestCppParsing:
 def _has_csharp_parser():
     try:
         import tree_sitter_language_pack as tslp
+
         tslp.get_parser("csharp")
         return True
     except (LookupError, ImportError):
@@ -612,10 +596,7 @@ class TestSolidityParsing:
         assert "BonusClaimed" in names
 
     def test_finds_file_level_events(self):
-        funcs = [
-            n for n in self.nodes
-            if n.kind == "Function" and n.parent_name is None
-        ]
+        funcs = [n for n in self.nodes if n.kind == "Function" and n.parent_name is None]
         names = {f.name for f in funcs}
         # file-level events declared outside any contract
         assert "Staked" in names or "Unstaked" in names
@@ -627,10 +608,7 @@ class TestSolidityParsing:
         assert "PositionId" in names
 
     def test_finds_file_level_constants(self):
-        constants = [
-            n for n in self.nodes
-            if n.extra.get("solidity_kind") == "constant"
-        ]
+        constants = [n for n in self.nodes if n.extra.get("solidity_kind") == "constant"]
         names = {c.name for c in constants}
         assert "MAX_SUPPLY" in names
         assert "ZERO_ADDRESS" in names
@@ -652,10 +630,7 @@ class TestSolidityParsing:
         assert "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol" in targets
 
     def test_finds_state_variables(self):
-        state_vars = [
-            n for n in self.nodes
-            if n.extra.get("solidity_kind") == "state_variable"
-        ]
+        state_vars = [n for n in self.nodes if n.extra.get("solidity_kind") == "state_variable"]
         names = {v.name for v in state_vars}
         assert "stakes" in names
         assert "totalStaked" in names
@@ -668,8 +643,7 @@ class TestSolidityParsing:
 
     def test_state_variable_types(self):
         state_vars = {
-            n.name: n for n in self.nodes
-            if n.extra.get("solidity_kind") == "state_variable"
+            n.name: n for n in self.nodes if n.extra.get("solidity_kind") == "state_variable"
         }
         assert state_vars["totalStaked"].return_type == "uint256"
         assert state_vars["guardian"].return_type == "address"
@@ -736,15 +710,13 @@ class TestSolidityParsing:
 
     def test_extracts_params(self):
         funcs = {
-            n.name: n for n in self.nodes
-            if n.kind == "Function" and n.parent_name == "RewardMath"
+            n.name: n for n in self.nodes if n.kind == "Function" and n.parent_name == "RewardMath"
         }
         assert funcs["mulPrecise"].params == "(uint256 a, uint256 b)"
 
     def test_extracts_return_type(self):
         funcs = {
-            n.name: n for n in self.nodes
-            if n.kind == "Function" and n.parent_name == "RewardMath"
+            n.name: n for n in self.nodes if n.kind == "Function" and n.parent_name == "RewardMath"
         }
         assert "uint256" in funcs["mulPrecise"].return_type
 
@@ -856,10 +828,7 @@ class TestRParsing:
         assert "MyClass" in names
 
     def test_finds_class_methods(self):
-        methods = [
-            n for n in self.nodes
-            if n.kind == "Function" and n.parent_name == "MyClass"
-        ]
+        methods = [n for n in self.nodes if n.kind == "Function" and n.parent_name == "MyClass"]
         names = {m.name for m in methods}
         assert "greet" in names
         assert "get_age" in names
@@ -932,7 +901,9 @@ class TestPerlParsing:
     def test_finds_calls(self):
         calls = [e for e in self.edges if e.kind == "CALLS"]
         targets = {e.target for e in calls}
-        assert any(t == "speak" or t.endswith("::speak") for t in targets)  # $self->speak() — method_call_expression
+        assert any(
+            t == "speak" or t.endswith("::speak") for t in targets
+        )  # $self->speak() — method_call_expression
         assert "bless" in targets  # ambiguous_function_call_expression
 
     def test_finds_contains(self):
@@ -985,45 +956,32 @@ class TestLuaParsing:
         assert self.parser.detect_language(Path("config.lua")) == "lua"
 
     def test_finds_top_level_functions(self):
-        funcs = [
-            n for n in self.nodes
-            if n.kind == "Function" and n.parent_name is None
-        ]
+        funcs = [n for n in self.nodes if n.kind == "Function" and n.parent_name is None]
         names = {f.name for f in funcs}
         assert "greet" in names
         assert "helper" in names
         assert "process_animals" in names
 
     def test_finds_variable_assigned_functions(self):
-        funcs = [
-            n for n in self.nodes
-            if n.kind == "Function" and n.parent_name is None
-        ]
+        funcs = [n for n in self.nodes if n.kind == "Function" and n.parent_name is None]
         names = {f.name for f in funcs}
         assert "transform" in names
         assert "validate" in names
 
     def test_finds_dot_syntax_methods(self):
-        funcs = [
-            n for n in self.nodes
-            if n.kind == "Function" and n.parent_name == "Animal"
-        ]
+        funcs = [n for n in self.nodes if n.kind == "Function" and n.parent_name == "Animal"]
         names = {f.name for f in funcs}
         assert "new" in names
 
     def test_finds_colon_syntax_methods(self):
-        funcs = [
-            n for n in self.nodes
-            if n.kind == "Function" and n.parent_name == "Animal"
-        ]
+        funcs = [n for n in self.nodes if n.kind == "Function" and n.parent_name == "Animal"]
         names = {f.name for f in funcs}
         assert "speak" in names
         assert "rename" in names
 
     def test_finds_inherited_table_methods(self):
         dog_funcs = [
-            n for n in self.nodes
-            if n.kind in ("Function", "Test") and n.parent_name == "Dog"
+            n for n in self.nodes if n.kind in ("Function", "Test") and n.parent_name == "Dog"
         ]
         names = {f.name for f in dog_funcs}
         assert "new" in names
@@ -1055,7 +1013,8 @@ class TestLuaParsing:
 
     def test_method_parent_names(self):
         funcs = {
-            (n.name, n.parent_name) for n in self.nodes
+            (n.name, n.parent_name)
+            for n in self.nodes
             if n.kind == "Function" and n.parent_name is not None
         }
         assert ("new", "Animal") in funcs
@@ -1077,10 +1036,7 @@ class TestLuaParsing:
         assert funcs["greet"].params is not None
         assert "name" in funcs["greet"].params
         # Animal.new has (name, sound)
-        animal_new = [
-            n for n in self.nodes
-            if n.name == "new" and n.parent_name == "Animal"
-        ][0]
+        animal_new = [n for n in self.nodes if n.name == "new" and n.parent_name == "Animal"][0]
         assert animal_new.params is not None
         assert "name" in animal_new.params
         assert "sound" in animal_new.params
@@ -1113,44 +1069,31 @@ class TestLuauParsing:
         assert "Callback" in names
 
     def test_finds_top_level_functions(self):
-        funcs = [
-            n for n in self.nodes
-            if n.kind == "Function" and n.parent_name is None
-        ]
+        funcs = [n for n in self.nodes if n.kind == "Function" and n.parent_name is None]
         names = {f.name for f in funcs}
         assert "greet" in names
         assert "add" in names
         assert "process_animals" in names
 
     def test_finds_variable_assigned_functions(self):
-        funcs = [
-            n for n in self.nodes
-            if n.kind == "Function" and n.parent_name is None
-        ]
+        funcs = [n for n in self.nodes if n.kind == "Function" and n.parent_name is None]
         names = {f.name for f in funcs}
         assert "transform" in names
 
     def test_finds_dot_syntax_methods(self):
-        funcs = [
-            n for n in self.nodes
-            if n.kind == "Function" and n.parent_name == "Animal"
-        ]
+        funcs = [n for n in self.nodes if n.kind == "Function" and n.parent_name == "Animal"]
         names = {f.name for f in funcs}
         assert "new" in names
 
     def test_finds_colon_syntax_methods(self):
-        funcs = [
-            n for n in self.nodes
-            if n.kind == "Function" and n.parent_name == "Animal"
-        ]
+        funcs = [n for n in self.nodes if n.kind == "Function" and n.parent_name == "Animal"]
         names = {f.name for f in funcs}
         assert "speak" in names
         assert "rename" in names
 
     def test_finds_inherited_table_methods(self):
         dog_funcs = [
-            n for n in self.nodes
-            if n.kind in ("Function", "Test") and n.parent_name == "Dog"
+            n for n in self.nodes if n.kind in ("Function", "Test") and n.parent_name == "Dog"
         ]
         names = {f.name for f in dog_funcs}
         assert "new" in names
@@ -1181,7 +1124,8 @@ class TestLuauParsing:
 
     def test_method_parent_names(self):
         funcs = {
-            (n.name, n.parent_name) for n in self.nodes
+            (n.name, n.parent_name)
+            for n in self.nodes
             if n.kind == "Function" and n.parent_name is not None
         }
         assert ("new", "Animal") in funcs
@@ -1232,9 +1176,7 @@ class TestObjectiveCParsing:
         assert "Calculator" in names
 
     def test_finds_instance_and_class_methods(self):
-        funcs = {
-            (n.name, n.parent_name) for n in self.nodes if n.kind == "Function"
-        }
+        funcs = {(n.name, n.parent_name) for n in self.nodes if n.kind == "Function"}
         assert ("add", "Calculator") in funcs
         assert ("reset", "Calculator") in funcs
         assert ("logResult", "Calculator") in funcs
@@ -1312,6 +1254,7 @@ class TestBashParsing:
             for e in edges:
                 counts[e.kind] = counts.get(e.kind, 0) + 1
             return counts
+
         assert by_kind(ksh_edges) == by_kind(self.edges)
 
     def test_nodes_have_bash_language(self):
@@ -1358,10 +1301,7 @@ class TestBashParsing:
 
     def test_main_calls_resolve_to_internal_functions(self):
         """main() should have CALLS edges to log_info, ensure_dir, and cleanup."""
-        calls = [
-            e for e in self.edges
-            if e.kind == "CALLS" and e.source.endswith("::main")
-        ]
+        calls = [e for e in self.edges if e.kind == "CALLS" and e.source.endswith("::main")]
         call_targets = {e.target for e in calls}
         assert any(t.endswith("::log_info") for t in call_targets)
         assert any(t.endswith("::ensure_dir") for t in call_targets)
@@ -1389,9 +1329,7 @@ class TestElixirParsing:
         assert "MathHelpers" in classes
 
     def test_def_defp_produce_functions_with_parent_module(self):
-        funcs = {
-            (n.name, n.parent_name) for n in self.nodes if n.kind == "Function"
-        }
+        funcs = {(n.name, n.parent_name) for n in self.nodes if n.kind == "Function"}
         # public defs
         assert ("add", "Calculator") in funcs
         assert ("subtract", "Calculator") in funcs
@@ -1423,8 +1361,7 @@ class TestElixirParsing:
         contains = [e for e in self.edges if e.kind == "CONTAINS"]
         # Each function should be CONTAINS-linked to its parent module
         function_targets = {
-            e.target for e in contains
-            if "::" in e.source and "Calculator" in e.source
+            e.target for e in contains if "::" in e.source and "Calculator" in e.source
         }
         assert any(t.endswith("::Calculator.add") for t in function_targets)
         assert any(t.endswith("::Calculator.compute") for t in function_targets)
@@ -1449,20 +1386,14 @@ class TestGDScriptParsing:
         assert "Item" in classes
 
     def test_finds_top_level_functions(self):
-        funcs = [
-            n for n in self.nodes
-            if n.kind == "Function" and n.parent_name is None
-        ]
+        funcs = [n for n in self.nodes if n.kind == "Function" and n.parent_name is None]
         names = {f.name for f in funcs}
         for expected in ("_ready", "_load_items", "get_item", "helper"):
             assert expected in names, f"missing top-level function {expected}"
 
     def test_finds_inner_class_methods(self):
         """Methods defined inside ``class Inner:`` should attach to the inner class."""
-        inner_funcs = [
-            n for n in self.nodes
-            if n.kind == "Function" and n.parent_name == "Item"
-        ]
+        inner_funcs = [n for n in self.nodes if n.kind == "Function" and n.parent_name == "Item"]
         names = {f.name for f in inner_funcs}
         assert "promote" in names
 
@@ -1499,14 +1430,18 @@ class TestGDScriptParsing:
     def test_contains_edges_wire_classes_and_functions(self):
         contains = [(e.source, e.target) for e in self.edges if e.kind == "CONTAINS"]
         # File CONTAINS the top-level Class and Function nodes.
-        file_contains = {t for s, t in contains if not s.endswith(".gd::Item")
-                         and not s.endswith(".gd::SampleManager")}
+        file_contains = {
+            t
+            for s, t in contains
+            if not s.endswith(".gd::Item") and not s.endswith(".gd::SampleManager")
+        }
         assert any(t.endswith("::SampleManager") for t in file_contains)
         assert any(t.endswith("::Item") for t in file_contains)
         assert any(t.endswith("::_ready") for t in file_contains)
         # Inner class CONTAINS its method.
         item_contains = {t for s, t in contains if s.endswith("::Item")}
         assert any(t.endswith("::Item.promote") for t in item_contains)
+
 
 class TestJuliaParsing:
     def setup_method(self):
@@ -1533,10 +1468,7 @@ class TestJuliaParsing:
         inherits = [e for e in self.edges if e.kind == "INHERITS"]
         # Dog's qualified source is file::SampleModule.Dog; we only care
         # about the trailing struct name and the target.
-        pairs = {
-            (e.source.split("::")[-1].split(".")[-1], e.target)
-            for e in inherits
-        }
+        pairs = {(e.source.split("::")[-1].split(".")[-1], e.target) for e in inherits}
         assert ("Dog", "AbstractAnimal") in pairs
 
     def test_finds_long_form_functions(self):
@@ -1589,10 +1521,9 @@ class TestJuliaParsing:
 
     def test_finds_exports(self):
         refs = [
-            e for e in self.edges
-            if e.kind == "REFERENCES"
-            and e.extra
-            and e.extra.get("julia_export")
+            e
+            for e in self.edges
+            if e.kind == "REFERENCES" and e.extra and e.extra.get("julia_export")
         ]
         # Targets may be resolved to qualified names (file::SampleModule.greet)
         # if the exported symbol is defined locally; otherwise they stay bare.
@@ -1610,9 +1541,7 @@ class TestJuliaParsing:
         # The CONTAINS edge for inner should originate from outer, and
         # its qualified target should carry `outer.inner` in the name.
         assert any(
-            e.source.endswith("outer")
-            and e.target.endswith("outer.inner")
-            for e in contains
+            e.source.endswith("outer") and e.target.endswith("outer.inner") for e in contains
         )
 
     def test_qualified_function_name(self):
@@ -1634,9 +1563,9 @@ class TestJuliaParsing:
 
     def test_finds_enum_variants(self):
         variants = {
-            n.name for n in self.nodes
-            if n.kind == "Function"
-            and (n.extra or {}).get("julia_kind") == "enum_variant"
+            n.name
+            for n in self.nodes
+            if n.kind == "Function" and (n.extra or {}).get("julia_kind") == "enum_variant"
         }
         assert {"RED", "BLUE", "GREEN"} <= variants
 
@@ -1644,18 +1573,15 @@ class TestJuliaParsing:
         contains = [e for e in self.edges if e.kind == "CONTAINS"]
         # Color -> RED, BLUE, GREEN
         variants_under_color = {
-            e.target.split(".")[-1]
-            for e in contains
-            if e.source.endswith("Color")
+            e.target.split(".")[-1] for e in contains if e.source.endswith("Color")
         }
         assert {"RED", "BLUE", "GREEN"} <= variants_under_color
 
     def test_finds_public_symbols(self):
         refs = [
-            e for e in self.edges
-            if e.kind == "REFERENCES"
-            and e.extra
-            and e.extra.get("julia_public")
+            e
+            for e in self.edges
+            if e.kind == "REFERENCES" and e.extra and e.extra.get("julia_public")
         ]
         trailing = {e.target.split(".")[-1] for e in refs}
         assert "square" in trailing
@@ -1664,10 +1590,8 @@ class TestJuliaParsing:
     def test_qualified_function_references_base(self):
         refs = [e for e in self.edges if e.kind == "REFERENCES"]
         # function Base.show(...) should emit a REFERENCES edge to Base
-        assert any(
-            "show" in e.source and e.target == "Base"
-            for e in refs
-        )
+        assert any("show" in e.source and e.target == "Base" for e in refs)
+
 
 class TestRescriptParser:
     def setup_method(self):
@@ -1690,9 +1614,7 @@ class TestRescriptParser:
         assert {"User", "App", "Validator"}.issubset(names)
 
     def test_nested_module_has_parent(self):
-        validator = next(
-            n for n in self.nodes if n.kind == "Class" and n.name == "Validator"
-        )
+        validator = next(n for n in self.nodes if n.kind == "Class" and n.name == "Validator")
         assert validator.parent_name == "User"
 
     def test_finds_top_level_lets(self):
@@ -1745,9 +1667,7 @@ class TestRescriptParser:
         sources = {e.source for e in calls}
         targets = {e.target for e in calls}
         assert any(s.endswith("::App.start") for s in sources)
-        assert "User.make" in targets or any(
-            t.endswith("::User.make") for t in targets
-        )
+        assert "User.make" in targets or any(t.endswith("::User.make") for t in targets)
 
     def test_contains_edges_wire_module_to_members(self):
         contains = [e for e in self.edges if e.kind == "CONTAINS"]
@@ -1807,18 +1727,12 @@ class TestRescriptEdgeCases:
 
     def test_duplicate_open_produces_single_import_edge(self):
         # sample.res has `open Belt` twice — should emit only one edge.
-        belt_edges = [
-            e for e in self.edges
-            if e.kind == "IMPORTS_FROM" and e.target == "Belt"
-        ]
+        belt_edges = [e for e in self.edges if e.kind == "IMPORTS_FROM" and e.target == "Belt"]
         assert len(belt_edges) == 1
 
     def test_module_alias_emits_import_edge(self):
         # `module IntMap = Belt.Map.Int` → IMPORTS_FROM Belt.Map.Int
-        aliases = [
-            e for e in self.edges
-            if e.extra.get("rescript_import_kind") == "module_alias"
-        ]
+        aliases = [e for e in self.edges if e.extra.get("rescript_import_kind") == "module_alias"]
         assert any(e.target == "Belt.Map.Int" for e in aliases)
         assert any(e.extra.get("alias_name") == "IntMap" for e in aliases)
 
@@ -1829,31 +1743,24 @@ class TestRescriptEdgeCases:
         assert "IntMap" not in names
 
     def test_js_binding_module_is_tagged(self):
-        text_encoder = next(
-            n for n in self.nodes if n.kind == "Class" and n.name == "TextEncoder"
-        )
+        text_encoder = next(n for n in self.nodes if n.kind == "Class" and n.name == "TextEncoder")
         assert text_encoder.extra.get("rescript_kind") == "js_binding"
 
     def test_regular_module_keeps_module_tag(self):
-        user = next(
-            n for n in self.nodes if n.kind == "Class" and n.name == "User"
-        )
+        user = next(n for n in self.nodes if n.kind == "Class" and n.name == "User")
         assert user.extra.get("rescript_kind") == "module"
 
     def test_jsx_emits_import_and_call_edges(self):
-        jsx_imports = [
-            e for e in self.edges
-            if e.extra.get("rescript_import_kind") == "jsx"
-        ]
+        jsx_imports = [e for e in self.edges if e.extra.get("rescript_import_kind") == "jsx"]
         jsx_targets = {e.target for e in jsx_imports}
         assert "Layout" in jsx_targets
         assert "User" in jsx_targets
         assert "AnalyticsFilterUi" in jsx_targets
 
         jsx_calls = [
-            e for e in self.edges
-            if e.kind == "CALLS"
-            and e.extra.get("rescript_call_kind") == "jsx"
+            e
+            for e in self.edges
+            if e.kind == "CALLS" and e.extra.get("rescript_call_kind") == "jsx"
         ]
         call_targets = {e.target for e in jsx_calls}
         assert "User.Badge" in call_targets
@@ -1861,9 +1768,9 @@ class TestRescriptEdgeCases:
 
     def test_jsx_call_attributed_to_enclosing_let(self):
         jsx_calls = [
-            e for e in self.edges
-            if e.kind == "CALLS"
-            and e.extra.get("rescript_call_kind") == "jsx"
+            e
+            for e in self.edges
+            if e.kind == "CALLS" and e.extra.get("rescript_call_kind") == "jsx"
         ]
         assert all(e.source.endswith("::render") for e in jsx_calls)
 
@@ -1877,26 +1784,19 @@ class TestRescriptCrossModuleResolver:
 
         (tmp_path / ".git").mkdir()
 
-        (tmp_path / "LogicUtils.res").write_text(
-            "let safeParse = (s) => s\n"
-            "let trim = (s) => s\n"
-        )
-        (tmp_path / "CurrencyFormatUtils.res").write_text(
-            "let format = (n) => n\n"
-        )
+        (tmp_path / "LogicUtils.res").write_text("let safeParse = (s) => s\nlet trim = (s) => s\n")
+        (tmp_path / "CurrencyFormatUtils.res").write_text("let format = (n) => n\n")
         (tmp_path / "Caller.res").write_text(
             "open CurrencyFormatUtils\n"
             "let run = () => {\n"
-            "  let a = LogicUtils.safeParse(\"x\")\n"
-            "  let b = LogicUtils.safeParse(\"y\")\n"
+            '  let a = LogicUtils.safeParse("x")\n'
+            '  let b = LogicUtils.safeParse("y")\n'
             "  let c = format(12.0)\n"
-            "  let d = <Layout name=\"hi\" />\n"
+            '  let d = <Layout name="hi" />\n'
             "  (a, b, c, d)\n"
             "}\n"
         )
-        (tmp_path / "Layout.res").write_text(
-            "let make = (~name) => name\n"
-        )
+        (tmp_path / "Layout.res").write_text("let make = (~name) => name\n")
 
         store = GraphStore(tmp_path / "graph.db")
         result = full_build(tmp_path, store)
@@ -1912,9 +1812,9 @@ class TestRescriptCrossModuleResolver:
         targets = {r["target_qualified"] for r in rows}
         # Both LogicUtils.safeParse callsites should now point to the canonical
         # node path, not the bare `LogicUtils.safeParse` string.
-        assert any(
-            t.endswith("LogicUtils.res::safeParse") for t in targets
-        ), f"no canonical resolution in {targets}"
+        assert any(t.endswith("LogicUtils.res::safeParse") for t in targets), (
+            f"no canonical resolution in {targets}"
+        )
         assert not any(t == "LogicUtils.safeParse" for t in targets)
 
     def test_callers_of_canonical_node_finds_both_sites(self, tmp_path):
@@ -1962,6 +1862,7 @@ class TestRescriptCrossModuleResolver:
         from code_review_graph.rescript_resolver import (
             resolve_rescript_cross_module,
         )
+
         store, _ = self._build(tmp_path)
         second = resolve_rescript_cross_module(store)
         # Second run should find nothing new — all already resolved.
@@ -1985,9 +1886,7 @@ class TestMarkdownMultiFileBuild(_TempRepoBuildMixin):
         docs = tmp_path / "docs"
         docs.mkdir()
         (docs / "spec.md").write_text(
-            "# Spec\n\n"
-            "## API Design\n\n"
-            "See [Implementation](./impl.md#Implementation).\n",
+            "# Spec\n\n## API Design\n\nSee [Implementation](./impl.md#Implementation).\n",
             encoding="utf-8",
         )
         (docs / "impl.md").write_text(
@@ -2012,8 +1911,8 @@ class TestMarkdownMultiFileBuild(_TempRepoBuildMixin):
 
     def test_build_links_directives_across_markdown_files(self, tmp_path):
         store, _ = self._build(tmp_path)
-        spec_path = str((tmp_path / "docs" / "spec.md").resolve())
-        impl_path = str((tmp_path / "docs" / "impl.md").resolve())
+        spec_path = "docs/spec.md"
+        impl_path = "docs/impl.md"
         cur = store._conn.cursor()
 
         depends = cur.execute(
@@ -2040,8 +1939,7 @@ class TestMarkdownMultiFileBuild(_TempRepoBuildMixin):
         )
 
         imports = cur.execute(
-            "SELECT target_qualified FROM edges "
-            "WHERE kind='IMPORTS_FROM' AND file_path IN (?, ?)",
+            "SELECT target_qualified FROM edges WHERE kind='IMPORTS_FROM' AND file_path IN (?, ?)",
             (spec_path, impl_path),
         ).fetchall()
         import_targets = {row["target_qualified"] for row in imports}
@@ -2056,14 +1954,13 @@ class TestTerraformMultiFileBuild(_TempRepoBuildMixin):
         module_dir.mkdir(parents=True)
         (infra / "main.tf").write_text(
             'terraform {\n  required_providers {\n    aws = {\n      source = "hashicorp/aws"\n'
-            '    }\n  }\n}\n\n'
+            "    }\n  }\n}\n\n"
             'provider "aws" {\n  region = var.region\n}\n\n'
             'module "network" {\n  source = "./modules/network"\n  cidr_block = var.vpc_cidr\n}\n',
             encoding="utf-8",
         )
         (infra / "variables.tf").write_text(
-            'variable "region" { type = string }\n'
-            'variable "vpc_cidr" { type = string }\n',
+            'variable "region" { type = string }\nvariable "vpc_cidr" { type = string }\n',
             encoding="utf-8",
         )
         (infra / "outputs.tf").write_text(
@@ -2093,20 +1990,18 @@ class TestTerraformMultiFileBuild(_TempRepoBuildMixin):
 
     def test_build_preserves_module_and_reference_edges_across_files(self, tmp_path):
         store, _ = self._build(tmp_path)
-        root_main = str((tmp_path / "infra" / "main.tf").resolve())
-        root_outputs = str((tmp_path / "infra" / "outputs.tf").resolve())
+        root_main = "infra/main.tf"
+        root_outputs = "infra/outputs.tf"
         cur = store._conn.cursor()
 
         imports = cur.execute(
-            "SELECT target_qualified FROM edges "
-            "WHERE kind='IMPORTS_FROM' AND file_path=?",
+            "SELECT target_qualified FROM edges WHERE kind='IMPORTS_FROM' AND file_path=?",
             (root_main,),
         ).fetchall()
-        assert any(row["target_qualified"] == "./modules/network" for row in imports)
+        assert any(row["target_qualified"] == "modules/network" for row in imports)
 
         references = cur.execute(
-            "SELECT target_qualified FROM edges "
-            "WHERE kind='REFERENCES' AND file_path=?",
+            "SELECT target_qualified FROM edges WHERE kind='REFERENCES' AND file_path=?",
             (root_outputs,),
         ).fetchall()
         assert any("module.network" in row["target_qualified"] for row in references)
@@ -2122,8 +2017,7 @@ class TestMixedMonorepoBuild(_TempRepoBuildMixin):
         infra.mkdir(parents=True)
 
         (docs / "spec.md").write_text(
-            "# API Contract\n\n"
-            "The service returns deployment metadata.\n",
+            "# API Contract\n\nThe service returns deployment metadata.\n",
             encoding="utf-8",
         )
         (docs / "runbook.md").write_text(
@@ -2134,32 +2028,29 @@ class TestMixedMonorepoBuild(_TempRepoBuildMixin):
             encoding="utf-8",
         )
         (svc / "helpers.py").write_text(
-            "def helper() -> str:\n"
-            "    return 'ok'\n",
+            "def helper() -> str:\n    return 'ok'\n",
             encoding="utf-8",
         )
         (svc / "app.py").write_text(
-            "from helpers import helper\n\n"
-            "def deploy() -> str:\n"
-            "    return helper()\n",
+            "from helpers import helper\n\ndef deploy() -> str:\n    return helper()\n",
             encoding="utf-8",
         )
         (infra / "main.tf").write_text(
-            'variable "region" { type = string }\n\n'
-            'provider "aws" {\n  region = var.region\n}\n',
+            'variable "region" { type = string }\n\nprovider "aws" {\n  region = var.region\n}\n',
             encoding="utf-8",
         )
         return self._full_build(tmp_path)
 
     def test_build_indexes_markdown_python_terraform_monorepo(self, tmp_path):
         store, result = self._build(tmp_path)
-        docs_runbook = str((tmp_path / "docs" / "runbook.md").resolve())
-        svc_app = str((tmp_path / "services" / "api" / "app.py").resolve())
-        infra_main = str((tmp_path / "infra" / "main.tf").resolve())
+        docs_runbook = "docs/runbook.md"
+        svc_app = "services/api/app.py"
+        infra_main = "infra/main.tf"
         cur = store._conn.cursor()
 
         langs = {
-            row["language"] for row in cur.execute(
+            row["language"]
+            for row in cur.execute(
                 "SELECT DISTINCT language FROM nodes WHERE kind='File'"
             ).fetchall()
         }
@@ -2167,8 +2058,7 @@ class TestMixedMonorepoBuild(_TempRepoBuildMixin):
         assert result["files_parsed"] >= 5
 
         imports = cur.execute(
-            "SELECT target_qualified FROM edges "
-            "WHERE kind='IMPORTS_FROM' AND file_path=?",
+            "SELECT target_qualified FROM edges WHERE kind='IMPORTS_FROM' AND file_path=?",
             (docs_runbook,),
         ).fetchall()
         import_targets = {row["target_qualified"] for row in imports}
@@ -2176,8 +2066,7 @@ class TestMixedMonorepoBuild(_TempRepoBuildMixin):
         assert infra_main in import_targets
 
         python_calls = cur.execute(
-            "SELECT target_qualified FROM edges "
-            "WHERE kind='CALLS' AND file_path=?",
+            "SELECT target_qualified FROM edges WHERE kind='CALLS' AND file_path=?",
             (svc_app,),
         ).fetchall()
         assert any(row["target_qualified"].endswith("helpers.py::helper") for row in python_calls)
@@ -2187,8 +2076,8 @@ class TestMixedMonorepoBuild(_TempRepoBuildMixin):
 
     def test_markdown_directive_links_into_monorepo_graph(self, tmp_path):
         store, _ = self._build(tmp_path)
-        docs_runbook = str((tmp_path / "docs" / "runbook.md").resolve())
-        docs_spec = str((tmp_path / "docs" / "spec.md").resolve())
+        docs_runbook = "docs/runbook.md"
+        docs_spec = "docs/spec.md"
         cur = store._conn.cursor()
 
         depends = cur.execute(

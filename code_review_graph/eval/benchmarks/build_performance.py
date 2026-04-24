@@ -16,6 +16,7 @@ def run(repo_path: Path, store, config: dict) -> list[dict]:
     # Time flow detection
     try:
         from code_review_graph.flows import store_flows, trace_flows
+
         t0 = time.perf_counter()
         flows = trace_flows(store)
         store_flows(store, flows)
@@ -27,6 +28,7 @@ def run(repo_path: Path, store, config: dict) -> list[dict]:
     # Time community detection
     try:
         from code_review_graph.communities import detect_communities, store_communities
+
         t0 = time.perf_counter()
         comms = detect_communities(store)
         store_communities(store, comms)
@@ -42,19 +44,17 @@ def run(repo_path: Path, store, config: dict) -> list[dict]:
         store.search_nodes(sq["query"], limit=20)
         search_times.append(time.perf_counter() - t0)
 
-    avg_search_ms = round(
-        sum(search_times) / max(len(search_times), 1) * 1000, 1
-    )
+    avg_search_ms = round(sum(search_times) / max(len(search_times), 1) * 1000, 1)
 
-    return [{
-        "repo": config["name"],
-        "file_count": stats.files_count,
-        "node_count": stats.total_nodes,
-        "edge_count": stats.total_edges,
-        "flow_detection_seconds": round(flow_time, 3),
-        "community_detection_seconds": round(community_time, 3),
-        "search_avg_ms": avg_search_ms,
-        "nodes_per_second": round(
-            stats.total_nodes / max(flow_time, 0.001)
-        ),
-    }]
+    return [
+        {
+            "repo": config["name"],
+            "file_count": stats.files_count,
+            "node_count": stats.total_nodes,
+            "edge_count": stats.total_edges,
+            "flow_detection_seconds": round(flow_time, 3),
+            "community_detection_seconds": round(community_time, 3),
+            "search_avg_ms": avg_search_ms,
+            "nodes_per_second": round(stats.total_nodes / max(flow_time, 0.001)),
+        }
+    ]

@@ -29,16 +29,12 @@ def take_snapshot(store: GraphStore) -> dict[str, Any]:
             n.qualified_name: {
                 "kind": n.kind,
                 "file": n.file_path,
-                "community_id": community_map.get(
-                    n.qualified_name
-                ),
+                "community_id": community_map.get(n.qualified_name),
             }
             for n in nodes
         },
         "edges": {
-            f"{e.source_qualified}->"
-            f"{e.target_qualified}:{e.kind}"
-            for e in store.get_all_edges()
+            f"{e.source_qualified}->{e.target_qualified}:{e.kind}" for e in store.get_all_edges()
         },
     }
 
@@ -48,9 +44,7 @@ def save_snapshot(snapshot: dict, path: Path) -> None:
     data = dict(snapshot)
     if isinstance(data.get("edges"), set):
         data["edges"] = sorted(data["edges"])
-    path.write_text(
-        json.dumps(data, indent=2), encoding="utf-8"
-    )
+    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
 def load_snapshot(path: Path) -> dict:
@@ -62,7 +56,8 @@ def load_snapshot(path: Path) -> dict:
 
 
 def diff_snapshots(
-    before: dict, after: dict,
+    before: dict,
+    after: dict,
 ) -> dict[str, Any]:
     """Compare two graph snapshots.
 
@@ -84,24 +79,21 @@ def diff_snapshots(
     # Community changes for nodes that exist in both
     community_changes = []
     for qn in before_nodes & after_nodes:
-        before_cid = before["nodes"][qn].get(
-            "community_id"
-        )
-        after_cid = after["nodes"][qn].get(
-            "community_id"
-        )
+        before_cid = before["nodes"][qn].get("community_id")
+        after_cid = after["nodes"][qn].get("community_id")
         if before_cid != after_cid:
-            community_changes.append({
-                "node": qn,
-                "before_community": before_cid,
-                "after_community": after_cid,
-            })
+            community_changes.append(
+                {
+                    "node": qn,
+                    "before_community": before_cid,
+                    "after_community": after_cid,
+                }
+            )
 
     return {
-        "new_nodes": [
-            {"qualified_name": qn, **after["nodes"][qn]}
-            for qn in sorted(new_nodes)
-        ][:100],
+        "new_nodes": [{"qualified_name": qn, **after["nodes"][qn]} for qn in sorted(new_nodes)][
+            :100
+        ],
         "removed_nodes": sorted(removed_nodes)[:100],
         "new_edges": sorted(new_edges)[:100],
         "removed_edges": sorted(removed_edges)[:100],
@@ -112,11 +104,7 @@ def diff_snapshots(
             "edges_added": len(new_edges),
             "edges_removed": len(removed_edges),
             "community_moves": len(community_changes),
-            "before_total": before.get(
-                "node_count", 0
-            ),
-            "after_total": after.get(
-                "node_count", 0
-            ),
+            "before_total": before.get("node_count", 0),
+            "after_total": after.get("node_count", 0),
         },
     }

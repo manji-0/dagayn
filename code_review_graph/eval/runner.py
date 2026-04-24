@@ -7,11 +7,12 @@ import logging
 import subprocess
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 try:
     import yaml  # type: ignore[import-untyped]
 except ImportError:
-    yaml = None  # type: ignore[assignment]
+    yaml: Any | None = None
 
 from code_review_graph.eval.benchmarks import (
     build_performance,
@@ -36,26 +37,27 @@ DEFAULT_OUTPUT = Path("evaluate/results")
 DEFAULT_REPOS = Path("evaluate/test_repos")
 
 
-def _require_yaml():
+def _require_yaml() -> Any:
     if yaml is None:
         raise ImportError("pyyaml is required: pip install code-review-graph[eval]")
+    return yaml
 
 
 def load_config(name: str) -> dict:
     """Load a single benchmark config by name."""
-    _require_yaml()
+    yaml_mod = _require_yaml()
     path = CONFIGS_DIR / f"{name}.yaml"
     with open(path) as f:
-        return yaml.safe_load(f)
+        return yaml_mod.safe_load(f)
 
 
 def load_all_configs() -> list[dict]:
     """Load all benchmark configs from the configs directory."""
-    _require_yaml()
+    yaml_mod = _require_yaml()
     configs = []
     for p in sorted(CONFIGS_DIR.glob("*.yaml")):
         with open(p) as f:
-            configs.append(yaml.safe_load(f))
+            configs.append(yaml_mod.safe_load(f))
     return configs
 
 

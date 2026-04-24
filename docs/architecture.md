@@ -1,117 +1,40 @@
 # Architecture
 
-## System Overview
+## Pipeline overview
 
-`code-review-graph` is a Claude Code plugin that maintains a persistent, incrementally-updated knowledge graph of a codebase. It's designed to make code reviews faster and more context-aware by providing structural understanding of code relationships.
+`dagayn` turns repository contents into a local knowledge graph through five main stages:
 
-## Component Diagram
+1. file discovery and language detection
+2. parser extraction into nodes and edges
+3. SQLite persistence
+4. optional post-processing for flows, communities, and search indexes
+5. query-time analysis for reviews, search, and refactors
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│                        Claude Code                           │
-│                                                              │
-│  Skills (SKILL.md)          Hooks (hooks.json)               │
-│  ├── build-graph            └── PostToolUse (Write|Edit|Bash) │
-│  ├── review-delta                → incremental update         │
-│  └── review-pr                                               │
-│          │                        │                          │
-│          ▼                        ▼                          │
-│  ┌────────────────────────────────────────────┐              │
-│  │            MCP Server (stdio)              │              │
-│  │                                            │              │
-│  │  22 MCP Tools + 5 MCP Prompts              │              │
-│  │  ├── Core: build, impact, query, review,   │              │
-│  │  │   search, embed, stats, docs, large_fn  │              │
-│  │  ├── Flows: list, get, affected            │              │
-│  │  ├── Communities: list, get, architecture   │              │
-│  │  ├── Analysis: detect_changes, refactor,   │              │
-│  │  │   apply_refactor                        │              │
-│  │  ├── Wiki: generate, get_page              │              │
-│  │  └── Multi-repo: list_repos, cross_search  │              │
-│  └────────────────┬───────────────────────────┘              │
-└───────────────────┼──────────────────────────────────────────┘
-                    │
-        ┌───────────┼───────────────┐
-        ▼           ▼               ▼
-   ┌─────────┐ ┌─────────┐  ┌─────────────┐
-   │ Parser  │ │  Graph  │  │ Incremental │
-   │         │ │  Store  │  │   Engine    │
-   └────┬────┘ └────┬────┘  └──────┬──────┘
-        │           │              │
-        ▼           ▼              ▼
-   Tree-sitter   SQLite DB      git diff
-   grammars      (.code-review- subprocess
-                 graph/
-                 graph.db)
-```
+## Parsing model
 
-## Data Flow
+The fork uses Tree-sitter where possible, plus targeted fallbacks for formats that need custom handling.
 
-### Full Build
-1. `collect_all_files()` gathers tracked files (`git ls-files`) and applies `.code-review-graphignore` (gitignored files are skipped automatically when git is available)
-2. For each file, `CodeParser.parse_file()` uses Tree-sitter to extract AST
-3. AST walker identifies structural nodes (classes, functions, imports) and edges (calls, inheritance)
-4. `GraphStore.store_file_nodes_edges()` persists to SQLite with file hash for change detection
-5. Metadata updated with timestamp
+Important fork-specific parser work includes:
 
-### Incremental Update
-1. `get_changed_files()` runs `git diff --name-only` against base ref
-2. `find_dependents()` queries the graph for files importing the changed files
-3. Changed + dependent files are re-parsed (others skipped via hash comparison)
-4. Only affected rows in SQLite are updated
+- vendored Terraform grammar support
+- vendored Markdown grammar support for directive-style comments
+- notebook parsing that preserves per-cell attribution
 
-### Review Context Generation
-1. Changed files identified (git diff or explicit list)
-2. `get_impact_radius()` performs BFS from changed nodes through the graph
-3. Source snippets extracted for changed areas only
-4. Review guidance generated (test coverage gaps, wide blast radius warnings)
-5. Assembled into a structured, token-efficient context for Claude
+## Storage model
 
-## Storage
+Graph data is stored in SQLite. Nodes and edges carry file identity, qualified names, and extra metadata used by downstream analysis.
 
-### SQLite Schema
-- **nodes** table: id, kind, name, qualified_name, file_path, line_start/end, language, community_id, etc.
-- **edges** table: id, kind, source_qualified, target_qualified, file_path, line
-- **metadata** table: key-value pairs (last_updated, build_type, schema_version)
-- **flows** table: id, name, entry_point_id, depth, node_count, file_count, criticality, path_json
-- **flow_memberships** table: flow_id, node_id, position
-- **communities** table: id, name, level, parent_id, cohesion, size, dominant_language, description
-- **nodes_fts** (FTS5 virtual table): full-text search on name, qualified_name, file_path, signature
-- **embeddings** table (separate DB): node_id, model, vector, hash
+In dagayn-oriented workflows, registered paths are expected to be relative to the repository root. That keeps graph output stable across symlinked temp paths and portable across machines.
 
-Indexes on qualified_name, file_path, edge source/target, criticality, community_id, and cohesion for fast lookups.
+## Post-processing
 
-WAL mode enabled for concurrent read access during updates.
+Optional post-processing layers add:
 
-### Qualified Names
-Nodes are uniquely identified by qualified names:
-- Files: absolute path (e.g., `/repo/src/auth.py`)
-- Functions: `file_path::function_name` (e.g., `/repo/src/auth.py::authenticate`)
-- Methods: `file_path::ClassName.method_name` (e.g., `/repo/src/auth.py::AuthService.login`)
+- full-text search indexes
+- communities
+- execution flows
+- embeddings for semantic search
 
-## Parsing Strategy
+## Query surfaces
 
-Tree-sitter provides language-agnostic AST access. The parser:
-1. Walks the AST recursively
-2. Pattern-matches on node types (language-specific mappings in `_CLASS_TYPES`, `_FUNCTION_TYPES`, etc.)
-3. Extracts names, parameters, return types, base classes
-4. Identifies calls within function bodies
-5. Resolves imports to module paths
-
-This approach is more robust than tree-sitter queries across grammar versions.
-
-## Visualization
-
-The `visualization.py` module generates an interactive D3.js force-directed graph as a self-contained HTML file. It reads all nodes and edges from the SQLite graph store and renders them in the browser, allowing developers to visually explore code relationships, filter by node kind, and inspect dependencies.
-
-## Impact Analysis Algorithm
-
-BFS from seed nodes (changed files' contents):
-1. Seed = all qualified names in changed files
-2. For each node in frontier:
-   - Follow forward edges (what this node affects)
-   - Follow reverse edges (what depends on this node)
-3. Expand up to `max_depth` hops (default: 2)
-4. Collect all reached nodes as "impacted"
-
-This captures both downstream effects (things that call changed code) and upstream context (things that the changed code depends on).
+The MCP layer and CLI build on the same graph store. Review, architecture, traversal, and refactor tools all read from the same local dataset.

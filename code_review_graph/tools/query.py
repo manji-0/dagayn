@@ -74,9 +74,7 @@ def get_impact_radius(
 
         # Convert to absolute paths for graph lookup
         abs_files = [str(root / f) for f in changed_files]
-        result = store.get_impact_radius(
-            abs_files, max_depth=max_depth, max_nodes=max_results
-        )
+        result = store.get_impact_radius(abs_files, max_depth=max_depth, max_nodes=max_results)
 
         changed_dicts = [node_to_dict(n) for n in result["changed_nodes"]]
         impacted_dicts = [node_to_dict(n) for n in result["impacted_nodes"]]
@@ -104,9 +102,7 @@ def get_impact_radius(
                 risk = "medium"
             else:
                 risk = "low"
-            key_entities = [
-                n["name"] for n in impacted_dicts[:5]
-            ]
+            key_entities = [n["name"] for n in impacted_dicts[:5]]
             return {
                 "status": "ok",
                 "summary": "\n".join(summary_parts),
@@ -160,8 +156,7 @@ def query_graph(
             return {
                 "status": "error",
                 "error": (
-                    f"Unknown pattern '{pattern}'. "
-                    f"Available: {list(_QUERY_PATTERNS.keys())}"
+                    f"Unknown pattern '{pattern}'. Available: {list(_QUERY_PATTERNS.keys())}"
                 ),
             }
 
@@ -171,19 +166,15 @@ def query_graph(
         # For callers_of, skip common builtins early (bare names only)
         # "Who calls .map()?" returns hundreds of useless hits.
         # Qualified names (e.g. "utils.py::map") bypass this filter.
-        if (
-            pattern == "callers_of"
-            and target in _BUILTIN_CALL_NAMES
-            and "::" not in target
-        ):
+        if pattern == "callers_of" and target in _BUILTIN_CALL_NAMES and "::" not in target:
             return {
-                "status": "ok", "pattern": pattern, "target": target,
+                "status": "ok",
+                "pattern": pattern,
+                "target": target,
                 "description": _QUERY_PATTERNS[pattern],
-                "summary": (
-                    f"'{target}' is a common builtin "
-                    "— callers_of skipped to avoid noise."
-                ),
-                "results": [], "edges": [],
+                "summary": (f"'{target}' is a common builtin — callers_of skipped to avoid noise."),
+                "results": [],
+                "edges": [],
             }
 
         # Resolve target - try as-is, then as absolute path, then search
@@ -200,10 +191,7 @@ def query_graph(
             elif len(candidates) > 1:
                 return {
                     "status": "ambiguous",
-                    "summary": (
-                        f"Multiple matches for '{target}'. "
-                        "Please use a qualified name."
-                    ),
+                    "summary": (f"Multiple matches for '{target}'. Please use a qualified name."),
                     "candidates": [node_to_dict(c) for c in candidates],
                 }
 
@@ -250,16 +238,15 @@ def query_graph(
             # Find edges where target matches this file.
             # Use resolve() to canonicalize the path, matching how
             # _resolve_module_to_file stores edge targets.
-            abs_target = (
-                str((root / target).resolve()) if node is None
-                else node.file_path
-            )
+            abs_target = str((root / target).resolve()) if node is None else node.file_path
             for e in store.get_edges_by_target(abs_target):
                 if e.kind == "IMPORTS_FROM":
-                    results.append({
-                        "importer": e.source_qualified,
-                        "file": e.file_path,
-                    })
+                    results.append(
+                        {
+                            "importer": e.source_qualified,
+                            "file": e.file_path,
+                        }
+                    )
                     edges_out.append(edge_to_dict(e))
 
         elif pattern == "children_of":
@@ -308,19 +295,11 @@ def query_graph(
             for n in file_nodes:
                 results.append(node_to_dict(n))
 
-        summary = (
-            f"Found {len(results)} result(s) "
-            f"for {pattern}('{target}')"
-        )
+        summary = f"Found {len(results)} result(s) for {pattern}('{target}')"
 
         if detail_level == "minimal":
             minimal_results = [
-                {
-                    k: r[k]
-                    for k in ("name", "kind", "file_path")
-                    if k in r
-                }
-                for r in results[:5]
+                {k: r[k] for k in ("name", "kind", "file_path") if k in r} for r in results[:5]
             ]
             return {
                 "status": "ok",
@@ -381,8 +360,13 @@ def semantic_search_nodes(
     store, root = _get_store(repo_root)
     try:
         results = hybrid_search(
-            store, query, kind=kind, limit=limit, context_files=context_files,
-            model=model, provider=provider,
+            store,
+            query,
+            kind=kind,
+            limit=limit,
+            context_files=context_files,
+            model=model,
+            provider=provider,
         )
 
         search_mode = "hybrid"
@@ -395,11 +379,7 @@ def semantic_search_nodes(
 
         if detail_level == "minimal":
             minimal_results = [
-                {
-                    k: r[k]
-                    for k in ("name", "kind", "file_path", "score")
-                    if k in r
-                }
+                {k: r[k] for k in ("name", "kind", "file_path", "score") if k in r}
                 for r in results[:5]
             ]
             return {
@@ -417,9 +397,7 @@ def semantic_search_nodes(
             "summary": summary,
             "results": results,
         }
-        result["_hints"] = generate_hints(
-            "semantic_search_nodes", result, get_session()
-        )
+        result["_hints"] = generate_hints("semantic_search_nodes", result, get_session())
         return result
     finally:
         store.close()
@@ -467,9 +445,7 @@ def list_graph_stats(repo_root: str | None = None) -> dict[str, Any]:
             summary_parts.append("")
             summary_parts.append(f"Embeddings: {emb_count} nodes embedded")
             if not emb_store.available:
-                summary_parts.append(
-                    "  (install sentence-transformers for semantic search)"
-                )
+                summary_parts.append("  (install sentence-transformers for semantic search)")
         finally:
             emb_store.close()
 
@@ -528,14 +504,14 @@ def find_large_functions(
         results = []
         for n in nodes:
             d = node_to_dict(n)
-            d["line_count"] = (
-                (n.line_end - n.line_start + 1)
-                if n.line_start and n.line_end
-                else 0
-            )
+            d["line_count"] = (n.line_end - n.line_start + 1) if n.line_start and n.line_end else 0
             # Make file_path relative for readability
             try:
-                d["relative_path"] = str(Path(n.file_path).relative_to(root))
+                d["relative_path"] = (
+                    n.file_path
+                    if not Path(n.file_path).is_absolute()
+                    else str(Path(n.file_path).relative_to(root))
+                )
             except ValueError:
                 d["relative_path"] = n.file_path
             results.append(d)
@@ -636,12 +612,8 @@ def traverse_graph_func(
             traversal.append(entry)
 
             # Get neighbours
-            out_edges = store.get_edges_by_source(
-                current_qn
-            )
-            in_edges = store.get_edges_by_target(
-                current_qn
-            )
+            out_edges = store.get_edges_by_source(current_qn)
+            in_edges = store.get_edges_by_target(current_qn)
             for e in out_edges:
                 tgt = e.target_qualified
                 if tgt not in visited:
@@ -659,10 +631,8 @@ def traverse_graph_func(
             "traversal": traversal,
             "truncated": approx_tokens > token_budget,
             "next_tool_suggestions": [
-                "query_graph callers_of"
-                " -- focused relationship query",
-                "get_impact_radius"
-                " -- blast radius analysis",
+                "query_graph callers_of -- focused relationship query",
+                "get_impact_radius -- blast radius analysis",
             ],
         }
     finally:

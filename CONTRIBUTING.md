@@ -1,87 +1,53 @@
-# Contributing to code-review-graph
+# Contributing to dagayn
 
-Thank you for your interest in contributing! This guide will help you get started.
+Thanks for contributing.
 
-## Development Setup
+`dagayn` is a fork of `code-review-graph`, but contributions should be written and reviewed against the fork's own goals: infrastructure-aware graph analysis, mixed-language repositories, and MCP-driven AI workflows.
 
-```bash
-# Clone the repository
-git clone https://github.com/tirth8205/code-review-graph.git
-cd code-review-graph
-
-# Install with dev dependencies (requires uv)
-uv sync --extra dev
-
-# Verify setup
-uv run pytest tests/ --tb=short -q
-```
-
-## Running Tests
+## Development setup
 
 ```bash
-# All tests
-uv run pytest tests/ --tb=short -q
-
-# With coverage
-uv run pytest --cov=code_review_graph --cov-report=term-missing --cov-fail-under=50
-
-# Single test file
-uv run pytest tests/test_parser.py -v
+uv sync
 ```
 
-## Linting and Type Checking
+If you are not using `uv`, install the package in editable mode with development extras.
+
+## Core verification commands
 
 ```bash
-uv run ruff check code_review_graph/
-uv run mypy code_review_graph/ --ignore-missing-imports --no-strict-optional
+uv run ruff check .
+uv run ruff format --check .
+ty check code_review_graph --python-version 3.10 --ignore unresolved-import --exclude '**/*\ 2.py' --exclude '**/*\ 3.py'
+uv run pytest --tb=short -q
 ```
 
-## Code Style
+Use narrower test targets while iterating, then run the full suite before merging.
 
-- **Line length**: 100 characters
-- **Target**: Python 3.10+
-- **Linter**: ruff (rules: E, F, I, N, W)
-- **SQL**: Always parameterized queries (`?` placeholders)
-- **Imports**: Sorted by ruff (isort-compatible)
+## Documentation expectations
 
-## Making Changes
+Documentation in this fork should describe `dagayn`, not defer to upstream naming or assume upstream features. If you change commands, integrations, supported formats, or output behavior, update the relevant docs in the same change.
 
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/your-feature`
-3. Make your changes
-4. Add tests for new functionality
-5. Ensure all tests pass: `uv run pytest`
-6. Ensure linting passes: `uv run ruff check code_review_graph/`
-7. Submit a pull request
+## Code change expectations
 
-## Project Structure
+- prefer precise, behavior-preserving edits
+- add or update tests when behavior changes
+- keep failure modes explicit
+- avoid undocumented compatibility breaks
+- preserve repo-root-relative graph expectations where applicable
 
-```
-code_review_graph/     # Core Python package
-  parser.py            # Tree-sitter multi-language parser
-  graph.py             # SQLite graph store
-  tools.py             # MCP tool implementations
-  incremental.py       # Git diff + file watch logic
-  embeddings.py        # Vector embedding support
-  visualization.py     # D3.js HTML generator
-  cli.py               # CLI entry point
-  main.py              # MCP server entry point
-tests/                 # Test suite
-  fixtures/            # Language sample files
-```
+## Pull requests
 
-## Adding Language Support
+A good pull request should include:
 
-1. Add the extension mapping to `EXTENSION_TO_LANGUAGE` in `parser.py`
-2. Add tree-sitter node types to `_CLASS_TYPES`, `_FUNCTION_TYPES`, `_IMPORT_TYPES`, `_CALL_TYPES`
-3. Add a sample fixture file in `tests/fixtures/`
-4. Add parsing tests in `tests/test_multilang.py`
+- a clear problem statement
+- the behavior change or fix
+- tests or verification notes
+- docs updates for user-visible changes
 
-## Reporting Issues
+## Large changes
 
-- Use GitHub Issues: https://github.com/tirth8205/code-review-graph/issues
-- Include: Python version, OS, steps to reproduce, error output
+For broad refactors or feature additions, open an issue or draft PR early so maintainers can align on scope before the implementation spreads across parser, graph, tools, and docs.
 
-## License
+## Security issues
 
-By contributing, you agree that your contributions will be licensed under the MIT License.
+Do not file sensitive vulnerabilities as public issues first. Follow `SECURITY.md`.

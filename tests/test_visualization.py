@@ -153,29 +153,45 @@ def test_cpp_include_resolution(tmp_path):
 
     def _file(name, path, lang="cpp"):
         return NodeInfo(
-            kind="File", name=name, file_path=path,
-            line_start=1, line_end=10, language=lang,
-            parent_name=None, params=None, return_type=None,
-            modifiers=None, is_test=False, extra={},
+            kind="File",
+            name=name,
+            file_path=path,
+            line_start=1,
+            line_end=10,
+            language=lang,
+            parent_name=None,
+            params=None,
+            return_type=None,
+            modifiers=None,
+            is_test=False,
+            extra={},
         )
 
-    store.upsert_node(_file("main.cpp",  "/abs/src/main.cpp"))
+    store.upsert_node(_file("main.cpp", "/abs/src/main.cpp"))
     store.upsert_node(_file("Renderer.hpp", "/abs/libs/rendering/Renderer.hpp"))
-    store.upsert_node(_file("Utils.hpp",    "/abs/libs/utils/Utils.hpp"))
+    store.upsert_node(_file("Utils.hpp", "/abs/libs/utils/Utils.hpp"))
 
     # Parser emits bare include paths as targets — exactly what Tree-sitter sees
-    store.upsert_edge(EdgeInfo(
-        kind="IMPORTS_FROM",
-        source="/abs/src/main.cpp",
-        target="rendering/Renderer.hpp",   # relative, one directory level
-        file_path="/abs/src/main.cpp", line=1, extra={},
-    ))
-    store.upsert_edge(EdgeInfo(
-        kind="IMPORTS_FROM",
-        source="/abs/src/main.cpp",
-        target="Utils.hpp",                # bare filename only
-        file_path="/abs/src/main.cpp", line=2, extra={},
-    ))
+    store.upsert_edge(
+        EdgeInfo(
+            kind="IMPORTS_FROM",
+            source="/abs/src/main.cpp",
+            target="rendering/Renderer.hpp",  # relative, one directory level
+            file_path="/abs/src/main.cpp",
+            line=1,
+            extra={},
+        )
+    )
+    store.upsert_edge(
+        EdgeInfo(
+            kind="IMPORTS_FROM",
+            source="/abs/src/main.cpp",
+            target="Utils.hpp",  # bare filename only
+            file_path="/abs/src/main.cpp",
+            line=2,
+            extra={},
+        )
+    )
     store.commit()
 
     data = export_graph_data(store)
@@ -252,48 +268,80 @@ def large_store(tmp_path):
     files = [f"src/mod{i}.py" for i in range(5)]
     for fp in files:
         file_node = NodeInfo(
-            kind="File", name=fp.split("/")[-1], file_path=fp,
-            line_start=1, line_end=100, language="python",
-            parent_name=None, params=None, return_type=None,
-            modifiers=None, is_test=False, extra={},
+            kind="File",
+            name=fp.split("/")[-1],
+            file_path=fp,
+            line_start=1,
+            line_end=100,
+            language="python",
+            parent_name=None,
+            params=None,
+            return_type=None,
+            modifiers=None,
+            is_test=False,
+            extra={},
         )
         store.upsert_node(file_node)
         # Add some functions per file
         for j in range(3):
             func_node = NodeInfo(
-                kind="Function", name=f"func_{j}",
-                file_path=fp, line_start=10 + j * 10, line_end=20 + j * 10,
-                language="python", parent_name=None,
-                params="x", return_type="int",
-                modifiers=None, is_test=False, extra={},
+                kind="Function",
+                name=f"func_{j}",
+                file_path=fp,
+                line_start=10 + j * 10,
+                line_end=20 + j * 10,
+                language="python",
+                parent_name=None,
+                params="x",
+                return_type="int",
+                modifiers=None,
+                is_test=False,
+                extra={},
             )
             store.upsert_node(func_node)
             # CONTAINS edge from file to function
-            store.upsert_edge(EdgeInfo(
-                kind="CONTAINS", source=fp,
-                target=f"{fp}::func_{j}",
-                file_path=fp, line=10 + j * 10, extra={},
-            ))
+            store.upsert_edge(
+                EdgeInfo(
+                    kind="CONTAINS",
+                    source=fp,
+                    target=f"{fp}::func_{j}",
+                    file_path=fp,
+                    line=10 + j * 10,
+                    extra={},
+                )
+            )
 
     # Add some cross-file CALLS edges
-    store.upsert_edge(EdgeInfo(
-        kind="CALLS",
-        source="src/mod0.py::func_0",
-        target="src/mod1.py::func_1",
-        file_path="src/mod0.py", line=15, extra={},
-    ))
-    store.upsert_edge(EdgeInfo(
-        kind="CALLS",
-        source="src/mod2.py::func_0",
-        target="src/mod3.py::func_2",
-        file_path="src/mod2.py", line=12, extra={},
-    ))
-    store.upsert_edge(EdgeInfo(
-        kind="CALLS",
-        source="src/mod1.py::func_2",
-        target="src/mod4.py::func_0",
-        file_path="src/mod1.py", line=35, extra={},
-    ))
+    store.upsert_edge(
+        EdgeInfo(
+            kind="CALLS",
+            source="src/mod0.py::func_0",
+            target="src/mod1.py::func_1",
+            file_path="src/mod0.py",
+            line=15,
+            extra={},
+        )
+    )
+    store.upsert_edge(
+        EdgeInfo(
+            kind="CALLS",
+            source="src/mod2.py::func_0",
+            target="src/mod3.py::func_2",
+            file_path="src/mod2.py",
+            line=12,
+            extra={},
+        )
+    )
+    store.upsert_edge(
+        EdgeInfo(
+            kind="CALLS",
+            source="src/mod1.py::func_2",
+            target="src/mod4.py::func_0",
+            file_path="src/mod1.py",
+            line=35,
+            extra={},
+        )
+    )
 
     # Set community_id on nodes (simulate community detection)
     store._conn.execute(
@@ -302,9 +350,7 @@ def large_store(tmp_path):
     store._conn.execute(
         "UPDATE nodes SET community_id = 1 WHERE file_path IN ('src/mod2.py', 'src/mod3.py')"
     )
-    store._conn.execute(
-        "UPDATE nodes SET community_id = 2 WHERE file_path = 'src/mod4.py'"
-    )
+    store._conn.execute("UPDATE nodes SET community_id = 2 WHERE file_path = 'src/mod4.py'")
 
     # Create communities table and insert communities
     store._conn.execute("""

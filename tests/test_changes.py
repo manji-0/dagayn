@@ -109,28 +109,19 @@ class TestChanges:
         result = _parse_unified_diff(diff)
         assert "bar.py" in result
         assert len(result["bar.py"]) == 2
-        assert result["bar.py"][0] == (5, 7)   # 5 + 3 - 1
+        assert result["bar.py"][0] == (5, 7)  # 5 + 3 - 1
         assert result["bar.py"][1] == (21, 24)  # 21 + 4 - 1
 
     def test_parse_unified_diff_single_line(self):
         """Parses a diff where count is omitted (single line change)."""
-        diff = (
-            "--- a/x.py\n"
-            "+++ b/x.py\n"
-            "@@ -1 +1 @@\n"
-            "+changed\n"
-        )
+        diff = "--- a/x.py\n+++ b/x.py\n@@ -1 +1 @@\n+changed\n"
         result = _parse_unified_diff(diff)
         assert "x.py" in result
         assert result["x.py"][0] == (1, 1)
 
     def test_parse_unified_diff_deletion_only(self):
         """Handles pure deletion hunks (+start,0)."""
-        diff = (
-            "--- a/del.py\n"
-            "+++ b/del.py\n"
-            "@@ -10,3 +10,0 @@ some context\n"
-        )
+        diff = "--- a/del.py\n+++ b/del.py\n@@ -10,3 +10,0 @@ some context\n"
         result = _parse_unified_diff(diff)
         assert "del.py" in result
         # Count=0 means deletion, start=end
@@ -309,14 +300,8 @@ class TestChanges:
         store_flows(self.store, flows)
 
         # Manually set different criticality values
-        self.store._conn.execute(
-            "UPDATE flows SET criticality = 0.9 "
-            "WHERE name = 'hi_entry'"
-        )
-        self.store._conn.execute(
-            "UPDATE flows SET criticality = 0.1 "
-            "WHERE name = 'lo_entry'"
-        )
+        self.store._conn.execute("UPDATE flows SET criticality = 0.9 WHERE name = 'hi_entry'")
+        self.store._conn.execute("UPDATE flows SET criticality = 0.1 WHERE name = 'lo_entry'")
         self.store.commit()
 
         hi = self.store.get_node("hi.py::hi_func")

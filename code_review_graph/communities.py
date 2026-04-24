@@ -24,7 +24,7 @@ try:
 
     IGRAPH_AVAILABLE = True
 except ImportError:
-    ig = None  # type: ignore[assignment]
+    ig: Any | None = None
     IGRAPH_AVAILABLE = False
 
 # ---------------------------------------------------------------------------
@@ -42,12 +42,44 @@ EDGE_WEIGHTS: dict[str, float] = {
 }
 
 # Common words to filter when generating community names
-_COMMON_WORDS = frozenset({
-    "get", "set", "self", "init", "new", "create", "update", "delete",
-    "add", "remove", "make", "build", "from", "to", "for", "with",
-    "the", "and", "test", "main", "run", "do", "is", "has", "on",
-    "of", "in", "at", "by", "my", "this", "that", "all", "none",
-})
+_COMMON_WORDS = frozenset(
+    {
+        "get",
+        "set",
+        "self",
+        "init",
+        "new",
+        "create",
+        "update",
+        "delete",
+        "add",
+        "remove",
+        "make",
+        "build",
+        "from",
+        "to",
+        "for",
+        "with",
+        "the",
+        "and",
+        "test",
+        "main",
+        "run",
+        "do",
+        "is",
+        "has",
+        "on",
+        "of",
+        "in",
+        "at",
+        "by",
+        "my",
+        "this",
+        "that",
+        "all",
+        "none",
+    }
+)
 
 
 # ---------------------------------------------------------------------------
@@ -274,12 +306,14 @@ def _detect_leiden(
     # coarser clusters on large repos.  Default resolution=1.0 produces
     # thousands of tiny communities for 30k+ node graphs.
     import math
+
     n_nodes = g.vcount()
     resolution = max(0.05, 1.0 / math.log10(max(n_nodes, 10)))
 
     logger.info(
         "Running Leiden on %d nodes, %d edges...",
-        g.vcount(), g.ecount(),
+        g.vcount(),
+        g.ecount(),
     )
 
     partition = g.community_leiden(
@@ -312,16 +346,18 @@ def _detect_leiden(
         dominant_lang = lang_counts.most_common(1)[0][0] if lang_counts else ""
         name = _generate_community_name(members)
 
-        communities.append({
-            "name": name,
-            "level": 0,
-            "size": len(members),
-            "cohesion": round(cohesion, 4),
-            "dominant_language": dominant_lang,
-            "description": f"Community of {len(members)} nodes",
-            "members": [m.qualified_name for m in members],
-            "member_qns": member_qns,
-        })
+        communities.append(
+            {
+                "name": name,
+                "level": 0,
+                "size": len(members),
+                "cohesion": round(cohesion, 4),
+                "dominant_language": dominant_lang,
+                "description": f"Community of {len(members)} nodes",
+                "members": [m.qualified_name for m in members],
+                "member_qns": member_qns,
+            }
+        )
 
     logger.info("Community detection complete: %d communities", len(communities))
     return communities
@@ -404,16 +440,18 @@ def _detect_file_based(
         dominant_lang = lang_counts.most_common(1)[0][0] if lang_counts else ""
         name = _generate_community_name(members)
 
-        communities.append({
-            "name": name,
-            "level": 0,
-            "size": len(members),
-            "cohesion": round(cohesion, 4),
-            "dominant_language": dominant_lang,
-            "description": f"Directory-based community: {dir_path}",
-            "members": [m.qualified_name for m in members],
-            "member_qns": member_qns,
-        })
+        communities.append(
+            {
+                "name": name,
+                "level": 0,
+                "size": len(members),
+                "cohesion": round(cohesion, 4),
+                "dominant_language": dominant_lang,
+                "description": f"Directory-based community: {dir_path}",
+                "members": [m.qualified_name for m in members],
+                "member_qns": member_qns,
+            }
+        )
 
     return communities
 
@@ -438,18 +476,13 @@ def _split_oversized(
     if not IGRAPH_AVAILABLE:
         return communities
 
-    total = sum(
-        c.get("size", len(c.get("members", [])))
-        for c in communities
-    )
+    total = sum(c.get("size", len(c.get("members", []))) for c in communities)
     if total == 0:
         return communities
 
     threshold = max(int(total * threshold_pct), min_split_size)
     result: list[dict] = []
-    next_id = max(
-        (c.get("id", 0) for c in communities), default=0
-    ) + 1
+    next_id = max((c.get("id", 0) for c in communities), default=0) + 1
 
     for comm in communities:
         members = set(comm.get("members", []))
@@ -458,16 +491,9 @@ def _split_oversized(
             continue
 
         # Build subgraph for this community
-        member_nodes = [
-            n for n in nodes
-            if n.qualified_name in members
-        ]
+        member_nodes = [n for n in nodes if n.qualified_name in members]
         member_edges = [
-            e for e in edges
-            if (
-                e.source_qualified in members
-                and e.target_qualified in members
-            )
+            e for e in edges if (e.source_qualified in members and e.target_qualified in members)
         ]
 
         if len(member_nodes) < min_split_size:
@@ -475,10 +501,7 @@ def _split_oversized(
             continue
 
         # Run Leiden on subgraph
-        qn_to_idx = {
-            n.qualified_name: i
-            for i, n in enumerate(member_nodes)
-        }
+        qn_to_idx = {n.qualified_name: i for i, n in enumerate(member_nodes)}
         ig_edges: list[tuple[int, int]] = []
         ig_weights: list[float] = []
         for e in member_edges:
@@ -486,15 +509,14 @@ def _split_oversized(
             ti = qn_to_idx.get(e.target_qualified)
             if si is not None and ti is not None and si != ti:
                 ig_edges.append((si, ti))
-                ig_weights.append(
-                    EDGE_WEIGHTS.get(e.kind, 0.5)
-                )
+                ig_weights.append(EDGE_WEIGHTS.get(e.kind, 0.5))
 
         if not ig_edges:
             result.append(comm)
             continue
 
         try:
+            assert ig is not None
             g = ig.Graph(
                 n=len(member_nodes),
                 edges=ig_edges,
@@ -509,9 +531,7 @@ def _split_oversized(
 
             sub_communities: dict[int, list[str]] = {}
             for idx, cid in enumerate(partition.membership):
-                sub_communities.setdefault(cid, []).append(
-                    member_nodes[idx].qualified_name
-                )
+                sub_communities.setdefault(cid, []).append(member_nodes[idx].qualified_name)
 
             if len(sub_communities) <= 1:
                 result.append(comm)
@@ -528,27 +548,21 @@ def _split_oversized(
                     "members": sub_members,
                     "size": len(sub_members),
                     "cohesion": 0.0,
-                    "dominant_language": comm.get(
-                        "dominant_language"
-                    ),
-                    "description": (
-                        f"Split from {comm_name}"
-                    ),
+                    "dominant_language": comm.get("dominant_language"),
+                    "description": (f"Split from {comm_name}"),
                 }
                 result.append(sub_comm)
                 next_id += 1
 
             logger.info(
-                "Split oversized community '%s' "
-                "(%d members) into %d",
+                "Split oversized community '%s' (%d members) into %d",
                 comm_name,
                 len(members),
                 len(sub_communities),
             )
         except Exception:
             logger.warning(
-                "Failed to split community '%s', "
-                "keeping as-is",
+                "Failed to split community '%s', keeping as-is",
                 comm.get("name", ""),
                 exc_info=True,
             )
@@ -562,9 +576,7 @@ def _split_oversized(
 # ---------------------------------------------------------------------------
 
 
-def detect_communities(
-    store: GraphStore, min_size: int = 2
-) -> list[dict[str, Any]]:
+def detect_communities(store: GraphStore, min_size: int = 2) -> list[dict[str, Any]]:
     """Detect communities in the code graph.
 
     Uses the Leiden algorithm via igraph if available, otherwise falls back to
@@ -587,7 +599,8 @@ def detect_communities(
 
     logger.info(
         "Loaded %d unique nodes, %d edges",
-        len(unique_nodes), len(all_edges),
+        len(unique_nodes),
+        len(all_edges),
     )
 
     if IGRAPH_AVAILABLE:
@@ -599,7 +612,9 @@ def detect_communities(
 
     # Split oversized communities
     results = _split_oversized(
-        results, unique_nodes, all_edges,
+        results,
+        unique_nodes,
+        all_edges,
     )
 
     # Convert member_qns (internal set) to a list for serialization safety,
@@ -652,9 +667,7 @@ def incremental_detect_communities(
     return store_communities(store, communities)
 
 
-def store_communities(
-    store: GraphStore, communities: list[dict[str, Any]]
-) -> int:
+def store_communities(store: GraphStore, communities: list[dict[str, Any]]) -> int:
     """Store detected communities in the database.
 
     Clears existing communities and community_id assignments, then inserts
@@ -746,21 +759,20 @@ def get_communities(
     communities: list[dict[str, Any]] = []
     for row in rows:
         # Fetch member qualified names for this community
-        member_qns = [
-            _sanitize_name(qn)
-            for qn in store.get_community_member_qns(row["id"])
-        ]
+        member_qns = [_sanitize_name(qn) for qn in store.get_community_member_qns(row["id"])]
 
-        communities.append({
-            "id": row["id"],
-            "name": _sanitize_name(row["name"]),
-            "level": row["level"],
-            "cohesion": row["cohesion"],
-            "size": row["size"],
-            "dominant_language": row["dominant_language"] or "",
-            "description": _sanitize_name(row["description"] or ""),
-            "members": member_qns,
-        })
+        communities.append(
+            {
+                "id": row["id"],
+                "name": _sanitize_name(row["name"]),
+                "level": row["level"],
+                "cohesion": row["cohesion"],
+                "size": row["size"],
+                "dominant_language": row["dominant_language"] or "",
+                "description": _sanitize_name(row["description"] or ""),
+                "members": member_qns,
+            }
+        )
 
     return communities
 
@@ -809,20 +821,18 @@ def get_architecture_overview(store: GraphStore) -> dict[str, Any]:
             continue
         src_comm = node_to_community.get(e.source_qualified)
         tgt_comm = node_to_community.get(e.target_qualified)
-        if (
-            src_comm is not None
-            and tgt_comm is not None
-            and src_comm != tgt_comm
-        ):
+        if src_comm is not None and tgt_comm is not None and src_comm != tgt_comm:
             pair = (min(src_comm, tgt_comm), max(src_comm, tgt_comm))
             cross_counts[pair] += 1
-            cross_edges.append({
-                "source_community": src_comm,
-                "target_community": tgt_comm,
-                "edge_kind": e.kind,
-                "source": _sanitize_name(e.source_qualified),
-                "target": _sanitize_name(e.target_qualified),
-            })
+            cross_edges.append(
+                {
+                    "source_community": src_comm,
+                    "target_community": tgt_comm,
+                    "edge_kind": e.kind,
+                    "source": _sanitize_name(e.source_qualified),
+                    "target": _sanitize_name(e.target_qualified),
+                }
+            )
 
     # Generate warnings for high coupling, skipping test-dominated pairs.
     warnings: list[str] = []
@@ -835,10 +845,7 @@ def get_architecture_overview(store: GraphStore) -> dict[str, Any]:
             # between test and production code is expected, not architectural.
             if _is_test_community(name1) or _is_test_community(name2):
                 continue
-            warnings.append(
-                f"High coupling ({count} edges) between "
-                f"'{name1}' and '{name2}'"
-            )
+            warnings.append(f"High coupling ({count} edges) between '{name1}' and '{name2}'")
 
     return {
         "communities": communities,

@@ -244,11 +244,7 @@ def _trace_single_flow(
     if len(path_ids) < 2:
         return None
 
-    files = list({
-        n.file_path
-        for qn in path_qnames
-        if (n := nodes_by_qn.get(qn)) is not None
-    })
+    files = list({n.file_path for qn in path_qnames if (n := nodes_by_qn.get(qn)) is not None})
 
     flow: dict = {
         "name": _sanitize_name(ep.name),
@@ -324,9 +320,7 @@ def compute_criticality(flow: dict, adj: FlowAdjacency) -> float:
     calls_out = adj.calls_out
     has_tested_by = adj.has_tested_by
 
-    nodes: list[GraphNode] = [
-        n for nid in node_ids if (n := nodes_by_id.get(nid)) is not None
-    ]
+    nodes: list[GraphNode] = [n for nid in node_ids if (n := nodes_by_id.get(nid)) is not None]
     if not nodes:
         return 0.0
 
@@ -499,7 +493,8 @@ def incremental_trace_flows(
         try:
             for fid in affected_ids:
                 conn.execute(
-                    "DELETE FROM flow_memberships WHERE flow_id = ?", (fid,),
+                    "DELETE FROM flow_memberships WHERE flow_id = ?",
+                    (fid,),
                 )
                 conn.execute("DELETE FROM flows WHERE id = ?", (fid,))
             conn.commit()
@@ -512,8 +507,7 @@ def incremental_trace_flows(
     # ------------------------------------------------------------------
     entry_points = detect_entry_points(store)
     relevant_eps = [
-        ep for ep in entry_points
-        if ep.file_path in changed_file_set or ep.id in entry_point_ids
+        ep for ep in entry_points if ep.file_path in changed_file_set or ep.id in entry_point_ids
     ]
 
     # ------------------------------------------------------------------
@@ -595,18 +589,20 @@ def get_flows(
 
     results: list[dict] = []
     for row in rows:
-        results.append({
-            "id": row["id"],
-            "name": _sanitize_name(row["name"]),
-            "entry_point_id": row["entry_point_id"],
-            "depth": row["depth"],
-            "node_count": row["node_count"],
-            "file_count": row["file_count"],
-            "criticality": row["criticality"],
-            "path": json.loads(row["path_json"]),
-            "created_at": row["created_at"],
-            "updated_at": row["updated_at"],
-        })
+        results.append(
+            {
+                "id": row["id"],
+                "name": _sanitize_name(row["name"]),
+                "entry_point_id": row["entry_point_id"],
+                "depth": row["depth"],
+                "node_count": row["node_count"],
+                "file_count": row["file_count"],
+                "criticality": row["criticality"],
+                "path": json.loads(row["path_json"]),
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+            }
+        )
     return results
 
 
@@ -617,9 +613,7 @@ def get_flow_by_id(store: GraphStore, flow_id: int) -> Optional[dict]:
     each node's name, kind, file, and line info.
     """
     # NOTE: get_flow_by_id reads from the flows table; see store_flows note.
-    row = store._conn.execute(
-        "SELECT * FROM flows WHERE id = ?", (flow_id,)
-    ).fetchone()
+    row = store._conn.execute("SELECT * FROM flows WHERE id = ?", (flow_id,)).fetchone()
     if row is None:
         return None
 
@@ -630,15 +624,17 @@ def get_flow_by_id(store: GraphStore, flow_id: int) -> Optional[dict]:
     for nid in path_ids:
         node = store.get_node_by_id(nid)
         if node:
-            steps.append({
-                "node_id": node.id,
-                "name": _sanitize_name(node.name),
-                "kind": node.kind,
-                "file": node.file_path,
-                "line_start": node.line_start,
-                "line_end": node.line_end,
-                "qualified_name": _sanitize_name(node.qualified_name),
-            })
+            steps.append(
+                {
+                    "node_id": node.id,
+                    "name": _sanitize_name(node.name),
+                    "kind": node.kind,
+                    "file": node.file_path,
+                    "line_start": node.line_start,
+                    "line_end": node.line_end,
+                    "qualified_name": _sanitize_name(node.qualified_name),
+                }
+            )
 
     return {
         "id": row["id"],

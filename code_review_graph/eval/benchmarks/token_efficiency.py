@@ -79,27 +79,24 @@ def run(repo_path: Path, store, config: dict) -> list[dict]:
         # Graph-based: use get_review_context
         try:
             from code_review_graph.tools import get_review_context
-            ctx = get_review_context(
-                changed_files=changed, repo_root=str(repo_path)
-            )
+
+            ctx = get_review_context(changed_files=changed, repo_root=str(repo_path))
             graph_tokens = _count_tokens(json.dumps(ctx))
         except Exception as exc:
             logger.warning("get_review_context failed: %s", exc)
             graph_tokens = 0
 
-        results.append({
-            "repo": config["name"],
-            "commit": tc["sha"],
-            "description": tc.get("description", ""),
-            "changed_files": len(changed),
-            "naive_tokens": naive_tokens,
-            "standard_tokens": standard_tokens,
-            "graph_tokens": graph_tokens,
-            "naive_to_graph_ratio": round(
-                naive_tokens / max(graph_tokens, 1), 1
-            ),
-            "standard_to_graph_ratio": round(
-                standard_tokens / max(graph_tokens, 1), 1
-            ),
-        })
+        results.append(
+            {
+                "repo": config["name"],
+                "commit": tc["sha"],
+                "description": tc.get("description", ""),
+                "changed_files": len(changed),
+                "naive_tokens": naive_tokens,
+                "standard_tokens": standard_tokens,
+                "graph_tokens": graph_tokens,
+                "naive_to_graph_ratio": round(naive_tokens / max(graph_tokens, 1), 1),
+                "standard_to_graph_ratio": round(standard_tokens / max(graph_tokens, 1), 1),
+            }
+        )
     return results

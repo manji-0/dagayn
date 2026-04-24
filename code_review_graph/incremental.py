@@ -18,7 +18,7 @@ from pathlib import Path, PurePosixPath
 from typing import Callable, Optional
 
 from .graph import GraphStore
-from .parser import CodeParser
+from .parser import CodeParser, EdgeInfo, NodeInfo
 
 _MAX_PARSE_WORKERS = int(os.environ.get("CRG_PARSE_WORKERS", str(min(os.cpu_count() or 4, 8))))
 
@@ -31,10 +31,12 @@ def _run_rescript_resolver(store: GraphStore) -> Optional[dict]:
     """
     try:
         from .rescript_resolver import resolve_rescript_cross_module
+
         return resolve_rescript_cross_module(store)
     except Exception as exc:  # noqa: BLE001 - best-effort post-pass
         logger.warning("ReScript cross-module resolver failed: %s", exc)
         return None
+
 
 # Default ignore patterns (in addition to .gitignore).
 #
@@ -241,6 +243,71 @@ def get_db_path(repo_root: Path) -> Path:
     return new_db
 
 
+def _make_repo_relative(path_str: str, repo_root: Path) -> str:
+    path = Path(path_str)
+    if not path.is_absolute():
+        return str(path)
+    root_candidates = [repo_root]
+    try:
+        resolved_root = repo_root.resolve()
+    except (OSError, RuntimeError):
+        resolved_root = None
+    if resolved_root is not None and resolved_root not in root_candidates:
+        root_candidates.append(resolved_root)
+    try:
+        resolved_path = path.resolve()
+    except (OSError, RuntimeError):
+        resolved_path = path
+    for root in root_candidates:
+        for candidate in (path, resolved_path):
+            try:
+                return str(candidate.relative_to(root))
+            except ValueError:
+                continue
+    return str(path)
+
+
+def _make_repo_relative_qualified(value: str, repo_root: Path) -> str:
+    if "::" not in value:
+        return _make_repo_relative(value, repo_root)
+    file_path, rest = value.split("::", 1)
+    return f"{_make_repo_relative(file_path, repo_root)}::{rest}"
+
+
+def _relativize_parsed_entities(
+    nodes: list[NodeInfo], edges: list[EdgeInfo], repo_root: Path
+) -> tuple[list[NodeInfo], list[EdgeInfo]]:
+    rel_nodes = [
+        NodeInfo(
+            kind=node.kind,
+            name=node.name,
+            file_path=_make_repo_relative(node.file_path, repo_root),
+            line_start=node.line_start,
+            line_end=node.line_end,
+            language=node.language,
+            parent_name=node.parent_name,
+            params=node.params,
+            return_type=node.return_type,
+            modifiers=node.modifiers,
+            is_test=node.is_test,
+            extra=node.extra,
+        )
+        for node in nodes
+    ]
+    rel_edges = [
+        EdgeInfo(
+            kind=edge.kind,
+            source=_make_repo_relative_qualified(edge.source, repo_root),
+            target=_make_repo_relative_qualified(edge.target, repo_root),
+            file_path=_make_repo_relative(edge.file_path, repo_root),
+            line=edge.line,
+            extra=edge.extra,
+        )
+        for edge in edges
+    ]
+    return rel_nodes, rel_edges
+
+
 def ensure_repo_gitignore_excludes_crg(repo_root: Path) -> str:
     """Ensure repo-level .gitignore excludes ``.code-review-graph/``.
 
@@ -363,8 +430,12 @@ def _svn_revision_info(repo_root: Path) -> tuple[str, str]:
     try:
         result = subprocess.run(
             ["svn", "info", "--non-interactive"],
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
-            cwd=str(repo_root), timeout=_GIT_TIMEOUT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=str(repo_root),
+            timeout=_GIT_TIMEOUT,
         )
         if result.returncode == 0:
             for line in result.stdout.splitlines():
@@ -454,12 +525,19 @@ def _get_svn_changed_files(repo_root: Path, rev_range: str | None = None) -> lis
         if rev_range:
             result = subprocess.run(
                 ["svn", "diff", "--summarize", "--non-interactive", "-r", rev_range],
-                capture_output=True, text=True, encoding="utf-8", errors="replace",
-                cwd=str(repo_root), timeout=_GIT_TIMEOUT,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                cwd=str(repo_root),
+                timeout=_GIT_TIMEOUT,
             )
             if result.returncode != 0:
-                logger.warning("svn diff --summarize failed (rc=%d): %s",
-                               result.returncode, result.stderr[:200])
+                logger.warning(
+                    "svn diff --summarize failed (rc=%d): %s",
+                    result.returncode,
+                    result.stderr[:200],
+                )
                 return []
             files = []
             for line in result.stdout.splitlines():
@@ -470,8 +548,12 @@ def _get_svn_changed_files(repo_root: Path, rev_range: str | None = None) -> lis
         else:
             result = subprocess.run(
                 ["svn", "status", "--non-interactive"],
-                capture_output=True, text=True, encoding="utf-8", errors="replace",
-                cwd=str(repo_root), timeout=_GIT_TIMEOUT,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                cwd=str(repo_root),
+                timeout=_GIT_TIMEOUT,
             )
             files = []
             for line in result.stdout.splitlines():
@@ -559,8 +641,12 @@ def _get_svn_all_tracked_files(repo_root: Path) -> list[str]:
     try:
         result = subprocess.run(
             ["svn", "list", "--recursive", "--non-interactive"],
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
-            cwd=str(repo_root), timeout=60,  # svn list queries the server
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=str(repo_root),
+            timeout=60,  # svn list queries the server
         )
         if result.returncode == 0:
             # svn list returns paths relative to the WC URL; directories end with "/"
@@ -735,12 +821,14 @@ def full_build(
             When *None*, falls back to ``CRG_RECURSE_SUBMODULES`` env var.
     """
     parser = CodeParser()
+    repo_root = repo_root.resolve()
+    store.set_metadata("repo_root", str(repo_root))
     files = collect_all_files(repo_root, recurse_submodules)
 
     # Purge stale data from files no longer on disk
     existing_files = set(store.get_all_files())
-    current_abs = {str(repo_root / f) for f in files}
-    stale_files = existing_files - current_abs
+    current_rel = set(files)
+    stale_files = existing_files - current_rel
     for stale in stale_files:
         store.remove_file_data(stale)
     # Ensure deletions are persisted before store_file_nodes_edges()
@@ -763,7 +851,8 @@ def full_build(
                 source = full_path.read_bytes()
                 fhash = hashlib.sha256(source).hexdigest()
                 nodes, edges = parser.parse_bytes(full_path, source)
-                store.store_file_nodes_edges(str(full_path), nodes, edges, fhash)
+                nodes, edges = _relativize_parsed_entities(nodes, edges, repo_root)
+                store.store_file_nodes_edges(rel_path, nodes, edges, fhash)
                 total_nodes += len(nodes)
                 total_edges += len(edges)
             except (OSError, PermissionError) as e:
@@ -788,8 +877,9 @@ def full_build(
                     errors.append({"file": rel_path, "error": error})
                     continue
                 full_path = repo_root / rel_path
+                nodes, edges = _relativize_parsed_entities(nodes, edges, repo_root)
                 store.store_file_nodes_edges(
-                    str(full_path),
+                    rel_path,
                     nodes,
                     edges,
                     fhash,
@@ -823,6 +913,8 @@ def incremental_update(
 ) -> dict:
     """Incremental update: re-parse changed + dependent files only."""
     parser = CodeParser()
+    repo_root = repo_root.resolve()
+    store.set_metadata("repo_root", str(repo_root))
     ignore_patterns = _load_ignore_patterns(repo_root)
 
     # Determine changed files
@@ -841,14 +933,9 @@ def incremental_update(
     # Find dependent files (files that import from changed files)
     dependent_files: set[str] = set()
     for rel_path in changed_files:
-        full_path = str(repo_root / rel_path)
-        deps = find_dependents(store, full_path)
+        deps = find_dependents(store, rel_path)
         for d in deps:
-            # Convert back to relative path if needed
-            try:
-                dependent_files.add(str(Path(d).relative_to(repo_root)))
-            except ValueError:
-                dependent_files.add(d)
+            dependent_files.add(_make_repo_relative(d, repo_root))
 
     # Combine changed + dependent
     all_files = set(changed_files) | dependent_files
@@ -865,7 +952,7 @@ def incremental_update(
             continue
         abs_path = repo_root / rel_path
         if not abs_path.is_file():
-            store.remove_file_data(str(abs_path))
+            store.remove_file_data(rel_path)
             removed_any = True
             continue
         if parser.detect_language(abs_path) is None:
@@ -874,7 +961,7 @@ def incremental_update(
         try:
             raw = abs_path.read_bytes()
             fhash = hashlib.sha256(raw).hexdigest()
-            existing_nodes = store.get_nodes_by_file(str(abs_path))
+            existing_nodes = store.get_nodes_by_file(rel_path)
             if existing_nodes and existing_nodes[0].file_hash == fhash:
                 continue
         except (OSError, PermissionError):
@@ -895,7 +982,8 @@ def incremental_update(
                 source = abs_path.read_bytes()
                 fhash = hashlib.sha256(source).hexdigest()
                 nodes, edges = parser.parse_bytes(abs_path, source)
-                store.store_file_nodes_edges(str(abs_path), nodes, edges, fhash)
+                nodes, edges = _relativize_parsed_entities(nodes, edges, repo_root)
+                store.store_file_nodes_edges(rel_path, nodes, edges, fhash)
                 total_nodes += len(nodes)
                 total_edges += len(edges)
             except (OSError, PermissionError) as e:
@@ -917,8 +1005,9 @@ def incremental_update(
                     logger.warning("Error parsing %s: %s", rel_path, error)
                     errors.append({"file": rel_path, "error": error})
                     continue
+                nodes, edges = _relativize_parsed_entities(nodes, edges, repo_root)
                 store.store_file_nodes_edges(
-                    str(repo_root / rel_path),
+                    rel_path,
                     nodes,
                     edges,
                     fhash,
@@ -933,12 +1022,8 @@ def incremental_update(
 
     # Only re-run ReScript resolver when changed files touched .res/.resi;
     # otherwise prior resolution state is unaffected.
-    rescript_changed = any(
-        rp.endswith((".res", ".resi")) for rp in all_files
-    )
-    rescript_stats = (
-        _run_rescript_resolver(store) if rescript_changed else None
-    )
+    rescript_changed = any(rp.endswith((".res", ".resi")) for rp in all_files)
+    rescript_stats = _run_rescript_resolver(store) if rescript_changed else None
 
     return {
         "files_updated": len(all_files),
@@ -982,6 +1067,8 @@ def watch(
     from watchdog.observers import Observer
 
     parser = CodeParser()
+    repo_root = repo_root.resolve()
+    store.set_metadata("repo_root", str(repo_root))
     ignore_patterns = _load_ignore_patterns(repo_root)
 
     class GraphUpdateHandler(FileSystemEventHandler):
@@ -1026,7 +1113,7 @@ def watch(
             if _should_ignore(rel, ignore_patterns):
                 return
             try:
-                store.remove_file_data(event.src_path)
+                store.remove_file_data(rel)
                 store.commit()
                 logger.info("Removed: %s", rel)
             except Exception as e:
@@ -1067,14 +1154,15 @@ def watch(
                 return False
             if _is_binary(path):
                 return False
+            rel = str(path.relative_to(repo_root))
             try:
                 source = path.read_bytes()
                 fhash = hashlib.sha256(source).hexdigest()
                 nodes, edges = parser.parse_bytes(path, source)
-                store.store_file_nodes_edges(abs_path, nodes, edges, fhash)
+                nodes, edges = _relativize_parsed_entities(nodes, edges, repo_root)
+                store.store_file_nodes_edges(rel, nodes, edges, fhash)
                 store.set_metadata("last_updated", time.strftime("%Y-%m-%dT%H:%M:%S"))
                 store.commit()
-                rel = str(path.relative_to(repo_root))
                 logger.info(
                     "Updated: %s (%d nodes, %d edges)",
                     rel,

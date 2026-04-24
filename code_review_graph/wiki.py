@@ -112,9 +112,7 @@ def _generate_community_page(store: GraphStore, community: dict[str, Any]) -> st
                 flow_name = _sanitize_name(flow.get("name", "unnamed"))
                 criticality = flow.get("criticality", 0.0)
                 depth = flow.get("depth", 0)
-                lines.append(
-                    f"- **{flow_name}** (criticality: {criticality:.2f}, depth: {depth})"
-                )
+                lines.append(f"- **{flow_name}** (criticality: {criticality:.2f}, depth: {depth})")
             if len(community_flows) > 10:
                 lines.append(f"- *... and {len(community_flows) - 10} more flows.*")
         else:

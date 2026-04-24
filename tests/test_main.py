@@ -9,7 +9,6 @@ stdio event loop stays responsive during long-running operations.
 from __future__ import annotations
 
 import asyncio
-
 import inspect
 
 import pytest
@@ -198,7 +197,10 @@ class TestLongRunningToolsAreAsync:
         # function bodies (not the docstrings) so an explanatory comment
         # mentioning an old API name doesn't trip this guard.
         forbidden_mcp_attrs = {
-            "get_tools", "_tools", "tool_manager", "_tool_manager",
+            "get_tools",
+            "_tools",
+            "tool_manager",
+            "_tool_manager",
         }
         for guard_fn in (
             self.test_heavy_tools_are_coroutines,
@@ -222,6 +224,7 @@ class TestLongRunningToolsAreAsync:
                         f"and will silently break the guard.  Use "
                         f"getattr(crg_main, tool_name) instead."
                     )
+
 
 class TestApplyToolFilter:
     """Tests for _apply_tool_filter (``serve --tools`` / ``CRG_TOOLS``).
@@ -287,4 +290,3 @@ class TestApplyToolFilter:
         crg_main._apply_tool_filter(" query_graph_tool , semantic_search_nodes_tool ")
         remaining = _tool_names()
         assert remaining == {"query_graph_tool", "semantic_search_nodes_tool"}
-
