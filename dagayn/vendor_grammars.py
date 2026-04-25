@@ -150,11 +150,11 @@ def ensure_all_vendor_grammar_sources(
 
 
 def _download_archive(spec: GrammarSpec, archive_path: Path) -> None:
-    request = Request(
-        spec.archive_url,
-        headers={"User-Agent": "dagayn-grammar-fetch/1.0"},
-    )
-    with urlopen(request) as response, archive_path.open("wb") as fh:
+    url = spec.archive_url
+    if not url.startswith("https://"):
+        raise ValueError(f"refusing to fetch grammar from non-HTTPS URL: {url}")
+    request = Request(url, headers={"User-Agent": "dagayn-grammar-fetch/1.0"})
+    with urlopen(request) as response, archive_path.open("wb") as fh:  # nosec B310
         shutil.copyfileobj(response, fh)
 
 
