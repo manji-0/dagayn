@@ -1179,3 +1179,99 @@ class TestModuleScopeCalls:
             if e.kind == "CALLS" and e.source == str(path) and e.target.endswith("puts")
         ]
         assert len(top_level) == 1
+
+    # ------------------------------------------------------------------
+    # Python relative import resolution
+    # ------------------------------------------------------------------
+
+    def test_python_relative_import_sibling_package(self, tmp_path):
+        """from .tools import x  →  pkg/tools/__init__.py"""
+        pkg = tmp_path / "pkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("")
+        tools_dir = pkg / "tools"
+        tools_dir.mkdir()
+        (tools_dir / "__init__.py").write_text("")
+        caller = pkg / "main.py"
+        caller.write_text("from .tools import x\n")
+        _, edges = self.parser.parse_file(caller)
+        imports = [e for e in edges if e.kind == "IMPORTS_FROM"]
+        targets = {e.target for e in imports}
+        assert str((tools_dir / "__init__.py").resolve()) in targets
+
+    def test_python_relative_import_sibling_module(self, tmp_path):
+        """from .tools import x where tools.py (not package) exists"""
+        pkg = tmp_path / "pkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("")
+        (pkg / "tools.py").write_text("")
+        caller = pkg / "main.py"
+        caller.write_text("from .tools import x\n")
+        _, edges = self.parser.parse_file(caller)
+        imports = [e for e in edges if e.kind == "IMPORTS_FROM"]
+        targets = {e.target for e in imports}
+        assert str((pkg / "tools.py").resolve()) in targets
+
+    def test_python_relative_import_parent_package(self, tmp_path):
+        """from ..graph import GraphStore  →  pkg/graph.py"""
+        pkg = tmp_path / "pkg"
+        (pkg / "tools").mkdir(parents=True)
+        (pkg / "__init__.py").write_text("")
+        (pkg / "graph.py").write_text("")
+        (pkg / "tools" / "__init__.py").write_text("")
+        caller = pkg / "tools" / "build.py"
+        caller.write_text("from ..graph import GraphStore\n")
+        _, edges = self.parser.parse_file(caller)
+        imports = [e for e in edges if e.kind == "IMPORTS_FROM"]
+        targets = {e.target for e in imports}
+        assert str((pkg / "graph.py").resolve()) in targets
+
+    def test_python_relative_import_dot_only(self, tmp_path):
+        """from . import tools  →  pkg/__init__.py (current package)"""
+        pkg = tmp_path / "pkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("")
+        caller = pkg / "main.py"
+        caller.write_text("from . import tools\n")
+        _, edges = self.parser.parse_file(caller)
+        imports = [e for e in edges if e.kind == "IMPORTS_FROM"]
+        targets = {e.target for e in imports}
+        assert str((pkg / "__init__.py").resolve()) in targets
+
+    def test_python_relative_import_nested_module(self, tmp_path):
+        """from .tools.build import f  →  pkg/tools/build.py"""
+        pkg = tmp_path / "pkg"
+        (pkg / "tools").mkdir(parents=True)
+        (pkg / "__init__.py").write_text("")
+        (pkg / "tools" / "__init__.py").write_text("")
+        (pkg / "tools" / "build.py").write_text("")
+        caller = pkg / "main.py"
+        caller.write_text("from .tools.build import f\n")
+        _, edges = self.parser.parse_file(caller)
+        imports = [e for e in edges if e.kind == "IMPORTS_FROM"]
+        targets = {e.target for e in imports}
+        assert str((pkg / "tools" / "build.py").resolve()) in targets
+
+    def test_python_relative_import_unresolvable_keeps_dot_string(self, tmp_path):
+        """from .nonexistent import x  →  target stays as dot-prefixed string"""
+        pkg = tmp_path / "pkg"
+        pkg.mkdir()
+        caller = pkg / "main.py"
+        caller.write_text("from .nonexistent import x\n")
+        _, edges = self.parser.parse_file(caller)
+        imports = [e for e in edges if e.kind == "IMPORTS_FROM"]
+        targets = {e.target for e in imports}
+        # Resolver returns None, so target = ".nonexistent" (the raw marker)
+        assert ".nonexistent" in targets
+
+    def test_python_absolute_import_still_resolves(self, tmp_path):
+        """Existing absolute import behaviour is not regressed."""
+        pkg = tmp_path / "mypkg"
+        pkg.mkdir()
+        (pkg / "utils.py").write_text("")
+        caller = tmp_path / "app.py"
+        caller.write_text("from mypkg.utils import helper\n")
+        _, edges = self.parser.parse_file(caller)
+        imports = [e for e in edges if e.kind == "IMPORTS_FROM"]
+        targets = {e.target for e in imports}
+        assert str((pkg / "utils.py").resolve()) in targets

@@ -5706,6 +5706,23 @@ class CodeParser:
             return None
 
         if language == "python":
+            if module.startswith("."):
+                # Relative import: "." = same package, ".." = parent package, etc.
+                leading_dots = len(module) - len(module.lstrip("."))
+                remainder = module[leading_dots:]  # "" or "tools" or "tools.build"
+                base = caller_dir
+                for _ in range(leading_dots - 1):
+                    base = base.parent
+                if remainder:
+                    rel = remainder.replace(".", "/")
+                    candidates = [base / f"{rel}.py", base / rel / "__init__.py"]
+                else:
+                    candidates = [base / "__init__.py"]
+                for c in candidates:
+                    if c.is_file():
+                        return str(c.resolve())
+                return None
+
             rel_path = module.replace(".", "/")
             candidates = [rel_path + ".py", rel_path + "/__init__.py"]
             # Walk up from caller's directory to find the module file
@@ -6374,10 +6391,22 @@ class CodeParser:
         text = node.text.decode("utf-8", errors="replace").strip()
 
         if language == "python":
-            # import x.y.z  or  from x.y import z
+            # import x.y.z  or  from x.y import z  or  from .x import z
             if node.type == "import_from_statement":
                 for child in node.children:
+                    if child.type == "relative_import":
+                        # from .x import y  or  from ..x import y  or  from . import y
+                        dots = 0
+                        inner = ""
+                        for sub in child.children:
+                            if sub.type == "import_prefix":
+                                dots = sum(1 for d in sub.children if d.type == ".")
+                            elif sub.type == "dotted_name":
+                                inner = sub.text.decode("utf-8", errors="replace")
+                        imports.append("." * dots + inner)
+                        break
                     if child.type == "dotted_name":
+                        # Absolute: from x.y import z — first dotted_name is the module
                         imports.append(child.text.decode("utf-8", errors="replace"))
                         break
             else:

@@ -24,8 +24,11 @@ from .prompts import (
 from .tools import (
     apply_refactor_func,
     build_or_update_graph,
+    compute_sdp_metrics_func,
     cross_repo_search_func,
+    detect_adp_violations_func,
     detect_changes_func,
+    detect_sdp_violations_func,
     embed_graph,
     find_large_functions,
     generate_wiki_func,
@@ -868,6 +871,83 @@ def traverse_graph_tool(
         depth=depth,
         token_budget=token_budget,
         repo_root=_resolve_repo_root(repo_root) or "",
+    )
+
+
+@mcp.tool()
+def detect_adp_violations_tool(
+    granularity: str = "package",
+    min_cycle_size: int = 2,
+    max_cycle_length: int = 10,
+    repo_root: Optional[str] = None,
+) -> dict:
+    """Find cyclic dependencies that violate the Acyclic Dependencies Principle.
+
+    Scans IMPORTS_FROM and DEPENDS_ON edges for directed cycles. Each
+    violation lists the nodes in the cycle, its length, and a severity
+    score. Use granularity="file" for per-file cycles or "package" for
+    directory-level aggregation (default).
+
+    Args:
+        granularity: "package" (directory-level) or "file". Default: package.
+        min_cycle_size: Minimum nodes in a cycle to report. Default: 2.
+        max_cycle_length: Upper bound on cycle length searched. Default: 10.
+        repo_root: Repository root path. Auto-detected if omitted.
+    """
+    return detect_adp_violations_func(
+        repo_root=_resolve_repo_root(repo_root),
+        granularity=granularity,  # type: ignore[arg-type]
+        min_cycle_size=min_cycle_size,
+        max_cycle_length=max_cycle_length,
+    )
+
+
+@mcp.tool()
+def compute_sdp_metrics_tool(
+    granularity: str = "package",
+    top_n: int = 30,
+    repo_root: Optional[str] = None,
+) -> dict:
+    """Compute Stable Dependencies Principle instability scores per module.
+
+    Instability I = Ce / (Ca + Ce), where Ca = afferent couplings (how
+    many modules depend on this one) and Ce = efferent couplings (how many
+    modules this one depends on). I = 0 is maximally stable, I = 1 is
+    maximally unstable.
+
+    Args:
+        granularity: "package" (directory-level) or "file". Default: package.
+        top_n: Return the N most unstable entries. Default: 30.
+        repo_root: Repository root path. Auto-detected if omitted.
+    """
+    return compute_sdp_metrics_func(
+        repo_root=_resolve_repo_root(repo_root),
+        granularity=granularity,  # type: ignore[arg-type]
+        top_n=top_n,
+    )
+
+
+@mcp.tool()
+def detect_sdp_violations_tool(
+    granularity: str = "package",
+    min_delta: float = 0.1,
+    repo_root: Optional[str] = None,
+) -> dict:
+    """Find SDP violations: stable modules that depend on unstable ones.
+
+    Reports edges A -> B where I(A) < I(B) - min_delta. A stable module
+    depending on an unstable one increases coupling risk — changes to the
+    unstable module force changes in the stable one.
+
+    Args:
+        granularity: "package" (directory-level) or "file". Default: package.
+        min_delta: Minimum instability gap to flag. Default: 0.1.
+        repo_root: Repository root path. Auto-detected if omitted.
+    """
+    return detect_sdp_violations_func(
+        repo_root=_resolve_repo_root(repo_root),
+        granularity=granularity,  # type: ignore[arg-type]
+        min_delta=min_delta,
     )
 
 

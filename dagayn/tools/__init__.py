@@ -1,6 +1,6 @@
 """MCP tool definitions for the Dagayn server.
 
-Exposes 27 tools:
+Exposes 31 tools:
 1. build_or_update_graph  - full or incremental build
 2. get_impact_radius      - blast radius from changed files
 3. query_graph            - predefined graph queries
@@ -29,6 +29,9 @@ Exposes 27 tools:
 26. get_surprising_connections - find unexpected architectural coupling
 27. get_suggested_questions - auto-generated review questions from graph analysis
 28. traverse_graph        - BFS/DFS traversal from best-matching node
+29. detect_adp_violations - find cyclic dependencies (ADP violations)
+30. compute_sdp_metrics   - instability scores per module/package (SDP)
+31. detect_sdp_violations - find dependencies pointing toward instability (SDP)
 """
 
 from __future__ import annotations
@@ -58,6 +61,13 @@ from .analysis_tools import (
     get_knowledge_gaps_func,
     get_suggested_questions_func,
     get_surprising_connections_func,
+)
+
+# -- architecture_tools -----------------------------------------------------
+from .architecture_tools import (
+    compute_sdp_metrics_func,
+    detect_adp_violations_func,
+    detect_sdp_violations_func,
 )
 
 # -- build ------------------------------------------------------------------
@@ -147,6 +157,10 @@ __all__ = [
     "get_knowledge_gaps_func",
     "get_suggested_questions_func",
     "get_surprising_connections_func",
+    # architecture_tools
+    "compute_sdp_metrics_func",
+    "detect_adp_violations_func",
+    "detect_sdp_violations_func",
     # re-exported for backward compat (used in test patches)
     "get_changed_files",
     "get_staged_and_unstaged",
