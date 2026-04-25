@@ -1,0 +1,71 @@
+minimum_prek_version = "0.3.8"
+default_install_hook_types = ["pre-commit", "pre-push"]
+fail_fast = true
+exclude = { glob = [".serena/**", ".beads/**"] }
+
+[[repos]]
+repo = "builtin"
+
+[[repos.hooks]]
+id = "trailing-whitespace"
+exclude = { glob = "CHANGELOG.md" }
+
+[[repos.hooks]]
+id = "mixed-line-ending"
+
+[[repos.hooks]]
+id = "check-yaml"
+
+[[repos.hooks]]
+id = "check-toml"
+
+[[repos.hooks]]
+id = "end-of-file-fixer"
+
+[[repos]]
+repo = "local"
+
+[[repos.hooks]]
+id = "ruff-format"
+name = "ruff format"
+language = "system"
+entry = "uv run ruff format"
+files = { glob = ["code_review_graph/**/*.py", "tests/**/*.py", "scripts/**/*.py", "main.py", "hatch_build.py"] }
+priority = 0
+
+[[repos.hooks]]
+id = "ruff-check"
+name = "ruff check"
+language = "system"
+entry = "uv run ruff check"
+files = { glob = ["code_review_graph/**/*.py", "tests/**/*.py", "scripts/**/*.py", "main.py", "hatch_build.py"] }
+priority = 10
+
+[[repos.hooks]]
+id = "ty-check"
+name = "ty check"
+language = "system"
+entry = "uv run ty check code_review_graph --python-version 3.13 --ignore unresolved-import --exclude '**/*\\ 2.py' --exclude '**/*\\ 3.py'"
+files = { glob = ["code_review_graph/**/*.py", "tests/**/*.py", "scripts/**/*.py", "main.py", "hatch_build.py"] }
+pass_filenames = false
+priority = 20
+
+[[repos.hooks]]
+id = "prefetch-grammars"
+name = "prefetch pinned grammars"
+language = "system"
+entry = "uv run python -m code_review_graph.vendor_grammars"
+pass_filenames = false
+always_run = true
+stages = ["pre-push"]
+priority = 0
+
+[[repos.hooks]]
+id = "pytest"
+name = "pytest"
+language = "system"
+entry = "uv run pytest --tb=short -q"
+pass_filenames = false
+always_run = true
+stages = ["pre-push"]
+priority = 10

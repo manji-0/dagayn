@@ -35,6 +35,7 @@ else:
     Parser: Any | None = _TreeSitterParser
 
 from .tsconfig_resolver import TsconfigResolver
+from .vendor_grammars import ensure_vendor_grammar_source
 
 
 class CellInfo(NamedTuple):
@@ -53,21 +54,8 @@ _SQL_TABLE_RE = re.compile(
 
 logger = logging.getLogger(__name__)
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-_MARKDOWN_VENDOR_DIR = _REPO_ROOT / "vendor" / "treesitter_md"
-_MARKDOWN_BINDING_DIR = _MARKDOWN_VENDOR_DIR / "bindings" / "python"
 _MARKDOWN_BINDING_MODULE = "markdown"
-_MARKDOWN_BINDING_CANDIDATES = (
-    _MARKDOWN_BINDING_DIR / "markdown.abi3.so",
-    _MARKDOWN_BINDING_DIR / "markdown.so",
-)
-_TERRAFORM_VENDOR_DIR = _REPO_ROOT / "vendor" / "treesitter_tf"
-_TERRAFORM_BINDING_DIR = _TERRAFORM_VENDOR_DIR / "bindings" / "python"
 _TERRAFORM_BINDING_MODULE = "terraform"
-_TERRAFORM_BINDING_CANDIDATES = (
-    _TERRAFORM_BINDING_DIR / "terraform.abi3.so",
-    _TERRAFORM_BINDING_DIR / "terraform.so",
-)
 _TERRAFORM_REFERENCE_RE = re.compile(
     r"\b(?:(data)\.([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)"
     r"|((?:module|var|local|output|provider|check))\.([A-Za-z_][A-Za-z0-9_]*)"
@@ -782,6 +770,94 @@ def _set_tree_sitter_language(parser: Any, language_obj: Any) -> None:
         getattr(parser, "set_language")(language_obj)
 
 
+def _binding_dir(vendor_dir: Path) -> Path:
+    return vendor_dir / "bindings" / "python"
+
+
+def _binding_candidates(vendor_dir: Path, module_name: str) -> tuple[Path, Path]:
+    binding_dir = _binding_dir(vendor_dir)
+    return (
+        binding_dir / f"{module_name}.abi3.so",
+        binding_dir / f"{module_name}.so",
+    )
+
+
+def _ensure_compiled_vendored_binding(
+    *,
+    language: str,
+    module_name: str,
+    display_name: str,
+) -> Optional[Path]:
+    try:
+        vendor_dir = ensure_vendor_grammar_source(language)
+    except (KeyError, OSError) as exc:
+        logger.warning("failed to prepare pinned %s grammar sources: %s", display_name, exc)
+        return None
+
+    binding_dir = _binding_dir(vendor_dir)
+    for candidate in _binding_candidates(vendor_dir, module_name):
+        if candidate.exists():
+            return candidate
+
+    binding_c = binding_dir / "binding.c"
+    parser_c = vendor_dir / "src" / "parser.c"
+    scanner_c = vendor_dir / "src" / "scanner.c"
+    header_dir = vendor_dir / "src" / "tree_sitter"
+    output_path = binding_dir / f"{module_name}.abi3.so"
+
+    required = (binding_c, parser_c, header_dir)
+    if not all(path.exists() for path in required):
+        return None
+    if sys.platform.startswith("win"):
+        logger.warning("pinned %s binding auto-build is unsupported on Windows", display_name)
+        return None
+
+    include_dirs = []
+    include_path = sysconfig.get_paths().get("include")
+    platinclude_path = sysconfig.get_paths().get("platinclude")
+    for include_dir in (include_path, platinclude_path):
+        if include_dir and include_dir not in include_dirs:
+            include_dirs.append(include_dir)
+
+    cmd = [
+        "-shared",
+        "-fPIC",
+        "-O2",
+        "-std=c11",
+        "-DPy_LIMITED_API=0x030A0000",
+        "-I",
+        str(vendor_dir / "src"),
+        "-I",
+        str(header_dir),
+    ]
+    compiler = shlex.split(sysconfig.get_config_var("CC") or "cc")
+    for include_dir in include_dirs:
+        cmd.extend(["-I", include_dir])
+    if sys.platform == "darwin":
+        cmd.extend(["-undefined", "dynamic_lookup"])
+
+    sources = [str(binding_c), str(parser_c)]
+    if scanner_c.exists():
+        sources.append(str(scanner_c))
+    cmd = compiler + cmd + sources + ["-o", str(output_path)]
+
+    binding_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        subprocess.run(
+            cmd,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        logger.warning("failed to build pinned %s binding: %s", display_name, exc)
+        if isinstance(exc, subprocess.CalledProcessError):
+            logger.debug("%s binding build stdout: %s", display_name, exc.stdout)
+            logger.debug("%s binding build stderr: %s", display_name, exc.stderr)
+        return None
+    return output_path if output_path.exists() else None
+
+
 # ---------------------------------------------------------------------------
 # Parser
 # ---------------------------------------------------------------------------
@@ -825,7 +901,7 @@ class CodeParser:
         return self._parsers[language]
 
     def _get_markdown_parser(self):
-        """Prefer dagayn's vendored Markdown grammar, then fall back to tslp."""
+        """Prefer dagayn's pinned Markdown grammar, then fall back to tslp."""
         language_obj = self._load_vendored_markdown_language()
         if language_obj is not None and Parser is not None:
             try:
@@ -874,76 +950,14 @@ class CodeParser:
             return None
 
     def _ensure_vendored_markdown_binding(self) -> Optional[Path]:
-        for candidate in _MARKDOWN_BINDING_CANDIDATES:
-            if candidate.exists():
-                return candidate
-
-        binding_c = _MARKDOWN_BINDING_DIR / "binding.c"
-        parser_c = _MARKDOWN_VENDOR_DIR / "src" / "parser.c"
-        scanner_c = _MARKDOWN_VENDOR_DIR / "src" / "scanner.c"
-        header_dir = _MARKDOWN_VENDOR_DIR / "src" / "tree_sitter"
-        output_path = _MARKDOWN_BINDING_DIR / "markdown.abi3.so"
-
-        required = (binding_c, parser_c, scanner_c, header_dir)
-        if not all(path.exists() for path in required):
-            return None
-        if sys.platform.startswith("win"):
-            logger.warning("vendored Markdown binding auto-build is unsupported on Windows")
-            return None
-
-        include_dirs = []
-        include_path = sysconfig.get_paths().get("include")
-        platinclude_path = sysconfig.get_paths().get("platinclude")
-        for include_dir in (include_path, platinclude_path):
-            if include_dir and include_dir not in include_dirs:
-                include_dirs.append(include_dir)
-
-        cmd = [
-            "-shared",
-            "-fPIC",
-            "-O2",
-            "-std=c11",
-            "-DPy_LIMITED_API=0x030A0000",
-            "-I",
-            str(_MARKDOWN_VENDOR_DIR / "src"),
-            "-I",
-            str(header_dir),
-        ]
-        compiler = shlex.split(sysconfig.get_config_var("CC") or "cc")
-        for include_dir in include_dirs:
-            cmd.extend(["-I", include_dir])
-        if sys.platform == "darwin":
-            cmd.extend(["-undefined", "dynamic_lookup"])
-        cmd = (
-            compiler
-            + cmd
-            + [
-                str(binding_c),
-                str(parser_c),
-                str(scanner_c),
-                "-o",
-                str(output_path),
-            ]
+        return _ensure_compiled_vendored_binding(
+            language="markdown",
+            module_name=_MARKDOWN_BINDING_MODULE,
+            display_name="Markdown",
         )
 
-        _MARKDOWN_BINDING_DIR.mkdir(parents=True, exist_ok=True)
-        try:
-            subprocess.run(
-                cmd,
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-        except (OSError, subprocess.CalledProcessError) as exc:
-            logger.warning("failed to build vendored Markdown binding: %s", exc)
-            if isinstance(exc, subprocess.CalledProcessError):
-                logger.debug("Markdown binding build stdout: %s", exc.stdout)
-                logger.debug("Markdown binding build stderr: %s", exc.stderr)
-            return None
-        return output_path if output_path.exists() else None
-
     def _get_terraform_parser(self):
-        """Prefer dagayn's vendored Terraform grammar, then fall back to tslp."""
+        """Prefer dagayn's pinned Terraform grammar, then fall back to tslp."""
         language_obj = self._load_vendored_terraform_language()
         if language_obj is not None and Parser is not None:
             try:
@@ -992,73 +1006,11 @@ class CodeParser:
             return None
 
     def _ensure_vendored_terraform_binding(self) -> Optional[Path]:
-        for candidate in _TERRAFORM_BINDING_CANDIDATES:
-            if candidate.exists():
-                return candidate
-
-        binding_c = _TERRAFORM_BINDING_DIR / "binding.c"
-        parser_c = _TERRAFORM_VENDOR_DIR / "src" / "parser.c"
-        scanner_c = _TERRAFORM_VENDOR_DIR / "src" / "scanner.c"
-        header_dir = _TERRAFORM_VENDOR_DIR / "src" / "tree_sitter"
-        output_path = _TERRAFORM_BINDING_DIR / "terraform.abi3.so"
-
-        required = (binding_c, parser_c, scanner_c, header_dir)
-        if not all(path.exists() for path in required):
-            return None
-        if sys.platform.startswith("win"):
-            logger.warning("vendored Terraform binding auto-build is unsupported on Windows")
-            return None
-
-        include_dirs = []
-        include_path = sysconfig.get_paths().get("include")
-        platinclude_path = sysconfig.get_paths().get("platinclude")
-        for include_dir in (include_path, platinclude_path):
-            if include_dir and include_dir not in include_dirs:
-                include_dirs.append(include_dir)
-
-        cmd = [
-            "-shared",
-            "-fPIC",
-            "-O2",
-            "-std=c11",
-            "-DPy_LIMITED_API=0x030A0000",
-            "-I",
-            str(_TERRAFORM_VENDOR_DIR / "src"),
-            "-I",
-            str(header_dir),
-        ]
-        compiler = shlex.split(sysconfig.get_config_var("CC") or "cc")
-        for include_dir in include_dirs:
-            cmd.extend(["-I", include_dir])
-        if sys.platform == "darwin":
-            cmd.extend(["-undefined", "dynamic_lookup"])
-        cmd = (
-            compiler
-            + cmd
-            + [
-                str(binding_c),
-                str(parser_c),
-                str(scanner_c),
-                "-o",
-                str(output_path),
-            ]
+        return _ensure_compiled_vendored_binding(
+            language="terraform",
+            module_name=_TERRAFORM_BINDING_MODULE,
+            display_name="Terraform",
         )
-
-        _TERRAFORM_BINDING_DIR.mkdir(parents=True, exist_ok=True)
-        try:
-            subprocess.run(
-                cmd,
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-        except (OSError, subprocess.CalledProcessError) as exc:
-            logger.warning("failed to build vendored Terraform binding: %s", exc)
-            if isinstance(exc, subprocess.CalledProcessError):
-                logger.debug("Terraform binding build stdout: %s", exc.stdout)
-                logger.debug("Terraform binding build stderr: %s", exc.stderr)
-            return None
-        return output_path if output_path.exists() else None
 
     def detect_language(self, path: Path) -> Optional[str]:
         suffix = path.suffix.lower()

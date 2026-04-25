@@ -21,12 +21,12 @@ Ensure `docs/LLM-OPTIMIZED-REFERENCE.md` exists in the repo or installed package
 
 ## Type checking fails locally but not in CI
 
-CI uses `ty` with Python 3.10 assumptions and ignores unresolved third-party imports.
+CI uses `ty` with Python 3.13 assumptions and ignores unresolved third-party imports. Runtime support currently starts at Python 3.12.
 
 Match that command locally:
 
 ```bash
-ty check code_review_graph --python-version 3.10 --ignore unresolved-import --exclude '**/*\ 2.py' --exclude '**/*\ 3.py'
+ty check code_review_graph --python-version 3.13 --ignore unresolved-import --exclude '**/*\ 2.py' --exclude '**/*\ 3.py'
 ```
 
 ## Bandit warnings about comments or `nosec`

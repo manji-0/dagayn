@@ -8,20 +8,29 @@ Thanks for contributing.
 
 ```bash
 uv sync
+uv tool install prek
+prek install
 ```
 
 If you are not using `uv`, install the package in editable mode with development extras.
+
+To run the configured hooks without creating a commit, use:
+
+```bash
+prek run --all-files
+```
 
 ## Core verification commands
 
 ```bash
 uv run ruff check .
 uv run ruff format --check .
-ty check code_review_graph --python-version 3.10 --ignore unresolved-import --exclude '**/*\ 2.py' --exclude '**/*\ 3.py'
+ty check code_review_graph --python-version 3.13 --ignore unresolved-import --exclude '**/*\ 2.py' --exclude '**/*\ 3.py'
 uv run pytest --tb=short -q
 ```
 
 Use narrower test targets while iterating, then run the full suite before merging.
+Supported Python versions follow the rolling policy of the latest major release and the two majors before it; at the moment that means Python 3.12+.
 
 ## Documentation expectations
 

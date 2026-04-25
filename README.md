@@ -2,7 +2,7 @@
 
 `dagayn` is a fork of `code-review-graph` focused on practical AI-assisted review for polyglot repositories, especially infrastructure-heavy codebases.
 
-This fork keeps the graph-centered review model from the upstream project, but it is documented and maintained as its own product. The most visible differences are first-class Terraform support, vendored grammar support for fork-specific parsing, broader platform-install flows, and a stronger focus on monorepos that mix application code, docs, and infra.
+This fork keeps the graph-centered review model from the upstream project, but it is documented and maintained as its own product. The most visible differences are first-class Terraform support, commit-pinned grammar fetching for fork-specific parsing, broader platform-install flows, and a stronger focus on monorepos that mix application code, docs, and infra.
 
 ## What dagayn does
 

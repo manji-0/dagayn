@@ -9,7 +9,7 @@ def main() -> int:
     parser = CodeParser()
     path = parser._ensure_vendored_terraform_binding()
     if path is None:
-        print("failed to build vendored Terraform binding", file=sys.stderr)
+        print("failed to build pinned Terraform binding", file=sys.stderr)
         return 1
     print(path)
     return 0

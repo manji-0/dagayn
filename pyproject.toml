@@ -8,7 +8,7 @@ version = "2.3.2"
 description = "Fork of code-review-graph with first-class Terraform support powered by treesitter-tf"
 readme = {file = "README.md", content-type = "text/markdown"}
 license = "MIT"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 authors = [
     { name = "Tirth" },
 ]
@@ -18,10 +18,9 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Software Development :: Quality Assurance",
 ]
 dependencies = [
@@ -34,7 +33,6 @@ dependencies = [
     "tree-sitter-language-pack>=0.3.0,<1",
     "networkx>=3.2,<4",
     "watchdog>=4.0.0,<6",
-    "tomli>=2.0.0,<3; python_version < '3.11'",
 ]
 
 [project.urls]
@@ -83,15 +81,18 @@ dev = [
     "pytest-asyncio>=0.23,<1",
     "pytest-cov>=4.0,<8",
     "ruff>=0.3.0,<1",
-    "tomli>=2.0; python_version < '3.11'",
 ]
 
 [tool.hatch.build.targets.wheel]
 packages = ["code_review_graph"]
 
+[tool.hatch.build.hooks.custom]
+path = "hatch_build.py"
+
 [tool.hatch.build.targets.sdist]
 include = [
     "code_review_graph/",
+    "hatch_build.py",
     "skills/",
     ".claude-plugin/",
     "docs/",
@@ -103,7 +104,7 @@ include = [
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py312"
 exclude = [
     "diagrams/",  # diagram DSL scripts — intentionally compact, non-standard style
     "tests/fixtures/sample_databricks_notebook.ipynb",  # SQL/R/Scala cells are not valid Python

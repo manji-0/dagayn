@@ -12,7 +12,7 @@ This changelog tracks `dagayn` as a forked project with its own release notes.
 ## 2.3.2 fork line
 
 - kept compatibility aliases such as `code-review-graph` while documenting `dagayn` as the preferred command name
-- added first-class Terraform support via a vendored grammar
+- added first-class Terraform support via a commit-pinned grammar fetch flow
 - added Markdown parsing support, including heading sections, references, and directive-based dependencies
 - added multi-file Markdown and Terraform graph tests
 - added mixed monorepo coverage for Markdown, Python, and Terraform

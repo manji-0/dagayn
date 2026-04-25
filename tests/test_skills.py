@@ -4,15 +4,9 @@ import json
 import os
 import stat
 import sys
+import tomllib
 from pathlib import Path
 from unittest.mock import patch
-
-import pytest
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:  # pragma: no cover - Python 3.10 backport
-    import tomli as tomllib
 
 from code_review_graph.skills import (
     _CLAUDE_MD_SECTION_MARKER,
@@ -32,16 +26,6 @@ from code_review_graph.skills import (
     install_hooks,
     install_opencode_plugin,
     install_platform_configs,
-)
-
-try:
-    import tomllib
-except ModuleNotFoundError:
-    tomllib = None  # type: ignore[assignment]
-
-_needs_tomllib = pytest.mark.skipif(
-    tomllib is None,
-    reason="tomllib requires Python 3.11+",
 )
 
 
@@ -385,7 +369,6 @@ class TestInjectPlatformInstructionsFiltering:
 
 
 class TestInstallPlatformConfigs:
-    @_needs_tomllib
     def test_install_codex_config(self, tmp_path):
         codex_config = tmp_path / ".codex" / "config.toml"
         with patch.dict(
@@ -405,7 +388,6 @@ class TestInstallPlatformConfigs:
         assert entry["type"] == "stdio"
         assert "serve" in entry["args"]
 
-    @_needs_tomllib
     def test_install_codex_preserves_existing_toml(self, tmp_path):
         codex_config = tmp_path / ".codex" / "config.toml"
         codex_config.parent.mkdir(parents=True)

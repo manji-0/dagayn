@@ -16,8 +16,8 @@ The fork uses Tree-sitter where possible, plus targeted fallbacks for formats th
 
 Important fork-specific parser work includes:
 
-- vendored Terraform grammar support
-- vendored Markdown grammar support for directive-style comments
+- commit-pinned Terraform grammar support fetched from the fork
+- commit-pinned Markdown grammar support for directive-style comments
 - notebook parsing that preserves per-cell attribution
 
 ## Storage model

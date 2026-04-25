@@ -1,7 +1,0 @@
-node_modules/
-build/
-target/
-.devbox/
-devbox.lock
-*.orig
-.claude/
