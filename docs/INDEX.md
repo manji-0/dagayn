@@ -7,8 +7,16 @@ This directory documents the fork as `dagayn`.
 - `FEATURES.md` — fork-specific capabilities and practical strengths
 - `architecture.md` — parser, storage, and post-processing pipeline
 - `schema.md` — graph entities, tables, and stored metadata
+- `SAP-METRICS-WIP.md` — work-in-progress specification for Stable Abstractions Principle metrics
+- `GRAMMAR-PROVISIONING.md` — pinned Tree-sitter grammar provisioning contract
+- `DAEMON-CONFIG.md` — registry and watch daemon file formats
 - `TROUBLESHOOTING.md` — common operational fixes
 - `LEGAL.md` — licensing and local-data notes
 - `ROADMAP.md` — direction of the fork
 - `LLM-OPTIMIZED-REFERENCE.md` — machine-oriented reference sections for tool consumption
-- `plan-treesitter-tf-integration.md` — Terraform grammar design note for the fork
+
+## Plan notes
+
+- `plans/README.md` — plan-note index
+- `plans/SAP-METRICS.md` — SAP metric design plan
+- `plans/TREESITTER-TERRAFORM-INTEGRATION.md` — Terraform grammar integration design note

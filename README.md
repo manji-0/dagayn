@@ -203,6 +203,50 @@ A typical review loop looks like this:
 
 The graph is stored locally under `.dagayn/` by default. No external database is required.
 
+## Semantic search and embeddings
+
+By default, `semantic_search_nodes` uses FTS5 keyword matching — no setup required. If you run `embed_graph_tool` first, the search switches to cosine-similarity over stored vector embeddings, giving you meaning-aware results even when the exact term does not appear in the source.
+
+### Providers
+
+| Provider | Runs where | Install extra | Required env vars |
+|---|---|---|---|
+| `local` (default) | Fully offline | `dagayn[embeddings]` | — |
+| `openai` | Cloud or self-hosted gateway | — | `CRG_OPENAI_API_KEY`, `CRG_OPENAI_BASE_URL`, `CRG_OPENAI_MODEL` |
+| `google` | Google Cloud | `dagayn[google-embeddings]` | `GOOGLE_API_KEY` |
+| `minimax` | MiniMax Cloud | — | `MINIMAX_API_KEY` |
+
+The `openai` provider speaks the standard `/v1/embeddings` schema, so it works with real OpenAI, Azure OpenAI, LiteLLM, vLLM, LocalAI, Ollama (in OpenAI mode), and similar gateways. When `CRG_OPENAI_BASE_URL` points to localhost the cloud egress warning is suppressed automatically.
+
+### Installing the local provider
+
+```bash
+pip install "dagayn[embeddings] @ git+https://github.com/manji-0/dagayn.git"
+```
+
+### Running embedding
+
+Call `embed_graph_tool` via MCP (or let your AI agent call it after `build_or_update_graph_tool`). Pass `provider` and optionally `model` to override the defaults.
+
+```
+embed_graph_tool(provider="local")
+embed_graph_tool(provider="openai")   # reads CRG_OPENAI_* from env
+embed_graph_tool(provider="google")   # reads GOOGLE_API_KEY from env
+embed_graph_tool(provider="minimax")  # reads MINIMAX_API_KEY from env
+```
+
+Embeddings are stored in `.dagayn/embeddings.db`. Switching provider or model invalidates the cache and triggers a full re-embed on the next call.
+
+### Privacy and cloud egress
+
+Before sending any data to a cloud provider, `dagayn` prints a warning to stderr listing what will be transmitted (function names, docstrings, file paths). To acknowledge once and suppress the warning in subsequent runs:
+
+```bash
+export CRG_ACCEPT_CLOUD_EMBEDDINGS=1
+```
+
+To stay fully offline, use the `local` provider. No API key or network access is required.
+
 ## Documentation map
 
 - `docs/USAGE.md` — installation and day-to-day workflows
