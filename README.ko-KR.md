@@ -35,7 +35,7 @@
 - AI 코딩 도구용 MCP 서버
 - 영향 반경, 리뷰 컨텍스트, 커뮤니티, 흐름, 리팩토링을 위한 그래프 쿼리
 - 다중 저장소 레지스트리 및 데몬 워크플로
-- 대화형 시각화 및 GraphML / SVG / Cypher / Obsidian 내보내기
+- 대화형 시각화 및 GraphML / Mermaid C4 / SVG / Cypher / Obsidian 내보내기
 
 ## 지원 언어 및 파일 유형
 
@@ -45,7 +45,7 @@
 
 - Python, JavaScript, TypeScript, TSX, Go, Rust, Java, C#, Ruby, PHP, Kotlin, Swift, Scala, Solidity, Dart, Lua, Luau, Objective-C, Bash, Elixir, Zig, PowerShell, Julia, GDScript, Vue, Svelte, Astro, ReScript
 - Markdown
-- Jupyter 노트북 및 Databricks 스타일 노트북 내보내기
+- Jupyter 노트북과 Databricks 노트북 소스/내보내기를 그래프 입력으로 파싱
 - Terraform
 
 현재 커버리지 요약은 `docs/FEATURES.md`와 `docs/LLM-OPTIMIZED-REFERENCE.md`를 참조하세요.
@@ -172,6 +172,18 @@ dagayn detect-changes --base HEAD~1
 dagayn visualize --serve
 dagayn serve
 ```
+
+## 리포트 / 내보내기 출력
+
+`dagayn visualize`가 현재 그래프 리포트 / 내보내기 표면입니다.
+
+- 기본 출력은 `.dagayn/graph.html`의 대화형 HTML 리포트입니다
+- HTML 렌더링은 `--mode auto|full|community|file`를 지원합니다
+- `--format`은 `html`, `graphml`, `mermaid-c4`, `svg`, `cypher`, `obsidian`을 지원합니다
+- `mermaid-c4`는 파일을 컴포넌트, 크로스파일 의존성을 관계로 집약한 Mermaid `C4Component` 코드를 출력합니다
+- `svg`는 matplotlib를 사용하므로 필요하면 eval extra를 설치하세요: `pip install "dagayn[eval] @ git+https://github.com/manji-0/dagayn.git"`
+- 이 포크에는 Graphviz / DOT 내장 출력이 없습니다
+- Jupyter / Databricks 노트북은 리포트 출력 형식이 아니라 그래프 입력입니다
 
 ## AI 플랫폼 통합
 

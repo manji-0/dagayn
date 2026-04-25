@@ -35,7 +35,7 @@ Upstream attribution और original author जानकारी के लि�
 - AI coding tools के लिए MCP server
 - impact radius, review context, communities, flows, और refactors के लिए graph queries
 - Multi-repo registry और daemon workflows
-- Interactive visualization के साथ GraphML / SVG / Cypher / Obsidian exports
+- Interactive visualization के साथ GraphML / Mermaid C4 / SVG / Cypher / Obsidian exports
 
 ## समर्थित भाषाएं और file types
 
@@ -45,7 +45,7 @@ Upstream attribution और original author जानकारी के लि�
 
 - Python, JavaScript, TypeScript, TSX, Go, Rust, Java, C#, Ruby, PHP, Kotlin, Swift, Scala, Solidity, Dart, Lua, Luau, Objective-C, Bash, Elixir, Zig, PowerShell, Julia, GDScript, Vue, Svelte, Astro, ReScript
 - Markdown
-- Jupyter notebooks और Databricks-style notebook exports
+- Jupyter notebooks और Databricks notebook sources/exports को graph inputs के रूप में parse किया जाता है
 - Terraform
 
 वर्तमान coverage summary के लिए `docs/FEATURES.md` और `docs/LLM-OPTIMIZED-REFERENCE.md` देखें।
@@ -172,6 +172,18 @@ dagayn detect-changes --base HEAD~1
 dagayn visualize --serve
 dagayn serve
 ```
+
+## Report / export outputs
+
+`dagayn visualize` graph artifacts के लिए current report/export surface है।
+
+- default output `.dagayn/graph.html` में interactive HTML report है
+- HTML rendering `--mode auto|full|community|file` को support करता है
+- `--format` में `html`, `graphml`, `mermaid-c4`, `svg`, `cypher`, `obsidian` supported हैं
+- `mermaid-c4` Mermaid `C4Component` code emit करता है, जहाँ files components और cross-file dependencies relations बनती हैं
+- `svg` export matplotlib use करता है; ज़रूरत हो तो eval extra install करें: `pip install "dagayn[eval] @ git+https://github.com/manji-0/dagayn.git"`
+- इस fork में Graphviz / DOT built-in export target नहीं है
+- Jupyter / Databricks notebooks report outputs नहीं, graph inputs हैं
 
 ## AI platform integration
 

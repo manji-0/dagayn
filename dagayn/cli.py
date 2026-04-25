@@ -115,7 +115,7 @@ def _print_banner() -> None:
     {g}update{r}      Incremental update {d}(changed files only){r}
     {g}watch{r}       Auto-update on file changes
     {g}status{r}      Show graph statistics
-    {g}visualize{r}   Generate interactive HTML graph
+    {g}visualize{r}   Generate graph reports and exports
     {g}wiki{r}        Generate markdown wiki from communities
     {g}detect-changes{r} Analyze change impact {d}(risk-scored review){r}
     {g}detect-adp{r}    Detect cyclic dependencies {d}(ADP violations){r}
@@ -474,7 +474,10 @@ def main() -> None:
     status_cmd.add_argument("--repo", default=None, help="Repository root (auto-detected)")
 
     # visualize
-    vis_cmd = sub.add_parser("visualize", help="Generate interactive HTML graph visualization")
+    vis_cmd = sub.add_parser(
+        "visualize",
+        help="Generate graph reports (HTML, GraphML, Mermaid C4, Cypher, Obsidian, SVG)",
+    )
     vis_cmd.add_argument("--repo", default=None, help="Repository root (auto-detected)")
     vis_cmd.add_argument(
         "--mode",
@@ -489,9 +492,9 @@ def main() -> None:
     )
     vis_cmd.add_argument(
         "--format",
-        choices=["html", "graphml", "cypher", "obsidian", "svg"],
+        choices=["html", "graphml", "mermaid-c4", "cypher", "obsidian", "svg"],
         default="html",
-        help="Export format (default: html)",
+        help="Export format: html, graphml, mermaid-c4, cypher, obsidian, or svg (default: html)",
     )
 
     # wiki
@@ -1045,6 +1048,12 @@ def main() -> None:
                 out = data_dir / "graph.graphml"
                 export_graphml(store, out)
                 print(f"GraphML exported: {out}")
+            elif fmt == "mermaid-c4":
+                from .exports import export_mermaid_c4
+
+                out = data_dir / "graph.mmd"
+                export_mermaid_c4(store, out)
+                print(f"Mermaid C4 exported: {out}")
             elif fmt == "cypher":
                 from .exports import export_neo4j_cypher
 

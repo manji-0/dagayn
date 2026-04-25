@@ -35,7 +35,7 @@ See [NOTICE](NOTICE) for upstream attribution and original author information.
 - MCP server for AI coding tools
 - graph queries for impact radius, review context, communities, flows, and refactors
 - multi-repo registry and daemon workflows
-- interactive visualization plus GraphML, SVG, Cypher, and Obsidian exports
+- interactive visualization plus GraphML, Mermaid C4, SVG, Cypher, and Obsidian exports
 
 ## Supported languages and file types
 
@@ -45,7 +45,7 @@ Highlights include:
 
 - Python, JavaScript, TypeScript, TSX, Go, Rust, Java, C#, Ruby, PHP, Kotlin, Swift, Scala, Solidity, Dart, Lua, Luau, Objective-C, Bash, Elixir, Zig, PowerShell, Julia, GDScript, Vue, Svelte, Astro, ReScript
 - Markdown
-- Jupyter notebooks and Databricks-style notebook exports
+- Jupyter notebooks and Databricks notebook sources/exports as graph inputs
 - Terraform
 
 See `docs/FEATURES.md` and `docs/LLM-OPTIMIZED-REFERENCE.md` for the current coverage summary.
@@ -172,6 +172,18 @@ dagayn detect-changes --base HEAD~1
 dagayn visualize --serve
 dagayn serve
 ```
+
+## Reporting and export outputs
+
+`dagayn visualize` is the current report/export surface for graph artifacts.
+
+- default output is an interactive HTML report at `.dagayn/graph.html`
+- HTML rendering supports `--mode auto|full|community|file`
+- `--format` supports `html`, `graphml`, `mermaid-c4`, `svg`, `cypher`, and `obsidian`
+- `mermaid-c4` emits Mermaid `C4Component` code with files collapsed into components and cross-file relations
+- `svg` export uses matplotlib, so install the eval extra when you need it: `pip install "dagayn[eval] @ git+https://github.com/manji-0/dagayn.git"`
+- Graphviz/DOT is not a built-in export target in this fork
+- Jupyter / Databricks notebooks are parsed as graph inputs, not emitted as report formats
 
 ## AI platform integration
 

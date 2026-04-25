@@ -11,12 +11,12 @@
 - review context generation and change-impact analysis
 - communities, flows, hub nodes, bridge nodes, and knowledge-gap analysis
 - refactor previews and dead-code inspection
-- wiki generation and visualization exports
+- wiki generation and graph reports/exports (interactive HTML, GraphML, Mermaid C4, SVG, Cypher, Obsidian)
 
 ## Languages and formats the fork emphasizes
 
 - application languages such as Python, TypeScript, JavaScript, Go, Rust, Java, C#, Ruby, PHP, Kotlin, Swift, Scala, Dart, and more
-- repo-adjacent assets such as Markdown and notebooks
+- repo-adjacent assets such as Markdown, Jupyter notebooks, and Databricks notebook sources/exports
 - Terraform as a first-class graph source
 
 ## Notable fork-specific additions

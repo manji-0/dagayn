@@ -1,10 +1,11 @@
-"""Additional export formats: GraphML, Neo4j Cypher, Obsidian vault, SVG."""
+"""Additional export formats: GraphML, Neo4j Cypher, Obsidian vault, SVG, Mermaid C4."""
 
 from __future__ import annotations
 
 import html
 import logging
 import re
+from collections import Counter, defaultdict
 from pathlib import Path
 
 from .graph import GraphStore, _sanitize_name
@@ -282,6 +283,123 @@ def _obsidian_slug(name: str) -> str:
     slug = re.sub(r"[^\w\s-]", "", name.lower())
     slug = re.sub(r"[\s_]+", "-", slug).strip("-")
     return slug[:100] or "unnamed"
+
+
+# -------------------------------------------------------------------
+# Mermaid C4 Component export
+# -------------------------------------------------------------------
+
+
+def export_mermaid_c4(store: GraphStore, output_path: Path) -> Path:
+    """Export the graph as Mermaid C4 Component code.
+
+    The export treats repository files as C4 components and collapses
+    symbol-level relationships into cross-file component relations.
+    Returns the path to the written file.
+    """
+    data = export_graph_data(store)
+    nodes = data["nodes"]
+    edges = data["edges"]
+
+    file_nodes = sorted(
+        (n for n in nodes if n.get("kind") == "File"),
+        key=lambda n: n.get("file_path", n["qualified_name"]),
+    )
+
+    qn_to_file: dict[str, str] = {}
+    symbols_per_file: Counter[str] = Counter()
+    for node in nodes:
+        file_path = node.get("file_path") or _node_to_file(node["qualified_name"])
+        if not file_path:
+            continue
+        qn_to_file[node["qualified_name"]] = file_path
+        if node.get("kind") != "File":
+            symbols_per_file[file_path] += 1
+
+    lines = [
+        "C4Component",
+        "title Dagayn component view",
+        "",
+        'Container_Boundary(repo, "Repository") {',
+    ]
+
+    grouped_files: dict[str, list[dict]] = defaultdict(list)
+    for node in file_nodes:
+        file_path = node.get("file_path", node["qualified_name"])
+        top_level = file_path.split("/", 1)[0] if "/" in file_path else "."
+        grouped_files[top_level].append(node)
+
+    file_ids: dict[str, str] = {}
+    for group in sorted(grouped_files):
+        lines.append(f"  %% {group}")
+        for node in grouped_files[group]:
+            file_path = node.get("file_path", node["qualified_name"])
+            component_id = _mermaid_id(file_path, prefix="cmp")
+            file_ids[file_path] = component_id
+            label = _mermaid_escape(file_path.rsplit("/", 1)[-1])
+            technology = _mermaid_escape(node.get("language", "") or "source")
+            symbol_count = symbols_per_file.get(file_path, 0)
+            description = _mermaid_escape(f"{file_path} · {symbol_count} symbols")
+            lines.append(f'  Component({component_id}, "{label}", "{technology}", "{description}")')
+        lines.append("")
+
+    lines.append("}")
+
+    relations: dict[tuple[str, str], Counter[str]] = defaultdict(Counter)
+    for edge in edges:
+        src_file = qn_to_file.get(edge["source"]) or _node_to_file(edge["source"])
+        tgt_file = qn_to_file.get(edge["target"]) or _node_to_file(edge["target"])
+        if not src_file or not tgt_file or src_file == tgt_file:
+            continue
+        if src_file not in file_ids or tgt_file not in file_ids:
+            continue
+        relations[(src_file, tgt_file)][edge.get("kind", "RELATES_TO")] += 1
+
+    if relations:
+        lines.append("")
+        for (src_file, tgt_file), kinds in sorted(relations.items()):
+            label = _mermaid_escape(_format_relation_label(kinds))
+            lines.append(f'Rel({file_ids[src_file]}, {file_ids[tgt_file]}, "{label}")')
+
+    output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    logger.info(
+        "Mermaid C4 exported to %s (%d components, %d relations)",
+        output_path,
+        len(file_nodes),
+        len(relations),
+    )
+    return output_path
+
+
+def _node_to_file(qualified_name: str) -> str:
+    """Resolve a qualified name to its owning file path when possible."""
+    if "::" in qualified_name:
+        return qualified_name.split("::", 1)[0]
+    return qualified_name
+
+
+def _mermaid_id(value: str, prefix: str = "id") -> str:
+    """Convert an arbitrary path/name to a Mermaid-safe identifier."""
+    slug = re.sub(r"[^A-Za-z0-9_]", "_", value)
+    slug = re.sub(r"_+", "_", slug).strip("_")
+    if not slug:
+        slug = "node"
+    if slug[0].isdigit():
+        slug = f"n_{slug}"
+    return f"{prefix}_{slug}"
+
+
+def _mermaid_escape(value: str) -> str:
+    """Escape Mermaid string content conservatively."""
+    return value.replace("\\", "/").replace('"', "'").replace("\n", " ")
+
+
+def _format_relation_label(kinds: Counter[str]) -> str:
+    """Render collapsed edge kinds for Mermaid relation labels."""
+    parts = []
+    for kind, count in sorted(kinds.items()):
+        parts.append(f"{kind} x{count}" if count > 1 else kind)
+    return ", ".join(parts)
 
 
 # -------------------------------------------------------------------

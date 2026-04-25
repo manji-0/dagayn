@@ -35,7 +35,7 @@
 - 面向 AI 编码工具的 MCP 服务器
 - 影响半径、审查上下文、社区、流程和重构的图谱查询
 - 多仓库注册表和守护进程工作流
-- 交互式可视化及 GraphML / SVG / Cypher / Obsidian 导出
+- 交互式可视化及 GraphML / Mermaid C4 / SVG / Cypher / Obsidian 导出
 
 ## 支持的语言和文件类型
 
@@ -45,7 +45,7 @@
 
 - Python, JavaScript, TypeScript, TSX, Go, Rust, Java, C#, Ruby, PHP, Kotlin, Swift, Scala, Solidity, Dart, Lua, Luau, Objective-C, Bash, Elixir, Zig, PowerShell, Julia, GDScript, Vue, Svelte, Astro, ReScript
 - Markdown
-- Jupyter 笔记本和 Databricks 风格笔记本导出
+- Jupyter 笔记本和 Databricks 笔记本源码/导出会作为图谱输入解析
 - Terraform
 
 当前覆盖范围摘要请参见 `docs/FEATURES.md` 和 `docs/LLM-OPTIMIZED-REFERENCE.md`。
@@ -172,6 +172,18 @@ dagayn detect-changes --base HEAD~1
 dagayn visualize --serve
 dagayn serve
 ```
+
+## 报告 / 导出输出
+
+`dagayn visualize` 是当前图谱报告 / 导出的主要命令面。
+
+- 默认输出是 `.dagayn/graph.html` 里的交互式 HTML 报告
+- HTML 渲染支持 `--mode auto|full|community|file`
+- `--format` 支持 `html`、`graphml`、`mermaid-c4`、`svg`、`cypher`、`obsidian`
+- `mermaid-c4` 会输出 Mermaid `C4Component` 代码，并将文件折叠为组件、将跨文件依赖聚合为关系
+- `svg` 导出依赖 matplotlib；需要时安装 eval extra：`pip install "dagayn[eval] @ git+https://github.com/manji-0/dagayn.git"`
+- 这个 fork 不内置 Graphviz / DOT 导出
+- Jupyter / Databricks 笔记本是图谱输入，不是报告输出格式
 
 ## AI 平台集成
 

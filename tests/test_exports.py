@@ -1,4 +1,4 @@
-"""Tests for dagayn/exports.py: GraphML, Neo4j Cypher, Obsidian vault, SVG."""
+"""Tests for dagayn/exports.py: GraphML, Neo4j Cypher, Obsidian vault, Mermaid C4, SVG."""
 
 from __future__ import annotations
 
@@ -56,6 +56,106 @@ def populated_store(tmp_path):
     ]
     for e in edges:
         store.upsert_edge(e)
+
+    store.commit()
+    return store
+
+
+@pytest.fixture
+def mermaid_store(tmp_path):
+    db_path = tmp_path / "mermaid.db"
+    store = GraphStore(db_path)
+
+    def _node(
+        kind,
+        name,
+        file_path,
+        *,
+        language="python",
+        is_test=False,
+        parent_name=None,
+    ):
+        return NodeInfo(
+            kind=kind,
+            name=name,
+            file_path=file_path,
+            line_start=1,
+            line_end=10,
+            language=language,
+            parent_name=parent_name,
+            params=None,
+            return_type=None,
+            modifiers=None,
+            is_test=is_test,
+            extra={},
+        )
+
+    def _edge(kind, source, target, file_path):
+        return EdgeInfo(
+            kind=kind, source=source, target=target, file_path=file_path, line=1, extra={}
+        )
+
+    nodes = [
+        _node("File", "api.py", "src/api.py"),
+        _node("Class", "ApiService", "src/api.py"),
+        _node("Function", "fetch", "src/api.py", parent_name="ApiService"),
+        _node("Function", "sync", "src/api.py", parent_name="ApiService"),
+        _node("File", "db.py", "src/db.py"),
+        _node("Function", "query", "src/db.py"),
+        _node("File", "api.py", "pkg/api.py"),
+        _node("Function", "mirror", "pkg/api.py"),
+        _node("File", "test_api.py", "tests/test_api.py"),
+        _node("Test", "test_fetch", "tests/test_api.py", is_test=True),
+        _node("File", "README.md", "README.md", language="markdown"),
+    ]
+    for node in nodes:
+        store.upsert_node(node)
+
+    edges = [
+        _edge("CONTAINS", "src/api.py", "src/api.py::ApiService", "src/api.py"),
+        _edge("CONTAINS", "src/api.py::ApiService", "src/api.py::ApiService.fetch", "src/api.py"),
+        _edge("CONTAINS", "src/api.py::ApiService", "src/api.py::ApiService.sync", "src/api.py"),
+        _edge("CONTAINS", "src/db.py", "src/db.py::query", "src/db.py"),
+        _edge("CONTAINS", "pkg/api.py", "pkg/api.py::mirror", "pkg/api.py"),
+        _edge(
+            "CALLS",
+            "src/api.py::ApiService.fetch",
+            "src/db.py::query",
+            "src/api.py",
+        ),
+        _edge(
+            "CALLS",
+            "src/api.py::ApiService.sync",
+            "src/db.py::query",
+            "src/api.py",
+        ),
+        _edge(
+            "IMPORTS_FROM",
+            "src/api.py::ApiService.fetch",
+            "src/db.py",
+            "src/api.py",
+        ),
+        _edge(
+            "CALLS",
+            "tests/test_api.py::test_fetch",
+            "src/api.py::ApiService.fetch",
+            "tests/test_api.py",
+        ),
+        _edge(
+            "CALLS",
+            "src/api.py::ApiService.fetch",
+            "src/api.py::ApiService.sync",
+            "src/api.py",
+        ),
+        _edge(
+            "IMPORTS_FROM",
+            "src/api.py::ApiService.fetch",
+            "requests",
+            "src/api.py",
+        ),
+    ]
+    for edge in edges:
+        store.upsert_edge(edge)
 
     store.commit()
     return store
@@ -251,3 +351,114 @@ class TestExportSVG:
         out = tmp_path / "empty.svg"
         with pytest.raises(ValueError, match="empty"):
             export_svg(store, out)
+
+
+class TestExportMermaidC4:
+    def test_returns_path(self, populated_store, tmp_path):
+        from dagayn.exports import export_mermaid_c4
+
+        out = tmp_path / "graph.mmd"
+        result = export_mermaid_c4(populated_store, out)
+        assert result == out
+
+    def test_contains_c4_component_syntax(self, populated_store, tmp_path):
+        from dagayn.exports import export_mermaid_c4
+
+        out = tmp_path / "graph.mmd"
+        export_mermaid_c4(populated_store, out)
+        content = out.read_text()
+        assert "C4Component" in content
+        assert 'Container_Boundary(repo, "Repository")' in content
+        assert "Component(" in content
+        assert "Rel(" in content
+
+    def test_contains_file_components(self, populated_store, tmp_path):
+        from dagayn.exports import export_mermaid_c4
+
+        out = tmp_path / "graph.mmd"
+        export_mermaid_c4(populated_store, out)
+        content = out.read_text()
+        assert "src/app.py" in content
+        assert "tests/test_app.py" in content
+        assert "app.py" in content
+        assert "test_app.py" in content
+
+    def test_empty_store(self, tmp_path):
+        from dagayn.exports import export_mermaid_c4
+
+        store = GraphStore(tmp_path / "empty.db")
+        store.commit()
+        out = tmp_path / "empty.mmd"
+        export_mermaid_c4(store, out)
+        content = out.read_text()
+        assert "C4Component" in content
+        assert "Component(" not in content
+
+    def test_groups_components_by_top_level_directory(self, mermaid_store, tmp_path):
+        from dagayn.exports import export_mermaid_c4
+
+        out = tmp_path / "graph.mmd"
+        export_mermaid_c4(mermaid_store, out)
+        content = out.read_text()
+        assert "  %% ." in content
+        assert "  %% pkg" in content
+        assert "  %% src" in content
+        assert "  %% tests" in content
+
+    def test_counts_symbols_per_file_in_description(self, mermaid_store, tmp_path):
+        from dagayn.exports import export_mermaid_c4
+
+        out = tmp_path / "graph.mmd"
+        export_mermaid_c4(mermaid_store, out)
+        content = out.read_text()
+        assert '"src/api.py · 3 symbols"' in content
+        assert '"src/db.py · 1 symbols"' in content
+        assert '"README.md · 0 symbols"' in content
+
+    def test_aggregates_cross_file_relations_by_kind_and_count(self, mermaid_store, tmp_path):
+        from dagayn.exports import export_mermaid_c4
+
+        out = tmp_path / "graph.mmd"
+        export_mermaid_c4(mermaid_store, out)
+        content = out.read_text()
+        assert 'Rel(cmp_src_api_py, cmp_src_db_py, "CALLS x2, IMPORTS_FROM")' in content
+        assert 'Rel(cmp_tests_test_api_py, cmp_src_api_py, "CALLS")' in content
+
+    def test_skips_same_file_and_unknown_target_relations(self, mermaid_store, tmp_path):
+        from dagayn.exports import export_mermaid_c4
+
+        out = tmp_path / "graph.mmd"
+        export_mermaid_c4(mermaid_store, out)
+        content = out.read_text()
+        assert content.count("Rel(") == 2
+        assert "requests" not in content
+
+    def test_uses_unique_component_ids_for_duplicate_basenames(self, mermaid_store, tmp_path):
+        from dagayn.exports import export_mermaid_c4
+
+        out = tmp_path / "graph.mmd"
+        export_mermaid_c4(mermaid_store, out)
+        content = out.read_text()
+        assert 'Component(cmp_src_api_py, "api.py"' in content
+        assert 'Component(cmp_pkg_api_py, "api.py"' in content
+
+
+class TestMermaidHelpers:
+    def test_mermaid_id_sanitizes_and_prefixes(self):
+        from dagayn.exports import _mermaid_id
+
+        assert _mermaid_id("123/path-name.py", prefix="cmp") == "cmp_n_123_path_name_py"
+
+    def test_mermaid_escape_normalizes_strings(self):
+        from dagayn.exports import _mermaid_escape
+
+        assert _mermaid_escape('a\\b"c\nd') == "a/b'c d"
+
+    def test_format_relation_label_orders_and_counts(self):
+        from collections import Counter
+
+        from dagayn.exports import _format_relation_label
+
+        assert _format_relation_label(Counter({"IMPORTS_FROM": 1, "CALLS": 2})) == (
+            "CALLS x2, IMPORTS_FROM"
+        )

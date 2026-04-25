@@ -35,7 +35,7 @@
 - AI コーディングツール向け MCP サーバー
 - インパクト半径・レビューコンテキスト・コミュニティ・フロー・リファクタのグラフクエリ
 - マルチリポジトリレジストリとデーモンワークフロー
-- インタラクティブ可視化と GraphML / SVG / Cypher / Obsidian エクスポート
+- インタラクティブ可視化と GraphML / Mermaid C4 / SVG / Cypher / Obsidian エクスポート
 
 ## 対応言語・ファイル種別
 
@@ -45,7 +45,7 @@
 
 - Python, JavaScript, TypeScript, TSX, Go, Rust, Java, C#, Ruby, PHP, Kotlin, Swift, Scala, Solidity, Dart, Lua, Luau, Objective-C, Bash, Elixir, Zig, PowerShell, Julia, GDScript, Vue, Svelte, Astro, ReScript
 - Markdown
-- Jupyter ノートブック・Databricks スタイルノートブックエクスポート
+- Jupyter ノートブックと Databricks ノートブックソース/エクスポートをグラフ入力として解析
 - Terraform
 
 現在のカバレッジ一覧は `docs/FEATURES.md` と `docs/LLM-OPTIMIZED-REFERENCE.md` を参照してください。
@@ -172,6 +172,18 @@ dagayn detect-changes --base HEAD~1
 dagayn visualize --serve
 dagayn serve
 ```
+
+## レポート / エクスポート出力
+
+`dagayn visualize` が現行のグラフ用レポート / エクスポート面です。
+
+- 既定出力は `.dagayn/graph.html` のインタラクティブ HTML レポート
+- HTML 表示は `--mode auto|full|community|file` をサポート
+- `--format` は `html`, `graphml`, `mermaid-c4`, `svg`, `cypher`, `obsidian` をサポート
+- `mermaid-c4` は Mermaid の `C4Component` コードを出力し、ファイルをコンポーネント、クロスファイル依存を関係として集約します
+- `svg` は matplotlib を使うため、必要なら eval extra を入れます: `pip install "dagayn[eval] @ git+https://github.com/manji-0/dagayn.git"`
+- この fork に Graphviz / DOT の組み込み出力はありません
+- Jupyter / Databricks ノートブックはレポート出力形式ではなく、グラフ入力として扱います
 
 ## AI プラットフォーム連携
 

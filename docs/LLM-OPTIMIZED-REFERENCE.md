@@ -37,6 +37,10 @@ Important CLI commands:
 - `dagayn visualize`
 - `dagayn serve`
 - `dagayn register` / `dagayn repos` / `dagayn daemon`
+
+`dagayn visualize` is the report/export surface. It supports HTML output with `--mode auto|full|community|file`, plus `graphml`, `mermaid-c4`, `svg`, `cypher`, and `obsidian` via `--format`.
+
+Graphviz / DOT is not a built-in export target in this fork.
 </section>
 
 <section name="legal">
@@ -59,6 +63,8 @@ Use them when semantic search quality matters more than minimal dependencies. If
 
 <section name="languages">
 The fork supports mainstream app languages plus Markdown, notebooks, and Terraform.
+
+Jupyter and Databricks notebooks are parsed as graph inputs rather than report output formats.
 
 Terraform and Markdown are notable differentiators for this fork's review workflows.
 </section>

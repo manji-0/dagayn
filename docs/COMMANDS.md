@@ -17,6 +17,13 @@
 - `dagayn wiki`
 - `dagayn eval`
 
+`dagayn visualize` is the main report/export command. It generates:
+
+- interactive HTML output in `auto`, `full`, `community`, or `file` mode
+- GraphML, Mermaid C4, SVG, Neo4j Cypher, or Obsidian exports via `--format`
+
+Graphviz / DOT is not a built-in export target. Jupyter / Databricks notebooks are supported as graph inputs rather than report output formats.
+
 ### Integration and serving
 
 - `dagayn install`
