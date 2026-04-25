@@ -30,6 +30,16 @@ Maintainers may edit, remove, or reject content that makes the project less safe
 
 For conduct concerns, open a private security-style report if the matter is sensitive, or contact maintainers through the repository channels that are currently listed in `SECURITY.md`.
 
+## Contribution policy
+
+Issues are welcome — bug reports, questions, and feature suggestions all help the project improve.
+
+Pull requests are not accepted at this stage of development. The maintainers manage all changes to the codebase directly.
+
+Requests and suggestions are read and taken into account, but there is no commitment to implement any of them. Maintainers decide what enters the codebase and when.
+
+If the project reaches a stage where broad OSS adoption and community-driven improvement makes sense, this policy will be revisited.
+
 ## Scope
 
-This code of conduct applies to repository issues, pull requests, discussions, release notes, and other project-managed spaces.
+This code of conduct applies to repository issues, discussions, release notes, and other project-managed spaces.
