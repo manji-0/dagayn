@@ -3,7 +3,7 @@
 ## Install the package
 
 ```bash
-pip install dagayn
+pip install git+https://github.com/manji-0/dagayn.git
 ```
 
 ## Register MCP integration

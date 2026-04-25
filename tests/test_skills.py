@@ -420,7 +420,8 @@ class TestInstallPlatformConfigs:
                 [
                     "[mcp_servers.dagayn]",
                     'command = "uvx"',
-                    'args = ["dagayn", "serve"]',
+                    'args = ["--from", "git+https://github.com/manji-0/dagayn.git",'
+                    ' "dagayn", "serve"]',
                     'type = "stdio"',
                     "",
                 ]
@@ -620,7 +621,16 @@ class TestInstallPlatformConfigs:
     def test_continue_array_no_duplicate(self, tmp_path):
         config_path = tmp_path / ".continue" / "config.json"
         config_path.parent.mkdir(parents=True)
-        existing = {"mcpServers": [{"name": "dagayn", "command": "uvx", "args": ["serve"]}]}
+        _git_url = "git+https://github.com/manji-0/dagayn.git"
+        existing = {
+            "mcpServers": [
+                {
+                    "name": "dagayn",
+                    "command": "uvx",
+                    "args": ["--from", _git_url, "dagayn", "serve"],
+                }
+            ]
+        }
         config_path.write_text(json.dumps(existing))
         with patch.dict(
             PLATFORMS,
@@ -1036,7 +1046,7 @@ class TestDetectServeCommand:
         )
         cmd, args = _detect_serve_command()
         assert cmd == "uvx"
-        assert args == ["dagayn", "serve"]
+        assert args == ["--from", "git+https://github.com/manji-0/dagayn.git", "dagayn", "serve"]
 
     def test_sys_executable_fallback(self, monkeypatch):
         """Nothing else available → fall back to sys.executable -m."""

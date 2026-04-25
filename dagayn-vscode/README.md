@@ -29,11 +29,11 @@ The extension requires the `dagayn` Python CLI to parse your codebase.
 
 ```bash
 # Recommended
-uv pip install dagayn
+uv pip install git+https://github.com/manji-0/dagayn.git
 
 # Alternatives
-pipx install dagayn
-pip install dagayn
+pipx install git+https://github.com/manji-0/dagayn.git
+pip install git+https://github.com/manji-0/dagayn.git
 ```
 
 Requires Python 3.12+.

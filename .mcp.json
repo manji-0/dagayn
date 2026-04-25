@@ -2,7 +2,7 @@
   "mcpServers": {
     "dagayn": {
       "command": "uvx",
-      "args": ["dagayn", "serve"]
+      "args": ["--from", "git+https://github.com/manji-0/dagayn.git", "dagayn", "serve"]
     }
   }
 }

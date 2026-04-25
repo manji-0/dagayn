@@ -21,8 +21,9 @@ def embed_graph(
 ) -> dict[str, Any]:
     """Compute vector embeddings for all graph nodes to enable semantic search.
 
-    Requires: ``pip install dagayn[embeddings]`` (local provider only;
-    cloud providers like ``openai`` / ``google`` / ``minimax`` use stdlib ``urllib``).
+    Requires: ``pip install "dagayn[embeddings] @ git+https://github.com/manji-0/dagayn.git"``
+    (local provider only; cloud providers like ``openai`` / ``google`` / ``minimax``
+    use stdlib ``urllib``).
     Default model: all-MiniLM-L6-v2. Override via ``model`` param or
     CRG_EMBEDDING_MODEL env var.
     Changing the model or provider re-embeds all nodes automatically.
@@ -59,7 +60,8 @@ def embed_graph(
             else:
                 err = (
                     "The local embedding provider needs sentence-transformers. "
-                    "Install with: pip install dagayn[embeddings] — "
+                    'Install with: pip install "dagayn[embeddings] @ '
+                    'git+https://github.com/manji-0/dagayn.git" — '
                     "or switch provider to 'openai' / 'google' / 'minimax'."
                 )
             return {"status": "error", "error": err}

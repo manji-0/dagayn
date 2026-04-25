@@ -51,7 +51,7 @@ See `docs/FEATURES.md` and `docs/LLM-OPTIMIZED-REFERENCE.md` for the current cov
 ## Installation
 
 ```bash
-pip install dagayn
+pip install git+https://github.com/manji-0/dagayn.git
 ```
 
 If you prefer isolated tool installs, `pipx` also works.

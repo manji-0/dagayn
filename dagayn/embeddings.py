@@ -72,7 +72,7 @@ class LocalEmbeddingProvider(EmbeddingProvider):
                 )
             except ImportError:
                 raise ImportError(
-                    "sentence-transformers not installed. Run: pip install dagayn[embeddings]"
+                    'sentence-transformers not installed. Run: pip install "dagayn[embeddings] @ git+https://github.com/manji-0/dagayn.git"'
                 )
         return self._model
 
@@ -104,7 +104,7 @@ class GoogleEmbeddingProvider(EmbeddingProvider):
             self._dimension: int | None = None
         except ImportError:
             raise ImportError(
-                "google-generativeai not installed. Run: pip install dagayn[google-embeddings]"
+                'google-generativeai not installed. Run: pip install "dagayn[google-embeddings] @ git+https://github.com/manji-0/dagayn.git"'
             )
 
     def embed(self, texts: list[str]) -> list[list[float]]:

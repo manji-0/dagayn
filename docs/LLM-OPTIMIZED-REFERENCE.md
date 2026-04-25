@@ -1,7 +1,7 @@
 # dagayn LLM reference
 
 <section name="usage">
-Install with `pip install dagayn`, run `dagayn install`, then `dagayn build`.
+Install with `pip install git+https://github.com/manji-0/dagayn.git`, run `dagayn install`, then `dagayn build`.
 
 Use `dagayn update` for change-driven refreshes and `dagayn watch` for live development.
 

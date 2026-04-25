@@ -12,7 +12,7 @@
 ## クイックスタート
 
 ```bash
-pip install dagayn
+pip install git+https://github.com/manji-0/dagayn.git
 dagayn install
 dagayn build
 dagayn status

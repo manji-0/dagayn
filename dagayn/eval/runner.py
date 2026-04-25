@@ -39,7 +39,9 @@ DEFAULT_REPOS = Path("evaluate/test_repos")
 
 def _require_yaml() -> Any:
     if yaml is None:
-        raise ImportError("pyyaml is required: pip install dagayn[eval]")
+        raise ImportError(
+            'pyyaml is required: pip install "dagayn[eval] @ git+https://github.com/manji-0/dagayn.git"'
+        )
     return yaml
 
 

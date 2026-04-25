@@ -330,8 +330,8 @@ async def embed_graph_tool(
 ) -> dict:
     """Compute vector embeddings for all graph nodes to enable semantic search.
 
-    Requires: pip install dagayn[embeddings] (local provider only;
-    cloud providers use stdlib urllib).
+    Requires: pip install "dagayn[embeddings] @ git+https://github.com/manji-0/dagayn.git"
+    (local provider only; cloud providers use stdlib urllib).
     Default provider: local. Default model: all-MiniLM-L6-v2.
     Override provider via `provider` param, model via `model` param or
     CRG_EMBEDDING_MODEL / CRG_OPENAI_MODEL env vars.
