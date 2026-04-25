@@ -45,7 +45,7 @@ priority = 10
 id = "ty-check"
 name = "ty check"
 language = "system"
-entry = "uv run ty check dagayn --python-version 3.13 --ignore unresolved-import --exclude '**/*\\ 2.py' --exclude '**/*\\ 3.py'"
+entry = "uv run ty check dagayn --python-version 3.13 --ignore unresolved-import"
 files = { glob = ["dagayn/**/*.py", "tests/**/*.py", "scripts/**/*.py", "main.py", "hatch_build.py"] }
 pass_filenames = false
 priority = 20

@@ -112,8 +112,6 @@ select = ["E", "F", "I", "N", "W"]
 "tests/fixtures/sample_databricks_export.py" = ["F841", "W292"]  # intentional fixture patterns
 "tests/fixtures/sample_notebook.ipynb" = ["F401", "I001"]  # fixture imports: intentionally unused, split across cells
 "tests/test_multilang.py" = ["E501"]  # long assertions with explanatory comments
-"**/* 2.py" = ["N999"]  # duplicate snapshot files kept for regression coverage
-"**/* 3.py" = ["N999"]  # duplicate snapshot files kept for regression coverage
 
 [tool.bandit]
 # B101: assert used (fine in non-security code)

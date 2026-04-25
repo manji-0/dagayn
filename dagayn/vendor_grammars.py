@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Iterable
 from urllib.request import Request, urlopen
 
+
 def _generate_binding_c(language: str) -> str:
     sym = f"tree_sitter_{language}"
     init = f"PyInit_{language}"
