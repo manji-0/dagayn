@@ -4,10 +4,10 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from code_review_graph.graph import GraphStore
-from code_review_graph.incremental import full_build
-from code_review_graph.parser import EdgeInfo, NodeInfo
-from code_review_graph.postprocessing import run_post_processing
+from dagayn.graph import GraphStore
+from dagayn.incremental import full_build
+from dagayn.parser import EdgeInfo, NodeInfo
+from dagayn.postprocessing import run_post_processing
 
 
 def _get_signature(store, qualified_name):
@@ -149,7 +149,7 @@ class TestRunPostProcessing:
     def test_fts_search_works_after_post_processing(self):
         run_post_processing(self.store)
 
-        from code_review_graph.search import hybrid_search
+        from dagayn.search import hybrid_search
 
         hits = hybrid_search(self.store, "handle")
         names = {h["name"] for h in hits}
@@ -232,7 +232,7 @@ class TestPostProcessingStepIsolation:
 
     def test_fts_failure_does_not_block_flows(self):
         with patch(
-            "code_review_graph.search.rebuild_fts_index",
+            "dagayn.search.rebuild_fts_index",
             side_effect=ImportError("fts boom"),
         ):
             result = run_post_processing(self.store)
@@ -244,7 +244,7 @@ class TestPostProcessingStepIsolation:
 
     def test_flow_failure_does_not_block_communities(self):
         with patch(
-            "code_review_graph.flows.trace_flows",
+            "dagayn.flows.trace_flows",
             side_effect=ImportError("flow boom"),
         ):
             result = run_post_processing(self.store)
@@ -255,7 +255,7 @@ class TestPostProcessingStepIsolation:
 
     def test_community_failure_still_has_signatures(self):
         with patch(
-            "code_review_graph.communities.detect_communities",
+            "dagayn.communities.detect_communities",
             side_effect=ImportError("comm boom"),
         ):
             result = run_post_processing(self.store)
@@ -270,12 +270,12 @@ class TestToolBuildUsesSharedPipeline:
         py_file = tmp_path / "sample.py"
         py_file.write_text("def hello():\n    pass\n")
         (tmp_path / ".git").mkdir()
-        (tmp_path / ".code-review-graph").mkdir()
+        (tmp_path / ".dagayn").mkdir()
 
-        db_path = tmp_path / ".code-review-graph" / "graph.db"
+        db_path = tmp_path / ".dagayn" / "graph.db"
         store = GraphStore(db_path)
         try:
-            mock_target = "code_review_graph.incremental.get_all_tracked_files"
+            mock_target = "dagayn.incremental.get_all_tracked_files"
             with patch(mock_target, return_value=["sample.py"]):
                 full_build(tmp_path, store)
 
@@ -293,7 +293,7 @@ class TestWatchCallbackIntegration:
     def test_watch_accepts_callback_parameter(self):
         import inspect
 
-        from code_review_graph.incremental import watch
+        from dagayn.incremental import watch
 
         sig = inspect.signature(watch)
         assert "on_files_updated" in sig.parameters
@@ -301,7 +301,7 @@ class TestWatchCallbackIntegration:
     def test_watch_callback_not_called_without_updates(self, tmp_path):
         import threading
 
-        from code_review_graph.incremental import watch
+        from dagayn.incremental import watch
 
         (tmp_path / ".git").mkdir()
         db_path = tmp_path / "test.db"

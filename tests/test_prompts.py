@@ -1,6 +1,6 @@
 """Tests for MCP prompt templates."""
 
-from code_review_graph.prompts import (
+from dagayn.prompts import (
     architecture_map_prompt,
     debug_issue_prompt,
     onboard_developer_prompt,

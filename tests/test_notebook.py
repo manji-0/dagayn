@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from code_review_graph.parser import _SQL_TABLE_RE, CodeParser
+from dagayn.parser import _SQL_TABLE_RE, CodeParser
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

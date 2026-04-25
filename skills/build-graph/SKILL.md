@@ -33,6 +33,6 @@ Build or incrementally update the persistent code knowledge graph for this repos
 
 ## Notes
 
-- The graph is stored as a SQLite database (`.code-review-graph/graph.db`) in the repo root
-- Binary files, generated files, and patterns in `.code-review-graphignore` are skipped
+- The graph is stored as a SQLite database (`.dagayn/graph.db`) in the repo root
+- Binary files, generated files, and patterns in `.dagaynignore` are skipped
 - Supported languages: Python, TypeScript/JavaScript, Vue, Go, Rust, Java, Scala, C#, Ruby, Kotlin, Swift, PHP, Solidity, C/C++

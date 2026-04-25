@@ -3,14 +3,14 @@
 import tempfile
 from pathlib import Path
 
-from code_review_graph.enrich import (
+from dagayn.enrich import (
     enrich_file_read,
     enrich_search,
     extract_pattern,
 )
-from code_review_graph.graph import GraphStore
-from code_review_graph.parser import EdgeInfo, NodeInfo
-from code_review_graph.search import rebuild_fts_index
+from dagayn.graph import GraphStore
+from dagayn.parser import EdgeInfo, NodeInfo
+from dagayn.search import rebuild_fts_index
 
 
 class TestExtractPattern:
@@ -60,7 +60,7 @@ class TestExtractPattern:
 class TestEnrichSearch:
     def setup_method(self):
         self.tmpdir = tempfile.mkdtemp()
-        self.db_dir = Path(self.tmpdir) / ".code-review-graph"
+        self.db_dir = Path(self.tmpdir) / ".dagayn"
         self.db_dir.mkdir()
         self.db_path = self.db_dir / "graph.db"
         self.store = GraphStore(self.db_path)
@@ -123,7 +123,7 @@ class TestEnrichSearch:
 
     def test_returns_matching_symbols(self):
         result = enrich_search("parse_file", self.tmpdir)
-        assert "[code-review-graph]" in result
+        assert "[dagayn]" in result
         assert "parse_file" in result
 
     def test_includes_callers(self):
@@ -153,7 +153,7 @@ class TestEnrichSearch:
 class TestEnrichFileRead:
     def setup_method(self):
         self.tmpdir = tempfile.mkdtemp()
-        self.db_dir = Path(self.tmpdir) / ".code-review-graph"
+        self.db_dir = Path(self.tmpdir) / ".dagayn"
         self.db_dir.mkdir()
         self.db_path = self.db_dir / "graph.db"
         self.store = GraphStore(self.db_path)
@@ -207,7 +207,7 @@ class TestEnrichFileRead:
 
     def test_returns_file_symbols(self):
         result = enrich_file_read(self.file_path, self.tmpdir)
-        assert "[code-review-graph]" in result
+        assert "[dagayn]" in result
         assert "parse_file" in result
         assert "parse_imports" in result
 
@@ -243,7 +243,7 @@ class TestRunHookOutput:
         # We test the format indirectly by checking enrich_search output
         # since run_hook reads from stdin which is harder to test
         tmpdir = tempfile.mkdtemp()
-        db_dir = Path(tmpdir) / ".code-review-graph"
+        db_dir = Path(tmpdir) / ".dagayn"
         db_dir.mkdir()
         store = GraphStore(db_dir / "graph.db")
         store.upsert_node(
@@ -260,5 +260,5 @@ class TestRunHookOutput:
         store.close()
 
         result = enrich_search("my_function", tmpdir)
-        assert result.startswith("[code-review-graph]")
+        assert result.startswith("[dagayn]")
         assert "my_function" in result

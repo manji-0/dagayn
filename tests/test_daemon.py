@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from code_review_graph.daemon import (
+from dagayn.daemon import (
     DaemonConfig,
     WatchDaemon,
     WatchRepo,
@@ -133,7 +133,7 @@ class TestConfigParsing:
         assert cfg.repos[0].path == str(repo_a.resolve())
 
     def test_load_config_no_git_dir(self, tmp_path):
-        """Repos without .git or .code-review-graph are skipped."""
+        """Repos without .git or .dagayn are skipped."""
         bare = tmp_path / "bare-dir"
         bare.mkdir()
 
@@ -295,15 +295,15 @@ class TestWatchDaemon:
         repo_a = tmp_path / "repo-a"
         repo_a.mkdir()
         (repo_a / ".git").mkdir()
-        (repo_a / ".code-review-graph").mkdir()
+        (repo_a / ".dagayn").mkdir()
         # Create graph.db so _initial_build is skipped
-        (repo_a / ".code-review-graph" / "graph.db").touch()
+        (repo_a / ".dagayn" / "graph.db").touch()
 
         repo_b = tmp_path / "repo-b"
         repo_b.mkdir()
         (repo_b / ".git").mkdir()
-        (repo_b / ".code-review-graph").mkdir()
-        (repo_b / ".code-review-graph" / "graph.db").touch()
+        (repo_b / ".dagayn").mkdir()
+        (repo_b / ".dagayn" / "graph.db").touch()
 
         config = DaemonConfig(
             session_name="test-sess",
@@ -328,8 +328,8 @@ class TestWatchDaemon:
             "config_file": config_file,
         }
 
-    @patch("code_review_graph.daemon.subprocess.Popen")
-    @patch("code_review_graph.registry.Registry")
+    @patch("dagayn.daemon.subprocess.Popen")
+    @patch("dagayn.registry.Registry")
     def test_start_spawns_children(self, mock_registry_cls, mock_popen, daemon_env):
         """start() spawns a Popen child per repo."""
         mock_proc = MagicMock()
@@ -349,8 +349,8 @@ class TestWatchDaemon:
         finally:
             daemon.stop()
 
-    @patch("code_review_graph.daemon.subprocess.Popen")
-    @patch("code_review_graph.registry.Registry")
+    @patch("dagayn.daemon.subprocess.Popen")
+    @patch("dagayn.registry.Registry")
     def test_start_registers_repos(self, mock_registry_cls, mock_popen, daemon_env):
         """start() calls Registry.register for each repo."""
         mock_proc = MagicMock()
@@ -383,13 +383,13 @@ class TestWatchDaemon:
         daemon._children = {"alpha": mock_alpha}
 
         # Remove graph.db for beta so _initial_build is triggered
-        beta_db = Path(config.repos[1].path) / ".code-review-graph" / "graph.db"
+        beta_db = Path(config.repos[1].path) / ".dagayn" / "graph.db"
         beta_db.unlink()
 
         with (
-            patch("code_review_graph.daemon.subprocess.Popen") as mock_popen,
-            patch("code_review_graph.daemon.subprocess.run") as mock_run,
-            patch("code_review_graph.registry.Registry") as mock_registry_cls,
+            patch("dagayn.daemon.subprocess.Popen") as mock_popen,
+            patch("dagayn.daemon.subprocess.run") as mock_run,
+            patch("dagayn.registry.Registry") as mock_registry_cls,
         ):
             mock_new = MagicMock()
             mock_new.pid = 999
@@ -427,9 +427,9 @@ class TestWatchDaemon:
         # beta already has graph.db (from fixture) — build should be skipped
 
         with (
-            patch("code_review_graph.daemon.subprocess.Popen") as mock_popen,
-            patch("code_review_graph.daemon.subprocess.run") as mock_run,
-            patch("code_review_graph.registry.Registry") as mock_registry_cls,
+            patch("dagayn.daemon.subprocess.Popen") as mock_popen,
+            patch("dagayn.daemon.subprocess.run") as mock_run,
+            patch("dagayn.registry.Registry") as mock_registry_cls,
         ):
             mock_new = MagicMock()
             mock_new.pid = 999
@@ -494,7 +494,7 @@ class TestWatchDaemon:
         daemon._current_repos = {r.alias: r for r in config.repos}
         daemon._children = {"alpha": mock_alpha, "beta": mock_beta}
 
-        with patch("code_review_graph.daemon.subprocess.Popen") as mock_popen:
+        with patch("dagayn.daemon.subprocess.Popen") as mock_popen:
             daemon.reconcile(config)
             mock_popen.assert_not_called()
             mock_alpha.terminate.assert_not_called()
@@ -531,9 +531,9 @@ class TestWatchDaemon:
         )
 
         with (
-            patch("code_review_graph.daemon.subprocess.Popen") as mock_popen,
-            patch("code_review_graph.daemon.subprocess.run") as mock_run,
-            patch("code_review_graph.registry.Registry") as mock_registry_cls,
+            patch("dagayn.daemon.subprocess.Popen") as mock_popen,
+            patch("dagayn.daemon.subprocess.run") as mock_run,
+            patch("dagayn.registry.Registry") as mock_registry_cls,
         ):
             mock_new = MagicMock()
             mock_new.pid = 777
@@ -597,7 +597,7 @@ class TestWatchDaemon:
         daemon._current_repos = {r.alias: r for r in config.repos}
         daemon._children = {"alpha": mock_alpha, "beta": mock_beta}
 
-        with patch("code_review_graph.daemon.subprocess.Popen") as mock_popen:
+        with patch("dagayn.daemon.subprocess.Popen") as mock_popen:
             mock_new = MagicMock()
             mock_new.pid = 555
             mock_popen.return_value = mock_new
@@ -629,8 +629,8 @@ class TestWatchDaemon:
         assert len(daemon._children) == 0
         assert len(daemon._current_repos) == 0
 
-    @patch("code_review_graph.daemon.subprocess.Popen")
-    @patch("code_review_graph.registry.Registry")
+    @patch("dagayn.daemon.subprocess.Popen")
+    @patch("dagayn.registry.Registry")
     def test_start_persists_state(self, mock_registry_cls, mock_popen, daemon_env):
         """start() writes child PIDs to the state file on disk."""
         mock_proc_a = MagicMock()
@@ -670,7 +670,7 @@ class TestWatchDaemon:
         daemon._current_repos = {r.alias: r for r in config.repos}
         daemon._children = {"alpha": mock_alpha, "beta": mock_beta}
 
-        with patch("code_review_graph.daemon.subprocess.Popen") as mock_popen:
+        with patch("dagayn.daemon.subprocess.Popen") as mock_popen:
             mock_new = MagicMock()
             mock_new.pid = 3001
             mock_popen.return_value = mock_new
@@ -722,7 +722,7 @@ class TestWatchDaemon:
 class TestDaemonCLI:
     def test_handle_add_success(self, tmp_path):
         """_handle_add adds a repo and prints confirmation."""
-        from code_review_graph.daemon_cli import _handle_add
+        from dagayn.daemon_cli import _handle_add
 
         repo = tmp_path / "cli-repo"
         repo.mkdir()
@@ -734,10 +734,10 @@ class TestDaemonCLI:
 
         with (
             patch(
-                "code_review_graph.daemon.add_repo_to_config",
+                "dagayn.daemon.add_repo_to_config",
             ) as mock_add,
             patch(
-                "code_review_graph.daemon.is_daemon_running",
+                "dagayn.daemon.is_daemon_running",
                 return_value=False,
             ),
             patch("builtins.print") as mock_print,
@@ -750,7 +750,7 @@ class TestDaemonCLI:
 
     def test_handle_remove_success(self):
         """_handle_remove removes a repo and prints confirmation."""
-        from code_review_graph.daemon_cli import _handle_remove
+        from dagayn.daemon_cli import _handle_remove
 
         args = MagicMock()
         args.path_or_alias = "some-alias"
@@ -761,15 +761,15 @@ class TestDaemonCLI:
 
         with (
             patch(
-                "code_review_graph.daemon.load_config",
+                "dagayn.daemon.load_config",
                 return_value=cfg_before,
             ),
             patch(
-                "code_review_graph.daemon.remove_repo_from_config",
+                "dagayn.daemon.remove_repo_from_config",
                 return_value=cfg_after,
             ),
             patch(
-                "code_review_graph.daemon.is_daemon_running",
+                "dagayn.daemon.is_daemon_running",
                 return_value=False,
             ),
             patch("builtins.print") as mock_print,
@@ -780,13 +780,13 @@ class TestDaemonCLI:
 
     def test_handle_stop_not_running(self):
         """_handle_stop exits when daemon is not running."""
-        from code_review_graph.daemon_cli import _handle_stop
+        from dagayn.daemon_cli import _handle_stop
 
         args = MagicMock()
 
         with (
             patch(
-                "code_review_graph.daemon.is_daemon_running",
+                "dagayn.daemon.is_daemon_running",
                 return_value=False,
             ),
             patch("builtins.print"),
@@ -798,22 +798,22 @@ class TestDaemonCLI:
 
     def test_handle_status_not_running(self):
         """_handle_status displays 'not running' when daemon is down."""
-        from code_review_graph.daemon_cli import _handle_status
+        from dagayn.daemon_cli import _handle_status
 
         args = MagicMock()
         cfg = DaemonConfig(repos=[])
 
         with (
             patch(
-                "code_review_graph.daemon.is_daemon_running",
+                "dagayn.daemon.is_daemon_running",
                 return_value=False,
             ),
             patch(
-                "code_review_graph.daemon.load_config",
+                "dagayn.daemon.load_config",
                 return_value=cfg,
             ),
             patch(
-                "code_review_graph.daemon.read_pid",
+                "dagayn.daemon.read_pid",
                 return_value=None,
             ),
             patch("builtins.print") as mock_print,
@@ -831,7 +831,7 @@ class TestDaemonCLI:
         """
         import os
 
-        from code_review_graph.daemon_cli import _handle_status
+        from dagayn.daemon_cli import _handle_status
 
         repo = tmp_path / "my-repo"
         repo.mkdir()
@@ -848,19 +848,19 @@ class TestDaemonCLI:
 
         with (
             patch(
-                "code_review_graph.daemon.is_daemon_running",
+                "dagayn.daemon.is_daemon_running",
                 return_value=True,
             ),
             patch(
-                "code_review_graph.daemon.load_config",
+                "dagayn.daemon.load_config",
                 return_value=cfg,
             ),
             patch(
-                "code_review_graph.daemon.read_pid",
+                "dagayn.daemon.read_pid",
                 return_value=our_pid,
             ),
             patch(
-                "code_review_graph.daemon.load_state",
+                "dagayn.daemon.load_state",
                 return_value=state,
             ),
             patch("builtins.print") as mock_print,
@@ -872,14 +872,14 @@ class TestDaemonCLI:
 
     def test_handle_start_already_running(self):
         """_handle_start exits with error when daemon is already running."""
-        from code_review_graph.daemon_cli import _handle_start
+        from dagayn.daemon_cli import _handle_start
 
         args = MagicMock()
         args.foreground = False
 
         with (
             patch(
-                "code_review_graph.daemon.is_daemon_running",
+                "dagayn.daemon.is_daemon_running",
                 return_value=True,
             ),
             patch("builtins.print"),
@@ -891,7 +891,7 @@ class TestDaemonCLI:
 
     def test_handle_logs_missing_file(self, tmp_path):
         """_handle_logs exits when log file does not exist."""
-        from code_review_graph.daemon_cli import _handle_logs
+        from dagayn.daemon_cli import _handle_logs
 
         args = MagicMock()
         args.repo = None
@@ -902,7 +902,7 @@ class TestDaemonCLI:
 
         with (
             patch(
-                "code_review_graph.daemon.load_config",
+                "dagayn.daemon.load_config",
                 return_value=cfg,
             ),
             patch("builtins.print"),
@@ -914,7 +914,7 @@ class TestDaemonCLI:
 
     def test_handle_logs_reads_lines(self, tmp_path):
         """_handle_logs reads last N lines from log file."""
-        from code_review_graph.daemon_cli import _handle_logs
+        from dagayn.daemon_cli import _handle_logs
 
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
@@ -930,7 +930,7 @@ class TestDaemonCLI:
 
         with (
             patch(
-                "code_review_graph.daemon.load_config",
+                "dagayn.daemon.load_config",
                 return_value=cfg,
             ),
             patch("builtins.print") as mock_print,

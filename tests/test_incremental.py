@@ -3,8 +3,8 @@
 import subprocess
 from unittest.mock import MagicMock, patch  # noqa: F401 – patch used in tests
 
-from code_review_graph.graph import GraphStore
-from code_review_graph.incremental import (
+from dagayn.graph import GraphStore
+from dagayn.incremental import (
     _is_binary,
     _load_ignore_patterns,
     _parse_single_file,
@@ -117,17 +117,17 @@ class TestFindProjectRoot:
 class TestGetDbPath:
     def test_creates_directory_and_db_path(self, tmp_path):
         db_path = get_db_path(tmp_path)
-        assert db_path == tmp_path / ".code-review-graph" / "graph.db"
-        assert (tmp_path / ".code-review-graph").is_dir()
+        assert db_path == tmp_path / ".dagayn" / "graph.db"
+        assert (tmp_path / ".dagayn").is_dir()
 
     def test_creates_gitignore(self, tmp_path):
         get_db_path(tmp_path)
-        gi = tmp_path / ".code-review-graph" / ".gitignore"
+        gi = tmp_path / ".dagayn" / ".gitignore"
         assert gi.exists()
         assert "*\n" in gi.read_text()
 
     def test_migrates_legacy_db(self, tmp_path):
-        legacy = tmp_path / ".code-review-graph.db"
+        legacy = tmp_path / ".dagayn.db"
         legacy.write_text("legacy data")
         db_path = get_db_path(tmp_path)
         assert db_path.exists()
@@ -135,13 +135,13 @@ class TestGetDbPath:
         assert db_path.read_text() == "legacy data"
 
     def test_cleans_legacy_side_files(self, tmp_path):
-        legacy = tmp_path / ".code-review-graph.db"
+        legacy = tmp_path / ".dagayn.db"
         legacy.write_text("data")
         for suffix in ("-wal", "-shm", "-journal"):
-            (tmp_path / f".code-review-graph.db{suffix}").write_text("side")
+            (tmp_path / f".dagayn.db{suffix}").write_text("side")
         get_db_path(tmp_path)
         for suffix in ("-wal", "-shm", "-journal"):
-            assert not (tmp_path / f".code-review-graph.db{suffix}").exists()
+            assert not (tmp_path / f".dagayn.db{suffix}").exists()
 
 
 class TestEnsureRepoGitignoreExcludesCrg:
@@ -151,7 +151,7 @@ class TestEnsureRepoGitignoreExcludesCrg:
 
         gitignore = tmp_path / ".gitignore"
         assert gitignore.exists()
-        assert gitignore.read_text() == ("# Added by code-review-graph\n.code-review-graph/\n")
+        assert gitignore.read_text() == ("# Added by dagayn\n.dagayn/\n")
 
     def test_appends_rule_when_missing(self, tmp_path):
         gitignore = tmp_path / ".gitignore"
@@ -159,21 +159,19 @@ class TestEnsureRepoGitignoreExcludesCrg:
 
         state = ensure_repo_gitignore_excludes_crg(tmp_path)
         assert state == "updated"
-        assert gitignore.read_text() == (
-            "node_modules/\n# Added by code-review-graph\n.code-review-graph/\n"
-        )
+        assert gitignore.read_text() == ("node_modules/\n# Added by dagayn\n.dagayn/\n")
 
     def test_idempotent_when_present(self, tmp_path):
         gitignore = tmp_path / ".gitignore"
-        gitignore.write_text(".code-review-graph/\n")
+        gitignore.write_text(".dagayn/\n")
 
         state = ensure_repo_gitignore_excludes_crg(tmp_path)
         assert state == "already-present"
-        assert gitignore.read_text() == ".code-review-graph/\n"
+        assert gitignore.read_text() == ".dagayn/\n"
 
     def test_treats_wildcard_ignore_as_present(self, tmp_path):
         gitignore = tmp_path / ".gitignore"
-        gitignore.write_text(".code-review-graph/**\n")
+        gitignore.write_text(".dagayn/**\n")
 
         state = ensure_repo_gitignore_excludes_crg(tmp_path)
         assert state == "already-present"
@@ -187,7 +185,7 @@ class TestIgnorePatterns:
         assert "__pycache__/**" in patterns
 
     def test_custom_ignore_file(self, tmp_path):
-        ignore = tmp_path / ".code-review-graphignore"
+        ignore = tmp_path / ".dagaynignore"
         ignore.write_text("custom/**\n# comment\n\nvendor/**\n")
         patterns = _load_ignore_patterns(tmp_path)
         assert "custom/**" in patterns
@@ -224,7 +222,7 @@ class TestIgnorePatterns:
 
     def test_should_ignore_framework_defaults(self):
         """Default patterns should cover Laravel, Gradle, Flutter, and caches."""
-        from code_review_graph.incremental import DEFAULT_IGNORE_PATTERNS
+        from dagayn.incremental import DEFAULT_IGNORE_PATTERNS
 
         patterns = DEFAULT_IGNORE_PATTERNS
         # Laravel/PHP
@@ -244,12 +242,12 @@ class TestDataDir:
     """Tests for get_data_dir / CRG_DATA_DIR / CRG_REPO_ROOT (#155)."""
 
     def test_default_uses_repo_subdir(self, tmp_path, monkeypatch):
-        """Without CRG_DATA_DIR, graphs live at <repo>/.code-review-graph."""
+        """Without CRG_DATA_DIR, graphs live at <repo>/.dagayn."""
         monkeypatch.delenv("CRG_DATA_DIR", raising=False)
-        from code_review_graph.incremental import get_data_dir
+        from dagayn.incremental import get_data_dir
 
         result = get_data_dir(tmp_path)
-        assert result == tmp_path / ".code-review-graph"
+        assert result == tmp_path / ".dagayn"
         assert result.is_dir()
         # Auto-generated gitignore must exist
         assert (result / ".gitignore").is_file()
@@ -266,7 +264,7 @@ class TestDataDir:
         byte 0x97), producing a file that cannot be decoded as UTF-8.
         """
         monkeypatch.delenv("CRG_DATA_DIR", raising=False)
-        from code_review_graph.incremental import get_data_dir
+        from dagayn.incremental import get_data_dir
 
         data_dir = get_data_dir(tmp_path)
         gi = data_dir / ".gitignore"
@@ -290,18 +288,18 @@ class TestDataDir:
         assert "—" in decoded, "em-dash missing from decoded gitignore"
 
     def test_env_override_replaces_repo_subdir(self, tmp_path, monkeypatch):
-        """CRG_DATA_DIR replaces the default <repo>/.code-review-graph."""
+        """CRG_DATA_DIR replaces the default <repo>/.dagayn."""
         external = tmp_path / "external-graphs"
         repo = tmp_path / "project"
         repo.mkdir()
         monkeypatch.setenv("CRG_DATA_DIR", str(external))
-        from code_review_graph.incremental import get_data_dir
+        from dagayn.incremental import get_data_dir
 
         result = get_data_dir(repo)
         assert result == external.resolve()
         assert result.is_dir()
-        # The repo itself should NOT have a .code-review-graph dir now
-        assert not (repo / ".code-review-graph").exists()
+        # The repo itself should NOT have a .dagayn dir now
+        assert not (repo / ".dagayn").exists()
 
     def test_get_db_path_uses_data_dir(self, tmp_path, monkeypatch):
         """get_db_path should honor CRG_DATA_DIR too."""
@@ -309,7 +307,7 @@ class TestDataDir:
         repo = tmp_path / "project"
         repo.mkdir()
         monkeypatch.setenv("CRG_DATA_DIR", str(external))
-        from code_review_graph.incremental import get_db_path
+        from dagayn.incremental import get_db_path
 
         db_path = get_db_path(repo)
         assert db_path == external.resolve() / "graph.db"
@@ -322,7 +320,7 @@ class TestDataDir:
         external_repo = tmp_path / "elsewhere"
         external_repo.mkdir()
         monkeypatch.setenv("CRG_REPO_ROOT", str(external_repo))
-        from code_review_graph.incremental import find_project_root
+        from dagayn.incremental import find_project_root
 
         result = find_project_root(PathType.cwd())
         assert result == external_repo.resolve()
@@ -338,7 +336,7 @@ class TestDataDir:
             "CRG_REPO_ROOT",
             str(tmp_path / "does-not-exist-123"),
         )
-        from code_review_graph.incremental import find_project_root
+        from dagayn.incremental import find_project_root
 
         result = find_project_root(tmp_path)
         # Should NOT equal the bogus env value
@@ -362,7 +360,7 @@ class TestIsBinary:
 
 
 class TestGitOperations:
-    @patch("code_review_graph.incremental.subprocess.run")
+    @patch("dagayn.incremental.subprocess.run")
     def test_get_changed_files(self, mock_run, tmp_path):
         mock_run.return_value = MagicMock(
             returncode=0,
@@ -375,7 +373,7 @@ class TestGitOperations:
         assert "git" in call_args[0][0]
         assert call_args[1].get("timeout") == 30
 
-    @patch("code_review_graph.incremental.subprocess.run")
+    @patch("dagayn.incremental.subprocess.run")
     def test_get_changed_files_fallback(self, mock_run, tmp_path):
         # First call fails, second succeeds
         mock_run.side_effect = [
@@ -386,13 +384,13 @@ class TestGitOperations:
         assert result == ["staged.py"]
         assert mock_run.call_count == 2
 
-    @patch("code_review_graph.incremental.subprocess.run")
+    @patch("dagayn.incremental.subprocess.run")
     def test_get_changed_files_timeout(self, mock_run, tmp_path):
         mock_run.side_effect = subprocess.TimeoutExpired("git", 30)
         result = get_changed_files(tmp_path)
         assert result == []
 
-    @patch("code_review_graph.incremental.subprocess.run")
+    @patch("dagayn.incremental.subprocess.run")
     def test_get_staged_and_unstaged(self, mock_run, tmp_path):
         mock_run.return_value = MagicMock(
             returncode=0,
@@ -405,7 +403,7 @@ class TestGitOperations:
         # old.py should NOT be in results (renamed away)
         assert "old.py" not in result
 
-    @patch("code_review_graph.incremental.subprocess.run")
+    @patch("dagayn.incremental.subprocess.run")
     def test_get_all_tracked_files(self, mock_run, tmp_path):
         mock_run.return_value = MagicMock(
             returncode=0,
@@ -414,7 +412,7 @@ class TestGitOperations:
         result = get_all_tracked_files(tmp_path)
         assert result == ["a.py", "b.py", "c.go"]
 
-    @patch("code_review_graph.incremental.subprocess.run")
+    @patch("dagayn.incremental.subprocess.run")
     def test_get_all_tracked_files_recurse_submodules_param(self, mock_run, tmp_path):
         mock_run.return_value = MagicMock(
             returncode=0,
@@ -425,7 +423,7 @@ class TestGitOperations:
         cmd = mock_run.call_args[0][0]
         assert "--recurse-submodules" in cmd
 
-    @patch("code_review_graph.incremental.subprocess.run")
+    @patch("dagayn.incremental.subprocess.run")
     def test_get_all_tracked_files_no_recurse_by_default(self, mock_run, tmp_path):
         mock_run.return_value = MagicMock(
             returncode=0,
@@ -436,8 +434,8 @@ class TestGitOperations:
         cmd = mock_run.call_args[0][0]
         assert "--recurse-submodules" not in cmd
 
-    @patch("code_review_graph.incremental.subprocess.run")
-    @patch("code_review_graph.incremental._RECURSE_SUBMODULES", True)
+    @patch("dagayn.incremental.subprocess.run")
+    @patch("dagayn.incremental._RECURSE_SUBMODULES", True)
     def test_get_all_tracked_files_env_var_fallback(self, mock_run, tmp_path):
         mock_run.return_value = MagicMock(
             returncode=0,
@@ -449,8 +447,8 @@ class TestGitOperations:
         cmd = mock_run.call_args[0][0]
         assert "--recurse-submodules" in cmd
 
-    @patch("code_review_graph.incremental.subprocess.run")
-    @patch("code_review_graph.incremental._RECURSE_SUBMODULES", True)
+    @patch("dagayn.incremental.subprocess.run")
+    @patch("dagayn.incremental._RECURSE_SUBMODULES", True)
     def test_get_all_tracked_files_param_overrides_env(self, mock_run, tmp_path):
         mock_run.return_value = MagicMock(
             returncode=0,
@@ -473,7 +471,7 @@ class TestFullBuild:
         db_path = tmp_path / "test.db"
         store = GraphStore(db_path)
         try:
-            mock_target = "code_review_graph.incremental.get_all_tracked_files"
+            mock_target = "dagayn.incremental.get_all_tracked_files"
             with patch(mock_target, return_value=["sample.py"]):
                 result = full_build(tmp_path, store)
             assert result["files_parsed"] == 1
@@ -553,7 +551,7 @@ class TestParallelParsing:
             )
 
         tracked = [f"mod{i}.py" for i in range(10)]
-        mock_target = "code_review_graph.incremental.get_all_tracked_files"
+        mock_target = "dagayn.incremental.get_all_tracked_files"
 
         # Serial build
         db_serial = tmp_path / "serial.db"
@@ -591,7 +589,7 @@ class TestMultiHopDependents:
 
     def _make_chain_store(self, tmp_path):
         """Build A -> B -> C chain in the graph."""
-        from code_review_graph.parser import EdgeInfo, NodeInfo
+        from dagayn.parser import EdgeInfo, NodeInfo
 
         db_path = tmp_path / "chain.db"
         store = GraphStore(db_path)
@@ -667,7 +665,7 @@ class TestMultiHopDependents:
 
     def test_cap_triggers_on_many_files(self, tmp_path):
         """The 500-file cap prevents runaway expansion."""
-        from code_review_graph.parser import EdgeInfo, NodeInfo
+        from dagayn.parser import EdgeInfo, NodeInfo
 
         db_path = tmp_path / "big.db"
         store = GraphStore(db_path)
@@ -735,7 +733,7 @@ class TestMultiHopDependents:
     def test_truncated_flag_set_when_capped(self, tmp_path):
         """Regression test for #261: find_dependents must set
         DependentList.truncated = True when the result is capped."""
-        from code_review_graph.parser import EdgeInfo, NodeInfo
+        from dagayn.parser import EdgeInfo, NodeInfo
 
         db_path = tmp_path / "trunc.db"
         store = GraphStore(db_path)

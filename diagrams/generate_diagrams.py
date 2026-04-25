@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate 6 Excalidraw diagrams for code-review-graph Medium article.
+"""Generate 6 Excalidraw diagrams for dagayn Medium article.
 
 All statistics match repo benchmarks exactly. No invented features or numbers.
 """
@@ -439,7 +439,7 @@ def d5():
     # Footnote — styled as a subtle callout
     fn_y = cy + ch + 20
     els.append(LN(x0+80, fn_y, [[0,0],[total-160,0]], sc=GRY, sw=1, op=30))
-    els.append(TC(800, fn_y+10, "Reproducible: code-review-graph eval --all", 18, sc=GRY))
+    els.append(TC(800, fn_y+10, "Reproducible: dagayn eval --all", 18, sc=GRY))
 
     return els
 
@@ -473,7 +473,7 @@ def d6():
     fx, fy, fw, fh = 470, 120, 210, 180
     els.append(R(fx, fy, fw, fh, bg=PRP_BG, fs="solid", sc=PRP))
     fcx = fx + fw/2
-    els.append(TC(fcx, fy+25,  "code-review-graph", 17, sc=PRP))
+    els.append(TC(fcx, fy+25,  "dagayn", 17, sc=PRP))
     els.append(TC(fcx, fy+65,  "parse \u2192", 13, sc=PRP, op=70))
     els.append(TC(fcx, fy+85,  "graph \u2192", 13, sc=PRP, op=70))
     els.append(TC(fcx, fy+105, "blast radius", 13, sc=PRP, op=70))
@@ -545,7 +545,7 @@ def d7():
     y = 310
     els.append(R(sx, y, bw, bh, bg=ORG_BG, fs="solid", sc=ORG))
     els.append(TC(sx+bw/2, y+10, "MCP Server", 22, sc=ORG))
-    els.append(TC(sx+bw/2, y+38, "code-review-graph serve", 13, sc=GRY))
+    els.append(TC(sx+bw/2, y+38, "dagayn serve", 13, sc=GRY))
 
     # Right annotation: what gets called
     els.append(R(rx, y-5, 380, 75, bg="#fff4e6", fs="solid", sc=ORG, op=60))
@@ -585,7 +585,7 @@ def d7():
 def d8():
     els = []
     els.append(TC(600, 20, "One Install, Every Platform", 36))
-    els.append(TC(600, 70, "code-review-graph install", 20, sc=PRP, ff=3))
+    els.append(TC(600, 70, "dagayn install", 20, sc=PRP, ff=3))
 
     platforms = [
         ("Claude Code",  ".mcp.json",                            BLU, BLU_BG),

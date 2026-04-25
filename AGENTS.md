@@ -4,7 +4,7 @@ This repository ships `dagayn`, a fork of `code-review-graph` with extra emphasi
 
 ## How agents should work with this repo
 
-- prefer `dagayn` in user-facing commands; `code-review-graph` remains a compatibility alias
+- use `dagayn` in all user-facing commands
 - build or update the graph before asking graph-backed questions
 - treat graph paths as repo-root-relative where the fork expects registered file trees
 - use targeted graph tools before reading broad file sets

@@ -10,7 +10,7 @@ readme = {file = "README.md", content-type = "text/markdown"}
 license = "MIT"
 requires-python = ">=3.12"
 authors = [
-    { name = "Tirth" },
+    { name = "Wataru Manji" },
 ]
 keywords = ["code-review", "knowledge-graph", "tree-sitter", "claude-code", "mcp"]
 classifiers = [
@@ -36,17 +36,11 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://code-review-graph.com"
-Repository = "https://github.com/tirth8205/code-review-graph"
-Documentation = "https://github.com/tirth8205/code-review-graph/blob/main/docs/INDEX.md"
-Changelog = "https://github.com/tirth8205/code-review-graph/blob/main/CHANGELOG.md"
-Issues = "https://github.com/tirth8205/code-review-graph/issues"
+Upstream = "https://github.com/tirth8205/code-review-graph"
 
 [project.scripts]
-dagayn = "code_review_graph.cli:main"
-dagayn-daemon = "code_review_graph.daemon_cli:main"
-code-review-graph = "code_review_graph.cli:main"
-crg-daemon = "code_review_graph.daemon_cli:main"
+dagayn = "dagayn.cli:main"
+dagayn-daemon = "dagayn.daemon_cli:main"
 
 [project.optional-dependencies]
 embeddings = [
@@ -84,14 +78,14 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["code_review_graph"]
+packages = ["dagayn"]
 
 [tool.hatch.build.hooks.custom]
 path = "hatch_build.py"
 
 [tool.hatch.build.targets.sdist]
 include = [
-    "code_review_graph/",
+    "dagayn/",
     "hatch_build.py",
     "skills/",
     ".claude-plugin/",
@@ -114,7 +108,7 @@ exclude = [
 select = ["E", "F", "I", "N", "W"]
 
 [tool.ruff.lint.per-file-ignores]
-"code_review_graph/visualization.py" = ["E501"]  # embedded HTML/JS template
+"dagayn/visualization.py" = ["E501"]  # embedded HTML/JS template
 "tests/fixtures/sample_databricks_export.py" = ["F841", "W292"]  # intentional fixture patterns
 "tests/fixtures/sample_notebook.ipynb" = ["F401", "I001"]  # fixture imports: intentionally unused, split across cells
 "tests/test_multilang.py" = ["E501"]  # long assertions with explanatory comments

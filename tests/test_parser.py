@@ -3,7 +3,7 @@
 import tempfile
 from pathlib import Path
 
-from code_review_graph.parser import CodeParser
+from dagayn.parser import CodeParser
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

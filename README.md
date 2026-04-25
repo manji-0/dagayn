@@ -22,6 +22,8 @@ In practice, that means:
 
 It does **not** treat upstream documentation as canonical. All project guidance, examples, and command descriptions in this repository are written for `dagayn` itself.
 
+See [NOTICE](NOTICE) for upstream attribution and original author information.
+
 ## Highlights
 
 - first-class Terraform parsing for `.tf` and `.tfvars`
@@ -79,8 +81,6 @@ dagayn visualize --serve
 dagayn serve
 ```
 
-The legacy command name `code-review-graph` is still available as a compatibility alias, but `dagayn` is the preferred name in this fork.
-
 ## AI platform integration
 
 `dagayn install` can configure MCP for these targets:
@@ -109,7 +109,7 @@ A typical review loop looks like this:
 4. follow communities, flows, or cross-file references as needed
 5. refresh incrementally after edits
 
-The graph is stored locally under `.code-review-graph/` by default. No external database is required.
+The graph is stored locally under `.dagayn/` by default. No external database is required.
 
 ## Documentation map
 

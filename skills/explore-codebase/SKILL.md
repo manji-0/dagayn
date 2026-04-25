@@ -5,7 +5,7 @@ description: Navigate and understand codebase structure using the knowledge grap
 
 ## Explore Codebase
 
-Use the code-review-graph MCP tools to explore and understand the codebase.
+Use the dagayn MCP tools to explore and understand the codebase.
 
 ### Steps
 

@@ -5,9 +5,9 @@ import threading
 import time
 from pathlib import Path
 
-from code_review_graph.graph import GraphStore
-from code_review_graph.parser import CodeParser, EdgeInfo, NodeInfo
-from code_review_graph.refactor import (
+from dagayn.graph import GraphStore
+from dagayn.parser import CodeParser, EdgeInfo, NodeInfo
+from dagayn.refactor import (
     REFACTOR_EXPIRY_SECONDS,
     _pending_refactors,
     _refactor_lock,
@@ -714,7 +714,7 @@ class TestApplyRefactor:
 
     def test_apply_refactor_validates_id(self):
         """apply_refactor rejects nonexistent refactor_id."""
-        # Use a real temp dir as repo_root (needs .git or .code-review-graph)
+        # Use a real temp dir as repo_root (needs .git or .dagayn)
         tmp_dir = Path(tempfile.mkdtemp())
         (tmp_dir / ".git").mkdir()
         try:

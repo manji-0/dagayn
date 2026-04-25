@@ -3,9 +3,9 @@
 import tempfile
 from pathlib import Path
 
-from code_review_graph.graph import GraphStore
-from code_review_graph.parser import NodeInfo
-from code_review_graph.search import (
+from dagayn.graph import GraphStore
+from dagayn.parser import NodeInfo
+from dagayn.search import (
     detect_query_kind_boost,
     hybrid_search,
     rebuild_fts_index,

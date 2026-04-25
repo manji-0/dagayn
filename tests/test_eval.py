@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from code_review_graph.eval.reporter import (
+from dagayn.eval.reporter import (
     generate_full_report,
     generate_markdown_report,
     generate_readme_tables,
@@ -17,13 +17,13 @@ from code_review_graph.eval.reporter import (
 try:
     import yaml as _yaml  # noqa: F401
 
-    from code_review_graph.eval.runner import write_csv
+    from dagayn.eval.runner import write_csv
 
     _HAS_YAML = True
 except ImportError:
     _HAS_YAML = False
     write_csv = None  # type: ignore[assignment]
-from code_review_graph.eval.scorer import (
+from dagayn.eval.scorer import (
     compute_mrr,
     compute_precision_recall,
     compute_token_efficiency,
@@ -316,8 +316,8 @@ def test_runner_with_mock_repo():
         )
 
         # Build graph
-        from code_review_graph.graph import GraphStore
-        from code_review_graph.incremental import full_build, get_db_path
+        from dagayn.graph import GraphStore
+        from dagayn.incremental import full_build, get_db_path
 
         db_path = get_db_path(repo_path)
         store = GraphStore(db_path)
@@ -336,7 +336,7 @@ def test_runner_with_mock_repo():
         }
 
         # Run token_efficiency
-        from code_review_graph.eval.benchmarks import token_efficiency
+        from dagayn.eval.benchmarks import token_efficiency
 
         te_results = token_efficiency.run(repo_path, store, config)
         assert len(te_results) >= 1
@@ -344,7 +344,7 @@ def test_runner_with_mock_repo():
         assert "graph_tokens" in te_results[0]
 
         # Run impact_accuracy
-        from code_review_graph.eval.benchmarks import impact_accuracy
+        from dagayn.eval.benchmarks import impact_accuracy
 
         ia_results = impact_accuracy.run(repo_path, store, config)
         assert len(ia_results) >= 1
@@ -352,14 +352,14 @@ def test_runner_with_mock_repo():
         assert "f1" in ia_results[0]
 
         # Run search_quality
-        from code_review_graph.eval.benchmarks import search_quality
+        from dagayn.eval.benchmarks import search_quality
 
         sq_results = search_quality.run(repo_path, store, config)
         assert len(sq_results) == 1
         assert "reciprocal_rank" in sq_results[0]
 
         # Run build_performance
-        from code_review_graph.eval.benchmarks import build_performance
+        from dagayn.eval.benchmarks import build_performance
 
         bp_results = build_performance.run(repo_path, store, config)
         assert len(bp_results) == 1
@@ -374,7 +374,7 @@ def test_runner_with_mock_repo():
 
 def test_estimate_tokens_basic():
     """estimate_tokens should return a reasonable approximation."""
-    from code_review_graph.eval.token_benchmark import estimate_tokens
+    from dagayn.eval.token_benchmark import estimate_tokens
 
     # Simple string: "hello" => JSON '"hello"' (7 chars) => 7 // 4 = 1
     assert estimate_tokens("hello") == 1
@@ -391,7 +391,7 @@ def test_estimate_tokens_basic():
 
 def test_estimate_tokens_nested():
     """estimate_tokens handles nested structures."""
-    from code_review_graph.eval.token_benchmark import estimate_tokens
+    from dagayn.eval.token_benchmark import estimate_tokens
 
     nested = {"nodes": [{"name": "foo"}, {"name": "bar"}], "count": 2}
     tokens = estimate_tokens(nested)
@@ -403,7 +403,7 @@ def test_estimate_tokens_non_serializable():
     """estimate_tokens uses default=str for non-serializable objects."""
     from pathlib import Path
 
-    from code_review_graph.eval.token_benchmark import estimate_tokens
+    from dagayn.eval.token_benchmark import estimate_tokens
 
     # Path objects are not JSON-serializable but default=str handles them
     tokens = estimate_tokens({"path": Path("/tmp/test")})
@@ -412,7 +412,7 @@ def test_estimate_tokens_non_serializable():
 
 def test_benchmark_review_workflow():
     """benchmark_review_workflow completes and returns expected structure."""
-    from code_review_graph.eval.token_benchmark import benchmark_review_workflow
+    from dagayn.eval.token_benchmark import benchmark_review_workflow
 
     with tempfile.TemporaryDirectory() as tmpdir:
         repo_path = Path(tmpdir) / "bench_repo"
@@ -472,8 +472,8 @@ def test_benchmark_review_workflow():
         )
 
         # Build graph
-        from code_review_graph.graph import GraphStore
-        from code_review_graph.incremental import full_build, get_db_path
+        from dagayn.graph import GraphStore
+        from dagayn.incremental import full_build, get_db_path
 
         db_path = get_db_path(repo_path)
         store = GraphStore(db_path)
@@ -498,7 +498,7 @@ def test_benchmark_review_workflow():
 
 def test_run_all_benchmarks():
     """run_all_benchmarks returns results for all workflows."""
-    from code_review_graph.eval.token_benchmark import run_all_benchmarks
+    from dagayn.eval.token_benchmark import run_all_benchmarks
 
     with tempfile.TemporaryDirectory() as tmpdir:
         repo_path = Path(tmpdir) / "all_bench_repo"
@@ -551,8 +551,8 @@ def test_run_all_benchmarks():
             capture_output=True,
         )
 
-        from code_review_graph.graph import GraphStore
-        from code_review_graph.incremental import full_build, get_db_path
+        from dagayn.graph import GraphStore
+        from dagayn.incremental import full_build, get_db_path
 
         db_path = get_db_path(repo_path)
         store = GraphStore(db_path)

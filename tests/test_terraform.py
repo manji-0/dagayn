@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from code_review_graph.parser import CodeParser
+from dagayn.parser import CodeParser
 
 pytest.importorskip("tree_sitter")
 

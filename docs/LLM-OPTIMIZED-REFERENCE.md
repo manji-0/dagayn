@@ -5,7 +5,7 @@ Install with `pip install dagayn`, run `dagayn install`, then `dagayn build`.
 
 Use `dagayn update` for change-driven refreshes and `dagayn watch` for live development.
 
-Prefer `dagayn` in user-facing guidance. `code-review-graph` remains a compatibility alias.
+Use `dagayn` in all user-facing guidance.
 </section>
 
 <section name="review-delta">

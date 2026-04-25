@@ -7,10 +7,10 @@ from unittest.mock import patch
 
 import pytest
 
-from code_review_graph.communities import store_communities
-from code_review_graph.flows import store_flows
-from code_review_graph.graph import GraphStore
-from code_review_graph.parser import NodeInfo
+from dagayn.communities import store_communities
+from dagayn.flows import store_flows
+from dagayn.graph import GraphStore
+from dagayn.parser import NodeInfo
 
 
 @pytest.fixture

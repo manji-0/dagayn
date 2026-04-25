@@ -1,6 +1,6 @@
 # dagayn
 
-`dagayn` は `code-review-graph` のフォークです。互換コマンドは残していますが、このリポジトリでは fork 本体を `dagayn` として扱います。
+`dagayn` は `code-review-graph` のフォークです。このリポジトリでは fork 本体を `dagayn` として扱います。
 
 ## 何ができるか
 

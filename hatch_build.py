@@ -12,7 +12,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 ensure_all_vendor_grammar_sources = importlib.import_module(
-    "code_review_graph.vendor_grammars"
+    "dagayn.vendor_grammars"
 ).ensure_all_vendor_grammar_sources
 
 

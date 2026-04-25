@@ -1,0 +1,11 @@
+dagayn
+
+This software is a fork of code-review-graph
+(https://github.com/tirth8205/code-review-graph),
+originally created by Tirth Kanani and licensed under the MIT License.
+
+The MIT License terms of the original work apply to all code derived from
+the upstream project. See LICENSE for the full text.
+
+Modifications and additions in this fork are maintained by the dagayn
+maintainers, also under the MIT License.

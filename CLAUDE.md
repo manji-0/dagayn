@@ -15,7 +15,7 @@ dagayn serve
 ```bash
 uv run ruff check .
 uv run ruff format --check .
-ty check code_review_graph --python-version 3.13 --ignore unresolved-import --exclude '**/*\ 2.py' --exclude '**/*\ 3.py'
+ty check dagayn --python-version 3.13 --ignore unresolved-import --exclude '**/*\ 2.py' --exclude '**/*\ 3.py'
 uv run pytest --tb=short -q
 ```
 

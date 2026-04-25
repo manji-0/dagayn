@@ -1,6 +1,6 @@
 # dagayn
 
-`dagayn`, `code-review-graph` का एक fork है। compatibility alias अभी भी मौजूद है, लेकिन इस repository में official नाम `dagayn` माना जाता है।
+`dagayn`, `code-review-graph` का एक fork है। इस repository में official नाम `dagayn` माना जाता है।
 
 ## यह क्या करता है
 

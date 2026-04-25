@@ -68,7 +68,3 @@ The fork ships prompt surfaces for:
 - issue debugging
 - onboarding
 - pre-merge review
-
-## Compatibility note
-
-The legacy executable name `code-review-graph` still exists, but new docs in this repository use `dagayn`.

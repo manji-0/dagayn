@@ -8,7 +8,7 @@ import tomllib
 from pathlib import Path
 from unittest.mock import patch
 
-from code_review_graph.skills import (
+from dagayn.skills import (
     _CLAUDE_MD_SECTION_MARKER,
     PLATFORMS,
     _cursor_hook_scripts,
@@ -179,7 +179,7 @@ class TestInstallGitHook:
         assert os.access(hook_path, os.X_OK)
         content = hook_path.read_text()
         assert content.startswith("#!/")
-        assert "code-review-graph detect-changes" in content
+        assert "dagayn detect-changes" in content
 
     def test_appends_to_existing_hook(self, tmp_path):
         repo = self._make_git_repo(tmp_path)
@@ -189,14 +189,14 @@ class TestInstallGitHook:
         install_git_hook(repo)
         content = hook_path.read_text()
         assert "existing-command" in content
-        assert "code-review-graph detect-changes" in content
+        assert "dagayn detect-changes" in content
 
     def test_idempotent(self, tmp_path):
         repo = self._make_git_repo(tmp_path)
         install_git_hook(repo)
         install_git_hook(repo)
         content = (repo / ".git" / "hooks" / "pre-commit").read_text()
-        assert content.count("code-review-graph detect-changes") == 1
+        assert content.count("dagayn detect-changes") == 1
 
     def test_no_git_dir_returns_none(self, tmp_path):
         assert install_git_hook(tmp_path) is None
@@ -317,7 +317,7 @@ class TestInjectPlatformInstructionsFiltering:
             ".cursorrules",
             ".windsurfrules",
             "QODER.md",
-            ".kiro/steering/code-review-graph.md",
+            ".kiro/steering/dagayn.md",
         }
 
     def test_default_is_all(self, tmp_path):
@@ -328,7 +328,7 @@ class TestInjectPlatformInstructionsFiltering:
             ".cursorrules",
             ".windsurfrules",
             "QODER.md",
-            ".kiro/steering/code-review-graph.md",
+            ".kiro/steering/dagayn.md",
         }
 
     def test_claude_writes_nothing(self, tmp_path):
@@ -384,7 +384,7 @@ class TestInstallPlatformConfigs:
             configured = install_platform_configs(tmp_path, target="codex")
         assert "Codex" in configured
         data = tomllib.loads(codex_config.read_text())
-        entry = data["mcp_servers"]["code-review-graph"]
+        entry = data["mcp_servers"]["dagayn"]
         assert entry["type"] == "stdio"
         assert "serve" in entry["args"]
 
@@ -410,7 +410,7 @@ class TestInstallPlatformConfigs:
         assert data["model"] == "gpt-5.4"
         assert data["mcp_servers"]["other"]["command"] == "other"
         expected_cmd, _ = _detect_serve_command()
-        assert data["mcp_servers"]["code-review-graph"]["command"] == expected_cmd
+        assert data["mcp_servers"]["dagayn"]["command"] == expected_cmd
 
     def test_install_codex_no_duplicate(self, tmp_path):
         codex_config = tmp_path / ".codex" / "config.toml"
@@ -418,9 +418,9 @@ class TestInstallPlatformConfigs:
         codex_config.write_text(
             "\n".join(
                 [
-                    "[mcp_servers.code-review-graph]",
+                    "[mcp_servers.dagayn]",
                     'command = "uvx"',
-                    'args = ["code-review-graph", "serve"]',
+                    'args = ["dagayn", "serve"]',
                     'type = "stdio"',
                     "",
                 ]
@@ -438,7 +438,7 @@ class TestInstallPlatformConfigs:
             },
         ):
             install_platform_configs(tmp_path, target="codex")
-        assert codex_config.read_text().count("[mcp_servers.code-review-graph]") == 1
+        assert codex_config.read_text().count("[mcp_servers.dagayn]") == 1
 
     def test_install_cursor_config(self, tmp_path):
         with patch.dict(
@@ -452,8 +452,8 @@ class TestInstallPlatformConfigs:
         config_path = tmp_path / ".cursor" / "mcp.json"
         assert config_path.exists()
         data = json.loads(config_path.read_text())
-        assert "code-review-graph" in data["mcpServers"]
-        assert data["mcpServers"]["code-review-graph"]["type"] == "stdio"
+        assert "dagayn" in data["mcpServers"]
+        assert data["mcpServers"]["dagayn"]["type"] == "stdio"
 
     def test_install_windsurf_config(self, tmp_path):
         windsurf_dir = tmp_path / ".codeium" / "windsurf"
@@ -472,7 +472,7 @@ class TestInstallPlatformConfigs:
             configured = install_platform_configs(tmp_path, target="windsurf")
         assert "Windsurf" in configured
         data = json.loads(config_path.read_text())
-        entry = data["mcpServers"]["code-review-graph"]
+        entry = data["mcpServers"]["dagayn"]
         assert "type" not in entry
         expected_cmd, _ = _detect_serve_command()
         assert entry["command"] == expected_cmd
@@ -494,7 +494,7 @@ class TestInstallPlatformConfigs:
         assert "Zed" in configured
         data = json.loads(zed_settings.read_text())
         assert "context_servers" in data
-        assert "code-review-graph" in data["context_servers"]
+        assert "dagayn" in data["context_servers"]
 
     def test_install_continue_config(self, tmp_path):
         continue_dir = tmp_path / ".continue"
@@ -514,7 +514,7 @@ class TestInstallPlatformConfigs:
         assert "Continue" in configured
         data = json.loads(config_path.read_text())
         assert isinstance(data["mcpServers"], list)
-        assert data["mcpServers"][0]["name"] == "code-review-graph"
+        assert data["mcpServers"][0]["name"] == "dagayn"
         assert data["mcpServers"][0]["type"] == "stdio"
 
     def test_install_opencode_config(self, tmp_path):
@@ -522,7 +522,7 @@ class TestInstallPlatformConfigs:
         assert "OpenCode" in configured
         config_path = tmp_path / ".opencode.json"
         data = json.loads(config_path.read_text())
-        entry = data["mcpServers"]["code-review-graph"]
+        entry = data["mcpServers"]["dagayn"]
         assert entry["type"] == "stdio"
         assert entry["env"] == []
 
@@ -542,7 +542,7 @@ class TestInstallPlatformConfigs:
             configured = install_platform_configs(tmp_path, target="qwen")
         assert "Qwen Code" in configured
         data = json.loads(qwen_config.read_text())
-        entry = data["mcpServers"]["code-review-graph"]
+        entry = data["mcpServers"]["dagayn"]
         assert entry["type"] == "stdio"
         assert entry["args"][-1] == "serve"
 
@@ -567,7 +567,7 @@ class TestInstallPlatformConfigs:
             install_platform_configs(tmp_path, target="qwen")
         data = json.loads(qwen_config.read_text())
         assert "other-server" in data["mcpServers"]
-        assert "code-review-graph" in data["mcpServers"]
+        assert "dagayn" in data["mcpServers"]
 
     def test_install_all_detected(self, tmp_path):
         """Installing 'all' configures auto-detected platforms."""
@@ -605,7 +605,7 @@ class TestInstallPlatformConfigs:
         install_platform_configs(tmp_path, target="claude")
         data = json.loads(mcp_path.read_text())
         assert "other-server" in data["mcpServers"]
-        assert "code-review-graph" in data["mcpServers"]
+        assert "dagayn" in data["mcpServers"]
 
     def test_dry_run_no_write(self, tmp_path):
         configured = install_platform_configs(tmp_path, target="claude", dry_run=True)
@@ -620,9 +620,7 @@ class TestInstallPlatformConfigs:
     def test_continue_array_no_duplicate(self, tmp_path):
         config_path = tmp_path / ".continue" / "config.json"
         config_path.parent.mkdir(parents=True)
-        existing = {
-            "mcpServers": [{"name": "code-review-graph", "command": "uvx", "args": ["serve"]}]
-        }
+        existing = {"mcpServers": [{"name": "dagayn", "command": "uvx", "args": ["serve"]}]}
         config_path.write_text(json.dumps(existing))
         with patch.dict(
             PLATFORMS,
@@ -654,12 +652,12 @@ class TestInstallPlatformConfigs:
         assert "Qoder" in configured
         data = json.loads(qoder_config.read_text())
         assert "mcpServers" in data
-        assert "code-review-graph" in data["mcpServers"]
-        assert data["mcpServers"]["code-review-graph"]["type"] == "stdio"
+        assert "dagayn" in data["mcpServers"]
+        assert data["mcpServers"]["dagayn"]["type"] == "stdio"
         import shutil
 
-        expected_cmd = "uvx" if shutil.which("uvx") else "code-review-graph"
-        assert data["mcpServers"]["code-review-graph"]["command"] == expected_cmd
+        expected_cmd = "uvx" if shutil.which("uvx") else "dagayn"
+        assert data["mcpServers"]["dagayn"]["command"] == expected_cmd
 
 
 class TestCursorHooksConfig:
@@ -738,22 +736,22 @@ class TestCursorHookScripts:
 
     def test_update_script_runs_update(self):
         scripts = _cursor_hook_scripts()
-        assert "code-review-graph update --skip-flows" in scripts["crg-update.sh"]
+        assert "dagayn update --skip-flows" in scripts["crg-update.sh"]
 
     def test_session_start_script_runs_status(self):
         scripts = _cursor_hook_scripts()
-        assert "code-review-graph status" in scripts["crg-session-start.sh"]
+        assert "dagayn status" in scripts["crg-session-start.sh"]
 
     def test_pre_commit_script_runs_detect_changes(self):
         scripts = _cursor_hook_scripts()
-        assert "code-review-graph detect-changes --brief" in scripts["crg-pre-commit.sh"]
+        assert "dagayn detect-changes --brief" in scripts["crg-pre-commit.sh"]
 
 
 class TestInstallCursorHooks:
     """Tests for install_cursor_hooks()."""
 
     def test_creates_hooks_json(self, tmp_path):
-        with patch("code_review_graph.skills.Path.home", return_value=tmp_path):
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
             result = install_cursor_hooks()
         hooks_json = tmp_path / ".cursor" / "hooks.json"
         assert hooks_json.exists()
@@ -763,7 +761,7 @@ class TestInstallCursorHooks:
         assert "afterFileEdit" in data["hooks"]
 
     def test_creates_hook_scripts(self, tmp_path):
-        with patch("code_review_graph.skills.Path.home", return_value=tmp_path):
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
             install_cursor_hooks()
         hooks_dir = tmp_path / ".cursor" / "hooks"
         assert (hooks_dir / "crg-update.sh").exists()
@@ -771,7 +769,7 @@ class TestInstallCursorHooks:
         assert (hooks_dir / "crg-pre-commit.sh").exists()
 
     def test_scripts_are_executable(self, tmp_path):
-        with patch("code_review_graph.skills.Path.home", return_value=tmp_path):
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
             install_cursor_hooks()
         hooks_dir = tmp_path / ".cursor" / "hooks"
         for script in hooks_dir.iterdir():
@@ -791,7 +789,7 @@ class TestInstallCursorHooks:
         }
         (cursor_dir / "hooks.json").write_text(json.dumps(existing))
 
-        with patch("code_review_graph.skills.Path.home", return_value=tmp_path):
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
             install_cursor_hooks()
 
         data = json.loads((cursor_dir / "hooks.json").read_text())
@@ -804,7 +802,7 @@ class TestInstallCursorHooks:
         assert "stop" in data["hooks"]
 
     def test_no_duplicate_on_reinstall(self, tmp_path):
-        with patch("code_review_graph.skills.Path.home", return_value=tmp_path):
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
             install_cursor_hooks()
             install_cursor_hooks()
 
@@ -819,7 +817,7 @@ class TestInstallCursorHooks:
         cursor_dir.mkdir(parents=True)
         (cursor_dir / "hooks.json").write_text("not valid json{{{")
 
-        with patch("code_review_graph.skills.Path.home", return_value=tmp_path):
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
             result = install_cursor_hooks()
 
         assert result.exists()
@@ -846,12 +844,12 @@ class TestKiroPlatform:
         config_path = tmp_path / ".kiro" / "settings" / "mcp.json"
         assert config_path.exists()
         data = json.loads(config_path.read_text())
-        assert "code-review-graph" in data["mcpServers"]
-        entry = data["mcpServers"]["code-review-graph"]
+        assert "dagayn" in data["mcpServers"]
+        entry = data["mcpServers"]["dagayn"]
         assert entry["type"] == "stdio"
 
     def test_install_kiro_preserves_existing_servers(self, tmp_path):
-        """Existing mcpServers entries are preserved when adding code-review-graph."""
+        """Existing mcpServers entries are preserved when adding dagayn."""
         config_path = tmp_path / ".kiro" / "settings" / "mcp.json"
         config_path.parent.mkdir(parents=True)
         config_path.write_text(
@@ -861,10 +859,10 @@ class TestKiroPlatform:
         install_platform_configs(tmp_path, target="kiro")
         data = json.loads(config_path.read_text())
         assert "other-server" in data["mcpServers"]
-        assert "code-review-graph" in data["mcpServers"]
+        assert "dagayn" in data["mcpServers"]
 
     def test_install_kiro_no_duplicate(self, tmp_path):
-        """Second install skips when code-review-graph already exists."""
+        """Second install skips when dagayn already exists."""
         install_platform_configs(tmp_path, target="kiro")
         config_path = tmp_path / ".kiro" / "settings" / "mcp.json"
         first_content = config_path.read_text()
@@ -872,13 +870,13 @@ class TestKiroPlatform:
         second_content = config_path.read_text()
         assert first_content == second_content
         data = json.loads(second_content)
-        assert list(data["mcpServers"].keys()).count("code-review-graph") == 1
+        assert list(data["mcpServers"].keys()).count("dagayn") == 1
 
     def test_kiro_steering_file_written(self, tmp_path):
-        """inject_platform_instructions creates .kiro/steering/code-review-graph.md."""
+        """inject_platform_instructions creates .kiro/steering/dagayn.md."""
         updated = inject_platform_instructions(tmp_path, target="kiro")
-        assert ".kiro/steering/code-review-graph.md" in updated
-        steering = tmp_path / ".kiro" / "steering" / "code-review-graph.md"
+        assert ".kiro/steering/dagayn.md" in updated
+        steering = tmp_path / ".kiro" / "steering" / "dagayn.md"
         assert steering.exists()
         content = steering.read_text()
         assert _CLAUDE_MD_SECTION_MARKER in content
@@ -886,9 +884,9 @@ class TestKiroPlatform:
     def test_kiro_steering_idempotent(self, tmp_path):
         """Running inject twice produces identical content."""
         inject_platform_instructions(tmp_path, target="kiro")
-        first = (tmp_path / ".kiro" / "steering" / "code-review-graph.md").read_text()
+        first = (tmp_path / ".kiro" / "steering" / "dagayn.md").read_text()
         inject_platform_instructions(tmp_path, target="kiro")
-        second = (tmp_path / ".kiro" / "steering" / "code-review-graph.md").read_text()
+        second = (tmp_path / ".kiro" / "steering" / "dagayn.md").read_text()
         assert first == second
 
     def test_kiro_included_in_all_when_detected(self, tmp_path):
@@ -897,7 +895,7 @@ class TestKiroPlatform:
         # Mock Path.home() to a dir without .kiro so only workspace detection fires
         fake_home = tmp_path / "fakehome"
         fake_home.mkdir()
-        with patch("code_review_graph.skills.Path.home", return_value=fake_home):
+        with patch("dagayn.skills.Path.home", return_value=fake_home):
             configured = install_platform_configs(tmp_path, target="all")
         assert "Kiro" in configured
 
@@ -906,7 +904,7 @@ class TestKiroPlatform:
         (tmp_path / ".kiro").mkdir()
         fake_home = tmp_path / "fakehome"
         fake_home.mkdir()
-        with patch("code_review_graph.skills.Path.home", return_value=fake_home):
+        with patch("dagayn.skills.Path.home", return_value=fake_home):
             configured = install_platform_configs(tmp_path, target="all")
         assert "Kiro" in configured
         config_path = tmp_path / ".kiro" / "settings" / "mcp.json"
@@ -960,34 +958,34 @@ class TestDetectServeCommand:
         monkeypatch.setenv("POETRY_ACTIVE", "1")
         monkeypatch.delenv("VIRTUAL_ENV", raising=False)
         monkeypatch.setattr(
-            "code_review_graph.skills.shutil.which",
+            "dagayn.skills.shutil.which",
             lambda x: "/usr/bin/poetry" if x == "poetry" else None,
         )
         cmd, args = _detect_serve_command()
         assert cmd == "poetry"
-        assert args == ["run", "code-review-graph", "serve"]
+        assert args == ["run", "dagayn", "serve"]
 
     def test_virtual_env_pypoetry_returns_poetry_run(self, monkeypatch):
         """VIRTUAL_ENV with 'pypoetry' (poetry run) → 'poetry run' invocation."""
         monkeypatch.delenv("POETRY_ACTIVE", raising=False)
         monkeypatch.setenv("VIRTUAL_ENV", "/home/user/.cache/pypoetry/virtualenvs/proj-abc123")
         monkeypatch.setattr(
-            "code_review_graph.skills.shutil.which",
+            "dagayn.skills.shutil.which",
             lambda x: "/usr/bin/poetry" if x == "poetry" else None,
         )
         cmd, args = _detect_serve_command()
         assert cmd == "poetry"
-        assert args == ["run", "code-review-graph", "serve"]
+        assert args == ["run", "dagayn", "serve"]
 
     def test_poetry_env_without_poetry_on_path_falls_through(self, monkeypatch):
         """If poetry venv is detected but poetry binary is missing, fall through."""
         monkeypatch.setenv("POETRY_ACTIVE", "1")
         monkeypatch.delenv("VIRTUAL_ENV", raising=False)
         monkeypatch.delenv("UV_PROJECT_ENVIRONMENT", raising=False)
-        monkeypatch.setattr("code_review_graph.skills._in_uv_project", lambda: False)
+        monkeypatch.setattr("dagayn.skills._in_uv_project", lambda: False)
         # poetry not on PATH → should fall through to uvx
         monkeypatch.setattr(
-            "code_review_graph.skills.shutil.which",
+            "dagayn.skills.shutil.which",
             lambda x: "/usr/bin/uvx" if x == "uvx" else None,
         )
         cmd, _ = _detect_serve_command()
@@ -999,12 +997,12 @@ class TestDetectServeCommand:
         monkeypatch.delenv("VIRTUAL_ENV", raising=False)
         monkeypatch.setenv("UV_PROJECT_ENVIRONMENT", "/some/.venv")
         monkeypatch.setattr(
-            "code_review_graph.skills.shutil.which",
+            "dagayn.skills.shutil.which",
             lambda x: "/usr/bin/uv" if x == "uv" else None,
         )
         cmd, args = _detect_serve_command()
         assert cmd == "uv"
-        assert args == ["run", "code-review-graph", "serve"]
+        assert args == ["run", "dagayn", "serve"]
 
     def test_uv_lock_detection_returns_uv_run(self, monkeypatch, tmp_path):
         """uv.lock alongside sys.executable → detected as a uv project."""
@@ -1016,40 +1014,40 @@ class TestDetectServeCommand:
         (tmp_path / "uv.lock").write_text("")
         fake_python = venv / "python"
         fake_python.write_text("")
-        monkeypatch.setattr("code_review_graph.skills.sys.executable", str(fake_python))
+        monkeypatch.setattr("dagayn.skills.sys.executable", str(fake_python))
         monkeypatch.setattr(
-            "code_review_graph.skills.shutil.which",
+            "dagayn.skills.shutil.which",
             lambda x: "/usr/bin/uv" if x == "uv" else None,
         )
         assert _in_uv_project() is True
         cmd, args = _detect_serve_command()
         assert cmd == "uv"
-        assert args == ["run", "code-review-graph", "serve"]
+        assert args == ["run", "dagayn", "serve"]
 
     def test_uvx_fallback(self, monkeypatch):
         """Not in Poetry/uv but uvx available → use uvx (original behaviour)."""
         monkeypatch.delenv("POETRY_ACTIVE", raising=False)
         monkeypatch.delenv("VIRTUAL_ENV", raising=False)
         monkeypatch.delenv("UV_PROJECT_ENVIRONMENT", raising=False)
-        monkeypatch.setattr("code_review_graph.skills._in_uv_project", lambda: False)
+        monkeypatch.setattr("dagayn.skills._in_uv_project", lambda: False)
         monkeypatch.setattr(
-            "code_review_graph.skills.shutil.which",
+            "dagayn.skills.shutil.which",
             lambda x: "/usr/bin/uvx" if x == "uvx" else None,
         )
         cmd, args = _detect_serve_command()
         assert cmd == "uvx"
-        assert args == ["code-review-graph", "serve"]
+        assert args == ["dagayn", "serve"]
 
     def test_sys_executable_fallback(self, monkeypatch):
         """Nothing else available → fall back to sys.executable -m."""
         monkeypatch.delenv("POETRY_ACTIVE", raising=False)
         monkeypatch.delenv("VIRTUAL_ENV", raising=False)
         monkeypatch.delenv("UV_PROJECT_ENVIRONMENT", raising=False)
-        monkeypatch.setattr("code_review_graph.skills._in_uv_project", lambda: False)
-        monkeypatch.setattr("code_review_graph.skills.shutil.which", lambda _: None)
+        monkeypatch.setattr("dagayn.skills._in_uv_project", lambda: False)
+        monkeypatch.setattr("dagayn.skills.shutil.which", lambda _: None)
         cmd, args = _detect_serve_command()
         assert cmd == sys.executable
-        assert args == ["-m", "code_review_graph", "serve"]
+        assert args == ["-m", "dagayn", "serve"]
 
     def test_poetry_takes_priority_over_uv(self, monkeypatch):
         """Poetry detection wins even when UV_PROJECT_ENVIRONMENT is also set."""
@@ -1057,7 +1055,7 @@ class TestDetectServeCommand:
         monkeypatch.delenv("VIRTUAL_ENV", raising=False)
         monkeypatch.setenv("UV_PROJECT_ENVIRONMENT", "/some/.venv")
         monkeypatch.setattr(
-            "code_review_graph.skills.shutil.which",
+            "dagayn.skills.shutil.which",
             lambda x: "/usr/bin/poetry" if x == "poetry" else None,
         )
         cmd, _ = _detect_serve_command()
@@ -1068,8 +1066,8 @@ class TestDetectServeCommand:
         fake_python = tmp_path / "bin" / "python"
         fake_python.parent.mkdir(parents=True)
         fake_python.write_text("")
-        monkeypatch.setattr("code_review_graph.skills.sys.executable", str(fake_python))
-        monkeypatch.setattr("code_review_graph.skills.Path.home", staticmethod(lambda: tmp_path))
+        monkeypatch.setattr("dagayn.skills.sys.executable", str(fake_python))
+        monkeypatch.setattr("dagayn.skills.Path.home", staticmethod(lambda: tmp_path))
         assert _in_uv_project() is False
 
 
@@ -1093,17 +1091,17 @@ class TestOpenCodePluginContent:
     def test_hooks_file_edited_event(self):
         content = _opencode_plugin_content()
         assert '"file.edited"' in content
-        assert "code-review-graph update --skip-flows" in content
+        assert "dagayn update --skip-flows" in content
 
     def test_hooks_session_created_event(self):
         content = _opencode_plugin_content()
         assert '"session.created"' in content
-        assert "code-review-graph status" in content
+        assert "dagayn status" in content
 
     def test_hooks_tool_execute_before_event(self):
         content = _opencode_plugin_content()
         assert '"tool.execute.before"' in content
-        assert "code-review-graph detect-changes --brief" in content
+        assert "dagayn detect-changes --brief" in content
 
     def test_has_git_commit_detection(self):
         """Pre-commit hook should match git commit commands."""
@@ -1122,21 +1120,21 @@ class TestInstallOpenCodePlugin:
     """Tests for install_opencode_plugin()."""
 
     def test_creates_plugin_file(self, tmp_path):
-        with patch("code_review_graph.skills.Path.home", return_value=tmp_path):
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
             result = install_opencode_plugin()
         plugin_path = tmp_path / ".config" / "opencode" / "plugins" / "crg-plugin.ts"
         assert plugin_path.exists()
         assert result == plugin_path
 
     def test_plugin_file_has_correct_content(self, tmp_path):
-        with patch("code_review_graph.skills.Path.home", return_value=tmp_path):
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
             result = install_opencode_plugin()
         content = result.read_text(encoding="utf-8")
         assert "export default" in content
         assert "file.edited" in content
 
     def test_creates_parent_directories(self, tmp_path):
-        with patch("code_review_graph.skills.Path.home", return_value=tmp_path):
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
             install_opencode_plugin()
         plugins_dir = tmp_path / ".config" / "opencode" / "plugins"
         assert plugins_dir.is_dir()
@@ -1147,7 +1145,7 @@ class TestInstallOpenCodePlugin:
         old_plugin = plugins_dir / "crg-plugin.ts"
         old_plugin.write_text("// old version")
 
-        with patch("code_review_graph.skills.Path.home", return_value=tmp_path):
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
             install_opencode_plugin()
 
         content = old_plugin.read_text()
@@ -1155,7 +1153,7 @@ class TestInstallOpenCodePlugin:
         assert "export default" in content
 
     def test_idempotent(self, tmp_path):
-        with patch("code_review_graph.skills.Path.home", return_value=tmp_path):
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
             install_opencode_plugin()
             result = install_opencode_plugin()
         content = result.read_text()
@@ -1164,7 +1162,7 @@ class TestInstallOpenCodePlugin:
         assert content.count("export default") == 1
 
     def test_plugin_is_typescript(self, tmp_path):
-        with patch("code_review_graph.skills.Path.home", return_value=tmp_path):
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
             result = install_opencode_plugin()
         assert result.suffix == ".ts"
 
@@ -1174,14 +1172,14 @@ class TestInstallOpenCodePlugin:
         other_plugin = plugins_dir / "other-plugin.ts"
         other_plugin.write_text("// other plugin")
 
-        with patch("code_review_graph.skills.Path.home", return_value=tmp_path):
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
             install_opencode_plugin()
 
         assert other_plugin.exists()
         assert other_plugin.read_text() == "// other plugin"
 
     def test_file_is_utf8(self, tmp_path):
-        with patch("code_review_graph.skills.Path.home", return_value=tmp_path):
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
             result = install_opencode_plugin()
         # Should be readable as UTF-8 without errors
         content = result.read_text(encoding="utf-8")

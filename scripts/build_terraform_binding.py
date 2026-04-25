@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 
-from code_review_graph.parser import CodeParser
+from dagayn.parser import CodeParser
 
 
 def main() -> int:

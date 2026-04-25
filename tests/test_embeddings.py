@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from code_review_graph.embeddings import (
+from dagayn.embeddings import (
     LOCAL_DEFAULT_MODEL,
     EmbeddingStore,
     LocalEmbeddingProvider,
@@ -20,7 +20,7 @@ from code_review_graph.embeddings import (
     _node_to_text,
     get_provider,
 )
-from code_review_graph.graph import GraphNode
+from dagayn.graph import GraphNode
 
 
 class TestVectorEncoding:
@@ -118,21 +118,21 @@ class TestNodeToText:
 class TestEmbeddingStore:
     def test_store_initializes(self, tmp_path):
         db = tmp_path / "embeddings.db"
-        with patch("code_review_graph.embeddings.get_provider", return_value=None):
+        with patch("dagayn.embeddings.get_provider", return_value=None):
             store = EmbeddingStore(db)
             assert store.count() == 0
             store.close()
 
     def test_count_empty(self, tmp_path):
         db = tmp_path / "embeddings.db"
-        with patch("code_review_graph.embeddings.get_provider", return_value=None):
+        with patch("dagayn.embeddings.get_provider", return_value=None):
             store = EmbeddingStore(db)
             assert store.count() == 0
             store.close()
 
     def test_embed_nodes_returns_zero_when_unavailable(self, tmp_path):
         db = tmp_path / "embeddings.db"
-        with patch("code_review_graph.embeddings.get_provider", return_value=None):
+        with patch("dagayn.embeddings.get_provider", return_value=None):
             store = EmbeddingStore(db)
             result = store.embed_nodes([])
             assert result == 0
@@ -140,7 +140,7 @@ class TestEmbeddingStore:
 
     def test_search_returns_empty_when_unavailable(self, tmp_path):
         db = tmp_path / "embeddings.db"
-        with patch("code_review_graph.embeddings.get_provider", return_value=None):
+        with patch("dagayn.embeddings.get_provider", return_value=None):
             store = EmbeddingStore(db)
             results = store.search("query")
             assert results == []
@@ -148,7 +148,7 @@ class TestEmbeddingStore:
 
     def test_remove_node(self, tmp_path):
         db = tmp_path / "embeddings.db"
-        with patch("code_review_graph.embeddings.get_provider", return_value=None):
+        with patch("dagayn.embeddings.get_provider", return_value=None):
             store = EmbeddingStore(db)
             # Should not raise even if node doesn't exist
             store.remove_node("nonexistent::func")
@@ -181,13 +181,13 @@ class TestLocalEmbeddingProviderModelName:
 class TestGetProviderModel:
     """Tests for model parameter in get_provider()."""
 
-    @patch("code_review_graph.embeddings.LocalEmbeddingProvider")
+    @patch("dagayn.embeddings.LocalEmbeddingProvider")
     def test_local_passes_model(self, mock_cls):
         mock_cls.return_value = MagicMock()
         get_provider(provider=None, model="custom/model")
         mock_cls.assert_called_once_with(model_name="custom/model")
 
-    @patch("code_review_graph.embeddings.LocalEmbeddingProvider")
+    @patch("dagayn.embeddings.LocalEmbeddingProvider")
     def test_local_default_passes_none(self, mock_cls):
         mock_cls.return_value = MagicMock()
         get_provider(provider=None, model=None)
@@ -203,7 +203,7 @@ class TestCloudProviderWarning:
         with patch.dict(os.environ, {"MINIMAX_API_KEY": "fake"}, clear=False):
             os.environ.pop("CRG_ACCEPT_CLOUD_EMBEDDINGS", None)
             with patch(
-                "code_review_graph.embeddings.MiniMaxEmbeddingProvider",
+                "dagayn.embeddings.MiniMaxEmbeddingProvider",
             ) as mock_cls:
                 mock_cls.return_value = MagicMock()
                 get_provider(provider="minimax")
@@ -218,7 +218,7 @@ class TestCloudProviderWarning:
         with patch.dict(os.environ, {"GOOGLE_API_KEY": "fake"}, clear=False):
             os.environ.pop("CRG_ACCEPT_CLOUD_EMBEDDINGS", None)
             with patch(
-                "code_review_graph.embeddings.GoogleEmbeddingProvider",
+                "dagayn.embeddings.GoogleEmbeddingProvider",
             ) as mock_cls:
                 mock_cls.return_value = MagicMock()
                 get_provider(provider="google")
@@ -237,7 +237,7 @@ class TestCloudProviderWarning:
             clear=False,
         ):
             with patch(
-                "code_review_graph.embeddings.MiniMaxEmbeddingProvider",
+                "dagayn.embeddings.MiniMaxEmbeddingProvider",
             ) as mock_cls:
                 mock_cls.return_value = MagicMock()
                 get_provider(provider="minimax")
@@ -248,7 +248,7 @@ class TestCloudProviderWarning:
     def test_local_provider_never_warns(self, capsys):
         """Local (offline) provider must not trigger the cloud warning."""
         with patch(
-            "code_review_graph.embeddings.LocalEmbeddingProvider",
+            "dagayn.embeddings.LocalEmbeddingProvider",
         ) as mock_cls:
             mock_cls.return_value = MagicMock()
             get_provider(provider=None)
@@ -261,13 +261,13 @@ class TestEmbeddingStoreModelPassthrough:
 
     def test_model_forwarded_to_get_provider(self, tmp_path):
         db = tmp_path / "embeddings.db"
-        with patch("code_review_graph.embeddings.get_provider", return_value=None) as mock_gp:
+        with patch("dagayn.embeddings.get_provider", return_value=None) as mock_gp:
             EmbeddingStore(db, model="custom/model").close()
             mock_gp.assert_called_once_with(None, model="custom/model")
 
     def test_provider_and_model_forwarded(self, tmp_path):
         db = tmp_path / "embeddings.db"
-        with patch("code_review_graph.embeddings.get_provider", return_value=None) as mock_gp:
+        with patch("dagayn.embeddings.get_provider", return_value=None) as mock_gp:
             EmbeddingStore(db, provider="local", model="custom/model").close()
             mock_gp.assert_called_once_with("local", model="custom/model")
 

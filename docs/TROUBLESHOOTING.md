@@ -26,7 +26,7 @@ CI uses `ty` with Python 3.13 assumptions and ignores unresolved third-party imp
 Match that command locally:
 
 ```bash
-ty check code_review_graph --python-version 3.13 --ignore unresolved-import --exclude '**/*\ 2.py' --exclude '**/*\ 3.py'
+ty check dagayn --python-version 3.13 --ignore unresolved-import --exclude '**/*\ 2.py' --exclude '**/*\ 3.py'
 ```
 
 ## Bandit warnings about comments or `nosec`

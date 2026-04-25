@@ -4,7 +4,7 @@ import io
 import tarfile
 from pathlib import Path
 
-from code_review_graph import vendor_grammars
+from dagayn import vendor_grammars
 
 
 def _make_tarball(files: dict[str, bytes]) -> bytes:

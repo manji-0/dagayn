@@ -30,7 +30,7 @@ id = "ruff-format"
 name = "ruff format"
 language = "system"
 entry = "uv run ruff format"
-files = { glob = ["code_review_graph/**/*.py", "tests/**/*.py", "scripts/**/*.py", "main.py", "hatch_build.py"] }
+files = { glob = ["dagayn/**/*.py", "tests/**/*.py", "scripts/**/*.py", "main.py", "hatch_build.py"] }
 priority = 0
 
 [[repos.hooks]]
@@ -38,15 +38,15 @@ id = "ruff-check"
 name = "ruff check"
 language = "system"
 entry = "uv run ruff check"
-files = { glob = ["code_review_graph/**/*.py", "tests/**/*.py", "scripts/**/*.py", "main.py", "hatch_build.py"] }
+files = { glob = ["dagayn/**/*.py", "tests/**/*.py", "scripts/**/*.py", "main.py", "hatch_build.py"] }
 priority = 10
 
 [[repos.hooks]]
 id = "ty-check"
 name = "ty check"
 language = "system"
-entry = "uv run ty check code_review_graph --python-version 3.13 --ignore unresolved-import --exclude '**/*\\ 2.py' --exclude '**/*\\ 3.py'"
-files = { glob = ["code_review_graph/**/*.py", "tests/**/*.py", "scripts/**/*.py", "main.py", "hatch_build.py"] }
+entry = "uv run ty check dagayn --python-version 3.13 --ignore unresolved-import --exclude '**/*\\ 2.py' --exclude '**/*\\ 3.py'"
+files = { glob = ["dagayn/**/*.py", "tests/**/*.py", "scripts/**/*.py", "main.py", "hatch_build.py"] }
 pass_filenames = false
 priority = 20
 
@@ -54,7 +54,7 @@ priority = 20
 id = "prefetch-grammars"
 name = "prefetch pinned grammars"
 language = "system"
-entry = "uv run python -m code_review_graph.vendor_grammars"
+entry = "uv run python -m dagayn.vendor_grammars"
 pass_filenames = false
 always_run = true
 stages = ["pre-push"]

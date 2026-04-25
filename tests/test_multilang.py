@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from code_review_graph.parser import CodeParser
+from dagayn.parser import CodeParser
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -1779,8 +1779,8 @@ class TestRescriptCrossModuleResolver:
     """Integration test for the cross-module resolver post-pass."""
 
     def _build(self, tmp_path):
-        from code_review_graph.graph import GraphStore
-        from code_review_graph.incremental import full_build
+        from dagayn.graph import GraphStore
+        from dagayn.incremental import full_build
 
         (tmp_path / ".git").mkdir()
 
@@ -1859,7 +1859,7 @@ class TestRescriptCrossModuleResolver:
         assert stats["imports_resolved"] >= 2
 
     def test_resolver_is_idempotent(self, tmp_path):
-        from code_review_graph.rescript_resolver import (
+        from dagayn.rescript_resolver import (
             resolve_rescript_cross_module,
         )
 
@@ -1872,8 +1872,8 @@ class TestRescriptCrossModuleResolver:
 
 class _TempRepoBuildMixin:
     def _full_build(self, tmp_path):
-        from code_review_graph.graph import GraphStore
-        from code_review_graph.incremental import full_build
+        from dagayn.graph import GraphStore
+        from dagayn.incremental import full_build
 
         (tmp_path / ".git").mkdir()
         store = GraphStore(tmp_path / "graph.db")

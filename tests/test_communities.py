@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from code_review_graph.communities import (
+from dagayn.communities import (
     IGRAPH_AVAILABLE,
     _compute_cohesion,
     _compute_cohesion_batch,
@@ -17,8 +17,8 @@ from code_review_graph.communities import (
     incremental_detect_communities,
     store_communities,
 )
-from code_review_graph.graph import GraphEdge, GraphNode, GraphStore
-from code_review_graph.parser import EdgeInfo, NodeInfo
+from dagayn.graph import GraphEdge, GraphNode, GraphStore
+from dagayn.parser import EdgeInfo, NodeInfo
 
 
 class TestCommunities:

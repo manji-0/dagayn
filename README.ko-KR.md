@@ -1,6 +1,6 @@
 # dagayn
 
-`dagayn`은 `code-review-graph`의 포크입니다. 호환용 명령은 남아 있지만, 이 저장소의 문서는 포크 자체인 `dagayn`을 기준으로 작성됩니다.
+`dagayn`은 `code-review-graph`의 포크입니다. 이 저장소의 문서는 포크 자체인 `dagayn`을 기준으로 작성됩니다.
 
 ## 핵심 기능
 

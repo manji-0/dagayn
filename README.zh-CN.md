@@ -1,6 +1,6 @@
 # dagayn
 
-`dagayn` 是 `code-review-graph` 的一个 fork。本仓库会明确把它当作独立维护的 fork 来说明，兼容命令保留，但文档以 `dagayn` 为准。
+`dagayn` 是 `code-review-graph` 的一个 fork，作为独立维护的项目，文档以 `dagayn` 为准。
 
 ## 主要能力
 

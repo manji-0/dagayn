@@ -3,7 +3,7 @@
 import tempfile
 from pathlib import Path
 
-from code_review_graph.flows import (
+from dagayn.flows import (
     detect_entry_points,
     get_affected_flows,
     get_flow_by_id,
@@ -12,8 +12,8 @@ from code_review_graph.flows import (
     store_flows,
     trace_flows,
 )
-from code_review_graph.graph import GraphStore
-from code_review_graph.parser import EdgeInfo, NodeInfo
+from dagayn.graph import GraphStore
+from dagayn.parser import EdgeInfo, NodeInfo
 
 
 class TestFlows:

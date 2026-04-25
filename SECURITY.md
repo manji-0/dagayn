@@ -22,7 +22,7 @@ Current CI checks include:
 
 ## Local data
 
-By default, graph data is written under `.code-review-graph/` inside the repository root unless configured otherwise.
+By default, graph data is written under `.dagayn/` inside the repository root unless configured otherwise.
 
 That data can include:
 

@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from code_review_graph.graph import GraphStore
-from code_review_graph.parser import NodeInfo
-from code_review_graph.search import rebuild_fts_index
+from dagayn.graph import GraphStore
+from dagayn.parser import NodeInfo
+from dagayn.search import rebuild_fts_index
 
 
 @pytest.fixture

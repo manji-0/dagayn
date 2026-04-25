@@ -5,7 +5,7 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from code_review_graph.tsconfig_resolver import TsconfigResolver
+from dagayn.tsconfig_resolver import TsconfigResolver
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
