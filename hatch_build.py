@@ -18,4 +18,6 @@ ensure_all_vendor_grammar_sources = importlib.import_module(
 
 class CustomBuildHook(BuildHookInterface):
     def initialize(self, version: str, build_data: dict[str, Any]) -> None:
+        if version == "editable":
+            return
         ensure_all_vendor_grammar_sources()
