@@ -8,6 +8,7 @@ This directory documents the fork as `dagayn`.
 - `architecture.md` — parser, storage, and post-processing pipeline
 - `schema.md` — graph entities, tables, and stored metadata
 - `SAP-METRICS-WIP.md` — work-in-progress specification for Stable Abstractions Principle metrics
+- `CROSS-LANGUAGE-EDGES-WIP.md` — work-in-progress specification for extracting and analyzing general cross-language edges
 - `RUST-CORE-MIGRATION-WIP.md` — work-in-progress specification for replacing the parser, graph engine, and post-processing core with Rust
 - `GRAMMAR-PROVISIONING.md` — pinned Tree-sitter grammar provisioning contract
 - `DAEMON-CONFIG.md` — registry and watch daemon file formats
