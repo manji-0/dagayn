@@ -1,6 +1,24 @@
 # Cross-language edges specification (WIP)
 
-> **Status:** Work in progress. This document describes the intended dagayn behavior for extracting, storing, and analyzing cross-language relationships in mixed-language repositories.
+> **Status:** Phase 1 (schema/storage) and Phase 2 Layer-1 (syntax-local extractors) are implemented with a **unified multi-language model**. A single `BridgePattern` registry and language-agnostic dispatcher (`_detect_cross_language_bridge`) drive detection across all supported languages. The remaining phases (manifest-backed bridges, analysis integration, annotation directives) are still WIP.
+>
+> **What is implemented:**
+>
+> | Language     | Bridge patterns |
+> |--------------|-----------------|
+> | `python`     | `subprocess.{run,Popen,call,check_call,check_output}`, `os.system`, `os.popen`, `os.exec*`, `os.spawn*`, `ctypes.{CDLL,WinDLL,PyDLL}`, `ctypes.cdll.LoadLibrary`, `cffi.FFI().dlopen` |
+> | `javascript` | `child_process.{exec,execSync,execFile,execFileSync,spawn,spawnSync,fork}` |
+> | `typescript` | (alias of `javascript`) |
+> | `java`       | `Runtime.getRuntime().exec`, `Runtime.exec`, `Runtime.getRuntime().{loadLibrary,load}`, `System.{loadLibrary,load}` |
+> | `r`          | `system`, `system2`, `.Call`, `.External`, `dyn.load`, `library.dynam` |
+> | `bash`       | deferred — every command is a process invocation; needs a distinct model |
+>
+> **Key implementation details:**
+> - `CROSS_LANGUAGE` edge kind with the full `extra` metadata contract (see §"Recommended metadata") — `dagayn/parser.py` (`BridgePattern`, `_BRIDGE_PATTERNS`, `_detect_cross_language_bridge`)
+> - `tests/test_parser.py` `TestCrossLanguageEdges` — 22 tests covering Python, JavaScript, TypeScript, Java, and R
+> - Confidence tier `HIGH` (0.8) for string-literal targets, `LOW` (0.2) for dynamic expressions
+> - **Limitation:** only canonical dotted forms are detected. Aliased imports (e.g. `const cp = require("child_process"); cp.exec(...)`) require dataflow / import-map resolution and are deferred to a later phase.
+> - Edges surface automatically in graph stats (`edges_by_kind`) and `query_graph` without additional code
 
 ## Purpose
 

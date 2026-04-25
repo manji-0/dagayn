@@ -1379,3 +1379,294 @@ class TestTypeRoleAndImplements:
         assert trait is not None
         assert trait.extra.get("type_role") == "trait"
         assert trait.extra.get("is_contract") is True
+
+
+class TestCrossLanguageEdges:
+    """CROSS_LANGUAGE edge emission for Python process-boundary and native-lib calls."""
+
+    def setup_method(self):
+        self.parser = CodeParser()
+
+    def test_cross_language_edges_emitted(self):
+        nodes, edges = self.parser.parse_file(FIXTURES / "sample_cross_language.py")
+        cl = [e for e in edges if e.kind == "CROSS_LANGUAGE"]
+        assert len(cl) >= 1, "Expected at least one CROSS_LANGUAGE edge"
+
+    def test_subprocess_run_string_arg(self):
+        nodes, edges = self.parser.parse_file(FIXTURES / "sample_cross_language.py")
+        cl = [e for e in edges if e.kind == "CROSS_LANGUAGE"]
+        run_edge = next(
+            (
+                e
+                for e in cl
+                if e.extra.get("evidence_source") == "subprocess.run"
+                and e.target == "./target/release/dagayn-core"
+            ),
+            None,
+        )
+        assert run_edge is not None, "Expected subprocess.run edge with literal target"
+        assert run_edge.extra["relationship_role"] == "invokes_binary"
+        assert run_edge.extra["bridge_kind"] == "subprocess"
+        assert run_edge.extra["evidence_kind"] == "syntax"
+        assert run_edge.extra["source_language"] == "python"
+        assert run_edge.extra["confidence_tier"] == "HIGH"
+        assert run_edge.extra["confidence"] == 0.8
+
+    def test_subprocess_run_list_arg(self):
+        nodes, edges = self.parser.parse_file(FIXTURES / "sample_cross_language.py")
+        cl = [e for e in edges if e.kind == "CROSS_LANGUAGE"]
+        run_list_edges = [
+            e
+            for e in cl
+            if e.extra.get("evidence_source") == "subprocess.run"
+            and e.target == "./target/release/dagayn-core"
+        ]
+        # Both the string-arg and list-arg calls target the same binary
+        assert len(run_list_edges) >= 1
+
+    def test_ctypes_cdll(self):
+        nodes, edges = self.parser.parse_file(FIXTURES / "sample_cross_language.py")
+        cl = [e for e in edges if e.kind == "CROSS_LANGUAGE"]
+        cdll_edge = next(
+            (
+                e
+                for e in cl
+                if e.extra.get("evidence_source") == "ctypes.CDLL"
+                and e.target == "./target/release/libdagayn.so"
+            ),
+            None,
+        )
+        assert cdll_edge is not None, "Expected ctypes.CDLL edge"
+        assert cdll_edge.extra["relationship_role"] == "loads_shared_library"
+        assert cdll_edge.extra["bridge_kind"] == "ffi"
+        assert cdll_edge.extra["confidence_tier"] == "HIGH"
+
+    def test_cffi_dlopen(self):
+        nodes, edges = self.parser.parse_file(FIXTURES / "sample_cross_language.py")
+        cl = [e for e in edges if e.kind == "CROSS_LANGUAGE"]
+        cffi_edge = next(
+            (
+                e
+                for e in cl
+                if "dlopen" in e.extra.get("evidence_source", "") and e.target == "./libfoo.so"
+            ),
+            None,
+        )
+        assert cffi_edge is not None, "Expected cffi.FFI().dlopen edge"
+        assert cffi_edge.extra["relationship_role"] == "loads_shared_library"
+
+    def test_dynamic_arg_low_confidence(self):
+        nodes, edges = self.parser.parse_file(FIXTURES / "sample_cross_language.py")
+        cl = [e for e in edges if e.kind == "CROSS_LANGUAGE"]
+        # run_dynamic(cmd) should produce a LOW confidence edge
+        dynamic_edges = [
+            e
+            for e in cl
+            if e.extra.get("confidence_tier") == "LOW"
+            and e.extra.get("evidence_source") == "subprocess.run"
+        ]
+        assert len(dynamic_edges) >= 1, "Expected LOW confidence edge for dynamic arg"
+        assert dynamic_edges[0].extra["confidence"] == 0.2
+        assert "<dynamic:" in dynamic_edges[0].target
+
+    def test_extra_metadata_shape(self):
+        nodes, edges = self.parser.parse_file(FIXTURES / "sample_cross_language.py")
+        cl = [e for e in edges if e.kind == "CROSS_LANGUAGE"]
+        required_keys = {
+            "relationship_role",
+            "bridge_kind",
+            "evidence_kind",
+            "evidence_source",
+            "source_language",
+            "target_language",
+            "confidence",
+            "confidence_tier",
+        }
+        for edge in cl:
+            missing = required_keys - edge.extra.keys()
+            assert not missing, f"Edge missing extra keys {missing}: {edge}"
+
+    def test_idempotent_parse(self, tmp_path):
+        fixture = FIXTURES / "sample_cross_language.py"
+        _, edges1 = self.parser.parse_file(fixture)
+        _, edges2 = self.parser.parse_file(fixture)
+
+        def cl_keys(edges):
+            return sorted(
+                (e.kind, e.source, e.target, e.line) for e in edges if e.kind == "CROSS_LANGUAGE"
+            )
+
+        assert cl_keys(edges1) == cl_keys(edges2), (
+            "Parsing the same file twice must produce identical edges"
+        )
+
+    # --- JavaScript ---
+
+    def test_javascript_edges_emitted(self):
+        _, edges = self.parser.parse_file(FIXTURES / "sample_cross_language.js")
+        cl = [e for e in edges if e.kind == "CROSS_LANGUAGE"]
+        assert len(cl) == 7
+
+    def test_javascript_spawn_high_confidence(self):
+        _, edges = self.parser.parse_file(FIXTURES / "sample_cross_language.js")
+        cl = [e for e in edges if e.kind == "CROSS_LANGUAGE"]
+        spawn_edge = next(
+            (
+                e
+                for e in cl
+                if e.extra.get("evidence_source") == "child_process.spawn"
+                and e.target == "./target/release/dagayn-core"
+            ),
+            None,
+        )
+        assert spawn_edge is not None, "Expected child_process.spawn HIGH edge"
+        assert spawn_edge.extra["source_language"] == "javascript"
+        assert spawn_edge.extra["relationship_role"] == "invokes_binary"
+        assert spawn_edge.extra["bridge_kind"] == "subprocess"
+        assert spawn_edge.extra["confidence_tier"] == "HIGH"
+        assert spawn_edge.extra["confidence"] == 0.8
+
+    def test_javascript_dynamic_arg_low_confidence(self):
+        _, edges = self.parser.parse_file(FIXTURES / "sample_cross_language.js")
+        cl = [e for e in edges if e.kind == "CROSS_LANGUAGE"]
+        low_edges = [
+            e
+            for e in cl
+            if e.extra.get("confidence_tier") == "LOW"
+            and e.extra.get("evidence_source") == "child_process.exec"
+        ]
+        assert len(low_edges) == 1
+        assert "<dynamic:" in low_edges[0].target
+        assert low_edges[0].extra["confidence"] == 0.2
+
+    # --- TypeScript ---
+
+    def test_typescript_edges_emitted(self):
+        _, edges = self.parser.parse_file(FIXTURES / "sample_cross_language.ts")
+        cl = [e for e in edges if e.kind == "CROSS_LANGUAGE"]
+        assert len(cl) == 7
+
+    def test_typescript_source_language(self):
+        _, edges = self.parser.parse_file(FIXTURES / "sample_cross_language.ts")
+        cl = [e for e in edges if e.kind == "CROSS_LANGUAGE"]
+        assert all(e.extra["source_language"] == "typescript" for e in cl)
+
+    def test_typescript_spawn_high_confidence(self):
+        _, edges = self.parser.parse_file(FIXTURES / "sample_cross_language.ts")
+        cl = [e for e in edges if e.kind == "CROSS_LANGUAGE"]
+        spawn_edge = next(
+            (
+                e
+                for e in cl
+                if e.extra.get("evidence_source") == "child_process.spawn"
+                and e.target == "./target/release/dagayn-core"
+            ),
+            None,
+        )
+        assert spawn_edge is not None
+        assert spawn_edge.extra["confidence_tier"] == "HIGH"
+
+    # --- Java ---
+
+    def test_java_edges_emitted(self):
+        _, edges = self.parser.parse_file(FIXTURES / "SampleCrossLanguage.java")
+        cl = [e for e in edges if e.kind == "CROSS_LANGUAGE"]
+        assert len(cl) == 6
+
+    def test_java_runtime_exec_high_confidence(self):
+        _, edges = self.parser.parse_file(FIXTURES / "SampleCrossLanguage.java")
+        cl = [e for e in edges if e.kind == "CROSS_LANGUAGE"]
+        exec_edge = next(
+            (
+                e
+                for e in cl
+                if e.extra.get("evidence_source") == "Runtime.getRuntime().exec"
+                and e.target == "./target/release/dagayn-core"
+            ),
+            None,
+        )
+        assert exec_edge is not None, "Expected Runtime.getRuntime().exec HIGH edge"
+        assert exec_edge.extra["source_language"] == "java"
+        assert exec_edge.extra["relationship_role"] == "invokes_binary"
+        assert exec_edge.extra["bridge_kind"] == "subprocess"
+        assert exec_edge.extra["confidence_tier"] == "HIGH"
+
+    def test_java_system_load_library(self):
+        _, edges = self.parser.parse_file(FIXTURES / "SampleCrossLanguage.java")
+        cl = [e for e in edges if e.kind == "CROSS_LANGUAGE"]
+        lib_edge = next(
+            (
+                e
+                for e in cl
+                if e.extra.get("evidence_source") == "System.loadLibrary" and e.target == "dagayn"
+            ),
+            None,
+        )
+        assert lib_edge is not None
+        assert lib_edge.extra["relationship_role"] == "loads_shared_library"
+        assert lib_edge.extra["bridge_kind"] == "ffi"
+
+    def test_java_dynamic_arg_low_confidence(self):
+        _, edges = self.parser.parse_file(FIXTURES / "SampleCrossLanguage.java")
+        cl = [e for e in edges if e.kind == "CROSS_LANGUAGE"]
+        low_edges = [
+            e
+            for e in cl
+            if e.extra.get("confidence_tier") == "LOW"
+            and "Runtime.getRuntime().exec" in e.extra.get("evidence_source", "")
+        ]
+        assert len(low_edges) == 1
+        assert "<dynamic:" in low_edges[0].target
+
+    # --- R ---
+
+    def test_r_edges_emitted(self):
+        _, edges = self.parser.parse_file(FIXTURES / "sample_cross_language.R")
+        cl = [e for e in edges if e.kind == "CROSS_LANGUAGE"]
+        assert len(cl) == 7
+
+    def test_r_system_high_confidence(self):
+        _, edges = self.parser.parse_file(FIXTURES / "sample_cross_language.R")
+        cl = [e for e in edges if e.kind == "CROSS_LANGUAGE"]
+        sys_edge = next(
+            (
+                e
+                for e in cl
+                if e.extra.get("evidence_source") == "system"
+                and e.extra.get("confidence_tier") == "HIGH"
+            ),
+            None,
+        )
+        assert sys_edge is not None, "Expected system() HIGH edge"
+        assert sys_edge.extra["source_language"] == "r"
+        assert sys_edge.extra["relationship_role"] == "invokes_binary"
+        assert sys_edge.extra["bridge_kind"] == "subprocess"
+
+    def test_r_dyn_load(self):
+        _, edges = self.parser.parse_file(FIXTURES / "sample_cross_language.R")
+        cl = [e for e in edges if e.kind == "CROSS_LANGUAGE"]
+        dyn_edge = next(
+            (
+                e
+                for e in cl
+                if e.extra.get("evidence_source") == "dyn.load"
+                and e.target == "./target/release/libdagayn.so"
+            ),
+            None,
+        )
+        assert dyn_edge is not None
+        assert dyn_edge.extra["relationship_role"] == "loads_shared_library"
+        assert dyn_edge.extra["bridge_kind"] == "ffi"
+        assert dyn_edge.extra["confidence_tier"] == "HIGH"
+
+    def test_r_dynamic_arg_low_confidence(self):
+        _, edges = self.parser.parse_file(FIXTURES / "sample_cross_language.R")
+        cl = [e for e in edges if e.kind == "CROSS_LANGUAGE"]
+        low_edges = [
+            e
+            for e in cl
+            if e.extra.get("confidence_tier") == "LOW"
+            and e.extra.get("evidence_source") == "system"
+        ]
+        assert len(low_edges) == 1
+        assert "<dynamic:" in low_edges[0].target
