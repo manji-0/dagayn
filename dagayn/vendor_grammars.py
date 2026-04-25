@@ -117,7 +117,23 @@ def get_grammar_cache_root() -> Path:
     return home / ".cache" / "dagayn" / "grammars"
 
 
+def get_packaged_grammar_root() -> Path:
+    return Path(__file__).resolve().parent / "_vendor_grammars"
+
+
+def get_packaged_grammar_source(language: str) -> Path | None:
+    spec = GRAMMAR_SPECS[language]
+    target_dir = get_packaged_grammar_root() / language
+    if _is_ready(spec, target_dir):
+        _inject_assets(spec, target_dir)
+        return target_dir
+    return None
+
+
 def ensure_vendor_grammar_source(language: str) -> Path:
+    if packaged := get_packaged_grammar_source(language):
+        return packaged
+
     spec = GRAMMAR_SPECS[language]
     cache_root = get_grammar_cache_root()
     target_dir = cache_root / spec.cache_dir_name
@@ -154,6 +170,27 @@ def ensure_all_vendor_grammar_sources(
 ) -> dict[str, Path]:
     requested = tuple(languages or GRAMMAR_SPECS)
     return {language: ensure_vendor_grammar_source(language) for language in requested}
+
+
+def stage_packaged_vendor_grammar_sources(
+    destination_root: Path,
+    languages: Iterable[str] | None = None,
+) -> dict[str, Path]:
+    requested = tuple(languages or GRAMMAR_SPECS)
+    destination_root.mkdir(parents=True, exist_ok=True)
+
+    staged: dict[str, Path] = {}
+    for language in requested:
+        spec = GRAMMAR_SPECS[language]
+        source_dir = ensure_vendor_grammar_source(language)
+        target_dir = destination_root / language
+        if target_dir.exists():
+            shutil.rmtree(target_dir)
+        shutil.copytree(source_dir, target_dir)
+        _inject_assets(spec, target_dir)
+        _validate_required_paths(spec, target_dir)
+        staged[language] = target_dir
+    return staged
 
 
 def _download_archive(spec: GrammarSpec, archive_path: Path) -> None:

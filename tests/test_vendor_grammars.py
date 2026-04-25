@@ -79,3 +79,51 @@ def test_ensure_vendor_grammar_source_reuses_cached_directory(monkeypatch, tmp_p
     monkeypatch.setattr(vendor_grammars, "urlopen", fail_urlopen)
 
     assert vendor_grammars.ensure_vendor_grammar_source("terraform") == source_dir
+
+
+def test_ensure_vendor_grammar_source_prefers_packaged_directory(monkeypatch, tmp_path: Path):
+    packaged_root = tmp_path / "packaged"
+    monkeypatch.setattr(vendor_grammars, "get_packaged_grammar_root", lambda: packaged_root)
+    monkeypatch.setenv("DAGAYN_GRAMMAR_CACHE_DIR", str(tmp_path / "cache"))
+
+    source_dir = packaged_root / "markdown"
+    (source_dir / "src" / "tree_sitter").mkdir(parents=True)
+    (source_dir / "bindings" / "python").mkdir(parents=True)
+    (source_dir / "src" / "parser.c").write_text("parser", encoding="utf-8")
+    (source_dir / "src" / "scanner.c").write_text("scanner", encoding="utf-8")
+    (source_dir / "src" / "tree_sitter" / "parser.h").write_text("header", encoding="utf-8")
+    (source_dir / "bindings" / "python" / "binding.c").write_text("binding", encoding="utf-8")
+
+    def fail_urlopen(_request):
+        raise AssertionError("packaged grammar should not download")
+
+    monkeypatch.setattr(vendor_grammars, "urlopen", fail_urlopen)
+
+    assert vendor_grammars.ensure_vendor_grammar_source("markdown") == source_dir
+
+
+def test_stage_packaged_vendor_grammar_sources_copies_required_files(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("DAGAYN_GRAMMAR_CACHE_DIR", str(tmp_path / "cache"))
+
+    subdir = vendor_grammars.GRAMMAR_SPECS["markdown"].source_subdirectory
+    prefix = f"tree-sitter-markdown-archive/{subdir}/"
+    tarball = _make_tarball(
+        {
+            f"{prefix}src/parser.c": b"parser",
+            f"{prefix}src/scanner.c": b"scanner",
+            f"{prefix}src/tree_sitter/parser.h": b"header",
+        }
+    )
+
+    def fake_urlopen(_request):
+        return _Response(tarball)
+
+    monkeypatch.setattr(vendor_grammars, "urlopen", fake_urlopen)
+
+    staged = vendor_grammars.stage_packaged_vendor_grammar_sources(
+        tmp_path / "bundle", ["markdown"]
+    )
+    source_dir = staged["markdown"]
+    assert source_dir == (tmp_path / "bundle" / "markdown")
+    for path in vendor_grammars.GRAMMAR_SPECS["markdown"].required_paths:
+        assert (source_dir / path).exists()
