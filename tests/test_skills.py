@@ -664,10 +664,11 @@ class TestInstallPlatformConfigs:
         assert "mcpServers" in data
         assert "dagayn" in data["mcpServers"]
         assert data["mcpServers"]["dagayn"]["type"] == "stdio"
-        import shutil
+        from dagayn.skills import _detect_serve_command
 
-        expected_cmd = "uvx" if shutil.which("uvx") else "dagayn"
+        expected_cmd, expected_args = _detect_serve_command()
         assert data["mcpServers"]["dagayn"]["command"] == expected_cmd
+        assert data["mcpServers"]["dagayn"]["args"] == expected_args
 
 
 class TestCursorHooksConfig:
