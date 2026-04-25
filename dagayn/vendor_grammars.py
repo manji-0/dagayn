@@ -10,39 +10,42 @@ from pathlib import Path
 from typing import Iterable
 from urllib.request import Request, urlopen
 
-_MARKDOWN_BINDING_C = """#define PY_SSIZE_T_CLEAN
+def _generate_binding_c(language: str) -> str:
+    sym = f"tree_sitter_{language}"
+    init = f"PyInit_{language}"
+    return f"""#define PY_SSIZE_T_CLEAN
 #include <Python.h>
 
 typedef struct TSLanguage TSLanguage;
 
-const TSLanguage *tree_sitter_markdown(void);
+const TSLanguage *{sym}(void);
 
-static PyObject *language(PyObject *self, PyObject *args) {
+static PyObject *language(PyObject *self, PyObject *args) {{
     (void)self;
     (void)args;
     return PyCapsule_New(
-        (void *)tree_sitter_markdown(),
+        (void *){sym}(),
         "tree_sitter.Language",
         NULL
     );
-}
+}}
 
-static PyMethodDef methods[] = {
-    {"language", language, METH_NOARGS, "Return the tree-sitter Language capsule."},
-    {NULL, NULL, 0, NULL},
-};
+static PyMethodDef methods[] = {{
+    {{"language", language, METH_NOARGS, "Return the tree-sitter Language capsule."}},
+    {{NULL, NULL, 0, NULL}},
+}};
 
-static struct PyModuleDef module = {
+static struct PyModuleDef module = {{
     PyModuleDef_HEAD_INIT,
-    "markdown",
+    "{language}",
     NULL,
     -1,
     methods,
-};
+}};
 
-PyMODINIT_FUNC PyInit_markdown(void) {
+PyMODINIT_FUNC {init}(void) {{
     return PyModule_Create(&module);
-}
+}}
 """
 
 
@@ -53,7 +56,8 @@ class GrammarSpec:
     repo: str
     commit: str
     required_paths: tuple[str, ...]
-    inject_markdown_binding: bool = False
+    inject_python_binding: bool = False
+    source_subdirectory: str | None = None
 
     @property
     def archive_url(self) -> str:
@@ -76,7 +80,8 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
             "src/tree_sitter/parser.h",
             "bindings/python/binding.c",
         ),
-        inject_markdown_binding=True,
+        inject_python_binding=True,
+        source_subdirectory="vendor/tree-sitter-markdown/tree-sitter-markdown",
     ),
     "terraform": GrammarSpec(
         language="terraform",
@@ -89,6 +94,7 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
             "src/tree_sitter/parser.h",
             "bindings/python/binding.c",
         ),
+        inject_python_binding=True,
     ),
 }
 
@@ -129,7 +135,7 @@ def ensure_vendor_grammar_source(language: str) -> Path:
         archive_path = tmp_root / "source.tar.gz"
         extracted_dir = tmp_root / "extracted"
         _download_archive(spec, archive_path)
-        _extract_archive(archive_path, extracted_dir)
+        _extract_archive(archive_path, extracted_dir, source_subdirectory=spec.source_subdirectory)
         _inject_assets(spec, extracted_dir)
         _validate_required_paths(spec, extracted_dir)
 
@@ -158,7 +164,13 @@ def _download_archive(spec: GrammarSpec, archive_path: Path) -> None:
         shutil.copyfileobj(response, fh)
 
 
-def _extract_archive(archive_path: Path, destination: Path) -> None:
+def _extract_archive(
+    archive_path: Path,
+    destination: Path,
+    *,
+    source_subdirectory: str | None = None,
+) -> None:
+    subdir_parts = Path(source_subdirectory).parts if source_subdirectory else ()
     destination.mkdir(parents=True, exist_ok=True)
     with tarfile.open(archive_path, "r:gz") as archive:
         members = [member for member in archive.getmembers() if member.isdir() or member.isfile()]
@@ -167,6 +179,13 @@ def _extract_archive(archive_path: Path, destination: Path) -> None:
             rel_path = _relative_member_path(member.name, root_name)
             if rel_path is None:
                 continue
+            if subdir_parts:
+                if rel_path.parts[: len(subdir_parts)] != subdir_parts:
+                    continue
+                remaining = rel_path.parts[len(subdir_parts) :]
+                if not remaining:
+                    continue
+                rel_path = Path(*remaining)
             target = destination / rel_path
             if member.isdir():
                 target.mkdir(parents=True, exist_ok=True)
@@ -201,11 +220,11 @@ def _relative_member_path(member_name: str, root_name: str) -> Path | None:
 
 
 def _inject_assets(spec: GrammarSpec, destination: Path) -> None:
-    if not spec.inject_markdown_binding:
+    if not spec.inject_python_binding:
         return
     binding_path = destination / "bindings" / "python" / "binding.c"
     binding_path.parent.mkdir(parents=True, exist_ok=True)
-    binding_path.write_text(_MARKDOWN_BINDING_C, encoding="utf-8")
+    binding_path.write_text(_generate_binding_c(spec.language), encoding="utf-8")
 
 
 def _validate_required_paths(spec: GrammarSpec, destination: Path) -> None:

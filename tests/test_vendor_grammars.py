@@ -32,11 +32,13 @@ def test_ensure_vendor_grammar_source_downloads_and_injects_markdown_binding(
 ):
     monkeypatch.setenv("DAGAYN_GRAMMAR_CACHE_DIR", str(tmp_path / "cache"))
 
+    subdir = vendor_grammars.GRAMMAR_SPECS["markdown"].source_subdirectory
+    prefix = f"tree-sitter-markdown-archive/{subdir}/"
     tarball = _make_tarball(
         {
-            "tree-sitter-markdown-archive/src/parser.c": b"parser",
-            "tree-sitter-markdown-archive/src/scanner.c": b"scanner",
-            "tree-sitter-markdown-archive/src/tree_sitter/parser.h": b"header",
+            f"{prefix}src/parser.c": b"parser",
+            f"{prefix}src/scanner.c": b"scanner",
+            f"{prefix}src/tree_sitter/parser.h": b"header",
         }
     )
     download_calls = {"count": 0}
