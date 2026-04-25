@@ -641,6 +641,55 @@ def install_hooks(repo_root: Path, platform: str = "claude") -> None:
 
 
 _CLAUDE_MD_SECTION_MARKER = "<!-- dagayn MCP tools -->"
+_MARKDOWN_POLICY_MARKER = "<!-- dagayn markdown policy -->"
+
+_MARKDOWN_POLICY_SECTION = f"""{_MARKDOWN_POLICY_MARKER}
+## Markdown documentation policy: declare dependencies via directive comments
+
+When authoring or editing a Markdown document in this repository, declare
+inter-section and inter-document dependencies as HTML directive comments so
+they are captured by the dagayn graph (`DEPENDS_ON` / `IMPORTS_FROM` edges)
+and discoverable via `query_graph` / `get_impact_radius`.
+
+### Required form
+
+```markdown
+<!-- <kind> <target> -->
+```
+
+`<kind>` MUST be one of: `constrained-by`, `blocked-by`, `supersedes`,
+`derived-from`. Choose the kind whose semantics best match the dependency:
+
+| Kind | Use when |
+| ---- | -------- |
+| `constrained-by` | This section's design is bounded by the referenced document/section |
+| `blocked-by` | This item cannot proceed until the referenced item resolves |
+| `supersedes` | This document replaces the referenced content |
+| `derived-from` | This section is derived from the referenced source |
+
+### Three target shapes
+
+| Dependency type | Target syntax | Example |
+| --------------- | ------------- | ------- |
+| Within-document section | `#section-slug` | `<!-- derived-from #background -->` |
+| Other document (whole file) | `./relative/path.md` | `<!-- blocked-by ./specs/open-issue.md -->` |
+| Other document + section | `./path.md#slug` | `<!-- constrained-by ./adr.md#context -->` |
+
+Slugs follow GitHub Markdown rules: lowercase, non-alphanumerics removed,
+spaces and hyphens collapsed to `-`. Place the directive immediately under
+the heading whose content depends on the target. External URLs
+(`http://`, `https://`) are not graph-resolvable — keep them as ordinary
+Markdown links, not directive targets.
+
+### When to add a directive
+
+- Section design references an ADR, spec, or research note → `constrained-by` or `derived-from`.
+- A document replaces an older one → `supersedes` (place in the new document).
+- A spec/task section is blocked on another being resolved → `blocked-by`.
+- A later section extends an earlier one non-obviously → `derived-from #earlier-section`.
+
+If no real dependency exists, do not invent one. Directives are signal, not decoration.
+"""
 
 _CLAUDE_MD_SECTION = f"""{_CLAUDE_MD_SECTION_MARKER}
 ## MCP Tools: dagayn
@@ -708,11 +757,16 @@ def _inject_instructions(file_path: Path, marker: str, section: str) -> bool:
 
 
 def inject_claude_md(repo_root: Path) -> None:
-    """Append MCP tools section to CLAUDE.md."""
+    """Append MCP tools section and Markdown policy to CLAUDE.md."""
     _inject_instructions(
         repo_root / "CLAUDE.md",
         _CLAUDE_MD_SECTION_MARKER,
         _CLAUDE_MD_SECTION,
+    )
+    _inject_instructions(
+        repo_root / "CLAUDE.md",
+        _MARKDOWN_POLICY_MARKER,
+        _MARKDOWN_POLICY_SECTION,
     )
 
 
@@ -747,7 +801,12 @@ def inject_platform_instructions(repo_root: Path, target: str = "all") -> list[s
         if target != "all" and target not in owners:
             continue
         path = repo_root / filename
+        changed = False
         if _inject_instructions(path, _CLAUDE_MD_SECTION_MARKER, _CLAUDE_MD_SECTION):
+            changed = True
+        if _inject_instructions(path, _MARKDOWN_POLICY_MARKER, _MARKDOWN_POLICY_SECTION):
+            changed = True
+        if changed:
             updated.append(filename)
     return updated
 

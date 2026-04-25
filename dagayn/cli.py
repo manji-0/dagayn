@@ -118,6 +118,9 @@ def _print_banner() -> None:
     {g}visualize{r}   Generate interactive HTML graph
     {g}wiki{r}        Generate markdown wiki from communities
     {g}detect-changes{r} Analyze change impact {d}(risk-scored review){r}
+    {g}detect-adp{r}    Detect cyclic dependencies {d}(ADP violations){r}
+    {g}sdp-metrics{r}   Compute instability scores {d}(SDP metrics){r}
+    {g}detect-sdp{r}    Detect stability-direction violations {d}(SDP){r}
     {g}register{r}    Register a repository in the multi-repo registry
     {g}unregister{r}  Remove a repository from the registry
     {g}repos{r}       List registered repositories
@@ -138,7 +141,14 @@ def _instruction_files_to_modify(
     or modify, given the current state of the repo and the selected
     platform target. Used for the dry-run / confirm preview (#173).
     """
-    from .skills import _CLAUDE_MD_SECTION_MARKER, _PLATFORM_INSTRUCTION_FILES
+    from .skills import (
+        _CLAUDE_MD_SECTION_MARKER,
+        _MARKDOWN_POLICY_MARKER,
+        _PLATFORM_INSTRUCTION_FILES,
+    )
+
+    def _needs_update(content: str) -> bool:
+        return _CLAUDE_MD_SECTION_MARKER not in content or _MARKDOWN_POLICY_MARKER not in content
 
     targets: list[str] = []
 
@@ -146,7 +156,7 @@ def _instruction_files_to_modify(
         claude_md = repo_root / "CLAUDE.md"
         if claude_md.exists():
             content = claude_md.read_text(encoding="utf-8")
-            if _CLAUDE_MD_SECTION_MARKER not in content:
+            if _needs_update(content):
                 targets.append("CLAUDE.md (append)")
         else:
             targets.append("CLAUDE.md (new)")
@@ -157,7 +167,7 @@ def _instruction_files_to_modify(
         path = repo_root / filename
         if path.exists():
             content = path.read_text(encoding="utf-8")
-            if _CLAUDE_MD_SECTION_MARKER not in content:
+            if _needs_update(content):
                 targets.append(f"{filename} (append)")
         else:
             targets.append(f"{filename} (new)")
@@ -525,6 +535,73 @@ def main() -> None:
     detect_cmd.add_argument("--base", default="HEAD~1", help="Git diff base (default: HEAD~1)")
     detect_cmd.add_argument("--brief", action="store_true", help="Show brief summary only")
     detect_cmd.add_argument("--repo", default=None, help="Repository root (auto-detected)")
+
+    # detect-adp
+    adp_cmd = sub.add_parser("detect-adp", help="Detect cyclic dependencies (ADP violations)")
+    adp_cmd.add_argument(
+        "--granularity",
+        choices=["package", "file"],
+        default="package",
+        help="Aggregation level: 'package' (directory) or 'file' (default: package)",
+    )
+    adp_cmd.add_argument(
+        "--min-cycle-size", type=int, default=2, help="Minimum cycle length (default: 2)"
+    )
+    adp_cmd.add_argument(
+        "--max-cycle-length", type=int, default=10, help="Upper bound on cycle length (default: 10)"
+    )
+    adp_cmd.add_argument(
+        "--format",
+        choices=["json", "text"],
+        default="json",
+        help="Output format (default: json)",
+    )
+    adp_cmd.add_argument("--repo", default=None, help="Repository root (auto-detected)")
+
+    # sdp-metrics
+    sdp_metrics_cmd = sub.add_parser(
+        "sdp-metrics", help="Compute instability scores per module (SDP)"
+    )
+    sdp_metrics_cmd.add_argument(
+        "--granularity",
+        choices=["package", "file"],
+        default="package",
+        help="Aggregation level: 'package' (directory) or 'file' (default: package)",
+    )
+    sdp_metrics_cmd.add_argument(
+        "--top-n", type=int, default=30, help="Number of entries to return (default: 30)"
+    )
+    sdp_metrics_cmd.add_argument(
+        "--format",
+        choices=["json", "text"],
+        default="json",
+        help="Output format (default: json)",
+    )
+    sdp_metrics_cmd.add_argument("--repo", default=None, help="Repository root (auto-detected)")
+
+    # detect-sdp
+    detect_sdp_cmd = sub.add_parser(
+        "detect-sdp", help="Detect stability-direction violations (SDP)"
+    )
+    detect_sdp_cmd.add_argument(
+        "--granularity",
+        choices=["package", "file"],
+        default="package",
+        help="Aggregation level: 'package' (directory) or 'file' (default: package)",
+    )
+    detect_sdp_cmd.add_argument(
+        "--min-delta",
+        type=float,
+        default=0.1,
+        help="Minimum instability gap to flag (default: 0.1)",
+    )
+    detect_sdp_cmd.add_argument(
+        "--format",
+        choices=["json", "text"],
+        default="json",
+        help="Output format (default: json)",
+    )
+    detect_sdp_cmd.add_argument("--repo", default=None, help="Repository root (auto-detected)")
 
     # serve
     serve_cmd = sub.add_parser(
@@ -998,6 +1075,66 @@ def main() -> None:
                     print(result.get("summary", "No summary available."))
                 else:
                     print(json.dumps(result, indent=2, default=str))
+
+        elif args.command == "detect-adp":
+            from .architecture import find_adp_violations
+
+            violations = find_adp_violations(
+                store,
+                granularity=args.granularity,
+                min_cycle_size=args.min_cycle_size,
+                max_cycle_length=args.max_cycle_length,
+            )
+            if args.format == "text":
+                if not violations:
+                    print("No ADP violations found.")
+                else:
+                    print(f"ADP violations ({len(violations)} cycles):")
+                    for v in violations:
+                        nodes = " -> ".join(v["nodes"]) + f" -> {v['nodes'][0]}"
+                        print(f"  [{v['length']}-cycle, severity={v['severity']}] {nodes}")
+            else:
+                print(json.dumps({"violations": violations, "count": len(violations)}, indent=2))
+
+        elif args.command == "sdp-metrics":
+            from .architecture import compute_sdp_metrics
+
+            metrics = compute_sdp_metrics(store, granularity=args.granularity)
+            top = metrics[: args.top_n]
+            if args.format == "text":
+                if not top:
+                    print("No dependency data found.")
+                else:
+                    print(f"SDP instability ({args.granularity}-level, top {len(top)}):")
+                    for m in top:
+                        print(
+                            f"  {m['name']:<50} I={m['instability']:.4f}  Ca={m['ca']} Ce={m['ce']}"
+                        )
+            else:
+                print(json.dumps({"metrics": top, "total": len(metrics)}, indent=2))
+
+        elif args.command == "detect-sdp":
+            from .architecture import find_sdp_violations
+
+            violations = find_sdp_violations(
+                store,
+                granularity=args.granularity,
+                min_delta=args.min_delta,
+            )
+            if args.format == "text":
+                if not violations:
+                    print("No SDP violations found.")
+                else:
+                    print(f"SDP violations ({len(violations)}):")
+                    for v in violations:
+                        print(
+                            f"  {v['source']:<40} -> {v['target']:<40}"
+                            f"  delta={v['delta']:.4f}"
+                            f"  (I_src={v['source_instability']:.4f}"
+                            f", I_tgt={v['target_instability']:.4f})"
+                        )
+            else:
+                print(json.dumps({"violations": violations, "count": len(violations)}, indent=2))
 
     finally:
         store.close()

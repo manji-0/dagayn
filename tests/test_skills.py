@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from dagayn.skills import (
     _CLAUDE_MD_SECTION_MARKER,
+    _MARKDOWN_POLICY_MARKER,
     PLATFORMS,
     _cursor_hook_scripts,
     _detect_serve_command,
@@ -307,6 +308,31 @@ class TestInjectClaudeMd:
         assert first_content == second_content
         assert second_content.count(_CLAUDE_MD_SECTION_MARKER) == 1
 
+    def test_also_injects_markdown_policy(self, tmp_path):
+        inject_claude_md(tmp_path)
+        content = (tmp_path / "CLAUDE.md").read_text()
+        assert _MARKDOWN_POLICY_MARKER in content
+        assert "constrained-by" in content
+
+    def test_policy_idempotent(self, tmp_path):
+        inject_claude_md(tmp_path)
+        first = (tmp_path / "CLAUDE.md").read_text()
+        inject_claude_md(tmp_path)
+        second = (tmp_path / "CLAUDE.md").read_text()
+        assert first == second
+        assert second.count(_MARKDOWN_POLICY_MARKER) == 1
+
+    def test_policy_appended_to_existing_mcp_section(self, tmp_path):
+        """Re-install onto a file that already has the MCP tools section adds the policy."""
+        claude_md = tmp_path / "CLAUDE.md"
+        claude_md.write_text(f"{_CLAUDE_MD_SECTION_MARKER}\n## MCP Tools: dagayn\n(existing)\n")
+
+        inject_claude_md(tmp_path)
+
+        content = claude_md.read_text()
+        assert content.count(_CLAUDE_MD_SECTION_MARKER) == 1
+        assert _MARKDOWN_POLICY_MARKER in content
+
 
 class TestInjectPlatformInstructionsFiltering:
     def test_all_writes_every_file(self, tmp_path):
@@ -366,6 +392,32 @@ class TestInjectPlatformInstructionsFiltering:
         assert not (tmp_path / "GEMINI.md").exists()
         assert not (tmp_path / ".cursorrules").exists()
         assert not (tmp_path / ".windsurfrules").exists()
+
+    def test_files_contain_markdown_policy(self, tmp_path):
+        inject_platform_instructions(tmp_path, target="all")
+        for filename in ("AGENTS.md", "GEMINI.md", ".cursorrules", ".windsurfrules", "QODER.md"):
+            content = (tmp_path / filename).read_text()
+            assert _MARKDOWN_POLICY_MARKER in content, f"{filename} missing policy marker"
+
+    def test_policy_injected_when_only_mcp_section_exists(self, tmp_path):
+        """Existing file with only the MCP section gets the policy section on re-run."""
+        agents_md = tmp_path / "AGENTS.md"
+        agents_md.write_text(f"{_CLAUDE_MD_SECTION_MARKER}\n## MCP Tools: dagayn\n(stale)\n")
+
+        updated = inject_platform_instructions(tmp_path, target="opencode")
+
+        assert updated == ["AGENTS.md"]
+        content = agents_md.read_text()
+        assert content.count(_CLAUDE_MD_SECTION_MARKER) == 1
+        assert _MARKDOWN_POLICY_MARKER in content
+
+    def test_idempotent_with_both_sections(self, tmp_path):
+        inject_platform_instructions(tmp_path, target="windsurf")
+        first = (tmp_path / ".windsurfrules").read_text()
+        updated = inject_platform_instructions(tmp_path, target="windsurf")
+        second = (tmp_path / ".windsurfrules").read_text()
+        assert updated == []
+        assert first == second
 
 
 class TestInstallPlatformConfigs:
