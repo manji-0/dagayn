@@ -1,6 +1,6 @@
 # SAP metrics specification (WIP)
 
-> **Status:** Work in progress. This document describes the intended fork behavior and analysis contract for Stable Abstractions Principle metrics. It is not fully implemented yet.
+> **Status:** Implemented. CLI commands `sap-metrics` / `detect-sap` and MCP tools `compute_sap_metrics_tool` / `detect_sap_violations_tool` are available. See `dagayn/sap.py`, `dagayn/tools/sap_tools.py`, and `tests/test_sap.py`.
 
 ## Purpose
 
@@ -49,23 +49,24 @@ Examples:
 
 ## Edge semantics
 
-Type-dependency edges used by SAP are:
+**Default and only** dependency edges for Ce/Ca (fixed, not configurable):
 
-- `INHERITS`
-- `IMPLEMENTS`
+- `IMPORTS_FROM` — explicit module-level import
+- `DEPENDS_ON` — generic dependency (used by Terraform, Markdown, and other non-import languages)
+- `INHERITS` — nominal inheritance or subtype extension
+- `IMPLEMENTS` — interface/protocol/trait conformance
 
-Interpretation:
+`CALLS` and `REFERENCES` are excluded because they produce noise in dynamic languages (e.g., calling `len()`) and do not cleanly signal cross-boundary coupling.
 
-- `INHERITS` means nominal inheritance or subtype extension
-- `IMPLEMENTS` means interface/protocol/trait conformance
+### Type-name fallback resolution
 
-Additional dependency edges that may contribute to instability:
+`INHERITS`/`IMPLEMENTS` targets are bare type names (e.g., `EmbeddingProvider`) rather than qualified paths.
+Resolution proceeds in two stages:
+1. Try `edge.target` as a qualified name (file-path-prefixed)
+2. If not found, try `edge.target` as a bare name — succeeds only when **exactly one** node in the repo has that name
+3. If ambiguous (multiple nodes share the name) or not found, the edge is silently dropped
 
-- `IMPORTS_FROM`
-- `CALLS`
-- `REFERENCES`
-
-The exact edge set should be configurable per query.
+Stdlib types (`ABC`, `list`, etc.) are dropped in stage 2 because they have no matching repo node.
 
 ## Metric formulas
 

@@ -1275,3 +1275,107 @@ class TestModuleScopeCalls:
         imports = [e for e in edges if e.kind == "IMPORTS_FROM"]
         targets = {e.target for e in imports}
         assert str((pkg / "utils.py").resolve()) in targets
+
+
+class TestTypeRoleAndImplements:
+    """Tests for type_role/is_abstract/is_contract on Class nodes and
+    INHERITS/IMPLEMENTS edge emission (parser Phase 1)."""
+
+    def setup_method(self):
+        self.parser = CodeParser()
+
+    def _parse(self, source: str, language: str, tmp_path: Path):
+        p = tmp_path / f"file.{language}"
+        p.write_text(source, encoding="utf-8")
+        return self.parser.parse_file(p)
+
+    # --- Java ---
+
+    def test_java_interface_node_role(self, tmp_path):
+        nodes, _ = self._parse("interface IFoo {}", "java", tmp_path)
+        iface = next((n for n in nodes if n.name == "IFoo"), None)
+        assert iface is not None
+        assert iface.extra.get("type_role") == "interface"
+        assert iface.extra.get("is_contract") is True
+
+    def test_java_implements_edge(self, tmp_path):
+        src = "interface IFoo {} class Bar implements IFoo {}"
+        _, edges = self._parse(src, "java", tmp_path)
+        impl = [e for e in edges if e.kind == "IMPLEMENTS"]
+        assert any("Bar" in e.source and "IFoo" in e.target for e in impl)
+
+    def test_java_extends_edge(self, tmp_path):
+        src = "class Base {} class Child extends Base {}"
+        _, edges = self._parse(src, "java", tmp_path)
+        inh = [e for e in edges if e.kind == "INHERITS"]
+        assert any("Child" in e.source and "Base" in e.target for e in inh)
+
+    def test_java_both_edges(self, tmp_path):
+        src = "interface IFoo {} class Base {} class Child extends Base implements IFoo {}"
+        _, edges = self._parse(src, "java", tmp_path)
+        impl_edges = [e for e in edges if e.kind == "IMPLEMENTS"]
+        inh_edges = [e for e in edges if e.kind == "INHERITS"]
+        assert any("Child" in e.source and "IFoo" in e.target for e in impl_edges)
+        assert any("Child" in e.source and "Base" in e.target for e in inh_edges)
+
+    def test_java_edge_has_extra(self, tmp_path):
+        src = "interface IFoo {} class Bar implements IFoo {}"
+        _, edges = self._parse(src, "java", tmp_path)
+        impl = next(e for e in edges if e.kind == "IMPLEMENTS")
+        assert "relationship_role" in impl.extra
+        assert impl.extra["relationship_role"] == "implements"
+
+    # --- TypeScript ---
+
+    def test_typescript_interface_role(self, tmp_path):
+        nodes, _ = self._parse("interface IBar {}", "ts", tmp_path)
+        iface = next((n for n in nodes if n.name == "IBar"), None)
+        assert iface is not None
+        assert iface.extra.get("type_role") == "interface"
+
+    def test_typescript_implements_edge(self, tmp_path):
+        src = "interface IBar {} class Foo implements IBar {}"
+        _, edges = self._parse(src, "ts", tmp_path)
+        impl = [e for e in edges if e.kind == "IMPLEMENTS"]
+        assert any("Foo" in e.source and "IBar" in e.target for e in impl)
+
+    def test_typescript_extends_edge(self, tmp_path):
+        src = "class Animal {} class Dog extends Animal {}"
+        _, edges = self._parse(src, "ts", tmp_path)
+        inh = [e for e in edges if e.kind == "INHERITS"]
+        assert any("Dog" in e.source and "Animal" in e.target for e in inh)
+
+    # --- Python ---
+
+    def test_python_abc_class_role(self, tmp_path):
+        src = "from abc import ABC\nclass MyABC(ABC): pass\n"
+        nodes, _ = self._parse(src, "py", tmp_path)
+        abc_node = next((n for n in nodes if n.name == "MyABC"), None)
+        assert abc_node is not None
+        assert abc_node.extra.get("type_role") == "abstract_class"
+        assert abc_node.extra.get("is_abstract") is True
+
+    def test_python_plain_class_role(self, tmp_path):
+        src = "class Foo: pass\n"
+        nodes, _ = self._parse(src, "py", tmp_path)
+        cls = next((n for n in nodes if n.name == "Foo"), None)
+        assert cls is not None
+        assert cls.extra.get("type_role") == "class"
+
+    # --- Dart ---
+
+    def test_dart_implements_edge(self, tmp_path):
+        src = "abstract class IFoo {} class Bar implements IFoo {}"
+        _, edges = self._parse(src, "dart", tmp_path)
+        impl = [e for e in edges if e.kind == "IMPLEMENTS"]
+        assert any("Bar" in e.source and "IFoo" in e.target for e in impl)
+
+    # --- Scala ---
+
+    def test_scala_trait_role(self, tmp_path):
+        src = "trait Flyable {}"
+        nodes, _ = self._parse(src, "scala", tmp_path)
+        trait = next((n for n in nodes if n.name == "Flyable"), None)
+        assert trait is not None
+        assert trait.extra.get("type_role") == "trait"
+        assert trait.extra.get("is_contract") is True

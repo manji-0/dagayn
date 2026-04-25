@@ -471,3 +471,89 @@ class TestFindSdpViolations:
         from dagayn.architecture import find_sdp_violations
 
         assert find_sdp_violations(empty_store) == []
+
+
+# ---------------------------------------------------------------------------
+# INHERITS/IMPLEMENTS in SDP
+# ---------------------------------------------------------------------------
+
+
+def _class_node(name: str, file_path: str) -> NodeInfo:
+    return NodeInfo(
+        kind="Class",
+        name=name,
+        file_path=file_path,
+        line_start=1,
+        line_end=10,
+        language="python",
+        parent_name=None,
+        params=None,
+        return_type=None,
+        modifiers=None,
+        is_test=False,
+        extra={"type_role": "class"},
+    )
+
+
+class TestInheritsInSdp:
+    def test_inherits_edge_contributes_to_ce(self, tmp_path):
+        """INHERITS edge where target resolves by qualified name contributes to Ce."""
+        from dagayn.architecture import compute_sdp_metrics
+
+        s = GraphStore(tmp_path / "inh.db")
+        for f in ("base/b.py", "impl/i.py"):
+            s.upsert_node(_node("File", f, f))
+        s.upsert_node(_class_node("Base", "base/b.py"))
+        s.upsert_node(_class_node("Impl", "impl/i.py"))
+        # INHERITS: Impl inherits Base (source=qualified_name, target=bare name)
+        s.upsert_edge(_edge("INHERITS", "impl/i.py::Impl", "Base"))
+        s.commit()
+
+        result = compute_sdp_metrics(s, granularity="package")
+        by_name = {r["name"]: r for r in result}
+        assert "impl" in by_name
+        assert "base" in by_name
+        # impl has outgoing dep on base → Ce=1, I=1.0
+        assert by_name["impl"]["ce"] == 1
+        # base has incoming dep from impl → Ca=1
+        assert by_name["base"]["ca"] == 1
+
+    def test_sdp_sap_instability_consistency(self, tmp_path):
+        """SDP and SAP produce the same instability for each scope (same edge set)."""
+        from dagayn.architecture import compute_sdp_metrics
+        from dagayn.sap import compute_sap_metrics
+
+        s = GraphStore(tmp_path / "consistency.db")
+        for f in ("api/i.py", "impl/c.py", "util/u.py"):
+            s.upsert_node(_node("File", f, f))
+        s.upsert_node(
+            NodeInfo(
+                kind="Class",
+                name="IFoo",
+                file_path="api/i.py",
+                line_start=1,
+                line_end=5,
+                language="python",
+                parent_name=None,
+                params=None,
+                return_type=None,
+                modifiers=None,
+                is_test=False,
+                extra={"type_role": "interface", "is_contract": True},
+            )
+        )
+        s.upsert_edge(_edge("IMPORTS_FROM", "impl/c.py", "api/i.py"))
+        s.upsert_edge(_edge("IMPORTS_FROM", "api/i.py", "util/u.py"))
+        s.commit()
+
+        sdp = {r["name"]: r["instability"] for r in compute_sdp_metrics(s, granularity="package")}
+        sap = {
+            r["scope_key"]: r["instability"] for r in compute_sap_metrics(s, scope_kind="package")
+        }
+
+        common = set(sdp) & set(sap)
+        assert common, "No common scopes between SDP and SAP"
+        for sk in common:
+            assert abs(sdp[sk] - sap[sk]) < 1e-6, (
+                f"Instability mismatch for {sk}: SDP={sdp[sk]}, SAP={sap[sk]}"
+            )

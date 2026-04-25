@@ -1,6 +1,6 @@
 """MCP tool definitions for the Dagayn server.
 
-Exposes 31 tools:
+Exposes 33 tools:
 1. build_or_update_graph  - full or incremental build
 2. get_impact_radius      - blast radius from changed files
 3. query_graph            - predefined graph queries
@@ -32,6 +32,8 @@ Exposes 31 tools:
 29. detect_adp_violations - find cyclic dependencies (ADP violations)
 30. compute_sdp_metrics   - instability scores per module/package (SDP)
 31. detect_sdp_violations - find dependencies pointing toward instability (SDP)
+32. compute_sap_metrics   - abstractness/instability/distance scores per scope (SAP)
+33. detect_sap_violations - find scopes far from the main sequence (SAP)
 """
 
 from __future__ import annotations
@@ -112,6 +114,9 @@ from .review import (
     get_review_context,
 )
 
+# -- sap_tools --------------------------------------------------------------
+from .sap_tools import compute_sap_metrics_func, detect_sap_violations_func
+
 __all__ = [
     # _common
     "_BUILTIN_CALL_NAMES",
@@ -161,6 +166,9 @@ __all__ = [
     "compute_sdp_metrics_func",
     "detect_adp_violations_func",
     "detect_sdp_violations_func",
+    # sap_tools
+    "compute_sap_metrics_func",
+    "detect_sap_violations_func",
     # re-exported for backward compat (used in test patches)
     "get_changed_files",
     "get_staged_and_unstaged",

@@ -1,5 +1,7 @@
 # SAP metric design for dagayn
 
+> **Status:** Implemented. See `dagayn/sap.py` and `dagayn/tools/sap_tools.py`.
+
 ## Goal
 
 Add support for evaluating the Stable Abstractions Principle (SAP) in dagayn by defining:

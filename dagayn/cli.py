@@ -121,6 +121,8 @@ def _print_banner() -> None:
     {g}detect-adp{r}    Detect cyclic dependencies {d}(ADP violations){r}
     {g}sdp-metrics{r}   Compute instability scores {d}(SDP metrics){r}
     {g}detect-sdp{r}    Detect stability-direction violations {d}(SDP){r}
+    {g}sap-metrics{r}  Compute abstractness/instability/distance {d}(SAP metrics){r}
+    {g}detect-sap{r}   Detect scopes far from the main sequence {d}(SAP){r}
     {g}register{r}    Register a repository in the multi-repo registry
     {g}unregister{r}  Remove a repository from the registry
     {g}repos{r}       List registered repositories
@@ -602,6 +604,56 @@ def main() -> None:
         help="Output format (default: json)",
     )
     detect_sdp_cmd.add_argument("--repo", default=None, help="Repository root (auto-detected)")
+
+    # sap-metrics
+    sap_metrics_cmd = sub.add_parser(
+        "sap-metrics", help="Compute abstractness/instability/distance scores per scope (SAP)"
+    )
+    sap_metrics_cmd.add_argument(
+        "--scope-kind",
+        choices=["package", "file", "directory"],
+        default="package",
+        help="Aggregation level: 'package' (directory) or 'file' (default: package)",
+    )
+    sap_metrics_cmd.add_argument(
+        "--unit-filter",
+        default=None,
+        help="Comma-separated scope_key prefixes to restrict output",
+    )
+    sap_metrics_cmd.add_argument(
+        "--top-n", type=int, default=30, help="Number of entries to return (default: 30)"
+    )
+    sap_metrics_cmd.add_argument(
+        "--format",
+        choices=["json", "text"],
+        default="json",
+        help="Output format (default: json)",
+    )
+    sap_metrics_cmd.add_argument("--repo", default=None, help="Repository root (auto-detected)")
+
+    # detect-sap
+    detect_sap_cmd = sub.add_parser(
+        "detect-sap", help="Detect scopes far from the main sequence (SAP violations)"
+    )
+    detect_sap_cmd.add_argument(
+        "--scope-kind",
+        choices=["package", "file", "directory"],
+        default="package",
+        help="Aggregation level (default: package)",
+    )
+    detect_sap_cmd.add_argument(
+        "--min-distance",
+        type=float,
+        default=0.5,
+        help="Minimum D value to flag (default: 0.5)",
+    )
+    detect_sap_cmd.add_argument(
+        "--format",
+        choices=["json", "text"],
+        default="json",
+        help="Output format (default: json)",
+    )
+    detect_sap_cmd.add_argument("--repo", default=None, help="Repository root (auto-detected)")
 
     # serve
     serve_cmd = sub.add_parser(
@@ -1132,6 +1184,56 @@ def main() -> None:
                             f"  delta={v['delta']:.4f}"
                             f"  (I_src={v['source_instability']:.4f}"
                             f", I_tgt={v['target_instability']:.4f})"
+                        )
+            else:
+                print(json.dumps({"violations": violations, "count": len(violations)}, indent=2))
+
+        elif args.command == "sap-metrics":
+            from .sap import compute_sap_metrics
+
+            unit_filter = (
+                [p.strip() for p in args.unit_filter.split(",")] if args.unit_filter else None
+            )
+            metrics = compute_sap_metrics(
+                store,
+                scope_kind=args.scope_kind,
+                unit_filter=unit_filter,
+            )
+            top = metrics[: args.top_n]
+            if args.format == "text":
+                if not top:
+                    print("No scope data found.")
+                else:
+                    print(f"SAP metrics ({args.scope_kind}-level, top {len(top)}):")
+                    for m in top:
+                        print(
+                            f"  {m['scope_key']:<50}"
+                            f"  A={m['abstractness']:.4f}"
+                            f"  I={m['instability']:.4f}"
+                            f"  D={m['distance']:.4f}"
+                        )
+            else:
+                print(json.dumps({"metrics": top, "total": len(metrics)}, indent=2))
+
+        elif args.command == "detect-sap":
+            from .sap import find_sap_violations
+
+            violations = find_sap_violations(
+                store,
+                scope_kind=args.scope_kind,
+                min_distance=args.min_distance,
+            )
+            if args.format == "text":
+                if not violations:
+                    print("No SAP violations found.")
+                else:
+                    print(f"SAP violations ({len(violations)}):")
+                    for v in violations:
+                        print(
+                            f"  {v['scope_key']:<50}"
+                            f"  D={v['distance']:.4f}"
+                            f"  (A={v['abstractness']:.4f}"
+                            f", I={v['instability']:.4f})"
                         )
             else:
                 print(json.dumps({"violations": violations, "count": len(violations)}, indent=2))

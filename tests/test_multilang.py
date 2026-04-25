@@ -150,30 +150,31 @@ class TestJavaParsing:
         assert len(imports) >= 2
 
     def test_finds_inheritance(self):
-        inherits = [e for e in self.edges if e.kind == "INHERITS"]
-        # InMemoryRepo implements UserRepository + CachedRepo extends InMemoryRepo
-        assert len(inherits) >= 2
-        targets = {e.target for e in inherits}
+        # InMemoryRepo implements UserRepository (IMPLEMENTS edge)
+        # CachedRepo extends InMemoryRepo (INHERITS edge)
+        type_edges = [e for e in self.edges if e.kind in ("INHERITS", "IMPLEMENTS")]
+        assert len(type_edges) >= 2
+        targets = {e.target for e in type_edges}
         assert "UserRepository" in targets
         assert "InMemoryRepo" in targets
 
     def test_inheritance_target_is_bare_name(self):
-        """INHERITS edge target must be the type name, not 'implements Foo'.
+        """INHERITS/IMPLEMENTS edge target must be the type name, not 'implements Foo'.
 
         tree-sitter-java wraps extends/implements in superclass and
         super_interfaces nodes whose .text includes the keyword.
         Without the Java-specific branch in _get_bases the full text
         (e.g. 'implements UserRepository') is stored as the edge target.
         """
-        inherits = [e for e in self.edges if e.kind == "INHERITS"]
+        type_edges = [e for e in self.edges if e.kind in ("INHERITS", "IMPLEMENTS")]
         # Must have both extends and implements edges to test both paths
-        assert len(inherits) >= 2, "Expected at least 2 INHERITS edges (extends + implements)"
-        for e in inherits:
+        assert len(type_edges) >= 2, "Expected at least 2 type edges (extends + implements)"
+        for e in type_edges:
             assert not e.target.startswith("implements "), (
-                f"INHERITS target should be bare type name, got: {e.target!r}"
+                f"Edge target should be bare type name, got: {e.target!r}"
             )
             assert not e.target.startswith("extends "), (
-                f"INHERITS target should be bare type name, got: {e.target!r}"
+                f"Edge target should be bare type name, got: {e.target!r}"
             )
 
     def test_finds_calls(self):
@@ -527,8 +528,9 @@ class TestScalaParsing:
         assert len(imports) >= 3
 
     def test_finds_inheritance(self):
-        inherits = [e for e in self.edges if e.kind == "INHERITS"]
-        targets = {e.target for e in inherits}
+        # Scala: first parent -> INHERITS, with-clauses -> IMPLEMENTS
+        type_edges = [e for e in self.edges if e.kind in ("INHERITS", "IMPLEMENTS")]
+        targets = {e.target for e in type_edges}
         assert "Repository" in targets
         assert "Serializable" in targets
 

@@ -206,8 +206,8 @@ _SHEBANG_PROBE_BYTES = 256
 _CLASS_TYPES: dict[str, list[str]] = {
     "python": ["class_definition"],
     "javascript": ["class_declaration", "class"],
-    "typescript": ["class_declaration", "class"],
-    "tsx": ["class_declaration", "class"],
+    "typescript": ["class_declaration", "class", "interface_declaration"],
+    "tsx": ["class_declaration", "class", "interface_declaration"],
     "go": ["type_declaration"],
     "rust": ["struct_item", "enum_item", "impl_item"],
     "java": ["class_declaration", "interface_declaration", "enum_declaration"],
@@ -856,6 +856,86 @@ def _ensure_compiled_vendored_binding(
             logger.debug("%s binding build stderr: %s", display_name, exc.stderr)
         return None
     return output_path if output_path.exists() else None
+
+
+# ---------------------------------------------------------------------------
+# Type-role resolution helpers (module-level, used by CodeParser._extract_classes)
+# ---------------------------------------------------------------------------
+
+_TS_NODE_TO_TYPE_ROLE: dict[str, str] = {
+    "interface_declaration": "interface",
+    "protocol_declaration": "protocol",
+    "trait_definition": "trait",
+    "trait_declaration": "trait",
+    "mixin_declaration": "mixin",
+    "abstract_definition": "abstract_type",  # Julia
+    "enum_declaration": "enum",
+    "enum_definition": "enum",
+    "struct_declaration": "struct",
+    "struct_specifier": "struct",
+    "struct_definition": "struct",
+    "object_definition": "class",  # Scala companion object
+}
+
+_CONTRACT_ROLES: frozenset[str] = frozenset({"interface", "protocol", "trait"})
+
+_SWIFT_KIND_TO_ROLE: dict[str, str] = {
+    "class": "class",
+    "struct": "struct",
+    "enum": "enum",
+    "actor": "class",
+    "extension": "class",
+    "protocol": "protocol",
+}
+
+
+def _resolve_type_role(node, language: str) -> tuple[str, bool, bool]:
+    """Return (type_role, is_abstract, is_contract) for a class-like AST node.
+
+    type_role is one of: class, abstract_class, interface, protocol, trait,
+    abstract_type, mixin, enum, struct.
+    """
+    role = _TS_NODE_TO_TYPE_ROLE.get(node.type, "class")
+
+    if language == "swift":
+        if node.type == "protocol_declaration":
+            role = "protocol"
+        elif node.type == "class_declaration":
+            _swift_kws = {"class", "struct", "enum", "actor", "extension"}
+            for kw_child in node.children:
+                kw = kw_child.text.decode("utf-8", errors="replace")
+                if kw in _swift_kws:
+                    role = _SWIFT_KIND_TO_ROLE.get(kw, "class")
+                    break
+
+    if language in ("java", "csharp", "kotlin") and role == "class":
+        for child in node.children:
+            if child.type == "modifiers":
+                mod_text = child.text.decode("utf-8", errors="replace")
+                if "abstract" in mod_text.split():
+                    role = "abstract_class"
+                    break
+
+    if language == "python" and role == "class":
+        for child in node.children:
+            if child.type == "argument_list":
+                for arg in child.children:
+                    if arg.type in ("identifier", "attribute"):
+                        arg_name = arg.text.decode("utf-8", errors="replace")
+                        if arg_name in ("ABC", "ABCMeta") or arg_name.endswith(".ABC"):
+                            role = "abstract_class"
+                            break
+
+    # Dart: abstract modifier appears as a keyword sibling of the class keyword.
+    if language == "dart" and role == "class":
+        for child in node.children:
+            if child.type == "abstract" or child.text == b"abstract":
+                role = "abstract_class"
+                break
+
+    is_contract = role in _CONTRACT_ROLES
+    is_abstract = is_contract or role in ("abstract_class", "abstract_type")
+    return role, is_abstract, is_contract
 
 
 # ---------------------------------------------------------------------------
@@ -4214,11 +4294,15 @@ class CodeParser:
         if not name:
             return False
 
-        # Swift: detect the actual type keyword (class/struct/enum/actor/extension)
-        # and store it in extra["swift_kind"] for richer downstream analysis.
-        # Tree-sitter maps struct/enum/actor/extension all to class_declaration;
-        # protocol uses its own protocol_declaration node type.
         extra: dict = {}
+        _type_role, _is_abstract, _is_contract = _resolve_type_role(child, language)
+        extra["type_role"] = _type_role
+        if _is_abstract:
+            extra["is_abstract"] = True
+        if _is_contract:
+            extra["is_contract"] = True
+
+        # Swift: also preserve swift_kind for backward compatibility.
         if language == "swift":
             if child.type == "class_declaration":
                 _swift_keywords = {"class", "struct", "enum", "actor", "extension"}
@@ -4253,20 +4337,22 @@ class CodeParser:
             )
         )
 
-        # Inheritance edges
+        # Inheritance / implementation edges
         bases = self._get_bases(child, language, source)
-        for base in bases:
+        for base_name, base_role in bases:
+            edge_kind = "IMPLEMENTS" if base_role == "implements" else "INHERITS"
             edges.append(
                 EdgeInfo(
-                    kind="INHERITS",
+                    kind=edge_kind,
                     source=self._qualify(
                         name,
                         file_path,
                         enclosing_class,
                     ),
-                    target=base,
+                    target=base_name,
                     file_path=file_path,
                     line=child.start_point[0] + 1,
+                    extra={"relationship_role": base_role, "syntax_source": child.type},
                 )
             )
 
@@ -6248,33 +6334,46 @@ class CodeParser:
                     return node.children[i + 1].text.decode("utf-8", errors="replace")
         return None
 
-    def _get_bases(self, node, language: str, source: bytes) -> list[str]:
-        """Extract base classes / implemented interfaces."""
-        bases = []
+    def _get_bases(self, node, language: str, source: bytes) -> list[tuple[str, str]]:
+        """Extract base classes and interfaces with relationship roles.
+
+        Returns list of (name, role) tuples where role is "extends" or
+        "implements". Languages that cannot distinguish the two use "extends".
+        """
+        bases: list[tuple[str, str]] = []
         if language == "python":
             for child in node.children:
                 if child.type == "argument_list":
                     for arg in child.children:
                         if arg.type in ("identifier", "attribute"):
-                            bases.append(arg.text.decode("utf-8", errors="replace"))
+                            bases.append((arg.text.decode("utf-8", errors="replace"), "extends"))
         elif language == "java":
-            # Java: superclass and super_interfaces wrap the keyword
-            # (extends/implements) around type_identifier children.
-            # Taking .text would include the keyword (e.g. "implements Foo").
-            # Drill into the children to extract bare type names.
+            # Java: superclass -> extends, super_interfaces -> implements.
             for child in node.children:
                 if child.type == "superclass":
                     for sub in child.children:
                         if sub.type in ("type_identifier", "generic_type"):
-                            bases.append(sub.text.decode("utf-8", errors="replace"))
+                            bases.append((sub.text.decode("utf-8", errors="replace"), "extends"))
                 elif child.type == "super_interfaces":
                     for sub in child.children:
                         if sub.type == "type_list":
                             for ident in sub.children:
                                 if ident.type in ("type_identifier", "generic_type"):
-                                    bases.append(ident.text.decode("utf-8", errors="replace"))
+                                    bases.append(
+                                        (
+                                            ident.text.decode("utf-8", errors="replace"),
+                                            "implements",
+                                        )
+                                    )
         elif language in ("csharp", "kotlin"):
-            # Look for superclass/interfaces in extends/implements clauses
+            # C#/Kotlin: map known "implements" node types; fall back to extends.
+            _implements_types = frozenset(
+                {
+                    "super_interfaces",
+                    "implements_type",
+                    "delegation_specifier",
+                }
+            )
             for child in node.children:
                 if child.type in (
                     "superclass",
@@ -6285,44 +6384,66 @@ class CodeParser:
                     "supertype",
                     "delegation_specifier",
                 ):
+                    role = "implements" if child.type in _implements_types else "extends"
                     text = child.text.decode("utf-8", errors="replace")
-                    bases.append(text)
+                    bases.append((text, role))
         elif language == "scala":
+            # Scala: first type in extends_clause is the superclass; remaining
+            # entries (with-clause types) are treated as implements.
             for child in node.children:
                 if child.type == "extends_clause":
+                    first = True
                     for sub in child.children:
                         if sub.type == "type_identifier":
-                            bases.append(sub.text.decode("utf-8", errors="replace"))
+                            role = "extends" if first else "implements"
+                            bases.append((sub.text.decode("utf-8", errors="replace"), role))
+                            first = False
                         elif sub.type == "generic_type":
                             for ident in sub.children:
                                 if ident.type == "type_identifier":
-                                    bases.append(ident.text.decode("utf-8", errors="replace"))
+                                    role = "extends" if first else "implements"
+                                    bases.append(
+                                        (ident.text.decode("utf-8", errors="replace"), role)
+                                    )
+                                    first = False
                                     break
         elif language == "cpp":
-            # C++: base_class_clause contains type_identifiers
+            # C++: no language-level extends/implements distinction.
             for child in node.children:
                 if child.type == "base_class_clause":
                     for sub in child.children:
                         if sub.type == "type_identifier":
-                            bases.append(sub.text.decode("utf-8", errors="replace"))
+                            bases.append((sub.text.decode("utf-8", errors="replace"), "extends"))
         elif language in ("typescript", "javascript", "tsx"):
-            # extends clause
-            for child in node.children:
-                if child.type in ("extends_clause", "implements_clause"):
-                    for sub in child.children:
-                        if sub.type in ("identifier", "type_identifier", "nested_identifier"):
-                            bases.append(sub.text.decode("utf-8", errors="replace"))
+            # TS/JS: extends_clause -> extends, implements_clause -> implements.
+            # Both can appear as direct children or inside a class_heritage node.
+            def _collect_ts_heritage(parent):
+                for child in parent.children:
+                    if child.type in ("extends_clause", "implements_clause"):
+                        role = "implements" if child.type == "implements_clause" else "extends"
+                        for sub in child.children:
+                            if sub.type in ("identifier", "type_identifier", "nested_identifier"):
+                                bases.append((sub.text.decode("utf-8", errors="replace"), role))
+                    elif child.type == "class_heritage":
+                        _collect_ts_heritage(child)
+
+            _collect_ts_heritage(node)
         elif language == "solidity":
-            # contract Foo is Bar, Baz { ... }
+            # Solidity: contract Foo is Bar, Baz { ... }
             for child in node.children:
                 if child.type == "inheritance_specifier":
                     for sub in child.children:
                         if sub.type == "user_defined_type":
                             for ident in sub.children:
                                 if ident.type == "identifier":
-                                    bases.append(ident.text.decode("utf-8", errors="replace"))
+                                    bases.append(
+                                        (
+                                            ident.text.decode("utf-8", errors="replace"),
+                                            "extends",
+                                        )
+                                    )
         elif language == "go":
-            # Embedded structs / interface composition
+            # Embedded structs / interface composition — no extends/implements split.
             for child in node.children:
                 if child.type == "type_spec":
                     for sub in child.children:
@@ -6331,34 +6452,45 @@ class CodeParser:
                                 if field_node.type == "field_declaration_list":
                                     for f in field_node.children:
                                         if f.type == "type_identifier":
-                                            bases.append(f.text.decode("utf-8", errors="replace"))
+                                            bases.append(
+                                                (
+                                                    f.text.decode("utf-8", errors="replace"),
+                                                    "extends",
+                                                )
+                                            )
         elif language == "dart":
-            # class Foo extends Bar with Mixin implements Iface { ... }
-            # AST: superclass contains type_identifier (base) and mixins (with clause);
-            #      interfaces is a sibling of superclass.
+            # Dart: superclass/mixins -> extends, interfaces -> implements.
             for child in node.children:
                 if child.type == "superclass":
                     for sub in child.children:
                         if sub.type == "type_identifier":
-                            bases.append(sub.text.decode("utf-8", errors="replace"))
+                            bases.append((sub.text.decode("utf-8", errors="replace"), "extends"))
                         elif sub.type == "mixins":
                             for m in sub.children:
                                 if m.type == "type_identifier":
-                                    bases.append(m.text.decode("utf-8", errors="replace"))
+                                    bases.append(
+                                        (m.text.decode("utf-8", errors="replace"), "extends")
+                                    )
                 elif child.type == "interfaces":
                     for sub in child.children:
                         if sub.type == "type_identifier":
-                            bases.append(sub.text.decode("utf-8", errors="replace"))
+                            bases.append((sub.text.decode("utf-8", errors="replace"), "implements"))
         elif language == "swift":
             # Swift: class Foo: Bar, Baz { ... } / extension Foo: Protocol { ... }
-            # AST: inheritance_specifier > user_type > type_identifier
+            # AST: inheritance_specifier > user_type > type_identifier.
+            # Two-pass protocol detection is deferred; use extends for all.
             for child in node.children:
                 if child.type == "inheritance_specifier":
                     for sub in child.children:
                         if sub.type == "user_type":
                             for ident in sub.children:
                                 if ident.type == "type_identifier":
-                                    bases.append(ident.text.decode("utf-8", errors="replace"))
+                                    bases.append(
+                                        (
+                                            ident.text.decode("utf-8", errors="replace"),
+                                            "extends",
+                                        )
+                                    )
                                     break
         elif language == "julia":
             if node.type in ("struct_definition", "abstract_definition"):
@@ -6376,12 +6508,19 @@ class CodeParser:
                             if not has_subtype_op:
                                 continue
                             if op_child.type == "identifier":
-                                bases.append(op_child.text.decode("utf-8", errors="replace"))
+                                bases.append(
+                                    (op_child.text.decode("utf-8", errors="replace"), "extends")
+                                )
                                 return bases
                             if op_child.type == "parametrized_type_expression":
                                 for ident in op_child.children:
                                     if ident.type == "identifier":
-                                        bases.append(ident.text.decode("utf-8", errors="replace"))
+                                        bases.append(
+                                            (
+                                                ident.text.decode("utf-8", errors="replace"),
+                                                "extends",
+                                            )
+                                        )
                                         return bases
         return bases
 

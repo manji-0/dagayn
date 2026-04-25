@@ -3,56 +3,47 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import Literal
 
 import networkx as nx
 
+from ._scope import build_node_scope_maps
 from .graph import GraphStore
 
 logger = logging.getLogger(__name__)
 
-_DEPENDENCY_EDGE_KINDS = frozenset({"IMPORTS_FROM", "DEPENDS_ON"})
-
-
-def _file_to_package(file_path: str) -> str:
-    parent = Path(file_path).parent.as_posix()
-    return "<root>" if parent == "." else parent
+_DEPENDENCY_EDGE_KINDS = frozenset({"IMPORTS_FROM", "DEPENDS_ON", "INHERITS", "IMPLEMENTS"})
 
 
 def _project_dependency_graph(
     store: GraphStore,
     granularity: Literal["file", "package"] = "package",
 ) -> nx.DiGraph:
-    """Build a directed dependency graph from IMPORTS_FROM/DEPENDS_ON edges.
+    """Build a directed dependency graph from dependency edges.
 
-    Only edges where both endpoints are known File nodes in the graph are
-    included — this filters out stdlib/external imports recorded as bare
-    names (e.g. "logging", "json") that are not File nodes.
+    Edges included: IMPORTS_FROM, DEPENDS_ON, INHERITS, IMPLEMENTS.
+    Both endpoints are resolved to scope keys; nodes that cannot be resolved
+    (e.g. stdlib types) are silently skipped. INHERITS/IMPLEMENTS targets are
+    resolved first by qualified name, then by bare name when exactly one
+    in-repo node carries that name.
 
-    For granularity="package", File nodes are aggregated by directory prefix.
+    For granularity="package", nodes are aggregated by directory prefix.
     Self-loops are removed. Edge weight holds the aggregated edge count.
     """
     g: nx.DiGraph = nx.DiGraph()
 
-    # Build the set of known file paths to filter out external/stdlib targets
-    file_paths: set[str] = {
-        n.qualified_name for n in store.get_all_nodes(exclude_files=False) if n.kind == "File"
-    }
+    qualified_to_scope, name_to_scope = build_node_scope_maps(store, granularity)
 
     for e in store.get_all_edges():
         if e.kind not in _DEPENDENCY_EDGE_KINDS:
             continue
-        if e.source_qualified not in file_paths or e.target_qualified not in file_paths:
+        src = qualified_to_scope.get(e.source_qualified)
+        if src is None:
             continue
-        if granularity == "package":
-            src = _file_to_package(e.source_qualified)
-            tgt = _file_to_package(e.target_qualified)
-        else:
-            src = e.source_qualified
-            tgt = e.target_qualified
-
-        if src == tgt:
+        tgt = qualified_to_scope.get(e.target_qualified)
+        if tgt is None:
+            tgt = name_to_scope.get(e.target_qualified)
+        if tgt is None or src == tgt:
             continue
 
         if g.has_edge(src, tgt):

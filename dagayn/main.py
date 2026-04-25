@@ -24,10 +24,12 @@ from .prompts import (
 from .tools import (
     apply_refactor_func,
     build_or_update_graph,
+    compute_sap_metrics_func,
     compute_sdp_metrics_func,
     cross_repo_search_func,
     detect_adp_violations_func,
     detect_changes_func,
+    detect_sap_violations_func,
     detect_sdp_violations_func,
     embed_graph,
     find_large_functions,
@@ -948,6 +950,63 @@ def detect_sdp_violations_tool(
         repo_root=_resolve_repo_root(repo_root),
         granularity=granularity,
         min_delta=min_delta,
+    )
+
+
+@mcp.tool()
+def compute_sap_metrics_tool(
+    scope_kind: Literal["file", "package", "directory"] = "package",
+    unit_filter: Optional[list[str]] = None,
+    top_n: int = 30,
+    repo_root: Optional[str] = None,
+) -> dict:
+    """Compute SAP abstractness, instability, and distance scores per scope.
+
+    Measures A = Na/Nt (abstractness), I = Ce/(Ca+Ce) (instability), and
+    D = |A+I-1| (distance from the main sequence) for each scope. Scopes
+    with high D are either in the Zone of Pain (concrete + stable) or the
+    Zone of Uselessness (abstract + unstable).
+
+    Dependency edges: IMPORTS_FROM + DEPENDS_ON + INHERITS + IMPLEMENTS (fixed).
+
+    Args:
+        scope_kind: "package" (directory-level, default), "file", or "directory".
+        unit_filter: Optional list of scope_key prefix strings to restrict output.
+        top_n: Return the N entries with highest distance. Default: 30.
+        repo_root: Repository root path. Auto-detected if omitted.
+    """
+    return compute_sap_metrics_func(
+        repo_root=_resolve_repo_root(repo_root),
+        scope_kind=scope_kind,
+        unit_filter=unit_filter,
+        top_n=top_n,
+    )
+
+
+@mcp.tool()
+def detect_sap_violations_tool(
+    scope_kind: Literal["file", "package", "directory"] = "package",
+    min_distance: float = 0.5,
+    repo_root: Optional[str] = None,
+) -> dict:
+    """Find scopes that violate the Stable Abstractions Principle.
+
+    Reports scopes where D = |A+I-1| > min_distance. High-D scopes are
+    architectural risks: Zone of Pain scopes are hard to change because
+    everything depends on them; Zone of Uselessness scopes are abstract
+    but have no dependents.
+
+    Dependency edges: IMPORTS_FROM + DEPENDS_ON + INHERITS + IMPLEMENTS (fixed).
+
+    Args:
+        scope_kind: "package" (default), "file", or "directory".
+        min_distance: Minimum D to flag (exclusive). Default: 0.5.
+        repo_root: Repository root path. Auto-detected if omitted.
+    """
+    return detect_sap_violations_func(
+        repo_root=_resolve_repo_root(repo_root),
+        scope_kind=scope_kind,
+        min_distance=min_distance,
     )
 
 
