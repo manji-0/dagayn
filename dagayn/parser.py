@@ -80,6 +80,9 @@ _MARKDOWN_DIRECTIVE_RE = re.compile(
 )
 _MARKDOWN_LINK_RE = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
 _MARKDOWN_REFERENCE_DEF_RE = re.compile(r"(?m)^\s*\[[^\]]+\]:\s*(\S+)")
+_MARKDOWN_CODE_SPAN_RE = re.compile(r"`([^`\n]+)`")
+_MARKDOWN_SYMBOL_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$")
+_MARKDOWN_SYMBOL_MIN_LEN = 3
 
 # ---------------------------------------------------------------------------
 # Data models for extracted entities
@@ -1693,6 +1696,7 @@ class CodeParser:
 
         self._extract_markdown_directives(path, text, file_path_str, headings, edges)
         self._extract_markdown_links(path, text, file_path_str, headings, edges)
+        self._extract_markdown_code_spans(text, file_path_str, headings, edges)
         return nodes, self._dedupe_markdown_edges(edges)
 
     def _markdown_collect_headings(self, root, source: bytes) -> list[dict[str, object]]:
@@ -1937,6 +1941,54 @@ class CodeParser:
                             extra={"markdown_import_kind": "link"},
                         )
                     )
+
+    def _extract_markdown_code_spans(
+        self,
+        text: str,
+        file_path: str,
+        headings: list[dict[str, object]],
+        edges: list[EdgeInfo],
+    ) -> None:
+        """Emit unresolved CROSS_ARTIFACT edges for inline code-span symbol refs.
+
+        Only backtick spans that match the identifier-shape regex and meet the
+        minimum length are emitted.  Resolution against actual graph nodes
+        happens in the postprocess step (_resolve_markdown_artifact_refs).
+        Fenced code blocks are not processed (too noisy for v1).
+        """
+        seen: set[tuple[str, str, int]] = set()
+        for match in _MARKDOWN_CODE_SPAN_RE.finditer(text):
+            sym = match.group(1).strip()
+            if len(sym) < _MARKDOWN_SYMBOL_MIN_LEN:
+                continue
+            if not _MARKDOWN_SYMBOL_RE.match(sym):
+                continue
+            line = text.count("\n", 0, match.start()) + 1
+            source = self._markdown_section_for_line(line, file_path, headings) or file_path
+            key = (source, sym, line)
+            if key in seen:
+                continue
+            seen.add(key)
+            edges.append(
+                EdgeInfo(
+                    kind="CROSS_ARTIFACT",
+                    source=source,
+                    target=f"<unresolved:{sym}>",
+                    file_path=file_path,
+                    line=line,
+                    extra={
+                        "relationship_role": "describes_symbol",
+                        "bridge_kind": "documentation",
+                        "evidence_kind": "markdown_code_span",
+                        "evidence_source": "code_span",
+                        "source_language": "markdown",
+                        "target_language": "unknown",
+                        "confidence": 0.2,
+                        "confidence_tier": "LOW",
+                        "unresolved_target_name": sym,
+                    },
+                )
+            )
 
     @staticmethod
     def _markdown_normalize_link_target(target: str) -> str:

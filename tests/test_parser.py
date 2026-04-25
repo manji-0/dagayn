@@ -1670,3 +1670,66 @@ class TestCrossArtifactEdges:
         ]
         assert len(low_edges) == 1
         assert "<dynamic:" in low_edges[0].target
+
+    # --- Markdown → code (doc → symbol) ---
+
+    def test_markdown_unresolved_edges_emitted(self):
+        _, edges = self.parser.parse_file(FIXTURES / "sample_doc_with_refs.md")
+        ca = [e for e in edges if e.kind == "CROSS_ARTIFACT"]
+        syms = {e.extra.get("unresolved_target_name") for e in ca}
+        assert "BridgePattern" in syms
+        assert "_detect_cross_language_bridge" in syms
+        assert "dagayn.parser" in syms
+        assert "_bridge_callee_signature" in syms
+        assert "_bridge_first_string_arg" in syms
+        assert "NonexistentSymbolXYZ" in syms
+
+    def test_markdown_filter_skips_non_symbols(self):
+        _, edges = self.parser.parse_file(FIXTURES / "sample_doc_with_refs.md")
+        ca = [e for e in edges if e.kind == "CROSS_ARTIFACT"]
+        syms = {e.extra.get("unresolved_target_name") for e in ca}
+        assert "git status" not in syms
+        assert "--flag" not in syms
+        assert "if" not in syms
+        assert "or" not in syms
+
+    def test_markdown_code_span_extra_shape(self):
+        _, edges = self.parser.parse_file(FIXTURES / "sample_doc_with_refs.md")
+        ca = [e for e in edges if e.kind == "CROSS_ARTIFACT"]
+        required = {
+            "relationship_role",
+            "bridge_kind",
+            "evidence_kind",
+            "evidence_source",
+            "source_language",
+            "target_language",
+            "confidence",
+            "confidence_tier",
+            "unresolved_target_name",
+        }
+        for edge in ca:
+            missing = required - edge.extra.keys()
+            assert not missing, f"Edge missing extra keys {missing}: {edge}"
+            assert edge.extra["relationship_role"] == "describes_symbol"
+            assert edge.extra["bridge_kind"] == "documentation"
+            assert edge.extra["evidence_kind"] == "markdown_code_span"
+            assert edge.extra["source_language"] == "markdown"
+            assert edge.target.startswith("<unresolved:")
+
+    def test_markdown_section_attribution(self):
+        _, edges = self.parser.parse_file(FIXTURES / "sample_doc_with_refs.md")
+        ca = [e for e in edges if e.kind == "CROSS_ARTIFACT"]
+
+        top_edge = next(
+            (e for e in ca if e.extra.get("unresolved_target_name") == "BridgePattern"),
+            None,
+        )
+        assert top_edge is not None
+        assert "api-overview" in top_edge.source
+
+        sub_edge = next(
+            (e for e in ca if e.extra.get("unresolved_target_name") == "_bridge_first_string_arg"),
+            None,
+        )
+        assert sub_edge is not None
+        assert "subsection" in sub_edge.source

@@ -69,6 +69,21 @@ def _run_postprocess(
         logger.warning("FTS index rebuild failed: %s", e)
         warnings.append(f"FTS index rebuild failed: {type(e).__name__}: {e}")
 
+    try:
+        from dagayn.postprocessing import _resolve_markdown_artifact_refs
+
+        _result: dict[str, Any] = {}
+        _resolve_markdown_artifact_refs(store, _result, warnings)
+        build_result["markdown_artifact_refs_resolved"] = _result.get(
+            "markdown_artifact_refs_resolved", 0
+        )
+        build_result["markdown_artifact_refs_dropped"] = _result.get(
+            "markdown_artifact_refs_dropped", 0
+        )
+    except (sqlite3.OperationalError, ImportError) as e:
+        logger.warning("Markdown artifact ref resolution failed: %s", e)
+        warnings.append(f"Markdown artifact ref resolution failed: {type(e).__name__}: {e}")
+
     if postprocess == "minimal":
         return warnings
 

@@ -1,5 +1,6 @@
 """Tests for the shared post-processing pipeline."""
 
+import json
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -7,7 +8,7 @@ from unittest.mock import MagicMock, patch
 from dagayn.graph import GraphStore
 from dagayn.incremental import full_build
 from dagayn.parser import EdgeInfo, NodeInfo
-from dagayn.postprocessing import run_post_processing
+from dagayn.postprocessing import _resolve_markdown_artifact_refs, run_post_processing
 
 
 def _get_signature(store, qualified_name):
@@ -325,3 +326,165 @@ class TestWatchCallbackIntegration:
             callback.assert_not_called()
         finally:
             store.close()
+
+
+class TestMarkdownArtifactResolver:
+    """Unit tests for _resolve_markdown_artifact_refs postprocess step."""
+
+    def setup_method(self):
+        self.tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self.store = GraphStore(self.tmp.name)
+
+    def teardown_method(self):
+        self.store.close()
+        Path(self.tmp.name).unlink(missing_ok=True)
+
+    def _unresolved_edge(self, sym: str, line: int = 5) -> EdgeInfo:
+        return EdgeInfo(
+            kind="CROSS_ARTIFACT",
+            source="/repo/docs/spec.md::section",
+            target=f"<unresolved:{sym}>",
+            file_path="/repo/docs/spec.md",
+            line=line,
+            extra={
+                "relationship_role": "describes_symbol",
+                "bridge_kind": "documentation",
+                "evidence_kind": "markdown_code_span",
+                "evidence_source": "code_span",
+                "source_language": "markdown",
+                "target_language": "unknown",
+                "confidence": 0.2,
+                "confidence_tier": "LOW",
+                "unresolved_target_name": sym,
+            },
+        )
+
+    def test_resolves_unique_match_to_high(self):
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Class",
+                name="BridgePattern",
+                file_path="/repo/parser.py",
+                line_start=1,
+                line_end=10,
+                language="python",
+            )
+        )
+        self.store.upsert_edge(self._unresolved_edge("BridgePattern"))
+        self.store.commit()
+
+        result: dict = {}
+        _resolve_markdown_artifact_refs(self.store, result, [])
+
+        assert result["markdown_artifact_refs_resolved"] == 1
+        assert result["markdown_artifact_refs_dropped"] == 0
+
+        row = self.store._conn.execute(
+            "SELECT target_qualified, confidence_tier, extra FROM edges WHERE kind='CROSS_ARTIFACT'"
+        ).fetchone()
+        assert row["target_qualified"] == "/repo/parser.py::BridgePattern"
+        assert row["confidence_tier"] == "HIGH"
+        extra = json.loads(row["extra"])
+        assert "unresolved_target_name" not in extra
+        assert extra["target_language"] == "python"
+        assert extra["confidence"] == 0.8
+
+    def test_drops_ambiguous_match(self):
+        for fp in ("/repo/a.py", "/repo/b.py"):
+            self.store.upsert_node(
+                NodeInfo(
+                    kind="Class",
+                    name="Foo",
+                    file_path=fp,
+                    line_start=1,
+                    line_end=5,
+                    language="python",
+                )
+            )
+        self.store.upsert_edge(self._unresolved_edge("Foo"))
+        self.store.commit()
+
+        result: dict = {}
+        _resolve_markdown_artifact_refs(self.store, result, [])
+
+        assert result["markdown_artifact_refs_resolved"] == 0
+        assert result["markdown_artifact_refs_dropped"] == 1
+        count = self.store._conn.execute(
+            "SELECT COUNT(*) FROM edges WHERE kind='CROSS_ARTIFACT'"
+        ).fetchone()[0]
+        assert count == 0
+
+    def test_drops_unmatched(self):
+        self.store.upsert_edge(self._unresolved_edge("NonexistentSymbolXYZ"))
+        self.store.commit()
+
+        result: dict = {}
+        _resolve_markdown_artifact_refs(self.store, result, [])
+
+        assert result["markdown_artifact_refs_resolved"] == 0
+        assert result["markdown_artifact_refs_dropped"] == 1
+
+    def test_does_not_match_markdown_nodes(self):
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Class",
+                name="MySection",
+                file_path="/repo/docs/spec.md",
+                line_start=1,
+                line_end=1,
+                language="markdown",
+                extra={"markdown_kind": "section"},
+            )
+        )
+        self.store.upsert_edge(self._unresolved_edge("MySection"))
+        self.store.commit()
+
+        result: dict = {}
+        _resolve_markdown_artifact_refs(self.store, result, [])
+
+        assert result["markdown_artifact_refs_dropped"] == 1
+
+    def test_idempotent_second_run_no_ops(self):
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="helper",
+                file_path="/repo/x.py",
+                line_start=1,
+                line_end=5,
+                language="python",
+            )
+        )
+        self.store.upsert_edge(self._unresolved_edge("helper"))
+        self.store.commit()
+
+        result1: dict = {}
+        _resolve_markdown_artifact_refs(self.store, result1, [])
+        assert result1["markdown_artifact_refs_resolved"] == 1
+
+        result2: dict = {}
+        _resolve_markdown_artifact_refs(self.store, result2, [])
+        assert result2["markdown_artifact_refs_resolved"] == 0
+        assert result2["markdown_artifact_refs_dropped"] == 0
+
+    def test_run_post_processing_includes_resolver(self):
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Class",
+                name="Widget",
+                file_path="/repo/ui.py",
+                line_start=1,
+                line_end=10,
+                language="python",
+            )
+        )
+        self.store.upsert_edge(self._unresolved_edge("Widget"))
+        self.store.commit()
+
+        result = run_post_processing(self.store)
+
+        assert result.get("markdown_artifact_refs_resolved") == 1
+        row = self.store._conn.execute(
+            "SELECT target_qualified FROM edges WHERE kind='CROSS_ARTIFACT'"
+        ).fetchone()
+        assert row["target_qualified"] == "/repo/ui.py::Widget"

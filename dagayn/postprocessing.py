@@ -41,6 +41,7 @@ def run_post_processing(store: GraphStore) -> dict[str, Any]:
 
     _compute_signatures(store, result, warnings)
     _rebuild_fts_index(store, result, warnings)
+    _resolve_markdown_artifact_refs(store, result, warnings)
     _trace_flows(store, result, warnings)
     _detect_communities(store, result, warnings)
 
@@ -50,6 +51,77 @@ def run_post_processing(store: GraphStore) -> dict[str, Any]:
 
 
 # -- Individual steps (private) ------------------------------------------
+
+
+def _resolve_markdown_artifact_refs(
+    store: GraphStore,
+    result: dict[str, Any],
+    warnings: list[str],
+) -> None:
+    """Resolve unresolved Markdown → code CROSS_ARTIFACT edges.
+
+    Edges emitted by the Markdown parser carry a placeholder target
+    ``<unresolved:{name}>`` and ``extra.unresolved_target_name``.  This step
+    looks each name up in the nodes table:
+
+    - Unique match → rewrite target to the node's qualified_name; promote
+      confidence to HIGH (0.8).
+    - Zero or multiple matches → delete the edge (strict / HIGH-only policy).
+    """
+    import json
+
+    resolved = 0
+    dropped = 0
+    try:
+        rows = store._conn.execute(
+            "SELECT id, source_qualified, file_path, line, extra "
+            "FROM edges "
+            "WHERE kind='CROSS_ARTIFACT' "
+            "AND extra LIKE '%unresolved_target_name%'"
+        ).fetchall()
+
+        for row in rows:
+            edge_id = row["id"]
+            try:
+                extra = json.loads(row["extra"] or "{}")
+            except (json.JSONDecodeError, TypeError):
+                continue
+            sym = extra.get("unresolved_target_name")
+            if not sym:
+                continue
+
+            matches = store._conn.execute(
+                "SELECT qualified_name, language "
+                "FROM nodes "
+                "WHERE name = ? AND language != 'markdown' "
+                "LIMIT 2",
+                (sym,),
+            ).fetchall()
+
+            if len(matches) == 1:
+                qname = matches[0]["qualified_name"]
+                lang = matches[0]["language"] or "unknown"
+                extra.pop("unresolved_target_name", None)
+                extra["target_language"] = lang
+                extra["confidence"] = 0.8
+                extra["confidence_tier"] = "HIGH"
+                store._conn.execute(
+                    "UPDATE edges "
+                    "SET target_qualified=?, extra=?, confidence=0.8, confidence_tier='HIGH' "
+                    "WHERE id=?",
+                    (qname, json.dumps(extra), edge_id),
+                )
+                resolved += 1
+            else:
+                store._conn.execute("DELETE FROM edges WHERE id=?", (edge_id,))
+                dropped += 1
+
+        store.commit()
+        result["markdown_artifact_refs_resolved"] = resolved
+        result["markdown_artifact_refs_dropped"] = dropped
+    except sqlite3.OperationalError as e:
+        logger.warning("Markdown artifact ref resolution failed: %s", e)
+        warnings.append(f"Markdown artifact ref resolution failed: {type(e).__name__}: {e}")
 
 
 def _compute_signatures(

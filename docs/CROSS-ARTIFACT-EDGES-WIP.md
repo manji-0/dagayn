@@ -8,9 +8,15 @@
 > one important bridge family within this umbrella, but it is no longer the
 > only one. The edge kind has been renamed `CROSS_LANGUAGE` → `CROSS_ARTIFACT`.
 >
-> **Status:** Phase 1 (schema/storage) and Phase 2 Layer-1 (syntax-local extractors) are implemented for the cross-language bridge family with a **unified multi-language model**. A single `BridgePattern` registry and language-agnostic dispatcher (`_detect_cross_language_bridge`) drive detection across all supported languages. The remaining phases (Markdown↔code, Terraform↔code, manifest-backed bridges, analysis integration, annotation directives) are still WIP.
+> **Status:** Phase 1 (schema/storage) + Phase 2 Layer-1 extractors are implemented for **two bridge families**:
+> 1. Cross-language process/FFI bridges (multi-language, syntax-local)
+> 2. Markdown → code symbol references (doc-to-code, two-phase: parse + postprocess resolve)
+>
+> The remaining phases (Terraform↔code, manifest-backed bridges, analysis integration, annotation directives) are still WIP.
 >
 > **What is implemented:**
+>
+> ### Bridge family 1 — Cross-language process/FFI
 >
 > | Language     | Bridge patterns |
 > |--------------|-----------------|
@@ -21,12 +27,21 @@
 > | `r`          | `system`, `system2`, `.Call`, `.External`, `dyn.load`, `library.dynam` |
 > | `bash`       | deferred — every command is a process invocation; needs a distinct model |
 >
-> **Key implementation details:**
-> - `CROSS_ARTIFACT` edge kind with the full `extra` metadata contract (see §"Recommended metadata") — `dagayn/parser.py` (`BridgePattern`, `_BRIDGE_PATTERNS`, `_detect_cross_language_bridge`)
-> - `tests/test_parser.py` `TestCrossArtifactEdges` — 22 tests covering Python, JavaScript, TypeScript, Java, and R
-> - Confidence tier `HIGH` (0.8) for string-literal targets, `LOW` (0.2) for dynamic expressions
-> - **Limitation:** only canonical dotted forms are detected. Aliased imports (e.g. `const cp = require("child_process"); cp.exec(...)`) require dataflow / import-map resolution and are deferred to a later phase.
-> - Edges surface automatically in graph stats (`edges_by_kind`) and `query_graph` without additional code
+> - `CROSS_ARTIFACT` edge kind with the full `extra` metadata contract — `dagayn/parser.py` (`BridgePattern`, `_BRIDGE_PATTERNS`, `_detect_cross_language_bridge`)
+> - 26 tests covering Python, JavaScript, TypeScript, Java, and R (`TestCrossArtifactEdges` in `tests/test_parser.py`)
+> - Confidence `HIGH` (0.8) for string-literal targets, `LOW` (0.2) for dynamic expressions
+> - **Limitation:** only canonical dotted forms detected; aliased imports require dataflow resolution (deferred)
+>
+> ### Bridge family 2 — Markdown → code symbol references
+>
+> - `_extract_markdown_code_spans` (`dagayn/parser.py`) scans inline backtick spans, filters by identifier-shape regex, emits `CROSS_ARTIFACT` edges with `relationship_role=describes_symbol`, `bridge_kind=documentation`, `evidence_kind=markdown_code_span`
+> - Source = the deepest enclosing Markdown section (or File node when no section precedes the span)
+> - Parser phase emits unresolved candidates (`target=<unresolved:{name}>`, `confidence_tier=LOW`)
+> - `_resolve_markdown_artifact_refs` (`dagayn/postprocessing.py`) runs after FTS rebuild: unique short-name match in non-markdown nodes → rewrite target to `qualified_name`, promote to `HIGH` (0.8); zero or ambiguous → delete the edge (strict / HIGH-only policy)
+> - 4 parser tests + 6 resolver tests (`TestMarkdownArtifactResolver` in `tests/test_postprocessing.py`)
+> - **Limitation:** fenced code blocks not processed (too noisy for v1); code → doc direction deferred
+>
+> Edges surface automatically in graph stats (`edges_by_kind`) and `query_graph` without additional code.
 
 ## Purpose
 
