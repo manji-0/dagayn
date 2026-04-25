@@ -1,0 +1,267 @@
+"""Tests for dagayn/analysis.py: hub detection, bridge nodes, knowledge gaps, etc."""
+
+from __future__ import annotations
+
+import pytest
+
+from dagayn.graph import GraphStore
+from dagayn.parser import EdgeInfo, NodeInfo
+
+
+@pytest.fixture
+def store(tmp_path):
+    """Graph with a mix of hubs, bridges, isolated nodes, and cross-community edges."""
+    db_path = tmp_path / "analysis.db"
+    s = GraphStore(db_path)
+
+    def _node(kind, name, file_path, is_test=False):
+        return NodeInfo(
+            kind=kind,
+            name=name,
+            file_path=file_path,
+            line_start=1,
+            line_end=10,
+            language="python",
+            parent_name=None,
+            params=None,
+            return_type=None,
+            modifiers=None,
+            is_test=is_test,
+            extra={},
+        )
+
+    def _edge(kind, source, target):
+        return EdgeInfo(
+            kind=kind, source=source, target=target, file_path="src/core.py", line=1, extra={}
+        )
+
+    # Hub node: core_service is called by many
+    nodes = [
+        _node("File", "core.py", "src/core.py"),
+        _node("Class", "CoreService", "src/core.py"),
+        _node("Function", "process", "src/core.py"),
+        _node("Function", "helper_a", "src/core.py"),
+        _node("Function", "helper_b", "src/core.py"),
+        _node("Function", "helper_c", "src/core.py"),
+        _node("File", "util.py", "src/util.py"),
+        _node("Function", "format_data", "src/util.py"),
+        _node("File", "isolated.py", "src/isolated.py"),
+        _node("Function", "orphan_fn", "src/isolated.py"),
+        _node("File", "test_core.py", "tests/test_core.py"),
+        _node("Test", "test_process", "tests/test_core.py", is_test=True),
+    ]
+    for n in nodes:
+        s.upsert_node(n)
+
+    edges = [
+        # Many callers → process is a hub
+        _edge("CALLS", "src/core.py::helper_a", "src/core.py::process"),
+        _edge("CALLS", "src/core.py::helper_b", "src/core.py::process"),
+        _edge("CALLS", "src/core.py::helper_c", "src/core.py::process"),
+        _edge("CALLS", "src/util.py::format_data", "src/core.py::process"),
+        _edge("CALLS", "src/core.py::process", "src/util.py::format_data"),
+        _edge("TESTED_BY", "src/core.py::process", "tests/test_core.py::test_process"),
+        _edge("CONTAINS", "src/core.py", "src/core.py::CoreService"),
+        _edge("CONTAINS", "src/core.py", "src/core.py::process"),
+    ]
+    for e in edges:
+        s.upsert_edge(e)
+
+    s.commit()
+    return s
+
+
+@pytest.fixture
+def empty_store(tmp_path):
+    s = GraphStore(tmp_path / "empty.db")
+    s.commit()
+    return s
+
+
+class TestFindHubNodes:
+    def test_returns_list(self, store):
+        from dagayn.analysis import find_hub_nodes
+
+        result = find_hub_nodes(store)
+        assert isinstance(result, list)
+
+    def test_sorted_by_degree_descending(self, store):
+        from dagayn.analysis import find_hub_nodes
+
+        result = find_hub_nodes(store)
+        degrees = [r["total_degree"] for r in result]
+        assert degrees == sorted(degrees, reverse=True)
+
+    def test_top_n_respected(self, store):
+        from dagayn.analysis import find_hub_nodes
+
+        result = find_hub_nodes(store, top_n=2)
+        assert len(result) <= 2
+
+    def test_result_fields(self, store):
+        from dagayn.analysis import find_hub_nodes
+
+        result = find_hub_nodes(store)
+        for item in result:
+            assert "name" in item
+            assert "qualified_name" in item
+            assert "kind" in item
+            assert "total_degree" in item
+            assert item["total_degree"] > 0
+
+    def test_no_zero_degree_nodes(self, store):
+        from dagayn.analysis import find_hub_nodes
+
+        result = find_hub_nodes(store)
+        assert all(r["total_degree"] > 0 for r in result)
+
+    def test_empty_store_returns_empty(self, empty_store):
+        from dagayn.analysis import find_hub_nodes
+
+        assert find_hub_nodes(empty_store) == []
+
+
+class TestFindBridgeNodes:
+    def test_returns_list(self, store):
+        from dagayn.analysis import find_bridge_nodes
+
+        result = find_bridge_nodes(store)
+        assert isinstance(result, list)
+
+    def test_sorted_by_betweenness_descending(self, store):
+        from dagayn.analysis import find_bridge_nodes
+
+        result = find_bridge_nodes(store)
+        scores = [r["betweenness"] for r in result]
+        assert scores == sorted(scores, reverse=True)
+
+    def test_result_fields(self, store):
+        from dagayn.analysis import find_bridge_nodes
+
+        result = find_bridge_nodes(store)
+        for item in result:
+            assert "name" in item
+            assert "qualified_name" in item
+            assert "betweenness" in item
+            assert item["betweenness"] > 0
+
+    def test_empty_store_returns_empty(self, empty_store):
+        from dagayn.analysis import find_bridge_nodes
+
+        assert find_bridge_nodes(empty_store) == []
+
+    def test_top_n_respected(self, store):
+        from dagayn.analysis import find_bridge_nodes
+
+        result = find_bridge_nodes(store, top_n=1)
+        assert len(result) <= 1
+
+
+class TestFindKnowledgeGaps:
+    def test_returns_dict_with_expected_keys(self, store):
+        from dagayn.analysis import find_knowledge_gaps
+
+        result = find_knowledge_gaps(store)
+        assert "isolated_nodes" in result
+        assert "thin_communities" in result
+        assert "untested_hotspots" in result
+        assert "single_file_communities" in result
+
+    def test_isolated_nodes_are_low_degree(self, store):
+        from dagayn.analysis import find_knowledge_gaps
+
+        result = find_knowledge_gaps(store)
+        for n in result["isolated_nodes"]:
+            assert n["degree"] <= 1
+
+    def test_orphan_in_isolated(self, store):
+        from dagayn.analysis import find_knowledge_gaps
+
+        result = find_knowledge_gaps(store)
+        qns = {n["qualified_name"] for n in result["isolated_nodes"]}
+        assert "src/isolated.py::orphan_fn" in qns
+
+    def test_untested_hotspots_have_degree(self, store):
+        from dagayn.analysis import find_knowledge_gaps
+
+        result = find_knowledge_gaps(store)
+        for h in result["untested_hotspots"]:
+            assert h["degree"] >= 5
+
+    def test_empty_store_returns_empty_categories(self, empty_store):
+        from dagayn.analysis import find_knowledge_gaps
+
+        result = find_knowledge_gaps(empty_store)
+        assert result["isolated_nodes"] == []
+        assert result["untested_hotspots"] == []
+
+
+class TestFindSurprisingConnections:
+    def test_returns_list(self, store):
+        from dagayn.analysis import find_surprising_connections
+
+        result = find_surprising_connections(store)
+        assert isinstance(result, list)
+
+    def test_sorted_by_score_descending(self, store):
+        from dagayn.analysis import find_surprising_connections
+
+        result = find_surprising_connections(store)
+        scores = [r["surprise_score"] for r in result]
+        assert scores == sorted(scores, reverse=True)
+
+    def test_result_fields(self, store):
+        from dagayn.analysis import find_surprising_connections
+
+        result = find_surprising_connections(store)
+        for item in result:
+            assert "source" in item
+            assert "target" in item
+            assert "surprise_score" in item
+            assert "reasons" in item
+            assert isinstance(item["reasons"], list)
+
+    def test_empty_store_returns_empty(self, empty_store):
+        from dagayn.analysis import find_surprising_connections
+
+        assert find_surprising_connections(empty_store) == []
+
+    def test_top_n_respected(self, store):
+        from dagayn.analysis import find_surprising_connections
+
+        result = find_surprising_connections(store, top_n=2)
+        assert len(result) <= 2
+
+
+class TestGenerateSuggestedQuestions:
+    def test_returns_list(self, store):
+        from dagayn.analysis import generate_suggested_questions
+
+        result = generate_suggested_questions(store)
+        assert isinstance(result, list)
+
+    def test_question_fields(self, store):
+        from dagayn.analysis import generate_suggested_questions
+
+        result = generate_suggested_questions(store)
+        for q in result:
+            assert "category" in q
+            assert "question" in q
+            assert "target" in q
+            assert "priority" in q
+            assert isinstance(q["question"], str)
+            assert len(q["question"]) > 0
+
+    def test_priority_values(self, store):
+        from dagayn.analysis import generate_suggested_questions
+
+        result = generate_suggested_questions(store)
+        valid = {"high", "medium", "low"}
+        for q in result:
+            assert q["priority"] in valid
+
+    def test_empty_store_returns_empty(self, empty_store):
+        from dagayn.analysis import generate_suggested_questions
+
+        result = generate_suggested_questions(empty_store)
+        assert isinstance(result, list)
