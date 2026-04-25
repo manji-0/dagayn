@@ -105,7 +105,7 @@ class NodeInfo:
 @dataclass
 class EdgeInfo:
     # CALLS, IMPORTS_FROM, INHERITS, IMPLEMENTS, CONTAINS,
-    # TESTED_BY, DEPENDS_ON, REFERENCES, CROSS_LANGUAGE
+    # TESTED_BY, DEPENDS_ON, REFERENCES, CROSS_ARTIFACT
     kind: str
     source: str  # qualified name or path
     target: str  # qualified name or path
@@ -4850,7 +4850,7 @@ class CodeParser:
         file_path: str,
         caller: str,
     ) -> list[EdgeInfo]:
-        """Emit ``CROSS_LANGUAGE`` edges based on the per-language bridge registry.
+        """Emit ``CROSS_ARTIFACT`` edges based on the per-language bridge registry.
 
         Language-agnostic: the dispatcher looks up patterns by language, then
         delegates signature extraction and string-arg parsing to thin adapters.
@@ -4883,7 +4883,7 @@ class CodeParser:
 
         return [
             EdgeInfo(
-                kind="CROSS_LANGUAGE",
+                kind="CROSS_ARTIFACT",
                 source=caller,
                 target=target,
                 file_path=file_path,

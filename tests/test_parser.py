@@ -1381,20 +1381,20 @@ class TestTypeRoleAndImplements:
         assert trait.extra.get("is_contract") is True
 
 
-class TestCrossLanguageEdges:
-    """CROSS_LANGUAGE edge emission for Python process-boundary and native-lib calls."""
+class TestCrossArtifactEdges:
+    """CROSS_ARTIFACT edge emission for cross-language process-boundary and native-lib calls."""
 
     def setup_method(self):
         self.parser = CodeParser()
 
-    def test_cross_language_edges_emitted(self):
+    def test_cross_artifact_edges_emitted(self):
         nodes, edges = self.parser.parse_file(FIXTURES / "sample_cross_language.py")
-        cl = [e for e in edges if e.kind == "CROSS_LANGUAGE"]
-        assert len(cl) >= 1, "Expected at least one CROSS_LANGUAGE edge"
+        cl = [e for e in edges if e.kind == "CROSS_ARTIFACT"]
+        assert len(cl) >= 1, "Expected at least one CROSS_ARTIFACT edge"
 
     def test_subprocess_run_string_arg(self):
         nodes, edges = self.parser.parse_file(FIXTURES / "sample_cross_language.py")
-        cl = [e for e in edges if e.kind == "CROSS_LANGUAGE"]
+        cl = [e for e in edges if e.kind == "CROSS_ARTIFACT"]
         run_edge = next(
             (
                 e
@@ -1414,7 +1414,7 @@ class TestCrossLanguageEdges:
 
     def test_subprocess_run_list_arg(self):
         nodes, edges = self.parser.parse_file(FIXTURES / "sample_cross_language.py")
-        cl = [e for e in edges if e.kind == "CROSS_LANGUAGE"]
+        cl = [e for e in edges if e.kind == "CROSS_ARTIFACT"]
         run_list_edges = [
             e
             for e in cl
@@ -1426,7 +1426,7 @@ class TestCrossLanguageEdges:
 
     def test_ctypes_cdll(self):
         nodes, edges = self.parser.parse_file(FIXTURES / "sample_cross_language.py")
-        cl = [e for e in edges if e.kind == "CROSS_LANGUAGE"]
+        cl = [e for e in edges if e.kind == "CROSS_ARTIFACT"]
         cdll_edge = next(
             (
                 e
@@ -1443,7 +1443,7 @@ class TestCrossLanguageEdges:
 
     def test_cffi_dlopen(self):
         nodes, edges = self.parser.parse_file(FIXTURES / "sample_cross_language.py")
-        cl = [e for e in edges if e.kind == "CROSS_LANGUAGE"]
+        cl = [e for e in edges if e.kind == "CROSS_ARTIFACT"]
         cffi_edge = next(
             (
                 e
@@ -1457,7 +1457,7 @@ class TestCrossLanguageEdges:
 
     def test_dynamic_arg_low_confidence(self):
         nodes, edges = self.parser.parse_file(FIXTURES / "sample_cross_language.py")
-        cl = [e for e in edges if e.kind == "CROSS_LANGUAGE"]
+        cl = [e for e in edges if e.kind == "CROSS_ARTIFACT"]
         # run_dynamic(cmd) should produce a LOW confidence edge
         dynamic_edges = [
             e
@@ -1471,7 +1471,7 @@ class TestCrossLanguageEdges:
 
     def test_extra_metadata_shape(self):
         nodes, edges = self.parser.parse_file(FIXTURES / "sample_cross_language.py")
-        cl = [e for e in edges if e.kind == "CROSS_LANGUAGE"]
+        cl = [e for e in edges if e.kind == "CROSS_ARTIFACT"]
         required_keys = {
             "relationship_role",
             "bridge_kind",
@@ -1493,7 +1493,7 @@ class TestCrossLanguageEdges:
 
         def cl_keys(edges):
             return sorted(
-                (e.kind, e.source, e.target, e.line) for e in edges if e.kind == "CROSS_LANGUAGE"
+                (e.kind, e.source, e.target, e.line) for e in edges if e.kind == "CROSS_ARTIFACT"
             )
 
         assert cl_keys(edges1) == cl_keys(edges2), (
@@ -1504,12 +1504,12 @@ class TestCrossLanguageEdges:
 
     def test_javascript_edges_emitted(self):
         _, edges = self.parser.parse_file(FIXTURES / "sample_cross_language.js")
-        cl = [e for e in edges if e.kind == "CROSS_LANGUAGE"]
+        cl = [e for e in edges if e.kind == "CROSS_ARTIFACT"]
         assert len(cl) == 7
 
     def test_javascript_spawn_high_confidence(self):
         _, edges = self.parser.parse_file(FIXTURES / "sample_cross_language.js")
-        cl = [e for e in edges if e.kind == "CROSS_LANGUAGE"]
+        cl = [e for e in edges if e.kind == "CROSS_ARTIFACT"]
         spawn_edge = next(
             (
                 e
@@ -1528,7 +1528,7 @@ class TestCrossLanguageEdges:
 
     def test_javascript_dynamic_arg_low_confidence(self):
         _, edges = self.parser.parse_file(FIXTURES / "sample_cross_language.js")
-        cl = [e for e in edges if e.kind == "CROSS_LANGUAGE"]
+        cl = [e for e in edges if e.kind == "CROSS_ARTIFACT"]
         low_edges = [
             e
             for e in cl
@@ -1543,17 +1543,17 @@ class TestCrossLanguageEdges:
 
     def test_typescript_edges_emitted(self):
         _, edges = self.parser.parse_file(FIXTURES / "sample_cross_language.ts")
-        cl = [e for e in edges if e.kind == "CROSS_LANGUAGE"]
+        cl = [e for e in edges if e.kind == "CROSS_ARTIFACT"]
         assert len(cl) == 7
 
     def test_typescript_source_language(self):
         _, edges = self.parser.parse_file(FIXTURES / "sample_cross_language.ts")
-        cl = [e for e in edges if e.kind == "CROSS_LANGUAGE"]
+        cl = [e for e in edges if e.kind == "CROSS_ARTIFACT"]
         assert all(e.extra["source_language"] == "typescript" for e in cl)
 
     def test_typescript_spawn_high_confidence(self):
         _, edges = self.parser.parse_file(FIXTURES / "sample_cross_language.ts")
-        cl = [e for e in edges if e.kind == "CROSS_LANGUAGE"]
+        cl = [e for e in edges if e.kind == "CROSS_ARTIFACT"]
         spawn_edge = next(
             (
                 e
@@ -1570,12 +1570,12 @@ class TestCrossLanguageEdges:
 
     def test_java_edges_emitted(self):
         _, edges = self.parser.parse_file(FIXTURES / "SampleCrossLanguage.java")
-        cl = [e for e in edges if e.kind == "CROSS_LANGUAGE"]
+        cl = [e for e in edges if e.kind == "CROSS_ARTIFACT"]
         assert len(cl) == 6
 
     def test_java_runtime_exec_high_confidence(self):
         _, edges = self.parser.parse_file(FIXTURES / "SampleCrossLanguage.java")
-        cl = [e for e in edges if e.kind == "CROSS_LANGUAGE"]
+        cl = [e for e in edges if e.kind == "CROSS_ARTIFACT"]
         exec_edge = next(
             (
                 e
@@ -1593,7 +1593,7 @@ class TestCrossLanguageEdges:
 
     def test_java_system_load_library(self):
         _, edges = self.parser.parse_file(FIXTURES / "SampleCrossLanguage.java")
-        cl = [e for e in edges if e.kind == "CROSS_LANGUAGE"]
+        cl = [e for e in edges if e.kind == "CROSS_ARTIFACT"]
         lib_edge = next(
             (
                 e
@@ -1608,7 +1608,7 @@ class TestCrossLanguageEdges:
 
     def test_java_dynamic_arg_low_confidence(self):
         _, edges = self.parser.parse_file(FIXTURES / "SampleCrossLanguage.java")
-        cl = [e for e in edges if e.kind == "CROSS_LANGUAGE"]
+        cl = [e for e in edges if e.kind == "CROSS_ARTIFACT"]
         low_edges = [
             e
             for e in cl
@@ -1622,12 +1622,12 @@ class TestCrossLanguageEdges:
 
     def test_r_edges_emitted(self):
         _, edges = self.parser.parse_file(FIXTURES / "sample_cross_language.R")
-        cl = [e for e in edges if e.kind == "CROSS_LANGUAGE"]
+        cl = [e for e in edges if e.kind == "CROSS_ARTIFACT"]
         assert len(cl) == 7
 
     def test_r_system_high_confidence(self):
         _, edges = self.parser.parse_file(FIXTURES / "sample_cross_language.R")
-        cl = [e for e in edges if e.kind == "CROSS_LANGUAGE"]
+        cl = [e for e in edges if e.kind == "CROSS_ARTIFACT"]
         sys_edge = next(
             (
                 e
@@ -1644,7 +1644,7 @@ class TestCrossLanguageEdges:
 
     def test_r_dyn_load(self):
         _, edges = self.parser.parse_file(FIXTURES / "sample_cross_language.R")
-        cl = [e for e in edges if e.kind == "CROSS_LANGUAGE"]
+        cl = [e for e in edges if e.kind == "CROSS_ARTIFACT"]
         dyn_edge = next(
             (
                 e
@@ -1661,7 +1661,7 @@ class TestCrossLanguageEdges:
 
     def test_r_dynamic_arg_low_confidence(self):
         _, edges = self.parser.parse_file(FIXTURES / "sample_cross_language.R")
-        cl = [e for e in edges if e.kind == "CROSS_LANGUAGE"]
+        cl = [e for e in edges if e.kind == "CROSS_ARTIFACT"]
         low_edges = [
             e
             for e in cl

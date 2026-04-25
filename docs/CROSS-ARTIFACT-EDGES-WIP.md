@@ -1,6 +1,14 @@
-# Cross-language edges specification (WIP)
+# Cross-artifact edges specification (WIP)
 
-> **Status:** Phase 1 (schema/storage) and Phase 2 Layer-1 (syntax-local extractors) are implemented with a **unified multi-language model**. A single `BridgePattern` registry and language-agnostic dispatcher (`_detect_cross_language_bridge`) drive detection across all supported languages. The remaining phases (manifest-backed bridges, analysis integration, annotation directives) are still WIP.
+> **Naming note:** this spec was previously titled "Cross-language edges". It
+> has been broadened to **cross-artifact** because the same edge model also
+> covers bridges to non-code artifacts — Markdown specifications referencing
+> code symbols, Terraform resources wiring runtime entrypoints to application
+> code, schema files generating client packages, etc. "Cross-language" remains
+> one important bridge family within this umbrella, but it is no longer the
+> only one. The edge kind has been renamed `CROSS_LANGUAGE` → `CROSS_ARTIFACT`.
+>
+> **Status:** Phase 1 (schema/storage) and Phase 2 Layer-1 (syntax-local extractors) are implemented for the cross-language bridge family with a **unified multi-language model**. A single `BridgePattern` registry and language-agnostic dispatcher (`_detect_cross_language_bridge`) drive detection across all supported languages. The remaining phases (Markdown↔code, Terraform↔code, manifest-backed bridges, analysis integration, annotation directives) are still WIP.
 >
 > **What is implemented:**
 >
@@ -14,8 +22,8 @@
 > | `bash`       | deferred — every command is a process invocation; needs a distinct model |
 >
 > **Key implementation details:**
-> - `CROSS_LANGUAGE` edge kind with the full `extra` metadata contract (see §"Recommended metadata") — `dagayn/parser.py` (`BridgePattern`, `_BRIDGE_PATTERNS`, `_detect_cross_language_bridge`)
-> - `tests/test_parser.py` `TestCrossLanguageEdges` — 22 tests covering Python, JavaScript, TypeScript, Java, and R
+> - `CROSS_ARTIFACT` edge kind with the full `extra` metadata contract (see §"Recommended metadata") — `dagayn/parser.py` (`BridgePattern`, `_BRIDGE_PATTERNS`, `_detect_cross_language_bridge`)
+> - `tests/test_parser.py` `TestCrossArtifactEdges` — 22 tests covering Python, JavaScript, TypeScript, Java, and R
 > - Confidence tier `HIGH` (0.8) for string-literal targets, `LOW` (0.2) for dynamic expressions
 > - **Limitation:** only canonical dotted forms are detected. Aliased imports (e.g. `const cp = require("child_process"); cp.exec(...)`) require dataflow / import-map resolution and are deferred to a later phase.
 > - Edges surface automatically in graph stats (`edges_by_kind`) and `query_graph` without additional code
@@ -24,18 +32,21 @@
 
 dagayn already builds useful per-language graphs for polyglot repositories.
 
-What is still under-modeled in many mixed-language repositories is the
-**bridge between languages**:
+What is still under-modeled is the **bridge between artifacts** — relationships
+that cross language boundaries, but also boundaries between code and other
+artifact kinds (specifications, infrastructure-as-code, schemas, generated
+output):
 
 - Python calling Rust
 - TypeScript calling a Go or Java backend through generated clients
 - Terraform wiring runtime entrypoints to application code
+- Markdown specifications describing code symbols
 - build metadata connecting Python packages to native extensions
 - generated code linking schema sources to implementation code
 
 This specification defines how dagayn should represent those bridges so
-graph construction and higher-order analysis still make sense even when
-the repository's architecture crosses language boundaries.
+graph construction and higher-order analysis still make sense even when the
+repository's architecture crosses language and artifact boundaries.
 
 ## Goal
 
@@ -82,7 +93,7 @@ dagayn should solve both problems by:
 
 dagayn should introduce a general cross-language edge kind:
 
-- `CROSS_LANGUAGE`
+- `CROSS_ARTIFACT`
 
 The specific meaning should live in `edge.extra`, not in a large explosion of top-level edge kinds.
 
@@ -101,7 +112,7 @@ This keeps the schema stable while still allowing precise downstream behavior.
 
 ### Why a single top-level edge kind
 
-A single `CROSS_LANGUAGE` edge is preferred because:
+A single `CROSS_ARTIFACT` edge is preferred because:
 
 - the number of bridge patterns will grow over time
 - many bridge patterns are similar structurally but differ in evidence source
@@ -372,7 +383,7 @@ Cross-language edges should affect downstream analysis, but not always in the sa
 
 ### Impact radius
 
-Impact radius should be able to traverse `CROSS_LANGUAGE` edges by default, but include the bridge type and confidence in the explanation.
+Impact radius should be able to traverse `CROSS_ARTIFACT` edges by default, but include the bridge type and confidence in the explanation.
 
 This prevents mixed-language repos from looking falsely isolated.
 
@@ -413,10 +424,10 @@ An example starting point:
 
 - direct `CALLS`: `1.0`
 - `IMPORTS_FROM`: `0.5`
-- `CROSS_LANGUAGE` with `EXACT`: `0.8`
-- `CROSS_LANGUAGE` with `HIGH`: `0.6`
-- `CROSS_LANGUAGE` with `MEDIUM`: `0.4`
-- `CROSS_LANGUAGE` with `LOW`: `0.2`
+- `CROSS_ARTIFACT` with `EXACT`: `0.8`
+- `CROSS_ARTIFACT` with `HIGH`: `0.6`
+- `CROSS_ARTIFACT` with `MEDIUM`: `0.4`
+- `CROSS_ARTIFACT` with `LOW`: `0.2`
 
 These are not canonical values, but they illustrate the intended shape:
 cross-language edges should matter, but their certainty and semantic looseness should be visible.
@@ -425,7 +436,7 @@ cross-language edges should matter, but their certainty and semantic looseness s
 
 ### Phase 1: schema and storage
 
-- allow `CROSS_LANGUAGE` edges in the graph model
+- allow `CROSS_ARTIFACT` edges in the graph model
 - standardize the `edge.extra` metadata contract
 - expose filters in query surfaces
 
@@ -469,7 +480,7 @@ Minimum success criteria:
 
 ## Open questions
 
-- whether `CROSS_LANGUAGE` should stay the only top-level edge kind or whether a few specialized kinds are worth it
+- whether `CROSS_ARTIFACT` should stay the only top-level edge kind or whether a few specialized kinds are worth it
 - whether bridge nodes should become first-class schema-level node kinds
 - how much build metadata should be parsed directly versus handled through pluggable extractors
 - how aggressively low-confidence convention-based edges should be emitted by default
@@ -481,7 +492,7 @@ dagayn should adopt a **general cross-language edge model** rather than solving 
 
 The best near-term shape is:
 
-1. one top-level edge kind: `CROSS_LANGUAGE`
+1. one top-level edge kind: `CROSS_ARTIFACT`
 2. rich `edge.extra` metadata for semantics and evidence
 3. extractor rollout starting from exact and manifest-backed bridges
 4. downstream analysis that treats bridge edges as first-class but explainable relationships

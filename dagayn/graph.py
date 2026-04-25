@@ -2,7 +2,7 @@
 
 Stores code structure as nodes (File, Class, Function, Type, Test) and
 edges (CALLS, IMPORTS_FROM, INHERITS, IMPLEMENTS, CONTAINS, TESTED_BY, DEPENDS_ON, REFERENCES,
-CROSS_LANGUAGE).
+CROSS_ARTIFACT).
 Supports impact-radius queries and subgraph extraction.
 """
 
@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS nodes (
 
 CREATE TABLE IF NOT EXISTS edges (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    kind TEXT NOT NULL,           -- CALLS, IMPORTS_FROM, INHERITS, REFERENCES, CROSS_LANGUAGE, etc.
+    kind TEXT NOT NULL,           -- CALLS, IMPORTS_FROM, INHERITS, REFERENCES, CROSS_ARTIFACT, etc.
     source_qualified TEXT NOT NULL,
     target_qualified TEXT NOT NULL,
     file_path TEXT NOT NULL,
