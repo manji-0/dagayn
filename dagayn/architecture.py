@@ -37,9 +37,7 @@ def _project_dependency_graph(
 
     # Build the set of known file paths to filter out external/stdlib targets
     file_paths: set[str] = {
-        n.qualified_name
-        for n in store.get_all_nodes(exclude_files=False)
-        if n.kind == "File"
+        n.qualified_name for n in store.get_all_nodes(exclude_files=False) if n.kind == "File"
     }
 
     for e in store.get_all_edges():

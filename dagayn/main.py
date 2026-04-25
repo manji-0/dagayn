@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from fastmcp import FastMCP
 
@@ -876,7 +876,7 @@ def traverse_graph_tool(
 
 @mcp.tool()
 def detect_adp_violations_tool(
-    granularity: str = "package",
+    granularity: Literal["file", "package"] = "package",
     min_cycle_size: int = 2,
     max_cycle_length: int = 10,
     repo_root: Optional[str] = None,
@@ -896,7 +896,7 @@ def detect_adp_violations_tool(
     """
     return detect_adp_violations_func(
         repo_root=_resolve_repo_root(repo_root),
-        granularity=granularity,  # type: ignore[arg-type]
+        granularity=granularity,
         min_cycle_size=min_cycle_size,
         max_cycle_length=max_cycle_length,
     )
@@ -904,7 +904,7 @@ def detect_adp_violations_tool(
 
 @mcp.tool()
 def compute_sdp_metrics_tool(
-    granularity: str = "package",
+    granularity: Literal["file", "package"] = "package",
     top_n: int = 30,
     repo_root: Optional[str] = None,
 ) -> dict:
@@ -922,14 +922,14 @@ def compute_sdp_metrics_tool(
     """
     return compute_sdp_metrics_func(
         repo_root=_resolve_repo_root(repo_root),
-        granularity=granularity,  # type: ignore[arg-type]
+        granularity=granularity,
         top_n=top_n,
     )
 
 
 @mcp.tool()
 def detect_sdp_violations_tool(
-    granularity: str = "package",
+    granularity: Literal["file", "package"] = "package",
     min_delta: float = 0.1,
     repo_root: Optional[str] = None,
 ) -> dict:
@@ -946,7 +946,7 @@ def detect_sdp_violations_tool(
     """
     return detect_sdp_violations_func(
         repo_root=_resolve_repo_root(repo_root),
-        granularity=granularity,  # type: ignore[arg-type]
+        granularity=granularity,
         min_delta=min_delta,
     )
 
