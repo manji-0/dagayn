@@ -83,6 +83,7 @@ _MARKDOWN_REFERENCE_DEF_RE = re.compile(r"(?m)^\s*\[[^\]]+\]:\s*(\S+)")
 _MARKDOWN_CODE_SPAN_RE = re.compile(r"`([^`\n]+)`")
 _MARKDOWN_SYMBOL_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$")
 _MARKDOWN_SYMBOL_MIN_LEN = 3
+_MARKDOWN_PLAIN_WORD_MIN_LEN = 10  # plain words (no _ or .) need longer to skip generic English
 
 # ---------------------------------------------------------------------------
 # Data models for extracted entities
@@ -1962,6 +1963,8 @@ class CodeParser:
             if len(sym) < _MARKDOWN_SYMBOL_MIN_LEN:
                 continue
             if not _MARKDOWN_SYMBOL_RE.match(sym):
+                continue
+            if "_" not in sym and "." not in sym and len(sym) < _MARKDOWN_PLAIN_WORD_MIN_LEN:
                 continue
             line = text.count("\n", 0, match.start()) + 1
             source = self._markdown_section_for_line(line, file_path, headings) or file_path

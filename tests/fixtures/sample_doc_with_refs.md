@@ -9,6 +9,9 @@ Run `git status` to check.  Use `--flag` for strict mode.
 <!-- length filter rejects these (< 3 chars): -->
 Use `if` and `or` freely.
 
+<!-- plain-word filter rejects these (no _ or ., < 10 chars): -->
+Supports `terraform`, `count`, and `watch` integrations.
+
 ## Subsection
 
 Subsection-attributed ref: `_bridge_first_string_arg`.

@@ -1692,6 +1692,10 @@ class TestCrossArtifactEdges:
         assert "--flag" not in syms
         assert "if" not in syms
         assert "or" not in syms
+        # short plain words without _ or . are filtered by _MARKDOWN_PLAIN_WORD_MIN_LEN
+        assert "count" not in syms
+        assert "watch" not in syms
+        assert "terraform" not in syms
 
     def test_markdown_code_span_extra_shape(self):
         _, edges = self.parser.parse_file(FIXTURES / "sample_doc_with_refs.md")
