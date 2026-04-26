@@ -15,9 +15,8 @@ import shlex
 import subprocess
 import sys
 import sysconfig
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, NamedTuple, Optional
+from typing import Any, Optional
 
 try:
     import tree_sitter_language_pack as tslp
@@ -34,17 +33,9 @@ else:
     Language: Any | None = _TreeSitterLanguage
     Parser: Any | None = _TreeSitterParser
 
-from .tsconfig_resolver import TsconfigResolver
-from .vendor_grammars import ensure_vendor_grammar_source
-
-
-class CellInfo(NamedTuple):
-    """Represents a single cell in a notebook with its language."""
-
-    cell_index: int
-    language: str
-    source: str
-
+from ..tsconfig_resolver import TsconfigResolver
+from ..vendor_grammars import ensure_vendor_grammar_source
+from .types import BridgePattern, CellInfo, EdgeInfo, NodeInfo
 
 _SQL_TABLE_RE = re.compile(
     r"(?:FROM|JOIN|INTO|CREATE\s+(?:OR\s+REPLACE\s+)?(?:TABLE|VIEW)|INSERT\s+OVERWRITE)"
@@ -85,37 +76,9 @@ _MARKDOWN_SYMBOL_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0
 _MARKDOWN_SYMBOL_MIN_LEN = 3
 _MARKDOWN_PLAIN_WORD_MIN_LEN = 10  # plain words (no _ or .) need longer to skip generic English
 
-# ---------------------------------------------------------------------------
-# Data models for extracted entities
-# ---------------------------------------------------------------------------
 
 
-@dataclass
-class NodeInfo:
-    kind: str  # File, Class, Function, Type, Test
-    name: str
-    file_path: str
-    line_start: int
-    line_end: int
-    language: str = ""
-    parent_name: Optional[str] = None  # enclosing class/module
-    params: Optional[str] = None
-    return_type: Optional[str] = None
-    modifiers: Optional[str] = None
-    is_test: bool = False
-    extra: dict = field(default_factory=dict)
 
-
-@dataclass
-class EdgeInfo:
-    # CALLS, IMPORTS_FROM, INHERITS, IMPLEMENTS, CONTAINS,
-    # TESTED_BY, DEPENDS_ON, REFERENCES, CROSS_ARTIFACT
-    kind: str
-    source: str  # qualified name or path
-    target: str  # qualified name or path
-    file_path: str
-    line: int = 0
-    extra: dict = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -464,22 +427,6 @@ _TEST_ANNOTATIONS = frozenset(
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class BridgePattern:
-    """Language-agnostic descriptor of a cross-language bridge call site.
-
-    `call_signature` is the canonical dotted-name as it appears in source
-    (e.g. ``subprocess.run`` for Python, ``Runtime.getRuntime().exec`` for
-    Java, ``child_process.exec`` for JS/TS, ``system`` for R). Aliased imports
-    are not matched — only canonical forms.
-
-    `relationship_role` and `bridge_kind` follow the metadata contract in
-    ``docs/CROSS-LANGUAGE-EDGES-WIP.md``.
-    """
-
-    call_signature: str
-    relationship_role: str
-    bridge_kind: str
 
 
 _BRIDGE_PATTERNS: dict[str, tuple[BridgePattern, ...]] = {
