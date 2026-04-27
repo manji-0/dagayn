@@ -13,12 +13,21 @@ from typing import Optional
 
 from ..tsconfig_resolver import TsconfigResolver
 from . import bridges, dispatch, grammars
-from .languages import vue as _vue_lang, svelte as _svelte_lang
-from .languages import markdown as _markdown_lang, notebook as _notebook_lang, rescript as _rescript_lang
 from .bridges import _BRIDGE_PATTERNS
+from .languages import SPECIAL_HANDLERS as _SPECIAL_HANDLERS
+from .languages import dart as _dart_lang
+from .languages import markdown as _markdown_lang
+from .languages import notebook as _notebook_lang
+from .languages import rescript as _rescript_lang
+from .languages import svelte as _svelte_lang
+from .languages import vue as _vue_lang
 from .test_detection import (
     _TEST_RUNNER_NAMES,
+)
+from .test_detection import (
     is_test_file as _is_test_file,
+)
+from .test_detection import (
     is_test_function as _is_test_function,
 )
 from .types import EdgeInfo, NodeInfo
@@ -612,78 +621,12 @@ class CodeParser:
         for child in root.children:
             node_type = child.type
 
-            # --- R-specific constructs ---
-            if language == "r" and self._extract_r_constructs(
-                child,
-                node_type,
-                source,
-                language,
-                file_path,
-                nodes,
-                edges,
-                enclosing_class,
-                enclosing_func,
-                import_map,
-                defined_names,
-            ):
-                continue
-
-            # --- Lua/Luau-specific constructs ---
-            if language in ("lua", "luau") and self._extract_lua_constructs(
-                child,
-                node_type,
-                source,
-                language,
-                file_path,
-                nodes,
-                edges,
-                enclosing_class,
-                enclosing_func,
-                import_map,
-                defined_names,
-                _depth,
-            ):
-                continue
-
-            # --- Julia-specific constructs ---
-            if language == "julia" and self._extract_julia_constructs(
-                child,
-                node_type,
-                source,
-                language,
-                file_path,
-                nodes,
-                edges,
-                enclosing_class,
-                enclosing_func,
-                import_map,
-                defined_names,
-                _depth,
-            ):
-                continue
-
-            # --- Bash-specific constructs ---
-            # ``source ./foo.sh`` and ``. ./foo.sh`` are commands in
-            # tree-sitter-bash; re-interpret them as IMPORTS_FROM edges so
-            # cross-script wiring works the same as in other languages.
-            if language == "bash" and node_type == "command":
-                if self._extract_bash_source_command(
+            # --- Language-specific constructs ---
+            if handler := _SPECIAL_HANDLERS.get(language):
+                if handler(
+                    self,
                     child,
-                    file_path,
-                    edges,
-                ):
-                    continue
-
-            # --- Elixir-specific constructs ---
-            # Every top-level construct in Elixir is a ``call`` node:
-            # defmodule, def/defp/defmacro, alias/import/require/use, and
-            # ordinary function invocations all share the same node type.
-            # Dispatch via _extract_elixir_constructs so we can tell them
-            # apart by the first-identifier text and still recurse into
-            # bodies with the correct enclosing scope. See: #112
-            if language == "elixir" and node_type == "call":
-                if self._extract_elixir_constructs(
-                    child,
+                    node_type,
                     source,
                     language,
                     file_path,
@@ -696,22 +639,6 @@ class CodeParser:
                     _depth,
                 ):
                     continue
-
-            # --- Dart call detection (see #87) ---
-            # tree-sitter-dart does not wrap calls in a single
-            # ``call_expression`` node; instead the pattern is
-            # ``identifier + selector > argument_part`` as siblings inside
-            # the parent.  Scan child's children here and emit CALLS edges
-            # for any we find; nested calls are handled by the main recursion.
-            if language == "dart":
-                self._extract_dart_calls_from_children(
-                    child,
-                    source,
-                    file_path,
-                    edges,
-                    enclosing_class,
-                    enclosing_func,
-                )
 
             # --- JS/TS variable-assigned functions (const foo = () => {}) ---
             if (
@@ -842,35 +769,6 @@ class CodeParser:
                 defined_names,
             )
 
-            # --- Solidity-specific constructs ---
-            if language == "solidity" and self._extract_solidity_constructs(
-                child,
-                node_type,
-                source,
-                file_path,
-                nodes,
-                edges,
-                enclosing_class,
-                enclosing_func,
-            ):
-                continue
-
-            # --- Terraform-specific constructs ---
-            if language == "terraform" and self._extract_terraform_constructs(
-                child,
-                node_type,
-                source,
-                file_path,
-                nodes,
-                edges,
-                enclosing_class,
-                enclosing_func,
-                import_map,
-                defined_names,
-                _depth,
-            ):
-                continue
-
             # Recurse for other node types
             self._extract_from_tree(
                 child,
@@ -886,68 +784,26 @@ class CodeParser:
                 _depth=_depth + 1,
             )
 
-    def _elixir_call_identifier(self, node) -> Optional[str]:
-        """Return the leading identifier of an Elixir ``call`` node.
+    # Elixir helpers moved to languages/elixir.py; kept as shims for any
+    # external call sites.
+    def _elixir_call_identifier(self, node) -> Optional[str]:  # pragma: no cover
+        from .languages import elixir as _elixir_lang
 
-        For ``def add(a, b)`` returns ``"def"``; for ``defmodule Calc``
-        returns ``"defmodule"``; for ``IO.puts(msg)`` returns the dotted
-        path's final identifier (``"puts"``); for ``alias Calculator``
-        returns ``"alias"``.
-        """
-        if not node.children:
-            return None
-        first = node.children[0]
-        if first.type == "identifier":
-            return first.text.decode("utf-8", errors="replace")
-        # Dotted calls: dot > left: alias "IO", right: identifier "puts"
-        if first.type == "dot":
-            for child in reversed(first.children):
-                if child.type == "identifier":
-                    return child.text.decode("utf-8", errors="replace")
-        return None
+        return _elixir_lang._elixir_call_identifier(node)
 
-    def _elixir_module_name(self, arguments) -> Optional[str]:
-        """Extract a module name from a ``defmodule`` / ``alias`` / etc.
-        arguments node. Supports ``Calc`` (single alias) and ``Foo.Bar``
-        (dotted alias inside a `dot` node).
-        """
-        for child in arguments.children:
-            if child.type == "alias":
-                return child.text.decode("utf-8", errors="replace")
-            if child.type == "dot":
-                return child.text.decode("utf-8", errors="replace")
-        return None
+    def _elixir_module_name(self, arguments) -> Optional[str]:  # pragma: no cover
+        from .languages import elixir as _elixir_lang
+
+        return _elixir_lang._elixir_module_name(arguments)
 
     def _elixir_function_name_and_params(
         self,
         arguments,
         source: bytes,
-    ) -> tuple[Optional[str], Optional[str]]:
-        """Extract the function name and parameter list from a ``def``/
-        ``defp``/``defmacro`` arguments node.
+    ) -> tuple[Optional[str], Optional[str]]:  # pragma: no cover
+        from .languages import elixir as _elixir_lang
 
-        The ``arguments`` of a ``def`` call wraps another ``call`` whose
-        first child is the function's identifier and whose children
-        (past the parens) are the parameters.
-        """
-        for child in arguments.children:
-            if child.type == "call":
-                name: Optional[str] = None
-                for sub in child.children:
-                    if sub.type == "identifier" and name is None:
-                        name = sub.text.decode("utf-8", errors="replace")
-                # Parameter text is everything between the parens of
-                # the inner call; source slice is simplest.
-                params_text = child.text.decode("utf-8", errors="replace")
-                # Strip the function name off the front.
-                if name and params_text.startswith(name):
-                    params_text = params_text[len(name) :]
-                return name, params_text
-            if child.type == "identifier":
-                # Zero-arity def like `def reset, do: ...` has no inner
-                # call; just the identifier.
-                return child.text.decode("utf-8", errors="replace"), None
-        return None, None
+        return _elixir_lang._elixir_function_name_and_params(arguments, source)
 
     def _extract_elixir_constructs(
         self,
@@ -963,192 +819,22 @@ class CodeParser:
         defined_names: Optional[set[str]],
         _depth: int,
     ) -> bool:
-        """Handle every Elixir ``call`` node by dispatching on the leading
-        identifier. See: #112
+        from .languages import elixir as _elixir_lang
 
-        Returns True if the node was fully handled (and the main loop
-        should skip generic recursion); False to let the default dispatch
-        continue (never used here — Elixir has no other node types).
-        """
-        ident = self._elixir_call_identifier(node)
-        if ident is None:
-            return False
-
-        # ---- defmodule Name do ... end ----------------------------------
-        if ident == "defmodule":
-            arguments = None
-            do_block = None
-            for sub in node.children:
-                if sub.type == "arguments":
-                    arguments = sub
-                elif sub.type == "do_block":
-                    do_block = sub
-            if arguments is None:
-                return False
-            mod_name = self._elixir_module_name(arguments)
-            if mod_name is None:
-                return False
-            qualified = self._qualify(mod_name, file_path, None)
-            nodes.append(
-                NodeInfo(
-                    kind="Class",
-                    name=mod_name,
-                    file_path=file_path,
-                    line_start=node.start_point[0] + 1,
-                    line_end=node.end_point[0] + 1,
-                    language=language,
-                    parent_name=None,
-                )
-            )
-            # CONTAINS file -> module
-            edges.append(
-                EdgeInfo(
-                    kind="CONTAINS",
-                    source=file_path,
-                    target=qualified,
-                    file_path=file_path,
-                    line=node.start_point[0] + 1,
-                )
-            )
-            if do_block is not None:
-                self._extract_from_tree(
-                    do_block,
-                    source,
-                    language,
-                    file_path,
-                    nodes,
-                    edges,
-                    enclosing_class=mod_name,
-                    enclosing_func=None,
-                    import_map=import_map,
-                    defined_names=defined_names,
-                    _depth=_depth + 1,
-                )
-            return True
-
-        # ---- def / defp / defmacro / defmacrop -------------------------
-        if ident in ("def", "defp", "defmacro", "defmacrop"):
-            arguments = None
-            do_block = None
-            for sub in node.children:
-                if sub.type == "arguments":
-                    arguments = sub
-                elif sub.type == "do_block":
-                    do_block = sub
-            if arguments is None:
-                return False
-            fn_name, params = self._elixir_function_name_and_params(
-                arguments,
-                source,
-            )
-            if fn_name is None:
-                return False
-            is_test = _is_test_function(fn_name, file_path)
-            kind = "Test" if is_test else "Function"
-            qualified = self._qualify(fn_name, file_path, enclosing_class)
-            nodes.append(
-                NodeInfo(
-                    kind=kind,
-                    name=fn_name,
-                    file_path=file_path,
-                    line_start=node.start_point[0] + 1,
-                    line_end=node.end_point[0] + 1,
-                    language=language,
-                    parent_name=enclosing_class,
-                    params=params,
-                    is_test=is_test,
-                )
-            )
-            container = (
-                self._qualify(enclosing_class, file_path, None) if enclosing_class else file_path
-            )
-            edges.append(
-                EdgeInfo(
-                    kind="CONTAINS",
-                    source=container,
-                    target=qualified,
-                    file_path=file_path,
-                    line=node.start_point[0] + 1,
-                )
-            )
-            if do_block is not None:
-                self._extract_from_tree(
-                    do_block,
-                    source,
-                    language,
-                    file_path,
-                    nodes,
-                    edges,
-                    enclosing_class=enclosing_class,
-                    enclosing_func=fn_name,
-                    import_map=import_map,
-                    defined_names=defined_names,
-                    _depth=_depth + 1,
-                )
-            return True
-
-        # ---- alias / import / require / use ----------------------------
-        if ident in ("alias", "import", "require", "use"):
-            for sub in node.children:
-                if sub.type == "arguments":
-                    mod = self._elixir_module_name(sub)
-                    if mod is not None:
-                        edges.append(
-                            EdgeInfo(
-                                kind="IMPORTS_FROM",
-                                source=file_path,
-                                target=mod,
-                                file_path=file_path,
-                                line=node.start_point[0] + 1,
-                            )
-                        )
-                    break
-            return True
-
-        # ---- Everything else = a regular function/method call ----------
-        # Module-scope calls attribute to the File node (same rule as the
-        # generic _extract_calls path).
-        # For dotted calls like `IO.puts(msg)`, prefer the dotted
-        # identifier; for bare calls use the first identifier.
-        call_name = ident
-        caller = (
-            self._qualify(enclosing_func, file_path, enclosing_class)
-            if enclosing_func
-            else file_path
-        )
-        target = self._resolve_call_target(
-            call_name,
-            file_path,
+        return _elixir_lang._extract_elixir_constructs(
+            self,
+            node,
+            source,
             language,
-            import_map or {},
-            defined_names or set(),
+            file_path,
+            nodes,
+            edges,
+            enclosing_class,
+            enclosing_func,
+            import_map,
+            defined_names,
+            _depth,
         )
-        edges.append(
-            EdgeInfo(
-                kind="CALLS",
-                source=caller,
-                target=target,
-                file_path=file_path,
-                line=node.start_point[0] + 1,
-            )
-        )
-        # Recurse into arguments + do_block so nested calls are caught.
-        for sub in node.children:
-            if sub.type in ("arguments", "do_block"):
-                self._extract_from_tree(
-                    sub,
-                    source,
-                    language,
-                    file_path,
-                    nodes,
-                    edges,
-                    enclosing_class=enclosing_class,
-                    enclosing_func=enclosing_func,
-                    import_map=import_map,
-                    defined_names=defined_names,
-                    _depth=_depth + 1,
-                )
-        return True
 
     def _extract_bash_source_command(
         self,
@@ -1156,37 +842,9 @@ class CodeParser:
         file_path: str,
         edges: list[EdgeInfo],
     ) -> bool:
-        """Detect ``source foo.sh`` / ``. foo.sh`` and emit an IMPORTS_FROM
-        edge. Returns True if handled (so the main loop skips recursing
-        into this command). See: #197
-        """
-        command_name: Optional[str] = None
-        args: list[str] = []
-        for sub in node.children:
-            if sub.type == "command_name":
-                command_name = sub.text.decode("utf-8", errors="replace").strip()
-            elif sub.type in ("word", "string", "raw_string") and command_name:
-                txt = sub.text.decode("utf-8", errors="replace").strip()
-                # Strip surrounding quotes if present
-                if len(txt) >= 2 and txt[0] in ("'", '"') and txt[-1] == txt[0]:
-                    txt = txt[1:-1]
-                if txt:
-                    args.append(txt)
-        if command_name in ("source", ".") and args:
-            target = args[0]
-            # Try to resolve relative paths to real files
-            resolved = self._resolve_module_to_file(target, file_path, "bash")
-            edges.append(
-                EdgeInfo(
-                    kind="IMPORTS_FROM",
-                    source=file_path,
-                    target=resolved if resolved else target,
-                    file_path=file_path,
-                    line=node.start_point[0] + 1,
-                )
-            )
-            return True
-        return False
+        from .languages import bash as _bash_lang
+
+        return _bash_lang._extract_bash_source_command(self, node, file_path, edges)
 
     def _extract_dart_calls_from_children(
         self,
@@ -1197,75 +855,17 @@ class CodeParser:
         enclosing_class: Optional[str],
         enclosing_func: Optional[str],
     ) -> None:
-        """Detect Dart call sites from a parent node's children (#87 bug 1).
+        from .languages import dart as _dart_lang
 
-        tree-sitter-dart does not emit a single ``call_expression`` node for
-        Dart calls.  Instead it produces ``identifier`` / method-selector
-        siblings followed by a ``selector`` whose child is ``argument_part``:
-
-            identifier "print"
-            selector
-              argument_part
-
-        And for method calls like ``obj.foo()`` the middle selector is a
-        ``unconditional_assignable_selector`` holding the method name:
-
-            identifier "obj"
-            selector
-              unconditional_assignable_selector "."
-                identifier "foo"
-            selector
-              argument_part
-
-        This walker scans the immediate children of ``parent`` for either
-        shape and emits a ``CALLS`` edge.  Nested calls are picked up as
-        ``_extract_from_tree`` recurses into child nodes.
-        """
-        call_name: Optional[str] = None
-        for sub in parent.children:
-            if sub.type == "identifier":
-                call_name = sub.text.decode("utf-8", errors="replace")
-                continue
-            if sub.type == "selector":
-                # Case A: selector > unconditional_assignable_selector > identifier
-                # (updates call_name to the method name)
-                method_name: Optional[str] = None
-                has_arguments = False
-                for ssub in sub.children:
-                    if ssub.type == "unconditional_assignable_selector":
-                        for ident in ssub.children:
-                            if ident.type == "identifier":
-                                method_name = ident.text.decode("utf-8", errors="replace")
-                                break
-                    elif ssub.type == "argument_part":
-                        has_arguments = True
-                if method_name is not None:
-                    call_name = method_name
-                if has_arguments and call_name:
-                    src_qn = (
-                        self._qualify(enclosing_func, file_path, enclosing_class)
-                        if enclosing_func
-                        else file_path
-                    )
-                    edges.append(
-                        EdgeInfo(
-                            kind="CALLS",
-                            source=src_qn,
-                            target=call_name,
-                            file_path=file_path,
-                            line=parent.start_point[0] + 1,
-                        )
-                    )
-                    # After emitting for this call, clear call_name so we
-                    # don't re-emit on any trailing chained selector.
-                    call_name = None
-                continue
-            # Non-identifier, non-selector children don't change the
-            # pending call name (``return``, ``await``, ``yield``, etc.)
-            # but anything unexpected should reset it to avoid spurious
-            # edges across unrelated siblings.
-            if sub.type not in ("return", "await", "yield", "this", "const", "new"):
-                call_name = None
+        _dart_lang._extract_dart_calls_from_children(
+            self,
+            parent,
+            source,
+            file_path,
+            edges,
+            enclosing_class,
+            enclosing_func,
+        )
 
     def _extract_r_constructs(
         self,
@@ -1281,117 +881,44 @@ class CodeParser:
         import_map: Optional[dict[str, str]],
         defined_names: Optional[set[str]],
     ) -> bool:
-        """Handle R-specific AST nodes (assignments and class-defining calls).
+        from .languages import r as _r_lang
 
-        Returns True if the child was fully handled and should be skipped
-        by the main loop.
-        """
-        # R: function definitions via assignment
-        if node_type == "binary_operator":
-            handled = self._handle_r_binary_operator(
-                child,
-                source,
-                language,
-                file_path,
-                nodes,
-                edges,
-                enclosing_class,
-                enclosing_func,
-                import_map,
-                defined_names,
-            )
-            if handled:
-                return True
+        return _r_lang._extract_r_constructs(
+            self,
+            child,
+            node_type,
+            source,
+            language,
+            file_path,
+            nodes,
+            edges,
+            enclosing_class,
+            enclosing_func,
+            import_map,
+            defined_names,
+        )
 
-        # R: setClass/setRefClass/setGeneric calls and imports
-        if node_type == "call":
-            handled = self._handle_r_call(
-                child,
-                source,
-                language,
-                file_path,
-                nodes,
-                edges,
-                enclosing_class,
-                enclosing_func,
-                import_map,
-                defined_names,
-            )
-            if handled:
-                return True
-
-        return False
-
-    # ------------------------------------------------------------------
-    # Julia-specific helpers
-    # ------------------------------------------------------------------
+    # Julia helpers moved to languages/julia.py
 
     def _julia_short_func_name(self, call_expr) -> Optional[str]:
-        """Extract the function name from a Julia short-form function lhs."""
-        for child in call_expr.children:
-            if child.type == "identifier":
-                return child.text.decode("utf-8", errors="replace")
-            if child.type == "field_expression":
-                for ident in reversed(child.children):
-                    if ident.type == "identifier":
-                        return ident.text.decode("utf-8", errors="replace")
-                return None
-            if child.type == "parametrized_type_expression":
-                for ident in child.children:
-                    if ident.type == "identifier":
-                        return ident.text.decode("utf-8", errors="replace")
-                return None
-        return None
+        from .languages import julia as _julia_lang
+
+        return _julia_lang._julia_short_func_name(call_expr)
 
     def _julia_string_arg(self, call_expr) -> Optional[str]:
-        """Return the first string literal argument of a Julia call."""
-        for child in call_expr.children:
-            if child.type != "argument_list":
-                continue
-            for arg in child.children:
-                if arg.type == "string_literal":
-                    for sub in arg.children:
-                        if sub.type == "content":
-                            return sub.text.decode("utf-8", errors="replace")
-                    raw = arg.text.decode("utf-8", errors="replace")
-                    return raw.strip('"').strip("'")
-        return None
+        from .languages import julia as _julia_lang
+
+        return _julia_lang._julia_string_arg(call_expr)
 
     def _julia_call_first_identifier(self, call_expr) -> Optional[str]:
-        """Return the first identifier of a Julia call expression."""
-        for child in call_expr.children:
-            if child.type == "identifier":
-                return child.text.decode("utf-8", errors="replace")
-        return None
+        from .languages import julia as _julia_lang
+
+        return _julia_lang._julia_call_first_identifier(call_expr)
 
     def _julia_qualified_function_owner(self, node) -> Optional[str]:
-        """Return the owner for a qualified Julia function like ``Base.show``."""
-        signature = None
-        if node.type == "assignment":
-            lhs = node.children[0] if node.children else None
-            if lhs is not None and lhs.type == "typed_expression":
-                for sub in lhs.children:
-                    if sub.type == "call_expression":
-                        lhs = sub
-                        break
-            signature = lhs
-        else:
-            for child in node.children:
-                if child.type == "signature":
-                    signature = child
-                    break
-        if signature is None:
-            return None
-        queue = [signature]
-        while queue:
-            current = queue.pop(0)
-            if current.type == "field_expression":
-                for child in current.children:
-                    if child.type == "identifier":
-                        return child.text.decode("utf-8", errors="replace")
-                return None
-            queue.extend(list(current.children))
-        return None
+        from .languages import julia as _julia_lang
+
+        return _julia_lang._julia_qualified_function_owner(node)
 
     def _extract_julia_constructs(
         self,
@@ -1408,267 +935,26 @@ class CodeParser:
         defined_names: Optional[set[str]],
         _depth: int,
     ) -> bool:
-        """Handle Julia-specific constructs the generic tables miss."""
-        if node_type == "assignment":
-            lhs = child.children[0] if child.children else None
-            if lhs is not None and lhs.type == "typed_expression":
-                for sub in lhs.children:
-                    if sub.type == "call_expression":
-                        lhs = sub
-                        break
-            if lhs is not None and lhs.type == "call_expression":
-                name = self._julia_short_func_name(lhs)
-                if name:
-                    is_test = _is_test_function(name, file_path, ())
-                    kind = "Test" if is_test else "Function"
-                    qualified = self._qualify(name, file_path, enclosing_class)
-                    nodes.append(
-                        NodeInfo(
-                            kind=kind,
-                            name=name,
-                            file_path=file_path,
-                            line_start=child.start_point[0] + 1,
-                            line_end=child.end_point[0] + 1,
-                            language=language,
-                            parent_name=enclosing_class,
-                            is_test=is_test,
-                        )
-                    )
-                    container = (
-                        self._qualify(enclosing_class, file_path, None)
-                        if enclosing_class
-                        else file_path
-                    )
-                    edges.append(
-                        EdgeInfo(
-                            kind="CONTAINS",
-                            source=container,
-                            target=qualified,
-                            file_path=file_path,
-                            line=child.start_point[0] + 1,
-                        )
-                    )
-                    owner = self._julia_qualified_function_owner(child)
-                    if owner:
-                        edges.append(
-                            EdgeInfo(
-                                kind="REFERENCES",
-                                source=qualified,
-                                target=owner,
-                                file_path=file_path,
-                                line=child.start_point[0] + 1,
-                            )
-                        )
-                    seen_op = False
-                    for sub in child.children:
-                        if not seen_op:
-                            if sub.type == "operator":
-                                seen_op = True
-                            continue
-                        self._extract_from_tree(
-                            sub,
-                            source,
-                            language,
-                            file_path,
-                            nodes,
-                            edges,
-                            enclosing_class=enclosing_class,
-                            enclosing_func=name,
-                            import_map=import_map,
-                            defined_names=defined_names,
-                            _depth=_depth + 1,
-                        )
-                    return True
+        from .languages import julia as _julia_lang
 
-        if node_type == "call_expression":
-            parent = child.parent
-            if parent is not None and parent.type == "signature":
-                return True
-            if self._julia_call_first_identifier(child) == "include":
-                path_arg = self._julia_string_arg(child)
-                if path_arg:
-                    resolved = self._resolve_module_to_file(
-                        path_arg,
-                        file_path,
-                        language,
-                    )
-                    edges.append(
-                        EdgeInfo(
-                            kind="IMPORTS_FROM",
-                            source=file_path,
-                            target=resolved if resolved else path_arg,
-                            file_path=file_path,
-                            line=child.start_point[0] + 1,
-                        )
-                    )
-                return False
-
-        if node_type in ("export_statement", "public_statement"):
-            source_qual = (
-                self._qualify(enclosing_class, file_path, None) if enclosing_class else file_path
-            )
-            marker = "julia_export" if node_type == "export_statement" else "julia_public"
-            for sub in child.children:
-                if sub.type == "identifier":
-                    name = sub.text.decode("utf-8", errors="replace")
-                    edges.append(
-                        EdgeInfo(
-                            kind="REFERENCES",
-                            source=source_qual,
-                            target=name,
-                            file_path=file_path,
-                            line=child.start_point[0] + 1,
-                            extra={marker: True},
-                        )
-                    )
-            return True
-
-        if node_type == "macrocall_expression":
-            macro_name = None
-            for sub in child.children:
-                if sub.type == "macro_identifier":
-                    for ident in sub.children:
-                        if ident.type == "identifier":
-                            macro_name = ident.text.decode("utf-8", errors="replace")
-                            break
-                    break
-
-            if macro_name == "enum":
-                type_name: Optional[str] = None
-                variant_identifiers: list = []
-                for sub in child.children:
-                    if sub.type != "macro_argument_list":
-                        continue
-                    for arg in sub.children:
-                        if arg.type != "identifier":
-                            continue
-                        if type_name is None:
-                            type_name = arg.text.decode("utf-8", errors="replace")
-                        else:
-                            variant_identifiers.append(arg)
-                    break
-                if type_name:
-                    line_start = child.start_point[0] + 1
-                    line_end = child.end_point[0] + 1
-                    qualified_type = self._qualify(type_name, file_path, enclosing_class)
-                    nodes.append(
-                        NodeInfo(
-                            kind="Class",
-                            name=type_name,
-                            file_path=file_path,
-                            line_start=line_start,
-                            line_end=line_end,
-                            language=language,
-                            parent_name=enclosing_class,
-                            extra={"julia_kind": "enum"},
-                        )
-                    )
-                    container = (
-                        self._qualify(enclosing_class, file_path, None)
-                        if enclosing_class
-                        else file_path
-                    )
-                    edges.append(
-                        EdgeInfo(
-                            kind="CONTAINS",
-                            source=container,
-                            target=qualified_type,
-                            file_path=file_path,
-                            line=line_start,
-                        )
-                    )
-                    for variant in variant_identifiers:
-                        vname = variant.text.decode("utf-8", errors="replace")
-                        qualified_v = self._qualify(vname, file_path, type_name)
-                        nodes.append(
-                            NodeInfo(
-                                kind="Function",
-                                name=vname,
-                                file_path=file_path,
-                                line_start=variant.start_point[0] + 1,
-                                line_end=variant.end_point[0] + 1,
-                                language=language,
-                                parent_name=type_name,
-                                extra={"julia_kind": "enum_variant"},
-                            )
-                        )
-                        edges.append(
-                            EdgeInfo(
-                                kind="CONTAINS",
-                                source=qualified_type,
-                                target=qualified_v,
-                                file_path=file_path,
-                                line=variant.start_point[0] + 1,
-                            )
-                        )
-                return True
-
-            if macro_name == "testset":
-                desc = None
-                body_parent = None
-                for sub in child.children:
-                    if sub.type != "macro_argument_list":
-                        continue
-                    body_parent = sub
-                    for arg in sub.children:
-                        if arg.type == "string_literal":
-                            for c in arg.children:
-                                if c.type == "content":
-                                    desc = c.text.decode("utf-8", errors="replace")
-                                    break
-                            break
-                line_no = child.start_point[0] + 1
-                synth_base = f"testset:{desc}" if desc else "testset"
-                synth_name = f"{synth_base}@L{line_no}"
-                qualified = self._qualify(synth_name, file_path, enclosing_class)
-                nodes.append(
-                    NodeInfo(
-                        kind="Test",
-                        name=synth_name,
-                        file_path=file_path,
-                        line_start=child.start_point[0] + 1,
-                        line_end=child.end_point[0] + 1,
-                        language=language,
-                        parent_name=enclosing_class,
-                        is_test=True,
-                    )
-                )
-                container = (
-                    self._qualify(enclosing_func, file_path, enclosing_class)
-                    if enclosing_func
-                    else file_path
-                )
-                edges.append(
-                    EdgeInfo(
-                        kind="CONTAINS",
-                        source=container,
-                        target=qualified,
-                        file_path=file_path,
-                        line=child.start_point[0] + 1,
-                    )
-                )
-                if body_parent is not None:
-                    self._extract_from_tree(
-                        body_parent,
-                        source,
-                        language,
-                        file_path,
-                        nodes,
-                        edges,
-                        enclosing_class=enclosing_class,
-                        enclosing_func=synth_name,
-                        import_map=import_map,
-                        defined_names=defined_names,
-                        _depth=_depth + 1,
-                    )
-                return True
-
-            return False
-
-        return False
+        return _julia_lang._extract_julia_constructs(
+            self,
+            child,
+            node_type,
+            source,
+            language,
+            file_path,
+            nodes,
+            edges,
+            enclosing_class,
+            enclosing_func,
+            import_map,
+            defined_names,
+            _depth,
+        )
 
     # ------------------------------------------------------------------
-    # Lua-specific helpers
+    # Lua-specific helpers (moved to languages/lua.py)
     # ------------------------------------------------------------------
 
     def _extract_lua_constructs(
@@ -1686,305 +972,39 @@ class CodeParser:
         defined_names: Optional[set[str]],
         _depth: int,
     ) -> bool:
-        """Handle Lua-specific AST constructs.
+        from .languages import lua as _lua_lang
 
-        Returns True if the child was fully handled and should be skipped
-        by the main loop.
-
-        Handles:
-        - variable_declaration with require() -> IMPORTS_FROM edge
-        - variable_declaration with function_definition -> named Function node
-        - function_declaration with dot/method name -> Function with table parent
-        - top-level require() call -> IMPORTS_FROM edge
-        """
-        # --- variable_declaration: require() or anonymous function ---
-        if node_type == "variable_declaration":
-            return self._handle_lua_variable_declaration(
-                child,
-                source,
-                language,
-                file_path,
-                nodes,
-                edges,
-                enclosing_class,
-                enclosing_func,
-                import_map,
-                defined_names,
-                _depth,
-            )
-
-        # --- function_declaration with dot/method table name ---
-        if node_type == "function_declaration":
-            return self._handle_lua_table_function(
-                child,
-                source,
-                language,
-                file_path,
-                nodes,
-                edges,
-                enclosing_class,
-                enclosing_func,
-                import_map,
-                defined_names,
-                _depth,
-            )
-
-        # --- Top-level require() not wrapped in variable_declaration ---
-        if node_type == "function_call" and not enclosing_func:
-            req_target = self._lua_get_require_target(child)
-            if req_target is not None:
-                resolved = self._resolve_module_to_file(
-                    req_target,
-                    file_path,
-                    language,
-                )
-                edges.append(
-                    EdgeInfo(
-                        kind="IMPORTS_FROM",
-                        source=file_path,
-                        target=resolved if resolved else req_target,
-                        file_path=file_path,
-                        line=child.start_point[0] + 1,
-                    )
-                )
-                return True
-
-        return False
-
-    def _handle_lua_variable_declaration(
-        self,
-        child,
-        source: bytes,
-        language: str,
-        file_path: str,
-        nodes: list[NodeInfo],
-        edges: list[EdgeInfo],
-        enclosing_class: Optional[str],
-        enclosing_func: Optional[str],
-        import_map: Optional[dict[str, str]],
-        defined_names: Optional[set[str]],
-        _depth: int,
-    ) -> bool:
-        """Handle Lua variable declarations that contain require() or
-        anonymous function definitions.
-
-        ``local json = require("json")``  -> IMPORTS_FROM edge
-        ``local fn = function(x) ... end`` -> Function node named "fn"
-        """
-        # Walk into: variable_declaration > assignment_statement
-        assign = None
-        for sub in child.children:
-            if sub.type == "assignment_statement":
-                assign = sub
-                break
-        if not assign:
-            return False
-
-        # Get variable name from variable_list
-        var_name = None
-        for sub in assign.children:
-            if sub.type == "variable_list":
-                for ident in sub.children:
-                    if ident.type == "identifier":
-                        var_name = ident.text.decode("utf-8", errors="replace")
-                        break
-                break
-
-        # Get value from expression_list
-        expr_list = None
-        for sub in assign.children:
-            if sub.type == "expression_list":
-                expr_list = sub
-                break
-
-        if not var_name or not expr_list:
-            return False
-
-        # Check for require() call
-        for expr in expr_list.children:
-            if expr.type == "function_call":
-                req_target = self._lua_get_require_target(expr)
-                if req_target is not None:
-                    resolved = self._resolve_module_to_file(
-                        req_target,
-                        file_path,
-                        language,
-                    )
-                    edges.append(
-                        EdgeInfo(
-                            kind="IMPORTS_FROM",
-                            source=file_path,
-                            target=resolved if resolved else req_target,
-                            file_path=file_path,
-                            line=child.start_point[0] + 1,
-                        )
-                    )
-                    return True
-
-        # Check for anonymous function: local foo = function(...) end
-        for expr in expr_list.children:
-            if expr.type == "function_definition":
-                is_test = _is_test_function(var_name, file_path)
-                kind = "Test" if is_test else "Function"
-                qualified = self._qualify(var_name, file_path, enclosing_class)
-                params = self._get_params(expr, language, source)
-
-                nodes.append(
-                    NodeInfo(
-                        kind=kind,
-                        name=var_name,
-                        file_path=file_path,
-                        line_start=child.start_point[0] + 1,
-                        line_end=child.end_point[0] + 1,
-                        language=language,
-                        parent_name=enclosing_class,
-                        params=params,
-                        is_test=is_test,
-                    )
-                )
-                container = (
-                    self._qualify(enclosing_class, file_path, None)
-                    if enclosing_class
-                    else file_path
-                )
-                edges.append(
-                    EdgeInfo(
-                        kind="CONTAINS",
-                        source=container,
-                        target=qualified,
-                        file_path=file_path,
-                        line=child.start_point[0] + 1,
-                    )
-                )
-                # Recurse into the function body for calls
-                self._extract_from_tree(
-                    expr,
-                    source,
-                    language,
-                    file_path,
-                    nodes,
-                    edges,
-                    enclosing_class=enclosing_class,
-                    enclosing_func=var_name,
-                    import_map=import_map,
-                    defined_names=defined_names,
-                    _depth=_depth + 1,
-                )
-                return True
-
-        return False
-
-    def _handle_lua_table_function(
-        self,
-        child,
-        source: bytes,
-        language: str,
-        file_path: str,
-        nodes: list[NodeInfo],
-        edges: list[EdgeInfo],
-        enclosing_class: Optional[str],
-        enclosing_func: Optional[str],
-        import_map: Optional[dict[str, str]],
-        defined_names: Optional[set[str]],
-        _depth: int,
-    ) -> bool:
-        """Handle Lua function declarations with table-qualified names.
-
-        ``function Animal.new(name)``  -> Function "new", parent "Animal"
-        ``function Animal:speak()``    -> Function "speak", parent "Animal"
-
-        Plain ``function foo()`` is NOT handled here (returns False).
-        """
-        table_name = None
-        method_name = None
-
-        for sub in child.children:
-            if sub.type in ("dot_index_expression", "method_index_expression"):
-                identifiers = [c for c in sub.children if c.type == "identifier"]
-                if len(identifiers) >= 2:
-                    table_name = identifiers[0].text.decode(
-                        "utf-8",
-                        errors="replace",
-                    )
-                    method_name = identifiers[-1].text.decode(
-                        "utf-8",
-                        errors="replace",
-                    )
-                break
-
-        if not table_name or not method_name:
-            return False
-
-        is_test = _is_test_function(method_name, file_path)
-        kind = "Test" if is_test else "Function"
-        qualified = self._qualify(method_name, file_path, table_name)
-        params = self._get_params(child, language, source)
-
-        nodes.append(
-            NodeInfo(
-                kind=kind,
-                name=method_name,
-                file_path=file_path,
-                line_start=child.start_point[0] + 1,
-                line_end=child.end_point[0] + 1,
-                language=language,
-                parent_name=table_name,
-                params=params,
-                is_test=is_test,
-            )
-        )
-        # CONTAINS: table -> method
-        container = self._qualify(table_name, file_path, None)
-        edges.append(
-            EdgeInfo(
-                kind="CONTAINS",
-                source=container,
-                target=qualified,
-                file_path=file_path,
-                line=child.start_point[0] + 1,
-            )
-        )
-        # Recurse into function body for calls
-        self._extract_from_tree(
+        return _lua_lang._extract_lua_constructs(
+            self,
             child,
+            node_type,
             source,
             language,
             file_path,
             nodes,
             edges,
-            enclosing_class=table_name,
-            enclosing_func=method_name,
-            import_map=import_map,
-            defined_names=defined_names,
-            _depth=_depth + 1,
+            enclosing_class,
+            enclosing_func,
+            import_map,
+            defined_names,
+            _depth,
         )
-        return True
+
+    def _handle_lua_variable_declaration(self, *args, **kwargs) -> bool:
+        from .languages import lua as _lua_lang
+
+        return _lua_lang._handle_lua_variable_declaration(self, *args, **kwargs)
+
+    def _handle_lua_table_function(self, *args, **kwargs) -> bool:
+        from .languages import lua as _lua_lang
+
+        return _lua_lang._handle_lua_table_function(self, *args, **kwargs)
 
     @staticmethod
     def _lua_get_require_target(call_node) -> Optional[str]:
-        """Extract the module path from a Lua require() call.
+        from .languages import lua as _lua_lang
 
-        Returns the string argument or None if this is not a require() call.
-        """
-        # Structure: function_call > identifier("require") > arguments > string
-        first_child = call_node.children[0] if call_node.children else None
-        if not first_child or first_child.type != "identifier" or first_child.text != b"require":
-            return None
-        for child in call_node.children:
-            if child.type == "arguments":
-                for arg in child.children:
-                    if arg.type == "string":
-                        # String node has string_content child
-                        for sub in arg.children:
-                            if sub.type == "string_content":
-                                return sub.text.decode(
-                                    "utf-8",
-                                    errors="replace",
-                                )
-                        # Fallback: strip quotes from full text
-                        raw = arg.text.decode("utf-8", errors="replace")
-                        return raw.strip("'\"")
-        return None
+        return _lua_lang._lua_get_require_target(call_node)
 
     # ------------------------------------------------------------------
     # JS/TS: variable-assigned functions  (const foo = () => {})
@@ -2956,308 +1976,60 @@ class CodeParser:
         enclosing_class: Optional[str],
         enclosing_func: Optional[str],
     ) -> bool:
-        """Handle Solidity-specific AST constructs (emit, state vars, etc.).
+        from .languages import solidity as _solidity_lang
 
-        Returns True if the child was fully handled and should skip
-        default recursion.
-        """
-        # Emit statements: emit EventName(...) -> CALLS edge.
-        # Module-scope emits attribute to the File node.
-        if node_type == "emit_statement":
-            for sub in child.children:
-                if sub.type == "expression":
-                    for ident in sub.children:
-                        if ident.type == "identifier":
-                            caller = (
-                                self._qualify(
-                                    enclosing_func,
-                                    file_path,
-                                    enclosing_class,
-                                )
-                                if enclosing_func
-                                else file_path
-                            )
-                            edges.append(
-                                EdgeInfo(
-                                    kind="CALLS",
-                                    source=caller,
-                                    target=ident.text.decode(
-                                        "utf-8",
-                                        errors="replace",
-                                    ),
-                                    file_path=file_path,
-                                    line=child.start_point[0] + 1,
-                                )
-                            )
-            # emit_statement falls through to default recursion
-            return False
-
-        # State variable declarations -> Function nodes (public ones
-        # auto-generate getters, and all are critical for reviews)
-        if node_type == "state_variable_declaration" and enclosing_class:
-            var_name = None
-            var_visibility = None
-            var_mutability = None
-            var_type = None
-            for sub in child.children:
-                if sub.type == "identifier":
-                    var_name = sub.text.decode(
-                        "utf-8",
-                        errors="replace",
-                    )
-                elif sub.type == "visibility":
-                    var_visibility = sub.text.decode(
-                        "utf-8",
-                        errors="replace",
-                    )
-                elif sub.type == "type_name":
-                    var_type = sub.text.decode(
-                        "utf-8",
-                        errors="replace",
-                    )
-                elif sub.type in ("constant", "immutable"):
-                    var_mutability = sub.type
-            if var_name:
-                qualified = self._qualify(
-                    var_name,
-                    file_path,
-                    enclosing_class,
-                )
-                nodes.append(
-                    NodeInfo(
-                        kind="Function",
-                        name=var_name,
-                        file_path=file_path,
-                        line_start=child.start_point[0] + 1,
-                        line_end=child.end_point[0] + 1,
-                        language="solidity",
-                        parent_name=enclosing_class,
-                        return_type=var_type,
-                        modifiers=var_visibility,
-                        extra={
-                            "solidity_kind": "state_variable",
-                            "mutability": var_mutability,
-                        },
-                    )
-                )
-                edges.append(
-                    EdgeInfo(
-                        kind="CONTAINS",
-                        source=self._qualify(
-                            enclosing_class,
-                            file_path,
-                            None,
-                        ),
-                        target=qualified,
-                        file_path=file_path,
-                        line=child.start_point[0] + 1,
-                    )
-                )
-                return True
-            return False
-
-        # File-level and contract-level constant declarations
-        if node_type == "constant_variable_declaration":
-            var_name = None
-            var_type = None
-            for sub in child.children:
-                if sub.type == "identifier":
-                    var_name = sub.text.decode(
-                        "utf-8",
-                        errors="replace",
-                    )
-                elif sub.type == "type_name":
-                    var_type = sub.text.decode(
-                        "utf-8",
-                        errors="replace",
-                    )
-            if var_name:
-                qualified = self._qualify(
-                    var_name,
-                    file_path,
-                    enclosing_class,
-                )
-                nodes.append(
-                    NodeInfo(
-                        kind="Function",
-                        name=var_name,
-                        file_path=file_path,
-                        line_start=child.start_point[0] + 1,
-                        line_end=child.end_point[0] + 1,
-                        language="solidity",
-                        parent_name=enclosing_class,
-                        return_type=var_type,
-                        extra={"solidity_kind": "constant"},
-                    )
-                )
-                container = (
-                    self._qualify(enclosing_class, file_path, None)
-                    if enclosing_class
-                    else file_path
-                )
-                edges.append(
-                    EdgeInfo(
-                        kind="CONTAINS",
-                        source=container,
-                        target=qualified,
-                        file_path=file_path,
-                        line=child.start_point[0] + 1,
-                    )
-                )
-                return True
-            return False
-
-        # Using directives: using LibName for Type -> DEPENDS_ON edge
-        if node_type == "using_directive":
-            lib_name = None
-            for sub in child.children:
-                if sub.type == "type_alias":
-                    for ident in sub.children:
-                        if ident.type == "identifier":
-                            lib_name = ident.text.decode(
-                                "utf-8",
-                                errors="replace",
-                            )
-            if lib_name:
-                source_name = (
-                    self._qualify(
-                        enclosing_class,
-                        file_path,
-                        None,
-                    )
-                    if enclosing_class
-                    else file_path
-                )
-                edges.append(
-                    EdgeInfo(
-                        kind="DEPENDS_ON",
-                        source=source_name,
-                        target=lib_name,
-                        file_path=file_path,
-                        line=child.start_point[0] + 1,
-                    )
-                )
-            return True
-
-        return False
+        return _solidity_lang._extract_solidity_constructs(
+            self,
+            child,
+            node_type,
+            source,
+            file_path,
+            nodes,
+            edges,
+            enclosing_class,
+            enclosing_func,
+        )
 
     def _strip_tf_string(self, value: str) -> str:
-        value = value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
-            return value[1:-1]
-        return value
+        from .languages import terraform as _terraform_lang
+
+        return _terraform_lang._strip_tf_string(value)
 
     def _terraform_field_text(self, node, field_name: str) -> Optional[str]:
-        field_node = self._terraform_field_node(node, field_name)
-        if field_node is None:
-            return None
-        return field_node.text.decode("utf-8", errors="replace")
+        from .languages import terraform as _terraform_lang
+
+        return _terraform_lang._terraform_field_text(node, field_name)
 
     def _terraform_field_node(self, node, field_name: str):
-        field_node = None
-        try:
-            field_node = node.child_by_field_name(field_name)
-        except AttributeError:
-            field_node = None
-        return field_node
+        from .languages import terraform as _terraform_lang
+
+        return _terraform_lang._terraform_field_node(node, field_name)
 
     def _terraform_collect_references(
-        self,
-        text: str,
-        caller: str,
-        file_path: str,
-        line: int,
-        edges: list[EdgeInfo],
+        self, text: str, caller: str, file_path: str, line: int, edges: list[EdgeInfo]
     ) -> None:
-        seen: set[str] = set()
-        for match in _TERRAFORM_REFERENCE_RE.finditer(text):
-            target = None
-            if match.group(1):
-                target = f"data.{match.group(2)}.{match.group(3)}"
-            elif match.group(4):
-                target = f"{match.group(4)}.{match.group(5)}"
-            else:
-                root = match.group(6)
-                name = match.group(7)
-                if root in _TERRAFORM_REFERENCE_SKIP_ROOTS:
-                    continue
-                target = f"resource.{root}.{name}"
-            if not target or target == caller or target in seen:
-                continue
-            seen.add(target)
-            edges.append(
-                EdgeInfo(
-                    kind="REFERENCES",
-                    source=caller,
-                    target=target,
-                    file_path=file_path,
-                    line=line,
-                )
-            )
+        from .languages import terraform as _terraform_lang
+
+        _terraform_lang._terraform_collect_references(text, caller, file_path, line, edges)
 
     def _terraform_collect_calls(
-        self,
-        text: str,
-        caller: str,
-        file_path: str,
-        line: int,
-        edges: list[EdgeInfo],
+        self, text: str, caller: str, file_path: str, line: int, edges: list[EdgeInfo]
     ) -> None:
-        seen: set[str] = set()
-        for match in _TERRAFORM_CALL_RE.finditer(text):
-            name = match.group(1)
-            if name in _TERRAFORM_CALL_SKIP or name in seen:
-                continue
-            seen.add(name)
-            edges.append(
-                EdgeInfo(
-                    kind="CALLS",
-                    source=caller,
-                    target=name,
-                    file_path=file_path,
-                    line=line,
-                )
-            )
+        from .languages import terraform as _terraform_lang
+
+        _terraform_lang._terraform_collect_calls(text, caller, file_path, line, edges)
 
     def _terraform_scan_body(
-        self,
-        body_text: str,
-        caller: str,
-        file_path: str,
-        line: int,
-        edges: list[EdgeInfo],
+        self, body_text: str, caller: str, file_path: str, line: int, edges: list[EdgeInfo]
     ) -> None:
-        self._terraform_collect_calls(body_text, caller, file_path, line, edges)
-        self._terraform_collect_references(body_text, caller, file_path, line, edges)
+        from .languages import terraform as _terraform_lang
+
+        _terraform_lang._terraform_scan_body(body_text, caller, file_path, line, edges)
 
     def _get_terraform_defined_name(self, node) -> Optional[str]:
-        node_type = node.type
-        if node_type in ("resource_block", "data_block", "ephemeral_block"):
-            block_type = self._terraform_field_text(node, "type")
-            name = self._terraform_field_text(node, "name")
-            if block_type and name:
-                prefix = node_type.removesuffix("_block")
-                return f"{prefix}.{self._strip_tf_string(block_type)}.{self._strip_tf_string(name)}"
-        if node_type in (
-            "module_block",
-            "provider_block",
-            "variable_block",
-            "output_block",
-            "check_block",
-        ):
-            name = self._terraform_field_text(node, "name")
-            if name:
-                prefix = {
-                    "module_block": "module",
-                    "provider_block": "provider",
-                    "variable_block": "var",
-                    "output_block": "output",
-                    "check_block": "check",
-                }[node_type]
-                return f"{prefix}.{self._strip_tf_string(name)}"
-        if node_type == "terraform_block":
-            return "terraform"
-        return None
+        from .languages import terraform as _terraform_lang
+
+        return _terraform_lang._get_terraform_defined_name(node)
 
     def _extract_terraform_constructs(
         self,
@@ -3273,190 +2045,22 @@ class CodeParser:
         defined_names: Optional[set[str]],
         _depth: int,
     ) -> bool:
-        del source, import_map, defined_names
+        from .languages import terraform as _terraform_lang
 
-        if node_type == "locals_block":
-            body_text = self._terraform_field_text(child, "body") or ""
-            body_node = self._terraform_field_node(child, "body")
-            if body_node is None:
-                return True
-            for attr in body_node.children:
-                if attr.type != "attribute":
-                    continue
-                attr_name = self._terraform_field_text(attr, "name")
-                if not attr_name:
-                    continue
-                node_name = f"local.{attr_name}"
-                qualified = self._qualify(node_name, file_path, None)
-                nodes.append(
-                    NodeInfo(
-                        kind="Function",
-                        name=node_name,
-                        file_path=file_path,
-                        line_start=attr.start_point[0] + 1,
-                        line_end=attr.end_point[0] + 1,
-                        language="terraform",
-                        extra={"terraform_kind": "local"},
-                    )
-                )
-                edges.append(
-                    EdgeInfo(
-                        kind="CONTAINS",
-                        source=file_path,
-                        target=qualified,
-                        file_path=file_path,
-                        line=attr.start_point[0] + 1,
-                    )
-                )
-                attr_text = attr.text.decode("utf-8", errors="replace")
-                self._terraform_scan_body(
-                    attr_text,
-                    node_name,
-                    file_path,
-                    attr.start_point[0] + 1,
-                    edges,
-                )
-            return True
-
-        if node_type in ("import_block", "moved_block", "removed_block"):
-            body_text = self._terraform_field_text(child, "body") or ""
-            attrs: dict[str, str] = {}
-            body_node = self._terraform_field_node(child, "body")
-            if body_node is not None:
-                for attr in body_node.children:
-                    if attr.type != "attribute":
-                        continue
-                    attr_name = self._terraform_field_text(attr, "name")
-                    attr_value = self._terraform_field_text(attr, "value")
-                    if attr_name and attr_value:
-                        attrs[attr_name] = attr_value
-
-            if node_type == "import_block":
-                target = attrs.get("id") or attrs.get("to")
-                if target:
-                    edges.append(
-                        EdgeInfo(
-                            kind="IMPORTS_FROM",
-                            source=file_path,
-                            target=self._strip_tf_string(target),
-                            file_path=file_path,
-                            line=child.start_point[0] + 1,
-                        )
-                    )
-            elif node_type == "moved_block":
-                from_target = attrs.get("from")
-                to_target = attrs.get("to")
-                if from_target and to_target:
-                    edges.append(
-                        EdgeInfo(
-                            kind="REFERENCES",
-                            source=self._strip_tf_string(from_target),
-                            target=self._strip_tf_string(to_target),
-                            file_path=file_path,
-                            line=child.start_point[0] + 1,
-                            extra={"terraform_kind": "moved"},
-                        )
-                    )
-            elif node_type == "removed_block":
-                from_target = attrs.get("from")
-                if from_target:
-                    edges.append(
-                        EdgeInfo(
-                            kind="REFERENCES",
-                            source=file_path,
-                            target=self._strip_tf_string(from_target),
-                            file_path=file_path,
-                            line=child.start_point[0] + 1,
-                            extra={"terraform_kind": "removed"},
-                        )
-                    )
-
-            self._terraform_scan_body(
-                body_text,
-                file_path,
-                file_path,
-                child.start_point[0] + 1,
-                edges,
-            )
-            return True
-
-        node_name = self._get_terraform_defined_name(child)
-        if node_name is None:
-            return False
-
-        kind = "Class"
-        terraform_kind = node_type.removesuffix("_block")
-        if node_type in ("variable_block", "output_block", "locals_block"):
-            kind = "Function"
-        elif node_type == "check_block":
-            kind = "Test"
-
-        qualified = self._qualify(node_name, file_path, None)
-        node = NodeInfo(
-            kind=kind,
-            name=node_name,
-            file_path=file_path,
-            line_start=child.start_point[0] + 1,
-            line_end=child.end_point[0] + 1,
-            language="terraform",
-            is_test=node_type == "check_block",
-            extra={"terraform_kind": terraform_kind},
-        )
-        nodes.append(node)
-        edges.append(
-            EdgeInfo(
-                kind="CONTAINS",
-                source=file_path,
-                target=qualified,
-                file_path=file_path,
-                line=child.start_point[0] + 1,
-            )
-        )
-
-        body_text = self._terraform_field_text(child, "body") or child.text.decode(
-            "utf-8",
-            errors="replace",
-        )
-        self._terraform_scan_body(
-            body_text,
-            node_name,
+        return _terraform_lang._extract_terraform_constructs(
+            self,
+            child,
+            node_type,
+            source,
             file_path,
-            child.start_point[0] + 1,
+            nodes,
             edges,
+            enclosing_class,
+            enclosing_func,
+            import_map,
+            defined_names,
+            _depth,
         )
-
-        if node_type == "module_block":
-            body_node = self._terraform_field_node(child, "body")
-            if body_node is not None:
-                for attr in body_node.children:
-                    if attr.type != "attribute":
-                        continue
-                    attr_name = self._terraform_field_text(attr, "name")
-                    attr_value = self._terraform_field_text(attr, "value")
-                    if attr_name == "source" and attr_value:
-                        edges.append(
-                            EdgeInfo(
-                                kind="IMPORTS_FROM",
-                                source=qualified,
-                                target=self._strip_tf_string(attr_value),
-                                file_path=file_path,
-                                line=attr.start_point[0] + 1,
-                            )
-                        )
-
-        if node_type == "terraform_block":
-            for match in re.finditer(r"source\s*=\s*([\"'][^\"']+[\"'])", body_text):
-                edges.append(
-                    EdgeInfo(
-                        kind="DEPENDS_ON",
-                        source=qualified,
-                        target=self._strip_tf_string(match.group(1)),
-                        file_path=file_path,
-                        line=child.start_point[0] + 1,
-                    )
-                )
-
-        return True
 
     def _collect_file_scope(
         self,
@@ -3823,33 +2427,7 @@ class CodeParser:
         start: Path,
         pkg_name: str,
     ) -> Optional[Path]:
-        """Walk up from ``start`` to find a ``pubspec.yaml`` whose ``name:``
-        matches ``pkg_name``. Returns the directory containing that pubspec,
-        or None if no match is found. Result is cached per (start, pkg_name)
-        pair so repeated lookups within one parse pass are cheap.
-        """
-        cache_key = (str(start), pkg_name)
-        cached = self._dart_pubspec_cache.get(cache_key)
-        if cached is not None or cache_key in self._dart_pubspec_cache:
-            return cached
-        current = start
-        # Avoid infinite loops on weird symlinks.
-        for _ in range(20):
-            pubspec = current / "pubspec.yaml"
-            if pubspec.is_file():
-                try:
-                    text = pubspec.read_text(encoding="utf-8", errors="replace")
-                except OSError:
-                    text = ""
-                m = re.search(r"^name:\s*([\w-]+)", text, re.MULTILINE)
-                if m and m.group(1) == pkg_name:
-                    self._dart_pubspec_cache[cache_key] = current
-                    return current
-            if current.parent == current:
-                break
-            current = current.parent
-        self._dart_pubspec_cache[cache_key] = None
-        return None
+        return _dart_lang.find_dart_pubspec_root(self, start, pkg_name)
 
     def _resolve_call_target(
         self,
@@ -4839,354 +3417,53 @@ class CodeParser:
         return None
 
     # ------------------------------------------------------------------
-    # R-specific helpers
+    # R-specific helpers (moved to languages/r.py)
     # ------------------------------------------------------------------
 
     @staticmethod
     def _r_call_func_name(call_node) -> Optional[str]:
-        """Extract the function name from an R call node."""
-        for child in call_node.children:
-            if child.type in ("identifier", "namespace_operator"):
-                return child.text.decode("utf-8", errors="replace")
-        return None
+        from .languages import r as _r_lang
+
+        return _r_lang._r_call_func_name(call_node)
 
     @staticmethod
     def _r_first_string_arg(call_node) -> Optional[str]:
-        """Extract the first string argument value from an R call node."""
-        for child in call_node.children:
-            if child.type == "arguments":
-                for arg in child.children:
-                    if arg.type == "argument":
-                        for sub in arg.children:
-                            if sub.type == "string":
-                                for sc in sub.children:
-                                    if sc.type == "string_content":
-                                        return sc.text.decode("utf-8", errors="replace")
-                break
-        return None
+        from .languages import r as _r_lang
+
+        return _r_lang._r_first_string_arg(call_node)
 
     @staticmethod
     def _r_iter_args(call_node):
-        """Yield (name_str, value_node) pairs from an R call's arguments."""
-        for child in call_node.children:
-            if child.type != "arguments":
-                continue
-            for arg in child.children:
-                if arg.type != "argument":
-                    continue
-                has_eq = any(sub.type == "=" for sub in arg.children)
-                if has_eq:
-                    name = None
-                    value = None
-                    for sub in arg.children:
-                        if sub.type == "identifier" and name is None:
-                            name = sub.text.decode("utf-8", errors="replace")
-                        elif sub.type not in ("=", ","):
-                            value = sub
-                    yield (name, value)
-                else:
-                    for sub in arg.children:
-                        if sub.type not in (",",):
-                            yield (None, sub)
-                            break
-            break
+        from .languages import r as _r_lang
+
+        return _r_lang._r_iter_args(call_node)
 
     @classmethod
     def _r_find_named_arg(cls, call_node, arg_name: str):
-        """Find a named argument's value node in an R call."""
-        for name, value in cls._r_iter_args(call_node):
-            if name == arg_name:
-                return value
-        return None
+        from .languages import r as _r_lang
+
+        return _r_lang._r_find_named_arg(call_node, arg_name)
 
     # ------------------------------------------------------------------
-    # R-specific handlers
+    # R-specific handlers (moved to languages/r.py)
     # ------------------------------------------------------------------
 
-    def _handle_r_binary_operator(
-        self,
-        node,
-        source: bytes,
-        language: str,
-        file_path: str,
-        nodes: list[NodeInfo],
-        edges: list[EdgeInfo],
-        enclosing_class: Optional[str],
-        enclosing_func: Optional[str],
-        import_map: Optional[dict[str, str]],
-        defined_names: Optional[set[str]],
-    ) -> bool:
-        """Handle R binary_operator nodes: name <- function(...) { ... }."""
-        children = node.children
-        if len(children) < 3:
-            return False
+    def _handle_r_binary_operator(self, *args, **kwargs) -> bool:
+        from .languages import r as _r_lang
 
-        left, op, right = children[0], children[1], children[2]
-        if op.type not in ("<-", "="):
-            return False
+        return _r_lang._handle_r_binary_operator(self, *args, **kwargs)
 
-        if right.type == "function_definition" and left.type == "identifier":
-            name = left.text.decode("utf-8", errors="replace")
-            is_test = _is_test_function(name, file_path)
-            kind = "Test" if is_test else "Function"
-            qualified = self._qualify(name, file_path, enclosing_class)
-            params = self._get_params(right, language, source)
+    def _handle_r_call(self, *args, **kwargs) -> bool:
+        from .languages import r as _r_lang
 
-            nodes.append(
-                NodeInfo(
-                    kind=kind,
-                    name=name,
-                    file_path=file_path,
-                    line_start=right.start_point[0] + 1,
-                    line_end=right.end_point[0] + 1,
-                    language=language,
-                    parent_name=enclosing_class,
-                    params=params,
-                    is_test=is_test,
-                )
-            )
+        return _r_lang._handle_r_call(self, *args, **kwargs)
 
-            container = (
-                self._qualify(enclosing_class, file_path, None) if enclosing_class else file_path
-            )
-            edges.append(
-                EdgeInfo(
-                    kind="CONTAINS",
-                    source=container,
-                    target=qualified,
-                    file_path=file_path,
-                    line=right.start_point[0] + 1,
-                )
-            )
+    def _handle_r_class_call(self, *args, **kwargs) -> bool:
+        from .languages import r as _r_lang
 
-            self._extract_from_tree(
-                right,
-                source,
-                language,
-                file_path,
-                nodes,
-                edges,
-                enclosing_class=enclosing_class,
-                enclosing_func=name,
-                import_map=import_map,
-                defined_names=defined_names,
-            )
-            return True
+        return _r_lang._handle_r_class_call(self, *args, **kwargs)
 
-        if right.type == "call" and left.type == "identifier":
-            call_func = self._r_call_func_name(right)
-            if call_func in ("setRefClass", "setClass", "setGeneric"):
-                assign_name = left.text.decode("utf-8", errors="replace")
-                return self._handle_r_class_call(
-                    right,
-                    source,
-                    language,
-                    file_path,
-                    nodes,
-                    edges,
-                    enclosing_class,
-                    enclosing_func,
-                    import_map,
-                    defined_names,
-                    assign_name=assign_name,
-                )
+    def _extract_r_methods(self, *args, **kwargs) -> None:
+        from .languages import r as _r_lang
 
-        return False
-
-    def _handle_r_call(
-        self,
-        node,
-        source: bytes,
-        language: str,
-        file_path: str,
-        nodes: list[NodeInfo],
-        edges: list[EdgeInfo],
-        enclosing_class: Optional[str],
-        enclosing_func: Optional[str],
-        import_map: Optional[dict[str, str]],
-        defined_names: Optional[set[str]],
-    ) -> bool:
-        """Handle R call nodes for imports and class definitions."""
-        func_name = self._r_call_func_name(node)
-        if not func_name:
-            return False
-
-        if func_name in ("library", "require", "source"):
-            imports = self._extract_import(node, language, source)
-            for imp_target in imports:
-                edges.append(
-                    EdgeInfo(
-                        kind="IMPORTS_FROM",
-                        source=file_path,
-                        target=imp_target,
-                        file_path=file_path,
-                        line=node.start_point[0] + 1,
-                    )
-                )
-            return True
-
-        if func_name in ("setRefClass", "setClass", "setGeneric"):
-            return self._handle_r_class_call(
-                node,
-                source,
-                language,
-                file_path,
-                nodes,
-                edges,
-                enclosing_class,
-                enclosing_func,
-                import_map,
-                defined_names,
-            )
-
-        # Module-scope R calls attribute to the File node.
-        call_name = self._get_call_name(node, language, source)
-        if call_name:
-            caller = (
-                self._qualify(enclosing_func, file_path, enclosing_class)
-                if enclosing_func
-                else file_path
-            )
-            target = self._resolve_call_target(
-                call_name,
-                file_path,
-                language,
-                import_map or {},
-                defined_names or set(),
-            )
-            edges.append(
-                EdgeInfo(
-                    kind="CALLS",
-                    source=caller,
-                    target=target,
-                    file_path=file_path,
-                    line=node.start_point[0] + 1,
-                )
-            )
-            edges.extend(self._detect_cross_language_bridge(node, language, file_path, caller))
-
-        self._extract_from_tree(
-            node,
-            source,
-            language,
-            file_path,
-            nodes,
-            edges,
-            enclosing_class=enclosing_class,
-            enclosing_func=enclosing_func,
-            import_map=import_map,
-            defined_names=defined_names,
-        )
-        return True
-
-    def _handle_r_class_call(
-        self,
-        node,
-        source: bytes,
-        language: str,
-        file_path: str,
-        nodes: list[NodeInfo],
-        edges: list[EdgeInfo],
-        enclosing_class: Optional[str],
-        enclosing_func: Optional[str],
-        import_map: Optional[dict[str, str]],
-        defined_names: Optional[set[str]],
-        assign_name: Optional[str] = None,
-    ) -> bool:
-        """Handle setClass/setRefClass/setGeneric calls -> Class nodes."""
-        class_name = self._r_first_string_arg(node) or assign_name
-        if not class_name:
-            return False
-
-        qualified = self._qualify(class_name, file_path, enclosing_class)
-        nodes.append(
-            NodeInfo(
-                kind="Class",
-                name=class_name,
-                file_path=file_path,
-                line_start=node.start_point[0] + 1,
-                line_end=node.end_point[0] + 1,
-                language=language,
-                parent_name=enclosing_class,
-            )
-        )
-        edges.append(
-            EdgeInfo(
-                kind="CONTAINS",
-                source=file_path,
-                target=qualified,
-                file_path=file_path,
-                line=node.start_point[0] + 1,
-            )
-        )
-
-        methods_list = self._r_find_named_arg(node, "methods")
-        if methods_list is not None:
-            self._extract_r_methods(
-                methods_list,
-                source,
-                language,
-                file_path,
-                nodes,
-                edges,
-                class_name,
-                import_map,
-                defined_names,
-            )
-
-        return True
-
-    def _extract_r_methods(
-        self,
-        list_call,
-        source: bytes,
-        language: str,
-        file_path: str,
-        nodes: list[NodeInfo],
-        edges: list[EdgeInfo],
-        class_name: str,
-        import_map: Optional[dict[str, str]],
-        defined_names: Optional[set[str]],
-    ) -> None:
-        """Extract methods from a setRefClass methods = list(...) call."""
-        for method_name, func_def in self._r_iter_args(list_call):
-            if not method_name or func_def is None:
-                continue
-            if func_def.type != "function_definition":
-                continue
-
-            qualified = self._qualify(method_name, file_path, class_name)
-            params = self._get_params(func_def, language, source)
-            nodes.append(
-                NodeInfo(
-                    kind="Function",
-                    name=method_name,
-                    file_path=file_path,
-                    line_start=func_def.start_point[0] + 1,
-                    line_end=func_def.end_point[0] + 1,
-                    language=language,
-                    parent_name=class_name,
-                    params=params,
-                )
-            )
-            edges.append(
-                EdgeInfo(
-                    kind="CONTAINS",
-                    source=self._qualify(class_name, file_path, None),
-                    target=qualified,
-                    file_path=file_path,
-                    line=func_def.start_point[0] + 1,
-                )
-            )
-            self._extract_from_tree(
-                func_def,
-                source,
-                language,
-                file_path,
-                nodes,
-                edges,
-                enclosing_class=class_name,
-                enclosing_func=method_name,
-                import_map=import_map,
-                defined_names=defined_names,
-            )
+        _r_lang.extract_r_methods(self, *args, **kwargs)

@@ -210,9 +210,7 @@ def _markdown_heading_text(node, source: bytes) -> str:
             "setext_h2_underline",
         }:
             continue
-        text = (
-            source[child.start_byte : child.end_byte].decode("utf-8", errors="replace").strip()
-        )
+        text = source[child.start_byte : child.end_byte].decode("utf-8", errors="replace").strip()
         if text:
             parts.append(text)
     return " ".join(parts).strip()

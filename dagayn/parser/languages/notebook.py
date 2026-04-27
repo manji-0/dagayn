@@ -163,9 +163,7 @@ def _parse_notebook_cells(
         current_line = 1
 
         for cell in lang_group:
-            cell_line_count = cell.source.count("\n") + (
-                1 if not cell.source.endswith("\n") else 0
-            )
+            cell_line_count = cell.source.count("\n") + (1 if not cell.source.endswith("\n") else 0)
             cell_offsets.append(
                 (
                     cell.cell_index,
