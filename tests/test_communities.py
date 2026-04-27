@@ -351,13 +351,13 @@ class TestCommunities:
 
     def test_cohesion_computation(self):
         """Cohesion is correctly computed as internal/(internal+external)."""
-        member_qns = {"a", "b"}
+        member_qns = {"f.py::a", "f.py::b"}
         edges = [
             GraphEdge(
                 id=1,
                 kind="CALLS",
-                source_qualified="a",
-                target_qualified="b",
+                source_qualified="f.py::a",
+                target_qualified="f.py::b",
                 file_path="f.py",
                 line=1,
                 extra={},
@@ -365,26 +365,26 @@ class TestCommunities:
             GraphEdge(
                 id=2,
                 kind="CALLS",
-                source_qualified="a",
-                target_qualified="c",
+                source_qualified="f.py::a",
+                target_qualified="g.py::c",  # resolved cross-file target
                 file_path="f.py",
                 line=2,
                 extra={},
             ),
         ]
         cohesion = _compute_cohesion(member_qns, edges)
-        # 1 internal (a->b), 1 external (a->c) => 0.5
+        # 1 internal (a->b), 1 external (a->g.py::c) => 0.5
         assert cohesion == pytest.approx(0.5)
 
     def test_cohesion_all_internal(self):
         """All edges internal => cohesion = 1.0."""
-        member_qns = {"a", "b"}
+        member_qns = {"f.py::a", "f.py::b"}
         edges = [
             GraphEdge(
                 id=1,
                 kind="CALLS",
-                source_qualified="a",
-                target_qualified="b",
+                source_qualified="f.py::a",
+                target_qualified="f.py::b",
                 file_path="f.py",
                 line=1,
                 extra={},
@@ -435,7 +435,7 @@ class TestCommunities:
                 line=3,
                 extra={},
             ),
-            # Half-in (b -> c): external to b, ignored by a
+            # Half-in (b -> c): cross-community resolved CALLS — counts as external.
             GraphEdge(
                 id=4,
                 kind="CALLS",
@@ -465,10 +465,63 @@ class TestCommunities:
             _compute_cohesion(comm_b, edges),
         ]
         assert batch == expected
-        # Sanity: comm_a has 1 internal + 1 external = 0.5
-        # comm_b has 1 internal + 2 external = 1/3
+        # comm_a: 1 internal (edge 1) + 1 external (edge 2) = 0.5
+        # comm_b: 1 internal (edge 3) + 2 external (edges 2, 4) = 1/3
+        #   edge 4 has "c::h1" (contains "::") so it is a resolved cross-
+        #   community call and correctly counts as external.
         assert batch[0] == pytest.approx(0.5)
         assert batch[1] == pytest.approx(1 / 3)
+
+    def test_calls_to_unresolved_target_not_counted(self):
+        """CALLS edges whose target has no community are stdlib/builtin noise
+        and must not inflate the external denominator (Part 1 policy).
+        """
+        # Only comm_a members are tracked; "stdlib::append" has no community.
+        comm_a = {"a::f1", "a::f2"}
+        edges = [
+            GraphEdge(
+                id=1,
+                kind="CALLS",
+                source_qualified="a::f1",
+                target_qualified="a::f2",
+                file_path="a.py",
+                line=1,
+                extra={},
+            ),
+            # Bare stdlib call — should be ignored by cohesion formula.
+            GraphEdge(
+                id=2,
+                kind="CALLS",
+                source_qualified="a::f1",
+                target_qualified="append",
+                file_path="a.py",
+                line=2,
+                extra={},
+            ),
+        ]
+        cohesion = _compute_cohesion(comm_a, edges)
+        # Only edge 1 counts (internal). Edge 2 is filtered (unresolved CALLS).
+        assert cohesion == pytest.approx(1.0)
+
+    def test_non_calls_to_unresolved_target_still_counted(self):
+        """IMPORTS_FROM / CROSS_ARTIFACT edges to unresolved targets ARE
+        counted as external — only CALLS is filtered.
+        """
+        comm_a = {"a::f1"}
+        edges = [
+            GraphEdge(
+                id=1,
+                kind="IMPORTS_FROM",
+                source_qualified="a::f1",
+                target_qualified="some_external_pkg",
+                file_path="a.py",
+                line=1,
+                extra={},
+            ),
+        ]
+        cohesion = _compute_cohesion(comm_a, edges)
+        # 0 internal, 1 external → 0.0
+        assert cohesion == pytest.approx(0.0)
 
     def test_compute_cohesion_batch_empty(self):
         """Batch with empty list returns empty list."""

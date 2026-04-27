@@ -1,6 +1,19 @@
-# Rust core migration specification (WIP)
+# Rust core migration specification
 
-> **Status:** Work in progress. This document describes the intended migration plan for replacing dagayn's parser, graph engine, and post-processing core with a Rust implementation while keeping fork behavior stable.
+> **Status:** Work in progress — core decisions frozen as of 2026-04-26. Phase 0 complete as of 2026-04-27. Phase 1 (Rust graph engine) not yet started.
+
+## Frozen decisions
+
+The following design choices are settled and must not be reopened without explicit rationale.
+
+| Concern | Decision |
+|---|---|
+| Python ↔ Rust binding | PyO3 / maturin Python extension (`dagayn._core`) |
+| Migration order | Graph engine → Post-processing → Parser |
+| Parallel operation | `DAGAYN_BACKEND={python,rust}` env switch; no auto-fallback |
+| Acceptance criteria | Correctness parity **and** explicit numeric performance targets |
+| ipynb / Markdown | Rust-only: `serde_json` for notebook cells, `cc`-built `tree-sitter-md` for Markdown |
+| Distribution targets | macOS arm64, macOS x86_64, Linux x86_64, Linux aarch64 (4 wheels) |
 
 ## Purpose
 
@@ -10,13 +23,13 @@ The immediate target is **not** a full product rewrite.
 
 The target is the core pipeline only:
 
-1. parser and language extraction
-2. graph storage and query engine
-3. post-processing layers such as FTS, flows, and communities
+1. graph storage and query engine
+2. post-processing layers such as FTS, flows, and communities
+3. parser and language extraction
 
 ## Non-goals
 
-This WIP spec does **not** require an immediate Rust replacement for:
+This spec does **not** require an immediate Rust replacement for:
 
 - CLI install flows
 - MCP tool definitions and prompt wiring
@@ -29,14 +42,14 @@ Those surfaces may remain in Python until the Rust core reaches parity.
 
 ## Migration strategy
 
-dagayn should follow a **core-first replacement** strategy, not a big-bang rewrite.
+dagayn follows a **core-first replacement** strategy, not a big-bang rewrite.
 
-Recommended shape:
+Shape:
 
-1. define a stable compatibility contract around graph data and behavior
-2. implement a Rust core behind that contract
-3. let the existing Python CLI and MCP layers call the Rust core
-4. replace outer Python surfaces only after parity is proven
+1. Define a stable compatibility contract around graph data and behavior.
+2. Implement a Rust core behind that contract.
+3. Let the existing Python CLI and MCP layers call the Rust core **via PyO3** — not subprocess.
+4. Replace outer Python surfaces only after parity is proven.
 
 This keeps user-visible behavior stable while moving the performance-sensitive and correctness-critical path first.
 
@@ -80,7 +93,7 @@ Behavioral compatibility is more important than literal implementation parity.
 
 ## Target architecture
 
-The desired end state is a layered split:
+The desired end state is a layered split.
 
 ### Layer 1: Rust core library
 
@@ -92,20 +105,11 @@ Responsible for:
 - running post-processing passes
 - exposing a stable programmatic API
 
-### Layer 2: Rust execution surface
+### Layer 2: Rust–Python binding via PyO3
 
-One or both of:
+A single Python extension module (`dagayn._core`) is built by maturin from the `crates/dagayn-py` entry point. Python callers import this module directly — no subprocess boundary.
 
-- a native Rust CLI for build/update/postprocess/status operations
-- a stable machine interface callable from Python
-
-Possible integration forms:
-
-- subprocess JSON protocol
-- shared SQLite schema with command invocation
-- Python extension binding
-
-The initial recommendation is **subprocess + SQLite schema compatibility**, because it minimizes packaging and debugging complexity during migration.
+A minimal native CLI binary (`dagayn-core`) is kept in `crates/dagayn-core/` for local debugging and A/B comparison against the Python implementation. It is not part of the distributed wheel.
 
 ### Layer 3: Python compatibility shell
 
@@ -117,9 +121,31 @@ Python remains responsible for:
 - daemon/watch orchestration
 - optional integrations that are not performance-critical
 
+## Crate workspace layout
+
+```
+crates/
+  dagayn-core/      # public API facade; used by dagayn-py and integration tests
+  dagayn-graph/     # SQLite I/O, upserts, incremental replacement, migrations (rusqlite)
+  dagayn-postproc/  # FTS, flows, communities, traversal helpers
+  dagayn-parser/    # tree-sitter orchestration, language detection, ipynb, Markdown
+  dagayn-grammars/  # build.rs fetches and builds pinned Markdown and Terraform grammars
+  dagayn-py/        # PyO3 entry point; maturin builds this into dagayn._core
+```
+
+Dependency rules:
+
+- `dagayn-py` is a thin translation layer only (PyO3 types ↔ internal types). No business logic.
+- `dagayn-graph` uses `rusqlite` for SQLite access. It is the sole owner of connection management and schema migrations.
+- `dagayn-postproc` depends on `dagayn-graph` only. It must not depend on `dagayn-parser`.
+- `dagayn-parser` depends on `dagayn-grammars` for compiled grammar bindings.
+- `dagayn-core` depends on all internal crates and is the only public surface for `dagayn-py`.
+
+ipynb parsing lives in `dagayn-parser/src/notebook.rs` using `serde_json`. Markdown grammar wiring lives in `dagayn-grammars/` with a build.rs that fetches and compiles the pinned grammar source via `cc`.
+
 ## Compatibility contract
 
-Before implementation starts, the migration should freeze a compatibility contract.
+Before implementation starts, each phase must freeze the relevant slice of this contract.
 
 ### Graph data contract
 
@@ -130,14 +156,16 @@ The Rust core must preserve:
 - `extra` metadata fields that downstream tools rely on
 - repo-root-relative `file_path` and `qualified_name` normalization
 
+Schema change rule: Rust adds a migration only when the corresponding Python `migrations.py` also changes. The two migration sequences must remain compatible.
+
 ### Parser contract
 
 The Rust parser layer must preserve:
 
 - current language detection rules
-- pinned grammar provisioning behavior for Markdown and Terraform
-- notebook cell attribution semantics
-- Markdown heading slugging and directive-comment dependency extraction
+- pinned grammar provisioning behavior for Markdown and Terraform (see `docs/GRAMMAR-PROVISIONING.md`)
+- notebook cell attribution semantics: `serde_json` cell enumeration, cell index, and source line ranges must match the attribution rules in the Python `parser.py`
+- Markdown heading slugging and directive-comment dependency extraction: re-implemented in `dagayn-parser/src/markdown.rs` to be equivalent to the Python implementation. The Python binding shim is replaced by the `cc`-built grammar in `dagayn-grammars/`.
 - Terraform block naming and reference extraction rules
 
 ### Query contract
@@ -153,69 +181,114 @@ That includes:
 - community inputs
 - search/index inputs
 
+## `DAGAYN_BACKEND` specification
+
+The env variable `DAGAYN_BACKEND` controls which backend handles each pipeline stage.
+
+Valid values: `python` (default during Phase 1–3), `rust` (default from Phase 4 onward).
+
+Scope: resolved once at process startup. Per-subcommand override is supported by setting the env before each invocation.
+
+**Auto-fallback is not performed.** If `DAGAYN_BACKEND=rust` is set and the Rust extension fails to import or returns an error, dagayn exits with a clear error message. Silent drift is treated as worse than a visible failure.
+
+Backend availability by phase:
+
+| Phase | `graph` | `postproc` | `parser` | `DAGAYN_BACKEND=rust` default? |
+|-------|---------|------------|----------|-------------------------------|
+| 0     | Python  | Python     | Python   | no                            |
+| 1     | Rust    | Python     | Python   | no                            |
+| 2     | Rust    | Rust       | Python   | no                            |
+| 3     | Rust    | Rust       | Rust     | no                            |
+| 4+    | Rust    | Rust       | Rust     | yes                           |
+
+During Phase 4, Python implementations are moved to `legacy_py/` (not deleted) for regression comparison.
+
 ## Recommended migration phases
 
 ### Phase 0: freeze contracts and parity fixtures
 
-Define:
+Deliverable: a `tools/parity_export.py` script that:
 
-- canonical fixture repositories
-- expected node/edge snapshots
-- expected SQLite-level invariants
-- acceptable differences policy
+1. Opens the dagayn SQLite database after a full `build`.
+2. Emits a **canonical JSON** snapshot: nodes and edges sorted by a stable key, `extra` fields normalized to alphabetical key order.
+3. Writes one file per fixture repository.
 
-This phase should produce parity fixtures for:
+Starting point: `dagayn/graph/helpers.py:21-46` (`node_to_dict`, `edge_to_dict`). The canonical export builds a richer dict that adds `extra`, `signature`, `community_id`, `params`, `return_type`, `file_hash`, and `modifiers` beyond what those helpers emit; `id` and `updated_at` are excluded (non-deterministic). `File`-kind node names are canonicalized to `file_path` (relative) because the Python parser stores the absolute path in `name` while `_relativize_parsed_entities` normalizes only `file_path`.
 
-- Python-only repositories
-- Terraform-only repositories
-- Markdown-only repositories
-- mixed monorepo layouts combining Markdown, Python, and Terraform
-- notebook fixtures
+Fixture set (`tests/fixtures/parity/`):
 
-### Phase 1: Rust parser prototype
+- `python_only/` — Python imports, calls, class hierarchy
+- `terraform_only/` — Terraform blocks, `var.*` references, outputs
+- `markdown_only/` — Markdown headings, `derived-from` directive edge
+- `mixed/` — Python + Terraform + Markdown (cross-artifact edges)
+- `notebook/` — Jupyter notebook with multiple code cells (cell attribution)
 
-Build a Rust parser pipeline that can:
+Committed baselines: `tests/fixtures/parity/__snapshots__/<name>.json` (one per fixture).
 
-- walk a repository
-- detect supported languages
-- parse files with Tree-sitter
-- emit node/edge records in a schema-compatible interchange format
+Acceptance: `test_build_is_deterministic` in `tests/test_parity_export.py` builds each fixture twice and asserts byte-identical canonical JSON. All five pass as of Phase 0 implementation. `test_export_matches_snapshot` verifies subsequent Python builds do not drift from the committed baseline.
 
-At this stage, Python still owns DB writes and downstream queries.
+`DAGAYN_BACKEND` behavior: `python` only.
 
-### Phase 2: Rust graph engine
+### Phase 1: Rust graph engine
 
-Move these responsibilities into Rust:
+Deliverable: `dagayn-graph` and `dagayn-py` wiring such that `dagayn._core.GraphStore` can replace the Python `GraphStore` in `dagayn/graph.py`.
 
-- SQLite open/init/migration flow
-- node and edge upserts
-- incremental file replacement logic
-- path normalization and qualified-name normalization
-- base graph statistics
+Python modules being replaced: `dagayn/graph.py` (`GraphStore` upsert and replacement logic), `dagayn/incremental.py` (path normalization and VCS metadata helpers such as `_make_repo_relative`), `dagayn/migrations.py`.
 
-The success criterion is that `build` and `update` can be backed by Rust while preserving the same graph semantics.
+Integration path: with `DAGAYN_BACKEND=rust`, the Python parser continues to emit `GraphNode` / `GraphEdge` records, but they are passed to `dagayn._core.GraphStore` for writes. This hybrid path is the first production exposure of the Rust backend.
 
-### Phase 3: Rust post-processing
+Performance acceptance:
 
-Move into Rust:
+- `build` DB write phase on a ≥100k-line fixture: wall-clock ≤ 0.4× Python baseline
+- `update` single-file replacement p95 latency: ≤ 200 ms
 
-- FTS rebuilds
-- flow derivation
-- community derivation
-- cached adjacency construction and traversal helpers
+Parity acceptance: canonical JSON from Phase 0 fixtures matches Python output exactly.
 
-At this point, the high-volume and performance-sensitive graph pipeline is mostly in Rust.
+`DAGAYN_BACKEND=rust` enables the Rust graph engine; `python` keeps the current Python path.
 
-### Phase 4: Python compatibility adapters
+### Phase 2: Rust post-processing
 
-Refit existing Python surfaces to consume the Rust core:
+Deliverable: `dagayn-postproc` implementing FTS rebuild, flow derivation, community derivation, and cached adjacency construction.
 
-- `dagayn build`
-- `dagayn update`
-- `dagayn status`
-- MCP tool backends that depend on graph reads
+Python modules being replaced: `dagayn/postprocessing.py`, `dagayn/flows.py`, `dagayn/communities.py`, `dagayn/search.py`.
 
-The MCP-facing Python layer should remain thin and mostly translate arguments and output.
+Community detection note: algorithm-level bit-identity is not required. Acceptance is based on **output stability** — the Rust and Python community boundaries must be within ±2% on canonical fixture repositories. This resolves the open question about whether to port the exact algorithm.
+
+Performance acceptance (10k-node fixture):
+
+- full `postprocess` run: wall-clock ≤ 0.3× Python baseline
+- FTS rebuild only: ≤ 0.2× Python baseline
+
+Parity acceptance:
+
+- flow count and community count within ±2% of Python output on all fixtures
+- FTS: same query returns the same top-20 results in the same order
+
+`DAGAYN_BACKEND=rust` enables both graph and post-processing in Rust; parser remains Python.
+
+### Phase 3: Rust parser
+
+Deliverable: `dagayn-parser` and `dagayn-grammars` replacing Python `parser.py` (7 572 lines).
+
+Language introduction order: Python → TypeScript/JS → Java → R → Bash → Markdown → Terraform → ipynb.
+
+Grammar provisioning: `dagayn-grammars/build.rs` fetches pinned grammar archives and compiles them via `cc`. Cache behavior and the `DAGAYN_GRAMMAR_CACHE_DIR` env variable must match the contract in `docs/GRAMMAR-PROVISIONING.md`.
+
+Markdown and ipynb: implement Rust-only paths as described in the Parser contract section above. Cross-artifact edges defined in `docs/CROSS-ARTIFACT-EDGES-WIP.md` must be preserved.
+
+Parity acceptance: canonical JSON for all fixtures matches Python output exactly, including `extra` fields.
+
+`DAGAYN_BACKEND=rust` enables the full Rust pipeline.
+
+### Phase 4: Python compatibility shell
+
+Refit `dagayn/cli.py`, `dagayn/main.py`, and `dagayn/tools/` to call `dagayn._core` directly.
+
+`DAGAYN_BACKEND=python` must remain functional. Both backends must build at Phase 4 release.
+
+Python parser, graph, and post-processing implementations are moved to `legacy_py/` (not deleted). The legacy path is used for ongoing regression comparison.
+
+`DAGAYN_BACKEND=rust` becomes the default.
 
 ### Phase 5: optional outer-surface migration
 
@@ -228,21 +301,49 @@ Only after the core is stable should dagayn decide whether to migrate:
 
 This should be treated as a separate decision, not an automatic consequence of the core migration.
 
+## Distribution and packaging
+
+dagayn uses **maturin** to build `dagayn._core` as a Python extension wheel.
+
+Build targets:
+
+| OS | Architecture |
+|---|---|
+| macOS | arm64 |
+| macOS | x86_64 |
+| Linux (manylinux) | x86_64 |
+| Linux (manylinux) | aarch64 |
+
+Windows support is deferred to Phase 5 evaluation.
+
+CI: GitHub Actions matrix using `cibuildwheel`-compatible configuration. Rust toolchain version is pinned via `rust-toolchain.toml`.
+
+Source distribution (`sdist`) is maintained alongside wheels. In environments without a Rust toolchain, the build falls back to a Python-only install by setting `DAGAYN_NATIVE=0` in `pyproject.toml` optional build config.
+
+Because PyO3 increases Python packaging complexity, the wheel build runs in CI from Phase 1 onward — not deferred to pre-release.
+
+## Acceptance criteria
+
+The Rust core must not replace the Python core until all of these are true:
+
+1. Graph snapshots match for canonical fixtures within an explicitly documented tolerance.
+2. Mixed monorepo fixtures preserve repo-root-relative graph identity.
+3. Markdown and Terraform fork behavior matches documented dagayn behavior.
+4. Incremental updates match full rebuild semantics on parity fixtures.
+5. Post-process outputs are stable enough for existing review/query tools.
+6. Python CLI and MCP layers can switch backends without response-shape churn.
+7. `build` DB write phase performance meets the Phase 1 numeric target (≤ 0.4× Python).
+8. `postprocess` performance meets the Phase 2 numeric target (≤ 0.3× Python).
+9. `DAGAYN_BACKEND={python,rust}` both produce the same canonical JSON on all fixtures (Phase 1 onward).
+10. Wheel builds succeed on all four distribution targets in CI.
+
 ## Key risks
 
 ### 1. Semantic drift in parser output
 
 The largest migration risk is not compilation difficulty; it is **graph drift**.
 
-If the Rust parser changes:
-
-- heading slug rules
-- Terraform reference extraction
-- notebook cell attribution
-- path normalization
-- type edge semantics
-
-then downstream analysis will become inconsistent even if the system appears to work.
+If the Rust parser changes heading slug rules, Terraform reference extraction, notebook cell attribution, path normalization, or type edge semantics, then downstream analysis will become inconsistent even if the system appears to work.
 
 ### 2. SQLite compatibility breakage
 
@@ -258,85 +359,22 @@ Flows, communities, and search indexes are derived products. Small graph differe
 
 ### 5. Packaging and grammar build complexity
 
-Rust adds a second toolchain and new packaging expectations. Tree-sitter grammar provisioning, local builds, CI, and platform distribution all become more complex if the rollout shape is not constrained.
+Rust adds a second toolchain and new packaging expectations. Tree-sitter grammar provisioning, local builds, CI, and platform distribution all become more complex. PyO3 adoption increases Python packaging risk specifically, which is why wheel CI runs from Phase 1 rather than later.
 
 ### 6. Product-surface distraction
 
-Rewriting outer Python surfaces too early would absorb time into install UX, daemon behavior, and MCP framework details before the core migration proves value.
-
-## Feasibility assessment
-
-### What is a strong Rust candidate
-
-- parser orchestration
-- normalized record extraction
-- SQLite-heavy graph operations
-- incremental graph mutation
-- FTS rebuilds
-- flow/community computation
-- traversal primitives
-
-These are deterministic, performance-sensitive, and easier to regression-test against fixtures.
-
-### What should stay in Python initially
-
-- FastMCP registration layer
-- editor/platform integration logic
-- daemon/watch process supervision
-- optional embedding providers
-
-These are integration-heavy and not the primary performance bottleneck.
-
-## Interface recommendation
-
-The first Rust adoption step should prefer a **coarse-grained interface** over fine-grained FFI.
-
-Recommended first interface:
-
-- `dagayn-core build`
-- `dagayn-core update`
-- `dagayn-core postprocess`
-- `dagayn-core stats`
-
-Each command should operate on the same repo-root-relative graph layout and SQLite database that dagayn already uses.
-
-Why this is preferred first:
-
-- easier debugging
-- easier CI setup
-- lower Python packaging risk
-- simpler rollback path
-- easier A/B comparison with the Python implementation
-
-## Acceptance criteria
-
-The Rust core should not replace the Python core until all of these are true:
-
-1. graph snapshots match for canonical fixtures within an explicitly documented tolerance
-2. mixed monorepo fixtures preserve repo-root-relative graph identity
-3. Markdown and Terraform fork behavior matches documented dagayn behavior
-4. incremental updates match full rebuild semantics on parity fixtures
-5. post-process outputs are stable enough for existing review/query tools
-6. Python CLI and MCP layers can switch backends without response-shape churn
+Rewriting outer Python surfaces too early would absorb time into install UX, daemon behavior, and MCP framework details before the core migration proves value. PyO3 adoption adds Python packaging risk on top of the Rust toolchain risk, so Phase 1–3 must keep outer surfaces in Python without exception.
 
 ## Open questions
 
-- whether the Rust core should own schema migrations directly from day one
-- whether community detection should use the same algorithm implementation or only compatible output semantics
-- whether embeddings metadata should remain fully Python-owned even if search indexes move to Rust
-- whether long-term packaging should use a separate binary, a Python extension, or both
-- how much language support should be migrated at first release versus staged by language family
+One question remains open:
+
+- Whether embeddings metadata should remain fully Python-owned even after search indexes move to Rust, or whether the Rust FTS layer should own the embedding index format as well.
+
+All other questions raised in earlier drafts are resolved by the frozen decisions above.
 
 ## Current recommendation
 
-dagayn should proceed only with a **staged Rust core migration**.
+dagayn should proceed with a **staged Rust core migration** in the order Graph → Post-processing → Parser.
 
-The preferred order is:
-
-1. freeze graph and parser contracts
-2. build a Rust parser/export prototype
-3. move graph writes and incremental updates
-4. move post-processing
-5. keep Python as the compatibility shell until parity is proven
-
-That path gives dagayn the upside of Rust where it matters most without turning the migration into a product rewrite.
+The binding method is PyO3/maturin (`dagayn._core`). Parallel operation is controlled by `DAGAYN_BACKEND`. Python remains the compatibility shell until each phase proves parity.

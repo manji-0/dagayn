@@ -517,6 +517,7 @@ version = "2.3.2"
 source = { editable = "." }
 dependencies = [
     { name = "fastmcp" },
+    { name = "igraph" },
     { name = "mcp" },
     { name = "networkx" },
     { name = "tree-sitter" },
@@ -576,6 +577,7 @@ requires-dist = [
     { name = "dagayn", extras = ["wiki"], marker = "extra == 'all'" },
     { name = "fastmcp", specifier = ">=3.2.4" },
     { name = "google-generativeai", marker = "extra == 'google-embeddings'", specifier = ">=0.8.0,<1" },
+    { name = "igraph", specifier = ">=1.0.0" },
     { name = "igraph", marker = "extra == 'communities'", specifier = ">=0.11.0" },
     { name = "jedi", marker = "extra == 'enrichment'", specifier = ">=0.19.2" },
     { name = "matplotlib", marker = "extra == 'eval'", specifier = ">=3.7.0" },

@@ -211,6 +211,16 @@ def _compute_cohesion_batch(
         tc = qn_to_idx.get(e.target_qualified)
         if sc is None and tc is None:
             continue
+        # CALLS edges whose target is unresolved (no "::" separator, meaning
+        # dagayn could not link it to a specific file-local node) represent
+        # stdlib/builtin invocations. dagayn never parses stdlib, so any bare
+        # name like "append", "len", "decode" is by elimination outside the
+        # codebase. Counting them as external inflates the denominator without
+        # measuring real cross-community coupling. Other edge kinds
+        # (IMPORTS_FROM, INHERITS, TESTED_BY, CROSS_ARTIFACT, …) are kept.
+        # The "::" convention is established at parser/core.py:569.
+        if e.kind == "CALLS" and "::" not in e.target_qualified:
+            continue
         if sc == tc:
             # Safe: sc is not None here (sc == tc and not both None).
             assert sc is not None

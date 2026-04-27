@@ -9,11 +9,12 @@ This directory documents the fork as `dagayn`.
 - `schema.md` — graph entities, tables, and stored metadata
 - `SAP-METRICS-WIP.md` — work-in-progress specification for Stable Abstractions Principle metrics
 - `CROSS-ARTIFACT-EDGES-WIP.md` — work-in-progress specification for extracting and analyzing cross-artifact edges (cross-language bridges, Markdown↔code, Terraform↔code, etc.)
-- `RUST-CORE-MIGRATION-WIP.md` — work-in-progress specification for replacing the parser, graph engine, and post-processing core with Rust
+- `RUST-CORE-MIGRATION-WIP.md` — implementation-ready specification for replacing the graph engine, post-processing, and parser core with Rust (PyO3/maturin; core decisions frozen 2026-04-26)
 - `GRAMMAR-PROVISIONING.md` — pinned Tree-sitter grammar provisioning contract
 - `DAEMON-CONFIG.md` — registry and watch daemon file formats
 - `TROUBLESHOOTING.md` — common operational fixes
 - `LEGAL.md` — licensing and local-data notes
+- `USECASE-COHESION-REFACTOR.md` — observation-driven cohesion refactor using dagayn graph metrics (actual usecase report)
 - `ROADMAP.md` — direction of the fork
 - `LLM-OPTIMIZED-REFERENCE.md` — machine-oriented reference sections for tool consumption
 

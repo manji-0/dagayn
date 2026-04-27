@@ -30,6 +30,12 @@ _BRIDGE_PATTERNS: dict[str, tuple[BridgePattern, ...]] = {
         BridgePattern("ctypes.WinDLL", "loads_shared_library", "ffi"),
         BridgePattern("ctypes.PyDLL", "loads_shared_library", "ffi"),
         BridgePattern("cffi.FFI().dlopen", "loads_shared_library", "ffi"),
+        # File I/O — external filesystem coupling.
+        # Note: pathlib method chains (Path("f").read_text()) resolve to a
+        # callee like "Path(...).read_text" at the AST level and cannot be
+        # matched by exact signature; only bare built-in forms are listed.
+        BridgePattern("open", "opens_file", "file_io"),
+        BridgePattern("io.open", "opens_file", "file_io"),
     ),
     "javascript": (
         BridgePattern("child_process.exec", "invokes_binary", "subprocess"),
@@ -39,6 +45,13 @@ _BRIDGE_PATTERNS: dict[str, tuple[BridgePattern, ...]] = {
         BridgePattern("child_process.spawn", "invokes_binary", "subprocess"),
         BridgePattern("child_process.spawnSync", "invokes_binary", "subprocess"),
         BridgePattern("child_process.fork", "invokes_binary", "subprocess"),
+        # File I/O
+        BridgePattern("fs.readFile", "reads_file", "file_io"),
+        BridgePattern("fs.readFileSync", "reads_file", "file_io"),
+        BridgePattern("fs.writeFile", "writes_file", "file_io"),
+        BridgePattern("fs.writeFileSync", "writes_file", "file_io"),
+        BridgePattern("fs.promises.readFile", "reads_file", "file_io"),
+        BridgePattern("fs.promises.writeFile", "writes_file", "file_io"),
     ),
     "java": (
         BridgePattern("Runtime.getRuntime().exec", "invokes_binary", "subprocess"),
@@ -47,6 +60,11 @@ _BRIDGE_PATTERNS: dict[str, tuple[BridgePattern, ...]] = {
         BridgePattern("System.load", "loads_shared_library", "ffi"),
         BridgePattern("Runtime.getRuntime().loadLibrary", "loads_shared_library", "ffi"),
         BridgePattern("Runtime.getRuntime().load", "loads_shared_library", "ffi"),
+        # File I/O
+        BridgePattern("Files.readString", "reads_file", "file_io"),
+        BridgePattern("Files.readAllBytes", "reads_file", "file_io"),
+        BridgePattern("Files.writeString", "writes_file", "file_io"),
+        BridgePattern("Files.write", "writes_file", "file_io"),
     ),
     "r": (
         BridgePattern("system", "invokes_binary", "subprocess"),
@@ -55,6 +73,12 @@ _BRIDGE_PATTERNS: dict[str, tuple[BridgePattern, ...]] = {
         BridgePattern(".External", "loads_native_module", "ffi"),
         BridgePattern("dyn.load", "loads_shared_library", "ffi"),
         BridgePattern("library.dynam", "loads_shared_library", "ffi"),
+        # File I/O
+        BridgePattern("readLines", "reads_file", "file_io"),
+        BridgePattern("writeLines", "writes_file", "file_io"),
+        BridgePattern("read.csv", "reads_file", "file_io"),
+        BridgePattern("read.table", "reads_file", "file_io"),
+        BridgePattern("write.csv", "writes_file", "file_io"),
     ),
 }
 # TypeScript/TSX share the JavaScript bridge patterns.

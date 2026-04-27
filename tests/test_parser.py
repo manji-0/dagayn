@@ -1737,3 +1737,74 @@ class TestCrossArtifactEdges:
         )
         assert sub_edge is not None
         assert "subsection" in sub_edge.source
+
+
+class TestFileIOBridges:
+    """CROSS_ARTIFACT edges for external file-I/O calls (Part 2 bridge patterns)."""
+
+    def setup_method(self):
+        self.parser = CodeParser()
+
+    def _file_io_edges(self, fixture):
+        _, edges = self.parser.parse_file(FIXTURES / fixture)
+        return [
+            e
+            for e in edges
+            if e.kind == "CROSS_ARTIFACT" and e.extra.get("bridge_kind") == "file_io"
+        ]
+
+    def test_python_open_literal(self):
+        edges = self._file_io_edges("sample_file_io.py")
+        e = next((e for e in edges if e.extra.get("evidence_source") == "open"
+                  and e.target == "config.yaml"), None)
+        assert e is not None, "Expected open('config.yaml') edge"
+        assert e.extra["relationship_role"] == "opens_file"
+        assert e.extra["confidence_tier"] == "HIGH"
+
+    def test_python_open_write_literal(self):
+        edges = self._file_io_edges("sample_file_io.py")
+        e = next((e for e in edges if e.extra.get("evidence_source") == "open"
+                  and e.target == "output.json"), None)
+        assert e is not None, "Expected open('output.json', 'w') edge"
+        assert e.extra["relationship_role"] == "opens_file"
+
+    def test_python_dynamic_open_low_confidence(self):
+        edges = self._file_io_edges("sample_file_io.py")
+        dyn = [e for e in edges if e.extra.get("evidence_source") == "open"
+               and e.extra.get("confidence_tier") == "LOW"]
+        assert len(dyn) >= 1, "Expected at least one LOW-confidence open() edge"
+
+    def test_js_read_file_sync(self):
+        edges = self._file_io_edges("sample_file_io.js")
+        e = next((e for e in edges if e.extra.get("evidence_source") == "fs.readFileSync"
+                  and e.target == "config.yaml"), None)
+        assert e is not None, "Expected fs.readFileSync('config.yaml') edge"
+        assert e.extra["relationship_role"] == "reads_file"
+        assert e.extra["confidence_tier"] == "HIGH"
+
+    def test_js_write_file_sync(self):
+        edges = self._file_io_edges("sample_file_io.js")
+        e = next((e for e in edges if e.extra.get("evidence_source") == "fs.writeFileSync"
+                  and e.target == "output.json"), None)
+        assert e is not None, "Expected fs.writeFileSync('output.json') edge"
+        assert e.extra["relationship_role"] == "writes_file"
+
+    def test_r_read_lines(self):
+        edges = self._file_io_edges("sample_file_io.R")
+        e = next((e for e in edges if e.extra.get("evidence_source") == "readLines"
+                  and e.target == "config.yaml"), None)
+        assert e is not None, "Expected readLines('config.yaml') edge"
+        assert e.extra["relationship_role"] == "reads_file"
+
+    def test_r_read_csv(self):
+        edges = self._file_io_edges("sample_file_io.R")
+        e = next((e for e in edges if e.extra.get("evidence_source") == "read.csv"
+                  and e.target == "data/training.csv"), None)
+        assert e is not None, "Expected read.csv('data/training.csv') edge"
+        assert e.extra["relationship_role"] == "reads_file"
+
+    def test_r_write_csv(self):
+        edges = self._file_io_edges("sample_file_io.R")
+        e = next((e for e in edges if e.extra.get("evidence_source") == "write.csv"), None)
+        assert e is not None, "Expected write.csv() edge"
+        assert e.extra["relationship_role"] == "writes_file"

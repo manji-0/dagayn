@@ -33,6 +33,7 @@ dependencies = [
     "tree-sitter-language-pack>=0.3.0,<1",
     "networkx>=3.2,<4",
     "watchdog>=4.0.0,<6",
+    "igraph>=1.0.0",
 ]
 
 [project.urls]
