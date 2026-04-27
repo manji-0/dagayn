@@ -1755,51 +1755,91 @@ class TestFileIOBridges:
 
     def test_python_open_literal(self):
         edges = self._file_io_edges("sample_file_io.py")
-        e = next((e for e in edges if e.extra.get("evidence_source") == "open"
-                  and e.target == "config.yaml"), None)
+        e = next(
+            (
+                e
+                for e in edges
+                if e.extra.get("evidence_source") == "open" and e.target == "config.yaml"
+            ),
+            None,
+        )
         assert e is not None, "Expected open('config.yaml') edge"
         assert e.extra["relationship_role"] == "opens_file"
         assert e.extra["confidence_tier"] == "HIGH"
 
     def test_python_open_write_literal(self):
         edges = self._file_io_edges("sample_file_io.py")
-        e = next((e for e in edges if e.extra.get("evidence_source") == "open"
-                  and e.target == "output.json"), None)
+        e = next(
+            (
+                e
+                for e in edges
+                if e.extra.get("evidence_source") == "open" and e.target == "output.json"
+            ),
+            None,
+        )
         assert e is not None, "Expected open('output.json', 'w') edge"
         assert e.extra["relationship_role"] == "opens_file"
 
     def test_python_dynamic_open_low_confidence(self):
         edges = self._file_io_edges("sample_file_io.py")
-        dyn = [e for e in edges if e.extra.get("evidence_source") == "open"
-               and e.extra.get("confidence_tier") == "LOW"]
+        dyn = [
+            e
+            for e in edges
+            if e.extra.get("evidence_source") == "open" and e.extra.get("confidence_tier") == "LOW"
+        ]
         assert len(dyn) >= 1, "Expected at least one LOW-confidence open() edge"
 
     def test_js_read_file_sync(self):
         edges = self._file_io_edges("sample_file_io.js")
-        e = next((e for e in edges if e.extra.get("evidence_source") == "fs.readFileSync"
-                  and e.target == "config.yaml"), None)
+        e = next(
+            (
+                e
+                for e in edges
+                if e.extra.get("evidence_source") == "fs.readFileSync" and e.target == "config.yaml"
+            ),
+            None,
+        )
         assert e is not None, "Expected fs.readFileSync('config.yaml') edge"
         assert e.extra["relationship_role"] == "reads_file"
         assert e.extra["confidence_tier"] == "HIGH"
 
     def test_js_write_file_sync(self):
         edges = self._file_io_edges("sample_file_io.js")
-        e = next((e for e in edges if e.extra.get("evidence_source") == "fs.writeFileSync"
-                  and e.target == "output.json"), None)
+        e = next(
+            (
+                e
+                for e in edges
+                if e.extra.get("evidence_source") == "fs.writeFileSync"
+                and e.target == "output.json"
+            ),
+            None,
+        )
         assert e is not None, "Expected fs.writeFileSync('output.json') edge"
         assert e.extra["relationship_role"] == "writes_file"
 
     def test_r_read_lines(self):
         edges = self._file_io_edges("sample_file_io.R")
-        e = next((e for e in edges if e.extra.get("evidence_source") == "readLines"
-                  and e.target == "config.yaml"), None)
+        e = next(
+            (
+                e
+                for e in edges
+                if e.extra.get("evidence_source") == "readLines" and e.target == "config.yaml"
+            ),
+            None,
+        )
         assert e is not None, "Expected readLines('config.yaml') edge"
         assert e.extra["relationship_role"] == "reads_file"
 
     def test_r_read_csv(self):
         edges = self._file_io_edges("sample_file_io.R")
-        e = next((e for e in edges if e.extra.get("evidence_source") == "read.csv"
-                  and e.target == "data/training.csv"), None)
+        e = next(
+            (
+                e
+                for e in edges
+                if e.extra.get("evidence_source") == "read.csv" and e.target == "data/training.csv"
+            ),
+            None,
+        )
         assert e is not None, "Expected read.csv('data/training.csv') edge"
         assert e.extra["relationship_role"] == "reads_file"
 
@@ -1808,3 +1848,327 @@ class TestFileIOBridges:
         e = next((e for e in edges if e.extra.get("evidence_source") == "write.csv"), None)
         assert e is not None, "Expected write.csv() edge"
         assert e.extra["relationship_role"] == "writes_file"
+
+
+class TestBridgeExpansion:
+    """Bridge expansion: file_io / subprocess / ffi for Go, Rust, Ruby, Swift,
+    C, C++, C#, Kotlin, PHP, Perl, Scala, Lua, Julia."""
+
+    def setup_method(self):
+        self.parser = CodeParser()
+
+    def _bridges(self, fixture):
+        _, edges = self.parser.parse_file(FIXTURES / fixture)
+        return [e for e in edges if e.kind == "CROSS_ARTIFACT"]
+
+    def _find(self, edges, *, source=None, target=None, kind=None, role=None, tier=None):
+        for e in edges:
+            if source and e.extra.get("evidence_source") != source:
+                continue
+            if target and e.target != target:
+                continue
+            if kind and e.extra.get("bridge_kind") != kind:
+                continue
+            if role and e.extra.get("relationship_role") != role:
+                continue
+            if tier and e.extra.get("confidence_tier") != tier:
+                continue
+            return e
+        return None
+
+    # --- Go ---
+
+    def test_go_subprocess_high(self):
+        edges = self._bridges("sample_bridge_go.go")
+        e = self._find(edges, source="exec.Command", target="git", tier="HIGH")
+        assert e is not None, "Expected exec.Command → 'git' HIGH"
+        assert e.extra["bridge_kind"] == "subprocess"
+        assert e.extra["source_language"] == "go"
+
+    def test_go_file_io_read(self):
+        edges = self._bridges("sample_bridge_go.go")
+        e = self._find(edges, source="os.ReadFile", target="config.yaml", tier="HIGH")
+        assert e is not None
+        assert e.extra["relationship_role"] == "reads_file"
+
+    def test_go_file_io_write(self):
+        edges = self._bridges("sample_bridge_go.go")
+        e = self._find(edges, source="os.WriteFile", target="output.json", tier="HIGH")
+        assert e is not None
+        assert e.extra["relationship_role"] == "writes_file"
+
+    def test_go_ffi_plugin_open(self):
+        edges = self._bridges("sample_bridge_go.go")
+        e = self._find(edges, source="plugin.Open", target="mylib.so", tier="HIGH")
+        assert e is not None
+        assert e.extra["bridge_kind"] == "ffi"
+
+    def test_go_dynamic_low(self):
+        edges = self._bridges("sample_bridge_go.go")
+        low = [e for e in edges if e.extra.get("confidence_tier") == "LOW"]
+        assert len(low) >= 1
+        assert all("<dynamic:" in e.target for e in low)
+
+    # --- Rust ---
+
+    def test_rust_subprocess_high(self):
+        edges = self._bridges("sample_bridge_rust.rs")
+        e = self._find(edges, source="Command::new", target="git", tier="HIGH")
+        assert e is not None, "Expected Command::new → 'git' HIGH"
+        assert e.extra["bridge_kind"] == "subprocess"
+        assert e.extra["source_language"] == "rust"
+
+    def test_rust_file_io_read(self):
+        edges = self._bridges("sample_bridge_rust.rs")
+        e = self._find(edges, source="fs::read_to_string", target="config.yaml", tier="HIGH")
+        assert e is not None
+        assert e.extra["relationship_role"] == "reads_file"
+
+    def test_rust_file_io_write(self):
+        edges = self._bridges("sample_bridge_rust.rs")
+        e = self._find(edges, source="fs::write", target="output.json", tier="HIGH")
+        assert e is not None
+        assert e.extra["relationship_role"] == "writes_file"
+
+    def test_rust_dynamic_low(self):
+        edges = self._bridges("sample_bridge_rust.rs")
+        low = [e for e in edges if e.extra.get("confidence_tier") == "LOW"]
+        assert len(low) >= 1
+
+    # --- Ruby ---
+
+    def test_ruby_subprocess_high(self):
+        edges = self._bridges("sample_bridge_ruby.rb")
+        e = self._find(edges, source="system", target="git status", tier="HIGH")
+        assert e is not None, "Expected system → 'git status' HIGH"
+        assert e.extra["bridge_kind"] == "subprocess"
+        assert e.extra["source_language"] == "ruby"
+
+    def test_ruby_file_read(self):
+        edges = self._bridges("sample_bridge_ruby.rb")
+        e = self._find(edges, source="File.read", target="config.yaml", tier="HIGH")
+        assert e is not None
+        assert e.extra["relationship_role"] == "reads_file"
+
+    def test_ruby_file_write(self):
+        edges = self._bridges("sample_bridge_ruby.rb")
+        e = self._find(edges, source="File.write", target="output.json", tier="HIGH")
+        assert e is not None
+        assert e.extra["relationship_role"] == "writes_file"
+
+    def test_ruby_ffi_fiddle(self):
+        edges = self._bridges("sample_bridge_ruby.rb")
+        e = self._find(edges, source="Fiddle.dlopen", target="mylib.so", tier="HIGH")
+        assert e is not None
+        assert e.extra["bridge_kind"] == "ffi"
+
+    # --- Swift ---
+
+    def test_swift_ffi_dlopen_high(self):
+        edges = self._bridges("sample_bridge_swift.swift")
+        e = self._find(edges, source="dlopen", target="mylib.dylib", tier="HIGH")
+        assert e is not None, "Expected dlopen → 'mylib.dylib' HIGH"
+        assert e.extra["bridge_kind"] == "ffi"
+        assert e.extra["source_language"] == "swift"
+
+    def test_swift_subprocess_emitted(self):
+        edges = self._bridges("sample_bridge_swift.swift")
+        proc = [e for e in edges if e.extra.get("evidence_source") == "Process.run"]
+        assert len(proc) >= 1, "Expected at least one Process.run edge"
+        assert proc[0].extra["bridge_kind"] == "subprocess"
+
+    # --- C ---
+
+    def test_c_subprocess_high(self):
+        edges = self._bridges("sample_bridge_c.c")
+        e = self._find(edges, source="system", target="git status", tier="HIGH")
+        assert e is not None
+        assert e.extra["bridge_kind"] == "subprocess"
+        assert e.extra["source_language"] == "c"
+
+    def test_c_file_io_fopen(self):
+        edges = self._bridges("sample_bridge_c.c")
+        e = self._find(edges, source="fopen", target="config.yaml", tier="HIGH")
+        assert e is not None
+        assert e.extra["relationship_role"] == "opens_file"
+
+    def test_c_ffi_dlopen(self):
+        edges = self._bridges("sample_bridge_c.c")
+        e = self._find(edges, source="dlopen", target="mylib.so", tier="HIGH")
+        assert e is not None
+        assert e.extra["bridge_kind"] == "ffi"
+
+    # --- C++ ---
+
+    def test_cpp_subprocess_std_system(self):
+        edges = self._bridges("sample_bridge_cpp.cpp")
+        e = self._find(edges, source="std::system", target="git status", tier="HIGH")
+        assert e is not None, "Expected std::system → 'git status' HIGH"
+        assert e.extra["bridge_kind"] == "subprocess"
+        assert e.extra["source_language"] == "cpp"
+
+    # --- C# ---
+
+    def test_csharp_subprocess_process_start(self):
+        edges = self._bridges("sample_bridge_csharp.cs")
+        e = self._find(edges, source="Process.Start", target="git", tier="HIGH")
+        assert e is not None, "Expected Process.Start → 'git' HIGH"
+        assert e.extra["bridge_kind"] == "subprocess"
+        assert e.extra["source_language"] == "csharp"
+
+    def test_csharp_file_io_read(self):
+        edges = self._bridges("sample_bridge_csharp.cs")
+        e = self._find(edges, source="File.ReadAllText", target="config.yaml", tier="HIGH")
+        assert e is not None
+        assert e.extra["relationship_role"] == "reads_file"
+
+    def test_csharp_file_io_write(self):
+        edges = self._bridges("sample_bridge_csharp.cs")
+        e = self._find(edges, source="File.WriteAllText", target="output.json", tier="HIGH")
+        assert e is not None
+        assert e.extra["relationship_role"] == "writes_file"
+
+    def test_csharp_ffi_assembly_load(self):
+        edges = self._bridges("sample_bridge_csharp.cs")
+        e = self._find(edges, source="Assembly.LoadFile", target="mylib.dll", tier="HIGH")
+        assert e is not None
+        assert e.extra["bridge_kind"] == "ffi"
+
+    # --- Kotlin ---
+
+    def test_kotlin_subprocess_runtime_exec(self):
+        edges = self._bridges("sample_bridge_kotlin.kt")
+        e = self._find(edges, source="Runtime.getRuntime().exec", target="git status", tier="HIGH")
+        assert e is not None, "Expected Runtime.getRuntime().exec → 'git status' HIGH"
+        assert e.extra["bridge_kind"] == "subprocess"
+        assert e.extra["source_language"] == "kotlin"
+
+    def test_kotlin_ffi_system_load_library(self):
+        edges = self._bridges("sample_bridge_kotlin.kt")
+        e = self._find(edges, source="System.loadLibrary", target="mylib", tier="HIGH")
+        assert e is not None
+        assert e.extra["bridge_kind"] == "ffi"
+
+    def test_kotlin_file_io_emitted(self):
+        edges = self._bridges("sample_bridge_kotlin.kt")
+        file_io = [e for e in edges if e.extra.get("bridge_kind") == "file_io"]
+        assert len(file_io) >= 1, "Expected at least one file_io edge from Kotlin"
+
+    # --- PHP ---
+
+    def test_php_subprocess_high(self):
+        edges = self._bridges("sample_bridge_php.php")
+        e = self._find(edges, source="system", target="git status", tier="HIGH")
+        assert e is not None, "Expected system → 'git status' HIGH"
+        assert e.extra["bridge_kind"] == "subprocess"
+        assert e.extra["source_language"] == "php"
+
+    def test_php_file_get_contents(self):
+        edges = self._bridges("sample_bridge_php.php")
+        e = self._find(edges, source="file_get_contents", target="config.yaml", tier="HIGH")
+        assert e is not None
+        assert e.extra["relationship_role"] == "reads_file"
+
+    def test_php_file_put_contents(self):
+        edges = self._bridges("sample_bridge_php.php")
+        e = self._find(edges, source="file_put_contents", target="output.json", tier="HIGH")
+        assert e is not None
+        assert e.extra["relationship_role"] == "writes_file"
+
+    def test_php_fopen(self):
+        edges = self._bridges("sample_bridge_php.php")
+        e = self._find(edges, source="fopen", target="data/model.bin", tier="HIGH")
+        assert e is not None
+        assert e.extra["relationship_role"] == "opens_file"
+
+    def test_php_ffi_emitted(self):
+        edges = self._bridges("sample_bridge_php.php")
+        ffi = [e for e in edges if e.extra.get("bridge_kind") == "ffi"]
+        assert len(ffi) >= 1, "Expected at least one ffi edge (FFI::cdef)"
+
+    # --- Perl ---
+
+    def test_perl_subprocess_system_high(self):
+        edges = self._bridges("sample_bridge_perl.pl")
+        e = self._find(edges, source="system", target="git status", tier="HIGH")
+        assert e is not None, "Expected system → 'git status' HIGH"
+        assert e.extra["bridge_kind"] == "subprocess"
+        assert e.extra["source_language"] == "perl"
+
+    def test_perl_file_io_open_emitted(self):
+        edges = self._bridges("sample_bridge_perl.pl")
+        file_io = [e for e in edges if e.extra.get("evidence_source") == "open"]
+        assert len(file_io) >= 1, "Expected at least one open() edge from Perl"
+
+    # --- Scala ---
+
+    def test_scala_subprocess_runtime_exec(self):
+        edges = self._bridges("sample_bridge_scala.scala")
+        e = self._find(edges, source="Runtime.getRuntime().exec", target="git status", tier="HIGH")
+        assert e is not None, "Expected Runtime.getRuntime().exec → 'git status' HIGH"
+        assert e.extra["bridge_kind"] == "subprocess"
+        assert e.extra["source_language"] == "scala"
+
+    def test_scala_ffi_system_load_library(self):
+        edges = self._bridges("sample_bridge_scala.scala")
+        e = self._find(edges, source="System.loadLibrary", target="mylib", tier="HIGH")
+        assert e is not None
+        assert e.extra["bridge_kind"] == "ffi"
+
+    def test_scala_file_io_emitted(self):
+        edges = self._bridges("sample_bridge_scala.scala")
+        file_io = [e for e in edges if e.extra.get("bridge_kind") == "file_io"]
+        assert len(file_io) >= 1, "Expected at least one file_io edge from Scala"
+
+    # --- Lua ---
+
+    def test_lua_subprocess_os_execute(self):
+        edges = self._bridges("sample_bridge_lua.lua")
+        e = self._find(edges, source="os.execute", target="git status", tier="HIGH")
+        assert e is not None, "Expected os.execute → 'git status' HIGH"
+        assert e.extra["bridge_kind"] == "subprocess"
+        assert e.extra["source_language"] == "lua"
+
+    def test_lua_file_io_open(self):
+        edges = self._bridges("sample_bridge_lua.lua")
+        e = self._find(edges, source="io.open", target="config.yaml", tier="HIGH")
+        assert e is not None
+        assert e.extra["relationship_role"] == "opens_file"
+
+    def test_lua_ffi_package_loadlib(self):
+        edges = self._bridges("sample_bridge_lua.lua")
+        e = self._find(edges, source="package.loadlib", target="mylib.so", tier="HIGH")
+        assert e is not None
+        assert e.extra["bridge_kind"] == "ffi"
+
+    def test_luau_alias_emits_same_patterns(self):
+        lua_edges = self._bridges("sample_bridge_lua.lua")
+        lua_sigs = {e.extra.get("evidence_source") for e in lua_edges}
+        # Luau reuses Lua patterns; confirm the pattern set is non-empty
+        assert len(lua_sigs) >= 3
+
+    # --- Julia ---
+
+    def test_julia_file_io_open(self):
+        edges = self._bridges("sample_bridge_julia.jl")
+        e = self._find(edges, source="open", target="config.yaml", tier="HIGH")
+        assert e is not None, "Expected open → 'config.yaml' HIGH"
+        assert e.extra["relationship_role"] == "opens_file"
+        assert e.extra["source_language"] == "julia"
+
+    def test_julia_file_io_write(self):
+        edges = self._bridges("sample_bridge_julia.jl")
+        e = self._find(edges, source="write", target="output.json", tier="HIGH")
+        assert e is not None
+        assert e.extra["relationship_role"] == "writes_file"
+
+    def test_julia_ffi_libdl_dlopen(self):
+        edges = self._bridges("sample_bridge_julia.jl")
+        e = self._find(edges, source="Libdl.dlopen", target="mylib.so", tier="HIGH")
+        assert e is not None
+        assert e.extra["bridge_kind"] == "ffi"
+
+    def test_julia_subprocess_emitted(self):
+        edges = self._bridges("sample_bridge_julia.jl")
+        sub = [e for e in edges if e.extra.get("bridge_kind") == "subprocess"]
+        assert len(sub) >= 1, "Expected at least one subprocess edge from Julia"

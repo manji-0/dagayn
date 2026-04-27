@@ -720,7 +720,14 @@ class CodeParser:
                     file_path,
                     edges,
                 )
-                continue
+                # Ruby (and R) share "call" across import_types and call_types:
+                # require() is a call node, but so are ordinary method calls.
+                # For those languages, fall through to call/bridge handling so
+                # non-require call nodes still get bridge detection. All other
+                # languages use distinct node types for imports vs calls, so
+                # the continue is always safe there.
+                if node_type not in call_types:
+                    continue
 
             # --- Calls ---
             if node_type in call_types:

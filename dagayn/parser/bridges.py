@@ -80,14 +80,198 @@ _BRIDGE_PATTERNS: dict[str, tuple[BridgePattern, ...]] = {
         BridgePattern("read.table", "reads_file", "file_io"),
         BridgePattern("write.csv", "writes_file", "file_io"),
     ),
+    "go": (
+        BridgePattern("exec.Command", "invokes_binary", "subprocess"),
+        BridgePattern("exec.CommandContext", "invokes_binary", "subprocess"),
+        BridgePattern("syscall.Exec", "invokes_binary", "subprocess"),
+        BridgePattern("os.StartProcess", "invokes_binary", "subprocess"),
+        BridgePattern("os.Open", "reads_file", "file_io"),
+        BridgePattern("os.Create", "writes_file", "file_io"),
+        BridgePattern("os.ReadFile", "reads_file", "file_io"),
+        BridgePattern("os.WriteFile", "writes_file", "file_io"),
+        BridgePattern("ioutil.ReadFile", "reads_file", "file_io"),
+        BridgePattern("ioutil.WriteFile", "writes_file", "file_io"),
+        BridgePattern("plugin.Open", "loads_shared_library", "ffi"),
+        BridgePattern("syscall.LoadLibrary", "loads_shared_library", "ffi"),
+        BridgePattern("syscall.NewLazyDLL", "loads_shared_library", "ffi"),
+    ),
+    "rust": (
+        BridgePattern("std::process::Command::new", "invokes_binary", "subprocess"),
+        BridgePattern("Command::new", "invokes_binary", "subprocess"),
+        BridgePattern("std::fs::read", "reads_file", "file_io"),
+        BridgePattern("std::fs::read_to_string", "reads_file", "file_io"),
+        BridgePattern("std::fs::write", "writes_file", "file_io"),
+        BridgePattern("std::fs::File::open", "reads_file", "file_io"),
+        BridgePattern("std::fs::File::create", "writes_file", "file_io"),
+        BridgePattern("fs::read", "reads_file", "file_io"),
+        BridgePattern("fs::read_to_string", "reads_file", "file_io"),
+        BridgePattern("fs::write", "writes_file", "file_io"),
+        BridgePattern("File::open", "reads_file", "file_io"),
+        BridgePattern("File::create", "writes_file", "file_io"),
+        BridgePattern("libloading::Library::new", "loads_shared_library", "ffi"),
+        BridgePattern("Library::new", "loads_shared_library", "ffi"),
+    ),
+    "ruby": (
+        # Bare subprocess calls (no explicit receiver — tree-sitter emits
+        # method as first child; accumulation loop still works).
+        BridgePattern("system", "invokes_binary", "subprocess"),
+        BridgePattern("exec", "invokes_binary", "subprocess"),
+        BridgePattern("spawn", "invokes_binary", "subprocess"),
+        # Module-qualified calls (receiver.method — needs accumulation branch).
+        BridgePattern("Kernel.system", "invokes_binary", "subprocess"),
+        BridgePattern("Process.spawn", "invokes_binary", "subprocess"),
+        BridgePattern("IO.popen", "invokes_binary", "subprocess"),
+        BridgePattern("Open3.capture3", "invokes_binary", "subprocess"),
+        BridgePattern("Open3.popen3", "invokes_binary", "subprocess"),
+        BridgePattern("File.read", "reads_file", "file_io"),
+        BridgePattern("File.write", "writes_file", "file_io"),
+        BridgePattern("File.open", "opens_file", "file_io"),
+        BridgePattern("File.readlines", "reads_file", "file_io"),
+        BridgePattern("IO.read", "reads_file", "file_io"),
+        BridgePattern("IO.write", "writes_file", "file_io"),
+        BridgePattern("Fiddle.dlopen", "loads_shared_library", "ffi"),
+    ),
+    "swift": (
+        BridgePattern("Process.run", "invokes_binary", "subprocess"),
+        BridgePattern("String.contentsOf", "reads_file", "file_io"),
+        BridgePattern("Data.contentsOf", "reads_file", "file_io"),
+        BridgePattern("FileManager.contentsOfFile", "reads_file", "file_io"),
+        BridgePattern("FileManager.createFile", "writes_file", "file_io"),
+        BridgePattern("dlopen", "loads_shared_library", "ffi"),
+        BridgePattern("Bundle.load", "loads_shared_library", "ffi"),
+    ),
+    "c": (
+        BridgePattern("system", "invokes_binary", "subprocess"),
+        BridgePattern("popen", "invokes_binary", "subprocess"),
+        BridgePattern("execvp", "invokes_binary", "subprocess"),
+        BridgePattern("execv", "invokes_binary", "subprocess"),
+        BridgePattern("execl", "invokes_binary", "subprocess"),
+        BridgePattern("posix_spawn", "invokes_binary", "subprocess"),
+        BridgePattern("fopen", "opens_file", "file_io"),
+        BridgePattern("open", "opens_file", "file_io"),
+        BridgePattern("fread", "reads_file", "file_io"),
+        BridgePattern("fwrite", "writes_file", "file_io"),
+        BridgePattern("dlopen", "loads_shared_library", "ffi"),
+        BridgePattern("LoadLibrary", "loads_shared_library", "ffi"),
+    ),
+    "csharp": (
+        BridgePattern("Process.Start", "invokes_binary", "subprocess"),
+        BridgePattern("System.Diagnostics.Process.Start", "invokes_binary", "subprocess"),
+        BridgePattern("File.ReadAllText", "reads_file", "file_io"),
+        BridgePattern("File.ReadAllBytes", "reads_file", "file_io"),
+        BridgePattern("File.ReadAllLines", "reads_file", "file_io"),
+        BridgePattern("File.WriteAllText", "writes_file", "file_io"),
+        BridgePattern("File.WriteAllBytes", "writes_file", "file_io"),
+        BridgePattern("File.OpenRead", "reads_file", "file_io"),
+        BridgePattern("File.OpenWrite", "writes_file", "file_io"),
+        BridgePattern("File.Create", "writes_file", "file_io"),
+        BridgePattern("Assembly.LoadFile", "loads_shared_library", "ffi"),
+        BridgePattern("NativeLibrary.Load", "loads_shared_library", "ffi"),
+    ),
+    "kotlin": (
+        BridgePattern("Runtime.getRuntime().exec", "invokes_binary", "subprocess"),
+        BridgePattern("ProcessBuilder.start", "invokes_binary", "subprocess"),
+        BridgePattern("System.loadLibrary", "loads_shared_library", "ffi"),
+        BridgePattern("System.load", "loads_shared_library", "ffi"),
+        BridgePattern("Files.readString", "reads_file", "file_io"),
+        BridgePattern("Files.readAllBytes", "reads_file", "file_io"),
+        BridgePattern("Files.writeString", "writes_file", "file_io"),
+        BridgePattern("Files.write", "writes_file", "file_io"),
+        BridgePattern("File.readText", "reads_file", "file_io"),
+        BridgePattern("File.writeText", "writes_file", "file_io"),
+        BridgePattern("File.readLines", "reads_file", "file_io"),
+        BridgePattern("File.bufferedReader", "reads_file", "file_io"),
+    ),
+    "php": (
+        # Bare subprocess calls (function_call_expression — default extraction works).
+        BridgePattern("exec", "invokes_binary", "subprocess"),
+        BridgePattern("shell_exec", "invokes_binary", "subprocess"),
+        BridgePattern("system", "invokes_binary", "subprocess"),
+        BridgePattern("passthru", "invokes_binary", "subprocess"),
+        BridgePattern("proc_open", "invokes_binary", "subprocess"),
+        BridgePattern("popen", "invokes_binary", "subprocess"),
+        BridgePattern("file_get_contents", "reads_file", "file_io"),
+        BridgePattern("file_put_contents", "writes_file", "file_io"),
+        BridgePattern("fopen", "opens_file", "file_io"),
+        BridgePattern("fread", "reads_file", "file_io"),
+        BridgePattern("fwrite", "writes_file", "file_io"),
+        BridgePattern("readfile", "reads_file", "file_io"),
+        # Static-method FFI calls (scoped_call_expression — needs accumulation branch).
+        BridgePattern("FFI::cdef", "loads_shared_library", "ffi"),
+        BridgePattern("FFI::load", "loads_shared_library", "ffi"),
+    ),
+    "perl": (
+        BridgePattern("system", "invokes_binary", "subprocess"),
+        BridgePattern("exec", "invokes_binary", "subprocess"),
+        BridgePattern("open", "opens_file", "file_io"),
+        BridgePattern("File::Slurp::read_file", "reads_file", "file_io"),
+        BridgePattern("File::Slurp::write_file", "writes_file", "file_io"),
+        BridgePattern("DynaLoader::dl_load_file", "loads_shared_library", "ffi"),
+    ),
+    "scala": (
+        BridgePattern("Runtime.getRuntime().exec", "invokes_binary", "subprocess"),
+        BridgePattern("scala.sys.process.Process", "invokes_binary", "subprocess"),
+        BridgePattern("System.loadLibrary", "loads_shared_library", "ffi"),
+        BridgePattern("System.load", "loads_shared_library", "ffi"),
+        BridgePattern("Files.readString", "reads_file", "file_io"),
+        BridgePattern("Files.readAllBytes", "reads_file", "file_io"),
+        BridgePattern("Files.writeString", "writes_file", "file_io"),
+        BridgePattern("Files.write", "writes_file", "file_io"),
+        BridgePattern("scala.io.Source.fromFile", "reads_file", "file_io"),
+    ),
+    "lua": (
+        BridgePattern("os.execute", "invokes_binary", "subprocess"),
+        BridgePattern("io.popen", "invokes_binary", "subprocess"),
+        BridgePattern("io.open", "opens_file", "file_io"),
+        BridgePattern("io.lines", "reads_file", "file_io"),
+        BridgePattern("io.read", "reads_file", "file_io"),
+        BridgePattern("io.write", "writes_file", "file_io"),
+        BridgePattern("package.loadlib", "loads_shared_library", "ffi"),
+        BridgePattern("loadlib", "loads_shared_library", "ffi"),
+    ),
+    "julia": (
+        BridgePattern("run", "invokes_binary", "subprocess"),
+        BridgePattern("readchomp", "invokes_binary", "subprocess"),
+        BridgePattern("open", "opens_file", "file_io"),
+        BridgePattern("read", "reads_file", "file_io"),
+        BridgePattern("write", "writes_file", "file_io"),
+        BridgePattern("readlines", "reads_file", "file_io"),
+        BridgePattern("Libdl.dlopen", "loads_shared_library", "ffi"),
+        BridgePattern("dlopen", "loads_shared_library", "ffi"),
+        BridgePattern("ccall", "loads_shared_library", "ffi"),
+    ),
 }
 # TypeScript/TSX share the JavaScript bridge patterns.
 _BRIDGE_PATTERNS["typescript"] = _BRIDGE_PATTERNS["javascript"]
 _BRIDGE_PATTERNS["tsx"] = _BRIDGE_PATTERNS["javascript"]
+# C++ extends C with std:: equivalents and stream constructors.
+_BRIDGE_PATTERNS["cpp"] = _BRIDGE_PATTERNS["c"] + (
+    BridgePattern("std::system", "invokes_binary", "subprocess"),
+    BridgePattern("std::ifstream", "opens_file", "file_io"),
+    BridgePattern("std::ofstream", "opens_file", "file_io"),
+    BridgePattern("std::fstream", "opens_file", "file_io"),
+    BridgePattern("boost::process::child", "invokes_binary", "subprocess"),
+)
+# Objective-C: C-style calls are covered by c patterns; bracket-send
+# method patterns (NSTask, NSString) require a different extraction path
+# (message_expression node shape differs fundamentally). Deferred.
+_BRIDGE_PATTERNS["objc"] = _BRIDGE_PATTERNS["c"]
+# Lua and Luau share patterns.
+_BRIDGE_PATTERNS["luau"] = _BRIDGE_PATTERNS["lua"]
 
-_BRIDGE_ARG_LIST_TYPES: frozenset[str] = frozenset({"argument_list", "arguments"})
+_BRIDGE_ARG_LIST_TYPES: frozenset[str] = frozenset(
+    {"argument_list", "arguments", "value_arguments"}
+)
 _BRIDGE_STRING_NODE_TYPES: frozenset[str] = frozenset(
-    {"string", "string_literal", "raw_string_literal", "interpreted_string_literal"}
+    {
+        "string",
+        "string_literal",
+        "raw_string_literal",
+        "interpreted_string_literal",
+        "line_string_literal",  # Swift
+        "encapsed_string",  # PHP double-quoted strings
+        "interpolated_string_literal",  # Perl double-quoted strings
+    }
 )
 _BRIDGE_LIST_NODE_TYPES: frozenset[str] = frozenset({"list", "tuple", "array"})
 _BRIDGE_STRING_CONTENT_TYPES: frozenset[str] = frozenset({"string_content", "string_fragment"})
@@ -119,7 +303,11 @@ def bridge_callee_signature(call_node, language: str) -> Optional[str]:
     if not call_node.children:
         return None
 
-    if language == "java":
+    # Java, Ruby, and PHP (scoped/member calls) interleave receiver, separator,
+    # and method name as sibling children rather than a single callee node.
+    # Accumulate all text before the argument list to reconstruct the full
+    # dotted/scoped signature (e.g. "File.read", "FFI::cdef").
+    if language in {"java", "ruby", "php"}:
         parts: list[str] = []
         for child in call_node.children:
             if child.type in _BRIDGE_ARG_LIST_TYPES:
@@ -135,24 +323,45 @@ def bridge_first_string_arg(call_node, language: str) -> tuple[Optional[str], bo
     """Return ``(string_value, is_literal)`` for the first call argument.
 
     Recognizes direct string literals and list/array/tuple first elements.
-    For R, arguments are wrapped in an extra ``argument`` node; for Java
-    the first arg may be a ``string_literal``-like node containing the
-    text directly. Returns ``(None, False)`` when the first real argument
-    is not a literal.
+    For R, arguments are wrapped in an extra ``argument`` node; Swift/Kotlin
+    wrap args in ``value_argument`` inside ``call_suffix`` → ``value_arguments``.
+    Perl has no argument_list node — string args are direct children of the
+    call node. Returns ``(None, False)`` when the first real argument is not
+    a literal.
     """
-    del language  # current dispatch is uniform across grammars
+    # Swift/Kotlin: arguments live inside call_suffix → value_arguments.
+    node_to_search = call_node
+    for child in call_node.children:
+        if child.type == "call_suffix":
+            node_to_search = child
+            break
+
     arg_list = next(
-        (c for c in call_node.children if c.type in _BRIDGE_ARG_LIST_TYPES),
+        (c for c in node_to_search.children if c.type in _BRIDGE_ARG_LIST_TYPES),
         None,
     )
+
+    # Perl: function_call_expression has no argument_list; string args are
+    # direct children after the function name and opening parenthesis.
+    if arg_list is None and language == "perl":
+        skip_types = frozenset({",", "(", ")", "{", "}", "[", "]", "function"})
+        for child in call_node.children:
+            if child.type in skip_types:
+                continue
+            if child.type in _BRIDGE_STRING_NODE_TYPES:
+                return _decode_bridge_string_node(child), True
+            return None, False
+        return None, False
+
     if arg_list is None:
         return None, False
 
     for arg in arg_list.children:
         if arg.type in (",", "(", ")", "{", "}", "[", "]"):
             continue
-        if arg.type == "argument" and arg.children:
-            # R wraps each call argument in an `argument` node.
+        if arg.type in {"argument", "value_argument"} and arg.children:
+            # R wraps each call argument in an `argument` node;
+            # Swift/Kotlin wrap in `value_argument`.
             arg = next(
                 (c for c in arg.children if c.type not in (",", "(", ")")),
                 arg.children[0],
