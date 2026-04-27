@@ -151,8 +151,14 @@ def ensure_vendor_grammar_source(language: str) -> Path:
         tmp_root = Path(tmp_dir)
         archive_path = tmp_root / "source.tar.gz"
         extracted_dir = tmp_root / "extracted"
+        allowed = frozenset(Path(p).parts[0] for p in spec.required_paths)
         _download_archive(spec, archive_path)
-        _extract_archive(archive_path, extracted_dir, source_subdirectory=spec.source_subdirectory)
+        _extract_archive(
+            archive_path,
+            extracted_dir,
+            source_subdirectory=spec.source_subdirectory,
+            allowed_toplevel_dirs=allowed,
+        )
         _inject_assets(spec, extracted_dir)
         _validate_required_paths(spec, extracted_dir)
 
@@ -186,7 +192,15 @@ def stage_packaged_vendor_grammar_sources(
         target_dir = destination_root / language
         if target_dir.exists():
             shutil.rmtree(target_dir)
-        shutil.copytree(source_dir, target_dir)
+        allowed = frozenset(Path(p).parts[0] for p in spec.required_paths)
+        source_dir_str = str(source_dir)
+
+        def _ignore_extras(directory: str, contents: list[str]) -> set[str]:
+            if directory != source_dir_str:
+                return set()
+            return {name for name in contents if name not in allowed and (source_dir / name).is_dir()}
+
+        shutil.copytree(source_dir, target_dir, ignore=_ignore_extras)
         _inject_assets(spec, target_dir)
         _validate_required_paths(spec, target_dir)
         staged[language] = target_dir
@@ -207,6 +221,7 @@ def _extract_archive(
     destination: Path,
     *,
     source_subdirectory: str | None = None,
+    allowed_toplevel_dirs: frozenset[str] | None = None,
 ) -> None:
     subdir_parts = Path(source_subdirectory).parts if source_subdirectory else ()
     destination.mkdir(parents=True, exist_ok=True)
@@ -224,6 +239,8 @@ def _extract_archive(
                 if not remaining:
                     continue
                 rel_path = Path(*remaining)
+            if allowed_toplevel_dirs is not None and rel_path.parts[0] not in allowed_toplevel_dirs:
+                continue
             target = destination / rel_path
             if member.isdir():
                 target.mkdir(parents=True, exist_ok=True)
