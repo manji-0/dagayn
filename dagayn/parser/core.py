@@ -6,36 +6,21 @@ Extracts structural nodes (classes, functions, imports, types) and edges
 
 from __future__ import annotations
 
-import hashlib
-import importlib.util
 import json
 import logging
 import re
-import shlex
-import subprocess
-import sys
-import sysconfig
 from pathlib import Path
-from typing import Any, Optional
-
-try:
-    import tree_sitter_language_pack as tslp
-except ImportError:  # pragma: no cover - exercised only in minimal envs
-    tslp: Any | None = None
-
-try:
-    from tree_sitter import Language as _TreeSitterLanguage
-    from tree_sitter import Parser as _TreeSitterParser
-except ImportError:  # pragma: no cover - exercised only in minimal envs
-    Language: Any | None = None
-    Parser: Any | None = None
-else:
-    Language: Any | None = _TreeSitterLanguage
-    Parser: Any | None = _TreeSitterParser
+from typing import Optional
 
 from ..tsconfig_resolver import TsconfigResolver
-from ..vendor_grammars import ensure_vendor_grammar_source
-from .types import BridgePattern, CellInfo, EdgeInfo, NodeInfo
+from . import bridges, dispatch, grammars
+from .bridges import _BRIDGE_PATTERNS
+from .test_detection import (
+    _TEST_RUNNER_NAMES,
+    is_test_file as _is_test_file,
+    is_test_function as _is_test_function,
+)
+from .types import CellInfo, EdgeInfo, NodeInfo
 
 _SQL_TABLE_RE = re.compile(
     r"(?:FROM|JOIN|INTO|CREATE\s+(?:OR\s+REPLACE\s+)?(?:TABLE|VIEW)|INSERT\s+OVERWRITE)"
@@ -45,8 +30,6 @@ _SQL_TABLE_RE = re.compile(
 
 logger = logging.getLogger(__name__)
 
-_MARKDOWN_BINDING_MODULE = "markdown"
-_TERRAFORM_BINDING_MODULE = "terraform"
 _TERRAFORM_REFERENCE_RE = re.compile(
     r"\b(?:(data)\.([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)"
     r"|((?:module|var|local|output|provider|check))\.([A-Za-z_][A-Za-z0-9_]*)"
@@ -78,95 +61,6 @@ _MARKDOWN_PLAIN_WORD_MIN_LEN = 10  # plain words (no _ or .) need longer to skip
 
 
 
-
-
-
-# ---------------------------------------------------------------------------
-# Language extension mapping
-# ---------------------------------------------------------------------------
-
-EXTENSION_TO_LANGUAGE: dict[str, str] = {
-    ".py": "python",
-    ".js": "javascript",
-    ".jsx": "javascript",
-    ".ts": "typescript",
-    ".tsx": "tsx",
-    ".go": "go",
-    ".rs": "rust",
-    ".java": "java",
-    ".cs": "csharp",
-    ".rb": "ruby",
-    ".cpp": "cpp",
-    ".cc": "cpp",
-    ".cxx": "cpp",
-    ".c": "c",
-    ".h": "c",
-    ".hpp": "cpp",
-    ".kt": "kotlin",
-    ".swift": "swift",
-    ".php": "php",
-    ".scala": "scala",
-    ".sol": "solidity",
-    ".vue": "vue",
-    ".dart": "dart",
-    ".r": "r",  # .lower() in detect_language handles .R → .r
-    ".mjs": "javascript",
-    ".astro": "typescript",
-    ".pl": "perl",
-    ".pm": "perl",
-    ".t": "perl",
-    ".xs": "c",  # Perl XS: parsed as C to capture functions/structs/includes
-    ".lua": "lua",
-    ".luau": "luau",
-    ".m": "objc",  # Objective-C (.h still maps to C; .mm defers to C++ for simplicity)
-    ".sh": "bash",
-    ".bash": "bash",
-    ".zsh": "bash",
-    ".ksh": "bash",  # Korn shell — close enough to bash for tree-sitter-bash (#235)
-    ".ex": "elixir",
-    ".exs": "elixir",
-    ".ipynb": "notebook",
-    ".zig": "zig",
-    ".ps1": "powershell",
-    ".psm1": "powershell",
-    ".psd1": "powershell",
-    ".svelte": "svelte",
-    ".jl": "julia",
-    # ReScript: .res is implementation, .resi is interface. Both share one
-    # language label; the parser flags interface files via extra metadata.
-    # No tree-sitter grammar is bundled in tree_sitter_language_pack, so
-    # extraction is regex-based (see _parse_rescript).
-    ".res": "rescript",
-    ".resi": "rescript",
-    ".gd": "gdscript",
-    ".tf": "terraform",
-    ".tfvars": "terraform",
-    ".md": "markdown",
-    ".markdown": "markdown",
-}
-
-SHEBANG_INTERPRETER_TO_LANGUAGE: dict[str, str] = {
-    "bash": "bash",
-    "sh": "bash",
-    "zsh": "bash",
-    "ksh": "bash",
-    "dash": "bash",
-    "ash": "bash",
-    "python": "python",
-    "python2": "python",
-    "python3": "python",
-    "pypy": "python",
-    "pypy3": "python",
-    "node": "javascript",
-    "nodejs": "javascript",
-    "ruby": "ruby",
-    "perl": "perl",
-    "lua": "lua",
-    "Rscript": "r",
-    "php": "php",
-}
-
-_SHEBANG_PROBE_BYTES = 256
 
 # Tree-sitter node type mappings per language
 # Maps (language) -> dict of semantic role -> list of TS node types
@@ -371,145 +265,6 @@ _CALL_TYPES: dict[str, list[str]] = {
     "gdscript": ["call", "attribute_call"],
     "terraform": [],
 }
-
-# Patterns that indicate a test function
-_TEST_PATTERNS = [
-    re.compile(r"^test_"),
-    re.compile(r"^Test"),
-    re.compile(r"_test$"),
-    re.compile(r"\.test\."),
-    re.compile(r"\.spec\."),
-    re.compile(r"_spec$"),
-]
-
-_TEST_FILE_PATTERNS = [
-    re.compile(r"test_.*\.py$"),
-    re.compile(r".*_test\.py$"),
-    re.compile(r".*\.test\.[jt]sx?$"),
-    re.compile(r".*\.spec\.[jt]sx?$"),
-    re.compile(r".*_test\.go$"),
-    re.compile(r"tests?/"),
-    re.compile(r".*_test\.dart$"),
-    re.compile(r"test[_-].*\.[rR]$"),
-    re.compile(r"tests/testthat/"),
-    re.compile(r".*Test\.kt$"),
-    re.compile(r".*Test\.java$"),
-    re.compile(r".*_test\.resi?$"),
-    re.compile(r".*\.test\.resi?$"),
-]
-
-_TEST_RUNNER_NAMES = frozenset(
-    {
-        "describe",
-        "it",
-        "test",
-        "beforeEach",
-        "afterEach",
-        "beforeAll",
-        "afterAll",
-    }
-)
-
-# Annotations/decorators that mark test methods (JUnit, TestNG, etc.)
-_TEST_ANNOTATIONS = frozenset(
-    {
-        "Test",
-        "ParameterizedTest",
-        "RepeatedTest",
-        "TestFactory",
-        "org.junit.Test",
-        "org.junit.jupiter.api.Test",
-    }
-)
-
-# ---------------------------------------------------------------------------
-# Cross-language bridge model (language-agnostic registry)
-# ---------------------------------------------------------------------------
-
-
-
-
-_BRIDGE_PATTERNS: dict[str, tuple[BridgePattern, ...]] = {
-    "python": (
-        BridgePattern("subprocess.run", "invokes_binary", "subprocess"),
-        BridgePattern("subprocess.Popen", "invokes_binary", "subprocess"),
-        BridgePattern("subprocess.call", "invokes_binary", "subprocess"),
-        BridgePattern("subprocess.check_call", "invokes_binary", "subprocess"),
-        BridgePattern("subprocess.check_output", "invokes_binary", "subprocess"),
-        BridgePattern("os.system", "invokes_binary", "subprocess"),
-        BridgePattern("os.popen", "invokes_binary", "subprocess"),
-        BridgePattern("os.execv", "invokes_binary", "subprocess"),
-        BridgePattern("os.execvp", "invokes_binary", "subprocess"),
-        BridgePattern("os.execvpe", "invokes_binary", "subprocess"),
-        BridgePattern("os.execve", "invokes_binary", "subprocess"),
-        BridgePattern("os.execl", "invokes_binary", "subprocess"),
-        BridgePattern("os.execlp", "invokes_binary", "subprocess"),
-        BridgePattern("os.execlpe", "invokes_binary", "subprocess"),
-        BridgePattern("os.execle", "invokes_binary", "subprocess"),
-        BridgePattern("os.spawnv", "invokes_binary", "subprocess"),
-        BridgePattern("os.spawnvp", "invokes_binary", "subprocess"),
-        BridgePattern("ctypes.CDLL", "loads_shared_library", "ffi"),
-        BridgePattern("ctypes.cdll.LoadLibrary", "loads_shared_library", "ffi"),
-        BridgePattern("ctypes.WinDLL", "loads_shared_library", "ffi"),
-        BridgePattern("ctypes.PyDLL", "loads_shared_library", "ffi"),
-        BridgePattern("cffi.FFI().dlopen", "loads_shared_library", "ffi"),
-    ),
-    "javascript": (
-        BridgePattern("child_process.exec", "invokes_binary", "subprocess"),
-        BridgePattern("child_process.execFile", "invokes_binary", "subprocess"),
-        BridgePattern("child_process.execSync", "invokes_binary", "subprocess"),
-        BridgePattern("child_process.execFileSync", "invokes_binary", "subprocess"),
-        BridgePattern("child_process.spawn", "invokes_binary", "subprocess"),
-        BridgePattern("child_process.spawnSync", "invokes_binary", "subprocess"),
-        BridgePattern("child_process.fork", "invokes_binary", "subprocess"),
-    ),
-    "java": (
-        BridgePattern("Runtime.getRuntime().exec", "invokes_binary", "subprocess"),
-        BridgePattern("Runtime.exec", "invokes_binary", "subprocess"),
-        BridgePattern("System.loadLibrary", "loads_shared_library", "ffi"),
-        BridgePattern("System.load", "loads_shared_library", "ffi"),
-        BridgePattern("Runtime.getRuntime().loadLibrary", "loads_shared_library", "ffi"),
-        BridgePattern("Runtime.getRuntime().load", "loads_shared_library", "ffi"),
-    ),
-    "r": (
-        BridgePattern("system", "invokes_binary", "subprocess"),
-        BridgePattern("system2", "invokes_binary", "subprocess"),
-        BridgePattern(".Call", "loads_native_module", "ffi"),
-        BridgePattern(".External", "loads_native_module", "ffi"),
-        BridgePattern("dyn.load", "loads_shared_library", "ffi"),
-        BridgePattern("library.dynam", "loads_shared_library", "ffi"),
-    ),
-}
-# TypeScript/TSX share the JavaScript bridge patterns.
-_BRIDGE_PATTERNS["typescript"] = _BRIDGE_PATTERNS["javascript"]
-_BRIDGE_PATTERNS["tsx"] = _BRIDGE_PATTERNS["javascript"]
-
-
-# ---------------------------------------------------------------------------
-# Cross-language bridge helpers
-# ---------------------------------------------------------------------------
-
-
-_BRIDGE_ARG_LIST_TYPES: frozenset[str] = frozenset({"argument_list", "arguments"})
-_BRIDGE_STRING_NODE_TYPES: frozenset[str] = frozenset(
-    {"string", "string_literal", "raw_string_literal", "interpreted_string_literal"}
-)
-_BRIDGE_LIST_NODE_TYPES: frozenset[str] = frozenset({"list", "tuple", "array"})
-_BRIDGE_STRING_CONTENT_TYPES: frozenset[str] = frozenset({"string_content", "string_fragment"})
-
-
-def _decode_bridge_string_node(node) -> str:
-    """Return the unquoted content of a tree-sitter string-literal node.
-
-    Works across grammars: Python uses ``string_content``, JS/TS uses
-    ``string_fragment``, Java/R/etc embed the text directly. Falls back to
-    the full node text with surrounding quotes/backticks stripped.
-    """
-    for sub in node.children:
-        if sub.type in _BRIDGE_STRING_CONTENT_TYPES:
-            return sub.text.decode("utf-8", errors="replace")
-    return node.text.decode("utf-8", errors="replace").strip("'\"`")
-
 
 # ---------------------------------------------------------------------------
 # ReScript regex patterns and helpers (no tree-sitter grammar bundled)
@@ -792,127 +547,6 @@ def _scan_rescript_modules(cleaned: str, offset_to_line) -> list[dict]:
     return modules
 
 
-def _is_test_file(path: str) -> bool:
-    return any(p.search(path) for p in _TEST_FILE_PATTERNS)
-
-
-def _is_test_function(
-    name: str,
-    file_path: str,
-    decorators: tuple[str, ...] = (),
-) -> bool:
-    """A function is a test if its name matches test patterns, it lives
-    in a test file and has a test-runner name, or it has a @Test annotation.
-    """
-    if any(p.search(name) for p in _TEST_PATTERNS):
-        return True
-    if _is_test_file(file_path) and name in _TEST_RUNNER_NAMES:
-        return True
-    if decorators and any(d in _TEST_ANNOTATIONS for d in decorators):
-        return True
-    return False
-
-
-def file_hash(path: Path) -> str:
-    """SHA-256 hash of file contents."""
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def _set_tree_sitter_language(parser: Any, language_obj: Any) -> None:
-    try:
-        parser.language = language_obj
-    except AttributeError:
-        getattr(parser, "set_language")(language_obj)
-
-
-def _binding_dir(vendor_dir: Path) -> Path:
-    return vendor_dir / "bindings" / "python"
-
-
-def _binding_candidates(vendor_dir: Path, module_name: str) -> tuple[Path, Path]:
-    binding_dir = _binding_dir(vendor_dir)
-    return (
-        binding_dir / f"{module_name}.abi3.so",
-        binding_dir / f"{module_name}.so",
-    )
-
-
-def _ensure_compiled_vendored_binding(
-    *,
-    language: str,
-    module_name: str,
-    display_name: str,
-) -> Optional[Path]:
-    try:
-        vendor_dir = ensure_vendor_grammar_source(language)
-    except (KeyError, OSError) as exc:
-        logger.warning("failed to prepare pinned %s grammar sources: %s", display_name, exc)
-        return None
-
-    binding_dir = _binding_dir(vendor_dir)
-    for candidate in _binding_candidates(vendor_dir, module_name):
-        if candidate.exists():
-            return candidate
-
-    binding_c = binding_dir / "binding.c"
-    parser_c = vendor_dir / "src" / "parser.c"
-    scanner_c = vendor_dir / "src" / "scanner.c"
-    header_dir = vendor_dir / "src" / "tree_sitter"
-    output_path = binding_dir / f"{module_name}.abi3.so"
-
-    required = (binding_c, parser_c, header_dir)
-    if not all(path.exists() for path in required):
-        return None
-    if sys.platform.startswith("win"):
-        logger.warning("pinned %s binding auto-build is unsupported on Windows", display_name)
-        return None
-
-    include_dirs = []
-    include_path = sysconfig.get_paths().get("include")
-    platinclude_path = sysconfig.get_paths().get("platinclude")
-    for include_dir in (include_path, platinclude_path):
-        if include_dir and include_dir not in include_dirs:
-            include_dirs.append(include_dir)
-
-    cmd = [
-        "-shared",
-        "-fPIC",
-        "-O2",
-        "-std=c11",
-        "-DPy_LIMITED_API=0x030A0000",
-        "-I",
-        str(vendor_dir / "src"),
-        "-I",
-        str(header_dir),
-    ]
-    compiler = shlex.split(sysconfig.get_config_var("CC") or "cc")
-    for include_dir in include_dirs:
-        cmd.extend(["-I", include_dir])
-    if sys.platform == "darwin":
-        cmd.extend(["-undefined", "dynamic_lookup"])
-
-    sources = [str(binding_c), str(parser_c)]
-    if scanner_c.exists():
-        sources.append(str(scanner_c))
-    cmd = compiler + cmd + sources + ["-o", str(output_path)]
-
-    binding_dir.mkdir(parents=True, exist_ok=True)
-    try:
-        subprocess.run(
-            cmd,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-    except (OSError, subprocess.CalledProcessError) as exc:
-        logger.warning("failed to build pinned %s binding: %s", display_name, exc)
-        if isinstance(exc, subprocess.CalledProcessError):
-            logger.debug("%s binding build stdout: %s", display_name, exc.stdout)
-            logger.debug("%s binding build stderr: %s", display_name, exc.stderr)
-        return None
-    return output_path if output_path.exists() else None
-
-
 # ---------------------------------------------------------------------------
 # Type-role resolution helpers (module-level, used by CodeParser._extract_classes)
 # ---------------------------------------------------------------------------
@@ -1012,187 +646,10 @@ class CodeParser:
         self._dart_pubspec_cache: dict[tuple[str, str], Optional[Path]] = {}
 
     def _get_parser(self, language: str):
-        if language not in self._parsers:
-            if language == "markdown":
-                parser = self._get_markdown_parser()
-                if parser is None:
-                    return None
-                self._parsers[language] = parser
-                return parser
-            if language == "terraform":
-                parser = self._get_terraform_parser()
-                if parser is None:
-                    return None
-                self._parsers[language] = parser
-                return parser
-            try:
-                if tslp is None:
-                    raise ImportError("tree_sitter_language_pack is not installed")
-                self._parsers[language] = getattr(tslp, "get_parser")(language)
-            except (LookupError, ValueError, ImportError) as exc:
-                # language not packaged, or grammar load failed
-                logger.debug("tree-sitter parser unavailable for %s: %s", language, exc)
-                return None
-        return self._parsers[language]
-
-    def _get_markdown_parser(self):
-        """Prefer dagayn's pinned Markdown grammar, then fall back to tslp."""
-        language_obj = self._load_vendored_markdown_language()
-        if language_obj is not None and Parser is not None:
-            try:
-                parser_factory: Any = Parser
-                parser = parser_factory()
-                _set_tree_sitter_language(parser, language_obj)
-                return parser
-            except (AttributeError, TypeError, ValueError) as exc:
-                logger.warning("failed to initialize vendored Markdown parser: %s", exc)
-        try:
-            if tslp is None:
-                raise ImportError("tree_sitter_language_pack is not installed")
-            return tslp.get_parser("markdown")
-        except (LookupError, ValueError, ImportError) as exc:
-            logger.debug("fallback Markdown parser unavailable: %s", exc)
-            return None
-
-    def _load_vendored_markdown_language(self):
-        if Language is None:
-            return None
-        module = self._load_vendored_markdown_binding()
-        if module is None or not hasattr(module, "language"):
-            return None
-        try:
-            return Language(module.language())
-        except (TypeError, ValueError) as exc:
-            logger.warning("failed to load vendored Markdown language capsule: %s", exc)
-            return None
-
-    def _load_vendored_markdown_binding(self):
-        binding_path = self._ensure_vendored_markdown_binding()
-        if binding_path is None:
-            return None
-        try:
-            spec = importlib.util.spec_from_file_location(
-                _MARKDOWN_BINDING_MODULE,
-                binding_path,
-            )
-            if spec is None or spec.loader is None:
-                raise ImportError(f"could not create import spec for {binding_path}")
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            return module
-        except (ImportError, OSError) as exc:
-            logger.warning("failed to import vendored Markdown binding %s: %s", binding_path, exc)
-            return None
-
-    def _ensure_vendored_markdown_binding(self) -> Optional[Path]:
-        return _ensure_compiled_vendored_binding(
-            language="markdown",
-            module_name=_MARKDOWN_BINDING_MODULE,
-            display_name="Markdown",
-        )
-
-    def _get_terraform_parser(self):
-        """Prefer dagayn's pinned Terraform grammar, then fall back to tslp."""
-        language_obj = self._load_vendored_terraform_language()
-        if language_obj is not None and Parser is not None:
-            try:
-                parser_factory: Any = Parser
-                parser = parser_factory()
-                _set_tree_sitter_language(parser, language_obj)
-                return parser
-            except (AttributeError, TypeError, ValueError) as exc:
-                logger.warning("failed to initialize vendored Terraform parser: %s", exc)
-        try:
-            if tslp is None:
-                raise ImportError("tree_sitter_language_pack is not installed")
-            return tslp.get_parser("terraform")
-        except (LookupError, ValueError, ImportError) as exc:
-            logger.debug("fallback Terraform parser unavailable: %s", exc)
-            return None
-
-    def _load_vendored_terraform_language(self):
-        if Language is None:
-            return None
-        module = self._load_vendored_terraform_binding()
-        if module is None or not hasattr(module, "language"):
-            return None
-        try:
-            return Language(module.language())
-        except (TypeError, ValueError) as exc:
-            logger.warning("failed to load vendored Terraform language capsule: %s", exc)
-            return None
-
-    def _load_vendored_terraform_binding(self):
-        binding_path = self._ensure_vendored_terraform_binding()
-        if binding_path is None:
-            return None
-        try:
-            spec = importlib.util.spec_from_file_location(
-                _TERRAFORM_BINDING_MODULE,
-                binding_path,
-            )
-            if spec is None or spec.loader is None:
-                raise ImportError(f"could not create import spec for {binding_path}")
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            return module
-        except (ImportError, OSError) as exc:
-            logger.warning("failed to import vendored Terraform binding %s: %s", binding_path, exc)
-            return None
-
-    def _ensure_vendored_terraform_binding(self) -> Optional[Path]:
-        return _ensure_compiled_vendored_binding(
-            language="terraform",
-            module_name=_TERRAFORM_BINDING_MODULE,
-            display_name="Terraform",
-        )
+        return grammars.get_parser(language, self._parsers)
 
     def detect_language(self, path: Path) -> Optional[str]:
-        suffix = path.suffix.lower()
-        lang = EXTENSION_TO_LANGUAGE.get(suffix)
-        if lang is not None:
-            return lang
-        if suffix == "":
-            return self._detect_language_from_shebang(path)
-        return None
-
-    @staticmethod
-    def _detect_language_from_shebang(path: Path) -> Optional[str]:
-        try:
-            with path.open("rb") as fh:
-                head = fh.read(_SHEBANG_PROBE_BYTES)
-        except (OSError, PermissionError):
-            return None
-        if not head.startswith(b"#!"):
-            return None
-
-        first_line = head.split(b"\n", 1)[0].split(b"\0", 1)[0]
-        try:
-            line = first_line[2:].decode("utf-8", errors="strict").strip()
-        except UnicodeDecodeError:
-            return None
-        if not line:
-            return None
-
-        tokens = line.split()
-        if not tokens:
-            return None
-
-        first = tokens[0]
-        if first.endswith("/env") or first == "env":
-            interpreter_token: Optional[str] = None
-            for tok in tokens[1:]:
-                if tok.startswith("-"):
-                    continue
-                interpreter_token = tok
-                break
-            if interpreter_token is None:
-                return None
-            interpreter = interpreter_token.rsplit("/", 1)[-1]
-        else:
-            interpreter = first.rsplit("/", 1)[-1]
-
-        return SHEBANG_INTERPRETER_TO_LANGUAGE.get(interpreter)
+        return dispatch.detect_language(path)
 
     def parse_file(self, path: Path) -> tuple[list[NodeInfo], list[EdgeInfo]]:
         """Parse a single file and return extracted nodes and edges."""
@@ -4785,66 +4242,6 @@ class CodeParser:
 
         return False
 
-    def _bridge_callee_signature(self, call_node, language: str) -> Optional[str]:
-        """Return the canonical dotted-name of the callee for bridge matching.
-
-        For most languages, the first child of the call node is the full callee
-        expression (e.g. ``subprocess.run``, ``child_process.exec``,
-        ``system``). Java's ``method_invocation`` interleaves ``object``,
-        ``.``, and ``name`` as separate children, so we accumulate text up to
-        the argument list to recover ``Runtime.getRuntime().exec``-style
-        chains.
-        """
-        if not call_node.children:
-            return None
-
-        if language == "java":
-            parts: list[str] = []
-            for child in call_node.children:
-                if child.type in _BRIDGE_ARG_LIST_TYPES:
-                    break
-                parts.append(child.text.decode("utf-8", errors="replace"))
-            sig = "".join(parts).strip()
-            return sig or None
-
-        return call_node.children[0].text.decode("utf-8", errors="replace").strip()
-
-    def _bridge_first_string_arg(self, call_node, language: str) -> tuple[Optional[str], bool]:
-        """Return ``(string_value, is_literal)`` for the first call argument.
-
-        Recognizes direct string literals and list/array/tuple first elements.
-        For R, arguments are wrapped in an extra ``argument`` node; for Java
-        the first arg may be a ``string_literal``-like node containing the
-        text directly. Returns ``(None, False)`` when the first real argument
-        is not a literal.
-        """
-        del language  # current dispatch is uniform across grammars
-        arg_list = next(
-            (c for c in call_node.children if c.type in _BRIDGE_ARG_LIST_TYPES),
-            None,
-        )
-        if arg_list is None:
-            return None, False
-
-        for arg in arg_list.children:
-            if arg.type in (",", "(", ")", "{", "}", "[", "]"):
-                continue
-            if arg.type == "argument" and arg.children:
-                # R wraps each call argument in an `argument` node.
-                arg = next(
-                    (c for c in arg.children if c.type not in (",", "(", ")")),
-                    arg.children[0],
-                )
-            if arg.type in _BRIDGE_STRING_NODE_TYPES:
-                return _decode_bridge_string_node(arg), True
-            if arg.type in _BRIDGE_LIST_NODE_TYPES:
-                for item in arg.children:
-                    if item.type in _BRIDGE_STRING_NODE_TYPES:
-                        return _decode_bridge_string_node(item), True
-                return None, False
-            return None, False
-        return None, False
-
     def _detect_cross_language_bridge(
         self,
         call_node,
@@ -4852,56 +4249,7 @@ class CodeParser:
         file_path: str,
         caller: str,
     ) -> list[EdgeInfo]:
-        """Emit ``CROSS_ARTIFACT`` edges based on the per-language bridge registry.
-
-        Language-agnostic: the dispatcher looks up patterns by language, then
-        delegates signature extraction and string-arg parsing to thin adapters.
-        Adding a new language only requires (1) entries in ``_BRIDGE_PATTERNS``
-        and (2) — if its tree-sitter call-node shape differs from the default
-        — a branch in ``_bridge_callee_signature``.
-        """
-        patterns = _BRIDGE_PATTERNS.get(language)
-        if not patterns:
-            return []
-
-        sig = self._bridge_callee_signature(call_node, language)
-        if not sig:
-            return []
-
-        matched = next((p for p in patterns if p.call_signature == sig), None)
-        if matched is None:
-            return []
-
-        line_no = call_node.start_point[0] + 1
-        literal, is_literal = self._bridge_first_string_arg(call_node, language)
-        if is_literal and literal:
-            target = literal
-            confidence: float = 0.8
-            tier = "HIGH"
-        else:
-            target = f"<dynamic:{sig}@{file_path}:{line_no}>"
-            confidence = 0.2
-            tier = "LOW"
-
-        return [
-            EdgeInfo(
-                kind="CROSS_ARTIFACT",
-                source=caller,
-                target=target,
-                file_path=file_path,
-                line=line_no,
-                extra={
-                    "relationship_role": matched.relationship_role,
-                    "bridge_kind": matched.bridge_kind,
-                    "evidence_kind": "syntax",
-                    "evidence_source": sig,
-                    "source_language": language,
-                    "target_language": "unknown",
-                    "confidence": confidence,
-                    "confidence_tier": tier,
-                },
-            )
-        ]
+        return bridges.detect_cross_language_bridge(call_node, language, file_path, caller)
 
     def _extract_jsx_component_call(
         self,

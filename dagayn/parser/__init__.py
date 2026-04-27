@@ -1,12 +1,8 @@
 """dagayn parser package — public re-exports."""
 
-from .core import (
-    _SQL_TABLE_RE,
-    EXTENSION_TO_LANGUAGE,
-    SHEBANG_INTERPRETER_TO_LANGUAGE,
-    CodeParser,
-    file_hash,
-)
+from .core import _SQL_TABLE_RE, CodeParser
+from .dispatch import EXTENSION_TO_LANGUAGE, SHEBANG_INTERPRETER_TO_LANGUAGE
+from .grammars import file_hash
 from .types import BridgePattern, CellInfo, EdgeInfo, NodeInfo
 
 __all__ = [
