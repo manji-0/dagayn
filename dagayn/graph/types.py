@@ -1,4 +1,5 @@
 """Data types for the dagayn graph package."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

@@ -269,7 +269,7 @@ def get_parser(language: str, cache: dict[str, Any]) -> Any | None:
     try:
         if tslp is None:
             raise ImportError("tree_sitter_language_pack is not installed")
-        cache[language] = tslp.get_parser(language)
+        cache[language] = getattr(tslp, "get_parser")(language)
     except (LookupError, ValueError, ImportError) as exc:
         logger.debug("tree-sitter parser unavailable for %s: %s", language, exc)
         return None

@@ -198,7 +198,9 @@ def stage_packaged_vendor_grammar_sources(
         def _ignore_extras(directory: str, contents: list[str]) -> set[str]:
             if directory != source_dir_str:
                 return set()
-            return {name for name in contents if name not in allowed and (source_dir / name).is_dir()}
+            return {
+                name for name in contents if name not in allowed and (source_dir / name).is_dir()
+            }
 
         shutil.copytree(source_dir, target_dir, ignore=_ignore_extras)
         _inject_assets(spec, target_dir)

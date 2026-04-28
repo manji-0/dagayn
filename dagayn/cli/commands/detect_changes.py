@@ -27,9 +27,7 @@ def handle(args: argparse.Namespace) -> None:
 
     repo_root = Path(args.repo) if args.repo else find_repo_root()
     if not repo_root:
-        logging.error(
-            "Not in a git repository. 'detect-changes' requires git for diffing."
-        )
+        logging.error("Not in a git repository. 'detect-changes' requires git for diffing.")
         logging.error("Use 'build' for a full parse, or run 'git init' first.")
         sys.exit(1)
 

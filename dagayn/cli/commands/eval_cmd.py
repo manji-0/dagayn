@@ -41,9 +41,7 @@ def handle(args: argparse.Namespace) -> None:
         print("\n--- README Tables (copy-paste) ---\n")
         print(tables)
     else:
-        repos = (
-            [r.strip() for r in args.repo.split(",")] if getattr(args, "repo", None) else None
-        )
+        repos = [r.strip() for r in args.repo.split(",")] if getattr(args, "repo", None) else None
         benchmarks = (
             [b.strip() for b in args.benchmark.split(",")]
             if getattr(args, "benchmark", None)

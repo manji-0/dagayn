@@ -210,6 +210,7 @@ def handle(args: argparse.Namespace) -> None:
                 print(f"Installed Cursor hooks in {hooks_path}")
             except Exception as exc:
                 import logging
+
                 logging.getLogger(__name__).warning("Could not install Cursor hooks: %s", exc)
 
     # OpenCode plugin (user-level, gated by same detect() as MCP config)
@@ -219,6 +220,7 @@ def handle(args: argparse.Namespace) -> None:
             print(f"Installed OpenCode plugin in {plugin_path}")
         except Exception as exc:
             import logging
+
             logging.getLogger(__name__).warning("Could not install OpenCode plugin: %s", exc)
 
     print()

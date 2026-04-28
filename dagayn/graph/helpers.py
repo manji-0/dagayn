@@ -1,4 +1,5 @@
 """Standalone helper functions for graph data serialization."""
+
 from __future__ import annotations
 
 from .types import GraphEdge, GraphNode
