@@ -7,10 +7,26 @@ import sqlite3
 import time
 from typing import Any
 
-from ..incremental import full_build, incremental_update
+from ..incremental import full_build, get_db_path, incremental_update
 from ._common import _evict_store_cache, _get_store
 
 logger = logging.getLogger(__name__)
+
+
+def _postprocess_store(store: Any, root: Any):
+    """Return a Python GraphStore for post-processing when needed.
+
+    Phase 1 can use the Rust backend for coarse graph writes, but the
+    post-processing modules still operate on the Python store's SQLite
+    connection. Re-open the same DB with the Python GraphStore instead of
+    adding fine-grained read/query shims to the Rust binding.
+    """
+    if hasattr(store, "_conn"):
+        return store, False
+
+    from ..graph.core import GraphStore as PythonGraphStore
+
+    return PythonGraphStore(get_db_path(root)), True
 
 
 def _run_postprocess(
@@ -439,15 +455,29 @@ def build_or_update_graph(
                 **result,
             }
 
-        # Pass changed_files for incremental flow/community detection
+        # Pass changed_files for incremental flow/community detection.
         changed = result.get("changed_files") if not full_rebuild else None
-        warnings = _run_postprocess(
-            store,
-            build_result,
-            postprocess,
-            full_rebuild=full_rebuild,
-            changed_files=changed,
-        )
+        if postprocess == "none":
+            warnings = _run_postprocess(
+                store,
+                build_result,
+                postprocess,
+                full_rebuild=full_rebuild,
+                changed_files=changed,
+            )
+        else:
+            pp_store, close_pp_store = _postprocess_store(store, root)
+            try:
+                warnings = _run_postprocess(
+                    pp_store,
+                    build_result,
+                    postprocess,
+                    full_rebuild=full_rebuild,
+                    changed_files=changed,
+                )
+            finally:
+                if close_pp_store:
+                    pp_store.close()
         if warnings:
             build_result["warnings"] = warnings
         return build_result

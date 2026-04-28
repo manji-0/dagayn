@@ -2,11 +2,7 @@
 
 <!-- constrained-by ./ARCHITECTURE.md -->
 
-> **Status:** Spec frozen as of 2026-04-26. Implementation is in progress on a separate branch and has **not yet been merged into `main`**.
->
-> The `main` branch contains no Rust source — no `Cargo.toml`, no `*.rs` files, no `maturin` build backend. A `dagayn/_core.abi3.so` binary may exist locally as a build artifact from the development branch, but it is gitignored and not imported by any production code.
->
-> Phase 1 (Rust graph engine) has not landed in `main`.
+> **Status:** Work in progress — core decisions frozen as of 2026-04-26. Phase 0 complete as of 2026-04-27. Phase 1 (Rust graph engine) started with the initial Rust workspace and PyO3 graph-store scaffold.
 
 ## Frozen decisions
 
@@ -25,7 +21,10 @@ The following design choices are settled and must not be reopened without explic
 
 This specification defines how dagayn should migrate its **core graph pipeline** from Python to Rust without breaking the product contract that existing users and AI tool integrations rely on.
 
-The immediate target is **not** a full product rewrite.
+The immediate target is **not** a full product rewrite, but the end-state
+direction is now explicit: Python should shrink to the CLI/MCP interface layer
+and compatibility glue, while parsing, graph persistence, post-processing,
+query primitives, and normalization move to Rust wherever practical.
 
 The target is the core pipeline only:
 
@@ -117,15 +116,18 @@ A single Python extension module (`dagayn._core`) is built by maturin from the `
 
 A minimal native CLI binary (`dagayn-core`) is kept in `crates/dagayn-core/` for local debugging and A/B comparison against the Python implementation. It is not part of the distributed wheel.
 
-### Layer 3: Python compatibility shell
+### Layer 3: Python interface shell
 
 Python remains responsible for:
 
-- current CLI UX where parity is already good
-- FastMCP tool registration
-- platform install/config flows
-- daemon/watch orchestration
-- optional integrations that are not performance-critical
+- current CLI UX and command argument handling
+- FastMCP tool registration and response shaping
+- platform install/config flows only where they are inherently product-interface work
+- temporary compatibility adapters while Rust reaches parity
+
+Python should not retain core parsing, graph mutation, query, or post-processing
+logic once the corresponding Rust implementation has parity. New performance-
+or correctness-sensitive core logic should land in Rust crates first.
 
 ## Crate workspace layout
 
@@ -238,6 +240,41 @@ Acceptance: `test_build_is_deterministic` in `tests/test_parity_export.py` build
 ### Phase 1: Rust graph engine
 
 Deliverable: `dagayn-graph` and `dagayn-py` wiring such that `dagayn._core.GraphStore` can replace the Python `GraphStore` in `dagayn/graph.py`.
+
+Initial scaffold:
+
+- root Cargo workspace with `dagayn-core`, `dagayn-graph`, and `dagayn-py`
+- pinned Rust toolchain through `rust-toolchain.toml`
+- `dagayn-graph` opens the SQLite database, creates the Python-compatible base schema, runs migrations through schema version 9, and supports atomic per-file node/edge replacement
+- `dagayn-py` exposes the first `dagayn._core.GraphStore` methods for metadata, file replacement, batch file replacement, and file listing
+- Python `full_build` / `incremental_update` buffer parsed file results and call `store_file_batch`, so the Rust backend crosses the PyO3 boundary at coarse DB-write chunks instead of once per parsed file
+- incremental hash checks use `get_file_hashes(paths)` and stale-file cleanup uses `remove_files_data(paths)`, avoiding per-file PyO3 calls in the update path
+- when `postprocess != "none"` under the Rust backend, `build_or_update_graph` re-opens the same SQLite DB with the Python `GraphStore` for the whole post-processing phase rather than adding fine-grained Rust read/query bindings before Phase 2
+- `DAGAYN_BACKEND=rust` is recognized by the Python graph package and fails loudly if the extension has not been built; `python` remains the default
+
+Current local benchmark baseline, measured on 2026-04-28 with `tools/backend_benchmark.py`
+against this repository copy (307 files, 4,148 parsed nodes, 25,845 parsed edges):
+
+| Mode | Python avg | Rust avg | Current interpretation |
+|---|---:|---:|---|
+| full build, `postprocess=none` | 2.509s | 3.105s | Rust is slower because PyO3 object conversion still dominates the coarse writer call |
+| full build, `postprocess=minimal` | 12.399s | 11.548s | Mostly Python post-processing variance; Rust graph write is not the bottleneck |
+| full build, `postprocess=full` | 11.238s | 11.822s | Mostly Python post-processing; Rust graph write has small visible overhead |
+| writer-only `store_file_batch` | 0.302s | 0.986s | Confirms the current Rust path is conversion-bound, not ready as a performance win |
+
+This baseline means the next Phase 1 optimization should reduce Python-object
+marshalling before adding more Rust methods. Likely options are a compact
+serialized batch format or moving parse output normalization into Rust with the
+writer, rather than crossing PyO3 per node/edge object.
+
+Follow-up implementation: the Rust backend now accepts `store_file_batch_json`,
+a compact tuple-array JSON batch. Python uses this method when available so Rust
+does not perform per-node/per-edge PyO3 `getattr` extraction. The writer-only
+benchmark still remains approximately 1.0s for Rust versus 0.32s for Python on
+the current repository, so this did not materially change the conclusion: the
+intermediate Python-parser-to-Rust-writer bridge is conversion-bound. The next
+meaningful optimization is to move parser output normalization and eventually
+parser extraction into Rust, not to add more narrow PyO3 methods.
 
 Python modules being replaced: `dagayn/graph.py` (`GraphStore` upsert and replacement logic), `dagayn/incremental.py` (path normalization and VCS metadata helpers such as `_make_repo_relative`), `dagayn/migrations.py`.
 

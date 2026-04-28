@@ -9,6 +9,7 @@ from __future__ import annotations
 import concurrent.futures
 import fnmatch
 import hashlib
+import json
 import logging
 import os
 import re
@@ -21,6 +22,9 @@ from .graph import GraphStore
 from .parser import CodeParser, EdgeInfo, NodeInfo
 
 _MAX_PARSE_WORKERS = int(os.environ.get("CRG_PARSE_WORKERS", str(min(os.cpu_count() or 4, 8))))
+_STORE_BATCH_SIZE = int(os.environ.get("DAGAYN_STORE_BATCH_SIZE", "128"))
+
+StoreBatch = list[tuple[str, list[NodeInfo], list[EdgeInfo], str, int]]
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +42,11 @@ def _run_rescript_resolver(store: GraphStore) -> Optional[dict]:
     """Run the ReScript cross-module resolver, swallowing any failure so
     build never fails because of it. Returns stats or None on error.
     """
+    if not hasattr(store, "_conn"):
+        # Phase 1 Rust backend owns the SQLite connection internally. The
+        # Python ReScript post-pass is left on the Python backend until the
+        # relevant post-processing slice moves across as a coarse operation.
+        return None
     try:
         from .rescript_resolver import resolve_rescript_cross_module
 
@@ -856,6 +865,78 @@ def _parse_single_file(
         return (rel_path, [], [], str(e), "", 0)
 
 
+def _flush_store_batch(store: GraphStore, batch: StoreBatch) -> None:
+    """Write parsed file results through one store call.
+
+    The Rust backend is intentionally crossed at batch granularity so PyO3
+    overhead is paid per DB write phase chunk, not once for each parsed file.
+    """
+    if not batch:
+        return
+    if hasattr(store, "store_file_batch_json"):
+        store.store_file_batch_json(_serialize_store_batch(batch))
+    else:
+        store.store_file_batch(batch)
+    batch.clear()
+
+
+def _serialize_store_batch(batch: StoreBatch) -> str:
+    """Serialize parsed graph data in a compact Rust-owned wire format."""
+    return json.dumps(
+        [
+            (
+                file_path,
+                [
+                    (
+                        n.kind,
+                        n.name,
+                        n.file_path,
+                        n.line_start,
+                        n.line_end,
+                        n.language,
+                        n.parent_name,
+                        n.params,
+                        n.return_type,
+                        n.modifiers,
+                        n.is_test,
+                        n.extra or {},
+                    )
+                    for n in nodes
+                ],
+                [
+                    (
+                        e.kind,
+                        e.source,
+                        e.target,
+                        e.file_path,
+                        e.line,
+                        e.extra or {},
+                    )
+                    for e in edges
+                ],
+                fhash,
+                mtime_ns,
+            )
+            for file_path, nodes, edges, fhash, mtime_ns in batch
+        ],
+        separators=(",", ":"),
+    )
+
+
+def _queue_store_file(
+    store: GraphStore,
+    batch: StoreBatch,
+    rel_path: str,
+    nodes: list[NodeInfo],
+    edges: list[EdgeInfo],
+    fhash: str,
+    mtime_ns: int,
+) -> None:
+    batch.append((rel_path, nodes, edges, fhash, mtime_ns))
+    if len(batch) >= _STORE_BATCH_SIZE:
+        _flush_store_batch(store, batch)
+
+
 def full_build(
     repo_root: Path,
     store: GraphStore,
@@ -878,8 +959,7 @@ def full_build(
     existing_files = set(store.get_all_files())
     current_rel = set(files)
     stale_files = existing_files - current_rel
-    for stale in stale_files:
-        store.remove_file_data(stale)
+    store.remove_files_data(list(stale_files))
     # Ensure deletions are persisted before store_file_nodes_edges()
     # starts its own explicit transaction via BEGIN IMMEDIATE.
     if stale_files:
@@ -892,11 +972,9 @@ def full_build(
 
     use_serial = os.environ.get("CRG_SERIAL_PARSE", "") == "1"
 
-    _batch_size = 50
-
     if use_serial or file_count < 8:
         # Serial fallback (for debugging or tiny repos)
-        batch_buf: list[tuple[str, list, list, str, int]] = []
+        batch: StoreBatch = []
         for i, rel_path in enumerate(files, 1):
             full_path = repo_root / rel_path
             try:
@@ -905,7 +983,7 @@ def full_build(
                 fhash = hashlib.sha256(source).hexdigest()
                 nodes, edges = parser.parse_bytes(full_path, source)
                 nodes, edges = _relativize_parsed_entities(nodes, edges, repo_root)
-                batch_buf.append((rel_path, nodes, edges, fhash, mtime_ns))
+                _queue_store_file(store, batch, rel_path, nodes, edges, fhash, mtime_ns)
                 total_nodes += len(nodes)
                 total_edges += len(edges)
             except (OSError, PermissionError) as e:
@@ -913,17 +991,13 @@ def full_build(
             except Exception as e:
                 logger.warning("Error parsing %s: %s", rel_path, e)
                 errors.append({"file": rel_path, "error": str(e)})
-            if len(batch_buf) >= _batch_size:
-                store.store_file_batch(batch_buf)
-                batch_buf.clear()
             if i % 50 == 0 or i == file_count:
                 logger.info("Progress: %d/%d files parsed", i, file_count)
-        if batch_buf:
-            store.store_file_batch(batch_buf)
+        _flush_store_batch(store, batch)
     else:
         # Parallel parsing — store calls remain serial (SQLite single-writer)
         args_list = [(rel_path, str(repo_root)) for rel_path in files]
-        batch_buf = []
+        batch: StoreBatch = []
         with concurrent.futures.ProcessPoolExecutor(
             max_workers=_MAX_PARSE_WORKERS,
             initializer=_init_worker,
@@ -937,16 +1011,12 @@ def full_build(
                     errors.append({"file": rel_path, "error": error})
                     continue
                 nodes, edges = _relativize_parsed_entities(nodes, edges, repo_root)
-                batch_buf.append((rel_path, nodes, edges, fhash, mtime_ns))
+                _queue_store_file(store, batch, rel_path, nodes, edges, fhash, mtime_ns)
                 total_nodes += len(nodes)
                 total_edges += len(edges)
-                if len(batch_buf) >= _batch_size:
-                    store.store_file_batch(batch_buf)
-                    batch_buf.clear()
                 if i % 200 == 0 or i == file_count:
                     logger.info("Progress: %d/%d files parsed", i, file_count)
-        if batch_buf:
-            store.store_file_batch(batch_buf)
+        _flush_store_batch(store, batch)
 
     store.set_metadata("last_updated", time.strftime("%Y-%m-%dT%H:%M:%S"))
     store.set_metadata("last_build_type", "full")
@@ -1003,25 +1073,33 @@ def incremental_update(
     total_edges = 0
     errors = []
 
-    # Preload (file_hash, mtime_ns) for all files already in the DB so the
-    # change-detection loop can skip unchanged files without reading bytes.
-    file_meta = store.get_file_meta_map()
-
     # Separate deleted/unparseable files from files that need re-parsing.
-    # to_parse: list of (rel_path, mtime_ns) for files whose content changed.
-    to_parse: list[tuple[str, int]] = []
-    removed_any = False
-    mtime_only_updates: list[tuple[int, str]] = []  # (mtime_ns, file_path) pairs
+    # Existing hashes are loaded in one store call so the Rust backend does not
+    # pay a PyO3 round trip for every candidate file.
+    candidates: list[str] = []
+    removed_files: list[str] = []
     for rel_path in all_files:
         if _should_ignore(rel_path, ignore_patterns):
             continue
         abs_path = repo_root / rel_path
         if not abs_path.is_file():
-            store.remove_file_data(rel_path)
-            removed_any = True
+            removed_files.append(rel_path)
             continue
         if parser.detect_language(abs_path) is None:
             continue
+        candidates.append(rel_path)
+
+    store.remove_files_data(removed_files)
+
+    if hasattr(store, "get_file_meta_map"):
+        file_meta = store.get_file_meta_map()
+    else:
+        file_meta = {path: (fhash, 0) for path, fhash in store.get_file_hashes(candidates).items()}
+
+    to_parse: list[tuple[str, int]] = []
+    mtime_only_updates: list[tuple[int, str]] = []  # (mtime_ns, file_path) pairs
+    for rel_path in candidates:
+        abs_path = repo_root / rel_path
         try:
             cur_mtime_ns = int(abs_path.stat().st_mtime_ns)
             meta = file_meta.get(rel_path)
@@ -1040,19 +1118,21 @@ def incremental_update(
 
     # Persist deletions and mtime-only updates before store_file_nodes_edges()
     # opens its own explicit transaction — avoids nested transaction errors.
-    if removed_any or mtime_only_updates:
+    if removed_files or mtime_only_updates:
         if mtime_only_updates:
-            store._conn.executemany(
-                "UPDATE nodes SET mtime_ns=? WHERE file_path=?", mtime_only_updates
-            )
+            if hasattr(store, "update_file_mtime"):
+                for mtime_ns, file_path in mtime_only_updates:
+                    store.update_file_mtime(file_path, mtime_ns)
+            elif hasattr(store, "_conn"):
+                store._conn.executemany(
+                    "UPDATE nodes SET mtime_ns=? WHERE file_path=?", mtime_only_updates
+                )
         store.commit()
 
     use_serial = os.environ.get("CRG_SERIAL_PARSE", "") == "1"
 
-    _batch_size = 50
-
     if use_serial or len(to_parse) < 8:
-        batch_buf: list[tuple[str, list, list, str, int]] = []
+        batch: StoreBatch = []
         for rel_path, mtime_ns in to_parse:
             abs_path = repo_root / rel_path
             try:
@@ -1060,7 +1140,7 @@ def incremental_update(
                 fhash = hashlib.sha256(source).hexdigest()
                 nodes, edges = parser.parse_bytes(abs_path, source)
                 nodes, edges = _relativize_parsed_entities(nodes, edges, repo_root)
-                batch_buf.append((rel_path, nodes, edges, fhash, mtime_ns))
+                _queue_store_file(store, batch, rel_path, nodes, edges, fhash, mtime_ns)
                 total_nodes += len(nodes)
                 total_edges += len(edges)
             except (OSError, PermissionError) as e:
@@ -1068,14 +1148,10 @@ def incremental_update(
             except Exception as e:
                 logger.warning("Error parsing %s: %s", rel_path, e)
                 errors.append({"file": rel_path, "error": str(e)})
-            if len(batch_buf) >= _batch_size:
-                store.store_file_batch(batch_buf)
-                batch_buf.clear()
-        if batch_buf:
-            store.store_file_batch(batch_buf)
+        _flush_store_batch(store, batch)
     else:
         args_list = [(rel_path, str(repo_root)) for rel_path, _ in to_parse]
-        batch_buf = []
+        batch: StoreBatch = []
         with concurrent.futures.ProcessPoolExecutor(
             max_workers=_MAX_PARSE_WORKERS,
             initializer=_init_worker,
@@ -1090,14 +1166,10 @@ def incremental_update(
                     errors.append({"file": rel_path, "error": error})
                     continue
                 nodes, edges = _relativize_parsed_entities(nodes, edges, repo_root)
-                batch_buf.append((rel_path, nodes, edges, fhash, mtime_ns))
+                _queue_store_file(store, batch, rel_path, nodes, edges, fhash, mtime_ns)
                 total_nodes += len(nodes)
                 total_edges += len(edges)
-                if len(batch_buf) >= _batch_size:
-                    store.store_file_batch(batch_buf)
-                    batch_buf.clear()
-        if batch_buf:
-            store.store_file_batch(batch_buf)
+        _flush_store_batch(store, batch)
 
     store.set_metadata("last_updated", time.strftime("%Y-%m-%dT%H:%M:%S"))
     store.set_metadata("last_build_type", "incremental")

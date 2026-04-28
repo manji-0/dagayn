@@ -95,8 +95,10 @@ path = "hatch_build.py"
 
 [tool.hatch.build.targets.sdist]
 include = [
+    "Cargo.toml",
     "dagayn/",
     "hatch_build.py",
+    "crates/",
     "skills/",
     ".claude-plugin/",
     "docs/",
@@ -104,7 +106,13 @@ include = [
     "LICENSE",
     "README.md",
     "pyproject.toml",
+    "rust-toolchain.toml",
 ]
+
+[tool.maturin]
+manifest-path = "crates/dagayn-py/Cargo.toml"
+module-name = "dagayn._core"
+python-source = "."
 
 [tool.ruff]
 line-length = 100

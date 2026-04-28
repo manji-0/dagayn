@@ -35,6 +35,9 @@ Thumbs.db
 # Node
 node_modules/
 
+# Rust
+target/
+
 # VS Code extension build artifacts
 code-review-graph-vscode/dist/
 *.vsix

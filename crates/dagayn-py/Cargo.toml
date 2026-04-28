@@ -1,0 +1,19 @@
+[package]
+name = "dagayn-py"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "_core"
+crate-type = ["cdylib"]
+
+[dependencies]
+dagayn-core = { path = "../dagayn-core" }
+pyo3 = { workspace = true, features = ["extension-module"] }
+serde_json.workspace = true
+
+[package.metadata.maturin]
+name = "dagayn._core"
+

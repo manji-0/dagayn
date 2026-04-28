@@ -123,6 +123,22 @@ class TestGraphStore:
         result = self.store.get_nodes_by_file("/test/file.py")
         assert len(result) == 2
 
+    def test_store_file_batch(self):
+        batch = [
+            ("/test/a.py", [self._make_file_node("/test/a.py")], [], "hash-a"),
+            (
+                "/test/b.py",
+                [self._make_file_node("/test/b.py"), self._make_func_node(path="/test/b.py")],
+                [],
+                "hash-b",
+            ),
+        ]
+
+        self.store.store_file_batch(batch)
+
+        assert len(self.store.get_nodes_by_file("/test/a.py")) == 1
+        assert len(self.store.get_nodes_by_file("/test/b.py")) == 2
+
     def test_store_after_remove_no_transaction_error(self):
         """Regression test for #135: store_file_nodes_edges after
         remove_file_data must not raise 'cannot start a transaction

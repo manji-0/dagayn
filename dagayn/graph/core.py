@@ -367,6 +367,11 @@ class GraphStore:
             ],
         )
 
+    def remove_files_data(self, file_paths: list[str]) -> None:
+        """Remove graph data for multiple files in one store operation."""
+        for file_path in file_paths:
+            self.remove_file_data(file_path)
+
     def store_file_nodes_edges(
         self,
         file_path: str,
@@ -812,6 +817,22 @@ class GraphStore:
             "SELECT DISTINCT file_path FROM nodes WHERE kind = 'File'"
         ).fetchall()
         return [r["file_path"] for r in rows]
+
+    def get_file_hashes(self, file_paths: list[str]) -> dict[str, str]:
+        """Return stored file hashes for the requested repo-relative files."""
+        if not file_paths:
+            return {}
+        out: dict[str, str] = {}
+        for i in range(0, len(file_paths), 900):
+            chunk = file_paths[i : i + 900]
+            placeholders = ",".join("?" for _ in chunk)
+            rows = self._conn.execute(
+                "SELECT file_path, file_hash FROM nodes "
+                f"WHERE kind = 'File' AND file_path IN ({placeholders}) AND file_hash IS NOT NULL",
+                tuple(chunk),
+            ).fetchall()
+            out.update({row["file_path"]: row["file_hash"] for row in rows})
+        return out
 
     def search_nodes(self, query: str, limit: int = 20) -> list[GraphNode]:
         """Keyword search across node names.
