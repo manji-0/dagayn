@@ -276,6 +276,17 @@ intermediate Python-parser-to-Rust-writer bridge is conversion-bound. The next
 meaningful optimization is to move parser output normalization and eventually
 parser extraction into Rust, not to add more narrow PyO3 methods.
 
+Parser migration progress:
+
+- `dagayn-parser` owns parseable-file collection for the Rust backend except
+  SVN-specific listing, which remains in Python for compatibility.
+- `dagayn-parser` now exposes an initial Markdown extractor through
+  `parse_markdown_compact_json(file_path, source)`. It emits compact node/edge
+  arrays equivalent to the Python Markdown parser for the current parity
+  fixtures. This is the first parser slice moved into Rust; the next step is to
+  wire Markdown files in `full_build` / `incremental_update` directly through
+  this Rust extractor and graph writer.
+
 Python modules being replaced: `dagayn/graph.py` (`GraphStore` upsert and replacement logic), `dagayn/incremental.py` (path normalization and VCS metadata helpers such as `_make_repo_relative`), `dagayn/migrations.py`.
 
 Integration path: with `DAGAYN_BACKEND=rust`, the Python parser continues to emit `GraphNode` / `GraphEdge` records, but they are passed to `dagayn._core.GraphStore` for writes. This hybrid path is the first production exposure of the Rust backend.

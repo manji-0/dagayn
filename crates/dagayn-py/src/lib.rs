@@ -229,6 +229,7 @@ fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyGraphStore>()?;
     module.add_function(wrap_pyfunction!(filter_parseable_files, module)?)?;
     module.add_function(wrap_pyfunction!(collect_parseable_files, module)?)?;
+    module.add_function(wrap_pyfunction!(parse_markdown_compact_json, module)?)?;
     Ok(())
 }
 
@@ -260,5 +261,12 @@ fn collect_parseable_files(
     Ok(dagayn_core::parser::collect_parseable_files(
         std::path::Path::new(&repo_root),
         recurse_submodules,
+    ))
+}
+
+#[pyfunction]
+fn parse_markdown_compact_json(file_path: &str, source: &[u8]) -> PyResult<String> {
+    Ok(dagayn_core::parser::parse_markdown_compact_json(
+        file_path, source,
     ))
 }
