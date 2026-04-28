@@ -228,6 +228,7 @@ fn to_py_runtime_error(err: dagayn_core::GraphError) -> PyErr {
 fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyGraphStore>()?;
     module.add_function(wrap_pyfunction!(filter_parseable_files, module)?)?;
+    module.add_function(wrap_pyfunction!(collect_parseable_files, module)?)?;
     Ok(())
 }
 
@@ -244,5 +245,20 @@ fn filter_parseable_files(
         std::path::Path::new(&repo_root),
         &candidates,
         &ignore_patterns,
+    ))
+}
+
+#[pyfunction]
+#[pyo3(signature = (repo_root, recurse_submodules = None))]
+fn collect_parseable_files(
+    py: Python<'_>,
+    repo_root: &Bound<'_, PyAny>,
+    recurse_submodules: Option<bool>,
+) -> PyResult<Vec<String>> {
+    let os = PyModule::import(py, "os")?;
+    let repo_root: String = os.getattr("fspath")?.call1((repo_root,))?.extract()?;
+    Ok(dagayn_core::parser::collect_parseable_files(
+        std::path::Path::new(&repo_root),
+        recurse_submodules,
     ))
 }

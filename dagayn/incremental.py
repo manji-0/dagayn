@@ -692,10 +692,20 @@ def collect_all_files(
         recurse_submodules: If True, include files from git submodules.
             When *None*, falls back to ``CRG_RECURSE_SUBMODULES`` env var.
     """
+    if (
+        os.environ.get("DAGAYN_BACKEND", "python").strip().lower() == "rust"
+        and detect_vcs(repo_root) != "svn"
+    ):
+        try:
+            from dagayn._core import collect_parseable_files
+
+            return collect_parseable_files(repo_root, recurse_submodules)
+        except (ImportError, RuntimeError, TypeError, ValueError) as exc:
+            logger.warning("Rust file discovery unavailable, falling back to Python: %s", exc)
+
     ignore_patterns = _load_ignore_patterns(repo_root)
     parser = CodeParser()
     files = []
-
     # Prefer git ls-files for tracked files
     tracked = get_all_tracked_files(repo_root, recurse_submodules)
     if tracked:
@@ -703,14 +713,6 @@ def collect_all_files(
     else:
         # Fallback: walk directory
         candidates = [str(p.relative_to(repo_root)) for p in repo_root.rglob("*") if p.is_file()]
-
-    if os.environ.get("DAGAYN_BACKEND", "python").strip().lower() == "rust":
-        try:
-            from dagayn._core import filter_parseable_files
-
-            return filter_parseable_files(repo_root, candidates, ignore_patterns)
-        except (ImportError, RuntimeError, TypeError, ValueError) as exc:
-            logger.warning("Rust file discovery unavailable, falling back to Python: %s", exc)
 
     for rel_path in candidates:
         if _should_ignore(rel_path, ignore_patterns):

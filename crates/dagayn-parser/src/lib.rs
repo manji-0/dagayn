@@ -7,6 +7,7 @@
 
 use std::collections::HashMap;
 use std::path::Path;
+use std::process::Command;
 
 use globset::{Glob, GlobSetBuilder};
 
@@ -40,6 +41,14 @@ pub fn filter_parseable_files(
         .collect()
 }
 
+pub fn collect_parseable_files(repo_root: &Path, recurse_submodules: Option<bool>) -> Vec<String> {
+    let ignore_patterns = load_ignore_patterns(repo_root);
+    let candidates = get_git_tracked_files(repo_root, recurse_submodules)
+        .filter(|files| !files.is_empty())
+        .unwrap_or_else(|| walk_files(repo_root));
+    filter_parseable_files(repo_root, &candidates, &ignore_patterns)
+}
+
 pub fn detect_language(path: &Path) -> Option<&'static str> {
     let suffix = path
         .extension()
@@ -66,6 +75,74 @@ fn build_globset(patterns: &[String]) -> Option<globset::GlobSet> {
         }
     }
     added.then(|| builder.build().ok()).flatten()
+}
+
+fn load_ignore_patterns(repo_root: &Path) -> Vec<String> {
+    let mut patterns = default_ignore_patterns()
+        .iter()
+        .map(|pattern| pattern.to_string())
+        .collect::<Vec<_>>();
+    let ignore_file = repo_root.join(".dagaynignore");
+    if let Ok(raw) = std::fs::read_to_string(ignore_file) {
+        patterns.extend(
+            raw.lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty() && !line.starts_with('#'))
+                .map(str::to_string),
+        );
+    }
+    patterns
+}
+
+fn get_git_tracked_files(
+    repo_root: &Path,
+    recurse_submodules: Option<bool>,
+) -> Option<Vec<String>> {
+    if !repo_root.join(".git").exists() {
+        return None;
+    }
+    let mut cmd = Command::new("git");
+    cmd.arg("ls-files");
+    if recurse_submodules.unwrap_or(false) {
+        cmd.arg("--recurse-submodules");
+    }
+    let output = cmd.current_dir(repo_root).output().ok()?;
+    if !output.status.success() {
+        return Some(Vec::new());
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Some(
+        stdout
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(str::to_string)
+            .collect(),
+    )
+}
+
+fn walk_files(repo_root: &Path) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut stack = vec![repo_root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            if !path.is_file() {
+                continue;
+            }
+            if let Ok(rel) = path.strip_prefix(repo_root) {
+                out.push(rel.to_string_lossy().replace('\\', "/"));
+            }
+        }
+    }
+    out
 }
 
 fn should_ignore(path: &str, patterns: &[String], globset: Option<&globset::GlobSet>) -> bool {
@@ -200,6 +277,43 @@ fn shebang_to_language() -> HashMap<&'static str, &'static str> {
         ("Rscript", "r"),
         ("php", "php"),
     ])
+}
+
+fn default_ignore_patterns() -> &'static [&'static str] {
+    &[
+        ".dagayn/**",
+        "node_modules/**",
+        ".git/**",
+        ".svn/**",
+        "__pycache__/**",
+        "*.pyc",
+        ".venv/**",
+        "venv/**",
+        "dist/**",
+        "build/**",
+        ".next/**",
+        "target/**",
+        "vendor/**",
+        "bootstrap/cache/**",
+        "public/build/**",
+        ".bundle/**",
+        ".gradle/**",
+        "*.jar",
+        ".dart_tool/**",
+        ".pub-cache/**",
+        "coverage/**",
+        ".cache/**",
+        "*.min.js",
+        "*.min.css",
+        "*.map",
+        "*.lock",
+        "package-lock.json",
+        "yarn.lock",
+        "*.db",
+        "*.sqlite",
+        "*.db-journal",
+        "*.db-wal",
+    ]
 }
 
 #[cfg(test)]
