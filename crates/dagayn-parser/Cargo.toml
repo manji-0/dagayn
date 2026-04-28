@@ -7,4 +7,4 @@ repository.workspace = true
 
 [dependencies]
 dagayn-grammars = { path = "../dagayn-grammars" }
-
+globset.workspace = true
