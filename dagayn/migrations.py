@@ -244,6 +244,18 @@ def _migrate_v10(conn: sqlite3.Connection) -> None:
     logger.info("Migration v10: created idx_nodes_parent_name")
 
 
+def _migrate_v11(conn: sqlite3.Connection) -> None:
+    """v11: Add mtime_ns column to nodes for mtime-based incremental skip.
+
+    Stores the file's st_mtime_ns at parse time.  On subsequent incremental
+    updates the stored mtime is compared to the current file mtime; if they
+    match the file can be skipped without reading bytes or computing sha256.
+    """
+    if not _has_column(conn, "nodes", "mtime_ns"):
+        conn.execute("ALTER TABLE nodes ADD COLUMN mtime_ns INTEGER DEFAULT 0")
+        logger.info("Migration v11: added 'mtime_ns' column to nodes")
+
+
 # ---------------------------------------------------------------------------
 # Migration registry
 # ---------------------------------------------------------------------------
@@ -258,6 +270,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     8: _migrate_v8,
     9: _migrate_v9,
     10: _migrate_v10,
+    11: _migrate_v11,
 }
 
 LATEST_VERSION = max(MIGRATIONS.keys())

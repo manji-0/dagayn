@@ -203,7 +203,7 @@ class GraphStore:
 
     # --- Write operations ---
 
-    def upsert_node(self, node: NodeInfo, file_hash: str = "") -> int:
+    def upsert_node(self, node: NodeInfo, file_hash: str = "", mtime_ns: int = 0) -> int:
         """Insert or update a node. Returns the node ID."""
         now = time.time()
         qualified = self._make_qualified(node)
@@ -213,8 +213,8 @@ class GraphStore:
             """INSERT INTO nodes
                (kind, name, qualified_name, file_path, line_start, line_end,
                 language, parent_name, params, return_type, modifiers, is_test,
-                file_hash, extra, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                file_hash, mtime_ns, extra, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(qualified_name) DO UPDATE SET
                  kind=excluded.kind, name=excluded.name,
                  file_path=excluded.file_path, line_start=excluded.line_start,
@@ -222,6 +222,7 @@ class GraphStore:
                  parent_name=excluded.parent_name, params=excluded.params,
                  return_type=excluded.return_type, modifiers=excluded.modifiers,
                  is_test=excluded.is_test, file_hash=excluded.file_hash,
+                 mtime_ns=excluded.mtime_ns,
                  extra=excluded.extra, updated_at=excluded.updated_at
                RETURNING id
             """,
@@ -239,6 +240,7 @@ class GraphStore:
                 node.modifiers,
                 int(node.is_test),
                 file_hash,
+                mtime_ns,
                 extra,
                 now,
             ),
@@ -305,7 +307,7 @@ class GraphStore:
         )
         self._invalidate_cache()
 
-    def _bulk_insert_nodes(self, nodes: list[NodeInfo], fhash: str) -> None:
+    def _bulk_insert_nodes(self, nodes: list[NodeInfo], fhash: str, mtime_ns: int = 0) -> None:
         """Bulk-insert nodes via executemany. Caller must have cleared the file first."""
         if not nodes:
             return
@@ -314,8 +316,8 @@ class GraphStore:
             """INSERT INTO nodes
                (kind, name, qualified_name, file_path, line_start, line_end,
                 language, parent_name, params, return_type, modifiers, is_test,
-                file_hash, extra, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                file_hash, mtime_ns, extra, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             [
                 (
                     n.kind,
@@ -331,6 +333,7 @@ class GraphStore:
                     n.modifiers,
                     int(n.is_test),
                     fhash,
+                    mtime_ns,
                     json.dumps(n.extra) if n.extra else "{}",
                     now,
                 )
@@ -365,7 +368,12 @@ class GraphStore:
         )
 
     def store_file_nodes_edges(
-        self, file_path: str, nodes: list[NodeInfo], edges: list[EdgeInfo], fhash: str = ""
+        self,
+        file_path: str,
+        nodes: list[NodeInfo],
+        edges: list[EdgeInfo],
+        fhash: str = "",
+        mtime_ns: int = 0,
     ) -> None:
         """Atomically replace all data for a file."""
         if self._conn.in_transaction:
@@ -374,7 +382,7 @@ class GraphStore:
         self._conn.execute("BEGIN IMMEDIATE")
         try:
             self.remove_file_data(file_path)
-            self._bulk_insert_nodes(nodes, fhash)
+            self._bulk_insert_nodes(nodes, fhash, mtime_ns)
             self._bulk_insert_edges(edges)
             self._conn.commit()
         except BaseException:
@@ -383,14 +391,18 @@ class GraphStore:
         self._invalidate_cache()
 
     def store_file_batch(
-        self, batch: list[tuple[str, list[NodeInfo], list[EdgeInfo], str]]
+        self, batch: list[tuple[str, list[NodeInfo], list[EdgeInfo], str, int]]
     ) -> None:
-        """Atomically replace data for a batch of files in one transaction."""
+        """Atomically replace data for a batch of files in one transaction.
+
+        Each tuple is ``(file_path, nodes, edges, fhash, mtime_ns)``.
+        Pass ``mtime_ns=0`` when not available.
+        """
         self._conn.execute("BEGIN IMMEDIATE")
         try:
-            for file_path, nodes, edges, fhash in batch:
+            for file_path, nodes, edges, fhash, mtime_ns in batch:
                 self.remove_file_data(file_path)
-                self._bulk_insert_nodes(nodes, fhash)
+                self._bulk_insert_nodes(nodes, fhash, mtime_ns)
                 self._bulk_insert_edges(edges)
             self._conn.commit()
         except BaseException:
@@ -414,6 +426,22 @@ class GraphStore:
     def rollback(self) -> None:
         """Rollback the current transaction."""
         self._conn.rollback()
+
+    def get_file_meta_map(self) -> dict[str, tuple[str, int]]:
+        """Return ``{file_path: (file_hash, mtime_ns)}`` for all files with stored nodes.
+
+        Used by ``incremental_update`` to skip reading file bytes when the
+        stored mtime_ns matches the current filesystem mtime_ns.
+        """
+        rows = self._conn.execute(
+            "SELECT DISTINCT file_path, file_hash, mtime_ns FROM nodes "
+            "WHERE file_hash IS NOT NULL AND file_hash != ''"
+        ).fetchall()
+        return {r["file_path"]: (r["file_hash"] or "", r["mtime_ns"] or 0) for r in rows}
+
+    def update_file_mtime(self, file_path: str, mtime_ns: int) -> None:
+        """Update mtime_ns for all nodes belonging to *file_path*."""
+        self._conn.execute("UPDATE nodes SET mtime_ns=? WHERE file_path=?", (mtime_ns, file_path))
 
     # --- Read operations ---
 

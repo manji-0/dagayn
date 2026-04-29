@@ -39,11 +39,12 @@ class GraphStoreProtocol(Protocol):
         nodes: list[NodeInfo],
         edges: list[EdgeInfo],
         fhash: str = "",
+        mtime_ns: int = 0,
     ) -> None: ...
 
     def store_file_batch(
         self,
-        batch: list[tuple[str, list[NodeInfo], list[EdgeInfo], str]],
+        batch: list[tuple[str, list[NodeInfo], list[EdgeInfo], str, int]],
     ) -> None: ...
 
     def commit(self) -> None: ...

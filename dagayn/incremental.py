@@ -957,9 +957,15 @@ def incremental_update(
     total_edges = 0
     errors = []
 
-    # Separate deleted/unparseable files from files that need re-parsing
-    to_parse: list[str] = []
+    # Preload (file_hash, mtime_ns) for all files already in the DB so the
+    # change-detection loop can skip unchanged files without reading bytes.
+    file_meta = store.get_file_meta_map()
+
+    # Separate deleted/unparseable files from files that need re-parsing.
+    # to_parse: list of (rel_path, mtime_ns) for files whose content changed.
+    to_parse: list[tuple[str, int]] = []
     removed_any = False
+    mtime_only_updates: list[tuple[int, str]] = []  # (mtime_ns, file_path) pairs
     for rel_path in all_files:
         if _should_ignore(rel_path, ignore_patterns):
             continue
@@ -970,33 +976,42 @@ def incremental_update(
             continue
         if parser.detect_language(abs_path) is None:
             continue
-        # Quick hash check to skip unchanged files
         try:
+            cur_mtime_ns = int(abs_path.stat().st_mtime_ns)
+            meta = file_meta.get(rel_path)
+            if meta and meta[1] == cur_mtime_ns:
+                continue  # mtime unchanged → definitely same content, skip read
             raw = abs_path.read_bytes()
             fhash = hashlib.sha256(raw).hexdigest()
-            existing_nodes = store.get_nodes_by_file(rel_path)
-            if existing_nodes and existing_nodes[0].file_hash == fhash:
+            if meta and meta[0] == fhash:
+                # Content identical despite mtime change (e.g. 'touch') — only
+                # update the stored mtime so the fast path fires next time.
+                mtime_only_updates.append((cur_mtime_ns, rel_path))
                 continue
         except (OSError, PermissionError):
-            pass
-        to_parse.append(rel_path)
+            cur_mtime_ns = 0
+        to_parse.append((rel_path, cur_mtime_ns))
 
-    # Persist deletions before store_file_nodes_edges() opens its own
-    # explicit transaction — avoids nested transaction errors.
-    if removed_any:
+    # Persist deletions and mtime-only updates before store_file_nodes_edges()
+    # opens its own explicit transaction — avoids nested transaction errors.
+    if removed_any or mtime_only_updates:
+        if mtime_only_updates:
+            store._conn.executemany(
+                "UPDATE nodes SET mtime_ns=? WHERE file_path=?", mtime_only_updates
+            )
         store.commit()
 
     use_serial = os.environ.get("CRG_SERIAL_PARSE", "") == "1"
 
     if use_serial or len(to_parse) < 8:
-        for rel_path in to_parse:
+        for rel_path, mtime_ns in to_parse:
             abs_path = repo_root / rel_path
             try:
                 source = abs_path.read_bytes()
                 fhash = hashlib.sha256(source).hexdigest()
                 nodes, edges = parser.parse_bytes(abs_path, source)
                 nodes, edges = _relativize_parsed_entities(nodes, edges, repo_root)
-                store.store_file_nodes_edges(rel_path, nodes, edges, fhash)
+                store.store_file_nodes_edges(rel_path, nodes, edges, fhash, mtime_ns)
                 total_nodes += len(nodes)
                 total_edges += len(edges)
             except (OSError, PermissionError) as e:
@@ -1005,7 +1020,8 @@ def incremental_update(
                 logger.warning("Error parsing %s: %s", rel_path, e)
                 errors.append({"file": rel_path, "error": str(e)})
     else:
-        args_list = [(rel_path, str(repo_root)) for rel_path in to_parse]
+        mtime_map = {rel_path: mtime_ns for rel_path, mtime_ns in to_parse}
+        args_list = [(rel_path, str(repo_root)) for rel_path, _ in to_parse]
         with concurrent.futures.ProcessPoolExecutor(
             max_workers=_MAX_PARSE_WORKERS,
             initializer=_init_worker,
@@ -1025,6 +1041,7 @@ def incremental_update(
                     nodes,
                     edges,
                     fhash,
+                    mtime_map.get(rel_path, 0),
                 )
                 total_nodes += len(nodes)
                 total_edges += len(edges)
