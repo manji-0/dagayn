@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -266,29 +266,17 @@ impl GraphStore {
         edges: &[EdgeInput],
         file_hash: &str,
     ) -> Result<()> {
-        let tx = self.conn.transaction()?;
-        remove_file_data_tx(&tx, file_path)?;
-        for node in nodes {
-            upsert_node_tx(&tx, node, file_hash)?;
-        }
-        for edge in edges {
-            upsert_edge_tx(&tx, edge)?;
-        }
-        tx.commit()?;
-        Ok(())
+        self.store_file_batch(&[(
+            file_path.to_string(),
+            nodes.to_vec(),
+            edges.to_vec(),
+            file_hash.to_string(),
+        )])
     }
 
     pub fn store_file_batch(&mut self, batch: &[FileBatchItem]) -> Result<()> {
         let tx = self.conn.transaction()?;
-        for (file_path, nodes, edges, file_hash) in batch {
-            remove_file_data_tx(&tx, file_path)?;
-            for node in nodes {
-                upsert_node_tx(&tx, node, file_hash)?;
-            }
-            for edge in edges {
-                upsert_edge_tx(&tx, edge)?;
-            }
-        }
+        store_file_batch_tx(&tx, batch)?;
         tx.commit()?;
         Ok(())
     }
@@ -699,15 +687,14 @@ fn remove_file_data_tx(tx: &Transaction<'_>, file_path: &str) -> Result<()> {
     Ok(())
 }
 
-fn upsert_node_tx(tx: &Transaction<'_>, node: &NodeInput, file_hash: &str) -> Result<i64> {
+fn store_file_batch_tx(tx: &Transaction<'_>, batch: &[FileBatchItem]) -> Result<()> {
     let now = now_seconds()?;
-    let qualified = make_qualified(node);
-    let extra = if node.extra.is_null() {
-        "{}".to_string()
-    } else {
-        serde_json::to_string(&node.extra)?
-    };
-    tx.execute(
+    let mut delete_risk = tx.prepare(
+        "DELETE FROM risk_index WHERE node_id IN (SELECT id FROM nodes WHERE file_path = ?)",
+    )?;
+    let mut delete_edges = tx.prepare("DELETE FROM edges WHERE file_path = ?")?;
+    let mut delete_nodes = tx.prepare("DELETE FROM nodes WHERE file_path = ?")?;
+    let mut insert_node = tx.prepare(
         r#"
         INSERT INTO nodes
             (kind, name, qualified_name, file_path, line_start, line_end,
@@ -723,99 +710,87 @@ fn upsert_node_tx(tx: &Transaction<'_>, node: &NodeInput, file_hash: &str) -> Re
             is_test=excluded.is_test, file_hash=excluded.file_hash,
             extra=excluded.extra, updated_at=excluded.updated_at
         "#,
-        params![
-            node.kind,
-            node.name,
-            qualified,
-            node.file_path,
-            node.line_start,
-            node.line_end,
-            node.language,
-            node.parent_name,
-            node.params,
-            node.return_type,
-            node.modifiers,
-            i64::from(node.is_test),
-            file_hash,
-            extra,
-            now,
-        ],
     )?;
-    tx.query_row(
-        "SELECT id FROM nodes WHERE qualified_name = ?",
-        [qualified],
-        |row| row.get(0),
-    )
-    .map_err(Into::into)
-}
-
-fn upsert_edge_tx(tx: &Transaction<'_>, edge: &EdgeInput) -> Result<i64> {
-    let now = now_seconds()?;
-    let extra = if edge.extra.is_null() {
-        Value::Object(Default::default())
-    } else {
-        edge.extra.clone()
-    };
-    let confidence = extra
-        .get("confidence")
-        .and_then(Value::as_f64)
-        .unwrap_or(1.0);
-    let confidence_tier = extra
-        .get("confidence_tier")
-        .and_then(Value::as_str)
-        .unwrap_or("EXTRACTED");
-    let extra_json = serde_json::to_string(&extra)?;
-
-    let existing: Option<i64> = tx
-        .query_row(
-            r#"
-            SELECT id FROM edges
-            WHERE kind = ? AND source_qualified = ? AND target_qualified = ?
-              AND file_path = ? AND line = ?
-            "#,
-            params![
-                edge.kind,
-                edge.source,
-                edge.target,
-                edge.file_path,
-                edge.line
-            ],
-            |row| row.get(0),
-        )
-        .optional()?;
-
-    if let Some(id) = existing {
-        tx.execute(
-            r#"
-            UPDATE edges
-            SET line = ?, extra = ?, confidence = ?, confidence_tier = ?, updated_at = ?
-            WHERE id = ?
-            "#,
-            params![edge.line, extra_json, confidence, confidence_tier, now, id],
-        )?;
-        return Ok(id);
-    }
-
-    tx.execute(
+    let mut insert_edge = tx.prepare(
         r#"
         INSERT INTO edges
             (kind, source_qualified, target_qualified, file_path, line, extra,
              confidence, confidence_tier, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#,
-        params![
-            edge.kind,
-            edge.source,
-            edge.target,
-            edge.file_path,
-            edge.line,
-            extra_json,
-            confidence,
-            confidence_tier,
-            now,
-        ],
     )?;
-    Ok(tx.last_insert_rowid())
+    let mut seen_edges = HashSet::new();
+
+    for (file_path, nodes, edges, file_hash) in batch {
+        delete_risk.execute([file_path])?;
+        delete_edges.execute([file_path])?;
+        delete_nodes.execute([file_path])?;
+
+        for node in nodes {
+            let qualified = make_qualified(node);
+            let extra = if node.extra.is_null() {
+                "{}".to_string()
+            } else {
+                serde_json::to_string(&node.extra)?
+            };
+            insert_node.execute(params![
+                node.kind,
+                node.name,
+                qualified,
+                node.file_path,
+                node.line_start,
+                node.line_end,
+                node.language,
+                node.parent_name,
+                node.params,
+                node.return_type,
+                node.modifiers,
+                i64::from(node.is_test),
+                file_hash,
+                extra,
+                now,
+            ])?;
+        }
+
+        for edge in edges {
+            let key = (
+                edge.kind.as_str(),
+                edge.source.as_str(),
+                edge.target.as_str(),
+                edge.file_path.as_str(),
+                edge.line,
+            );
+            if !seen_edges.insert(key) {
+                continue;
+            }
+            let extra = if edge.extra.is_null() {
+                Value::Object(Default::default())
+            } else {
+                edge.extra.clone()
+            };
+            let confidence = extra
+                .get("confidence")
+                .and_then(Value::as_f64)
+                .unwrap_or(1.0);
+            let confidence_tier = extra
+                .get("confidence_tier")
+                .and_then(Value::as_str)
+                .unwrap_or("EXTRACTED");
+            let extra_json = serde_json::to_string(&extra)?;
+            insert_edge.execute(params![
+                edge.kind,
+                edge.source,
+                edge.target,
+                edge.file_path,
+                edge.line,
+                extra_json,
+                confidence,
+                confidence_tier,
+                now,
+            ])?;
+        }
+    }
+    Ok(())
 }
 
 fn node_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<GraphNode> {
@@ -1099,7 +1074,7 @@ mod tests {
                 (
                     "src/app.py".to_string(),
                     vec![target],
-                    vec![edge],
+                    vec![edge.clone(), edge],
                     "hash-app".to_string(),
                 ),
             ])

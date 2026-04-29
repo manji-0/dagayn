@@ -281,13 +281,13 @@ parses Rust-owned files and writes them inside the same Rust call so parsed
 node/edge batches no longer round-trip through Python JSON.
 
 The 2026-04-29 local
-`tools/backend_benchmark.py --mode e2e --postprocess none --repeats 3` run on
-this repository (312 files, 4,316 parsed nodes, 27,602 parsed edges) measured:
+benchmarks on this repository (312 files, 4,315 parsed nodes, 27,600 parsed
+edges) measured:
 
 | Mode | Python avg | Rust avg | Current interpretation |
 |---|---:|---:|---|
-| full build, `postprocess=none` | 2.854s | 3.750s | Rust output matches Python counts, but the mixed Python parser / Rust writer path remains slower |
-| writer-only `store_file_batch` | 0.322s | 1.037s | Previous writer-only measurement; useful as evidence that Python-to-Rust writer bridging is still not the end state |
+| full build, `postprocess=none` | 2.645s | 2.982s | Rust output matches Python counts; Rust is still slower, but the gap narrowed after writer batching |
+| writer-only `store_file_batch` | 0.325s | 0.502s | Prepared statements and direct edge inserts cut Rust writer time by roughly half versus the prior ~1.04s |
 
 This did not materially change the conclusion: the next meaningful
 optimization is to move more non-Markdown/Terraform parsing and post-processing
