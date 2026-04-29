@@ -22,7 +22,7 @@ static TERRAFORM_CALL_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(").unwrap());
 static TERRAFORM_HEADER_TOKEN_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#""([^"]*)"|'([^']*)'|([A-Za-z_][A-Za-z0-9_-]*)"#).unwrap());
-static TERRAFORM_PROVIDER_SOURCE_RE: LazyLock<Regex> =
+static TERRAFORM_PROVIDER_SOURCE_FALLBACK_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"source\s*=\s*(["'][^"']+["'])"#).unwrap());
 static TERRAFORM_REFERENCE_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
@@ -333,11 +333,11 @@ pub fn parse_terraform(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<
         }
 
         if block.kind == "terraform" {
-            for captures in TERRAFORM_PROVIDER_SOURCE_RE.captures_iter(&block.body) {
+            for provider_source in terraform_provider_sources(block) {
                 edges.push(ParsedEdge {
                     kind: "DEPENDS_ON".to_string(),
                     source: terraform_qualified(file_path, &node_name),
-                    target: strip_tf_string(&captures[1]),
+                    target: provider_source,
                     file_path: file_path.to_string(),
                     line: block.line_start,
                     extra: json!({}),
@@ -438,6 +438,7 @@ struct TerraformBlock {
     attrs: Option<Vec<TerraformAttr>>,
     calls: Option<Vec<String>>,
     references: Option<Vec<String>>,
+    provider_sources: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug)]
@@ -504,6 +505,7 @@ fn terraform_block_from_node(node: tree_sitter::Node<'_>, source: &[u8]) -> Opti
     let body_calls = body_node.map(|body| collect_terraform_calls_from_tree(body, source));
     let body_references =
         body_node.map(|body| collect_terraform_references_from_tree(body, source));
+    let provider_sources = body_node.map(|body| collect_terraform_provider_sources(body, source));
 
     Some(TerraformBlock {
         kind,
@@ -515,6 +517,7 @@ fn terraform_block_from_node(node: tree_sitter::Node<'_>, source: &[u8]) -> Opti
         attrs: body_node.map(|body| collect_terraform_attrs_from_tree(body, source)),
         calls: body_calls,
         references: body_references,
+        provider_sources,
     })
 }
 
@@ -590,6 +593,7 @@ fn collect_terraform_blocks_from_text(text: &str) -> Vec<TerraformBlock> {
             attrs: None,
             calls: None,
             references: None,
+            provider_sources: None,
         });
         offset = close + 1;
     }
@@ -743,6 +747,15 @@ fn terraform_attrs(block: &TerraformBlock) -> Vec<TerraformAttr> {
         .unwrap_or_else(|| collect_terraform_attrs(&block.body, block.body_start_line))
 }
 
+fn terraform_provider_sources(block: &TerraformBlock) -> Vec<String> {
+    block.provider_sources.clone().unwrap_or_else(|| {
+        TERRAFORM_PROVIDER_SOURCE_FALLBACK_RE
+            .captures_iter(&block.body)
+            .map(|captures| strip_tf_string(&captures[1]))
+            .collect()
+    })
+}
+
 fn collect_terraform_attrs_from_tree(
     body: tree_sitter::Node<'_>,
     source: &[u8],
@@ -770,6 +783,43 @@ fn collect_terraform_attrs_from_tree(
         });
     }
     attrs
+}
+
+fn collect_terraform_provider_sources(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {
+    let mut sources = Vec::new();
+    collect_terraform_provider_source_nodes(node, source, &mut sources);
+    dedupe_strings(sources)
+}
+
+fn collect_terraform_provider_source_nodes(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    sources: &mut Vec<String>,
+) {
+    if node.kind() == "attribute" {
+        if let (Some(name), Some(value)) = (
+            node.child_by_field_name("name"),
+            node.child_by_field_name("value"),
+        ) {
+            if node_text(name, source) == "source" {
+                sources.push(strip_tf_string(&node_text(value, source)));
+            }
+        }
+    } else if node.kind() == "object_elem" {
+        if let (Some(key), Some(value)) = (
+            node.child_by_field_name("key"),
+            node.child_by_field_name("value"),
+        ) {
+            if strip_tf_string(&node_text(key, source)) == "source" {
+                sources.push(strip_tf_string(&node_text(value, source)));
+            }
+        }
+    }
+
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_terraform_provider_source_nodes(child, source, sources);
+    }
 }
 
 fn collect_terraform_calls_from_tree(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {

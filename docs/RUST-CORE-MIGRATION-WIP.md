@@ -355,7 +355,8 @@ Parser migration progress:
   Call extraction now walks `function_call` AST nodes. Reference extraction now
   walks Terraform traversal expressions and uses template-node compatibility
   scanning only to preserve existing dotted-string behavior such as
-  `"t3.micro"`.
+  `"t3.micro"`. Terraform provider `source` dependencies are collected from
+  nested AST attributes/object elements instead of scanning the block text.
 
 Python modules being replaced: `dagayn/graph.py` (`GraphStore` upsert and replacement logic), `dagayn/incremental.py` (path normalization and VCS metadata helpers such as `_make_repo_relative`), `dagayn/migrations.py`.
 
