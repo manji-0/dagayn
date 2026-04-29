@@ -7,7 +7,7 @@ from typing import Any
 from ..communities import get_architecture_overview, get_communities
 from ..graph import node_to_dict
 from ..hints import generate_hints, get_session
-from ._common import _get_store
+from ._common import _get_store, apply_output_budget
 
 # ---------------------------------------------------------------------------
 # Tool 13: list_communities  [EXPLORE]
@@ -51,6 +51,7 @@ def list_communities_func(
             "summary": f"Found {len(communities)} communities",
             "communities": communities,
         }
+        apply_output_budget(result, budget_tokens=4000, list_priorities=["communities"])
         result["_hints"] = generate_hints("list_communities", result, get_session())
         return result
     except Exception as exc:
@@ -107,12 +108,20 @@ def get_community_func(
                 "summary": ("No community found matching the given criteria."),
             }
 
-        if include_members:
+        # member_qns is the full list of qualified names — trim when not requested
+        if not include_members and "member_qns" in community:
+            qns = community.pop("member_qns")
+            community["total_members"] = len(qns)
+            community["member_qns_sample"] = qns[:5]
+        elif include_members:
             cid = community.get("id")
             if cid is not None:
                 member_nodes = store.get_nodes_by_community_id(cid)
                 members = [node_to_dict(n) for n in member_nodes]
                 community["member_details"] = members
+                apply_output_budget(
+                    community, budget_tokens=5000, list_priorities=["member_details"]
+                )
 
         result = {
             "status": "ok",

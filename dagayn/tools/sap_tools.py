@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Literal, Optional
 
 from ..sap import compute_sap_metrics, find_sap_violations
-from ._common import _get_store
+from ._common import _get_store, apply_output_budget
 
 
 def compute_sap_metrics_func(
@@ -78,7 +78,7 @@ def detect_sap_violations_func(
         scope_kind=scope_kind,
         min_distance=min_distance,
     )
-    return {
+    payload = {
         "violations": violations,
         "count": len(violations),
         "scope_kind": scope_kind,
@@ -89,3 +89,5 @@ def detect_sap_violations_func(
             "get_impact_radius -- check blast radius of a violating scope",
         ],
     }
+    apply_output_budget(payload, budget_tokens=5000, list_priorities=["violations"])
+    return payload

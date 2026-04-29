@@ -11,7 +11,7 @@ from ..analysis import (
     find_surprising_connections,
     generate_suggested_questions,
 )
-from ._common import _get_store
+from ._common import _get_store, apply_output_budget, make_response
 
 
 def get_hub_nodes_func(
@@ -83,21 +83,35 @@ def get_knowledge_gaps_func(
     store, _root = _get_store(repo_root)
     gaps = find_knowledge_gaps(store)
     total = sum(len(v) for v in gaps.values())
-    return {
-        "gaps": gaps,
-        "total_gaps": total,
-        "summary": {
+    payload = make_response(
+        "ok",
+        f"Found {total} knowledge gaps across 4 categories.",
+        gaps=gaps,
+        total_gaps=total,
+        gap_counts={
             "isolated_nodes": len(gaps["isolated_nodes"]),
             "thin_communities": len(gaps["thin_communities"]),
             "untested_hotspots": len(gaps["untested_hotspots"]),
             "single_file_communities": len(gaps["single_file_communities"]),
         },
-        "next_tool_suggestions": [
+        next_tool_suggestions=[
             "refactor dead_code -- find unused symbols",
             "get_hub_nodes -- find high-impact nodes",
             "get_suggested_questions -- review prompts",
         ],
-    }
+    )
+    # trim least-important lists first to stay within MCP token limits
+    apply_output_budget(
+        payload["gaps"],
+        budget_tokens=4000,
+        list_priorities=[
+            "isolated_nodes",
+            "single_file_communities",
+            "thin_communities",
+            "untested_hotspots",
+        ],
+    )
+    return payload
 
 
 def get_surprising_connections_func(

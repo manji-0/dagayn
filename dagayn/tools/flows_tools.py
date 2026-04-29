@@ -7,7 +7,7 @@ from typing import Any
 
 from ..flows import get_flow_by_id, get_flows
 from ..hints import generate_hints, get_session
-from ._common import _get_store
+from ._common import _get_store, apply_output_budget
 
 # ---------------------------------------------------------------------------
 # Tool 10: list_flows  [EXPLORE]
@@ -125,6 +125,7 @@ def get_flow(
                 "summary": "No flow found matching the given criteria.",
             }
 
+        _source_max_chars = 2000
         # Optionally include source snippets for each step
         if include_source and "steps" in flow:
             for step in flow["steps"]:
@@ -140,13 +141,14 @@ def get_flow(
                             len(lines),
                             step.get("line_end") or len(lines),
                         )
-                        step["source"] = "\n".join(
-                            f"{i + 1}: {lines[i]}" for i in range(start, end)
-                        )
+                        src = "\n".join(f"{i + 1}: {lines[i]}" for i in range(start, end))
+                        if len(src) > _source_max_chars:
+                            src = src[:_source_max_chars] + "\n... (truncated)"
+                        step["source"] = src
                     except (OSError, UnicodeDecodeError):
                         step["source"] = "(could not read file)"
 
-        result = {
+        result: dict[str, Any] = {
             "status": "ok",
             "summary": (
                 f"Flow '{flow['name']}': {flow['node_count']} nodes, "
@@ -155,6 +157,8 @@ def get_flow(
             ),
             "flow": flow,
         }
+        if include_source:
+            apply_output_budget(result["flow"], budget_tokens=8000, list_priorities=["steps"])
         result["_hints"] = generate_hints("get_flow", result, get_session())
         return result
     except Exception as exc:

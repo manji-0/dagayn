@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import json
+import logging
 import os
 import threading
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 from ..graph import GraphStore
 from ..incremental import find_project_root, get_db_path
+
+logger = logging.getLogger(__name__)
 
 
 def _error_response(
@@ -318,6 +323,102 @@ def _get_store(
         store._leases = 1  # set inside the lock before inserting into cache
         _store_cache[db_path] = (store, mtime)
     return store, root
+
+
+def make_response(
+    status: str,
+    summary: str,
+    *,
+    hints: list[str] | None = None,
+    next_tool_suggestions: list[str] | None = None,
+    **fields: Any,
+) -> dict[str, Any]:
+    """Standard envelope: status / summary / fields / _hints / next_tool_suggestions.
+
+    Ensures status and summary are always present and consistently ordered.
+    """
+    resp: dict[str, Any] = {"status": status, "summary": summary}
+    resp.update(fields)
+    if hints:
+        resp["_hints"] = hints
+    if next_tool_suggestions:
+        resp["next_tool_suggestions"] = next_tool_suggestions[:3]
+    return resp
+
+
+def apply_output_budget(
+    payload: dict[str, Any],
+    budget_tokens: int = 5000,
+    list_priorities: list[str] | None = None,
+) -> dict[str, Any]:
+    """Trim list-valued fields until JSON size fits within budget_tokens.
+
+    Mutates payload in-place. Sets payload["truncated"] = True and adds
+    payload["_truncation"] = {field: {"kept": int, "total": int}} for each
+    trimmed field.
+
+    Fields in list_priorities are trimmed last-to-first (lowest priority
+    trimmed first). Fields not in list_priorities are never touched.
+    """
+    if list_priorities is None:
+        list_priorities = []
+
+    def _est_tokens() -> int:
+        return len(json.dumps(payload, default=str)) // 4
+
+    if _est_tokens() <= budget_tokens:
+        return payload
+
+    truncation: dict[str, dict[str, int]] = {}
+
+    for field in reversed(list_priorities):
+        if field not in payload or not isinstance(payload[field], list):
+            continue
+        items = payload[field]
+        total = len(items)
+        while len(items) > 1 and _est_tokens() > budget_tokens:
+            items = items[: len(items) // 2]
+        if len(items) == 0:
+            items = payload[field][:1]
+        if len(items) < total:
+            payload[field] = items
+            truncation[field] = {"kept": len(items), "total": total}
+            payload["truncated"] = True
+        if _est_tokens() <= budget_tokens:
+            break
+
+    if truncation:
+        payload["_truncation"] = truncation
+    elif _est_tokens() > budget_tokens:
+        logger.warning(
+            "apply_output_budget: payload still exceeds %d tokens after trimming all lists",
+            budget_tokens,
+        )
+        payload["truncated"] = True
+
+    return payload
+
+
+def projection_for_detail_level(
+    item: Mapping[str, Any],
+    level: str,
+    fields_minimal: list[str],
+    fields_standard: list[str] | None = None,
+) -> dict[str, Any]:
+    """Return a subset of item's fields based on detail_level.
+
+    - "minimal": only fields_minimal keys
+    - "standard": fields_minimal + fields_standard keys (or all if fields_standard is None)
+    - "verbose": all keys
+    """
+    if level == "verbose":
+        return dict(item)
+    if level == "minimal":
+        return {k: item[k] for k in fields_minimal if k in item}
+    # standard
+    if fields_standard is None:
+        return dict(item)
+    return {k: item[k] for k in fields_minimal + fields_standard if k in item}
 
 
 def compact_response(

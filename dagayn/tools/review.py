@@ -11,7 +11,7 @@ from ..flows import get_affected_flows as _get_affected_flows
 from ..graph import edge_to_dict, node_to_dict
 from ..hints import generate_hints, get_session
 from ..incremental import get_changed_files, get_staged_and_unstaged
-from ._common import _get_store
+from ._common import _get_store, apply_output_budget
 
 logger = logging.getLogger(__name__)
 
@@ -420,6 +420,11 @@ def detect_changes_func(
                 "changed_files": changed_files,
                 **analysis,
             }
+            apply_output_budget(
+                result,
+                budget_tokens=8000,
+                list_priorities=["test_gaps", "affected_flows", "review_priorities"],
+            )
         result["_hints"] = generate_hints("detect_changes", result, get_session())
         return result
     except Exception as exc:
