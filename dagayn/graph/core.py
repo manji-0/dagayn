@@ -405,7 +405,12 @@ class GraphStore:
         """
         self._conn.execute("BEGIN IMMEDIATE")
         try:
-            for file_path, nodes, edges, fhash, mtime_ns in batch:
+            for item in batch:
+                if len(item) == 4:
+                    file_path, nodes, edges, fhash = item
+                    mtime_ns = 0
+                else:
+                    file_path, nodes, edges, fhash, mtime_ns = item
                 self.remove_file_data(file_path)
                 self._bulk_insert_nodes(nodes, fhash, mtime_ns)
                 self._bulk_insert_edges(edges)

@@ -77,7 +77,7 @@ impl PyGraphStore {
         self.with_store(|store| store.get_metadata(key))
     }
 
-    #[pyo3(signature = (file_path, nodes, edges, fhash = ""))]
+    #[pyo3(signature = (file_path, nodes, edges, fhash = "", mtime_ns = 0))]
     fn store_file_nodes_edges(
         &self,
         py: Python<'_>,
@@ -85,11 +85,12 @@ impl PyGraphStore {
         nodes: &Bound<'_, PyAny>,
         edges: &Bound<'_, PyAny>,
         fhash: &str,
+        mtime_ns: i64,
     ) -> PyResult<()> {
         let node_inputs = collect_nodes(py, nodes)?;
         let edge_inputs = collect_edges(py, edges)?;
         self.with_store_mut(|store| {
-            store.store_file_nodes_edges(file_path, &node_inputs, &edge_inputs, fhash)
+            store.store_file_nodes_edges(file_path, &node_inputs, &edge_inputs, fhash, mtime_ns)
         })
     }
 
@@ -102,6 +103,14 @@ impl PyGraphStore {
         file_paths: Vec<String>,
     ) -> PyResult<std::collections::HashMap<String, String>> {
         self.with_store(|store| store.get_file_hashes(&file_paths))
+    }
+
+    fn get_file_meta_map(&self) -> PyResult<std::collections::HashMap<String, (String, i64)>> {
+        self.with_store(|store| store.get_file_meta_map())
+    }
+
+    fn update_file_mtime(&self, file_path: &str, mtime_ns: i64) -> PyResult<()> {
+        self.with_store(|store| store.update_file_mtime(file_path, mtime_ns))
     }
 
     fn get_node(&self, py: Python<'_>, qualified_name: &str) -> PyResult<Option<Py<PyAny>>> {
@@ -311,6 +320,10 @@ impl PyGraphStore {
         )
     }
 
+    fn get_direct_dependents(&self, file_paths: Vec<String>) -> PyResult<Vec<String>> {
+        self.with_store(|store| store.get_direct_dependents(&file_paths))
+    }
+
     fn store_file_batch(&self, py: Python<'_>, batch: &Bound<'_, PyAny>) -> PyResult<()> {
         let batch_items = collect_batch(py, batch)?;
         self.with_store_mut(|store| store.store_file_batch(&batch_items))
@@ -346,10 +359,16 @@ impl PyGraphStore {
                     continue;
                 }
             };
+            let mtime_ns = std::fs::metadata(repo_root.join(&file_path))
+                .and_then(|metadata| metadata.modified())
+                .ok()
+                .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|duration| duration.as_nanos().min(i64::MAX as u128) as i64)
+                .unwrap_or(0);
             let (nodes, edges) = parse_rust_owned_file_inputs(&file_path, &source);
             total_nodes += nodes.len();
             total_edges += edges.len();
-            batch.push((file_path, nodes, edges, sha256_hex(&source)));
+            batch.push((file_path, nodes, edges, sha256_hex(&source), mtime_ns));
         }
 
         if !batch.is_empty() {
@@ -502,11 +521,16 @@ fn batch_item_from_py(py: Python<'_>, obj: &Bound<'_, PyAny>) -> PyResult<FileBa
     let nodes_obj = obj.get_item(1)?;
     let edges_obj = obj.get_item(2)?;
     let file_hash: String = obj.get_item(3)?.extract()?;
+    let mtime_ns = match obj.get_item(4) {
+        Ok(value) => value.extract()?,
+        Err(_) => 0,
+    };
     Ok((
         file_path,
         collect_nodes(py, &nodes_obj)?,
         collect_edges(py, &edges_obj)?,
         file_hash,
+        mtime_ns,
     ))
 }
 

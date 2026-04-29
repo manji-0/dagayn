@@ -750,6 +750,10 @@ def _batch_hop_dependents(store: GraphStore, frontier: set[str]) -> set[str]:
     if not frontier:
         return set()
 
+    rust_get = getattr(store, "get_direct_dependents", None)
+    if callable(rust_get):
+        return set(rust_get(list(frontier))) - frontier
+
     dependents: set[str] = set()
     # Include normalized path forms to match get_edges_by_target behavior.
     fp_keys: list[str] = []

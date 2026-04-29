@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use thiserror::Error;
 
-const LATEST_VERSION: i64 = 9;
+const LATEST_VERSION: i64 = 11;
 const SECURITY_KEYWORDS: &[&str] = &[
     "auth",
     "login",
@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS nodes (
     modifiers TEXT,
     is_test INTEGER DEFAULT 0,
     file_hash TEXT,
+    mtime_ns INTEGER DEFAULT 0,
     extra TEXT DEFAULT '{}',
     updated_at REAL NOT NULL
 );
@@ -77,6 +78,7 @@ CREATE TABLE IF NOT EXISTS metadata (
 CREATE INDEX IF NOT EXISTS idx_nodes_file ON nodes(file_path);
 CREATE INDEX IF NOT EXISTS idx_nodes_kind ON nodes(kind);
 CREATE INDEX IF NOT EXISTS idx_nodes_qualified ON nodes(qualified_name);
+CREATE INDEX IF NOT EXISTS idx_nodes_parent_name ON nodes(parent_name, name);
 CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_qualified);
 CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_qualified);
 CREATE INDEX IF NOT EXISTS idx_edges_kind ON edges(kind);
@@ -219,7 +221,7 @@ pub struct GraphStore {
     conn: Connection,
 }
 
-pub type FileBatchItem = (String, Vec<NodeInput>, Vec<EdgeInput>, String);
+pub type FileBatchItem = (String, Vec<NodeInput>, Vec<EdgeInput>, String, i64);
 pub type FlowEdgeData = (HashMap<String, Vec<String>>, HashSet<String>);
 
 #[derive(Debug, Deserialize)]
@@ -831,12 +833,14 @@ impl GraphStore {
         nodes: &[NodeInput],
         edges: &[EdgeInput],
         file_hash: &str,
+        mtime_ns: i64,
     ) -> Result<()> {
         self.store_file_batch(&[(
             file_path.to_string(),
             nodes.to_vec(),
             edges.to_vec(),
             file_hash.to_string(),
+            mtime_ns,
         )])
     }
 
@@ -851,12 +855,13 @@ impl GraphStore {
         let compact: Vec<CompactFileBatchItem> = serde_json::from_str(batch_json)?;
         let batch = compact
             .into_iter()
-            .map(|(file_path, nodes, edges, file_hash, _mtime_ns)| {
+            .map(|(file_path, nodes, edges, file_hash, mtime_ns)| {
                 (
                     file_path,
                     nodes.into_iter().map(NodeInput::from).collect(),
                     edges.into_iter().map(EdgeInput::from).collect(),
                     file_hash,
+                    mtime_ns,
                 )
             })
             .collect::<Vec<_>>();
@@ -896,6 +901,34 @@ impl GraphStore {
             }
         }
         Ok(out)
+    }
+
+    pub fn get_file_meta_map(&self) -> Result<HashMap<String, (String, i64)>> {
+        let mut out = HashMap::new();
+        let mut stmt = self.conn.prepare(
+            "SELECT DISTINCT file_path, file_hash, mtime_ns FROM nodes \
+             WHERE file_hash IS NOT NULL AND file_hash != ''",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                row.get::<_, Option<i64>>(2)?.unwrap_or(0),
+            ))
+        })?;
+        for row in rows {
+            let (file_path, file_hash, mtime_ns) = row?;
+            out.insert(file_path, (file_hash, mtime_ns));
+        }
+        Ok(out)
+    }
+
+    pub fn update_file_mtime(&self, file_path: &str, mtime_ns: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE nodes SET mtime_ns = ? WHERE file_path = ?",
+            params![mtime_ns, file_path],
+        )?;
+        Ok(())
     }
 
     pub fn get_node(&self, qualified_name: &str) -> Result<Option<GraphNode>> {
@@ -2369,6 +2402,78 @@ impl GraphStore {
         Ok((outgoing, incoming))
     }
 
+    pub fn get_direct_dependents(&self, file_paths: &[String]) -> Result<Vec<String>> {
+        if file_paths.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut dependents = HashSet::new();
+        let mut fp_keys = Vec::new();
+        let mut seen_keys = HashSet::new();
+        for file_path in file_paths {
+            for key in self.qualified_key_candidates(file_path)? {
+                if seen_keys.insert(key.clone()) {
+                    fp_keys.push(key);
+                }
+            }
+        }
+
+        for chunk in fp_keys.chunks(450) {
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!(
+                "SELECT file_path FROM edges \
+                 WHERE target_qualified IN ({placeholders}) AND kind = 'IMPORTS_FROM'"
+            );
+            let mut stmt = self.conn.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
+                row.get::<_, String>(0)
+            })?;
+            for row in rows {
+                dependents.insert(row?);
+            }
+        }
+
+        let file_keys = self.expand_file_keys(file_paths)?;
+        let mut node_qns = Vec::new();
+        for chunk in file_keys.chunks(450) {
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql =
+                format!("SELECT qualified_name FROM nodes WHERE file_path IN ({placeholders})");
+            let mut stmt = self.conn.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
+                row.get::<_, String>(0)
+            })?;
+            for row in rows {
+                node_qns.push(row?);
+            }
+        }
+
+        if !node_qns.is_empty() {
+            let (_, incoming) = self.get_edges_by_endpoints(&node_qns)?;
+            for edges in incoming.values() {
+                for edge in edges {
+                    if matches!(
+                        edge.kind.as_str(),
+                        "CALLS" | "IMPORTS_FROM" | "INHERITS" | "IMPLEMENTS"
+                    ) {
+                        dependents.insert(edge.file_path.clone());
+                    }
+                }
+            }
+        }
+
+        for file_path in file_paths {
+            dependents.remove(file_path);
+        }
+        let mut out = dependents.into_iter().collect::<Vec<_>>();
+        out.sort();
+        Ok(out)
+    }
+
     fn init_schema(&self) -> Result<()> {
         self.conn.execute_batch(SCHEMA_SQL)?;
         Ok(())
@@ -2389,6 +2494,8 @@ impl GraphStore {
                 7 => self.migrate_v7()?,
                 8 => self.migrate_v8()?,
                 9 => self.migrate_v9()?,
+                10 => self.migrate_v10()?,
+                11 => self.migrate_v11()?,
                 _ => {}
             }
             self.set_metadata("schema_version", &version.to_string())?;
@@ -2549,6 +2656,24 @@ impl GraphStore {
         if !has_column(&self.conn, "edges", "confidence_tier")? {
             self.conn.execute(
                 "ALTER TABLE edges ADD COLUMN confidence_tier TEXT DEFAULT 'EXTRACTED'",
+                [],
+            )?;
+        }
+        Ok(())
+    }
+
+    fn migrate_v10(&self) -> Result<()> {
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_nodes_parent_name ON nodes(parent_name, name)",
+            [],
+        )?;
+        Ok(())
+    }
+
+    fn migrate_v11(&self) -> Result<()> {
+        if !has_column(&self.conn, "nodes", "mtime_ns")? {
+            self.conn.execute(
+                "ALTER TABLE nodes ADD COLUMN mtime_ns INTEGER DEFAULT 0",
                 [],
             )?;
         }
@@ -2756,8 +2881,8 @@ fn store_file_batch_tx(tx: &Transaction<'_>, batch: &[FileBatchItem]) -> Result<
         INSERT INTO nodes
             (kind, name, qualified_name, file_path, line_start, line_end,
              language, parent_name, params, return_type, modifiers, is_test,
-             file_hash, extra, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             file_hash, mtime_ns, extra, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(qualified_name) DO UPDATE SET
             kind=excluded.kind, name=excluded.name,
             file_path=excluded.file_path, line_start=excluded.line_start,
@@ -2765,7 +2890,7 @@ fn store_file_batch_tx(tx: &Transaction<'_>, batch: &[FileBatchItem]) -> Result<
             parent_name=excluded.parent_name, params=excluded.params,
             return_type=excluded.return_type, modifiers=excluded.modifiers,
             is_test=excluded.is_test, file_hash=excluded.file_hash,
-            extra=excluded.extra, updated_at=excluded.updated_at
+            mtime_ns=excluded.mtime_ns, extra=excluded.extra, updated_at=excluded.updated_at
         "#,
     )?;
     let mut insert_edge = tx.prepare(
@@ -2778,7 +2903,7 @@ fn store_file_batch_tx(tx: &Transaction<'_>, batch: &[FileBatchItem]) -> Result<
     )?;
     let mut seen_edges = HashSet::new();
 
-    for (file_path, nodes, edges, file_hash) in batch {
+    for (file_path, nodes, edges, file_hash, mtime_ns) in batch {
         delete_risk.execute([file_path])?;
         delete_edges.execute([file_path])?;
         delete_nodes.execute([file_path])?;
@@ -2804,6 +2929,7 @@ fn store_file_batch_tx(tx: &Transaction<'_>, batch: &[FileBatchItem]) -> Result<
                 node.modifiers,
                 i64::from(node.is_test),
                 file_hash,
+                mtime_ns,
                 extra,
                 now,
             ])?;
@@ -3026,10 +3152,10 @@ mod tests {
             extra: Value::Object(Default::default()),
         };
         store
-            .store_file_nodes_edges("app.py", &[file, func], &[], "hash1")
+            .store_file_nodes_edges("app.py", &[file, func], &[], "hash1", 0)
             .unwrap();
         store
-            .store_file_nodes_edges("app.py", &[], &[], "hash2")
+            .store_file_nodes_edges("app.py", &[], &[], "hash2", 0)
             .unwrap();
         assert!(store.get_all_files().unwrap().is_empty());
         let _ = std::fs::remove_file(path);
@@ -3075,12 +3201,14 @@ mod tests {
                     vec![file_a],
                     vec![],
                     "hash-a".to_string(),
+                    0,
                 ),
                 (
                     "b.py".to_string(),
                     vec![file_b],
                     vec![],
                     "hash-b".to_string(),
+                    0,
                 ),
             ])
             .unwrap();
@@ -3102,7 +3230,8 @@ mod tests {
                         "app.py",
                         [["File","app.py","app.py",1,1,"python",null,null,null,null,false,{}]],
                         [],
-                        "hash"
+                        "hash",
+                        123
                     ]
                 ]"#,
             )
@@ -3111,6 +3240,10 @@ mod tests {
         assert_eq!(
             store.get_file_hashes(&["app.py".to_string()]).unwrap()["app.py"],
             "hash"
+        );
+        assert_eq!(
+            store.get_file_meta_map().unwrap()["app.py"],
+            ("hash".to_string(), 123)
         );
         let _ = std::fs::remove_file(path);
     }
@@ -3149,7 +3282,7 @@ mod tests {
         };
 
         store
-            .store_file_nodes_edges("app.py", &[file, func], &[], "hash")
+            .store_file_nodes_edges("app.py", &[file, func], &[], "hash", 0)
             .unwrap();
         store
             .conn
@@ -3203,7 +3336,7 @@ mod tests {
         };
 
         store
-            .store_file_nodes_edges("app.py", &[class, func], &[], "hash")
+            .store_file_nodes_edges("app.py", &[class, func], &[], "hash", 0)
             .unwrap();
 
         assert_eq!(store.compute_missing_signatures().unwrap(), 2);
@@ -3270,6 +3403,7 @@ mod tests {
                 vec![target],
                 vec![edge],
                 "hash".to_string(),
+                0,
             )])
             .unwrap();
 
@@ -3383,6 +3517,7 @@ mod tests {
                 vec![file, login, check_token, test_login],
                 vec![calls, tested_by],
                 "hash".to_string(),
+                0,
             )])
             .unwrap();
         store
@@ -3551,6 +3686,7 @@ mod tests {
                 vec![entry, callee, test_callee],
                 vec![edge, tested_by],
                 "hash".to_string(),
+                0,
             )])
             .unwrap();
 
@@ -3739,6 +3875,7 @@ mod tests {
                 vec![node],
                 vec![],
                 "hash".to_string(),
+                0,
             )])
             .unwrap();
         let payload = serde_json::to_string(&vec![CommunityInput {
@@ -3857,12 +3994,14 @@ mod tests {
                     vec![source, function],
                     vec![],
                     "hash-lib".to_string(),
+                    0,
                 ),
                 (
                     "src/app.py".to_string(),
                     vec![target],
                     vec![edge.clone(), edge],
                     "hash-app".to_string(),
+                    0,
                 ),
             ])
             .unwrap();
