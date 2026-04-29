@@ -771,26 +771,32 @@ class EmbeddingStore:
             return 0
 
         # Filter to nodes that need embedding
-        to_embed: list[tuple[GraphNode, str, str]] = []
         provider_name = self.provider.name
+        candidate_nodes = [n for n in nodes if n.kind != "File"]
+        if not candidate_nodes:
+            return 0
 
-        for node in nodes:
-            if node.kind == "File":
-                continue
+        # Batch-fetch existing hashes in one query instead of N individual SELECTs
+        qns = [n.qualified_name for n in candidate_nodes]
+        batch_size = 450
+        existing_hashes: dict[str, tuple[str, str]] = {}  # qn -> (text_hash, provider)
+        for i in range(0, len(qns), batch_size):
+            chunk = qns[i : i + batch_size]
+            placeholders = ",".join("?" for _ in chunk)
+            rows = self._conn.execute(  # nosec B608
+                f"SELECT qualified_name, text_hash, provider FROM embeddings"
+                f" WHERE qualified_name IN ({placeholders})",
+                chunk,
+            ).fetchall()
+            for r in rows:
+                existing_hashes[r["qualified_name"]] = (r["text_hash"], r["provider"])
+
+        to_embed: list[tuple[GraphNode, str, str]] = []
+        for node in candidate_nodes:
             text = _node_to_text(node)
             text_hash = hashlib.sha256(text.encode()).hexdigest()
-
-            existing = self._conn.execute(
-                "SELECT text_hash, provider FROM embeddings WHERE qualified_name = ?",
-                (node.qualified_name,),
-            ).fetchone()
-
-            # Re-embed if text changed OR provider changed
-            if (
-                existing
-                and existing["text_hash"] == text_hash
-                and existing["provider"] == provider_name
-            ):
+            ex = existing_hashes.get(node.qualified_name)
+            if ex and ex[0] == text_hash and ex[1] == provider_name:
                 continue
             to_embed.append((node, text, text_hash))
 
@@ -801,14 +807,15 @@ class EmbeddingStore:
         texts = [t for _, t, _ in to_embed]
         vectors = self.provider.embed(texts)
 
-        for (node, _text, text_hash), vec in zip(to_embed, vectors):
-            blob = _encode_vector(vec)
-            self._conn.execute(
-                """INSERT OR REPLACE INTO embeddings (qualified_name, vector, text_hash, provider)
-                   VALUES (?, ?, ?, ?)""",
-                (node.qualified_name, blob, text_hash, provider_name),
-            )
-
+        # Bulk-insert via executemany
+        self._conn.executemany(
+            """INSERT OR REPLACE INTO embeddings (qualified_name, vector, text_hash, provider)
+               VALUES (?, ?, ?, ?)""",
+            [
+                (node.qualified_name, _encode_vector(vec), text_hash, provider_name)
+                for (node, _text, text_hash), vec in zip(to_embed, vectors)
+            ],
+        )
         self._conn.commit()
         return len(to_embed)
 

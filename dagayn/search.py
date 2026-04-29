@@ -10,11 +10,55 @@ from __future__ import annotations
 import logging
 import re
 import sqlite3
-from typing import Any, Optional
+import threading
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Optional
 
 from .graph import GraphStore, _sanitize_name
 
+if TYPE_CHECKING:
+    from .embeddings import EmbeddingStore
+
 logger = logging.getLogger(__name__)
+
+# Process-level EmbeddingStore cache — mirrors the GraphStore cache in tools/_common.
+# Key: (db_path, provider, model).  Invalidated when the database file mtime changes.
+_emb_cache: dict[tuple[Path, str | None, str | None], tuple["EmbeddingStore", float]] = {}
+_emb_lock = threading.Lock()
+
+
+def _get_cached_emb_store(
+    db_path: Path,
+    provider: str | None,
+    model: str | None,
+) -> "EmbeddingStore | None":
+    """Return a pinned EmbeddingStore, creating or replacing it when the DB mtime changes."""
+    try:
+        from .embeddings import EmbeddingStore
+    except ImportError:
+        return None
+
+    try:
+        mtime = db_path.stat().st_mtime
+    except FileNotFoundError:
+        return None
+
+    key = (db_path, provider, model)
+    with _emb_lock:
+        entry = _emb_cache.get(key)
+        if entry is not None:
+            cached_store, cached_mtime = entry
+            if cached_mtime == mtime:
+                return cached_store
+            try:
+                cached_store.close()
+            except Exception:  # noqa: BLE001  # nosec B110
+                pass
+            del _emb_cache[key]
+
+        emb_store = EmbeddingStore(db_path, provider=provider, model=model)
+        _emb_cache[key] = (emb_store, mtime)
+    return emb_store
 
 
 # ---------------------------------------------------------------------------
@@ -184,26 +228,17 @@ def _embedding_search(
     Gracefully returns an empty list if embeddings are not available.
     """
     try:
-        from .embeddings import EmbeddingStore
-    except ImportError:
-        return []
+        emb_store = _get_cached_emb_store(store.db_path, provider, model)
+        if emb_store is None or not emb_store.available or emb_store.count() == 0:
+            return []
 
-    try:
-        emb_store = EmbeddingStore(store.db_path, provider=provider, model=model)
-        try:
-            if not emb_store.available or emb_store.count() == 0:
-                return []
-
-            results = emb_store.search(query, limit=limit)
-            # Map qualified names back to node IDs
-            id_scores: list[tuple[int, float]] = []
-            for qn, score in results:
-                node = store.get_node(qn)
-                if node:
-                    id_scores.append((node.id, score))
-            return id_scores
-        finally:
-            emb_store.close()
+        results = emb_store.search(query, limit=limit)
+        id_scores: list[tuple[int, float]] = []
+        for qn, score in results:
+            node = store.get_node(qn)
+            if node:
+                id_scores.append((node.id, score))
+        return id_scores
     except Exception as e:
         logger.warning("Embedding search failed: %s", e)
         return []
