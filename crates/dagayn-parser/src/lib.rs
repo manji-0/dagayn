@@ -122,7 +122,7 @@ struct Heading {
 pub fn parse_markdown(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let text = String::from_utf8_lossy(source);
     let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
-    let headings = collect_markdown_headings_from_text(&text);
+    let headings = collect_markdown_headings(source, &text);
     let mut nodes = vec![ParsedNode {
         kind: "File".to_string(),
         name: file_path.to_string(),
@@ -912,6 +912,95 @@ fn strip_terraform_line_comment(line: &str) -> &str {
 
 fn terraform_qualified(file_path: &str, name: &str) -> String {
     format!("{file_path}::{name}")
+}
+
+fn collect_markdown_headings(source: &[u8], text: &str) -> Vec<Heading> {
+    let mut parser = tree_sitter::Parser::new();
+    if parser
+        .set_language(&dagayn_grammars::markdown_language())
+        .is_ok()
+    {
+        if let Some(tree) = parser.parse(source, None) {
+            let headings = collect_markdown_headings_from_tree(tree.root_node(), source);
+            if !headings.is_empty() {
+                return headings;
+            }
+        }
+    }
+    collect_markdown_headings_from_text(text)
+}
+
+fn collect_markdown_headings_from_tree(root: tree_sitter::Node<'_>, source: &[u8]) -> Vec<Heading> {
+    let mut raw = Vec::new();
+    collect_markdown_heading_nodes(root, source, &mut raw);
+    assign_heading_slugs(raw)
+}
+
+fn collect_markdown_heading_nodes(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    raw: &mut Vec<(String, i64, i64)>,
+) {
+    if matches!(node.kind(), "atx_heading" | "setext_heading") {
+        let text = markdown_heading_text(node, source);
+        if !text.is_empty() {
+            raw.push((
+                text,
+                markdown_heading_level(node, source),
+                node.start_position().row as i64 + 1,
+            ));
+        }
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_markdown_heading_nodes(child, source, raw);
+    }
+}
+
+fn markdown_heading_level(node: tree_sitter::Node<'_>, source: &[u8]) -> i64 {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        let kind = child.kind();
+        if kind.starts_with("atx_h") && kind.ends_with("_marker") {
+            return node_text(child, source).chars().count() as i64;
+        }
+        if kind == "setext_h1_underline" {
+            return 1;
+        }
+        if kind == "setext_h2_underline" {
+            return 2;
+        }
+    }
+    1
+}
+
+fn markdown_heading_text(node: tree_sitter::Node<'_>, source: &[u8]) -> String {
+    let mut parts = Vec::new();
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if matches!(
+            child.kind(),
+            "atx_h1_marker"
+                | "atx_h2_marker"
+                | "atx_h3_marker"
+                | "atx_h4_marker"
+                | "atx_h5_marker"
+                | "atx_h6_marker"
+                | "setext_h1_underline"
+                | "setext_h2_underline"
+        ) {
+            continue;
+        }
+        let text = node_text(child, source).trim().to_string();
+        if !text.is_empty() {
+            parts.push(text);
+        }
+    }
+    parts.join(" ").trim().to_string()
+}
+
+fn node_text(node: tree_sitter::Node<'_>, source: &[u8]) -> String {
+    String::from_utf8_lossy(&source[node.start_byte()..node.end_byte()]).to_string()
 }
 
 fn collect_markdown_headings_from_text(text: &str) -> Vec<Heading> {

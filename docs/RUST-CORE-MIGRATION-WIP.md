@@ -335,6 +335,10 @@ Parser migration progress:
   Rust `tree_sitter::Language` constructors. This is grammar provisioning only;
   the transitional Markdown/Terraform extractors still need to be replaced with
   tree-sitter-backed extractors.
+- The Markdown extractor now collects headings through the pinned Rust
+  tree-sitter Markdown grammar, with the previous text scanner retained only as
+  fallback. A local full-repo `postprocess=none` smoke benchmark produces
+  identical Python/Rust node and edge counts for the current repository.
 
 Python modules being replaced: `dagayn/graph.py` (`GraphStore` upsert and replacement logic), `dagayn/incremental.py` (path normalization and VCS metadata helpers such as `_make_repo_relative`), `dagayn/migrations.py`.
 
