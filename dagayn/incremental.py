@@ -718,22 +718,62 @@ _MAX_DEPENDENT_FILES = 500
 
 def _single_hop_dependents(store: GraphStore, file_path: str) -> set[str]:
     """Find files that directly depend on *file_path* (single hop)."""
-    dependents: set[str] = set()
-    edges = store.get_edges_by_target(file_path)
-    for e in edges:
-        if e.kind == "IMPORTS_FROM":
-            dependents.add(e.file_path)
+    return _batch_hop_dependents(store, {file_path})
 
-    nodes = store.get_nodes_by_file(file_path)
-    if nodes:
-        node_qns = [node.qualified_name for node in nodes]
-        _, incoming = store.get_edges_by_endpoints(node_qns)
-        for edges_for_node in incoming.values():
-            for e in edges_for_node:
+
+def _batch_hop_dependents(store: GraphStore, frontier: set[str]) -> set[str]:
+    """Find all files that directly depend on any file in *frontier* (batched).
+
+    Replaces N calls to ``_single_hop_dependents`` with 2-3 SQL queries
+    regardless of frontier size.
+    """
+    if not frontier:
+        return set()
+
+    dependents: set[str] = set()
+    # Include normalized path forms to match get_edges_by_target behavior.
+    fp_keys: list[str] = []
+    for fp in frontier:
+        fp_keys.append(fp)
+        norm = store._normalize_qualified_key(fp)
+        if norm != fp:
+            fp_keys.append(norm)
+
+    batch_size = 450
+
+    # 1. File-level IMPORTS_FROM: edges where target_qualified is a frontier file path.
+    for i in range(0, len(fp_keys), batch_size):
+        chunk = fp_keys[i : i + batch_size]
+        placeholders = ",".join("?" for _ in chunk)
+        rows = store._conn.execute(  # nosec B608
+            f"SELECT file_path FROM edges"
+            f" WHERE target_qualified IN ({placeholders}) AND kind = 'IMPORTS_FROM'",
+            chunk,
+        ).fetchall()
+        for row in rows:
+            dependents.add(row["file_path"])
+
+    # 2. Node-level: collect QNs for all frontier files in one query.
+    fp_list = list(frontier)
+    all_node_qns: list[str] = []
+    for i in range(0, len(fp_list), batch_size):
+        chunk = fp_list[i : i + batch_size]
+        placeholders = ",".join("?" for _ in chunk)
+        rows = store._conn.execute(  # nosec B608
+            f"SELECT qualified_name FROM nodes WHERE file_path IN ({placeholders})",
+            chunk,
+        ).fetchall()
+        all_node_qns.extend(row["qualified_name"] for row in rows)
+
+    # 3. Batch incoming edges for all node QNs in one call.
+    if all_node_qns:
+        _, incoming = store.get_edges_by_endpoints(all_node_qns)
+        for node_edges in incoming.values():
+            for e in node_edges:
                 if e.kind in ("CALLS", "IMPORTS_FROM", "INHERITS", "IMPLEMENTS"):
                     dependents.add(e.file_path)
 
-    dependents.discard(file_path)
+    dependents -= frontier
     return dependents
 
 
@@ -775,14 +815,10 @@ def find_dependents(
     visited: set[str] = {file_path}
     frontier: set[str] = {file_path}
     for _hop in range(max_hops):
-        next_frontier: set[str] = set()
-        for fp in frontier:
-            deps = _single_hop_dependents(store, fp)
-            new_deps = deps - visited
-            all_dependents.update(new_deps)
-            next_frontier.update(new_deps)
-        visited.update(next_frontier)
-        frontier = next_frontier
+        new_deps = _batch_hop_dependents(store, frontier) - visited
+        all_dependents.update(new_deps)
+        visited.update(new_deps)
+        frontier = new_deps
         if not frontier:
             break
         if len(all_dependents) > _MAX_DEPENDENT_FILES:
