@@ -10,6 +10,7 @@ Supports multiple providers:
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import logging
 import os
@@ -720,6 +721,17 @@ def _node_to_text(node: GraphNode) -> str:
     return " ".join(parts)
 
 
+@functools.lru_cache(maxsize=256)
+def _embed_query_cached(provider: "EmbeddingProvider", query: str) -> list[float]:
+    """Cache embed_query results keyed on (provider, query_text).
+
+    Provider instances are compared by identity; the cache is naturally
+    invalidated when a new EmbeddingStore (and therefore new provider
+    instance) is created after a DB mtime change.
+    """
+    return provider.embed_query(query)
+
+
 class EmbeddingStore:
     """Manages vector embeddings for graph nodes in SQLite."""
 
@@ -825,7 +837,7 @@ class EmbeddingStore:
             return []
 
         provider_name = self.provider.name
-        query_vec = self.provider.embed_query(query)
+        query_vec = _embed_query_cached(self.provider, query)
 
         # Process in chunks, only matching current provider
         scored: list[tuple[str, float]] = []

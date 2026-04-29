@@ -6,6 +6,7 @@ gaps. Produces risk-scored, priority-ordered review guidance.
 
 from __future__ import annotations
 
+import functools
 import logging
 import os
 import re
@@ -118,6 +119,7 @@ def parse_svn_diff_ranges(
     return _parse_unified_diff(result.stdout)
 
 
+@functools.lru_cache(maxsize=64)
 def parse_diff_ranges(
     repo_root: str,
     base: str = "HEAD~1",
