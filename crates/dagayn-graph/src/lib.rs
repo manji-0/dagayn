@@ -8,6 +8,33 @@ use serde_json::{json, Value};
 use thiserror::Error;
 
 const LATEST_VERSION: i64 = 9;
+const SECURITY_KEYWORDS: &[&str] = &[
+    "auth",
+    "login",
+    "password",
+    "token",
+    "session",
+    "crypt",
+    "secret",
+    "credential",
+    "permission",
+    "sql",
+    "query",
+    "execute",
+    "connect",
+    "socket",
+    "request",
+    "http",
+    "sanitize",
+    "validate",
+    "encrypt",
+    "decrypt",
+    "hash",
+    "sign",
+    "verify",
+    "admin",
+    "privilege",
+];
 
 const SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS nodes (
@@ -137,6 +164,17 @@ pub struct GraphEdge {
 }
 
 pub type EdgeEndpointMap = HashMap<String, Vec<GraphEdge>>;
+type ChangedRanges = HashMap<String, Vec<(i64, i64)>>;
+
+struct ChangeRiskInputs<'a> {
+    node: &'a GraphNode,
+    inbound_edges: &'a [GraphEdge],
+    flow_criticalities: &'a [f64],
+    flow_count: i64,
+    node_community_id: Option<i64>,
+    caller_community_ids: &'a HashMap<String, Option<i64>>,
+    transitive_test_count: i64,
+}
 
 #[derive(Clone, Debug)]
 pub struct GraphStats {
@@ -1351,6 +1389,215 @@ impl GraphStore {
         Ok(results)
     }
 
+    fn get_transitive_test_counts(
+        &self,
+        qualified_names: &[String],
+        max_depth: i64,
+    ) -> Result<HashMap<String, i64>> {
+        let mut seen_tests = qualified_names
+            .iter()
+            .map(|qualified_name| (qualified_name.clone(), HashSet::new()))
+            .collect::<HashMap<_, HashSet<String>>>();
+        if qualified_names.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let node_kinds = self.get_node_kinds_by_qualified_names(qualified_names)?;
+        let class_qns = qualified_names
+            .iter()
+            .filter(|qualified_name| {
+                node_kinds
+                    .get(*qualified_name)
+                    .is_some_and(|kind| kind == "Class")
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        let contains_by_class = self.get_contains_targets_by_sources(&class_qns)?;
+
+        let mut direct_target_to_originals: HashMap<String, Vec<String>> = HashMap::new();
+        let mut frontier_source_to_originals: HashMap<String, Vec<String>> = HashMap::new();
+        for qualified_name in qualified_names {
+            direct_target_to_originals
+                .entry(qualified_name.clone())
+                .or_default()
+                .push(qualified_name.clone());
+            frontier_source_to_originals
+                .entry(qualified_name.clone())
+                .or_default()
+                .push(qualified_name.clone());
+
+            if let Some(bare) = qualified_name.rsplit_once("::").map(|(_, name)| name) {
+                direct_target_to_originals
+                    .entry(bare.to_string())
+                    .or_default()
+                    .push(qualified_name.clone());
+            }
+
+            if let Some(contained) = contains_by_class.get(qualified_name) {
+                for target in contained {
+                    direct_target_to_originals
+                        .entry(target.clone())
+                        .or_default()
+                        .push(qualified_name.clone());
+                    frontier_source_to_originals
+                        .entry(target.clone())
+                        .or_default()
+                        .push(qualified_name.clone());
+                }
+            }
+        }
+
+        let direct_targets = direct_target_to_originals
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        for (target, source) in self.get_test_sources_by_targets(&direct_targets)? {
+            if let Some(originals) = direct_target_to_originals.get(&target) {
+                for original in originals {
+                    if let Some(seen) = seen_tests.get_mut(original) {
+                        seen.insert(source.clone());
+                    }
+                }
+            }
+        }
+
+        let mut frontier = frontier_source_to_originals;
+        for _ in 0..max_depth {
+            if frontier.is_empty() {
+                break;
+            }
+            let sources = frontier.keys().cloned().collect::<Vec<_>>();
+            let calls_by_source = self.get_call_targets_by_sources(&sources)?;
+            let mut callee_to_originals: HashMap<String, Vec<String>> = HashMap::new();
+            for (source, callees) in calls_by_source {
+                let Some(originals) = frontier.get(&source) else {
+                    continue;
+                };
+                for callee in callees {
+                    callee_to_originals
+                        .entry(callee)
+                        .or_default()
+                        .extend(originals.iter().cloned());
+                }
+            }
+
+            let callees = callee_to_originals.keys().cloned().collect::<Vec<_>>();
+            for (target, source) in self.get_test_sources_by_targets(&callees)? {
+                if let Some(originals) = callee_to_originals.get(&target) {
+                    for original in originals {
+                        if let Some(seen) = seen_tests.get_mut(original) {
+                            seen.insert(source.clone());
+                        }
+                    }
+                }
+            }
+            frontier = callee_to_originals;
+        }
+
+        Ok(seen_tests
+            .into_iter()
+            .map(|(qualified_name, seen)| (qualified_name, seen.len() as i64))
+            .collect())
+    }
+
+    fn get_node_kinds_by_qualified_names(
+        &self,
+        qualified_names: &[String],
+    ) -> Result<HashMap<String, String>> {
+        let mut out = HashMap::new();
+        for chunk in qualified_names.chunks(450) {
+            if chunk.is_empty() {
+                continue;
+            }
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!(
+                "SELECT qualified_name, kind FROM nodes WHERE qualified_name IN ({placeholders})"
+            );
+            let mut stmt = self.conn.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?;
+            for row in rows {
+                let (qualified_name, kind) = row?;
+                out.insert(qualified_name, kind);
+            }
+        }
+        Ok(out)
+    }
+
+    fn get_contains_targets_by_sources(
+        &self,
+        source_qualified_names: &[String],
+    ) -> Result<HashMap<String, Vec<String>>> {
+        self.get_edge_targets_by_sources(source_qualified_names, "CONTAINS")
+    }
+
+    fn get_call_targets_by_sources(
+        &self,
+        source_qualified_names: &[String],
+    ) -> Result<HashMap<String, Vec<String>>> {
+        self.get_edge_targets_by_sources(source_qualified_names, "CALLS")
+    }
+
+    fn get_edge_targets_by_sources(
+        &self,
+        source_qualified_names: &[String],
+        kind: &str,
+    ) -> Result<HashMap<String, Vec<String>>> {
+        let mut out = HashMap::new();
+        for chunk in source_qualified_names.chunks(450) {
+            if chunk.is_empty() {
+                continue;
+            }
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!(
+                "SELECT source_qualified, target_qualified FROM edges \
+                 WHERE kind = ? AND source_qualified IN ({placeholders})"
+            );
+            let mut params = Vec::with_capacity(chunk.len() + 1);
+            params.push(kind.to_string());
+            params.extend(chunk.iter().cloned());
+            let mut stmt = self.conn.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(params), |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?;
+            for row in rows {
+                let (source, target) = row?;
+                out.entry(source).or_insert_with(Vec::new).push(target);
+            }
+        }
+        Ok(out)
+    }
+
+    fn get_test_sources_by_targets(&self, targets: &[String]) -> Result<Vec<(String, String)>> {
+        let mut out = Vec::new();
+        for chunk in targets.chunks(450) {
+            if chunk.is_empty() {
+                continue;
+            }
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!(
+                "SELECT e.target_qualified, e.source_qualified FROM edges e \
+                 JOIN nodes n ON n.qualified_name = e.source_qualified \
+                 WHERE e.kind = 'TESTED_BY' AND e.target_qualified IN ({placeholders})"
+            );
+            let mut stmt = self.conn.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?;
+            for row in rows {
+                out.push(row?);
+            }
+        }
+        Ok(out)
+    }
+
     pub fn count_affected_communities(&self, file_paths: &[String]) -> Result<i64> {
         let mut community_ids = HashSet::new();
         for chunk in file_paths.chunks(450) {
@@ -1497,6 +1744,166 @@ impl GraphStore {
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
         serde_json::to_string(&flows).map_err(Into::into)
+    }
+
+    pub fn analyze_changes_json(
+        &self,
+        changed_files: &[String],
+        changed_ranges_json: Option<&str>,
+    ) -> Result<String> {
+        let changed_ranges = match changed_ranges_json {
+            Some(raw) if !raw.is_empty() => serde_json::from_str::<ChangedRanges>(raw)?,
+            _ => HashMap::new(),
+        };
+        let changed_nodes = if changed_ranges.is_empty() {
+            self.changed_nodes_by_files(changed_files)?
+        } else {
+            self.changed_nodes_by_ranges(&changed_ranges)?
+        };
+        let changed_funcs = changed_nodes
+            .into_iter()
+            .filter(|node| matches!(node.kind.as_str(), "Function" | "Test" | "Class"))
+            .collect::<Vec<_>>();
+
+        let func_ids = changed_funcs.iter().map(|node| node.id).collect::<Vec<_>>();
+        let func_qns = changed_funcs
+            .iter()
+            .map(|node| node.qualified_name.clone())
+            .collect::<Vec<_>>();
+
+        let flow_crit_map = self.get_flow_criticalities_for_nodes(&func_ids)?;
+        let nodes_needing_count = flow_crit_map
+            .iter()
+            .filter_map(|(node_id, values)| {
+                if values.is_empty() {
+                    Some(*node_id)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        let flow_count_map = if nodes_needing_count.is_empty() {
+            HashMap::new()
+        } else {
+            self.count_flow_memberships_for_nodes(&nodes_needing_count)?
+        };
+        let node_cid_map = self.get_community_ids_by_node_ids(&func_ids)?;
+        let (_, inbound_map) = self.get_edges_by_endpoints(&func_qns)?;
+
+        let mut caller_qns = HashSet::new();
+        for edges in inbound_map.values() {
+            for edge in edges {
+                if edge.kind == "CALLS" {
+                    caller_qns.insert(edge.source_qualified.clone());
+                }
+            }
+        }
+        let caller_qns = caller_qns.into_iter().collect::<Vec<_>>();
+        let caller_cid_map = if caller_qns.is_empty() {
+            HashMap::new()
+        } else {
+            self.get_community_ids_by_qualified_names(&caller_qns)?
+        };
+        let transitive_test_counts = self.get_transitive_test_counts(&func_qns, 1)?;
+
+        let mut node_risks = Vec::new();
+        for node in &changed_funcs {
+            let inbound_edges = inbound_map
+                .get(&node.qualified_name)
+                .map(Vec::as_slice)
+                .unwrap_or(&[]);
+            let flow_criticalities = flow_crit_map
+                .get(&node.id)
+                .map(Vec::as_slice)
+                .unwrap_or(&[]);
+            let flow_count = *flow_count_map.get(&node.id).unwrap_or(&0);
+            let risk = self.compute_change_risk_score(ChangeRiskInputs {
+                node,
+                inbound_edges,
+                flow_criticalities,
+                flow_count,
+                node_community_id: node_cid_map.get(&node.id).copied().flatten(),
+                caller_community_ids: &caller_cid_map,
+                transitive_test_count: *transitive_test_counts
+                    .get(&node.qualified_name)
+                    .unwrap_or(&0),
+            })?;
+            let mut value = node_to_value(node);
+            if let Some(obj) = value.as_object_mut() {
+                obj.insert("risk_score".to_string(), json!(risk));
+            }
+            node_risks.push(value);
+        }
+
+        let overall_risk = node_risks
+            .iter()
+            .filter_map(|value| value.get("risk_score").and_then(Value::as_f64))
+            .fold(0.0, f64::max);
+        let affected_flows =
+            serde_json::from_str::<Vec<Value>>(&self.get_affected_flows_json(changed_files)?)?;
+
+        let mut test_gaps = Vec::new();
+        for node in &changed_funcs {
+            if node.is_test {
+                continue;
+            }
+            let tested = inbound_map
+                .get(&node.qualified_name)
+                .map(|edges| edges.iter().any(|edge| edge.kind == "TESTED_BY"))
+                .unwrap_or(false);
+            if !tested {
+                test_gaps.push(json!({
+                    "name": sanitize_name(&node.name),
+                    "qualified_name": sanitize_name(&node.qualified_name),
+                    "file": node.file_path,
+                    "line_start": node.line_start,
+                    "line_end": node.line_end,
+                }));
+            }
+        }
+
+        let mut review_priorities = node_risks.clone();
+        review_priorities.sort_by(|left, right| {
+            let left = left
+                .get("risk_score")
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0);
+            let right = right
+                .get("risk_score")
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0);
+            right
+                .partial_cmp(&left)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        review_priorities.truncate(10);
+
+        let mut summary_parts = vec![
+            format!("Analyzed {} changed file(s):", changed_files.len()),
+            format!("  - {} changed function(s)/class(es)", changed_funcs.len()),
+            format!("  - {} affected flow(s)", affected_flows.len()),
+            format!("  - {} test gap(s)", test_gaps.len()),
+            format!("  - Overall risk score: {overall_risk:.2}"),
+        ];
+        if !test_gaps.is_empty() {
+            let gap_names = test_gaps
+                .iter()
+                .take(5)
+                .filter_map(|gap| gap.get("name").and_then(Value::as_str))
+                .collect::<Vec<_>>()
+                .join(", ");
+            summary_parts.push(format!("  - Untested: {gap_names}"));
+        }
+
+        serde_json::to_string(&json!({
+            "summary": summary_parts.join("\n"),
+            "risk_score": overall_risk,
+            "changed_functions": node_risks,
+            "affected_flows": affected_flows,
+            "test_gaps": test_gaps,
+            "review_priorities": review_priorities,
+        }))
+        .map_err(Into::into)
     }
 
     pub fn delete_affected_flows(&mut self, changed_files: &[String]) -> Result<Vec<i64>> {
@@ -1689,7 +2096,8 @@ impl GraphStore {
 
     fn get_node_ids_by_files(&self, file_paths: &[String]) -> Result<HashSet<i64>> {
         let mut out = HashSet::new();
-        for chunk in file_paths.chunks(450) {
+        let file_keys = self.expand_file_keys(file_paths)?;
+        for chunk in file_keys.chunks(450) {
             if chunk.is_empty() {
                 continue;
             }
@@ -1704,6 +2112,101 @@ impl GraphStore {
             }
         }
         Ok(out)
+    }
+
+    fn expand_file_keys(&self, file_paths: &[String]) -> Result<Vec<String>> {
+        let mut keys = Vec::new();
+        let mut seen = HashSet::new();
+        for file_path in file_paths {
+            for key in self.file_key_candidates(file_path)? {
+                if seen.insert(key.clone()) {
+                    keys.push(key);
+                }
+            }
+        }
+        Ok(keys)
+    }
+
+    fn changed_nodes_by_files(&self, changed_files: &[String]) -> Result<Vec<GraphNode>> {
+        let mut out = Vec::new();
+        let mut seen = HashSet::new();
+        for file_path in changed_files {
+            for node in self.get_nodes_by_file(file_path)? {
+                if seen.insert(node.qualified_name.clone()) {
+                    out.push(node);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    fn changed_nodes_by_ranges(&self, changed_ranges: &ChangedRanges) -> Result<Vec<GraphNode>> {
+        let mut out = Vec::new();
+        let mut seen = HashSet::new();
+        for (file_path, ranges) in changed_ranges {
+            let mut nodes = self.get_nodes_by_file(file_path)?;
+            if nodes.is_empty() {
+                for matched_path in self.get_files_matching(file_path)? {
+                    nodes.extend(self.get_nodes_by_file(&matched_path)?);
+                }
+            }
+            for node in nodes {
+                if seen.contains(&node.qualified_name) {
+                    continue;
+                }
+                if ranges
+                    .iter()
+                    .any(|(start, end)| node.line_start <= *end && node.line_end >= *start)
+                {
+                    seen.insert(node.qualified_name.clone());
+                    out.push(node);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    fn compute_change_risk_score(&self, inputs: ChangeRiskInputs<'_>) -> Result<f64> {
+        let mut score = 0.0_f64;
+
+        if inputs.flow_criticalities.is_empty() {
+            score += (inputs.flow_count as f64 * 0.05).min(0.25);
+        } else {
+            score += inputs.flow_criticalities.iter().sum::<f64>().min(0.25);
+        }
+
+        let caller_edges = inputs
+            .inbound_edges
+            .iter()
+            .filter(|edge| edge.kind == "CALLS")
+            .collect::<Vec<_>>();
+        if let Some(node_cid) = inputs.node_community_id {
+            let cross_community = caller_edges
+                .iter()
+                .filter(|edge| {
+                    inputs
+                        .caller_community_ids
+                        .get(&edge.source_qualified)
+                        .and_then(|cid| *cid)
+                        .is_some_and(|cid| cid != node_cid)
+                })
+                .count();
+            score += (cross_community as f64 * 0.05).min(0.15);
+        }
+
+        score += 0.30 - ((inputs.transitive_test_count as f64 / 5.0).min(1.0) * 0.25);
+
+        let name_lower = inputs.node.name.to_lowercase();
+        let qn_lower = inputs.node.qualified_name.to_lowercase();
+        if SECURITY_KEYWORDS
+            .iter()
+            .any(|keyword| name_lower.contains(keyword) || qn_lower.contains(keyword))
+        {
+            score += 0.20;
+        }
+
+        score += (caller_edges.len() as f64 / 20.0).min(0.10);
+        Ok((score.clamp(0.0, 1.0) * 10_000.0).round() / 10_000.0)
     }
 
     fn get_flow_ids_by_node_ids(&self, node_ids: &HashSet<i64>) -> Result<Vec<i64>> {
@@ -2387,6 +2890,21 @@ fn edge_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<GraphEdge> {
         confidence_tier: row
             .get::<_, Option<String>>("confidence_tier")?
             .unwrap_or_else(|| "EXTRACTED".to_string()),
+    })
+}
+
+fn node_to_value(node: &GraphNode) -> Value {
+    json!({
+        "id": node.id,
+        "kind": node.kind,
+        "name": sanitize_name(&node.name),
+        "qualified_name": sanitize_name(&node.qualified_name),
+        "file_path": node.file_path,
+        "line_start": node.line_start,
+        "line_end": node.line_end,
+        "language": node.language,
+        "parent_name": node.parent_name.as_deref().map(sanitize_name),
+        "is_test": node.is_test,
     })
 }
 
@@ -3159,6 +3677,16 @@ mod tests {
         )
         .unwrap();
         assert_eq!(affected.len(), 1);
+        let analysis: Value = serde_json::from_str(
+            &store
+                .analyze_changes_json(&["app.py".to_string()], None)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(analysis["risk_score"], json!(0.55));
+        assert_eq!(analysis["changed_functions"].as_array().unwrap().len(), 2);
+        assert_eq!(analysis["affected_flows"].as_array().unwrap().len(), 1);
+        assert_eq!(analysis["test_gaps"].as_array().unwrap().len(), 1);
         let deleted_entry_points = store
             .delete_affected_flows(&["app.py".to_string()])
             .unwrap();

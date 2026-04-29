@@ -303,6 +303,11 @@ Initial scaffold:
   maps. Change-risk, query traversal, flow hydration, and community overview
   paths can now stay on the Rust backend without falling back to per-node Python
   SQLite loops.
+- Rust `GraphStore` exposes `analyze_changes_json`, moving change-risk assembly,
+  test-gap detection, affected-flow lookup, and review-priority sorting behind
+  one coarse PyO3 call. Transitive test counts are batched in Rust so
+  `get_minimal_context` no longer pays per-node Python object conversion or
+  per-node test traversal overhead.
 - `DAGAYN_BACKEND=rust` is recognized by the Python graph package and fails loudly if the extension has not been built; `python` remains the default
 
 Current local benchmark baseline, measured on 2026-04-28 with `tools/backend_benchmark.py`
@@ -319,6 +324,14 @@ This baseline means the next Phase 1 optimization should reduce Python-object
 marshalling before adding more Rust methods. Likely options are a compact
 serialized batch format or moving parse output normalization into Rust with the
 writer, rather than crossing PyO3 per node/edge object.
+
+Follow-up read-path benchmark, measured on 2026-04-30 after moving
+`analyze_changes` assembly into Rust JSON APIs:
+
+| Read path | Python avg | Rust avg | Current interpretation |
+|---|---:|---:|---|
+| `analyze_changes` for `crates/dagayn-py/src/lib.rs` | 0.109s | 0.020s | Rust is faster once risk assembly and transitive test counting stay behind one coarse call |
+| `get_minimal_context` for the same changed file | 0.126s | 0.043s | Rust now wins despite stats/community/flow response shaping still crossing Python |
 
 Follow-up implementation: the Rust backend now accepts `store_file_batch_json`,
 a compact tuple-array JSON batch. Python uses this method when available so Rust

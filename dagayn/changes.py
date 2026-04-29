@@ -7,6 +7,7 @@ gaps. Produces risk-scored, priority-ordered review guidance.
 from __future__ import annotations
 
 import functools
+import json
 import logging
 import os
 import re
@@ -332,6 +333,13 @@ def analyze_changes(
     # Compute changed ranges if not provided.
     if changed_ranges is None and repo_root is not None:
         changed_ranges = parse_diff_ranges(repo_root, base)
+
+    rust_analyze = getattr(store, "analyze_changes_json", None)
+    if callable(rust_analyze):
+        try:
+            return json.loads(rust_analyze(changed_files, json.dumps(changed_ranges or {})))
+        except (RuntimeError, ValueError, TypeError, json.JSONDecodeError):
+            logger.debug("Rust change analysis failed; falling back to Python", exc_info=True)
 
     # Map changes to nodes.
     if changed_ranges:

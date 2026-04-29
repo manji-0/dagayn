@@ -403,6 +403,14 @@ impl PyGraphStore {
         self.with_store(|store| store.get_affected_flows_json(&changed_files))
     }
 
+    fn analyze_changes_json(
+        &self,
+        changed_files: Vec<String>,
+        changed_ranges_json: Option<&str>,
+    ) -> PyResult<String> {
+        self.with_store(|store| store.analyze_changes_json(&changed_files, changed_ranges_json))
+    }
+
     fn delete_affected_flows(&self, changed_files: Vec<String>) -> PyResult<Vec<i64>> {
         self.with_store_mut(|store| store.delete_affected_flows(&changed_files))
     }
