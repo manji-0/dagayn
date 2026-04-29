@@ -160,6 +160,7 @@ def handle(args: argparse.Namespace) -> None:
         inject_platform_instructions,
         install_cursor_hooks,
         install_git_hook,
+        install_global_skills,
         install_hooks,
         install_opencode_plugin,
         install_qoder_skills,
@@ -168,6 +169,8 @@ def handle(args: argparse.Namespace) -> None:
     if not skip_skills:
         skills_dir = generate_skills(repo_root)
         print(f"Generated skills in {skills_dir}")
+        global_skills_dir = install_global_skills()
+        print(f"Installed global skills to {global_skills_dir}")
 
     # Confirm before writing instruction files (#173). --yes skips the
     # prompt; --no-instructions skips the whole block.

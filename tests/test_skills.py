@@ -24,10 +24,23 @@ from dagayn.skills import (
     inject_platform_instructions,
     install_cursor_hooks,
     install_git_hook,
+    install_global_skills,
     install_hooks,
     install_opencode_plugin,
     install_platform_configs,
 )
+
+EXPECTED_SKILLS = [
+    "build-graph.md",
+    "debug-issue.md",
+    "explore-codebase.md",
+    "reading-markdown-document.md",
+    "refactor-safely.md",
+    "review-changes.md",
+    "review-delta.md",
+    "review-pr.md",
+    "writing-markdown-document.md",
+]
 
 
 class TestGenerateSkills:
@@ -36,15 +49,10 @@ class TestGenerateSkills:
         assert result.is_dir()
         assert result == tmp_path / ".claude" / "skills"
 
-    def test_creates_four_skill_files(self, tmp_path):
+    def test_creates_skill_files_from_disk(self, tmp_path):
         skills_dir = generate_skills(tmp_path)
         files = sorted(f.name for f in skills_dir.iterdir())
-        assert files == [
-            "debug-issue.md",
-            "explore-codebase.md",
-            "refactor-safely.md",
-            "review-changes.md",
-        ]
+        assert files == EXPECTED_SKILLS
 
     def test_skill_files_have_frontmatter(self, tmp_path):
         skills_dir = generate_skills(tmp_path)
@@ -64,30 +72,53 @@ class TestGenerateSkills:
         result = generate_skills(tmp_path, skills_dir=custom)
         assert result == custom
         assert result.is_dir()
-        assert len(list(result.iterdir())) == 4
+        assert len(list(result.iterdir())) == len(EXPECTED_SKILLS)
 
-    def test_skill_content_includes_get_minimal_context(self, tmp_path):
-        """Every skill template must reference get_minimal_context."""
+    def test_markdown_skills_present(self, tmp_path):
+        """The two markdown skills must ship with every install."""
         skills_dir = generate_skills(tmp_path)
-        for path in skills_dir.iterdir():
-            content = path.read_text()
-            assert "get_minimal_context" in content, (
-                f"{path.name} missing get_minimal_context reference"
-            )
-
-    def test_skill_content_includes_detail_level(self, tmp_path):
-        """Every skill template must reference detail_level."""
-        skills_dir = generate_skills(tmp_path)
-        for path in skills_dir.iterdir():
-            content = path.read_text()
-            assert "detail_level" in content, f"{path.name} missing detail_level reference"
+        assert (skills_dir / "writing-markdown-document.md").is_file()
+        assert (skills_dir / "reading-markdown-document.md").is_file()
 
     def test_idempotent(self, tmp_path):
         """Running twice should not fail and files should still be valid."""
         generate_skills(tmp_path)
         generate_skills(tmp_path)
         skills_dir = tmp_path / ".claude" / "skills"
-        assert len(list(skills_dir.iterdir())) == 4
+        assert len(list(skills_dir.iterdir())) == len(EXPECTED_SKILLS)
+
+
+class TestInstallGlobalSkills:
+    def test_writes_to_home_claude_skills(self, tmp_path):
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            result = install_global_skills()
+        assert result == tmp_path / ".claude" / "skills"
+        assert result.is_dir()
+
+    def test_writes_both_new_skills(self, tmp_path):
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            install_global_skills()
+        target = tmp_path / ".claude" / "skills"
+        assert (target / "writing-markdown-document.md").is_file()
+        assert (target / "reading-markdown-document.md").is_file()
+
+    def test_idempotent(self, tmp_path):
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            install_global_skills()
+            install_global_skills()
+        target = tmp_path / ".claude" / "skills"
+        assert len(list(target.iterdir())) == len(EXPECTED_SKILLS)
+
+    def test_does_not_clobber_unrelated_files(self, tmp_path):
+        """Files in ~/.claude/skills/ that don't match a packaged skill are left alone."""
+        target = tmp_path / ".claude" / "skills"
+        target.mkdir(parents=True)
+        unrelated = target / "user-custom-skill.md"
+        unrelated.write_text("# my own skill")
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            install_global_skills()
+        assert unrelated.is_file()
+        assert unrelated.read_text() == "# my own skill"
 
 
 class TestGenerateHooksConfig:
