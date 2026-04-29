@@ -81,14 +81,28 @@ def _resolve_markdown_artifact_refs(
       ``markdown_artifact_refs_re_resolved`` — resolved but to a different qname
       ``markdown_artifact_refs_still_unresolved`` — unchanged unresolved count
     """
-    import json
-
     resolved = 0
     demoted = 0
     re_resolved = 0
     still_unresolved = 0
 
     try:
+        rust_resolve = getattr(store, "resolve_markdown_artifact_refs", None)
+        if callable(rust_resolve):
+            rust_result = rust_resolve()
+            resolved, dropped = rust_result[:2]
+            result["markdown_artifact_refs_resolved"] = int(resolved)
+            result["markdown_artifact_refs_dropped"] = int(dropped)
+            result["markdown_artifact_refs_re_resolved"] = (
+                int(rust_result[2]) if len(rust_result) > 2 else 0
+            )
+            result["markdown_artifact_refs_still_unresolved"] = (
+                int(rust_result[3]) if len(rust_result) > 3 else 0
+            )
+            return
+
+        import json
+
         rows = store._conn.execute(
             "SELECT id, target_qualified, extra "
             "FROM edges "
@@ -184,7 +198,7 @@ def _resolve_markdown_artifact_refs(
         result["markdown_artifact_refs_dropped"] = demoted
         result["markdown_artifact_refs_re_resolved"] = re_resolved
         result["markdown_artifact_refs_still_unresolved"] = still_unresolved
-    except sqlite3.OperationalError as e:
+    except (sqlite3.OperationalError, RuntimeError) as e:
         logger.warning("Markdown artifact ref resolution failed: %s", e)
         warnings.append(f"Markdown artifact ref resolution failed: {type(e).__name__}: {e}")
 

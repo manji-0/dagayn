@@ -160,6 +160,10 @@ impl PyGraphStore {
         self.with_store_mut(|store| store.compute_missing_signatures())
     }
 
+    fn resolve_markdown_artifact_refs(&self) -> PyResult<(i64, i64)> {
+        self.with_store_mut(|store| store.resolve_markdown_artifact_refs())
+    }
+
     fn close(&self) -> PyResult<()> {
         Ok(())
     }

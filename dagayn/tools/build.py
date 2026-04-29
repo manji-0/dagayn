@@ -13,15 +13,23 @@ from ._common import _evict_store_cache, _get_store
 logger = logging.getLogger(__name__)
 
 
-def _postprocess_store(store: Any, root: Any):
+def _postprocess_store(store: Any, root: Any, postprocess: str):
     """Return a Python GraphStore for post-processing when needed.
 
-    Phase 1 can use the Rust backend for coarse graph writes, but the
-    post-processing modules still operate on the Python store's SQLite
-    connection. Re-open the same DB with the Python GraphStore instead of
-    adding fine-grained read/query shims to the Rust binding.
+    Full post-processing still needs Python-only flow/community code. Minimal
+    post-processing can stay on the Rust store once the Rust methods cover all
+    minimal steps.
     """
     if hasattr(store, "_conn"):
+        return store, False
+    if postprocess == "minimal" and all(
+        hasattr(store, name)
+        for name in (
+            "compute_missing_signatures",
+            "rebuild_fts_index",
+            "resolve_markdown_artifact_refs",
+        )
+    ):
         return store, False
 
     from ..graph.core import GraphStore as PythonGraphStore
@@ -470,7 +478,7 @@ def build_or_update_graph(
                 changed_files=changed,
             )
         else:
-            pp_store, close_pp_store = _postprocess_store(store, root)
+            pp_store, close_pp_store = _postprocess_store(store, root, postprocess)
             try:
                 warnings = _run_postprocess(
                     pp_store,

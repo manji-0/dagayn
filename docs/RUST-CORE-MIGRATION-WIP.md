@@ -258,7 +258,13 @@ Initial scaffold:
   Python fallback.
 - Rust `GraphStore` computes missing node signatures in one backend call for
   Rust-backed post-processing, preserving the current Python signature format.
-- when `postprocess != "none"` under the Rust backend, `build_or_update_graph` re-opens the same SQLite DB with the Python `GraphStore` for the whole post-processing phase rather than adding fine-grained Rust read/query bindings before Phase 2
+- Rust `GraphStore` resolves Markdown-to-code CROSS_ARTIFACT placeholders for
+  Rust-backed minimal post-processing, preserving the existing strict
+  unique-match policy.
+- `postprocess="minimal"` no longer re-opens the Python `GraphStore` when the
+  Rust backend exposes the required signature, FTS, and Markdown resolver
+  methods. Full post-processing still falls back to the Python store for flow,
+  community, and summary generation.
 - `DAGAYN_BACKEND=rust` is recognized by the Python graph package and fails loudly if the extension has not been built; `python` remains the default
 
 Current local benchmark baseline, measured on 2026-04-28 with `tools/backend_benchmark.py`
@@ -382,6 +388,11 @@ Parser migration progress:
 - Missing signature computation now routes through
   `dagayn._core.GraphStore.compute_missing_signatures` when available, avoiding
   one Python-to-store update per unsigned node in Rust-backed post-processing.
+- Markdown artifact reference resolution now routes through
+  `dagayn._core.GraphStore.resolve_markdown_artifact_refs` when available.
+  The Rust path rewrites exactly one matching non-Markdown target to HIGH
+  confidence and deletes unmatched or ambiguous placeholder edges, matching the
+  Python fallback policy.
 
 Python modules being replaced: `dagayn/graph.py` (`GraphStore` upsert and replacement logic), `dagayn/incremental.py` (path normalization and VCS metadata helpers such as `_make_repo_relative`), `dagayn/migrations.py`.
 
