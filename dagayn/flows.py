@@ -396,35 +396,45 @@ def store_flows(store: GraphStore, flows: list[dict]) -> int:
         conn.execute("DELETE FROM flow_memberships")
         conn.execute("DELETE FROM flows")
 
-        count = 0
-        for flow in flows:
-            path_json = json.dumps(flow.get("path", []))
-            conn.execute(
-                """INSERT INTO flows
-                   (name, entry_point_id, depth, node_count, file_count,
-                    criticality, path_json)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        # Batch-insert all flows in one executemany call
+        conn.executemany(
+            """INSERT INTO flows
+               (name, entry_point_id, depth, node_count, file_count,
+                criticality, path_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            [
                 (
-                    flow["name"],
-                    flow["entry_point_id"],
-                    flow["depth"],
-                    flow["node_count"],
-                    flow["file_count"],
-                    flow["criticality"],
-                    path_json,
-                ),
-            )
-            flow_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-
-            # Insert memberships.
-            node_ids = flow.get("path", [])
-            for position, node_id in enumerate(node_ids):
-                conn.execute(
-                    "INSERT OR IGNORE INTO flow_memberships (flow_id, node_id, position) "
-                    "VALUES (?, ?, ?)",
-                    (flow_id, node_id, position),
+                    f["name"],
+                    f["entry_point_id"],
+                    f["depth"],
+                    f["node_count"],
+                    f["file_count"],
+                    f["criticality"],
+                    json.dumps(f.get("path", [])),
                 )
-            count += 1
+                for f in flows
+            ],
+        )
+        count = len(flows)
+
+        # Fetch newly-inserted IDs keyed by entry_point_id (unique per flow)
+        ep_to_flow_id: dict[int, int] = {}
+        for row in conn.execute("SELECT id, entry_point_id FROM flows").fetchall():
+            ep_to_flow_id[row["entry_point_id"]] = row["id"]
+
+        # Build all membership rows and insert in one executemany
+        all_memberships: list[tuple[int, int, int]] = [
+            (ep_to_flow_id[f["entry_point_id"]], node_id, position)
+            for f in flows
+            if f["entry_point_id"] in ep_to_flow_id
+            for position, node_id in enumerate(f.get("path", []))
+        ]
+        if all_memberships:
+            conn.executemany(
+                "INSERT OR IGNORE INTO flow_memberships (flow_id, node_id, position) "
+                "VALUES (?, ?, ?)",
+                all_memberships,
+            )
 
         conn.commit()
     except BaseException:
@@ -491,12 +501,20 @@ def incremental_trace_flows(
             conn.commit()
         conn.execute("BEGIN IMMEDIATE")
         try:
-            for fid in affected_ids:
-                conn.execute(
-                    "DELETE FROM flow_memberships WHERE flow_id = ?",
-                    (fid,),
+            # Batch-delete memberships and flows in one statement each
+            _batch_size = 450
+            id_list = list(affected_ids)
+            for i in range(0, len(id_list), _batch_size):
+                chunk = id_list[i : i + _batch_size]
+                placeholders = ",".join("?" * len(chunk))
+                conn.execute(  # nosec B608
+                    f"DELETE FROM flow_memberships WHERE flow_id IN ({placeholders})",
+                    chunk,
                 )
-                conn.execute("DELETE FROM flows WHERE id = ?", (fid,))
+                conn.execute(  # nosec B608
+                    f"DELETE FROM flows WHERE id IN ({placeholders})",
+                    chunk,
+                )
             conn.commit()
         except BaseException:
             conn.rollback()
@@ -524,34 +542,48 @@ def incremental_trace_flows(
     # ------------------------------------------------------------------
     # 6. INSERT new flows without clearing unrelated ones
     # ------------------------------------------------------------------
-    count = 0
-    for flow in new_flows:
-        path_json = json.dumps(flow.get("path", []))
-        conn.execute(
+    count = len(new_flows)
+    if new_flows:
+        conn.executemany(
             """INSERT INTO flows
                (name, entry_point_id, depth, node_count, file_count,
                 criticality, path_json)
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (
-                flow["name"],
-                flow["entry_point_id"],
-                flow["depth"],
-                flow["node_count"],
-                flow["file_count"],
-                flow["criticality"],
-                path_json,
-            ),
+            [
+                (
+                    f["name"],
+                    f["entry_point_id"],
+                    f["depth"],
+                    f["node_count"],
+                    f["file_count"],
+                    f["criticality"],
+                    json.dumps(f.get("path", [])),
+                )
+                for f in new_flows
+            ],
         )
-        flow_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
 
-        node_ids = flow.get("path", [])
-        for position, node_id in enumerate(node_ids):
-            conn.execute(
+        # Map freshly-inserted flows back to IDs via entry_point_id (unique per flow)
+        known_ep_ids = {f["entry_point_id"] for f in new_flows}
+        ep_ph = ",".join("?" * len(known_ep_ids))
+        ep_rows = conn.execute(  # nosec B608
+            f"SELECT id, entry_point_id FROM flows WHERE entry_point_id IN ({ep_ph})",
+            list(known_ep_ids),
+        ).fetchall()
+        ep_to_flow_id = {r["entry_point_id"]: r["id"] for r in ep_rows}
+
+        memberships: list[tuple[int, int, int]] = [
+            (ep_to_flow_id[f["entry_point_id"]], node_id, position)
+            for f in new_flows
+            if f["entry_point_id"] in ep_to_flow_id
+            for position, node_id in enumerate(f.get("path", []))
+        ]
+        if memberships:
+            conn.executemany(
                 "INSERT OR IGNORE INTO flow_memberships (flow_id, node_id, position) "
                 "VALUES (?, ?, ?)",
-                (flow_id, node_id, position),
+                memberships,
             )
-        count += 1
 
     conn.commit()
     return count
