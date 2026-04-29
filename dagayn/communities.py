@@ -660,17 +660,23 @@ def incremental_detect_communities(
     if not changed_files:
         return 0
 
-    conn = store._conn
+    affected_count = 0
+    rust_count = getattr(store, "count_affected_communities", None)
+    if callable(rust_count):
+        affected_count = int(rust_count(changed_files))
+    else:
+        conn = store._conn
 
-    # Check if any communities are affected
-    placeholders = ",".join("?" * len(changed_files))
-    affected = conn.execute(
-        f"SELECT COUNT(DISTINCT community_id) FROM nodes "  # nosec B608
-        f"WHERE community_id IS NOT NULL AND file_path IN ({placeholders})",
-        changed_files,
-    ).fetchone()
+        # Check if any communities are affected
+        placeholders = ",".join("?" * len(changed_files))
+        affected = conn.execute(
+            f"SELECT COUNT(DISTINCT community_id) FROM nodes "  # nosec B608
+            f"WHERE community_id IS NOT NULL AND file_path IN ({placeholders})",
+            changed_files,
+        ).fetchone()
+        affected_count = affected[0] if affected else 0
 
-    if not affected or affected[0] == 0:
+    if affected_count == 0:
         return 0  # No communities affected, skip
 
     # Re-run full community detection (correct and fast enough)

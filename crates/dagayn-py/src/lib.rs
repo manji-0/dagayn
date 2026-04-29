@@ -114,6 +114,10 @@ impl PyGraphStore {
             .collect()
     }
 
+    fn count_affected_communities(&self, file_paths: Vec<String>) -> PyResult<i64> {
+        self.with_store(|store| store.count_affected_communities(&file_paths))
+    }
+
     #[pyo3(signature = (include_file_sources = true))]
     fn get_all_call_targets(
         &self,

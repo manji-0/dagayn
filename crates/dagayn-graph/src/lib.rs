@@ -966,6 +966,30 @@ impl GraphStore {
             .map_err(Into::into)
     }
 
+    pub fn count_affected_communities(&self, file_paths: &[String]) -> Result<i64> {
+        let mut community_ids = HashSet::new();
+        for chunk in file_paths.chunks(450) {
+            if chunk.is_empty() {
+                continue;
+            }
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!(
+                "SELECT DISTINCT community_id FROM nodes \
+                 WHERE community_id IS NOT NULL AND file_path IN ({placeholders})"
+            );
+            let mut stmt = self.conn.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
+                row.get::<_, i64>(0)
+            })?;
+            for row in rows {
+                community_ids.insert(row?);
+            }
+        }
+        Ok(community_ids.len() as i64)
+    }
+
     pub fn get_flow_edge_data(&self) -> Result<FlowEdgeData> {
         let mut calls_out: HashMap<String, Vec<String>> = HashMap::new();
         let mut has_tested_by: HashSet<String> = HashSet::new();
@@ -2533,6 +2557,18 @@ mod tests {
         let members = store.get_nodes_by_community_id(community_id).unwrap();
         assert_eq!(members.len(), 1);
         assert_eq!(members[0].qualified_name, "auth.py::login");
+        assert_eq!(
+            store
+                .count_affected_communities(&["auth.py".to_string()])
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            store
+                .count_affected_communities(&["missing.py".to_string()])
+                .unwrap(),
+            0
+        );
         let all_nodes = store.get_all_nodes_filtered(true).unwrap();
         assert_eq!(all_nodes.len(), 1);
         let _ = std::fs::remove_file(path);

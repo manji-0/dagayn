@@ -269,9 +269,9 @@ Initial scaffold:
   for incremental community detection and incomplete Rust surfaces.
 - Full rebuild community detection can now read from the Rust store and persist
   through Rust's `store_communities_json` API while the detection heuristics
-  remain in Python. Incremental community detection still falls back to the
-  Python store because it inspects existing affected communities through
-  Python-only SQLite connection access.
+  remain in Python. Incremental community detection now uses Rust's
+  `count_affected_communities` API for the affected-community gate before
+  re-running the same Python heuristics over Rust read helpers.
 - Rust `GraphStore` can populate `community_summaries`, `flow_snapshots`, and
   `risk_index`; full Rust-backed post-processing now runs summary table
   generation on the Rust store after flow/community data has been written.
@@ -431,8 +431,9 @@ Parser migration progress:
   available: `store_communities_json` and `get_communities_json`, with
   node/edge read helpers exposed for Python's existing detection and overview
   logic. Full rebuild community detection now runs over those Rust read helpers
-  under `DAGAYN_BACKEND=rust`; incremental community detection remains on the
-  Python fallback until its `_conn` dependency is removed.
+  under `DAGAYN_BACKEND=rust`; incremental community detection uses
+  `count_affected_communities` to avoid Python-only SQLite connection access
+  for the skip/redetect decision.
 
 Python modules being replaced: `dagayn/graph.py` (`GraphStore` upsert and replacement logic), `dagayn/incremental.py` (path normalization and VCS metadata helpers such as `_make_repo_relative`), `dagayn/migrations.py`.
 
