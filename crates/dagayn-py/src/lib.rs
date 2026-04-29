@@ -13,6 +13,8 @@ use sha2::{Digest, Sha256};
 #[pyclass(name = "GraphStore")]
 struct PyGraphStore {
     inner: Mutex<NativeGraphStore>,
+    pinned: Mutex<bool>,
+    leases: Mutex<i64>,
 }
 
 type RustStoreSummary = (usize, usize, Vec<(String, String)>);
@@ -26,7 +28,45 @@ impl PyGraphStore {
         let inner = NativeGraphStore::open(db_path).map_err(to_py_runtime_error)?;
         Ok(Self {
             inner: Mutex::new(inner),
+            pinned: Mutex::new(false),
+            leases: Mutex::new(0),
         })
+    }
+
+    #[getter(_pinned)]
+    fn get_pinned(&self) -> PyResult<bool> {
+        self.pinned
+            .lock()
+            .map(|value| *value)
+            .map_err(|err| PyRuntimeError::new_err(err.to_string()))
+    }
+
+    #[setter(_pinned)]
+    fn set_pinned(&self, value: bool) -> PyResult<()> {
+        let mut pinned = self
+            .pinned
+            .lock()
+            .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
+        *pinned = value;
+        Ok(())
+    }
+
+    #[getter(_leases)]
+    fn get_leases(&self) -> PyResult<i64> {
+        self.leases
+            .lock()
+            .map(|value| *value)
+            .map_err(|err| PyRuntimeError::new_err(err.to_string()))
+    }
+
+    #[setter(_leases)]
+    fn set_leases(&self, value: i64) -> PyResult<()> {
+        let mut leases = self
+            .leases
+            .lock()
+            .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
+        *leases = value;
+        Ok(())
     }
 
     fn set_metadata(&self, key: &str, value: &str) -> PyResult<()> {
@@ -203,6 +243,22 @@ impl PyGraphStore {
             .collect()
     }
 
+    fn get_edges_by_endpoints(
+        &self,
+        py: Python<'_>,
+        qualified_names: Vec<String>,
+    ) -> PyResult<Py<PyAny>> {
+        let (outgoing, incoming) =
+            self.with_store(|store| store.get_edges_by_endpoints(&qualified_names))?;
+        let py_outgoing = edge_map_to_py(py, outgoing)?;
+        let py_incoming = edge_map_to_py(py, incoming)?;
+        Ok(
+            PyTuple::new(py, [py_outgoing.bind(py), py_incoming.bind(py)])?
+                .unbind()
+                .into_any(),
+        )
+    }
+
     fn store_file_batch(&self, py: Python<'_>, batch: &Bound<'_, PyAny>) -> PyResult<()> {
         let batch_items = collect_batch(py, batch)?;
         self.with_store_mut(|store| store.store_file_batch(&batch_items))
@@ -313,6 +369,17 @@ impl PyGraphStore {
     }
 
     fn close(&self) -> PyResult<()> {
+        let mut leases = self
+            .leases
+            .lock()
+            .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
+        if *leases > 0 {
+            *leases -= 1;
+        }
+        Ok(())
+    }
+
+    fn _force_close(&self) -> PyResult<()> {
         Ok(())
     }
 
@@ -592,6 +659,21 @@ fn graph_edge_to_py(py: Python<'_>, edge: GraphEdge) -> PyResult<Py<PyAny>> {
             edge.confidence_tier,
         ))?
         .unbind())
+}
+
+fn edge_map_to_py(
+    py: Python<'_>,
+    edges_by_key: std::collections::HashMap<String, Vec<GraphEdge>>,
+) -> PyResult<Py<PyAny>> {
+    let out = PyDict::new(py);
+    for (key, edges) in edges_by_key {
+        let list = PyList::empty(py);
+        for edge in edges {
+            list.append(graph_edge_to_py(py, edge)?.bind(py))?;
+        }
+        out.set_item(key, list)?;
+    }
+    Ok(out.unbind().into_any())
 }
 
 fn graph_stats_to_py(py: Python<'_>, stats: GraphStats) -> PyResult<Py<PyAny>> {

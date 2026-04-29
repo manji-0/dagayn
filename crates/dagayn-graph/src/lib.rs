@@ -136,6 +136,8 @@ pub struct GraphEdge {
     pub confidence_tier: String,
 }
 
+pub type EdgeEndpointMap = HashMap<String, Vec<GraphEdge>>;
+
 #[derive(Clone, Debug)]
 pub struct GraphStats {
     pub total_nodes: i64,
@@ -1581,6 +1583,98 @@ impl GraphStore {
 
     pub fn get_edges_by_target(&self, qualified_name: &str) -> Result<Vec<GraphEdge>> {
         self.get_edges_by_endpoint("target_qualified", qualified_name)
+    }
+
+    pub fn get_edges_by_endpoints(
+        &self,
+        qualified_names: &[String],
+    ) -> Result<(EdgeEndpointMap, EdgeEndpointMap)> {
+        let mut outgoing = qualified_names
+            .iter()
+            .map(|qn| (qn.clone(), Vec::new()))
+            .collect::<HashMap<_, _>>();
+        let mut incoming = qualified_names
+            .iter()
+            .map(|qn| (qn.clone(), Vec::new()))
+            .collect::<HashMap<_, _>>();
+        if qualified_names.is_empty() {
+            return Ok((outgoing, incoming));
+        }
+
+        let mut keys = HashSet::new();
+        let mut normalized_to_originals: HashMap<String, Vec<String>> = HashMap::new();
+        for qn in qualified_names {
+            keys.insert(qn.clone());
+            let normalized = self.normalize_qualified_key(qn)?;
+            keys.insert(normalized.clone());
+            normalized_to_originals
+                .entry(normalized)
+                .or_default()
+                .push(qn.clone());
+        }
+
+        let mut seen_out = qualified_names
+            .iter()
+            .map(|qn| (qn.clone(), HashSet::new()))
+            .collect::<HashMap<_, _>>();
+        let mut seen_in = qualified_names
+            .iter()
+            .map(|qn| (qn.clone(), HashSet::new()))
+            .collect::<HashMap<_, _>>();
+        let keys = keys.into_iter().collect::<Vec<_>>();
+        for chunk in keys.chunks(225) {
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!(
+                "SELECT * FROM edges \
+                 WHERE source_qualified IN ({placeholders}) \
+                 OR target_qualified IN ({placeholders})"
+            );
+            let mut params = Vec::with_capacity(chunk.len() * 2);
+            params.extend(chunk.iter().cloned());
+            params.extend(chunk.iter().cloned());
+            let mut stmt = self.conn.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(params), edge_from_row)?;
+            for row in rows {
+                let edge = row?;
+                let source_originals = normalized_to_originals
+                    .get(&edge.source_qualified)
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        if outgoing.contains_key(&edge.source_qualified) {
+                            vec![edge.source_qualified.clone()]
+                        } else {
+                            Vec::new()
+                        }
+                    });
+                let target_originals = normalized_to_originals
+                    .get(&edge.target_qualified)
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        if incoming.contains_key(&edge.target_qualified) {
+                            vec![edge.target_qualified.clone()]
+                        } else {
+                            Vec::new()
+                        }
+                    });
+                for original in source_originals {
+                    if let Some(seen) = seen_out.get_mut(&original) {
+                        if seen.insert(edge.id) {
+                            outgoing.entry(original).or_default().push(edge.clone());
+                        }
+                    }
+                }
+                for original in target_originals {
+                    if let Some(seen) = seen_in.get_mut(&original) {
+                        if seen.insert(edge.id) {
+                            incoming.entry(original).or_default().push(edge.clone());
+                        }
+                    }
+                }
+            }
+        }
+        Ok((outgoing, incoming))
     }
 
     fn init_schema(&self) -> Result<()> {

@@ -295,6 +295,9 @@ Initial scaffold:
 - Rust `GraphStore` exposes the read helpers used by change risk scoring:
   file suffix matching, flow membership counts/criticalities, node community
   lookup, batched community ID lookup, and transitive test lookup.
+- Rust `GraphStore` exposes the process-level store-cache lease attributes
+  (`_pinned`, `_leases`) and `get_edges_by_endpoints`, matching the current
+  Python graph read/cache contract after the mainline performance work.
 - `DAGAYN_BACKEND=rust` is recognized by the Python graph package and fails loudly if the extension has not been built; `python` remains the default
 
 Current local benchmark baseline, measured on 2026-04-28 with `tools/backend_benchmark.py`
