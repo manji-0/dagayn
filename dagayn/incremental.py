@@ -23,6 +23,7 @@ from .parser import CodeParser, EdgeInfo, NodeInfo
 
 _MAX_PARSE_WORKERS = int(os.environ.get("CRG_PARSE_WORKERS", str(min(os.cpu_count() or 4, 8))))
 _STORE_BATCH_SIZE = int(os.environ.get("DAGAYN_STORE_BATCH_SIZE", "128"))
+_RUST_PARSE_BATCH_SIZE = int(os.environ.get("DAGAYN_RUST_PARSE_BATCH_SIZE", "500"))
 
 StoreBatch = list[tuple[str, list[Any], list[Any], str, int]]
 
@@ -961,6 +962,75 @@ def _rust_backend_enabled() -> bool:
     return os.environ.get("DAGAYN_BACKEND", "python").strip().lower() == "rust"
 
 
+def _rust_parser_owns_path(rel_path: str) -> bool:
+    return rel_path.lower().endswith((".md", ".markdown", ".tf", ".tfvars"))
+
+
+def _split_rust_parser_files(rel_paths: list[str]) -> tuple[list[str], list[str]]:
+    if not _rust_backend_enabled():
+        return [], rel_paths
+    rust_files: list[str] = []
+    python_files: list[str] = []
+    for rel_path in rel_paths:
+        if _rust_parser_owns_path(rel_path):
+            rust_files.append(rel_path)
+        else:
+            python_files.append(rel_path)
+    return rust_files, python_files
+
+
+def _store_rust_parse_batches(
+    repo_root: Path,
+    store: GraphStore,
+    rel_paths: list[str],
+) -> tuple[int, int, list[dict[str, str]]]:
+    if not rel_paths:
+        return 0, 0, []
+    if not hasattr(store, "store_file_batch_json"):
+        raise RuntimeError("Rust parser batch requires a GraphStore with store_file_batch_json")
+    try:
+        from dagayn._core import parse_rust_owned_files_compact_json
+    except ImportError as exc:
+        raise RuntimeError(
+            "DAGAYN_BACKEND=rust was requested, but dagayn._core is not installed."
+        ) from exc
+
+    total_nodes = 0
+    total_edges = 0
+    errors: list[dict[str, str]] = []
+    for idx in range(0, len(rel_paths), _RUST_PARSE_BATCH_SIZE):
+        chunk = rel_paths[idx : idx + _RUST_PARSE_BATCH_SIZE]
+        try:
+            payload = json.loads(parse_rust_owned_files_compact_json(repo_root, chunk))
+        except (RuntimeError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            errors.extend({"file": rel_path, "error": str(exc)} for rel_path in chunk)
+            continue
+        batch = payload.get("batch", [])
+        for raw_error in payload.get("errors", []):
+            if isinstance(raw_error, list | tuple) and len(raw_error) >= 2:
+                errors.append({"file": str(raw_error[0]), "error": str(raw_error[1])})
+            else:
+                errors.append({"file": "", "error": str(raw_error)})
+        if not batch:
+            continue
+        batch_with_mtime = [
+            (
+                item[0],
+                item[1],
+                item[2],
+                item[3],
+                int((repo_root / item[0]).stat().st_mtime_ns),
+            )
+            if len(item) == 4
+            else item
+            for item in batch
+        ]
+        store.store_file_batch_json(json.dumps(batch_with_mtime, separators=(",", ":")))
+        total_nodes += sum(len(item[1]) for item in batch)
+        total_edges += sum(len(item[2]) for item in batch)
+    return total_nodes, total_edges, errors
+
+
 def _parse_with_rust_if_enabled(
     rel_path: str,
     source: bytes,
@@ -1049,22 +1119,30 @@ def full_build(
     file_count = len(files)
 
     use_serial = os.environ.get("CRG_SERIAL_PARSE", "") == "1"
+    rust_files, python_files = _split_rust_parser_files(files)
+    if rust_files:
+        rust_nodes, rust_edges, rust_errors = _store_rust_parse_batches(
+            repo_root,
+            store,
+            rust_files,
+        )
+        total_nodes += rust_nodes
+        total_edges += rust_edges
+        errors.extend(rust_errors)
+        logger.info("Progress: %d/%d files parsed", len(rust_files), file_count)
 
     if use_serial or file_count < 8:
         # Serial fallback (for debugging or tiny repos)
         batch: StoreBatch = []
-        for i, rel_path in enumerate(files, 1):
+        for offset, rel_path in enumerate(python_files, 1):
+            i = len(rust_files) + offset
             full_path = repo_root / rel_path
             try:
                 mtime_ns = int(full_path.stat().st_mtime_ns)
                 source = full_path.read_bytes()
                 fhash = hashlib.sha256(source).hexdigest()
-                rust_parsed = _parse_with_rust_if_enabled(rel_path, source)
-                if rust_parsed is not None:
-                    nodes, edges = rust_parsed
-                else:
-                    nodes, edges = parser.parse_bytes(full_path, source)
-                    nodes, edges = _relativize_parsed_entities(nodes, edges, repo_root)
+                nodes, edges = parser.parse_bytes(full_path, source)
+                nodes, edges = _relativize_parsed_entities(nodes, edges, repo_root)
                 _queue_store_file(store, batch, rel_path, nodes, edges, fhash, mtime_ns)
                 total_nodes += len(nodes)
                 total_edges += len(edges)
@@ -1078,7 +1156,7 @@ def full_build(
         _flush_store_batch(store, batch)
     else:
         # Parallel parsing — store calls remain serial (SQLite single-writer)
-        args_list = [(rel_path, str(repo_root)) for rel_path in files]
+        args_list = [(rel_path, str(repo_root)) for rel_path in python_files]
         batch: StoreBatch = []
         with concurrent.futures.ProcessPoolExecutor(
             max_workers=_MAX_PARSE_WORKERS,
@@ -1086,7 +1164,7 @@ def full_build(
         ) as executor:
             for i, (rel_path, nodes, edges, error, fhash, mtime_ns) in enumerate(
                 executor.map(_parse_single_file, args_list, chunksize=20),
-                1,
+                len(rust_files) + 1,
             ):
                 if error:
                     logger.warning("Error parsing %s: %s", rel_path, error)
@@ -1213,20 +1291,28 @@ def incremental_update(
         store.commit()
 
     use_serial = os.environ.get("CRG_SERIAL_PARSE", "") == "1"
+    rust_files, python_files = _split_rust_parser_files([rel_path for rel_path, _ in to_parse])
+    to_parse_mtime = dict(to_parse)
+    if rust_files:
+        rust_nodes, rust_edges, rust_errors = _store_rust_parse_batches(
+            repo_root,
+            store,
+            rust_files,
+        )
+        total_nodes += rust_nodes
+        total_edges += rust_edges
+        errors.extend(rust_errors)
 
     if use_serial or len(to_parse) < 8:
         batch: StoreBatch = []
-        for rel_path, mtime_ns in to_parse:
+        for rel_path in python_files:
+            mtime_ns = to_parse_mtime.get(rel_path, 0)
             abs_path = repo_root / rel_path
             try:
                 source = abs_path.read_bytes()
                 fhash = hashlib.sha256(source).hexdigest()
-                rust_parsed = _parse_with_rust_if_enabled(rel_path, source)
-                if rust_parsed is not None:
-                    nodes, edges = rust_parsed
-                else:
-                    nodes, edges = parser.parse_bytes(abs_path, source)
-                    nodes, edges = _relativize_parsed_entities(nodes, edges, repo_root)
+                nodes, edges = parser.parse_bytes(abs_path, source)
+                nodes, edges = _relativize_parsed_entities(nodes, edges, repo_root)
                 _queue_store_file(store, batch, rel_path, nodes, edges, fhash, mtime_ns)
                 total_nodes += len(nodes)
                 total_edges += len(edges)
@@ -1237,7 +1323,7 @@ def incremental_update(
                 errors.append({"file": rel_path, "error": str(e)})
         _flush_store_batch(store, batch)
     else:
-        args_list = [(rel_path, str(repo_root)) for rel_path, _ in to_parse]
+        args_list = [(rel_path, str(repo_root)) for rel_path in python_files]
         batch: StoreBatch = []
         with concurrent.futures.ProcessPoolExecutor(
             max_workers=_MAX_PARSE_WORKERS,

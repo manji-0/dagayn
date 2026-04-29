@@ -293,6 +293,12 @@ Parser migration progress:
   reference extraction, call extraction, module imports, and provider source
   dependency edges. `terraform_only`, `markdown_only`, and `mixed` parity
   snapshots match with `--skip-postprocess` through this path.
+- The Rust parser path now also exposes
+  `parse_rust_owned_files_compact_json(repo_root, file_paths)`, so
+  `full_build` / `incremental_update` batch Markdown and Terraform files into
+  one Rust parser call per chunk before handing the resulting compact batch to
+  the Rust graph writer. Python no longer crosses PyO3 once per Rust-owned file
+  in the normal build/update path.
 
 Python modules being replaced: `dagayn/graph.py` (`GraphStore` upsert and replacement logic), `dagayn/incremental.py` (path normalization and VCS metadata helpers such as `_make_repo_relative`), `dagayn/migrations.py`.
 

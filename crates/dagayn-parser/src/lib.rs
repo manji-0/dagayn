@@ -14,6 +14,7 @@ use globset::{Glob, GlobSetBuilder};
 use regex::Regex;
 use serde::Serialize;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 
 static TERRAFORM_ATTR_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$"#).unwrap());
@@ -191,6 +192,29 @@ pub fn parse_markdown_compact_json(file_path: &str, source: &[u8]) -> String {
     parsed_compact_json(nodes, edges)
 }
 
+pub fn parse_rust_owned_files_compact_json(repo_root: &Path, file_paths: &[String]) -> String {
+    let mut batch = Vec::new();
+    let mut errors = Vec::new();
+    for file_path in file_paths {
+        if !rust_parser_owns_path(file_path) {
+            errors.push(json!([file_path, "unsupported Rust parser path"]));
+            continue;
+        }
+        let full_path = repo_root.join(file_path);
+        let source = match std::fs::read(&full_path) {
+            Ok(source) => source,
+            Err(err) => {
+                errors.push(json!([file_path, err.to_string()]));
+                continue;
+            }
+        };
+        let (nodes, edges) = parse_rust_owned_file(file_path, &source);
+        let (nodes, edges) = parsed_compact_values(nodes, edges);
+        batch.push(json!([file_path, nodes, edges, sha256_hex(&source)]));
+    }
+    json!({"batch": batch, "errors": errors}).to_string()
+}
+
 pub fn parse_terraform(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let text = String::from_utf8_lossy(source);
     let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
@@ -331,6 +355,14 @@ pub fn parse_terraform_compact_json(file_path: &str, source: &[u8]) -> String {
 }
 
 fn parsed_compact_json(nodes: Vec<ParsedNode>, edges: Vec<ParsedEdge>) -> String {
+    let (compact_nodes, compact_edges) = parsed_compact_values(nodes, edges);
+    json!([compact_nodes, compact_edges]).to_string()
+}
+
+fn parsed_compact_values(
+    nodes: Vec<ParsedNode>,
+    edges: Vec<ParsedEdge>,
+) -> (Vec<Value>, Vec<Value>) {
     let compact_nodes = nodes
         .into_iter()
         .map(|node| {
@@ -363,7 +395,36 @@ fn parsed_compact_json(nodes: Vec<ParsedNode>, edges: Vec<ParsedEdge>) -> String
             ])
         })
         .collect::<Vec<_>>();
-    json!([compact_nodes, compact_edges]).to_string()
+    (compact_nodes, compact_edges)
+}
+
+fn parse_rust_owned_file(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let lowered = file_path.to_ascii_lowercase();
+    if lowered.ends_with(".md") || lowered.ends_with(".markdown") {
+        parse_markdown(file_path, source)
+    } else if lowered.ends_with(".tf") || lowered.ends_with(".tfvars") {
+        parse_terraform(file_path, source)
+    } else {
+        (Vec::new(), Vec::new())
+    }
+}
+
+pub fn rust_parser_owns_path(file_path: &str) -> bool {
+    let lowered = file_path.to_ascii_lowercase();
+    lowered.ends_with(".md")
+        || lowered.ends_with(".markdown")
+        || lowered.ends_with(".tf")
+        || lowered.ends_with(".tfvars")
+}
+
+fn sha256_hex(source: &[u8]) -> String {
+    let digest = Sha256::digest(source);
+    let mut out = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        use std::fmt::Write;
+        let _ = write!(out, "{byte:02x}");
+    }
+    out
 }
 
 #[derive(Clone, Debug)]
@@ -1587,5 +1648,43 @@ output "vpc_id" {
                 && edge.source == "resource.aws_vpc.main"
                 && edge.target == "main.tf::data.aws_caller_identity.current"
         }));
+    }
+
+    #[test]
+    fn parses_rust_owned_files_as_one_compact_batch() {
+        let mut repo_root = std::env::temp_dir();
+        repo_root.push(format!(
+            "dagayn-parser-batch-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        let _ = std::fs::remove_dir_all(&repo_root);
+        std::fs::create_dir_all(repo_root.join("docs")).unwrap();
+        std::fs::write(
+            repo_root.join("docs/README.md"),
+            b"# Guide\n\nSee `build_graph`.\n",
+        )
+        .unwrap();
+        std::fs::write(
+            repo_root.join("main.tf"),
+            br#"variable "region" {
+  default = "us-east-1"
+}
+"#,
+        )
+        .unwrap();
+
+        let payload = parse_rust_owned_files_compact_json(
+            &repo_root,
+            &["docs/README.md".to_string(), "main.tf".to_string()],
+        );
+        let parsed: Value = serde_json::from_str(&payload).unwrap();
+        assert_eq!(parsed["errors"].as_array().unwrap().len(), 0);
+        let batch = parsed["batch"].as_array().unwrap();
+        assert_eq!(batch.len(), 2);
+        assert!(batch.iter().any(|item| item[0] == "docs/README.md"));
+        assert!(batch.iter().any(|item| item[0] == "main.tf"));
+
+        let _ = std::fs::remove_dir_all(&repo_root);
     }
 }
