@@ -36,6 +36,19 @@ def _can_trace_full_flows(store: Any) -> bool:
     )
 
 
+def _can_trace_incremental_flows(store: Any) -> bool:
+    return all(
+        hasattr(store, name)
+        for name in (
+            "delete_affected_flows",
+            "get_all_call_targets",
+            "get_nodes_by_kind",
+            "insert_flows_json",
+            "load_flow_adjacency",
+        )
+    )
+
+
 def _can_detect_full_communities(store: Any) -> bool:
     return all(
         hasattr(store, name)
@@ -44,6 +57,12 @@ def _can_detect_full_communities(store: Any) -> bool:
             "get_all_edges",
             "store_communities_json",
         )
+    )
+
+
+def _can_detect_incremental_communities(store: Any) -> bool:
+    return _can_detect_full_communities(store) and hasattr(
+        store, "count_affected_communities"
     )
 
 
@@ -523,8 +542,14 @@ def build_or_update_graph(
             and _can_run_minimal_postprocess(store)
         ):
             can_compute_rust_summaries = hasattr(store, "compute_summaries")
-            can_trace_rust_flows = full_rebuild and _can_trace_full_flows(store)
-            can_detect_rust_communities = full_rebuild and _can_detect_full_communities(store)
+            can_trace_rust_flows = (
+                (full_rebuild and _can_trace_full_flows(store))
+                or (not full_rebuild and _can_trace_incremental_flows(store))
+            )
+            can_detect_rust_communities = (
+                (full_rebuild and _can_detect_full_communities(store))
+                or (not full_rebuild and _can_detect_incremental_communities(store))
+            )
             warnings = _run_postprocess(
                 store,
                 build_result,
@@ -534,46 +559,69 @@ def build_or_update_graph(
             )
             if can_trace_rust_flows:
                 try:
-                    from dagayn.flows import store_flows as _store_flows
-                    from dagayn.flows import trace_flows as _trace_flows
+                    if full_rebuild:
+                        from dagayn.flows import store_flows as _store_flows
+                        from dagayn.flows import trace_flows as _trace_flows
 
-                    traced = _trace_flows(store)
-                    build_result["flows_detected"] = _store_flows(store, traced)
+                        traced = _trace_flows(store)
+                        build_result["flows_detected"] = _store_flows(store, traced)
+                    else:
+                        from dagayn.flows import incremental_trace_flows
+
+                        build_result["flows_detected"] = incremental_trace_flows(
+                            store, changed or []
+                        )
                 except (sqlite3.OperationalError, RuntimeError, ImportError) as e:
                     logger.warning("Flow detection failed: %s", e)
                     warnings.append(f"Flow detection failed: {type(e).__name__}: {e}")
             if can_detect_rust_communities:
                 try:
-                    from dagayn.communities import (
-                        detect_communities as _detect_communities,
-                    )
-                    from dagayn.communities import (
-                        store_communities as _store_communities,
-                    )
+                    if full_rebuild:
+                        from dagayn.communities import (
+                            detect_communities as _detect_communities,
+                        )
+                        from dagayn.communities import (
+                            store_communities as _store_communities,
+                        )
 
-                    comms = _detect_communities(store)
-                    build_result["communities_detected"] = _store_communities(store, comms)
+                        comms = _detect_communities(store)
+                        build_result["communities_detected"] = _store_communities(
+                            store, comms
+                        )
+                    else:
+                        from dagayn.communities import incremental_detect_communities
+
+                        build_result["communities_detected"] = (
+                            incremental_detect_communities(store, changed or [])
+                        )
                 except (sqlite3.OperationalError, RuntimeError, ImportError) as e:
                     logger.warning("Community detection failed: %s", e)
                     warnings.append(f"Community detection failed: {type(e).__name__}: {e}")
-            pp_store, close_pp_store = _postprocess_store(store, root, postprocess)
-            try:
-                warnings.extend(
-                    _run_postprocess(
-                        pp_store,
-                        build_result,
-                        postprocess,
-                        full_rebuild=full_rebuild,
-                        changed_files=changed,
-                        skip_minimal_steps=True,
-                        skip_flow_steps=can_trace_rust_flows,
-                        skip_community_steps=can_detect_rust_communities,
-                        skip_summary_steps=can_compute_rust_summaries,
+
+            needs_python_fallback = not (
+                can_trace_rust_flows
+                and can_detect_rust_communities
+                and can_compute_rust_summaries
+            )
+            if needs_python_fallback:
+                pp_store, close_pp_store = _postprocess_store(store, root, postprocess)
+                try:
+                    warnings.extend(
+                        _run_postprocess(
+                            pp_store,
+                            build_result,
+                            postprocess,
+                            full_rebuild=full_rebuild,
+                            changed_files=changed,
+                            skip_minimal_steps=True,
+                            skip_flow_steps=can_trace_rust_flows,
+                            skip_community_steps=can_detect_rust_communities,
+                            skip_summary_steps=can_compute_rust_summaries,
+                        )
                     )
-                )
-            finally:
-                if close_pp_store:
-                    pp_store.close()
+                finally:
+                    if close_pp_store:
+                        pp_store.close()
             if can_compute_rust_summaries:
                 try:
                     _compute_summaries(store)
@@ -581,6 +629,20 @@ def build_or_update_graph(
                 except (sqlite3.OperationalError, RuntimeError, Exception) as e:
                     logger.warning("Summary computation failed: %s", e)
                     warnings.append(f"Summary computation failed: {type(e).__name__}: {e}")
+            if not needs_python_fallback:
+                warnings.extend(
+                    _run_postprocess(
+                        store,
+                        build_result,
+                        postprocess,
+                        full_rebuild=full_rebuild,
+                        changed_files=changed,
+                        skip_minimal_steps=True,
+                        skip_flow_steps=True,
+                        skip_community_steps=True,
+                        skip_summary_steps=True,
+                    )
+                )
         else:
             pp_store, close_pp_store = _postprocess_store(store, root, postprocess)
             try:

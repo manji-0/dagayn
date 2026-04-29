@@ -136,7 +136,7 @@ pub struct GraphEdge {
     pub confidence_tier: String,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct FlowInput {
     pub name: String,
     pub entry_point_id: i64,
@@ -1030,6 +1030,14 @@ impl GraphStore {
         self.store_flows(&flows)
     }
 
+    pub fn insert_flows_json(&mut self, flows_json: &str) -> Result<i64> {
+        let flows: Vec<FlowInput> = serde_json::from_str(flows_json)?;
+        let tx = self.conn.transaction()?;
+        store_flows_tx(&tx, &flows)?;
+        tx.commit()?;
+        Ok(flows.len() as i64)
+    }
+
     pub fn get_flows_json(&self, sort_by: &str, limit: i64) -> Result<String> {
         let sort_by = match sort_by {
             "criticality" | "depth" | "node_count" | "file_count" | "name" => sort_by,
@@ -1104,6 +1112,52 @@ impl GraphStore {
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
         serde_json::to_string(&flows).map_err(Into::into)
+    }
+
+    pub fn delete_affected_flows(&mut self, changed_files: &[String]) -> Result<Vec<i64>> {
+        if changed_files.is_empty() {
+            return Ok(Vec::new());
+        }
+        let node_ids = self.get_node_ids_by_files(changed_files)?;
+        if node_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let flow_ids = self.get_flow_ids_by_node_ids(&node_ids)?;
+        if flow_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut entry_point_ids = Vec::new();
+        let mut seen_entry_points = HashSet::new();
+        for chunk in flow_ids.chunks(450) {
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!("SELECT entry_point_id FROM flows WHERE id IN ({placeholders})");
+            let mut stmt = self.conn.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
+                row.get::<_, i64>(0)
+            })?;
+            for row in rows {
+                let entry_point_id = row?;
+                if seen_entry_points.insert(entry_point_id) {
+                    entry_point_ids.push(entry_point_id);
+                }
+            }
+        }
+
+        let tx = self.conn.transaction()?;
+        {
+            let mut delete_membership =
+                tx.prepare("DELETE FROM flow_memberships WHERE flow_id = ?")?;
+            let mut delete_flow = tx.prepare("DELETE FROM flows WHERE id = ?")?;
+            for flow_id in flow_ids {
+                delete_membership.execute([flow_id])?;
+                delete_flow.execute([flow_id])?;
+            }
+        }
+        tx.commit()?;
+        Ok(entry_point_ids)
     }
 
     pub fn get_node_kind_by_id(&self, node_id: i64) -> Result<Option<String>> {
@@ -2503,6 +2557,27 @@ mod tests {
         )
         .unwrap();
         assert_eq!(affected.len(), 1);
+        let deleted_entry_points = store
+            .delete_affected_flows(&["app.py".to_string()])
+            .unwrap();
+        assert_eq!(deleted_entry_points, vec![entry_id]);
+        assert_eq!(
+            store
+                .conn
+                .query_row("SELECT COUNT(*) FROM flows", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            store
+                .insert_flows_json(&serde_json::to_string(&flows).unwrap())
+                .unwrap(),
+            1
+        );
+        assert!(store
+            .delete_affected_flows(&["missing.py".to_string()])
+            .unwrap()
+            .is_empty());
         assert_eq!(
             store.get_node_kind_by_id(entry_id).unwrap().as_deref(),
             Some("Function")

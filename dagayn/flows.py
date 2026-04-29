@@ -467,6 +467,31 @@ def incremental_trace_flows(
     if not changed_files:
         return 0
 
+    rust_delete = getattr(store, "delete_affected_flows", None)
+    rust_insert = getattr(store, "insert_flows_json", None)
+    if callable(rust_delete) and callable(rust_insert):
+        changed_file_set = set(changed_files)
+        entry_point_ids = {int(node_id) for node_id in rust_delete(changed_files)}
+
+        entry_points = detect_entry_points(store)
+        relevant_eps = [
+            ep
+            for ep in entry_points
+            if ep.file_path in changed_file_set or ep.id in entry_point_ids
+        ]
+
+        new_flows: list[dict] = []
+        if relevant_eps:
+            adj = store.load_flow_adjacency()
+            for ep in relevant_eps:
+                flow = _trace_single_flow(adj, ep, max_depth)
+                if flow is not None:
+                    new_flows.append(flow)
+
+        if not new_flows:
+            return 0
+        return int(rust_insert(json.dumps(new_flows)))
+
     conn = store._conn
     changed_file_set = set(changed_files)
 

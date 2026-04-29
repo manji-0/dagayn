@@ -278,6 +278,10 @@ Initial scaffold:
 - Rust `GraphStore` exposes the read surface needed by Python flow tracing
   (`get_all_call_targets`, `get_nodes_by_kind`, and `load_flow_adjacency`) and
   can persist traced flows through `store_flows_json`.
+- Incremental flow retracing can now stay on the Rust store for its affected
+  flow deletion and append-only flow insertion steps through
+  `delete_affected_flows` and `insert_flows_json`. Python still owns the entry
+  point filtering and BFS trace heuristics.
 - Rust `GraphStore` also exposes stored-flow query JSON APIs for `list_flows`,
   `get_flow`, and `get_affected_flows`, so those Python-facing tools no longer
   require direct SQLite connection access under the Rust backend.
@@ -424,7 +428,9 @@ Parser migration progress:
 - Flow tracing can now run against the Rust store for full rebuilds while the
   tracing heuristics remain in Python. The traced flow dictionaries are stored
   through `dagayn._core.GraphStore.store_flows_json`, so the flow persistence
-  transaction is Rust-owned.
+  transaction is Rust-owned. Incremental flow retracing now uses Rust-owned
+  affected-flow deletion and append-only insertion, avoiding Python `_conn`
+  access under `DAGAYN_BACKEND=rust`.
 - Stored flow retrieval now routes through Rust JSON methods when available:
   `get_flows_json`, `get_flow_by_id_json`, and `get_affected_flows_json`.
 - Community persistence and retrieval now route through Rust JSON methods when
