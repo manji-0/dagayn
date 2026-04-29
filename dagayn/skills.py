@@ -361,13 +361,18 @@ def install_platform_configs(
 def _resolve_source_skills_dir() -> Path | None:
     """Locate the on-disk ``skills/`` directory shipped with dagayn.
 
-    Tries the development checkout layout first (``<repo>/skills``), then
-    falls back to the directory next to the installed package. Returns
-    ``None`` if no directory containing ``<name>/SKILL.md`` files is found.
+    Tries the wheel-install layout first (``<site-packages>/dagayn/skills``),
+    then falls back to the development checkout layout (``<repo>/skills``).
+    Returns ``None`` if no directory containing ``<name>/SKILL.md`` files is
+    found.
+
+    The wheel-first order avoids accidentally picking up a stale or unrelated
+    ``skills/`` directory that may exist at the site-packages root
+    (``parent.parent / "skills"``) when multiple packages are installed.
     """
     candidates = [
-        Path(__file__).resolve().parent.parent / "skills",
         Path(__file__).resolve().parent / "skills",
+        Path(__file__).resolve().parent.parent / "skills",
     ]
     for candidate in candidates:
         if candidate.is_dir() and any(

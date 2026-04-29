@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 from ..utils import _PLATFORM_CHOICES, _confirm_yes_no
@@ -169,8 +170,11 @@ def handle(args: argparse.Namespace) -> None:
     if not skip_skills:
         skills_dir = generate_skills(repo_root)
         print(f"Generated skills in {skills_dir}")
-        global_skills_dir = install_global_skills()
-        print(f"Installed global skills to {global_skills_dir}")
+        try:
+            global_skills_dir = install_global_skills()
+            print(f"Installed global skills to {global_skills_dir}")
+        except OSError as e:
+            print(f"Skipped global skills install ({e})", file=sys.stderr)
 
     # Confirm before writing instruction files (#173). --yes skips the
     # prompt; --no-instructions skips the whole block.

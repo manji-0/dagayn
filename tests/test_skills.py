@@ -120,6 +120,38 @@ class TestResolveSourceSkillsDir:
         resolved = _resolve_source_skills_dir()
         assert resolved == fake_pkg / "skills"
 
+    def test_prefers_package_local_over_parent_sibling(self, tmp_path, monkeypatch):
+        """wheel-local skills/ takes priority over parent.parent/skills/.
+
+        In an installed wheel, parent.parent is site-packages root.  A
+        stale or unrelated directory there should not shadow the real
+        package-local skills.
+        """
+        fake_pkg = tmp_path / "site-packages" / "dagayn"
+        fake_pkg.mkdir(parents=True)
+
+        # Wheel-local layout: <site-packages>/dagayn/skills/<name>/SKILL.md
+        local_skill = fake_pkg / "skills" / "local-skill"
+        local_skill.mkdir(parents=True)
+        (local_skill / "SKILL.md").write_text(
+            "---\nname: local-skill\ndescription: x\n---\n\nbody\n", encoding="utf-8"
+        )
+
+        # dev-checkout / stale layout: <site-packages>/skills/<name>/SKILL.md
+        parent_skill = tmp_path / "site-packages" / "skills" / "stale-skill"
+        parent_skill.mkdir(parents=True)
+        (parent_skill / "SKILL.md").write_text(
+            "---\nname: stale-skill\ndescription: y\n---\n\nbody\n", encoding="utf-8"
+        )
+
+        fake_module_file = fake_pkg / "skills.py"
+        fake_module_file.write_text("# stub", encoding="utf-8")
+        monkeypatch.setattr(_skills_module, "__file__", str(fake_module_file))
+
+        resolved = _resolve_source_skills_dir()
+        # Must return the package-local candidate, not the parent-sibling one.
+        assert resolved == fake_pkg / "skills"
+
 
 class TestInstallGlobalSkills:
     def test_writes_to_home_claude_skills(self, tmp_path):
@@ -152,6 +184,47 @@ class TestInstallGlobalSkills:
             install_global_skills()
         assert unrelated.is_file()
         assert unrelated.read_text() == "# my own skill"
+
+    def test_init_handle_survives_permission_error(self, tmp_path, capsys):
+        """dagayn install must complete even when ~/.claude/skills/ is not writable.
+
+        Codex review C1-2: install_global_skills() may raise PermissionError in
+        CI/containers with read-only $HOME; the repo-local setup must still succeed.
+        """
+        import argparse
+
+        from dagayn.cli.commands.init import handle
+
+        args = argparse.Namespace(
+            repo=str(tmp_path),
+            dry_run=False,
+            platform="all",
+            yes=True,
+            no_skills=False,
+            no_hooks=True,
+            no_instructions=True,
+            skills=False,
+            hooks=False,
+            install_all=False,
+        )
+
+        with (
+            patch("dagayn.incremental.find_repo_root", return_value=tmp_path),
+            patch("dagayn.skills.install_platform_configs", return_value=[]),
+            patch(
+                "dagayn.incremental.ensure_repo_gitignore_excludes_crg",
+                return_value="already",
+            ),
+            patch("dagayn.skills.generate_skills", return_value=tmp_path / ".claude" / "skills"),
+            patch(
+                "dagayn.skills.install_global_skills",
+                side_effect=PermissionError("read-only home"),
+            ),
+        ):
+            handle(args)  # must not raise
+
+        captured = capsys.readouterr()
+        assert "Skipped global skills install" in captured.err
 
 
 class TestGenerateHooksConfig:
