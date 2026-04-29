@@ -868,9 +868,9 @@ def _parse_single_file(
         mtime_ns = int(abs_path.stat().st_mtime_ns)
         raw = abs_path.read_bytes()
         fhash = hashlib.sha256(raw).hexdigest()
-        rust_markdown = _parse_markdown_with_rust_if_enabled(rel_path, raw)
-        if rust_markdown is not None:
-            nodes, edges = rust_markdown
+        rust_parsed = _parse_with_rust_if_enabled(rel_path, raw)
+        if rust_parsed is not None:
+            nodes, edges = rust_parsed
             return (rel_path, nodes, edges, None, fhash, mtime_ns)
         parser = _worker_parser if _worker_parser is not None else CodeParser()
         nodes, edges = parser.parse_bytes(abs_path, raw)
@@ -961,19 +961,43 @@ def _rust_backend_enabled() -> bool:
     return os.environ.get("DAGAYN_BACKEND", "python").strip().lower() == "rust"
 
 
-def _parse_markdown_with_rust_if_enabled(
+def _parse_with_rust_if_enabled(
     rel_path: str,
     source: bytes,
 ) -> tuple[list[Any], list[Any]] | None:
-    if not _rust_backend_enabled() or not rel_path.lower().endswith((".md", ".markdown")):
+    if not _rust_backend_enabled():
+        return None
+    lowered = rel_path.lower()
+    parser_name: str
+    parser_fn_name: str
+    if lowered.endswith((".md", ".markdown")):
+        parser_name = "Markdown"
+        parser_fn_name = "parse_markdown_compact_json"
+    elif lowered.endswith((".tf", ".tfvars")):
+        parser_name = "Terraform"
+        parser_fn_name = "parse_terraform_compact_json"
+    else:
         return None
     try:
-        from dagayn._core import parse_markdown_compact_json
+        import dagayn._core as rust_core
 
-        nodes, edges = json.loads(parse_markdown_compact_json(rel_path, source))
+        parser_fn = getattr(rust_core, parser_fn_name)
+        nodes, edges = json.loads(parser_fn(rel_path, source))
         return nodes, edges
-    except (ImportError, RuntimeError, TypeError, ValueError, json.JSONDecodeError) as exc:
-        logger.warning("Rust Markdown parser unavailable for %s, falling back: %s", rel_path, exc)
+    except (
+        AttributeError,
+        ImportError,
+        RuntimeError,
+        TypeError,
+        ValueError,
+        json.JSONDecodeError,
+    ) as exc:
+        logger.warning(
+            "Rust %s parser unavailable for %s, falling back: %s",
+            parser_name,
+            rel_path,
+            exc,
+        )
         return None
 
 
@@ -1035,9 +1059,9 @@ def full_build(
                 mtime_ns = int(full_path.stat().st_mtime_ns)
                 source = full_path.read_bytes()
                 fhash = hashlib.sha256(source).hexdigest()
-                rust_markdown = _parse_markdown_with_rust_if_enabled(rel_path, source)
-                if rust_markdown is not None:
-                    nodes, edges = rust_markdown
+                rust_parsed = _parse_with_rust_if_enabled(rel_path, source)
+                if rust_parsed is not None:
+                    nodes, edges = rust_parsed
                 else:
                     nodes, edges = parser.parse_bytes(full_path, source)
                     nodes, edges = _relativize_parsed_entities(nodes, edges, repo_root)
@@ -1197,9 +1221,9 @@ def incremental_update(
             try:
                 source = abs_path.read_bytes()
                 fhash = hashlib.sha256(source).hexdigest()
-                rust_markdown = _parse_markdown_with_rust_if_enabled(rel_path, source)
-                if rust_markdown is not None:
-                    nodes, edges = rust_markdown
+                rust_parsed = _parse_with_rust_if_enabled(rel_path, source)
+                if rust_parsed is not None:
+                    nodes, edges = rust_parsed
                 else:
                     nodes, edges = parser.parse_bytes(abs_path, source)
                     nodes, edges = _relativize_parsed_entities(nodes, edges, repo_root)

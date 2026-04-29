@@ -287,6 +287,12 @@ Parser migration progress:
   `incremental_update` through this Rust extractor and stores the compact
   output directly through the Rust graph writer. `markdown_only` and `mixed`
   parity snapshots match through this path.
+- `dagayn-parser` now exposes an initial Terraform extractor through
+  `parse_terraform_compact_json(file_path, source)`. `DAGAYN_BACKEND=rust`
+  routes `.tf` / `.tfvars` files through Rust for block extraction, Terraform
+  reference extraction, call extraction, module imports, and provider source
+  dependency edges. `terraform_only`, `markdown_only`, and `mixed` parity
+  snapshots match with `--skip-postprocess` through this path.
 
 Python modules being replaced: `dagayn/graph.py` (`GraphStore` upsert and replacement logic), `dagayn/incremental.py` (path normalization and VCS metadata helpers such as `_make_repo_relative`), `dagayn/migrations.py`.
 

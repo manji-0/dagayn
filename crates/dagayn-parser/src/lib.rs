@@ -5,14 +5,30 @@
 //! extraction. During Phase 1 it starts with parseable-file filtering so Python
 //! can shrink back toward CLI/MCP interfaces.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::process::Command;
+use std::sync::LazyLock;
 
 use globset::{Glob, GlobSetBuilder};
 use regex::Regex;
 use serde::Serialize;
 use serde_json::{json, Value};
+
+static TERRAFORM_ATTR_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$"#).unwrap());
+static TERRAFORM_CALL_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(").unwrap());
+static TERRAFORM_HEADER_TOKEN_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#""([^"]*)"|'([^']*)'|([A-Za-z_][A-Za-z0-9_-]*)"#).unwrap());
+static TERRAFORM_PROVIDER_SOURCE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"source\s*=\s*(["'][^"']+["'])"#).unwrap());
+static TERRAFORM_REFERENCE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"\b(?:(data)\.([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)|((?:module|var|local|output|provider|check))\.([A-Za-z_][A-Za-z0-9_]*)|([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*))\b",
+    )
+    .unwrap()
+});
 
 pub fn grammar_status() -> dagayn_grammars::GrammarStatus {
     dagayn_grammars::status()
@@ -172,6 +188,149 @@ pub fn parse_markdown(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<P
 
 pub fn parse_markdown_compact_json(file_path: &str, source: &[u8]) -> String {
     let (nodes, edges) = parse_markdown(file_path, source);
+    parsed_compact_json(nodes, edges)
+}
+
+pub fn parse_terraform(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let text = String::from_utf8_lossy(source);
+    let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
+    let blocks = collect_terraform_blocks(&text);
+    let defined_names = blocks
+        .iter()
+        .flat_map(|block| {
+            if block.kind == "locals" {
+                collect_terraform_attrs(&block.body, block.body_start_line)
+                    .into_iter()
+                    .map(|attr| format!("local.{}", attr.name))
+                    .collect::<Vec<_>>()
+            } else {
+                terraform_defined_name(block)
+                    .into_iter()
+                    .collect::<Vec<_>>()
+            }
+        })
+        .collect::<HashSet<_>>();
+
+    let mut nodes = vec![ParsedNode {
+        kind: "File".to_string(),
+        name: file_path.to_string(),
+        file_path: file_path.to_string(),
+        line_start: 1,
+        line_end,
+        language: "terraform".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: is_test_file(file_path),
+        extra: json!({}),
+    }];
+    let mut edges = Vec::new();
+
+    for block in &blocks {
+        if block.kind == "locals" {
+            for attr in collect_terraform_attrs(&block.body, block.body_start_line) {
+                let node_name = format!("local.{}", attr.name);
+                push_terraform_node(
+                    file_path,
+                    &mut nodes,
+                    &mut edges,
+                    TerraformNodeSpec {
+                        kind: "Function",
+                        name: &node_name,
+                        line_start: attr.line_start,
+                        line_end: attr.line_end,
+                        is_test: false,
+                        terraform_kind: "local",
+                    },
+                );
+                scan_terraform_body(
+                    &attr.text,
+                    &node_name,
+                    file_path,
+                    attr.line_start,
+                    &defined_names,
+                    &mut edges,
+                );
+            }
+            continue;
+        }
+
+        if matches!(block.kind.as_str(), "import" | "moved" | "removed") {
+            handle_terraform_meta_block(file_path, block, &defined_names, &mut edges);
+            continue;
+        }
+
+        let Some(node_name) = terraform_defined_name(block) else {
+            continue;
+        };
+        let terraform_kind = terraform_kind_for_block(block);
+        let (kind, is_test) = match block.kind.as_str() {
+            "variable" | "output" => ("Function", false),
+            "check" => ("Test", true),
+            _ => ("Class", false),
+        };
+        push_terraform_node(
+            file_path,
+            &mut nodes,
+            &mut edges,
+            TerraformNodeSpec {
+                kind,
+                name: &node_name,
+                line_start: block.line_start,
+                line_end: block.line_end,
+                is_test,
+                terraform_kind,
+            },
+        );
+        scan_terraform_body(
+            &block.body,
+            &node_name,
+            file_path,
+            block.line_start,
+            &defined_names,
+            &mut edges,
+        );
+
+        if block.kind == "module" {
+            if let Some(source_attr) = collect_terraform_attrs(&block.body, block.body_start_line)
+                .into_iter()
+                .find(|attr| attr.name == "source")
+            {
+                edges.push(ParsedEdge {
+                    kind: "IMPORTS_FROM".to_string(),
+                    source: terraform_qualified(file_path, &node_name),
+                    target: strip_tf_string(&source_attr.value),
+                    file_path: file_path.to_string(),
+                    line: source_attr.line_start,
+                    extra: json!({}),
+                });
+            }
+        }
+
+        if block.kind == "terraform" {
+            for captures in TERRAFORM_PROVIDER_SOURCE_RE.captures_iter(&block.body) {
+                edges.push(ParsedEdge {
+                    kind: "DEPENDS_ON".to_string(),
+                    source: terraform_qualified(file_path, &node_name),
+                    target: strip_tf_string(&captures[1]),
+                    file_path: file_path.to_string(),
+                    line: block.line_start,
+                    extra: json!({}),
+                });
+            }
+        }
+    }
+
+    (nodes, dedupe_edges(edges))
+}
+
+pub fn parse_terraform_compact_json(file_path: &str, source: &[u8]) -> String {
+    let (nodes, edges) = parse_terraform(file_path, source);
+    parsed_compact_json(nodes, edges)
+}
+
+fn parsed_compact_json(nodes: Vec<ParsedNode>, edges: Vec<ParsedEdge>) -> String {
     let compact_nodes = nodes
         .into_iter()
         .map(|node| {
@@ -205,6 +364,493 @@ pub fn parse_markdown_compact_json(file_path: &str, source: &[u8]) -> String {
         })
         .collect::<Vec<_>>();
     json!([compact_nodes, compact_edges]).to_string()
+}
+
+#[derive(Clone, Debug)]
+struct TerraformBlock {
+    kind: String,
+    labels: Vec<String>,
+    body: String,
+    line_start: i64,
+    line_end: i64,
+    body_start_line: i64,
+}
+
+#[derive(Clone, Debug)]
+struct TerraformAttr {
+    name: String,
+    value: String,
+    text: String,
+    line_start: i64,
+    line_end: i64,
+}
+
+struct TerraformNodeSpec<'a> {
+    kind: &'a str,
+    name: &'a str,
+    line_start: i64,
+    line_end: i64,
+    is_test: bool,
+    terraform_kind: &'a str,
+}
+
+fn collect_terraform_blocks(text: &str) -> Vec<TerraformBlock> {
+    let mut blocks = Vec::new();
+    let mut offset = 0;
+    while offset < text.len() {
+        let Some(open_rel) = text[offset..].find('{') else {
+            break;
+        };
+        let open = offset + open_rel;
+        let header_start = text[..open]
+            .rfind(['\n', '}'])
+            .map(|idx| idx + 1)
+            .unwrap_or(0);
+        let header = strip_terraform_line_comment(&text[header_start..open]).trim();
+        let Some((kind, labels)) = parse_terraform_header(header) else {
+            offset = open + 1;
+            continue;
+        };
+        let Some(close) = find_matching_brace(text, open) else {
+            break;
+        };
+        let body = text[open + 1..close].to_string();
+        blocks.push(TerraformBlock {
+            kind,
+            labels,
+            body,
+            line_start: line_for_offset(text, header_start),
+            line_end: line_for_offset(text, close),
+            body_start_line: line_for_offset(text, open),
+        });
+        offset = close + 1;
+    }
+    blocks
+}
+
+fn parse_terraform_header(header: &str) -> Option<(String, Vec<String>)> {
+    if header.is_empty() || header.contains('=') {
+        return None;
+    }
+    let tokens = TERRAFORM_HEADER_TOKEN_RE
+        .captures_iter(header)
+        .filter_map(|captures| {
+            captures
+                .get(1)
+                .or_else(|| captures.get(2))
+                .or_else(|| captures.get(3))
+                .map(|value| value.as_str().to_string())
+        })
+        .collect::<Vec<_>>();
+    let (kind, labels) = tokens.split_first()?;
+    let supported = matches!(
+        kind.as_str(),
+        "terraform"
+            | "provider"
+            | "variable"
+            | "locals"
+            | "module"
+            | "data"
+            | "resource"
+            | "check"
+            | "output"
+            | "import"
+            | "moved"
+            | "removed"
+            | "ephemeral"
+    );
+    supported.then(|| (kind.clone(), labels.to_vec()))
+}
+
+fn find_matching_brace(text: &str, open: usize) -> Option<usize> {
+    let mut depth = 0_i64;
+    let mut in_string: Option<char> = None;
+    let mut escaped = false;
+    let mut in_line_comment = false;
+    let mut chars = text.char_indices().peekable();
+    while let Some((idx, ch)) = chars.next() {
+        if idx < open {
+            continue;
+        }
+        if in_line_comment {
+            if ch == '\n' {
+                in_line_comment = false;
+            }
+            continue;
+        }
+        if let Some(quote) = in_string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == quote {
+                in_string = None;
+            }
+            continue;
+        }
+        if ch == '"' || ch == '\'' {
+            in_string = Some(ch);
+            continue;
+        }
+        if ch == '#' {
+            in_line_comment = true;
+            continue;
+        }
+        if ch == '/' && chars.peek().is_some_and(|(_, next)| *next == '/') {
+            in_line_comment = true;
+            continue;
+        }
+        if ch == '{' {
+            depth += 1;
+        } else if ch == '}' {
+            depth -= 1;
+            if depth == 0 {
+                return Some(idx);
+            }
+        }
+    }
+    None
+}
+
+fn collect_terraform_attrs(body: &str, body_start_line: i64) -> Vec<TerraformAttr> {
+    let lines = body.lines().collect::<Vec<_>>();
+    let mut attrs = Vec::new();
+    let mut idx = 0_usize;
+    while idx < lines.len() {
+        let Some(captures) = TERRAFORM_ATTR_RE.captures(lines[idx]) else {
+            idx += 1;
+            continue;
+        };
+        let name = captures[1].to_string();
+        let mut attr_lines = vec![lines[idx]];
+        let mut depth = terraform_expr_depth(captures.get(2).map(|m| m.as_str()).unwrap_or(""));
+        let start_idx = idx;
+        idx += 1;
+        while idx < lines.len() {
+            let starts_next_attr = depth <= 0 && TERRAFORM_ATTR_RE.is_match(lines[idx]);
+            if starts_next_attr {
+                break;
+            }
+            attr_lines.push(lines[idx]);
+            depth += terraform_expr_depth(lines[idx]);
+            idx += 1;
+            if depth <= 0
+                && attr_lines
+                    .last()
+                    .is_some_and(|line| line.trim_end().ends_with('}'))
+            {
+                break;
+            }
+        }
+        let text = attr_lines.join("\n");
+        let value = TERRAFORM_ATTR_RE
+            .captures(attr_lines[0])
+            .and_then(|captures| captures.get(2))
+            .map(|value| value.as_str().trim().to_string())
+            .unwrap_or_default();
+        attrs.push(TerraformAttr {
+            name,
+            value,
+            text,
+            line_start: body_start_line + start_idx as i64,
+            line_end: body_start_line
+                + start_idx as i64
+                + attr_lines.len() as i64
+                + i64::from(attr_lines.len() > 1)
+                - 1,
+        });
+    }
+    attrs
+}
+
+fn terraform_expr_depth(text: &str) -> i64 {
+    let mut depth = 0_i64;
+    let mut in_string: Option<char> = None;
+    let mut escaped = false;
+    for ch in strip_terraform_line_comment(text).chars() {
+        if let Some(quote) = in_string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == quote {
+                in_string = None;
+            }
+            continue;
+        }
+        if ch == '"' || ch == '\'' {
+            in_string = Some(ch);
+            continue;
+        }
+        if matches!(ch, '{' | '[' | '(') {
+            depth += 1;
+        } else if matches!(ch, '}' | ']' | ')') {
+            depth -= 1;
+        }
+    }
+    depth
+}
+
+fn terraform_defined_name(block: &TerraformBlock) -> Option<String> {
+    match block.kind.as_str() {
+        "terraform" => Some("terraform".to_string()),
+        "provider" => block.labels.first().map(|name| format!("provider.{name}")),
+        "variable" => block.labels.first().map(|name| format!("var.{name}")),
+        "module" => block.labels.first().map(|name| format!("module.{name}")),
+        "data" => block
+            .labels
+            .first()
+            .zip(block.labels.get(1))
+            .map(|(block_type, name)| format!("data.{block_type}.{name}")),
+        "resource" => block
+            .labels
+            .first()
+            .zip(block.labels.get(1))
+            .map(|(block_type, name)| format!("resource.{block_type}.{name}")),
+        "ephemeral" => block
+            .labels
+            .first()
+            .zip(block.labels.get(1))
+            .map(|(block_type, name)| format!("ephemeral.{block_type}.{name}")),
+        "output" => block.labels.first().map(|name| format!("output.{name}")),
+        "check" => block.labels.first().map(|name| format!("check.{name}")),
+        _ => None,
+    }
+}
+
+fn terraform_kind_for_block(block: &TerraformBlock) -> &str {
+    match block.kind.as_str() {
+        "terraform" => "terraform",
+        "provider" => "provider",
+        "variable" => "variable",
+        "module" => "module",
+        "data" => "data",
+        "resource" => "resource",
+        "ephemeral" => "ephemeral",
+        "output" => "output",
+        "check" => "check",
+        other => other,
+    }
+}
+
+fn push_terraform_node(
+    file_path: &str,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+    spec: TerraformNodeSpec<'_>,
+) {
+    let qualified = terraform_qualified(file_path, spec.name);
+    nodes.push(ParsedNode {
+        kind: spec.kind.to_string(),
+        name: spec.name.to_string(),
+        file_path: file_path.to_string(),
+        line_start: spec.line_start,
+        line_end: spec.line_end,
+        language: "terraform".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: spec.is_test,
+        extra: json!({"terraform_kind": spec.terraform_kind}),
+    });
+    edges.push(ParsedEdge {
+        kind: "CONTAINS".to_string(),
+        source: file_path.to_string(),
+        target: qualified,
+        file_path: file_path.to_string(),
+        line: spec.line_start,
+        extra: json!({}),
+    });
+}
+
+fn handle_terraform_meta_block(
+    file_path: &str,
+    block: &TerraformBlock,
+    defined_names: &HashSet<String>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let attrs = collect_terraform_attrs(&block.body, block.body_start_line);
+    let attr_value = |name: &str| {
+        attrs
+            .iter()
+            .find(|attr| attr.name == name)
+            .map(|attr| strip_tf_string(&attr.value))
+    };
+    match block.kind.as_str() {
+        "import" => {
+            if let Some(target) = attr_value("id").or_else(|| attr_value("to")) {
+                edges.push(ParsedEdge {
+                    kind: "IMPORTS_FROM".to_string(),
+                    source: file_path.to_string(),
+                    target,
+                    file_path: file_path.to_string(),
+                    line: block.line_start,
+                    extra: json!({}),
+                });
+            }
+        }
+        "moved" => {
+            if let (Some(source), Some(target)) = (attr_value("from"), attr_value("to")) {
+                edges.push(ParsedEdge {
+                    kind: "REFERENCES".to_string(),
+                    source,
+                    target,
+                    file_path: file_path.to_string(),
+                    line: block.line_start,
+                    extra: json!({"terraform_kind": "moved"}),
+                });
+            }
+        }
+        "removed" => {
+            if let Some(target) = attr_value("from") {
+                edges.push(ParsedEdge {
+                    kind: "REFERENCES".to_string(),
+                    source: file_path.to_string(),
+                    target,
+                    file_path: file_path.to_string(),
+                    line: block.line_start,
+                    extra: json!({"terraform_kind": "removed"}),
+                });
+            }
+        }
+        _ => {}
+    }
+    scan_terraform_body(
+        &block.body,
+        file_path,
+        file_path,
+        block.line_start,
+        defined_names,
+        edges,
+    );
+}
+
+fn scan_terraform_body(
+    body: &str,
+    caller: &str,
+    file_path: &str,
+    line: i64,
+    defined_names: &HashSet<String>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    collect_terraform_calls(body, caller, file_path, line, edges);
+    collect_terraform_references(body, caller, file_path, line, defined_names, edges);
+}
+
+fn collect_terraform_calls(
+    text: &str,
+    caller: &str,
+    file_path: &str,
+    line: i64,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let mut seen = HashSet::new();
+    for captures in TERRAFORM_CALL_RE.captures_iter(text) {
+        let name = captures[1].to_string();
+        if matches!(name.as_str(), "for" | "if") || !seen.insert(name.clone()) {
+            continue;
+        }
+        edges.push(ParsedEdge {
+            kind: "CALLS".to_string(),
+            source: caller.to_string(),
+            target: name,
+            file_path: file_path.to_string(),
+            line,
+            extra: json!({}),
+        });
+    }
+}
+
+fn collect_terraform_references(
+    text: &str,
+    caller: &str,
+    file_path: &str,
+    line: i64,
+    defined_names: &HashSet<String>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let mut seen = HashSet::new();
+    for captures in TERRAFORM_REFERENCE_RE.captures_iter(text) {
+        let target = if captures.get(1).is_some() {
+            format!("data.{}.{}", &captures[2], &captures[3])
+        } else if captures.get(4).is_some() {
+            format!("{}.{}", &captures[4], &captures[5])
+        } else {
+            let root = &captures[6];
+            if matches!(
+                root,
+                "count" | "each" | "ingress" | "egress" | "path" | "self" | "terraform"
+            ) {
+                continue;
+            }
+            format!("resource.{}.{}", root, &captures[7])
+        };
+        if target == caller || !seen.insert(target.clone()) {
+            continue;
+        }
+        let resolved = if defined_names.contains(&target) {
+            terraform_qualified(file_path, &target)
+        } else {
+            target
+        };
+        edges.push(ParsedEdge {
+            kind: "REFERENCES".to_string(),
+            source: caller.to_string(),
+            target: resolved,
+            file_path: file_path.to_string(),
+            line,
+            extra: json!({}),
+        });
+    }
+}
+
+fn strip_tf_string(value: &str) -> String {
+    let value = value.trim();
+    if value.len() >= 2 {
+        let bytes = value.as_bytes();
+        if (bytes[0] == b'"' && bytes[value.len() - 1] == b'"')
+            || (bytes[0] == b'\'' && bytes[value.len() - 1] == b'\'')
+        {
+            return value[1..value.len() - 1].to_string();
+        }
+    }
+    value.to_string()
+}
+
+fn strip_terraform_line_comment(line: &str) -> &str {
+    let mut in_string: Option<char> = None;
+    let mut escaped = false;
+    let mut prev = '\0';
+    for (idx, ch) in line.char_indices() {
+        if let Some(quote) = in_string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == quote {
+                in_string = None;
+            }
+            prev = ch;
+            continue;
+        }
+        if ch == '"' || ch == '\'' {
+            in_string = Some(ch);
+        } else if ch == '#' || (prev == '/' && ch == '/') {
+            let start = if ch == '/' {
+                idx.saturating_sub(1)
+            } else {
+                idx
+            };
+            return &line[..start];
+        }
+        prev = ch;
+    }
+    line
+}
+
+fn terraform_qualified(file_path: &str, name: &str) -> String {
+    format!("{file_path}::{name}")
 }
 
 fn collect_markdown_headings_from_text(text: &str) -> Vec<Heading> {
@@ -864,6 +1510,82 @@ Call `build_graph`.
         }));
         assert!(edges.iter().any(|edge| {
             edge.kind == "CROSS_ARTIFACT" && edge.target == "<unresolved:build_graph>"
+        }));
+    }
+
+    #[test]
+    fn parses_terraform_blocks_calls_and_refs() {
+        let source = br#"terraform {
+  required_providers {
+    aws = {
+      source = "hashicorp/aws"
+    }
+  }
+}
+
+variable "tags" {
+  type = map(string)
+}
+
+locals {
+  common_tags = merge(var.tags, {
+    ManagedBy = "dagayn"
+  })
+}
+
+module "network" {
+  source = "./modules/network"
+}
+
+data "aws_caller_identity" "current" {}
+
+resource "aws_vpc" "main" {
+  cidr_block = module.network.cidr_block
+  tags = merge(local.common_tags, {
+    Account = data.aws_caller_identity.current.account_id
+  })
+}
+
+check "vpc_ready" {
+  assert {
+    condition = length(module.network.public_subnet_ids) > 0
+  }
+}
+
+output "vpc_id" {
+  value = aws_vpc.main.id
+}
+"#;
+        let (nodes, edges) = parse_terraform("main.tf", source);
+        let names = nodes
+            .iter()
+            .map(|node| node.name.as_str())
+            .collect::<Vec<_>>();
+        assert!(names.contains(&"terraform"));
+        assert!(names.contains(&"var.tags"));
+        assert!(names.contains(&"local.common_tags"));
+        assert!(names.contains(&"module.network"));
+        assert!(names.contains(&"data.aws_caller_identity.current"));
+        assert!(names.contains(&"resource.aws_vpc.main"));
+        assert!(names.contains(&"check.vpc_ready"));
+        assert!(names.contains(&"output.vpc_id"));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "DEPENDS_ON"
+                && edge.source == "main.tf::terraform"
+                && edge.target == "hashicorp/aws"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "IMPORTS_FROM"
+                && edge.source == "main.tf::module.network"
+                && edge.target == "./modules/network"
+        }));
+        assert!(edges
+            .iter()
+            .any(|edge| edge.kind == "CALLS" && edge.target == "merge"));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "REFERENCES"
+                && edge.source == "resource.aws_vpc.main"
+                && edge.target == "main.tf::data.aws_caller_identity.current"
         }));
     }
 }
