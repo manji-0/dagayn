@@ -877,6 +877,86 @@ impl GraphStore {
         Ok(None)
     }
 
+    pub fn get_nodes_by_qualified_names(
+        &self,
+        qualified_names: &[String],
+    ) -> Result<HashMap<String, GraphNode>> {
+        if qualified_names.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let mut normalized_for = HashMap::new();
+        let mut keys = HashSet::new();
+        for qualified_name in qualified_names {
+            let normalized = self.normalize_qualified_key(qualified_name)?;
+            normalized_for.insert(qualified_name.clone(), normalized.clone());
+            keys.insert(qualified_name.clone());
+            if normalized != *qualified_name {
+                keys.insert(normalized);
+            }
+        }
+
+        let keys = keys.into_iter().collect::<Vec<_>>();
+        let mut rows_by_qn = HashMap::new();
+        for chunk in keys.chunks(450) {
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!("SELECT * FROM nodes WHERE qualified_name IN ({placeholders})");
+            let mut stmt = self.conn.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), node_from_row)?;
+            for row in rows {
+                let node = row?;
+                rows_by_qn
+                    .entry(node.qualified_name.clone())
+                    .or_insert(node);
+            }
+        }
+
+        let mut out = HashMap::new();
+        for original in qualified_names {
+            if let Some(node) = rows_by_qn.get(original) {
+                out.insert(original.clone(), node.clone());
+                continue;
+            }
+            if let Some(normalized) = normalized_for.get(original) {
+                if let Some(node) = rows_by_qn.get(normalized) {
+                    out.insert(original.clone(), node.clone());
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    pub fn get_nodes_by_ids(&self, node_ids: &[i64]) -> Result<HashMap<i64, GraphNode>> {
+        let mut out = HashMap::new();
+        if node_ids.is_empty() {
+            return Ok(out);
+        }
+
+        let mut unique_ids = Vec::new();
+        let mut seen = HashSet::new();
+        for node_id in node_ids {
+            if seen.insert(*node_id) {
+                unique_ids.push(*node_id);
+            }
+        }
+
+        for chunk in unique_ids.chunks(450) {
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!("SELECT * FROM nodes WHERE id IN ({placeholders})");
+            let mut stmt = self.conn.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), node_from_row)?;
+            for row in rows {
+                let node = row?;
+                out.insert(node.id, node);
+            }
+        }
+        Ok(out)
+    }
+
     pub fn get_nodes_by_file(&self, file_path: &str) -> Result<Vec<GraphNode>> {
         let mut seen = std::collections::HashSet::<i64>::new();
         let mut nodes = Vec::new();
@@ -1055,6 +1135,35 @@ impl GraphStore {
             .map_err(Into::into)
     }
 
+    pub fn count_flow_memberships_for_nodes(&self, node_ids: &[i64]) -> Result<HashMap<i64, i64>> {
+        let mut out = node_ids
+            .iter()
+            .map(|node_id| (*node_id, 0))
+            .collect::<HashMap<_, _>>();
+        if node_ids.is_empty() {
+            return Ok(out);
+        }
+
+        for chunk in node_ids.chunks(450) {
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!(
+                "SELECT node_id, COUNT(*) FROM flow_memberships \
+                 WHERE node_id IN ({placeholders}) GROUP BY node_id"
+            );
+            let mut stmt = self.conn.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
+            })?;
+            for row in rows {
+                let (node_id, count) = row?;
+                out.insert(node_id, count);
+            }
+        }
+        Ok(out)
+    }
+
     pub fn get_flow_criticalities_for_node(&self, node_id: i64) -> Result<Vec<f64>> {
         let mut stmt = self.conn.prepare(
             "SELECT f.criticality FROM flows f \
@@ -1064,6 +1173,39 @@ impl GraphStore {
         let rows = stmt.query_map([node_id], |row| row.get::<_, f64>(0))?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(Into::into)
+    }
+
+    pub fn get_flow_criticalities_for_nodes(
+        &self,
+        node_ids: &[i64],
+    ) -> Result<HashMap<i64, Vec<f64>>> {
+        let mut out = node_ids
+            .iter()
+            .map(|node_id| (*node_id, Vec::new()))
+            .collect::<HashMap<_, _>>();
+        if node_ids.is_empty() {
+            return Ok(out);
+        }
+
+        for chunk in node_ids.chunks(450) {
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!(
+                "SELECT fm.node_id, f.criticality FROM flows f \
+                 JOIN flow_memberships fm ON fm.flow_id = f.id \
+                 WHERE fm.node_id IN ({placeholders})"
+            );
+            let mut stmt = self.conn.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, f64>(1)?))
+            })?;
+            for row in rows {
+                let (node_id, criticality) = row?;
+                out.entry(node_id).or_default().push(criticality);
+            }
+        }
+        Ok(out)
     }
 
     pub fn get_node_community_id(&self, node_id: i64) -> Result<Option<i64>> {
@@ -1076,6 +1218,35 @@ impl GraphStore {
             .optional()
             .map(|row| row.flatten())
             .map_err(Into::into)
+    }
+
+    pub fn get_community_ids_by_node_ids(
+        &self,
+        node_ids: &[i64],
+    ) -> Result<HashMap<i64, Option<i64>>> {
+        let mut out = node_ids
+            .iter()
+            .map(|node_id| (*node_id, None))
+            .collect::<HashMap<_, _>>();
+        if node_ids.is_empty() {
+            return Ok(out);
+        }
+
+        for chunk in node_ids.chunks(450) {
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!("SELECT id, community_id FROM nodes WHERE id IN ({placeholders})");
+            let mut stmt = self.conn.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, Option<i64>>(1)?))
+            })?;
+            for row in rows {
+                let (node_id, community_id) = row?;
+                out.insert(node_id, community_id);
+            }
+        }
+        Ok(out)
     }
 
     pub fn get_community_ids_by_qualified_names(
@@ -1466,6 +1637,24 @@ impl GraphStore {
         let rows = stmt.query_map([community_id], |row| row.get::<_, String>(0))?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(Into::into)
+    }
+
+    pub fn get_all_community_member_qns(&self) -> Result<HashMap<i64, Vec<String>>> {
+        let mut out = HashMap::new();
+        let mut stmt = self.conn.prepare(
+            "SELECT community_id, qualified_name FROM nodes \
+             WHERE community_id IS NOT NULL ORDER BY community_id",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?;
+        for row in rows {
+            let (community_id, qualified_name) = row?;
+            out.entry(community_id)
+                .or_insert_with(Vec::new)
+                .push(qualified_name);
+        }
+        Ok(out)
     }
 
     fn get_test_sources_for_target(&self, target_qualified: &str) -> Result<Vec<String>> {
@@ -2899,11 +3088,39 @@ mod tests {
             2
         );
         assert_eq!(store.count_flow_memberships(callee_id).unwrap(), 1);
+        let nodes_by_id = store.get_nodes_by_ids(&[entry_id, callee_id]).unwrap();
+        assert_eq!(nodes_by_id[&entry_id].qualified_name, "app.py::entry");
+        assert_eq!(nodes_by_id[&callee_id].qualified_name, "app.py::callee");
+        let nodes_by_qn = store
+            .get_nodes_by_qualified_names(&[
+                "app.py::entry".to_string(),
+                "app.py::callee".to_string(),
+                "missing.py::none".to_string(),
+            ])
+            .unwrap();
+        assert_eq!(nodes_by_qn["app.py::entry"].id, entry_id);
+        assert_eq!(nodes_by_qn["app.py::callee"].id, callee_id);
+        assert!(!nodes_by_qn.contains_key("missing.py::none"));
+        let membership_counts = store
+            .count_flow_memberships_for_nodes(&[entry_id, callee_id])
+            .unwrap();
+        assert_eq!(membership_counts[&entry_id], 1);
+        assert_eq!(membership_counts[&callee_id], 1);
         assert_eq!(
             store.get_flow_criticalities_for_node(callee_id).unwrap(),
             vec![0.25]
         );
+        let flow_criticalities = store
+            .get_flow_criticalities_for_nodes(&[entry_id, callee_id])
+            .unwrap();
+        assert_eq!(flow_criticalities[&entry_id], vec![0.25]);
+        assert_eq!(flow_criticalities[&callee_id], vec![0.25]);
         assert_eq!(store.get_node_community_id(callee_id).unwrap(), None);
+        let community_ids = store
+            .get_community_ids_by_node_ids(&[entry_id, callee_id])
+            .unwrap();
+        assert_eq!(community_ids[&entry_id], None);
+        assert_eq!(community_ids[&callee_id], None);
         let direct_tests = store.get_transitive_tests("app.py::callee", 1).unwrap();
         assert_eq!(direct_tests.len(), 1);
         assert_eq!(direct_tests[0]["name"], "test_callee");
@@ -3017,6 +3234,11 @@ mod tests {
         let members = store.get_nodes_by_community_id(community_id).unwrap();
         assert_eq!(members.len(), 1);
         assert_eq!(members[0].qualified_name, "auth.py::login");
+        let all_member_qns = store.get_all_community_member_qns().unwrap();
+        assert_eq!(
+            all_member_qns.get(&community_id),
+            Some(&vec!["auth.py::login".to_string()])
+        );
         let community_ids = store
             .get_community_ids_by_qualified_names(&[
                 "auth.py::login".to_string(),

@@ -109,6 +109,21 @@ impl PyGraphStore {
             .and_then(|node| node.map(|node| graph_node_to_py(py, node)).transpose())
     }
 
+    fn get_nodes_by_qualified_names(
+        &self,
+        py: Python<'_>,
+        qualified_names: Vec<String>,
+    ) -> PyResult<Py<PyAny>> {
+        let nodes =
+            self.with_store(|store| store.get_nodes_by_qualified_names(&qualified_names))?;
+        node_map_by_string_to_py(py, nodes)
+    }
+
+    fn get_nodes_by_ids(&self, py: Python<'_>, node_ids: Vec<i64>) -> PyResult<Py<PyAny>> {
+        let nodes = self.with_store(|store| store.get_nodes_by_ids(&node_ids))?;
+        node_map_by_id_to_py(py, nodes)
+    }
+
     fn get_nodes_by_file(&self, py: Python<'_>, file_path: &str) -> PyResult<Vec<Py<PyAny>>> {
         self.with_store(|store| store.get_nodes_by_file(file_path))?
             .into_iter()
@@ -168,12 +183,40 @@ impl PyGraphStore {
         self.with_store(|store| store.count_flow_memberships(node_id))
     }
 
+    fn count_flow_memberships_for_nodes(
+        &self,
+        node_ids: Vec<i64>,
+    ) -> PyResult<std::collections::HashMap<i64, i64>> {
+        self.with_store(|store| store.count_flow_memberships_for_nodes(&node_ids))
+    }
+
     fn get_flow_criticalities_for_node(&self, node_id: i64) -> PyResult<Vec<f64>> {
         self.with_store(|store| store.get_flow_criticalities_for_node(node_id))
     }
 
+    fn get_flow_criticalities_for_nodes(
+        &self,
+        node_ids: Vec<i64>,
+    ) -> PyResult<std::collections::HashMap<i64, Vec<f64>>> {
+        self.with_store(|store| store.get_flow_criticalities_for_nodes(&node_ids))
+    }
+
     fn get_node_community_id(&self, node_id: i64) -> PyResult<Option<i64>> {
         self.with_store(|store| store.get_node_community_id(node_id))
+    }
+
+    fn get_community_ids_by_node_ids(
+        &self,
+        py: Python<'_>,
+        node_ids: Vec<i64>,
+    ) -> PyResult<Py<PyAny>> {
+        let community_ids =
+            self.with_store(|store| store.get_community_ids_by_node_ids(&node_ids))?;
+        let out = PyDict::new(py);
+        for (node_id, community_id) in community_ids {
+            out.set_item(node_id, community_id)?;
+        }
+        Ok(out.unbind().into_any())
     }
 
     fn get_community_ids_by_qualified_names(
@@ -186,6 +229,15 @@ impl PyGraphStore {
         let out = PyDict::new(py);
         for (qualified_name, community_id) in community_ids {
             out.set_item(qualified_name, community_id)?;
+        }
+        Ok(out.unbind().into_any())
+    }
+
+    fn get_all_community_member_qns(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let members = self.with_store(|store| store.get_all_community_member_qns())?;
+        let out = PyDict::new(py);
+        for (community_id, qualified_names) in members {
+            out.set_item(community_id, qualified_names)?;
         }
         Ok(out.unbind().into_any())
     }
@@ -640,6 +692,28 @@ fn graph_node_to_py(py: Python<'_>, node: GraphNode) -> PyResult<Py<PyAny>> {
         ],
     )?;
     Ok(cls.call1(args)?.unbind())
+}
+
+fn node_map_by_string_to_py(
+    py: Python<'_>,
+    nodes_by_key: std::collections::HashMap<String, GraphNode>,
+) -> PyResult<Py<PyAny>> {
+    let out = PyDict::new(py);
+    for (key, node) in nodes_by_key {
+        out.set_item(key, graph_node_to_py(py, node)?.bind(py))?;
+    }
+    Ok(out.unbind().into_any())
+}
+
+fn node_map_by_id_to_py(
+    py: Python<'_>,
+    nodes_by_id: std::collections::HashMap<i64, GraphNode>,
+) -> PyResult<Py<PyAny>> {
+    let out = PyDict::new(py);
+    for (node_id, node) in nodes_by_id {
+        out.set_item(node_id, graph_node_to_py(py, node)?.bind(py))?;
+    }
+    Ok(out.unbind().into_any())
 }
 
 fn graph_edge_to_py(py: Python<'_>, edge: GraphEdge) -> PyResult<Py<PyAny>> {

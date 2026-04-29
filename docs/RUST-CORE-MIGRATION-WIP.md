@@ -298,6 +298,11 @@ Initial scaffold:
 - Rust `GraphStore` exposes the process-level store-cache lease attributes
   (`_pinned`, `_leases`) and `get_edges_by_endpoints`, matching the current
   Python graph read/cache contract after the mainline performance work.
+- Rust `GraphStore` exposes the mainline batch read helpers for node hydration,
+  flow membership/criticality maps, node community maps, and community member
+  maps. Change-risk, query traversal, flow hydration, and community overview
+  paths can now stay on the Rust backend without falling back to per-node Python
+  SQLite loops.
 - `DAGAYN_BACKEND=rust` is recognized by the Python graph package and fails loudly if the extension has not been built; `python` remains the default
 
 Current local benchmark baseline, measured on 2026-04-28 with `tools/backend_benchmark.py`
