@@ -256,6 +256,8 @@ Initial scaffold:
 - Rust `GraphStore` now also owns FTS5 index rebuilds for the Rust backend,
   using the same virtual table definition and atomic rebuild sequence as the
   Python fallback.
+- Rust `GraphStore` computes missing node signatures in one backend call for
+  Rust-backed post-processing, preserving the current Python signature format.
 - when `postprocess != "none"` under the Rust backend, `build_or_update_graph` re-opens the same SQLite DB with the Python `GraphStore` for the whole post-processing phase rather than adding fine-grained Rust read/query bindings before Phase 2
 - `DAGAYN_BACKEND=rust` is recognized by the Python graph package and fails loudly if the extension has not been built; `python` remains the default
 
@@ -292,9 +294,11 @@ edges) measured:
 | full build, `postprocess=none` | 2.645s | 2.982s | Rust output matches Python counts; Rust is still slower, but the gap narrowed after writer batching |
 | writer-only `store_file_batch` | 0.325s | 0.502s | Prepared statements and direct edge inserts cut Rust writer time by roughly half versus the prior ~1.04s |
 | FTS rebuild only | 0.017s | 0.027s | Rust owns the operation now, but the current SQLite-equivalent implementation is not a speedup yet |
+| missing signature computation only | 12.300s | 0.036s | Rust batches the old Python per-node update loop into one transaction |
 
 The FTS-only measurement used the current local `.dagayn/graph.db` snapshot and
-indexed 4,265 rows in both backends.
+indexed 4,265 rows in both backends. The signature-only measurement reset
+signatures on a copied local graph and recomputed 4,270 rows in both backends.
 
 This did not materially change the conclusion: the next meaningful
 optimization is to move more non-Markdown/Terraform parsing and post-processing
@@ -375,6 +379,9 @@ Parser migration progress:
   when the Rust backend is active. Python's `dagayn.search.rebuild_fts_index`
   keeps the existing SQLite implementation as the fallback for the Python
   backend and tests.
+- Missing signature computation now routes through
+  `dagayn._core.GraphStore.compute_missing_signatures` when available, avoiding
+  one Python-to-store update per unsigned node in Rust-backed post-processing.
 
 Python modules being replaced: `dagayn/graph.py` (`GraphStore` upsert and replacement logic), `dagayn/incremental.py` (path normalization and VCS metadata helpers such as `_make_repo_relative`), `dagayn/migrations.py`.
 

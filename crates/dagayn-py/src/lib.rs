@@ -156,6 +156,10 @@ impl PyGraphStore {
         self.with_store_mut(|store| store.rebuild_fts_index())
     }
 
+    fn compute_missing_signatures(&self) -> PyResult<i64> {
+        self.with_store_mut(|store| store.compute_missing_signatures())
+    }
+
     fn close(&self) -> PyResult<()> {
         Ok(())
     }

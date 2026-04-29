@@ -51,27 +51,31 @@ def _run_postprocess(
 
     # -- Signatures + FTS (fast, always run unless "none") --
     try:
-        rows = store.get_nodes_without_signature()
-        for row in rows:
-            node_id, name, kind, params, ret = (
-                row[0],
-                row[1],
-                row[2],
-                row[3],
-                row[4],
-            )
-            if kind in ("Function", "Test"):
-                sig = f"def {name}({params or ''})"
-                if ret:
-                    sig += f" -> {ret}"
-            elif kind == "Class":
-                sig = f"class {name}"
-            else:
-                sig = name
-            store.update_node_signature(node_id, sig[:512])
-        store.commit()
+        rust_compute = getattr(store, "compute_missing_signatures", None)
+        if callable(rust_compute):
+            rust_compute()
+        else:
+            rows = store.get_nodes_without_signature()
+            for row in rows:
+                node_id, name, kind, params, ret = (
+                    row[0],
+                    row[1],
+                    row[2],
+                    row[3],
+                    row[4],
+                )
+                if kind in ("Function", "Test"):
+                    sig = f"def {name}({params or ''})"
+                    if ret:
+                        sig += f" -> {ret}"
+                elif kind == "Class":
+                    sig = f"class {name}"
+                else:
+                    sig = name
+                store.update_node_signature(node_id, sig[:512])
+            store.commit()
         build_result["signatures_updated"] = True
-    except (sqlite3.OperationalError, TypeError, KeyError) as e:
+    except (sqlite3.OperationalError, RuntimeError, TypeError, KeyError) as e:
         logger.warning("Signature computation failed: %s", e)
         warnings.append(f"Signature computation failed: {type(e).__name__}: {e}")
 
@@ -515,27 +519,31 @@ def run_postprocess(
 
     try:
         try:
-            rows = store.get_nodes_without_signature()
-            for row in rows:
-                node_id, name, kind, params, ret = (
-                    row[0],
-                    row[1],
-                    row[2],
-                    row[3],
-                    row[4],
-                )
-                if kind in ("Function", "Test"):
-                    sig = f"def {name}({params or ''})"
-                    if ret:
-                        sig += f" -> {ret}"
-                elif kind == "Class":
-                    sig = f"class {name}"
-                else:
-                    sig = name
-                store.update_node_signature(node_id, sig[:512])
-            store.commit()
+            rust_compute = getattr(store, "compute_missing_signatures", None)
+            if callable(rust_compute):
+                rust_compute()
+            else:
+                rows = store.get_nodes_without_signature()
+                for row in rows:
+                    node_id, name, kind, params, ret = (
+                        row[0],
+                        row[1],
+                        row[2],
+                        row[3],
+                        row[4],
+                    )
+                    if kind in ("Function", "Test"):
+                        sig = f"def {name}({params or ''})"
+                        if ret:
+                            sig += f" -> {ret}"
+                    elif kind == "Class":
+                        sig = f"class {name}"
+                    else:
+                        sig = name
+                    store.update_node_signature(node_id, sig[:512])
+                store.commit()
             result["signatures_updated"] = True
-        except (sqlite3.OperationalError, TypeError, KeyError) as e:
+        except (sqlite3.OperationalError, RuntimeError, TypeError, KeyError) as e:
             logger.warning("Signature computation failed: %s", e)
             warnings.append(f"Signature computation failed: {type(e).__name__}: {e}")
 

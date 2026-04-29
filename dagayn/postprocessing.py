@@ -196,6 +196,11 @@ def _compute_signatures(
 ) -> None:
     """Compute human-readable signatures for nodes that lack one."""
     try:
+        rust_compute = getattr(store, "compute_missing_signatures", None)
+        if callable(rust_compute):
+            result["signatures_computed"] = int(rust_compute())
+            return
+
         rows = store.get_nodes_without_signature()
         for row in rows:
             node_id, name, kind, params, ret = (
@@ -216,7 +221,7 @@ def _compute_signatures(
             store.update_node_signature(node_id, sig[:512])
         store.commit()
         result["signatures_computed"] = len(rows)
-    except (sqlite3.OperationalError, TypeError, KeyError) as e:
+    except (sqlite3.OperationalError, RuntimeError, TypeError, KeyError) as e:
         logger.warning("Signature computation failed: %s", e)
         warnings.append(f"Signature computation failed: {type(e).__name__}: {e}")
 
