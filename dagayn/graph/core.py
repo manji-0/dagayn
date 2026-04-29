@@ -982,10 +982,26 @@ class GraphStore:
 
         impacted_files = list({n.file_path for n in impacted_nodes})
 
+        # Extend _impact_seeds with impacted nodes so the edge JOIN covers the
+        # full set without Python-side chunking (reuses the indexed temp table).
+        if impacted_nodes:
+            impacted_qns_list = [n.qualified_name for n in impacted_nodes]
+            for i in range(0, len(impacted_qns_list), batch_size):
+                batch = impacted_qns_list[i : i + batch_size]
+                placeholders = ",".join("(?)" for _ in batch)
+                self._conn.execute(  # nosec B608
+                    f"INSERT OR IGNORE INTO _impact_seeds (qn) VALUES {placeholders}",
+                    batch,
+                )
+
         relevant_edges: list[GraphEdge] = []
-        all_qns = seeds | {n.qualified_name for n in impacted_nodes}
-        if all_qns:
-            relevant_edges = self.get_edges_among(all_qns)
+        if seeds or impacted_nodes:
+            edge_rows = self._conn.execute("""
+                SELECT e.* FROM edges e
+                INNER JOIN _impact_seeds s ON e.source_qualified = s.qn
+                INNER JOIN _impact_seeds t ON e.target_qualified = t.qn
+            """).fetchall()
+            relevant_edges = [self._row_to_edge(r) for r in edge_rows]
 
         return {
             "changed_nodes": changed_nodes,
