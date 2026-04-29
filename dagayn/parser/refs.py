@@ -184,9 +184,7 @@ def _extract_value_references(
         return
 
     if node_type == "arguments":
-        _ref_from_arguments(
-            parser, child, source, language, file_path, caller, edges, imap, dnames
-        )
+        _ref_from_arguments(parser, child, source, language, file_path, caller, edges, imap, dnames)
 
 
 def _emit_reference_if_known(

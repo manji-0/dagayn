@@ -1,117 +1,131 @@
-/**
- * SCM integration for code review.
- *
- * Detects staged and unstaged changes via git, computes the blast radius
- * for those files, and populates the Blast Radius tree view so the reviewer
- * can see what is impacted before committing.
- */
-
 import * as vscode from 'vscode';
+import * as path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { SqliteReader } from '../backend/sqlite';
-import { BlastRadiusTreeProvider } from '../views/treeView';
+import { GraphWebviewPanel } from '../views/graphWebview';
+import { ScmDecorationProvider } from './scmDecorations';
 
 const execFileAsync = promisify(execFile);
-
-/** Timeout for git commands (milliseconds). */
 const GIT_TIMEOUT_MS = 10_000;
 
-/**
- * Run a git command in the given working directory and return trimmed stdout
- * lines. Returns an empty array on any error (e.g. git not installed, not a
- * git repo, etc.).
- */
-async function gitLines(
-  args: string[],
-  cwd: string,
-): Promise<string[]> {
-  try {
-    const { stdout } = await execFileAsync('git', args, {
-      cwd,
-      timeout: GIT_TIMEOUT_MS,
-    });
-    return stdout
-      .trim()
-      .split('\n')
-      .filter((line) => line.length > 0);
-  } catch {
-    return [];
-  }
+async function gitLines(args: string[], cwd: string): Promise<string[]> {
+    try {
+        const { stdout } = await execFileAsync('git', args, { cwd, timeout: GIT_TIMEOUT_MS });
+        return stdout.trim().split('\n').filter((l) => l.length > 0);
+    } catch {
+        return [];
+    }
 }
 
-/**
- * Register the `dagayn.reviewChanges` command.
- *
- * The command:
- *  1. Runs `git diff --name-only HEAD` and `git diff --cached --name-only`
- *     to collect changed + staged files.
- *  2. Computes the blast radius for those files.
- *  3. Updates the BlastRadiusTreeProvider with the results.
- *  4. Focuses the blast radius view.
- */
 export function registerReviewCommand(
-  context: vscode.ExtensionContext,
-  reader: SqliteReader,
-  blastRadiusProvider: BlastRadiusTreeProvider,
+    context: vscode.ExtensionContext,
+    getReader: () => SqliteReader | undefined,
+    getWorkspaceRoot: () => string | undefined,
+    getScmProvider: () => ScmDecorationProvider | undefined,
 ): void {
-  const disposable = vscode.commands.registerCommand(
-    'dagayn.reviewChanges',
-    async () => {
-      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-      if (!workspaceFolder) {
-        vscode.window.showErrorMessage('No workspace folder is open.');
-        return;
-      }
+    context.subscriptions.push(
+        vscode.commands.registerCommand('dagayn.reviewChanges', async () => {
+            const reader = getReader();
+            if (!reader) {
+                vscode.window.showWarningMessage('Code Graph: No graph database loaded.');
+                return;
+            }
 
-      const workspaceRoot = workspaceFolder.uri.fsPath;
+            const workspaceRoot = getWorkspaceRoot();
+            if (!workspaceRoot) {
+                vscode.window.showErrorMessage('No workspace folder is open.');
+                return;
+            }
 
-      await vscode.window.withProgress(
-        {
-          location: vscode.ProgressLocation.Notification,
-          title: 'Code Graph: Analyzing changes...',
-          cancellable: false,
-        },
-        async () => {
-          // 1. Collect changed files (unstaged + staged, deduplicated)
-          const [unstaged, staged] = await Promise.all([
-            gitLines(['diff', '--name-only', 'HEAD'], workspaceRoot),
-            gitLines(['diff', '--cached', '--name-only'], workspaceRoot),
-          ]);
+            await vscode.window.withProgress(
+                {
+                    location: vscode.ProgressLocation.Notification,
+                    title: 'Code Graph: Analyzing changes...',
+                    cancellable: false,
+                },
+                async () => {
+                    const [unstaged, staged] = await Promise.all([
+                        gitLines(['diff', '--name-only', 'HEAD'], workspaceRoot),
+                        gitLines(['diff', '--cached', '--name-only'], workspaceRoot),
+                    ]);
 
-          const changedFiles = [...new Set([...unstaged, ...staged])];
+                    const changedFiles = [...new Set([...unstaged, ...staged])];
 
-          if (changedFiles.length === 0) {
-            vscode.window.showInformationMessage(
-              'No changes detected.',
+                    if (changedFiles.length === 0) {
+                        vscode.window.showInformationMessage('Code Graph: No changes detected.');
+                        return;
+                    }
+
+                    const absFiles = changedFiles.map((f) => path.join(workspaceRoot, f));
+                    const impact = reader.getImpactRadius(absFiles);
+
+                    const guidance: string[] = [];
+                    const impactedFileCount = new Set(
+                        impact.impactedNodes.map((n) => n.filePath),
+                    ).size;
+
+                    // Test coverage check
+                    const untestedFns: string[] = [];
+                    for (const node of impact.changedNodes) {
+                        if (node.kind !== 'Function' || node.isTest) { continue; }
+                        const inEdges = reader.getEdgesByTarget(node.qualifiedName);
+                        if (inEdges.some((e) => e.kind === 'TESTED_BY')) { continue; }
+                        const outEdges = reader.getEdgesBySource(node.qualifiedName);
+                        if (!outEdges.some((e) => e.kind === 'TESTED_BY')) {
+                            untestedFns.push(node.name);
+                        }
+                    }
+                    if (untestedFns.length > 0) {
+                        guidance.push(
+                            `⚠️ **${untestedFns.length} changed function(s) lack test coverage**: ${untestedFns.slice(0, 5).join(', ')}${untestedFns.length > 5 ? '...' : ''}`,
+                        );
+                    }
+
+                    if (impactedFileCount > 10) {
+                        guidance.push(
+                            `⚠️ **Wide blast radius**: ${impactedFileCount} files impacted — consider splitting this change.`,
+                        );
+                    }
+
+                    const inheritanceChanges = impact.edges.filter(
+                        (e) => e.kind === 'INHERITS' || e.kind === 'IMPLEMENTS',
+                    );
+                    if (inheritanceChanges.length > 0) {
+                        guidance.push(
+                            `⚠️ **Inheritance chain affected**: ${inheritanceChanges.length} inheritance/implementation edge(s) touched.`,
+                        );
+                    }
+
+                    if (impact.impactedNodes.length > 0) {
+                        guidance.push(
+                            `ℹ️ ${impact.impactedNodes.length} nodes in ${impactedFileCount} file(s) may be affected by these changes.`,
+                        );
+                    }
+
+                    const channel = vscode.window.createOutputChannel('Code Graph Review', { log: true });
+                    channel.appendLine('# Review Guidance');
+                    channel.appendLine('');
+                    channel.appendLine(`Changed files: ${changedFiles.length}`);
+                    channel.appendLine(`Changed nodes: ${impact.changedNodes.length}`);
+                    channel.appendLine(`Impacted nodes: ${impact.impactedNodes.length}`);
+                    channel.appendLine(`Impacted files: ${impactedFileCount}`);
+                    channel.appendLine('');
+                    if (guidance.length > 0) {
+                        for (const g of guidance) { channel.appendLine(g); }
+                    } else {
+                        channel.appendLine('✅ No concerns detected.');
+                    }
+                    channel.show(true);
+
+                    GraphWebviewPanel.createOrShow(context.extensionUri, reader, impact);
+
+                    const scmProvider = getScmProvider();
+                    if (scmProvider) {
+                        await scmProvider.update(reader, workspaceRoot);
+                    }
+                },
             );
-            return;
-          }
-
-          // 2. Compute blast radius
-          const config = vscode.workspace.getConfiguration('dagayn');
-          const depth = config.get<number>('blastRadiusDepth', 2);
-          const impact = reader.getImpactRadius(changedFiles, depth);
-
-          // 3. Update tree provider
-          blastRadiusProvider.setResults(
-            impact.changedNodes,
-            impact.impactedNodes,
-          );
-
-          // 4. Focus the blast radius view
-          await vscode.commands.executeCommand(
-            'dagayn.blastRadius.focus',
-          );
-
-          // 5. Show summary
-          vscode.window.showInformationMessage(
-            `Review: ${changedFiles.length} changed file(s) impact ${impact.impactedNodes.length} additional file(s).`,
-          );
-        },
-      );
-    },
-  );
-
-  context.subscriptions.push(disposable);
+        }),
+    );
 }

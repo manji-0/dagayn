@@ -2,8 +2,33 @@ import * as vscode from 'vscode';
 import { SqliteReader, GraphNode } from '../backend/sqlite';
 import { resolveNodeAtCursor, navigateToNode } from './cursorResolver';
 
+type QueryDef = { edgeKind: string; direction: 'incoming' | 'outgoing' };
+
+const QUERY_PATTERNS: Array<{ label: string; description: string }> = [
+    { label: 'callers_of', description: 'Find functions calling the target' },
+    { label: 'callees_of', description: 'Find functions called by the target' },
+    { label: 'imports_of', description: 'Find modules imported by a file' },
+    { label: 'importers_of', description: 'Find files importing from the target' },
+    { label: 'children_of', description: 'Find nodes contained in a file or class' },
+    { label: 'tests_for', description: 'Find tests for a function or class' },
+    { label: 'inheritors_of', description: 'Find classes inheriting/implementing the target' },
+    { label: 'file_summary', description: 'List all nodes in a file' },
+];
+
+const QUERY_MAP: Record<string, QueryDef> = {
+    callers_of: { edgeKind: 'CALLS', direction: 'incoming' },
+    callees_of: { edgeKind: 'CALLS', direction: 'outgoing' },
+    imports_of: { edgeKind: 'IMPORTS_FROM', direction: 'outgoing' },
+    importers_of: { edgeKind: 'IMPORTS_FROM', direction: 'incoming' },
+    children_of: { edgeKind: 'CONTAINS', direction: 'outgoing' },
+    tests_for: { edgeKind: 'TESTED_BY', direction: 'incoming' },
+    inheritors_of: { edgeKind: 'INHERITS', direction: 'incoming' },
+    file_summary: { edgeKind: 'CONTAINS', direction: 'outgoing' },
+};
+
 /**
- * Register the navigation commands: findCallers, findTests, and search.
+ * Register the navigation commands: findCallers, findTests, findCallees,
+ * queryGraph, and findLargeFunctions.
  */
 export function registerNavigationCommands(
     context: vscode.ExtensionContext,
@@ -147,49 +172,190 @@ export function registerNavigationCommands(
     );
 
     // -----------------------------------------------------------------
-    // dagayn.search
+    // dagayn.findCallees
     // -----------------------------------------------------------------
     context.subscriptions.push(
-        vscode.commands.registerCommand('dagayn.search', async () => {
+        vscode.commands.registerCommand('dagayn.findCallees', async () => {
             const reader = getReader();
             if (!reader) {
                 vscode.window.showWarningMessage('Code Graph: No graph database loaded.');
                 return;
             }
 
-            const query = await vscode.window.showInputBox({
-                prompt: 'Search the code graph',
-                placeHolder: 'Enter a function, class, or module name',
-            });
-
-            if (!query) {
+            const node = resolveNodeAtCursor(reader);
+            if (!node) {
+                vscode.window.showWarningMessage(
+                    'Code Graph: No graph node found at the current cursor position.',
+                );
                 return;
             }
 
-            const results = reader.searchNodes(query, 30);
+            const edges = reader.getEdgesBySource(node.qualifiedName);
+            const calleeEdges = edges.filter((e) => e.kind === 'CALLS');
+
+            if (calleeEdges.length === 0) {
+                vscode.window.showInformationMessage(
+                    `Code Graph: No callees found for "${node.name}".`,
+                );
+                return;
+            }
+
+            const items: Array<{
+                label: string;
+                description: string;
+                detail: string;
+                node: GraphNode | undefined;
+            }> = [];
+
+            for (const edge of calleeEdges) {
+                const calleeNode = reader.getNode(edge.targetQualified);
+                items.push({
+                    label: calleeNode?.name ?? edge.targetQualified,
+                    description: calleeNode?.filePath ?? edge.filePath,
+                    detail: `Line ${calleeNode?.lineStart ?? edge.line}`,
+                    node: calleeNode,
+                });
+            }
+
+            const selected = await vscode.window.showQuickPick(items, {
+                placeHolder: `Callees of ${node.name}`,
+            });
+
+            if (selected?.node) {
+                await navigateToNode(selected.node);
+            }
+        }),
+    );
+
+    // -----------------------------------------------------------------
+    // dagayn.queryGraph — expose all 8 query patterns
+    // -----------------------------------------------------------------
+    context.subscriptions.push(
+        vscode.commands.registerCommand('dagayn.queryGraph', async () => {
+            const reader = getReader();
+            if (!reader) {
+                vscode.window.showWarningMessage('Code Graph: No graph database loaded.');
+                return;
+            }
+
+            const pattern = await vscode.window.showQuickPick(QUERY_PATTERNS, {
+                placeHolder: 'Select a query pattern',
+            });
+            if (!pattern) { return; }
+
+            const target = await vscode.window.showInputBox({
+                prompt: `Enter the target for ${pattern.label}`,
+                placeHolder: 'e.g., my_module.py::my_function or path/to/file.py',
+            });
+            if (!target) { return; }
+
+            const qdef = QUERY_MAP[pattern.label];
+            if (!qdef) { return; }
+
+            let node = reader.getNode(target);
+            if (!node) {
+                const matches = reader.searchNodes(target, 5);
+                if (matches.length === 1) {
+                    node = matches[0];
+                } else if (matches.length > 1) {
+                    const picked = await vscode.window.showQuickPick(
+                        matches.map((m) => ({
+                            label: m.name,
+                            description: `${m.kind} · ${m.filePath}`,
+                            node: m,
+                        })),
+                        { placeHolder: `Multiple matches for "${target}" — select one` },
+                    );
+                    if (!picked) { return; }
+                    node = picked.node;
+                }
+            }
+
+            if (!node) {
+                vscode.window.showInformationMessage(`Code Graph: "${target}" not found.`);
+                return;
+            }
+
+            const edges = qdef.direction === 'incoming'
+                ? reader.getEdgesByTarget(node.qualifiedName)
+                : reader.getEdgesBySource(node.qualifiedName);
+
+            const filtered = edges.filter((e) => e.kind === qdef.edgeKind);
+
+            if (filtered.length === 0) {
+                vscode.window.showInformationMessage(
+                    `Code Graph: No ${pattern.label} results for "${node.name}".`,
+                );
+                return;
+            }
+
+            const items = filtered.map((e) => {
+                const relatedQn = qdef.direction === 'incoming' ? e.sourceQualified : e.targetQualified;
+                const relatedNode = reader.getNode(relatedQn);
+                return {
+                    label: relatedNode?.name ?? relatedQn,
+                    description: relatedNode ? `${relatedNode.kind} · ${relatedNode.filePath}` : '',
+                    detail: `Line ${relatedNode?.lineStart ?? e.line}`,
+                    node: relatedNode,
+                };
+            });
+
+            const selected = await vscode.window.showQuickPick(items, {
+                placeHolder: `${pattern.label}: ${node.name} (${filtered.length} results)`,
+            });
+
+            if (selected?.node) {
+                await navigateToNode(selected.node);
+            }
+        }),
+    );
+
+    // -----------------------------------------------------------------
+    // dagayn.findLargeFunctions
+    // -----------------------------------------------------------------
+    context.subscriptions.push(
+        vscode.commands.registerCommand('dagayn.findLargeFunctions', async () => {
+            const reader = getReader();
+            if (!reader) {
+                vscode.window.showWarningMessage('Code Graph: No graph database loaded.');
+                return;
+            }
+
+            const minLinesStr = await vscode.window.showInputBox({
+                prompt: 'Minimum line count threshold',
+                placeHolder: '50',
+                value: '50',
+            });
+            if (!minLinesStr) { return; }
+
+            const minLines = parseInt(minLinesStr, 10);
+            if (isNaN(minLines) || minLines < 1) {
+                vscode.window.showWarningMessage('Code Graph: Invalid line count.');
+                return;
+            }
+
+            const results = reader.getNodesBySize(minLines, undefined, undefined, 50);
 
             if (results.length === 0) {
                 vscode.window.showInformationMessage(
-                    `Code Graph: No results found for "${query}".`,
+                    `Code Graph: No functions found with ${minLines}+ lines.`,
                 );
                 return;
             }
 
             const items = results.map((r) => ({
-                label: r.name,
-                description: r.kind,
-                detail: r.filePath
-                    ? `${r.filePath}:${r.lineStart ?? ''}`
-                    : undefined,
-                result: r,
+                label: `${r.name} (${r.lineCount} lines)`,
+                description: `${r.kind} · ${r.filePath}`,
+                detail: `Lines ${r.lineStart ?? '?'}–${r.lineEnd ?? '?'}`,
+                node: r as GraphNode,
             }));
 
             const selected = await vscode.window.showQuickPick(items, {
-                placeHolder: `Results for "${query}"`,
+                placeHolder: `${results.length} nodes with ${minLines}+ lines`,
             });
 
-            if (selected?.result) {
-                await navigateToNode(selected.result);
+            if (selected?.node) {
+                await navigateToNode(selected.node);
             }
         }),
     );
