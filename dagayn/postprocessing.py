@@ -74,14 +74,21 @@ def _resolve_markdown_artifact_refs(
     dropped = 0
     try:
         rows = store._conn.execute(
-            "SELECT id, source_qualified, file_path, line, extra "
+            "SELECT id, extra "
             "FROM edges "
             "WHERE kind='CROSS_ARTIFACT' "
             "AND extra LIKE '%unresolved_target_name%'"
         ).fetchall()
 
+        if not rows:
+            result["markdown_artifact_refs_resolved"] = 0
+            result["markdown_artifact_refs_dropped"] = 0
+            return
+
+        # Parse extras and collect unique symbol names in one pass
+        edge_data: list[tuple[int, str, dict]] = []  # (edge_id, sym, extra_dict)
+        symbols: set[str] = set()
         for row in rows:
-            edge_id = row["id"]
             try:
                 extra = json.loads(row["extra"] or "{}")
             except (json.JSONDecodeError, TypeError):
@@ -89,32 +96,64 @@ def _resolve_markdown_artifact_refs(
             sym = extra.get("unresolved_target_name")
             if not sym:
                 continue
+            edge_data.append((row["id"], sym, extra))
+            symbols.add(sym)
 
-            matches = store._conn.execute(
-                "SELECT qualified_name, language "
-                "FROM nodes "
-                "WHERE name = ? AND language != 'markdown' "
-                "LIMIT 2",
-                (sym,),
+        if not edge_data:
+            result["markdown_artifact_refs_resolved"] = 0
+            result["markdown_artifact_refs_dropped"] = 0
+            return
+
+        # Batch-fetch node matches for all unique symbols (1 query per 450 symbols)
+        batch_size = 450
+        sym_list = list(symbols)
+        matches_by_sym: dict[str, list[tuple[str, str]]] = {}
+        for i in range(0, len(sym_list), batch_size):
+            chunk = sym_list[i : i + batch_size]
+            placeholders = ",".join("?" for _ in chunk)
+            match_rows = store._conn.execute(  # nosec B608
+                f"SELECT name, qualified_name, language FROM nodes "
+                f"WHERE name IN ({placeholders}) AND language != 'markdown'",
+                chunk,
             ).fetchall()
-
-            if len(matches) == 1:
-                qname = matches[0]["qualified_name"]
-                lang = matches[0]["language"] or "unknown"
-                extra.pop("unresolved_target_name", None)
-                extra["target_language"] = lang
-                extra["confidence"] = 0.8
-                extra["confidence_tier"] = "HIGH"
-                store._conn.execute(
-                    "UPDATE edges "
-                    "SET target_qualified=?, extra=?, confidence=0.8, confidence_tier='HIGH' "
-                    "WHERE id=?",
-                    (qname, json.dumps(extra), edge_id),
+            for mr in match_rows:
+                matches_by_sym.setdefault(mr["name"], []).append(
+                    (mr["qualified_name"], mr["language"] or "unknown")
                 )
+
+        # Classify edges into updates vs deletes
+        to_update: list[tuple] = []  # (new_target, new_extra_json, confidence, tier, edge_id)
+        to_delete: list[int] = []
+        for edge_id, sym, extra in edge_data:
+            matches = matches_by_sym.get(sym, [])
+            if len(matches) == 1:
+                qname, lang = matches[0]
+                new_extra = dict(extra)
+                new_extra.pop("unresolved_target_name", None)
+                new_extra["target_language"] = lang
+                new_extra["confidence"] = 0.8
+                new_extra["confidence_tier"] = "HIGH"
+                to_update.append((qname, json.dumps(new_extra), 0.8, "HIGH", edge_id))
                 resolved += 1
             else:
-                store._conn.execute("DELETE FROM edges WHERE id=?", (edge_id,))
+                to_delete.append(edge_id)
                 dropped += 1
+
+        if to_update:
+            store._conn.executemany(
+                "UPDATE edges "
+                "SET target_qualified=?, extra=?, confidence=?, confidence_tier=? "
+                "WHERE id=?",
+                to_update,
+            )
+        if to_delete:
+            for i in range(0, len(to_delete), batch_size):
+                chunk = to_delete[i : i + batch_size]
+                placeholders = ",".join("?" for _ in chunk)
+                store._conn.execute(  # nosec B608
+                    f"DELETE FROM edges WHERE id IN ({placeholders})",
+                    chunk,
+                )
 
         store.commit()
         result["markdown_artifact_refs_resolved"] = resolved
