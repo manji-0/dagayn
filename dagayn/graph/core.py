@@ -209,7 +209,7 @@ class GraphStore:
         qualified = self._make_qualified(node)
         extra = json.dumps(node.extra) if node.extra else "{}"
 
-        self._conn.execute(
+        row = self._conn.execute(
             """INSERT INTO nodes
                (kind, name, qualified_name, file_path, line_start, line_end,
                 language, parent_name, params, return_type, modifiers, is_test,
@@ -223,6 +223,7 @@ class GraphStore:
                  return_type=excluded.return_type, modifiers=excluded.modifiers,
                  is_test=excluded.is_test, file_hash=excluded.file_hash,
                  extra=excluded.extra, updated_at=excluded.updated_at
+               RETURNING id
             """,
             (
                 node.kind,
@@ -241,9 +242,6 @@ class GraphStore:
                 extra,
                 now,
             ),
-        )
-        row = self._conn.execute(
-            "SELECT id FROM nodes WHERE qualified_name = ?", (qualified,)
         ).fetchone()
         return row["id"]
 
@@ -271,7 +269,7 @@ class GraphStore:
             )
             return existing["id"]
 
-        self._conn.execute(
+        cursor = self._conn.execute(
             """INSERT INTO edges
                (kind, source_qualified, target_qualified, file_path, line, extra,
                 confidence, confidence_tier, updated_at)
@@ -288,7 +286,7 @@ class GraphStore:
                 now,
             ),
         )
-        return self._conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        return cursor.lastrowid or 0
 
     def remove_file_data(self, file_path: str) -> None:
         """Remove all nodes and edges associated with a file."""
@@ -307,6 +305,65 @@ class GraphStore:
         )
         self._invalidate_cache()
 
+    def _bulk_insert_nodes(self, nodes: list[NodeInfo], fhash: str) -> None:
+        """Bulk-insert nodes via executemany. Caller must have cleared the file first."""
+        if not nodes:
+            return
+        now = time.time()
+        self._conn.executemany(
+            """INSERT INTO nodes
+               (kind, name, qualified_name, file_path, line_start, line_end,
+                language, parent_name, params, return_type, modifiers, is_test,
+                file_hash, extra, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                (
+                    n.kind,
+                    n.name,
+                    self._make_qualified(n),
+                    n.file_path,
+                    n.line_start,
+                    n.line_end,
+                    n.language,
+                    n.parent_name,
+                    n.params,
+                    n.return_type,
+                    n.modifiers,
+                    int(n.is_test),
+                    fhash,
+                    json.dumps(n.extra) if n.extra else "{}",
+                    now,
+                )
+                for n in nodes
+            ],
+        )
+
+    def _bulk_insert_edges(self, edges: list[EdgeInfo]) -> None:
+        """Bulk-insert edges via executemany. Caller must have cleared the file first."""
+        if not edges:
+            return
+        now = time.time()
+        self._conn.executemany(
+            """INSERT INTO edges
+               (kind, source_qualified, target_qualified, file_path, line, extra,
+                confidence, confidence_tier, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                (
+                    e.kind,
+                    e.source,
+                    e.target,
+                    e.file_path,
+                    e.line,
+                    json.dumps(e.extra) if e.extra else "{}",
+                    float((e.extra or {}).get("confidence", 1.0)),
+                    str((e.extra or {}).get("confidence_tier", "EXTRACTED")),
+                    now,
+                )
+                for e in edges
+            ],
+        )
+
     def store_file_nodes_edges(
         self, file_path: str, nodes: list[NodeInfo], edges: list[EdgeInfo], fhash: str = ""
     ) -> None:
@@ -317,10 +374,8 @@ class GraphStore:
         self._conn.execute("BEGIN IMMEDIATE")
         try:
             self.remove_file_data(file_path)
-            for node in nodes:
-                self.upsert_node(node, file_hash=fhash)
-            for edge in edges:
-                self.upsert_edge(edge)
+            self._bulk_insert_nodes(nodes, fhash)
+            self._bulk_insert_edges(edges)
             self._conn.commit()
         except BaseException:
             self._conn.rollback()
@@ -335,10 +390,8 @@ class GraphStore:
         try:
             for file_path, nodes, edges, fhash in batch:
                 self.remove_file_data(file_path)
-                for node in nodes:
-                    self.upsert_node(node, file_hash=fhash)
-                for edge in edges:
-                    self.upsert_edge(edge)
+                self._bulk_insert_nodes(nodes, fhash)
+                self._bulk_insert_edges(edges)
             self._conn.commit()
         except BaseException:
             self._conn.rollback()

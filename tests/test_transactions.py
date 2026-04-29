@@ -108,7 +108,7 @@ class TestTransactionRobustness:
             language="python",
         )
 
-        with patch.object(store, "upsert_node", side_effect=Exception("Simulated failure")):
+        with patch.object(store, "_bulk_insert_nodes", side_effect=Exception("Simulated failure")):
             with pytest.raises(Exception, match="Simulated failure"):
                 store.store_file_nodes_edges("fail.py", [node_fail], [])
 
