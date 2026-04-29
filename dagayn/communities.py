@@ -705,32 +705,43 @@ def store_communities(store: GraphStore, communities: list[dict[str, Any]]) -> i
         conn.execute("DELETE FROM communities")
         conn.execute("UPDATE nodes SET community_id = NULL")
 
-        count = 0
-        for comm in communities:
-            cursor = conn.execute(
-                """INSERT INTO communities
-                   (name, level, cohesion, size, dominant_language, description)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
+        # Insert all communities in one batch
+        conn.executemany(
+            """INSERT INTO communities
+               (name, level, cohesion, size, dominant_language, description)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            [
                 (
-                    comm["name"],
-                    comm.get("level", 0),
-                    comm.get("cohesion", 0.0),
-                    comm["size"],
-                    comm.get("dominant_language", ""),
-                    comm.get("description", ""),
-                ),
-            )
-            community_id = cursor.lastrowid
-
-            # Batch update community_id on member nodes
-            member_qns = comm.get("members", [])
-            if member_qns:
-                placeholders = ",".join("?" * len(member_qns))
-                conn.execute(
-                    f"UPDATE nodes SET community_id = ? WHERE qualified_name IN ({placeholders})",  # nosec B608
-                    [community_id] + member_qns,
+                    c["name"],
+                    c.get("level", 0),
+                    c.get("cohesion", 0.0),
+                    c["size"],
+                    c.get("dominant_language", ""),
+                    c.get("description", ""),
                 )
-            count += 1
+                for c in communities
+            ],
+        )
+        count = len(communities)
+
+        # Fetch the freshly-inserted IDs keyed by name (one SELECT instead of K)
+        id_by_name: dict[str, int] = {}
+        for row in conn.execute("SELECT id, name FROM communities").fetchall():
+            id_by_name[row["name"]] = row["id"]
+
+        # Collect all (community_id, qualified_name) pairs, then update nodes in
+        # one executemany instead of one UPDATE per community.
+        assignments: list[tuple[int, str]] = [
+            (id_by_name[c["name"]], qn)
+            for c in communities
+            if c["name"] in id_by_name
+            for qn in c.get("members", [])
+        ]
+        if assignments:
+            conn.executemany(
+                "UPDATE nodes SET community_id = ? WHERE qualified_name = ?",
+                assignments,
+            )
 
         conn.commit()
     except BaseException:
