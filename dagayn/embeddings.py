@@ -20,16 +20,19 @@ import sys
 import time
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
-try:
+if TYPE_CHECKING:
     import numpy as np
+else:
+    try:
+        import numpy as np
 
-    _NUMPY_AVAILABLE = True
-except ImportError:
-    np = None  # type: ignore[assignment]
-    _NUMPY_AVAILABLE = False
+        _NUMPY_AVAILABLE = True
+    except ImportError:
+        np = None
+        _NUMPY_AVAILABLE = False
 
 from .graph import GraphNode, GraphStore, node_to_dict
 
@@ -724,6 +727,7 @@ _np_vec_cache: dict[tuple[str, str, int], tuple[Any, list[str], Any]] = {}
 
 def _load_vec_matrix(conn: sqlite3.Connection, provider_name: str) -> tuple[Any, list[str], Any]:
     """Load all embedding rows for *provider_name* into a numpy matrix."""
+    assert np is not None
     rows = conn.execute(
         "SELECT qualified_name, vector FROM embeddings WHERE provider = ?",
         (provider_name,),
@@ -897,6 +901,7 @@ class EmbeddingStore:
             return scored[:limit]
 
         # numpy fast path: process-level matrix cache keyed by mtime
+        assert np is not None
         try:
             mtime_ns = int(self.db_path.stat().st_mtime_ns)
         except OSError:
