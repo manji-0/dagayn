@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-{{NONCE}}'; style-src {{CSP_SOURCE}}; img-src {{CSP_SOURCE}};">
+  <link rel="stylesheet" href="{{STYLE_URI}}" />
+  <title>Code Graph</title>
+</head>
+<body>
+  <!-- Toolbar -->
+  <div id="toolbar">
+    <!-- Search -->
+    <div class="toolbar-group">
+      <input id="search-input" type="text" placeholder="Search nodes..." spellcheck="false" />
+    </div>
+
+    <div class="toolbar-separator"></div>
+
+    <!-- Edge type pills -->
+    <div class="toolbar-group" id="edge-pills">
+      <span class="toolbar-label">Edges</span>
+      <span id="edge-CALLS" class="edge-pill active" style="color:#a6e3a1"><span class="pill-dot" style="background:#a6e3a1"></span>Calls</span>
+      <span id="edge-IMPORTS_FROM" class="edge-pill active" style="color:#89b4fa"><span class="pill-dot" style="background:#89b4fa"></span>Imports</span>
+      <span id="edge-INHERITS" class="edge-pill active" style="color:#cba6f7"><span class="pill-dot" style="background:#cba6f7"></span>Inherits</span>
+      <span id="edge-IMPLEMENTS" class="edge-pill active" style="color:#f9e2af"><span class="pill-dot" style="background:#f9e2af"></span>Implements</span>
+      <span id="edge-TESTED_BY" class="edge-pill active" style="color:#f38ba8"><span class="pill-dot" style="background:#f38ba8"></span>Tested</span>
+      <span id="edge-CONTAINS" class="edge-pill active" style="color:#585b70"><span class="pill-dot" style="background:#585b70"></span>Contains</span>
+      <span id="edge-DEPENDS_ON" class="edge-pill active" style="color:#fab387"><span class="pill-dot" style="background:#fab387"></span>Depends</span>
+    </div>
+
+    <div class="toolbar-separator"></div>
+
+    <!-- Depth slider -->
+    <div class="toolbar-group">
+      <span class="toolbar-label">Depth</span>
+      <input id="depth-slider" type="range" min="0" max="10" value="0" />
+      <span id="depth-value">All</span>
+    </div>
+
+    <div class="toolbar-separator"></div>
+
+    <!-- Action buttons -->
+    <div class="toolbar-group">
+      <button id="btn-fit" class="toolbar-btn">Fit</button>
+      <button id="btn-export" class="toolbar-btn">Export SVG</button>
+      <button id="btn-export-png" class="toolbar-btn">Export PNG</button>
+    </div>
+
+    <!-- Node count -->
+    <span id="node-count"></span>
+    <span id="truncation-warning" style="display:none;color:var(--btn-bg);font-size:11px;margin-left:8px;cursor:pointer;" title="Increase dagayn.graph.maxNodes in settings"></span>
+  </div>
+
+  <!-- Graph -->
+  <div id="graph-area"></div>
+
+  <!-- Tooltip -->
+  <div id="tooltip"></div>
+
+  <script nonce="{{NONCE}}" src="{{SCRIPT_URI}}"></script>
+</body>
+</html>
