@@ -223,7 +223,7 @@ pub fn parse_terraform(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<
         .iter()
         .flat_map(|block| {
             if block.kind == "locals" {
-                collect_terraform_attrs(&block.body, block.body_start_line)
+                terraform_attrs(block)
                     .into_iter()
                     .map(|attr| format!("local.{}", attr.name))
                     .collect::<Vec<_>>()
@@ -253,7 +253,7 @@ pub fn parse_terraform(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<
 
     for block in &blocks {
         if block.kind == "locals" {
-            for attr in collect_terraform_attrs(&block.body, block.body_start_line) {
+            for attr in terraform_attrs(block) {
                 let node_name = format!("local.{}", attr.name);
                 push_terraform_node(
                     file_path,
@@ -317,7 +317,7 @@ pub fn parse_terraform(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<
         );
 
         if block.kind == "module" {
-            if let Some(source_attr) = collect_terraform_attrs(&block.body, block.body_start_line)
+            if let Some(source_attr) = terraform_attrs(block)
                 .into_iter()
                 .find(|attr| attr.name == "source")
             {
@@ -435,6 +435,7 @@ struct TerraformBlock {
     line_start: i64,
     line_end: i64,
     body_start_line: i64,
+    attrs: Option<Vec<TerraformAttr>>,
 }
 
 #[derive(Clone, Debug)]
@@ -504,6 +505,7 @@ fn terraform_block_from_node(node: tree_sitter::Node<'_>, source: &[u8]) -> Opti
         line_start: node.start_position().row as i64 + 1,
         line_end: node.end_position().row as i64 + 1,
         body_start_line,
+        attrs: body_node.map(|body| collect_terraform_attrs_from_tree(body, source)),
     })
 }
 
@@ -576,6 +578,7 @@ fn collect_terraform_blocks_from_text(text: &str) -> Vec<TerraformBlock> {
             line_start: line_for_offset(text, header_start),
             line_end: line_for_offset(text, close),
             body_start_line: line_for_offset(text, open),
+            attrs: None,
         });
         offset = close + 1;
     }
@@ -720,6 +723,40 @@ fn collect_terraform_attrs(body: &str, body_start_line: i64) -> Vec<TerraformAtt
     attrs
 }
 
+fn terraform_attrs(block: &TerraformBlock) -> Vec<TerraformAttr> {
+    block
+        .attrs
+        .clone()
+        .unwrap_or_else(|| collect_terraform_attrs(&block.body, block.body_start_line))
+}
+
+fn collect_terraform_attrs_from_tree(
+    body: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> Vec<TerraformAttr> {
+    let mut attrs = Vec::new();
+    let mut cursor = body.walk();
+    for child in body.children(&mut cursor) {
+        if child.kind() != "attribute" {
+            continue;
+        }
+        let Some(name_node) = child.child_by_field_name("name") else {
+            continue;
+        };
+        let Some(value_node) = child.child_by_field_name("value") else {
+            continue;
+        };
+        attrs.push(TerraformAttr {
+            name: node_text(name_node, source),
+            value: node_text(value_node, source).trim().to_string(),
+            text: node_text(child, source),
+            line_start: child.start_position().row as i64 + 1,
+            line_end: child.end_position().row as i64 + 1,
+        });
+    }
+    attrs
+}
+
 fn terraform_expr_depth(text: &str) -> i64 {
     let mut depth = 0_i64;
     let mut in_string: Option<char> = None;
@@ -827,7 +864,7 @@ fn handle_terraform_meta_block(
     defined_names: &HashSet<String>,
     edges: &mut Vec<ParsedEdge>,
 ) {
-    let attrs = collect_terraform_attrs(&block.body, block.body_start_line);
+    let attrs = terraform_attrs(block);
     let attr_value = |name: &str| {
         attrs
             .iter()

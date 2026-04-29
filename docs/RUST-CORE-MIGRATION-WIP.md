@@ -350,10 +350,10 @@ Parser migration progress:
   fallback. A local full-repo `postprocess=none` smoke benchmark produces
   identical Python/Rust node and edge counts for the current repository.
 - The Terraform extractor now collects top-level block kind, labels, body text,
-  and source ranges through the pinned Rust tree-sitter Terraform grammar, with
-  the previous text scanner retained only as fallback. Attribute, call, and
-  reference extraction remain Rust-owned compatibility logic and should move to
-  direct tree-sitter attribute traversal next.
+  source ranges, and direct block attributes through the pinned Rust tree-sitter
+  Terraform grammar, with the previous text scanner retained only as fallback.
+  Call and reference extraction remain Rust-owned compatibility logic and
+  should move to direct tree-sitter expression traversal next.
 
 Python modules being replaced: `dagayn/graph.py` (`GraphStore` upsert and replacement logic), `dagayn/incremental.py` (path normalization and VCS metadata helpers such as `_make_repo_relative`), `dagayn/migrations.py`.
 
