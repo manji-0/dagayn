@@ -229,6 +229,21 @@ def _migrate_v9(conn: sqlite3.Connection) -> None:
     logger.info("Migration v9: added edge confidence columns")
 
 
+def _migrate_v10(conn: sqlite3.Connection) -> None:
+    """v10: Add (parent_name, name) composite index on nodes.
+
+    Queries in dead_code.py and postprocessing.py filter on
+    ``WHERE name = ?`` or ``WHERE parent_name = ? AND name = ?`` which
+    previously caused full table scans.  The composite index covers both
+    patterns (leading-column prefix rule).
+    """
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_nodes_parent_name
+        ON nodes(parent_name, name)
+    """)
+    logger.info("Migration v10: created idx_nodes_parent_name")
+
+
 # ---------------------------------------------------------------------------
 # Migration registry
 # ---------------------------------------------------------------------------
@@ -242,6 +257,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     7: _migrate_v7,
     8: _migrate_v8,
     9: _migrate_v9,
+    10: _migrate_v10,
 }
 
 LATEST_VERSION = max(MIGRATIONS.keys())
