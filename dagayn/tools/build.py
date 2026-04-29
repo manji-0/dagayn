@@ -36,12 +36,23 @@ def _can_trace_full_flows(store: Any) -> bool:
     )
 
 
+def _can_detect_full_communities(store: Any) -> bool:
+    return all(
+        hasattr(store, name)
+        for name in (
+            "get_all_nodes",
+            "get_all_edges",
+            "store_communities_json",
+        )
+    )
+
+
 def _postprocess_store(store: Any, root: Any, postprocess: str):
     """Return a Python GraphStore for post-processing when needed.
 
-    Full post-processing still needs Python-only flow/community code. Minimal
-    post-processing can stay on the Rust store once the Rust methods cover all
-    minimal steps.
+    Full incremental community detection still needs Python-only connection
+    access. Minimal post-processing can stay on the Rust store once the Rust
+    methods cover all minimal steps.
     """
     if hasattr(store, "_conn"):
         return store, False
@@ -61,6 +72,7 @@ def _run_postprocess(
     changed_files: list[str] | None = None,
     skip_minimal_steps: bool = False,
     skip_flow_steps: bool = False,
+    skip_community_steps: bool = False,
     skip_summary_steps: bool = False,
 ) -> list[str]:
     """Run post-build steps based on *postprocess* level.
@@ -155,27 +167,28 @@ def _run_postprocess(
             logger.warning("Flow detection failed: %s", e)
             warnings.append(f"Flow detection failed: {type(e).__name__}: {e}")
 
-    try:
-        if use_incremental:
-            from dagayn.communities import (
-                incremental_detect_communities,
-            )
+    if not skip_community_steps:
+        try:
+            if use_incremental:
+                from dagayn.communities import (
+                    incremental_detect_communities,
+                )
 
-            count = incremental_detect_communities(store, changed_files or [])
-        else:
-            from dagayn.communities import (
-                detect_communities as _detect_communities,
-            )
-            from dagayn.communities import (
-                store_communities as _store_communities,
-            )
+                count = incremental_detect_communities(store, changed_files or [])
+            else:
+                from dagayn.communities import (
+                    detect_communities as _detect_communities,
+                )
+                from dagayn.communities import (
+                    store_communities as _store_communities,
+                )
 
-            comms = _detect_communities(store)
-            count = _store_communities(store, comms)
-        build_result["communities_detected"] = count
-    except (sqlite3.OperationalError, ImportError) as e:
-        logger.warning("Community detection failed: %s", e)
-        warnings.append(f"Community detection failed: {type(e).__name__}: {e}")
+                comms = _detect_communities(store)
+                count = _store_communities(store, comms)
+            build_result["communities_detected"] = count
+        except (sqlite3.OperationalError, RuntimeError, ImportError) as e:
+            logger.warning("Community detection failed: %s", e)
+            warnings.append(f"Community detection failed: {type(e).__name__}: {e}")
 
     if not skip_summary_steps:
         # -- Compute pre-computed summary tables --
@@ -511,6 +524,7 @@ def build_or_update_graph(
         ):
             can_compute_rust_summaries = hasattr(store, "compute_summaries")
             can_trace_rust_flows = full_rebuild and _can_trace_full_flows(store)
+            can_detect_rust_communities = full_rebuild and _can_detect_full_communities(store)
             warnings = _run_postprocess(
                 store,
                 build_result,
@@ -528,6 +542,20 @@ def build_or_update_graph(
                 except (sqlite3.OperationalError, RuntimeError, ImportError) as e:
                     logger.warning("Flow detection failed: %s", e)
                     warnings.append(f"Flow detection failed: {type(e).__name__}: {e}")
+            if can_detect_rust_communities:
+                try:
+                    from dagayn.communities import (
+                        detect_communities as _detect_communities,
+                    )
+                    from dagayn.communities import (
+                        store_communities as _store_communities,
+                    )
+
+                    comms = _detect_communities(store)
+                    build_result["communities_detected"] = _store_communities(store, comms)
+                except (sqlite3.OperationalError, RuntimeError, ImportError) as e:
+                    logger.warning("Community detection failed: %s", e)
+                    warnings.append(f"Community detection failed: {type(e).__name__}: {e}")
             pp_store, close_pp_store = _postprocess_store(store, root, postprocess)
             try:
                 warnings.extend(
@@ -539,6 +567,7 @@ def build_or_update_graph(
                         changed_files=changed,
                         skip_minimal_steps=True,
                         skip_flow_steps=can_trace_rust_flows,
+                        skip_community_steps=can_detect_rust_communities,
                         skip_summary_steps=can_compute_rust_summaries,
                     )
                 )

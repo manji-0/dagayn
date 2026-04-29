@@ -263,12 +263,18 @@ Initial scaffold:
   unique-match policy.
 - `postprocess="minimal"` no longer re-opens the Python `GraphStore` when the
   Rust backend exposes the required signature, FTS, and Markdown resolver
-  methods. Full post-processing still falls back to the Python store for flow,
-  community, and summary generation after running those Rust-owned minimal
-  steps on the Rust store first.
+  methods. Full rebuild post-processing now keeps flow tracing, community
+  detection, and summary generation on the Rust store when the required Rust
+  read/write methods are available; remaining Python-store fallback is retained
+  for incremental community detection and incomplete Rust surfaces.
+- Full rebuild community detection can now read from the Rust store and persist
+  through Rust's `store_communities_json` API while the detection heuristics
+  remain in Python. Incremental community detection still falls back to the
+  Python store because it inspects existing affected communities through
+  Python-only SQLite connection access.
 - Rust `GraphStore` can populate `community_summaries`, `flow_snapshots`, and
   `risk_index`; full Rust-backed post-processing now runs summary table
-  generation on the Rust store after the Python-only flow/community fallback.
+  generation on the Rust store after flow/community data has been written.
 - Rust `GraphStore` exposes the read surface needed by Python flow tracing
   (`get_all_call_targets`, `get_nodes_by_kind`, and `load_flow_adjacency`) and
   can persist traced flows through `store_flows_json`.
@@ -424,7 +430,9 @@ Parser migration progress:
 - Community persistence and retrieval now route through Rust JSON methods when
   available: `store_communities_json` and `get_communities_json`, with
   node/edge read helpers exposed for Python's existing detection and overview
-  logic.
+  logic. Full rebuild community detection now runs over those Rust read helpers
+  under `DAGAYN_BACKEND=rust`; incremental community detection remains on the
+  Python fallback until its `_conn` dependency is removed.
 
 Python modules being replaced: `dagayn/graph.py` (`GraphStore` upsert and replacement logic), `dagayn/incremental.py` (path normalization and VCS metadata helpers such as `_make_repo_relative`), `dagayn/migrations.py`.
 
