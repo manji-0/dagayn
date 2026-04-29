@@ -177,7 +177,6 @@ struct ChangeRiskInputs<'a> {
     caller_community_ids: &'a HashMap<String, Option<i64>>,
     transitive_test_count: i64,
 }
-
 #[derive(Clone, Debug)]
 pub struct GraphStats {
     pub total_nodes: i64,

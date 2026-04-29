@@ -144,21 +144,36 @@ def get_minimal_context(
         # 3. Top 3 communities
         communities: list[str] = []
         try:
-            rows = store._conn.execute(
-                "SELECT name FROM communities ORDER BY size DESC LIMIT 3"
-            ).fetchall()
-            communities = _names_from_rows(rows, limit=3)
-        except sqlite3.OperationalError:  # nosec B110 — table may not exist yet
+            conn = getattr(store, "_conn", None)
+            if conn is not None:
+                rows = conn.execute(
+                    "SELECT name FROM communities ORDER BY size DESC LIMIT 3"
+                ).fetchall()
+                communities = _names_from_rows(rows, limit=3)
+            else:
+                from ..communities import get_communities
+
+                communities = _names_from_items(
+                    get_communities(store, sort_by="size")[:3],
+                    limit=3,
+                )
+        except (sqlite3.OperationalError, RuntimeError, ImportError, KeyError, TypeError):
             logger.debug("communities table not yet populated")
 
         # 4. Top 3 critical flows
         top_flows: list[str] = []
         try:
-            rows = store._conn.execute(
-                "SELECT name FROM flows ORDER BY criticality DESC LIMIT 3"
-            ).fetchall()
-            top_flows = _names_from_rows(rows, limit=3)
-        except sqlite3.OperationalError:  # nosec B110 — table may not exist yet
+            conn = getattr(store, "_conn", None)
+            if conn is not None:
+                rows = conn.execute(
+                    "SELECT name FROM flows ORDER BY criticality DESC LIMIT 3"
+                ).fetchall()
+                top_flows = _names_from_rows(rows, limit=3)
+            else:
+                from ..flows import get_flows
+
+                top_flows = _names_from_items(get_flows(store, limit=3), limit=3)
+        except (sqlite3.OperationalError, RuntimeError, ImportError, KeyError, TypeError):
             logger.debug("flows table not yet populated")
 
         # 5. Suggest next tools based on task keywords

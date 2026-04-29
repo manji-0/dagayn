@@ -197,6 +197,11 @@ impl PyGraphStore {
             .and_then(|stats| graph_stats_to_py(py, stats))
     }
 
+    fn get_stats(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        self.with_store(|store| store.get_stats())
+            .and_then(|stats| graph_stats_to_py(py, stats))
+    }
+
     fn get_nodes_by_community_id(
         &self,
         py: Python<'_>,
