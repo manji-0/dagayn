@@ -283,9 +283,10 @@ Parser migration progress:
 - `dagayn-parser` now exposes an initial Markdown extractor through
   `parse_markdown_compact_json(file_path, source)`. It emits compact node/edge
   arrays equivalent to the Python Markdown parser for the current parity
-  fixtures. This is the first parser slice moved into Rust; the next step is to
-  wire Markdown files in `full_build` / `incremental_update` directly through
-  this Rust extractor and graph writer.
+  fixtures. `DAGAYN_BACKEND=rust` now routes Markdown files in `full_build` /
+  `incremental_update` through this Rust extractor and stores the compact
+  output directly through the Rust graph writer. `markdown_only` and `mixed`
+  parity snapshots match through this path.
 
 Python modules being replaced: `dagayn/graph.py` (`GraphStore` upsert and replacement logic), `dagayn/incremental.py` (path normalization and VCS metadata helpers such as `_make_repo_relative`), `dagayn/migrations.py`.
 

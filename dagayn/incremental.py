@@ -16,7 +16,7 @@ import re
 import subprocess
 import time
 from pathlib import Path, PurePosixPath
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 from .graph import GraphStore
 from .parser import CodeParser, EdgeInfo, NodeInfo
@@ -24,7 +24,7 @@ from .parser import CodeParser, EdgeInfo, NodeInfo
 _MAX_PARSE_WORKERS = int(os.environ.get("CRG_PARSE_WORKERS", str(min(os.cpu_count() or 4, 8))))
 _STORE_BATCH_SIZE = int(os.environ.get("DAGAYN_STORE_BATCH_SIZE", "128"))
 
-StoreBatch = list[tuple[str, list[NodeInfo], list[EdgeInfo], str, int]]
+StoreBatch = list[tuple[str, list[Any], list[Any], str, int]]
 
 logger = logging.getLogger(__name__)
 
@@ -868,6 +868,10 @@ def _parse_single_file(
         mtime_ns = int(abs_path.stat().st_mtime_ns)
         raw = abs_path.read_bytes()
         fhash = hashlib.sha256(raw).hexdigest()
+        rust_markdown = _parse_markdown_with_rust_if_enabled(rel_path, raw)
+        if rust_markdown is not None:
+            nodes, edges = rust_markdown
+            return (rel_path, nodes, edges, None, fhash, mtime_ns)
         parser = _worker_parser if _worker_parser is not None else CodeParser()
         nodes, edges = parser.parse_bytes(abs_path, raw)
         return (rel_path, nodes, edges, None, fhash, mtime_ns)
@@ -896,34 +900,8 @@ def _serialize_store_batch(batch: StoreBatch) -> str:
         [
             (
                 file_path,
-                [
-                    (
-                        n.kind,
-                        n.name,
-                        n.file_path,
-                        n.line_start,
-                        n.line_end,
-                        n.language,
-                        n.parent_name,
-                        n.params,
-                        n.return_type,
-                        n.modifiers,
-                        n.is_test,
-                        n.extra or {},
-                    )
-                    for n in nodes
-                ],
-                [
-                    (
-                        e.kind,
-                        e.source,
-                        e.target,
-                        e.file_path,
-                        e.line,
-                        e.extra or {},
-                    )
-                    for e in edges
-                ],
+                _serialize_nodes(nodes),
+                _serialize_edges(edges),
                 fhash,
                 mtime_ns,
             )
@@ -933,12 +911,78 @@ def _serialize_store_batch(batch: StoreBatch) -> str:
     )
 
 
+def _serialize_nodes(nodes: list[Any]) -> list[Any]:
+    if _is_compact_entities(nodes):
+        return nodes
+    return [
+        (
+            n.kind,
+            n.name,
+            n.file_path,
+            n.line_start,
+            n.line_end,
+            n.language,
+            n.parent_name,
+            n.params,
+            n.return_type,
+            n.modifiers,
+            n.is_test,
+            n.extra or {},
+        )
+        for n in nodes
+    ]
+
+
+def _serialize_edges(edges: list[Any]) -> list[Any]:
+    if _is_compact_entities(edges):
+        return edges
+    return [
+        (
+            e.kind,
+            e.source,
+            e.target,
+            e.file_path,
+            e.line,
+            e.extra or {},
+        )
+        for e in edges
+    ]
+
+
+def _is_compact_entities(entities: list[Any]) -> bool:
+    return bool(entities) and isinstance(entities[0], (list, tuple))
+
+
+def _uses_compact_entities(nodes: list[Any], edges: list[Any]) -> bool:
+    return _is_compact_entities(nodes) or _is_compact_entities(edges)
+
+
+def _rust_backend_enabled() -> bool:
+    return os.environ.get("DAGAYN_BACKEND", "python").strip().lower() == "rust"
+
+
+def _parse_markdown_with_rust_if_enabled(
+    rel_path: str,
+    source: bytes,
+) -> tuple[list[Any], list[Any]] | None:
+    if not _rust_backend_enabled() or not rel_path.lower().endswith((".md", ".markdown")):
+        return None
+    try:
+        from dagayn._core import parse_markdown_compact_json
+
+        nodes, edges = json.loads(parse_markdown_compact_json(rel_path, source))
+        return nodes, edges
+    except (ImportError, RuntimeError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        logger.warning("Rust Markdown parser unavailable for %s, falling back: %s", rel_path, exc)
+        return None
+
+
 def _queue_store_file(
     store: GraphStore,
     batch: StoreBatch,
     rel_path: str,
-    nodes: list[NodeInfo],
-    edges: list[EdgeInfo],
+    nodes: list[Any],
+    edges: list[Any],
     fhash: str,
     mtime_ns: int,
 ) -> None:
@@ -991,8 +1035,12 @@ def full_build(
                 mtime_ns = int(full_path.stat().st_mtime_ns)
                 source = full_path.read_bytes()
                 fhash = hashlib.sha256(source).hexdigest()
-                nodes, edges = parser.parse_bytes(full_path, source)
-                nodes, edges = _relativize_parsed_entities(nodes, edges, repo_root)
+                rust_markdown = _parse_markdown_with_rust_if_enabled(rel_path, source)
+                if rust_markdown is not None:
+                    nodes, edges = rust_markdown
+                else:
+                    nodes, edges = parser.parse_bytes(full_path, source)
+                    nodes, edges = _relativize_parsed_entities(nodes, edges, repo_root)
                 _queue_store_file(store, batch, rel_path, nodes, edges, fhash, mtime_ns)
                 total_nodes += len(nodes)
                 total_edges += len(edges)
@@ -1020,7 +1068,8 @@ def full_build(
                     logger.warning("Error parsing %s: %s", rel_path, error)
                     errors.append({"file": rel_path, "error": error})
                     continue
-                nodes, edges = _relativize_parsed_entities(nodes, edges, repo_root)
+                if not _uses_compact_entities(nodes, edges):
+                    nodes, edges = _relativize_parsed_entities(nodes, edges, repo_root)
                 _queue_store_file(store, batch, rel_path, nodes, edges, fhash, mtime_ns)
                 total_nodes += len(nodes)
                 total_edges += len(edges)
@@ -1148,8 +1197,12 @@ def incremental_update(
             try:
                 source = abs_path.read_bytes()
                 fhash = hashlib.sha256(source).hexdigest()
-                nodes, edges = parser.parse_bytes(abs_path, source)
-                nodes, edges = _relativize_parsed_entities(nodes, edges, repo_root)
+                rust_markdown = _parse_markdown_with_rust_if_enabled(rel_path, source)
+                if rust_markdown is not None:
+                    nodes, edges = rust_markdown
+                else:
+                    nodes, edges = parser.parse_bytes(abs_path, source)
+                    nodes, edges = _relativize_parsed_entities(nodes, edges, repo_root)
                 _queue_store_file(store, batch, rel_path, nodes, edges, fhash, mtime_ns)
                 total_nodes += len(nodes)
                 total_edges += len(edges)
@@ -1175,7 +1228,8 @@ def incremental_update(
                     logger.warning("Error parsing %s: %s", rel_path, error)
                     errors.append({"file": rel_path, "error": error})
                     continue
-                nodes, edges = _relativize_parsed_entities(nodes, edges, repo_root)
+                if not _uses_compact_entities(nodes, edges):
+                    nodes, edges = _relativize_parsed_entities(nodes, edges, repo_root)
                 _queue_store_file(store, batch, rel_path, nodes, edges, fhash, mtime_ns)
                 total_nodes += len(nodes)
                 total_edges += len(edges)
