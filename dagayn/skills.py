@@ -357,125 +357,36 @@ def install_platform_configs(
 
 # --- Skill file contents ---
 
-_SKILLS: dict[str, dict[str, str]] = {
-    "explore-codebase.md": {
-        "name": "Explore Codebase",
-        "description": "Navigate and understand codebase structure using the knowledge graph",
-        "body": (
-            "## Explore Codebase\n\n"
-            "Use the dagayn MCP tools to explore and understand the codebase.\n\n"
-            "### Steps\n\n"
-            "1. Run `list_graph_stats` to see overall codebase metrics.\n"
-            "2. Run `get_architecture_overview` for high-level community structure.\n"
-            "3. Use `list_communities` to find major modules, then `get_community` "
-            "for details.\n"
-            "4. Use `semantic_search_nodes` to find specific functions or classes.\n"
-            "5. Use `query_graph` with patterns like `callers_of`, `callees_of`, "
-            "`imports_of` to trace relationships.\n"
-            "6. Use `list_flows` and `get_flow` to understand execution paths.\n\n"
-            "### Tips\n\n"
-            "- Start broad (stats, architecture) then narrow down to specific areas.\n"
-            "- Use `children_of` on a file to see all its functions and classes.\n"
-            "- Use `find_large_functions` to identify complex code.\n\n"
-            "## Token Efficiency Rules\n"
-            '- ALWAYS start with `get_minimal_context(task="<your task>")` '
-            "before any other graph tool.\n"
-            '- Use `detail_level="minimal"` on all calls. Only escalate to '
-            '"standard" when minimal is insufficient.\n'
-            "- Target: complete any review/debug/refactor task in ≤5 tool calls "
-            "and ≤800 total output tokens."
-        ),
-    },
-    "review-changes.md": {
-        "name": "Review Changes",
-        "description": "Perform a structured code review using change detection and impact",
-        "body": (
-            "## Review Changes\n\n"
-            "Perform a thorough, risk-aware code review using the knowledge graph.\n\n"
-            "### Steps\n\n"
-            "1. Run `detect_changes` to get risk-scored change analysis.\n"
-            "2. Run `get_affected_flows` to find impacted execution paths.\n"
-            "3. For each high-risk function, run `query_graph` with "
-            'pattern="tests_for" to check test coverage.\n'
-            "4. Run `get_impact_radius` to understand the blast radius.\n"
-            "5. For any untested changes, suggest specific test cases.\n\n"
-            "### Output Format\n\n"
-            "Provide findings grouped by risk level (high/medium/low) with:\n"
-            "- What changed and why it matters\n"
-            "- Test coverage status\n"
-            "- Suggested improvements\n"
-            "- Overall merge recommendation\n\n"
-            "## Token Efficiency Rules\n"
-            '- ALWAYS start with `get_minimal_context(task="<your task>")` '
-            "before any other graph tool.\n"
-            '- Use `detail_level="minimal"` on all calls. Only escalate to '
-            '"standard" when minimal is insufficient.\n'
-            "- Target: complete any review/debug/refactor task in ≤5 tool calls "
-            "and ≤800 total output tokens."
-        ),
-    },
-    "debug-issue.md": {
-        "name": "Debug Issue",
-        "description": "Systematically debug issues using graph-powered code navigation",
-        "body": (
-            "## Debug Issue\n\n"
-            "Use the knowledge graph to systematically trace and debug issues.\n\n"
-            "### Steps\n\n"
-            "1. Use `semantic_search_nodes` to find code related to the issue.\n"
-            "2. Use `query_graph` with `callers_of` and `callees_of` to trace "
-            "call chains.\n"
-            "3. Use `get_flow` to see full execution paths through suspected areas.\n"
-            "4. Run `detect_changes` to check if recent changes caused the issue.\n"
-            "5. Use `get_impact_radius` on suspected files to see what else is affected.\n\n"
-            "### Tips\n\n"
-            "- Check both callers and callees to understand the full context.\n"
-            "- Look at affected flows to find the entry point that triggers the bug.\n"
-            "- Recent changes are the most common source of new issues.\n\n"
-            "## Token Efficiency Rules\n"
-            '- ALWAYS start with `get_minimal_context(task="<your task>")` '
-            "before any other graph tool.\n"
-            '- Use `detail_level="minimal"` on all calls. Only escalate to '
-            '"standard" when minimal is insufficient.\n'
-            "- Target: complete any review/debug/refactor task in ≤5 tool calls "
-            "and ≤800 total output tokens."
-        ),
-    },
-    "refactor-safely.md": {
-        "name": "Refactor Safely",
-        "description": "Plan and execute safe refactoring using dependency analysis",
-        "body": (
-            "## Refactor Safely\n\n"
-            "Use the knowledge graph to plan and execute refactoring with confidence.\n\n"
-            "### Steps\n\n"
-            '1. Use `refactor_tool` with mode="suggest" for community-driven '
-            "refactoring suggestions.\n"
-            '2. Use `refactor_tool` with mode="dead_code" to find unreferenced code.\n'
-            '3. For renames, use `refactor_tool` with mode="rename" to preview all '
-            "affected locations.\n"
-            "4. Use `apply_refactor_tool` with the refactor_id to apply renames.\n"
-            "5. After changes, run `detect_changes` to verify the refactoring impact.\n\n"
-            "### Safety Checks\n\n"
-            "- Always preview before applying (rename mode gives you an edit list).\n"
-            "- Check `get_impact_radius` before major refactors.\n"
-            "- Use `get_affected_flows` to ensure no critical paths are broken.\n"
-            "- Run `find_large_functions` to identify decomposition targets.\n\n"
-            "## Token Efficiency Rules\n"
-            '- ALWAYS start with `get_minimal_context(task="<your task>")` '
-            "before any other graph tool.\n"
-            '- Use `detail_level="minimal"` on all calls. Only escalate to '
-            '"standard" when minimal is insufficient.\n'
-            "- Target: complete any review/debug/refactor task in ≤5 tool calls "
-            "and ≤800 total output tokens."
-        ),
-    },
-}
+
+def _resolve_source_skills_dir() -> Path | None:
+    """Locate the on-disk ``skills/`` directory shipped with dagayn.
+
+    Tries the wheel-install layout first (``<site-packages>/dagayn/skills``),
+    then falls back to the development checkout layout (``<repo>/skills``).
+    Returns ``None`` if no directory containing ``<name>/SKILL.md`` files is
+    found.
+
+    The wheel-first order avoids accidentally picking up a stale or unrelated
+    ``skills/`` directory that may exist at the site-packages root
+    (``parent.parent / "skills"``) when multiple packages are installed.
+    """
+    candidates = [
+        Path(__file__).resolve().parent / "skills",
+        Path(__file__).resolve().parent.parent / "skills",
+    ]
+    for candidate in candidates:
+        if candidate.is_dir() and any(
+            (entry / "SKILL.md").is_file() for entry in candidate.iterdir() if entry.is_dir()
+        ):
+            return candidate
+    return None
 
 
 def generate_skills(repo_root: Path, skills_dir: Path | None = None) -> Path:
     """Generate Claude Code skill files.
 
-    Creates `.claude/skills/` directory with 4 skill markdown files,
-    each containing frontmatter and instructions.
+    Reads ``skills/<name>/SKILL.md`` from the dagayn package and writes
+    each one as ``<skills_dir>/<name>.md`` (Claude Code's flat layout).
 
     Args:
         repo_root: Repository root directory.
@@ -488,19 +399,33 @@ def generate_skills(repo_root: Path, skills_dir: Path | None = None) -> Path:
         skills_dir = repo_root / ".claude" / "skills"
     skills_dir.mkdir(parents=True, exist_ok=True)
 
-    for filename, skill in _SKILLS.items():
-        path = skills_dir / filename
-        content = (
-            "---\n"
-            f"name: {skill['name']}\n"
-            f"description: {skill['description']}\n"
-            "---\n\n"
-            f"{skill['body']}\n"
-        )
-        path.write_text(content, encoding="utf-8")
-        logger.info("Wrote skill: %s", path)
+    source_dir = _resolve_source_skills_dir()
+    if source_dir is None:
+        logger.warning("No skills/ directory found alongside dagayn; nothing installed.")
+        return skills_dir
+
+    for entry in sorted(source_dir.iterdir()):
+        if not entry.is_dir():
+            continue
+        skill_file = entry / "SKILL.md"
+        if not skill_file.is_file():
+            continue
+        target = skills_dir / f"{entry.name}.md"
+        target.write_text(skill_file.read_text(encoding="utf-8"), encoding="utf-8")
+        logger.info("Wrote skill: %s", target)
 
     return skills_dir
+
+
+def install_global_skills() -> Path:
+    """Install Claude Code skills into ``~/.claude/skills/``.
+
+    Mirrors the source ``skills/`` tree as flat ``<name>.md`` files under
+    the user home so the writing/reading-markdown-document skills (and the
+    other dagayn skills) are available across all projects.
+    """
+    target = Path.home() / ".claude" / "skills"
+    return generate_skills(repo_root=Path.home(), skills_dir=target)
 
 
 def generate_hooks_config(repo_root: Path) -> dict[str, Any]:

@@ -8,6 +8,7 @@ import tomllib
 from pathlib import Path
 from unittest.mock import patch
 
+import dagayn.skills as _skills_module
 from dagayn.skills import (
     _CLAUDE_MD_SECTION_MARKER,
     _MARKDOWN_POLICY_MARKER,
@@ -17,6 +18,7 @@ from dagayn.skills import (
     _in_poetry_project,
     _in_uv_project,
     _opencode_plugin_content,
+    _resolve_source_skills_dir,
     generate_cursor_hooks_config,
     generate_hooks_config,
     generate_skills,
@@ -24,10 +26,23 @@ from dagayn.skills import (
     inject_platform_instructions,
     install_cursor_hooks,
     install_git_hook,
+    install_global_skills,
     install_hooks,
     install_opencode_plugin,
     install_platform_configs,
 )
+
+EXPECTED_SKILLS = [
+    "build-graph.md",
+    "debug-issue.md",
+    "explore-codebase.md",
+    "reading-markdown-document.md",
+    "refactor-safely.md",
+    "review-changes.md",
+    "review-delta.md",
+    "review-pr.md",
+    "writing-markdown-document.md",
+]
 
 
 class TestGenerateSkills:
@@ -36,15 +51,10 @@ class TestGenerateSkills:
         assert result.is_dir()
         assert result == tmp_path / ".claude" / "skills"
 
-    def test_creates_four_skill_files(self, tmp_path):
+    def test_creates_skill_files_from_disk(self, tmp_path):
         skills_dir = generate_skills(tmp_path)
         files = sorted(f.name for f in skills_dir.iterdir())
-        assert files == [
-            "debug-issue.md",
-            "explore-codebase.md",
-            "refactor-safely.md",
-            "review-changes.md",
-        ]
+        assert files == EXPECTED_SKILLS
 
     def test_skill_files_have_frontmatter(self, tmp_path):
         skills_dir = generate_skills(tmp_path)
@@ -64,30 +74,157 @@ class TestGenerateSkills:
         result = generate_skills(tmp_path, skills_dir=custom)
         assert result == custom
         assert result.is_dir()
-        assert len(list(result.iterdir())) == 4
+        assert len(list(result.iterdir())) == len(EXPECTED_SKILLS)
 
-    def test_skill_content_includes_get_minimal_context(self, tmp_path):
-        """Every skill template must reference get_minimal_context."""
+    def test_markdown_skills_present(self, tmp_path):
+        """The two markdown skills must ship with every install."""
         skills_dir = generate_skills(tmp_path)
-        for path in skills_dir.iterdir():
-            content = path.read_text()
-            assert "get_minimal_context" in content, (
-                f"{path.name} missing get_minimal_context reference"
-            )
-
-    def test_skill_content_includes_detail_level(self, tmp_path):
-        """Every skill template must reference detail_level."""
-        skills_dir = generate_skills(tmp_path)
-        for path in skills_dir.iterdir():
-            content = path.read_text()
-            assert "detail_level" in content, f"{path.name} missing detail_level reference"
+        assert (skills_dir / "writing-markdown-document.md").is_file()
+        assert (skills_dir / "reading-markdown-document.md").is_file()
 
     def test_idempotent(self, tmp_path):
         """Running twice should not fail and files should still be valid."""
         generate_skills(tmp_path)
         generate_skills(tmp_path)
         skills_dir = tmp_path / ".claude" / "skills"
-        assert len(list(skills_dir.iterdir())) == 4
+        assert len(list(skills_dir.iterdir())) == len(EXPECTED_SKILLS)
+
+
+class TestResolveSourceSkillsDir:
+    """Regression coverage for wheel-install vs dev-checkout layouts.
+
+    The wheel ships ``skills/`` inside the dagayn package via hatch
+    ``force-include`` (see pyproject.toml). When that source layout
+    is the only one available — i.e., the dev-checkout fallback at
+    ``parent.parent / 'skills'`` is missing — resolution must still
+    succeed.
+    """
+
+    def test_falls_back_to_packaged_skills_dir(self, tmp_path, monkeypatch):
+        # Simulate a wheel-install layout: <site-packages>/dagayn/skills/...
+        fake_pkg = tmp_path / "site-packages" / "dagayn"
+        fake_pkg.mkdir(parents=True)
+        skill_dir = fake_pkg / "skills" / "demo"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            "---\nname: demo\ndescription: x\n---\n\nbody\n", encoding="utf-8"
+        )
+        # And ensure the dev-checkout candidate (parent.parent / skills)
+        # is empty so the second candidate is the only valid one.
+        (tmp_path / "site-packages").mkdir(exist_ok=True)
+
+        fake_module_file = fake_pkg / "skills.py"
+        fake_module_file.write_text("# stub", encoding="utf-8")
+        monkeypatch.setattr(_skills_module, "__file__", str(fake_module_file))
+
+        resolved = _resolve_source_skills_dir()
+        assert resolved == fake_pkg / "skills"
+
+    def test_prefers_package_local_over_parent_sibling(self, tmp_path, monkeypatch):
+        """wheel-local skills/ takes priority over parent.parent/skills/.
+
+        In an installed wheel, parent.parent is site-packages root.  A
+        stale or unrelated directory there should not shadow the real
+        package-local skills.
+        """
+        fake_pkg = tmp_path / "site-packages" / "dagayn"
+        fake_pkg.mkdir(parents=True)
+
+        # Wheel-local layout: <site-packages>/dagayn/skills/<name>/SKILL.md
+        local_skill = fake_pkg / "skills" / "local-skill"
+        local_skill.mkdir(parents=True)
+        (local_skill / "SKILL.md").write_text(
+            "---\nname: local-skill\ndescription: x\n---\n\nbody\n", encoding="utf-8"
+        )
+
+        # dev-checkout / stale layout: <site-packages>/skills/<name>/SKILL.md
+        parent_skill = tmp_path / "site-packages" / "skills" / "stale-skill"
+        parent_skill.mkdir(parents=True)
+        (parent_skill / "SKILL.md").write_text(
+            "---\nname: stale-skill\ndescription: y\n---\n\nbody\n", encoding="utf-8"
+        )
+
+        fake_module_file = fake_pkg / "skills.py"
+        fake_module_file.write_text("# stub", encoding="utf-8")
+        monkeypatch.setattr(_skills_module, "__file__", str(fake_module_file))
+
+        resolved = _resolve_source_skills_dir()
+        # Must return the package-local candidate, not the parent-sibling one.
+        assert resolved == fake_pkg / "skills"
+
+
+class TestInstallGlobalSkills:
+    def test_writes_to_home_claude_skills(self, tmp_path):
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            result = install_global_skills()
+        assert result == tmp_path / ".claude" / "skills"
+        assert result.is_dir()
+
+    def test_writes_both_new_skills(self, tmp_path):
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            install_global_skills()
+        target = tmp_path / ".claude" / "skills"
+        assert (target / "writing-markdown-document.md").is_file()
+        assert (target / "reading-markdown-document.md").is_file()
+
+    def test_idempotent(self, tmp_path):
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            install_global_skills()
+            install_global_skills()
+        target = tmp_path / ".claude" / "skills"
+        assert len(list(target.iterdir())) == len(EXPECTED_SKILLS)
+
+    def test_does_not_clobber_unrelated_files(self, tmp_path):
+        """Files in ~/.claude/skills/ that don't match a packaged skill are left alone."""
+        target = tmp_path / ".claude" / "skills"
+        target.mkdir(parents=True)
+        unrelated = target / "user-custom-skill.md"
+        unrelated.write_text("# my own skill")
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            install_global_skills()
+        assert unrelated.is_file()
+        assert unrelated.read_text() == "# my own skill"
+
+    def test_init_handle_survives_permission_error(self, tmp_path, capsys):
+        """dagayn install must complete even when ~/.claude/skills/ is not writable.
+
+        Codex review C1-2: install_global_skills() may raise PermissionError in
+        CI/containers with read-only $HOME; the repo-local setup must still succeed.
+        """
+        import argparse
+
+        from dagayn.cli.commands.init import handle
+
+        args = argparse.Namespace(
+            repo=str(tmp_path),
+            dry_run=False,
+            platform="all",
+            yes=True,
+            no_skills=False,
+            no_hooks=True,
+            no_instructions=True,
+            skills=False,
+            hooks=False,
+            install_all=False,
+        )
+
+        with (
+            patch("dagayn.incremental.find_repo_root", return_value=tmp_path),
+            patch("dagayn.skills.install_platform_configs", return_value=[]),
+            patch(
+                "dagayn.incremental.ensure_repo_gitignore_excludes_crg",
+                return_value="already",
+            ),
+            patch("dagayn.skills.generate_skills", return_value=tmp_path / ".claude" / "skills"),
+            patch(
+                "dagayn.skills.install_global_skills",
+                side_effect=PermissionError("read-only home"),
+            ),
+        ):
+            handle(args)  # must not raise
+
+        captured = capsys.readouterr()
+        assert "Skipped global skills install" in captured.err
 
 
 class TestGenerateHooksConfig:
