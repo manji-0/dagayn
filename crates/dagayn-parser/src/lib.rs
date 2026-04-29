@@ -218,7 +218,7 @@ pub fn parse_rust_owned_files_compact_json(repo_root: &Path, file_paths: &[Strin
 pub fn parse_terraform(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let text = String::from_utf8_lossy(source);
     let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
-    let blocks = collect_terraform_blocks(&text);
+    let blocks = collect_terraform_blocks(source, &text);
     let defined_names = blocks
         .iter()
         .flat_map(|block| {
@@ -455,7 +455,100 @@ struct TerraformNodeSpec<'a> {
     terraform_kind: &'a str,
 }
 
-fn collect_terraform_blocks(text: &str) -> Vec<TerraformBlock> {
+fn collect_terraform_blocks(source: &[u8], text: &str) -> Vec<TerraformBlock> {
+    let mut parser = tree_sitter::Parser::new();
+    if parser
+        .set_language(&dagayn_grammars::terraform_language())
+        .is_ok()
+    {
+        if let Some(tree) = parser.parse(source, None) {
+            let mut blocks = Vec::new();
+            collect_terraform_block_nodes(tree.root_node(), source, &mut blocks);
+            if !blocks.is_empty() {
+                return blocks;
+            }
+        }
+    }
+    collect_terraform_blocks_from_text(text)
+}
+
+fn collect_terraform_block_nodes(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    blocks: &mut Vec<TerraformBlock>,
+) {
+    if let Some(block) = terraform_block_from_node(node, source) {
+        blocks.push(block);
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_terraform_block_nodes(child, source, blocks);
+    }
+}
+
+fn terraform_block_from_node(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<TerraformBlock> {
+    let kind = terraform_kind_from_node_kind(node.kind())?.to_string();
+    let labels = terraform_block_labels(node, source);
+    let body_node = terraform_block_body_node(node);
+    let body = body_node
+        .map(|body| node_text(body, source))
+        .unwrap_or_default();
+    let body_start_line = body_node
+        .map(|body| body.start_position().row as i64 + 1)
+        .unwrap_or_else(|| node.start_position().row as i64 + 1);
+
+    Some(TerraformBlock {
+        kind,
+        labels,
+        body,
+        line_start: node.start_position().row as i64 + 1,
+        line_end: node.end_position().row as i64 + 1,
+        body_start_line,
+    })
+}
+
+fn terraform_kind_from_node_kind(node_kind: &str) -> Option<&'static str> {
+    match node_kind {
+        "terraform_block" => Some("terraform"),
+        "provider_block" => Some("provider"),
+        "variable_block" => Some("variable"),
+        "locals_block" => Some("locals"),
+        "module_block" => Some("module"),
+        "data_block" => Some("data"),
+        "resource_block" => Some("resource"),
+        "check_block" => Some("check"),
+        "output_block" => Some("output"),
+        "import_block" => Some("import"),
+        "moved_block" => Some("moved"),
+        "removed_block" => Some("removed"),
+        "ephemeral_block" => Some("ephemeral"),
+        _ => None,
+    }
+}
+
+fn terraform_block_labels(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {
+    let mut labels = Vec::new();
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "string_lit" {
+            labels.push(strip_tf_string(&node_text(child, source)));
+        }
+    }
+    labels
+}
+
+fn terraform_block_body_node(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
+    if let Some(body) = node.child_by_field_name("body") {
+        return Some(body);
+    }
+    let mut cursor = node.walk();
+    let body = node
+        .children(&mut cursor)
+        .find(|child| child.kind() == "block_body");
+    body
+}
+
+fn collect_terraform_blocks_from_text(text: &str) -> Vec<TerraformBlock> {
     let mut blocks = Vec::new();
     let mut offset = 0;
     while offset < text.len() {
@@ -590,6 +683,9 @@ fn collect_terraform_attrs(body: &str, body_start_line: i64) -> Vec<TerraformAtt
         while idx < lines.len() {
             let starts_next_attr = depth <= 0 && TERRAFORM_ATTR_RE.is_match(lines[idx]);
             if starts_next_attr {
+                break;
+            }
+            if depth <= 0 && lines[idx].trim() == "}" {
                 break;
             }
             attr_lines.push(lines[idx]);

@@ -269,12 +269,20 @@ writer, rather than crossing PyO3 per node/edge object.
 
 Follow-up implementation: the Rust backend now accepts `store_file_batch_json`,
 a compact tuple-array JSON batch. Python uses this method when available so Rust
-does not perform per-node/per-edge PyO3 `getattr` extraction. The writer-only
-benchmark still remains approximately 1.0s for Rust versus 0.32s for Python on
-the current repository, so this did not materially change the conclusion: the
-intermediate Python-parser-to-Rust-writer bridge is conversion-bound. The next
-meaningful optimization is to move parser output normalization and eventually
-parser extraction into Rust, not to add more narrow PyO3 methods.
+does not perform per-node/per-edge PyO3 `getattr` extraction. A later
+`parse_rust_owned_files_compact_json` path also batches Rust-owned Markdown and
+Terraform parsing across one PyO3 call per chunk. The 2026-04-29 local
+`tools/backend_benchmark.py --mode all --postprocess none --repeats 3` run on
+this repository (312 files, 4,272 parsed nodes, 27,129 parsed edges) measured:
+
+| Mode | Python avg | Rust avg | Current interpretation |
+|---|---:|---:|---|
+| full build, `postprocess=none` | 2.526s | 3.486s | Rust output now matches Python counts, but the hybrid parser/writer path is still slower |
+| writer-only `store_file_batch` | 0.322s | 1.037s | The intermediate Python-parser-to-Rust-writer bridge remains conversion-bound |
+
+This did not materially change the conclusion: the next meaningful
+optimization is to move parse output normalization and database ingestion into
+the same Rust-owned operation, not to add narrow per-item PyO3 methods.
 
 Rust parser grammar design:
 
@@ -332,13 +340,16 @@ Parser migration progress:
   in the normal build/update path.
 - `dagayn-grammars` now compiles the pinned `manji-0/tree-sitter-markdown` and
   `manji-0/tree-sitter-terraform` C sources through Rust build.rs and exposes
-  Rust `tree_sitter::Language` constructors. This is grammar provisioning only;
-  the transitional Markdown/Terraform extractors still need to be replaced with
-  tree-sitter-backed extractors.
+  Rust `tree_sitter::Language` constructors.
 - The Markdown extractor now collects headings through the pinned Rust
   tree-sitter Markdown grammar, with the previous text scanner retained only as
   fallback. A local full-repo `postprocess=none` smoke benchmark produces
   identical Python/Rust node and edge counts for the current repository.
+- The Terraform extractor now collects top-level block kind, labels, body text,
+  and source ranges through the pinned Rust tree-sitter Terraform grammar, with
+  the previous text scanner retained only as fallback. Attribute, call, and
+  reference extraction remain Rust-owned compatibility logic and should move to
+  direct tree-sitter attribute traversal next.
 
 Python modules being replaced: `dagayn/graph.py` (`GraphStore` upsert and replacement logic), `dagayn/incremental.py` (path normalization and VCS metadata helpers such as `_make_repo_relative`), `dagayn/migrations.py`.
 
