@@ -133,10 +133,11 @@ parser = CodeParser()
 batch = []
 for rel_path in collect_all_files(repo):
     path = repo / rel_path
+    mtime_ns = int(path.stat().st_mtime_ns)
     raw = path.read_bytes()
     nodes, edges = parser.parse_bytes(path, raw)
     nodes, edges = _relativize_parsed_entities(nodes, edges, repo)
-    batch.append((rel_path, nodes, edges, hashlib.sha256(raw).hexdigest()))
+    batch.append((rel_path, nodes, edges, hashlib.sha256(raw).hexdigest(), mtime_ns))
 
 runs = []
 for _ in range({repeats}):

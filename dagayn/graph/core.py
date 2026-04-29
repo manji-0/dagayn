@@ -317,7 +317,23 @@ class GraphStore:
                (kind, name, qualified_name, file_path, line_start, line_end,
                 language, parent_name, params, return_type, modifiers, is_test,
                 file_hash, mtime_ns, extra, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(qualified_name) DO UPDATE SET
+                   kind=excluded.kind,
+                   name=excluded.name,
+                   file_path=excluded.file_path,
+                   line_start=excluded.line_start,
+                   line_end=excluded.line_end,
+                   language=excluded.language,
+                   parent_name=excluded.parent_name,
+                   params=excluded.params,
+                   return_type=excluded.return_type,
+                   modifiers=excluded.modifiers,
+                   is_test=excluded.is_test,
+                   file_hash=excluded.file_hash,
+                   mtime_ns=excluded.mtime_ns,
+                   extra=excluded.extra,
+                   updated_at=excluded.updated_at""",
             [
                 (
                     n.kind,
