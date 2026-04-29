@@ -105,6 +105,37 @@ pub struct EdgeInput {
     pub extra: Value,
 }
 
+#[derive(Clone, Debug)]
+pub struct GraphNode {
+    pub id: i64,
+    pub kind: String,
+    pub name: String,
+    pub qualified_name: String,
+    pub file_path: String,
+    pub line_start: i64,
+    pub line_end: i64,
+    pub language: String,
+    pub parent_name: Option<String>,
+    pub params: Option<String>,
+    pub return_type: Option<String>,
+    pub is_test: bool,
+    pub file_hash: Option<String>,
+    pub extra: Value,
+}
+
+#[derive(Clone, Debug)]
+pub struct GraphEdge {
+    pub id: i64,
+    pub kind: String,
+    pub source_qualified: String,
+    pub target_qualified: String,
+    pub file_path: String,
+    pub line: i64,
+    pub extra: Value,
+    pub confidence: f64,
+    pub confidence_tier: String,
+}
+
 pub struct GraphStore {
     conn: Connection,
 }
@@ -313,6 +344,49 @@ impl GraphStore {
         Ok(out)
     }
 
+    pub fn get_node(&self, qualified_name: &str) -> Result<Option<GraphNode>> {
+        for key in self.qualified_key_candidates(qualified_name)? {
+            let row = self
+                .conn
+                .query_row(
+                    "SELECT * FROM nodes WHERE qualified_name = ?",
+                    [key],
+                    node_from_row,
+                )
+                .optional()?;
+            if row.is_some() {
+                return Ok(row);
+            }
+        }
+        Ok(None)
+    }
+
+    pub fn get_nodes_by_file(&self, file_path: &str) -> Result<Vec<GraphNode>> {
+        let mut seen = std::collections::HashSet::<i64>::new();
+        let mut nodes = Vec::new();
+        for key in self.file_key_candidates(file_path)? {
+            let mut stmt = self
+                .conn
+                .prepare("SELECT * FROM nodes WHERE file_path = ?")?;
+            let rows = stmt.query_map([key], node_from_row)?;
+            for row in rows {
+                let node = row?;
+                if seen.insert(node.id) {
+                    nodes.push(node);
+                }
+            }
+        }
+        Ok(nodes)
+    }
+
+    pub fn get_edges_by_source(&self, qualified_name: &str) -> Result<Vec<GraphEdge>> {
+        self.get_edges_by_endpoint("source_qualified", qualified_name)
+    }
+
+    pub fn get_edges_by_target(&self, qualified_name: &str) -> Result<Vec<GraphEdge>> {
+        self.get_edges_by_endpoint("target_qualified", qualified_name)
+    }
+
     fn init_schema(&self) -> Result<()> {
         self.conn.execute_batch(SCHEMA_SQL)?;
         Ok(())
@@ -498,6 +572,72 @@ impl GraphStore {
         }
         Ok(())
     }
+
+    fn get_edges_by_endpoint(&self, column: &str, qualified_name: &str) -> Result<Vec<GraphEdge>> {
+        let mut seen = std::collections::HashSet::<i64>::new();
+        let mut edges = Vec::new();
+        let sql = format!("SELECT * FROM edges WHERE {column} = ?");
+        for key in self.qualified_key_candidates(qualified_name)? {
+            let mut stmt = self.conn.prepare(&sql)?;
+            let rows = stmt.query_map([key], edge_from_row)?;
+            for row in rows {
+                let edge = row?;
+                if seen.insert(edge.id) {
+                    edges.push(edge);
+                }
+            }
+        }
+        Ok(edges)
+    }
+
+    fn file_key_candidates(&self, file_path: &str) -> Result<Vec<String>> {
+        let normalized = self.normalize_file_path_key(file_path)?;
+        if normalized == file_path {
+            Ok(vec![file_path.to_string()])
+        } else {
+            Ok(vec![file_path.to_string(), normalized])
+        }
+    }
+
+    fn qualified_key_candidates(&self, qualified_name: &str) -> Result<Vec<String>> {
+        let normalized = self.normalize_qualified_key(qualified_name)?;
+        if normalized == qualified_name {
+            Ok(vec![qualified_name.to_string()])
+        } else {
+            Ok(vec![qualified_name.to_string(), normalized])
+        }
+    }
+
+    fn normalize_qualified_key(&self, qualified_name: &str) -> Result<String> {
+        if let Some((file_path, rest)) = qualified_name.split_once("::") {
+            Ok(format!(
+                "{}::{rest}",
+                self.normalize_file_path_key(file_path)?
+            ))
+        } else {
+            self.normalize_file_path_key(qualified_name)
+        }
+    }
+
+    fn normalize_file_path_key(&self, file_path: &str) -> Result<String> {
+        let path = Path::new(file_path);
+        if !path.is_absolute() {
+            return Ok(file_path.to_string());
+        }
+        let Some(repo_root) = self.get_metadata("repo_root")? else {
+            return Ok(file_path.to_string());
+        };
+        let repo_root = Path::new(&repo_root);
+        if let Ok(rel) = path.strip_prefix(repo_root) {
+            return Ok(rel.to_string_lossy().to_string());
+        }
+        if let (Ok(path), Ok(repo_root)) = (path.canonicalize(), repo_root.canonicalize()) {
+            if let Ok(rel) = path.strip_prefix(repo_root) {
+                return Ok(rel.to_string_lossy().to_string());
+            }
+        }
+        Ok(file_path.to_string())
+    }
 }
 
 fn now_seconds() -> Result<f64> {
@@ -550,8 +690,12 @@ fn make_qualified(node: &NodeInput) -> String {
 }
 
 fn remove_file_data_tx(tx: &Transaction<'_>, file_path: &str) -> Result<()> {
-    tx.execute("DELETE FROM nodes WHERE file_path = ?", [file_path])?;
+    tx.execute(
+        "DELETE FROM risk_index WHERE node_id IN (SELECT id FROM nodes WHERE file_path = ?)",
+        [file_path],
+    )?;
     tx.execute("DELETE FROM edges WHERE file_path = ?", [file_path])?;
+    tx.execute("DELETE FROM nodes WHERE file_path = ?", [file_path])?;
     Ok(())
 }
 
@@ -674,6 +818,56 @@ fn upsert_edge_tx(tx: &Transaction<'_>, edge: &EdgeInput) -> Result<i64> {
     Ok(tx.last_insert_rowid())
 }
 
+fn node_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<GraphNode> {
+    let extra: Option<String> = row.get("extra")?;
+    Ok(GraphNode {
+        id: row.get("id")?,
+        kind: row.get("kind")?,
+        name: row.get("name")?,
+        qualified_name: row.get("qualified_name")?,
+        file_path: row.get("file_path")?,
+        line_start: row.get("line_start")?,
+        line_end: row.get("line_end")?,
+        language: row
+            .get::<_, Option<String>>("language")?
+            .unwrap_or_default(),
+        parent_name: row.get("parent_name")?,
+        params: row.get("params")?,
+        return_type: row.get("return_type")?,
+        is_test: row.get::<_, i64>("is_test")? != 0,
+        file_hash: row.get("file_hash")?,
+        extra: parse_json_column(extra).map_err(|err| {
+            rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(err))
+        })?,
+    })
+}
+
+fn edge_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<GraphEdge> {
+    let extra: Option<String> = row.get("extra")?;
+    Ok(GraphEdge {
+        id: row.get("id")?,
+        kind: row.get("kind")?,
+        source_qualified: row.get("source_qualified")?,
+        target_qualified: row.get("target_qualified")?,
+        file_path: row.get("file_path")?,
+        line: row.get("line")?,
+        extra: parse_json_column(extra).map_err(|err| {
+            rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(err))
+        })?,
+        confidence: row.get::<_, Option<f64>>("confidence")?.unwrap_or(1.0),
+        confidence_tier: row
+            .get::<_, Option<String>>("confidence_tier")?
+            .unwrap_or_else(|| "EXTRACTED".to_string()),
+    })
+}
+
+fn parse_json_column(raw: Option<String>) -> serde_json::Result<Value> {
+    match raw {
+        Some(raw) if !raw.is_empty() => serde_json::from_str(&raw),
+        _ => Ok(Value::Object(Default::default())),
+    }
+}
+
 fn has_column(conn: &Connection, table: &str, column: &str) -> Result<bool> {
     let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
     let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
@@ -697,6 +891,7 @@ fn table_exists(conn: &Connection, table: &str) -> Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
     use std::path::PathBuf;
 
     fn temp_db(name: &str) -> PathBuf {
@@ -835,6 +1030,96 @@ mod tests {
             store.get_file_hashes(&["app.py".to_string()]).unwrap()["app.py"],
             "hash"
         );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn reads_nodes_and_edges_for_incremental_dependents() {
+        let path = temp_db("read-api");
+        let mut store = GraphStore::open(&path).expect("open graph store");
+        let source = NodeInput {
+            kind: "File".to_string(),
+            name: "src/lib.py".to_string(),
+            file_path: "src/lib.py".to_string(),
+            line_start: 1,
+            line_end: 1,
+            language: "python".to_string(),
+            parent_name: None,
+            params: None,
+            return_type: None,
+            modifiers: None,
+            is_test: false,
+            extra: Value::Object(Default::default()),
+        };
+        let function = NodeInput {
+            kind: "Function".to_string(),
+            name: "build".to_string(),
+            file_path: "src/lib.py".to_string(),
+            line_start: 3,
+            line_end: 5,
+            language: "python".to_string(),
+            parent_name: None,
+            params: None,
+            return_type: None,
+            modifiers: None,
+            is_test: false,
+            extra: json!({"role": "entry"}),
+        };
+        let target = NodeInput {
+            kind: "File".to_string(),
+            name: "src/app.py".to_string(),
+            file_path: "src/app.py".to_string(),
+            line_start: 1,
+            line_end: 1,
+            language: "python".to_string(),
+            parent_name: None,
+            params: None,
+            return_type: None,
+            modifiers: None,
+            is_test: false,
+            extra: Value::Object(Default::default()),
+        };
+        let edge = EdgeInput {
+            kind: "CALLS".to_string(),
+            source: "src/app.py::main".to_string(),
+            target: "src/lib.py::build".to_string(),
+            file_path: "src/app.py".to_string(),
+            line: 8,
+            extra: json!({"confidence": 0.75, "confidence_tier": "HEURISTIC"}),
+        };
+
+        store
+            .store_file_batch(&[
+                (
+                    "src/lib.py".to_string(),
+                    vec![source, function],
+                    vec![],
+                    "hash-lib".to_string(),
+                ),
+                (
+                    "src/app.py".to_string(),
+                    vec![target],
+                    vec![edge],
+                    "hash-app".to_string(),
+                ),
+            ])
+            .unwrap();
+
+        let nodes = store.get_nodes_by_file("src/lib.py").unwrap();
+        assert_eq!(nodes.len(), 2);
+        assert_eq!(
+            store.get_node("src/lib.py::build").unwrap().unwrap().extra["role"],
+            "entry"
+        );
+
+        let incoming = store.get_edges_by_target("src/lib.py::build").unwrap();
+        assert_eq!(incoming.len(), 1);
+        assert_eq!(incoming[0].file_path, "src/app.py");
+        assert_eq!(incoming[0].confidence_tier, "HEURISTIC");
+
+        let outgoing = store.get_edges_by_source("src/app.py::main").unwrap();
+        assert_eq!(outgoing.len(), 1);
+        assert_eq!(outgoing[0].confidence, 0.75);
         let _ = std::fs::remove_file(path);
     }
 }

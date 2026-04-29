@@ -1,9 +1,11 @@
 use std::sync::Mutex;
 
-use dagayn_core::{EdgeInput, FileBatchItem, GraphStore as NativeGraphStore, NodeInput};
+use dagayn_core::{
+    EdgeInput, FileBatchItem, GraphEdge, GraphNode, GraphStore as NativeGraphStore, NodeInput,
+};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyAny, PyIterator, PyModule};
+use pyo3::types::{PyAny, PyBool, PyIterator, PyModule, PyTuple};
 use serde_json::Value;
 
 #[pyclass(name = "GraphStore")]
@@ -56,6 +58,40 @@ impl PyGraphStore {
         file_paths: Vec<String>,
     ) -> PyResult<std::collections::HashMap<String, String>> {
         self.with_store(|store| store.get_file_hashes(&file_paths))
+    }
+
+    fn get_node(&self, py: Python<'_>, qualified_name: &str) -> PyResult<Option<Py<PyAny>>> {
+        self.with_store(|store| store.get_node(qualified_name))
+            .and_then(|node| node.map(|node| graph_node_to_py(py, node)).transpose())
+    }
+
+    fn get_nodes_by_file(&self, py: Python<'_>, file_path: &str) -> PyResult<Vec<Py<PyAny>>> {
+        self.with_store(|store| store.get_nodes_by_file(file_path))?
+            .into_iter()
+            .map(|node| graph_node_to_py(py, node))
+            .collect()
+    }
+
+    fn get_edges_by_source(
+        &self,
+        py: Python<'_>,
+        qualified_name: &str,
+    ) -> PyResult<Vec<Py<PyAny>>> {
+        self.with_store(|store| store.get_edges_by_source(qualified_name))?
+            .into_iter()
+            .map(|edge| graph_edge_to_py(py, edge))
+            .collect()
+    }
+
+    fn get_edges_by_target(
+        &self,
+        py: Python<'_>,
+        qualified_name: &str,
+    ) -> PyResult<Vec<Py<PyAny>>> {
+        self.with_store(|store| store.get_edges_by_target(qualified_name))?
+            .into_iter()
+            .map(|edge| graph_edge_to_py(py, edge))
+            .collect()
     }
 
     fn store_file_batch(&self, py: Python<'_>, batch: &Bound<'_, PyAny>) -> PyResult<()> {
@@ -218,6 +254,57 @@ fn json_attr(py: Python<'_>, obj: &Bound<'_, PyAny>, name: &str) -> PyResult<Val
     let json = PyModule::import(py, "json")?;
     let raw: String = json.getattr("dumps")?.call1((value,))?.extract()?;
     serde_json::from_str(&raw).map_err(|err| PyValueError::new_err(err.to_string()))
+}
+
+fn graph_node_to_py(py: Python<'_>, node: GraphNode) -> PyResult<Py<PyAny>> {
+    let types = PyModule::import(py, "dagayn.graph.types")?;
+    let cls = types.getattr("GraphNode")?;
+    let extra = json_value_to_py(py, &node.extra)?;
+    let args = PyTuple::new(
+        py,
+        [
+            node.id.into_pyobject(py)?.into_any(),
+            node.kind.into_pyobject(py)?.into_any(),
+            node.name.into_pyobject(py)?.into_any(),
+            node.qualified_name.into_pyobject(py)?.into_any(),
+            node.file_path.into_pyobject(py)?.into_any(),
+            node.line_start.into_pyobject(py)?.into_any(),
+            node.line_end.into_pyobject(py)?.into_any(),
+            node.language.into_pyobject(py)?.into_any(),
+            node.parent_name.into_pyobject(py)?.into_any(),
+            node.params.into_pyobject(py)?.into_any(),
+            node.return_type.into_pyobject(py)?.into_any(),
+            PyBool::new(py, node.is_test).to_owned().into_any(),
+            node.file_hash.into_pyobject(py)?.into_any(),
+            extra.bind(py).clone().into_any(),
+        ],
+    )?;
+    Ok(cls.call1(args)?.unbind())
+}
+
+fn graph_edge_to_py(py: Python<'_>, edge: GraphEdge) -> PyResult<Py<PyAny>> {
+    let types = PyModule::import(py, "dagayn.graph.types")?;
+    let cls = types.getattr("GraphEdge")?;
+    let extra = json_value_to_py(py, &edge.extra)?;
+    Ok(cls
+        .call1((
+            edge.id,
+            edge.kind,
+            edge.source_qualified,
+            edge.target_qualified,
+            edge.file_path,
+            edge.line,
+            extra,
+            edge.confidence,
+            edge.confidence_tier,
+        ))?
+        .unbind())
+}
+
+fn json_value_to_py(py: Python<'_>, value: &Value) -> PyResult<Py<PyAny>> {
+    let json = PyModule::import(py, "json")?;
+    let raw = serde_json::to_string(value).map_err(|err| PyValueError::new_err(err.to_string()))?;
+    Ok(json.getattr("loads")?.call1((raw,))?.unbind())
 }
 
 fn to_py_runtime_error(err: dagayn_core::GraphError) -> PyErr {

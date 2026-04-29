@@ -249,6 +249,10 @@ Initial scaffold:
 - `dagayn-py` exposes the first `dagayn._core.GraphStore` methods for metadata, file replacement, batch file replacement, and file listing
 - Python `full_build` / `incremental_update` buffer parsed file results and call `store_file_batch`, so the Rust backend crosses the PyO3 boundary at coarse DB-write chunks instead of once per parsed file
 - incremental hash checks use `get_file_hashes(paths)` and stale-file cleanup uses `remove_files_data(paths)`, avoiding per-file PyO3 calls in the update path
+- Rust `GraphStore` now exposes the read methods needed by Python's current
+  incremental dependent expansion (`get_node`, `get_nodes_by_file`,
+  `get_edges_by_source`, and `get_edges_by_target`) while returning the
+  existing Python dataclass shapes through the PyO3 interface.
 - when `postprocess != "none"` under the Rust backend, `build_or_update_graph` re-opens the same SQLite DB with the Python `GraphStore` for the whole post-processing phase rather than adding fine-grained Rust read/query bindings before Phase 2
 - `DAGAYN_BACKEND=rust` is recognized by the Python graph package and fails loudly if the extension has not been built; `python` remains the default
 
