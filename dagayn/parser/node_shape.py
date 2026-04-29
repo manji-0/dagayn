@@ -89,6 +89,9 @@ def _resolve_type_role(node, language: str) -> tuple[str, bool, bool]:
                         if arg_name in ("ABC", "ABCMeta") or arg_name.endswith(".ABC"):
                             role = "abstract_class"
                             break
+                        if arg_name == "Protocol" or arg_name.endswith(".Protocol"):
+                            role = "protocol"
+                            break
 
     if language == "dart" and role == "class":
         for child in node.children:

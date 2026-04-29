@@ -1,6 +1,7 @@
 """dagayn parser package — public re-exports."""
 
 from ._base.types import BridgePattern, CellInfo, EdgeInfo, NodeInfo
+from ._protocol import CodeParserProtocol
 from .core import CodeParser
 from .dispatch import EXTENSION_TO_LANGUAGE, SHEBANG_INTERPRETER_TO_LANGUAGE
 from .grammars import file_hash
@@ -10,6 +11,7 @@ __all__ = [
     "BridgePattern",
     "CellInfo",
     "CodeParser",
+    "CodeParserProtocol",
     "EdgeInfo",
     "EXTENSION_TO_LANGUAGE",
     "NodeInfo",
