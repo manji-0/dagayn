@@ -240,29 +240,33 @@ def _cache_disabled() -> bool:
 
 
 def _evict_store_cache(db_path: Path | None = None) -> None:
-    """Evict and force-close cached stores.
+    """Evict cached stores, closing each one only when safe to do so.
 
-    With *db_path* unset, every cached store is closed and the cache is
-    cleared.  Otherwise only the entry for *db_path* is dropped.
+    With *db_path* unset, every cached store is evicted.  Otherwise only
+    the entry for *db_path* is dropped.
+
+    Stores that are currently in use (``_leases > 0``) have their ``_pinned``
+    flag cleared so that the last outstanding :meth:`~GraphStore.close` call
+    performs the real cleanup — avoiding the race where a long-running read
+    tool hits ``sqlite3`` errors on a connection closed by a concurrent
+    build/postprocess tool.
     """
     with _store_lock:
         if db_path is None:
-            for store, _ in _store_cache.values():
-                store._pinned = False
+            entries = list(_store_cache.values())
+            _store_cache.clear()
+        else:
+            entry = _store_cache.pop(db_path, None)
+            entries = [entry] if entry is not None else []
+        for store, _ in entries:
+            store._pinned = False
+            if store._leases == 0:
+                # No in-flight callers — safe to close immediately.
                 try:
                     store._force_close()
                 except Exception:  # noqa: BLE001 — defensive cleanup  # nosec B110
                     pass
-            _store_cache.clear()
-            return
-        entry = _store_cache.pop(db_path, None)
-        if entry is not None:
-            store, _ = entry
-            store._pinned = False
-            try:
-                store._force_close()
-            except Exception:  # noqa: BLE001 — defensive cleanup  # nosec B110
-                pass
+            # else: last close() will call _force_close when _leases reaches 0.
 
 
 def _get_store(
@@ -275,7 +279,9 @@ def _get_store(
     db_path = get_db_path(root)
 
     if not cached or _cache_disabled():
-        return GraphStore(db_path), root
+        store = GraphStore(db_path)
+        store._leases = 1  # caller holds the only lease; close() will close
+        return store, root
 
     try:
         mtime = db_path.stat().st_mtime
@@ -283,24 +289,33 @@ def _get_store(
         # First-time use: nothing to cache yet, fall back to a fresh
         # transient store.  The next call will populate the cache once
         # the DB has been created.
-        return GraphStore(db_path), root
+        store = GraphStore(db_path)
+        store._leases = 1
+        return store, root
 
     with _store_lock:
         entry = _store_cache.get(db_path)
         if entry is not None:
             cached_store, cached_mtime = entry
             if cached_mtime == mtime:
+                # Acquire a lease atomically while holding the lock so
+                # a concurrent _evict_store_cache cannot race between
+                # the lookup and the increment.
+                cached_store._leases += 1
                 return cached_store, root
             # Stale: drop and re-open.
             cached_store._pinned = False
-            try:
-                cached_store._force_close()
-            except Exception:  # noqa: BLE001 — defensive cleanup  # nosec B110
-                pass
+            if cached_store._leases == 0:
+                try:
+                    cached_store._force_close()
+                except Exception:  # noqa: BLE001 — defensive cleanup  # nosec B110
+                    pass
+            # else: last close() will _force_close when _leases reaches 0.
             _store_cache.pop(db_path, None)
 
         store = GraphStore(db_path)
         store._pinned = True
+        store._leases = 1  # set inside the lock before inserting into cache
         _store_cache[db_path] = (store, mtime)
     return store, root
 

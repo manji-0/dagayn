@@ -117,6 +117,12 @@ class GraphStore:
         # tool invocations.  Use :meth:`_force_close` to actually
         # close the connection.
         self._pinned: bool = False
+        # Counts outstanding borrows issued by ``_get_store()``.  Incremented
+        # atomically (under ``_store_lock``) when the cache returns this
+        # instance; decremented by :meth:`close`.  When ``_pinned`` is
+        # cleared by eviction and ``_leases`` drops to zero the connection
+        # is closed so in-flight callers finish cleanly.
+        self._leases: int = 0
 
     def __enter__(self) -> "GraphStore":
         return self
@@ -134,9 +140,13 @@ class GraphStore:
             self._nxg_cache = None
 
     def close(self) -> None:
+        if self._leases > 0:
+            self._leases -= 1
         if self._pinned:
-            # Held by the process-level cache; ignore close() so the
-            # connection survives until the cache evicts it.
+            # Still held by the process-level cache; keep the connection alive.
+            return
+        if self._leases > 0:
+            # Evicted but other callers still hold leases; the last one closes.
             return
         self._conn.close()
 
