@@ -8,6 +8,7 @@ import tomllib
 from pathlib import Path
 from unittest.mock import patch
 
+import dagayn.skills as _skills_module
 from dagayn.skills import (
     _CLAUDE_MD_SECTION_MARKER,
     _MARKDOWN_POLICY_MARKER,
@@ -17,6 +18,7 @@ from dagayn.skills import (
     _in_poetry_project,
     _in_uv_project,
     _opencode_plugin_content,
+    _resolve_source_skills_dir,
     generate_cursor_hooks_config,
     generate_hooks_config,
     generate_skills,
@@ -86,6 +88,37 @@ class TestGenerateSkills:
         generate_skills(tmp_path)
         skills_dir = tmp_path / ".claude" / "skills"
         assert len(list(skills_dir.iterdir())) == len(EXPECTED_SKILLS)
+
+
+class TestResolveSourceSkillsDir:
+    """Regression coverage for wheel-install vs dev-checkout layouts.
+
+    The wheel ships ``skills/`` inside the dagayn package via hatch
+    ``force-include`` (see pyproject.toml). When that source layout
+    is the only one available — i.e., the dev-checkout fallback at
+    ``parent.parent / 'skills'`` is missing — resolution must still
+    succeed.
+    """
+
+    def test_falls_back_to_packaged_skills_dir(self, tmp_path, monkeypatch):
+        # Simulate a wheel-install layout: <site-packages>/dagayn/skills/...
+        fake_pkg = tmp_path / "site-packages" / "dagayn"
+        fake_pkg.mkdir(parents=True)
+        skill_dir = fake_pkg / "skills" / "demo"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            "---\nname: demo\ndescription: x\n---\n\nbody\n", encoding="utf-8"
+        )
+        # And ensure the dev-checkout candidate (parent.parent / skills)
+        # is empty so the second candidate is the only valid one.
+        (tmp_path / "site-packages").mkdir(exist_ok=True)
+
+        fake_module_file = fake_pkg / "skills.py"
+        fake_module_file.write_text("# stub", encoding="utf-8")
+        monkeypatch.setattr(_skills_module, "__file__", str(fake_module_file))
+
+        resolved = _resolve_source_skills_dir()
+        assert resolved == fake_pkg / "skills"
 
 
 class TestInstallGlobalSkills:
