@@ -1,0 +1,62 @@
+"""Rust backend parity tests for Rust-owned parser paths."""
+
+from __future__ import annotations
+
+import shutil
+import sys
+from pathlib import Path
+
+import pytest
+
+from dagayn.incremental import full_build
+
+sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
+from parity_export import export_db  # noqa: E402
+
+from tests.conftest import PARITY_FIXTURE_DIR
+
+
+RUST_OWNED_PARITY_FIXTURES = [
+    "terraform_only",
+    "markdown_only",
+    "mixed",
+]
+
+
+def _copy_fixture(source: Path, dest: Path) -> None:
+    for item in source.iterdir():
+        if item.name in (".git", ".dagayn"):
+            continue
+        target = dest / item.name
+        if item.is_dir():
+            shutil.copytree(item, target)
+        else:
+            shutil.copy2(item, target)
+    (dest / ".git").mkdir()
+
+
+@pytest.mark.parametrize("name", RUST_OWNED_PARITY_FIXTURES)
+def test_rust_backend_matches_python_parity_snapshots(name, tmp_path_factory, monkeypatch):
+    """Rust-owned parser paths must preserve the Python graph contract."""
+    try:
+        from dagayn._core import GraphStore
+    except ImportError as exc:
+        pytest.skip(f"Rust extension is not available: {exc}")
+
+    monkeypatch.setenv("DAGAYN_BACKEND", "rust")
+    source = PARITY_FIXTURE_DIR / name
+    repo = tmp_path_factory.mktemp(f"rustparity_{name}")
+    _copy_fixture(source, repo)
+
+    db_path = repo / ".dagayn" / "graph.db"
+    store = GraphStore(db_path)
+    try:
+        full_build(repo, store)
+    finally:
+        store.close()
+
+    actual = export_db(db_path)
+    expected = (PARITY_FIXTURE_DIR / "__snapshots__" / f"{name}.json").read_text(
+        encoding="utf-8"
+    )
+    assert actual == expected
