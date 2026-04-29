@@ -370,21 +370,24 @@ class GraphStore:
         Returns a mapping from each input qualified name to its
         :class:`GraphNode`. Missing names are absent from the result.
         Both the original and normalized form of each name are tried,
-        mirroring :meth:`get_node`.
+        mirroring :meth:`get_node` — and the *exact* name takes
+        precedence over the normalized form when both exist as
+        separate rows.
         """
         if not qualified_names:
             return {}
 
+        norm_for: dict[str, str] = {}
         keys: set[str] = set()
-        normalized_to_originals: dict[str, list[str]] = {}
         for qn in qualified_names:
-            keys.add(qn)
             normalized = self._normalize_qualified_key(qn)
-            keys.add(normalized)
-            normalized_to_originals.setdefault(normalized, []).append(qn)
+            norm_for[qn] = normalized
+            keys.add(qn)
+            if normalized != qn:
+                keys.add(normalized)
 
-        result: dict[str, GraphNode] = {}
         keys_list = list(keys)
+        rows_by_qn: dict[str, GraphNode] = {}
         batch_size = 450
         for i in range(0, len(keys_list), batch_size):
             batch = keys_list[i : i + batch_size]
@@ -394,15 +397,17 @@ class GraphStore:
                 batch,
             ).fetchall()
             for row in rows:
-                node = self._row_to_node(row)
                 qn = row["qualified_name"]
-                if qn in result:
-                    continue
-                # Map the row back to whatever original keys it satisfies.
-                originals = normalized_to_originals.get(qn, [qn])
-                for orig in originals:
-                    if orig not in result:
-                        result[orig] = node
+                rows_by_qn.setdefault(qn, self._row_to_node(row))
+
+        result: dict[str, GraphNode] = {}
+        for original in qualified_names:
+            # Exact key wins over normalized form, matching get_node().
+            node = rows_by_qn.get(original)
+            if node is None:
+                node = rows_by_qn.get(norm_for[original])
+            if node is not None:
+                result[original] = node
         return result
 
     def get_nodes_by_file(self, file_path: str) -> list[GraphNode]:
@@ -494,7 +499,11 @@ class GraphStore:
         keys_list = list(keys)
         seen_out: dict[str, set[int]] = {qn: set() for qn in qualified_names}
         seen_in: dict[str, set[int]] = {qn: set() for qn in qualified_names}
-        batch_size = 450
+        # The two ``IN ({placeholders})`` clauses each bind one variable
+        # per element, so a batch of N elements consumes 2N variables.
+        # Halve the batch so we stay under SQLite's historical 999
+        # variable cap even on builds compiled before the 3.32 raise.
+        batch_size = 225
         for i in range(0, len(keys_list), batch_size):
             batch = keys_list[i : i + batch_size]
             placeholders = ",".join("?" for _ in batch)

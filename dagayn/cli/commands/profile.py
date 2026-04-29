@@ -102,7 +102,17 @@ def handle(args: argparse.Namespace) -> int:
         try:
             app.main()
         except SystemExit as exc:
-            rc = int(exc.code) if isinstance(exc.code, int) else 0
+            # Match Python's interpreter semantics: None -> 0,
+            # int -> int, anything else -> 1 (Python prints the value
+            # to stderr and exits non-zero). Forcing 0 here would
+            # silently mask failures in scripted profiling runs.
+            code = exc.code
+            if code is None:
+                rc = 0
+            elif isinstance(code, int):
+                rc = code
+            else:
+                rc = 1
     finally:
         profiler.stop()
         sys.argv = saved_argv
