@@ -138,6 +138,8 @@ def get_community_func(
 
 def get_architecture_overview_func(
     repo_root: str | None = None,
+    detail_level: str = "standard",
+    top_n: int = 20,
 ) -> dict[str, Any]:
     """Generate an architecture overview based on community structure.
 
@@ -145,24 +147,32 @@ def get_architecture_overview_func(
     analyzing community boundaries and cross-community coupling.
     Includes warnings for high coupling between communities.
 
+    detail_level controls output size:
+      "minimal"  — name/size/cohesion per community, top-5 coupling pairs, warnings
+      "standard" — full community metadata (no member lists), top-N coupling pairs
+      "verbose"  — adds member lists and raw per-edge cross_community_edges list
+
     Args:
         repo_root: Repository root path. Auto-detected if omitted.
+        detail_level: Output verbosity: "minimal", "standard" (default), "verbose".
+        top_n: Max coupling pairs in standard mode (default 20).
 
     Returns:
-        Architecture overview with communities, cross-community edges,
-        and warnings.
+        Architecture overview with communities, cross_community_coupling, and warnings.
     """
     store, root = _get_store(repo_root)
     try:
-        overview = get_architecture_overview(store)
+        overview = get_architecture_overview(store, detail_level=detail_level, top_n=top_n)
         n_communities = len(overview["communities"])
-        n_cross = len(overview["cross_community_edges"])
+        n_coupling = len(overview["cross_community_coupling"])
         n_warnings = len(overview["warnings"])
+        total_pairs = len(overview["cross_community_coupling"])
+        shown_note = f" (top {total_pairs} shown)" if detail_level == "standard" else ""
         result = {
             "status": "ok",
             "summary": (
                 f"Architecture: {n_communities} communities, "
-                f"{n_cross} cross-community edges, "
+                f"{n_coupling} coupled pairs{shown_note}, "
                 f"{n_warnings} warning(s)"
             ),
             **overview,

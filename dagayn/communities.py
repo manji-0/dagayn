@@ -810,7 +810,11 @@ def _is_test_community(name: str) -> bool:
     return bool(_TEST_COMMUNITY_RE.search(name))
 
 
-def get_architecture_overview(store: GraphStore) -> dict[str, Any]:
+def get_architecture_overview(
+    store: GraphStore,
+    detail_level: str = "standard",
+    top_n: int = 20,
+) -> dict[str, Any]:
     """Generate an architecture overview based on community structure.
 
     Builds a node-to-community mapping, counts cross-community edges,
@@ -818,9 +822,14 @@ def get_architecture_overview(store: GraphStore) -> dict[str, Any]:
 
     Args:
         store: The GraphStore instance.
+        detail_level: "minimal" (compact summary), "standard" (default, no
+                      member lists), or "verbose" (full raw edges + members).
+        top_n: Maximum cross-community pairs to include in standard mode.
+               Ignored for verbose (all pairs returned).
 
     Returns:
-        Dict with keys: communities, cross_community_edges, warnings.
+        Dict with keys: communities, cross_community_coupling, warnings.
+        In verbose mode also includes cross_community_edges (raw per-edge list).
     """
     communities = get_communities(store)
 
@@ -831,10 +840,11 @@ def get_architecture_overview(store: GraphStore) -> dict[str, Any]:
         for qn in comm.get("members", []):
             node_to_community[qn] = comm_id
 
-    # Count cross-community edges
+    # Count cross-community edges; accumulate per-pair kind breakdown
     all_edges = store.get_all_edges()
-    cross_edges: list[dict[str, Any]] = []
     cross_counts: Counter[tuple[int, int]] = Counter()
+    kind_counts: dict[tuple[int, int], Counter[str]] = defaultdict(Counter)
+    cross_edges: list[dict[str, Any]] = []
 
     for e in all_edges:
         # TESTED_BY edges are expected cross-community coupling (test → code),
@@ -846,15 +856,17 @@ def get_architecture_overview(store: GraphStore) -> dict[str, Any]:
         if src_comm is not None and tgt_comm is not None and src_comm != tgt_comm:
             pair = (min(src_comm, tgt_comm), max(src_comm, tgt_comm))
             cross_counts[pair] += 1
-            cross_edges.append(
-                {
-                    "source_community": src_comm,
-                    "target_community": tgt_comm,
-                    "edge_kind": e.kind,
-                    "source": _sanitize_name(e.source_qualified),
-                    "target": _sanitize_name(e.target_qualified),
-                }
-            )
+            kind_counts[pair][e.kind] += 1
+            if detail_level == "verbose":
+                cross_edges.append(
+                    {
+                        "source_community": src_comm,
+                        "target_community": tgt_comm,
+                        "edge_kind": e.kind,
+                        "source": _sanitize_name(e.source_qualified),
+                        "target": _sanitize_name(e.target_qualified),
+                    }
+                )
 
     # Generate warnings for high coupling, skipping test-dominated pairs.
     warnings: list[str] = []
@@ -869,8 +881,36 @@ def get_architecture_overview(store: GraphStore) -> dict[str, Any]:
                 continue
             warnings.append(f"High coupling ({count} edges) between '{name1}' and '{name2}'")
 
-    return {
-        "communities": communities,
-        "cross_community_edges": cross_edges,
+    # Build aggregated coupling list (edge_count desc, top_n in standard mode)
+    pair_limit = None if detail_level == "verbose" else (5 if detail_level == "minimal" else top_n)
+    sorted_pairs = cross_counts.most_common(pair_limit)
+    cross_community_coupling = [
+        {
+            "source_community_id": c1,
+            "source_community_name": comm_name_map.get(c1, f"community-{c1}"),
+            "target_community_id": c2,
+            "target_community_name": comm_name_map.get(c2, f"community-{c2}"),
+            "edge_count": count,
+            "edge_kinds": dict(kind_counts[(c1, c2)]),
+        }
+        for (c1, c2), count in sorted_pairs
+    ]
+
+    # Strip members from communities unless verbose
+    if detail_level == "minimal":
+        out_communities = [
+            {"name": c["name"], "size": c["size"], "cohesion": c["cohesion"]} for c in communities
+        ]
+    elif detail_level == "verbose":
+        out_communities = communities
+    else:
+        out_communities = [{k: v for k, v in c.items() if k != "members"} for c in communities]
+
+    result: dict[str, Any] = {
+        "communities": out_communities,
+        "cross_community_coupling": cross_community_coupling,
         "warnings": warnings,
     }
+    if detail_level == "verbose":
+        result["cross_community_edges"] = cross_edges
+    return result

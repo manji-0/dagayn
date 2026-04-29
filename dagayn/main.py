@@ -577,6 +577,8 @@ def get_community_tool(
 @mcp.tool()
 def get_architecture_overview_tool(
     repo_root: Optional[str] = None,
+    detail_level: str = "standard",
+    top_n: int = 20,
 ) -> dict:
     """Generate an architecture overview based on community structure.
 
@@ -584,10 +586,21 @@ def get_architecture_overview_tool(
     community boundaries and cross-community coupling. Includes warnings
     for high coupling between communities.
 
+    detail_level controls output verbosity:
+      "minimal"  — name/size/cohesion per community, top-5 coupling pairs, warnings only
+      "standard" — full community metadata (no member lists), top-N coupling pairs (default)
+      "verbose"  — includes member lists and raw per-edge cross_community_edges list
+
     Args:
         repo_root: Repository root path. Auto-detected if omitted.
+        detail_level: Output verbosity: "minimal", "standard" (default), or "verbose".
+        top_n: Maximum coupled pairs to include in standard mode. Default 20.
     """
-    return get_architecture_overview_func(repo_root=_resolve_repo_root(repo_root))
+    return get_architecture_overview_func(
+        repo_root=_resolve_repo_root(repo_root),
+        detail_level=detail_level,
+        top_n=top_n,
+    )
 
 
 @mcp.tool()

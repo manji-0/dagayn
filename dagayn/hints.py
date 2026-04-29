@@ -114,8 +114,12 @@ _WORKFLOW: dict[str, list[dict[str, str]]] = {
     ],
     "get_architecture_overview": [
         {
-            "tool": "list_communities",
-            "suggestion": "Drill into individual communities",
+            "tool": "get_community",
+            "suggestion": "Drill into a community with include_members=True for full member list",
+        },
+        {
+            "tool": "query_graph",
+            "suggestion": "Trace callers/callees between coupled communities (pattern=callers_of)",
         },
         {
             "tool": "detect_changes",

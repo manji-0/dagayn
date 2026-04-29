@@ -870,7 +870,7 @@ class TestCommunityTools:
     def test_get_architecture_overview_has_expected_keys(self):
         result = get_architecture_overview_func(repo_root=str(self.root))
         assert "communities" in result
-        assert "cross_community_edges" in result
+        assert "cross_community_coupling" in result
         assert "warnings" in result
         assert "summary" in result
 
@@ -878,7 +878,17 @@ class TestCommunityTools:
         result = get_architecture_overview_func(repo_root=str(self.root))
         assert "Architecture:" in result["summary"]
         assert "communities" in result["summary"]
-        assert "cross-community edges" in result["summary"]
+        assert "coupled pairs" in result["summary"]
+
+    def test_get_architecture_overview_standard_omits_members(self):
+        result = get_architecture_overview_func(repo_root=str(self.root))
+        for comm in result["communities"]:
+            assert "members" not in comm
+
+    def test_get_architecture_overview_verbose_includes_raw_edges(self):
+        result = get_architecture_overview_func(repo_root=str(self.root), detail_level="verbose")
+        assert "cross_community_edges" in result
+        assert isinstance(result["cross_community_edges"], list)
 
 
 class TestBuildPostprocess:
