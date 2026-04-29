@@ -574,54 +574,77 @@ def traverse_graph_func(
         start_qn = results[0]["qualified_name"]
         depth = max(1, min(depth, 6))
 
-        # BFS / DFS traversal
-        visited: dict[str, int] = {}  # qn -> depth
-        queue: list[tuple[str, int]] = [
-            (start_qn, 0),
-        ]
+        # BFS / DFS traversal — process the entire current frontier in
+        # one batched node + edge fetch per layer, instead of issuing
+        # 3 SQL queries per visited node.
+        visited: dict[str, int] = {}
         traversal: list[dict] = []
         approx_tokens = 0
 
-        while queue:
-            if mode == "bfs":
-                current_qn, cur_depth = queue.pop(0)
-            else:
-                current_qn, cur_depth = queue.pop()
+        # Frontier holds nodes scheduled at a given depth. For BFS we
+        # process layer by layer; for DFS we still batch per layer but
+        # walk back to front on the next layer to preserve depth-first
+        # visitation order over neighbours.
+        current_frontier: list[str] = [start_qn]
+        cur_depth = 0
+        budget_exceeded = False
 
-            if current_qn in visited:
-                continue
-            if cur_depth > depth:
-                continue
+        while current_frontier and cur_depth <= depth and not budget_exceeded:
+            # Filter out already-visited entries; preserve order.
+            frontier_unique: list[str] = []
+            seen_in_layer: set[str] = set()
+            for qn in current_frontier:
+                if qn in visited or qn in seen_in_layer:
+                    continue
+                seen_in_layer.add(qn)
+                frontier_unique.append(qn)
 
-            visited[current_qn] = cur_depth
-            node = store.get_node(current_qn)
-            if not node:
-                continue
-
-            entry = {
-                "name": _sanitize_name(node.name),
-                "qualified_name": node.qualified_name,
-                "kind": node.kind,
-                "file": node.file_path,
-                "depth": cur_depth,
-            }
-            approx_tokens += len(str(entry)) // 4
-            if approx_tokens > token_budget:
+            if not frontier_unique:
                 break
 
-            traversal.append(entry)
+            nodes_by_qn = store.get_nodes_by_qualified_names(frontier_unique)
+            outgoing, incoming = store.get_edges_by_endpoints(frontier_unique)
 
-            # Get neighbours
-            out_edges = store.get_edges_by_source(current_qn)
-            in_edges = store.get_edges_by_target(current_qn)
-            for e in out_edges:
-                tgt = e.target_qualified
-                if tgt not in visited:
-                    queue.append((tgt, cur_depth + 1))
-            for e in in_edges:
-                src = e.source_qualified
-                if src not in visited:
-                    queue.append((src, cur_depth + 1))
+            iter_order = frontier_unique if mode == "bfs" else list(reversed(frontier_unique))
+            next_frontier: list[str] = []
+            for current_qn in iter_order:
+                if current_qn in visited:
+                    continue
+                visited[current_qn] = cur_depth
+                node = nodes_by_qn.get(current_qn)
+                if not node:
+                    continue
+
+                entry = {
+                    "name": _sanitize_name(node.name),
+                    "qualified_name": node.qualified_name,
+                    "kind": node.kind,
+                    "file": node.file_path,
+                    "depth": cur_depth,
+                }
+                approx_tokens += len(str(entry)) // 4
+                if approx_tokens > token_budget:
+                    budget_exceeded = True
+                    break
+
+                traversal.append(entry)
+
+                if cur_depth + 1 > depth:
+                    continue
+                for e in outgoing.get(current_qn, []):
+                    tgt = e.target_qualified
+                    if tgt not in visited:
+                        next_frontier.append(tgt)
+                for e in incoming.get(current_qn, []):
+                    src = e.source_qualified
+                    if src not in visited:
+                        next_frontier.append(src)
+
+            if mode == "dfs":
+                current_frontier = list(reversed(next_frontier))
+            else:
+                current_frontier = next_frontier
+            cur_depth += 1
 
         return {
             "start_node": start_qn,

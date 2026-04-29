@@ -111,6 +111,12 @@ class GraphStore:
         run_migrations(self._conn)
         self._nxg_cache: nx.DiGraph | None = None
         self._cache_lock = threading.Lock()
+        # When *True*, :meth:`close` becomes a no-op so that the
+        # process-level store cache in ``dagayn.tools._common`` can
+        # keep the underlying ``sqlite3.Connection`` alive across
+        # tool invocations.  Use :meth:`_force_close` to actually
+        # close the connection.
+        self._pinned: bool = False
 
     def __enter__(self) -> "GraphStore":
         return self
@@ -128,6 +134,14 @@ class GraphStore:
             self._nxg_cache = None
 
     def close(self) -> None:
+        if self._pinned:
+            # Held by the process-level cache; ignore close() so the
+            # connection survives until the cache evicts it.
+            return
+        self._conn.close()
+
+    def _force_close(self) -> None:
+        """Close the underlying sqlite connection, ignoring ``_pinned``."""
         self._conn.close()
 
     def get_repo_root(self) -> Optional[Path]:
@@ -347,6 +361,50 @@ class GraphStore:
                 return self._row_to_node(row)
         return None
 
+    def get_nodes_by_qualified_names(
+        self,
+        qualified_names: list[str],
+    ) -> dict[str, GraphNode]:
+        """Batch-fetch nodes for *qualified_names*.
+
+        Returns a mapping from each input qualified name to its
+        :class:`GraphNode`. Missing names are absent from the result.
+        Both the original and normalized form of each name are tried,
+        mirroring :meth:`get_node`.
+        """
+        if not qualified_names:
+            return {}
+
+        keys: set[str] = set()
+        normalized_to_originals: dict[str, list[str]] = {}
+        for qn in qualified_names:
+            keys.add(qn)
+            normalized = self._normalize_qualified_key(qn)
+            keys.add(normalized)
+            normalized_to_originals.setdefault(normalized, []).append(qn)
+
+        result: dict[str, GraphNode] = {}
+        keys_list = list(keys)
+        batch_size = 450
+        for i in range(0, len(keys_list), batch_size):
+            batch = keys_list[i : i + batch_size]
+            placeholders = ",".join("?" for _ in batch)
+            rows = self._conn.execute(  # nosec B608
+                f"SELECT * FROM nodes WHERE qualified_name IN ({placeholders})",
+                batch,
+            ).fetchall()
+            for row in rows:
+                node = self._row_to_node(row)
+                qn = row["qualified_name"]
+                if qn in result:
+                    continue
+                # Map the row back to whatever original keys it satisfies.
+                originals = normalized_to_originals.get(qn, [qn])
+                for orig in originals:
+                    if orig not in result:
+                        result[orig] = node
+        return result
+
     def get_nodes_by_file(self, file_path: str) -> list[GraphNode]:
         normalized = self._normalize_file_path_key(file_path)
         seen_ids: set[int] = set()
@@ -400,6 +458,68 @@ class GraphStore:
                 seen_ids.add(row["id"])
                 out.append(self._row_to_edge(row))
         return out
+
+    def get_edges_by_endpoints(
+        self,
+        qualified_names: list[str],
+    ) -> tuple[dict[str, list[GraphEdge]], dict[str, list[GraphEdge]]]:
+        """Batch-fetch edges where source OR target is in *qualified_names*.
+
+        Returns ``(outgoing, incoming)`` where:
+
+        - ``outgoing[qn]`` is the list of edges with ``source_qualified == qn``
+        - ``incoming[qn]`` is the list of edges with ``target_qualified == qn``
+
+        Endpoints not present as source/target return an empty list.
+
+        This is the batch equivalent of calling
+        :meth:`get_edges_by_source` and :meth:`get_edges_by_target` once per
+        qualified name. It mirrors the chunking strategy used by
+        :meth:`get_community_ids_by_qualified_names` to stay within SQLite's
+        variable-count limit.
+        """
+        outgoing: dict[str, list[GraphEdge]] = {qn: [] for qn in qualified_names}
+        incoming: dict[str, list[GraphEdge]] = {qn: [] for qn in qualified_names}
+        if not qualified_names:
+            return outgoing, incoming
+
+        keys: set[str] = set()
+        normalized_to_originals: dict[str, list[str]] = {}
+        for qn in qualified_names:
+            keys.add(qn)
+            normalized = self._normalize_qualified_key(qn)
+            keys.add(normalized)
+            normalized_to_originals.setdefault(normalized, []).append(qn)
+
+        keys_list = list(keys)
+        seen_out: dict[str, set[int]] = {qn: set() for qn in qualified_names}
+        seen_in: dict[str, set[int]] = {qn: set() for qn in qualified_names}
+        batch_size = 450
+        for i in range(0, len(keys_list), batch_size):
+            batch = keys_list[i : i + batch_size]
+            placeholders = ",".join("?" for _ in batch)
+            rows = self._conn.execute(  # nosec B608
+                "SELECT * FROM edges "
+                f"WHERE source_qualified IN ({placeholders}) "
+                f"OR target_qualified IN ({placeholders})",
+                [*batch, *batch],
+            ).fetchall()
+            for row in rows:
+                edge = self._row_to_edge(row)
+                src = row["source_qualified"]
+                tgt = row["target_qualified"]
+                # Map back to all originals whose normalized form matches.
+                src_originals = normalized_to_originals.get(src, [src] if src in outgoing else [])
+                tgt_originals = normalized_to_originals.get(tgt, [tgt] if tgt in incoming else [])
+                for orig in src_originals:
+                    if orig in outgoing and row["id"] not in seen_out[orig]:
+                        seen_out[orig].add(row["id"])
+                        outgoing[orig].append(edge)
+                for orig in tgt_originals:
+                    if orig in incoming and row["id"] not in seen_in[orig]:
+                        seen_in[orig].add(row["id"])
+                        incoming[orig].append(edge)
+        return outgoing, incoming
 
     def search_edges_by_target_name(self, name: str, kind: str = "CALLS") -> list[GraphEdge]:
         """Search for edges where target_qualified matches an unqualified name.
@@ -945,6 +1065,27 @@ class GraphStore:
         row = self._conn.execute("SELECT * FROM nodes WHERE id = ?", (node_id,)).fetchone()
         return self._row_to_node(row) if row else None
 
+    def get_nodes_by_ids(self, node_ids: list[int]) -> dict[int, GraphNode]:
+        """Batch-fetch nodes by their integer primary keys.
+
+        Returns a mapping ``{node_id: GraphNode}`` for ids that exist.
+        """
+        result: dict[int, GraphNode] = {}
+        if not node_ids:
+            return result
+        unique_ids = list(dict.fromkeys(node_ids))
+        batch_size = 450
+        for i in range(0, len(unique_ids), batch_size):
+            batch = unique_ids[i : i + batch_size]
+            placeholders = ",".join("?" for _ in batch)
+            rows = self._conn.execute(  # nosec B608
+                f"SELECT * FROM nodes WHERE id IN ({placeholders})",
+                batch,
+            ).fetchall()
+            for row in rows:
+                result[row["id"]] = self._row_to_node(row)
+        return result
+
     def get_nodes_by_kind(
         self,
         kinds: list[str],
@@ -981,6 +1122,28 @@ class GraphStore:
         ).fetchone()
         return row["cnt"] if row else 0
 
+    def count_flow_memberships_for_nodes(self, node_ids: list[int]) -> dict[int, int]:
+        """Batch variant of :meth:`count_flow_memberships`.
+
+        Returns a mapping from each input node id to its flow membership
+        count. Node ids without memberships map to ``0``.
+        """
+        result: dict[int, int] = {nid: 0 for nid in node_ids}
+        if not node_ids:
+            return result
+        batch_size = 450
+        for i in range(0, len(node_ids), batch_size):
+            batch = node_ids[i : i + batch_size]
+            placeholders = ",".join("?" for _ in batch)
+            rows = self._conn.execute(  # nosec B608
+                "SELECT node_id, COUNT(*) as cnt FROM flow_memberships "
+                f"WHERE node_id IN ({placeholders}) GROUP BY node_id",
+                batch,
+            ).fetchall()
+            for r in rows:
+                result[r["node_id"]] = r["cnt"]
+        return result
+
     def get_flow_criticalities_for_node(self, node_id: int) -> list[float]:
         """Return criticality values for all flows a node participates in."""
         rows = self._conn.execute(
@@ -990,6 +1153,48 @@ class GraphStore:
             (node_id,),
         ).fetchall()
         return [r["criticality"] for r in rows]
+
+    def get_flow_criticalities_for_nodes(
+        self,
+        node_ids: list[int],
+    ) -> dict[int, list[float]]:
+        """Batch variant of :meth:`get_flow_criticalities_for_node`."""
+        result: dict[int, list[float]] = {nid: [] for nid in node_ids}
+        if not node_ids:
+            return result
+        batch_size = 450
+        for i in range(0, len(node_ids), batch_size):
+            batch = node_ids[i : i + batch_size]
+            placeholders = ",".join("?" for _ in batch)
+            rows = self._conn.execute(  # nosec B608
+                "SELECT fm.node_id as nid, f.criticality as crit FROM flows f "
+                "JOIN flow_memberships fm ON fm.flow_id = f.id "
+                f"WHERE fm.node_id IN ({placeholders})",
+                batch,
+            ).fetchall()
+            for r in rows:
+                result[r["nid"]].append(r["crit"])
+        return result
+
+    def get_community_ids_by_node_ids(
+        self,
+        node_ids: list[int],
+    ) -> dict[int, int | None]:
+        """Batch-fetch ``community_id`` for a list of node ids."""
+        result: dict[int, int | None] = {nid: None for nid in node_ids}
+        if not node_ids:
+            return result
+        batch_size = 450
+        for i in range(0, len(node_ids), batch_size):
+            batch = node_ids[i : i + batch_size]
+            placeholders = ",".join("?" for _ in batch)
+            rows = self._conn.execute(  # nosec B608
+                f"SELECT id, community_id FROM nodes WHERE id IN ({placeholders})",
+                batch,
+            ).fetchall()
+            for r in rows:
+                result[r["id"]] = r["community_id"]
+        return result
 
     def get_node_community_id(self, node_id: int) -> int | None:
         """Return the ``community_id`` for a node, or ``None``."""
@@ -1168,6 +1373,23 @@ class GraphStore:
             (community_id,),
         ).fetchall()
         return [r["qualified_name"] for r in rows]
+
+    def get_all_community_member_qns(self) -> dict[int, list[str]]:
+        """Return a mapping ``community_id -> [qualified_name, ...]`` for all
+        nodes that have a non-NULL ``community_id``.
+
+        Single-query alternative to calling :meth:`get_community_member_qns`
+        in a loop over every community.
+        """
+        result: dict[int, list[str]] = {}
+        rows = self._conn.execute(
+            "SELECT community_id, qualified_name FROM nodes "
+            "WHERE community_id IS NOT NULL "
+            "ORDER BY community_id"
+        ).fetchall()
+        for r in rows:
+            result.setdefault(r["community_id"], []).append(r["qualified_name"])
+        return result
 
     def get_nodes_by_community_id(
         self,

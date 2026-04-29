@@ -3,31 +3,73 @@ surprise scoring, suggested questions."""
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 from collections import Counter, defaultdict
 
-from .graph import GraphStore, _sanitize_name
+from .graph import GraphEdge, GraphNode, GraphStore, _sanitize_name
 
 logger = logging.getLogger(__name__)
 
 
-def find_hub_nodes(store: GraphStore, top_n: int = 10) -> list[dict]:
+@dataclasses.dataclass(frozen=True)
+class GraphSnapshot:
+    """Pre-computed slice of the graph shared by analysis helpers.
+
+    :func:`generate_suggested_questions` calls four helpers in sequence,
+    each of which independently scans the full edge / node tables. Building
+    a single :class:`GraphSnapshot` up front lets each helper skip its own
+    SQL and reuse the same in-memory view.
+    """
+
+    edges: list[GraphEdge]
+    nodes: list[GraphNode]
+    community_map: dict[str, int | None]
+    in_degree: Counter[str]
+    out_degree: Counter[str]
+    tested_sources: set[str]
+
+
+def build_graph_snapshot(store: GraphStore) -> GraphSnapshot:
+    """Build a :class:`GraphSnapshot` with one read of edges/nodes/communities."""
+    edges = store.get_all_edges()
+    nodes = store.get_all_nodes(exclude_files=True)
+    community_map = store.get_all_community_ids()
+    in_degree: Counter[str] = Counter()
+    out_degree: Counter[str] = Counter()
+    tested_sources: set[str] = set()
+    for e in edges:
+        out_degree[e.source_qualified] += 1
+        in_degree[e.target_qualified] += 1
+        if e.kind == "TESTED_BY":
+            tested_sources.add(e.source_qualified)
+    return GraphSnapshot(
+        edges=edges,
+        nodes=nodes,
+        community_map=community_map,
+        in_degree=in_degree,
+        out_degree=out_degree,
+        tested_sources=tested_sources,
+    )
+
+
+def find_hub_nodes(
+    store: GraphStore,
+    top_n: int = 10,
+    *,
+    snapshot: GraphSnapshot | None = None,
+) -> list[dict]:
     """Find the most connected nodes (highest in+out degree), excluding File nodes.
 
     Returns list of dicts with: name, qualified_name, kind, file,
     in_degree, out_degree, total_degree, community_id
     """
-    # Build degree counts from all edges
-    edges = store.get_all_edges()
-    in_degree: dict[str, int] = Counter()
-    out_degree: dict[str, int] = Counter()
-    for e in edges:
-        out_degree[e.source_qualified] += 1
-        in_degree[e.target_qualified] += 1
-
-    # Get all non-File nodes
-    nodes = store.get_all_nodes(exclude_files=True)
-    community_map = store.get_all_community_ids()
+    if snapshot is None:
+        snapshot = build_graph_snapshot(store)
+    in_degree = snapshot.in_degree
+    out_degree = snapshot.out_degree
+    nodes = snapshot.nodes
+    community_map = snapshot.community_map
 
     scored = []
     for n in nodes:
@@ -57,7 +99,12 @@ def find_hub_nodes(store: GraphStore, top_n: int = 10) -> list[dict]:
     return scored[:top_n]
 
 
-def find_bridge_nodes(store: GraphStore, top_n: int = 10) -> list[dict]:
+def find_bridge_nodes(
+    store: GraphStore,
+    top_n: int = 10,
+    *,
+    snapshot: GraphSnapshot | None = None,
+) -> list[dict]:
     """Find nodes with highest betweenness centrality.
 
     These are architectural chokepoints that sit on shortest paths
@@ -83,8 +130,10 @@ def find_bridge_nodes(store: GraphStore, top_n: int = 10) -> list[dict]:
     else:
         return []
 
-    community_map = store.get_all_community_ids()
-    node_map = {n.qualified_name: n for n in store.get_all_nodes(exclude_files=True)}
+    if snapshot is None:
+        snapshot = build_graph_snapshot(store)
+    community_map = snapshot.community_map
+    node_map = {n.qualified_name: n for n in snapshot.nodes}
 
     results = []
     for qn, score in bc.items():
@@ -111,7 +160,11 @@ def find_bridge_nodes(store: GraphStore, top_n: int = 10) -> list[dict]:
     return results[:top_n]
 
 
-def find_knowledge_gaps(store: GraphStore) -> dict[str, list[dict]]:
+def find_knowledge_gaps(
+    store: GraphStore,
+    *,
+    snapshot: GraphSnapshot | None = None,
+) -> dict[str, list[dict]]:
     """Identify structural weaknesses in the codebase graph.
 
     Returns dict with categories:
@@ -120,18 +173,18 @@ def find_knowledge_gaps(store: GraphStore) -> dict[str, list[dict]]:
     - untested_hotspots: high-degree nodes with no TESTED_BY edges
     - single_file_communities: entire community in one file
     """
-    edges = store.get_all_edges()
-    nodes = store.get_all_nodes(exclude_files=True)
-    community_map = store.get_all_community_ids()
+    if snapshot is None:
+        snapshot = build_graph_snapshot(store)
+    nodes = snapshot.nodes
+    community_map = snapshot.community_map
 
-    # Build degree map
-    degree: dict[str, int] = Counter()
-    tested_nodes: set[str] = set()
-    for e in edges:
-        degree[e.source_qualified] += 1
-        degree[e.target_qualified] += 1
-        if e.kind == "TESTED_BY":
-            tested_nodes.add(e.source_qualified)
+    # Build degree map from snapshot's pre-computed counters.
+    degree: Counter[str] = Counter()
+    for qn, c in snapshot.in_degree.items():
+        degree[qn] += c
+    for qn, c in snapshot.out_degree.items():
+        degree[qn] += c
+    tested_nodes = snapshot.tested_sources
 
     # 1. Isolated nodes (degree <= 1, not File)
     isolated = []
@@ -215,7 +268,12 @@ def find_knowledge_gaps(store: GraphStore) -> dict[str, list[dict]]:
     }
 
 
-def find_surprising_connections(store: GraphStore, top_n: int = 15) -> list[dict]:
+def find_surprising_connections(
+    store: GraphStore,
+    top_n: int = 15,
+    *,
+    snapshot: GraphSnapshot | None = None,
+) -> list[dict]:
     """Find edges with high surprise scores.
 
     Detects unexpected architectural coupling based on:
@@ -225,17 +283,18 @@ def find_surprising_connections(store: GraphStore, top_n: int = 15) -> list[dict
     - Cross-file-type: test calling production or vice versa
     - Non-standard edge kind for the node types
     """
-    edges = store.get_all_edges()
-    nodes = store.get_all_nodes(exclude_files=True)
-    community_map = store.get_all_community_ids()
+    if snapshot is None:
+        snapshot = build_graph_snapshot(store)
+    edges = snapshot.edges
+    community_map = snapshot.community_map
+    node_map = {n.qualified_name: n for n in snapshot.nodes}
 
-    node_map = {n.qualified_name: n for n in nodes}
-
-    # Build degree map
-    degree: dict[str, int] = Counter()
-    for e in edges:
-        degree[e.source_qualified] += 1
-        degree[e.target_qualified] += 1
+    # Build degree map from snapshot's pre-computed counters.
+    degree: Counter[str] = Counter()
+    for qn, c in snapshot.in_degree.items():
+        degree[qn] += c
+    for qn, c in snapshot.out_degree.items():
+        degree[qn] += c
 
     # Median degree for peripheral detection
     degrees = [d for d in degree.values() if d > 0]
@@ -324,9 +383,10 @@ def generate_suggested_questions(
     - surprising: Why does A call B across community boundary?
     """
     questions = []
+    snapshot = build_graph_snapshot(store)
 
     # Bridge node questions
-    bridges = find_bridge_nodes(store, top_n=3)
+    bridges = find_bridge_nodes(store, top_n=3, snapshot=snapshot)
     for b in bridges:
         questions.append(
             {
@@ -342,9 +402,8 @@ def generate_suggested_questions(
         )
 
     # Hub risk questions
-    hubs = find_hub_nodes(store, top_n=3)
-    edges = store.get_all_edges()
-    tested = {e.source_qualified for e in edges if e.kind == "TESTED_BY"}
+    hubs = find_hub_nodes(store, top_n=3, snapshot=snapshot)
+    tested = snapshot.tested_sources
     for h in hubs:
         if h["qualified_name"] not in tested:
             questions.append(
@@ -362,7 +421,7 @@ def generate_suggested_questions(
             )
 
     # Surprising connection questions
-    surprises = find_surprising_connections(store, top_n=3)
+    surprises = find_surprising_connections(store, top_n=3, snapshot=snapshot)
     for s in surprises:
         if "cross-community" in s["reasons"]:
             questions.append(
@@ -381,7 +440,7 @@ def generate_suggested_questions(
             )
 
     # Knowledge gap questions
-    gaps = find_knowledge_gaps(store)
+    gaps = find_knowledge_gaps(store, snapshot=snapshot)
 
     for c in gaps["thin_communities"][:2]:
         questions.append(

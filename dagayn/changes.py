@@ -15,9 +15,19 @@ from typing import Any
 
 from .constants import SECURITY_KEYWORDS as _SECURITY_KEYWORDS
 from .flows import get_affected_flows
-from .graph import GraphNode, GraphStore, _sanitize_name, node_to_dict
+from .graph import GraphEdge, GraphNode, GraphStore, _sanitize_name, node_to_dict
 
 logger = logging.getLogger(__name__)
+
+
+# Sentinel that distinguishes "not provided" from an explicit ``None`` for
+# parameters where ``None`` is a meaningful value (e.g. a node having no
+# community is represented as ``None``).
+class _UnsetType:
+    pass
+
+
+_UNSET = _UnsetType()
 
 _GIT_TIMEOUT = int(os.environ.get("CRG_GIT_TIMEOUT", "30"))  # seconds, configurable
 
@@ -214,7 +224,17 @@ def map_changes_to_nodes(
 # ---------------------------------------------------------------------------
 
 
-def compute_risk_score(store: GraphStore, node: GraphNode) -> float:
+def compute_risk_score(
+    store: GraphStore,
+    node: GraphNode,
+    *,
+    inbound_edges: list[GraphEdge] | None = None,
+    flow_criticalities: list[float] | None = None,
+    flow_count: int | None = None,
+    node_community_id: int | None | _UnsetType = _UNSET,
+    caller_community_ids: dict[str, int | None] | None = None,
+    transitive_test_count: int | None = None,
+) -> float:
     """Compute a risk score (0.0 - 1.0) for a single node.
 
     Scoring factors:
@@ -223,36 +243,49 @@ def compute_risk_score(store: GraphStore, node: GraphNode) -> float:
       - Test coverage: 0.30 (untested) scaling down to 0.05 (5+ TESTED_BY edges)
       - Security sensitivity: 0.20 if name matches security keywords
       - Caller count: callers / 20, capped at 0.10
+
+    Optional pre-fetched arguments let :func:`analyze_changes` issue a
+    handful of batch queries up front and avoid an N+1 pattern when
+    scoring many nodes.
     """
     score = 0.0
 
     # --- Flow participation (cap 0.25), weighted by criticality ---
-    flow_criticalities = store.get_flow_criticalities_for_node(node.id)
+    if flow_criticalities is None:
+        flow_criticalities = store.get_flow_criticalities_for_node(node.id)
     if flow_criticalities:
         score += min(sum(flow_criticalities), 0.25)
     else:
-        flow_count = store.count_flow_memberships(node.id)
+        if flow_count is None:
+            flow_count = store.count_flow_memberships(node.id)
         score += min(flow_count * 0.05, 0.25)
 
     # --- Community crossing (cap 0.15) ---
-    callers = store.get_edges_by_target(node.qualified_name)
-    caller_edges = [e for e in callers if e.kind == "CALLS"]
+    if inbound_edges is None:
+        inbound_edges = store.get_edges_by_target(node.qualified_name)
+    caller_edges = [e for e in inbound_edges if e.kind == "CALLS"]
 
     cross_community = 0
-    node_cid = store.get_node_community_id(node.id)
+    if isinstance(node_community_id, _UnsetType):
+        node_cid = store.get_node_community_id(node.id)
+    else:
+        node_cid = node_community_id
 
     if node_cid is not None and caller_edges:
         caller_qns = [edge.source_qualified for edge in caller_edges]
-        cid_map = store.get_community_ids_by_qualified_names(caller_qns)
+        if caller_community_ids is not None:
+            cid_map = {qn: caller_community_ids.get(qn) for qn in caller_qns}
+        else:
+            cid_map = store.get_community_ids_by_qualified_names(caller_qns)
         for cid in cid_map.values():
             if cid is not None and cid != node_cid:
                 cross_community += 1
     score += min(cross_community * 0.05, 0.15)
 
     # --- Test coverage (direct + transitive) ---
-    transitive_tests = store.get_transitive_tests(node.qualified_name)
-    test_count = len(transitive_tests)
-    score += 0.30 - (min(test_count / 5.0, 1.0) * 0.25)
+    if transitive_test_count is None:
+        transitive_test_count = len(store.get_transitive_tests(node.qualified_name))
+    score += 0.30 - (min(transitive_test_count / 5.0, 1.0) * 0.25)
 
     # --- Security sensitivity ---
     name_lower = node.name.lower()
@@ -310,10 +343,41 @@ def analyze_changes(
     # Filter to functions/tests for risk scoring (skip File nodes).
     changed_funcs = [n for n in changed_nodes if n.kind in ("Function", "Test", "Class")]
 
+    # --- Batch prefetches shared between scoring and test-gap detection ---
+    func_ids = [n.id for n in changed_funcs]
+    func_qns = [n.qualified_name for n in changed_funcs]
+
+    flow_crit_map = store.get_flow_criticalities_for_nodes(func_ids)
+    nodes_needing_count = [nid for nid, vals in flow_crit_map.items() if not vals]
+    flow_count_map = (
+        store.count_flow_memberships_for_nodes(nodes_needing_count) if nodes_needing_count else {}
+    )
+    node_cid_map = store.get_community_ids_by_node_ids(func_ids)
+    _, inbound_map = store.get_edges_by_endpoints(func_qns)
+
+    # Caller communities: collect every CALLS source seen across all nodes
+    # and resolve in a single batch.
+    all_caller_qns: set[str] = set()
+    for edges in inbound_map.values():
+        for e in edges:
+            if e.kind == "CALLS":
+                all_caller_qns.add(e.source_qualified)
+    caller_cid_map = (
+        store.get_community_ids_by_qualified_names(list(all_caller_qns)) if all_caller_qns else {}
+    )
+
     # Compute per-node risk scores.
     node_risks: list[dict[str, Any]] = []
     for node in changed_funcs:
-        risk = compute_risk_score(store, node)
+        risk = compute_risk_score(
+            store,
+            node,
+            inbound_edges=inbound_map.get(node.qualified_name, []),
+            flow_criticalities=flow_crit_map.get(node.id, []),
+            flow_count=flow_count_map.get(node.id, 0),
+            node_community_id=node_cid_map.get(node.id),
+            caller_community_ids=caller_cid_map,
+        )
         node_risks.append(
             {
                 **node_to_dict(node),
@@ -327,12 +391,12 @@ def analyze_changes(
     # Affected flows.
     affected = get_affected_flows(store, changed_files)
 
-    # Detect test gaps: changed functions without TESTED_BY edges.
+    # Detect test gaps: reuse the inbound edges already fetched above.
     test_gaps: list[dict[str, Any]] = []
     for node in changed_funcs:
         if node.is_test:
             continue
-        tested = store.get_edges_by_target(node.qualified_name)
+        tested = inbound_map.get(node.qualified_name, [])
         if not any(e.kind == "TESTED_BY" for e in tested):
             test_gaps.append(
                 {

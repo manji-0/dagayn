@@ -12,7 +12,7 @@ import json
 import logging
 import re
 from collections import deque
-from typing import Optional
+from typing import Any, Optional
 
 from .constants import SECURITY_KEYWORDS as _SECURITY_KEYWORDS
 from .graph import FlowAdjacency, GraphNode, GraphStore, _sanitize_name
@@ -651,6 +651,65 @@ def get_flow_by_id(store: GraphStore, flow_id: int) -> Optional[dict]:
     }
 
 
+def _hydrate_flow_rows(
+    store: GraphStore,
+    rows: list[Any],
+) -> list[dict]:
+    """Build full flow dicts (with ``steps``) for a list of flow rows.
+
+    Issues two batched queries total instead of one per flow + one per
+    step: a single ``WHERE id IN (...)`` over all node ids referenced by
+    any flow's path, then a per-flow Python join.
+    """
+    if not rows:
+        return []
+
+    paths_by_flow: dict[int, list[int]] = {}
+    all_node_ids: list[int] = []
+    for row in rows:
+        path_ids: list[int] = json.loads(row["path_json"])
+        paths_by_flow[row["id"]] = path_ids
+        all_node_ids.extend(path_ids)
+
+    nodes_by_id = store.get_nodes_by_ids(all_node_ids)
+
+    out: list[dict] = []
+    for row in rows:
+        path_ids = paths_by_flow[row["id"]]
+        steps: list[dict] = []
+        for nid in path_ids:
+            node = nodes_by_id.get(nid)
+            if node is None:
+                continue
+            steps.append(
+                {
+                    "node_id": node.id,
+                    "name": _sanitize_name(node.name),
+                    "kind": node.kind,
+                    "file": node.file_path,
+                    "line_start": node.line_start,
+                    "line_end": node.line_end,
+                    "qualified_name": _sanitize_name(node.qualified_name),
+                }
+            )
+        out.append(
+            {
+                "id": row["id"],
+                "name": _sanitize_name(row["name"]),
+                "entry_point_id": row["entry_point_id"],
+                "depth": row["depth"],
+                "node_count": row["node_count"],
+                "file_count": row["file_count"],
+                "criticality": row["criticality"],
+                "path": path_ids,
+                "steps": steps,
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+            }
+        )
+    return out
+
+
 def get_affected_flows(
     store: GraphStore,
     changed_files: list[str],
@@ -679,11 +738,21 @@ def get_affected_flows(
     if not flow_ids:
         return {"affected_flows": [], "total": 0}
 
-    affected: list[dict] = []
-    for fid in flow_ids:
-        flow = get_flow_by_id(store, fid)
-        if flow:
-            affected.append(flow)
+    # Batch-fetch all matching flow rows in one query (chunked to stay
+    # within SQLite's IN(...) variable limit).
+    rows: list[Any] = []
+    batch_size = 450
+    for i in range(0, len(flow_ids), batch_size):
+        batch = flow_ids[i : i + batch_size]
+        placeholders = ",".join("?" for _ in batch)
+        rows.extend(
+            store._conn.execute(  # nosec B608
+                f"SELECT * FROM flows WHERE id IN ({placeholders})",
+                batch,
+            ).fetchall()
+        )
+
+    affected = _hydrate_flow_rows(store, rows)
 
     # Sort by criticality descending.
     affected.sort(key=lambda f: f.get("criticality", 0), reverse=True)

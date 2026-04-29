@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -211,11 +213,96 @@ def _validate_repo_root(path: Path) -> Path:
     return resolved
 
 
-def _get_store(repo_root: str | None = None) -> tuple[GraphStore, Path]:
-    """Resolve repo root and open the graph store."""
+# --- Process-level GraphStore cache (Section 2.3 in PERFORMANCE-IMPROVEMENTS) -
+#
+# Read-only MCP tool calls reuse a single :class:`GraphStore` instance per
+# database file across invocations.  The cache key is the resolved
+# :class:`Path` to the SQLite file; staleness is detected via ``st_mtime``
+# (which changes on every WAL commit).  When the file mtime no longer
+# matches what we cached, the previous instance is force-closed and a fresh
+# one is created so that any mutation done by another connection (e.g. a
+# write tool, the watch daemon, ``dagayn build``) is reflected.
+#
+# Cached stores have ``_pinned = True``; their :meth:`GraphStore.close`
+# becomes a no-op so existing ``finally: store.close()`` blocks in tool
+# handlers continue to work but no longer destroy the connection.
+#
+# Set ``DAGAYN_DISABLE_STORE_CACHE=1`` (or call :func:`_get_store` with
+# ``cached=False``) to disable this and revert to a fresh ``GraphStore``
+# per call — primarily useful for write tools (``build``, incremental
+# update) that already manage their own short-lived connection.
+_store_cache: dict[Path, tuple[GraphStore, float]] = {}
+_store_lock = threading.Lock()
+
+
+def _cache_disabled() -> bool:
+    return os.environ.get("DAGAYN_DISABLE_STORE_CACHE") == "1"
+
+
+def _evict_store_cache(db_path: Path | None = None) -> None:
+    """Evict and force-close cached stores.
+
+    With *db_path* unset, every cached store is closed and the cache is
+    cleared.  Otherwise only the entry for *db_path* is dropped.
+    """
+    with _store_lock:
+        if db_path is None:
+            for store, _ in _store_cache.values():
+                store._pinned = False
+                try:
+                    store._force_close()
+                except Exception:  # noqa: BLE001 — defensive cleanup
+                    pass
+            _store_cache.clear()
+            return
+        entry = _store_cache.pop(db_path, None)
+        if entry is not None:
+            store, _ = entry
+            store._pinned = False
+            try:
+                store._force_close()
+            except Exception:  # noqa: BLE001
+                pass
+
+
+def _get_store(
+    repo_root: str | None = None,
+    *,
+    cached: bool = True,
+) -> tuple[GraphStore, Path]:
+    """Resolve repo root and return a (possibly cached) graph store."""
     root = _validate_repo_root(Path(repo_root)) if repo_root else find_project_root()
     db_path = get_db_path(root)
-    return GraphStore(db_path), root
+
+    if not cached or _cache_disabled():
+        return GraphStore(db_path), root
+
+    try:
+        mtime = db_path.stat().st_mtime
+    except FileNotFoundError:
+        # First-time use: nothing to cache yet, fall back to a fresh
+        # transient store.  The next call will populate the cache once
+        # the DB has been created.
+        return GraphStore(db_path), root
+
+    with _store_lock:
+        entry = _store_cache.get(db_path)
+        if entry is not None:
+            cached_store, cached_mtime = entry
+            if cached_mtime == mtime:
+                return cached_store, root
+            # Stale: drop and re-open.
+            cached_store._pinned = False
+            try:
+                cached_store._force_close()
+            except Exception:  # noqa: BLE001
+                pass
+            _store_cache.pop(db_path, None)
+
+        store = GraphStore(db_path)
+        store._pinned = True
+        _store_cache[db_path] = (store, mtime)
+    return store, root
 
 
 def compact_response(
