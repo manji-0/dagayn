@@ -13,7 +13,7 @@ crate-type = ["cdylib"]
 dagayn-core = { path = "../dagayn-core" }
 pyo3 = { workspace = true, features = ["extension-module"] }
 serde_json.workspace = true
+sha2.workspace = true
 
 [package.metadata.maturin]
 name = "dagayn._core"
-

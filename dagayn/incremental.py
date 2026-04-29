@@ -986,6 +986,27 @@ def _store_rust_parse_batches(
 ) -> tuple[int, int, list[dict[str, str]]]:
     if not rel_paths:
         return 0, 0, []
+    if hasattr(store, "store_rust_owned_files"):
+        total_nodes = 0
+        total_edges = 0
+        errors: list[dict[str, str]] = []
+        for idx in range(0, len(rel_paths), _RUST_PARSE_BATCH_SIZE):
+            chunk = rel_paths[idx : idx + _RUST_PARSE_BATCH_SIZE]
+            try:
+                node_count, edge_count, raw_errors = store.store_rust_owned_files(
+                    repo_root,
+                    chunk,
+                )
+            except (RuntimeError, TypeError, ValueError) as exc:
+                errors.extend({"file": rel_path, "error": str(exc)} for rel_path in chunk)
+                continue
+            total_nodes += int(node_count)
+            total_edges += int(edge_count)
+            errors.extend(
+                {"file": str(file_path), "error": str(error)}
+                for file_path, error in raw_errors
+            )
+        return total_nodes, total_edges, errors
     if not hasattr(store, "store_file_batch_json"):
         raise RuntimeError("Rust parser batch requires a GraphStore with store_file_batch_json")
     try:

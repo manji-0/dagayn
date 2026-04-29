@@ -7,11 +7,14 @@ use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyBool, PyIterator, PyModule, PyTuple};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 #[pyclass(name = "GraphStore")]
 struct PyGraphStore {
     inner: Mutex<NativeGraphStore>,
 }
+
+type RustStoreSummary = (usize, usize, Vec<(String, String)>);
 
 #[pymethods]
 impl PyGraphStore {
@@ -101,6 +104,44 @@ impl PyGraphStore {
 
     fn store_file_batch_json(&self, batch_json: &str) -> PyResult<()> {
         self.with_store_mut(|store| store.store_file_batch_json(batch_json))
+    }
+
+    fn store_rust_owned_files(
+        &self,
+        py: Python<'_>,
+        repo_root: &Bound<'_, PyAny>,
+        file_paths: Vec<String>,
+    ) -> PyResult<RustStoreSummary> {
+        let os = PyModule::import(py, "os")?;
+        let repo_root: String = os.getattr("fspath")?.call1((repo_root,))?.extract()?;
+        let repo_root = std::path::Path::new(&repo_root);
+        let mut batch = Vec::new();
+        let mut errors = Vec::new();
+        let mut total_nodes = 0_usize;
+        let mut total_edges = 0_usize;
+
+        for file_path in file_paths {
+            if !dagayn_core::parser::rust_parser_owns_path(&file_path) {
+                errors.push((file_path, "unsupported Rust parser path".to_string()));
+                continue;
+            }
+            let source = match std::fs::read(repo_root.join(&file_path)) {
+                Ok(source) => source,
+                Err(err) => {
+                    errors.push((file_path, err.to_string()));
+                    continue;
+                }
+            };
+            let (nodes, edges) = parse_rust_owned_file_inputs(&file_path, &source);
+            total_nodes += nodes.len();
+            total_edges += edges.len();
+            batch.push((file_path, nodes, edges, sha256_hex(&source)));
+        }
+
+        if !batch.is_empty() {
+            self.with_store_mut(|store| store.store_file_batch(&batch))?;
+        }
+        Ok((total_nodes, total_edges, errors))
     }
 
     fn remove_file_data(&self, file_path: &str) -> PyResult<()> {
@@ -208,6 +249,62 @@ fn edge_from_py(py: Python<'_>, obj: &Bound<'_, PyAny>) -> PyResult<EdgeInput> {
         line: i64_attr_or_default(obj, "line")?,
         extra: json_attr(py, obj, "extra")?,
     })
+}
+
+fn parse_rust_owned_file_inputs(
+    file_path: &str,
+    source: &[u8],
+) -> (Vec<NodeInput>, Vec<EdgeInput>) {
+    let lowered = file_path.to_ascii_lowercase();
+    let (nodes, edges) = if lowered.ends_with(".md") || lowered.ends_with(".markdown") {
+        dagayn_core::parser::parse_markdown(file_path, source)
+    } else if lowered.ends_with(".tf") || lowered.ends_with(".tfvars") {
+        dagayn_core::parser::parse_terraform(file_path, source)
+    } else {
+        (Vec::new(), Vec::new())
+    };
+    (
+        nodes.into_iter().map(parsed_node_to_input).collect(),
+        edges.into_iter().map(parsed_edge_to_input).collect(),
+    )
+}
+
+fn parsed_node_to_input(node: dagayn_core::parser::ParsedNode) -> NodeInput {
+    NodeInput {
+        kind: node.kind,
+        name: node.name,
+        file_path: node.file_path,
+        line_start: node.line_start,
+        line_end: node.line_end,
+        language: node.language,
+        parent_name: node.parent_name,
+        params: node.params,
+        return_type: node.return_type,
+        modifiers: node.modifiers,
+        is_test: node.is_test,
+        extra: node.extra,
+    }
+}
+
+fn parsed_edge_to_input(edge: dagayn_core::parser::ParsedEdge) -> EdgeInput {
+    EdgeInput {
+        kind: edge.kind,
+        source: edge.source,
+        target: edge.target,
+        file_path: edge.file_path,
+        line: edge.line,
+        extra: edge.extra,
+    }
+}
+
+fn sha256_hex(source: &[u8]) -> String {
+    let digest = Sha256::digest(source);
+    let mut out = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        use std::fmt::Write;
+        let _ = write!(out, "{byte:02x}");
+    }
+    out
 }
 
 fn string_attr(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<String> {

@@ -275,18 +275,23 @@ Follow-up implementation: the Rust backend now accepts `store_file_batch_json`,
 a compact tuple-array JSON batch. Python uses this method when available so Rust
 does not perform per-node/per-edge PyO3 `getattr` extraction. A later
 `parse_rust_owned_files_compact_json` path also batches Rust-owned Markdown and
-Terraform parsing across one PyO3 call per chunk. The 2026-04-29 local
-`tools/backend_benchmark.py --mode all --postprocess none --repeats 3` run on
-this repository (312 files, 4,272 parsed nodes, 27,129 parsed edges) measured:
+Terraform parsing across one PyO3 call per chunk. The current path goes one
+step further with `GraphStore.store_rust_owned_files(repo_root, paths)`, which
+parses Rust-owned files and writes them inside the same Rust call so parsed
+node/edge batches no longer round-trip through Python JSON.
+
+The 2026-04-29 local
+`tools/backend_benchmark.py --mode e2e --postprocess none --repeats 3` run on
+this repository (312 files, 4,316 parsed nodes, 27,602 parsed edges) measured:
 
 | Mode | Python avg | Rust avg | Current interpretation |
 |---|---:|---:|---|
-| full build, `postprocess=none` | 2.526s | 3.486s | Rust output now matches Python counts, but the hybrid parser/writer path is still slower |
-| writer-only `store_file_batch` | 0.322s | 1.037s | The intermediate Python-parser-to-Rust-writer bridge remains conversion-bound |
+| full build, `postprocess=none` | 2.854s | 3.750s | Rust output matches Python counts, but the mixed Python parser / Rust writer path remains slower |
+| writer-only `store_file_batch` | 0.322s | 1.037s | Previous writer-only measurement; useful as evidence that Python-to-Rust writer bridging is still not the end state |
 
 This did not materially change the conclusion: the next meaningful
-optimization is to move parse output normalization and database ingestion into
-the same Rust-owned operation, not to add narrow per-item PyO3 methods.
+optimization is to move more non-Markdown/Terraform parsing and post-processing
+into Rust-owned operations, not to add narrow per-item PyO3 methods.
 
 Rust parser grammar design:
 
@@ -340,8 +345,10 @@ Parser migration progress:
   `parse_rust_owned_files_compact_json(repo_root, file_paths)`, so
   `full_build` / `incremental_update` batch Markdown and Terraform files into
   one Rust parser call per chunk before handing the resulting compact batch to
-  the Rust graph writer. Python no longer crosses PyO3 once per Rust-owned file
-  in the normal build/update path.
+  the Rust graph writer. The preferred Rust backend path now calls
+  `GraphStore.store_rust_owned_files(repo_root, paths)` so Rust-owned parse
+  output is written without returning node/edge JSON to Python. Python no
+  longer crosses PyO3 once per Rust-owned file in the normal build/update path.
 - `dagayn-grammars` now compiles the pinned `manji-0/tree-sitter-markdown` and
   `manji-0/tree-sitter-terraform` C sources through Rust build.rs and exposes
   Rust `tree_sitter::Language` constructors.

@@ -138,6 +138,7 @@ dependencies = [
  "dagayn-core",
  "pyo3",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]
