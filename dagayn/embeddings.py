@@ -23,6 +23,14 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+try:
+    import numpy as np
+
+    _NUMPY_AVAILABLE = True
+except ImportError:
+    np = None  # type: ignore[assignment]
+    _NUMPY_AVAILABLE = False
+
 from .graph import GraphNode, GraphStore, node_to_dict
 
 logger = logging.getLogger(__name__)
@@ -705,6 +713,31 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
     return dot / (norm_a * norm_b)
 
 
+# ---------------------------------------------------------------------------
+# numpy vector cache (only used when _NUMPY_AVAILABLE is True)
+# key: (db_path_str, provider_name, mtime_ns)
+# value: (matrix float32 (N, D), names list[str], row_norms float32 (N,))
+# ---------------------------------------------------------------------------
+
+_np_vec_cache: dict[tuple[str, str, int], tuple[Any, list[str], Any]] = {}
+
+
+def _load_vec_matrix(conn: sqlite3.Connection, provider_name: str) -> tuple[Any, list[str], Any]:
+    """Load all embedding rows for *provider_name* into a numpy matrix."""
+    rows = conn.execute(
+        "SELECT qualified_name, vector FROM embeddings WHERE provider = ?",
+        (provider_name,),
+    ).fetchall()
+    if not rows:
+        empty = np.empty((0, 0), dtype=np.float32)
+        return empty, [], np.empty((0,), dtype=np.float32)
+    names = [r["qualified_name"] for r in rows]
+    vecs = [np.frombuffer(r["vector"], dtype=np.float32) for r in rows]
+    matrix = np.stack(vecs)
+    row_norms = np.linalg.norm(matrix, axis=1).astype(np.float32)
+    return matrix, names, row_norms
+
+
 def _node_to_text(node: GraphNode) -> str:
     """Convert a node to a searchable text representation."""
     parts = [node.name]
@@ -832,31 +865,74 @@ class EmbeddingStore:
         return len(to_embed)
 
     def search(self, query: str, limit: int = 20) -> list[tuple[str, float]]:
-        """Search for nodes by semantic similarity."""
+        """Search for nodes by semantic similarity.
+
+        When numpy is available (``embeddings`` extra), vectors are cached in a
+        process-level matrix keyed by (db_path, provider, mtime_ns) and
+        similarity is computed via a single BLAS matrix-vector product.
+        Falls back to a pure-Python loop when numpy is not installed.
+        """
         if not self.provider:
             return []
 
         provider_name = self.provider.name
         query_vec = _embed_query_cached(self.provider, query)
 
-        # Process in chunks, only matching current provider
-        scored: list[tuple[str, float]] = []
-        cursor = self._conn.execute(
-            "SELECT qualified_name, vector FROM embeddings WHERE provider = ?",
-            (provider_name,),
-        )
-        chunk_size = 500
-        while True:
-            rows = cursor.fetchmany(chunk_size)
-            if not rows:
-                break
-            for row in rows:
-                vec = _decode_vector(row["vector"])
-                sim = _cosine_similarity(query_vec, vec)
-                scored.append((row["qualified_name"], sim))
+        if not _NUMPY_AVAILABLE:
+            # Pure-Python fallback (no numpy installed)
+            scored: list[tuple[str, float]] = []
+            cursor = self._conn.execute(
+                "SELECT qualified_name, vector FROM embeddings WHERE provider = ?",
+                (provider_name,),
+            )
+            while True:
+                rows = cursor.fetchmany(500)
+                if not rows:
+                    break
+                for row in rows:
+                    vec = _decode_vector(row["vector"])
+                    sim = _cosine_similarity(query_vec, vec)
+                    scored.append((row["qualified_name"], sim))
+            scored.sort(key=lambda x: x[1], reverse=True)
+            return scored[:limit]
 
-        scored.sort(key=lambda x: x[1], reverse=True)
-        return scored[:limit]
+        # numpy fast path: process-level matrix cache keyed by mtime
+        try:
+            mtime_ns = int(self.db_path.stat().st_mtime_ns)
+        except OSError:
+            mtime_ns = 0
+        cache_key = (str(self.db_path), provider_name, mtime_ns)
+        if cache_key not in _np_vec_cache:
+            _np_vec_cache[cache_key] = _load_vec_matrix(self._conn, provider_name)
+            # Evict stale entries for the same (path, provider) to bound memory
+            for k in list(_np_vec_cache):
+                if k != cache_key and k[0] == cache_key[0] and k[1] == cache_key[1]:
+                    del _np_vec_cache[k]
+
+        matrix, names, row_norms = _np_vec_cache[cache_key]
+        if not names:
+            return []
+
+        q = np.array(query_vec, dtype=np.float32)
+        q_norm = float(np.linalg.norm(q))
+        if q_norm == 0.0:
+            return []
+        q = q / q_norm
+
+        # Single BLAS call: (N, D) @ (D,) → (N,)
+        dots = matrix @ q
+        safe_norms = np.where(row_norms > 0, row_norms, 1.0)
+        sims = (dots / safe_norms).astype(np.float32)
+
+        n = len(names)
+        k = min(limit, n)
+        if k == n:
+            top_idx = np.argsort(-sims)
+        else:
+            top_idx = np.argpartition(-sims, k)[:k]
+            top_idx = top_idx[np.argsort(-sims[top_idx])]
+
+        return [(names[int(i)], float(sims[i])) for i in top_idx]
 
     def remove_node(self, qualified_name: str) -> None:
         self._conn.execute("DELETE FROM embeddings WHERE qualified_name = ?", (qualified_name,))
