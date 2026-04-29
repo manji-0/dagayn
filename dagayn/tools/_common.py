@@ -251,7 +251,7 @@ def _evict_store_cache(db_path: Path | None = None) -> None:
                 store._pinned = False
                 try:
                     store._force_close()
-                except Exception:  # noqa: BLE001 — defensive cleanup
+                except Exception:  # noqa: BLE001 — defensive cleanup  # nosec B110
                     pass
             _store_cache.clear()
             return
@@ -261,7 +261,7 @@ def _evict_store_cache(db_path: Path | None = None) -> None:
             store._pinned = False
             try:
                 store._force_close()
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001 — defensive cleanup  # nosec B110
                 pass
 
 
@@ -295,7 +295,7 @@ def _get_store(
             cached_store._pinned = False
             try:
                 cached_store._force_close()
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001 — defensive cleanup  # nosec B110
                 pass
             _store_cache.pop(db_path, None)
 

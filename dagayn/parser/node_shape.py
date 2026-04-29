@@ -287,9 +287,7 @@ def _get_params(node, language: str, source: bytes) -> Optional[str]:
             return child.text.decode("utf-8", errors="replace")
     if language == "solidity":
         params = [
-            c.text.decode("utf-8", errors="replace")
-            for c in node.children
-            if c.type == "parameter"
+            c.text.decode("utf-8", errors="replace") for c in node.children if c.type == "parameter"
         ]
         if params:
             return f"({', '.join(params)})"
@@ -367,9 +365,7 @@ def _get_bases(node, language: str, source: bytes) -> list[tuple[str, str]]:
                         for ident in sub.children:
                             if ident.type == "type_identifier":
                                 role = "extends" if first else "implements"
-                                bases.append(
-                                    (ident.text.decode("utf-8", errors="replace"), role)
-                                )
+                                bases.append((ident.text.decode("utf-8", errors="replace"), role))
                                 first = False
                                 break
     elif language == "cpp":
@@ -379,6 +375,7 @@ def _get_bases(node, language: str, source: bytes) -> list[tuple[str, str]]:
                     if sub.type == "type_identifier":
                         bases.append((sub.text.decode("utf-8", errors="replace"), "extends"))
     elif language in ("typescript", "javascript", "tsx"):
+
         def _collect_ts_heritage(parent):
             for child in parent.children:
                 if child.type in ("extends_clause", "implements_clause"):
@@ -421,9 +418,7 @@ def _get_bases(node, language: str, source: bytes) -> list[tuple[str, str]]:
                     elif sub.type == "mixins":
                         for m in sub.children:
                             if m.type == "type_identifier":
-                                bases.append(
-                                    (m.text.decode("utf-8", errors="replace"), "extends")
-                                )
+                                bases.append((m.text.decode("utf-8", errors="replace"), "extends"))
             elif child.type == "interfaces":
                 for sub in child.children:
                     if sub.type == "type_identifier":
@@ -779,6 +774,7 @@ def _extract_import(node, language: str, source: bytes) -> list[str]:
             if match:
                 imports.append(match.group(1))
     elif language == "dart":
+
         def _find_string_literal(n) -> Optional[str]:
             if n.type == "string_literal":
                 return n.text.decode("utf-8", errors="replace").strip("'\"")

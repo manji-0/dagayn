@@ -55,9 +55,7 @@ def _collect_file_scope(
                 if inner.type in func_types or inner.type in class_types:
                     target = inner
                     break
-        elif (
-            language in ("javascript", "typescript", "tsx") and node_type == "export_statement"
-        ):
+        elif language in ("javascript", "typescript", "tsx") and node_type == "export_statement":
             for inner in child.children:
                 if inner.type in func_types or inner.type in class_types:
                     target = inner
@@ -318,7 +316,7 @@ def _do_resolve_module(
                 return str(target.resolve())
         elif module.startswith("package:"):
             try:
-                uri_body = module[len("package:"):]
+                uri_body = module[len("package:") :]
                 pkg_name, _, sub_path = uri_body.partition("/")
                 if not sub_path:
                     return None

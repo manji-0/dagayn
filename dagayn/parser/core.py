@@ -433,7 +433,6 @@ class CodeParser:
                 _depth=_depth + 1,
             )
 
-
     def _extract_elixir_constructs(
         self,
         node,
@@ -526,7 +525,6 @@ class CodeParser:
             import_map,
             defined_names,
         )
-
 
     def _extract_julia_constructs(
         self,
@@ -1188,7 +1186,6 @@ class CodeParser:
     ) -> list[EdgeInfo]:
         return bridges.detect_cross_language_bridge(call_node, language, file_path, caller)
 
-
     def _extract_solidity_constructs(
         self,
         child,
@@ -1266,4 +1263,3 @@ class CodeParser:
         language: str,
     ):
         return resolver._resolve_imported_symbol(self, symbol_name, module, file_path, language)
-
