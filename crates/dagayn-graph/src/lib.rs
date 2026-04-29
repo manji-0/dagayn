@@ -265,6 +265,10 @@ impl GraphStore {
         let conn = Connection::open(db_path)?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "busy_timeout", 5000)?;
+        conn.pragma_update(None, "synchronous", "NORMAL")?;
+        conn.pragma_update(None, "cache_size", -64000)?;
+        conn.pragma_update(None, "mmap_size", 268435456)?;
+        conn.pragma_update(None, "temp_store", "MEMORY")?;
         let store = Self { conn };
         store.init_schema()?;
         if store.schema_version()? < 1 {
@@ -334,9 +338,7 @@ impl GraphStore {
 
     pub fn remove_files_data(&mut self, file_paths: &[String]) -> Result<()> {
         let tx = self.conn.transaction()?;
-        for file_path in file_paths {
-            remove_file_data_tx(&tx, file_path)?;
-        }
+        remove_files_data_tx(&tx, file_paths)?;
         tx.commit()?;
         Ok(())
     }
@@ -853,19 +855,10 @@ impl GraphStore {
 
     pub fn store_file_batch_json(&mut self, batch_json: &str) -> Result<()> {
         let compact: Vec<CompactFileBatchItem> = serde_json::from_str(batch_json)?;
-        let batch = compact
-            .into_iter()
-            .map(|(file_path, nodes, edges, file_hash, mtime_ns)| {
-                (
-                    file_path,
-                    nodes.into_iter().map(NodeInput::from).collect(),
-                    edges.into_iter().map(EdgeInput::from).collect(),
-                    file_hash,
-                    mtime_ns,
-                )
-            })
-            .collect::<Vec<_>>();
-        self.store_file_batch(&batch)
+        let tx = self.conn.transaction()?;
+        store_compact_file_batch_tx(&tx, &compact)?;
+        tx.commit()?;
+        Ok(())
     }
 
     pub fn get_all_files(&self) -> Result<Vec<String>> {
@@ -2787,12 +2780,26 @@ impl From<CompactEdgeInput> for EdgeInput {
 }
 
 fn make_qualified(node: &NodeInput) -> String {
-    if node.kind == "File" {
-        node.file_path.clone()
-    } else if let Some(parent) = &node.parent_name {
-        format!("{}::{}.{}", node.file_path, parent, node.name)
+    make_qualified_parts(
+        &node.kind,
+        &node.name,
+        &node.file_path,
+        node.parent_name.as_deref(),
+    )
+}
+
+fn make_qualified_parts(
+    kind: &str,
+    name: &str,
+    file_path: &str,
+    parent_name: Option<&str>,
+) -> String {
+    if kind == "File" {
+        file_path.to_string()
+    } else if let Some(parent) = parent_name {
+        format!("{file_path}::{parent}.{name}")
     } else {
-        format!("{}::{}", node.file_path, node.name)
+        format!("{file_path}::{name}")
     }
 }
 
@@ -2804,6 +2811,35 @@ fn remove_file_data_tx(tx: &Transaction<'_>, file_path: &str) -> Result<()> {
     tx.execute("DELETE FROM edges WHERE file_path = ?", [file_path])?;
     tx.execute("DELETE FROM nodes WHERE file_path = ?", [file_path])?;
     Ok(())
+}
+
+fn remove_files_data_tx(tx: &Transaction<'_>, file_paths: &[String]) -> Result<()> {
+    for chunk in file_paths.chunks(450) {
+        if chunk.is_empty() {
+            continue;
+        }
+        let placeholders = std::iter::repeat_n("?", chunk.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        let risk_sql = format!(
+            "DELETE FROM risk_index \
+             WHERE node_id IN (SELECT id FROM nodes WHERE file_path IN ({placeholders}))"
+        );
+        tx.execute(&risk_sql, rusqlite::params_from_iter(chunk))?;
+        let edges_sql = format!("DELETE FROM edges WHERE file_path IN ({placeholders})");
+        tx.execute(&edges_sql, rusqlite::params_from_iter(chunk))?;
+        let nodes_sql = format!("DELETE FROM nodes WHERE file_path IN ({placeholders})");
+        tx.execute(&nodes_sql, rusqlite::params_from_iter(chunk))?;
+    }
+    Ok(())
+}
+
+fn extra_json(value: &Value) -> Result<String> {
+    if value.is_null() || value.as_object().is_some_and(|object| object.is_empty()) {
+        Ok("{}".to_string())
+    } else {
+        Ok(serde_json::to_string(value)?)
+    }
 }
 
 fn store_flows_tx(tx: &Transaction<'_>, flows: &[FlowInput]) -> Result<()> {
@@ -2871,11 +2907,12 @@ fn community_json_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
 
 fn store_file_batch_tx(tx: &Transaction<'_>, batch: &[FileBatchItem]) -> Result<()> {
     let now = now_seconds()?;
-    let mut delete_risk = tx.prepare(
-        "DELETE FROM risk_index WHERE node_id IN (SELECT id FROM nodes WHERE file_path = ?)",
-    )?;
-    let mut delete_edges = tx.prepare("DELETE FROM edges WHERE file_path = ?")?;
-    let mut delete_nodes = tx.prepare("DELETE FROM nodes WHERE file_path = ?")?;
+    let file_paths = batch
+        .iter()
+        .map(|(file_path, _, _, _, _)| file_path.clone())
+        .collect::<Vec<_>>();
+    remove_files_data_tx(tx, &file_paths)?;
+
     let mut insert_node = tx.prepare(
         r#"
         INSERT INTO nodes
@@ -2903,18 +2940,10 @@ fn store_file_batch_tx(tx: &Transaction<'_>, batch: &[FileBatchItem]) -> Result<
     )?;
     let mut seen_edges = HashSet::new();
 
-    for (file_path, nodes, edges, file_hash, mtime_ns) in batch {
-        delete_risk.execute([file_path])?;
-        delete_edges.execute([file_path])?;
-        delete_nodes.execute([file_path])?;
-
+    for (_file_path, nodes, edges, file_hash, mtime_ns) in batch {
         for node in nodes {
             let qualified = make_qualified(node);
-            let extra = if node.extra.is_null() {
-                "{}".to_string()
-            } else {
-                serde_json::to_string(&node.extra)?
-            };
+            let extra = extra_json(&node.extra)?;
             insert_node.execute(params![
                 node.kind,
                 node.name,
@@ -2946,11 +2975,118 @@ fn store_file_batch_tx(tx: &Transaction<'_>, batch: &[FileBatchItem]) -> Result<
             if !seen_edges.insert(key) {
                 continue;
             }
-            let extra = if edge.extra.is_null() {
-                Value::Object(Default::default())
-            } else {
-                edge.extra.clone()
-            };
+            let confidence = edge
+                .extra
+                .get("confidence")
+                .and_then(Value::as_f64)
+                .unwrap_or(1.0);
+            let confidence_tier = edge
+                .extra
+                .get("confidence_tier")
+                .and_then(Value::as_str)
+                .unwrap_or("EXTRACTED");
+            let extra_json = extra_json(&edge.extra)?;
+            insert_edge.execute(params![
+                edge.kind,
+                edge.source,
+                edge.target,
+                edge.file_path,
+                edge.line,
+                extra_json,
+                confidence,
+                confidence_tier,
+                now,
+            ])?;
+        }
+    }
+    Ok(())
+}
+
+fn store_compact_file_batch_tx(tx: &Transaction<'_>, batch: &[CompactFileBatchItem]) -> Result<()> {
+    let now = now_seconds()?;
+    let file_paths = batch
+        .iter()
+        .map(|(file_path, _, _, _, _)| file_path.clone())
+        .collect::<Vec<_>>();
+    remove_files_data_tx(tx, &file_paths)?;
+
+    let mut insert_node = tx.prepare(
+        r#"
+        INSERT INTO nodes
+            (kind, name, qualified_name, file_path, line_start, line_end,
+             language, parent_name, params, return_type, modifiers, is_test,
+             file_hash, mtime_ns, extra, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(qualified_name) DO UPDATE SET
+            kind=excluded.kind, name=excluded.name,
+            file_path=excluded.file_path, line_start=excluded.line_start,
+            line_end=excluded.line_end, language=excluded.language,
+            parent_name=excluded.parent_name, params=excluded.params,
+            return_type=excluded.return_type, modifiers=excluded.modifiers,
+            is_test=excluded.is_test, file_hash=excluded.file_hash,
+            mtime_ns=excluded.mtime_ns, extra=excluded.extra, updated_at=excluded.updated_at
+        "#,
+    )?;
+    let mut insert_edge = tx.prepare(
+        r#"
+        INSERT INTO edges
+            (kind, source_qualified, target_qualified, file_path, line, extra,
+             confidence, confidence_tier, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        "#,
+    )?;
+    let mut seen_edges = HashSet::new();
+
+    for (_file_path, nodes, edges, file_hash, mtime_ns) in batch {
+        for node in nodes {
+            let CompactNodeInput(
+                kind,
+                name,
+                file_path,
+                line_start,
+                line_end,
+                language,
+                parent_name,
+                params,
+                return_type,
+                modifiers,
+                is_test,
+                extra,
+            ) = node;
+            let qualified = make_qualified_parts(kind, name, file_path, parent_name.as_deref());
+            let extra = extra_json(extra)?;
+            insert_node.execute(params![
+                kind,
+                name,
+                qualified,
+                file_path,
+                line_start,
+                line_end,
+                language,
+                parent_name,
+                params,
+                return_type,
+                modifiers,
+                i64::from(*is_test),
+                file_hash,
+                mtime_ns,
+                extra,
+                now,
+            ])?;
+        }
+
+        for edge in edges {
+            let CompactEdgeInput(kind, source, target, file_path, line, extra) = edge;
+            let key = (
+                kind.as_str(),
+                source.as_str(),
+                target.as_str(),
+                file_path.as_str(),
+                *line,
+            );
+            if !seen_edges.insert(key) {
+                continue;
+            }
             let confidence = extra
                 .get("confidence")
                 .and_then(Value::as_f64)
@@ -2959,13 +3095,13 @@ fn store_file_batch_tx(tx: &Transaction<'_>, batch: &[FileBatchItem]) -> Result<
                 .get("confidence_tier")
                 .and_then(Value::as_str)
                 .unwrap_or("EXTRACTED");
-            let extra_json = serde_json::to_string(&extra)?;
+            let extra_json = extra_json(extra)?;
             insert_edge.execute(params![
-                edge.kind,
-                edge.source,
-                edge.target,
-                edge.file_path,
-                edge.line,
+                kind,
+                source,
+                target,
+                file_path,
+                line,
                 extra_json,
                 confidence,
                 confidence_tier,
