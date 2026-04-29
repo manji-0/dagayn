@@ -253,6 +253,9 @@ Initial scaffold:
   incremental dependent expansion (`get_node`, `get_nodes_by_file`,
   `get_edges_by_source`, and `get_edges_by_target`) while returning the
   existing Python dataclass shapes through the PyO3 interface.
+- Rust `GraphStore` now also owns FTS5 index rebuilds for the Rust backend,
+  using the same virtual table definition and atomic rebuild sequence as the
+  Python fallback.
 - when `postprocess != "none"` under the Rust backend, `build_or_update_graph` re-opens the same SQLite DB with the Python `GraphStore` for the whole post-processing phase rather than adding fine-grained Rust read/query bindings before Phase 2
 - `DAGAYN_BACKEND=rust` is recognized by the Python graph package and fails loudly if the extension has not been built; `python` remains the default
 
@@ -288,6 +291,10 @@ edges) measured:
 |---|---:|---:|---|
 | full build, `postprocess=none` | 2.645s | 2.982s | Rust output matches Python counts; Rust is still slower, but the gap narrowed after writer batching |
 | writer-only `store_file_batch` | 0.325s | 0.502s | Prepared statements and direct edge inserts cut Rust writer time by roughly half versus the prior ~1.04s |
+| FTS rebuild only | 0.017s | 0.027s | Rust owns the operation now, but the current SQLite-equivalent implementation is not a speedup yet |
+
+The FTS-only measurement used the current local `.dagayn/graph.db` snapshot and
+indexed 4,265 rows in both backends.
 
 This did not materially change the conclusion: the next meaningful
 optimization is to move more non-Markdown/Terraform parsing and post-processing
@@ -364,6 +371,10 @@ Parser migration progress:
   scanning only to preserve existing dotted-string behavior such as
   `"t3.micro"`. Terraform provider `source` dependencies are collected from
   nested AST attributes/object elements instead of scanning the block text.
+- FTS rebuilds now route through `dagayn._core.GraphStore.rebuild_fts_index`
+  when the Rust backend is active. Python's `dagayn.search.rebuild_fts_index`
+  keeps the existing SQLite implementation as the fallback for the Python
+  backend and tests.
 
 Python modules being replaced: `dagayn/graph.py` (`GraphStore` upsert and replacement logic), `dagayn/incremental.py` (path normalization and VCS metadata helpers such as `_make_repo_relative`), `dagayn/migrations.py`.
 

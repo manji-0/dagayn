@@ -152,6 +152,10 @@ impl PyGraphStore {
         self.with_store_mut(|store| store.remove_files_data(&file_paths))
     }
 
+    fn rebuild_fts_index(&self) -> PyResult<i64> {
+        self.with_store_mut(|store| store.rebuild_fts_index())
+    }
+
     fn close(&self) -> PyResult<()> {
         Ok(())
     }

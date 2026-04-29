@@ -259,6 +259,24 @@ impl GraphStore {
         Ok(())
     }
 
+    pub fn rebuild_fts_index(&mut self) -> Result<i64> {
+        let tx = self.conn.transaction()?;
+        tx.execute_batch(
+            r#"
+            DROP TABLE IF EXISTS nodes_fts;
+            CREATE VIRTUAL TABLE nodes_fts USING fts5(
+                name, qualified_name, file_path, signature,
+                content='nodes', content_rowid='rowid',
+                tokenize='porter unicode61'
+            );
+            INSERT INTO nodes_fts(nodes_fts) VALUES('rebuild');
+            "#,
+        )?;
+        let count = tx.query_row("SELECT count(*) FROM nodes_fts", [], |row| row.get(0))?;
+        tx.commit()?;
+        Ok(count)
+    }
+
     pub fn store_file_nodes_edges(
         &mut self,
         file_path: &str,
@@ -1005,6 +1023,60 @@ mod tests {
             store.get_file_hashes(&["app.py".to_string()]).unwrap()["app.py"],
             "hash"
         );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn rebuilds_fts_index() {
+        let path = temp_db("fts");
+        let mut store = GraphStore::open(&path).expect("open graph store");
+        let file = NodeInput {
+            kind: "File".to_string(),
+            name: "app.py".to_string(),
+            file_path: "app.py".to_string(),
+            line_start: 1,
+            line_end: 1,
+            language: "python".to_string(),
+            parent_name: None,
+            params: None,
+            return_type: None,
+            modifiers: None,
+            is_test: false,
+            extra: Value::Object(Default::default()),
+        };
+        let func = NodeInput {
+            kind: "Function".to_string(),
+            name: "calculate_total".to_string(),
+            file_path: "app.py".to_string(),
+            line_start: 3,
+            line_end: 5,
+            language: "python".to_string(),
+            parent_name: None,
+            params: Some("()".to_string()),
+            return_type: None,
+            modifiers: None,
+            is_test: false,
+            extra: Value::Object(Default::default()),
+        };
+
+        store
+            .store_file_nodes_edges("app.py", &[file, func], &[], "hash")
+            .unwrap();
+        store
+            .conn
+            .execute("DROP TABLE IF EXISTS nodes_fts", [])
+            .unwrap();
+
+        assert_eq!(store.rebuild_fts_index().unwrap(), 2);
+        let hit: String = store
+            .conn
+            .query_row(
+                "SELECT name FROM nodes_fts WHERE name MATCH 'calculate*'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(hit, "calculate_total");
         let _ = std::fs::remove_file(path);
     }
 

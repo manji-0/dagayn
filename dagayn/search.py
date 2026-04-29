@@ -75,6 +75,12 @@ def rebuild_fts_index(store: GraphStore) -> int:
     Returns:
         Number of rows indexed.
     """
+    rust_rebuild = getattr(store, "rebuild_fts_index", None)
+    if callable(rust_rebuild):
+        count = int(rust_rebuild())
+        logger.info("FTS index rebuilt: %d rows indexed", count)
+        return count
+
     # NOTE: rebuild_fts_index uses store._conn directly because it manages
     # the FTS5 virtual table DDL, which is tightly coupled to SQLite internals.
     conn = store._conn
