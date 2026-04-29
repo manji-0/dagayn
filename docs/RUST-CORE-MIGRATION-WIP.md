@@ -264,7 +264,8 @@ Initial scaffold:
 - `postprocess="minimal"` no longer re-opens the Python `GraphStore` when the
   Rust backend exposes the required signature, FTS, and Markdown resolver
   methods. Full post-processing still falls back to the Python store for flow,
-  community, and summary generation.
+  community, and summary generation after running those Rust-owned minimal
+  steps on the Rust store first.
 - `DAGAYN_BACKEND=rust` is recognized by the Python graph package and fails loudly if the extension has not been built; `python` remains the default
 
 Current local benchmark baseline, measured on 2026-04-28 with `tools/backend_benchmark.py`

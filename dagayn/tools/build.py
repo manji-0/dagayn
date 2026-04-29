@@ -13,6 +13,17 @@ from ._common import _evict_store_cache, _get_store
 logger = logging.getLogger(__name__)
 
 
+def _can_run_minimal_postprocess(store: Any) -> bool:
+    return all(
+        hasattr(store, name)
+        for name in (
+            "compute_missing_signatures",
+            "rebuild_fts_index",
+            "resolve_markdown_artifact_refs",
+        )
+    )
+
+
 def _postprocess_store(store: Any, root: Any, postprocess: str):
     """Return a Python GraphStore for post-processing when needed.
 
@@ -22,14 +33,7 @@ def _postprocess_store(store: Any, root: Any, postprocess: str):
     """
     if hasattr(store, "_conn"):
         return store, False
-    if postprocess == "minimal" and all(
-        hasattr(store, name)
-        for name in (
-            "compute_missing_signatures",
-            "rebuild_fts_index",
-            "resolve_markdown_artifact_refs",
-        )
-    ):
+    if postprocess == "minimal" and _can_run_minimal_postprocess(store):
         return store, False
 
     from ..graph.core import GraphStore as PythonGraphStore
@@ -43,6 +47,7 @@ def _run_postprocess(
     postprocess: str,
     full_rebuild: bool = False,
     changed_files: list[str] | None = None,
+    skip_minimal_steps: bool = False,
 ) -> list[str]:
     """Run post-build steps based on *postprocess* level.
 
@@ -57,60 +62,61 @@ def _run_postprocess(
     if postprocess == "none":
         return warnings
 
-    # -- Signatures + FTS (fast, always run unless "none") --
-    try:
-        rust_compute = getattr(store, "compute_missing_signatures", None)
-        if callable(rust_compute):
-            rust_compute()
-        else:
-            rows = store.get_nodes_without_signature()
-            for row in rows:
-                node_id, name, kind, params, ret = (
-                    row[0],
-                    row[1],
-                    row[2],
-                    row[3],
-                    row[4],
-                )
-                if kind in ("Function", "Test"):
-                    sig = f"def {name}({params or ''})"
-                    if ret:
-                        sig += f" -> {ret}"
-                elif kind == "Class":
-                    sig = f"class {name}"
-                else:
-                    sig = name
-                store.update_node_signature(node_id, sig[:512])
-            store.commit()
-        build_result["signatures_updated"] = True
-    except (sqlite3.OperationalError, RuntimeError, TypeError, KeyError) as e:
-        logger.warning("Signature computation failed: %s", e)
-        warnings.append(f"Signature computation failed: {type(e).__name__}: {e}")
+    if not skip_minimal_steps:
+        # -- Signatures + FTS (fast, always run unless "none") --
+        try:
+            rust_compute = getattr(store, "compute_missing_signatures", None)
+            if callable(rust_compute):
+                rust_compute()
+            else:
+                rows = store.get_nodes_without_signature()
+                for row in rows:
+                    node_id, name, kind, params, ret = (
+                        row[0],
+                        row[1],
+                        row[2],
+                        row[3],
+                        row[4],
+                    )
+                    if kind in ("Function", "Test"):
+                        sig = f"def {name}({params or ''})"
+                        if ret:
+                            sig += f" -> {ret}"
+                    elif kind == "Class":
+                        sig = f"class {name}"
+                    else:
+                        sig = name
+                    store.update_node_signature(node_id, sig[:512])
+                store.commit()
+            build_result["signatures_updated"] = True
+        except (sqlite3.OperationalError, RuntimeError, TypeError, KeyError) as e:
+            logger.warning("Signature computation failed: %s", e)
+            warnings.append(f"Signature computation failed: {type(e).__name__}: {e}")
 
-    try:
-        from dagayn.search import rebuild_fts_index
+        try:
+            from dagayn.search import rebuild_fts_index
 
-        fts_count = rebuild_fts_index(store)
-        build_result["fts_indexed"] = fts_count
-        build_result["fts_rebuilt"] = True
-    except (sqlite3.OperationalError, ImportError) as e:
-        logger.warning("FTS index rebuild failed: %s", e)
-        warnings.append(f"FTS index rebuild failed: {type(e).__name__}: {e}")
+            fts_count = rebuild_fts_index(store)
+            build_result["fts_indexed"] = fts_count
+            build_result["fts_rebuilt"] = True
+        except (sqlite3.OperationalError, ImportError) as e:
+            logger.warning("FTS index rebuild failed: %s", e)
+            warnings.append(f"FTS index rebuild failed: {type(e).__name__}: {e}")
 
-    try:
-        from dagayn.postprocessing import _resolve_markdown_artifact_refs
+        try:
+            from dagayn.postprocessing import _resolve_markdown_artifact_refs
 
-        _result: dict[str, Any] = {}
-        _resolve_markdown_artifact_refs(store, _result, warnings)
-        build_result["markdown_artifact_refs_resolved"] = _result.get(
-            "markdown_artifact_refs_resolved", 0
-        )
-        build_result["markdown_artifact_refs_dropped"] = _result.get(
-            "markdown_artifact_refs_dropped", 0
-        )
-    except (sqlite3.OperationalError, ImportError) as e:
-        logger.warning("Markdown artifact ref resolution failed: %s", e)
-        warnings.append(f"Markdown artifact ref resolution failed: {type(e).__name__}: {e}")
+            _result: dict[str, Any] = {}
+            _resolve_markdown_artifact_refs(store, _result, warnings)
+            build_result["markdown_artifact_refs_resolved"] = _result.get(
+                "markdown_artifact_refs_resolved", 0
+            )
+            build_result["markdown_artifact_refs_dropped"] = _result.get(
+                "markdown_artifact_refs_dropped", 0
+            )
+        except (sqlite3.OperationalError, ImportError) as e:
+            logger.warning("Markdown artifact ref resolution failed: %s", e)
+            warnings.append(f"Markdown artifact ref resolution failed: {type(e).__name__}: {e}")
 
     if postprocess == "minimal":
         return warnings
@@ -477,6 +483,33 @@ def build_or_update_graph(
                 full_rebuild=full_rebuild,
                 changed_files=changed,
             )
+        elif (
+            postprocess == "full"
+            and not hasattr(store, "_conn")
+            and _can_run_minimal_postprocess(store)
+        ):
+            warnings = _run_postprocess(
+                store,
+                build_result,
+                "minimal",
+                full_rebuild=full_rebuild,
+                changed_files=changed,
+            )
+            pp_store, close_pp_store = _postprocess_store(store, root, postprocess)
+            try:
+                warnings.extend(
+                    _run_postprocess(
+                        pp_store,
+                        build_result,
+                        postprocess,
+                        full_rebuild=full_rebuild,
+                        changed_files=changed,
+                        skip_minimal_steps=True,
+                    )
+                )
+            finally:
+                if close_pp_store:
+                    pp_store.close()
         else:
             pp_store, close_pp_store = _postprocess_store(store, root, postprocess)
             try:
