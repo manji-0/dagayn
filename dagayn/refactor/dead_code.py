@@ -155,12 +155,14 @@ def find_dead_code(
     type_ref_names = _collect_type_referenced_names(store)
 
     class_bases: dict[str, list[str]] = {}
+    class_inherits_targets: dict[str, list[str]] = {}
     conn = store._conn
     for row in conn.execute(
         "SELECT source_qualified, target_qualified FROM edges WHERE kind = 'INHERITS'"
     ).fetchall():
         base = row[1].rsplit("::", 1)[-1] if "::" in row[1] else row[1]
         class_bases.setdefault(row[0], []).append(base)
+        class_inherits_targets.setdefault(row[0], []).append(row[1])
 
     importer_files: dict[str, set[str]] = {}
     for row in conn.execute(
@@ -176,47 +178,37 @@ def find_dead_code(
     ).fetchall():
         name_counts[row[0]] = row[1]
 
-    dead: list[dict[str, Any]] = []
-
+    # ---------------------------------------------------------------------------
+    # Pass 1: SQL-free pre-filter using only node data + preloaded dicts.
+    # Collects candidates that survive all node-level exclusion rules so we
+    # can batch-preload their incoming edges before the main analysis pass.
+    # ---------------------------------------------------------------------------
+    surviving: list[Any] = []
     for node in candidates:
         if node.is_test or _is_test_file(node.file_path):
             continue
-
         if node.file_path.endswith(".d.ts"):
             continue
-
         if node.name.startswith("__") and node.name.endswith("__"):
             continue
-
         if node.name == "constructor" and node.parent_name:
             continue
-
-        if node.is_test or _is_test_file(node.file_path):
-            if _MOCK_NAME_RE.search(node.name):
-                continue
-
         if _is_entry_point(node):
             continue
-
         if node.kind == "Class" and node.name in type_ref_names:
             continue
-
         if node.kind == "Class" and _has_framework_decorator(node):
             continue
 
-        _is_framework_class = False
+        # Framework-class check: use preloaded class_bases instead of SQL
         _check_qn = (
             node.qualified_name
             if node.kind == "Class"
             else (node.qualified_name.rsplit(".", 1)[0] if node.parent_name else None)
         )
-        if _check_qn:
-            outgoing = store.get_edges_by_source(_check_qn)
-            base_names = {
-                e.target_qualified.rsplit("::", 1)[-1] for e in outgoing if e.kind == "INHERITS"
-            }
-            if base_names & _FRAMEWORK_BASE_CLASSES:
-                _is_framework_class = True
+        _is_framework_class = bool(
+            _check_qn and set(class_bases.get(_check_qn, [])) & _FRAMEWORK_BASE_CLASSES
+        )
         if node.kind == "Class":
             if _is_framework_class:
                 continue
@@ -245,18 +237,99 @@ def find_dead_code(
                 if any("dataclass" in d for d in decorators):
                     continue
 
+        surviving.append(node)
+
+    # ---------------------------------------------------------------------------
+    # Batch preloads for the main analysis pass
+    # ---------------------------------------------------------------------------
+    batch_size = 450
+
+    # Collect all QNs we need incoming edges for (primary + parent::name form)
+    incoming_qns: list[str] = []
+    survivor_names_set: set[str] = set()
+    for node in surviving:
+        incoming_qns.append(node.qualified_name)
+        survivor_names_set.add(node.name)
+        if node.parent_name:
+            incoming_qns.append(f"{node.parent_name}::{node.name}")
+
+    # Incoming edges indexed by target_qualified
+    incoming_by_qn: dict[str, list[Any]] = {}
+    for i in range(0, len(incoming_qns), batch_size):
+        chunk = incoming_qns[i : i + batch_size]
+        placeholders = ",".join("?" for _ in chunk)
+        for row in conn.execute(  # nosec B608
+            f"SELECT * FROM edges WHERE target_qualified IN ({placeholders})",
+            chunk,
+        ).fetchall():
+            edge = store._row_to_edge(row)
+            incoming_by_qn.setdefault(row["target_qualified"], []).append(edge)
+
+    # Bare-name edges (target_qualified == node.name) for CALLS/TESTED_BY/INHERITS
+    bare_calls_by_name: dict[str, list[Any]] = {}
+    bare_tested_by_name: dict[str, list[Any]] = {}
+    bare_inherits_by_name: dict[str, list[Any]] = {}
+    survivor_names_list = list(survivor_names_set)
+    for i in range(0, len(survivor_names_list), batch_size):
+        chunk = survivor_names_list[i : i + batch_size]
+        placeholders = ",".join("?" for _ in chunk)
+        for row in conn.execute(  # nosec B608
+            f"SELECT * FROM edges WHERE target_qualified IN ({placeholders}) "
+            f"AND kind IN ('CALLS', 'TESTED_BY', 'INHERITS')",
+            chunk,
+        ).fetchall():
+            edge = store._row_to_edge(row)
+            kind, tgt = row["kind"], row["target_qualified"]
+            if kind == "CALLS":
+                bare_calls_by_name.setdefault(tgt, []).append(edge)
+            elif kind == "TESTED_BY":
+                bare_tested_by_name.setdefault(tgt, []).append(edge)
+            else:
+                bare_inherits_by_name.setdefault(tgt, []).append(edge)
+
+    # Suffix-qualified CALLS edges: target_qualified LIKE '%::name'.
+    # Load once and index by the last '::' segment so per-node LIKE queries
+    # can be replaced by an O(1) dict lookup.
+    suffix_calls_by_name: dict[str, list[Any]] = {}
+    for row in conn.execute(
+        "SELECT * FROM edges WHERE kind = 'CALLS' AND target_qualified LIKE '%::%'"
+    ).fetchall():
+        edge = store._row_to_edge(row)
+        suffix = row["target_qualified"].rsplit("::", 1)[-1]
+        suffix_calls_by_name.setdefault(suffix, []).append(edge)
+
+    # Preload base-method nodes for the abstractmethod check (lines ~250-268).
+    # Compute all candidate (base_class_qn.method_name) keys from class_inherits_targets.
+    base_method_qns_set: set[str] = set()
+    for node in surviving:
         if node.kind == "Function" and node.parent_name:
             parent_qn = node.qualified_name.rsplit(".", 1)[0]
-            parent_edges = store.get_edges_by_source(parent_qn)
-            base_class_names = [e.target_qualified for e in parent_edges if e.kind == "INHERITS"]
+            for base_cls_qn in class_inherits_targets.get(parent_qn, []):
+                base_method_qns_set.add(f"{base_cls_qn}.{node.name}")
+                base_method_qns_set.add(f"{node.file_path}::{base_cls_qn}.{node.name}")
+    base_nodes_map: dict[str, Any] = {}
+    if base_method_qns_set:
+        for qn, n in store.get_nodes_by_qualified_names(list(base_method_qns_set)).items():
+            base_nodes_map[qn] = n
+
+    # ---------------------------------------------------------------------------
+    # Pass 2: main dead-code analysis using preloaded data (no SQL in the loop)
+    # ---------------------------------------------------------------------------
+    dead: list[dict[str, Any]] = []
+
+    for node in surviving:
+        # Abstractmethod-in-base check: uses class_inherits_targets + preloaded nodes
+        if node.kind == "Function" and node.parent_name:
+            parent_qn = node.qualified_name.rsplit(".", 1)[0]
+            base_class_names = class_inherits_targets.get(parent_qn, [])
             for base_name in base_class_names:
                 base_method_qn = f"{base_name}.{node.name}"
-                base_nodes = store.get_node(base_method_qn)
-                if base_nodes is None:
-                    base_method_qn2 = node.file_path + "::" + base_name + "." + node.name
-                    base_nodes = store.get_node(base_method_qn2)
-                if base_nodes is not None:
-                    base_decos = base_nodes.extra.get("decorators", ())
+                base_node = base_nodes_map.get(base_method_qn)
+                if base_node is None:
+                    base_method_qn2 = f"{node.file_path}::{base_name}.{node.name}"
+                    base_node = base_nodes_map.get(base_method_qn2)
+                if base_node is not None:
+                    base_decos = base_node.extra.get("decorators", ())
                     if isinstance(base_decos, (list, tuple)) and any(
                         "abstractmethod" in d for d in base_decos
                     ):
@@ -266,18 +339,14 @@ def find_dead_code(
             if base_name is not None:
                 continue
 
-        incoming = store.get_edges_by_target(node.qualified_name)
+        incoming = list(incoming_by_qn.get(node.qualified_name, []))
         if not any(e.kind == "CALLS" for e in incoming) and node.parent_name:
             class_qn = f"{node.parent_name}::{node.name}"
-            incoming = incoming + store.get_edges_by_target(class_qn)
+            incoming = incoming + incoming_by_qn.get(class_qn, [])
         if not any(e.kind == "CALLS" for e in incoming):
-            bare = store.search_edges_by_target_name(node.name, kind="CALLS")
-            suffix_rows = conn.execute(
-                "SELECT * FROM edges WHERE kind = 'CALLS' AND target_qualified LIKE ?",
-                (f"%::{node.name}",),
-            ).fetchall()
-            suffix_edges = [store._row_to_edge(r) for r in suffix_rows]
-            all_bare = bare + suffix_edges
+            all_bare = bare_calls_by_name.get(node.name, []) + suffix_calls_by_name.get(
+                node.name, []
+            )
             all_bare = [
                 e
                 for e in all_bare
@@ -287,18 +356,17 @@ def find_dead_code(
             ]
             incoming = incoming + all_bare
         if not any(e.kind == "TESTED_BY" for e in incoming):
-            bare_tb = store.search_edges_by_target_name(node.name, kind="TESTED_BY")
             bare_tb = [
                 e
-                for e in bare_tb
+                for e in bare_tested_by_name.get(node.name, [])
                 if _is_plausible_caller(
                     e.file_path, node.file_path, node.name, importer_files, name_counts
                 )
             ]
             incoming = incoming + bare_tb
         if node.kind == "Class" and not any(e.kind == "INHERITS" for e in incoming):
-            bare_inh = store.search_edges_by_target_name(node.name, kind="INHERITS")
-            incoming = incoming + bare_inh
+            incoming = incoming + bare_inherits_by_name.get(node.name, [])
+
         has_callers = any(e.kind == "CALLS" for e in incoming)
         has_test_refs = any(e.kind == "TESTED_BY" for e in incoming)
         has_importers = any(e.kind == "IMPORTS_FROM" for e in incoming)
