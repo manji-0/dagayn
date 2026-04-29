@@ -8,7 +8,7 @@ import time
 from typing import Any
 
 from ..incremental import full_build, incremental_update
-from ._common import _get_store
+from ._common import _evict_store_cache, _get_store
 
 logger = logging.getLogger(__name__)
 
@@ -399,7 +399,10 @@ def build_or_update_graph(
     Returns:
         Summary with files_parsed/updated, node/edge counts, and errors.
     """
-    store, root = _get_store(repo_root)
+    # Build/update is a write workload — opt out of the read-only store
+    # cache so we don't hold a stale connection open across mutations.
+    _evict_store_cache()
+    store, root = _get_store(repo_root, cached=False)
     try:
         if full_rebuild:
             result = full_build(root, store, recurse_submodules)
@@ -473,7 +476,10 @@ def run_postprocess(
     Returns:
         Summary of what was computed.
     """
-    store, _root = _get_store(repo_root)
+    # Postprocess writes to flows / communities / FTS — bypass the
+    # read-only store cache for the duration of this call.
+    _evict_store_cache()
+    store, _root = _get_store(repo_root, cached=False)
     result: dict[str, Any] = {"status": "ok"}
     warnings: list[str] = []
 

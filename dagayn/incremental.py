@@ -716,10 +716,13 @@ def _single_hop_dependents(store: GraphStore, file_path: str) -> set[str]:
             dependents.add(e.file_path)
 
     nodes = store.get_nodes_by_file(file_path)
-    for node in nodes:
-        for e in store.get_edges_by_target(node.qualified_name):
-            if e.kind in ("CALLS", "IMPORTS_FROM", "INHERITS", "IMPLEMENTS"):
-                dependents.add(e.file_path)
+    if nodes:
+        node_qns = [node.qualified_name for node in nodes]
+        _, incoming = store.get_edges_by_endpoints(node_qns)
+        for edges_for_node in incoming.values():
+            for e in edges_for_node:
+                if e.kind in ("CALLS", "IMPORTS_FROM", "INHERITS", "IMPLEMENTS"):
+                    dependents.add(e.file_path)
 
     dependents.discard(file_path)
     return dependents

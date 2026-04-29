@@ -766,10 +766,11 @@ def get_communities(
         (min_size,),
     ).fetchall()
 
+    members_by_id = store.get_all_community_member_qns()
+
     communities: list[dict[str, Any]] = []
     for row in rows:
-        # Fetch member qualified names for this community
-        member_qns = [_sanitize_name(qn) for qn in store.get_community_member_qns(row["id"])]
+        member_qns = [_sanitize_name(qn) for qn in members_by_id.get(row["id"], [])]
 
         communities.append(
             {

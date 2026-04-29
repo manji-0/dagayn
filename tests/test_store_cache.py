@@ -1,0 +1,219 @@
+"""Tests for the process-level GraphStore cache in dagayn.tools._common.
+
+Covers lease counting, eviction safety, and the regression where
+_evict_store_cache() force-closed a connection while a tool invocation
+was still in-flight (Codex review C2-6 / P1).
+"""
+
+from __future__ import annotations
+
+import threading
+
+import pytest
+
+from dagayn.graph import GraphStore
+from dagayn.tools._common import _evict_store_cache, _get_store
+
+# ---------------------------------------------------------------------------
+# Unit tests: GraphStore.close() state machine
+# ---------------------------------------------------------------------------
+
+
+class TestGraphStoreLease:
+    def test_fresh_store_closes_on_first_call(self, tmp_path):
+        """An uncached (non-pinned, non-leased) store closes when close() is called."""
+        db = tmp_path / "g.db"
+        store = GraphStore(db)
+        assert store._leases == 0
+        assert not store._pinned
+        store.close()
+        with pytest.raises(Exception):  # closed connection raises on use
+            store._conn.execute("SELECT 1")
+
+    def test_pinned_store_survives_close(self, tmp_path):
+        """A pinned (cached) store ignores close() calls."""
+        db = tmp_path / "g.db"
+        store = GraphStore(db)
+        store._pinned = True
+        store._leases = 1
+        store.close()  # lease 1→0, but _pinned keeps connection open
+        store._conn.execute("SELECT 1")  # must still work
+
+    def test_evicted_store_with_lease_survives_close(self, tmp_path):
+        """After eviction (pinned=False) a store with leases>0 stays open."""
+        db = tmp_path / "g.db"
+        store = GraphStore(db)
+        store._pinned = False
+        store._leases = 2
+
+        store.close()  # leases 2→1; not yet zero
+        store._conn.execute("SELECT 1")  # still open
+
+        store.close()  # leases 1→0; now closes
+        with pytest.raises(Exception):
+            store._conn.execute("SELECT 1")
+
+    def test_evicted_store_zero_leases_closes(self, tmp_path):
+        """After eviction with leases=0 the next close() closes the connection."""
+        db = tmp_path / "g.db"
+        store = GraphStore(db)
+        store._pinned = False
+        store._leases = 1
+        store.close()  # 1→0, pinned=False → _conn.close()
+        with pytest.raises(Exception):
+            store._conn.execute("SELECT 1")
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: _get_store lease accounting
+# ---------------------------------------------------------------------------
+
+
+class TestGetStoreLease:
+    def test_cached_store_returns_same_instance(self, tmp_path):
+        """Two consecutive _get_store() calls return the same GraphStore object."""
+        db = tmp_path / ".dagayn" / "graph.db"
+        db.parent.mkdir(parents=True)
+        GraphStore(db).close()  # create DB file
+
+        _evict_store_cache()
+        store1, _ = _get_store(str(tmp_path))
+        store2, _ = _get_store(str(tmp_path))
+        assert store1 is store2
+        store1.close()
+        store2.close()
+        _evict_store_cache()
+
+    def test_cached_store_increments_leases(self, tmp_path):
+        """Each _get_store() call increments the lease count."""
+        db = tmp_path / ".dagayn" / "graph.db"
+        db.parent.mkdir(parents=True)
+        GraphStore(db).close()
+
+        _evict_store_cache()
+        store1, _ = _get_store(str(tmp_path))
+        assert store1._leases == 1
+        store2, _ = _get_store(str(tmp_path))
+        assert store2._leases == 2
+        store1.close()
+        assert store1._leases == 1
+        store2.close()
+        assert store2._leases == 0
+        _evict_store_cache()
+
+    def test_uncached_store_has_lease_one(self, tmp_path):
+        """A fresh (uncached) store starts with _leases=1."""
+        db = tmp_path / ".dagayn" / "graph.db"
+        db.parent.mkdir(parents=True)
+        GraphStore(db).close()
+
+        store, _ = _get_store(str(tmp_path), cached=False)
+        assert store._leases == 1
+        assert not store._pinned
+        store.close()
+        with pytest.raises(Exception):
+            store._conn.execute("SELECT 1")
+
+
+# ---------------------------------------------------------------------------
+# Eviction tests
+# ---------------------------------------------------------------------------
+
+
+class TestEvictionSafety:
+    def test_evict_with_no_inflight_closes_immediately(self, tmp_path):
+        """Evicting a store with no active leases closes it immediately."""
+        db = tmp_path / ".dagayn" / "graph.db"
+        db.parent.mkdir(parents=True)
+        GraphStore(db).close()
+
+        _evict_store_cache()
+        store, _ = _get_store(str(tmp_path))
+        store.close()  # release lease so leases=0 in cache
+
+        # At this point leases should be 0.  Eviction should close immediately.
+        assert store._leases == 0
+        _evict_store_cache(db)
+        with pytest.raises(Exception):
+            store._conn.execute("SELECT 1")
+
+    def test_evict_with_inflight_keeps_connection_open(self, tmp_path):
+        """Evicting a store with active leases must NOT close the connection."""
+        db = tmp_path / ".dagayn" / "graph.db"
+        db.parent.mkdir(parents=True)
+        GraphStore(db).close()
+
+        _evict_store_cache()
+        store, _ = _get_store(str(tmp_path))
+        assert store._leases == 1
+
+        # Evict while in-flight (leases=1).
+        _evict_store_cache(db)
+
+        # Connection must still be usable.
+        store._conn.execute("SELECT 1")
+
+        # Releasing the lease now closes the connection.
+        store.close()
+        with pytest.raises(Exception):
+            store._conn.execute("SELECT 1")
+
+    def test_evict_full_cache_with_inflight(self, tmp_path):
+        """Full-cache evict (db_path=None) also respects in-flight leases."""
+        db = tmp_path / ".dagayn" / "graph.db"
+        db.parent.mkdir(parents=True)
+        GraphStore(db).close()
+
+        _evict_store_cache()
+        store, _ = _get_store(str(tmp_path))
+
+        _evict_store_cache()  # no db_path → clears all
+        store._conn.execute("SELECT 1")  # still open
+
+        store.close()
+        with pytest.raises(Exception):
+            store._conn.execute("SELECT 1")
+
+    def test_concurrent_evict_does_not_break_inflight_reader(self, tmp_path):
+        """Race regression: eviction during an active read must not crash the reader.
+
+        Uses threading.Barrier for deterministic ordering:
+          1. Reader acquires the cached store.
+          2. Reader signals it is mid-read.
+          3. Evictor runs _evict_store_cache().
+          4. Reader completes its query and calls close().
+        """
+        db = tmp_path / ".dagayn" / "graph.db"
+        db.parent.mkdir(parents=True)
+        GraphStore(db).close()
+
+        _evict_store_cache()
+
+        read_acquired = threading.Event()
+        evict_done = threading.Event()
+        errors: list[Exception] = []
+
+        def reader() -> None:
+            try:
+                store, _ = _get_store(str(tmp_path))
+                read_acquired.set()  # signal: store acquired, mid-read
+                evict_done.wait(timeout=5)  # wait for eviction
+                store._conn.execute("SELECT 1")  # must not raise
+                store.close()
+            except Exception as exc:
+                errors.append(exc)
+
+        def evictor() -> None:
+            read_acquired.wait(timeout=5)
+            _evict_store_cache()
+            evict_done.set()
+
+        t_read = threading.Thread(target=reader)
+        t_evict = threading.Thread(target=evictor)
+
+        t_read.start()
+        t_evict.start()
+        t_read.join(timeout=10)
+        t_evict.join(timeout=10)
+
+        assert not errors, f"Reader raised: {errors}"

@@ -574,54 +574,112 @@ def traverse_graph_func(
         start_qn = results[0]["qualified_name"]
         depth = max(1, min(depth, 6))
 
-        # BFS / DFS traversal
-        visited: dict[str, int] = {}  # qn -> depth
-        queue: list[tuple[str, int]] = [
-            (start_qn, 0),
-        ]
+        # Traversal state shared by both modes.
+        visited: dict[str, int] = {}
         traversal: list[dict] = []
         approx_tokens = 0
+        budget_exceeded = False
 
-        while queue:
-            if mode == "bfs":
-                current_qn, cur_depth = queue.pop(0)
-            else:
-                current_qn, cur_depth = queue.pop()
-
-            if current_qn in visited:
-                continue
-            if cur_depth > depth:
-                continue
-
-            visited[current_qn] = cur_depth
-            node = store.get_node(current_qn)
-            if not node:
-                continue
-
-            entry = {
+        def _make_entry(node: Any, cur_depth: int) -> dict:
+            return {
                 "name": _sanitize_name(node.name),
                 "qualified_name": node.qualified_name,
                 "kind": node.kind,
                 "file": node.file_path,
                 "depth": cur_depth,
             }
-            approx_tokens += len(str(entry)) // 4
-            if approx_tokens > token_budget:
-                break
 
-            traversal.append(entry)
+        if mode == "dfs":
+            # True depth-first: stack-based, drains each branch fully
+            # before moving to the next sibling. The batched node /
+            # edge APIs are still used (with a 1-element list) so we
+            # share a uniform code path with BFS even though DFS does
+            # one fetch per visited node rather than one per layer.
+            stack: list[tuple[str, int]] = [(start_qn, 0)]
+            while stack and not budget_exceeded:
+                current_qn, cur_depth = stack.pop()
+                if current_qn in visited or cur_depth > depth:
+                    continue
 
-            # Get neighbours
-            out_edges = store.get_edges_by_source(current_qn)
-            in_edges = store.get_edges_by_target(current_qn)
-            for e in out_edges:
-                tgt = e.target_qualified
-                if tgt not in visited:
-                    queue.append((tgt, cur_depth + 1))
-            for e in in_edges:
-                src = e.source_qualified
-                if src not in visited:
-                    queue.append((src, cur_depth + 1))
+                nodes_by_qn = store.get_nodes_by_qualified_names([current_qn])
+                node = nodes_by_qn.get(current_qn)
+                if not node:
+                    visited[current_qn] = cur_depth
+                    continue
+
+                visited[current_qn] = cur_depth
+                entry = _make_entry(node, cur_depth)
+                approx_tokens += len(str(entry)) // 4
+                if approx_tokens > token_budget:
+                    budget_exceeded = True
+                    break
+                traversal.append(entry)
+
+                if cur_depth + 1 > depth:
+                    continue
+                outgoing, incoming = store.get_edges_by_endpoints([current_qn])
+                neighbors: list[str] = []
+                for e in outgoing.get(current_qn, []):
+                    if e.target_qualified not in visited:
+                        neighbors.append(e.target_qualified)
+                for e in incoming.get(current_qn, []):
+                    if e.source_qualified not in visited:
+                        neighbors.append(e.source_qualified)
+                # Reverse-push so the first neighbour is popped next,
+                # giving stable left-to-right depth-first order.
+                for nb in reversed(neighbors):
+                    stack.append((nb, cur_depth + 1))
+        else:
+            # BFS — process the entire current frontier in one batched
+            # node + edge fetch per layer, instead of issuing 3 SQL
+            # queries per visited node.
+            current_frontier: list[str] = [start_qn]
+            cur_depth = 0
+            while current_frontier and cur_depth <= depth and not budget_exceeded:
+                frontier_unique: list[str] = []
+                seen_in_layer: set[str] = set()
+                for qn in current_frontier:
+                    if qn in visited or qn in seen_in_layer:
+                        continue
+                    seen_in_layer.add(qn)
+                    frontier_unique.append(qn)
+
+                if not frontier_unique:
+                    break
+
+                nodes_by_qn = store.get_nodes_by_qualified_names(frontier_unique)
+                outgoing, incoming = store.get_edges_by_endpoints(frontier_unique)
+
+                next_frontier: list[str] = []
+                for current_qn in frontier_unique:
+                    if current_qn in visited:
+                        continue
+                    visited[current_qn] = cur_depth
+                    node = nodes_by_qn.get(current_qn)
+                    if not node:
+                        continue
+
+                    entry = _make_entry(node, cur_depth)
+                    approx_tokens += len(str(entry)) // 4
+                    if approx_tokens > token_budget:
+                        budget_exceeded = True
+                        break
+
+                    traversal.append(entry)
+
+                    if cur_depth + 1 > depth:
+                        continue
+                    for e in outgoing.get(current_qn, []):
+                        tgt = e.target_qualified
+                        if tgt not in visited:
+                            next_frontier.append(tgt)
+                    for e in incoming.get(current_qn, []):
+                        src = e.source_qualified
+                        if src not in visited:
+                            next_frontier.append(src)
+
+                current_frontier = next_frontier
+                cur_depth += 1
 
         return {
             "start_node": start_qn,

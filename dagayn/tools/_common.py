@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -211,11 +213,111 @@ def _validate_repo_root(path: Path) -> Path:
     return resolved
 
 
-def _get_store(repo_root: str | None = None) -> tuple[GraphStore, Path]:
-    """Resolve repo root and open the graph store."""
+# --- Process-level GraphStore cache (Section 2.3 in PERFORMANCE-IMPROVEMENTS) -
+#
+# Read-only MCP tool calls reuse a single :class:`GraphStore` instance per
+# database file across invocations.  The cache key is the resolved
+# :class:`Path` to the SQLite file; staleness is detected via ``st_mtime``
+# (which changes on every WAL commit).  When the file mtime no longer
+# matches what we cached, the previous instance is force-closed and a fresh
+# one is created so that any mutation done by another connection (e.g. a
+# write tool, the watch daemon, ``dagayn build``) is reflected.
+#
+# Cached stores have ``_pinned = True``; their :meth:`GraphStore.close`
+# becomes a no-op so existing ``finally: store.close()`` blocks in tool
+# handlers continue to work but no longer destroy the connection.
+#
+# Set ``DAGAYN_DISABLE_STORE_CACHE=1`` (or call :func:`_get_store` with
+# ``cached=False``) to disable this and revert to a fresh ``GraphStore``
+# per call — primarily useful for write tools (``build``, incremental
+# update) that already manage their own short-lived connection.
+_store_cache: dict[Path, tuple[GraphStore, float]] = {}
+_store_lock = threading.Lock()
+
+
+def _cache_disabled() -> bool:
+    return os.environ.get("DAGAYN_DISABLE_STORE_CACHE") == "1"
+
+
+def _evict_store_cache(db_path: Path | None = None) -> None:
+    """Evict cached stores, closing each one only when safe to do so.
+
+    With *db_path* unset, every cached store is evicted.  Otherwise only
+    the entry for *db_path* is dropped.
+
+    Stores that are currently in use (``_leases > 0``) have their ``_pinned``
+    flag cleared so that the last outstanding :meth:`~GraphStore.close` call
+    performs the real cleanup — avoiding the race where a long-running read
+    tool hits ``sqlite3`` errors on a connection closed by a concurrent
+    build/postprocess tool.
+    """
+    with _store_lock:
+        if db_path is None:
+            entries = list(_store_cache.values())
+            _store_cache.clear()
+        else:
+            entry = _store_cache.pop(db_path, None)
+            entries = [entry] if entry is not None else []
+        for store, _ in entries:
+            store._pinned = False
+            if store._leases == 0:
+                # No in-flight callers — safe to close immediately.
+                try:
+                    store._force_close()
+                except Exception:  # noqa: BLE001 — defensive cleanup  # nosec B110
+                    pass
+            # else: last close() will call _force_close when _leases reaches 0.
+
+
+def _get_store(
+    repo_root: str | None = None,
+    *,
+    cached: bool = True,
+) -> tuple[GraphStore, Path]:
+    """Resolve repo root and return a (possibly cached) graph store."""
     root = _validate_repo_root(Path(repo_root)) if repo_root else find_project_root()
     db_path = get_db_path(root)
-    return GraphStore(db_path), root
+
+    if not cached or _cache_disabled():
+        store = GraphStore(db_path)
+        store._leases = 1  # caller holds the only lease; close() will close
+        return store, root
+
+    try:
+        mtime = db_path.stat().st_mtime
+    except FileNotFoundError:
+        # First-time use: nothing to cache yet, fall back to a fresh
+        # transient store.  The next call will populate the cache once
+        # the DB has been created.
+        store = GraphStore(db_path)
+        store._leases = 1
+        return store, root
+
+    with _store_lock:
+        entry = _store_cache.get(db_path)
+        if entry is not None:
+            cached_store, cached_mtime = entry
+            if cached_mtime == mtime:
+                # Acquire a lease atomically while holding the lock so
+                # a concurrent _evict_store_cache cannot race between
+                # the lookup and the increment.
+                cached_store._leases += 1
+                return cached_store, root
+            # Stale: drop and re-open.
+            cached_store._pinned = False
+            if cached_store._leases == 0:
+                try:
+                    cached_store._force_close()
+                except Exception:  # noqa: BLE001 — defensive cleanup  # nosec B110
+                    pass
+            # else: last close() will _force_close when _leases reaches 0.
+            _store_cache.pop(db_path, None)
+
+        store = GraphStore(db_path)
+        store._pinned = True
+        store._leases = 1  # set inside the lock before inserting into cache
+        _store_cache[db_path] = (store, mtime)
+    return store, root
 
 
 def compact_response(

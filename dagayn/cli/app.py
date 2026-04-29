@@ -14,7 +14,17 @@ if sys.version_info < (3, 12):
 
 import argparse
 
-from .commands import build, daemon, detect_changes, eval_cmd, init, registry, serve, wiki
+from .commands import (
+    build,
+    daemon,
+    detect_changes,
+    eval_cmd,
+    init,
+    profile,
+    registry,
+    serve,
+    wiki,
+)
 from .utils import _get_version, _print_banner
 
 # Build commands that are handled by build.py's handle()
@@ -53,6 +63,7 @@ def main() -> None:
     registry.register_commands(sub)
     daemon_parser = daemon.register_command(sub)
     eval_cmd.register_command(sub)
+    profile.register_command(sub)
 
     args = ap.parse_args()
 
@@ -80,3 +91,7 @@ def main() -> None:
         daemon.handle(args, daemon_parser)
     elif args.command == "eval":
         eval_cmd.handle(args)
+    elif args.command == "profile":
+        rc = profile.handle(args)
+        if rc:
+            sys.exit(rc)
