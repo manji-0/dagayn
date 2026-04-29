@@ -330,6 +330,11 @@ Parser migration progress:
   one Rust parser call per chunk before handing the resulting compact batch to
   the Rust graph writer. Python no longer crosses PyO3 once per Rust-owned file
   in the normal build/update path.
+- `dagayn-grammars` now compiles the pinned `manji-0/tree-sitter-markdown` and
+  `manji-0/tree-sitter-terraform` C sources through Rust build.rs and exposes
+  Rust `tree_sitter::Language` constructors. This is grammar provisioning only;
+  the transitional Markdown/Terraform extractors still need to be replaced with
+  tree-sitter-backed extractors.
 
 Python modules being replaced: `dagayn/graph.py` (`GraphStore` upsert and replacement logic), `dagayn/incremental.py` (path normalization and VCS metadata helpers such as `_make_repo_relative`), `dagayn/migrations.py`.
 
