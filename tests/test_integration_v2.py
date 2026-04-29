@@ -390,7 +390,7 @@ class TestV2Integration:
         # Architecture overview
         arch = get_architecture_overview(self.store)
         assert "communities" in arch
-        assert "cross_community_edges" in arch
+        assert "cross_community_coupling" in arch
 
         # ---- Step 4: rebuild_fts_index + hybrid_search ----
         fts_count = rebuild_fts_index(self.store)

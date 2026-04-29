@@ -192,6 +192,7 @@ def get_minimal_context_tool(
 def get_impact_radius_tool(
     changed_files: Optional[list[str]] = None,
     max_depth: int = 2,
+    max_nodes: int = 50,
     repo_root: Optional[str] = None,
     base: str = "HEAD~1",
     detail_level: str = "standard",
@@ -204,6 +205,8 @@ def get_impact_radius_tool(
     Args:
         changed_files: List of changed file paths (relative to repo root). Auto-detected if omitted.
         max_depth: Number of hops to traverse in the dependency graph. Default: 2.
+        max_nodes: Maximum impacted nodes to return in standard mode. Default: 50.
+            When the result is truncated, truncated=True and total_impacted show the full count.
         repo_root: Repository root path. Auto-detected if omitted.
         base: Git ref for auto-detecting changes. Default: HEAD~1.
         detail_level: "standard" for full output, "minimal" for compact summary. Default: standard.
@@ -211,6 +214,7 @@ def get_impact_radius_tool(
     return get_impact_radius(
         changed_files=changed_files,
         max_depth=max_depth,
+        max_results=max_nodes,
         repo_root=_resolve_repo_root(repo_root),
         base=base,
         detail_level=detail_level,
@@ -649,6 +653,7 @@ def refactor_tool(
     new_name: Optional[str] = None,
     kind: Optional[str] = None,
     file_pattern: Optional[str] = None,
+    limit: int = 50,
     repo_root: Optional[str] = None,
 ) -> dict:
     """Graph-powered refactoring operations.
@@ -670,6 +675,8 @@ def refactor_tool(
         new_name: (rename) Desired new name for the symbol.
         kind: (dead_code) Optional filter: Function or Class.
         file_pattern: (dead_code) Filter by file path substring.
+        limit: (dead_code, suggest) Maximum results to return. Default: 50.
+            When truncated, total shows the full count.
         repo_root: Repository root path. Auto-detected if omitted.
     """
     return refactor_func(
@@ -678,6 +685,7 @@ def refactor_tool(
         new_name=new_name,
         kind=kind,
         file_pattern=file_pattern,
+        limit=limit,
         repo_root=_resolve_repo_root(repo_root),
     )
 

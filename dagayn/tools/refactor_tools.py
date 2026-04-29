@@ -26,6 +26,7 @@ def refactor_func(
     new_name: str | None = None,
     kind: str | None = None,
     file_pattern: str | None = None,
+    limit: int = 50,
     repo_root: str | None = None,
 ) -> dict[str, Any]:
     """Unified refactoring entry point.
@@ -42,6 +43,7 @@ def refactor_func(
         new_name: (rename mode) Desired new name.
         kind: (dead_code mode) Optional node kind filter.
         file_pattern: (dead_code mode) Optional file path substring filter.
+        limit: (dead_code, suggest) Maximum results to return. Default: 50.
         repo_root: Repository root path. Auto-detected if omitted.
 
     Returns:
@@ -83,22 +85,30 @@ def refactor_func(
 
         elif mode == "dead_code":
             dead = find_dead_code(store, kind=kind, file_pattern=file_pattern)
+            total = len(dead)
+            truncated = total > limit
             result: dict[str, Any] = {
                 "status": "ok",
-                "summary": f"Found {len(dead)} dead code symbol(s).",
-                "dead_code": dead,
-                "total": len(dead),
+                "summary": f"Found {total} dead code symbol(s)."
+                + (f" Showing first {limit}." if truncated else ""),
+                "dead_code": dead[:limit],
+                "total": total,
+                "truncated": truncated,
             }
             result["_hints"] = generate_hints("refactor", result, get_session())
             return result
 
         else:  # suggest
             suggestions = suggest_refactorings(store)
+            total = len(suggestions)
+            truncated = total > limit
             result: dict[str, Any] = {
                 "status": "ok",
-                "summary": (f"Generated {len(suggestions)} refactoring suggestion(s)."),
-                "suggestions": suggestions,
-                "total": len(suggestions),
+                "summary": f"Generated {total} refactoring suggestion(s)."
+                + (f" Showing first {limit}." if truncated else ""),
+                "suggestions": suggestions[:limit],
+                "total": total,
+                "truncated": truncated,
             }
             result["_hints"] = generate_hints("refactor", result, get_session())
             return result
