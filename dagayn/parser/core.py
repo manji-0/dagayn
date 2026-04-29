@@ -13,6 +13,16 @@ from typing import Optional
 
 from ..tsconfig_resolver import TsconfigResolver
 from . import bridges, dispatch, grammars
+from ._base.test_detection import (
+    _TEST_RUNNER_NAMES,
+)
+from ._base.test_detection import (
+    is_test_file as _is_test_file,
+)
+from ._base.test_detection import (
+    is_test_function as _is_test_function,
+)
+from ._base.types import EdgeInfo, NodeInfo
 from .bridges import _BRIDGE_PATTERNS
 from .languages import SPECIAL_HANDLERS as _SPECIAL_HANDLERS
 from .languages import dart as _dart_lang
@@ -21,16 +31,6 @@ from .languages import notebook as _notebook_lang
 from .languages import rescript as _rescript_lang
 from .languages import svelte as _svelte_lang
 from .languages import vue as _vue_lang
-from .test_detection import (
-    _TEST_RUNNER_NAMES,
-)
-from .test_detection import (
-    is_test_file as _is_test_file,
-)
-from .test_detection import (
-    is_test_function as _is_test_function,
-)
-from .types import EdgeInfo, NodeInfo
 
 _SQL_TABLE_RE = re.compile(
     r"(?:FROM|JOIN|INTO|CREATE\s+(?:OR\s+REPLACE\s+)?(?:TABLE|VIEW)|INSERT\s+OVERWRITE)"

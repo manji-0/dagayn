@@ -3,13 +3,10 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
 
-from ..types import EdgeInfo, NodeInfo
-
-if TYPE_CHECKING:
-    from ..core import CodeParser
-
+from .._base.protocol import CodeParser
+from .._base.types import EdgeInfo, NodeInfo
 
 _TERRAFORM_REFERENCE_RE = re.compile(
     r"\b(?:(data)\.([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)"

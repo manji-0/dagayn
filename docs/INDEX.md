@@ -7,6 +7,7 @@ This directory documents the fork as `dagayn`.
 - `FEATURES.md` — fork-specific capabilities and practical strengths
 - `architecture.md` — parser, storage, and post-processing pipeline
 - `schema.md` — graph entities, tables, and stored metadata
+- `PERFORMANCE-IMPROVEMENTS-WIP.md` — work-in-progress plan for N+1 query fixes, connection management, and benchmark infrastructure
 - `SAP-METRICS-WIP.md` — work-in-progress specification for Stable Abstractions Principle metrics
 - `CROSS-ARTIFACT-EDGES-WIP.md` — work-in-progress specification for extracting and analyzing cross-artifact edges (cross-language bridges, Markdown↔code, Terraform↔code, etc.)
 - `RUST-CORE-MIGRATION-WIP.md` — implementation-ready specification for replacing the graph engine, post-processing, and parser core with Rust (PyO3/maturin; core decisions frozen 2026-04-26)

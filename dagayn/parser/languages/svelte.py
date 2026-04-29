@@ -1,13 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from ..core import CodeParser
-
-from ..test_detection import is_test_file as _is_test_file
-from ..types import EdgeInfo, NodeInfo
+from .._base.protocol import CodeParser
+from .._base.test_detection import is_test_file as _is_test_file
+from .._base.types import EdgeInfo, NodeInfo
 
 
 def parse(parser: "CodeParser", path: Path, source: bytes) -> tuple[list[NodeInfo], list[EdgeInfo]]:

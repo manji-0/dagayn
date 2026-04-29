@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
 
-from ..test_detection import is_test_function as _is_test_function
-from ..types import EdgeInfo, NodeInfo
-
-if TYPE_CHECKING:
-    from ..core import CodeParser
+from .._base.protocol import CodeParser
+from .._base.test_detection import is_test_function as _is_test_function
+from .._base.types import EdgeInfo, NodeInfo
 
 
 def handle_node(

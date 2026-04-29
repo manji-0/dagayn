@@ -2,14 +2,12 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
 
-if TYPE_CHECKING:
-    from ..core import CodeParser
-
-from ..test_detection import is_test_file as _is_test_file
-from ..test_detection import is_test_function as _is_test_function
-from ..types import EdgeInfo, NodeInfo
+from .._base.protocol import CodeParser
+from .._base.test_detection import is_test_file as _is_test_file
+from .._base.test_detection import is_test_function as _is_test_function
+from .._base.types import EdgeInfo, NodeInfo
 
 _RESCRIPT_IDENT = r"[A-Za-z_][A-Za-z0-9_']*"
 

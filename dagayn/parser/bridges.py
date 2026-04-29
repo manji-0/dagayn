@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from .types import BridgePattern, EdgeInfo
+from ._base.types import BridgePattern, EdgeInfo
 
 _BRIDGE_PATTERNS: dict[str, tuple[BridgePattern, ...]] = {
     "python": (

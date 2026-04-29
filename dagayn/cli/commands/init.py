@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from ..utils import _PLATFORM_CHOICES, _confirm_yes_no
+from ._shared import _PLATFORM_CHOICES, _confirm_yes_no
 
 
 def register_commands(sub: argparse._SubParsersAction) -> dict:

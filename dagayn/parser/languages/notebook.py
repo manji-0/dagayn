@@ -3,13 +3,10 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from ..core import CodeParser
-
-from ..test_detection import is_test_file as _is_test_file
-from ..types import CellInfo, EdgeInfo, NodeInfo
+from .._base.protocol import CodeParser
+from .._base.test_detection import is_test_file as _is_test_file
+from .._base.types import CellInfo, EdgeInfo, NodeInfo
 
 _SQL_TABLE_RE = re.compile(
     r"(?:FROM|JOIN|INTO|CREATE\s+(?:OR\s+REPLACE\s+)?(?:TABLE|VIEW)|INSERT\s+OVERWRITE)"
