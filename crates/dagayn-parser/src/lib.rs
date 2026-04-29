@@ -268,8 +268,8 @@ pub fn parse_terraform(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<
                         terraform_kind: "local",
                     },
                 );
-                scan_terraform_body(
-                    &attr.text,
+                scan_terraform_attr(
+                    &attr,
                     &node_name,
                     file_path,
                     attr.line_start,
@@ -307,8 +307,8 @@ pub fn parse_terraform(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<
                 terraform_kind,
             },
         );
-        scan_terraform_body(
-            &block.body,
+        scan_terraform_block(
+            block,
             &node_name,
             file_path,
             block.line_start,
@@ -436,6 +436,8 @@ struct TerraformBlock {
     line_end: i64,
     body_start_line: i64,
     attrs: Option<Vec<TerraformAttr>>,
+    calls: Option<Vec<String>>,
+    references: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug)]
@@ -445,6 +447,8 @@ struct TerraformAttr {
     text: String,
     line_start: i64,
     line_end: i64,
+    calls: Option<Vec<String>>,
+    references: Option<Vec<String>>,
 }
 
 struct TerraformNodeSpec<'a> {
@@ -497,6 +501,9 @@ fn terraform_block_from_node(node: tree_sitter::Node<'_>, source: &[u8]) -> Opti
     let body_start_line = body_node
         .map(|body| body.start_position().row as i64 + 1)
         .unwrap_or_else(|| node.start_position().row as i64 + 1);
+    let body_calls = body_node.map(|body| collect_terraform_calls_from_tree(body, source));
+    let body_references =
+        body_node.map(|body| collect_terraform_references_from_tree(body, source));
 
     Some(TerraformBlock {
         kind,
@@ -506,6 +513,8 @@ fn terraform_block_from_node(node: tree_sitter::Node<'_>, source: &[u8]) -> Opti
         line_end: node.end_position().row as i64 + 1,
         body_start_line,
         attrs: body_node.map(|body| collect_terraform_attrs_from_tree(body, source)),
+        calls: body_calls,
+        references: body_references,
     })
 }
 
@@ -579,6 +588,8 @@ fn collect_terraform_blocks_from_text(text: &str) -> Vec<TerraformBlock> {
             line_end: line_for_offset(text, close),
             body_start_line: line_for_offset(text, open),
             attrs: None,
+            calls: None,
+            references: None,
         });
         offset = close + 1;
     }
@@ -718,6 +729,8 @@ fn collect_terraform_attrs(body: &str, body_start_line: i64) -> Vec<TerraformAtt
                 + attr_lines.len() as i64
                 + i64::from(attr_lines.len() > 1)
                 - 1,
+            calls: None,
+            references: None,
         });
     }
     attrs
@@ -752,9 +765,130 @@ fn collect_terraform_attrs_from_tree(
             text: node_text(child, source),
             line_start: child.start_position().row as i64 + 1,
             line_end: child.end_position().row as i64 + 1,
+            calls: Some(collect_terraform_calls_from_tree(child, source)),
+            references: Some(collect_terraform_references_from_tree(child, source)),
         });
     }
     attrs
+}
+
+fn collect_terraform_calls_from_tree(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {
+    let mut calls = Vec::new();
+    collect_terraform_call_nodes(node, source, &mut calls);
+    dedupe_strings(calls)
+}
+
+fn collect_terraform_call_nodes(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    calls: &mut Vec<String>,
+) {
+    if node.kind() == "function_call" {
+        if let Some(name) = node.child_by_field_name("name") {
+            let name = node_text(name, source);
+            if !matches!(name.as_str(), "for" | "if") {
+                calls.push(name);
+            }
+        }
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_terraform_call_nodes(child, source, calls);
+    }
+}
+
+fn collect_terraform_references_from_tree(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> Vec<String> {
+    let mut references = Vec::new();
+    collect_terraform_reference_nodes(node, source, &mut references);
+    dedupe_strings(references)
+}
+
+fn collect_terraform_reference_nodes(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    references: &mut Vec<String>,
+) {
+    if matches!(node.kind(), "template_expr" | "quoted_template") {
+        references.extend(collect_terraform_reference_targets(&node_text(
+            node, source,
+        )));
+    }
+    if node.kind() == "expression" {
+        if let Some(segments) = terraform_traversal_segments(node, source) {
+            if let Some(target) = terraform_reference_from_segments(&segments) {
+                references.push(target);
+            }
+        }
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_terraform_reference_nodes(child, source, references);
+    }
+}
+
+fn terraform_traversal_segments(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<Vec<String>> {
+    if node.kind() == "variable_expr" {
+        return node
+            .child(0)
+            .filter(|child| child.kind() == "identifier")
+            .map(|identifier| vec![node_text(identifier, source)]);
+    }
+
+    if node.kind() != "expression" {
+        return None;
+    }
+
+    let mut cursor = node.walk();
+    let children = node.children(&mut cursor).collect::<Vec<_>>();
+    if children.len() == 1 {
+        return terraform_traversal_segments(children[0], source);
+    }
+
+    let mut segments = terraform_traversal_segments(*children.first()?, source)?;
+    for child in children.iter().skip(1) {
+        if child.kind() != "get_attr" {
+            return None;
+        }
+        let name = child.child_by_field_name("name")?;
+        segments.push(node_text(name, source));
+    }
+    Some(segments)
+}
+
+fn terraform_reference_from_segments(segments: &[String]) -> Option<String> {
+    let root = segments.first()?.as_str();
+    if root == "data" {
+        return segments
+            .get(1)
+            .zip(segments.get(2))
+            .map(|(block_type, name)| format!("data.{block_type}.{name}"));
+    }
+    if matches!(
+        root,
+        "module" | "var" | "local" | "output" | "provider" | "check"
+    ) {
+        return segments.get(1).map(|name| format!("{root}.{name}"));
+    }
+    if matches!(
+        root,
+        "count" | "each" | "ingress" | "egress" | "path" | "self" | "terraform"
+    ) {
+        return None;
+    }
+    segments
+        .get(1)
+        .map(|name| format!("resource.{root}.{name}"))
+}
+
+fn dedupe_strings(values: Vec<String>) -> Vec<String> {
+    let mut seen = HashSet::new();
+    values
+        .into_iter()
+        .filter(|value| seen.insert(value.clone()))
+        .collect()
 }
 
 fn terraform_expr_depth(text: &str) -> i64 {
@@ -910,8 +1044,8 @@ fn handle_terraform_meta_block(
         }
         _ => {}
     }
-    scan_terraform_body(
-        &block.body,
+    scan_terraform_block(
+        block,
         file_path,
         file_path,
         block.line_start,
@@ -932,6 +1066,38 @@ fn scan_terraform_body(
     collect_terraform_references(body, caller, file_path, line, defined_names, edges);
 }
 
+fn scan_terraform_block(
+    block: &TerraformBlock,
+    caller: &str,
+    file_path: &str,
+    line: i64,
+    defined_names: &HashSet<String>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    if let (Some(calls), Some(references)) = (&block.calls, &block.references) {
+        push_terraform_calls(calls, caller, file_path, line, edges);
+        push_terraform_references(references, caller, file_path, line, defined_names, edges);
+    } else {
+        scan_terraform_body(&block.body, caller, file_path, line, defined_names, edges);
+    }
+}
+
+fn scan_terraform_attr(
+    attr: &TerraformAttr,
+    caller: &str,
+    file_path: &str,
+    line: i64,
+    defined_names: &HashSet<String>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    if let (Some(calls), Some(references)) = (&attr.calls, &attr.references) {
+        push_terraform_calls(calls, caller, file_path, line, edges);
+        push_terraform_references(references, caller, file_path, line, defined_names, edges);
+    } else {
+        scan_terraform_body(&attr.text, caller, file_path, line, defined_names, edges);
+    }
+}
+
 fn collect_terraform_calls(
     text: &str,
     caller: &str,
@@ -939,16 +1105,30 @@ fn collect_terraform_calls(
     line: i64,
     edges: &mut Vec<ParsedEdge>,
 ) {
+    let calls = TERRAFORM_CALL_RE
+        .captures_iter(text)
+        .map(|captures| captures[1].to_string())
+        .filter(|name| !matches!(name.as_str(), "for" | "if"))
+        .collect::<Vec<_>>();
+    push_terraform_calls(&calls, caller, file_path, line, edges);
+}
+
+fn push_terraform_calls(
+    calls: &[String],
+    caller: &str,
+    file_path: &str,
+    line: i64,
+    edges: &mut Vec<ParsedEdge>,
+) {
     let mut seen = HashSet::new();
-    for captures in TERRAFORM_CALL_RE.captures_iter(text) {
-        let name = captures[1].to_string();
-        if matches!(name.as_str(), "for" | "if") || !seen.insert(name.clone()) {
+    for name in calls {
+        if !seen.insert(name.clone()) {
             continue;
         }
         edges.push(ParsedEdge {
             kind: "CALLS".to_string(),
             source: caller.to_string(),
-            target: name,
+            target: name.clone(),
             file_path: file_path.to_string(),
             line,
             extra: json!({}),
@@ -964,29 +1144,50 @@ fn collect_terraform_references(
     defined_names: &HashSet<String>,
     edges: &mut Vec<ParsedEdge>,
 ) {
+    let references = collect_terraform_reference_targets(text);
+    push_terraform_references(&references, caller, file_path, line, defined_names, edges);
+}
+
+fn collect_terraform_reference_targets(text: &str) -> Vec<String> {
+    TERRAFORM_REFERENCE_RE
+        .captures_iter(text)
+        .filter_map(|captures| {
+            let target = if captures.get(1).is_some() {
+                format!("data.{}.{}", &captures[2], &captures[3])
+            } else if captures.get(4).is_some() {
+                format!("{}.{}", &captures[4], &captures[5])
+            } else {
+                let root = &captures[6];
+                if matches!(
+                    root,
+                    "count" | "each" | "ingress" | "egress" | "path" | "self" | "terraform"
+                ) {
+                    return None;
+                }
+                format!("resource.{}.{}", root, &captures[7])
+            };
+            Some(target)
+        })
+        .collect::<Vec<_>>()
+}
+
+fn push_terraform_references(
+    references: &[String],
+    caller: &str,
+    file_path: &str,
+    line: i64,
+    defined_names: &HashSet<String>,
+    edges: &mut Vec<ParsedEdge>,
+) {
     let mut seen = HashSet::new();
-    for captures in TERRAFORM_REFERENCE_RE.captures_iter(text) {
-        let target = if captures.get(1).is_some() {
-            format!("data.{}.{}", &captures[2], &captures[3])
-        } else if captures.get(4).is_some() {
-            format!("{}.{}", &captures[4], &captures[5])
-        } else {
-            let root = &captures[6];
-            if matches!(
-                root,
-                "count" | "each" | "ingress" | "egress" | "path" | "self" | "terraform"
-            ) {
-                continue;
-            }
-            format!("resource.{}.{}", root, &captures[7])
-        };
+    for target in references {
         if target == caller || !seen.insert(target.clone()) {
             continue;
         }
-        let resolved = if defined_names.contains(&target) {
-            terraform_qualified(file_path, &target)
+        let resolved = if defined_names.contains(target) {
+            terraform_qualified(file_path, target)
         } else {
-            target
+            target.clone()
         };
         edges.push(ParsedEdge {
             kind: "REFERENCES".to_string(),

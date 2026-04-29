@@ -352,8 +352,10 @@ Parser migration progress:
 - The Terraform extractor now collects top-level block kind, labels, body text,
   source ranges, and direct block attributes through the pinned Rust tree-sitter
   Terraform grammar, with the previous text scanner retained only as fallback.
-  Call and reference extraction remain Rust-owned compatibility logic and
-  should move to direct tree-sitter expression traversal next.
+  Call extraction now walks `function_call` AST nodes. Reference extraction now
+  walks Terraform traversal expressions and uses template-node compatibility
+  scanning only to preserve existing dotted-string behavior such as
+  `"t3.micro"`.
 
 Python modules being replaced: `dagayn/graph.py` (`GraphStore` upsert and replacement logic), `dagayn/incremental.py` (path normalization and VCS metadata helpers such as `_make_repo_relative`), `dagayn/migrations.py`.
 
