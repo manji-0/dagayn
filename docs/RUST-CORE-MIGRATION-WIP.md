@@ -284,10 +284,14 @@ Initial scaffold:
   point filtering and BFS trace heuristics.
 - Rust `GraphStore` also exposes stored-flow query JSON APIs for `list_flows`,
   `get_flow`, and `get_affected_flows`, so those Python-facing tools no longer
-  require direct SQLite connection access under the Rust backend.
+  require direct SQLite connection access under the Rust backend. The
+  `get_minimal_context` MCP entry point now uses those stored-flow APIs instead
+  of querying the `flows` table through Python SQLite.
 - Rust `GraphStore` exposes community persistence and read APIs used by
   `list_communities`, `get_community`, and architecture overview flows. Python
   still owns the detection heuristics and optional igraph integration.
+- Rust `GraphStore` exposes `get_stats`, preserving the Python `GraphStats`
+  dataclass shape for MCP/tool entry points such as `get_minimal_context`.
 - `DAGAYN_BACKEND=rust` is recognized by the Python graph package and fails loudly if the extension has not been built; `python` remains the default
 
 Current local benchmark baseline, measured on 2026-04-28 with `tools/backend_benchmark.py`
@@ -439,7 +443,10 @@ Parser migration progress:
   logic. Full rebuild community detection now runs over those Rust read helpers
   under `DAGAYN_BACKEND=rust`; incremental community detection uses
   `count_affected_communities` to avoid Python-only SQLite connection access
-  for the skip/redetect decision.
+  for the skip/redetect decision. `get_minimal_context` also reads top
+  communities through this API instead of direct Python SQLite access.
+- Graph stats now route through Rust `GraphStore.get_stats` while returning the
+  existing Python `GraphStats` dataclass shape.
 
 Python modules being replaced: `dagayn/graph.py` (`GraphStore` upsert and replacement logic), `dagayn/incremental.py` (path normalization and VCS metadata helpers such as `_make_repo_relative`), `dagayn/migrations.py`.
 

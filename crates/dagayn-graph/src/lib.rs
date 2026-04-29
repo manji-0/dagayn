@@ -136,6 +136,17 @@ pub struct GraphEdge {
     pub confidence_tier: String,
 }
 
+#[derive(Clone, Debug)]
+pub struct GraphStats {
+    pub total_nodes: i64,
+    pub total_edges: i64,
+    pub nodes_by_kind: HashMap<String, i64>,
+    pub edges_by_kind: HashMap<String, i64>,
+    pub languages: Vec<String>,
+    pub files_count: i64,
+    pub last_updated: Option<String>,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct FlowInput {
     pub name: String,
@@ -955,6 +966,62 @@ impl GraphStore {
         let rows = stmt.query_map([], edge_from_row)?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(Into::into)
+    }
+
+    pub fn get_stats(&self) -> Result<GraphStats> {
+        let total_nodes = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM nodes", [], |row| row.get(0))?;
+        let total_edges = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM edges", [], |row| row.get(0))?;
+
+        let mut nodes_by_kind = HashMap::new();
+        let mut node_stmt = self
+            .conn
+            .prepare("SELECT kind, COUNT(*) as cnt FROM nodes GROUP BY kind")?;
+        let node_rows = node_stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })?;
+        for row in node_rows {
+            let (kind, count) = row?;
+            nodes_by_kind.insert(kind, count);
+        }
+
+        let mut edges_by_kind = HashMap::new();
+        let mut edge_stmt = self
+            .conn
+            .prepare("SELECT kind, COUNT(*) as cnt FROM edges GROUP BY kind")?;
+        let edge_rows = edge_stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })?;
+        for row in edge_rows {
+            let (kind, count) = row?;
+            edges_by_kind.insert(kind, count);
+        }
+
+        let mut lang_stmt = self.conn.prepare(
+            "SELECT DISTINCT language FROM nodes WHERE language IS NOT NULL AND language != ''",
+        )?;
+        let lang_rows = lang_stmt.query_map([], |row| row.get::<_, String>(0))?;
+        let languages = lang_rows.collect::<std::result::Result<Vec<_>, _>>()?;
+
+        let files_count = self.conn.query_row(
+            "SELECT COUNT(*) FROM nodes WHERE kind = 'File'",
+            [],
+            |row| row.get(0),
+        )?;
+        let last_updated = self.get_metadata("last_updated")?;
+
+        Ok(GraphStats {
+            total_nodes,
+            total_edges,
+            nodes_by_kind,
+            edges_by_kind,
+            languages,
+            files_count,
+            last_updated,
+        })
     }
 
     pub fn get_nodes_by_community_id(&self, community_id: i64) -> Result<Vec<GraphNode>> {
@@ -2495,6 +2562,13 @@ mod tests {
             .get_nodes_by_kind(&["Function".to_string()], None)
             .unwrap();
         assert_eq!(nodes.len(), 2);
+        let stats = store.get_stats().unwrap();
+        assert_eq!(stats.total_nodes, 2);
+        assert_eq!(stats.total_edges, 1);
+        assert_eq!(stats.nodes_by_kind["Function"], 2);
+        assert_eq!(stats.edges_by_kind["CALLS"], 1);
+        assert_eq!(stats.files_count, 0);
+        assert_eq!(stats.languages, vec!["python".to_string()]);
         let (calls_out, tested_by) = store.get_flow_edge_data().unwrap();
         assert_eq!(calls_out["app.py::entry"], vec!["app.py::callee"]);
         assert!(tested_by.is_empty());

@@ -1,7 +1,8 @@
 use std::sync::Mutex;
 
 use dagayn_core::{
-    EdgeInput, FileBatchItem, GraphEdge, GraphNode, GraphStore as NativeGraphStore, NodeInput,
+    EdgeInput, FileBatchItem, GraphEdge, GraphNode, GraphStats, GraphStore as NativeGraphStore,
+    NodeInput,
 };
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -101,6 +102,11 @@ impl PyGraphStore {
             .into_iter()
             .map(|edge| graph_edge_to_py(py, edge))
             .collect()
+    }
+
+    fn get_stats(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        self.with_store(|store| store.get_stats())
+            .and_then(|stats| graph_stats_to_py(py, stats))
     }
 
     fn get_nodes_by_community_id(
@@ -541,6 +547,30 @@ fn graph_edge_to_py(py: Python<'_>, edge: GraphEdge) -> PyResult<Py<PyAny>> {
             extra,
             edge.confidence,
             edge.confidence_tier,
+        ))?
+        .unbind())
+}
+
+fn graph_stats_to_py(py: Python<'_>, stats: GraphStats) -> PyResult<Py<PyAny>> {
+    let types = PyModule::import(py, "dagayn.graph.types")?;
+    let cls = types.getattr("GraphStats")?;
+    let nodes_by_kind = PyDict::new(py);
+    for (kind, count) in stats.nodes_by_kind {
+        nodes_by_kind.set_item(kind, count)?;
+    }
+    let edges_by_kind = PyDict::new(py);
+    for (kind, count) in stats.edges_by_kind {
+        edges_by_kind.set_item(kind, count)?;
+    }
+    Ok(cls
+        .call1((
+            stats.total_nodes,
+            stats.total_edges,
+            nodes_by_kind,
+            edges_by_kind,
+            stats.languages,
+            stats.files_count,
+            stats.last_updated,
         ))?
         .unbind())
 }

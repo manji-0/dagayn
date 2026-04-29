@@ -94,27 +94,28 @@ def get_minimal_context(
                 ValueError,
                 sqlite3.Error,
                 subprocess.SubprocessError,
+                AttributeError,
             ):
                 logger.debug("Risk analysis failed in get_minimal_context", exc_info=True)
 
         # 3. Top 3 communities
         communities: list[str] = []
         try:
-            rows = store._conn.execute(
-                "SELECT name FROM communities ORDER BY size DESC LIMIT 3"
-            ).fetchall()
-            communities = [r[0] for r in rows]
-        except sqlite3.OperationalError:  # nosec B110 — table may not exist yet
+            from ..communities import get_communities
+
+            communities = [
+                comm.get("name", "") for comm in get_communities(store, sort_by="size")[:3]
+            ]
+        except (sqlite3.OperationalError, RuntimeError, ImportError, KeyError, TypeError):
             logger.debug("communities table not yet populated")
 
         # 4. Top 3 critical flows
         flows: list[str] = []
         try:
-            rows = store._conn.execute(
-                "SELECT name FROM flows ORDER BY criticality DESC LIMIT 3"
-            ).fetchall()
-            flows = [r[0] for r in rows]
-        except sqlite3.OperationalError:  # nosec B110 — table may not exist yet
+            from ..flows import get_flows
+
+            flows = [flow.get("name", "") for flow in get_flows(store, limit=3)]
+        except (sqlite3.OperationalError, RuntimeError, ImportError, KeyError, TypeError):
             logger.debug("flows table not yet populated")
 
         # 5. Suggest next tools based on task keywords
