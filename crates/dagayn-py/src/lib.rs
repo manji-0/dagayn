@@ -88,6 +88,32 @@ impl PyGraphStore {
             .collect()
     }
 
+    #[pyo3(signature = (exclude_files = false))]
+    fn get_all_nodes(&self, py: Python<'_>, exclude_files: bool) -> PyResult<Vec<Py<PyAny>>> {
+        self.with_store(|store| store.get_all_nodes_filtered(exclude_files))?
+            .into_iter()
+            .map(|node| graph_node_to_py(py, node))
+            .collect()
+    }
+
+    fn get_all_edges(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
+        self.with_store(|store| store.get_all_edges())?
+            .into_iter()
+            .map(|edge| graph_edge_to_py(py, edge))
+            .collect()
+    }
+
+    fn get_nodes_by_community_id(
+        &self,
+        py: Python<'_>,
+        community_id: i64,
+    ) -> PyResult<Vec<Py<PyAny>>> {
+        self.with_store(|store| store.get_nodes_by_community_id(community_id))?
+            .into_iter()
+            .map(|node| graph_node_to_py(py, node))
+            .collect()
+    }
+
     #[pyo3(signature = (include_file_sources = true))]
     fn get_all_call_targets(
         &self,
@@ -214,6 +240,15 @@ impl PyGraphStore {
 
     fn get_node_kind_by_id(&self, node_id: i64) -> PyResult<Option<String>> {
         self.with_store(|store| store.get_node_kind_by_id(node_id))
+    }
+
+    fn store_communities_json(&self, communities_json: &str) -> PyResult<i64> {
+        self.with_store_mut(|store| store.store_communities_json(communities_json))
+    }
+
+    #[pyo3(signature = (sort_by = "size", min_size = 0))]
+    fn get_communities_json(&self, sort_by: &str, min_size: i64) -> PyResult<String> {
+        self.with_store(|store| store.get_communities_json(sort_by, min_size))
     }
 
     fn close(&self) -> PyResult<()> {

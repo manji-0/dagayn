@@ -148,6 +148,22 @@ pub struct FlowInput {
     pub path: Vec<i64>,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct CommunityInput {
+    pub name: String,
+    #[serde(default)]
+    pub level: i64,
+    #[serde(default)]
+    pub cohesion: f64,
+    pub size: i64,
+    #[serde(default)]
+    pub dominant_language: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub members: Vec<String>,
+}
+
 pub struct GraphStore {
     conn: Connection,
 }
@@ -922,6 +938,34 @@ impl GraphStore {
             .map_err(Into::into)
     }
 
+    pub fn get_all_nodes_filtered(&self, exclude_files: bool) -> Result<Vec<GraphNode>> {
+        if !exclude_files {
+            return self.get_all_nodes();
+        }
+        let mut stmt = self
+            .conn
+            .prepare("SELECT * FROM nodes WHERE kind != 'File'")?;
+        let rows = stmt.query_map([], node_from_row)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    pub fn get_all_edges(&self) -> Result<Vec<GraphEdge>> {
+        let mut stmt = self.conn.prepare("SELECT * FROM edges")?;
+        let rows = stmt.query_map([], edge_from_row)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    pub fn get_nodes_by_community_id(&self, community_id: i64) -> Result<Vec<GraphNode>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT * FROM nodes WHERE community_id = ?")?;
+        let rows = stmt.query_map([community_id], node_from_row)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
     pub fn get_flow_edge_data(&self) -> Result<FlowEdgeData> {
         let mut calls_out: HashMap<String, Vec<String>> = HashMap::new();
         let mut has_tested_by: HashSet<String> = HashSet::new();
@@ -1044,6 +1088,91 @@ impl GraphStore {
                 row.get(0)
             })
             .optional()
+            .map_err(Into::into)
+    }
+
+    pub fn store_communities_json(&mut self, communities_json: &str) -> Result<i64> {
+        let communities: Vec<CommunityInput> = serde_json::from_str(communities_json)?;
+        let tx = self.conn.transaction()?;
+        tx.execute("DELETE FROM community_summaries", [])?;
+        tx.execute("DELETE FROM communities", [])?;
+        tx.execute("UPDATE nodes SET community_id = NULL", [])?;
+        let mut insert = tx.prepare(
+            "INSERT INTO communities \
+             (name, level, cohesion, size, dominant_language, description) \
+             VALUES (?, ?, ?, ?, ?, ?)",
+        )?;
+        for community in &communities {
+            insert.execute(params![
+                community.name,
+                community.level,
+                community.cohesion,
+                community.size,
+                community.dominant_language,
+                community.description
+            ])?;
+            let community_id = tx.last_insert_rowid();
+            for chunk in community.members.chunks(450) {
+                if chunk.is_empty() {
+                    continue;
+                }
+                let placeholders = std::iter::repeat_n("?", chunk.len())
+                    .collect::<Vec<_>>()
+                    .join(",");
+                let sql = format!(
+                    "UPDATE nodes SET community_id = ? WHERE qualified_name IN ({placeholders})"
+                );
+                let mut params = Vec::with_capacity(chunk.len() + 1);
+                params.push(rusqlite::types::Value::Integer(community_id));
+                params.extend(chunk.iter().cloned().map(rusqlite::types::Value::Text));
+                tx.execute(&sql, rusqlite::params_from_iter(params))?;
+            }
+        }
+        drop(insert);
+        tx.commit()?;
+        Ok(communities.len() as i64)
+    }
+
+    pub fn get_communities_json(&self, sort_by: &str, min_size: i64) -> Result<String> {
+        let sort_by = match sort_by {
+            "size" | "cohesion" | "name" => sort_by,
+            _ => "size",
+        };
+        let order = if matches!(sort_by, "size" | "cohesion") {
+            "DESC"
+        } else {
+            "ASC"
+        };
+        let sql = format!("SELECT * FROM communities WHERE size >= ? ORDER BY {sort_by} {order}");
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map([min_size], community_json_from_row)?;
+        let mut communities = Vec::new();
+        for row in rows {
+            let mut community = row?;
+            let id = community.get("id").and_then(Value::as_i64).unwrap_or(0);
+            let members = self.get_community_member_qns(id)?;
+            if let Some(obj) = community.as_object_mut() {
+                obj.insert(
+                    "members".to_string(),
+                    Value::Array(
+                        members
+                            .into_iter()
+                            .map(|member| Value::String(sanitize_name(&member)))
+                            .collect(),
+                    ),
+                );
+            }
+            communities.push(community);
+        }
+        serde_json::to_string(&communities).map_err(Into::into)
+    }
+
+    fn get_community_member_qns(&self, community_id: i64) -> Result<Vec<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT qualified_name FROM nodes WHERE community_id = ?")?;
+        let rows = stmt.query_map([community_id], |row| row.get::<_, String>(0))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(Into::into)
     }
 
@@ -1489,6 +1618,23 @@ fn flow_json_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
         "path": path,
         "created_at": row.get::<_, String>("created_at")?,
         "updated_at": row.get::<_, String>("updated_at")?,
+    }))
+}
+
+fn community_json_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
+    let name: String = row.get("name")?;
+    let description = row
+        .get::<_, Option<String>>("description")?
+        .unwrap_or_default();
+    Ok(json!({
+        "id": row.get::<_, i64>("id")?,
+        "name": sanitize_name(&name),
+        "level": row.get::<_, i64>("level")?,
+        "cohesion": row.get::<_, f64>("cohesion")?,
+        "size": row.get::<_, i64>("size")?,
+        "dominant_language": row.get::<_, Option<String>>("dominant_language")?.unwrap_or_default(),
+        "description": sanitize_name(&description),
+        "members": [],
     }))
 }
 
@@ -2337,6 +2483,58 @@ mod tests {
             store.get_node_kind_by_id(entry_id).unwrap().as_deref(),
             Some("Function")
         );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn stores_and_reads_communities() {
+        let path = temp_db("communities");
+        let mut store = GraphStore::open(&path).expect("open graph store");
+        let node = NodeInput {
+            kind: "Function".to_string(),
+            name: "login".to_string(),
+            file_path: "auth.py".to_string(),
+            line_start: 1,
+            line_end: 5,
+            language: "python".to_string(),
+            parent_name: None,
+            params: None,
+            return_type: None,
+            modifiers: None,
+            is_test: false,
+            extra: Value::Object(Default::default()),
+        };
+        store
+            .store_file_batch(&[(
+                "auth.py".to_string(),
+                vec![node],
+                vec![],
+                "hash".to_string(),
+            )])
+            .unwrap();
+        let payload = serde_json::to_string(&vec![CommunityInput {
+            name: "auth-cluster".to_string(),
+            level: 0,
+            cohesion: 0.75,
+            size: 1,
+            dominant_language: "python".to_string(),
+            description: "Auth functions".to_string(),
+            members: vec!["auth.py::login".to_string()],
+        }])
+        .unwrap();
+
+        assert_eq!(store.store_communities_json(&payload).unwrap(), 1);
+        let communities: Vec<Value> =
+            serde_json::from_str(&store.get_communities_json("size", 0).unwrap()).unwrap();
+        assert_eq!(communities.len(), 1);
+        assert_eq!(communities[0]["name"], "auth-cluster");
+        assert_eq!(communities[0]["members"], json!(["auth.py::login"]));
+        let community_id = communities[0]["id"].as_i64().unwrap();
+        let members = store.get_nodes_by_community_id(community_id).unwrap();
+        assert_eq!(members.len(), 1);
+        assert_eq!(members[0].qualified_name, "auth.py::login");
+        let all_nodes = store.get_all_nodes_filtered(true).unwrap();
+        assert_eq!(all_nodes.len(), 1);
         let _ = std::fs::remove_file(path);
     }
 

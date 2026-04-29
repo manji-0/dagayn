@@ -6,6 +6,7 @@ optional) with a file-based grouping fallback when igraph is not installed.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from collections import Counter, defaultdict
@@ -690,6 +691,22 @@ def store_communities(store: GraphStore, communities: list[dict[str, Any]]) -> i
     Returns:
         Number of communities stored.
     """
+    rust_store = getattr(store, "store_communities_json", None)
+    if callable(rust_store):
+        payload = [
+            {
+                "name": comm["name"],
+                "level": comm.get("level", 0),
+                "cohesion": comm.get("cohesion", 0.0),
+                "size": comm["size"],
+                "dominant_language": comm.get("dominant_language", ""),
+                "description": comm.get("description", ""),
+                "members": list(comm.get("members", [])),
+            }
+            for comm in communities
+        ]
+        return int(rust_store(json.dumps(payload)))
+
     # NOTE: store_communities uses _conn directly because it performs
     # multi-statement batch writes (DELETE + INSERT loop + UPDATE loop)
     # that are tightly coupled to the DB transaction lifecycle.
@@ -766,6 +783,10 @@ def get_communities(
     valid_sorts = {"size", "cohesion", "name"}
     if sort_by not in valid_sorts:
         sort_by = "size"
+
+    rust_get = getattr(store, "get_communities_json", None)
+    if callable(rust_get):
+        return json.loads(rust_get(sort_by, min_size))
 
     order = "DESC" if sort_by in ("size", "cohesion") else "ASC"
 
