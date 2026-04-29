@@ -800,23 +800,24 @@ def find_dependents(
 
 def _parse_single_file(
     args: tuple[str, str],
-) -> tuple[str, list, list, str | None, str]:
+) -> tuple[str, list, list, str | None, str, int]:
     """Parse one file in a worker process.
 
-    Returns ``(rel_path, nodes, edges, error_or_none, file_hash)``.
+    Returns ``(rel_path, nodes, edges, error_or_none, file_hash, mtime_ns)``.
     Must be a module-level function so ``ProcessPoolExecutor`` can
     serialise it across processes.
     """
     rel_path, repo_root_str = args
     abs_path = Path(repo_root_str) / rel_path
     try:
+        mtime_ns = int(abs_path.stat().st_mtime_ns)
         raw = abs_path.read_bytes()
         fhash = hashlib.sha256(raw).hexdigest()
         parser = _worker_parser if _worker_parser is not None else CodeParser()
         nodes, edges = parser.parse_bytes(abs_path, raw)
-        return (rel_path, nodes, edges, None, fhash)
+        return (rel_path, nodes, edges, None, fhash, mtime_ns)
     except Exception as e:
-        return (rel_path, [], [], str(e), "")
+        return (rel_path, [], [], str(e), "", 0)
 
 
 def full_build(
@@ -855,16 +856,20 @@ def full_build(
 
     use_serial = os.environ.get("CRG_SERIAL_PARSE", "") == "1"
 
+    _batch_size = 50
+
     if use_serial or file_count < 8:
         # Serial fallback (for debugging or tiny repos)
+        batch_buf: list[tuple[str, list, list, str, int]] = []
         for i, rel_path in enumerate(files, 1):
             full_path = repo_root / rel_path
             try:
+                mtime_ns = int(full_path.stat().st_mtime_ns)
                 source = full_path.read_bytes()
                 fhash = hashlib.sha256(source).hexdigest()
                 nodes, edges = parser.parse_bytes(full_path, source)
                 nodes, edges = _relativize_parsed_entities(nodes, edges, repo_root)
-                store.store_file_nodes_edges(rel_path, nodes, edges, fhash)
+                batch_buf.append((rel_path, nodes, edges, fhash, mtime_ns))
                 total_nodes += len(nodes)
                 total_edges += len(edges)
             except (OSError, PermissionError) as e:
@@ -872,16 +877,22 @@ def full_build(
             except Exception as e:
                 logger.warning("Error parsing %s: %s", rel_path, e)
                 errors.append({"file": rel_path, "error": str(e)})
+            if len(batch_buf) >= _batch_size:
+                store.store_file_batch(batch_buf)
+                batch_buf.clear()
             if i % 50 == 0 or i == file_count:
                 logger.info("Progress: %d/%d files parsed", i, file_count)
+        if batch_buf:
+            store.store_file_batch(batch_buf)
     else:
         # Parallel parsing — store calls remain serial (SQLite single-writer)
         args_list = [(rel_path, str(repo_root)) for rel_path in files]
+        batch_buf = []
         with concurrent.futures.ProcessPoolExecutor(
             max_workers=_MAX_PARSE_WORKERS,
             initializer=_init_worker,
         ) as executor:
-            for i, (rel_path, nodes, edges, error, fhash) in enumerate(
+            for i, (rel_path, nodes, edges, error, fhash, mtime_ns) in enumerate(
                 executor.map(_parse_single_file, args_list, chunksize=20),
                 1,
             ):
@@ -889,18 +900,17 @@ def full_build(
                     logger.warning("Error parsing %s: %s", rel_path, error)
                     errors.append({"file": rel_path, "error": error})
                     continue
-                full_path = repo_root / rel_path
                 nodes, edges = _relativize_parsed_entities(nodes, edges, repo_root)
-                store.store_file_nodes_edges(
-                    rel_path,
-                    nodes,
-                    edges,
-                    fhash,
-                )
+                batch_buf.append((rel_path, nodes, edges, fhash, mtime_ns))
                 total_nodes += len(nodes)
                 total_edges += len(edges)
+                if len(batch_buf) >= _batch_size:
+                    store.store_file_batch(batch_buf)
+                    batch_buf.clear()
                 if i % 200 == 0 or i == file_count:
                     logger.info("Progress: %d/%d files parsed", i, file_count)
+        if batch_buf:
+            store.store_file_batch(batch_buf)
 
     store.set_metadata("last_updated", time.strftime("%Y-%m-%dT%H:%M:%S"))
     store.set_metadata("last_build_type", "full")
@@ -1003,7 +1013,10 @@ def incremental_update(
 
     use_serial = os.environ.get("CRG_SERIAL_PARSE", "") == "1"
 
+    _batch_size = 50
+
     if use_serial or len(to_parse) < 8:
+        batch_buf: list[tuple[str, list, list, str, int]] = []
         for rel_path, mtime_ns in to_parse:
             abs_path = repo_root / rel_path
             try:
@@ -1011,7 +1024,7 @@ def incremental_update(
                 fhash = hashlib.sha256(source).hexdigest()
                 nodes, edges = parser.parse_bytes(abs_path, source)
                 nodes, edges = _relativize_parsed_entities(nodes, edges, repo_root)
-                store.store_file_nodes_edges(rel_path, nodes, edges, fhash, mtime_ns)
+                batch_buf.append((rel_path, nodes, edges, fhash, mtime_ns))
                 total_nodes += len(nodes)
                 total_edges += len(edges)
             except (OSError, PermissionError) as e:
@@ -1019,14 +1032,19 @@ def incremental_update(
             except Exception as e:
                 logger.warning("Error parsing %s: %s", rel_path, e)
                 errors.append({"file": rel_path, "error": str(e)})
+            if len(batch_buf) >= _batch_size:
+                store.store_file_batch(batch_buf)
+                batch_buf.clear()
+        if batch_buf:
+            store.store_file_batch(batch_buf)
     else:
-        mtime_map = {rel_path: mtime_ns for rel_path, mtime_ns in to_parse}
         args_list = [(rel_path, str(repo_root)) for rel_path, _ in to_parse]
+        batch_buf = []
         with concurrent.futures.ProcessPoolExecutor(
             max_workers=_MAX_PARSE_WORKERS,
             initializer=_init_worker,
         ) as executor:
-            for rel_path, nodes, edges, error, fhash in executor.map(
+            for rel_path, nodes, edges, error, fhash, mtime_ns in executor.map(
                 _parse_single_file,
                 args_list,
                 chunksize=20,
@@ -1036,15 +1054,14 @@ def incremental_update(
                     errors.append({"file": rel_path, "error": error})
                     continue
                 nodes, edges = _relativize_parsed_entities(nodes, edges, repo_root)
-                store.store_file_nodes_edges(
-                    rel_path,
-                    nodes,
-                    edges,
-                    fhash,
-                    mtime_map.get(rel_path, 0),
-                )
+                batch_buf.append((rel_path, nodes, edges, fhash, mtime_ns))
                 total_nodes += len(nodes)
                 total_edges += len(edges)
+                if len(batch_buf) >= _batch_size:
+                    store.store_file_batch(batch_buf)
+                    batch_buf.clear()
+        if batch_buf:
+            store.store_file_batch(batch_buf)
 
     store.set_metadata("last_updated", time.strftime("%Y-%m-%dT%H:%M:%S"))
     store.set_metadata("last_build_type", "incremental")

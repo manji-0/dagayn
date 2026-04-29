@@ -529,14 +529,14 @@ class TestParallelParsing:
     def test_parse_single_file(self, tmp_path):
         py_file = tmp_path / "single.py"
         py_file.write_text("def foo():\n    pass\n")
-        rel_path, nodes, edges, error, fhash = _parse_single_file(("single.py", str(tmp_path)))
+        rel_path, nodes, edges, error, fhash, mtime_ns = _parse_single_file(("single.py", str(tmp_path)))
         assert rel_path == "single.py"
         assert error is None
         assert len(nodes) > 0
         assert fhash != ""
 
     def test_parse_single_file_missing(self, tmp_path):
-        rel_path, nodes, edges, error, fhash = _parse_single_file(("missing.py", str(tmp_path)))
+        rel_path, nodes, edges, error, fhash, mtime_ns = _parse_single_file(("missing.py", str(tmp_path)))
         assert error is not None
         assert nodes == []
         assert edges == []
