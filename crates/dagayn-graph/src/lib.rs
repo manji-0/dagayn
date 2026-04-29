@@ -1033,6 +1033,151 @@ impl GraphStore {
             .map_err(Into::into)
     }
 
+    pub fn get_files_matching(&self, pattern: &str) -> Result<Vec<String>> {
+        let like = format!("%{pattern}");
+        let mut stmt = self
+            .conn
+            .prepare("SELECT DISTINCT file_path FROM nodes WHERE file_path LIKE ?")?;
+        let rows = stmt.query_map([like], |row| row.get::<_, String>(0))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    pub fn count_flow_memberships(&self, node_id: i64) -> Result<i64> {
+        self.conn
+            .query_row(
+                "SELECT COUNT(*) as cnt FROM flow_memberships WHERE node_id = ?",
+                [node_id],
+                |row| row.get(0),
+            )
+            .map_err(Into::into)
+    }
+
+    pub fn get_flow_criticalities_for_node(&self, node_id: i64) -> Result<Vec<f64>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT f.criticality FROM flows f \
+             JOIN flow_memberships fm ON fm.flow_id = f.id \
+             WHERE fm.node_id = ?",
+        )?;
+        let rows = stmt.query_map([node_id], |row| row.get::<_, f64>(0))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    pub fn get_node_community_id(&self, node_id: i64) -> Result<Option<i64>> {
+        self.conn
+            .query_row(
+                "SELECT community_id FROM nodes WHERE id = ?",
+                [node_id],
+                |row| row.get::<_, Option<i64>>(0),
+            )
+            .optional()
+            .map(|row| row.flatten())
+            .map_err(Into::into)
+    }
+
+    pub fn get_community_ids_by_qualified_names(
+        &self,
+        qns: &[String],
+    ) -> Result<HashMap<String, Option<i64>>> {
+        let mut out = HashMap::new();
+        for chunk in qns.chunks(450) {
+            if chunk.is_empty() {
+                continue;
+            }
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!(
+                "SELECT qualified_name, community_id FROM nodes \
+                 WHERE qualified_name IN ({placeholders})"
+            );
+            let mut stmt = self.conn.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?))
+            })?;
+            for row in rows {
+                let (qualified_name, community_id) = row?;
+                out.insert(qualified_name, community_id);
+            }
+        }
+        Ok(out)
+    }
+
+    pub fn get_transitive_tests(&self, qualified_name: &str, max_depth: i64) -> Result<Vec<Value>> {
+        let mut seen = HashSet::new();
+        let mut results = Vec::new();
+
+        let mut input_qns = vec![qualified_name.to_string()];
+        let node_kind = self
+            .conn
+            .query_row(
+                "SELECT kind FROM nodes WHERE qualified_name = ?",
+                [qualified_name],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        if node_kind.as_deref() == Some("Class") {
+            let mut stmt = self.conn.prepare(
+                "SELECT target_qualified FROM edges \
+                 WHERE source_qualified = ? AND kind = 'CONTAINS'",
+            )?;
+            let rows = stmt.query_map([qualified_name], |row| row.get::<_, String>(0))?;
+            for row in rows {
+                input_qns.push(row?);
+            }
+        }
+
+        for qn in &input_qns {
+            for source in self.get_test_sources_for_target(qn)? {
+                if seen.insert(source.clone()) {
+                    if let Some(test_node) = self.test_node_json(&source, false)? {
+                        results.push(test_node);
+                    }
+                }
+            }
+        }
+
+        let bare = qualified_name
+            .rsplit_once("::")
+            .map(|(_, name)| name)
+            .unwrap_or(qualified_name);
+        for source in self.get_test_sources_for_target(bare)? {
+            if seen.insert(source.clone()) {
+                if let Some(test_node) = self.test_node_json(&source, false)? {
+                    results.push(test_node);
+                }
+            }
+        }
+
+        let mut frontier = input_qns.into_iter().collect::<HashSet<_>>();
+        for _ in 0..max_depth {
+            let mut next_frontier = HashSet::new();
+            for qn in &frontier {
+                let mut stmt = self.conn.prepare(
+                    "SELECT target_qualified FROM edges \
+                     WHERE source_qualified = ? AND kind = 'CALLS'",
+                )?;
+                let rows = stmt.query_map([qn], |row| row.get::<_, String>(0))?;
+                for row in rows {
+                    next_frontier.insert(row?);
+                }
+            }
+            for callee in &next_frontier {
+                for source in self.get_test_sources_for_target(callee)? {
+                    if seen.insert(source.clone()) {
+                        if let Some(test_node) = self.test_node_json(&source, true)? {
+                            results.push(test_node);
+                        }
+                    }
+                }
+            }
+            frontier = next_frontier;
+        }
+
+        Ok(results)
+    }
+
     pub fn count_affected_communities(&self, file_paths: &[String]) -> Result<i64> {
         let mut community_ids = HashSet::new();
         for chunk in file_paths.chunks(450) {
@@ -1318,6 +1463,36 @@ impl GraphStore {
             .prepare("SELECT qualified_name FROM nodes WHERE community_id = ?")?;
         let rows = stmt.query_map([community_id], |row| row.get::<_, String>(0))?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    fn get_test_sources_for_target(&self, target_qualified: &str) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT source_qualified FROM edges \
+             WHERE target_qualified = ? AND kind = 'TESTED_BY'",
+        )?;
+        let rows = stmt.query_map([target_qualified], |row| row.get::<_, String>(0))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    fn test_node_json(&self, qualified_name: &str, indirect: bool) -> Result<Option<Value>> {
+        self.conn
+            .query_row(
+                "SELECT name, qualified_name, file_path, kind FROM nodes \
+                 WHERE qualified_name = ?",
+                [qualified_name],
+                |row| {
+                    Ok(json!({
+                        "name": row.get::<_, String>(0)?,
+                        "qualified_name": row.get::<_, String>(1)?,
+                        "file_path": row.get::<_, String>(2)?,
+                        "kind": row.get::<_, String>(3)?,
+                        "indirect": indirect,
+                    }))
+                },
+            )
+            .optional()
             .map_err(Into::into)
     }
 
@@ -2539,6 +2714,20 @@ mod tests {
             is_test: false,
             extra: Value::Object(Default::default()),
         };
+        let test_callee = NodeInput {
+            kind: "Test".to_string(),
+            name: "test_callee".to_string(),
+            file_path: "test_app.py".to_string(),
+            line_start: 1,
+            line_end: 5,
+            language: "python".to_string(),
+            parent_name: None,
+            params: None,
+            return_type: None,
+            modifiers: None,
+            is_test: true,
+            extra: Value::Object(Default::default()),
+        };
         let edge = EdgeInput {
             kind: "CALLS".to_string(),
             source: "app.py::entry".to_string(),
@@ -2547,15 +2736,27 @@ mod tests {
             line: 2,
             extra: Value::Object(Default::default()),
         };
+        let tested_by = EdgeInput {
+            kind: "TESTED_BY".to_string(),
+            source: "test_app.py::test_callee".to_string(),
+            target: "app.py::callee".to_string(),
+            file_path: "test_app.py".to_string(),
+            line: 2,
+            extra: Value::Object(Default::default()),
+        };
         store
             .store_file_batch(&[(
                 "app.py".to_string(),
-                vec![entry, callee],
-                vec![edge],
+                vec![entry, callee, test_callee],
+                vec![edge, tested_by],
                 "hash".to_string(),
             )])
             .unwrap();
 
+        assert_eq!(
+            store.get_files_matching("test_app.py").unwrap(),
+            vec!["test_app.py"]
+        );
         let targets = store.get_all_call_targets(false).unwrap();
         assert_eq!(targets, HashSet::from(["app.py::callee".to_string()]));
         let nodes = store
@@ -2563,15 +2764,17 @@ mod tests {
             .unwrap();
         assert_eq!(nodes.len(), 2);
         let stats = store.get_stats().unwrap();
-        assert_eq!(stats.total_nodes, 2);
-        assert_eq!(stats.total_edges, 1);
+        assert_eq!(stats.total_nodes, 3);
+        assert_eq!(stats.total_edges, 2);
         assert_eq!(stats.nodes_by_kind["Function"], 2);
+        assert_eq!(stats.nodes_by_kind["Test"], 1);
         assert_eq!(stats.edges_by_kind["CALLS"], 1);
+        assert_eq!(stats.edges_by_kind["TESTED_BY"], 1);
         assert_eq!(stats.files_count, 0);
         assert_eq!(stats.languages, vec!["python".to_string()]);
         let (calls_out, tested_by) = store.get_flow_edge_data().unwrap();
         assert_eq!(calls_out["app.py::entry"], vec!["app.py::callee"]);
-        assert!(tested_by.is_empty());
+        assert_eq!(tested_by, HashSet::from(["app.py::callee".to_string()]));
 
         let entry_id = store.get_node("app.py::entry").unwrap().unwrap().id;
         let callee_id = store.get_node("app.py::callee").unwrap().unwrap().id;
@@ -2601,6 +2804,20 @@ mod tests {
                 .unwrap(),
             2
         );
+        assert_eq!(store.count_flow_memberships(callee_id).unwrap(), 1);
+        assert_eq!(
+            store.get_flow_criticalities_for_node(callee_id).unwrap(),
+            vec![0.25]
+        );
+        assert_eq!(store.get_node_community_id(callee_id).unwrap(), None);
+        let direct_tests = store.get_transitive_tests("app.py::callee", 1).unwrap();
+        assert_eq!(direct_tests.len(), 1);
+        assert_eq!(direct_tests[0]["name"], "test_callee");
+        assert_eq!(direct_tests[0]["indirect"], false);
+        let indirect_tests = store.get_transitive_tests("app.py::entry", 1).unwrap();
+        assert_eq!(indirect_tests.len(), 1);
+        assert_eq!(indirect_tests[0]["name"], "test_callee");
+        assert_eq!(indirect_tests[0]["indirect"], true);
         assert_eq!(store.store_flows(&[]).unwrap(), 0);
         assert_eq!(
             store
@@ -2706,6 +2923,17 @@ mod tests {
         let members = store.get_nodes_by_community_id(community_id).unwrap();
         assert_eq!(members.len(), 1);
         assert_eq!(members[0].qualified_name, "auth.py::login");
+        let community_ids = store
+            .get_community_ids_by_qualified_names(&[
+                "auth.py::login".to_string(),
+                "missing.py::none".to_string(),
+            ])
+            .unwrap();
+        assert_eq!(
+            community_ids.get("auth.py::login").copied().flatten(),
+            Some(community_id)
+        );
+        assert!(!community_ids.contains_key("missing.py::none"));
         assert_eq!(
             store
                 .count_affected_communities(&["auth.py".to_string()])

@@ -120,6 +120,49 @@ impl PyGraphStore {
             .collect()
     }
 
+    fn get_files_matching(&self, pattern: &str) -> PyResult<Vec<String>> {
+        self.with_store(|store| store.get_files_matching(pattern))
+    }
+
+    fn count_flow_memberships(&self, node_id: i64) -> PyResult<i64> {
+        self.with_store(|store| store.count_flow_memberships(node_id))
+    }
+
+    fn get_flow_criticalities_for_node(&self, node_id: i64) -> PyResult<Vec<f64>> {
+        self.with_store(|store| store.get_flow_criticalities_for_node(node_id))
+    }
+
+    fn get_node_community_id(&self, node_id: i64) -> PyResult<Option<i64>> {
+        self.with_store(|store| store.get_node_community_id(node_id))
+    }
+
+    fn get_community_ids_by_qualified_names(
+        &self,
+        py: Python<'_>,
+        qns: Vec<String>,
+    ) -> PyResult<Py<PyAny>> {
+        let community_ids =
+            self.with_store(|store| store.get_community_ids_by_qualified_names(&qns))?;
+        let out = PyDict::new(py);
+        for (qualified_name, community_id) in community_ids {
+            out.set_item(qualified_name, community_id)?;
+        }
+        Ok(out.unbind().into_any())
+    }
+
+    #[pyo3(signature = (qualified_name, max_depth = 1))]
+    fn get_transitive_tests(
+        &self,
+        py: Python<'_>,
+        qualified_name: &str,
+        max_depth: i64,
+    ) -> PyResult<Vec<Py<PyAny>>> {
+        self.with_store(|store| store.get_transitive_tests(qualified_name, max_depth))?
+            .into_iter()
+            .map(|value| json_value_to_py(py, &value))
+            .collect()
+    }
+
     fn count_affected_communities(&self, file_paths: Vec<String>) -> PyResult<i64> {
         self.with_store(|store| store.count_affected_communities(&file_paths))
     }

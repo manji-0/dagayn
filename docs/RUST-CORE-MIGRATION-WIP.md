@@ -292,6 +292,9 @@ Initial scaffold:
   still owns the detection heuristics and optional igraph integration.
 - Rust `GraphStore` exposes `get_stats`, preserving the Python `GraphStats`
   dataclass shape for MCP/tool entry points such as `get_minimal_context`.
+- Rust `GraphStore` exposes the read helpers used by change risk scoring:
+  file suffix matching, flow membership counts/criticalities, node community
+  lookup, batched community ID lookup, and transitive test lookup.
 - `DAGAYN_BACKEND=rust` is recognized by the Python graph package and fails loudly if the extension has not been built; `python` remains the default
 
 Current local benchmark baseline, measured on 2026-04-28 with `tools/backend_benchmark.py`
@@ -447,6 +450,9 @@ Parser migration progress:
   communities through this API instead of direct Python SQLite access.
 - Graph stats now route through Rust `GraphStore.get_stats` while returning the
   existing Python `GraphStats` dataclass shape.
+- Change risk analysis under `get_minimal_context` now has the Rust read
+  helpers it needs for risk scoring and test-gap summaries, instead of falling
+  back to degraded output when `DAGAYN_BACKEND=rust` is active.
 
 Python modules being replaced: `dagayn/graph.py` (`GraphStore` upsert and replacement logic), `dagayn/incremental.py` (path normalization and VCS metadata helpers such as `_make_repo_relative`), `dagayn/migrations.py`.
 
