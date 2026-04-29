@@ -609,7 +609,9 @@ def traverse_graph_func(
 
                 visited[current_qn] = cur_depth
                 entry = _make_entry(node, cur_depth)
-                approx_tokens += len(str(entry)) // 4
+                approx_tokens += (
+                    len(entry["qualified_name"]) + len(entry["file"]) + len(entry["name"]) + 30
+                ) // 4
                 if approx_tokens > token_budget:
                     budget_exceeded = True
                     break
@@ -660,7 +662,9 @@ def traverse_graph_func(
                         continue
 
                     entry = _make_entry(node, cur_depth)
-                    approx_tokens += len(str(entry)) // 4
+                    approx_tokens += (
+                        len(entry["qualified_name"]) + len(entry["file"]) + len(entry["name"]) + 30
+                    ) // 4
                     if approx_tokens > token_budget:
                         budget_exceeded = True
                         break

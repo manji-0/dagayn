@@ -739,6 +739,11 @@ class EmbeddingStore:
             isolation_level=None,
         )
         self._conn.row_factory = sqlite3.Row
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA synchronous=NORMAL")
+        self._conn.execute("PRAGMA cache_size=-32000")  # 32 MB page cache
+        self._conn.execute("PRAGMA mmap_size=134217728")  # 128 MB memory-mapped I/O
+        self._conn.execute("PRAGMA temp_store=MEMORY")
         self._conn.executescript(_EMBEDDINGS_SCHEMA)
 
         # Migration for existing DBs missing the provider column

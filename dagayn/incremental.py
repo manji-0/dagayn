@@ -24,6 +24,15 @@ _MAX_PARSE_WORKERS = int(os.environ.get("CRG_PARSE_WORKERS", str(min(os.cpu_coun
 
 logger = logging.getLogger(__name__)
 
+# Per-worker singleton — initialised once per process by _init_worker().
+_worker_parser: CodeParser | None = None
+
+
+def _init_worker() -> None:
+    """Initialise one CodeParser per worker process, avoiding repeated grammar loads."""
+    global _worker_parser
+    _worker_parser = CodeParser()
+
 
 def _run_rescript_resolver(store: GraphStore) -> Optional[dict]:
     """Run the ReScript cross-module resolver, swallowing any failure so
@@ -803,7 +812,7 @@ def _parse_single_file(
     try:
         raw = abs_path.read_bytes()
         fhash = hashlib.sha256(raw).hexdigest()
-        parser = CodeParser()
+        parser = _worker_parser if _worker_parser is not None else CodeParser()
         nodes, edges = parser.parse_bytes(abs_path, raw)
         return (rel_path, nodes, edges, None, fhash)
     except Exception as e:
@@ -870,6 +879,7 @@ def full_build(
         args_list = [(rel_path, str(repo_root)) for rel_path in files]
         with concurrent.futures.ProcessPoolExecutor(
             max_workers=_MAX_PARSE_WORKERS,
+            initializer=_init_worker,
         ) as executor:
             for i, (rel_path, nodes, edges, error, fhash) in enumerate(
                 executor.map(_parse_single_file, args_list, chunksize=20),
@@ -998,6 +1008,7 @@ def incremental_update(
         args_list = [(rel_path, str(repo_root)) for rel_path in to_parse]
         with concurrent.futures.ProcessPoolExecutor(
             max_workers=_MAX_PARSE_WORKERS,
+            initializer=_init_worker,
         ) as executor:
             for rel_path, nodes, edges, error, fhash in executor.map(
                 _parse_single_file,
