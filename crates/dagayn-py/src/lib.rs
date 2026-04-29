@@ -199,6 +199,23 @@ impl PyGraphStore {
         self.with_store_mut(|store| store.store_flows_json(flows_json))
     }
 
+    #[pyo3(signature = (sort_by = "criticality", limit = 50))]
+    fn get_flows_json(&self, sort_by: &str, limit: i64) -> PyResult<String> {
+        self.with_store(|store| store.get_flows_json(sort_by, limit))
+    }
+
+    fn get_flow_by_id_json(&self, flow_id: i64) -> PyResult<Option<String>> {
+        self.with_store(|store| store.get_flow_by_id_json(flow_id))
+    }
+
+    fn get_affected_flows_json(&self, changed_files: Vec<String>) -> PyResult<String> {
+        self.with_store(|store| store.get_affected_flows_json(&changed_files))
+    }
+
+    fn get_node_kind_by_id(&self, node_id: i64) -> PyResult<Option<String>> {
+        self.with_store(|store| store.get_node_kind_by_id(node_id))
+    }
+
     fn close(&self) -> PyResult<()> {
         Ok(())
     }

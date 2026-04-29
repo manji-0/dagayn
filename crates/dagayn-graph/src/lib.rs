@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 use thiserror::Error;
 
 const LATEST_VERSION: i64 = 9;
@@ -962,6 +962,170 @@ impl GraphStore {
         self.store_flows(&flows)
     }
 
+    pub fn get_flows_json(&self, sort_by: &str, limit: i64) -> Result<String> {
+        let sort_by = match sort_by {
+            "criticality" | "depth" | "node_count" | "file_count" | "name" => sort_by,
+            _ => "criticality",
+        };
+        let order = if matches!(
+            sort_by,
+            "criticality" | "depth" | "node_count" | "file_count"
+        ) {
+            "DESC"
+        } else {
+            "ASC"
+        };
+        let sql = format!("SELECT * FROM flows ORDER BY {sort_by} {order} LIMIT ?");
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map([limit], flow_json_from_row)?;
+        let flows = rows.collect::<std::result::Result<Vec<_>, _>>()?;
+        serde_json::to_string(&flows).map_err(Into::into)
+    }
+
+    pub fn get_flow_by_id_json(&self, flow_id: i64) -> Result<Option<String>> {
+        let flow = self
+            .conn
+            .query_row("SELECT * FROM flows WHERE id = ?", [flow_id], |row| {
+                flow_json_from_row(row)
+            })
+            .optional()?;
+        let Some(mut flow) = flow else {
+            return Ok(None);
+        };
+        let path_ids = flow
+            .get("path")
+            .and_then(Value::as_array)
+            .map(|items| items.iter().filter_map(Value::as_i64).collect::<Vec<_>>())
+            .unwrap_or_default();
+        let steps = self.flow_steps_json(&path_ids)?;
+        if let Some(obj) = flow.as_object_mut() {
+            obj.insert("steps".to_string(), Value::Array(steps));
+        }
+        serde_json::to_string(&flow).map(Some).map_err(Into::into)
+    }
+
+    pub fn get_affected_flows_json(&self, changed_files: &[String]) -> Result<String> {
+        if changed_files.is_empty() {
+            return Ok("[]".to_string());
+        }
+        let node_ids = self.get_node_ids_by_files(changed_files)?;
+        if node_ids.is_empty() {
+            return Ok("[]".to_string());
+        }
+        let flow_ids = self.get_flow_ids_by_node_ids(&node_ids)?;
+        if flow_ids.is_empty() {
+            return Ok("[]".to_string());
+        }
+        let mut flows = Vec::new();
+        for flow_id in flow_ids {
+            if let Some(raw) = self.get_flow_by_id_json(flow_id)? {
+                flows.push(serde_json::from_str::<Value>(&raw)?);
+            }
+        }
+        flows.sort_by(|left, right| {
+            let left = left
+                .get("criticality")
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0);
+            let right = right
+                .get("criticality")
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0);
+            right
+                .partial_cmp(&left)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        serde_json::to_string(&flows).map_err(Into::into)
+    }
+
+    pub fn get_node_kind_by_id(&self, node_id: i64) -> Result<Option<String>> {
+        self.conn
+            .query_row("SELECT kind FROM nodes WHERE id = ?", [node_id], |row| {
+                row.get(0)
+            })
+            .optional()
+            .map_err(Into::into)
+    }
+
+    fn get_node_ids_by_files(&self, file_paths: &[String]) -> Result<HashSet<i64>> {
+        let mut out = HashSet::new();
+        for chunk in file_paths.chunks(450) {
+            if chunk.is_empty() {
+                continue;
+            }
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!("SELECT id FROM nodes WHERE file_path IN ({placeholders})");
+            let mut stmt = self.conn.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| row.get(0))?;
+            for row in rows {
+                out.insert(row?);
+            }
+        }
+        Ok(out)
+    }
+
+    fn get_flow_ids_by_node_ids(&self, node_ids: &HashSet<i64>) -> Result<Vec<i64>> {
+        let mut out = Vec::new();
+        let mut seen = HashSet::new();
+        let node_ids = node_ids.iter().copied().collect::<Vec<_>>();
+        for chunk in node_ids.chunks(450) {
+            if chunk.is_empty() {
+                continue;
+            }
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!(
+                "SELECT DISTINCT flow_id FROM flow_memberships WHERE node_id IN ({placeholders})"
+            );
+            let mut stmt = self.conn.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| row.get(0))?;
+            for row in rows {
+                let flow_id = row?;
+                if seen.insert(flow_id) {
+                    out.push(flow_id);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    fn flow_steps_json(&self, path_ids: &[i64]) -> Result<Vec<Value>> {
+        if path_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut nodes_by_id = HashMap::new();
+        for chunk in path_ids.chunks(450) {
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!("SELECT * FROM nodes WHERE id IN ({placeholders})");
+            let mut stmt = self.conn.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), node_from_row)?;
+            for row in rows {
+                let node = row?;
+                nodes_by_id.insert(node.id, node);
+            }
+        }
+        let mut steps = Vec::new();
+        for node_id in path_ids {
+            if let Some(node) = nodes_by_id.get(node_id) {
+                steps.push(json!({
+                    "node_id": node.id,
+                    "name": sanitize_name(&node.name),
+                    "kind": node.kind,
+                    "file": node.file_path,
+                    "line_start": node.line_start,
+                    "line_end": node.line_end,
+                    "qualified_name": sanitize_name(&node.qualified_name),
+                }));
+            }
+        }
+        Ok(steps)
+    }
+
     pub fn get_edges_by_source(&self, qualified_name: &str) -> Result<Vec<GraphEdge>> {
         self.get_edges_by_endpoint("source_qualified", qualified_name)
     }
@@ -1310,6 +1474,24 @@ fn store_flows_tx(tx: &Transaction<'_>, flows: &[FlowInput]) -> Result<()> {
     Ok(())
 }
 
+fn flow_json_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
+    let path_json: String = row.get("path_json")?;
+    let path = serde_json::from_str::<Vec<i64>>(&path_json).unwrap_or_default();
+    let name: String = row.get("name")?;
+    Ok(json!({
+        "id": row.get::<_, i64>("id")?,
+        "name": sanitize_name(&name),
+        "entry_point_id": row.get::<_, i64>("entry_point_id")?,
+        "depth": row.get::<_, i64>("depth")?,
+        "node_count": row.get::<_, i64>("node_count")?,
+        "file_count": row.get::<_, i64>("file_count")?,
+        "criticality": row.get::<_, f64>("criticality")?,
+        "path": path,
+        "created_at": row.get::<_, String>("created_at")?,
+        "updated_at": row.get::<_, String>("updated_at")?,
+    }))
+}
+
 fn store_file_batch_tx(tx: &Transaction<'_>, batch: &[FileBatchItem]) -> Result<()> {
     let now = now_seconds()?;
     let mut delete_risk = tx.prepare(
@@ -1511,6 +1693,14 @@ fn community_purpose(paths: &[String]) -> String {
         .map(|(before_last, _)| before_last.rsplit('/').next().unwrap_or(""))
         .unwrap_or("")
         .to_string()
+}
+
+fn sanitize_name(value: &str) -> String {
+    value
+        .chars()
+        .filter(|ch| *ch == '\t' || *ch == '\n' || (*ch as u32) >= 0x20)
+        .take(256)
+        .collect()
 }
 
 #[cfg(test)]
@@ -2120,6 +2310,32 @@ mod tests {
                 .query_row("SELECT COUNT(*) FROM flows", [], |row| row.get::<_, i64>(0))
                 .unwrap(),
             0
+        );
+
+        assert_eq!(store.store_flows(&flows).unwrap(), 1);
+        let flows_json: Vec<Value> =
+            serde_json::from_str(&store.get_flows_json("criticality", 50).unwrap()).unwrap();
+        assert_eq!(flows_json.len(), 1);
+        assert_eq!(flows_json[0]["name"], "entry");
+        let flow_id = flows_json[0]["id"].as_i64().unwrap();
+        let flow_json: Value = serde_json::from_str(
+            &store
+                .get_flow_by_id_json(flow_id)
+                .unwrap()
+                .expect("flow exists"),
+        )
+        .unwrap();
+        assert_eq!(flow_json["steps"].as_array().unwrap().len(), 2);
+        let affected: Vec<Value> = serde_json::from_str(
+            &store
+                .get_affected_flows_json(&["app.py".to_string()])
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(affected.len(), 1);
+        assert_eq!(
+            store.get_node_kind_by_id(entry_id).unwrap().as_deref(),
+            Some("Function")
         );
         let _ = std::fs::remove_file(path);
     }

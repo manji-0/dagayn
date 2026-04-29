@@ -614,6 +614,10 @@ def get_flows(
     if sort_by not in allowed_sort:
         sort_by = "criticality"
 
+    rust_get = getattr(store, "get_flows_json", None)
+    if callable(rust_get):
+        return json.loads(rust_get(sort_by, limit))
+
     order = "DESC" if sort_by in ("criticality", "depth", "node_count", "file_count") else "ASC"
 
     # NOTE: get_flows reads from the flows table which is managed by
@@ -648,6 +652,11 @@ def get_flow_by_id(store: GraphStore, flow_id: int) -> Optional[dict]:
     Returns a dict with the flow metadata plus a ``steps`` list containing
     each node's name, kind, file, and line info.
     """
+    rust_get = getattr(store, "get_flow_by_id_json", None)
+    if callable(rust_get):
+        raw = rust_get(flow_id)
+        return json.loads(raw) if raw else None
+
     # NOTE: get_flow_by_id reads from the flows table; see store_flows note.
     row = store._conn.execute("SELECT * FROM flows WHERE id = ?", (flow_id,)).fetchone()
     if row is None:
@@ -761,6 +770,11 @@ def get_affected_flows(
     """
     if not changed_files:
         return {"affected_flows": [], "total": 0}
+
+    rust_get = getattr(store, "get_affected_flows_json", None)
+    if callable(rust_get):
+        affected = json.loads(rust_get(changed_files))
+        return {"affected_flows": affected, "total": len(affected)}
 
     # Find node IDs belonging to changed files.
     node_ids = store.get_node_ids_by_files(changed_files)

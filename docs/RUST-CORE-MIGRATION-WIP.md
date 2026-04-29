@@ -272,6 +272,9 @@ Initial scaffold:
 - Rust `GraphStore` exposes the read surface needed by Python flow tracing
   (`get_all_call_targets`, `get_nodes_by_kind`, and `load_flow_adjacency`) and
   can persist traced flows through `store_flows_json`.
+- Rust `GraphStore` also exposes stored-flow query JSON APIs for `list_flows`,
+  `get_flow`, and `get_affected_flows`, so those Python-facing tools no longer
+  require direct SQLite connection access under the Rust backend.
 - `DAGAYN_BACKEND=rust` is recognized by the Python graph package and fails loudly if the extension has not been built; `python` remains the default
 
 Current local benchmark baseline, measured on 2026-04-28 with `tools/backend_benchmark.py`
@@ -413,6 +416,8 @@ Parser migration progress:
   tracing heuristics remain in Python. The traced flow dictionaries are stored
   through `dagayn._core.GraphStore.store_flows_json`, so the flow persistence
   transaction is Rust-owned.
+- Stored flow retrieval now routes through Rust JSON methods when available:
+  `get_flows_json`, `get_flow_by_id_json`, and `get_affected_flows_json`.
 
 Python modules being replaced: `dagayn/graph.py` (`GraphStore` upsert and replacement logic), `dagayn/incremental.py` (path normalization and VCS metadata helpers such as `_make_repo_relative`), `dagayn/migrations.py`.
 
