@@ -1560,6 +1560,52 @@ class GraphStore:
             results.extend(self._row_to_node(r) for r in rows)
         return results
 
+    def get_local_subgraph(
+        self,
+        start_qn: str,
+        max_depth: int,
+    ) -> tuple[dict[str, "GraphNode"], dict[str, list[str]]]:
+        """Return all nodes and a bidirectional adjacency dict reachable from
+        *start_qn* within *max_depth* hops.
+
+        Uses a single recursive CTE instead of one round-trip per node,
+        reducing O(N) SQL calls to 3 (CTE + nodes batch + edges batch).
+
+        Returns:
+            nodes_map: qualified_name → GraphNode
+            adj: qualified_name → [neighbor_qualified_names]
+        """
+        cte_sql = """
+        WITH RECURSIVE reach(qn, depth) AS (
+            SELECT ?, 0
+            UNION
+            SELECT e.target_qualified, r.depth + 1
+            FROM reach r JOIN edges e ON e.source_qualified = r.qn
+            WHERE r.depth < ?
+            UNION
+            SELECT e.source_qualified, r.depth + 1
+            FROM reach r JOIN edges e ON e.target_qualified = r.qn
+            WHERE r.depth < ?
+        )
+        SELECT DISTINCT qn FROM reach
+        """
+        rows = self._conn.execute(cte_sql, (start_qn, max_depth, max_depth)).fetchall()
+        all_qns: set[str] = {r[0] for r in rows}
+
+        nodes_map: dict[str, GraphNode] = {}
+        for node in self._batch_get_nodes(all_qns):
+            nodes_map[node.qualified_name] = node
+
+        edges = self.get_edges_among(all_qns)
+        adj: dict[str, list[str]] = {qn: [] for qn in all_qns}
+        for e in edges:
+            if e.source_qualified in adj:
+                adj[e.source_qualified].append(e.target_qualified)
+            if e.target_qualified in adj:
+                adj[e.target_qualified].append(e.source_qualified)
+
+        return nodes_map, adj
+
     def load_flow_adjacency(self) -> "FlowAdjacency":
         """Load all nodes and CALLS/TESTED_BY edges into memory for fast traversal.
 

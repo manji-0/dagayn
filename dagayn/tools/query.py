@@ -590,19 +590,17 @@ def traverse_graph_func(
             }
 
         if mode == "dfs":
-            # True depth-first: stack-based, drains each branch fully
-            # before moving to the next sibling. The batched node /
-            # edge APIs are still used (with a 1-element list) so we
-            # share a uniform code path with BFS even though DFS does
-            # one fetch per visited node rather than one per layer.
+            # Pre-fetch the entire local subgraph in 3 SQL queries
+            # (CTE + nodes batch + edges batch) instead of 2 queries per
+            # visited node.  DFS order is preserved via the in-memory adj.
+            nodes_map, adj = store.get_local_subgraph(start_qn, depth)
             stack: list[tuple[str, int]] = [(start_qn, 0)]
             while stack and not budget_exceeded:
                 current_qn, cur_depth = stack.pop()
                 if current_qn in visited or cur_depth > depth:
                     continue
 
-                nodes_by_qn = store.get_nodes_by_qualified_names([current_qn])
-                node = nodes_by_qn.get(current_qn)
+                node = nodes_map.get(current_qn)
                 if not node:
                     visited[current_qn] = cur_depth
                     continue
@@ -619,14 +617,7 @@ def traverse_graph_func(
 
                 if cur_depth + 1 > depth:
                     continue
-                outgoing, incoming = store.get_edges_by_endpoints([current_qn])
-                neighbors: list[str] = []
-                for e in outgoing.get(current_qn, []):
-                    if e.target_qualified not in visited:
-                        neighbors.append(e.target_qualified)
-                for e in incoming.get(current_qn, []):
-                    if e.source_qualified not in visited:
-                        neighbors.append(e.source_qualified)
+                neighbors = [nb for nb in adj.get(current_qn, []) if nb not in visited]
                 # Reverse-push so the first neighbour is popped next,
                 # giving stable left-to-right depth-first order.
                 for nb in reversed(neighbors):
