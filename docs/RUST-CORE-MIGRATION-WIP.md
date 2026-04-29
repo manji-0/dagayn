@@ -276,6 +276,37 @@ intermediate Python-parser-to-Rust-writer bridge is conversion-bound. The next
 meaningful optimization is to move parser output normalization and eventually
 parser extraction into Rust, not to add more narrow PyO3 methods.
 
+Rust parser grammar design:
+
+- Rust parser extraction must use the same pinned grammar sources as the current
+  Python parser path. Markdown uses `manji-0/tree-sitter-markdown` at
+  `13a2b8bb44965b75ddba5e70f16411c18e6f09fe` with source subdirectory
+  `vendor/tree-sitter-markdown/tree-sitter-markdown`. Terraform uses
+  `manji-0/tree-sitter-terraform` at
+  `5a5b258a71290999ce58797eafeaa098b2d450b9`.
+- Do not replace these grammars with crates.io grammars such as
+  `tree-sitter-hcl` or unrelated Markdown crates. They may parse related
+  languages, but grammar drift would change dagayn's graph contract.
+- `dagayn-grammars` should own the Rust-side pinned grammar provisioning. Its
+  metadata must mirror `dagayn/vendor_grammars.py::GRAMMAR_SPECS`, including
+  repository owner, repository name, commit, required source files, and
+  Markdown source subdirectory.
+- The Rust build should compile the pinned grammar C sources with `cc` and
+  expose `tree_sitter::Language` constructors for `markdown` and `terraform`.
+  Runtime dependency on Python's grammar cache is not acceptable for wheels or
+  CI. Packaged grammar sources may be reused, but the Rust crate must have a
+  deterministic build path.
+- Existing hand-written Markdown and Terraform extractors are transitional.
+  They may remain only as fallback or parity scaffolding until the pinned
+  tree-sitter extractors cover the same behavior. New parser behavior should
+  land against the tree-sitter-backed Rust path first.
+- Acceptance for replacing the transitional parser path requires canonical
+  export parity for `markdown_only`, `terraform_only`, and `mixed`, plus
+  regression fixtures for fenced Markdown code blocks, YAML/TOML frontmatter,
+  blockquote-contained headings, skill frontmatter, relative links, Terraform
+  block labels, provider source edges, module source imports, references, and
+  calls.
+
 Parser migration progress:
 
 - `dagayn-parser` owns parseable-file collection for the Rust backend except
