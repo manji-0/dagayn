@@ -1,5 +1,7 @@
 # Troubleshooting
 
+<!-- derived-from ./USAGE.md -->
+
 ## `dagayn install` did not touch my editor
 
 Run with `--dry-run` first and confirm the platform was detected. Some integrations are repo-level and only activate when their config directories already exist.

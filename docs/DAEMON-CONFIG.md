@@ -1,5 +1,7 @@
 # Daemon and registry configuration
 
+<!-- constrained-by ./COMMANDS.md -->
+
 ## Purpose
 
 dagayn supports multi-repo workflows through:

@@ -1,5 +1,7 @@
 # Usage
 
+<!-- constrained-by ./COMMANDS.md -->
+
 ## Install the package
 
 ```bash

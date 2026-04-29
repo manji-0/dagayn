@@ -1,5 +1,7 @@
 # Grammar provisioning
 
+<!-- constrained-by ./ARCHITECTURE.md -->
+
 ## Purpose
 
 dagayn uses fork-specific Tree-sitter grammars for language support that is more opinionated than the generic upstream language-pack path.

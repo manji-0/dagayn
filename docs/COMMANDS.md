@@ -1,5 +1,7 @@
 # Commands and surfaces
 
+<!-- constrained-by ./ARCHITECTURE.md -->
+
 ## CLI commands
 
 ### Core graph lifecycle

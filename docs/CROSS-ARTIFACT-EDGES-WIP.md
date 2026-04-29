@@ -1,5 +1,8 @@
 # Cross-artifact edges specification (WIP)
 
+<!-- constrained-by ./SCHEMA.md -->
+<!-- constrained-by ./ARCHITECTURE.md -->
+
 > **Naming note:** this spec was previously titled "Cross-language edges". It
 > has been broadened to **cross-artifact** because the same edge model also
 > covers bridges to non-code artifacts — Markdown specifications referencing
@@ -27,18 +30,18 @@
 > | `r`          | `system`, `system2`, `.Call`, `.External`, `dyn.load`, `library.dynam` |
 > | `bash`       | deferred — every command is a process invocation; needs a distinct model |
 >
-> - `CROSS_ARTIFACT` edge kind with the full `extra` metadata contract — `dagayn/parser.py` (`BridgePattern`, `_BRIDGE_PATTERNS`, `_detect_cross_language_bridge`)
+> - `CROSS_ARTIFACT` edge kind with the full `extra` metadata contract — `dagayn/parser/bridges.py` (`BridgePattern`, `_BRIDGE_PATTERNS`, `_detect_cross_language_bridge`)
 > - 26 tests covering Python, JavaScript, TypeScript, Java, and R (`TestCrossArtifactEdges` in `tests/test_parser.py`)
 > - Confidence `HIGH` (0.8) for string-literal targets, `LOW` (0.2) for dynamic expressions
 > - **Limitation:** only canonical dotted forms detected; aliased imports require dataflow resolution (deferred)
 >
 > ### Bridge family 2 — Markdown → code symbol references
 >
-> - `_extract_markdown_code_spans` (`dagayn/parser.py`) scans inline backtick spans, filters by identifier-shape regex, emits `CROSS_ARTIFACT` edges with `relationship_role=describes_symbol`, `bridge_kind=documentation`, `evidence_kind=markdown_code_span`
+> - `_extract_markdown_code_spans` (`dagayn/parser/languages/markdown.py`) scans inline backtick spans, filters by identifier-shape regex, emits `CROSS_ARTIFACT` edges with `relationship_role=describes_symbol`, `bridge_kind=documentation`, `evidence_kind=markdown_code_span`
 > - Source = the deepest enclosing Markdown section (or File node when no section precedes the span)
-> - Parser phase emits unresolved candidates (`target=<unresolved:{name}>`, `confidence_tier=LOW`)
-> - `_resolve_markdown_artifact_refs` (`dagayn/postprocessing.py`) runs after FTS rebuild: unique short-name match in non-markdown nodes → rewrite target to `qualified_name`, promote to `HIGH` (0.8); zero or ambiguous → delete the edge (strict / HIGH-only policy)
-> - 4 parser tests + 6 resolver tests (`TestMarkdownArtifactResolver` in `tests/test_postprocessing.py`)
+> - Parser phase emits unresolved candidates (`target=<unresolved:{name}>`, `confidence_tier=LOW`, `extra.original_symbol_name=<raw symbol>`)
+> - `_resolve_markdown_artifact_refs` (`dagayn/postprocessing.py`) runs on every postprocess call (full build and incremental alike) and is **idempotent**: for each CROSS_ARTIFACT edge carrying `original_symbol_name`, it consults the current nodes table and updates the target to the unique qualified_name (confidence HIGH 0.8) or reverts to `<unresolved:{name}>` (confidence LOW 0.2). Edges are **never deleted** — they persist so that symbol changes in incrementally-updated Python files are reflected on the next postprocess run without re-parsing the Markdown source.
+> - 4 parser tests + 7 resolver tests (`TestMarkdownArtifactResolver` in `tests/test_postprocessing.py`) + 6 idempotence integration tests (`tests/test_cross_artifact_idempotence.py`)
 > - **Limitation:** fenced code blocks not processed (too noisy for v1); code → doc direction deferred
 >
 > Edges surface automatically in graph stats (`edges_by_kind`) and `query_graph` without additional code.

@@ -1,6 +1,9 @@
 # Performance improvements — WIP plan
 
-> **Status:** Work in progress — problem areas identified as of 2026-04-29. No implementation started.
+<!-- constrained-by ./ARCHITECTURE.md -->
+<!-- constrained-by ./SCHEMA.md -->
+
+> **Status:** Implementation in progress — multiple items shipped, others still tracked. Last updated 2026-04-30.
 >
 > **Related:** `RUST-CORE-MIGRATION-WIP.md`, `DAEMON-CONFIG.md`, `ROADMAP.md`
 
@@ -29,123 +32,57 @@ These are **Python-layer improvements** that can be shipped independently of and
 
 An N+1 pattern arises when code fetches a list of N items and then issues one additional database query **per item** in a loop instead of fetching all needed data in a single batched query. In dagayn every additional query is a round-trip through the SQLite connection layer, even though SQLite is in-process. The cost is not network latency but function call overhead, row-by-row deserialization, and the inability for the query planner to optimise across items.
 
-All line numbers refer to the codebase state at 2026-04-29.
+Line numbers were last verified against the codebase state at 2026-04-30. Shipped items include updated line references where the code moved.
 
 ### 1.2 Known occurrences
 
-#### `compute_risk_score` — `dagayn/changes.py:217`
+#### `compute_risk_score` — `dagayn/changes.py:229` ✅ Shipped
 
-`compute_risk_score` is called once per changed node inside `analyze_changes`. For each node it issues at minimum four independent SQL statements:
+**Status:** Shipped. `compute_risk_score` now accepts optional pre-fetched arguments (`inbound_edges`, `flow_criticalities`, `flow_count`, `node_community_id`, `caller_community_ids`, `transitive_test_count`). `analyze_changes` issues a handful of batch queries up front and passes pre-fetched dicts into the scoring loop — no per-node I/O.
 
-| Call | Statement count |
-|---|---|
-| `store.get_flow_criticalities_for_node(node.id)` | 1 |
-| `store.count_flow_memberships(node.id)` | 1 |
-| `store.get_edges_by_target(node.qualified_name)` | 1 |
-| `store.get_node_community_id(node.id)` | 1 |
-| `store.get_transitive_tests(node.qualified_name)` | 1+ (recursive CTE or per-hop) |
-
-For a diff touching 20 nodes that is 80–100 SQL statements. The `get_edges_by_target` call is made a second time at `changes.py:335` for the test-gap check, duplicating at least one query per node.
-
-**Fix direction:** Pre-fetch all required data for the full set of changed nodes before entering the per-node scoring loop.
-
-```
-node_ids  = [n.id  for n in changed_nodes]
-node_qns  = [n.qualified_name for n in changed_nodes]
-
-flow_data   = store.get_flow_criticalities_for_nodes(node_ids)       # batch
-membership  = store.count_flow_memberships_for_nodes(node_ids)       # batch
-inbound     = store.get_edges_by_targets(node_qns)                   # batch WHERE target IN (...)
-community   = store.get_community_ids_for_nodes(node_ids)            # batch
-test_data   = store.get_transitive_tests_for_nodes(node_qns)         # batch or CTE
-```
-
-`compute_risk_score` then receives pre-fetched dicts and performs no additional I/O.
+~~Original problem:~~ `compute_risk_score` was called once per changed node inside `analyze_changes`, issuing 4–5 SQL statements per node (80–100 total for a 20-node diff).
 
 ---
 
-#### `get_communities` — `dagayn/communities.py:742–772`
+#### `get_communities` — `dagayn/communities.py:753` ✅ Shipped
 
-After fetching all community rows in one query, the function calls `store.get_community_member_qns(row["id"])` inside a Python `for` loop — one SELECT per community.
+**Status:** Shipped. `get_communities` now calls `store.get_all_community_member_qns()` once to fetch all member qualified names in a single query, groups results by `community_id` in Python, and iterates without any per-community SQL. K+1 queries → 1 query.
 
-```python
-for row in rows:
-    member_qns = [_sanitize_name(qn) for qn in store.get_community_member_qns(row["id"])]
-```
-
-With K communities this is K+1 total queries.
-
-**Fix direction:** Replace the inner call with a single query that returns all members at once, grouped in Python.
-
-```sql
-SELECT community_id, qualified_name
-FROM nodes
-WHERE community_id IS NOT NULL
-ORDER BY community_id
-```
-
-Group by `community_id` in Python using `itertools.groupby` or a `defaultdict`. This collapses K queries into 1.
+~~Original problem:~~ Inner loop called `store.get_community_member_qns(row["id"])` once per community row.
 
 ---
 
-#### `get_affected_flows` / `get_flow_by_id` — `dagayn/flows.py:654, 609`
+#### `get_affected_flows` / `get_flow_by_id` — `dagayn/flows.py:645, 641` ⚠️ Partial
 
-`get_affected_flows` resolves a set of flow IDs, then calls `get_flow_by_id` once per ID (`:683`). Inside `get_flow_by_id`, each path step calls `store.get_node_by_id` (`:625`), making this quadratic in the number of flows × steps.
+**Status:** Partially shipped. `get_affected_flows` now routes through `_hydrate_flow_rows` (`flows.py:686`), which bulk-fetches all path nodes via `get_nodes_by_ids` in one query. The `get_affected_flows` call path is no longer quadratic.
 
-**Fix direction:** Replace the `get_flow_by_id` loop with a single `WHERE id IN (?,...)` query for flow rows, then a single `WHERE qualified_name IN (?,...)` query for all node data needed across all flows.
+`get_flow_by_id` called directly (outside `get_affected_flows`) still issues one `store.get_node_by_id` per path step. This is an infrequent path and remains a minor outstanding item.
 
 ---
 
-#### `traverse_graph_func` — `dagayn/tools/query.py:579–624`
+#### `traverse_graph_func` — `dagayn/tools/query.py:549` ✅ Shipped
 
-The BFS/DFS loop issues three SQL statements per visited node:
+**Status:** Shipped. BFS now collects the full next-depth frontier before issuing queries, then fetches all frontier nodes via `get_nodes_by_qualified_names` (1 query) and all edges via `get_edges_by_endpoints` (1 query) per layer (`query.py:626-644`). 3N SQL → 2 per depth level. DFS routes through `get_local_subgraph` which bulk-loads the subgraph in one query.
 
-```python
-node      = store.get_node(current_qn)           # 1 query
-out_edges = store.get_edges_by_source(current_qn) # 1 query
-in_edges  = store.get_edges_by_target(current_qn) # 1 query
-```
+`queue.pop(0)` was not converted to `deque.popleft()` — the frontier-batching approach restructures the loop entirely, making the deque optimization moot.
 
-With depth 3 on a graph where each node has an average fan-out of 5, this can visit hundreds of nodes and issue hundreds of SQL statements.
-
-There is also a secondary issue: `queue.pop(0)` on a plain `list` is O(N) per pop. For BFS the queue should be a `collections.deque` with `popleft()`.
-
-**Fix direction — deque:** One-line fix, `queue: deque[tuple[str, int]]` with `popleft()`.
-
-**Fix direction — batch edge fetch:** Collect the entire next-depth frontier before visiting it, then fetch all edges for the frontier in one query:
-
-```sql
-SELECT * FROM edges WHERE source IN (?,…) OR target IN (?,…)
-```
+~~Original problem:~~ Per-node BFS issued 3 SQL statements per visited node; `queue.pop(0)` was O(N).
 
 This pattern is already used in the SQL-based `get_impact_radius` (`graph/core.py:667`) and can be reused here.
 
 ---
 
-#### `_single_hop_dependents` — `dagayn/incremental.py:710`
+#### `_single_hop_dependents` — `dagayn/incremental.py:719` ✅ Shipped
 
-`_single_hop_dependents` fetches the file's edges once (`:715`), then calls `store.get_edges_by_target(node.qualified_name)` inside a node-level loop (`:720`). With F files each containing N nodes, the incremental update path issues up to F×N queries.
-
-**Fix direction:** Replace the inner loop with a single `WHERE target IN (?,...)` query over all qualified names in the file, matching the pattern already used in `get_impact_radius_sql`.
+**Status:** Shipped. `_single_hop_dependents` is now a thin wrapper delegating to `_batch_hop_dependents` (`incremental.py:724`), which issues a single `WHERE target IN (?,...)` query over all qualified names in the file. F×N queries → 1 query per file batch.
 
 ---
 
-#### `generate_suggested_questions` — `dagayn/analysis.py:314–346`
+#### `generate_suggested_questions` — `dagayn/analysis.py:373` ✅ Shipped
 
-This function calls four analysis helpers in sequence:
+**Status:** Shipped. `build_graph_snapshot(store)` is called once at the top of `generate_suggested_questions` (`analysis.py:386`) to fetch edges and nodes in two queries. The resulting `GraphSnapshot` is injected into `find_bridge_nodes`, `find_hub_nodes`, `find_surprising_connections`, and `find_knowledge_gaps` via the `snapshot=` parameter (`analysis.py:389,405,424,443`). 5 full table scans → 2 shared queries.
 
-```python
-bridge_nodes    = find_bridge_nodes(store, ...)    # get_all_edges + NetworkX build
-hub_nodes       = find_hub_nodes(store, ...)       # get_all_edges + get_all_nodes
-connections     = find_surprising_connections(...) # get_all_edges
-gaps            = find_knowledge_gaps(store, ...)  # get_all_edges + get_all_nodes
-```
-
-Each of `find_hub_nodes`, `find_bridge_nodes`, `find_surprising_connections`, and `find_knowledge_gaps` independently calls `store.get_all_edges()` and `store.get_all_nodes()`. On a 25 000-edge graph this is five full table scans where one would do.
-
-`analysis.py:346` then calls `store.get_all_edges()` a fifth time to build a `tested` set.
-
-**Fix direction:** Compute a shared snapshot `(edges, nodes, community_map, degree_map)` once at the top of `generate_suggested_questions` and inject it into each helper as an optional parameter. Each helper retains its existing signature for callers that do not pass a snapshot.
+~~Original problem:~~ Five independent `store.get_all_edges()` + `store.get_all_nodes()` calls across the four helpers.
 
 ---
 
@@ -205,7 +142,7 @@ For each fix:
 
 ### 2.1 Current behaviour
 
-Every MCP tool handler calls `_get_store()` (`dagayn/tools/_common.py:214`), which opens a new `GraphStore` (and therefore a new `sqlite3.Connection`) and closes it in a `finally` block:
+~~Previously:~~ Every MCP tool handler called `_get_store()` (`dagayn/tools/_common.py:272`), which opened a new `GraphStore` (and therefore a new `sqlite3.Connection`) and closed it in a `finally` block:
 
 ```python
 def _get_store(repo_root: str | None = None) -> tuple[GraphStore, Path]:
@@ -216,45 +153,27 @@ def _get_store(repo_root: str | None = None) -> tuple[GraphStore, Path]:
 
 The `GraphStore` constructor runs `_init_schema()` (all `CREATE TABLE IF NOT EXISTS` + index statements) on every instantiation. More importantly, `GraphStore` carries two in-process caches:
 
-- `_nxg_cache: nx.DiGraph | None` (`graph/core.py:128`) — the full NetworkX DiGraph built from all edges.
+- `_nxg_cache: nx.DiGraph | None` (`graph/core.py:116`) — the full NetworkX DiGraph built from all edges.
 - `_cache_lock: threading.Lock` — guards `_nxg_cache` during invalidation.
 
 Because `_nxg_cache` is an **instance variable**, it is discarded every time `store.close()` is called. Any tool that calls `find_bridge_nodes` or `_build_networkx_graph` directly will rebuild the full NetworkX graph from scratch, loading all edges into Python memory, even if the underlying database has not changed since the previous request.
 
 ### 2.2 Impact
 
-`find_bridge_nodes` (`dagayn/analysis.py:60`) calls `store._build_networkx_graph()` which fetches all edges from SQLite, constructs a `nx.DiGraph`, and then runs `nx.betweenness_centrality`. On a graph with 5 000+ nodes the betweenness calculation uses k=500 sample approximation. This is the most expensive operation in the analysis module, and it runs from scratch on every call to `get_hub_nodes_tool`, `get_bridge_nodes_tool`, or `get_suggested_questions_tool`.
+`find_bridge_nodes` (`dagayn/analysis.py:102`) calls `store._build_networkx_graph()` which fetches all edges from SQLite, constructs a `nx.DiGraph`, and then runs `nx.betweenness_centrality`. On a graph with 5 000+ nodes the betweenness calculation uses k=500 sample approximation. This is the most expensive operation in the analysis module. With Fix A (process-level store cache) the NetworkX graph is now cached across calls, but `betweenness_centrality` itself still runs at query time.
 
-### 2.3 Fix direction A — process-level store cache
+### 2.3 Fix A — process-level store cache ✅ Shipped
 
-Introduce a module-level cache in `dagayn/tools/_common.py` keyed on the resolved `db_path`:
+**Status:** Shipped. `dagayn/tools/_common.py:234-320` implements `_store_cache` (dict keyed on `db_path`) + `_store_lock`, with `mtime`-based staleness detection, `_pinned` / `_leases` reference counting, and a `DAGAYN_DISABLE_STORE_CACHE` escape hatch. Write tools open their own transient `GraphStore` and do not touch the cache.
+
+~~Original proposed sketch (for reference):~~
 
 ```python
 _store_cache: dict[Path, tuple[GraphStore, float]] = {}  # db_path -> (store, mtime)
 _store_lock = threading.Lock()
-
-def _get_store(repo_root: str | None = None) -> tuple[GraphStore, Path]:
-    root = _validate_repo_root(...) if repo_root else find_project_root()
-    db_path = get_db_path(root)
-    mtime = db_path.stat().st_mtime
-    with _store_lock:
-        if db_path in _store_cache:
-            cached_store, cached_mtime = _store_cache[db_path]
-            if cached_mtime == mtime:
-                return cached_store, root
-            cached_store.close()
-        store = GraphStore(db_path)
-        _store_cache[db_path] = (store, mtime)
-    return store, root
 ```
 
-The `finally: store.close()` blocks in all tool handlers must be removed (or made conditional) once the cache is in place.
-
-**Staleness detection:** `st_mtime` of the SQLite file changes on every write commit, which is sufficient. An alternative is `PRAGMA user_version` — the migration layer already increments this — but `st_mtime` is cheaper.
-
-**Thread safety:** The MCP server runs handlers concurrently. The cache dict is protected by `_store_lock`. `sqlite3` connections with `check_same_thread=False` can be shared across threads for read-only access, which covers all MCP query tools. Write tools (build, update) should continue to open their own transient `GraphStore`.
-
-**Open question:** Whether the MCP server process is single-threaded (asyncio event loop) or multi-threaded. If single-threaded, `_store_lock` is unnecessary but harmless.
+**Resolved open question:** The MCP server runs an asyncio event loop (single-threaded for I/O dispatch); `_store_lock` is present but harmless.
 
 ### 2.4 Fix direction B — persist hub and bridge scores
 
@@ -294,30 +213,25 @@ Invalidation: postprocess is re-run on `dagayn build` and `dagayn update --post`
 
 ### 3.1 Current state
 
-The only existing performance measurement is `dagayn/eval/benchmarks/build_performance.py`, which times the `build`, `flows`, `communities`, and `search` phases and reports `nodes_per_second`. It is invoked via `dagayn eval`.
+`dagayn eval` runs the following benchmark files:
 
-There is no:
+- `dagayn/eval/benchmarks/build_performance.py` — build / flows / communities / search phases, reports `nodes_per_second`
+- `dagayn/eval/benchmarks/flow_completeness.py`
+- `dagayn/eval/benchmarks/impact_accuracy.py`
+- `dagayn/eval/benchmarks/nplusone_count.py` — SQL statement counter with established baselines ✅ Shipped
+- `dagayn/eval/benchmarks/search_quality.py`
+- `dagayn/eval/benchmarks/token_efficiency.py`
 
-- CPU or memory profiler integration
-- Per-MCP-tool latency measurement
-- SQL query count assertion (so N+1 regressions are invisible)
-- Established numeric baselines that fail a test when crossed
+Still missing:
+
+- Per-MCP-tool wall-clock latency measurement (`mcp_latency.py` — not yet created)
+- CI regression gates
 
 ### 3.2 Proposed additions
 
-#### 3.2.1 CPU profiler CLI (`dagayn profile`)
+#### 3.2.1 CPU profiler CLI (`dagayn profile`) ✅ Shipped
 
-Add `pyinstrument` as an optional development dependency:
-
-```toml
-[tool.uv.optional-dependencies]
-dev = [
-  "pyinstrument>=4.6",
-  ...
-]
-```
-
-Add a `profile` subcommand to the CLI that wraps any other `dagayn` command with profiling enabled and writes an HTML report:
+**Status:** Shipped. `dagayn/cli/commands/profile.py` implements `dagayn profile <subcommand>` using `pyinstrument` (added as `pyinstrument>=4.6,<6` in `pyproject.toml`). Writes `profile_<subcommand>_<timestamp>.html` to `.dagayn/profiles/`.
 
 ```
 dagayn profile build
@@ -325,37 +239,20 @@ dagayn profile search "authentication middleware"
 dagayn profile mcp-tool detect_changes
 ```
 
-Implementation: wrap the target command in a `pyinstrument.Profiler` context manager, write `profile_<subcommand>_<timestamp>.html` to a configurable output directory (default: `.dagayn/profiles/`).
+#### 3.2.2 SQL query counter (`eval/benchmarks/nplusone_count.py`) ✅ Shipped
 
-#### 3.2.2 SQL query counter (`eval/benchmarks/nplusone_count.py`)
+**Status:** Shipped. `SQLCounter` uses `sqlite3.set_trace_callback`; baselines are established in `_BASELINES`:
 
-Use `sqlite3.set_trace_callback` to count the number of SQL statements issued during a single tool call. Establish a baseline count for each tool and assert it does not regress.
-
-Example structure:
-
-```python
-class SQLCounter:
-    def __init__(self, conn: sqlite3.Connection) -> None:
-        self.count = 0
-        conn.set_trace_callback(self._on_statement)
-
-    def _on_statement(self, statement: str) -> None:
-        self.count += 1
-```
-
-Baseline table (to be populated after the N+1 fixes in section 1 are applied):
-
-| Tool | Max SQL statements per call (baseline) |
+| Tool | Max SQL statements per call (current baseline) |
 |---|---|
-| `detect_changes` (10 changed nodes) | TBD after fix |
-| `get_impact_radius` | TBD after fix |
-| `traverse_graph` (depth 3) | TBD after fix |
-| `get_hub_nodes` | TBD (should be 1 after Fix B) |
-| `get_bridge_nodes` | TBD (should be 1 after Fix B) |
-| `list_communities` | TBD after fix |
-| `get_affected_flows` | TBD after fix |
+| `list_communities` | 5 |
+| `traverse_graph` (depth 3) | 50 |
+| `get_affected_flows` (5 files) | 30 |
+| `single_hop_dependents` | 10 |
+| `get_hub_nodes` | TBD (pending Fix B) |
+| `get_bridge_nodes` | TBD (pending Fix B) |
 
-Once baselines are set, any future change that increases the count for a tool causes the benchmark to report a regression.
+Any future change that raises the count above the baseline causes the benchmark to fail.
 
 #### 3.2.3 MCP tool latency (`eval/benchmarks/mcp_latency.py`)
 
@@ -409,7 +306,7 @@ A scheduled GitHub Actions job could run `dagayn eval --benchmark latency` again
 
 3. **Snapshot injection API compatibility.** Adding an optional `snapshot` parameter to `find_hub_nodes` / `find_bridge_nodes` / etc. changes their signatures. This is backward-compatible for callers that pass positional arguments, but any callers using keyword arguments need auditing.
 
-4. **Benchmark reference graph.** The latency targets in section 3.2.3 should be calibrated against a specific graph. The dagayn repository itself (316 files, ~4 000 nodes, ~25 000 edges as of 2026-04-29) is the obvious candidate, but a larger synthetic graph may be needed to surface scaling issues.
+4. **Benchmark reference graph.** The latency targets in section 3.2.3 should be calibrated against a specific graph. The dagayn repository itself (326 files, 4 223 nodes, 25 665 edges as of 2026-04-30) is the obvious candidate, but a larger synthetic graph may be needed to surface scaling issues.
 
 5. **Interaction with hub/bridge persistence and `_invalidate_cache`.** After Fix B (persist hub/bridge scores), `_invalidate_cache` should also mark the `hub_scores` / `bridge_scores` tables as stale. Whether this is a flag column, a `PRAGMA user_version` bump, or simply relying on `computed_at` vs. graph mtime needs to be decided.
 
@@ -490,12 +387,10 @@ Replaced with `(len(qualified_name) + len(file) + len(name) + 30) // 4`.
   node, then one `INSERT OR REPLACE` per node.
 - Fix: batch `WHERE qualified_name IN (?,...)` + `executemany`.
 
-### 4.6 Missing indexes (not yet implemented)
+### 4.6 Missing indexes (partial)
 
-- `nodes(name)` absent — `dead_code.py:328-332` and `postprocessing.py:93-99` run
-  `WHERE name = ?` as full scans. Add `idx_nodes_parent_name(parent_name, name)`.
-- Suffix LIKE on `edges.target_qualified` (`dead_code.py:276`, `flows.py:749`) cannot
-  use any index. Long-term: normalise to equality match or add a `target_name` column.
+- `idx_nodes_parent_name(parent_name, name)` — added in `migrations.py:241` ✅ Shipped. Covers `WHERE name = ?` calls in `dead_code.py:328-332` and `postprocessing.py:93-99`.
+- Suffix LIKE on `edges.target_qualified` (`dead_code.py:276`, `flows.py:749`) cannot use any index. Long-term: normalise to equality match or add a `target_name` column. **Not yet implemented.**
 
 ### 4.7 mtime-based incremental skip (not yet implemented)
 

@@ -2,25 +2,35 @@
 
 This directory documents the fork as `dagayn`.
 
-- `USAGE.md` — install, build, update, serve, and operate the graph
-- `COMMANDS.md` — CLI commands, MCP tools, prompts, and exports
-- `FEATURES.md` — fork-specific capabilities and practical strengths
-- `architecture.md` — parser, storage, and post-processing pipeline
-- `schema.md` — graph entities, tables, and stored metadata
-- `PERFORMANCE-IMPROVEMENTS-WIP.md` — work-in-progress plan for N+1 query fixes, connection management, and benchmark infrastructure
-- `SAP-METRICS-WIP.md` — work-in-progress specification for Stable Abstractions Principle metrics
-- `CROSS-ARTIFACT-EDGES-WIP.md` — work-in-progress specification for extracting and analyzing cross-artifact edges (cross-language bridges, Markdown↔code, Terraform↔code, etc.)
-- `RUST-CORE-MIGRATION-WIP.md` — implementation-ready specification for replacing the graph engine, post-processing, and parser core with Rust (PyO3/maturin; core decisions frozen 2026-04-26)
-- `GRAMMAR-PROVISIONING.md` — pinned Tree-sitter grammar provisioning contract
-- `DAEMON-CONFIG.md` — registry and watch daemon file formats
-- `TROUBLESHOOTING.md` — common operational fixes
-- `LEGAL.md` — licensing and local-data notes
-- `USECASE-COHESION-REFACTOR.md` — observation-driven cohesion refactor using dagayn graph metrics (actual usecase report)
-- `ROADMAP.md` — direction of the fork
-- `LLM-OPTIMIZED-REFERENCE.md` — machine-oriented reference sections for tool consumption
+## Core references
+
+- [USAGE.md](./USAGE.md) — install, build, update, serve, and operate the graph
+- [COMMANDS.md](./COMMANDS.md) — CLI commands, MCP tools, prompts, and exports
+- [FEATURES.md](./FEATURES.md) — fork-specific capabilities and practical strengths
+- [ARCHITECTURE.md](./ARCHITECTURE.md) — parser, storage, and post-processing pipeline
+- [SCHEMA.md](./SCHEMA.md) — graph entities, tables, and stored metadata
+
+## Operation
+
+- [DAEMON-CONFIG.md](./DAEMON-CONFIG.md) — registry and watch daemon file formats
+- [GRAMMAR-PROVISIONING.md](./GRAMMAR-PROVISIONING.md) — pinned Tree-sitter grammar provisioning contract
+- [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) — common operational fixes
+- [LLM-OPTIMIZED-REFERENCE.md](./LLM-OPTIMIZED-REFERENCE.md) — machine-oriented reference sections for tool consumption
+- [LEGAL.md](./LEGAL.md) — licensing and local-data notes
+
+## Specifications (WIP / in progress)
+
+- [PERFORMANCE-IMPROVEMENTS-WIP.md](./PERFORMANCE-IMPROVEMENTS-WIP.md) — N+1 query fixes, connection management, and benchmark infrastructure (multiple items shipped; others tracked)
+- [SAP-METRICS.md](./SAP-METRICS.md) — Stable Abstractions Principle metrics (implemented)
+- [CROSS-ARTIFACT-EDGES-WIP.md](./CROSS-ARTIFACT-EDGES-WIP.md) — cross-artifact edge extraction for cross-language bridges, Markdown↔code, Terraform↔code, etc. (Phase 1+2 shipped; Terraform and manifest bridges WIP)
+- [RUST-CORE-MIGRATION-WIP.md](./RUST-CORE-MIGRATION-WIP.md) — spec for replacing the graph engine, post-processing, and parser core with Rust (decisions frozen 2026-04-26; implementation on a separate branch, not yet merged)
+
+## Case studies and direction
+
+- [USECASE-COHESION-REFACTOR.md](./USECASE-COHESION-REFACTOR.md) — observation-driven cohesion refactor using dagayn graph metrics (static case study)
+- [ROADMAP.md](./ROADMAP.md) — direction of the fork
 
 ## Plan notes
 
-- `plans/README.md` — plan-note index
-- `plans/SAP-METRICS.md` — SAP metric design plan
-- `plans/TREESITTER-TERRAFORM-INTEGRATION.md` — Terraform grammar integration design note
+- [plans/README.md](./plans/README.md) — plan-note index
+- [plans/TREESITTER-TERRAFORM-INTEGRATION.md](./plans/TREESITTER-TERRAFORM-INTEGRATION.md) — Terraform grammar integration design note

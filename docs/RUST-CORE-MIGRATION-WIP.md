@@ -1,6 +1,12 @@
 # Rust core migration specification
 
-> **Status:** Work in progress — core decisions frozen as of 2026-04-26. Phase 0 complete as of 2026-04-27. Phase 1 (Rust graph engine) not yet started.
+<!-- constrained-by ./ARCHITECTURE.md -->
+
+> **Status:** Spec frozen as of 2026-04-26. Implementation is in progress on a separate branch and has **not yet been merged into `main`**.
+>
+> The `main` branch contains no Rust source — no `Cargo.toml`, no `*.rs` files, no `maturin` build backend. A `dagayn/_core.abi3.so` binary may exist locally as a build artifact from the development branch, but it is gitignored and not imported by any production code.
+>
+> Phase 1 (Rust graph engine) has not landed in `main`.
 
 ## Frozen decisions
 

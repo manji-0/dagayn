@@ -1,5 +1,9 @@
 # Refactoring a codebase by reading its graph, not its files
 
+<!-- derived-from ./ARCHITECTURE.md -->
+
+> **Snapshot:** This is a static case study captured during the cohesion refactoring effort (2026). The code paths described reflect the repository state at that time.
+
 Most refactoring sessions start the same way: someone has a hunch that a file is too
 large, or a class is doing too much, or imports look tangled. Then they grep, scroll,
 and argue about whether the cleanup is worth doing. The hunch may be right, but the

@@ -1,5 +1,7 @@
 # Features
 
+<!-- constrained-by ./ARCHITECTURE.md -->
+
 `dagayn` is optimized for graph-backed review and exploration, not just static indexing.
 
 ## Core capabilities

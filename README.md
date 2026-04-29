@@ -264,8 +264,8 @@ To stay fully offline, use the `local` provider. No API key or network access is
 - `docs/USAGE.md` — installation and day-to-day workflows
 - `docs/COMMANDS.md` — CLI, MCP tools, prompts, and exported artifacts
 - `docs/FEATURES.md` — what the fork emphasizes and where it differs
-- `docs/architecture.md` — parser, storage, and post-processing pipeline
-- `docs/schema.md` — node, edge, and metadata model
+- `docs/ARCHITECTURE.md` — parser, storage, and post-processing pipeline
+- `docs/SCHEMA.md` — node, edge, and metadata model
 - `docs/TROUBLESHOOTING.md` — practical fixes
 - `docs/LLM-OPTIMIZED-REFERENCE.md` — machine-oriented reference sections
 

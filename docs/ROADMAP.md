@@ -1,5 +1,7 @@
 # Roadmap
 
+<!-- derived-from ./FEATURES.md -->
+
 `dagayn` is being shaped around real-world repository analysis rather than benchmark-only feature growth.
 
 Current direction:
