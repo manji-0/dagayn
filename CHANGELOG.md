@@ -1,15 +1,6 @@
 # Changelog
 
-`dagayn` の変更履歴です。
-
-## 0.1.0 — Initial dagayn fork
-
-- `code-review-graph` (作者: Tirth Kanani, https://github.com/tirth8205/code-review-graph) をフォークし、`dagayn` として独立運用を開始
-- 第一級の Terraform 解析サポート
-- Markdown 構造解析と directive ベースの依存抽出
-- グラフ登録パスをリポジトリルート相対に統一
-- パッケージ名・CLI・ストレージディレクトリを `dagayn` に統一
-- 原作者表記は [NOTICE](NOTICE) を参照
+All notable changes to `dagayn` are documented here.
 
 ## 2.3.5 — 2026-04-30
 
@@ -31,7 +22,7 @@
 - Bulk-insert nodes/edges with `executemany`, use `RETURNING id` in upsert
 - SQLite PRAGMA tuning, parser worker singleton, token-estimate fix
 
-## 2.3.4 — 2026-04-28
+## 2.3.4 — 2026-04-30
 
 ### Features
 
@@ -43,6 +34,7 @@
 
 ### Refactoring
 
+- Split megafiles into focused packages (Phase 1–2)
 - Split `parser/core.py` (3476 → 1269 lines) into focused modules
 - Split `extension.ts::registerCommands` into feature modules (Phase 3-1)
 - Extract `graphWebview` HTML/CSS to static assets (Phase 3-2)
@@ -50,6 +42,59 @@
 
 ### Fixes
 
+- Resolve lint and type-check errors
+- Update notebook parity snapshot
 - Apply ruff-format to `parser/_protocol.py`
+
+## 2.3.3 — 2026-04-27
+
+### Features
+
+- Expand bridge detection to 13 languages (file_io, subprocess, FFI)
+- Add cohesion filter and file-I/O bridge detection
+- Add unified multi-language CROSS_LANGUAGE edge extractor
+- Add Markdown → code `CROSS_ARTIFACT` edges (doc-to-symbol bridge)
+- Add SAP metrics and unify SDP/SAP edge set
+- Add ADP/SDP analysis tools; fix Python relative import resolution
+- Add Mermaid C4 export
+- Add markdown documentation policy to `dagayn install`
+- Add markdown parser support
+
+### Refactoring
+
+- Extract tree-sitter language extractors and walkers (A.3+A.4)
+- Extract bespoke-parser languages into `dagayn/parser/` (A.2)
+- Split parser shared infra into dispatch/grammars/bridges modules
+- Split `cli.py` into `cli/` package with command modules
+- Split `graph.py` into `graph/` package (types/helpers/core)
+- Convert `dagayn/parser.py` monolith to `parser/` package
+- Rename `CROSS_LANGUAGE` → `CROSS_ARTIFACT` edge kind
+- Migrate vendored grammar sources to dynamic loading system
+- Rename VS Code extension and rebrand to `dagayn`
+
+### Fixes
+
+- Exclude dev-environment artifacts from vendor grammar sources
+- Filter short plain-word identifiers from markdown code-span candidates
+- Resolve grammar archive structure and binding injection
+- Enforce HTTPS-only URL before `urlopen` in `vendor_grammars`
+- Skip grammar vendor during editable install
+- Remove dead code modules; fix test expectation
+- Resolve architecture lint and typing
+
+### Tests
+
+- Add cross-package Java integration tests for SAP/SDP
+- Add comprehensive test coverage for analysis and exports
+- Add multi-file language tests
+
+## 0.1.0 — Initial dagayn fork
+
+- Forked from `code-review-graph` by Tirth Kanani and established `dagayn` as an independent project
+- First-class Terraform parsing support
+- Markdown structure parsing with directive-based dependency extraction
+- Graph registration paths unified to repository-root-relative
+- Package name, CLI, and storage directory unified under `dagayn`
+- See [NOTICE](NOTICE) for upstream attribution
 
 ## Unreleased
