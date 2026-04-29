@@ -269,6 +269,9 @@ Initial scaffold:
 - Rust `GraphStore` can populate `community_summaries`, `flow_snapshots`, and
   `risk_index`; full Rust-backed post-processing now runs summary table
   generation on the Rust store after the Python-only flow/community fallback.
+- Rust `GraphStore` exposes the read surface needed by Python flow tracing
+  (`get_all_call_targets`, `get_nodes_by_kind`, and `load_flow_adjacency`) and
+  can persist traced flows through `store_flows_json`.
 - `DAGAYN_BACKEND=rust` is recognized by the Python graph package and fails loudly if the extension has not been built; `python` remains the default
 
 Current local benchmark baseline, measured on 2026-04-28 with `tools/backend_benchmark.py`
@@ -306,12 +309,14 @@ edges) measured:
 | FTS rebuild only | 0.017s | 0.027s | Rust owns the operation now, but the current SQLite-equivalent implementation is not a speedup yet |
 | missing signature computation only | 12.300s | 0.036s | Rust batches the old Python per-node update loop into one transaction |
 | summary table computation only | 0.051s | 0.100s | Rust owns the operation now, but the current port is slower than the already-batched Python implementation |
+| flow persistence only | 0.010s | 0.013s | Rust owns the transaction now; JSON handoff and equivalent SQLite work make it slightly slower on this graph |
 
 The FTS-only measurement used the current local `.dagayn/graph.db` snapshot and
 indexed 4,265 rows in both backends. The signature-only measurement reset
 signatures on a copied local graph and recomputed 4,270 rows in both backends.
 The summary-only measurement used copied local graph snapshots after flow and
-community data had already been generated.
+community data had already been generated. The flow persistence measurement
+stored 254 traced flows into copied local graph snapshots.
 
 This did not materially change the conclusion: the next meaningful
 optimization is to move more non-Markdown/Terraform parsing and post-processing
@@ -404,6 +409,10 @@ Parser migration progress:
   `dagayn._core.GraphStore.compute_summaries` when available, covering
   community summaries, flow snapshots, and risk index rows with the same
   batched aggregate strategy as the Python fallback.
+- Flow tracing can now run against the Rust store for full rebuilds while the
+  tracing heuristics remain in Python. The traced flow dictionaries are stored
+  through `dagayn._core.GraphStore.store_flows_json`, so the flow persistence
+  transaction is Rust-owned.
 
 Python modules being replaced: `dagayn/graph.py` (`GraphStore` upsert and replacement logic), `dagayn/incremental.py` (path normalization and VCS metadata helpers such as `_make_repo_relative`), `dagayn/migrations.py`.
 

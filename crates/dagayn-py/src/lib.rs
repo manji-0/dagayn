@@ -5,7 +5,7 @@ use dagayn_core::{
 };
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyAny, PyBool, PyIterator, PyModule, PyTuple};
+use pyo3::types::{PyAny, PyBool, PyDict, PyIterator, PyList, PyModule, PySet, PyTuple};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
@@ -73,6 +73,33 @@ impl PyGraphStore {
             .into_iter()
             .map(|node| graph_node_to_py(py, node))
             .collect()
+    }
+
+    #[pyo3(signature = (kinds, file_pattern = None))]
+    fn get_nodes_by_kind(
+        &self,
+        py: Python<'_>,
+        kinds: Vec<String>,
+        file_pattern: Option<&str>,
+    ) -> PyResult<Vec<Py<PyAny>>> {
+        self.with_store(|store| store.get_nodes_by_kind(&kinds, file_pattern))?
+            .into_iter()
+            .map(|node| graph_node_to_py(py, node))
+            .collect()
+    }
+
+    #[pyo3(signature = (include_file_sources = true))]
+    fn get_all_call_targets(
+        &self,
+        include_file_sources: bool,
+    ) -> PyResult<std::collections::HashSet<String>> {
+        self.with_store(|store| store.get_all_call_targets(include_file_sources))
+    }
+
+    fn load_flow_adjacency(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let (nodes, (calls_out, has_tested_by)) =
+            self.with_store(|store| Ok((store.get_all_nodes()?, store.get_flow_edge_data()?)))?;
+        flow_adjacency_to_py(py, nodes, calls_out, has_tested_by)
     }
 
     fn get_edges_by_source(
@@ -166,6 +193,10 @@ impl PyGraphStore {
 
     fn compute_summaries(&self) -> PyResult<()> {
         self.with_store_mut(|store| store.compute_summaries())
+    }
+
+    fn store_flows_json(&self, flows_json: &str) -> PyResult<i64> {
+        self.with_store_mut(|store| store.store_flows_json(flows_json))
     }
 
     fn close(&self) -> PyResult<()> {
@@ -367,6 +398,42 @@ fn json_attr(py: Python<'_>, obj: &Bound<'_, PyAny>, name: &str) -> PyResult<Val
     let json = PyModule::import(py, "json")?;
     let raw: String = json.getattr("dumps")?.call1((value,))?.extract()?;
     serde_json::from_str(&raw).map_err(|err| PyValueError::new_err(err.to_string()))
+}
+
+fn flow_adjacency_to_py(
+    py: Python<'_>,
+    nodes: Vec<GraphNode>,
+    calls_out: std::collections::HashMap<String, Vec<String>>,
+    has_tested_by: std::collections::HashSet<String>,
+) -> PyResult<Py<PyAny>> {
+    let types = PyModule::import(py, "dagayn.graph.types")?;
+    let cls = types.getattr("FlowAdjacency")?;
+
+    let py_calls_out = PyDict::new(py);
+    for (source, targets) in calls_out {
+        let py_targets = PyList::new(py, targets)?;
+        py_calls_out.set_item(source, py_targets)?;
+    }
+
+    let py_has_tested_by = PySet::new(py, has_tested_by)?;
+    let py_nodes_by_qn = PyDict::new(py);
+    let py_nodes_by_id = PyDict::new(py);
+    for node in nodes {
+        let node_id = node.id;
+        let qualified_name = node.qualified_name.clone();
+        let py_node = graph_node_to_py(py, node)?;
+        py_nodes_by_qn.set_item(qualified_name, py_node.bind(py))?;
+        py_nodes_by_id.set_item(node_id, py_node.bind(py))?;
+    }
+
+    Ok(cls
+        .call1((
+            py_calls_out,
+            py_has_tested_by,
+            py_nodes_by_qn,
+            py_nodes_by_id,
+        ))?
+        .unbind())
 }
 
 fn graph_node_to_py(py: Python<'_>, node: GraphNode) -> PyResult<Py<PyAny>> {

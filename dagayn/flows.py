@@ -381,6 +381,10 @@ def store_flows(store: GraphStore, flows: list[dict]) -> int:
 
     Returns the number of flows stored.
     """
+    rust_store = getattr(store, "store_flows_json", None)
+    if callable(rust_store):
+        return int(rust_store(json.dumps(flows)))
+
     # NOTE: store_flows uses _conn directly because it performs
     # multi-statement batch writes (DELETE + INSERT loop) that are
     # tightly coupled to the DB transaction lifecycle.

@@ -24,6 +24,18 @@ def _can_run_minimal_postprocess(store: Any) -> bool:
     )
 
 
+def _can_trace_full_flows(store: Any) -> bool:
+    return all(
+        hasattr(store, name)
+        for name in (
+            "get_all_call_targets",
+            "get_nodes_by_kind",
+            "load_flow_adjacency",
+            "store_flows_json",
+        )
+    )
+
+
 def _postprocess_store(store: Any, root: Any, postprocess: str):
     """Return a Python GraphStore for post-processing when needed.
 
@@ -48,6 +60,7 @@ def _run_postprocess(
     full_rebuild: bool = False,
     changed_files: list[str] | None = None,
     skip_minimal_steps: bool = False,
+    skip_flow_steps: bool = False,
     skip_summary_steps: bool = False,
 ) -> list[str]:
     """Run post-build steps based on *postprocess* level.
@@ -125,21 +138,22 @@ def _run_postprocess(
     # -- Expensive: flows + communities (only for "full") --
     use_incremental = not full_rebuild and bool(changed_files)
 
-    try:
-        if use_incremental:
-            from dagayn.flows import incremental_trace_flows
+    if not skip_flow_steps:
+        try:
+            if use_incremental:
+                from dagayn.flows import incremental_trace_flows
 
-            count = incremental_trace_flows(store, changed_files or [])
-        else:
-            from dagayn.flows import store_flows as _store_flows
-            from dagayn.flows import trace_flows as _trace_flows
+                count = incremental_trace_flows(store, changed_files or [])
+            else:
+                from dagayn.flows import store_flows as _store_flows
+                from dagayn.flows import trace_flows as _trace_flows
 
-            flows = _trace_flows(store)
-            count = _store_flows(store, flows)
-        build_result["flows_detected"] = count
-    except (sqlite3.OperationalError, ImportError) as e:
-        logger.warning("Flow detection failed: %s", e)
-        warnings.append(f"Flow detection failed: {type(e).__name__}: {e}")
+                flows = _trace_flows(store)
+                count = _store_flows(store, flows)
+            build_result["flows_detected"] = count
+        except (sqlite3.OperationalError, RuntimeError, ImportError) as e:
+            logger.warning("Flow detection failed: %s", e)
+            warnings.append(f"Flow detection failed: {type(e).__name__}: {e}")
 
     try:
         if use_incremental:
@@ -496,6 +510,7 @@ def build_or_update_graph(
             and _can_run_minimal_postprocess(store)
         ):
             can_compute_rust_summaries = hasattr(store, "compute_summaries")
+            can_trace_rust_flows = full_rebuild and _can_trace_full_flows(store)
             warnings = _run_postprocess(
                 store,
                 build_result,
@@ -503,6 +518,16 @@ def build_or_update_graph(
                 full_rebuild=full_rebuild,
                 changed_files=changed,
             )
+            if can_trace_rust_flows:
+                try:
+                    from dagayn.flows import store_flows as _store_flows
+                    from dagayn.flows import trace_flows as _trace_flows
+
+                    traced = _trace_flows(store)
+                    build_result["flows_detected"] = _store_flows(store, traced)
+                except (sqlite3.OperationalError, RuntimeError, ImportError) as e:
+                    logger.warning("Flow detection failed: %s", e)
+                    warnings.append(f"Flow detection failed: {type(e).__name__}: {e}")
             pp_store, close_pp_store = _postprocess_store(store, root, postprocess)
             try:
                 warnings.extend(
@@ -513,6 +538,7 @@ def build_or_update_graph(
                         full_rebuild=full_rebuild,
                         changed_files=changed,
                         skip_minimal_steps=True,
+                        skip_flow_steps=can_trace_rust_flows,
                         skip_summary_steps=can_compute_rust_summaries,
                     )
                 )

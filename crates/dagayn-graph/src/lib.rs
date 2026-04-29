@@ -136,11 +136,24 @@ pub struct GraphEdge {
     pub confidence_tier: String,
 }
 
+#[derive(Clone, Debug, Deserialize)]
+pub struct FlowInput {
+    pub name: String,
+    pub entry_point_id: i64,
+    pub depth: i64,
+    pub node_count: i64,
+    pub file_count: i64,
+    pub criticality: f64,
+    #[serde(default)]
+    pub path: Vec<i64>,
+}
+
 pub struct GraphStore {
     conn: Connection,
 }
 
 pub type FileBatchItem = (String, Vec<NodeInput>, Vec<EdgeInput>, String);
+pub type FlowEdgeData = (HashMap<String, Vec<String>>, HashSet<String>);
 
 #[derive(Debug, Deserialize)]
 struct CompactNodeInput(
@@ -853,6 +866,102 @@ impl GraphStore {
         Ok(nodes)
     }
 
+    pub fn get_nodes_by_kind(
+        &self,
+        kinds: &[String],
+        file_pattern: Option<&str>,
+    ) -> Result<Vec<GraphNode>> {
+        if kinds.is_empty() {
+            return Ok(Vec::new());
+        }
+        let placeholders = std::iter::repeat_n("?", kinds.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = if file_pattern.is_some() {
+            format!("SELECT * FROM nodes WHERE kind IN ({placeholders}) AND file_path LIKE ?")
+        } else {
+            format!("SELECT * FROM nodes WHERE kind IN ({placeholders})")
+        };
+        let mut params = kinds.iter().map(String::as_str).collect::<Vec<_>>();
+        let pattern;
+        if let Some(file_pattern) = file_pattern {
+            pattern = format!("%{file_pattern}%");
+            params.push(&pattern);
+        }
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(params), node_from_row)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    pub fn get_all_call_targets(&self, include_file_sources: bool) -> Result<HashSet<String>> {
+        if include_file_sources {
+            let mut stmt = self
+                .conn
+                .prepare("SELECT DISTINCT target_qualified FROM edges WHERE kind = 'CALLS'")?;
+            let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+            return rows
+                .collect::<std::result::Result<HashSet<_>, _>>()
+                .map_err(Into::into);
+        }
+        let mut stmt = self.conn.prepare(
+            "SELECT DISTINCT e.target_qualified FROM edges e \
+             LEFT JOIN nodes n ON n.qualified_name = e.source_qualified \
+             WHERE e.kind = 'CALLS' \
+             AND (n.kind IS NULL OR n.kind != 'File')",
+        )?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        rows.collect::<std::result::Result<HashSet<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    pub fn get_all_nodes(&self) -> Result<Vec<GraphNode>> {
+        let mut stmt = self.conn.prepare("SELECT * FROM nodes")?;
+        let rows = stmt.query_map([], node_from_row)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    pub fn get_flow_edge_data(&self) -> Result<FlowEdgeData> {
+        let mut calls_out: HashMap<String, Vec<String>> = HashMap::new();
+        let mut has_tested_by: HashSet<String> = HashSet::new();
+        let mut stmt = self.conn.prepare(
+            "SELECT kind, source_qualified, target_qualified FROM edges \
+             WHERE kind IN ('CALLS', 'TESTED_BY')",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?;
+        for row in rows {
+            let (kind, source, target) = row?;
+            if kind == "CALLS" {
+                calls_out.entry(source).or_default().push(target);
+            } else {
+                has_tested_by.insert(target);
+            }
+        }
+        Ok((calls_out, has_tested_by))
+    }
+
+    pub fn store_flows(&mut self, flows: &[FlowInput]) -> Result<i64> {
+        let tx = self.conn.transaction()?;
+        tx.execute("DELETE FROM flow_snapshots", [])?;
+        tx.execute("DELETE FROM flow_memberships", [])?;
+        tx.execute("DELETE FROM flows", [])?;
+        store_flows_tx(&tx, flows)?;
+        tx.commit()?;
+        Ok(flows.len() as i64)
+    }
+
+    pub fn store_flows_json(&mut self, flows_json: &str) -> Result<i64> {
+        let flows: Vec<FlowInput> = serde_json::from_str(flows_json)?;
+        self.store_flows(&flows)
+    }
+
     pub fn get_edges_by_source(&self, qualified_name: &str) -> Result<Vec<GraphEdge>> {
         self.get_edges_by_endpoint("source_qualified", qualified_name)
     }
@@ -1170,6 +1279,34 @@ fn remove_file_data_tx(tx: &Transaction<'_>, file_path: &str) -> Result<()> {
     )?;
     tx.execute("DELETE FROM edges WHERE file_path = ?", [file_path])?;
     tx.execute("DELETE FROM nodes WHERE file_path = ?", [file_path])?;
+    Ok(())
+}
+
+fn store_flows_tx(tx: &Transaction<'_>, flows: &[FlowInput]) -> Result<()> {
+    let mut insert_flow = tx.prepare(
+        "INSERT INTO flows \
+         (name, entry_point_id, depth, node_count, file_count, criticality, path_json) \
+         VALUES (?, ?, ?, ?, ?, ?, ?)",
+    )?;
+    let mut insert_membership = tx.prepare(
+        "INSERT OR IGNORE INTO flow_memberships (flow_id, node_id, position) \
+         VALUES (?, ?, ?)",
+    )?;
+    for flow in flows {
+        insert_flow.execute(params![
+            flow.name,
+            flow.entry_point_id,
+            flow.depth,
+            flow.node_count,
+            flow.file_count,
+            flow.criticality,
+            serde_json::to_string(&flow.path)?,
+        ])?;
+        let flow_id = tx.last_insert_rowid();
+        for (position, node_id) in flow.path.iter().enumerate() {
+            insert_membership.execute(params![flow_id, node_id, position as i64])?;
+        }
+    }
     Ok(())
 }
 
@@ -1886,6 +2023,104 @@ mod tests {
         assert_eq!(risk_row.2, "untested");
         assert_eq!(risk_row.3, 1);
         assert_eq!(risk_row.4, 0.7);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn stores_flows_and_reads_flow_inputs() {
+        let path = temp_db("flows");
+        let mut store = GraphStore::open(&path).expect("open graph store");
+        let entry = NodeInput {
+            kind: "Function".to_string(),
+            name: "entry".to_string(),
+            file_path: "app.py".to_string(),
+            line_start: 1,
+            line_end: 5,
+            language: "python".to_string(),
+            parent_name: None,
+            params: None,
+            return_type: None,
+            modifiers: None,
+            is_test: false,
+            extra: Value::Object(Default::default()),
+        };
+        let callee = NodeInput {
+            kind: "Function".to_string(),
+            name: "callee".to_string(),
+            file_path: "app.py".to_string(),
+            line_start: 7,
+            line_end: 10,
+            language: "python".to_string(),
+            parent_name: None,
+            params: None,
+            return_type: None,
+            modifiers: None,
+            is_test: false,
+            extra: Value::Object(Default::default()),
+        };
+        let edge = EdgeInput {
+            kind: "CALLS".to_string(),
+            source: "app.py::entry".to_string(),
+            target: "app.py::callee".to_string(),
+            file_path: "app.py".to_string(),
+            line: 2,
+            extra: Value::Object(Default::default()),
+        };
+        store
+            .store_file_batch(&[(
+                "app.py".to_string(),
+                vec![entry, callee],
+                vec![edge],
+                "hash".to_string(),
+            )])
+            .unwrap();
+
+        let targets = store.get_all_call_targets(false).unwrap();
+        assert_eq!(targets, HashSet::from(["app.py::callee".to_string()]));
+        let nodes = store
+            .get_nodes_by_kind(&["Function".to_string()], None)
+            .unwrap();
+        assert_eq!(nodes.len(), 2);
+        let (calls_out, tested_by) = store.get_flow_edge_data().unwrap();
+        assert_eq!(calls_out["app.py::entry"], vec!["app.py::callee"]);
+        assert!(tested_by.is_empty());
+
+        let entry_id = store.get_node("app.py::entry").unwrap().unwrap().id;
+        let callee_id = store.get_node("app.py::callee").unwrap().unwrap().id;
+        let flows = vec![FlowInput {
+            name: "entry".to_string(),
+            entry_point_id: entry_id,
+            depth: 1,
+            node_count: 2,
+            file_count: 1,
+            criticality: 0.25,
+            path: vec![entry_id, callee_id],
+        }];
+        assert_eq!(store.store_flows(&flows).unwrap(), 1);
+        assert_eq!(
+            store
+                .conn
+                .query_row("SELECT COUNT(*) FROM flows", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            store
+                .conn
+                .query_row("SELECT COUNT(*) FROM flow_memberships", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .unwrap(),
+            2
+        );
+        assert_eq!(store.store_flows(&[]).unwrap(), 0);
+        assert_eq!(
+            store
+                .conn
+                .query_row("SELECT COUNT(*) FROM flows", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
         let _ = std::fs::remove_file(path);
     }
 
