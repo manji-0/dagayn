@@ -64,6 +64,11 @@ def compute_sdp_metrics_func(
     store, _root = _get_store(repo_root)
     metrics = compute_sdp_metrics(store, granularity=granularity)
     return {
+        "status": "ok",
+        "summary": (
+            f"Computed SDP instability for {len(metrics)} {granularity}(s)."
+            f" Showing top {min(top_n, len(metrics))} most unstable."
+        ),
         "metrics": metrics[:top_n],
         "total": len(metrics),
         "granularity": granularity,
@@ -97,6 +102,11 @@ def detect_sdp_violations_func(
         min_delta=min_delta,
     )
     return {
+        "status": "ok",
+        "summary": (
+            f"Found {len(violations)} SDP violation(s) at {granularity} level"
+            f" (min_delta={min_delta})."
+        ),
         "violations": violations,
         "count": len(violations),
         "granularity": granularity,

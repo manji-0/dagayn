@@ -30,15 +30,17 @@ def get_hub_nodes_func(
     """
     store, _root = _get_store(repo_root)
     hubs = find_hub_nodes(store, top_n=top_n)
-    return {
-        "hub_nodes": hubs,
-        "count": len(hubs),
-        "next_tool_suggestions": [
+    return make_response(
+        "ok",
+        f"Found {len(hubs)} hub node(s) with highest connectivity.",
+        hub_nodes=hubs,
+        count=len(hubs),
+        next_tool_suggestions=[
             "get_impact_radius -- check blast radius of a hub",
             "query_graph callers_of -- see what calls a hub",
             "get_bridge_nodes -- find architectural chokepoints",
         ],
-    }
+    )
 
 
 def get_bridge_nodes_func(
@@ -57,15 +59,17 @@ def get_bridge_nodes_func(
     """
     store, _root = _get_store(repo_root)
     bridges = find_bridge_nodes(store, top_n=top_n)
-    return {
-        "bridge_nodes": bridges,
-        "count": len(bridges),
-        "next_tool_suggestions": [
+    return make_response(
+        "ok",
+        f"Found {len(bridges)} bridge node(s) (high betweenness centrality).",
+        bridge_nodes=bridges,
+        count=len(bridges),
+        next_tool_suggestions=[
             "get_hub_nodes -- find most connected nodes",
             "get_impact_radius -- check blast radius",
             "detect_changes -- see if bridges are affected",
         ],
-    }
+    )
 
 
 def get_knowledge_gaps_func(

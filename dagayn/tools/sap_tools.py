@@ -42,6 +42,11 @@ def compute_sap_metrics_func(
         unit_filter=unit_filter,
     )
     return {
+        "status": "ok",
+        "summary": (
+            f"Computed SAP metrics for {len(metrics)} {scope_kind}(s)."
+            f" Showing top {min(top_n, len(metrics))} by distance."
+        ),
         "metrics": metrics[:top_n],
         "total": len(metrics),
         "scope_kind": scope_kind,
