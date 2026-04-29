@@ -71,8 +71,12 @@ def cross_repo_search_func(
         if not repos:
             return {
                 "status": "ok",
-                "summary": ("No repositories registered. Use 'register' to add repos."),
+                "summary": "No repositories registered.",
                 "results": [],
+                "next_tool_suggestions": [
+                    "Run: dagayn register <path> -- add a repository to the registry",
+                    "list_repos_tool -- check currently registered repos",
+                ],
             }
 
         all_results: list[dict[str, Any]] = []

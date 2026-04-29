@@ -13,6 +13,7 @@ def detect_adp_violations_func(
     granularity: Literal["file", "package"] = "package",
     min_cycle_size: int = 2,
     max_cycle_length: int = 10,
+    top_n: int = 30,
 ) -> dict[str, Any]:
     """Detect cyclic dependencies (ADP violations).
 
@@ -25,6 +26,7 @@ def detect_adp_violations_func(
         granularity: "package" (directory-level) or "file" (file-level).
         min_cycle_size: Minimum cycle length to report. Default: 2.
         max_cycle_length: Maximum cycle length to search. Default: 10.
+        top_n: Maximum violations to return, ordered by severity. Default: 30.
     """
     store, _root = _get_store(repo_root)
     violations = find_adp_violations(
@@ -33,9 +35,17 @@ def detect_adp_violations_func(
         min_cycle_size=min_cycle_size,
         max_cycle_length=max_cycle_length,
     )
+    total = len(violations)
+    truncated = total > top_n
     return {
-        "violations": violations,
-        "count": len(violations),
+        "status": "ok",
+        "summary": (
+            f"Found {total} ADP violation(s) at {granularity} level."
+            + (f" Showing top {top_n} by severity." if truncated else "")
+        ),
+        "violations": violations[:top_n],
+        "count": total,
+        "truncated": truncated,
         "granularity": granularity,
         "next_tool_suggestions": [
             "get_impact_radius -- check blast radius of a cyclic module",

@@ -432,3 +432,16 @@ token_budget = 2000
 | `compute_sap_metrics` | `status`/`summary` フィールド追加 |
 | `compute_sdp_metrics` | `status`/`summary` フィールド追加 |
 | `detect_sdp_violations` | `status`/`summary` フィールド追加 |
+
+### Phase 3 — Medium/Low 改修 (commit `TBD`)
+
+| 重大度 | ツール | 修正内容 |
+|---|---|---|
+| M-3.3 | `detect_adp_violations_tool` | `top_n: int = 30` 追加、`status`/`summary`/`truncated` 追加 |
+| M-3.7 | `get_suggested_questions_tool` | `top_n: int = 15` 追加、高優先度先出し、`status`/`summary`/`truncated` |
+| M-3.4 | `get_surprising_connections_tool` | `make_response()` で `status`/`summary` 追加 |
+| M-3.2 | `find_large_functions_tool` | File ノードの `name` 絶対パス → 相対パスに統一 |
+| L-4.1 | `get_docs_section_tool` | `max_chars: int = 4000` 追加、コンテンツ末尾に `... (truncated)` |
+| L-4.2 | `get_wiki_page_tool` | not_found 時に `generate_wiki_tool` を次アクション hint に追加 |
+| L-4.3 | `cross_repo_search_tool` | 未登録時の案内に `dagayn register` と `list_repos_tool` を追加 |
+| L-4.5 | `refactor_tool(rename)` | `next_tool_suggestions` に `apply_refactor_tool(dry_run=True)` を追加 |

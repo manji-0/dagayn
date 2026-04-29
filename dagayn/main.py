@@ -392,6 +392,7 @@ def list_graph_stats_tool(
 def get_docs_section_tool(
     section_name: str,
     repo_root: Optional[str] = None,
+    max_chars: int = 4000,
 ) -> dict:
     """Get a specific section from the LLM-optimized documentation reference.
 
@@ -404,8 +405,9 @@ def get_docs_section_tool(
     Args:
         section_name: The section to retrieve (e.g. "review-delta", "usage").
         repo_root: Repository root path. Auto-detected if omitted.
+        max_chars: Maximum characters to return. Default: 4000.
     """
-    return get_docs_section(section_name=section_name, repo_root=repo_root)
+    return get_docs_section(section_name=section_name, repo_root=repo_root, max_chars=max_chars)
 
 
 @mcp.tool()
@@ -849,6 +851,7 @@ def get_surprising_connections_tool(
 
 @mcp.tool()
 def get_suggested_questions_tool(
+    top_n: int = 15,
     repo_root: Optional[str] = None,
 ) -> dict:
     """Auto-generate review questions from graph analysis.
@@ -858,10 +861,12 @@ def get_suggested_questions_tool(
     communities, and untested hotspots.
 
     Args:
+        top_n: Maximum questions to return, high-priority first. Default: 15.
         repo_root: Repository root path. Auto-detected if omitted.
     """
     return get_suggested_questions_func(
         repo_root=_resolve_repo_root(repo_root),
+        top_n=top_n,
     )
 
 
@@ -902,6 +907,7 @@ def detect_adp_violations_tool(
     granularity: Literal["file", "package"] = "package",
     min_cycle_size: int = 2,
     max_cycle_length: int = 10,
+    top_n: int = 30,
     repo_root: Optional[str] = None,
 ) -> dict:
     """Find cyclic dependencies that violate the Acyclic Dependencies Principle.
@@ -915,6 +921,7 @@ def detect_adp_violations_tool(
         granularity: "package" (directory-level) or "file". Default: package.
         min_cycle_size: Minimum nodes in a cycle to report. Default: 2.
         max_cycle_length: Upper bound on cycle length searched. Default: 10.
+        top_n: Maximum violations to return, ordered by severity. Default: 30.
         repo_root: Repository root path. Auto-detected if omitted.
     """
     return detect_adp_violations_func(
@@ -922,6 +929,7 @@ def detect_adp_violations_tool(
         granularity=granularity,
         min_cycle_size=min_cycle_size,
         max_cycle_length=max_cycle_length,
+        top_n=top_n,
     )
 
 

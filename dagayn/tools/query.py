@@ -507,13 +507,17 @@ def find_large_functions(
             d["line_count"] = (n.line_end - n.line_start + 1) if n.line_start and n.line_end else 0
             # Make file_path relative for readability
             try:
-                d["relative_path"] = (
+                rel = (
                     n.file_path
                     if not Path(n.file_path).is_absolute()
                     else str(Path(n.file_path).relative_to(root))
                 )
             except ValueError:
-                d["relative_path"] = n.file_path
+                rel = n.file_path
+            d["relative_path"] = rel
+            # For File nodes the name IS the absolute path — replace with relative
+            if n.kind == "File" and Path(d.get("name", "")).is_absolute():
+                d["name"] = rel
             results.append(d)
 
         summary_parts = [

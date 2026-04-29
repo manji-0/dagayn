@@ -79,6 +79,12 @@ def refactor_func(
                     f"'{preview['refactor_id']}') to apply."
                 ),
                 **preview,
+                "next_tool_suggestions": [
+                    f"apply_refactor_tool(refactor_id='{preview['refactor_id']}', dry_run=True)"
+                    " -- preview unified diff before writing files",
+                    f"apply_refactor_tool(refactor_id='{preview['refactor_id']}')"
+                    " -- apply the rename",
+                ],
             }
             result["_hints"] = generate_hints("refactor", result, get_session())
             return result

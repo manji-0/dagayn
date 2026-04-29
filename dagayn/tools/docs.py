@@ -89,7 +89,11 @@ def embed_graph(
 # ---------------------------------------------------------------------------
 
 
-def get_docs_section(section_name: str, repo_root: str | None = None) -> dict[str, Any]:
+def get_docs_section(
+    section_name: str,
+    repo_root: str | None = None,
+    max_chars: int = 4000,
+) -> dict[str, Any]:
     """Return a specific section from the LLM-optimized reference.
 
     Used by skills and Claude Code to load only the exact documentation
@@ -101,6 +105,8 @@ def get_docs_section(section_name: str, repo_root: str | None = None) -> dict[st
                       languages, troubleshooting.
         repo_root: Repository root path. Auto-detected from current
                    directory if omitted.
+        max_chars: Maximum characters to return. Default: 4000.
+            When truncated, content ends with "... (truncated)".
 
     Returns:
         The section content, or an error if not found.
@@ -137,10 +143,15 @@ def get_docs_section(section_name: str, repo_root: str | None = None) -> dict[st
                 _re.DOTALL | _re.IGNORECASE,
             )
             if match:
+                content = match.group(1).strip()
+                truncated = len(content) > max_chars
+                if truncated:
+                    content = content[:max_chars] + "\n... (truncated)"
                 return {
                     "status": "ok",
                     "section": section_name,
-                    "content": match.group(1).strip(),
+                    "content": content,
+                    "truncated": truncated,
                 }
 
     available = [
@@ -238,7 +249,11 @@ def get_wiki_page_func(
     if content is None:
         return {
             "status": "not_found",
-            "summary": f"No wiki page found for '{community_name}'.",
+            "summary": (
+                f"No wiki page found for '{community_name}'. "
+                "Run generate_wiki_tool first to build the wiki."
+            ),
+            "next_tool_suggestions": ["generate_wiki_tool -- build wiki pages from communities"],
         }
     return {
         "status": "ok",

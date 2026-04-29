@@ -133,19 +133,22 @@ def get_surprising_connections_func(
     """
     store, _root = _get_store(repo_root)
     surprises = find_surprising_connections(store, top_n=top_n)
-    return {
-        "surprising_connections": surprises,
-        "count": len(surprises),
-        "next_tool_suggestions": [
+    return make_response(
+        "ok",
+        f"Found {len(surprises)} surprising connection(s).",
+        surprising_connections=surprises,
+        count=len(surprises),
+        next_tool_suggestions=[
             "get_architecture_overview -- community structure",
             "query_graph callers_of -- trace the coupling",
             "get_bridge_nodes -- find chokepoints",
         ],
-    }
+    )
 
 
 def get_suggested_questions_func(
     repo_root: Optional[str] = None,
+    top_n: int = 15,
 ) -> dict[str, Any]:
     """Auto-generate review questions from graph analysis.
 
@@ -155,6 +158,7 @@ def get_suggested_questions_func(
 
     Args:
         repo_root: Repository root (auto-detected if empty).
+        top_n: Maximum questions to return. High-priority first. Default: 15.
     """
     store, _root = _get_store(repo_root)
     questions = generate_suggested_questions(store)
@@ -167,13 +171,24 @@ def get_suggested_questions_func(
         prio = q.get("priority", "medium")
         if prio in by_priority:
             by_priority[prio].append(q)
-    return {
-        "questions": questions,
-        "count": len(questions),
-        "by_priority": {k: len(v) for k, v in by_priority.items()},
-        "next_tool_suggestions": [
+
+    # Return high-priority first, then medium, then low — capped at top_n
+    ordered = by_priority["high"] + by_priority["medium"] + by_priority["low"]
+    total = len(ordered)
+    truncated = total > top_n
+    returned = ordered[:top_n]
+
+    return make_response(
+        "ok",
+        f"Generated {total} review question(s)."
+        + (f" Showing top {top_n} (high priority first)." if truncated else ""),
+        questions=returned,
+        total=total,
+        truncated=truncated,
+        by_priority={k: len(v) for k, v in by_priority.items()},
+        next_tool_suggestions=[
             "get_knowledge_gaps -- structural weaknesses",
             "detect_changes -- risk-scored review",
             "get_architecture_overview -- community map",
         ],
-    }
+    )
