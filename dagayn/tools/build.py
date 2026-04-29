@@ -48,6 +48,7 @@ def _run_postprocess(
     full_rebuild: bool = False,
     changed_files: list[str] | None = None,
     skip_minimal_steps: bool = False,
+    skip_summary_steps: bool = False,
 ) -> list[str]:
     """Run post-build steps based on *postprocess* level.
 
@@ -162,13 +163,14 @@ def _run_postprocess(
         logger.warning("Community detection failed: %s", e)
         warnings.append(f"Community detection failed: {type(e).__name__}: {e}")
 
-    # -- Compute pre-computed summary tables --
-    try:
-        _compute_summaries(store)
-        build_result["summaries_computed"] = True
-    except (sqlite3.OperationalError, Exception) as e:
-        logger.warning("Summary computation failed: %s", e)
-        warnings.append(f"Summary computation failed: {type(e).__name__}: {e}")
+    if not skip_summary_steps:
+        # -- Compute pre-computed summary tables --
+        try:
+            _compute_summaries(store)
+            build_result["summaries_computed"] = True
+        except (sqlite3.OperationalError, RuntimeError, Exception) as e:
+            logger.warning("Summary computation failed: %s", e)
+            warnings.append(f"Summary computation failed: {type(e).__name__}: {e}")
 
     store.set_metadata(
         "last_postprocessed_at",
@@ -193,6 +195,11 @@ def _compute_summaries(store: Any) -> None:
     is wrapped in an explicit transaction so the DELETE + INSERT sequence
     is atomic.  If a table doesn't exist yet the block is silently skipped.
     """
+    rust_compute = getattr(store, "compute_summaries", None)
+    if callable(rust_compute):
+        rust_compute()
+        return
+
     import json as _json
     from collections import defaultdict
     from os.path import commonprefix
@@ -488,6 +495,7 @@ def build_or_update_graph(
             and not hasattr(store, "_conn")
             and _can_run_minimal_postprocess(store)
         ):
+            can_compute_rust_summaries = hasattr(store, "compute_summaries")
             warnings = _run_postprocess(
                 store,
                 build_result,
@@ -505,11 +513,19 @@ def build_or_update_graph(
                         full_rebuild=full_rebuild,
                         changed_files=changed,
                         skip_minimal_steps=True,
+                        skip_summary_steps=can_compute_rust_summaries,
                     )
                 )
             finally:
                 if close_pp_store:
                     pp_store.close()
+            if can_compute_rust_summaries:
+                try:
+                    _compute_summaries(store)
+                    build_result["summaries_computed"] = True
+                except (sqlite3.OperationalError, RuntimeError, Exception) as e:
+                    logger.warning("Summary computation failed: %s", e)
+                    warnings.append(f"Summary computation failed: {type(e).__name__}: {e}")
         else:
             pp_store, close_pp_store = _postprocess_store(store, root, postprocess)
             try:

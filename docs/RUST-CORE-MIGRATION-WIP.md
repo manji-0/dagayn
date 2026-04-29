@@ -266,6 +266,9 @@ Initial scaffold:
   methods. Full post-processing still falls back to the Python store for flow,
   community, and summary generation after running those Rust-owned minimal
   steps on the Rust store first.
+- Rust `GraphStore` can populate `community_summaries`, `flow_snapshots`, and
+  `risk_index`; full Rust-backed post-processing now runs summary table
+  generation on the Rust store after the Python-only flow/community fallback.
 - `DAGAYN_BACKEND=rust` is recognized by the Python graph package and fails loudly if the extension has not been built; `python` remains the default
 
 Current local benchmark baseline, measured on 2026-04-28 with `tools/backend_benchmark.py`
@@ -302,10 +305,13 @@ edges) measured:
 | writer-only `store_file_batch` | 0.325s | 0.502s | Prepared statements and direct edge inserts cut Rust writer time by roughly half versus the prior ~1.04s |
 | FTS rebuild only | 0.017s | 0.027s | Rust owns the operation now, but the current SQLite-equivalent implementation is not a speedup yet |
 | missing signature computation only | 12.300s | 0.036s | Rust batches the old Python per-node update loop into one transaction |
+| summary table computation only | 0.051s | 0.100s | Rust owns the operation now, but the current port is slower than the already-batched Python implementation |
 
 The FTS-only measurement used the current local `.dagayn/graph.db` snapshot and
 indexed 4,265 rows in both backends. The signature-only measurement reset
 signatures on a copied local graph and recomputed 4,270 rows in both backends.
+The summary-only measurement used copied local graph snapshots after flow and
+community data had already been generated.
 
 This did not materially change the conclusion: the next meaningful
 optimization is to move more non-Markdown/Terraform parsing and post-processing
@@ -394,6 +400,10 @@ Parser migration progress:
   The Rust path rewrites exactly one matching non-Markdown target to HIGH
   confidence and deletes unmatched or ambiguous placeholder edges, matching the
   Python fallback policy.
+- Summary table computation now routes through
+  `dagayn._core.GraphStore.compute_summaries` when available, covering
+  community summaries, flow snapshots, and risk index rows with the same
+  batched aggregate strategy as the Python fallback.
 
 Python modules being replaced: `dagayn/graph.py` (`GraphStore` upsert and replacement logic), `dagayn/incremental.py` (path normalization and VCS metadata helpers such as `_make_repo_relative`), `dagayn/migrations.py`.
 

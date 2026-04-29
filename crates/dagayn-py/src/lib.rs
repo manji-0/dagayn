@@ -164,6 +164,10 @@ impl PyGraphStore {
         self.with_store_mut(|store| store.resolve_markdown_artifact_refs())
     }
 
+    fn compute_summaries(&self) -> PyResult<()> {
+        self.with_store_mut(|store| store.compute_summaries())
+    }
+
     fn close(&self) -> PyResult<()> {
         Ok(())
     }
