@@ -12,6 +12,7 @@ from dagayn.incremental import (
     _single_hop_dependents,
     ensure_repo_gitignore_excludes_crg,
     find_dependents,
+    find_dependents_for_files,
     find_project_root,
     find_repo_root,
     full_build,
@@ -662,6 +663,16 @@ class TestMultiHopDependents:
             deps = find_dependents(store, "/c.py", max_hops=2)
             assert "/b.py" in deps
             assert "/a.py" in deps
+        finally:
+            store.close()
+
+    def test_multi_source_batches_roots(self, tmp_path):
+        store = self._make_chain_store(tmp_path)
+        try:
+            deps = find_dependents_for_files(store, ["/b.py", "/c.py"], max_hops=1)
+            assert "/a.py" in deps
+            assert "/b.py" not in deps
+            assert "/c.py" not in deps
         finally:
             store.close()
 

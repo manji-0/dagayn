@@ -835,9 +835,25 @@ def find_dependents(
     returned list is capped at ``_MAX_DEPENDENT_FILES`` and the full
     set of dependents was not explored.  See issue #261.
     """
+    return find_dependents_for_files(store, [file_path], max_hops=max_hops)
+
+
+def find_dependents_for_files(
+    store: GraphStore,
+    file_paths: list[str] | set[str],
+    max_hops: int = _MAX_DEPENDENT_HOPS,
+) -> DependentList:
+    """Find files that depend on any file in *file_paths*.
+
+    Performs multi-source expansion so incremental updates with many changed
+    files pay one batched traversal per hop instead of one traversal per file.
+    """
+    roots = set(file_paths)
+    if not roots:
+        return DependentList([])
     all_dependents: set[str] = set()
-    visited: set[str] = {file_path}
-    frontier: set[str] = {file_path}
+    visited: set[str] = set(roots)
+    frontier: set[str] = set(roots)
     for _hop in range(max_hops):
         new_deps = _batch_hop_dependents(store, frontier) - visited
         all_dependents.update(new_deps)
@@ -847,9 +863,9 @@ def find_dependents(
             break
         if len(all_dependents) > _MAX_DEPENDENT_FILES:
             logger.warning(
-                "Dependent expansion capped at %d files for %s",
+                "Dependent expansion capped at %d files for %d roots",
                 len(all_dependents),
-                file_path,
+                len(roots),
             )
             return DependentList(
                 list(all_dependents)[:_MAX_DEPENDENT_FILES],
@@ -1284,11 +1300,10 @@ def incremental_update(
         }
 
     # Find dependent files (files that import from changed files)
-    dependent_files: set[str] = set()
-    for rel_path in changed_files:
-        deps = find_dependents(store, rel_path)
-        for d in deps:
-            dependent_files.add(_make_repo_relative(d, repo_root))
+    dependent_files = {
+        _make_repo_relative(dep, repo_root)
+        for dep in find_dependents_for_files(store, changed_files)
+    }
 
     # Combine changed + dependent
     all_files = set(changed_files) | dependent_files
