@@ -5,7 +5,9 @@
 //! extraction. During Phase 1 it starts with parseable-file filtering so Python
 //! can shrink back toward CLI/MCP interfaces.
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
+use std::io::Read;
 use std::path::Path;
 use std::process::Command;
 use std::sync::LazyLock;
@@ -44,6 +46,85 @@ static MARKDOWN_SYMBOL_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$").unwrap());
 static MARKDOWN_TITLE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"\s+(?:"[^"]*"|'[^']*')\s*$"#).unwrap());
+static EXTENSION_TO_LANGUAGE: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| {
+    HashMap::from([
+        (".py", "python"),
+        (".js", "javascript"),
+        (".jsx", "javascript"),
+        (".ts", "typescript"),
+        (".tsx", "tsx"),
+        (".go", "go"),
+        (".rs", "rust"),
+        (".java", "java"),
+        (".cs", "csharp"),
+        (".rb", "ruby"),
+        (".cpp", "cpp"),
+        (".cc", "cpp"),
+        (".cxx", "cpp"),
+        (".c", "c"),
+        (".h", "c"),
+        (".hpp", "cpp"),
+        (".kt", "kotlin"),
+        (".swift", "swift"),
+        (".php", "php"),
+        (".scala", "scala"),
+        (".sol", "solidity"),
+        (".vue", "vue"),
+        (".dart", "dart"),
+        (".r", "r"),
+        (".mjs", "javascript"),
+        (".astro", "typescript"),
+        (".pl", "perl"),
+        (".pm", "perl"),
+        (".t", "perl"),
+        (".xs", "c"),
+        (".lua", "lua"),
+        (".luau", "luau"),
+        (".m", "objc"),
+        (".sh", "bash"),
+        (".bash", "bash"),
+        (".zsh", "bash"),
+        (".ksh", "bash"),
+        (".ex", "elixir"),
+        (".exs", "elixir"),
+        (".ipynb", "notebook"),
+        (".zig", "zig"),
+        (".ps1", "powershell"),
+        (".psm1", "powershell"),
+        (".psd1", "powershell"),
+        (".svelte", "svelte"),
+        (".jl", "julia"),
+        (".res", "rescript"),
+        (".resi", "rescript"),
+        (".gd", "gdscript"),
+        (".tf", "terraform"),
+        (".tfvars", "terraform"),
+        (".md", "markdown"),
+        (".markdown", "markdown"),
+    ])
+});
+static SHEBANG_TO_LANGUAGE: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| {
+    HashMap::from([
+        ("bash", "bash"),
+        ("sh", "bash"),
+        ("zsh", "bash"),
+        ("ksh", "bash"),
+        ("dash", "bash"),
+        ("ash", "bash"),
+        ("python", "python"),
+        ("python2", "python"),
+        ("python3", "python"),
+        ("pypy", "python"),
+        ("pypy3", "python"),
+        ("node", "javascript"),
+        ("nodejs", "javascript"),
+        ("ruby", "ruby"),
+        ("perl", "perl"),
+        ("lua", "lua"),
+        ("Rscript", "r"),
+        ("php", "php"),
+    ])
+});
 const LINE_CURSOR_SCAN_THRESHOLD: usize = 4;
 
 pub fn grammar_status() -> dagayn_grammars::GrammarStatus {
@@ -119,7 +200,7 @@ pub fn detect_language(path: &Path) -> Option<&'static str> {
         .and_then(|ext| ext.to_str())
         .map(|ext| format!(".{}", ext.to_ascii_lowercase()));
     if let Some(suffix) = suffix.as_deref() {
-        if let Some(language) = extension_to_language().get(suffix) {
+        if let Some(language) = EXTENSION_TO_LANGUAGE.get(suffix) {
             return Some(language);
         }
     }
@@ -399,21 +480,16 @@ fn parse_terraform_with_parser(
     let text = String::from_utf8_lossy(source);
     let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
     let blocks = collect_terraform_blocks(source, &text, parser);
-    let defined_names = blocks
-        .iter()
-        .flat_map(|block| {
-            if block.kind == "locals" {
-                terraform_attrs(block)
-                    .into_iter()
-                    .map(|attr| format!("local.{}", attr.name))
-                    .collect::<Vec<_>>()
-            } else {
-                terraform_defined_name(block)
-                    .into_iter()
-                    .collect::<Vec<_>>()
+    let mut defined_names = HashSet::new();
+    for block in &blocks {
+        if block.kind == "locals" {
+            for attr in terraform_attrs(block).iter() {
+                defined_names.insert(format!("local.{}", attr.name));
             }
-        })
-        .collect::<HashSet<_>>();
+        } else if let Some(name) = terraform_defined_name(block) {
+            defined_names.insert(name);
+        }
+    }
 
     let mut nodes = vec![ParsedNode {
         kind: "File".to_string(),
@@ -433,7 +509,7 @@ fn parse_terraform_with_parser(
 
     for block in &blocks {
         if block.kind == "locals" {
-            for attr in terraform_attrs(block) {
+            for attr in terraform_attrs(block).iter() {
                 let node_name = format!("local.{}", attr.name);
                 push_terraform_node(
                     file_path,
@@ -449,7 +525,7 @@ fn parse_terraform_with_parser(
                     },
                 );
                 scan_terraform_attr(
-                    &attr,
+                    attr,
                     &node_name,
                     file_path,
                     attr.line_start,
@@ -498,7 +574,7 @@ fn parse_terraform_with_parser(
 
         if block.kind == "module" {
             if let Some(source_attr) = terraform_attrs(block)
-                .into_iter()
+                .iter()
                 .find(|attr| attr.name == "source")
             {
                 edges.push(ParsedEdge {
@@ -513,11 +589,11 @@ fn parse_terraform_with_parser(
         }
 
         if block.kind == "terraform" {
-            for provider_source in terraform_provider_sources(block) {
+            for provider_source in terraform_provider_sources(block).iter() {
                 edges.push(ParsedEdge {
                     kind: "DEPENDS_ON".to_string(),
                     source: terraform_qualified(file_path, &node_name),
-                    target: provider_source,
+                    target: provider_source.clone(),
                     file_path: file_path.to_string(),
                     line: block.line_start,
                     extra: json!({}),
@@ -954,20 +1030,25 @@ fn collect_terraform_attrs(body: &str, body_start_line: i64) -> Vec<TerraformAtt
     attrs
 }
 
-fn terraform_attrs(block: &TerraformBlock) -> Vec<TerraformAttr> {
-    block
-        .attrs
-        .clone()
-        .unwrap_or_else(|| collect_terraform_attrs(&block.body, block.body_start_line))
+fn terraform_attrs(block: &TerraformBlock) -> Cow<'_, [TerraformAttr]> {
+    block.attrs.as_deref().map_or_else(
+        || Cow::Owned(collect_terraform_attrs(&block.body, block.body_start_line)),
+        Cow::Borrowed,
+    )
 }
 
-fn terraform_provider_sources(block: &TerraformBlock) -> Vec<String> {
-    block.provider_sources.clone().unwrap_or_else(|| {
-        TERRAFORM_PROVIDER_SOURCE_FALLBACK_RE
-            .captures_iter(&block.body)
-            .map(|captures| strip_tf_string(&captures[1]))
-            .collect()
-    })
+fn terraform_provider_sources(block: &TerraformBlock) -> Cow<'_, [String]> {
+    block.provider_sources.as_deref().map_or_else(
+        || {
+            Cow::Owned(
+                TERRAFORM_PROVIDER_SOURCE_FALLBACK_RE
+                    .captures_iter(&block.body)
+                    .map(|captures| strip_tf_string(&captures[1]))
+                    .collect(),
+            )
+        },
+        Cow::Borrowed,
+    )
 }
 
 fn collect_terraform_attrs_from_tree(
@@ -2059,8 +2140,13 @@ fn should_ignore(path: &str, patterns: &[String], globset: Option<&globset::Glob
 }
 
 fn is_binary(path: &Path) -> bool {
-    match std::fs::read(path) {
-        Ok(bytes) => bytes.iter().take(8192).any(|byte| *byte == 0),
+    let mut file = match std::fs::File::open(path) {
+        Ok(file) => file,
+        Err(_) => return true,
+    };
+    let mut head = [0_u8; 8192];
+    match file.read(&mut head) {
+        Ok(size) => head[..size].contains(&0),
         Err(_) => true,
     }
 }
@@ -2089,88 +2175,7 @@ fn detect_language_from_shebang(path: &Path) -> Option<&'static str> {
     } else {
         first.rsplit('/').next()?
     };
-    shebang_to_language().get(interpreter).copied()
-}
-
-fn extension_to_language() -> HashMap<&'static str, &'static str> {
-    HashMap::from([
-        (".py", "python"),
-        (".js", "javascript"),
-        (".jsx", "javascript"),
-        (".ts", "typescript"),
-        (".tsx", "tsx"),
-        (".go", "go"),
-        (".rs", "rust"),
-        (".java", "java"),
-        (".cs", "csharp"),
-        (".rb", "ruby"),
-        (".cpp", "cpp"),
-        (".cc", "cpp"),
-        (".cxx", "cpp"),
-        (".c", "c"),
-        (".h", "c"),
-        (".hpp", "cpp"),
-        (".kt", "kotlin"),
-        (".swift", "swift"),
-        (".php", "php"),
-        (".scala", "scala"),
-        (".sol", "solidity"),
-        (".vue", "vue"),
-        (".dart", "dart"),
-        (".r", "r"),
-        (".mjs", "javascript"),
-        (".astro", "typescript"),
-        (".pl", "perl"),
-        (".pm", "perl"),
-        (".t", "perl"),
-        (".xs", "c"),
-        (".lua", "lua"),
-        (".luau", "luau"),
-        (".m", "objc"),
-        (".sh", "bash"),
-        (".bash", "bash"),
-        (".zsh", "bash"),
-        (".ksh", "bash"),
-        (".ex", "elixir"),
-        (".exs", "elixir"),
-        (".ipynb", "notebook"),
-        (".zig", "zig"),
-        (".ps1", "powershell"),
-        (".psm1", "powershell"),
-        (".psd1", "powershell"),
-        (".svelte", "svelte"),
-        (".jl", "julia"),
-        (".res", "rescript"),
-        (".resi", "rescript"),
-        (".gd", "gdscript"),
-        (".tf", "terraform"),
-        (".tfvars", "terraform"),
-        (".md", "markdown"),
-        (".markdown", "markdown"),
-    ])
-}
-
-fn shebang_to_language() -> HashMap<&'static str, &'static str> {
-    HashMap::from([
-        ("bash", "bash"),
-        ("sh", "bash"),
-        ("zsh", "bash"),
-        ("ksh", "bash"),
-        ("dash", "bash"),
-        ("ash", "bash"),
-        ("python", "python"),
-        ("python2", "python"),
-        ("python3", "python"),
-        ("pypy", "python"),
-        ("pypy3", "python"),
-        ("node", "javascript"),
-        ("nodejs", "javascript"),
-        ("ruby", "ruby"),
-        ("perl", "perl"),
-        ("lua", "lua"),
-        ("Rscript", "r"),
-        ("php", "php"),
-    ])
+    SHEBANG_TO_LANGUAGE.get(interpreter).copied()
 }
 
 fn default_ignore_patterns() -> &'static [&'static str] {

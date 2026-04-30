@@ -9,6 +9,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyBool, PyDict, PyIterator, PyList, PyModule, PySet, PyTuple};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 
 #[pyclass(name = "GraphStore")]
 struct PyGraphStore {
@@ -19,6 +20,15 @@ struct PyGraphStore {
 
 type RustStoreSummary = (usize, usize, Vec<(String, String)>);
 type RustChangedFilesSummary = (Vec<String>, Vec<(String, String)>);
+type RustFileBatchSummary = (Vec<FileBatchItem>, usize, usize, Vec<(String, String)>);
+type RustChangedFileBatchSummary = (
+    Vec<FileBatchItem>,
+    Vec<(String, i64)>,
+    usize,
+    usize,
+    Vec<(String, String)>,
+);
+type RustClassifiedFilesSummary = (Vec<String>, Vec<(String, i64)>, Vec<(String, String)>);
 
 #[pymethods]
 impl PyGraphStore {
@@ -150,10 +160,8 @@ impl PyGraphStore {
     }
 
     fn get_nodes_by_file(&self, py: Python<'_>, file_path: &str) -> PyResult<Vec<Py<PyAny>>> {
-        self.with_store(|store| store.get_nodes_by_file(file_path))?
-            .into_iter()
-            .map(|node| graph_node_to_py(py, node))
-            .collect()
+        let nodes = self.with_store(|store| store.get_nodes_by_file(file_path))?;
+        graph_nodes_to_py_vec(py, nodes)
     }
 
     #[pyo3(signature = (kinds, file_pattern = None))]
@@ -163,25 +171,19 @@ impl PyGraphStore {
         kinds: Vec<String>,
         file_pattern: Option<&str>,
     ) -> PyResult<Vec<Py<PyAny>>> {
-        self.with_store(|store| store.get_nodes_by_kind(&kinds, file_pattern))?
-            .into_iter()
-            .map(|node| graph_node_to_py(py, node))
-            .collect()
+        let nodes = self.with_store(|store| store.get_nodes_by_kind(&kinds, file_pattern))?;
+        graph_nodes_to_py_vec(py, nodes)
     }
 
     #[pyo3(signature = (exclude_files = false))]
     fn get_all_nodes(&self, py: Python<'_>, exclude_files: bool) -> PyResult<Vec<Py<PyAny>>> {
-        self.with_store(|store| store.get_all_nodes_filtered(exclude_files))?
-            .into_iter()
-            .map(|node| graph_node_to_py(py, node))
-            .collect()
+        let nodes = self.with_store(|store| store.get_all_nodes_filtered(exclude_files))?;
+        graph_nodes_to_py_vec(py, nodes)
     }
 
     fn get_all_edges(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
-        self.with_store(|store| store.get_all_edges())?
-            .into_iter()
-            .map(|edge| graph_edge_to_py(py, edge))
-            .collect()
+        let edges = self.with_store(|store| store.get_all_edges())?;
+        graph_edges_to_py_vec(py, edges)
     }
 
     fn get_stats(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
@@ -194,10 +196,8 @@ impl PyGraphStore {
         py: Python<'_>,
         community_id: i64,
     ) -> PyResult<Vec<Py<PyAny>>> {
-        self.with_store(|store| store.get_nodes_by_community_id(community_id))?
-            .into_iter()
-            .map(|node| graph_node_to_py(py, node))
-            .collect()
+        let nodes = self.with_store(|store| store.get_nodes_by_community_id(community_id))?;
+        graph_nodes_to_py_vec(py, nodes)
     }
 
     fn get_files_matching(&self, pattern: &str) -> PyResult<Vec<String>> {
@@ -303,10 +303,8 @@ impl PyGraphStore {
         py: Python<'_>,
         qualified_name: &str,
     ) -> PyResult<Vec<Py<PyAny>>> {
-        self.with_store(|store| store.get_edges_by_source(qualified_name))?
-            .into_iter()
-            .map(|edge| graph_edge_to_py(py, edge))
-            .collect()
+        let edges = self.with_store(|store| store.get_edges_by_source(qualified_name))?;
+        graph_edges_to_py_vec(py, edges)
     }
 
     fn get_edges_by_target(
@@ -314,10 +312,8 @@ impl PyGraphStore {
         py: Python<'_>,
         qualified_name: &str,
     ) -> PyResult<Vec<Py<PyAny>>> {
-        self.with_store(|store| store.get_edges_by_target(qualified_name))?
-            .into_iter()
-            .map(|edge| graph_edge_to_py(py, edge))
-            .collect()
+        let edges = self.with_store(|store| store.get_edges_by_target(qualified_name))?;
+        graph_edges_to_py_vec(py, edges)
     }
 
     fn get_edges_by_endpoints(
@@ -357,31 +353,9 @@ impl PyGraphStore {
     ) -> PyResult<RustStoreSummary> {
         let os = PyModule::import(py, "os")?;
         let repo_root: String = os.getattr("fspath")?.call1((repo_root,))?.extract()?;
-        let repo_root = std::path::Path::new(&repo_root);
-        let mut batch = Vec::new();
-        let mut errors = Vec::new();
-        let mut total_nodes = 0_usize;
-        let mut total_edges = 0_usize;
-        let mut parser = dagayn_core::parser::RustOwnedParser::new();
-
-        for file_path in file_paths {
-            if !dagayn_core::parser::rust_parser_owns_path(&file_path) {
-                errors.push((file_path, "unsupported Rust parser path".to_string()));
-                continue;
-            }
-            let source = match std::fs::read(repo_root.join(&file_path)) {
-                Ok(source) => source,
-                Err(err) => {
-                    errors.push((file_path, err.to_string()));
-                    continue;
-                }
-            };
-            let mtime_ns = file_mtime_ns(&repo_root.join(&file_path)).unwrap_or(0);
-            let (nodes, edges) = parse_rust_owned_file_inputs(&mut parser, &file_path, &source);
-            total_nodes += nodes.len();
-            total_edges += edges.len();
-            batch.push((file_path, nodes, edges, sha256_hex(&source), mtime_ns));
-        }
+        let repo_root = std::path::PathBuf::from(repo_root);
+        let (batch, total_nodes, total_edges, errors) =
+            py.detach(|| collect_rust_owned_file_batch(&repo_root, file_paths));
 
         if !batch.is_empty() {
             self.with_store_mut(|store| store.store_file_batch(&batch))?;
@@ -397,54 +371,10 @@ impl PyGraphStore {
     ) -> PyResult<RustStoreSummary> {
         let os = PyModule::import(py, "os")?;
         let repo_root: String = os.getattr("fspath")?.call1((repo_root,))?.extract()?;
-        let repo_root = std::path::Path::new(&repo_root);
+        let repo_root = std::path::PathBuf::from(repo_root);
         let file_meta = self.with_store(|store| store.get_file_meta_for_files(&file_paths))?;
-        let mut batch = Vec::new();
-        let mut mtime_updates = Vec::new();
-        let mut errors = Vec::new();
-        let mut total_nodes = 0_usize;
-        let mut total_edges = 0_usize;
-        let mut parser = dagayn_core::parser::RustOwnedParser::new();
-
-        for file_path in file_paths {
-            if !dagayn_core::parser::rust_parser_owns_path(&file_path) {
-                errors.push((file_path, "unsupported Rust parser path".to_string()));
-                continue;
-            }
-            let full_path = repo_root.join(&file_path);
-            let mtime_ns = match file_mtime_ns(&full_path) {
-                Ok(mtime_ns) => mtime_ns,
-                Err(err) => {
-                    errors.push((file_path, err.to_string()));
-                    continue;
-                }
-            };
-            if file_meta
-                .get(&file_path)
-                .is_some_and(|(_, stored_mtime_ns)| *stored_mtime_ns == mtime_ns)
-            {
-                continue;
-            }
-            let source = match std::fs::read(&full_path) {
-                Ok(source) => source,
-                Err(err) => {
-                    errors.push((file_path, err.to_string()));
-                    continue;
-                }
-            };
-            let file_hash = sha256_hex(&source);
-            if file_meta
-                .get(&file_path)
-                .is_some_and(|(stored_hash, _)| *stored_hash == file_hash)
-            {
-                mtime_updates.push((file_path, mtime_ns));
-                continue;
-            }
-            let (nodes, edges) = parse_rust_owned_file_inputs(&mut parser, &file_path, &source);
-            total_nodes += nodes.len();
-            total_edges += edges.len();
-            batch.push((file_path, nodes, edges, file_hash, mtime_ns));
-        }
+        let (batch, mtime_updates, total_nodes, total_edges, errors) =
+            py.detach(|| collect_changed_rust_owned_file_batch(&repo_root, file_paths, &file_meta));
 
         if !mtime_updates.is_empty() || !batch.is_empty() {
             self.with_store_mut(|store| {
@@ -466,48 +396,10 @@ impl PyGraphStore {
     ) -> PyResult<RustChangedFilesSummary> {
         let os = PyModule::import(py, "os")?;
         let repo_root: String = os.getattr("fspath")?.call1((repo_root,))?.extract()?;
-        let repo_root = std::path::Path::new(&repo_root);
+        let repo_root = std::path::PathBuf::from(repo_root);
         let file_meta = self.with_store(|store| store.get_file_meta_for_files(&file_paths))?;
-        let mut changed_files = Vec::new();
-        let mut mtime_updates = Vec::new();
-        let mut errors = Vec::new();
-
-        for file_path in file_paths {
-            if !dagayn_core::parser::rust_parser_owns_path(&file_path) {
-                errors.push((file_path, "unsupported Rust parser path".to_string()));
-                continue;
-            }
-            let full_path = repo_root.join(&file_path);
-            let mtime_ns = match file_mtime_ns(&full_path) {
-                Ok(mtime_ns) => mtime_ns,
-                Err(err) => {
-                    errors.push((file_path, err.to_string()));
-                    continue;
-                }
-            };
-            if file_meta
-                .get(&file_path)
-                .is_some_and(|(_, stored_mtime_ns)| *stored_mtime_ns == mtime_ns)
-            {
-                continue;
-            }
-            let source = match std::fs::read(&full_path) {
-                Ok(source) => source,
-                Err(err) => {
-                    errors.push((file_path, err.to_string()));
-                    continue;
-                }
-            };
-            let file_hash = sha256_hex(&source);
-            if file_meta
-                .get(&file_path)
-                .is_some_and(|(stored_hash, _)| *stored_hash == file_hash)
-            {
-                mtime_updates.push((file_path, mtime_ns));
-                continue;
-            }
-            changed_files.push(file_path);
-        }
+        let (changed_files, mtime_updates, errors) = py
+            .detach(|| classify_changed_rust_owned_file_batch(&repo_root, file_paths, &file_meta));
 
         if !mtime_updates.is_empty() {
             self.with_store_mut(|store| store.update_file_mtimes(&mtime_updates))?;
@@ -712,6 +604,143 @@ fn parse_rust_owned_file_inputs(
     )
 }
 
+fn collect_rust_owned_file_batch(
+    repo_root: &std::path::Path,
+    file_paths: Vec<String>,
+) -> RustFileBatchSummary {
+    let mut batch = Vec::new();
+    let mut errors = Vec::new();
+    let mut total_nodes = 0_usize;
+    let mut total_edges = 0_usize;
+    let mut parser = dagayn_core::parser::RustOwnedParser::new();
+
+    for file_path in file_paths {
+        if !dagayn_core::parser::rust_parser_owns_path(&file_path) {
+            errors.push((file_path, "unsupported Rust parser path".to_string()));
+            continue;
+        }
+        let full_path = repo_root.join(&file_path);
+        let source = match std::fs::read(&full_path) {
+            Ok(source) => source,
+            Err(err) => {
+                errors.push((file_path, err.to_string()));
+                continue;
+            }
+        };
+        let mtime_ns = file_mtime_ns(&full_path).unwrap_or(0);
+        let (nodes, edges) = parse_rust_owned_file_inputs(&mut parser, &file_path, &source);
+        total_nodes += nodes.len();
+        total_edges += edges.len();
+        batch.push((file_path, nodes, edges, sha256_hex(&source), mtime_ns));
+    }
+
+    (batch, total_nodes, total_edges, errors)
+}
+
+fn collect_changed_rust_owned_file_batch(
+    repo_root: &std::path::Path,
+    file_paths: Vec<String>,
+    file_meta: &HashMap<String, (String, i64)>,
+) -> RustChangedFileBatchSummary {
+    let mut batch = Vec::new();
+    let mut mtime_updates = Vec::new();
+    let mut errors = Vec::new();
+    let mut total_nodes = 0_usize;
+    let mut total_edges = 0_usize;
+    let mut parser = dagayn_core::parser::RustOwnedParser::new();
+
+    for file_path in file_paths {
+        if !dagayn_core::parser::rust_parser_owns_path(&file_path) {
+            errors.push((file_path, "unsupported Rust parser path".to_string()));
+            continue;
+        }
+        let Some((source, file_hash, mtime_ns)) = changed_rust_owned_file_source(
+            repo_root,
+            &file_path,
+            file_meta,
+            &mut mtime_updates,
+            &mut errors,
+        ) else {
+            continue;
+        };
+        let (nodes, edges) = parse_rust_owned_file_inputs(&mut parser, &file_path, &source);
+        total_nodes += nodes.len();
+        total_edges += edges.len();
+        batch.push((file_path, nodes, edges, file_hash, mtime_ns));
+    }
+
+    (batch, mtime_updates, total_nodes, total_edges, errors)
+}
+
+fn classify_changed_rust_owned_file_batch(
+    repo_root: &std::path::Path,
+    file_paths: Vec<String>,
+    file_meta: &HashMap<String, (String, i64)>,
+) -> RustClassifiedFilesSummary {
+    let mut changed_files = Vec::new();
+    let mut mtime_updates = Vec::new();
+    let mut errors = Vec::new();
+
+    for file_path in file_paths {
+        if !dagayn_core::parser::rust_parser_owns_path(&file_path) {
+            errors.push((file_path, "unsupported Rust parser path".to_string()));
+            continue;
+        }
+        if changed_rust_owned_file_source(
+            repo_root,
+            &file_path,
+            file_meta,
+            &mut mtime_updates,
+            &mut errors,
+        )
+        .is_some()
+        {
+            changed_files.push(file_path);
+        }
+    }
+
+    (changed_files, mtime_updates, errors)
+}
+
+fn changed_rust_owned_file_source(
+    repo_root: &std::path::Path,
+    file_path: &str,
+    file_meta: &HashMap<String, (String, i64)>,
+    mtime_updates: &mut Vec<(String, i64)>,
+    errors: &mut Vec<(String, String)>,
+) -> Option<(Vec<u8>, String, i64)> {
+    let full_path = repo_root.join(file_path);
+    let mtime_ns = match file_mtime_ns(&full_path) {
+        Ok(mtime_ns) => mtime_ns,
+        Err(err) => {
+            errors.push((file_path.to_string(), err.to_string()));
+            return None;
+        }
+    };
+    if file_meta
+        .get(file_path)
+        .is_some_and(|(_, stored_mtime_ns)| *stored_mtime_ns == mtime_ns)
+    {
+        return None;
+    }
+    let source = match std::fs::read(&full_path) {
+        Ok(source) => source,
+        Err(err) => {
+            errors.push((file_path.to_string(), err.to_string()));
+            return None;
+        }
+    };
+    let file_hash = sha256_hex(&source);
+    if file_meta
+        .get(file_path)
+        .is_some_and(|(stored_hash, _)| *stored_hash == file_hash)
+    {
+        mtime_updates.push((file_path.to_string(), mtime_ns));
+        return None;
+    }
+    Some((source, file_hash, mtime_ns))
+}
+
 fn file_mtime_ns(path: &std::path::Path) -> std::io::Result<i64> {
     let modified = std::fs::metadata(path)?.modified()?;
     Ok(modified
@@ -822,10 +851,11 @@ fn flow_adjacency_to_py(
     let py_has_tested_by = PySet::new(py, has_tested_by)?;
     let py_nodes_by_qn = PyDict::new(py);
     let py_nodes_by_id = PyDict::new(py);
+    let node_cls = types.getattr("GraphNode")?;
     for node in nodes {
         let node_id = node.id;
         let qualified_name = node.qualified_name.clone();
-        let py_node = graph_node_to_py(py, node)?;
+        let py_node = graph_node_to_py_with_cls(py, &node_cls, node)?;
         py_nodes_by_qn.set_item(qualified_name, py_node.bind(py))?;
         py_nodes_by_id.set_item(node_id, py_node.bind(py))?;
     }
@@ -843,6 +873,14 @@ fn flow_adjacency_to_py(
 fn graph_node_to_py(py: Python<'_>, node: GraphNode) -> PyResult<Py<PyAny>> {
     let types = PyModule::import(py, "dagayn.graph.types")?;
     let cls = types.getattr("GraphNode")?;
+    graph_node_to_py_with_cls(py, &cls, node)
+}
+
+fn graph_node_to_py_with_cls(
+    py: Python<'_>,
+    cls: &Bound<'_, PyAny>,
+    node: GraphNode,
+) -> PyResult<Py<PyAny>> {
     let extra = json_value_to_py(py, &node.extra)?;
     let args = PyTuple::new(
         py,
@@ -866,13 +904,24 @@ fn graph_node_to_py(py: Python<'_>, node: GraphNode) -> PyResult<Py<PyAny>> {
     Ok(cls.call1(args)?.unbind())
 }
 
+fn graph_nodes_to_py_vec(py: Python<'_>, nodes: Vec<GraphNode>) -> PyResult<Vec<Py<PyAny>>> {
+    let types = PyModule::import(py, "dagayn.graph.types")?;
+    let cls = types.getattr("GraphNode")?;
+    nodes
+        .into_iter()
+        .map(|node| graph_node_to_py_with_cls(py, &cls, node))
+        .collect()
+}
+
 fn node_map_by_string_to_py(
     py: Python<'_>,
     nodes_by_key: std::collections::HashMap<String, GraphNode>,
 ) -> PyResult<Py<PyAny>> {
+    let types = PyModule::import(py, "dagayn.graph.types")?;
+    let cls = types.getattr("GraphNode")?;
     let out = PyDict::new(py);
     for (key, node) in nodes_by_key {
-        out.set_item(key, graph_node_to_py(py, node)?.bind(py))?;
+        out.set_item(key, graph_node_to_py_with_cls(py, &cls, node)?.bind(py))?;
     }
     Ok(out.unbind().into_any())
 }
@@ -881,16 +930,20 @@ fn node_map_by_id_to_py(
     py: Python<'_>,
     nodes_by_id: std::collections::HashMap<i64, GraphNode>,
 ) -> PyResult<Py<PyAny>> {
+    let types = PyModule::import(py, "dagayn.graph.types")?;
+    let cls = types.getattr("GraphNode")?;
     let out = PyDict::new(py);
     for (node_id, node) in nodes_by_id {
-        out.set_item(node_id, graph_node_to_py(py, node)?.bind(py))?;
+        out.set_item(node_id, graph_node_to_py_with_cls(py, &cls, node)?.bind(py))?;
     }
     Ok(out.unbind().into_any())
 }
 
-fn graph_edge_to_py(py: Python<'_>, edge: GraphEdge) -> PyResult<Py<PyAny>> {
-    let types = PyModule::import(py, "dagayn.graph.types")?;
-    let cls = types.getattr("GraphEdge")?;
+fn graph_edge_to_py_with_cls(
+    py: Python<'_>,
+    cls: &Bound<'_, PyAny>,
+    edge: GraphEdge,
+) -> PyResult<Py<PyAny>> {
     let extra = json_value_to_py(py, &edge.extra)?;
     Ok(cls
         .call1((
@@ -907,15 +960,26 @@ fn graph_edge_to_py(py: Python<'_>, edge: GraphEdge) -> PyResult<Py<PyAny>> {
         .unbind())
 }
 
+fn graph_edges_to_py_vec(py: Python<'_>, edges: Vec<GraphEdge>) -> PyResult<Vec<Py<PyAny>>> {
+    let types = PyModule::import(py, "dagayn.graph.types")?;
+    let cls = types.getattr("GraphEdge")?;
+    edges
+        .into_iter()
+        .map(|edge| graph_edge_to_py_with_cls(py, &cls, edge))
+        .collect()
+}
+
 fn edge_map_to_py(
     py: Python<'_>,
     edges_by_key: std::collections::HashMap<String, Vec<GraphEdge>>,
 ) -> PyResult<Py<PyAny>> {
+    let types = PyModule::import(py, "dagayn.graph.types")?;
+    let cls = types.getattr("GraphEdge")?;
     let out = PyDict::new(py);
     for (key, edges) in edges_by_key {
         let list = PyList::empty(py);
         for edge in edges {
-            list.append(graph_edge_to_py(py, edge)?.bind(py))?;
+            list.append(graph_edge_to_py_with_cls(py, &cls, edge)?.bind(py))?;
         }
         out.set_item(key, list)?;
     }
@@ -947,9 +1011,38 @@ fn graph_stats_to_py(py: Python<'_>, stats: GraphStats) -> PyResult<Py<PyAny>> {
 }
 
 fn json_value_to_py(py: Python<'_>, value: &Value) -> PyResult<Py<PyAny>> {
-    let json = PyModule::import(py, "json")?;
-    let raw = serde_json::to_string(value).map_err(|err| PyValueError::new_err(err.to_string()))?;
-    Ok(json.getattr("loads")?.call1((raw,))?.unbind())
+    match value {
+        Value::Null => Ok(py.None()),
+        Value::Bool(value) => Ok(PyBool::new(py, *value).to_owned().unbind().into_any()),
+        Value::Number(value) => {
+            if let Some(value) = value.as_i64() {
+                Ok(value.into_pyobject(py)?.unbind().into_any())
+            } else if let Some(value) = value.as_u64() {
+                Ok(value.into_pyobject(py)?.unbind().into_any())
+            } else if let Some(value) = value.as_f64() {
+                Ok(value.into_pyobject(py)?.unbind().into_any())
+            } else {
+                Err(PyValueError::new_err("invalid JSON number"))
+            }
+        }
+        Value::String(value) => Ok(value.into_pyobject(py)?.unbind().into_any()),
+        Value::Array(values) => {
+            let list = PyList::empty(py);
+            for value in values {
+                let value = json_value_to_py(py, value)?;
+                list.append(value.bind(py))?;
+            }
+            Ok(list.unbind().into_any())
+        }
+        Value::Object(values) => {
+            let dict = PyDict::new(py);
+            for (key, value) in values {
+                let value = json_value_to_py(py, value)?;
+                dict.set_item(key, value.bind(py))?;
+            }
+            Ok(dict.unbind().into_any())
+        }
+    }
 }
 
 fn to_py_runtime_error(err: dagayn_core::GraphError) -> PyErr {

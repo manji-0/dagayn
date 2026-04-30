@@ -1802,25 +1802,11 @@ impl GraphStore {
     }
 
     pub fn get_flow_by_id_json(&self, flow_id: i64) -> Result<Option<String>> {
-        let flow = self
-            .conn
-            .query_row("SELECT * FROM flows WHERE id = ?", [flow_id], |row| {
-                flow_json_from_row(row)
-            })
-            .optional()?;
-        let Some(mut flow) = flow else {
-            return Ok(None);
-        };
-        let path_ids = flow
-            .get("path")
-            .and_then(Value::as_array)
-            .map(|items| items.iter().filter_map(Value::as_i64).collect::<Vec<_>>())
-            .unwrap_or_default();
-        let steps = self.flow_steps_json(&path_ids)?;
-        if let Some(obj) = flow.as_object_mut() {
-            obj.insert("steps".to_string(), Value::Array(steps));
-        }
-        serde_json::to_string(&flow).map(Some).map_err(Into::into)
+        self.get_flow_values_by_ids(&[flow_id])?
+            .into_iter()
+            .next()
+            .map(|flow| serde_json::to_string(&flow).map_err(Into::into))
+            .transpose()
     }
 
     pub fn get_affected_flows_json(&self, changed_files: &[String]) -> Result<String> {
@@ -1835,12 +1821,7 @@ impl GraphStore {
         if flow_ids.is_empty() {
             return Ok("[]".to_string());
         }
-        let mut flows = Vec::new();
-        for flow_id in flow_ids {
-            if let Some(raw) = self.get_flow_by_id_json(flow_id)? {
-                flows.push(serde_json::from_str::<Value>(&raw)?);
-            }
-        }
+        let mut flows = self.get_flow_values_by_ids(&flow_ids)?;
         flows.sort_by(|left, right| {
             let left = left
                 .get("criticality")
@@ -2127,11 +2108,15 @@ impl GraphStore {
         let sql = format!("SELECT * FROM communities WHERE size >= ? ORDER BY {sort_by} {order}");
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map([min_size], community_json_from_row)?;
-        let mut communities = Vec::new();
-        for row in rows {
-            let mut community = row?;
+        let mut communities = rows.collect::<std::result::Result<Vec<_>, _>>()?;
+        let community_ids = communities
+            .iter()
+            .filter_map(|community| community.get("id").and_then(Value::as_i64))
+            .collect::<Vec<_>>();
+        let members_by_community = self.get_community_member_qns_by_ids(&community_ids)?;
+        for community in &mut communities {
             let id = community.get("id").and_then(Value::as_i64).unwrap_or(0);
-            let members = self.get_community_member_qns(id)?;
+            let members = members_by_community.get(&id).cloned().unwrap_or_default();
             if let Some(obj) = community.as_object_mut() {
                 obj.insert(
                     "members".to_string(),
@@ -2143,18 +2128,38 @@ impl GraphStore {
                     ),
                 );
             }
-            communities.push(community);
         }
         serde_json::to_string(&communities).map_err(Into::into)
     }
 
-    fn get_community_member_qns(&self, community_id: i64) -> Result<Vec<String>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT qualified_name FROM nodes WHERE community_id = ?")?;
-        let rows = stmt.query_map([community_id], |row| row.get::<_, String>(0))?;
-        rows.collect::<std::result::Result<Vec<_>, _>>()
-            .map_err(Into::into)
+    fn get_community_member_qns_by_ids(
+        &self,
+        community_ids: &[i64],
+    ) -> Result<HashMap<i64, Vec<String>>> {
+        let mut out = HashMap::new();
+        for chunk in community_ids.chunks(450) {
+            if chunk.is_empty() {
+                continue;
+            }
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!(
+                "SELECT community_id, qualified_name FROM nodes \
+                 WHERE community_id IN ({placeholders}) ORDER BY community_id"
+            );
+            let mut stmt = self.conn.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })?;
+            for row in rows {
+                let (community_id, qualified_name) = row?;
+                out.entry(community_id)
+                    .or_insert_with(Vec::new)
+                    .push(qualified_name);
+            }
+        }
+        Ok(out)
     }
 
     pub fn get_all_community_member_qns(&self) -> Result<HashMap<i64, Vec<String>>> {
@@ -2346,38 +2351,41 @@ impl GraphStore {
         Ok(out)
     }
 
-    fn flow_steps_json(&self, path_ids: &[i64]) -> Result<Vec<Value>> {
-        if path_ids.is_empty() {
+    fn get_flow_values_by_ids(&self, flow_ids: &[i64]) -> Result<Vec<Value>> {
+        if flow_ids.is_empty() {
             return Ok(Vec::new());
         }
-        let mut nodes_by_id = HashMap::new();
-        for chunk in path_ids.chunks(450) {
+
+        let mut flows = Vec::new();
+        for chunk in flow_ids.chunks(450) {
             let placeholders = std::iter::repeat_n("?", chunk.len())
                 .collect::<Vec<_>>()
                 .join(",");
-            let sql = format!("SELECT * FROM nodes WHERE id IN ({placeholders})");
+            let sql = format!("SELECT * FROM flows WHERE id IN ({placeholders})");
             let mut stmt = self.conn.prepare(&sql)?;
-            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), node_from_row)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), flow_json_from_row)?;
             for row in rows {
-                let node = row?;
-                nodes_by_id.insert(node.id, node);
+                flows.push(row?);
             }
         }
-        let mut steps = Vec::new();
-        for node_id in path_ids {
-            if let Some(node) = nodes_by_id.get(node_id) {
-                steps.push(json!({
-                    "node_id": node.id,
-                    "name": sanitize_name(&node.name),
-                    "kind": node.kind,
-                    "file": node.file_path,
-                    "line_start": node.line_start,
-                    "line_end": node.line_end,
-                    "qualified_name": sanitize_name(&node.qualified_name),
-                }));
+
+        let mut path_node_ids = HashSet::new();
+        for flow in &flows {
+            for node_id in flow_path_ids(flow) {
+                path_node_ids.insert(node_id);
             }
         }
-        Ok(steps)
+        let path_node_ids = path_node_ids.into_iter().collect::<Vec<_>>();
+        let nodes_by_id = self.get_nodes_by_ids(&path_node_ids)?;
+
+        for flow in &mut flows {
+            let path_ids = flow_path_ids(flow);
+            let steps = flow_steps_from_nodes(&path_ids, &nodes_by_id);
+            if let Some(obj) = flow.as_object_mut() {
+                obj.insert("steps".to_string(), Value::Array(steps));
+            }
+        }
+        Ok(flows)
     }
 
     pub fn get_edges_by_source(&self, qualified_name: &str) -> Result<Vec<GraphEdge>> {
@@ -2441,37 +2449,47 @@ impl GraphStore {
             let rows = stmt.query_map(rusqlite::params_from_iter(params), edge_from_row)?;
             for row in rows {
                 let edge = row?;
-                let source_originals = normalized_to_originals
-                    .get(&edge.source_qualified)
-                    .cloned()
-                    .unwrap_or_else(|| {
-                        if outgoing.contains_key(&edge.source_qualified) {
-                            vec![edge.source_qualified.clone()]
-                        } else {
-                            Vec::new()
+                if let Some(source_originals) = normalized_to_originals.get(&edge.source_qualified)
+                {
+                    for original in source_originals {
+                        if let Some(seen) = seen_out.get_mut(original) {
+                            if seen.insert(edge.id) {
+                                outgoing
+                                    .entry(original.clone())
+                                    .or_default()
+                                    .push(edge.clone());
+                            }
                         }
-                    });
-                let target_originals = normalized_to_originals
-                    .get(&edge.target_qualified)
-                    .cloned()
-                    .unwrap_or_else(|| {
-                        if incoming.contains_key(&edge.target_qualified) {
-                            vec![edge.target_qualified.clone()]
-                        } else {
-                            Vec::new()
-                        }
-                    });
-                for original in source_originals {
-                    if let Some(seen) = seen_out.get_mut(&original) {
+                    }
+                } else if outgoing.contains_key(&edge.source_qualified) {
+                    if let Some(seen) = seen_out.get_mut(&edge.source_qualified) {
                         if seen.insert(edge.id) {
-                            outgoing.entry(original).or_default().push(edge.clone());
+                            outgoing
+                                .entry(edge.source_qualified.clone())
+                                .or_default()
+                                .push(edge.clone());
                         }
                     }
                 }
-                for original in target_originals {
-                    if let Some(seen) = seen_in.get_mut(&original) {
+                if let Some(target_originals) = normalized_to_originals.get(&edge.target_qualified)
+                {
+                    for original in target_originals {
+                        if let Some(seen) = seen_in.get_mut(original) {
+                            if seen.insert(edge.id) {
+                                incoming
+                                    .entry(original.clone())
+                                    .or_default()
+                                    .push(edge.clone());
+                            }
+                        }
+                    }
+                } else if incoming.contains_key(&edge.target_qualified) {
+                    if let Some(seen) = seen_in.get_mut(&edge.target_qualified) {
                         if seen.insert(edge.id) {
-                            incoming.entry(original).or_default().push(edge.clone());
+                            incoming
+                                .entry(edge.target_qualified.clone())
+                                .or_default()
+                                .push(edge.clone());
                         }
                     }
                 }
@@ -2975,6 +2993,31 @@ fn flow_json_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
         "created_at": row.get::<_, String>("created_at")?,
         "updated_at": row.get::<_, String>("updated_at")?,
     }))
+}
+
+fn flow_path_ids(flow: &Value) -> Vec<i64> {
+    flow.get("path")
+        .and_then(Value::as_array)
+        .map(|items| items.iter().filter_map(Value::as_i64).collect())
+        .unwrap_or_default()
+}
+
+fn flow_steps_from_nodes(path_ids: &[i64], nodes_by_id: &HashMap<i64, GraphNode>) -> Vec<Value> {
+    let mut steps = Vec::new();
+    for node_id in path_ids {
+        if let Some(node) = nodes_by_id.get(node_id) {
+            steps.push(json!({
+                "node_id": node.id,
+                "name": sanitize_name(&node.name),
+                "kind": node.kind,
+                "file": node.file_path,
+                "line_start": node.line_start,
+                "line_end": node.line_end,
+                "qualified_name": sanitize_name(&node.qualified_name),
+            }));
+        }
+    }
+    steps
 }
 
 fn community_json_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
