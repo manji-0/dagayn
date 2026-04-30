@@ -1103,8 +1103,7 @@ def _store_rust_parse_batches(
             total_nodes += int(node_count)
             total_edges += int(edge_count)
             errors.extend(
-                {"file": str(file_path), "error": str(error)}
-                for file_path, error in raw_errors
+                {"file": str(file_path), "error": str(error)} for file_path, error in raw_errors
             )
         return total_nodes, total_edges, errors
     if not hasattr(store, "store_file_batch_json"):
@@ -1367,8 +1366,7 @@ def incremental_update(
             rust_content_changed_files.update(rust_changed)
             content_changed_files.update(rust_changed)
             errors.extend(
-                {"file": str(file_path), "error": str(error)}
-                for file_path, error in raw_errors
+                {"file": str(file_path), "error": str(error)} for file_path, error in raw_errors
             )
         else:
             content_changed_files.update(rust_changed_candidates)
@@ -1495,8 +1493,7 @@ def incremental_update(
                 to_parse_rust_checked,
             )
             rust_errors = [
-                {"file": str(file_path), "error": str(error)}
-                for file_path, error in raw_errors
+                {"file": str(file_path), "error": str(error)} for file_path, error in raw_errors
             ]
         else:
             rust_nodes, rust_edges, rust_errors = _store_rust_parse_batches(

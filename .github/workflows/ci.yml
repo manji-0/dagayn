@@ -97,3 +97,31 @@ jobs:
         run: uv run python -m dagayn.vendor_grammars
       - name: Run tests with coverage
         run: uv run pytest --tb=short -q --cov=dagayn --cov-report=term-missing --cov-fail-under=65
+
+  rust-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+      - name: Install dependencies (frozen)
+        run: uv sync --frozen --extra dev
+      - name: Build editable package with Rust backend
+        run: uvx maturin develop --release
+      - name: Check Rust workspace
+        run: |
+          cargo test --workspace
+          cargo clippy --workspace -- -D warnings
+      - name: Run Rust backend parity tests
+        env:
+          DAGAYN_BACKEND: rust
+        run: uv run pytest tests/test_rust_backend_parity.py -q
+      - name: Smoke-test uvx source install path
+        run: uvx --refresh --from . dagayn --help

@@ -1,4 +1,5 @@
 use std::env;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -14,6 +15,8 @@ const MARKDOWN: GrammarSpec = GrammarSpec {
     required_paths: &[
         "src/parser.c",
         "src/scanner.c",
+        "src/tree_sitter/alloc.h",
+        "src/tree_sitter/array.h",
         "src/tree_sitter/parser.h",
         "bindings/python/binding.c",
     ],
@@ -25,6 +28,8 @@ const TERRAFORM: GrammarSpec = GrammarSpec {
     required_paths: &[
         "src/parser.c",
         "src/scanner.c",
+        "src/tree_sitter/alloc.h",
+        "src/tree_sitter/array.h",
         "src/tree_sitter/parser.h",
         "bindings/python/binding.c",
     ],
@@ -50,6 +55,7 @@ fn main() {
 
 fn compile_grammar(repo_root: &Path, spec: &GrammarSpec) {
     let source_dir = ensure_source_dir(repo_root, spec);
+    stage_packaged_source(repo_root, spec, &source_dir);
     for required in spec.required_paths {
         println!(
             "cargo:rerun-if-changed={}",
@@ -68,6 +74,56 @@ fn compile_grammar(repo_root: &Path, spec: &GrammarSpec) {
         .flag_if_supported("-Wno-unused-parameter")
         .flag_if_supported("-Wno-unused-but-set-variable");
     build.compile(&format!("dagayn_tree_sitter_{}", spec.symbol));
+}
+
+fn stage_packaged_source(repo_root: &Path, spec: &GrammarSpec, source_dir: &Path) {
+    let packaged = repo_root
+        .join("dagayn")
+        .join("_vendor_grammars")
+        .join(spec.language);
+    if same_path(source_dir, &packaged) {
+        return;
+    }
+    if is_ready(&packaged, spec) {
+        return;
+    }
+    if packaged.exists() {
+        fs::remove_dir_all(&packaged).unwrap_or_else(|err| {
+            panic!(
+                "failed to clear packaged {} grammar source at {}: {err}",
+                spec.language,
+                packaged.display()
+            )
+        });
+    }
+    for required in spec.required_paths {
+        let source = source_dir.join(required);
+        let target = packaged.join(required);
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent).unwrap_or_else(|err| {
+                panic!(
+                    "failed to create packaged {} grammar directory {}: {err}",
+                    spec.language,
+                    parent.display()
+                )
+            });
+        }
+        fs::copy(&source, &target).unwrap_or_else(|err| {
+            panic!(
+                "failed to stage packaged {} grammar file {} -> {}: {err}",
+                spec.language,
+                source.display(),
+                target.display()
+            )
+        });
+    }
+}
+
+fn same_path(left: &Path, right: &Path) -> bool {
+    match (left.canonicalize(), right.canonicalize()) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => false,
+    }
 }
 
 fn ensure_source_dir(repo_root: &Path, spec: &GrammarSpec) -> PathBuf {

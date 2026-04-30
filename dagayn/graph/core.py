@@ -479,9 +479,7 @@ class GraphStore:
                 f"AND file_path IN ({placeholders})",
                 chunk,
             ).fetchall()
-            out.update(
-                {r["file_path"]: (r["file_hash"] or "", r["mtime_ns"] or 0) for r in rows}
-            )
+            out.update({r["file_path"]: (r["file_hash"] or "", r["mtime_ns"] or 0) for r in rows})
         return out
 
     def update_file_mtime(self, file_path: str, mtime_ns: int) -> None:

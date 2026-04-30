@@ -143,10 +143,26 @@ The parser handles:
 ## Installation
 
 ```bash
-pip install git+https://github.com/manji-0/dagayn.git
+pip install dagayn
 ```
 
-If you prefer isolated tool installs, `pipx` also works.
+For an isolated one-shot CLI, `uvx` works well:
+
+```bash
+uvx --from dagayn dagayn --help
+```
+
+To run directly from the Git repository, use the same `uvx --from` shape:
+
+```bash
+uvx --from git+https://github.com/manji-0/dagayn.git dagayn --help
+```
+
+Git/source installs build the PyO3 Rust extension locally, so they require a
+Rust toolchain and a C compiler. Published wheels include the compiled
+extension for supported targets.
+
+If you prefer persistent isolated tool installs, `pipx` also works.
 
 ## Quick start
 
@@ -161,6 +177,22 @@ dagayn status
 `build` creates the initial graph.
 
 `status` confirms the graph exists and reports basic counts.
+
+### Rust backend
+
+The Python backend remains the default. To use the Rust-backed graph store and
+Rust-owned Markdown/Terraform parser paths, set `DAGAYN_BACKEND=rust`:
+
+```bash
+DAGAYN_BACKEND=rust dagayn build
+DAGAYN_BACKEND=rust dagayn update
+```
+
+The same environment variable works with `uvx`:
+
+```bash
+DAGAYN_BACKEND=rust uvx --from dagayn dagayn build
+```
 
 ## Common CLI flows
 

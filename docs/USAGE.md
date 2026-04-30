@@ -5,8 +5,24 @@
 ## Install the package
 
 ```bash
-pip install git+https://github.com/manji-0/dagayn.git
+pip install dagayn
 ```
+
+For an isolated invocation without a persistent environment:
+
+```bash
+uvx --from dagayn dagayn --help
+```
+
+To run from the Git repository instead of a published wheel:
+
+```bash
+uvx --from git+https://github.com/manji-0/dagayn.git dagayn --help
+```
+
+Git/source installs build the PyO3 Rust extension locally. Install a Rust
+toolchain and a C compiler first when no prebuilt wheel is available for your
+platform.
 
 ## Register MCP integration
 
@@ -30,6 +46,22 @@ dagayn status
 ```
 
 Use `build` the first time, `update` for change-driven refreshes, and `watch` during active development.
+
+## Use the Rust backend
+
+The Python backend is still the default. Set `DAGAYN_BACKEND=rust` to use the
+Rust-backed graph store and Rust-owned Markdown/Terraform parser paths:
+
+```bash
+DAGAYN_BACKEND=rust dagayn build
+DAGAYN_BACKEND=rust dagayn update
+```
+
+With `uvx`, pass the same environment variable:
+
+```bash
+DAGAYN_BACKEND=rust uvx --from dagayn dagayn build
+```
 
 ## Review changes
 

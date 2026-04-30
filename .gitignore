@@ -37,6 +37,7 @@ node_modules/
 
 # Rust
 target/
+dagayn/_vendor_grammars/
 
 # VS Code extension build artifacts
 code-review-graph-vscode/dist/

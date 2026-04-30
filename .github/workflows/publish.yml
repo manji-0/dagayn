@@ -14,19 +14,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
+          enable-cache: true
 
-      - name: Install build tools
-        run: pip install build twine
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Build package
-        run: python -m build
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build source distribution and Linux wheel
+        run: uvx maturin build --release --sdist --out dist
 
       - name: Publish to PyPI
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-        run: twine upload dist/*
+        run: uvx twine upload dist/*

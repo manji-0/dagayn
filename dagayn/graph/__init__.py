@@ -21,9 +21,7 @@ elif _BACKEND == "rust":
             "Build the PyO3 extension with maturin before using the Rust backend."
         ) from exc
 else:
-    raise RuntimeError(
-        f"Unsupported DAGAYN_BACKEND={_BACKEND!r}; expected 'python' or 'rust'."
-    )
+    raise RuntimeError(f"Unsupported DAGAYN_BACKEND={_BACKEND!r}; expected 'python' or 'rust'.")
 
 __all__ = [
     "FlowAdjacency",

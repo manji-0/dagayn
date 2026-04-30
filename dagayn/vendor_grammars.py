@@ -78,6 +78,8 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
         required_paths=(
             "src/parser.c",
             "src/scanner.c",
+            "src/tree_sitter/alloc.h",
+            "src/tree_sitter/array.h",
             "src/tree_sitter/parser.h",
             "bindings/python/binding.c",
         ),
@@ -92,6 +94,8 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
         required_paths=(
             "src/parser.c",
             "src/scanner.c",
+            "src/tree_sitter/alloc.h",
+            "src/tree_sitter/array.h",
             "src/tree_sitter/parser.h",
             "bindings/python/binding.c",
         ),

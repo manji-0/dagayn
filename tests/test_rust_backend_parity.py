@@ -16,7 +16,6 @@ from parity_export import export_db  # noqa: E402
 
 from tests.conftest import PARITY_FIXTURE_DIR
 
-
 RUST_OWNED_PARITY_FIXTURES = [
     "terraform_only",
     "markdown_only",
@@ -57,9 +56,7 @@ def test_rust_backend_matches_python_parity_snapshots(name, tmp_path_factory, mo
         store.close()
 
     actual = export_db(db_path)
-    expected = (PARITY_FIXTURE_DIR / "__snapshots__" / f"{name}.json").read_text(
-        encoding="utf-8"
-    )
+    expected = (PARITY_FIXTURE_DIR / "__snapshots__" / f"{name}.json").read_text(encoding="utf-8")
     assert actual == expected
 
 
