@@ -957,6 +957,21 @@ impl GraphStore {
         Ok(())
     }
 
+    pub fn update_file_mtimes(&mut self, updates: &[(String, i64)]) -> Result<()> {
+        if updates.is_empty() {
+            return Ok(());
+        }
+        let tx = self.conn.transaction()?;
+        {
+            let mut stmt = tx.prepare("UPDATE nodes SET mtime_ns = ? WHERE file_path = ?")?;
+            for (file_path, mtime_ns) in updates {
+                stmt.execute(params![mtime_ns, file_path])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     pub fn get_node(&self, qualified_name: &str) -> Result<Option<GraphNode>> {
         for key in self.qualified_key_candidates(qualified_name)? {
             let row = self

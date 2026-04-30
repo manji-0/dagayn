@@ -430,9 +430,7 @@ impl PyGraphStore {
 
         if !mtime_updates.is_empty() || !batch.is_empty() {
             self.with_store_mut(|store| {
-                for (file_path, mtime_ns) in &mtime_updates {
-                    store.update_file_mtime(file_path, *mtime_ns)?;
-                }
+                store.update_file_mtimes(&mtime_updates)?;
                 if !batch.is_empty() {
                     store.store_file_batch(&batch)?;
                 }
