@@ -256,6 +256,22 @@ def _migrate_v11(conn: sqlite3.Connection) -> None:
         logger.info("Migration v11: added 'mtime_ns' column to nodes")
 
 
+def _migrate_v12(conn: sqlite3.Connection) -> None:
+    """v12: Clear all CROSS_ARTIFACT edges to force re-resolution with the new
+    idempotent resolver.
+
+    The Markdown parser now stores ``extra.original_symbol_name`` instead of
+    ``extra.unresolved_target_name``.  Old CROSS_ARTIFACT edges (both unresolved
+    with ``unresolved_target_name`` and already-resolved ones without it) lack
+    the new key and cannot be picked up by the idempotent resolver.  Dropping
+    them here is safe: the next ``dagayn build`` or ``dagayn update`` that touches
+    any Markdown file will recreate them with the new schema.
+    """
+    result = conn.execute("DELETE FROM edges WHERE kind='CROSS_ARTIFACT'")
+    count = result.rowcount
+    logger.info("Migration v12: removed %d stale CROSS_ARTIFACT edges", count)
+
+
 # ---------------------------------------------------------------------------
 # Migration registry
 # ---------------------------------------------------------------------------
@@ -271,6 +287,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     9: _migrate_v9,
     10: _migrate_v10,
     11: _migrate_v11,
+    12: _migrate_v12,
 }
 
 LATEST_VERSION = max(MIGRATIONS.keys())

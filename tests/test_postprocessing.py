@@ -355,7 +355,7 @@ class TestMarkdownArtifactResolver:
                 "target_language": "unknown",
                 "confidence": 0.2,
                 "confidence_tier": "LOW",
-                "unresolved_target_name": sym,
+                "original_symbol_name": sym,
             },
         )
 
@@ -385,11 +385,12 @@ class TestMarkdownArtifactResolver:
         assert row["target_qualified"] == "/repo/parser.py::BridgePattern"
         assert row["confidence_tier"] == "HIGH"
         extra = json.loads(row["extra"])
-        assert "unresolved_target_name" not in extra
+        assert extra["original_symbol_name"] == "BridgePattern"  # always preserved
         assert extra["target_language"] == "python"
         assert extra["confidence"] == 0.8
 
-    def test_drops_ambiguous_match(self):
+    def test_keeps_ambiguous_as_unresolved(self):
+        """Ambiguous matches keep the edge as <unresolved:> instead of deleting it."""
         for fp in ("/repo/a.py", "/repo/b.py"):
             self.store.upsert_node(
                 NodeInfo(
@@ -408,13 +409,15 @@ class TestMarkdownArtifactResolver:
         _resolve_markdown_artifact_refs(self.store, result, [])
 
         assert result["markdown_artifact_refs_resolved"] == 0
-        assert result["markdown_artifact_refs_dropped"] == 1
+        assert result["markdown_artifact_refs_dropped"] == 0  # not deleted, just stays
+        assert result["markdown_artifact_refs_still_unresolved"] == 1
         count = self.store._conn.execute(
             "SELECT COUNT(*) FROM edges WHERE kind='CROSS_ARTIFACT'"
         ).fetchone()[0]
-        assert count == 0
+        assert count == 1  # edge preserved for future re-evaluation
 
-    def test_drops_unmatched(self):
+    def test_keeps_unmatched_as_unresolved(self):
+        """No-match symbols keep the edge as <unresolved:> instead of deleting it."""
         self.store.upsert_edge(self._unresolved_edge("NonexistentSymbolXYZ"))
         self.store.commit()
 
@@ -422,7 +425,12 @@ class TestMarkdownArtifactResolver:
         _resolve_markdown_artifact_refs(self.store, result, [])
 
         assert result["markdown_artifact_refs_resolved"] == 0
-        assert result["markdown_artifact_refs_dropped"] == 1
+        assert result["markdown_artifact_refs_dropped"] == 0
+        assert result["markdown_artifact_refs_still_unresolved"] == 1
+        count = self.store._conn.execute(
+            "SELECT COUNT(*) FROM edges WHERE kind='CROSS_ARTIFACT'"
+        ).fetchone()[0]
+        assert count == 1
 
     def test_does_not_match_markdown_nodes(self):
         self.store.upsert_node(
@@ -442,7 +450,8 @@ class TestMarkdownArtifactResolver:
         result: dict = {}
         _resolve_markdown_artifact_refs(self.store, result, [])
 
-        assert result["markdown_artifact_refs_dropped"] == 1
+        assert result["markdown_artifact_refs_still_unresolved"] == 1
+        assert result["markdown_artifact_refs_resolved"] == 0
 
     def test_idempotent_second_run_no_ops(self):
         self.store.upsert_node(

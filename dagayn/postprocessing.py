@@ -58,50 +58,69 @@ def _resolve_markdown_artifact_refs(
     result: dict[str, Any],
     warnings: list[str],
 ) -> None:
-    """Resolve unresolved Markdown → code CROSS_ARTIFACT edges.
+    """Idempotently resolve/update all Markdown→code CROSS_ARTIFACT edges.
 
-    Edges emitted by the Markdown parser carry a placeholder target
-    ``<unresolved:{name}>`` and ``extra.unresolved_target_name``.  This step
-    looks each name up in the nodes table:
+    Every CROSS_ARTIFACT edge emitted by the Markdown parser carries
+    ``extra.original_symbol_name`` — the raw backtick span symbol.  This
+    step runs on every postprocess call and brings each edge in line with
+    the *current* state of the nodes table:
 
-    - Unique match → rewrite target to the node's qualified_name; promote
-      confidence to HIGH (0.8).
-    - Zero or multiple matches → delete the edge (strict / HIGH-only policy).
+    - Unique non-markdown match → ``target_qualified`` = the node's
+      ``qualified_name``; confidence promoted to HIGH (0.8).
+    - Zero or 2+ matches → ``target_qualified`` = ``<unresolved:{sym}>``;
+      confidence stays LOW (0.2).  The edge is **kept** so a future run
+      can resolve it once the symbol situation changes.
+
+    Edges are never deleted here; they persist until the source MD file is
+    re-parsed (which replaces them).  This makes the resolver idempotent:
+    running it twice in a row produces the same DB state.
+
+    Result keys:
+      ``markdown_artifact_refs_resolved``   — transitions unresolved→resolved
+      ``markdown_artifact_refs_dropped``    — transitions resolved→unresolved (demoted)
+      ``markdown_artifact_refs_re_resolved`` — resolved but to a different qname
+      ``markdown_artifact_refs_still_unresolved`` — unchanged unresolved count
     """
     import json
 
     resolved = 0
-    dropped = 0
+    demoted = 0
+    re_resolved = 0
+    still_unresolved = 0
+
     try:
         rows = store._conn.execute(
-            "SELECT id, extra "
+            "SELECT id, target_qualified, extra "
             "FROM edges "
-            "WHERE kind='CROSS_ARTIFACT' "
-            "AND extra LIKE '%unresolved_target_name%'"
+            "WHERE kind='CROSS_ARTIFACT' AND extra LIKE '%original_symbol_name%'"
         ).fetchall()
 
         if not rows:
             result["markdown_artifact_refs_resolved"] = 0
             result["markdown_artifact_refs_dropped"] = 0
+            result["markdown_artifact_refs_re_resolved"] = 0
+            result["markdown_artifact_refs_still_unresolved"] = 0
             return
 
         # Parse extras and collect unique symbol names in one pass
-        edge_data: list[tuple[int, str, dict]] = []  # (edge_id, sym, extra_dict)
+        edge_data: list[tuple[int, str, str, dict]] = []  # (id, current_target, sym, extra)
         symbols: set[str] = set()
         for row in rows:
             try:
                 extra = json.loads(row["extra"] or "{}")
             except (json.JSONDecodeError, TypeError):
                 continue
-            sym = extra.get("unresolved_target_name")
+            sym = extra.get("original_symbol_name")
             if not sym:
                 continue
-            edge_data.append((row["id"], sym, extra))
+            edge_data.append((row["id"], row["target_qualified"], sym, extra))
             symbols.add(sym)
 
         if not edge_data:
             result["markdown_artifact_refs_resolved"] = 0
             result["markdown_artifact_refs_dropped"] = 0
+            result["markdown_artifact_refs_re_resolved"] = 0
+            result["markdown_artifact_refs_still_unresolved"] = 0
             return
 
         # Batch-fetch node matches for all unique symbols (1 query per 450 symbols)
@@ -121,23 +140,36 @@ def _resolve_markdown_artifact_refs(
                     (mr["qualified_name"], mr["language"] or "unknown")
                 )
 
-        # Classify edges into updates vs deletes
+        # Compute desired state; only UPDATE rows where the state actually changes
         to_update: list[tuple] = []  # (new_target, new_extra_json, confidence, tier, edge_id)
-        to_delete: list[int] = []
-        for edge_id, sym, extra in edge_data:
+
+        for edge_id, current_target, sym, extra in edge_data:
             matches = matches_by_sym.get(sym, [])
+            unresolved_target = f"<unresolved:{sym}>"
+
             if len(matches) == 1:
                 qname, lang = matches[0]
+                if current_target == qname:
+                    continue  # already correct — no-op
                 new_extra = dict(extra)
-                new_extra.pop("unresolved_target_name", None)
                 new_extra["target_language"] = lang
                 new_extra["confidence"] = 0.8
                 new_extra["confidence_tier"] = "HIGH"
                 to_update.append((qname, json.dumps(new_extra), 0.8, "HIGH", edge_id))
-                resolved += 1
+                if current_target.startswith("<unresolved:"):
+                    resolved += 1
+                else:
+                    re_resolved += 1
             else:
-                to_delete.append(edge_id)
-                dropped += 1
+                if current_target == unresolved_target:
+                    still_unresolved += 1
+                    continue  # already correct — no-op
+                new_extra = dict(extra)
+                new_extra.pop("target_language", None)
+                new_extra["confidence"] = 0.2
+                new_extra["confidence_tier"] = "LOW"
+                to_update.append((unresolved_target, json.dumps(new_extra), 0.2, "LOW", edge_id))
+                demoted += 1
 
         if to_update:
             store._conn.executemany(
@@ -146,18 +178,12 @@ def _resolve_markdown_artifact_refs(
                 "WHERE id=?",
                 to_update,
             )
-        if to_delete:
-            for i in range(0, len(to_delete), batch_size):
-                chunk = to_delete[i : i + batch_size]
-                placeholders = ",".join("?" for _ in chunk)
-                store._conn.execute(  # nosec B608
-                    f"DELETE FROM edges WHERE id IN ({placeholders})",
-                    chunk,
-                )
 
         store.commit()
         result["markdown_artifact_refs_resolved"] = resolved
-        result["markdown_artifact_refs_dropped"] = dropped
+        result["markdown_artifact_refs_dropped"] = demoted
+        result["markdown_artifact_refs_re_resolved"] = re_resolved
+        result["markdown_artifact_refs_still_unresolved"] = still_unresolved
     except sqlite3.OperationalError as e:
         logger.warning("Markdown artifact ref resolution failed: %s", e)
         warnings.append(f"Markdown artifact ref resolution failed: {type(e).__name__}: {e}")

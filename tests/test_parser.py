@@ -1676,7 +1676,7 @@ class TestCrossArtifactEdges:
     def test_markdown_unresolved_edges_emitted(self):
         _, edges = self.parser.parse_file(FIXTURES / "sample_doc_with_refs.md")
         ca = [e for e in edges if e.kind == "CROSS_ARTIFACT"]
-        syms = {e.extra.get("unresolved_target_name") for e in ca}
+        syms = {e.extra.get("original_symbol_name") for e in ca}
         assert "BridgePattern" in syms
         assert "_detect_cross_language_bridge" in syms
         assert "dagayn.parser" in syms
@@ -1687,7 +1687,7 @@ class TestCrossArtifactEdges:
     def test_markdown_filter_skips_non_symbols(self):
         _, edges = self.parser.parse_file(FIXTURES / "sample_doc_with_refs.md")
         ca = [e for e in edges if e.kind == "CROSS_ARTIFACT"]
-        syms = {e.extra.get("unresolved_target_name") for e in ca}
+        syms = {e.extra.get("original_symbol_name") for e in ca}
         assert "git status" not in syms
         assert "--flag" not in syms
         assert "if" not in syms
@@ -1709,7 +1709,7 @@ class TestCrossArtifactEdges:
             "target_language",
             "confidence",
             "confidence_tier",
-            "unresolved_target_name",
+            "original_symbol_name",
         }
         for edge in ca:
             missing = required - edge.extra.keys()
@@ -1725,14 +1725,14 @@ class TestCrossArtifactEdges:
         ca = [e for e in edges if e.kind == "CROSS_ARTIFACT"]
 
         top_edge = next(
-            (e for e in ca if e.extra.get("unresolved_target_name") == "BridgePattern"),
+            (e for e in ca if e.extra.get("original_symbol_name") == "BridgePattern"),
             None,
         )
         assert top_edge is not None
         assert "api-overview" in top_edge.source
 
         sub_edge = next(
-            (e for e in ca if e.extra.get("unresolved_target_name") == "_bridge_first_string_arg"),
+            (e for e in ca if e.extra.get("original_symbol_name") == "_bridge_first_string_arg"),
             None,
         )
         assert sub_edge is not None
