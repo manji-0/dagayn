@@ -690,9 +690,10 @@ def get_flow_by_id(store: GraphStore, flow_id: int) -> Optional[dict]:
     path_ids: list[int] = json.loads(row["path_json"])
 
     # Build detailed step info.
+    nodes_by_id = store.get_nodes_by_ids(path_ids)
     steps: list[dict] = []
     for nid in path_ids:
-        node = store.get_node_by_id(nid)
+        node = nodes_by_id.get(nid)
         if node:
             steps.append(
                 {

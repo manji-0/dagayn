@@ -239,9 +239,10 @@ def _embedding_search(
             return []
 
         results = emb_store.search(query, limit=limit)
+        nodes_by_qn = store.get_nodes_by_qualified_names([qn for qn, _ in results])
         id_scores: list[tuple[int, float]] = []
         for qn, score in results:
-            node = store.get_node(qn)
+            node = nodes_by_qn.get(qn)
             if node:
                 id_scores.append((node.id, score))
         return id_scores

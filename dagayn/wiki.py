@@ -70,9 +70,10 @@ def _generate_community_page(store: GraphStore, community: dict[str, Any]) -> st
         lines.append("|------|------|------|-------|")
 
         # Fetch node details for members (limit to 50)
+        member_nodes = store.get_nodes_by_qualified_names(list(member_qns[:50]))
         member_count = 0
         for qn in member_qns[:50]:
-            node = store.get_node(qn)
+            node = member_nodes.get(qn)
             if node and node.kind != "File":
                 node_name = _sanitize_name(node.name)
                 lines.append(
@@ -100,10 +101,13 @@ def _generate_community_page(store: GraphStore, community: dict[str, Any]) -> st
     member_set = set(member_qns)
     try:
         all_flows = get_flows(store, sort_by="criticality", limit=200)
+        flow_qns_by_id = store.get_flow_qualified_names_for_flows(
+            [int(flow["id"]) for flow in all_flows]
+        )
         community_flows: list[dict] = []
         for flow in all_flows:
             # Check if this flow passes through any community member
-            flow_qns = store.get_flow_qualified_names(flow["id"])
+            flow_qns = flow_qns_by_id.get(int(flow["id"]), set())
             if flow_qns & member_set:
                 community_flows.append(flow)
 

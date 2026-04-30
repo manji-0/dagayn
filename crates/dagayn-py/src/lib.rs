@@ -165,6 +165,11 @@ impl PyGraphStore {
         graph_nodes_to_py_vec(py, nodes)
     }
 
+    fn get_nodes_by_files(&self, py: Python<'_>, file_paths: Vec<String>) -> PyResult<Py<PyAny>> {
+        let nodes_by_file = self.with_store(|store| store.get_nodes_by_files(&file_paths))?;
+        node_list_map_to_py(py, nodes_by_file)
+    }
+
     #[pyo3(signature = (kinds, file_pattern = None))]
     fn get_nodes_by_kind(
         &self,
@@ -225,6 +230,20 @@ impl PyGraphStore {
         node_ids: Vec<i64>,
     ) -> PyResult<std::collections::HashMap<i64, Vec<f64>>> {
         self.with_store(|store| store.get_flow_criticalities_for_nodes(&node_ids))
+    }
+
+    fn get_flow_qualified_names_for_flows(
+        &self,
+        py: Python<'_>,
+        flow_ids: Vec<i64>,
+    ) -> PyResult<Py<PyAny>> {
+        let flow_qns =
+            self.with_store(|store| store.get_flow_qualified_names_for_flows(&flow_ids))?;
+        let out = PyDict::new(py);
+        for (flow_id, qualified_names) in flow_qns {
+            out.set_item(flow_id, PySet::new(py, qualified_names)?)?;
+        }
+        Ok(out.unbind().into_any())
     }
 
     fn get_node_community_id(&self, node_id: i64) -> PyResult<Option<i64>> {
@@ -1035,6 +1054,23 @@ fn node_map_by_string_to_py(
     let out = PyDict::new(py);
     for (key, node) in nodes_by_key {
         out.set_item(key, graph_node_to_py_with_cls(py, &cls, node)?.bind(py))?;
+    }
+    Ok(out.unbind().into_any())
+}
+
+fn node_list_map_to_py(
+    py: Python<'_>,
+    nodes_by_key: std::collections::HashMap<String, Vec<GraphNode>>,
+) -> PyResult<Py<PyAny>> {
+    let types = PyModule::import(py, "dagayn.graph.types")?;
+    let cls = types.getattr("GraphNode")?;
+    let out = PyDict::new(py);
+    for (key, nodes) in nodes_by_key {
+        let list = PyList::empty(py);
+        for node in nodes {
+            list.append(graph_node_to_py_with_cls(py, &cls, node)?.bind(py))?;
+        }
+        out.set_item(key, list)?;
     }
     Ok(out.unbind().into_any())
 }

@@ -566,6 +566,39 @@ class GraphStore:
                 out.append(self._row_to_node(row))
         return out
 
+    def get_nodes_by_files(self, file_paths: list[str]) -> dict[str, list[GraphNode]]:
+        """Batch-fetch nodes for multiple file paths."""
+        result: dict[str, list[GraphNode]] = {file_path: [] for file_path in file_paths}
+        if not file_paths:
+            return result
+
+        key_to_originals: dict[str, list[str]] = {}
+        for file_path in file_paths:
+            normalized = self._normalize_file_path_key(file_path)
+            keys = [file_path, normalized] if normalized != file_path else [file_path]
+            for key in keys:
+                key_to_originals.setdefault(key, []).append(file_path)
+
+        seen_by_original: dict[str, set[int]] = {file_path: set() for file_path in file_paths}
+        keys = list(key_to_originals)
+        batch_size = 450
+        for i in range(0, len(keys), batch_size):
+            batch = keys[i : i + batch_size]
+            placeholders = ",".join("?" for _ in batch)
+            rows = self._conn.execute(  # nosec B608
+                f"SELECT * FROM nodes WHERE file_path IN ({placeholders})",
+                batch,
+            ).fetchall()
+            for row in rows:
+                node = self._row_to_node(row)
+                for original in key_to_originals.get(row["file_path"], []):
+                    seen = seen_by_original[original]
+                    if node.id in seen:
+                        continue
+                    seen.add(node.id)
+                    result[original].append(node)
+        return result
+
     def get_all_nodes(self, exclude_files: bool = True) -> list[GraphNode]:
         """Return all nodes, optionally excluding File nodes."""
         if exclude_files:
@@ -1024,8 +1057,9 @@ class GraphStore:
 
         # Seed qualified names
         seeds: set[str] = set()
+        nodes_by_file = self.get_nodes_by_files(changed_files)
         for f in changed_files:
-            nodes = self.get_nodes_by_file(f)
+            nodes = nodes_by_file.get(f, [])
             for n in nodes:
                 seeds.add(n.qualified_name)
 
@@ -1137,8 +1171,9 @@ class GraphStore:
         nxg = self._build_networkx_graph()
 
         seeds: set[str] = set()
+        nodes_by_file = self.get_nodes_by_files(changed_files)
         for f in changed_files:
-            nodes = self.get_nodes_by_file(f)
+            nodes = nodes_by_file.get(f, [])
             for n in nodes:
                 seeds.add(n.qualified_name)
 
@@ -1194,18 +1229,17 @@ class GraphStore:
 
     def get_subgraph(self, qualified_names: list[str]) -> dict[str, Any]:
         """Extract a subgraph containing the specified nodes and their connecting edges."""
-        nodes = []
-        for qn in qualified_names:
-            node = self.get_node(qn)
-            if node:
-                nodes.append(node)
-
-        edges = []
         qn_set = set(qualified_names)
-        for qn in qualified_names:
-            for e in self.get_edges_by_source(qn):
-                if e.target_qualified in qn_set:
-                    edges.append(e)
+        nodes_by_qn = self.get_nodes_by_qualified_names(qualified_names)
+        nodes = [node for qn in qualified_names if (node := nodes_by_qn.get(qn))]
+
+        outgoing, _ = self.get_edges_by_endpoints(list(qn_set))
+        edges = [
+            edge
+            for edge_list in outgoing.values()
+            for edge in edge_list
+            if edge.target_qualified in qn_set
+        ]
 
         return {"nodes": nodes, "edges": edges}
 
@@ -1548,6 +1582,27 @@ class GraphStore:
             (flow_id,),
         ).fetchall()
         return {r["qualified_name"] for r in rows}
+
+    def get_flow_qualified_names_for_flows(self, flow_ids: list[int]) -> dict[int, set[str]]:
+        """Batch-return qualified node names keyed by flow id."""
+        result: dict[int, set[str]] = {flow_id: set() for flow_id in flow_ids}
+        if not flow_ids:
+            return result
+
+        unique_ids = list(dict.fromkeys(flow_ids))
+        batch_size = 450
+        for i in range(0, len(unique_ids), batch_size):
+            batch = unique_ids[i : i + batch_size]
+            placeholders = ",".join("?" for _ in batch)
+            rows = self._conn.execute(  # nosec B608
+                "SELECT fm.flow_id, n.qualified_name FROM flow_memberships fm "
+                "JOIN nodes n ON fm.node_id = n.id "
+                f"WHERE fm.flow_id IN ({placeholders})",
+                batch,
+            ).fetchall()
+            for row in rows:
+                result.setdefault(row["flow_id"], set()).add(row["qualified_name"])
+        return result
 
     def get_node_kind_by_id(self, node_id: int) -> str | None:
         """Return just the ``kind`` column for a node, or ``None``."""

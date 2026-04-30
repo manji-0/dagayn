@@ -1124,6 +1124,56 @@ impl GraphStore {
         Ok(nodes)
     }
 
+    pub fn get_nodes_by_files(
+        &self,
+        file_paths: &[String],
+    ) -> Result<HashMap<String, Vec<GraphNode>>> {
+        let mut out = file_paths
+            .iter()
+            .map(|file_path| (file_path.clone(), Vec::new()))
+            .collect::<HashMap<_, _>>();
+        if file_paths.is_empty() {
+            return Ok(out);
+        }
+
+        let mut key_to_originals: HashMap<String, Vec<String>> = HashMap::new();
+        for file_path in file_paths {
+            for key in self.file_key_candidates(file_path)? {
+                key_to_originals
+                    .entry(key)
+                    .or_default()
+                    .push(file_path.clone());
+            }
+        }
+
+        let mut seen_by_original = file_paths
+            .iter()
+            .map(|file_path| (file_path.clone(), HashSet::new()))
+            .collect::<HashMap<_, _>>();
+        let keys = key_to_originals.keys().cloned().collect::<Vec<_>>();
+        for chunk in keys.chunks(450) {
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!("SELECT * FROM nodes WHERE file_path IN ({placeholders})");
+            let mut stmt = self.conn.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), node_from_row)?;
+            for row in rows {
+                let node = row?;
+                if let Some(originals) = key_to_originals.get(&node.file_path) {
+                    for original in originals {
+                        if let Some(seen) = seen_by_original.get_mut(original) {
+                            if seen.insert(node.id) {
+                                out.entry(original.clone()).or_default().push(node.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(out)
+    }
+
     pub fn get_nodes_by_kind(
         &self,
         kinds: &[String],
@@ -2250,10 +2300,13 @@ impl GraphStore {
     fn changed_nodes_by_files(&self, changed_files: &[String]) -> Result<Vec<GraphNode>> {
         let mut out = Vec::new();
         let mut seen = HashSet::new();
+        let nodes_by_file = self.get_nodes_by_files(changed_files)?;
         for file_path in changed_files {
-            for node in self.get_nodes_by_file(file_path)? {
-                if seen.insert(node.qualified_name.clone()) {
-                    out.push(node);
+            if let Some(nodes) = nodes_by_file.get(file_path) {
+                for node in nodes {
+                    if seen.insert(node.qualified_name.clone()) {
+                        out.push(node.clone());
+                    }
                 }
             }
         }
@@ -2263,11 +2316,17 @@ impl GraphStore {
     fn changed_nodes_by_ranges(&self, changed_ranges: &ChangedRanges) -> Result<Vec<GraphNode>> {
         let mut out = Vec::new();
         let mut seen = HashSet::new();
+        let file_paths = changed_ranges.keys().cloned().collect::<Vec<_>>();
+        let nodes_by_file = self.get_nodes_by_files(&file_paths)?;
         for (file_path, ranges) in changed_ranges {
-            let mut nodes = self.get_nodes_by_file(file_path)?;
+            let mut nodes = nodes_by_file.get(file_path).cloned().unwrap_or_default();
             if nodes.is_empty() {
-                for matched_path in self.get_files_matching(file_path)? {
-                    nodes.extend(self.get_nodes_by_file(&matched_path)?);
+                let matched_paths = self.get_files_matching(file_path)?;
+                let matched_nodes = self.get_nodes_by_files(&matched_paths)?;
+                for matched_path in matched_paths {
+                    if let Some(found) = matched_nodes.get(&matched_path) {
+                        nodes.extend(found.iter().cloned());
+                    }
                 }
             }
             for node in nodes {
@@ -2277,8 +2336,8 @@ impl GraphStore {
                 if ranges
                     .iter()
                     .any(|(start, end)| node.line_start <= *end && node.line_end >= *start)
+                    && seen.insert(node.qualified_name.clone())
                 {
-                    seen.insert(node.qualified_name.clone());
                     out.push(node);
                 }
             }
@@ -2350,6 +2409,48 @@ impl GraphStore {
                 if seen.insert(flow_id) {
                     out.push(flow_id);
                 }
+            }
+        }
+        Ok(out)
+    }
+
+    pub fn get_flow_qualified_names_for_flows(
+        &self,
+        flow_ids: &[i64],
+    ) -> Result<HashMap<i64, HashSet<String>>> {
+        let mut out = flow_ids
+            .iter()
+            .map(|flow_id| (*flow_id, HashSet::new()))
+            .collect::<HashMap<_, _>>();
+        if flow_ids.is_empty() {
+            return Ok(out);
+        }
+
+        let mut unique_ids = Vec::new();
+        let mut seen = HashSet::new();
+        for flow_id in flow_ids {
+            if seen.insert(*flow_id) {
+                unique_ids.push(*flow_id);
+            }
+        }
+
+        for chunk in unique_ids.chunks(450) {
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!(
+                "SELECT fm.flow_id, n.qualified_name \
+                 FROM flow_memberships fm \
+                 JOIN nodes n ON fm.node_id = n.id \
+                 WHERE fm.flow_id IN ({placeholders})"
+            );
+            let mut stmt = self.conn.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })?;
+            for row in rows {
+                let (flow_id, qualified_name) = row?;
+                out.entry(flow_id).or_default().insert(qualified_name);
             }
         }
         Ok(out)
