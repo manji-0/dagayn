@@ -964,6 +964,7 @@ fn to_py_runtime_error(err: dagayn_core::GraphError) -> PyErr {
 fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyGraphStore>()?;
     module.add_function(wrap_pyfunction!(filter_parseable_files, module)?)?;
+    module.add_function(wrap_pyfunction!(filter_incremental_candidates, module)?)?;
     module.add_function(wrap_pyfunction!(collect_parseable_files, module)?)?;
     module.add_function(wrap_pyfunction!(
         parse_rust_owned_files_compact_json,
@@ -972,6 +973,22 @@ fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(parse_markdown_compact_json, module)?)?;
     module.add_function(wrap_pyfunction!(parse_terraform_compact_json, module)?)?;
     Ok(())
+}
+
+#[pyfunction]
+fn filter_incremental_candidates(
+    py: Python<'_>,
+    repo_root: &Bound<'_, PyAny>,
+    candidates: Vec<String>,
+    ignore_patterns: Vec<String>,
+) -> PyResult<(Vec<String>, Vec<String>)> {
+    let os = PyModule::import(py, "os")?;
+    let repo_root: String = os.getattr("fspath")?.call1((repo_root,))?.extract()?;
+    Ok(dagayn_core::parser::filter_incremental_candidates(
+        std::path::Path::new(&repo_root),
+        &candidates,
+        &ignore_patterns,
+    ))
 }
 
 #[pyfunction]

@@ -61,6 +61,35 @@ pub fn filter_parseable_files(
         .collect()
 }
 
+pub fn filter_incremental_candidates(
+    repo_root: &Path,
+    candidates: &[String],
+    ignore_patterns: &[String],
+) -> (Vec<String>, Vec<String>) {
+    let globset = build_globset(ignore_patterns);
+    let mut parseable_files = Vec::new();
+    let mut removed_files = Vec::new();
+    for candidate in candidates {
+        let rel_path = candidate.as_str();
+        if should_ignore(rel_path, ignore_patterns, globset.as_ref()) {
+            continue;
+        }
+        let full_path = repo_root.join(rel_path);
+        if !full_path.is_file() {
+            removed_files.push(candidate.clone());
+            continue;
+        }
+        if full_path.is_symlink() {
+            continue;
+        }
+        if detect_language(&full_path).is_none() || is_binary(&full_path) {
+            continue;
+        }
+        parseable_files.push(candidate.clone());
+    }
+    (parseable_files, removed_files)
+}
+
 pub fn collect_parseable_files(repo_root: &Path, recurse_submodules: Option<bool>) -> Vec<String> {
     let ignore_patterns = load_ignore_patterns(repo_root);
     let candidates = get_git_tracked_files(repo_root, recurse_submodules)

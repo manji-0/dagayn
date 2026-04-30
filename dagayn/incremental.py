@@ -906,6 +906,21 @@ def _filter_incremental_candidates(
     ignore_patterns: list[str],
 ) -> tuple[list[str], list[str]]:
     """Return ``(parseable_files, removed_files)`` for incremental update."""
+    if _rust_backend_enabled():
+        try:
+            from dagayn._core import filter_incremental_candidates
+
+            return filter_incremental_candidates(
+                repo_root,
+                list(rel_paths),
+                ignore_patterns,
+            )
+        except (ImportError, RuntimeError, TypeError, ValueError) as exc:
+            logger.warning(
+                "Rust incremental candidate filtering unavailable, falling back: %s",
+                exc,
+            )
+
     existing_files: list[str] = []
     removed_files: list[str] = []
     for rel_path in rel_paths:
@@ -916,20 +931,6 @@ def _filter_incremental_candidates(
             removed_files.append(rel_path)
             continue
         existing_files.append(rel_path)
-
-    if _rust_backend_enabled():
-        try:
-            from dagayn._core import filter_parseable_files
-
-            return (
-                filter_parseable_files(repo_root, existing_files, ignore_patterns),
-                removed_files,
-            )
-        except (ImportError, RuntimeError, TypeError, ValueError) as exc:
-            logger.warning(
-                "Rust incremental candidate filtering unavailable, falling back: %s",
-                exc,
-            )
 
     parser = CodeParser()
     candidates = []
