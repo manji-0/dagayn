@@ -30,6 +30,20 @@ static TERRAFORM_REFERENCE_RE: LazyLock<Regex> = LazyLock::new(|| {
     )
     .unwrap()
 });
+static MARKDOWN_DIRECTIVE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)<!--\s*(constrained-by|blocked-by|supersedes|derived-from)\s+(.+?)\s*-->")
+        .unwrap()
+});
+static MARKDOWN_INLINE_LINK_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\[[^\]]+\]\(([^)]+)\)").unwrap());
+static MARKDOWN_REF_LINK_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?m)^\s*\[[^\]]+\]:\s*(\S+)").unwrap());
+static MARKDOWN_CODE_SPAN_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"`([^`\n]+)`").unwrap());
+static MARKDOWN_SYMBOL_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$").unwrap());
+static MARKDOWN_TITLE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"\s+(?:"[^"]*"|'[^']*')\s*$"#).unwrap());
 
 pub fn grammar_status() -> dagayn_grammars::GrammarStatus {
     dagayn_grammars::status()
@@ -148,10 +162,52 @@ struct Heading {
     line: i64,
 }
 
+pub struct RustOwnedParser {
+    markdown_parser: Option<tree_sitter::Parser>,
+}
+
+impl RustOwnedParser {
+    pub fn new() -> Self {
+        Self {
+            markdown_parser: new_markdown_parser(),
+        }
+    }
+
+    pub fn parse_file(
+        &mut self,
+        file_path: &str,
+        source: &[u8],
+    ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+        let lowered = file_path.to_ascii_lowercase();
+        if lowered.ends_with(".md") || lowered.ends_with(".markdown") {
+            parse_markdown_with_parser(file_path, source, self.markdown_parser.as_mut())
+        } else if lowered.ends_with(".tf") || lowered.ends_with(".tfvars") {
+            parse_terraform(file_path, source)
+        } else {
+            (Vec::new(), Vec::new())
+        }
+    }
+}
+
+impl Default for RustOwnedParser {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub fn parse_markdown(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let mut parser = new_markdown_parser();
+    parse_markdown_with_parser(file_path, source, parser.as_mut())
+}
+
+fn parse_markdown_with_parser(
+    file_path: &str,
+    source: &[u8],
+    parser: Option<&mut tree_sitter::Parser>,
+) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let text = String::from_utf8_lossy(source);
     let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
-    let headings = collect_markdown_headings(source, &text);
+    let headings = collect_markdown_headings(source, &text, parser);
     let mut nodes = vec![ParsedNode {
         kind: "File".to_string(),
         name: file_path.to_string(),
@@ -224,6 +280,7 @@ pub fn parse_markdown_compact_json(file_path: &str, source: &[u8]) -> String {
 pub fn parse_rust_owned_files_compact_json(repo_root: &Path, file_paths: &[String]) -> String {
     let mut batch = Vec::new();
     let mut errors = Vec::new();
+    let mut parser = RustOwnedParser::new();
     for file_path in file_paths {
         if !rust_parser_owns_path(file_path) {
             errors.push(json!([file_path, "unsupported Rust parser path"]));
@@ -237,7 +294,7 @@ pub fn parse_rust_owned_files_compact_json(repo_root: &Path, file_paths: &[Strin
                 continue;
             }
         };
-        let (nodes, edges) = parse_rust_owned_file(file_path, &source);
+        let (nodes, edges) = parser.parse_file(file_path, &source);
         let (nodes, edges) = parsed_compact_values(nodes, edges);
         batch.push(json!([file_path, nodes, edges, sha256_hex(&source)]));
     }
@@ -427,7 +484,7 @@ fn parsed_compact_values(
     (compact_nodes, compact_edges)
 }
 
-fn parse_rust_owned_file(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+pub fn parse_rust_owned_file(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let lowered = file_path.to_ascii_lowercase();
     if lowered.ends_with(".md") || lowered.ends_with(".markdown") {
         parse_markdown(file_path, source)
@@ -1327,12 +1384,24 @@ fn terraform_qualified(file_path: &str, name: &str) -> String {
     format!("{file_path}::{name}")
 }
 
-fn collect_markdown_headings(source: &[u8], text: &str) -> Vec<Heading> {
+fn new_markdown_parser() -> Option<tree_sitter::Parser> {
     let mut parser = tree_sitter::Parser::new();
     if parser
         .set_language(&dagayn_grammars::markdown_language())
         .is_ok()
     {
+        Some(parser)
+    } else {
+        None
+    }
+}
+
+fn collect_markdown_headings(
+    source: &[u8],
+    text: &str,
+    parser: Option<&mut tree_sitter::Parser>,
+) -> Vec<Heading> {
+    if let Some(parser) = parser {
         if let Some(tree) = parser.parse(source, None) {
             let headings = collect_markdown_headings_from_tree(tree.root_node(), source);
             if !headings.is_empty() {
@@ -1517,10 +1586,7 @@ fn extract_markdown_directives(
     headings: &[Heading],
     edges: &mut Vec<ParsedEdge>,
 ) {
-    let re =
-        Regex::new(r"(?i)<!--\s*(constrained-by|blocked-by|supersedes|derived-from)\s+(.+?)\s*-->")
-            .expect("valid markdown directive regex");
-    for captures in re.captures_iter(text) {
+    for captures in MARKDOWN_DIRECTIVE_RE.captures_iter(text) {
         let Some(matched) = captures.get(0) else {
             continue;
         };
@@ -1566,11 +1632,9 @@ fn extract_markdown_links(
     headings: &[Heading],
     edges: &mut Vec<ParsedEdge>,
 ) {
-    let inline_re = Regex::new(r"\[[^\]]+\]\(([^)]+)\)").expect("valid markdown link regex");
-    let ref_re = Regex::new(r"(?m)^\s*\[[^\]]+\]:\s*(\S+)").expect("valid markdown ref regex");
-    for captures in inline_re
+    for captures in MARKDOWN_INLINE_LINK_RE
         .captures_iter(text)
-        .chain(ref_re.captures_iter(text))
+        .chain(MARKDOWN_REF_LINK_RE.captures_iter(text))
     {
         let Some(matched) = captures.get(0) else {
             continue;
@@ -1621,16 +1685,13 @@ fn extract_markdown_code_spans(
     headings: &[Heading],
     edges: &mut Vec<ParsedEdge>,
 ) {
-    let code_re = Regex::new(r"`([^`\n]+)`").expect("valid markdown code span regex");
-    let symbol_re = Regex::new(r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$")
-        .expect("valid markdown symbol regex");
     let mut seen = std::collections::HashSet::new();
-    for captures in code_re.captures_iter(text) {
+    for captures in MARKDOWN_CODE_SPAN_RE.captures_iter(text) {
         let Some(matched) = captures.get(0) else {
             continue;
         };
         let sym = captures[1].trim();
-        if sym.len() < 3 || !symbol_re.is_match(sym) {
+        if sym.len() < 3 || !MARKDOWN_SYMBOL_RE.is_match(sym) {
             continue;
         }
         if !sym.contains('_') && !sym.contains('.') && sym.len() < 10 {
@@ -1668,8 +1729,7 @@ fn normalize_link_target(target: &str) -> String {
     if target.is_empty() {
         return String::new();
     }
-    let title_re = Regex::new(r#"\s+(?:"[^"]*"|'[^']*')\s*$"#).expect("valid title regex");
-    if let Some(matched) = title_re.find(&target) {
+    if let Some(matched) = MARKDOWN_TITLE_RE.find(&target) {
         target = target[..matched.start()].trim_end().to_string();
     }
     if target.starts_with('<') && target.ends_with('>') {

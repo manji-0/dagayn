@@ -362,6 +362,7 @@ impl PyGraphStore {
         let mut errors = Vec::new();
         let mut total_nodes = 0_usize;
         let mut total_edges = 0_usize;
+        let mut parser = dagayn_core::parser::RustOwnedParser::new();
 
         for file_path in file_paths {
             if !dagayn_core::parser::rust_parser_owns_path(&file_path) {
@@ -376,7 +377,7 @@ impl PyGraphStore {
                 }
             };
             let mtime_ns = file_mtime_ns(&repo_root.join(&file_path)).unwrap_or(0);
-            let (nodes, edges) = parse_rust_owned_file_inputs(&file_path, &source);
+            let (nodes, edges) = parse_rust_owned_file_inputs(&mut parser, &file_path, &source);
             total_nodes += nodes.len();
             total_edges += edges.len();
             batch.push((file_path, nodes, edges, sha256_hex(&source), mtime_ns));
@@ -403,6 +404,7 @@ impl PyGraphStore {
         let mut errors = Vec::new();
         let mut total_nodes = 0_usize;
         let mut total_edges = 0_usize;
+        let mut parser = dagayn_core::parser::RustOwnedParser::new();
 
         for file_path in file_paths {
             if !dagayn_core::parser::rust_parser_owns_path(&file_path) {
@@ -438,7 +440,7 @@ impl PyGraphStore {
                 mtime_updates.push((file_path, mtime_ns));
                 continue;
             }
-            let (nodes, edges) = parse_rust_owned_file_inputs(&file_path, &source);
+            let (nodes, edges) = parse_rust_owned_file_inputs(&mut parser, &file_path, &source);
             total_nodes += nodes.len();
             total_edges += edges.len();
             batch.push((file_path, nodes, edges, file_hash, mtime_ns));
@@ -699,17 +701,11 @@ fn edge_from_py(py: Python<'_>, obj: &Bound<'_, PyAny>) -> PyResult<EdgeInput> {
 }
 
 fn parse_rust_owned_file_inputs(
+    parser: &mut dagayn_core::parser::RustOwnedParser,
     file_path: &str,
     source: &[u8],
 ) -> (Vec<NodeInput>, Vec<EdgeInput>) {
-    let lowered = file_path.to_ascii_lowercase();
-    let (nodes, edges) = if lowered.ends_with(".md") || lowered.ends_with(".markdown") {
-        dagayn_core::parser::parse_markdown(file_path, source)
-    } else if lowered.ends_with(".tf") || lowered.ends_with(".tfvars") {
-        dagayn_core::parser::parse_terraform(file_path, source)
-    } else {
-        (Vec::new(), Vec::new())
-    };
+    let (nodes, edges) = parser.parse_file(file_path, source);
     (
         nodes.into_iter().map(parsed_node_to_input).collect(),
         edges.into_iter().map(parsed_edge_to_input).collect(),
