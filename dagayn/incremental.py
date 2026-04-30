@@ -1460,6 +1460,22 @@ def incremental_update(
                 )
         store.commit()
 
+    if (
+        not removed_files
+        and not to_parse_rust_forced
+        and not to_parse_rust_checked
+        and not to_parse
+    ):
+        return {
+            "files_updated": len(all_files),
+            "total_nodes": total_nodes,
+            "total_edges": total_edges,
+            "changed_files": list(changed_files),
+            "dependent_files": list(dependent_files),
+            "errors": errors,
+            "rescript_resolution": None,
+        }
+
     use_serial = os.environ.get("CRG_SERIAL_PARSE", "") == "1"
     to_parse_mtime = dict(to_parse)
     if to_parse_rust_forced:
