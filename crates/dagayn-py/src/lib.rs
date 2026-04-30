@@ -121,6 +121,14 @@ impl PyGraphStore {
         self.with_store(|store| store.update_file_mtime(file_path, mtime_ns))
     }
 
+    fn update_file_mtimes(&self, updates: Vec<(i64, String)>) -> PyResult<()> {
+        let updates = updates
+            .into_iter()
+            .map(|(mtime_ns, file_path)| (file_path, mtime_ns))
+            .collect::<Vec<_>>();
+        self.with_store_mut(|store| store.update_file_mtimes(&updates))
+    }
+
     fn get_node(&self, py: Python<'_>, qualified_name: &str) -> PyResult<Option<Py<PyAny>>> {
         self.with_store(|store| store.get_node(qualified_name))
             .and_then(|node| node.map(|node| graph_node_to_py(py, node)).transpose())

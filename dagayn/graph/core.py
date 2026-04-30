@@ -488,6 +488,10 @@ class GraphStore:
         """Update mtime_ns for all nodes belonging to *file_path*."""
         self._conn.execute("UPDATE nodes SET mtime_ns=? WHERE file_path=?", (mtime_ns, file_path))
 
+    def update_file_mtimes(self, updates: list[tuple[int, str]]) -> None:
+        """Update mtime_ns for multiple files."""
+        self._conn.executemany("UPDATE nodes SET mtime_ns=? WHERE file_path=?", updates)
+
     # --- Read operations ---
 
     def get_node(self, qualified_name: str) -> Optional[GraphNode]:

@@ -1439,7 +1439,9 @@ def incremental_update(
     # opens its own explicit transaction — avoids nested transaction errors.
     if removed_files or mtime_only_updates:
         if mtime_only_updates:
-            if hasattr(store, "update_file_mtime"):
+            if hasattr(store, "update_file_mtimes"):
+                store.update_file_mtimes(mtime_only_updates)
+            elif hasattr(store, "update_file_mtime"):
                 for mtime_ns, file_path in mtime_only_updates:
                     store.update_file_mtime(file_path, mtime_ns)
             elif hasattr(store, "_conn"):
