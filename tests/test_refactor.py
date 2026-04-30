@@ -819,6 +819,46 @@ class TestApplyRefactor:
             (tmp_dir / ".git").rmdir()
             tmp_dir.rmdir()
 
+    def test_apply_refactor_relative_paths_use_repo_root(self):
+        """Relative edit paths resolve against repo_root for both reads and writes."""
+        tmp_dir = Path(tempfile.mkdtemp())
+        (tmp_dir / ".git").mkdir()
+        (tmp_dir / "pkg").mkdir()
+        target_file = tmp_dir / "pkg" / "example.py"
+        target_file.write_text("def old_func():\n    pass\n", encoding="utf-8")
+        try:
+            rid = "relative1"
+            with _refactor_lock:
+                _pending_refactors[rid] = {
+                    "refactor_id": rid,
+                    "type": "rename",
+                    "old_name": "old_func",
+                    "new_name": "new_func",
+                    "edits": [
+                        {
+                            "file": "pkg/example.py",
+                            "line": 1,
+                            "old": "old_func",
+                            "new": "new_func",
+                            "confidence": "high",
+                        }
+                    ],
+                    "stats": {"high": 1, "medium": 0, "low": 0},
+                    "created_at": time.time(),
+                }
+            result = apply_refactor(rid, tmp_dir)
+            assert result["status"] == "ok"
+            assert result["edits_applied"] == 1
+            assert result["files_modified"] == [str(target_file.resolve())]
+            content = target_file.read_text(encoding="utf-8")
+            assert "new_func" in content
+            assert "old_func" not in content
+        finally:
+            target_file.unlink(missing_ok=True)
+            (tmp_dir / "pkg").rmdir()
+            (tmp_dir / ".git").rmdir()
+            tmp_dir.rmdir()
+
     def test_apply_refactor_dry_run_returns_diff_without_writing(self):
         """dry_run=True returns a unified diff without touching disk and
         keeps the refactor_id valid for a follow-up write (#176)."""
