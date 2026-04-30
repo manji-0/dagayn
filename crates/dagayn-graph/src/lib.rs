@@ -363,47 +363,19 @@ impl GraphStore {
 
     pub fn compute_missing_signatures(&mut self) -> Result<i64> {
         let tx = self.conn.transaction()?;
-        let rows = {
-            let mut stmt = tx.prepare(
-                "SELECT id, name, kind, params, return_type FROM nodes WHERE signature IS NULL",
-            )?;
-            let rows = stmt
-                .query_map([], |row| {
-                    Ok((
-                        row.get::<_, i64>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, Option<String>>(3)?,
-                        row.get::<_, Option<String>>(4)?,
-                    ))
-                })?
-                .collect::<std::result::Result<Vec<_>, _>>()?;
-            rows
-        };
-
-        {
-            let mut update = tx.prepare("UPDATE nodes SET signature = ? WHERE id = ?")?;
-            for (node_id, name, kind, params, return_type) in &rows {
-                let mut signature = if kind == "Function" || kind == "Test" {
-                    let mut sig = format!("def {}({})", name, params.as_deref().unwrap_or(""));
-                    if let Some(return_type) = return_type {
-                        sig.push_str(" -> ");
-                        sig.push_str(return_type);
-                    }
-                    sig
-                } else if kind == "Class" {
-                    format!("class {name}")
-                } else {
-                    name.clone()
-                };
-                if signature.chars().count() > 512 {
-                    signature = signature.chars().take(512).collect();
-                }
-                update.execute(params![signature, node_id])?;
-            }
-        }
-
-        let count = rows.len() as i64;
+        tx.execute(
+            "UPDATE nodes \
+             SET signature = CASE \
+               WHEN kind IN ('Function', 'Test') THEN \
+                 substr('def ' || name || '(' || COALESCE(params, '') || ')' || \
+                   CASE WHEN return_type IS NOT NULL THEN ' -> ' || return_type ELSE '' END, 1, 512) \
+               WHEN kind = 'Class' THEN substr('class ' || name, 1, 512) \
+               ELSE substr(name, 1, 512) \
+             END \
+             WHERE signature IS NULL",
+            [],
+        )?;
+        let count = tx.query_row("SELECT changes()", [], |row| row.get::<_, i64>(0))?;
         tx.commit()?;
         Ok(count)
     }
