@@ -884,6 +884,45 @@ def _parse_single_file(
         return (rel_path, [], [], str(e), "", 0)
 
 
+def _filter_incremental_candidates(
+    repo_root: Path,
+    rel_paths: set[str],
+    ignore_patterns: list[str],
+) -> tuple[list[str], list[str]]:
+    """Return ``(parseable_files, removed_files)`` for incremental update."""
+    existing_files: list[str] = []
+    removed_files: list[str] = []
+    for rel_path in rel_paths:
+        if _should_ignore(rel_path, ignore_patterns):
+            continue
+        abs_path = repo_root / rel_path
+        if not abs_path.is_file():
+            removed_files.append(rel_path)
+            continue
+        existing_files.append(rel_path)
+
+    if _rust_backend_enabled():
+        try:
+            from dagayn._core import filter_parseable_files
+
+            return (
+                filter_parseable_files(repo_root, existing_files, ignore_patterns),
+                removed_files,
+            )
+        except (ImportError, RuntimeError, TypeError, ValueError) as exc:
+            logger.warning(
+                "Rust incremental candidate filtering unavailable, falling back: %s",
+                exc,
+            )
+
+    parser = CodeParser()
+    candidates = []
+    for rel_path in existing_files:
+        if parser.detect_language(repo_root / rel_path) is not None:
+            candidates.append(rel_path)
+    return candidates, removed_files
+
+
 def _flush_store_batch(store: GraphStore, batch: StoreBatch) -> None:
     """Write parsed file results through one store call.
 
@@ -1227,7 +1266,6 @@ def incremental_update(
     changed_files: list[str] | None = None,
 ) -> dict:
     """Incremental update: re-parse changed + dependent files only."""
-    parser = CodeParser()
     repo_root = repo_root.resolve()
     store.set_metadata("repo_root", str(repo_root))
     ignore_patterns = _load_ignore_patterns(repo_root)
@@ -1262,18 +1300,11 @@ def incremental_update(
     # Separate deleted/unparseable files from files that need re-parsing.
     # Existing hashes are loaded in one store call so the Rust backend does not
     # pay a PyO3 round trip for every candidate file.
-    candidates: list[str] = []
-    removed_files: list[str] = []
-    for rel_path in all_files:
-        if _should_ignore(rel_path, ignore_patterns):
-            continue
-        abs_path = repo_root / rel_path
-        if not abs_path.is_file():
-            removed_files.append(rel_path)
-            continue
-        if parser.detect_language(abs_path) is None:
-            continue
-        candidates.append(rel_path)
+    candidates, removed_files = _filter_incremental_candidates(
+        repo_root,
+        all_files,
+        ignore_patterns,
+    )
 
     store.remove_files_data(removed_files)
 
@@ -1353,22 +1384,24 @@ def incremental_update(
 
     if use_serial or len(to_parse) < 8:
         batch: StoreBatch = []
-        for rel_path, _ in to_parse:
-            mtime_ns = to_parse_mtime.get(rel_path, 0)
-            abs_path = repo_root / rel_path
-            try:
-                source = abs_path.read_bytes()
-                fhash = hashlib.sha256(source).hexdigest()
-                nodes, edges = parser.parse_bytes(abs_path, source)
-                nodes, edges = _relativize_parsed_entities(nodes, edges, repo_root)
-                _queue_store_file(store, batch, rel_path, nodes, edges, fhash, mtime_ns)
-                total_nodes += len(nodes)
-                total_edges += len(edges)
-            except (OSError, PermissionError) as e:
-                errors.append({"file": rel_path, "error": str(e)})
-            except Exception as e:
-                logger.warning("Error parsing %s: %s", rel_path, e)
-                errors.append({"file": rel_path, "error": str(e)})
+        if to_parse:
+            parser = CodeParser()
+            for rel_path, _ in to_parse:
+                mtime_ns = to_parse_mtime.get(rel_path, 0)
+                abs_path = repo_root / rel_path
+                try:
+                    source = abs_path.read_bytes()
+                    fhash = hashlib.sha256(source).hexdigest()
+                    nodes, edges = parser.parse_bytes(abs_path, source)
+                    nodes, edges = _relativize_parsed_entities(nodes, edges, repo_root)
+                    _queue_store_file(store, batch, rel_path, nodes, edges, fhash, mtime_ns)
+                    total_nodes += len(nodes)
+                    total_edges += len(edges)
+                except (OSError, PermissionError) as e:
+                    errors.append({"file": rel_path, "error": str(e)})
+                except Exception as e:
+                    logger.warning("Error parsing %s: %s", rel_path, e)
+                    errors.append({"file": rel_path, "error": str(e)})
         _flush_store_batch(store, batch)
     else:
         args_list = [(rel_path, str(repo_root)) for rel_path, _ in to_parse]
