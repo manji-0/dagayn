@@ -245,12 +245,14 @@ impl<'a> LineCursor<'a> {
 
 pub struct RustOwnedParser {
     markdown_parser: Option<tree_sitter::Parser>,
+    terraform_parser: Option<tree_sitter::Parser>,
 }
 
 impl RustOwnedParser {
     pub fn new() -> Self {
         Self {
             markdown_parser: new_markdown_parser(),
+            terraform_parser: new_terraform_parser(),
         }
     }
 
@@ -263,7 +265,7 @@ impl RustOwnedParser {
         if lowered.ends_with(".md") || lowered.ends_with(".markdown") {
             parse_markdown_with_parser(file_path, source, self.markdown_parser.as_mut())
         } else if lowered.ends_with(".tf") || lowered.ends_with(".tfvars") {
-            parse_terraform(file_path, source)
+            parse_terraform_with_parser(file_path, source, self.terraform_parser.as_mut())
         } else {
             (Vec::new(), Vec::new())
         }
@@ -384,9 +386,18 @@ pub fn parse_rust_owned_files_compact_json(repo_root: &Path, file_paths: &[Strin
 }
 
 pub fn parse_terraform(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let mut parser = new_terraform_parser();
+    parse_terraform_with_parser(file_path, source, parser.as_mut())
+}
+
+fn parse_terraform_with_parser(
+    file_path: &str,
+    source: &[u8],
+    parser: Option<&mut tree_sitter::Parser>,
+) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let text = String::from_utf8_lossy(source);
     let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
-    let blocks = collect_terraform_blocks(source, &text);
+    let blocks = collect_terraform_blocks(source, &text, parser);
     let defined_names = blocks
         .iter()
         .flat_map(|block| {
@@ -629,12 +640,24 @@ struct TerraformNodeSpec<'a> {
     terraform_kind: &'a str,
 }
 
-fn collect_terraform_blocks(source: &[u8], text: &str) -> Vec<TerraformBlock> {
+fn new_terraform_parser() -> Option<tree_sitter::Parser> {
     let mut parser = tree_sitter::Parser::new();
     if parser
         .set_language(&dagayn_grammars::terraform_language())
         .is_ok()
     {
+        Some(parser)
+    } else {
+        None
+    }
+}
+
+fn collect_terraform_blocks(
+    source: &[u8],
+    text: &str,
+    parser: Option<&mut tree_sitter::Parser>,
+) -> Vec<TerraformBlock> {
+    if let Some(parser) = parser {
         if let Some(tree) = parser.parse(source, None) {
             let mut blocks = Vec::new();
             collect_terraform_block_nodes(tree.root_node(), source, &mut blocks);
