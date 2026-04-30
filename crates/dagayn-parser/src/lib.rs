@@ -1657,7 +1657,7 @@ fn extract_markdown_code_spans(
                 "target_language": "unknown",
                 "confidence": 0.2,
                 "confidence_tier": "LOW",
-                "unresolved_target_name": sym,
+                "original_symbol_name": sym,
             }),
         });
     }
