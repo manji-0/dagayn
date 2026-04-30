@@ -261,13 +261,14 @@ impl RustOwnedParser {
         file_path: &str,
         source: &[u8],
     ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
-        let lowered = file_path.to_ascii_lowercase();
-        if lowered.ends_with(".md") || lowered.ends_with(".markdown") {
-            parse_markdown_with_parser(file_path, source, self.markdown_parser.as_mut())
-        } else if lowered.ends_with(".tf") || lowered.ends_with(".tfvars") {
-            parse_terraform_with_parser(file_path, source, self.terraform_parser.as_mut())
-        } else {
-            (Vec::new(), Vec::new())
+        match rust_owned_path_kind(file_path) {
+            RustOwnedPathKind::Markdown => {
+                parse_markdown_with_parser(file_path, source, self.markdown_parser.as_mut())
+            }
+            RustOwnedPathKind::Terraform => {
+                parse_terraform_with_parser(file_path, source, self.terraform_parser.as_mut())
+            }
+            RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
         }
     }
 }
@@ -578,22 +579,44 @@ fn parsed_compact_values(
 }
 
 pub fn parse_rust_owned_file(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
-    let lowered = file_path.to_ascii_lowercase();
-    if lowered.ends_with(".md") || lowered.ends_with(".markdown") {
-        parse_markdown(file_path, source)
-    } else if lowered.ends_with(".tf") || lowered.ends_with(".tfvars") {
-        parse_terraform(file_path, source)
-    } else {
-        (Vec::new(), Vec::new())
+    match rust_owned_path_kind(file_path) {
+        RustOwnedPathKind::Markdown => parse_markdown(file_path, source),
+        RustOwnedPathKind::Terraform => parse_terraform(file_path, source),
+        RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
     }
 }
 
 pub fn rust_parser_owns_path(file_path: &str) -> bool {
-    let lowered = file_path.to_ascii_lowercase();
-    lowered.ends_with(".md")
-        || lowered.ends_with(".markdown")
-        || lowered.ends_with(".tf")
-        || lowered.ends_with(".tfvars")
+    rust_owned_path_kind(file_path) != RustOwnedPathKind::Unsupported
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RustOwnedPathKind {
+    Markdown,
+    Terraform,
+    Unsupported,
+}
+
+fn rust_owned_path_kind(file_path: &str) -> RustOwnedPathKind {
+    if ends_with_ascii_ignore_case(file_path, ".md")
+        || ends_with_ascii_ignore_case(file_path, ".markdown")
+    {
+        RustOwnedPathKind::Markdown
+    } else if ends_with_ascii_ignore_case(file_path, ".tf")
+        || ends_with_ascii_ignore_case(file_path, ".tfvars")
+    {
+        RustOwnedPathKind::Terraform
+    } else {
+        RustOwnedPathKind::Unsupported
+    }
+}
+
+fn ends_with_ascii_ignore_case(value: &str, suffix: &str) -> bool {
+    let bytes = value.as_bytes();
+    let suffix = suffix.as_bytes();
+    bytes
+        .get(bytes.len().saturating_sub(suffix.len())..)
+        .is_some_and(|tail| tail.eq_ignore_ascii_case(suffix))
 }
 
 fn sha256_hex(source: &[u8]) -> String {
@@ -1913,12 +1936,27 @@ fn dedupe_edges(edges: Vec<ParsedEdge>) -> Vec<ParsedEdge> {
 }
 
 fn is_test_file(file_path: &str) -> bool {
-    let lower = file_path.to_ascii_lowercase();
-    lower.contains("/test/")
-        || lower.contains("/tests/")
-        || lower.starts_with("test_")
-        || lower.ends_with("_test.md")
-        || lower.ends_with(".test.md")
+    contains_ascii_ignore_case(file_path, "/test/")
+        || contains_ascii_ignore_case(file_path, "/tests/")
+        || starts_with_ascii_ignore_case(file_path, "test_")
+        || ends_with_ascii_ignore_case(file_path, "_test.md")
+        || ends_with_ascii_ignore_case(file_path, ".test.md")
+}
+
+fn starts_with_ascii_ignore_case(value: &str, prefix: &str) -> bool {
+    value
+        .as_bytes()
+        .get(..prefix.len())
+        .is_some_and(|head| head.eq_ignore_ascii_case(prefix.as_bytes()))
+}
+
+fn contains_ascii_ignore_case(value: &str, needle: &str) -> bool {
+    let needle = needle.as_bytes();
+    !needle.is_empty()
+        && value
+            .as_bytes()
+            .windows(needle.len())
+            .any(|window| window.eq_ignore_ascii_case(needle))
 }
 
 fn build_globset(patterns: &[String]) -> Option<globset::GlobSet> {
