@@ -110,6 +110,13 @@ impl PyGraphStore {
         self.with_store(|store| store.get_file_meta_map())
     }
 
+    fn get_file_meta_for_files(
+        &self,
+        file_paths: Vec<String>,
+    ) -> PyResult<std::collections::HashMap<String, (String, i64)>> {
+        self.with_store(|store| store.get_file_meta_for_files(&file_paths))
+    }
+
     fn update_file_mtime(&self, file_path: &str, mtime_ns: i64) -> PyResult<()> {
         self.with_store(|store| store.update_file_mtime(file_path, mtime_ns))
     }

@@ -965,6 +965,20 @@ def _classify_python_changed_files(
     return changed_files, mtime_only_updates
 
 
+def _get_file_meta_for_candidates(
+    store: GraphStore,
+    file_paths: list[str],
+) -> dict[str, tuple[str, int]]:
+    """Return stored file metadata for only the requested paths."""
+    if not file_paths:
+        return {}
+    if hasattr(store, "get_file_meta_for_files"):
+        return store.get_file_meta_for_files(file_paths)
+    if hasattr(store, "get_file_meta_map"):
+        return store.get_file_meta_map()
+    return {path: (fhash, 0) for path, fhash in store.get_file_hashes(file_paths).items()}
+
+
 def _flush_store_batch(store: GraphStore, batch: StoreBatch) -> None:
     """Write parsed file results through one store call.
 
@@ -1357,13 +1371,7 @@ def incremental_update(
             content_changed_files.update(rust_changed_candidates)
 
     if python_changed_candidates:
-        if hasattr(store, "get_file_meta_map"):
-            changed_file_meta = store.get_file_meta_map()
-        else:
-            changed_file_meta = {
-                path: (fhash, 0)
-                for path, fhash in store.get_file_hashes(python_changed_candidates).items()
-            }
+        changed_file_meta = _get_file_meta_for_candidates(store, python_changed_candidates)
         python_changed, python_mtime_updates = _classify_python_changed_files(
             repo_root,
             python_changed_candidates,
@@ -1392,12 +1400,7 @@ def incremental_update(
 
     store.remove_files_data(removed_files)
 
-    if not candidates:
-        file_meta = {}
-    elif hasattr(store, "get_file_meta_map"):
-        file_meta = store.get_file_meta_map()
-    else:
-        file_meta = {path: (fhash, 0) for path, fhash in store.get_file_hashes(candidates).items()}
+    file_meta = _get_file_meta_for_candidates(store, candidates)
 
     rust_candidates, python_candidates = _split_rust_parser_files(candidates)
     to_parse_rust: list[str] = []
