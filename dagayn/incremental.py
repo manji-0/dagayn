@@ -1282,9 +1282,23 @@ def incremental_update(
     else:
         file_meta = {path: (fhash, 0) for path, fhash in store.get_file_hashes(candidates).items()}
 
+    rust_candidates, python_candidates = _split_rust_parser_files(candidates)
+    to_parse_rust: list[str] = []
     to_parse: list[tuple[str, int]] = []
     mtime_only_updates: list[tuple[int, str]] = []  # (mtime_ns, file_path) pairs
-    for rel_path in candidates:
+    for rel_path in rust_candidates:
+        abs_path = repo_root / rel_path
+        try:
+            cur_mtime_ns = int(abs_path.stat().st_mtime_ns)
+        except (OSError, PermissionError):
+            to_parse_rust.append(rel_path)
+            continue
+        meta = file_meta.get(rel_path)
+        if meta and meta[1] == cur_mtime_ns:
+            continue
+        to_parse_rust.append(rel_path)
+
+    for rel_path in python_candidates:
         abs_path = repo_root / rel_path
         try:
             cur_mtime_ns = int(abs_path.stat().st_mtime_ns)
@@ -1316,21 +1330,30 @@ def incremental_update(
         store.commit()
 
     use_serial = os.environ.get("CRG_SERIAL_PARSE", "") == "1"
-    rust_files, python_files = _split_rust_parser_files([rel_path for rel_path, _ in to_parse])
     to_parse_mtime = dict(to_parse)
-    if rust_files:
-        rust_nodes, rust_edges, rust_errors = _store_rust_parse_batches(
-            repo_root,
-            store,
-            rust_files,
-        )
+    if to_parse_rust:
+        if hasattr(store, "store_changed_rust_owned_files"):
+            rust_nodes, rust_edges, raw_errors = store.store_changed_rust_owned_files(
+                repo_root,
+                to_parse_rust,
+            )
+            rust_errors = [
+                {"file": str(file_path), "error": str(error)}
+                for file_path, error in raw_errors
+            ]
+        else:
+            rust_nodes, rust_edges, rust_errors = _store_rust_parse_batches(
+                repo_root,
+                store,
+                to_parse_rust,
+            )
         total_nodes += rust_nodes
         total_edges += rust_edges
         errors.extend(rust_errors)
 
     if use_serial or len(to_parse) < 8:
         batch: StoreBatch = []
-        for rel_path in python_files:
+        for rel_path, _ in to_parse:
             mtime_ns = to_parse_mtime.get(rel_path, 0)
             abs_path = repo_root / rel_path
             try:
@@ -1348,7 +1371,7 @@ def incremental_update(
                 errors.append({"file": rel_path, "error": str(e)})
         _flush_store_batch(store, batch)
     else:
-        args_list = [(rel_path, str(repo_root)) for rel_path in python_files]
+        args_list = [(rel_path, str(repo_root)) for rel_path, _ in to_parse]
         batch: StoreBatch = []
         with concurrent.futures.ProcessPoolExecutor(
             max_workers=_MAX_PARSE_WORKERS,

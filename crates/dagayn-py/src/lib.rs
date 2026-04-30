@@ -359,12 +359,7 @@ impl PyGraphStore {
                     continue;
                 }
             };
-            let mtime_ns = std::fs::metadata(repo_root.join(&file_path))
-                .and_then(|metadata| metadata.modified())
-                .ok()
-                .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|duration| duration.as_nanos().min(i64::MAX as u128) as i64)
-                .unwrap_or(0);
+            let mtime_ns = file_mtime_ns(&repo_root.join(&file_path)).unwrap_or(0);
             let (nodes, edges) = parse_rust_owned_file_inputs(&file_path, &source);
             total_nodes += nodes.len();
             total_edges += edges.len();
@@ -373,6 +368,76 @@ impl PyGraphStore {
 
         if !batch.is_empty() {
             self.with_store_mut(|store| store.store_file_batch(&batch))?;
+        }
+        Ok((total_nodes, total_edges, errors))
+    }
+
+    fn store_changed_rust_owned_files(
+        &self,
+        py: Python<'_>,
+        repo_root: &Bound<'_, PyAny>,
+        file_paths: Vec<String>,
+    ) -> PyResult<RustStoreSummary> {
+        let os = PyModule::import(py, "os")?;
+        let repo_root: String = os.getattr("fspath")?.call1((repo_root,))?.extract()?;
+        let repo_root = std::path::Path::new(&repo_root);
+        let file_meta = self.with_store(|store| store.get_file_meta_map())?;
+        let mut batch = Vec::new();
+        let mut mtime_updates = Vec::new();
+        let mut errors = Vec::new();
+        let mut total_nodes = 0_usize;
+        let mut total_edges = 0_usize;
+
+        for file_path in file_paths {
+            if !dagayn_core::parser::rust_parser_owns_path(&file_path) {
+                errors.push((file_path, "unsupported Rust parser path".to_string()));
+                continue;
+            }
+            let full_path = repo_root.join(&file_path);
+            let mtime_ns = match file_mtime_ns(&full_path) {
+                Ok(mtime_ns) => mtime_ns,
+                Err(err) => {
+                    errors.push((file_path, err.to_string()));
+                    continue;
+                }
+            };
+            if file_meta
+                .get(&file_path)
+                .is_some_and(|(_, stored_mtime_ns)| *stored_mtime_ns == mtime_ns)
+            {
+                continue;
+            }
+            let source = match std::fs::read(&full_path) {
+                Ok(source) => source,
+                Err(err) => {
+                    errors.push((file_path, err.to_string()));
+                    continue;
+                }
+            };
+            let file_hash = sha256_hex(&source);
+            if file_meta
+                .get(&file_path)
+                .is_some_and(|(stored_hash, _)| *stored_hash == file_hash)
+            {
+                mtime_updates.push((file_path, mtime_ns));
+                continue;
+            }
+            let (nodes, edges) = parse_rust_owned_file_inputs(&file_path, &source);
+            total_nodes += nodes.len();
+            total_edges += edges.len();
+            batch.push((file_path, nodes, edges, file_hash, mtime_ns));
+        }
+
+        if !mtime_updates.is_empty() || !batch.is_empty() {
+            self.with_store_mut(|store| {
+                for (file_path, mtime_ns) in &mtime_updates {
+                    store.update_file_mtime(file_path, *mtime_ns)?;
+                }
+                if !batch.is_empty() {
+                    store.store_file_batch(&batch)?;
+                }
+                Ok(())
+            })?;
         }
         Ok((total_nodes, total_edges, errors))
     }
@@ -578,6 +643,14 @@ fn parse_rust_owned_file_inputs(
         nodes.into_iter().map(parsed_node_to_input).collect(),
         edges.into_iter().map(parsed_edge_to_input).collect(),
     )
+}
+
+fn file_mtime_ns(path: &std::path::Path) -> std::io::Result<i64> {
+    let modified = std::fs::metadata(path)?.modified()?;
+    Ok(modified
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos().min(i64::MAX as u128) as i64)
+        .unwrap_or(0))
 }
 
 fn parsed_node_to_input(node: dagayn_core::parser::ParsedNode) -> NodeInput {
