@@ -1,8 +1,9 @@
-"""Unit tests for _common.py helpers: make_response, apply_output_budget, projection_for_detail_level."""
+"""Unit tests for _common.py helpers.
+
+Cover make_response, apply_output_budget, and projection_for_detail_level.
+"""
 
 from __future__ import annotations
-
-import pytest
 
 from dagayn.tools._common import apply_output_budget, make_response, projection_for_detail_level
 
@@ -25,6 +26,21 @@ class TestMakeResponse:
     def test_next_tool_suggestions_truncated_at_3(self) -> None:
         r = make_response("ok", "done", next_tool_suggestions=["a", "b", "c", "d"])
         assert r["next_tool_suggestions"] == ["a", "b", "c"]
+
+    def test_next_tool_suggestions_backfill_hints(self) -> None:
+        r = make_response(
+            "ok",
+            "done",
+            next_tool_suggestions=["query_graph callers_of -- inspect inbound callers"],
+        )
+        assert r["_hints"]["next_steps"] == [
+            {
+                "tool": "query_graph",
+                "suggestion": "inspect inbound callers",
+            }
+        ]
+        assert r["_hints"]["related"] == []
+        assert r["_hints"]["warnings"] == []
 
     def test_empty_hints_not_included(self) -> None:
         r = make_response("ok", "done", hints=[])

@@ -325,11 +325,35 @@ def _get_store(
     return store, root
 
 
+def _hints_from_next_tool_suggestions(
+    next_tool_suggestions: list[str] | None,
+) -> dict[str, Any] | None:
+    """Build a minimal ``_hints`` payload from plain-text tool suggestions."""
+    if not next_tool_suggestions:
+        return None
+
+    next_steps: list[dict[str, str]] = []
+    for suggestion in next_tool_suggestions[:3]:
+        head, _, tail = suggestion.partition(" -- ")
+        tool = head.split(" ", 1)[0].split("(", 1)[0]
+        next_steps.append(
+            {
+                "tool": tool,
+                "suggestion": tail or head,
+            }
+        )
+    return {
+        "next_steps": next_steps,
+        "related": [],
+        "warnings": [],
+    }
+
+
 def make_response(
     status: str,
     summary: str,
     *,
-    hints: list[str] | None = None,
+    hints: Any | None = None,
     next_tool_suggestions: list[str] | None = None,
     **fields: Any,
 ) -> dict[str, Any]:
@@ -341,6 +365,8 @@ def make_response(
     resp.update(fields)
     if hints:
         resp["_hints"] = hints
+    elif next_tool_suggestions:
+        resp["_hints"] = _hints_from_next_tool_suggestions(next_tool_suggestions)
     if next_tool_suggestions:
         resp["next_tool_suggestions"] = next_tool_suggestions[:3]
     return resp
@@ -446,6 +472,7 @@ def compact_response(
         resp["flows_affected"] = flows_affected[:5]
     if next_tool_suggestions:
         resp["next_tool_suggestions"] = next_tool_suggestions[:3]
+        resp["_hints"] = _hints_from_next_tool_suggestions(next_tool_suggestions)
     if detail_level != "minimal" and data:
         resp["data"] = data
     return resp

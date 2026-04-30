@@ -16,6 +16,18 @@ from ._common import _get_store, apply_output_budget
 logger = logging.getLogger(__name__)
 
 
+def _relative_qualified_name(qualified_name: str, root: Path) -> str:
+    """Convert an absolute-path qualified name into a repo-relative display form."""
+    head, sep, tail = qualified_name.partition("::")
+    path = Path(head)
+    if path.is_absolute():
+        try:
+            head = str(path.relative_to(root))
+        except ValueError:
+            pass
+    return f"{head}::{tail}" if sep else head
+
+
 # ---------------------------------------------------------------------------
 # Tool 4: get_review_context
 # ---------------------------------------------------------------------------
@@ -77,7 +89,10 @@ def get_review_context(
             else:
                 risk = "low"
 
-            key_entities = [n.name for n in impact["changed_nodes"][:5]]
+            key_entities = [
+                _relative_qualified_name(n.qualified_name, root)
+                for n in impact["changed_nodes"][:5]
+            ]
 
             # Count test gaps among changed functions.
             changed_funcs = [

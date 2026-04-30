@@ -11,7 +11,7 @@ from ..graph import _sanitize_name, edge_to_dict, node_to_dict
 from ..hints import generate_hints, get_session
 from ..incremental import get_changed_files, get_db_path, get_staged_and_unstaged
 from ..search import hybrid_search
-from ._common import _BUILTIN_CALL_NAMES, _get_store
+from ._common import _BUILTIN_CALL_NAMES, _get_store, make_response
 
 logger = logging.getLogger(__name__)
 
@@ -421,46 +421,34 @@ def list_graph_stats(repo_root: str | None = None) -> dict[str, Any]:
     try:
         stats = store.get_stats()
 
-        summary_parts = [
-            f"Graph statistics for {root.name}:",
-            f"  Files: {stats.files_count}",
-            f"  Total nodes: {stats.total_nodes}",
-            f"  Total edges: {stats.total_edges}",
-            f"  Languages: {', '.join(stats.languages) if stats.languages else 'none'}",
-            f"  Last updated: {stats.last_updated or 'never'}",
-            "",
-            "Nodes by kind:",
-        ]
-        for kind, count in sorted(stats.nodes_by_kind.items()):
-            summary_parts.append(f"  {kind}: {count}")
-        summary_parts.append("")
-        summary_parts.append("Edges by kind:")
-        for kind, count in sorted(stats.edges_by_kind.items()):
-            summary_parts.append(f"  {kind}: {count}")
-
         # Add embedding info if available
         emb_store = EmbeddingStore(get_db_path(root))
         try:
             emb_count = emb_store.count()
-            summary_parts.append("")
-            summary_parts.append(f"Embeddings: {emb_count} nodes embedded")
-            if not emb_store.available:
-                summary_parts.append("  (install sentence-transformers for semantic search)")
         finally:
             emb_store.close()
 
-        return {
-            "status": "ok",
-            "summary": "\n".join(summary_parts),
-            "total_nodes": stats.total_nodes,
-            "total_edges": stats.total_edges,
-            "nodes_by_kind": stats.nodes_by_kind,
-            "edges_by_kind": stats.edges_by_kind,
-            "languages": stats.languages,
-            "files_count": stats.files_count,
-            "last_updated": stats.last_updated,
-            "embeddings_count": emb_count,
-        }
+        return make_response(
+            "ok",
+            (
+                f"Graph stats for {root.name}: {stats.total_nodes} nodes, "
+                f"{stats.total_edges} edges, {stats.files_count} files, "
+                f"{len(stats.languages)} language(s), {emb_count} embedding(s)."
+            ),
+            total_nodes=stats.total_nodes,
+            total_edges=stats.total_edges,
+            nodes_by_kind=stats.nodes_by_kind,
+            edges_by_kind=stats.edges_by_kind,
+            languages=stats.languages,
+            files_count=stats.files_count,
+            last_updated=stats.last_updated,
+            embeddings_count=emb_count,
+            next_tool_suggestions=[
+                "list_communities_tool -- inspect the high-level code structure",
+                "list_flows_tool -- inspect critical execution paths",
+                "semantic_search_nodes_tool -- search for specific entities",
+            ],
+        )
     finally:
         store.close()
 
@@ -570,10 +558,20 @@ def traverse_graph_func(
     try:
         results = hybrid_search(store, query, limit=1)
         if not results:
-            return {
-                "error": f"No node matching '{query}'",
-                "nodes": [],
-            }
+            return make_response(
+                "not_found",
+                f"No node matching '{query}'.",
+                start_node=None,
+                mode=mode,
+                max_depth=max(1, min(depth, 6)),
+                nodes_visited=0,
+                traversal=[],
+                truncated=False,
+                next_tool_suggestions=[
+                    "semantic_search_nodes_tool -- search more broadly for the symbol",
+                    "query_graph_tool -- inspect a known qualified name directly",
+                ],
+            )
 
         start_qn = results[0]["qualified_name"]
         depth = max(1, min(depth, 6))
@@ -680,17 +678,20 @@ def traverse_graph_func(
                 current_frontier = next_frontier
                 cur_depth += 1
 
-        return {
-            "start_node": start_qn,
-            "mode": mode,
-            "max_depth": depth,
-            "nodes_visited": len(traversal),
-            "traversal": traversal,
-            "truncated": approx_tokens > token_budget,
-            "next_tool_suggestions": [
+        return make_response(
+            "ok",
+            f"Traversed {len(traversal)} node(s) from '{start_qn}' up to depth {depth}."
+            + (" Output was truncated to fit the token budget." if budget_exceeded else ""),
+            start_node=start_qn,
+            mode=mode,
+            max_depth=depth,
+            nodes_visited=len(traversal),
+            traversal=traversal,
+            truncated=budget_exceeded,
+            next_tool_suggestions=[
                 "query_graph callers_of -- focused relationship query",
                 "get_impact_radius -- blast radius analysis",
             ],
-        }
+        )
     finally:
         store.close()

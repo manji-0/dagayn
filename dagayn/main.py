@@ -962,6 +962,7 @@ def compute_sdp_metrics_tool(
 def detect_sdp_violations_tool(
     granularity: Literal["file", "package"] = "package",
     min_delta: float = 0.1,
+    top_n: int = 30,
     repo_root: Optional[str] = None,
 ) -> dict:
     """Find SDP violations: stable modules that depend on unstable ones.
@@ -973,12 +974,14 @@ def detect_sdp_violations_tool(
     Args:
         granularity: "package" (directory-level) or "file". Default: package.
         min_delta: Minimum instability gap to flag. Default: 0.1.
+        top_n: Return the N highest-gap violations. Default: 30.
         repo_root: Repository root path. Auto-detected if omitted.
     """
     return detect_sdp_violations_func(
         repo_root=_resolve_repo_root(repo_root),
         granularity=granularity,
         min_delta=min_delta,
+        top_n=top_n,
     )
 
 
@@ -1016,6 +1019,7 @@ def compute_sap_metrics_tool(
 def detect_sap_violations_tool(
     scope_kind: Literal["file", "package", "directory"] = "package",
     min_distance: float = 0.5,
+    top_n: int = 30,
     repo_root: Optional[str] = None,
 ) -> dict:
     """Find scopes that violate the Stable Abstractions Principle.
@@ -1030,12 +1034,14 @@ def detect_sap_violations_tool(
     Args:
         scope_kind: "package" (default), "file", or "directory".
         min_distance: Minimum D to flag (exclusive). Default: 0.5.
+        top_n: Return the N violations with highest distance. Default: 30.
         repo_root: Repository root path. Auto-detected if omitted.
     """
     return detect_sap_violations_func(
         repo_root=_resolve_repo_root(repo_root),
         scope_kind=scope_kind,
         min_distance=min_distance,
+        top_n=top_n,
     )
 
 

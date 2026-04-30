@@ -232,6 +232,77 @@ class TestFindSurprisingConnections:
         result = find_surprising_connections(store, top_n=2)
         assert len(result) <= 2
 
+    def test_scores_are_not_forced_to_identical_values(self, tmp_path):
+        from dagayn.analysis import find_surprising_connections
+
+        s = GraphStore(tmp_path / "surprise.db")
+
+        def _node(name: str, file_path: str) -> NodeInfo:
+            return NodeInfo(
+                kind="Function",
+                name=name,
+                file_path=file_path,
+                line_start=1,
+                line_end=5,
+                language="python",
+                parent_name=None,
+                params=None,
+                return_type=None,
+                modifiers=None,
+                is_test=False,
+                extra={},
+            )
+
+        def _edge(source: str, target: str) -> EdgeInfo:
+            return EdgeInfo(
+                kind="CALLS",
+                source=source,
+                target=target,
+                file_path="src/a.py",
+                line=1,
+                extra={},
+            )
+
+        for node in (
+            _node("src_low", "src/a.py"),
+            _node("src_high", "src/c.py"),
+            _node("target_regular", "pkg/regular.ts"),
+            _node("target_hub", "pkg/hub.ts"),
+            _node("helper1", "pkg/helper1.ts"),
+            _node("helper2", "pkg/helper2.ts"),
+            _node("helper3", "pkg/helper3.ts"),
+            _node("helper4", "pkg/helper4.ts"),
+        ):
+            s.upsert_node(node)
+
+        for edge in (
+            _edge("src/a.py::src_low", "pkg/regular.ts::target_regular"),
+            _edge("src/c.py::src_high", "pkg/hub.ts::target_hub"),
+            _edge("pkg/helper1.ts::helper1", "pkg/hub.ts::target_hub"),
+            _edge("pkg/helper2.ts::helper2", "pkg/hub.ts::target_hub"),
+            _edge("pkg/helper3.ts::helper3", "pkg/hub.ts::target_hub"),
+            _edge("pkg/hub.ts::target_hub", "pkg/helper4.ts::helper4"),
+        ):
+            s.upsert_edge(edge)
+
+        s.commit()
+        s._conn.execute(
+            """
+            UPDATE nodes
+            SET community_id = CASE
+                WHEN qualified_name LIKE 'src/%' THEN 1
+                ELSE 2
+            END
+            """
+        )
+        s.commit()
+
+        result = find_surprising_connections(s, top_n=10)
+        scores = [item["surprise_score"] for item in result]
+
+        assert len(scores) >= 2
+        assert len(set(scores)) > 1
+
 
 class TestGenerateSuggestedQuestions:
     def test_returns_list(self, store):

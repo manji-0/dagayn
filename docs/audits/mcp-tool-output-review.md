@@ -437,11 +437,23 @@ token_budget = 2000
 
 | 重大度 | ツール | 修正内容 |
 |---|---|---|
+| M-3.5 | `make_response` / 各ツール envelope | `next_tool_suggestions` だけを返していたレスポンスでも `_hints.next_steps` を自動補完し、`list_graph_stats_tool` / `list_repos_tool` も標準 envelope に統一 |
+| M-3.6 | `get_review_context_tool` | minimal の `key_entities` を repo-relative な `qualified_name` 表示へ統一 |
+| H-2.2 / M-3.4 / M-3.8 | `detect_sap_violations_tool` | `top_n: int = 30` を追加、`status`/`summary`/`truncated` を追加、返却を `scope_key, display_name, distance, zone` に簡素化 |
 | M-3.3 | `detect_adp_violations_tool` | `top_n: int = 30` 追加、`status`/`summary`/`truncated` 追加 |
 | M-3.7 | `get_suggested_questions_tool` | `top_n: int = 15` 追加、高優先度先出し、`status`/`summary`/`truncated` |
+| M-3.9 | `list_graph_stats_tool` | 冗長な multi-line summary を簡潔化し、`next_tool_suggestions` / `_hints` を追加 |
 | M-3.4 | `get_surprising_connections_tool` | `make_response()` で `status`/`summary` 追加 |
 | M-3.2 | `find_large_functions_tool` | File ノードの `name` 絶対パス → 相対パスに統一 |
 | L-4.1 | `get_docs_section_tool` | `max_chars: int = 4000` 追加、コンテンツ末尾に `... (truncated)` |
 | L-4.2 | `get_wiki_page_tool` | not_found 時に `generate_wiki_tool` を次アクション hint に追加 |
 | L-4.3 | `cross_repo_search_tool` | 未登録時の案内に `dagayn register` と `list_repos_tool` を追加 |
+| L-4.4 | `traverse_graph_tool` | `not_found` 時も `status`/`summary`/`_hints` 付きの標準 envelope を返すよう修正し、異常系テストを追加 |
 | L-4.5 | `refactor_tool(rename)` | `next_tool_suggestions` に `apply_refactor_tool(dry_run=True)` を追加 |
+| L-4.6 | `detect_sdp_violations_tool` | `top_n: int = 30` と `truncated` を追加し、大規模リポでも上限を制御 |
+| L-4.7 | `get_surprising_connections_tool` / `find_surprising_connections` | rare-community-pair / degree-imbalance の加点で `surprise_score` が単一値に潰れにくいよう改善 |
+
+**2026-04-30 再確認**:
+- Phase 1 の critical hotfixes は現行コードでも実装済み
+- Phase 2 の共通ヘルパー導入と High 向け出力制御は実装済み
+- Phase 3 相当の未達だった `detect_sap_violations_tool` と 3.5〜4.7 の残項目もこの差分で完了し、監査レポートの phase 1〜3 範囲は現行実装と整合した

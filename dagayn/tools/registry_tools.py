@@ -8,6 +8,7 @@ from typing import Any
 
 from ..graph import GraphStore
 from ..search import hybrid_search
+from ._common import make_response
 
 logger = logging.getLogger(__name__)
 
@@ -31,11 +32,15 @@ def list_repos_func() -> dict[str, Any]:
     try:
         registry = Registry()
         repos = registry.list_repos()
-        return {
-            "status": "ok",
-            "summary": f"{len(repos)} registered repository(ies)",
-            "repos": repos,
-        }
+        return make_response(
+            "ok",
+            f"{len(repos)} registered repository(ies).",
+            repos=repos,
+            next_tool_suggestions=[
+                "cross_repo_search_tool -- search across registered repositories",
+                "dagayn register <path> -- add another repository to the registry",
+            ],
+        )
     except Exception as exc:
         return {"status": "error", "error": str(exc)}
 
@@ -69,15 +74,15 @@ def cross_repo_search_func(
         registry = Registry()
         repos = registry.list_repos()
         if not repos:
-            return {
-                "status": "ok",
-                "summary": "No repositories registered.",
-                "results": [],
-                "next_tool_suggestions": [
+            return make_response(
+                "ok",
+                "No repositories registered.",
+                results=[],
+                next_tool_suggestions=[
                     "Run: dagayn register <path> -- add a repository to the registry",
                     "list_repos_tool -- check currently registered repos",
                 ],
-            }
+            )
 
         all_results: list[dict[str, Any]] = []
         searched_repos: list[str] = []
@@ -106,14 +111,18 @@ def cross_repo_search_func(
         # Sort all results by score descending
         all_results.sort(key=lambda r: r.get("score", 0), reverse=True)
 
-        return {
-            "status": "ok",
-            "summary": (
+        return make_response(
+            "ok",
+            (
                 f"Found {len(all_results)} result(s) across "
-                f"{len(searched_repos)} repo(s) for '{query}'"
+                f"{len(searched_repos)} repo(s) for '{query}'."
             ),
-            "results": all_results[:limit],
-            "repos_searched": searched_repos,
-        }
+            results=all_results[:limit],
+            repos_searched=searched_repos,
+            next_tool_suggestions=[
+                "list_repos_tool -- inspect the registered repositories",
+                "semantic_search_nodes_tool -- search within the current repository only",
+            ],
+        )
     except Exception as exc:
         return {"status": "error", "error": str(exc)}

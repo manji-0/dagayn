@@ -302,6 +302,15 @@ def find_surprising_connections(
         return []
     median_deg = sorted(degrees)[len(degrees) // 2]
     high_deg_threshold = max(median_deg * 3, 10)
+    max_degree = max(degrees)
+
+    pair_counts: Counter[tuple[int, int, str]] = Counter()
+    for e in edges:
+        src_cid = community_map.get(e.source_qualified)
+        tgt_cid = community_map.get(e.target_qualified)
+        if src_cid is None or tgt_cid is None or src_cid == tgt_cid:
+            continue
+        pair_counts[(min(src_cid, tgt_cid), max(src_cid, tgt_cid), e.kind)] += 1
 
     scored_edges = []
     for e in edges:
@@ -321,6 +330,11 @@ def find_surprising_connections(
         if src_cid is not None and tgt_cid is not None and src_cid != tgt_cid:
             score += 0.3
             reasons.append("cross-community")
+            pair_key = (min(src_cid, tgt_cid), max(src_cid, tgt_cid), e.kind)
+            rarity_bonus = min(0.05, round(0.05 / pair_counts[pair_key], 3))
+            score += rarity_bonus
+            if rarity_bonus:
+                reasons.append("rare-community-pair")
 
         # Cross-language (+0.2)
         src_lang = src.file_path.rsplit(".", 1)[-1] if "." in src.file_path else ""
@@ -337,6 +351,14 @@ def find_surprising_connections(
         ):
             score += 0.2
             reasons.append("peripheral-to-hub")
+
+        degree_imbalance_bonus = round(
+            min(0.09, (abs(src_deg - tgt_deg) / max(max_degree, 1)) * 0.09),
+            3,
+        )
+        if degree_imbalance_bonus:
+            score += degree_imbalance_bonus
+            reasons.append("degree-imbalance")
 
         # Cross-file-type: test <-> non-test (+0.15)
         if src.is_test != tgt.is_test and e.kind == "CALLS":
@@ -356,7 +378,7 @@ def find_surprising_connections(
                     "target": _sanitize_name(tgt.name),
                     "target_qualified": e.target_qualified,
                     "edge_kind": e.kind,
-                    "surprise_score": round(score, 2),
+                    "surprise_score": round(score, 3),
                     "reasons": reasons,
                     "source_community": src_cid,
                     "target_community": tgt_cid,
