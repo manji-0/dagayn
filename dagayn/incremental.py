@@ -1390,13 +1390,16 @@ def incremental_update(
     all_files = content_changed_files | set(removed_files) | dependent_files
 
     # Separate deleted/unparseable files from files that need re-parsing.
-    # Existing hashes are loaded in one store call so the Rust backend does not
-    # pay a PyO3 round trip for every candidate file.
-    candidates, removed_files = _filter_incremental_candidates(
-        repo_root,
-        all_files,
-        ignore_patterns,
-    )
+    # When there are no dependent files, the content-changed roots were already
+    # filtered as parseable above, so avoid running candidate detection twice.
+    if dependent_files:
+        candidates, removed_files = _filter_incremental_candidates(
+            repo_root,
+            all_files,
+            ignore_patterns,
+        )
+    else:
+        candidates = list(content_changed_files)
 
     store.remove_files_data(removed_files)
 
