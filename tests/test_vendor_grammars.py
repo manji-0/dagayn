@@ -26,11 +26,27 @@ class _Response(io.BytesIO):
         return False
 
 
+def _hide_packaged_grammars(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(
+        vendor_grammars,
+        "get_packaged_grammar_root",
+        lambda: tmp_path / "packaged-missing",
+    )
+
+
+def _write_required_fixture(source_dir: Path, spec: vendor_grammars.GrammarSpec) -> None:
+    for rel_path in spec.required_paths:
+        path = source_dir / rel_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(Path(rel_path).name, encoding="utf-8")
+
+
 def test_ensure_vendor_grammar_source_downloads_and_injects_markdown_binding(
     monkeypatch,
     tmp_path: Path,
 ):
     monkeypatch.setenv("DAGAYN_GRAMMAR_CACHE_DIR", str(tmp_path / "cache"))
+    _hide_packaged_grammars(monkeypatch, tmp_path)
 
     subdir = vendor_grammars.GRAMMAR_SPECS["markdown"].source_subdirectory
     prefix = f"tree-sitter-markdown-archive/{subdir}/"
@@ -38,6 +54,8 @@ def test_ensure_vendor_grammar_source_downloads_and_injects_markdown_binding(
         {
             f"{prefix}src/parser.c": b"parser",
             f"{prefix}src/scanner.c": b"scanner",
+            f"{prefix}src/tree_sitter/alloc.h": b"alloc",
+            f"{prefix}src/tree_sitter/array.h": b"array",
             f"{prefix}src/tree_sitter/parser.h": b"header",
         }
     )
@@ -63,15 +81,11 @@ def test_ensure_vendor_grammar_source_downloads_and_injects_markdown_binding(
 def test_ensure_vendor_grammar_source_reuses_cached_directory(monkeypatch, tmp_path: Path):
     cache_dir = tmp_path / "cache"
     monkeypatch.setenv("DAGAYN_GRAMMAR_CACHE_DIR", str(cache_dir))
+    _hide_packaged_grammars(monkeypatch, tmp_path)
 
     spec = vendor_grammars.GRAMMAR_SPECS["terraform"]
     source_dir = cache_dir / spec.cache_dir_name
-    (source_dir / "src" / "tree_sitter").mkdir(parents=True)
-    (source_dir / "bindings" / "python").mkdir(parents=True)
-    (source_dir / "src" / "parser.c").write_text("parser", encoding="utf-8")
-    (source_dir / "src" / "scanner.c").write_text("scanner", encoding="utf-8")
-    (source_dir / "src" / "tree_sitter" / "parser.h").write_text("header", encoding="utf-8")
-    (source_dir / "bindings" / "python" / "binding.c").write_text("binding", encoding="utf-8")
+    _write_required_fixture(source_dir, spec)
 
     def fail_urlopen(_request):
         raise AssertionError("cache hit should not download")
@@ -87,12 +101,7 @@ def test_ensure_vendor_grammar_source_prefers_packaged_directory(monkeypatch, tm
     monkeypatch.setenv("DAGAYN_GRAMMAR_CACHE_DIR", str(tmp_path / "cache"))
 
     source_dir = packaged_root / "markdown"
-    (source_dir / "src" / "tree_sitter").mkdir(parents=True)
-    (source_dir / "bindings" / "python").mkdir(parents=True)
-    (source_dir / "src" / "parser.c").write_text("parser", encoding="utf-8")
-    (source_dir / "src" / "scanner.c").write_text("scanner", encoding="utf-8")
-    (source_dir / "src" / "tree_sitter" / "parser.h").write_text("header", encoding="utf-8")
-    (source_dir / "bindings" / "python" / "binding.c").write_text("binding", encoding="utf-8")
+    _write_required_fixture(source_dir, vendor_grammars.GRAMMAR_SPECS["markdown"])
 
     def fail_urlopen(_request):
         raise AssertionError("packaged grammar should not download")
@@ -104,6 +113,7 @@ def test_ensure_vendor_grammar_source_prefers_packaged_directory(monkeypatch, tm
 
 def test_stage_packaged_vendor_grammar_sources_copies_required_files(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("DAGAYN_GRAMMAR_CACHE_DIR", str(tmp_path / "cache"))
+    _hide_packaged_grammars(monkeypatch, tmp_path)
 
     subdir = vendor_grammars.GRAMMAR_SPECS["markdown"].source_subdirectory
     prefix = f"tree-sitter-markdown-archive/{subdir}/"
@@ -111,6 +121,8 @@ def test_stage_packaged_vendor_grammar_sources_copies_required_files(monkeypatch
         {
             f"{prefix}src/parser.c": b"parser",
             f"{prefix}src/scanner.c": b"scanner",
+            f"{prefix}src/tree_sitter/alloc.h": b"alloc",
+            f"{prefix}src/tree_sitter/array.h": b"array",
             f"{prefix}src/tree_sitter/parser.h": b"header",
         }
     )

@@ -980,6 +980,11 @@ def _get_file_meta_for_candidates(
     return {path: (fhash, 0) for path, fhash in store.get_file_hashes(file_paths).items()}
 
 
+def _callable_store_attr(store: GraphStore, name: str) -> Callable[..., Any] | None:
+    attr = getattr(store, name, None)
+    return attr if callable(attr) else None
+
+
 def _flush_store_batch(store: GraphStore, batch: StoreBatch) -> None:
     """Write parsed file results through one store call.
 
@@ -988,8 +993,9 @@ def _flush_store_batch(store: GraphStore, batch: StoreBatch) -> None:
     """
     if not batch:
         return
-    if hasattr(store, "store_file_batch_json"):
-        store.store_file_batch_json(_serialize_store_batch(batch))
+    store_file_batch_json = _callable_store_attr(store, "store_file_batch_json")
+    if store_file_batch_json is not None:
+        store_file_batch_json(_serialize_store_batch(batch))
     else:
         store.store_file_batch(batch)
     batch.clear()
@@ -1086,14 +1092,15 @@ def _store_rust_parse_batches(
 ) -> tuple[int, int, list[dict[str, str]]]:
     if not rel_paths:
         return 0, 0, []
-    if hasattr(store, "store_rust_owned_files"):
+    store_rust_owned_files = _callable_store_attr(store, "store_rust_owned_files")
+    if store_rust_owned_files is not None:
         total_nodes = 0
         total_edges = 0
         errors: list[dict[str, str]] = []
         for idx in range(0, len(rel_paths), _RUST_PARSE_BATCH_SIZE):
             chunk = rel_paths[idx : idx + _RUST_PARSE_BATCH_SIZE]
             try:
-                node_count, edge_count, raw_errors = store.store_rust_owned_files(
+                node_count, edge_count, raw_errors = store_rust_owned_files(
                     repo_root,
                     chunk,
                 )
@@ -1106,7 +1113,8 @@ def _store_rust_parse_batches(
                 {"file": str(file_path), "error": str(error)} for file_path, error in raw_errors
             )
         return total_nodes, total_edges, errors
-    if not hasattr(store, "store_file_batch_json"):
+    store_file_batch_json = _callable_store_attr(store, "store_file_batch_json")
+    if store_file_batch_json is None:
         raise RuntimeError("Rust parser batch requires a GraphStore with store_file_batch_json")
     try:
         from dagayn._core import parse_rust_owned_files_compact_json
@@ -1145,7 +1153,7 @@ def _store_rust_parse_batches(
             else item
             for item in batch
         ]
-        store.store_file_batch_json(json.dumps(batch_with_mtime, separators=(",", ":")))
+        store_file_batch_json(json.dumps(batch_with_mtime, separators=(",", ":")))
         total_nodes += sum(len(item[1]) for item in batch)
         total_edges += sum(len(item[2]) for item in batch)
     return total_nodes, total_edges, errors
@@ -1358,8 +1366,11 @@ def incremental_update(
     rust_content_changed_files: set[str] = set()
 
     if rust_changed_candidates:
-        if hasattr(store, "classify_changed_rust_owned_files"):
-            rust_changed, raw_errors = store.classify_changed_rust_owned_files(
+        classify_changed_rust_owned_files = _callable_store_attr(
+            store, "classify_changed_rust_owned_files"
+        )
+        if classify_changed_rust_owned_files is not None:
+            rust_changed, raw_errors = classify_changed_rust_owned_files(
                 repo_root,
                 rust_changed_candidates,
             )
@@ -1487,8 +1498,11 @@ def incremental_update(
         errors.extend(rust_errors)
 
     if to_parse_rust_checked:
-        if hasattr(store, "store_changed_rust_owned_files"):
-            rust_nodes, rust_edges, raw_errors = store.store_changed_rust_owned_files(
+        store_changed_rust_owned_files = _callable_store_attr(
+            store, "store_changed_rust_owned_files"
+        )
+        if store_changed_rust_owned_files is not None:
+            rust_nodes, rust_edges, raw_errors = store_changed_rust_owned_files(
                 repo_root,
                 to_parse_rust_checked,
             )
