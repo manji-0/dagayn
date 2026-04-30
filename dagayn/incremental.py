@@ -1355,6 +1355,7 @@ def incremental_update(
         changed_candidates
     )
     content_changed_files: set[str] = set()
+    rust_content_changed_files: set[str] = set()
 
     if rust_changed_candidates:
         if hasattr(store, "classify_changed_rust_owned_files"):
@@ -1362,6 +1363,7 @@ def incremental_update(
                 repo_root,
                 rust_changed_candidates,
             )
+            rust_content_changed_files.update(rust_changed)
             content_changed_files.update(rust_changed)
             errors.extend(
                 {"file": str(file_path), "error": str(error)}
@@ -1406,19 +1408,23 @@ def incremental_update(
     file_meta = _get_file_meta_for_candidates(store, candidates)
 
     rust_candidates, python_candidates = _split_rust_parser_files(candidates)
-    to_parse_rust: list[str] = []
+    to_parse_rust_forced: list[str] = []
+    to_parse_rust_checked: list[str] = []
     to_parse: list[tuple[str, int]] = []
     for rel_path in rust_candidates:
+        if rel_path in rust_content_changed_files:
+            to_parse_rust_forced.append(rel_path)
+            continue
         abs_path = repo_root / rel_path
         try:
             cur_mtime_ns = int(abs_path.stat().st_mtime_ns)
         except (OSError, PermissionError):
-            to_parse_rust.append(rel_path)
+            to_parse_rust_checked.append(rel_path)
             continue
         meta = file_meta.get(rel_path)
         if meta and meta[1] == cur_mtime_ns:
             continue
-        to_parse_rust.append(rel_path)
+        to_parse_rust_checked.append(rel_path)
 
     for rel_path in python_candidates:
         abs_path = repo_root / rel_path
@@ -1455,11 +1461,21 @@ def incremental_update(
 
     use_serial = os.environ.get("CRG_SERIAL_PARSE", "") == "1"
     to_parse_mtime = dict(to_parse)
-    if to_parse_rust:
+    if to_parse_rust_forced:
+        rust_nodes, rust_edges, rust_errors = _store_rust_parse_batches(
+            repo_root,
+            store,
+            to_parse_rust_forced,
+        )
+        total_nodes += rust_nodes
+        total_edges += rust_edges
+        errors.extend(rust_errors)
+
+    if to_parse_rust_checked:
         if hasattr(store, "store_changed_rust_owned_files"):
             rust_nodes, rust_edges, raw_errors = store.store_changed_rust_owned_files(
                 repo_root,
-                to_parse_rust,
+                to_parse_rust_checked,
             )
             rust_errors = [
                 {"file": str(file_path), "error": str(error)}
@@ -1469,7 +1485,7 @@ def incremental_update(
             rust_nodes, rust_edges, rust_errors = _store_rust_parse_batches(
                 repo_root,
                 store,
-                to_parse_rust,
+                to_parse_rust_checked,
             )
         total_nodes += rust_nodes
         total_edges += rust_edges
