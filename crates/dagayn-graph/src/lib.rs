@@ -433,6 +433,8 @@ impl GraphStore {
         let mut demoted = 0_i64;
         let mut re_resolved = 0_i64;
         let mut still_unresolved = 0_i64;
+        let mut edge_data = Vec::new();
+        let mut symbols = HashSet::new();
         for (edge_id, current_target, raw_extra) in rows {
             let Ok(mut extra) = serde_json::from_str::<Value>(&raw_extra) else {
                 continue;
@@ -451,24 +453,49 @@ impl GraphStore {
                 "original_symbol_name".to_string(),
                 Value::String(sym.clone()),
             );
+            symbols.insert(sym.clone());
+            edge_data.push((edge_id, current_target, raw_extra, sym, extra));
+        }
 
-            let matches = {
-                let mut stmt = tx.prepare(
-                    "SELECT qualified_name, language \
-                     FROM nodes \
-                     WHERE name = ? AND language != 'markdown' \
-                     LIMIT 2",
-                )?;
-                let matches = stmt
-                    .query_map([sym.as_str()], |row| {
-                        Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
-                    })?
-                    .collect::<std::result::Result<Vec<_>, _>>()?;
-                matches
-            };
+        let mut matches_by_symbol = HashMap::<String, Vec<(String, Option<String>)>>::new();
+        let symbols = symbols.into_iter().collect::<Vec<_>>();
+        for chunk in symbols.chunks(450) {
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!(
+                "SELECT name, qualified_name, language \
+                 FROM nodes \
+                 WHERE name IN ({placeholders}) AND language != 'markdown'"
+            );
+            let mut stmt = tx.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            })?;
+            for row in rows {
+                let (name, qualified_name, language) = row?;
+                matches_by_symbol
+                    .entry(name)
+                    .or_default()
+                    .push((qualified_name, language));
+            }
+        }
+
+        for (edge_id, current_target, raw_extra, sym, mut extra) in edge_data {
+            let matches = matches_by_symbol
+                .get(&sym)
+                .map(Vec::as_slice)
+                .unwrap_or(&[]);
 
             if matches.len() == 1 {
                 let (target, language) = &matches[0];
+                let Some(extra_obj) = extra.as_object_mut() else {
+                    continue;
+                };
                 extra_obj.insert(
                     "target_language".to_string(),
                     Value::String(language.clone().unwrap_or_else(|| "unknown".to_string())),
@@ -500,6 +527,9 @@ impl GraphStore {
                     still_unresolved += 1;
                     continue;
                 }
+                let Some(extra_obj) = extra.as_object_mut() else {
+                    continue;
+                };
                 extra_obj.remove("target_language");
                 extra_obj.insert("confidence".to_string(), Value::from(0.2));
                 extra_obj.insert(
