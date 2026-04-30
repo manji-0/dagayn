@@ -381,7 +381,7 @@ impl PyGraphStore {
         let os = PyModule::import(py, "os")?;
         let repo_root: String = os.getattr("fspath")?.call1((repo_root,))?.extract()?;
         let repo_root = std::path::Path::new(&repo_root);
-        let file_meta = self.with_store(|store| store.get_file_meta_map())?;
+        let file_meta = self.with_store(|store| store.get_file_meta_for_files(&file_paths))?;
         let mut batch = Vec::new();
         let mut mtime_updates = Vec::new();
         let mut errors = Vec::new();

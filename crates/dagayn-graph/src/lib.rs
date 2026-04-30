@@ -916,6 +916,39 @@ impl GraphStore {
         Ok(out)
     }
 
+    pub fn get_file_meta_for_files(
+        &self,
+        file_paths: &[String],
+    ) -> Result<HashMap<String, (String, i64)>> {
+        let mut out = HashMap::new();
+        for chunk in file_paths.chunks(450) {
+            if chunk.is_empty() {
+                continue;
+            }
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!(
+                "SELECT DISTINCT file_path, file_hash, mtime_ns FROM nodes \
+                 WHERE file_hash IS NOT NULL AND file_hash != '' \
+                   AND file_path IN ({placeholders})"
+            );
+            let mut stmt = self.conn.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                    row.get::<_, Option<i64>>(2)?.unwrap_or(0),
+                ))
+            })?;
+            for row in rows {
+                let (file_path, file_hash, mtime_ns) = row?;
+                out.insert(file_path, (file_hash, mtime_ns));
+            }
+        }
+        Ok(out)
+    }
+
     pub fn update_file_mtime(&self, file_path: &str, mtime_ns: i64) -> Result<()> {
         self.conn.execute(
             "UPDATE nodes SET mtime_ns = ? WHERE file_path = ?",
