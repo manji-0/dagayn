@@ -438,7 +438,12 @@ def detect_changes_func(
             apply_output_budget(
                 result,
                 budget_tokens=8000,
-                list_priorities=["test_gaps", "affected_flows", "review_priorities"],
+                list_priorities=[
+                    "review_priorities",
+                    "affected_flows",
+                    "test_gaps",
+                    "changed_functions",
+                ],
             )
         result["_hints"] = generate_hints("detect_changes", result, get_session())
         return result

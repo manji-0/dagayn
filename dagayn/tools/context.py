@@ -38,6 +38,41 @@ def _has_git_changes(root: Path, base: str) -> bool:
         return False
 
 
+def _row_name(row: Any) -> str | None:
+    """Extract a ``name`` value from a sqlite row/tuple/dict-like object."""
+    if row is None:
+        return None
+    if hasattr(row, "keys"):
+        name = row["name"]
+    else:
+        name = row[0]
+    return name if isinstance(name, str) and name else None
+
+
+def _names_from_rows(rows: list[Any], *, limit: int) -> list[str]:
+    """Return up to *limit* non-empty names from query rows."""
+    names: list[str] = []
+    for row in rows:
+        name = _row_name(row)
+        if name:
+            names.append(name)
+        if len(names) >= limit:
+            break
+    return names
+
+
+def _names_from_items(items: list[dict[str, Any]], *, limit: int) -> list[str]:
+    """Return up to *limit* non-empty names from tool payload items."""
+    names: list[str] = []
+    for item in items:
+        name = item.get("name")
+        if isinstance(name, str) and name:
+            names.append(name)
+        if len(names) >= limit:
+            break
+    return names
+
+
 def get_minimal_context(
     task: str = "",
     changed_files: list[str] | None = None,
@@ -56,7 +91,9 @@ def get_minimal_context(
         repo_root: Repository root path. Auto-detected if None.
         base: Git ref for diff comparison.
     """
-    store, root = _get_store(repo_root)
+    # Use a dedicated GraphStore connection for this tool to avoid sharing a
+    # cached sqlite handle across concurrent MCP calls.
+    store, root = _get_store(repo_root, cached=False)
     try:
         # 1. Quick stats
         stats = store.get_stats()
@@ -65,6 +102,7 @@ def get_minimal_context(
         risk = "unknown"
         risk_score = 0.0
         top_affected: list[str] = []
+        affected_flows: list[str] = []
         test_gap_count = 0
         if changed_files or _has_git_changes(root, base):
             try:
@@ -84,9 +122,14 @@ def get_minimal_context(
                     )
                     risk_score = analysis.get("risk_score", 0.0)
                     risk = "high" if risk_score > 0.7 else "medium" if risk_score > 0.4 else "low"
-                    top_affected = [
-                        f.get("name", "") for f in analysis.get("changed_functions", [])[:5]
-                    ]
+                    priorities = analysis.get("review_priorities", [])
+                    if not priorities:
+                        priorities = analysis.get("changed_functions", [])
+                    top_affected = _names_from_items(priorities, limit=5)
+                    affected_flows = _names_from_items(
+                        analysis.get("affected_flows", []),
+                        limit=5,
+                    )
                     test_gap_count = len(analysis.get("test_gaps", []))
             except (
                 ImportError,
@@ -101,21 +144,21 @@ def get_minimal_context(
         # 3. Top 3 communities
         communities: list[str] = []
         try:
-            from ..communities import get_communities
-
-            communities = [
-                comm.get("name", "") for comm in get_communities(store, sort_by="size")[:3]
-            ]
-        except (sqlite3.OperationalError, RuntimeError, ImportError, KeyError, TypeError):
+            rows = store._conn.execute(
+                "SELECT name FROM communities ORDER BY size DESC LIMIT 3"
+            ).fetchall()
+            communities = _names_from_rows(rows, limit=3)
+        except sqlite3.OperationalError:  # nosec B110 — table may not exist yet
             logger.debug("communities table not yet populated")
 
         # 4. Top 3 critical flows
-        flows: list[str] = []
+        top_flows: list[str] = []
         try:
-            from ..flows import get_flows
-
-            flows = [flow.get("name", "") for flow in get_flows(store, limit=3)]
-        except (sqlite3.OperationalError, RuntimeError, ImportError, KeyError, TypeError):
+            rows = store._conn.execute(
+                "SELECT name FROM flows ORDER BY criticality DESC LIMIT 3"
+            ).fetchall()
+            top_flows = _names_from_rows(rows, limit=3)
+        except sqlite3.OperationalError:  # nosec B110 — table may not exist yet
             logger.debug("flows table not yet populated")
 
         # 5. Suggest next tools based on task keywords
@@ -154,7 +197,8 @@ def get_minimal_context(
             key_entities=top_affected or None,
             risk=risk,
             communities=communities or None,
-            flows_affected=flows or None,
+            top_flows=top_flows or None,
+            flows_affected=affected_flows or None,
             next_tool_suggestions=suggestions,
         )
     finally:

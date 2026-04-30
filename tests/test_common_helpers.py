@@ -5,7 +5,12 @@ Cover make_response, apply_output_budget, and projection_for_detail_level.
 
 from __future__ import annotations
 
-from dagayn.tools._common import apply_output_budget, make_response, projection_for_detail_level
+from dagayn.tools._common import (
+    apply_output_budget,
+    compact_response,
+    make_response,
+    projection_for_detail_level,
+)
 
 
 class TestMakeResponse:
@@ -120,3 +125,14 @@ class TestProjectionForDetailLevel:
         r = projection_for_detail_level(self.ITEM, "minimal", ["name", "nonexistent"])
         assert "nonexistent" not in r
         assert r["name"] == "foo"
+
+
+class TestCompactResponse:
+    def test_top_flows_and_affected_flows_are_distinct(self) -> None:
+        r = compact_response(
+            summary="ok",
+            top_flows=["checkout", "login", "search"],
+            flows_affected=["login"],
+        )
+        assert r["top_flows"] == ["checkout", "login", "search"]
+        assert r["flows_affected"] == ["login"]

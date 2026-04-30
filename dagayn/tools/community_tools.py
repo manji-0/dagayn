@@ -40,12 +40,25 @@ def list_communities_func(
     """
     store, root = _get_store(repo_root)
     try:
-        communities = get_communities(store, sort_by=sort_by, min_size=min_size)
         if detail_level == "minimal":
+            valid_sorts = {"size", "cohesion", "name"}
+            sort = sort_by if sort_by in valid_sorts else "size"
+            order = "DESC" if sort in ("size", "cohesion") else "ASC"
+            rows = store._conn.execute(
+                "SELECT name, size, cohesion FROM communities "
+                f"WHERE size >= ? ORDER BY {sort} {order}",  # nosec B608
+                (min_size,),
+            ).fetchall()
             communities = [
-                {"name": c["name"], "size": c["size"], "cohesion": c["cohesion"]}
-                for c in communities
+                {
+                    "name": row["name"],
+                    "size": row["size"],
+                    "cohesion": row["cohesion"],
+                }
+                for row in rows
             ]
+        else:
+            communities = get_communities(store, sort_by=sort_by, min_size=min_size)
         result: dict[str, object] = {
             "status": "ok",
             "summary": f"Found {len(communities)} communities",
@@ -186,6 +199,16 @@ def get_architecture_overview_func(
             ),
             **overview,
         }
+        apply_output_budget(
+            result,
+            budget_tokens=4000,
+            list_priorities=[
+                "warnings",
+                "communities",
+                "cross_community_coupling",
+                "cross_community_edges",
+            ],
+        )
         result["_hints"] = generate_hints("get_architecture_overview", result, get_session())
         return result
     except Exception as exc:

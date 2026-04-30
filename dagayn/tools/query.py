@@ -11,7 +11,7 @@ from ..graph import _sanitize_name, edge_to_dict, node_to_dict
 from ..hints import generate_hints, get_session
 from ..incremental import get_changed_files, get_db_path, get_staged_and_unstaged
 from ..search import hybrid_search
-from ._common import _BUILTIN_CALL_NAMES, _get_store, make_response
+from ._common import _BUILTIN_CALL_NAMES, _get_store, apply_output_budget, make_response
 
 logger = logging.getLogger(__name__)
 
@@ -31,29 +31,30 @@ _QUERY_PATTERNS = {
 }
 
 
-def _append_node_results_for_edges(
+def _node_dicts_for_edges(
     store: Any,
     edges: list[Any],
-    node_attr: str,
-    results: list[dict[str, Any]],
-    edges_out: list[dict[str, Any]],
     *,
-    include_edges: bool = True,
-) -> None:
-    qns = [getattr(edge, node_attr) for edge in edges]
-    nodes_by_qn = store.get_nodes_by_qualified_names(qns) if qns else {}
+    qualified_attr: str,
+) -> list[dict[str, Any]]:
+    """Batch-resolve edge endpoints to node dicts while preserving edge order."""
+    if not edges:
+        return []
+
+    qualified_names = [getattr(edge, qualified_attr) for edge in edges]
+    nodes_by_qn = store.get_nodes_by_qualified_names(qualified_names)
+    results: list[dict[str, Any]] = []
     for edge in edges:
-        node = nodes_by_qn.get(getattr(edge, node_attr))
-        if node:
+        node = nodes_by_qn.get(getattr(edge, qualified_attr))
+        if node is not None:
             results.append(node_to_dict(node))
-        if include_edges:
-            edges_out.append(edge_to_dict(edge))
+    return results
 
 
 def get_impact_radius(
     changed_files: list[str] | None = None,
     max_depth: int = 2,
-    max_results: int = 500,
+    max_results: int = 50,
     repo_root: str | None = None,
     base: str = "HEAD~1",
     detail_level: str = "standard",
@@ -64,7 +65,7 @@ def get_impact_radius(
         changed_files: Explicit list of changed file paths (relative to repo root).
                        If omitted, auto-detects from git diff.
         max_depth: How many hops to traverse in the graph (default: 2).
-        max_results: Maximum impacted nodes to return (default: 500).
+        max_results: Maximum impacted nodes to return (default: 50).
         repo_root: Repository root path. Auto-detected if omitted.
         base: Git ref for auto-detecting changes (default: HEAD~1).
         detail_level: "standard" (full output) or "minimal" (summary only).
@@ -131,7 +132,7 @@ def get_impact_radius(
                 "truncated": truncated,
             }
 
-        return {
+        payload = {
             "status": "ok",
             "summary": "\n".join(summary_parts),
             "changed_files": changed_files,
@@ -142,6 +143,18 @@ def get_impact_radius(
             "truncated": truncated,
             "total_impacted": total_impacted,
         }
+        apply_output_budget(
+            payload,
+            budget_tokens=8000,
+            list_priorities=[
+                "changed_files",
+                "impacted_files",
+                "changed_nodes",
+                "impacted_nodes",
+                "edges",
+            ],
+        )
+        return payload
     finally:
         store.close()
 
@@ -224,23 +237,30 @@ def query_graph(
 
         if pattern == "callers_of":
             call_edges = [e for e in store.get_edges_by_target(qn) if e.kind == "CALLS"]
-            _append_node_results_for_edges(
-                store, call_edges, "source_qualified", results, edges_out
+            results.extend(
+                _node_dicts_for_edges(store, call_edges, qualified_attr="source_qualified")
             )
+            edges_out.extend(edge_to_dict(e) for e in call_edges)
             # Fallback: CALLS edges store unqualified target names
             # (e.g. "generateTestCode") while qn is fully qualified
             # (e.g. "file.ts::generateTestCode"). Search by plain name too.
             if not results and node:
                 fallback_edges = store.search_edges_by_target_name(node.name)
-                _append_node_results_for_edges(
-                    store, fallback_edges, "source_qualified", results, edges_out
+                results.extend(
+                    _node_dicts_for_edges(
+                        store,
+                        fallback_edges,
+                        qualified_attr="source_qualified",
+                    )
                 )
+                edges_out.extend(edge_to_dict(e) for e in fallback_edges)
 
         elif pattern == "callees_of":
             call_edges = [e for e in store.get_edges_by_source(qn) if e.kind == "CALLS"]
-            _append_node_results_for_edges(
-                store, call_edges, "target_qualified", results, edges_out
+            results.extend(
+                _node_dicts_for_edges(store, call_edges, qualified_attr="target_qualified")
             )
+            edges_out.extend(edge_to_dict(e) for e in call_edges)
 
         elif pattern == "imports_of":
             for e in store.get_edges_by_source(qn):
@@ -265,14 +285,14 @@ def query_graph(
 
         elif pattern == "children_of":
             child_edges = [e for e in store.get_edges_by_source(qn) if e.kind == "CONTAINS"]
-            _append_node_results_for_edges(
-                store, child_edges, "target_qualified", results, edges_out, include_edges=False
+            results.extend(
+                _node_dicts_for_edges(store, child_edges, qualified_attr="target_qualified")
             )
 
         elif pattern == "tests_for":
             test_edges = [e for e in store.get_edges_by_target(qn) if e.kind == "TESTED_BY"]
-            _append_node_results_for_edges(
-                store, test_edges, "source_qualified", results, edges_out, include_edges=False
+            results.extend(
+                _node_dicts_for_edges(store, test_edges, qualified_attr="source_qualified")
             )
             # Also search by naming convention
             name = node.name if node else target
@@ -284,12 +304,13 @@ def query_graph(
                     results.append(node_to_dict(t))
 
         elif pattern == "inheritors_of":
-            inheritor_edges = [
+            inherit_edges = [
                 e for e in store.get_edges_by_target(qn) if e.kind in ("INHERITS", "IMPLEMENTS")
             ]
-            _append_node_results_for_edges(
-                store, inheritor_edges, "source_qualified", results, edges_out
+            results.extend(
+                _node_dicts_for_edges(store, inherit_edges, qualified_attr="source_qualified")
             )
+            edges_out.extend(edge_to_dict(e) for e in inherit_edges)
             # Fallback: INHERITS/IMPLEMENTS edges store unqualified base names
             # (e.g. "Animal") while qn is fully qualified
             # (e.g. "sample.dart::Animal"). Search by plain name too. See: #87
@@ -297,9 +318,14 @@ def query_graph(
                 fallback_edges = []
                 for kind in ("INHERITS", "IMPLEMENTS"):
                     fallback_edges.extend(store.search_edges_by_target_name(node.name, kind=kind))
-                _append_node_results_for_edges(
-                    store, fallback_edges, "source_qualified", results, edges_out
+                results.extend(
+                    _node_dicts_for_edges(
+                        store,
+                        fallback_edges,
+                        qualified_attr="source_qualified",
+                    )
                 )
+                edges_out.extend(edge_to_dict(e) for e in fallback_edges)
 
         elif pattern == "file_summary":
             abs_path = str(root / target)

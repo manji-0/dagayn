@@ -458,3 +458,38 @@ class TestChanges:
             assert "risk_score" in result
             assert "test_gaps" in result
             assert "review_priorities" in result
+
+    def test_detect_changes_tool_trims_changed_functions(self):
+        """detect_changes_func should budget changed_functions for large PRs."""
+        from dagayn.tools import detect_changes_func
+
+        huge_functions = [{"name": f"func_{i}", "payload": "x" * 500} for i in range(200)]
+
+        with (
+            patch("dagayn.tools.review._get_store") as mock_get_store,
+            patch("dagayn.tools.review.get_changed_files", return_value=["app.py"]),
+            patch("dagayn.tools.review.parse_diff_ranges", return_value={}),
+            patch(
+                "dagayn.tools.review.analyze_changes",
+                return_value={
+                    "summary": "large diff",
+                    "risk_score": 0.9,
+                    "changed_functions": huge_functions,
+                    "affected_flows": [
+                        {"name": f"flow_{i}", "payload": "y" * 300} for i in range(50)
+                    ],
+                    "test_gaps": [{"name": f"gap_{i}", "payload": "z" * 300} for i in range(50)],
+                    "review_priorities": [
+                        {"name": f"prio_{i}", "payload": "w" * 300} for i in range(20)
+                    ],
+                },
+            ),
+        ):
+            mock_get_store.return_value = (self.store, Path("/fake/repo"))
+            self.store.close = lambda: None
+
+            result = detect_changes_func(base="HEAD~1", repo_root="/fake/repo")
+
+            assert result["status"] == "ok"
+            assert result["truncated"] is True
+            assert len(result["changed_functions"]) < len(huge_functions)

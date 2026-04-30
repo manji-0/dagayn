@@ -46,12 +46,14 @@ def list_flows(
         flows = get_flows(store, sort_by=sort_by, limit=fetch_limit)
 
         if kind:
+            entry_ids = [f["entry_point_id"] for f in flows if f.get("entry_point_id") is not None]
+            entry_nodes = store.get_nodes_by_ids(entry_ids)
             filtered = []
             for f in flows:
                 ep_id = f.get("entry_point_id")
                 if ep_id is not None:
-                    node_kind = store.get_node_kind_by_id(ep_id)
-                    if node_kind == kind:
+                    node = entry_nodes.get(ep_id)
+                    if node is not None and node.kind == kind:
                         filtered.append(f)
             flows = filtered[:limit]
 
