@@ -939,6 +939,32 @@ def _filter_incremental_candidates(
     return candidates, removed_files
 
 
+def _classify_python_changed_files(
+    repo_root: Path,
+    file_paths: list[str],
+    file_meta: dict[str, tuple[str, int]],
+) -> tuple[list[str], list[tuple[int, str]]]:
+    """Return content-changed Python-owned files and mtime-only updates."""
+    changed_files: list[str] = []
+    mtime_only_updates: list[tuple[int, str]] = []
+    for rel_path in file_paths:
+        abs_path = repo_root / rel_path
+        try:
+            cur_mtime_ns = int(abs_path.stat().st_mtime_ns)
+            meta = file_meta.get(rel_path)
+            if meta and meta[1] == cur_mtime_ns:
+                continue
+            raw = abs_path.read_bytes()
+            fhash = hashlib.sha256(raw).hexdigest()
+            if meta and meta[0] == fhash:
+                mtime_only_updates.append((cur_mtime_ns, rel_path))
+                continue
+        except (OSError, PermissionError):
+            pass
+        changed_files.append(rel_path)
+    return changed_files, mtime_only_updates
+
+
 def _flush_store_batch(store: GraphStore, batch: StoreBatch) -> None:
     """Write parsed file results through one store call.
 
@@ -1299,18 +1325,61 @@ def incremental_update(
             "dependent_files": [],
         }
 
-    # Find dependent files (files that import from changed files)
-    dependent_files = {
-        _make_repo_relative(dep, repo_root)
-        for dep in find_dependents_for_files(store, changed_files)
-    }
-
-    # Combine changed + dependent
-    all_files = set(changed_files) | dependent_files
-
     total_nodes = 0
     total_edges = 0
     errors = []
+    mtime_only_updates: list[tuple[int, str]] = []  # (mtime_ns, file_path) pairs
+
+    # First classify the changed roots themselves. Touch-only changes only need
+    # their stored mtime refreshed; they should not force dependent expansion.
+    changed_candidates, removed_files = _filter_incremental_candidates(
+        repo_root,
+        set(changed_files),
+        ignore_patterns,
+    )
+    rust_changed_candidates, python_changed_candidates = _split_rust_parser_files(
+        changed_candidates
+    )
+    content_changed_files: set[str] = set()
+
+    if rust_changed_candidates:
+        if hasattr(store, "classify_changed_rust_owned_files"):
+            rust_changed, raw_errors = store.classify_changed_rust_owned_files(
+                repo_root,
+                rust_changed_candidates,
+            )
+            content_changed_files.update(rust_changed)
+            errors.extend(
+                {"file": str(file_path), "error": str(error)}
+                for file_path, error in raw_errors
+            )
+        else:
+            content_changed_files.update(rust_changed_candidates)
+
+    if python_changed_candidates:
+        if hasattr(store, "get_file_meta_map"):
+            changed_file_meta = store.get_file_meta_map()
+        else:
+            changed_file_meta = {
+                path: (fhash, 0)
+                for path, fhash in store.get_file_hashes(python_changed_candidates).items()
+            }
+        python_changed, python_mtime_updates = _classify_python_changed_files(
+            repo_root,
+            python_changed_candidates,
+            changed_file_meta,
+        )
+        content_changed_files.update(python_changed)
+        mtime_only_updates.extend(python_mtime_updates)
+
+    dependency_roots = set(removed_files) | content_changed_files
+    dependent_files = {
+        _make_repo_relative(dep, repo_root)
+        for dep in find_dependents_for_files(store, dependency_roots)
+    }
+
+    # Combine real content changes, deleted files, and their dependents.
+    all_files = content_changed_files | set(removed_files) | dependent_files
 
     # Separate deleted/unparseable files from files that need re-parsing.
     # Existing hashes are loaded in one store call so the Rust backend does not
@@ -1323,7 +1392,9 @@ def incremental_update(
 
     store.remove_files_data(removed_files)
 
-    if hasattr(store, "get_file_meta_map"):
+    if not candidates:
+        file_meta = {}
+    elif hasattr(store, "get_file_meta_map"):
         file_meta = store.get_file_meta_map()
     else:
         file_meta = {path: (fhash, 0) for path, fhash in store.get_file_hashes(candidates).items()}
@@ -1331,7 +1402,6 @@ def incremental_update(
     rust_candidates, python_candidates = _split_rust_parser_files(candidates)
     to_parse_rust: list[str] = []
     to_parse: list[tuple[str, int]] = []
-    mtime_only_updates: list[tuple[int, str]] = []  # (mtime_ns, file_path) pairs
     for rel_path in rust_candidates:
         abs_path = repo_root / rel_path
         try:
