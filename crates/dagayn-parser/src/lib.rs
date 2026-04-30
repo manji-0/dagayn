@@ -44,6 +44,7 @@ static MARKDOWN_SYMBOL_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$").unwrap());
 static MARKDOWN_TITLE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"\s+(?:"[^"]*"|'[^']*')\s*$"#).unwrap());
+const LINE_CURSOR_SCAN_THRESHOLD: usize = 4;
 
 pub fn grammar_status() -> dagayn_grammars::GrammarStatus {
     dagayn_grammars::status()
@@ -162,6 +163,86 @@ struct Heading {
     line: i64,
 }
 
+struct MarkdownLineContext<'a> {
+    file_path: &'a str,
+    headings: &'a [Heading],
+}
+
+impl<'a> MarkdownLineContext<'a> {
+    fn new(file_path: &'a str, headings: &'a [Heading]) -> Self {
+        Self {
+            file_path,
+            headings,
+        }
+    }
+
+    fn section_for_line(&self, line: i64) -> Option<String> {
+        if self.headings.len() <= 8 {
+            let mut section_slug = None;
+            for heading in self.headings {
+                if heading.line > line {
+                    break;
+                }
+                section_slug = Some(heading.slug.as_str());
+            }
+            return section_slug.map(|slug| format!("{}::{slug}", self.file_path));
+        }
+        let idx = self
+            .headings
+            .partition_point(|heading| heading.line <= line);
+        idx.checked_sub(1)
+            .map(|idx| format!("{}::{}", self.file_path, self.headings[idx].slug))
+    }
+
+    fn source_for_line(&self, line: i64) -> String {
+        self.section_for_line(line)
+            .unwrap_or_else(|| self.file_path.to_string())
+    }
+}
+
+struct LineCursor<'a> {
+    bytes: &'a [u8],
+    offset: usize,
+    line: i64,
+    lookups: usize,
+}
+
+impl<'a> LineCursor<'a> {
+    fn new(text: &'a str) -> Self {
+        Self {
+            bytes: text.as_bytes(),
+            offset: 0,
+            line: 1,
+            lookups: 0,
+        }
+    }
+
+    fn line_for_offset(&mut self, offset: usize) -> i64 {
+        if self.lookups < LINE_CURSOR_SCAN_THRESHOLD {
+            self.lookups += 1;
+            let end = offset.min(self.bytes.len());
+            self.offset = end;
+            self.line = self.bytes[..end]
+                .iter()
+                .filter(|byte| **byte == b'\n')
+                .count() as i64
+                + 1;
+            return self.line;
+        }
+        if offset < self.offset {
+            self.offset = 0;
+            self.line = 1;
+        }
+        let end = offset.min(self.bytes.len());
+        self.line += self.bytes[self.offset..end]
+            .iter()
+            .filter(|byte| **byte == b'\n')
+            .count() as i64;
+        self.offset = end;
+        self.line
+    }
+}
+
 pub struct RustOwnedParser {
     markdown_parser: Option<tree_sitter::Parser>,
 }
@@ -266,9 +347,10 @@ fn parse_markdown_with_parser(
         stack.push((heading.level, section_qname));
     }
 
-    extract_markdown_directives(file_path, &text, &headings, &mut edges);
-    extract_markdown_links(file_path, &text, &headings, &mut edges);
-    extract_markdown_code_spans(file_path, &text, &headings, &mut edges);
+    let line_context = MarkdownLineContext::new(file_path, &headings);
+    extract_markdown_directives(&line_context, &text, &mut edges);
+    extract_markdown_links(&line_context, &text, &mut edges);
+    extract_markdown_code_spans(&line_context, &text, &mut edges);
     (nodes, dedupe_edges(edges))
 }
 
@@ -1569,32 +1651,21 @@ fn markdown_slugify(text: &str) -> String {
     out
 }
 
-fn markdown_section_for_line(line: i64, file_path: &str, headings: &[Heading]) -> Option<String> {
-    let mut section_slug = None;
-    for heading in headings {
-        if heading.line > line {
-            break;
-        }
-        section_slug = Some(heading.slug.as_str());
-    }
-    section_slug.map(|slug| format!("{file_path}::{slug}"))
-}
-
 fn extract_markdown_directives(
-    file_path: &str,
+    line_context: &MarkdownLineContext<'_>,
     text: &str,
-    headings: &[Heading],
     edges: &mut Vec<ParsedEdge>,
 ) {
+    let mut lines = LineCursor::new(text);
     for captures in MARKDOWN_DIRECTIVE_RE.captures_iter(text) {
         let Some(matched) = captures.get(0) else {
             continue;
         };
         let kind = captures[1].to_ascii_lowercase();
         let raw_target = captures[2].trim();
-        let line = line_for_offset(text, matched.start());
-        let source = markdown_section_for_line(line, file_path, headings)
-            .unwrap_or_else(|| file_path.to_string());
+        let line = lines.line_for_offset(matched.start());
+        let source = line_context.source_for_line(line);
+        let file_path = line_context.file_path;
         let Some(target) = markdown_target(raw_target, file_path) else {
             continue;
         };
@@ -1627,11 +1698,11 @@ fn extract_markdown_directives(
 }
 
 fn extract_markdown_links(
-    file_path: &str,
+    line_context: &MarkdownLineContext<'_>,
     text: &str,
-    headings: &[Heading],
     edges: &mut Vec<ParsedEdge>,
 ) {
+    let mut lines = LineCursor::new(text);
     for captures in MARKDOWN_INLINE_LINK_RE
         .captures_iter(text)
         .chain(MARKDOWN_REF_LINK_RE.captures_iter(text))
@@ -1643,9 +1714,9 @@ fn extract_markdown_links(
         if raw_target.is_empty() || is_external_target(&raw_target) {
             continue;
         }
-        let line = line_for_offset(text, matched.start());
-        let source = markdown_section_for_line(line, file_path, headings)
-            .unwrap_or_else(|| file_path.to_string());
+        let line = lines.line_for_offset(matched.start());
+        let source = line_context.source_for_line(line);
+        let file_path = line_context.file_path;
         let Some(target) = markdown_target(&raw_target, file_path) else {
             continue;
         };
@@ -1680,12 +1751,12 @@ fn extract_markdown_links(
 }
 
 fn extract_markdown_code_spans(
-    file_path: &str,
+    line_context: &MarkdownLineContext<'_>,
     text: &str,
-    headings: &[Heading],
     edges: &mut Vec<ParsedEdge>,
 ) {
     let mut seen = std::collections::HashSet::new();
+    let mut lines = LineCursor::new(text);
     for captures in MARKDOWN_CODE_SPAN_RE.captures_iter(text) {
         let Some(matched) = captures.get(0) else {
             continue;
@@ -1697,9 +1768,9 @@ fn extract_markdown_code_spans(
         if !sym.contains('_') && !sym.contains('.') && sym.len() < 10 {
             continue;
         }
-        let line = line_for_offset(text, matched.start());
-        let source = markdown_section_for_line(line, file_path, headings)
-            .unwrap_or_else(|| file_path.to_string());
+        let line = lines.line_for_offset(matched.start());
+        let source = line_context.source_for_line(line);
+        let file_path = line_context.file_path;
         if !seen.insert((source.clone(), sym.to_string(), line)) {
             continue;
         }
