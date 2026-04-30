@@ -648,39 +648,7 @@ def get_flow_by_id(store: GraphStore, flow_id: int) -> Optional[dict]:
     row = store._conn.execute("SELECT * FROM flows WHERE id = ?", (flow_id,)).fetchone()
     if row is None:
         return None
-
-    path_ids: list[int] = json.loads(row["path_json"])
-
-    # Build detailed step info.
-    steps: list[dict] = []
-    for nid in path_ids:
-        node = store.get_node_by_id(nid)
-        if node:
-            steps.append(
-                {
-                    "node_id": node.id,
-                    "name": _sanitize_name(node.name),
-                    "kind": node.kind,
-                    "file": node.file_path,
-                    "line_start": node.line_start,
-                    "line_end": node.line_end,
-                    "qualified_name": _sanitize_name(node.qualified_name),
-                }
-            )
-
-    return {
-        "id": row["id"],
-        "name": _sanitize_name(row["name"]),
-        "entry_point_id": row["entry_point_id"],
-        "depth": row["depth"],
-        "node_count": row["node_count"],
-        "file_count": row["file_count"],
-        "criticality": row["criticality"],
-        "path": path_ids,
-        "steps": steps,
-        "created_at": row["created_at"],
-        "updated_at": row["updated_at"],
-    }
+    return _hydrate_flow_rows(store, [row])[0]
 
 
 def _hydrate_flow_rows(

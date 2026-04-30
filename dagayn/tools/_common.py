@@ -452,6 +452,7 @@ def compact_response(
     key_entities: list[str] | None = None,
     risk: str = "unknown",
     communities: list[str] | None = None,
+    top_flows: list[str] | None = None,
     flows_affected: list[str] | None = None,
     next_tool_suggestions: list[str] | None = None,
     data: dict[str, Any] | None = None,
@@ -468,6 +469,8 @@ def compact_response(
         resp["risk"] = risk
     if communities:
         resp["communities"] = communities[:5]
+    if top_flows:
+        resp["top_flows"] = top_flows[:5]
     if flows_affected:
         resp["flows_affected"] = flows_affected[:5]
     if next_tool_suggestions:

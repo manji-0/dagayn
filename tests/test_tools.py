@@ -205,6 +205,69 @@ class TestTools:
         assert len(edges) == 1
         assert edges[0].source_qualified == "/repo/main.py::process"
 
+    def test_query_graph_callers_uses_batched_node_lookup(self, monkeypatch):
+        from dagayn.tools import query as query_module
+
+        extra_callers = [
+            ("/repo/worker.py", "worker"),
+            ("/repo/cli.py", "run"),
+        ]
+        for file_path, func_name in extra_callers:
+            self.store.upsert_node(
+                NodeInfo(
+                    kind="File",
+                    name=file_path,
+                    file_path=file_path,
+                    line_start=1,
+                    line_end=30,
+                    language="python",
+                )
+            )
+            self.store.upsert_node(
+                NodeInfo(
+                    kind="Function",
+                    name=func_name,
+                    file_path=file_path,
+                    line_start=5,
+                    line_end=15,
+                    language="python",
+                )
+            )
+            self.store.upsert_edge(
+                EdgeInfo(
+                    kind="CALLS",
+                    source=f"{file_path}::{func_name}",
+                    target="/repo/auth.py::AuthService.login",
+                    file_path=file_path,
+                    line=10,
+                )
+            )
+        self.store.commit()
+
+        original_get_node = self.store.get_node
+
+        def wrapped_get_node(qualified_name: str):
+            if qualified_name in {"/repo/worker.py::worker", "/repo/cli.py::run"}:
+                raise AssertionError("query_graph should batch-resolve caller nodes")
+            return original_get_node(qualified_name)
+
+        monkeypatch.setattr(
+            query_module,
+            "_get_store",
+            lambda repo_root: (self.store, Path("/repo")),
+        )
+        self.store.close = lambda: None
+        monkeypatch.setattr(self.store, "get_node", wrapped_get_node)
+
+        result = query_module.query_graph(
+            pattern="callers_of",
+            target="/repo/auth.py::AuthService.login",
+            repo_root="/repo",
+        )
+
+        assert result["status"] == "ok"
+        assert len(result["results"]) == 3
+
 
 class TestGetDocsSection:
     """Tests for the get_docs_section tool."""
@@ -533,6 +596,24 @@ class TestFlowTools:
             ).fetchone()
             assert row["kind"] == "Function"
 
+    def test_list_flows_kind_filter_batches_entry_point_lookup(self, monkeypatch):
+        from dagayn.tools import flows_tools
+
+        monkeypatch.setattr(flows_tools, "_get_store", lambda repo_root: (self.store, self.root))
+        self.store.close = lambda: None
+        monkeypatch.setattr(
+            self.store,
+            "get_node_kind_by_id",
+            lambda node_id: (_ for _ in ()).throw(
+                AssertionError("list_flows(kind=...) should not use per-flow kind lookups")
+            ),
+        )
+
+        result = flows_tools.list_flows(repo_root=str(self.root), kind="Function")
+
+        assert result["status"] == "ok"
+        assert len(result["flows"]) >= 1
+
     def test_list_flows_kind_filter_no_match(self):
         result = list_flows(repo_root=str(self.root), kind="Class")
         assert result["status"] == "ok"
@@ -549,6 +630,26 @@ class TestFlowTools:
         assert "flow" in result
         assert result["flow"]["id"] == fid
         assert "steps" in result["flow"]
+        assert len(result["flow"]["steps"]) >= 2
+
+    def test_get_flow_by_id_batches_step_lookup(self, monkeypatch):
+        from dagayn.tools import flows_tools
+
+        flow_id = list_flows(repo_root=str(self.root))["flows"][0]["id"]
+
+        monkeypatch.setattr(flows_tools, "_get_store", lambda repo_root: (self.store, self.root))
+        self.store.close = lambda: None
+        monkeypatch.setattr(
+            self.store,
+            "get_node_by_id",
+            lambda node_id: (_ for _ in ()).throw(
+                AssertionError("get_flow should not fetch step nodes one by one")
+            ),
+        )
+
+        result = flows_tools.get_flow(flow_id=flow_id, repo_root=str(self.root))
+
+        assert result["status"] == "ok"
         assert len(result["flow"]["steps"]) >= 2
 
     def test_get_flow_by_name(self):
@@ -815,6 +916,33 @@ class TestCommunityTools:
         # No community should be that large in our test data
         assert len(result["communities"]) == 0
 
+    def test_list_communities_minimal_skips_full_member_expansion(self, monkeypatch):
+        from dagayn.tools import community_tools
+
+        monkeypatch.setattr(
+            community_tools,
+            "_get_store",
+            lambda repo_root: (self.store, self.root),
+        )
+        self.store.close = lambda: None
+        monkeypatch.setattr(
+            community_tools,
+            "get_communities",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("minimal list_communities should not build full community payloads")
+            ),
+        )
+
+        result = community_tools.list_communities_func(
+            repo_root=str(self.root),
+            detail_level="minimal",
+        )
+
+        assert result["status"] == "ok"
+        assert all(
+            set(comm.keys()) == {"name", "size", "cohesion"} for comm in result["communities"]
+        )
+
     def test_get_community_by_id(self):
         # First list to get a community ID
         comms_result = list_communities_func(repo_root=str(self.root))
@@ -889,6 +1017,28 @@ class TestCommunityTools:
         result = get_architecture_overview_func(repo_root=str(self.root), detail_level="verbose")
         assert "cross_community_edges" in result
         assert isinstance(result["cross_community_edges"], list)
+
+    def test_get_architecture_overview_trims_large_payloads(self, monkeypatch):
+        from dagayn.tools import community_tools
+
+        huge_overview = {
+            "communities": [{"name": f"c{i}", "blob": "x" * 400} for i in range(80)],
+            "cross_community_coupling": [{"pair": f"p{i}", "blob": "y" * 400} for i in range(80)],
+            "cross_community_edges": [{"edge": f"e{i}", "blob": "z" * 400} for i in range(80)],
+            "warnings": ["w" * 200 for _ in range(20)],
+        }
+
+        monkeypatch.setattr(
+            community_tools,
+            "get_architecture_overview",
+            lambda store, detail_level, top_n: huge_overview,
+        )
+
+        result = community_tools.get_architecture_overview_func(repo_root=str(self.root))
+
+        assert result["status"] == "ok"
+        assert result["truncated"] is True
+        assert len(result["communities"]) < 80 or len(result["cross_community_coupling"]) < 80
 
 
 class TestBuildPostprocess:
@@ -1415,3 +1565,142 @@ class TestGetMinimalContext:
             repo_root=str(self.root),
         )
         assert "refactor" in result["next_tool_suggestions"]
+
+    def test_uses_review_priorities_and_affected_flows(self, monkeypatch):
+        import dagayn.changes as changes
+        import dagayn.incremental as incremental
+        from dagayn.tools.context import get_minimal_context
+
+        monkeypatch.setattr("dagayn.tools.context._has_git_changes", lambda *_: True)
+        monkeypatch.setattr(incremental, "get_changed_files", lambda *_: ["app.py"])
+        monkeypatch.setattr(
+            changes,
+            "analyze_changes",
+            lambda *args, **kwargs: {
+                "risk_score": 0.8,
+                "changed_functions": [{"name": "low-priority"}],
+                "review_priorities": [
+                    {"name": "highest-priority"},
+                    {"name": "second-priority"},
+                ],
+                "affected_flows": [
+                    {"name": "login-flow"},
+                    {"name": "signup-flow"},
+                ],
+                "test_gaps": [{"name": "missing-test"}],
+            },
+        )
+
+        result = get_minimal_context(task="review changes", repo_root=str(self.root))
+
+        assert result["key_entities"] == ["highest-priority", "second-priority"]
+        assert result["flows_affected"] == ["login-flow", "signup-flow"]
+        assert "top_flows" not in result
+
+    def test_reports_top_flows_separately_from_affected_flows(self):
+        from dagayn.tools.context import get_minimal_context
+
+        conn = GraphStore(str(self.root / ".dagayn" / "graph.db"))._conn
+        conn.execute("DELETE FROM flows")
+        conn.execute(
+            """
+            INSERT INTO flows (
+                name, entry_point_id, depth, node_count, file_count, criticality, path_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "search-flow",
+                1,
+                2,
+                3,
+                1,
+                0.9,
+                "[]",
+                "login-flow",
+                2,
+                2,
+                2,
+                1,
+                0.8,
+                "[]",
+                "checkout-flow",
+                1,
+                1,
+                1,
+                1,
+                0.7,
+                "[]",
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+        result = get_minimal_context(task="explore codebase", repo_root=str(self.root))
+
+        assert result["top_flows"] == ["search-flow", "login-flow", "checkout-flow"]
+        assert "flows_affected" not in result
+
+    def test_uses_dedicated_store_connection(self, monkeypatch):
+        from dagayn.tools import context as context_module
+
+        observed: dict[str, bool] = {}
+        original = context_module._get_store
+
+        def wrapped(repo_root, *, cached=True):
+            observed["cached"] = cached
+            return original(repo_root, cached=cached)
+
+        monkeypatch.setattr(context_module, "_get_store", wrapped)
+
+        result = context_module.get_minimal_context(
+            task="explore codebase",
+            repo_root=str(self.root),
+        )
+
+        assert result["status"] == "ok"
+        assert observed["cached"] is False
+
+
+class TestImpactRadiusBudgeting:
+    def test_get_impact_radius_trims_oversized_standard_output(self, monkeypatch):
+        from dagayn.tools import query as query_module
+
+        class _DummyStore:
+            def get_impact_radius(self, abs_files, max_depth, max_nodes):
+                return {
+                    "changed_nodes": [object()] * 20,
+                    "impacted_nodes": [object()] * 200,
+                    "edges": [object()] * 400,
+                    "impacted_files": [f"/repo/file_{i}.py" for i in range(50)],
+                    "truncated": False,
+                    "total_impacted": 200,
+                }
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr(
+            query_module,
+            "_get_store",
+            lambda repo_root: (_DummyStore(), Path("/repo")),
+        )
+        monkeypatch.setattr(
+            query_module,
+            "node_to_dict",
+            lambda node: {"name": "node", "payload": "x" * 400},
+        )
+        monkeypatch.setattr(
+            query_module,
+            "edge_to_dict",
+            lambda edge: {"source": "a", "target": "b", "payload": "y" * 400},
+        )
+
+        result = query_module.get_impact_radius(
+            changed_files=["app.py"],
+            repo_root="/repo",
+            detail_level="standard",
+        )
+
+        assert result["status"] == "ok"
+        assert result["truncated"] is True
+        assert len(result["edges"]) < 400 or len(result["impacted_nodes"]) < 200

@@ -8,6 +8,21 @@ from ..sap import compute_sap_metrics, find_sap_violations
 from ._common import _get_store, apply_output_budget, make_response
 
 
+def _classify_sap_zone(violation: dict[str, Any]) -> str:
+    """Classify a SAP violation into a coarse architectural zone."""
+    zone = violation.get("zone")
+    if isinstance(zone, str) and zone:
+        return zone
+
+    abstractness = float(violation.get("abstractness", 0.0))
+    instability = float(violation.get("instability", 0.0))
+    if abstractness <= 0.5 and instability <= 0.5:
+        return "pain"
+    if abstractness >= 0.5 and instability >= 0.5:
+        return "uselessness"
+    return "off-main-sequence"
+
+
 def compute_sap_metrics_func(
     repo_root: Optional[str] = None,
     scope_kind: Literal["file", "package", "directory"] = "package",
@@ -88,7 +103,7 @@ def detect_sap_violations_func(
             "scope_key": violation["scope_key"],
             "display_name": violation["display_name"],
             "distance": violation["distance"],
-            "zone": violation["zone"],
+            "zone": _classify_sap_zone(violation),
         }
         for violation in raw_violations
     ]
