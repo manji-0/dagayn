@@ -10,6 +10,7 @@ use pyo3::types::{PyAny, PyBool, PyDict, PyIterator, PyList, PyModule, PySet, Py
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use std::io::Read;
 
 #[pyclass(name = "GraphStore")]
 struct PyGraphStore {
@@ -686,15 +687,13 @@ fn classify_changed_rust_owned_file_batch(
             errors.push((file_path, "unsupported Rust parser path".to_string()));
             continue;
         }
-        if changed_rust_owned_file_source(
+        if changed_rust_owned_file_needs_parse(
             repo_root,
             &file_path,
             file_meta,
             &mut mtime_updates,
             &mut errors,
-        )
-        .is_some()
-        {
+        ) {
             changed_files.push(file_path);
         }
     }
@@ -741,12 +740,64 @@ fn changed_rust_owned_file_source(
     Some((source, file_hash, mtime_ns))
 }
 
+fn changed_rust_owned_file_needs_parse(
+    repo_root: &std::path::Path,
+    file_path: &str,
+    file_meta: &HashMap<String, (String, i64)>,
+    mtime_updates: &mut Vec<(String, i64)>,
+    errors: &mut Vec<(String, String)>,
+) -> bool {
+    let full_path = repo_root.join(file_path);
+    let mtime_ns = match file_mtime_ns(&full_path) {
+        Ok(mtime_ns) => mtime_ns,
+        Err(err) => {
+            errors.push((file_path.to_string(), err.to_string()));
+            return false;
+        }
+    };
+    if file_meta
+        .get(file_path)
+        .is_some_and(|(_, stored_mtime_ns)| *stored_mtime_ns == mtime_ns)
+    {
+        return false;
+    }
+    let file_hash = match sha256_file(&full_path) {
+        Ok(file_hash) => file_hash,
+        Err(err) => {
+            errors.push((file_path.to_string(), err.to_string()));
+            return false;
+        }
+    };
+    if file_meta
+        .get(file_path)
+        .is_some_and(|(stored_hash, _)| *stored_hash == file_hash)
+    {
+        mtime_updates.push((file_path.to_string(), mtime_ns));
+        return false;
+    }
+    true
+}
+
 fn file_mtime_ns(path: &std::path::Path) -> std::io::Result<i64> {
     let modified = std::fs::metadata(path)?.modified()?;
     Ok(modified
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_nanos().min(i64::MAX as u128) as i64)
         .unwrap_or(0))
+}
+
+fn sha256_file(path: &std::path::Path) -> std::io::Result<String> {
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let size = file.read(&mut buffer)?;
+        if size == 0 {
+            break;
+        }
+        hasher.update(&buffer[..size]);
+    }
+    Ok(hex_digest(hasher.finalize()))
 }
 
 fn parsed_node_to_input(node: dagayn_core::parser::ParsedNode) -> NodeInput {
@@ -778,11 +829,15 @@ fn parsed_edge_to_input(edge: dagayn_core::parser::ParsedEdge) -> EdgeInput {
 }
 
 fn sha256_hex(source: &[u8]) -> String {
-    let digest = Sha256::digest(source);
+    hex_digest(Sha256::digest(source))
+}
+
+fn hex_digest(digest: impl AsRef<[u8]>) -> String {
+    let digest = digest.as_ref();
     let mut out = String::with_capacity(digest.len() * 2);
     for byte in digest {
         use std::fmt::Write;
-        let _ = write!(out, "{byte:02x}");
+        let _ = write!(out, "{:02x}", *byte);
     }
     out
 }

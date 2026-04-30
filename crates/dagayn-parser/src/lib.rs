@@ -2152,8 +2152,10 @@ fn is_binary(path: &Path) -> bool {
 }
 
 fn detect_language_from_shebang(path: &Path) -> Option<&'static str> {
-    let bytes = std::fs::read(path).ok()?;
-    let head = &bytes[..bytes.len().min(256)];
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut head = [0_u8; 256];
+    let size = file.read(&mut head).ok()?;
+    let head = &head[..size];
     if !head.starts_with(b"#!") {
         return None;
     }

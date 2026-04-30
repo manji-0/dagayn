@@ -2363,7 +2363,7 @@ impl GraphStore {
                 .join(",");
             let sql = format!("SELECT * FROM flows WHERE id IN ({placeholders})");
             let mut stmt = self.conn.prepare(&sql)?;
-            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), flow_json_from_row)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), flow_value_from_row)?;
             for row in rows {
                 flows.push(row?);
             }
@@ -2371,21 +2371,18 @@ impl GraphStore {
 
         let mut path_node_ids = HashSet::new();
         for flow in &flows {
-            for node_id in flow_path_ids(flow) {
-                path_node_ids.insert(node_id);
-            }
+            path_node_ids.extend(flow.path_ids.iter().copied());
         }
         let path_node_ids = path_node_ids.into_iter().collect::<Vec<_>>();
         let nodes_by_id = self.get_nodes_by_ids(&path_node_ids)?;
 
         for flow in &mut flows {
-            let path_ids = flow_path_ids(flow);
-            let steps = flow_steps_from_nodes(&path_ids, &nodes_by_id);
-            if let Some(obj) = flow.as_object_mut() {
+            let steps = flow_steps_from_nodes(&flow.path_ids, &nodes_by_id);
+            if let Some(obj) = flow.value.as_object_mut() {
                 obj.insert("steps".to_string(), Value::Array(steps));
             }
         }
-        Ok(flows)
+        Ok(flows.into_iter().map(|flow| flow.value).collect())
     }
 
     pub fn get_edges_by_source(&self, qualified_name: &str) -> Result<Vec<GraphEdge>> {
@@ -2981,9 +2978,30 @@ fn flow_json_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
     let path_json: String = row.get("path_json")?;
     let path = serde_json::from_str::<Vec<i64>>(&path_json).unwrap_or_default();
     let name: String = row.get("name")?;
+    flow_json_value_from_parts(row, &name, &path)
+}
+
+struct FlowValue {
+    value: Value,
+    path_ids: Vec<i64>,
+}
+
+fn flow_value_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<FlowValue> {
+    let path_json: String = row.get("path_json")?;
+    let path_ids = serde_json::from_str::<Vec<i64>>(&path_json).unwrap_or_default();
+    let name: String = row.get("name")?;
+    let value = flow_json_value_from_parts(row, &name, &path_ids)?;
+    Ok(FlowValue { value, path_ids })
+}
+
+fn flow_json_value_from_parts(
+    row: &rusqlite::Row<'_>,
+    name: &str,
+    path: &[i64],
+) -> rusqlite::Result<Value> {
     Ok(json!({
         "id": row.get::<_, i64>("id")?,
-        "name": sanitize_name(&name),
+        "name": sanitize_name(name),
         "entry_point_id": row.get::<_, i64>("entry_point_id")?,
         "depth": row.get::<_, i64>("depth")?,
         "node_count": row.get::<_, i64>("node_count")?,
@@ -2993,13 +3011,6 @@ fn flow_json_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
         "created_at": row.get::<_, String>("created_at")?,
         "updated_at": row.get::<_, String>("updated_at")?,
     }))
-}
-
-fn flow_path_ids(flow: &Value) -> Vec<i64> {
-    flow.get("path")
-        .and_then(Value::as_array)
-        .map(|items| items.iter().filter_map(Value::as_i64).collect())
-        .unwrap_or_default()
 }
 
 fn flow_steps_from_nodes(path_ids: &[i64], nodes_by_id: &HashMap<i64, GraphNode>) -> Vec<Value> {
