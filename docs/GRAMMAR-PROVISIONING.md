@@ -11,6 +11,7 @@ The current provisioned grammars are:
 - Markdown
 - Terraform
 - Rust
+- Python
 
 ## Provisioning model
 
@@ -57,8 +58,12 @@ Each grammar pin must identify:
 - required source files
 - any fork-local assets that must be injected before binding compilation
 
-Markdown, Terraform, and Rust currently need fork-local Python binding shims
+Markdown, Terraform, Rust, and Python currently need fork-local Python binding shims
 injected during provisioning.
+
+Python grammar is currently staged for Rust-side parity work only. `.py` files
+continue to route through the existing Python parser until import resolution,
+TESTED_BY, CROSS_ARTIFACT, and test classification parity are complete.
 
 ## Operational expectations
 

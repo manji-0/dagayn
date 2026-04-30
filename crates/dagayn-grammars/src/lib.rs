@@ -9,11 +9,13 @@ extern "C" {
     fn tree_sitter_markdown() -> *const ();
     fn tree_sitter_terraform() -> *const ();
     fn tree_sitter_rust() -> *const ();
+    fn tree_sitter_python() -> *const ();
 }
 
 pub const MARKDOWN_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_markdown) };
 pub const TERRAFORM_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_terraform) };
 pub const RUST_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_rust) };
+pub const PYTHON_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_python) };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GrammarStatus {
@@ -34,6 +36,10 @@ pub fn terraform_language() -> tree_sitter::Language {
 
 pub fn rust_language() -> tree_sitter::Language {
     RUST_LANGUAGE.into()
+}
+
+pub fn python_language() -> tree_sitter::Language {
+    PYTHON_LANGUAGE.into()
 }
 
 #[cfg(test)]
@@ -69,6 +75,18 @@ mod tests {
             .set_language(&rust_language())
             .expect("load pinned Rust grammar");
         let tree = parser.parse("fn main() {}\n", None).expect("parse Rust");
+        assert!(!tree.root_node().has_error());
+    }
+
+    #[test]
+    fn loads_python_language() {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&python_language())
+            .expect("load pinned Python grammar");
+        let tree = parser
+            .parse("def main():\n    return 1\n", None)
+            .expect("parse Python");
         assert!(!tree.root_node().has_error());
     }
 }

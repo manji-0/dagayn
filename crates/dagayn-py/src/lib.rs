@@ -1224,6 +1224,7 @@ fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(parse_markdown_compact_json, module)?)?;
     module.add_function(wrap_pyfunction!(parse_terraform_compact_json, module)?)?;
     module.add_function(wrap_pyfunction!(parse_rust_compact_json, module)?)?;
+    module.add_function(wrap_pyfunction!(parse_python_compact_json, module)?)?;
     Ok(())
 }
 
@@ -1305,6 +1306,13 @@ fn parse_terraform_compact_json(file_path: &str, source: &[u8]) -> PyResult<Stri
 #[pyfunction]
 fn parse_rust_compact_json(file_path: &str, source: &[u8]) -> PyResult<String> {
     Ok(dagayn_core::parser::parse_rust_compact_json(
+        file_path, source,
+    ))
+}
+
+#[pyfunction]
+fn parse_python_compact_json(file_path: &str, source: &[u8]) -> PyResult<String> {
+    Ok(dagayn_core::parser::parse_python_compact_json(
         file_path, source,
     ))
 }

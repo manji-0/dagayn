@@ -615,6 +615,344 @@ pub fn parse_terraform_compact_json(file_path: &str, source: &[u8]) -> String {
     parsed_compact_json(nodes, edges)
 }
 
+pub fn parse_python(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let mut parser = new_python_parser();
+    parse_python_with_parser(file_path, source, parser.as_mut())
+}
+
+fn parse_python_with_parser(
+    file_path: &str,
+    source: &[u8],
+    parser: Option<&mut tree_sitter::Parser>,
+) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
+    let mut nodes = vec![ParsedNode {
+        kind: "File".to_string(),
+        name: file_path.to_string(),
+        file_path: file_path.to_string(),
+        line_start: 1,
+        line_end,
+        language: "python".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: is_test_file(file_path),
+        extra: json!({}),
+    }];
+    let mut edges = Vec::new();
+
+    if let Some(parser) = parser {
+        if let Some(tree) = parser.parse(source, None) {
+            let root = tree.root_node();
+            let mut defined_names = HashSet::new();
+            collect_python_defined_names(root, source, &mut defined_names);
+            let context = PythonParseContext {
+                source,
+                file_path,
+                defined_names: &defined_names,
+            };
+            python_walk_children(root, &context, None, None, &mut nodes, &mut edges);
+            let edges = resolve_python_call_targets(&nodes, edges, file_path);
+            return (nodes, edges);
+        }
+    }
+
+    (nodes, edges)
+}
+
+pub fn parse_python_compact_json(file_path: &str, source: &[u8]) -> String {
+    let (nodes, edges) = parse_python(file_path, source);
+    parsed_compact_json(nodes, edges)
+}
+
+struct PythonParseContext<'a> {
+    source: &'a [u8],
+    file_path: &'a str,
+    defined_names: &'a HashSet<String>,
+}
+
+fn python_walk_children(
+    node: tree_sitter::Node<'_>,
+    context: &PythonParseContext<'_>,
+    enclosing_class: Option<&str>,
+    enclosing_func: Option<&str>,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        match child.kind() {
+            "class_definition" => {
+                if let Some(name) = python_identifier_child(child, context.source) {
+                    let qualified = qualify(context.file_path, &name, enclosing_class);
+                    nodes.push(ParsedNode {
+                        kind: "Class".to_string(),
+                        name: name.clone(),
+                        file_path: context.file_path.to_string(),
+                        line_start: child.start_position().row as i64 + 1,
+                        line_end: child.end_position().row as i64 + 1,
+                        language: "python".to_string(),
+                        parent_name: enclosing_class.map(str::to_string),
+                        params: None,
+                        return_type: None,
+                        modifiers: None,
+                        is_test: false,
+                        extra: json!({"type_role": "class"}),
+                    });
+                    edges.push(ParsedEdge {
+                        kind: "CONTAINS".to_string(),
+                        source: context.file_path.to_string(),
+                        target: qualified.clone(),
+                        file_path: context.file_path.to_string(),
+                        line: child.start_position().row as i64 + 1,
+                        extra: json!({}),
+                    });
+                    python_emit_bases(child, context.source, context.file_path, &qualified, edges);
+                    python_walk_children(child, context, Some(&name), None, nodes, edges);
+                    continue;
+                }
+            }
+            "function_definition" => {
+                if let Some(name) = python_identifier_child(child, context.source) {
+                    let qualified = qualify(context.file_path, &name, enclosing_class);
+                    let params = python_child_text(child, context.source, "parameters");
+                    let return_type = python_return_type(child, context.source);
+                    let is_test = python_is_test_function(&name, context.file_path, child);
+                    nodes.push(ParsedNode {
+                        kind: if is_test { "Test" } else { "Function" }.to_string(),
+                        name: name.clone(),
+                        file_path: context.file_path.to_string(),
+                        line_start: child.start_position().row as i64 + 1,
+                        line_end: child.end_position().row as i64 + 1,
+                        language: "python".to_string(),
+                        parent_name: enclosing_class.map(str::to_string),
+                        params,
+                        return_type,
+                        modifiers: None,
+                        is_test,
+                        extra: json!({}),
+                    });
+                    let container = enclosing_class
+                        .map(|name| qualify(context.file_path, name, None))
+                        .unwrap_or_else(|| context.file_path.to_string());
+                    edges.push(ParsedEdge {
+                        kind: "CONTAINS".to_string(),
+                        source: container,
+                        target: qualified,
+                        file_path: context.file_path.to_string(),
+                        line: child.start_position().row as i64 + 1,
+                        extra: json!({}),
+                    });
+                    python_walk_children(
+                        child,
+                        context,
+                        enclosing_class,
+                        Some(&name),
+                        nodes,
+                        edges,
+                    );
+                    continue;
+                }
+            }
+            "import_statement" | "import_from_statement" => {
+                for target in python_import_targets(child, context.source) {
+                    edges.push(ParsedEdge {
+                        kind: "IMPORTS_FROM".to_string(),
+                        source: context.file_path.to_string(),
+                        target,
+                        file_path: context.file_path.to_string(),
+                        line: child.start_position().row as i64 + 1,
+                        extra: json!({}),
+                    });
+                }
+            }
+            "call" => {
+                if let Some(call_name) = python_call_name(child, context.source) {
+                    let caller = enclosing_func
+                        .map(|name| qualify(context.file_path, name, enclosing_class))
+                        .unwrap_or_else(|| context.file_path.to_string());
+                    let target = if context.defined_names.contains(&call_name) {
+                        qualify(context.file_path, &call_name, None)
+                    } else {
+                        call_name
+                    };
+                    edges.push(ParsedEdge {
+                        kind: "CALLS".to_string(),
+                        source: caller,
+                        target,
+                        file_path: context.file_path.to_string(),
+                        line: child.start_position().row as i64 + 1,
+                        extra: json!({}),
+                    });
+                }
+            }
+            _ => {}
+        }
+        python_walk_children(
+            child,
+            context,
+            enclosing_class,
+            enclosing_func,
+            nodes,
+            edges,
+        );
+    }
+}
+
+fn collect_python_defined_names(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    names: &mut HashSet<String>,
+) {
+    if matches!(node.kind(), "class_definition" | "function_definition") {
+        if let Some(name) = python_identifier_child(node, source) {
+            names.insert(name);
+        }
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_python_defined_names(child, source, names);
+    }
+}
+
+fn python_identifier_child(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "identifier" {
+            return Some(node_text(child, source));
+        }
+    }
+    None
+}
+
+fn python_child_text(node: tree_sitter::Node<'_>, source: &[u8], kind: &str) -> Option<String> {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == kind {
+            return Some(node_text(child, source));
+        }
+    }
+    None
+}
+
+fn python_return_type(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut cursor = node.walk();
+    let children = node.children(&mut cursor).collect::<Vec<_>>();
+    for (index, child) in children.iter().enumerate() {
+        if child.kind() == "->" {
+            return children
+                .get(index + 1)
+                .map(|return_node| node_text(*return_node, source));
+        }
+    }
+    None
+}
+
+fn python_is_test_function(name: &str, file_path: &str, node: tree_sitter::Node<'_>) -> bool {
+    starts_with_ascii_ignore_case(name, "test")
+        || contains_ascii_ignore_case(file_path, "/test/")
+        || contains_ascii_ignore_case(file_path, "/tests/")
+        || python_has_test_decorator(node)
+}
+
+fn python_has_test_decorator(node: tree_sitter::Node<'_>) -> bool {
+    let Some(parent) = node.parent() else {
+        return false;
+    };
+    if parent.kind() != "decorated_definition" {
+        return false;
+    }
+    let mut cursor = parent.walk();
+    let has_decorator = parent
+        .children(&mut cursor)
+        .any(|child| child.kind() == "decorator");
+    has_decorator
+}
+
+fn python_emit_bases(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    file_path: &str,
+    qualified: &str,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() != "argument_list" {
+            continue;
+        }
+        let mut arg_cursor = child.walk();
+        for arg in child.children(&mut arg_cursor) {
+            if matches!(arg.kind(), "identifier" | "attribute") {
+                edges.push(ParsedEdge {
+                    kind: "INHERITS".to_string(),
+                    source: qualified.to_string(),
+                    target: node_text(arg, source),
+                    file_path: file_path.to_string(),
+                    line: node.start_position().row as i64 + 1,
+                    extra: json!({
+                        "relationship_role": "extends",
+                        "syntax_source": node.kind(),
+                    }),
+                });
+            }
+        }
+    }
+}
+
+fn python_import_targets(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {
+    if node.kind() == "import_statement" {
+        let mut imports = Vec::new();
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if child.kind() == "dotted_name" {
+                imports.push(node_text(child, source));
+            }
+        }
+        return imports;
+    }
+
+    let mut module = None;
+    let mut seen_import = false;
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        match child.kind() {
+            "relative_import" => {
+                let text = node_text(child, source);
+                module = Some(text);
+                break;
+            }
+            "dotted_name" if !seen_import => {
+                module = Some(node_text(child, source));
+            }
+            "import" => {
+                seen_import = true;
+            }
+            _ => {}
+        }
+    }
+    module.into_iter().collect()
+}
+
+fn python_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut cursor = node.walk();
+    let first = node.children(&mut cursor).next()?;
+    match first.kind() {
+        "identifier" => Some(node_text(first, source)),
+        "attribute" => rust_rightmost_identifier(first, source),
+        _ => None,
+    }
+}
+
+fn resolve_python_call_targets(
+    nodes: &[ParsedNode],
+    edges: Vec<ParsedEdge>,
+    file_path: &str,
+) -> Vec<ParsedEdge> {
+    resolve_rust_call_targets(nodes, edges, file_path)
+}
+
 pub fn parse_rust(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let mut parser = new_rust_parser();
     parse_rust_with_parser(file_path, source, parser.as_mut())
@@ -1266,6 +1604,18 @@ fn new_rust_parser() -> Option<tree_sitter::Parser> {
     let mut parser = tree_sitter::Parser::new();
     if parser
         .set_language(&dagayn_grammars::rust_language())
+        .is_ok()
+    {
+        Some(parser)
+    } else {
+        None
+    }
+}
+
+fn new_python_parser() -> Option<tree_sitter::Parser> {
+    let mut parser = tree_sitter::Parser::new();
+    if parser
+        .set_language(&dagayn_grammars::python_language())
         .is_ok()
     {
         Some(parser)
@@ -2936,6 +3286,64 @@ fn helper() {}
             edge.kind == "CROSS_ARTIFACT"
                 && edge.source == "src/lib.rs::Foo.load"
                 && edge.target == "path"
+        }));
+    }
+
+    #[test]
+    fn parses_python_items_imports_and_calls() {
+        let source = br#"from models import User
+import os
+
+class Service(Base):
+    def run(self, name: str) -> User:
+        helper(name)
+        os.getenv("ENV")
+
+def helper(value: str) -> None:
+    print(value)
+"#;
+        let (nodes, edges) = parse_python("app.py", source);
+        let node_names = nodes
+            .iter()
+            .map(|node| {
+                (
+                    node.kind.as_str(),
+                    node.name.as_str(),
+                    node.parent_name.as_deref(),
+                    node.params.as_deref(),
+                    node.return_type.as_deref(),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert!(node_names.contains(&("File", "app.py", None, None, None)));
+        assert!(node_names.contains(&("Class", "Service", None, None, None)));
+        assert!(node_names.contains(&(
+            "Function",
+            "run",
+            Some("Service"),
+            Some("(self, name: str)"),
+            Some("User")
+        )));
+        assert!(node_names.contains(&(
+            "Function",
+            "helper",
+            None,
+            Some("(value: str)"),
+            Some("None")
+        )));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "IMPORTS_FROM" && edge.source == "app.py" && edge.target == "models"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "IMPORTS_FROM" && edge.source == "app.py" && edge.target == "os"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "INHERITS" && edge.source == "app.py::Service" && edge.target == "Base"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CALLS"
+                && edge.source == "app.py::Service.run"
+                && edge.target == "app.py::helper"
         }));
     }
 
