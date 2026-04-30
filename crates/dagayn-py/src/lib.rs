@@ -883,9 +883,67 @@ fn json_attr(py: Python<'_>, obj: &Bound<'_, PyAny>, name: &str) -> PyResult<Val
         Ok(value) if !value.is_none() => value,
         _ => return Ok(Value::Object(Default::default())),
     };
+    if let Some(value) = py_any_to_json(&value)? {
+        return Ok(value);
+    }
     let json = PyModule::import(py, "json")?;
     let raw: String = json.getattr("dumps")?.call1((value,))?.extract()?;
     serde_json::from_str(&raw).map_err(|err| PyValueError::new_err(err.to_string()))
+}
+
+fn py_any_to_json(value: &Bound<'_, PyAny>) -> PyResult<Option<Value>> {
+    if value.is_none() {
+        return Ok(Some(Value::Null));
+    }
+    if let Ok(value) = value.extract::<bool>() {
+        return Ok(Some(Value::Bool(value)));
+    }
+    if let Ok(value) = value.extract::<i64>() {
+        return Ok(Some(Value::Number(value.into())));
+    }
+    if let Ok(value) = value.extract::<u64>() {
+        return Ok(Some(Value::Number(value.into())));
+    }
+    if let Ok(value) = value.extract::<f64>() {
+        return serde_json::Number::from_f64(value)
+            .map(|value| Some(Value::Number(value)))
+            .ok_or_else(|| PyValueError::new_err("invalid JSON number"));
+    }
+    if let Ok(value) = value.extract::<String>() {
+        return Ok(Some(Value::String(value)));
+    }
+    if let Ok(dict) = value.cast::<PyDict>() {
+        let mut out = serde_json::Map::with_capacity(dict.len());
+        for (key, value) in dict.iter() {
+            let key: String = key.extract()?;
+            let Some(value) = py_any_to_json(&value)? else {
+                return Ok(None);
+            };
+            out.insert(key, value);
+        }
+        return Ok(Some(Value::Object(out)));
+    }
+    if let Ok(list) = value.cast::<PyList>() {
+        let mut out = Vec::with_capacity(list.len());
+        for value in list.iter() {
+            let Some(value) = py_any_to_json(&value)? else {
+                return Ok(None);
+            };
+            out.push(value);
+        }
+        return Ok(Some(Value::Array(out)));
+    }
+    if let Ok(tuple) = value.cast::<PyTuple>() {
+        let mut out = Vec::with_capacity(tuple.len());
+        for value in tuple.iter() {
+            let Some(value) = py_any_to_json(&value)? else {
+                return Ok(None);
+            };
+            out.push(value);
+        }
+        return Ok(Some(Value::Array(out)));
+    }
+    Ok(None)
 }
 
 fn flow_adjacency_to_py(

@@ -952,10 +952,7 @@ def embed_all_nodes(graph_store: GraphStore, embedding_store: EmbeddingStore) ->
     if not embedding_store.available:
         return 0
 
-    all_files = graph_store.get_all_files()
-    all_nodes: list[GraphNode] = []
-    for f in all_files:
-        all_nodes.extend(graph_store.get_nodes_by_file(f))
+    all_nodes = graph_store.get_all_nodes(exclude_files=True)
 
     return embedding_store.embed_nodes(all_nodes)
 

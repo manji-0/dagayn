@@ -1810,16 +1810,21 @@ impl GraphStore {
     }
 
     pub fn get_affected_flows_json(&self, changed_files: &[String]) -> Result<String> {
+        let flows = self.get_affected_flow_values(changed_files)?;
+        serde_json::to_string(&flows).map_err(Into::into)
+    }
+
+    fn get_affected_flow_values(&self, changed_files: &[String]) -> Result<Vec<Value>> {
         if changed_files.is_empty() {
-            return Ok("[]".to_string());
+            return Ok(Vec::new());
         }
         let node_ids = self.get_node_ids_by_files(changed_files)?;
         if node_ids.is_empty() {
-            return Ok("[]".to_string());
+            return Ok(Vec::new());
         }
         let flow_ids = self.get_flow_ids_by_node_ids(&node_ids)?;
         if flow_ids.is_empty() {
-            return Ok("[]".to_string());
+            return Ok(Vec::new());
         }
         let mut flows = self.get_flow_values_by_ids(&flow_ids)?;
         flows.sort_by(|left, right| {
@@ -1835,7 +1840,7 @@ impl GraphStore {
                 .partial_cmp(&left)
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
-        serde_json::to_string(&flows).map_err(Into::into)
+        Ok(flows)
     }
 
     pub fn analyze_changes_json(
@@ -1931,8 +1936,7 @@ impl GraphStore {
             .iter()
             .filter_map(|value| value.get("risk_score").and_then(Value::as_f64))
             .fold(0.0, f64::max);
-        let affected_flows =
-            serde_json::from_str::<Vec<Value>>(&self.get_affected_flows_json(changed_files)?)?;
+        let affected_flows = self.get_affected_flow_values(changed_files)?;
 
         let mut test_gaps = Vec::new();
         for node in &changed_funcs {
