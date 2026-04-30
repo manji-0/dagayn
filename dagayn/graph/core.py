@@ -674,6 +674,56 @@ class GraphStore:
                         incoming[orig].append(edge)
         return outgoing, incoming
 
+    def get_direct_dependents(self, file_paths: list[str]) -> list[str]:
+        """Return files that directly depend on any of *file_paths*."""
+        if not file_paths:
+            return []
+
+        dependents: set[str] = set()
+        fp_keys: list[str] = []
+        seen_keys: set[str] = set()
+        for file_path in file_paths:
+            normalized = self._normalize_qualified_key(file_path)
+            for key in (file_path, normalized):
+                if key not in seen_keys:
+                    seen_keys.add(key)
+                    fp_keys.append(key)
+
+        batch_size = 450
+        for i in range(0, len(fp_keys), batch_size):
+            chunk = fp_keys[i : i + batch_size]
+            placeholders = ",".join("?" for _ in chunk)
+            rows = self._conn.execute(
+                "SELECT file_path FROM edges "
+                f"WHERE target_qualified IN ({placeholders}) AND kind = 'IMPORTS_FROM'",
+                chunk,
+            ).fetchall()
+            dependents.update(row["file_path"] for row in rows)
+
+        node_qns: list[str] = []
+        for i in range(0, len(fp_keys), batch_size):
+            chunk = fp_keys[i : i + batch_size]
+            placeholders = ",".join("?" for _ in chunk)
+            rows = self._conn.execute(
+                f"SELECT qualified_name FROM nodes WHERE file_path IN ({placeholders})",
+                chunk,
+            ).fetchall()
+            node_qns.extend(row["qualified_name"] for row in rows)
+
+        for i in range(0, len(node_qns), batch_size):
+            chunk = node_qns[i : i + batch_size]
+            placeholders = ",".join("?" for _ in chunk)
+            rows = self._conn.execute(
+                "SELECT DISTINCT file_path FROM edges "
+                f"WHERE target_qualified IN ({placeholders}) "
+                "AND kind IN ('CALLS', 'IMPORTS_FROM', 'INHERITS', 'IMPLEMENTS')",
+                chunk,
+            ).fetchall()
+            dependents.update(row["file_path"] for row in rows)
+
+        dependents.difference_update(file_paths)
+        return sorted(dependents)
+
     def search_edges_by_target_name(self, name: str, kind: str = "CALLS") -> list[GraphEdge]:
         """Search for edges where target_qualified matches an unqualified name.
 
