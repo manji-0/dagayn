@@ -2493,17 +2493,21 @@ impl GraphStore {
             }
         }
 
-        if !node_qns.is_empty() {
-            let (_, incoming) = self.get_edges_by_endpoints(&node_qns)?;
-            for edges in incoming.values() {
-                for edge in edges {
-                    if matches!(
-                        edge.kind.as_str(),
-                        "CALLS" | "IMPORTS_FROM" | "INHERITS" | "IMPLEMENTS"
-                    ) {
-                        dependents.insert(edge.file_path.clone());
-                    }
-                }
+        for chunk in node_qns.chunks(450) {
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!(
+                "SELECT DISTINCT file_path FROM edges \
+                 WHERE target_qualified IN ({placeholders}) \
+                   AND kind IN ('CALLS', 'IMPORTS_FROM', 'INHERITS', 'IMPLEMENTS')"
+            );
+            let mut stmt = self.conn.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
+                row.get::<_, String>(0)
+            })?;
+            for row in rows {
+                dependents.insert(row?);
             }
         }
 
