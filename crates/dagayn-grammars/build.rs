@@ -35,6 +35,19 @@ const TERRAFORM: GrammarSpec = GrammarSpec {
     ],
 };
 
+const RUST: GrammarSpec = GrammarSpec {
+    language: "rust",
+    symbol: "rust",
+    required_paths: &[
+        "src/parser.c",
+        "src/scanner.c",
+        "src/tree_sitter/alloc.h",
+        "src/tree_sitter/array.h",
+        "src/tree_sitter/parser.h",
+        "bindings/python/binding.c",
+    ],
+};
+
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let repo_root = manifest_dir
@@ -51,6 +64,7 @@ fn main() {
 
     compile_grammar(&repo_root, &MARKDOWN);
     compile_grammar(&repo_root, &TERRAFORM);
+    compile_grammar(&repo_root, &RUST);
 }
 
 fn compile_grammar(repo_root: &Path, spec: &GrammarSpec) {

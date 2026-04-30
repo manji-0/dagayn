@@ -101,6 +101,21 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
         ),
         inject_python_binding=True,
     ),
+    "rust": GrammarSpec(
+        language="rust",
+        owner="tree-sitter",
+        repo="tree-sitter-rust",
+        commit="77a3747266f4d621d0757825e6b11edcbf991ca5",
+        required_paths=(
+            "src/parser.c",
+            "src/scanner.c",
+            "src/tree_sitter/alloc.h",
+            "src/tree_sitter/array.h",
+            "src/tree_sitter/parser.h",
+            "bindings/python/binding.c",
+        ),
+        inject_python_binding=True,
+    ),
 }
 
 

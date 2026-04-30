@@ -370,6 +370,14 @@ impl PyGraphStore {
         self.with_store_mut(|store| store.store_file_batch_json(batch_json))
     }
 
+    fn begin_bulk_load(&self) -> PyResult<()> {
+        self.with_store_mut(|store| store.begin_bulk_load())
+    }
+
+    fn finish_bulk_load(&self) -> PyResult<()> {
+        self.with_store_mut(|store| store.finish_bulk_load())
+    }
+
     fn store_rust_owned_files(
         &self,
         py: Python<'_>,
@@ -1215,6 +1223,7 @@ fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     )?)?;
     module.add_function(wrap_pyfunction!(parse_markdown_compact_json, module)?)?;
     module.add_function(wrap_pyfunction!(parse_terraform_compact_json, module)?)?;
+    module.add_function(wrap_pyfunction!(parse_rust_compact_json, module)?)?;
     Ok(())
 }
 
@@ -1289,6 +1298,13 @@ fn parse_markdown_compact_json(file_path: &str, source: &[u8]) -> PyResult<Strin
 #[pyfunction]
 fn parse_terraform_compact_json(file_path: &str, source: &[u8]) -> PyResult<String> {
     Ok(dagayn_core::parser::parse_terraform_compact_json(
+        file_path, source,
+    ))
+}
+
+#[pyfunction]
+fn parse_rust_compact_json(file_path: &str, source: &[u8]) -> PyResult<String> {
+    Ok(dagayn_core::parser::parse_rust_compact_json(
         file_path, source,
     ))
 }

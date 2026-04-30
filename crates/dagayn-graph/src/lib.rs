@@ -2,12 +2,58 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use rusqlite::types::Value as SqlValue;
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
 use serde_json::{json, Value};
 use thiserror::Error;
 
 const LATEST_VERSION: i64 = 11;
+const MAX_INSERT_PARAMS: usize = 30_000;
+const NODE_INSERT_PARAM_COUNT: usize = 16;
+const EDGE_INSERT_PARAM_COUNT: usize = 9;
+const NODE_INSERT_ROWS: usize = MAX_INSERT_PARAMS / NODE_INSERT_PARAM_COUNT;
+const EDGE_INSERT_ROWS: usize = MAX_INSERT_PARAMS / EDGE_INSERT_PARAM_COUNT;
+const SUSPEND_INDEX_FILE_THRESHOLD: usize = 64;
+const WRITE_INDEXES: &[(&str, &str)] = &[
+    ("idx_nodes_file", "CREATE INDEX IF NOT EXISTS idx_nodes_file ON nodes(file_path)"),
+    ("idx_nodes_kind", "CREATE INDEX IF NOT EXISTS idx_nodes_kind ON nodes(kind)"),
+    (
+        "idx_nodes_qualified",
+        "CREATE INDEX IF NOT EXISTS idx_nodes_qualified ON nodes(qualified_name)",
+    ),
+    (
+        "idx_nodes_parent_name",
+        "CREATE INDEX IF NOT EXISTS idx_nodes_parent_name ON nodes(parent_name, name)",
+    ),
+    (
+        "idx_nodes_community",
+        "CREATE INDEX IF NOT EXISTS idx_nodes_community ON nodes(community_id)",
+    ),
+    (
+        "idx_edges_source",
+        "CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_qualified)",
+    ),
+    (
+        "idx_edges_target",
+        "CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_qualified)",
+    ),
+    ("idx_edges_kind", "CREATE INDEX IF NOT EXISTS idx_edges_kind ON edges(kind)"),
+    (
+        "idx_edges_target_kind",
+        "CREATE INDEX IF NOT EXISTS idx_edges_target_kind ON edges(target_qualified, kind)",
+    ),
+    (
+        "idx_edges_source_kind",
+        "CREATE INDEX IF NOT EXISTS idx_edges_source_kind ON edges(source_qualified, kind)",
+    ),
+    ("idx_edges_file", "CREATE INDEX IF NOT EXISTS idx_edges_file ON edges(file_path)"),
+    (
+        "idx_edges_composite",
+        "CREATE INDEX IF NOT EXISTS idx_edges_composite ON edges(kind, source_qualified, target_qualified, file_path, line)",
+    ),
+];
 const SECURITY_KEYWORDS: &[&str] = &[
     "auth",
     "login",
@@ -218,13 +264,14 @@ pub struct CommunityInput {
 
 pub struct GraphStore {
     conn: Connection,
+    bulk_load_indexes_suspended: bool,
 }
 
 pub type FileBatchItem = (String, Vec<NodeInput>, Vec<EdgeInput>, String, i64);
 pub type FlowEdgeData = (HashMap<String, Vec<String>>, HashSet<String>);
 
 #[derive(Debug, Deserialize)]
-struct CompactNodeInput(
+struct RawCompactNodeInput(
     String,
     String,
     String,
@@ -236,16 +283,16 @@ struct CompactNodeInput(
     Option<String>,
     Option<String>,
     bool,
-    Value,
+    Box<RawValue>,
 );
 
 #[derive(Debug, Deserialize)]
-struct CompactEdgeInput(String, String, String, String, i64, Value);
+struct RawCompactEdgeInput(String, String, String, String, i64, Box<RawValue>);
 
-type CompactFileBatchItem = (
+type RawCompactFileBatchItem = (
     String,
-    Vec<CompactNodeInput>,
-    Vec<CompactEdgeInput>,
+    Vec<RawCompactNodeInput>,
+    Vec<RawCompactEdgeInput>,
     String,
     i64,
 );
@@ -268,7 +315,10 @@ impl GraphStore {
         conn.pragma_update(None, "cache_size", -64000)?;
         conn.pragma_update(None, "mmap_size", 268435456)?;
         conn.pragma_update(None, "temp_store", "MEMORY")?;
-        let store = Self { conn };
+        let store = Self {
+            conn,
+            bulk_load_indexes_suspended: false,
+        };
         store.init_schema()?;
         if store.schema_version()? < 1 {
             store.set_metadata("schema_version", "1")?;
@@ -890,10 +940,33 @@ impl GraphStore {
     }
 
     pub fn store_file_batch_json(&mut self, batch_json: &str) -> Result<()> {
-        let compact: Vec<CompactFileBatchItem> = serde_json::from_str(batch_json)?;
+        let compact: Vec<RawCompactFileBatchItem> = serde_json::from_str(batch_json)?;
+        let suspend_indexes = !self.bulk_load_indexes_suspended;
         let tx = self.conn.transaction()?;
-        store_compact_file_batch_tx(&tx, &compact)?;
+        store_raw_compact_file_batch_tx(&tx, &compact, suspend_indexes)?;
         tx.commit()?;
+        Ok(())
+    }
+
+    pub fn begin_bulk_load(&mut self) -> Result<()> {
+        if self.bulk_load_indexes_suspended {
+            return Ok(());
+        }
+        let tx = self.conn.transaction()?;
+        drop_graph_write_indexes(&tx)?;
+        tx.commit()?;
+        self.bulk_load_indexes_suspended = true;
+        Ok(())
+    }
+
+    pub fn finish_bulk_load(&mut self) -> Result<()> {
+        if !self.bulk_load_indexes_suspended {
+            return Ok(());
+        }
+        let tx = self.conn.transaction()?;
+        create_graph_write_indexes(&tx)?;
+        tx.commit()?;
+        self.bulk_load_indexes_suspended = false;
         Ok(())
     }
 
@@ -2955,38 +3028,6 @@ fn now_seconds() -> Result<f64> {
     Ok(duration.as_secs_f64())
 }
 
-impl From<CompactNodeInput> for NodeInput {
-    fn from(value: CompactNodeInput) -> Self {
-        Self {
-            kind: value.0,
-            name: value.1,
-            file_path: value.2,
-            line_start: value.3,
-            line_end: value.4,
-            language: value.5,
-            parent_name: value.6,
-            params: value.7,
-            return_type: value.8,
-            modifiers: value.9,
-            is_test: value.10,
-            extra: value.11,
-        }
-    }
-}
-
-impl From<CompactEdgeInput> for EdgeInput {
-    fn from(value: CompactEdgeInput) -> Self {
-        Self {
-            kind: value.0,
-            source: value.1,
-            target: value.2,
-            file_path: value.3,
-            line: value.4,
-            extra: value.5,
-        }
-    }
-}
-
 fn make_qualified(node: &NodeInput) -> String {
     make_qualified_parts(
         &node.kind,
@@ -3249,44 +3290,33 @@ fn store_file_batch_tx(tx: &Transaction<'_>, batch: &[FileBatchItem]) -> Result<
     Ok(())
 }
 
-fn store_compact_file_batch_tx(tx: &Transaction<'_>, batch: &[CompactFileBatchItem]) -> Result<()> {
+fn store_raw_compact_file_batch_tx(
+    tx: &Transaction<'_>,
+    batch: &[RawCompactFileBatchItem],
+    suspend_indexes: bool,
+) -> Result<()> {
     let now = now_seconds()?;
+    let suspend_indexes = suspend_indexes && should_suspend_write_indexes(tx, batch.len())?;
+    if suspend_indexes {
+        drop_graph_write_indexes(tx)?;
+    }
     let file_paths = batch
         .iter()
         .map(|(file_path, _, _, _, _)| file_path.clone())
         .collect::<Vec<_>>();
     remove_files_data_tx(tx, &file_paths)?;
 
-    let mut insert_node = tx.prepare(
-        r#"
-        INSERT INTO nodes
-            (kind, name, qualified_name, file_path, line_start, line_end,
-             language, parent_name, params, return_type, modifiers, is_test,
-             file_hash, mtime_ns, extra, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(qualified_name) DO UPDATE SET
-            kind=excluded.kind, name=excluded.name,
-            file_path=excluded.file_path, line_start=excluded.line_start,
-            line_end=excluded.line_end, language=excluded.language,
-            parent_name=excluded.parent_name, params=excluded.params,
-            return_type=excluded.return_type, modifiers=excluded.modifiers,
-            is_test=excluded.is_test, file_hash=excluded.file_hash,
-            mtime_ns=excluded.mtime_ns, extra=excluded.extra, updated_at=excluded.updated_at
-        "#,
-    )?;
-    let mut insert_edge = tx.prepare(
-        r#"
-        INSERT INTO edges
-            (kind, source_qualified, target_qualified, file_path, line, extra,
-             confidence, confidence_tier, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        "#,
-    )?;
     let mut seen_edges = HashSet::new();
+    let mut node_params =
+        Vec::<SqlValue>::with_capacity(NODE_INSERT_ROWS * NODE_INSERT_PARAM_COUNT);
+    let mut node_rows = 0_usize;
+    let mut edge_params =
+        Vec::<SqlValue>::with_capacity(EDGE_INSERT_ROWS * EDGE_INSERT_PARAM_COUNT);
+    let mut edge_rows = 0_usize;
 
     for (_file_path, nodes, edges, file_hash, mtime_ns) in batch {
         for node in nodes {
-            let CompactNodeInput(
+            let RawCompactNodeInput(
                 kind,
                 name,
                 file_path,
@@ -3301,29 +3331,32 @@ fn store_compact_file_batch_tx(tx: &Transaction<'_>, batch: &[CompactFileBatchIt
                 extra,
             ) = node;
             let qualified = make_qualified_parts(kind, name, file_path, parent_name.as_deref());
-            let extra = extra_json(extra)?;
-            insert_node.execute(params![
-                kind,
-                name,
-                qualified,
-                file_path,
-                line_start,
-                line_end,
-                language,
-                parent_name,
-                params,
-                return_type,
-                modifiers,
-                i64::from(*is_test),
-                file_hash,
-                mtime_ns,
-                extra,
-                now,
-            ])?;
+            push_text(&mut node_params, kind);
+            push_text(&mut node_params, name);
+            node_params.push(SqlValue::Text(qualified));
+            push_text(&mut node_params, file_path);
+            node_params.push(SqlValue::Integer(*line_start));
+            node_params.push(SqlValue::Integer(*line_end));
+            push_text(&mut node_params, language);
+            push_optional_text(&mut node_params, parent_name.as_deref());
+            push_optional_text(&mut node_params, params.as_deref());
+            push_optional_text(&mut node_params, return_type.as_deref());
+            push_optional_text(&mut node_params, modifiers.as_deref());
+            node_params.push(SqlValue::Integer(i64::from(*is_test)));
+            push_text(&mut node_params, file_hash);
+            node_params.push(SqlValue::Integer(*mtime_ns));
+            node_params.push(SqlValue::Text(extra.get().to_string()));
+            node_params.push(SqlValue::Real(now));
+            node_rows += 1;
+            if node_rows == NODE_INSERT_ROWS {
+                insert_compact_node_rows(tx, node_rows, &node_params)?;
+                node_params.clear();
+                node_rows = 0;
+            }
         }
 
         for edge in edges {
-            let CompactEdgeInput(kind, source, target, file_path, line, extra) = edge;
+            let RawCompactEdgeInput(kind, source, target, file_path, line, extra) = edge;
             let key = (
                 kind.as_str(),
                 source.as_str(),
@@ -3334,29 +3367,139 @@ fn store_compact_file_batch_tx(tx: &Transaction<'_>, batch: &[CompactFileBatchIt
             if !seen_edges.insert(key) {
                 continue;
             }
-            let confidence = extra
-                .get("confidence")
-                .and_then(Value::as_f64)
-                .unwrap_or(1.0);
-            let confidence_tier = extra
-                .get("confidence_tier")
-                .and_then(Value::as_str)
-                .unwrap_or("EXTRACTED");
-            let extra_json = extra_json(extra)?;
-            insert_edge.execute(params![
-                kind,
-                source,
-                target,
-                file_path,
-                line,
-                extra_json,
-                confidence,
-                confidence_tier,
-                now,
-            ])?;
+            let (confidence, confidence_tier) = edge_metadata_from_raw_extra(extra.get())?;
+            push_text(&mut edge_params, kind);
+            push_text(&mut edge_params, source);
+            push_text(&mut edge_params, target);
+            push_text(&mut edge_params, file_path);
+            edge_params.push(SqlValue::Integer(*line));
+            edge_params.push(SqlValue::Text(extra.get().to_string()));
+            edge_params.push(SqlValue::Real(confidence));
+            edge_params.push(SqlValue::Text(confidence_tier));
+            edge_params.push(SqlValue::Real(now));
+            edge_rows += 1;
+            if edge_rows == EDGE_INSERT_ROWS {
+                insert_compact_edge_rows(tx, edge_rows, &edge_params)?;
+                edge_params.clear();
+                edge_rows = 0;
+            }
         }
     }
+    if node_rows > 0 {
+        insert_compact_node_rows(tx, node_rows, &node_params)?;
+    }
+    if edge_rows > 0 {
+        insert_compact_edge_rows(tx, edge_rows, &edge_params)?;
+    }
+    if suspend_indexes {
+        create_graph_write_indexes(tx)?;
+    }
     Ok(())
+}
+
+fn should_suspend_write_indexes(tx: &Transaction<'_>, file_count: usize) -> Result<bool> {
+    if file_count < SUSPEND_INDEX_FILE_THRESHOLD {
+        return Ok(false);
+    }
+    let has_nodes: i64 = tx.query_row("SELECT EXISTS(SELECT 1 FROM nodes LIMIT 1)", [], |row| {
+        row.get(0)
+    })?;
+    if has_nodes != 0 {
+        return Ok(false);
+    }
+    let has_edges: i64 = tx.query_row("SELECT EXISTS(SELECT 1 FROM edges LIMIT 1)", [], |row| {
+        row.get(0)
+    })?;
+    Ok(has_edges == 0)
+}
+
+fn drop_graph_write_indexes(tx: &Transaction<'_>) -> Result<()> {
+    for (name, _) in WRITE_INDEXES {
+        tx.execute(&format!("DROP INDEX IF EXISTS {name}"), [])?;
+    }
+    Ok(())
+}
+
+fn create_graph_write_indexes(tx: &Transaction<'_>) -> Result<()> {
+    for (_, sql) in WRITE_INDEXES {
+        tx.execute(sql, [])?;
+    }
+    Ok(())
+}
+
+fn edge_metadata_from_raw_extra(raw: &str) -> Result<(f64, String)> {
+    if raw == "{}" {
+        return Ok((1.0, "EXTRACTED".to_string()));
+    }
+    let extra: Value = serde_json::from_str(raw)?;
+    let confidence = extra
+        .get("confidence")
+        .and_then(Value::as_f64)
+        .unwrap_or(1.0);
+    let confidence_tier = extra
+        .get("confidence_tier")
+        .and_then(Value::as_str)
+        .unwrap_or("EXTRACTED")
+        .to_string();
+    Ok((confidence, confidence_tier))
+}
+
+fn push_text(params: &mut Vec<SqlValue>, value: &str) {
+    params.push(SqlValue::Text(value.to_string()));
+}
+
+fn push_optional_text(params: &mut Vec<SqlValue>, value: Option<&str>) {
+    match value {
+        Some(value) => params.push(SqlValue::Text(value.to_string())),
+        None => params.push(SqlValue::Null),
+    }
+}
+
+fn insert_compact_node_rows(tx: &Transaction<'_>, rows: usize, values: &[SqlValue]) -> Result<()> {
+    let sql = format!(
+        r#"
+        INSERT INTO nodes
+            (kind, name, qualified_name, file_path, line_start, line_end,
+             language, parent_name, params, return_type, modifiers, is_test,
+             file_hash, mtime_ns, extra, updated_at)
+        VALUES {}
+        ON CONFLICT(qualified_name) DO UPDATE SET
+            kind=excluded.kind, name=excluded.name,
+            file_path=excluded.file_path, line_start=excluded.line_start,
+            line_end=excluded.line_end, language=excluded.language,
+            parent_name=excluded.parent_name, params=excluded.params,
+            return_type=excluded.return_type, modifiers=excluded.modifiers,
+            is_test=excluded.is_test, file_hash=excluded.file_hash,
+            mtime_ns=excluded.mtime_ns, extra=excluded.extra, updated_at=excluded.updated_at
+        "#,
+        value_placeholders(NODE_INSERT_PARAM_COUNT, rows)
+    );
+    tx.execute(&sql, rusqlite::params_from_iter(values.iter()))?;
+    Ok(())
+}
+
+fn insert_compact_edge_rows(tx: &Transaction<'_>, rows: usize, values: &[SqlValue]) -> Result<()> {
+    let sql = format!(
+        r#"
+        INSERT INTO edges
+            (kind, source_qualified, target_qualified, file_path, line, extra,
+             confidence, confidence_tier, updated_at)
+        VALUES {}
+        "#,
+        value_placeholders(EDGE_INSERT_PARAM_COUNT, rows)
+    );
+    tx.execute(&sql, rusqlite::params_from_iter(values.iter()))?;
+    Ok(())
+}
+
+fn value_placeholders(width: usize, rows: usize) -> String {
+    let row = format!(
+        "({})",
+        std::iter::repeat_n("?", width)
+            .collect::<Vec<_>>()
+            .join(",")
+    );
+    std::iter::repeat_n(row, rows).collect::<Vec<_>>().join(",")
 }
 
 fn node_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<GraphNode> {

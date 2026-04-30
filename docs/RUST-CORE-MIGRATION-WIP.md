@@ -422,9 +422,9 @@ Parser migration progress:
   `GraphStore.store_rust_owned_files(repo_root, paths)` so Rust-owned parse
   output is written without returning node/edge JSON to Python. Python no
   longer crosses PyO3 once per Rust-owned file in the normal build/update path.
-- `dagayn-grammars` now compiles the pinned `manji-0/tree-sitter-markdown` and
-  `manji-0/tree-sitter-terraform` C sources through Rust build.rs and exposes
-  Rust `tree_sitter::Language` constructors.
+- `dagayn-grammars` now compiles the pinned `manji-0/tree-sitter-markdown`,
+  `manji-0/tree-sitter-terraform`, and `tree-sitter/tree-sitter-rust` C sources
+  through Rust build.rs and exposes Rust `tree_sitter::Language` constructors.
 - The Markdown extractor now collects headings through the pinned Rust
   tree-sitter Markdown grammar, with the previous text scanner retained only as
   fallback. A local full-repo `postprocess=none` smoke benchmark produces
@@ -437,6 +437,10 @@ Parser migration progress:
   scanning only to preserve existing dotted-string behavior such as
   `"t3.micro"`. Terraform provider `source` dependencies are collected from
   nested AST attributes/object elements instead of scanning the block text.
+- The Rust extractor now covers `.rs` files in the Rust-owned parse path. It
+  emits file/type/function nodes plus CONTAINS, IMPORTS_FROM, and CALLS edges
+  from the pinned Rust tree-sitter grammar, removing Rust source files from the
+  Python worker parse pool when the Rust backend is active.
 - FTS rebuilds now route through `dagayn._core.GraphStore.rebuild_fts_index`
   when the Rust backend is active. Python's `dagayn.search.rebuild_fts_index`
   keeps the existing SQLite implementation as the fallback for the Python
