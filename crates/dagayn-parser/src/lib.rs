@@ -342,6 +342,7 @@ pub struct RustOwnedParser {
     python_parser: Option<tree_sitter::Parser>,
     javascript_parser: Option<tree_sitter::Parser>,
     typescript_parser: Option<tree_sitter::Parser>,
+    tsx_parser: Option<tree_sitter::Parser>,
 }
 
 impl RustOwnedParser {
@@ -353,6 +354,7 @@ impl RustOwnedParser {
             python_parser: new_python_parser(),
             javascript_parser: new_javascript_parser(),
             typescript_parser: new_typescript_parser(),
+            tsx_parser: new_tsx_parser(),
         }
     }
 
@@ -401,6 +403,13 @@ impl RustOwnedParser {
                 source,
                 "typescript",
                 self.typescript_parser.as_mut(),
+                repo_root,
+            ),
+            RustOwnedPathKind::Tsx => parse_javascript_like_with_parser(
+                file_path,
+                source,
+                "tsx",
+                self.tsx_parser.as_mut(),
                 repo_root,
             ),
             RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
@@ -2082,6 +2091,7 @@ fn parse_javascript_like(
     let mut parser = match language {
         "javascript" => new_javascript_parser(),
         "typescript" => new_typescript_parser(),
+        "tsx" => new_tsx_parser(),
         _ => None,
     };
     parse_javascript_like_with_parser(file_path, source, language, parser.as_mut(), None)
@@ -2248,6 +2258,15 @@ fn javascript_walk_children(
                 ) {
                     continue;
                 }
+            }
+            "jsx_opening_element" | "jsx_self_closing_element" => {
+                javascript_emit_jsx_component_call(
+                    child,
+                    context,
+                    enclosing_class,
+                    enclosing_func,
+                    edges,
+                );
             }
             "pair"
             | "assignment_expression"
@@ -2558,6 +2577,75 @@ fn javascript_emit_value_references(
         }
         _ => {}
     }
+}
+
+fn javascript_emit_jsx_component_call(
+    node: tree_sitter::Node<'_>,
+    context: &JavaScriptParseContext<'_>,
+    enclosing_class: Option<&str>,
+    enclosing_func: Option<&str>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let Some(target) = javascript_jsx_component_target(node, context) else {
+        return;
+    };
+    let caller = enclosing_func
+        .map(|func| qualify(context.file_path, func, enclosing_class))
+        .unwrap_or_else(|| context.file_path.to_string());
+    edges.push(ParsedEdge {
+        kind: "CALLS".to_string(),
+        source: caller,
+        target,
+        file_path: context.file_path.to_string(),
+        line: node.start_position().row as i64 + 1,
+        extra: json!({}),
+    });
+}
+
+fn javascript_jsx_component_target(
+    node: tree_sitter::Node<'_>,
+    context: &JavaScriptParseContext<'_>,
+) -> Option<String> {
+    let (base_name, component_name) = javascript_jsx_component_reference(node, context.source)?;
+    if let Some(base_name) = base_name {
+        if let Some(module) = context.import_map.get(&base_name) {
+            return resolve_javascript_imported_symbol(&component_name, module, context)
+                .or(Some(component_name));
+        }
+        return Some(component_name);
+    }
+    Some(resolve_javascript_call_target(&component_name, context))
+}
+
+fn javascript_jsx_component_reference(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> Option<(Option<String>, String)> {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        match child.kind() {
+            "identifier" => {
+                let name = node_text(child, source);
+                return looks_like_jsx_component_name(&name).then_some((None, name));
+            }
+            "member_expression" => {
+                let component_name = javascript_rightmost_identifier(child, source)?;
+                if !looks_like_jsx_component_name(&component_name) {
+                    return None;
+                }
+                let base_name = javascript_leftmost_identifier(child, source);
+                return Some((base_name, component_name));
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn looks_like_jsx_component_name(name: &str) -> bool {
+    name.as_bytes()
+        .first()
+        .is_some_and(|byte| byte.is_ascii_uppercase())
 }
 
 fn javascript_emit_reference_if_known(
@@ -3269,6 +3357,22 @@ fn javascript_rightmost_identifier(node: tree_sitter::Node<'_>, source: &[u8]) -
             return Some(node_text(child, source));
         }
         if let Some(name) = javascript_rightmost_identifier(child, source) {
+            return Some(name);
+        }
+    }
+    None
+}
+
+fn javascript_leftmost_identifier(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if matches!(
+            child.kind(),
+            "identifier" | "property_identifier" | "type_identifier"
+        ) {
+            return Some(node_text(child, source));
+        }
+        if let Some(name) = javascript_leftmost_identifier(child, source) {
             return Some(name);
         }
     }
@@ -3989,6 +4093,7 @@ pub fn parse_rust_owned_file(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>
         RustOwnedPathKind::Notebook => parse_notebook(file_path, source),
         RustOwnedPathKind::JavaScript => parse_javascript_like(file_path, source, "javascript"),
         RustOwnedPathKind::TypeScript => parse_javascript_like(file_path, source, "typescript"),
+        RustOwnedPathKind::Tsx => parse_javascript_like(file_path, source, "tsx"),
         RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
     }
 }
@@ -4006,6 +4111,7 @@ enum RustOwnedPathKind {
     Notebook,
     JavaScript,
     TypeScript,
+    Tsx,
     Unsupported,
 }
 
@@ -4030,6 +4136,8 @@ fn rust_owned_path_kind(file_path: &str) -> RustOwnedPathKind {
         RustOwnedPathKind::JavaScript
     } else if ends_with_ascii_ignore_case(file_path, ".ts") {
         RustOwnedPathKind::TypeScript
+    } else if ends_with_ascii_ignore_case(file_path, ".tsx") {
+        RustOwnedPathKind::Tsx
     } else {
         RustOwnedPathKind::Unsupported
     }
@@ -6124,6 +6232,78 @@ export function render() {
             edge.kind == "CALLS"
                 && edge.source == "src/app.ts::render"
                 && edge.target == "src/components/MarkdownMsg.ts::MarkdownMsg"
+        }));
+
+        let _ = std::fs::remove_dir_all(&repo_root);
+    }
+
+    #[test]
+    fn parses_tsx_jsx_component_calls() {
+        let mut repo_root = std::env::temp_dir();
+        repo_root.push(format!(
+            "dagayn-parser-tsx-jsx-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        let _ = std::fs::remove_dir_all(&repo_root);
+        std::fs::create_dir_all(&repo_root).unwrap();
+        std::fs::write(
+            repo_root.join("MarkdownMsg.tsx"),
+            b"export function MarkdownMsg() { return <div />; }\n",
+        )
+        .unwrap();
+
+        let source = br#"import MarkdownMsg from './MarkdownMsg';
+
+export function BookWorkspace() {
+  return <section><MarkdownMsg text={value} /></section>;
+}
+"#;
+        let mut parser = RustOwnedParser::new();
+        let (_nodes, edges) =
+            parser.parse_file_in_repo(Some(&repo_root), "BookWorkspace.tsx", source);
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CALLS"
+                && edge.source == "BookWorkspace.tsx::BookWorkspace"
+                && edge.target == "MarkdownMsg.tsx::MarkdownMsg"
+        }));
+        assert!(!edges.iter().any(|edge| {
+            edge.kind == "CALLS"
+                && (edge.target == "section" || edge.target == "div" || edge.target == "span")
+        }));
+
+        let _ = std::fs::remove_dir_all(&repo_root);
+    }
+
+    #[test]
+    fn parses_tsx_namespace_component_calls() {
+        let mut repo_root = std::env::temp_dir();
+        repo_root.push(format!(
+            "dagayn-parser-tsx-namespace-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        let _ = std::fs::remove_dir_all(&repo_root);
+        std::fs::create_dir_all(&repo_root).unwrap();
+        std::fs::write(
+            repo_root.join("MarkdownMsg.tsx"),
+            b"export function MarkdownMsg() { return <div />; }\n",
+        )
+        .unwrap();
+
+        let source = br#"import * as UI from './MarkdownMsg';
+
+export function BookWorkspace() {
+  return <UI.Messages.MarkdownMsg text={value} />;
+}
+"#;
+        let mut parser = RustOwnedParser::new();
+        let (_nodes, edges) =
+            parser.parse_file_in_repo(Some(&repo_root), "BookWorkspace.tsx", source);
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CALLS"
+                && edge.source == "BookWorkspace.tsx::BookWorkspace"
+                && edge.target == "MarkdownMsg.tsx::MarkdownMsg"
         }));
 
         let _ = std::fs::remove_dir_all(&repo_root);
