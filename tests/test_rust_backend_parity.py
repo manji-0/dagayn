@@ -224,3 +224,48 @@ function increment() {
         [edge.kind, edge.source, edge.target, edge.file_path, edge.line, edge.extra]
         for edge in py_edges
     ]
+
+
+def test_rust_owned_astro_parser_matches_python_parser(tmp_path):
+    """Astro keeps the existing TypeScript-backed parser contract."""
+    try:
+        from dagayn._core import parse_rust_owned_files_compact_json
+    except ImportError as exc:
+        pytest.skip(f"Rust extension is not available: {exc}")
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    rel_path = "Page.astro"
+    source = b"""---
+import Layout from './Layout.astro'
+const title = 'Hello'
+function getTitle() { return title }
+---
+<Layout title={title} />
+"""
+    (repo / rel_path).write_bytes(source)
+
+    py_nodes, py_edges = CodeParser().parse_bytes(Path(rel_path), source)
+    payload = json.loads(parse_rust_owned_files_compact_json(repo, [rel_path]))
+
+    assert payload["batch"][0][1] == [
+        [
+            node.kind,
+            node.name,
+            node.file_path,
+            node.line_start,
+            node.line_end,
+            node.language,
+            node.parent_name,
+            node.params,
+            node.return_type,
+            node.modifiers,
+            node.is_test,
+            node.extra,
+        ]
+        for node in py_nodes
+    ]
+    assert payload["batch"][0][2] == [
+        [edge.kind, edge.source, edge.target, edge.file_path, edge.line, edge.extra]
+        for edge in py_edges
+    ]

@@ -12136,7 +12136,9 @@ fn rust_owned_path_kind(file_path: &str) -> RustOwnedPathKind {
         || ends_with_ascii_ignore_case(file_path, ".mjs")
     {
         RustOwnedPathKind::JavaScript
-    } else if ends_with_ascii_ignore_case(file_path, ".ts") {
+    } else if ends_with_ascii_ignore_case(file_path, ".ts")
+        || ends_with_ascii_ignore_case(file_path, ".astro")
+    {
         RustOwnedPathKind::TypeScript
     } else if ends_with_ascii_ignore_case(file_path, ".tsx") {
         RustOwnedPathKind::Tsx
