@@ -507,6 +507,19 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
             "src/tree_sitter/parser.h",
         ),
     ),
+    "powershell": GrammarSpec(
+        language="powershell",
+        owner="airbus-cert",
+        repo="tree-sitter-powershell",
+        commit="9379c77984af1f3d3d7e3cc5e897de3496725280",
+        required_paths=(
+            "src/parser.c",
+            "src/scanner.c",
+            "src/tree_sitter/alloc.h",
+            "src/tree_sitter/array.h",
+            "src/tree_sitter/parser.h",
+        ),
+    ),
 }
 
 

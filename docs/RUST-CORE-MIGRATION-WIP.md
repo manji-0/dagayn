@@ -578,6 +578,10 @@ Parser migration progress:
 - Zig grammar sources are now pinned through the same provisioning path. The
   Rust-owned parser routes `.zig` files through tree-sitter-zig while preserving
   the current Python File-node-only graph contract.
+- PowerShell grammar sources are now pinned through the same provisioning path.
+  The Rust-owned parser routes `.ps1`, `.psm1`, and `.psd1` files through
+  tree-sitter-powershell while preserving the current Python File-node-only
+  graph contract.
 - FTS rebuilds now route through `dagayn._core.GraphStore.rebuild_fts_index`
   when the Rust backend is active. Python's `dagayn.search.rebuild_fts_index`
   keeps the existing SQLite implementation as the fallback for the Python
@@ -653,7 +657,7 @@ Parity acceptance:
 
 Deliverable: `dagayn-parser` and `dagayn-grammars` replacing Python `parser.py` (7 572 lines).
 
-Language introduction order: Markdown → Terraform → Rust → Python/notebooks → TypeScript/JS/TSX/JSX/Astro → Bash → Go → Java → Ruby → C# → PHP → Kotlin → Scala → Solidity → Dart → Lua → Luau → C → C++ → Objective-C → Elixir → GDScript → R → Julia → Perl → Vue → Svelte → Zig, with Swift deferred until generated grammar sources are part of the packaging flow and the remaining Python-owned language extractors moving only after parity is explicit.
+Language introduction order: Markdown → Terraform → Rust → Python/notebooks → TypeScript/JS/TSX/JSX/Astro → Bash → Go → Java → Ruby → C# → PHP → Kotlin → Scala → Solidity → Dart → Lua → Luau → C → C++ → Objective-C → Elixir → GDScript → R → Julia → Perl → Vue → Svelte → Zig → PowerShell, with Swift deferred until generated grammar sources are part of the packaging flow and the remaining Python-owned language extractors moving only after parity is explicit.
 
 Grammar provisioning: `dagayn-grammars/build.rs` fetches pinned grammar archives and compiles them via `cc`. Cache behavior and the `DAGAYN_GRAMMAR_CACHE_DIR` env variable must match the contract in `docs/GRAMMAR-PROVISIONING.md`.
 

@@ -379,6 +379,7 @@ pub struct RustOwnedParser {
     vue_parser: Option<tree_sitter::Parser>,
     svelte_parser: Option<tree_sitter::Parser>,
     zig_parser: Option<tree_sitter::Parser>,
+    powershell_parser: Option<tree_sitter::Parser>,
     javascript_export_cache: JavaScriptExportCache,
     javascript_module_cache: JavaScriptModuleCache,
     javascript_tsconfig_cache: JavaScriptTsconfigCache,
@@ -417,6 +418,7 @@ impl RustOwnedParser {
             vue_parser: new_vue_parser(),
             svelte_parser: None,
             zig_parser: None,
+            powershell_parser: None,
             javascript_export_cache: RefCell::new(HashMap::new()),
             javascript_module_cache: RefCell::new(HashMap::new()),
             javascript_tsconfig_cache: RefCell::new(HashMap::new()),
@@ -584,6 +586,12 @@ impl RustOwnedParser {
                     self.zig_parser = new_zig_parser();
                 }
                 parse_zig_with_parser(file_path, source, self.zig_parser.as_mut())
+            }
+            RustOwnedPathKind::PowerShell => {
+                if self.powershell_parser.is_none() {
+                    self.powershell_parser = new_powershell_parser();
+                }
+                parse_powershell_with_parser(file_path, source, self.powershell_parser.as_mut())
             }
             RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
         }
@@ -2367,6 +2375,11 @@ pub fn parse_zig(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<Parsed
     parse_zig_with_parser(file_path, source, parser.as_mut())
 }
 
+pub fn parse_powershell(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let mut parser = new_powershell_parser();
+    parse_powershell_with_parser(file_path, source, parser.as_mut())
+}
+
 fn parse_vue_with_parsers(
     file_path: &str,
     source: &[u8],
@@ -2418,6 +2431,23 @@ fn parse_zig_with_parser(
     source: &[u8],
     parser: Option<&mut tree_sitter::Parser>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    parse_tree_sitter_file_only_with_parser(file_path, source, "zig", parser)
+}
+
+fn parse_powershell_with_parser(
+    file_path: &str,
+    source: &[u8],
+    parser: Option<&mut tree_sitter::Parser>,
+) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    parse_tree_sitter_file_only_with_parser(file_path, source, "powershell", parser)
+}
+
+fn parse_tree_sitter_file_only_with_parser(
+    file_path: &str,
+    source: &[u8],
+    language: &str,
+    parser: Option<&mut tree_sitter::Parser>,
+) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     if let Some(parser) = parser {
         let _ = parser.parse(source, None);
     }
@@ -2429,7 +2459,7 @@ fn parse_zig_with_parser(
             file_path: file_path.to_string(),
             line_start: 1,
             line_end,
-            language: "zig".to_string(),
+            language: language.to_string(),
             parent_name: None,
             params: None,
             return_type: None,
@@ -12115,6 +12145,7 @@ pub fn parse_rust_owned_file(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>
         RustOwnedPathKind::Vue => parse_vue(file_path, source),
         RustOwnedPathKind::Svelte => parse_svelte(file_path, source),
         RustOwnedPathKind::Zig => parse_zig(file_path, source),
+        RustOwnedPathKind::PowerShell => parse_powershell(file_path, source),
         RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
     }
 }
@@ -12156,6 +12187,7 @@ enum RustOwnedPathKind {
     Vue,
     Svelte,
     Zig,
+    PowerShell,
     Unsupported,
 }
 
@@ -12246,6 +12278,11 @@ fn rust_owned_path_kind(file_path: &str) -> RustOwnedPathKind {
         RustOwnedPathKind::Svelte
     } else if ends_with_ascii_ignore_case(file_path, ".zig") {
         RustOwnedPathKind::Zig
+    } else if ends_with_ascii_ignore_case(file_path, ".ps1")
+        || ends_with_ascii_ignore_case(file_path, ".psm1")
+        || ends_with_ascii_ignore_case(file_path, ".psd1")
+    {
+        RustOwnedPathKind::PowerShell
     } else {
         RustOwnedPathKind::Unsupported
     }
@@ -12634,6 +12671,18 @@ fn new_zig_parser() -> Option<tree_sitter::Parser> {
     let mut parser = tree_sitter::Parser::new();
     if parser
         .set_language(&dagayn_grammars::zig_language())
+        .is_ok()
+    {
+        Some(parser)
+    } else {
+        None
+    }
+}
+
+fn new_powershell_parser() -> Option<tree_sitter::Parser> {
+    let mut parser = tree_sitter::Parser::new();
+    if parser
+        .set_language(&dagayn_grammars::powershell_language())
         .is_ok()
     {
         Some(parser)
@@ -15795,6 +15844,26 @@ pub fn main() void {
         assert_eq!(nodes[0].language, "zig");
         assert_eq!(nodes[0].line_start, 1);
         assert_eq!(nodes[0].line_end, 6);
+        assert!(edges.is_empty());
+    }
+
+    #[test]
+    fn parses_powershell_file_without_extra_nodes_for_python_parity() {
+        let source = br#"function Invoke-Hello {
+    param($Name)
+    Write-Host "Hello $Name"
+}
+
+Invoke-Hello -Name World
+"#;
+        let (nodes, edges) = parse_powershell("scripts/hello.ps1", source);
+
+        assert_eq!(nodes.len(), 1);
+        assert_eq!(nodes[0].kind, "File");
+        assert_eq!(nodes[0].name, "scripts/hello.ps1");
+        assert_eq!(nodes[0].language, "powershell");
+        assert_eq!(nodes[0].line_start, 1);
+        assert_eq!(nodes[0].line_end, 7);
         assert!(edges.is_empty());
     }
 
