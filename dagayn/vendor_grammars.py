@@ -208,6 +208,20 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
         ),
         inject_python_binding=True,
     ),
+    "java": GrammarSpec(
+        language="java",
+        owner="tree-sitter",
+        repo="tree-sitter-java",
+        commit="e10607b45ff745f5f876bfa3e94fbcc6b44bdc11",
+        required_paths=(
+            "src/parser.c",
+            "src/tree_sitter/alloc.h",
+            "src/tree_sitter/array.h",
+            "src/tree_sitter/parser.h",
+            "bindings/python/binding.c",
+        ),
+        inject_python_binding=True,
+    ),
 }
 
 

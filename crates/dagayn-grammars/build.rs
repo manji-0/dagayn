@@ -135,6 +135,19 @@ const GO: GrammarSpec = GrammarSpec {
     parser_subdirectory: None,
 };
 
+const JAVA: GrammarSpec = GrammarSpec {
+    language: "java",
+    symbol: "java",
+    required_paths: &[
+        "src/parser.c",
+        "src/tree_sitter/alloc.h",
+        "src/tree_sitter/array.h",
+        "src/tree_sitter/parser.h",
+        "bindings/python/binding.c",
+    ],
+    parser_subdirectory: None,
+};
+
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let repo_root = manifest_dir
@@ -158,6 +171,7 @@ fn main() {
     compile_grammar(&repo_root, &TSX);
     compile_grammar(&repo_root, &BASH);
     compile_grammar(&repo_root, &GO);
+    compile_grammar(&repo_root, &JAVA);
 }
 
 fn compile_grammar(repo_root: &Path, spec: &GrammarSpec) {
