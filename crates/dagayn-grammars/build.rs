@@ -274,6 +274,19 @@ const LUAU: GrammarSpec = GrammarSpec {
     parser_subdirectory: None,
 };
 
+const C: GrammarSpec = GrammarSpec {
+    language: "c",
+    symbol: "c",
+    required_paths: &[
+        "src/parser.c",
+        "src/tree_sitter/alloc.h",
+        "src/tree_sitter/array.h",
+        "src/tree_sitter/parser.h",
+        "bindings/python/tree_sitter_c/binding.c",
+    ],
+    parser_subdirectory: None,
+};
+
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let repo_root = manifest_dir
@@ -307,6 +320,7 @@ fn main() {
     compile_grammar(&repo_root, &DART);
     compile_grammar(&repo_root, &LUA);
     compile_grammar(&repo_root, &LUAU);
+    compile_grammar(&repo_root, &C);
 }
 
 fn compile_grammar(repo_root: &Path, spec: &GrammarSpec) {

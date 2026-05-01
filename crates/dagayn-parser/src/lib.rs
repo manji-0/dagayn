@@ -368,6 +368,7 @@ pub struct RustOwnedParser {
     dart_parser: Option<tree_sitter::Parser>,
     lua_parser: Option<tree_sitter::Parser>,
     luau_parser: Option<tree_sitter::Parser>,
+    c_parser: Option<tree_sitter::Parser>,
     javascript_export_cache: JavaScriptExportCache,
     javascript_module_cache: JavaScriptModuleCache,
     javascript_tsconfig_cache: JavaScriptTsconfigCache,
@@ -395,6 +396,7 @@ impl RustOwnedParser {
             dart_parser: new_dart_parser(),
             lua_parser: new_lua_parser(),
             luau_parser: new_luau_parser(),
+            c_parser: new_c_parser(),
             javascript_export_cache: RefCell::new(HashMap::new()),
             javascript_module_cache: RefCell::new(HashMap::new()),
             javascript_tsconfig_cache: RefCell::new(HashMap::new()),
@@ -506,6 +508,7 @@ impl RustOwnedParser {
             RustOwnedPathKind::Luau => {
                 parse_luau_with_parser(file_path, source, self.luau_parser.as_mut())
             }
+            RustOwnedPathKind::C => parse_c_with_parser(file_path, source, self.c_parser.as_mut()),
             RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
         }
     }
@@ -8725,6 +8728,350 @@ fn resolve_lua_call_targets(
         .collect()
 }
 
+pub fn parse_c(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let mut parser = new_c_parser();
+    parse_c_with_parser(file_path, source, parser.as_mut())
+}
+
+fn parse_c_with_parser(
+    file_path: &str,
+    source: &[u8],
+    parser: Option<&mut tree_sitter::Parser>,
+) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
+    let mut nodes = vec![ParsedNode {
+        kind: "File".to_string(),
+        name: file_path.to_string(),
+        file_path: file_path.to_string(),
+        line_start: 1,
+        line_end,
+        language: "c".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: is_test_file(file_path),
+        extra: json!({}),
+    }];
+    let mut edges = Vec::new();
+    let context = CParseContext { source, file_path };
+
+    if let Some(parser) = parser {
+        if let Some(tree) = parser.parse(source, None) {
+            c_walk_children(tree.root_node(), &context, None, &mut nodes, &mut edges);
+            let mut edges = resolve_c_call_targets(&nodes, edges, file_path);
+            add_tested_by_edges(&nodes, &mut edges);
+            return (nodes, edges);
+        }
+    }
+
+    (nodes, edges)
+}
+
+struct CParseContext<'a> {
+    source: &'a [u8],
+    file_path: &'a str,
+}
+
+fn c_walk_children(
+    node: tree_sitter::Node<'_>,
+    context: &CParseContext<'_>,
+    enclosing_func: Option<&str>,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        match child.kind() {
+            "preproc_include" if enclosing_func.is_none() => {
+                if let Some(target) = c_include_target(child, context.source) {
+                    edges.push(ParsedEdge {
+                        kind: "IMPORTS_FROM".to_string(),
+                        source: context.file_path.to_string(),
+                        target,
+                        file_path: context.file_path.to_string(),
+                        line: child.start_position().row as i64 + 1,
+                        extra: json!({}),
+                    });
+                    continue;
+                }
+            }
+            "type_definition" | "struct_specifier" if enclosing_func.is_none() => {
+                if let Some(name) = c_type_name(child, context.source) {
+                    c_emit_type(child, context, &name, nodes, edges);
+                    continue;
+                }
+            }
+            "function_definition" => {
+                if let Some(name) = c_function_name(child, context.source) {
+                    c_emit_function(child, context, &name, nodes, edges);
+                    c_walk_children(child, context, Some(&name), nodes, edges);
+                    continue;
+                }
+            }
+            "call_expression" => {
+                c_emit_call(child, context, enclosing_func, edges);
+            }
+            _ => {}
+        }
+        c_walk_children(child, context, enclosing_func, nodes, edges);
+    }
+}
+
+fn c_emit_type(
+    node: tree_sitter::Node<'_>,
+    context: &CParseContext<'_>,
+    name: &str,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let qualified = qualify(context.file_path, name, None);
+    nodes.push(ParsedNode {
+        kind: "Class".to_string(),
+        name: name.to_string(),
+        file_path: context.file_path.to_string(),
+        line_start: node.start_position().row as i64 + 1,
+        line_end: node.end_position().row as i64 + 1,
+        language: "c".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: json!({"type_role": "class"}),
+    });
+    edges.push(ParsedEdge {
+        kind: "CONTAINS".to_string(),
+        source: context.file_path.to_string(),
+        target: qualified,
+        file_path: context.file_path.to_string(),
+        line: node.start_position().row as i64 + 1,
+        extra: json!({}),
+    });
+}
+
+fn c_emit_function(
+    node: tree_sitter::Node<'_>,
+    context: &CParseContext<'_>,
+    name: &str,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let is_test = is_test_function(name, context.file_path, node, context.source);
+    let qualified = qualify(context.file_path, name, None);
+    nodes.push(ParsedNode {
+        kind: if is_test { "Test" } else { "Function" }.to_string(),
+        name: name.to_string(),
+        file_path: context.file_path.to_string(),
+        line_start: node.start_position().row as i64 + 1,
+        line_end: node.end_position().row as i64 + 1,
+        language: "c".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test,
+        extra: json!({}),
+    });
+    edges.push(ParsedEdge {
+        kind: "CONTAINS".to_string(),
+        source: context.file_path.to_string(),
+        target: qualified,
+        file_path: context.file_path.to_string(),
+        line: node.start_position().row as i64 + 1,
+        extra: json!({}),
+    });
+}
+
+fn c_emit_call(
+    node: tree_sitter::Node<'_>,
+    context: &CParseContext<'_>,
+    enclosing_func: Option<&str>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let Some(call_name) = c_call_name(node, context.source) else {
+        return;
+    };
+    let caller = enclosing_func
+        .map(|func| qualify(context.file_path, func, None))
+        .unwrap_or_else(|| context.file_path.to_string());
+    edges.push(ParsedEdge {
+        kind: "CALLS".to_string(),
+        source: caller.clone(),
+        target: call_name.clone(),
+        file_path: context.file_path.to_string(),
+        line: node.start_position().row as i64 + 1,
+        extra: json!({}),
+    });
+    if let Some(edge) = c_bridge_edge(node, context, &caller, &call_name) {
+        edges.push(edge);
+    }
+}
+
+fn c_include_target(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let target = c_direct_child(node, &["system_lib_string", "string_literal"])?;
+    Some(
+        strip_matching_quotes(
+            node_text(target, source)
+                .trim()
+                .trim_matches(['<', '>'].as_ref()),
+        )
+        .to_string(),
+    )
+}
+
+fn c_type_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut found = None;
+    c_collect_descendant_texts(node, source, &["type_identifier"], &mut found);
+    found
+}
+
+fn c_function_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let declarator = c_first_descendant(node, &["function_declarator"])?;
+    c_direct_child_text(declarator, source, &["identifier"])
+}
+
+fn c_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let callee = c_direct_child(node, &["identifier", "field_identifier"])?;
+    Some(node_text(callee, source))
+}
+
+fn c_bridge_edge(
+    node: tree_sitter::Node<'_>,
+    context: &CParseContext<'_>,
+    caller: &str,
+    signature: &str,
+) -> Option<ParsedEdge> {
+    let (relationship_role, bridge_kind) = match signature {
+        "system" | "popen" | "execvp" | "execv" | "execl" | "posix_spawn" => {
+            ("invokes_binary", "subprocess")
+        }
+        "fopen" | "open" => ("opens_file", "file_io"),
+        "fread" => ("reads_file", "file_io"),
+        "fwrite" => ("writes_file", "file_io"),
+        "dlopen" | "LoadLibrary" => ("loads_shared_library", "ffi"),
+        _ => return None,
+    };
+    let line = node.start_position().row as i64 + 1;
+    let (target, confidence, confidence_tier) = match c_first_string_arg(node, context.source) {
+        Some(target) => (target, 0.8, "HIGH"),
+        None => (
+            format!("<dynamic:{signature}@{}:{line}>", context.file_path),
+            0.2,
+            "LOW",
+        ),
+    };
+    Some(ParsedEdge {
+        kind: "CROSS_ARTIFACT".to_string(),
+        source: caller.to_string(),
+        target,
+        file_path: context.file_path.to_string(),
+        line,
+        extra: json!({
+            "relationship_role": relationship_role,
+            "bridge_kind": bridge_kind,
+            "evidence_kind": "syntax",
+            "evidence_source": signature,
+            "source_language": "c",
+            "target_language": "unknown",
+            "confidence": confidence,
+            "confidence_tier": confidence_tier,
+        }),
+    })
+}
+
+fn c_first_string_arg(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let arguments = c_direct_child(node, &["argument_list"])?;
+    let mut cursor = arguments.walk();
+    for child in arguments.children(&mut cursor) {
+        if child.kind() == "string_literal" {
+            return Some(c_string_text(child, source));
+        }
+        if child.is_named() {
+            return None;
+        }
+    }
+    None
+}
+
+fn c_string_text(node: tree_sitter::Node<'_>, source: &[u8]) -> String {
+    strip_matching_quotes(node_text(node, source).trim()).to_string()
+}
+
+fn c_direct_child<'a>(
+    node: tree_sitter::Node<'a>,
+    kinds: &[&str],
+) -> Option<tree_sitter::Node<'a>> {
+    let mut cursor = node.walk();
+    let found = node
+        .children(&mut cursor)
+        .find(|child| kinds.contains(&child.kind()));
+    found
+}
+
+fn c_direct_child_text(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    kinds: &[&str],
+) -> Option<String> {
+    c_direct_child(node, kinds).map(|child| node_text(child, source))
+}
+
+fn c_first_descendant<'a>(
+    node: tree_sitter::Node<'a>,
+    kinds: &[&str],
+) -> Option<tree_sitter::Node<'a>> {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if kinds.contains(&child.kind()) {
+            return Some(child);
+        }
+        if let Some(found) = c_first_descendant(child, kinds) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+fn c_collect_descendant_texts(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    kinds: &[&str],
+    found: &mut Option<String>,
+) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if kinds.contains(&child.kind()) {
+            *found = Some(node_text(child, source));
+        }
+        c_collect_descendant_texts(child, source, kinds, found);
+    }
+}
+
+fn resolve_c_call_targets(
+    nodes: &[ParsedNode],
+    edges: Vec<ParsedEdge>,
+    file_path: &str,
+) -> Vec<ParsedEdge> {
+    let symbols = nodes
+        .iter()
+        .filter(|node| matches!(node.kind.as_str(), "Function" | "Test"))
+        .map(|node| node.name.as_str())
+        .collect::<HashSet<_>>();
+    edges
+        .into_iter()
+        .map(|mut edge| {
+            if edge.kind == "CALLS"
+                && !edge.target.contains("::")
+                && symbols.contains(edge.target.as_str())
+            {
+                edge.target = qualify(file_path, &edge.target, None);
+            }
+            edge
+        })
+        .collect()
+}
+
 fn resolve_rust_call_targets(
     nodes: &[ParsedNode],
     edges: Vec<ParsedEdge>,
@@ -8849,6 +9196,7 @@ pub fn parse_rust_owned_file(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>
         RustOwnedPathKind::Dart => parse_dart(file_path, source),
         RustOwnedPathKind::Lua => parse_lua(file_path, source),
         RustOwnedPathKind::Luau => parse_luau(file_path, source),
+        RustOwnedPathKind::C => parse_c(file_path, source),
         RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
     }
 }
@@ -8879,6 +9227,7 @@ enum RustOwnedPathKind {
     Dart,
     Lua,
     Luau,
+    C,
     Unsupported,
 }
 
@@ -8936,6 +9285,8 @@ fn rust_owned_path_kind(file_path: &str) -> RustOwnedPathKind {
         RustOwnedPathKind::Lua
     } else if ends_with_ascii_ignore_case(file_path, ".luau") {
         RustOwnedPathKind::Luau
+    } else if ends_with_ascii_ignore_case(file_path, ".c") {
+        RustOwnedPathKind::C
     } else {
         RustOwnedPathKind::Unsupported
     }
@@ -9200,6 +9551,15 @@ fn new_luau_parser() -> Option<tree_sitter::Parser> {
         .set_language(&dagayn_grammars::luau_language())
         .is_ok()
     {
+        Some(parser)
+    } else {
+        None
+    }
+}
+
+fn new_c_parser() -> Option<tree_sitter::Parser> {
+    let mut parser = tree_sitter::Parser::new();
+    if parser.set_language(&dagayn_grammars::c_language()).is_ok() {
         Some(parser)
     } else {
         None
@@ -11694,6 +12054,77 @@ end
             edge.kind == "TESTED_BY"
                 && edge.source == "sample.luau::greet"
                 && edge.target == "sample.luau::test_greet"
+        }));
+    }
+
+    #[test]
+    fn parses_c_structs_functions_imports_calls_and_bridges() {
+        let source = br#"#include <stdio.h>
+#include <dlfcn.h>
+
+typedef struct {
+    int id;
+} User;
+
+User* create_user(void) {
+    return malloc(sizeof(User));
+}
+
+void print_user(User* user) {
+    printf("%d", user->id);
+}
+
+void run_command(const char *cmd) {
+    system("git status");
+    fopen("config.yaml", "r");
+    dlopen("mylib.so", RTLD_NOW);
+    system(cmd);
+}
+
+int main() {
+    User* u = create_user();
+    print_user(u);
+    return 0;
+}
+"#;
+        let (nodes, edges) = parse_c("sample.c", source);
+        assert!(nodes.iter().any(|node| {
+            node.kind == "Class"
+                && node.name == "User"
+                && node.language == "c"
+                && node.extra["type_role"] == "class"
+        }));
+        assert!(nodes
+            .iter()
+            .any(|node| { node.kind == "Function" && node.name == "create_user" }));
+        assert!(edges
+            .iter()
+            .any(|edge| { edge.kind == "IMPORTS_FROM" && edge.target == "stdio.h" }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CALLS"
+                && edge.source == "sample.c::main"
+                && edge.target == "sample.c::create_user"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CROSS_ARTIFACT"
+                && edge.source == "sample.c::run_command"
+                && edge.target == "git status"
+                && edge.extra["evidence_source"] == "system"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CROSS_ARTIFACT"
+                && edge.target == "config.yaml"
+                && edge.extra["relationship_role"] == "opens_file"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CROSS_ARTIFACT"
+                && edge.target == "mylib.so"
+                && edge.extra["bridge_kind"] == "ffi"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CROSS_ARTIFACT"
+                && edge.target == "<dynamic:system@sample.c:20>"
+                && edge.extra["confidence_tier"] == "LOW"
         }));
     }
 
