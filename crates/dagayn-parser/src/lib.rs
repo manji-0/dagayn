@@ -372,6 +372,7 @@ pub struct RustOwnedParser {
     cpp_parser: Option<tree_sitter::Parser>,
     objc_parser: Option<tree_sitter::Parser>,
     elixir_parser: Option<tree_sitter::Parser>,
+    gdscript_parser: Option<tree_sitter::Parser>,
     javascript_export_cache: JavaScriptExportCache,
     javascript_module_cache: JavaScriptModuleCache,
     javascript_tsconfig_cache: JavaScriptTsconfigCache,
@@ -403,6 +404,7 @@ impl RustOwnedParser {
             cpp_parser: new_cpp_parser(),
             objc_parser: new_objc_parser(),
             elixir_parser: new_elixir_parser(),
+            gdscript_parser: new_gdscript_parser(),
             javascript_export_cache: RefCell::new(HashMap::new()),
             javascript_module_cache: RefCell::new(HashMap::new()),
             javascript_tsconfig_cache: RefCell::new(HashMap::new()),
@@ -523,6 +525,9 @@ impl RustOwnedParser {
             }
             RustOwnedPathKind::Elixir => {
                 parse_elixir_with_parser(file_path, source, self.elixir_parser.as_mut())
+            }
+            RustOwnedPathKind::Gdscript => {
+                parse_gdscript_with_parser(file_path, source, self.gdscript_parser.as_mut())
             }
             RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
         }
@@ -9156,6 +9161,297 @@ fn elixir_source_module<'a>(source: &'a str, file_path: &str) -> Option<&'a str>
     suffix.rsplit_once('.').map(|(module, _)| module)
 }
 
+pub fn parse_gdscript(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let mut parser = new_gdscript_parser();
+    parse_gdscript_with_parser(file_path, source, parser.as_mut())
+}
+
+fn parse_gdscript_with_parser(
+    file_path: &str,
+    source: &[u8],
+    parser: Option<&mut tree_sitter::Parser>,
+) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
+    let mut nodes = vec![ParsedNode {
+        kind: "File".to_string(),
+        name: file_path.to_string(),
+        file_path: file_path.to_string(),
+        line_start: 1,
+        line_end,
+        language: "gdscript".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: is_test_file(file_path),
+        extra: json!({}),
+    }];
+    let mut edges = Vec::new();
+    let context = GdscriptParseContext { source, file_path };
+
+    if let Some(parser) = parser {
+        if let Some(tree) = parser.parse(source, None) {
+            gdscript_walk_children(
+                tree.root_node(),
+                &context,
+                None,
+                None,
+                &mut nodes,
+                &mut edges,
+            );
+            let mut edges = resolve_gdscript_call_targets(&nodes, edges, file_path);
+            add_tested_by_edges(&nodes, &mut edges);
+            return (nodes, edges);
+        }
+    }
+
+    (nodes, edges)
+}
+
+struct GdscriptParseContext<'a> {
+    source: &'a [u8],
+    file_path: &'a str,
+}
+
+fn gdscript_walk_children(
+    node: tree_sitter::Node<'_>,
+    context: &GdscriptParseContext<'_>,
+    enclosing_class: Option<&str>,
+    enclosing_func: Option<&str>,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        match child.kind() {
+            "extends_statement" if enclosing_func.is_none() => {
+                if let Some(target) = gdscript_extends_target(child, context.source) {
+                    edges.push(ParsedEdge {
+                        kind: "IMPORTS_FROM".to_string(),
+                        source: context.file_path.to_string(),
+                        target,
+                        file_path: context.file_path.to_string(),
+                        line: child.start_position().row as i64 + 1,
+                        extra: json!({}),
+                    });
+                }
+                continue;
+            }
+            "class_name_statement" => {
+                if let Some(name) = gdscript_direct_child_text(child, context.source, &["name"]) {
+                    gdscript_emit_class(child, context, &name, None, nodes, edges);
+                }
+                continue;
+            }
+            "class_definition" => {
+                if let Some(name) = gdscript_direct_child_text(child, context.source, &["name"]) {
+                    gdscript_emit_class(child, context, &name, enclosing_class, nodes, edges);
+                    if let Some(body) = gdscript_direct_child(child, &["class_body"]) {
+                        gdscript_walk_children(body, context, Some(&name), None, nodes, edges);
+                    }
+                    continue;
+                }
+            }
+            "function_definition" => {
+                if let Some(name) = gdscript_direct_child_text(child, context.source, &["name"]) {
+                    gdscript_emit_function(child, context, &name, enclosing_class, nodes, edges);
+                    if let Some(body) = gdscript_direct_child(child, &["body"]) {
+                        gdscript_walk_children(
+                            body,
+                            context,
+                            enclosing_class,
+                            Some(&name),
+                            nodes,
+                            edges,
+                        );
+                    }
+                    continue;
+                }
+            }
+            "call" | "attribute_call" => {
+                gdscript_emit_call(child, context, enclosing_class, enclosing_func, edges);
+            }
+            _ => {}
+        }
+        gdscript_walk_children(
+            child,
+            context,
+            enclosing_class,
+            enclosing_func,
+            nodes,
+            edges,
+        );
+    }
+}
+
+fn gdscript_emit_class(
+    node: tree_sitter::Node<'_>,
+    context: &GdscriptParseContext<'_>,
+    name: &str,
+    enclosing_class: Option<&str>,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let qualified = qualify(context.file_path, name, enclosing_class);
+    nodes.push(ParsedNode {
+        kind: "Class".to_string(),
+        name: name.to_string(),
+        file_path: context.file_path.to_string(),
+        line_start: node.start_position().row as i64 + 1,
+        line_end: node.end_position().row as i64 + 1,
+        language: "gdscript".to_string(),
+        parent_name: enclosing_class.map(str::to_string),
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: json!({"type_role": "class"}),
+    });
+    edges.push(ParsedEdge {
+        kind: "CONTAINS".to_string(),
+        source: enclosing_class
+            .map(|class| qualify(context.file_path, class, None))
+            .unwrap_or_else(|| context.file_path.to_string()),
+        target: qualified,
+        file_path: context.file_path.to_string(),
+        line: node.start_position().row as i64 + 1,
+        extra: json!({}),
+    });
+}
+
+fn gdscript_emit_function(
+    node: tree_sitter::Node<'_>,
+    context: &GdscriptParseContext<'_>,
+    name: &str,
+    enclosing_class: Option<&str>,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let is_test = is_test_function(name, context.file_path, node, context.source);
+    let qualified = qualify(context.file_path, name, enclosing_class);
+    nodes.push(ParsedNode {
+        kind: if is_test { "Test" } else { "Function" }.to_string(),
+        name: name.to_string(),
+        file_path: context.file_path.to_string(),
+        line_start: node.start_position().row as i64 + 1,
+        line_end: node.end_position().row as i64 + 1,
+        language: "gdscript".to_string(),
+        parent_name: enclosing_class.map(str::to_string),
+        params: gdscript_direct_child_text(node, context.source, &["parameters"]),
+        return_type: gdscript_direct_child_text(node, context.source, &["type"]),
+        modifiers: None,
+        is_test,
+        extra: json!({}),
+    });
+    edges.push(ParsedEdge {
+        kind: "CONTAINS".to_string(),
+        source: enclosing_class
+            .map(|class| qualify(context.file_path, class, None))
+            .unwrap_or_else(|| context.file_path.to_string()),
+        target: qualified,
+        file_path: context.file_path.to_string(),
+        line: node.start_position().row as i64 + 1,
+        extra: json!({}),
+    });
+}
+
+fn gdscript_emit_call(
+    node: tree_sitter::Node<'_>,
+    context: &GdscriptParseContext<'_>,
+    enclosing_class: Option<&str>,
+    enclosing_func: Option<&str>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let Some(target) = gdscript_call_name(node, context.source) else {
+        return;
+    };
+    let caller = enclosing_func
+        .map(|func| qualify(context.file_path, func, enclosing_class))
+        .unwrap_or_else(|| context.file_path.to_string());
+    edges.push(ParsedEdge {
+        kind: "CALLS".to_string(),
+        source: caller,
+        target,
+        file_path: context.file_path.to_string(),
+        line: node.start_position().row as i64 + 1,
+        extra: json!({}),
+    });
+}
+
+fn gdscript_extends_target(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let type_node = gdscript_direct_child(node, &["type"])?;
+    gdscript_first_descendant_text(type_node, source, &["identifier"])
+        .or_else(|| Some(node_text(type_node, source).trim().to_string()))
+        .filter(|target| !target.is_empty())
+}
+
+fn gdscript_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    gdscript_direct_child_text(node, source, &["identifier"])
+}
+
+fn gdscript_direct_child<'a>(
+    node: tree_sitter::Node<'a>,
+    kinds: &[&str],
+) -> Option<tree_sitter::Node<'a>> {
+    let mut cursor = node.walk();
+    let found = node
+        .children(&mut cursor)
+        .find(|child| kinds.contains(&child.kind()));
+    found
+}
+
+fn gdscript_direct_child_text(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    kinds: &[&str],
+) -> Option<String> {
+    gdscript_direct_child(node, kinds).map(|child| node_text(child, source))
+}
+
+fn gdscript_first_descendant_text(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    kinds: &[&str],
+) -> Option<String> {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if kinds.contains(&child.kind()) {
+            return Some(node_text(child, source));
+        }
+        if let Some(found) = gdscript_first_descendant_text(child, source, kinds) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+fn resolve_gdscript_call_targets(
+    nodes: &[ParsedNode],
+    edges: Vec<ParsedEdge>,
+    file_path: &str,
+) -> Vec<ParsedEdge> {
+    let symbols = nodes
+        .iter()
+        .filter(|node| matches!(node.kind.as_str(), "Function" | "Test"))
+        .fold(HashMap::<String, String>::new(), |mut symbols, node| {
+            symbols
+                .entry(node.name.clone())
+                .or_insert_with(|| qualify(file_path, &node.name, node.parent_name.as_deref()));
+            symbols
+        });
+    edges
+        .into_iter()
+        .map(|mut edge| {
+            if edge.kind == "CALLS" && !edge.target.contains("::") {
+                if let Some(target) = symbols.get(&edge.target) {
+                    edge.target = target.clone();
+                }
+            }
+            edge
+        })
+        .collect()
+}
+
 pub fn parse_c(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let mut parser = new_c_parser();
     parse_c_like_with_parser(file_path, source, "c", parser.as_mut())
@@ -9812,6 +10108,7 @@ pub fn parse_rust_owned_file(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>
         RustOwnedPathKind::Cpp => parse_cpp(file_path, source),
         RustOwnedPathKind::ObjC => parse_objc(file_path, source),
         RustOwnedPathKind::Elixir => parse_elixir(file_path, source),
+        RustOwnedPathKind::Gdscript => parse_gdscript(file_path, source),
         RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
     }
 }
@@ -9846,6 +10143,7 @@ enum RustOwnedPathKind {
     Cpp,
     ObjC,
     Elixir,
+    Gdscript,
     Unsupported,
 }
 
@@ -9917,6 +10215,8 @@ fn rust_owned_path_kind(file_path: &str) -> RustOwnedPathKind {
         || ends_with_ascii_ignore_case(file_path, ".exs")
     {
         RustOwnedPathKind::Elixir
+    } else if ends_with_ascii_ignore_case(file_path, ".gd") {
+        RustOwnedPathKind::Gdscript
     } else {
         RustOwnedPathKind::Unsupported
     }
@@ -10224,6 +10524,18 @@ fn new_elixir_parser() -> Option<tree_sitter::Parser> {
     let mut parser = tree_sitter::Parser::new();
     if parser
         .set_language(&dagayn_grammars::elixir_language())
+        .is_ok()
+    {
+        Some(parser)
+    } else {
+        None
+    }
+}
+
+fn new_gdscript_parser() -> Option<tree_sitter::Parser> {
+    let mut parser = tree_sitter::Parser::new();
+    if parser
+        .set_language(&dagayn_grammars::gdscript_language())
         .is_ok()
     {
         Some(parser)
@@ -12815,6 +13127,102 @@ end
             edge.kind == "CALLS"
                 && edge.source == "sample.ex::Calculator.log"
                 && edge.target == "puts"
+        }));
+    }
+
+    #[test]
+    fn parses_gdscript_classes_functions_imports_and_calls() {
+        let source = br#"extends Node
+class_name SampleManager
+
+const MAX_SIZE = 10
+const OtherScript = preload("res://scripts/other.gd")
+
+signal item_added(item: Item)
+
+@export var speed: float = 2.5
+@onready var timer: Timer = $Timer
+
+var items: Array[Item] = []
+
+
+class Item:
+	var name: String
+	var level: int
+
+	func promote() -> void:
+		level += 1
+
+
+func _ready() -> void:
+	timer.start()
+	_load_items()
+	OtherScript.register(self)
+
+
+func _load_items() -> void:
+	for i in range(MAX_SIZE):
+		var item := Item.new()
+		items.append(item)
+		item_added.emit(item)
+
+
+func get_item(idx: int) -> Item:
+	return items[idx]
+
+
+static func helper() -> int:
+	return 42
+"#;
+        let (nodes, edges) = parse_gdscript("sample.gd", source);
+        assert!(nodes.iter().any(|node| {
+            node.kind == "Class"
+                && node.name == "SampleManager"
+                && node.language == "gdscript"
+                && node.extra["type_role"] == "class"
+        }));
+        assert!(nodes.iter().any(|node| {
+            node.kind == "Class" && node.name == "Item" && node.language == "gdscript"
+        }));
+        assert!(nodes.iter().any(|node| {
+            node.kind == "Function"
+                && node.name == "promote"
+                && node.parent_name.as_deref() == Some("Item")
+                && node.params.as_deref() == Some("()")
+                && node.return_type.as_deref() == Some("void")
+        }));
+        assert!(nodes.iter().any(|node| {
+            node.kind == "Function" && node.name == "_load_items" && node.parent_name.is_none()
+        }));
+        assert!(nodes.iter().any(|node| {
+            node.kind == "Function"
+                && node.name == "get_item"
+                && node.params.as_deref() == Some("(idx: int)")
+                && node.return_type.as_deref() == Some("Item")
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "IMPORTS_FROM" && edge.source == "sample.gd" && edge.target == "Node"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CALLS" && edge.source == "sample.gd" && edge.target == "preload"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CALLS"
+                && edge.source == "sample.gd::_ready"
+                && edge.target == "sample.gd::_load_items"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CALLS" && edge.source == "sample.gd::_ready" && edge.target == "start"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CALLS"
+                && edge.source == "sample.gd::_load_items"
+                && edge.target == "append"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CONTAINS"
+                && edge.source == "sample.gd::Item"
+                && edge.target == "sample.gd::Item.promote"
         }));
     }
 

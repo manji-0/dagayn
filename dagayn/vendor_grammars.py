@@ -408,6 +408,20 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
             "bindings/python/tree_sitter_elixir/binding.c",
         ),
     ),
+    "gdscript": GrammarSpec(
+        language="gdscript",
+        owner="PrestonKnopp",
+        repo="tree-sitter-gdscript",
+        commit="cc1c5518f7de0518af8ab842503b87e2d97c56c2",
+        required_paths=(
+            "src/parser.c",
+            "src/scanner.c",
+            "src/tree_sitter/alloc.h",
+            "src/tree_sitter/array.h",
+            "src/tree_sitter/parser.h",
+            "bindings/python/tree_sitter_gdscript/binding.c",
+        ),
+    ),
 }
 
 
