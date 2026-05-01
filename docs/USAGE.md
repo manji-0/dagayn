@@ -51,7 +51,7 @@ Use `build` the first time, `update` for change-driven refreshes, and `watch` du
 
 The Python backend is still the default. Set `DAGAYN_BACKEND=rust` to use the
 Rust-backed graph store and Rust-owned parser paths for Markdown, Terraform,
-Rust, Python/notebooks, Bash/Go/Java/Ruby/C#/PHP/Kotlin/Scala/Solidity/Dart/Lua/Luau/C/C++/Objective-C/Elixir/GDScript/R/Julia/Perl/Vue/Svelte/Zig/PowerShell, and core JavaScript/JSX/TypeScript/TSX/Astro files:
+Rust, Python/notebooks, Bash/Go/Java/Ruby/C#/PHP/Kotlin/Scala/Solidity/Dart/Lua/Luau/C/C++/Objective-C/Elixir/GDScript/R/Julia/Perl/Vue/Svelte/Zig/PowerShell/ReScript, and core JavaScript/JSX/TypeScript/TSX/Astro files:
 
 ```bash
 DAGAYN_BACKEND=rust dagayn build
