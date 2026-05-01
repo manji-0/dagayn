@@ -366,6 +366,7 @@ pub struct RustOwnedParser {
     scala_parser: Option<tree_sitter::Parser>,
     solidity_parser: Option<tree_sitter::Parser>,
     dart_parser: Option<tree_sitter::Parser>,
+    lua_parser: Option<tree_sitter::Parser>,
     javascript_export_cache: JavaScriptExportCache,
     javascript_module_cache: JavaScriptModuleCache,
     javascript_tsconfig_cache: JavaScriptTsconfigCache,
@@ -391,6 +392,7 @@ impl RustOwnedParser {
             scala_parser: new_scala_parser(),
             solidity_parser: new_solidity_parser(),
             dart_parser: new_dart_parser(),
+            lua_parser: new_lua_parser(),
             javascript_export_cache: RefCell::new(HashMap::new()),
             javascript_module_cache: RefCell::new(HashMap::new()),
             javascript_tsconfig_cache: RefCell::new(HashMap::new()),
@@ -495,6 +497,9 @@ impl RustOwnedParser {
             }
             RustOwnedPathKind::Dart => {
                 parse_dart_with_parser(file_path, source, self.dart_parser.as_mut())
+            }
+            RustOwnedPathKind::Lua => {
+                parse_lua_with_parser(file_path, source, self.lua_parser.as_mut())
             }
             RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
         }
@@ -8200,6 +8205,498 @@ fn dart_first_descendant_text(
     None
 }
 
+pub fn parse_lua(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let mut parser = new_lua_parser();
+    parse_lua_with_parser(file_path, source, parser.as_mut())
+}
+
+fn parse_lua_with_parser(
+    file_path: &str,
+    source: &[u8],
+    parser: Option<&mut tree_sitter::Parser>,
+) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
+    let mut nodes = vec![ParsedNode {
+        kind: "File".to_string(),
+        name: file_path.to_string(),
+        file_path: file_path.to_string(),
+        line_start: 1,
+        line_end,
+        language: "lua".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: is_test_file(file_path),
+        extra: json!({}),
+    }];
+    let mut edges = Vec::new();
+
+    if let Some(parser) = parser {
+        if let Some(tree) = parser.parse(source, None) {
+            lua_walk_children(
+                tree.root_node(),
+                source,
+                file_path,
+                None,
+                None,
+                &mut nodes,
+                &mut edges,
+            );
+            let mut edges = resolve_lua_call_targets(&nodes, edges, file_path);
+            add_tested_by_edges(&nodes, &mut edges);
+            return (nodes, edges);
+        }
+    }
+
+    (nodes, edges)
+}
+
+fn lua_walk_children(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    file_path: &str,
+    enclosing_class: Option<&str>,
+    enclosing_func: Option<&str>,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        match child.kind() {
+            "variable_declaration" => {
+                if lua_handle_variable_declaration(
+                    child,
+                    source,
+                    file_path,
+                    enclosing_class,
+                    enclosing_func,
+                    nodes,
+                    edges,
+                ) {
+                    continue;
+                }
+            }
+            "function_declaration" => {
+                if let Some((parent, name)) = lua_table_function_name(child, source) {
+                    lua_emit_function(child, source, file_path, &name, Some(&parent), nodes, edges);
+                    lua_walk_children(
+                        child,
+                        source,
+                        file_path,
+                        Some(&parent),
+                        Some(&name),
+                        nodes,
+                        edges,
+                    );
+                    continue;
+                }
+                if let Some(name) = lua_direct_child_text(child, source, &["identifier"]) {
+                    lua_emit_function(
+                        child,
+                        source,
+                        file_path,
+                        &name,
+                        enclosing_class,
+                        nodes,
+                        edges,
+                    );
+                    lua_walk_children(
+                        child,
+                        source,
+                        file_path,
+                        enclosing_class,
+                        Some(&name),
+                        nodes,
+                        edges,
+                    );
+                    continue;
+                }
+            }
+            "function_call" => {
+                if enclosing_func.is_none() {
+                    if let Some(target) = lua_require_target(child, source) {
+                        edges.push(ParsedEdge {
+                            kind: "IMPORTS_FROM".to_string(),
+                            source: file_path.to_string(),
+                            target,
+                            file_path: file_path.to_string(),
+                            line: child.start_position().row as i64 + 1,
+                            extra: json!({}),
+                        });
+                        continue;
+                    }
+                }
+                lua_emit_call(
+                    child,
+                    source,
+                    file_path,
+                    enclosing_class,
+                    enclosing_func,
+                    edges,
+                );
+            }
+            _ => {}
+        }
+        lua_walk_children(
+            child,
+            source,
+            file_path,
+            enclosing_class,
+            enclosing_func,
+            nodes,
+            edges,
+        );
+    }
+}
+
+fn lua_handle_variable_declaration(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    file_path: &str,
+    enclosing_class: Option<&str>,
+    enclosing_func: Option<&str>,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) -> bool {
+    let Some(assign) = lua_direct_child(node, &["assignment_statement"]) else {
+        return false;
+    };
+    let Some(var_name) = lua_assignment_variable_name(assign, source) else {
+        return false;
+    };
+    let Some(expr_list) = lua_direct_child(assign, &["expression_list"]) else {
+        return false;
+    };
+
+    let mut cursor = expr_list.walk();
+    for expr in expr_list.children(&mut cursor) {
+        if expr.kind() == "function_call" {
+            if let Some(target) = lua_require_target(expr, source) {
+                edges.push(ParsedEdge {
+                    kind: "IMPORTS_FROM".to_string(),
+                    source: file_path.to_string(),
+                    target,
+                    file_path: file_path.to_string(),
+                    line: node.start_position().row as i64 + 1,
+                    extra: json!({}),
+                });
+                return true;
+            }
+        }
+    }
+
+    let mut cursor = expr_list.walk();
+    for expr in expr_list.children(&mut cursor) {
+        if expr.kind() == "function_definition" {
+            lua_emit_function(
+                node,
+                source,
+                file_path,
+                &var_name,
+                enclosing_class,
+                nodes,
+                edges,
+            );
+            lua_walk_children(
+                expr,
+                source,
+                file_path,
+                enclosing_class,
+                Some(&var_name),
+                nodes,
+                edges,
+            );
+            return true;
+        }
+    }
+
+    let _ = enclosing_func;
+    false
+}
+
+fn lua_emit_function(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    file_path: &str,
+    name: &str,
+    enclosing_class: Option<&str>,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let is_test = is_test_function(name, file_path, node, source);
+    let qualified = qualify(file_path, name, enclosing_class);
+    nodes.push(ParsedNode {
+        kind: if is_test { "Test" } else { "Function" }.to_string(),
+        name: name.to_string(),
+        file_path: file_path.to_string(),
+        line_start: node.start_position().row as i64 + 1,
+        line_end: node.end_position().row as i64 + 1,
+        language: "lua".to_string(),
+        parent_name: enclosing_class.map(str::to_string),
+        params: lua_first_descendant_text(node, source, &["parameters"]),
+        return_type: None,
+        modifiers: None,
+        is_test,
+        extra: json!({}),
+    });
+    edges.push(ParsedEdge {
+        kind: "CONTAINS".to_string(),
+        source: enclosing_class
+            .map(|class| qualify(file_path, class, None))
+            .unwrap_or_else(|| file_path.to_string()),
+        target: qualified,
+        file_path: file_path.to_string(),
+        line: node.start_position().row as i64 + 1,
+        extra: json!({}),
+    });
+}
+
+fn lua_emit_call(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    file_path: &str,
+    enclosing_class: Option<&str>,
+    enclosing_func: Option<&str>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let Some(call_name) = lua_call_name(node, source) else {
+        return;
+    };
+    let caller = enclosing_func
+        .map(|func| qualify(file_path, func, enclosing_class))
+        .unwrap_or_else(|| file_path.to_string());
+    edges.push(ParsedEdge {
+        kind: "CALLS".to_string(),
+        source: caller.clone(),
+        target: call_name,
+        file_path: file_path.to_string(),
+        line: node.start_position().row as i64 + 1,
+        extra: json!({}),
+    });
+    if let Some(signature) = lua_call_signature(node, source) {
+        if let Some(edge) = lua_bridge_edge(node, source, file_path, &caller, &signature) {
+            edges.push(edge);
+        }
+    }
+}
+
+fn lua_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let callee = lua_call_callee(node)?;
+    match callee.kind() {
+        "identifier" => Some(node_text(callee, source)),
+        "dot_index_expression" | "method_index_expression" => {
+            lua_last_direct_child_text(callee, source, "identifier")
+        }
+        _ => None,
+    }
+}
+
+fn lua_call_signature(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let callee = lua_call_callee(node)?;
+    let signature = match callee.kind() {
+        "identifier" => node_text(callee, source),
+        "dot_index_expression" | "method_index_expression" => node_text(callee, source)
+            .replace(':', ".")
+            .trim()
+            .to_string(),
+        _ => return None,
+    };
+    (!signature.is_empty()).then_some(signature)
+}
+
+fn lua_call_callee<'a>(node: tree_sitter::Node<'a>) -> Option<tree_sitter::Node<'a>> {
+    let mut cursor = node.walk();
+    let found = node
+        .children(&mut cursor)
+        .find(|child| child.kind() != "arguments");
+    found
+}
+
+fn lua_bridge_edge(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    file_path: &str,
+    caller: &str,
+    signature: &str,
+) -> Option<ParsedEdge> {
+    let (relationship_role, bridge_kind) = match signature {
+        "os.execute" | "io.popen" => ("invokes_binary", "subprocess"),
+        "io.open" => ("opens_file", "file_io"),
+        "io.lines" | "io.read" => ("reads_file", "file_io"),
+        "io.write" => ("writes_file", "file_io"),
+        "package.loadlib" | "loadlib" => ("loads_shared_library", "ffi"),
+        _ => return None,
+    };
+    let line = node.start_position().row as i64 + 1;
+    let (target, confidence, confidence_tier) = match lua_first_string_arg(node, source) {
+        Some(target) => (target, 0.8, "HIGH"),
+        None => (
+            format!("<dynamic:{signature}@{file_path}:{line}>"),
+            0.2,
+            "LOW",
+        ),
+    };
+    Some(ParsedEdge {
+        kind: "CROSS_ARTIFACT".to_string(),
+        source: caller.to_string(),
+        target,
+        file_path: file_path.to_string(),
+        line,
+        extra: json!({
+            "relationship_role": relationship_role,
+            "bridge_kind": bridge_kind,
+            "evidence_kind": "syntax",
+            "evidence_source": signature,
+            "source_language": "lua",
+            "target_language": "unknown",
+            "confidence": confidence,
+            "confidence_tier": confidence_tier,
+        }),
+    })
+}
+
+fn lua_require_target(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let first = lua_call_callee(node)?;
+    if first.kind() != "identifier" || node_text(first, source) != "require" {
+        return None;
+    }
+    lua_first_string_arg(node, source)
+}
+
+fn lua_first_string_arg(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let arguments = lua_direct_child(node, &["arguments"])?;
+    let mut cursor = arguments.walk();
+    for child in arguments.children(&mut cursor) {
+        if matches!(child.kind(), "," | "(" | ")") {
+            continue;
+        }
+        if child.kind() == "string" {
+            return Some(lua_string_text(child, source));
+        }
+        return None;
+    }
+    None
+}
+
+fn lua_string_text(node: tree_sitter::Node<'_>, source: &[u8]) -> String {
+    if let Some(content) = lua_first_descendant_text(node, source, &["string_content"]) {
+        return content;
+    }
+    strip_matching_quotes(node_text(node, source).trim()).to_string()
+}
+
+fn lua_table_function_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<(String, String)> {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if matches!(
+            child.kind(),
+            "dot_index_expression" | "method_index_expression"
+        ) {
+            let names = lua_direct_child_texts(child, source, &["identifier"]);
+            if names.len() >= 2 {
+                return Some((names[0].clone(), names[names.len() - 1].clone()));
+            }
+        }
+    }
+    None
+}
+
+fn lua_assignment_variable_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let variable_list = lua_direct_child(node, &["variable_list"])?;
+    lua_first_descendant_text(variable_list, source, &["identifier"])
+}
+
+fn lua_direct_child<'a>(
+    node: tree_sitter::Node<'a>,
+    kinds: &[&str],
+) -> Option<tree_sitter::Node<'a>> {
+    let mut cursor = node.walk();
+    let found = node
+        .children(&mut cursor)
+        .find(|child| kinds.contains(&child.kind()));
+    found
+}
+
+fn lua_direct_child_text(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    kinds: &[&str],
+) -> Option<String> {
+    lua_direct_child(node, kinds).map(|child| node_text(child, source))
+}
+
+fn lua_direct_child_texts(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    kinds: &[&str],
+) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if kinds.contains(&child.kind()) {
+            out.push(node_text(child, source));
+        }
+    }
+    out
+}
+
+fn lua_last_direct_child_text(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    kind: &str,
+) -> Option<String> {
+    let mut found = None;
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == kind {
+            found = Some(node_text(child, source));
+        }
+    }
+    found
+}
+
+fn lua_first_descendant_text(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    kinds: &[&str],
+) -> Option<String> {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if kinds.contains(&child.kind()) {
+            return Some(node_text(child, source));
+        }
+        if let Some(found) = lua_first_descendant_text(child, source, kinds) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+fn resolve_lua_call_targets(
+    nodes: &[ParsedNode],
+    edges: Vec<ParsedEdge>,
+    file_path: &str,
+) -> Vec<ParsedEdge> {
+    let symbols = nodes
+        .iter()
+        .filter(|node| matches!(node.kind.as_str(), "Function" | "Test"))
+        .map(|node| node.name.as_str())
+        .collect::<HashSet<_>>();
+    edges
+        .into_iter()
+        .map(|mut edge| {
+            if edge.kind == "CALLS"
+                && !edge.target.contains("::")
+                && symbols.contains(edge.target.as_str())
+            {
+                edge.target = qualify(file_path, &edge.target, None);
+            }
+            edge
+        })
+        .collect()
+}
+
 fn resolve_rust_call_targets(
     nodes: &[ParsedNode],
     edges: Vec<ParsedEdge>,
@@ -8322,6 +8819,7 @@ pub fn parse_rust_owned_file(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>
         RustOwnedPathKind::Scala => parse_scala(file_path, source),
         RustOwnedPathKind::Solidity => parse_solidity(file_path, source),
         RustOwnedPathKind::Dart => parse_dart(file_path, source),
+        RustOwnedPathKind::Lua => parse_lua(file_path, source),
         RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
     }
 }
@@ -8350,6 +8848,7 @@ enum RustOwnedPathKind {
     Scala,
     Solidity,
     Dart,
+    Lua,
     Unsupported,
 }
 
@@ -8403,6 +8902,8 @@ fn rust_owned_path_kind(file_path: &str) -> RustOwnedPathKind {
         RustOwnedPathKind::Solidity
     } else if ends_with_ascii_ignore_case(file_path, ".dart") {
         RustOwnedPathKind::Dart
+    } else if ends_with_ascii_ignore_case(file_path, ".lua") {
+        RustOwnedPathKind::Lua
     } else {
         RustOwnedPathKind::Unsupported
     }
@@ -8641,6 +9142,18 @@ fn new_dart_parser() -> Option<tree_sitter::Parser> {
     let mut parser = tree_sitter::Parser::new();
     if parser
         .set_language(&dagayn_grammars::dart_language())
+        .is_ok()
+    {
+        Some(parser)
+    } else {
+        None
+    }
+}
+
+fn new_lua_parser() -> Option<tree_sitter::Parser> {
+    let mut parser = tree_sitter::Parser::new();
+    if parser
+        .set_language(&dagayn_grammars::lua_language())
         .is_ok()
     {
         Some(parser)
@@ -10999,6 +11512,75 @@ Dog createDog(String name) {
             edge.kind == "CALLS"
                 && edge.source == "sample.dart"
                 && edge.target == "sample.dart::Dog"
+        }));
+    }
+
+    #[test]
+    fn parses_lua_functions_methods_imports_tests_and_bridges() {
+        let source = br#"local json = require("cjson")
+local log = require("logging").getLogger("sample")
+
+function greet(name)
+    print("Hello, " .. name)
+    return name
+end
+
+local transform = function(data)
+    return json.encode(data)
+end
+
+function Animal.new(name)
+    return setmetatable({}, Animal)
+end
+
+function Animal:speak()
+    log:info(self.name)
+end
+
+function Dog:fetch(item)
+    self:speak()
+    os.execute("git status")
+    return item
+end
+
+local function test_greet()
+    local result = greet("World")
+    assert(result == "World")
+end
+"#;
+        let (nodes, edges) = parse_lua("sample.lua", source);
+        assert!(nodes.iter().any(|node| {
+            node.kind == "Function"
+                && node.name == "new"
+                && node.parent_name.as_deref() == Some("Animal")
+                && node.params.as_deref() == Some("(name)")
+        }));
+        assert!(nodes.iter().any(|node| {
+            node.kind == "Function"
+                && node.name == "fetch"
+                && node.parent_name.as_deref() == Some("Dog")
+        }));
+        assert!(nodes
+            .iter()
+            .any(|node| { node.kind == "Test" && node.name == "test_greet" && node.is_test }));
+        assert!(edges
+            .iter()
+            .any(|edge| { edge.kind == "IMPORTS_FROM" && edge.target == "cjson" }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CALLS"
+                && edge.source == "sample.lua::Dog.fetch"
+                && edge.target == "sample.lua::speak"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CROSS_ARTIFACT"
+                && edge.source == "sample.lua::Dog.fetch"
+                && edge.target == "git status"
+                && edge.extra["evidence_source"] == "os.execute"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "TESTED_BY"
+                && edge.source == "sample.lua::greet"
+                && edge.target == "sample.lua::test_greet"
         }));
     }
 

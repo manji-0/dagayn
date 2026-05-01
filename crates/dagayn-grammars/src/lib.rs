@@ -23,6 +23,7 @@ extern "C" {
     fn tree_sitter_scala() -> *const ();
     fn tree_sitter_solidity() -> *const ();
     fn tree_sitter_dart() -> *const ();
+    fn tree_sitter_lua() -> *const ();
 }
 
 pub const MARKDOWN_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_markdown) };
@@ -42,6 +43,7 @@ pub const KOTLIN_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitte
 pub const SCALA_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_scala) };
 pub const SOLIDITY_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_solidity) };
 pub const DART_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_dart) };
+pub const LUA_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_lua) };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GrammarStatus {
@@ -118,6 +120,10 @@ pub fn solidity_language() -> tree_sitter::Language {
 
 pub fn dart_language() -> tree_sitter::Language {
     DART_LANGUAGE.into()
+}
+
+pub fn lua_language() -> tree_sitter::Language {
+    LUA_LANGUAGE.into()
 }
 
 #[cfg(test)]
@@ -334,6 +340,18 @@ mod tests {
         let tree = parser
             .parse("class Dog { void bark() { print('woof'); } }\n", None)
             .expect("parse Dart");
+        assert!(!tree.root_node().has_error());
+    }
+
+    #[test]
+    fn loads_lua_language() {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&lua_language())
+            .expect("load pinned Lua grammar");
+        let tree = parser
+            .parse("function greet(name)\n  print(name)\nend\n", None)
+            .expect("parse Lua");
         assert!(!tree.root_node().has_error());
     }
 }

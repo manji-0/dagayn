@@ -325,6 +325,20 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
             "bindings/python/tree_sitter_dart/binding.c",
         ),
     ),
+    "lua": GrammarSpec(
+        language="lua",
+        owner="tree-sitter-grammars",
+        repo="tree-sitter-lua",
+        commit="10fe0054734eec83049514ea2e718b2a56acd0c9",
+        required_paths=(
+            "src/parser.c",
+            "src/scanner.c",
+            "src/tree_sitter/alloc.h",
+            "src/tree_sitter/array.h",
+            "src/tree_sitter/parser.h",
+            "bindings/python/tree_sitter_lua/binding.c",
+        ),
+    ),
 }
 
 
