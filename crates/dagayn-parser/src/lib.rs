@@ -370,6 +370,7 @@ pub struct RustOwnedParser {
     luau_parser: Option<tree_sitter::Parser>,
     c_parser: Option<tree_sitter::Parser>,
     cpp_parser: Option<tree_sitter::Parser>,
+    objc_parser: Option<tree_sitter::Parser>,
     javascript_export_cache: JavaScriptExportCache,
     javascript_module_cache: JavaScriptModuleCache,
     javascript_tsconfig_cache: JavaScriptTsconfigCache,
@@ -399,6 +400,7 @@ impl RustOwnedParser {
             luau_parser: new_luau_parser(),
             c_parser: new_c_parser(),
             cpp_parser: new_cpp_parser(),
+            objc_parser: new_objc_parser(),
             javascript_export_cache: RefCell::new(HashMap::new()),
             javascript_module_cache: RefCell::new(HashMap::new()),
             javascript_tsconfig_cache: RefCell::new(HashMap::new()),
@@ -513,6 +515,9 @@ impl RustOwnedParser {
             RustOwnedPathKind::C => parse_c_with_parser(file_path, source, self.c_parser.as_mut()),
             RustOwnedPathKind::Cpp => {
                 parse_cpp_with_parser(file_path, source, self.cpp_parser.as_mut())
+            }
+            RustOwnedPathKind::ObjC => {
+                parse_objc_with_parser(file_path, source, self.objc_parser.as_mut())
             }
             RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
         }
@@ -8743,6 +8748,11 @@ pub fn parse_cpp(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<Parsed
     parse_cpp_with_parser(file_path, source, parser.as_mut())
 }
 
+pub fn parse_objc(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let mut parser = new_objc_parser();
+    parse_objc_with_parser(file_path, source, parser.as_mut())
+}
+
 fn parse_c_with_parser(
     file_path: &str,
     source: &[u8],
@@ -8757,6 +8767,14 @@ fn parse_cpp_with_parser(
     parser: Option<&mut tree_sitter::Parser>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     parse_c_like_with_parser(file_path, source, "cpp", parser)
+}
+
+fn parse_objc_with_parser(
+    file_path: &str,
+    source: &[u8],
+    parser: Option<&mut tree_sitter::Parser>,
+) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    parse_c_like_with_parser(file_path, source, "objc", parser)
 }
 
 fn parse_c_like_with_parser(
@@ -8848,6 +8866,20 @@ fn c_walk_children(
                     continue;
                 }
             }
+            "class_interface"
+            | "class_implementation"
+            | "category_interface"
+            | "protocol_declaration"
+                if context.language == "objc" && enclosing_func.is_none() =>
+            {
+                if let Some(name) = c_direct_child_text(child, context.source, &["identifier"]) {
+                    c_emit_type(child, context, &name, nodes, edges);
+                    if child.kind() == "class_implementation" {
+                        c_walk_children(child, context, Some(&name), None, nodes, edges);
+                    }
+                    continue;
+                }
+            }
             "function_definition" => {
                 if let Some(name) = c_function_name(child, context.source) {
                     c_emit_function(child, context, &name, enclosing_class, nodes, edges);
@@ -8855,7 +8887,17 @@ fn c_walk_children(
                     continue;
                 }
             }
+            "method_definition" if context.language == "objc" => {
+                if let Some(name) = c_direct_child_text(child, context.source, &["identifier"]) {
+                    c_emit_function(child, context, &name, enclosing_class, nodes, edges);
+                    c_walk_children(child, context, enclosing_class, Some(&name), nodes, edges);
+                    continue;
+                }
+            }
             "call_expression" => {
+                c_emit_call(child, context, enclosing_class, enclosing_func, edges);
+            }
+            "message_expression" if context.language == "objc" => {
                 c_emit_call(child, context, enclosing_class, enclosing_func, edges);
             }
             _ => {}
@@ -8996,12 +9038,16 @@ fn c_emit_inheritance(
 }
 
 fn c_call_signature(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    if node.kind() == "message_expression" {
+        return c_message_selector(node, source);
+    }
     let callee = c_call_callee(node)?;
     match callee.kind() {
         "identifier" | "qualified_identifier" => {
             Some(node_text(callee, source).replace(" :: ", "::"))
         }
         "field_expression" => c_last_descendant_text(callee, source, &["field_identifier"]),
+        "message_expression" => c_message_selector(callee, source),
         _ => None,
     }
 }
@@ -9015,6 +9061,9 @@ fn c_call_callee<'a>(node: tree_sitter::Node<'a>) -> Option<tree_sitter::Node<'a
 }
 
 fn c_include_target(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    if node_text(node, source).starts_with("#import") {
+        return Some(node_text(node, source).trim().to_string());
+    }
     let target = c_direct_child(node, &["system_lib_string", "string_literal"])?;
     Some(
         strip_matching_quotes(
@@ -9036,12 +9085,34 @@ fn c_function_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String>
 }
 
 fn c_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    if node.kind() == "message_expression" {
+        return c_message_selector(node, source);
+    }
     let callee = c_call_callee(node)?;
     match callee.kind() {
         "identifier" => Some(node_text(callee, source)),
         "field_expression" => c_last_descendant_text(callee, source, &["field_identifier"]),
+        "message_expression" => c_message_selector(callee, source),
         _ => None,
     }
+}
+
+fn c_message_selector(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut skipped_receiver = false;
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if matches!(child.kind(), "[" | "]" | ":") {
+            continue;
+        }
+        if !skipped_receiver {
+            skipped_receiver = true;
+            continue;
+        }
+        if child.kind() == "identifier" {
+            return Some(node_text(child, source));
+        }
+    }
+    None
 }
 
 fn c_bridge_edge(
@@ -9176,16 +9247,19 @@ fn resolve_c_call_targets(
     let symbols = nodes
         .iter()
         .filter(|node| matches!(node.kind.as_str(), "Function" | "Test"))
-        .map(|node| node.name.as_str())
-        .collect::<HashSet<_>>();
+        .fold(HashMap::<String, String>::new(), |mut symbols, node| {
+            symbols
+                .entry(node.name.clone())
+                .or_insert_with(|| qualify(file_path, &node.name, node.parent_name.as_deref()));
+            symbols
+        });
     edges
         .into_iter()
         .map(|mut edge| {
-            if edge.kind == "CALLS"
-                && !edge.target.contains("::")
-                && symbols.contains(edge.target.as_str())
-            {
-                edge.target = qualify(file_path, &edge.target, None);
+            if edge.kind == "CALLS" && !edge.target.contains("::") {
+                if let Some(target) = symbols.get(&edge.target) {
+                    edge.target = target.clone();
+                }
             }
             edge
         })
@@ -9318,6 +9392,7 @@ pub fn parse_rust_owned_file(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>
         RustOwnedPathKind::Luau => parse_luau(file_path, source),
         RustOwnedPathKind::C => parse_c(file_path, source),
         RustOwnedPathKind::Cpp => parse_cpp(file_path, source),
+        RustOwnedPathKind::ObjC => parse_objc(file_path, source),
         RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
     }
 }
@@ -9350,6 +9425,7 @@ enum RustOwnedPathKind {
     Luau,
     C,
     Cpp,
+    ObjC,
     Unsupported,
 }
 
@@ -9415,6 +9491,8 @@ fn rust_owned_path_kind(file_path: &str) -> RustOwnedPathKind {
         || ends_with_ascii_ignore_case(file_path, ".hpp")
     {
         RustOwnedPathKind::Cpp
+    } else if ends_with_ascii_ignore_case(file_path, ".m") {
+        RustOwnedPathKind::ObjC
     } else {
         RustOwnedPathKind::Unsupported
     }
@@ -9698,6 +9776,18 @@ fn new_cpp_parser() -> Option<tree_sitter::Parser> {
     let mut parser = tree_sitter::Parser::new();
     if parser
         .set_language(&dagayn_grammars::cpp_language())
+        .is_ok()
+    {
+        Some(parser)
+    } else {
+        None
+    }
+}
+
+fn new_objc_parser() -> Option<tree_sitter::Parser> {
+    let mut parser = tree_sitter::Parser::new();
+    if parser
+        .set_language(&dagayn_grammars::objc_language())
         .is_ok()
     {
         Some(parser)
@@ -12329,6 +12419,75 @@ void run_command() {
                 && edge.target == "git status"
                 && edge.extra["evidence_source"] == "std::system"
                 && edge.extra["source_language"] == "cpp"
+        }));
+    }
+
+    #[test]
+    fn parses_objc_classes_methods_imports_messages_and_c_functions() {
+        let source = br#"#import <Foundation/Foundation.h>
+#import "Logger.h"
+
+@interface Calculator : NSObject
+- (NSInteger)add:(NSInteger)a to:(NSInteger)b;
+@end
+
+@implementation Calculator
+
+- (NSInteger)add:(NSInteger)a to:(NSInteger)b {
+    NSInteger sum = a + b;
+    [self logResult:sum];
+    return sum;
+}
+
+- (void)logResult:(NSInteger)value {
+    NSLog(@"Result: %ld", (long)value);
+}
+
++ (Calculator *)sharedCalculator {
+    return [[Calculator alloc] init];
+}
+
+@end
+
+int main(int argc, const char * argv[]) {
+    Calculator *calc = [Calculator sharedCalculator];
+    NSInteger r = [calc add:3 to:4];
+    NSLog(@"Final: %ld", (long)r);
+    return 0;
+}
+"#;
+        let (nodes, edges) = parse_objc("sample.m", source);
+        assert!(nodes.iter().any(|node| {
+            node.kind == "Class" && node.name == "Calculator" && node.language == "objc"
+        }));
+        assert!(nodes.iter().any(|node| {
+            node.kind == "Function"
+                && node.name == "add"
+                && node.parent_name.as_deref() == Some("Calculator")
+        }));
+        assert!(nodes.iter().any(|node| {
+            node.kind == "Function" && node.name == "main" && node.parent_name.is_none()
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "IMPORTS_FROM" && edge.target == "#import <Foundation/Foundation.h>"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CALLS"
+                && edge.source == "sample.m::Calculator.add"
+                && edge.target == "sample.m::Calculator.logResult"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CALLS"
+                && edge.source == "sample.m::main"
+                && edge.target == "sample.m::Calculator.sharedCalculator"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CALLS"
+                && edge.source == "sample.m::main"
+                && edge.target == "sample.m::Calculator.add"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CALLS" && edge.source == "sample.m::main" && edge.target == "NSLog"
         }));
     }
 

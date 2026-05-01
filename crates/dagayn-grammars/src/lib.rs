@@ -27,6 +27,7 @@ extern "C" {
     fn tree_sitter_luau() -> *const ();
     fn tree_sitter_c() -> *const ();
     fn tree_sitter_cpp() -> *const ();
+    fn tree_sitter_objc() -> *const ();
 }
 
 pub const MARKDOWN_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_markdown) };
@@ -50,6 +51,7 @@ pub const LUA_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_l
 pub const LUAU_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_luau) };
 pub const C_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_c) };
 pub const CPP_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_cpp) };
+pub const OBJC_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_objc) };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GrammarStatus {
@@ -142,6 +144,10 @@ pub fn c_language() -> tree_sitter::Language {
 
 pub fn cpp_language() -> tree_sitter::Language {
     CPP_LANGUAGE.into()
+}
+
+pub fn objc_language() -> tree_sitter::Language {
+    OBJC_LANGUAGE.into()
 }
 
 #[cfg(test)]
@@ -406,6 +412,18 @@ mod tests {
         let tree = parser
             .parse("class Dog { public: void bark() {} };\n", None)
             .expect("parse C++");
+        assert!(!tree.root_node().has_error());
+    }
+
+    #[test]
+    fn loads_objc_language() {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&objc_language())
+            .expect("load pinned Objective-C grammar");
+        let tree = parser
+            .parse("@interface Calculator : NSObject\n@end\n", None)
+            .expect("parse Objective-C");
         assert!(!tree.root_node().has_error());
     }
 }
