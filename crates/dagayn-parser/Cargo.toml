@@ -8,6 +8,7 @@ repository.workspace = true
 [dependencies]
 dagayn-grammars = { path = "../dagayn-grammars" }
 globset.workspace = true
+memchr.workspace = true
 regex.workspace = true
 serde.workspace = true
 serde_json.workspace = true

@@ -17,6 +17,7 @@ repository = "https://github.com/tirth8205/code-review-graph"
 [workspace.dependencies]
 anyhow = "1"
 globset = "0.4"
+memchr = "2"
 pyo3 = "0.28"
 regex = "1"
 rusqlite = { version = "0.32", features = ["bundled"] }

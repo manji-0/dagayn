@@ -117,6 +117,7 @@ version = "0.1.0"
 dependencies = [
  "dagayn-grammars",
  "globset",
+ "memchr",
  "regex",
  "serde",
  "serde_json",

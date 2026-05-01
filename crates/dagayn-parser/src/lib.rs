@@ -752,7 +752,7 @@ fn parse_markdown_with_parser(
     parser: Option<&mut tree_sitter::Parser>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let text = String::from_utf8_lossy(source);
-    let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
+    let line_end = line_count(source);
     let headings = collect_markdown_headings(source, &text, parser);
     let mut nodes = vec![ParsedNode {
         kind: "File".to_string(),
@@ -859,7 +859,7 @@ fn parse_terraform_with_parser(
     parser: Option<&mut tree_sitter::Parser>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let text = String::from_utf8_lossy(source);
-    let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
+    let line_end = line_count(source);
     let blocks = collect_terraform_blocks(source, &text, parser);
     let mut defined_names = HashSet::new();
     for block in &blocks {
@@ -1006,7 +1006,7 @@ fn parse_python_with_parser(
         return parse_databricks_py_with_parser(file_path, source, parser, repo_root);
     }
 
-    let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
+    let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
         kind: "File".to_string(),
         name: file_path.to_string(),
@@ -2360,7 +2360,7 @@ fn parse_rust_with_parser(
     source: &[u8],
     parser: Option<&mut tree_sitter::Parser>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
-    let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
+    let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
         kind: "File".to_string(),
         name: file_path.to_string(),
@@ -2430,7 +2430,7 @@ fn parse_javascript_like_with_parser(
     repo_root: Option<&Path>,
     caches: JavaScriptCaches<'_>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
-    let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
+    let line_end = line_count(source);
     let test_file = is_javascript_test_file(file_path);
     let mut nodes = vec![ParsedNode {
         kind: "File".to_string(),
@@ -2593,7 +2593,7 @@ fn parse_tree_sitter_file_only_with_parser(
     if let Some(parser) = parser {
         let _ = parser.parse(source, None);
     }
-    let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
+    let line_end = line_count(source);
     (
         vec![ParsedNode {
             kind: "File".to_string(),
@@ -2618,7 +2618,7 @@ fn parse_swift_with_parser(
     source: &[u8],
     parser: Option<&mut tree_sitter::Parser>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
-    let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
+    let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
         kind: "File".to_string(),
         name: file_path.to_string(),
@@ -3781,7 +3781,7 @@ fn parse_sfc_with_parsers(
     source: &[u8],
     mut inputs: SfcParserInputs<'_>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
-    let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
+    let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
         kind: "File".to_string(),
         name: file_path.to_string(),
@@ -5845,7 +5845,7 @@ fn parse_bash_with_parser(
     parser: Option<&mut tree_sitter::Parser>,
     repo_root: Option<&Path>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
-    let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
+    let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
         kind: "File".to_string(),
         name: file_path.to_string(),
@@ -6063,7 +6063,7 @@ fn parse_go_with_parser(
     source: &[u8],
     parser: Option<&mut tree_sitter::Parser>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
-    let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
+    let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
         kind: "File".to_string(),
         name: file_path.to_string(),
@@ -6419,7 +6419,7 @@ fn parse_java_with_parser(
     parser: Option<&mut tree_sitter::Parser>,
     repo_root: Option<&Path>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
-    let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
+    let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
         kind: "File".to_string(),
         name: file_path.to_string(),
@@ -6925,7 +6925,7 @@ fn parse_ruby_with_parser(
     source: &[u8],
     parser: Option<&mut tree_sitter::Parser>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
-    let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
+    let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
         kind: "File".to_string(),
         name: file_path.to_string(),
@@ -7255,7 +7255,7 @@ fn parse_csharp_with_parser(
     source: &[u8],
     parser: Option<&mut tree_sitter::Parser>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
-    let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
+    let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
         kind: "File".to_string(),
         name: file_path.to_string(),
@@ -7659,7 +7659,7 @@ fn parse_php_with_parser(
     source: &[u8],
     parser: Option<&mut tree_sitter::Parser>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
-    let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
+    let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
         kind: "File".to_string(),
         name: file_path.to_string(),
@@ -8057,7 +8057,7 @@ fn parse_kotlin_with_parser(
     source: &[u8],
     parser: Option<&mut tree_sitter::Parser>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
-    let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
+    let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
         kind: "File".to_string(),
         name: file_path.to_string(),
@@ -8447,7 +8447,7 @@ fn parse_scala_with_parser(
     source: &[u8],
     parser: Option<&mut tree_sitter::Parser>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
-    let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
+    let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
         kind: "File".to_string(),
         name: file_path.to_string(),
@@ -8943,7 +8943,7 @@ fn parse_solidity_with_parser(
     source: &[u8],
     parser: Option<&mut tree_sitter::Parser>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
-    let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
+    let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
         kind: "File".to_string(),
         name: file_path.to_string(),
@@ -9551,7 +9551,7 @@ fn parse_dart_with_parser(
     source: &[u8],
     parser: Option<&mut tree_sitter::Parser>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
-    let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
+    let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
         kind: "File".to_string(),
         name: file_path.to_string(),
@@ -9911,7 +9911,7 @@ fn parse_lua_like_with_parser(
     language: &str,
     parser: Option<&mut tree_sitter::Parser>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
-    let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
+    let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
         kind: "File".to_string(),
         name: file_path.to_string(),
@@ -10255,7 +10255,7 @@ fn lua_bridge_edge(
 
 fn lua_require_target(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
     let first = lua_call_callee(node)?;
-    if first.kind() != "identifier" || node_text(first, source) != "require" {
+    if first.kind() != "identifier" || !node_text_is(first, source, "require") {
         return None;
     }
     lua_first_string_arg(node, source)
@@ -10404,7 +10404,7 @@ fn parse_elixir_with_parser(
     source: &[u8],
     parser: Option<&mut tree_sitter::Parser>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
-    let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
+    let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
         kind: "File".to_string(),
         name: file_path.to_string(),
@@ -10817,7 +10817,7 @@ fn parse_gdscript_with_parser(
     source: &[u8],
     parser: Option<&mut tree_sitter::Parser>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
-    let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
+    let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
         kind: "File".to_string(),
         name: file_path.to_string(),
@@ -11108,7 +11108,7 @@ fn parse_r_with_parser(
     source: &[u8],
     parser: Option<&mut tree_sitter::Parser>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
-    let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
+    let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
         kind: "File".to_string(),
         name: file_path.to_string(),
@@ -11624,7 +11624,7 @@ fn parse_julia_with_parser(
     source: &[u8],
     parser: Option<&mut tree_sitter::Parser>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
-    let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
+    let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
         kind: "File".to_string(),
         name: file_path.to_string(),
@@ -12481,7 +12481,7 @@ fn parse_perl_with_parser(
     source: &[u8],
     parser: Option<&mut tree_sitter::Parser>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
-    let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
+    let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
         kind: "File".to_string(),
         name: file_path.to_string(),
@@ -12852,7 +12852,7 @@ fn parse_c_like_with_parser(
     language: &str,
     parser: Option<&mut tree_sitter::Parser>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
-    let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
+    let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
         kind: "File".to_string(),
         name: file_path.to_string(),
@@ -13130,8 +13130,12 @@ fn c_call_callee<'a>(node: tree_sitter::Node<'a>) -> Option<tree_sitter::Node<'a
 }
 
 fn c_include_target(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    if node_text(node, source).starts_with("#import") {
-        return Some(node_text(node, source).trim().to_string());
+    let text = node_text_bytes(node, source);
+    if text.starts_with(b"#import") {
+        return Some(match std::str::from_utf8(text) {
+            Ok(text) => text.trim().to_string(),
+            Err(_) => String::from_utf8_lossy(text).trim().to_string(),
+        });
     }
     let target = c_direct_child(node, &["system_lib_string", "string_literal"])?;
     Some(
@@ -14414,7 +14418,7 @@ fn collect_terraform_provider_source_nodes(
             node.child_by_field_name("name"),
             node.child_by_field_name("value"),
         ) {
-            if node_text(name, source) == "source" {
+            if node_text_is(name, source, "source") {
                 sources.push(strip_tf_string(&node_text(value, source)));
             }
         }
@@ -14423,7 +14427,7 @@ fn collect_terraform_provider_source_nodes(
             node.child_by_field_name("key"),
             node.child_by_field_name("value"),
         ) {
-            if strip_tf_string(&node_text(key, source)) == "source" {
+            if node_text_tf_string_is(key, source, "source") {
                 sources.push(strip_tf_string(&node_text(value, source)));
             }
         }
@@ -15009,7 +15013,48 @@ fn markdown_heading_text(node: tree_sitter::Node<'_>, source: &[u8]) -> String {
 }
 
 fn node_text(node: tree_sitter::Node<'_>, source: &[u8]) -> String {
-    String::from_utf8_lossy(&source[node.start_byte()..node.end_byte()]).to_string()
+    let text = node_text_bytes(node, source);
+    match std::str::from_utf8(text) {
+        Ok(text) => text.to_owned(),
+        Err(_) => String::from_utf8_lossy(text).into_owned(),
+    }
+}
+
+fn node_text_bytes<'source>(node: tree_sitter::Node<'_>, source: &'source [u8]) -> &'source [u8] {
+    &source[node.start_byte()..node.end_byte()]
+}
+
+fn node_text_is(node: tree_sitter::Node<'_>, source: &[u8], expected: &str) -> bool {
+    node_text_bytes(node, source) == expected.as_bytes()
+}
+
+fn node_text_tf_string_is(node: tree_sitter::Node<'_>, source: &[u8], expected: &str) -> bool {
+    let text = trim_ascii_bytes(node_text_bytes(node, source));
+    let unquoted = match text {
+        [b'"', inner @ .., b'"'] | [b'\'', inner @ .., b'\''] => inner,
+        _ => text,
+    };
+    unquoted == expected.as_bytes()
+}
+
+fn trim_ascii_bytes(mut value: &[u8]) -> &[u8] {
+    while let Some((first, rest)) = value.split_first() {
+        if !first.is_ascii_whitespace() {
+            break;
+        }
+        value = rest;
+    }
+    while let Some((last, rest)) = value.split_last() {
+        if !last.is_ascii_whitespace() {
+            break;
+        }
+        value = rest;
+    }
+    value
+}
+
+fn line_count(source: &[u8]) -> i64 {
+    memchr::memchr_iter(b'\n', source).count() as i64 + 1
 }
 
 fn collect_markdown_headings_from_text(text: &str) -> Vec<Heading> {
