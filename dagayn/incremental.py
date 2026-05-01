@@ -1123,17 +1123,32 @@ def _rust_backend_enabled() -> bool:
     return os.environ.get("DAGAYN_BACKEND", "python").strip().lower() == "rust"
 
 
-def _rust_parser_owns_path(rel_path: str) -> bool:
-    return rel_path.lower().endswith((".md", ".markdown", ".tf", ".tfvars", ".rs"))
+def _rust_parser_owns_path(rel_path: str, repo_root: Path | None = None) -> bool:
+    lower = rel_path.lower()
+    if lower.endswith((".md", ".markdown", ".tf", ".tfvars", ".rs")):
+        return True
+    if not lower.endswith(".py"):
+        return False
+    if repo_root is None:
+        return True
+    try:
+        with (repo_root / rel_path).open("rb") as fh:
+            first_line = fh.readline()
+    except (OSError, PermissionError):
+        return False
+    return first_line.strip() != b"# Databricks notebook source"
 
 
-def _split_rust_parser_files(rel_paths: list[str]) -> tuple[list[str], list[str]]:
+def _split_rust_parser_files(
+    rel_paths: list[str],
+    repo_root: Path | None = None,
+) -> tuple[list[str], list[str]]:
     if not _rust_backend_enabled():
         return [], rel_paths
     rust_files: list[str] = []
     python_files: list[str] = []
     for rel_path in rel_paths:
-        if _rust_parser_owns_path(rel_path):
+        if _rust_parser_owns_path(rel_path, repo_root):
             rust_files.append(rel_path)
         else:
             python_files.append(rel_path)
@@ -1306,7 +1321,7 @@ def full_build(
 
     with _StoreBulkLoad(store):
         use_serial = os.environ.get("CRG_SERIAL_PARSE", "") == "1"
-        rust_files, python_files = _split_rust_parser_files(files)
+        rust_files, python_files = _split_rust_parser_files(files, repo_root)
         if rust_files:
             rust_nodes, rust_edges, rust_errors = _store_rust_parse_batches(
                 repo_root,
@@ -1424,7 +1439,8 @@ def incremental_update(
         ignore_patterns,
     )
     rust_changed_candidates, python_changed_candidates = _split_rust_parser_files(
-        changed_candidates
+        changed_candidates,
+        repo_root,
     )
     content_changed_files: set[str] = set()
     rust_content_changed_files: set[str] = set()
@@ -1481,7 +1497,7 @@ def incremental_update(
 
     file_meta = _get_file_meta_for_candidates(store, candidates)
 
-    rust_candidates, python_candidates = _split_rust_parser_files(candidates)
+    rust_candidates, python_candidates = _split_rust_parser_files(candidates, repo_root)
     to_parse_rust_forced: list[str] = []
     to_parse_rust_checked: list[str] = []
     to_parse: list[tuple[str, int]] = []

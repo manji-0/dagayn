@@ -19,6 +19,7 @@ from tests.conftest import PARITY_FIXTURE_DIR
 RUST_OWNED_PARITY_FIXTURES = [
     "terraform_only",
     "markdown_only",
+    "python_only",
     "mixed",
 ]
 

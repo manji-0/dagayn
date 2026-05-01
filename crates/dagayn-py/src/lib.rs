@@ -627,10 +627,11 @@ fn edge_from_py(py: Python<'_>, obj: &Bound<'_, PyAny>) -> PyResult<EdgeInput> {
 
 fn parse_rust_owned_file_inputs(
     parser: &mut dagayn_core::parser::RustOwnedParser,
+    repo_root: &std::path::Path,
     file_path: &str,
     source: &[u8],
 ) -> (Vec<NodeInput>, Vec<EdgeInput>) {
-    let (nodes, edges) = parser.parse_file(file_path, source);
+    let (nodes, edges) = parser.parse_file_in_repo(Some(repo_root), file_path, source);
     (
         nodes.into_iter().map(parsed_node_to_input).collect(),
         edges.into_iter().map(parsed_edge_to_input).collect(),
@@ -661,7 +662,8 @@ fn collect_rust_owned_file_batch(
             }
         };
         let mtime_ns = file_mtime_ns(&full_path).unwrap_or(0);
-        let (nodes, edges) = parse_rust_owned_file_inputs(&mut parser, &file_path, &source);
+        let (nodes, edges) =
+            parse_rust_owned_file_inputs(&mut parser, repo_root, &file_path, &source);
         total_nodes += nodes.len();
         total_edges += edges.len();
         batch.push((file_path, nodes, edges, sha256_hex(&source), mtime_ns));
@@ -696,7 +698,8 @@ fn collect_changed_rust_owned_file_batch(
         ) else {
             continue;
         };
-        let (nodes, edges) = parse_rust_owned_file_inputs(&mut parser, &file_path, &source);
+        let (nodes, edges) =
+            parse_rust_owned_file_inputs(&mut parser, repo_root, &file_path, &source);
         total_nodes += nodes.len();
         total_edges += edges.len();
         batch.push((file_path, nodes, edges, file_hash, mtime_ns));

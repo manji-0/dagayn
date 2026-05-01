@@ -8,7 +8,7 @@
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::LazyLock;
 
@@ -328,6 +328,7 @@ pub struct RustOwnedParser {
     markdown_parser: Option<tree_sitter::Parser>,
     terraform_parser: Option<tree_sitter::Parser>,
     rust_parser: Option<tree_sitter::Parser>,
+    python_parser: Option<tree_sitter::Parser>,
 }
 
 impl RustOwnedParser {
@@ -336,11 +337,21 @@ impl RustOwnedParser {
             markdown_parser: new_markdown_parser(),
             terraform_parser: new_terraform_parser(),
             rust_parser: new_rust_parser(),
+            python_parser: new_python_parser(),
         }
     }
 
     pub fn parse_file(
         &mut self,
+        file_path: &str,
+        source: &[u8],
+    ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+        self.parse_file_in_repo(None, file_path, source)
+    }
+
+    pub fn parse_file_in_repo(
+        &mut self,
+        repo_root: Option<&Path>,
         file_path: &str,
         source: &[u8],
     ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
@@ -353,6 +364,9 @@ impl RustOwnedParser {
             }
             RustOwnedPathKind::Rust => {
                 parse_rust_with_parser(file_path, source, self.rust_parser.as_mut())
+            }
+            RustOwnedPathKind::Python => {
+                parse_python_with_parser(file_path, source, self.python_parser.as_mut(), repo_root)
             }
             RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
         }
@@ -465,7 +479,7 @@ pub fn parse_rust_owned_files_compact_json(repo_root: &Path, file_paths: &[Strin
                 continue;
             }
         };
-        let (nodes, edges) = parser.parse_file(file_path, &source);
+        let (nodes, edges) = parser.parse_file_in_repo(Some(repo_root), file_path, &source);
         let (nodes, edges) = parsed_compact_values(nodes, edges);
         batch.push(json!([file_path, nodes, edges, sha256_hex(&source)]));
     }
@@ -617,13 +631,14 @@ pub fn parse_terraform_compact_json(file_path: &str, source: &[u8]) -> String {
 
 pub fn parse_python(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let mut parser = new_python_parser();
-    parse_python_with_parser(file_path, source, parser.as_mut())
+    parse_python_with_parser(file_path, source, parser.as_mut(), None)
 }
 
 fn parse_python_with_parser(
     file_path: &str,
     source: &[u8],
     parser: Option<&mut tree_sitter::Parser>,
+    repo_root: Option<&Path>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
     let mut nodes = vec![ParsedNode {
@@ -649,6 +664,7 @@ fn parse_python_with_parser(
             let context = PythonParseContext {
                 source,
                 file_path,
+                repo_root,
                 import_map: &import_map,
                 top_level_defined_names: &top_level_defined_names,
             };
@@ -670,6 +686,7 @@ pub fn parse_python_compact_json(file_path: &str, source: &[u8]) -> String {
 struct PythonParseContext<'a> {
     source: &'a [u8],
     file_path: &'a str,
+    repo_root: Option<&'a Path>,
     import_map: &'a HashMap<String, String>,
     top_level_defined_names: &'a HashSet<String>,
 }
@@ -759,7 +776,12 @@ fn python_walk_children(
                 }
             }
             "import_statement" | "import_from_statement" => {
-                for target in python_import_targets(child, context.source, context.file_path) {
+                for target in python_import_targets(
+                    child,
+                    context.source,
+                    context.file_path,
+                    context.repo_root,
+                ) {
                     edges.push(ParsedEdge {
                         kind: "IMPORTS_FROM".to_string(),
                         source: context.file_path.to_string(),
@@ -906,7 +928,7 @@ fn python_resolve_reference_target(name: &str, context: &PythonParseContext<'_>)
     }
     let module = context.import_map.get(name)?;
     Some(
-        python_resolve_module_to_file(module, context.file_path)
+        python_resolve_module_to_file(module, context.file_path, context.repo_root)
             .map(|resolved| qualify(&resolved, name, None))
             .unwrap_or_else(|| name.to_string()),
     )
@@ -1144,6 +1166,7 @@ fn python_import_targets(
     node: tree_sitter::Node<'_>,
     source: &[u8],
     file_path: &str,
+    repo_root: Option<&Path>,
 ) -> Vec<String> {
     if node.kind() == "import_statement" {
         let mut imports = Vec::new();
@@ -1151,7 +1174,9 @@ fn python_import_targets(
         for child in node.children(&mut cursor) {
             if child.kind() == "dotted_name" {
                 let target = node_text(child, source);
-                imports.push(python_resolve_module_to_file(&target, file_path).unwrap_or(target));
+                imports.push(
+                    python_resolve_module_to_file(&target, file_path, repo_root).unwrap_or(target),
+                );
             }
         }
         return imports;
@@ -1178,7 +1203,9 @@ fn python_import_targets(
     }
     module
         .into_iter()
-        .map(|target| python_resolve_module_to_file(&target, file_path).unwrap_or(target))
+        .map(|target| {
+            python_resolve_module_to_file(&target, file_path, repo_root).unwrap_or(target)
+        })
         .collect()
 }
 
@@ -1208,7 +1235,7 @@ fn python_resolve_imported_call_target(
         return None;
     }
     let module = context.import_map.get(call_name)?;
-    let resolved = python_resolve_module_to_file(module, context.file_path)?;
+    let resolved = python_resolve_module_to_file(module, context.file_path, context.repo_root)?;
     Some(qualify(&resolved, call_name, None))
 }
 
@@ -1245,9 +1272,11 @@ fn add_python_tested_by_edges(
     out
 }
 
-fn python_resolve_module_to_file(module: &str, file_path: &str) -> Option<String> {
-    use std::path::{Path, PathBuf};
-
+fn python_resolve_module_to_file(
+    module: &str,
+    file_path: &str,
+    repo_root: Option<&Path>,
+) -> Option<String> {
     let caller_dir = Path::new(file_path)
         .parent()
         .unwrap_or_else(|| Path::new(""));
@@ -1273,20 +1302,16 @@ fn python_resolve_module_to_file(module: &str, file_path: &str) -> Option<String
         };
         return candidates
             .into_iter()
-            .find(|candidate| candidate.is_file())
-            .and_then(|candidate| candidate.canonicalize().ok())
-            .map(|path| path.to_string_lossy().to_string());
+            .find(|candidate| python_module_candidate_is_file(candidate, repo_root))
+            .and_then(|candidate| python_module_candidate_path(candidate, repo_root));
     }
 
     let rel = module.replace('.', "/");
     let mut current = caller_dir.to_path_buf();
     loop {
         for candidate in candidates_for(current.clone(), &rel) {
-            if candidate.is_file() {
-                return candidate
-                    .canonicalize()
-                    .ok()
-                    .map(|path| path.to_string_lossy().to_string());
+            if python_module_candidate_is_file(&candidate, repo_root) {
+                return python_module_candidate_path(candidate, repo_root);
             }
         }
         let Some(parent) = current.parent() else {
@@ -1298,6 +1323,22 @@ fn python_resolve_module_to_file(module: &str, file_path: &str) -> Option<String
         current = parent.to_path_buf();
     }
     None
+}
+
+fn python_module_candidate_is_file(candidate: &Path, repo_root: Option<&Path>) -> bool {
+    repo_root
+        .map(|root| root.join(candidate).is_file())
+        .unwrap_or_else(|| candidate.is_file())
+}
+
+fn python_module_candidate_path(candidate: PathBuf, repo_root: Option<&Path>) -> Option<String> {
+    if repo_root.is_some() {
+        return Some(candidate.to_string_lossy().to_string());
+    }
+    candidate
+        .canonicalize()
+        .ok()
+        .map(|path| path.to_string_lossy().to_string())
 }
 
 fn python_bridge_edge(
@@ -1974,6 +2015,7 @@ pub fn parse_rust_owned_file(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>
         RustOwnedPathKind::Markdown => parse_markdown(file_path, source),
         RustOwnedPathKind::Terraform => parse_terraform(file_path, source),
         RustOwnedPathKind::Rust => parse_rust(file_path, source),
+        RustOwnedPathKind::Python => parse_python(file_path, source),
         RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
     }
 }
@@ -1987,6 +2029,7 @@ enum RustOwnedPathKind {
     Markdown,
     Terraform,
     Rust,
+    Python,
     Unsupported,
 }
 
@@ -2001,6 +2044,8 @@ fn rust_owned_path_kind(file_path: &str) -> RustOwnedPathKind {
         RustOwnedPathKind::Terraform
     } else if ends_with_ascii_ignore_case(file_path, ".rs") {
         RustOwnedPathKind::Rust
+    } else if ends_with_ascii_ignore_case(file_path, ".py") {
+        RustOwnedPathKind::Python
     } else {
         RustOwnedPathKind::Unsupported
     }
