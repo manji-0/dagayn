@@ -394,12 +394,14 @@ impl RustOwnedParser {
                 source,
                 "javascript",
                 self.javascript_parser.as_mut(),
+                repo_root,
             ),
             RustOwnedPathKind::TypeScript => parse_javascript_like_with_parser(
                 file_path,
                 source,
                 "typescript",
                 self.typescript_parser.as_mut(),
+                repo_root,
             ),
             RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
         }
@@ -2082,7 +2084,7 @@ fn parse_javascript_like(
         "typescript" => new_typescript_parser(),
         _ => None,
     };
-    parse_javascript_like_with_parser(file_path, source, language, parser.as_mut())
+    parse_javascript_like_with_parser(file_path, source, language, parser.as_mut(), None)
 }
 
 fn parse_javascript_like_with_parser(
@@ -2090,6 +2092,7 @@ fn parse_javascript_like_with_parser(
     source: &[u8],
     language: &'static str,
     parser: Option<&mut tree_sitter::Parser>,
+    repo_root: Option<&Path>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
     let test_file = is_javascript_test_file(file_path);
@@ -2114,15 +2117,16 @@ fn parse_javascript_like_with_parser(
             let root = tree.root_node();
             let mut defined_names = HashSet::new();
             collect_javascript_defined_names(root, source, &mut defined_names);
-            let mut imported_names = HashSet::new();
-            collect_javascript_imported_names(root, source, &mut imported_names);
+            let mut import_map = HashMap::new();
+            collect_javascript_import_map(root, source, &mut import_map);
             let context = JavaScriptParseContext {
                 source,
                 file_path,
                 language,
                 test_file,
                 defined_names: &defined_names,
-                imported_names: &imported_names,
+                import_map: &import_map,
+                repo_root,
             };
             javascript_walk_children(root, &context, None, None, &mut nodes, &mut edges);
             let mut edges = resolve_rust_call_targets(&nodes, edges, file_path);
@@ -2142,7 +2146,8 @@ struct JavaScriptParseContext<'a> {
     language: &'static str,
     test_file: bool,
     defined_names: &'a HashSet<String>,
-    imported_names: &'a HashSet<String>,
+    import_map: &'a HashMap<String, String>,
+    repo_root: Option<&'a Path>,
 }
 
 fn javascript_walk_children(
@@ -2219,7 +2224,8 @@ fn javascript_walk_children(
             "import_statement" => {
                 for target in javascript_import_targets(child, context.source) {
                     let resolved =
-                        resolve_javascript_module(&target, context.file_path).unwrap_or(target);
+                        resolve_javascript_module(&target, context.file_path, context.repo_root)
+                            .unwrap_or(target);
                     edges.push(ParsedEdge {
                         kind: "IMPORTS_FROM".to_string(),
                         source: context.file_path.to_string(),
@@ -2501,10 +2507,11 @@ fn javascript_emit_call(
     let caller = enclosing_func
         .map(|func| qualify(context.file_path, func, enclosing_class))
         .unwrap_or_else(|| context.file_path.to_string());
+    let target = resolve_javascript_call_target(&call_name, context);
     edges.push(ParsedEdge {
         kind: "CALLS".to_string(),
         source: caller.clone(),
-        target: call_name,
+        target,
         file_path: context.file_path.to_string(),
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
@@ -2561,15 +2568,11 @@ fn javascript_emit_reference_if_known(
     edges: &mut Vec<ParsedEdge>,
 ) {
     if javascript_should_skip_value_reference(name)
-        || (!context.defined_names.contains(name) && !context.imported_names.contains(name))
+        || (!context.defined_names.contains(name) && !context.import_map.contains_key(name))
     {
         return;
     }
-    let target = if context.defined_names.contains(name) {
-        qualify(context.file_path, name, None)
-    } else {
-        name.to_string()
-    };
+    let target = resolve_javascript_call_target(name, context);
     edges.push(ParsedEdge {
         kind: "REFERENCES".to_string(),
         source: caller.to_string(),
@@ -2618,21 +2621,82 @@ fn collect_javascript_defined_names(
     }
 }
 
-fn collect_javascript_imported_names(
+fn resolve_javascript_call_target(name: &str, context: &JavaScriptParseContext<'_>) -> String {
+    if context.defined_names.contains(name) {
+        return qualify(context.file_path, name, None);
+    }
+    let Some(module) = context.import_map.get(name) else {
+        return name.to_string();
+    };
+    resolve_javascript_module(module, context.file_path, context.repo_root)
+        .map(|module_file| qualify(&module_file, name, None))
+        .unwrap_or_else(|| name.to_string())
+}
+
+fn collect_javascript_import_map(
     node: tree_sitter::Node<'_>,
     source: &[u8],
-    names: &mut HashSet<String>,
+    import_map: &mut HashMap<String, String>,
 ) {
-    if node.kind() == "import_specifier" || node.kind() == "namespace_import" {
-        if let Some(name) =
-            javascript_last_named_descendant(node, source, &["identifier", "property_identifier"])
-        {
-            names.insert(name);
+    if node.kind() == "import_statement" {
+        if let Some(module) = javascript_import_targets(node, source).into_iter().next() {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if child.kind() == "import_clause" {
+                    collect_javascript_import_clause_names(child, source, &module, import_map);
+                }
+            }
         }
     }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        collect_javascript_imported_names(child, source, names);
+        collect_javascript_import_map(child, source, import_map);
+    }
+}
+
+fn collect_javascript_import_clause_names(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    module: &str,
+    import_map: &mut HashMap<String, String>,
+) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        match child.kind() {
+            "identifier" => {
+                import_map.insert(node_text(child, source), module.to_string());
+            }
+            "namespace_import" => {
+                if let Some(name) = javascript_last_named_descendant(
+                    child,
+                    source,
+                    &["identifier", "property_identifier"],
+                ) {
+                    import_map.insert(name, module.to_string());
+                }
+            }
+            "named_imports" => collect_javascript_named_imports(child, source, module, import_map),
+            _ => {}
+        }
+    }
+}
+
+fn collect_javascript_named_imports(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    module: &str,
+    import_map: &mut HashMap<String, String>,
+) {
+    let mut cursor = node.walk();
+    for spec in node.children(&mut cursor) {
+        if spec.kind() != "import_specifier" {
+            continue;
+        }
+        if let Some(name) =
+            javascript_last_named_descendant(spec, source, &["identifier", "property_identifier"])
+        {
+            import_map.insert(name, module.to_string());
+        }
     }
 }
 
@@ -2776,39 +2840,61 @@ fn javascript_import_targets(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<
     targets
 }
 
-fn resolve_javascript_module(module: &str, file_path: &str) -> Option<String> {
+fn resolve_javascript_module(
+    module: &str,
+    file_path: &str,
+    repo_root: Option<&Path>,
+) -> Option<String> {
     if !module.starts_with('.') {
         return None;
     }
-    let caller_dir = Path::new(file_path).parent()?;
+    let caller_dir = Path::new(file_path)
+        .parent()
+        .unwrap_or_else(|| Path::new(""));
     let base = caller_dir.join(module);
-    if base.is_file() {
-        return base
-            .canonicalize()
-            .ok()
-            .map(|path| path.to_string_lossy().into_owned());
+    if javascript_module_candidate_is_file(&base, repo_root) {
+        return javascript_module_candidate_path(base, repo_root);
     }
     for ext in [".ts", ".tsx", ".js", ".jsx", ".vue"] {
         let target = base.with_extension(ext.trim_start_matches('.'));
-        if target.is_file() {
-            return target
-                .canonicalize()
-                .ok()
-                .map(|path| path.to_string_lossy().into_owned());
+        if javascript_module_candidate_is_file(&target, repo_root) {
+            return javascript_module_candidate_path(target, repo_root);
         }
     }
-    if base.is_dir() {
+    if javascript_module_candidate_is_dir(&base, repo_root) {
         for ext in [".ts", ".tsx", ".js", ".jsx", ".vue"] {
             let target = base.join(format!("index{ext}"));
-            if target.is_file() {
-                return target
-                    .canonicalize()
-                    .ok()
-                    .map(|path| path.to_string_lossy().into_owned());
+            if javascript_module_candidate_is_file(&target, repo_root) {
+                return javascript_module_candidate_path(target, repo_root);
             }
         }
     }
     None
+}
+
+fn javascript_module_candidate_is_file(candidate: &Path, repo_root: Option<&Path>) -> bool {
+    repo_root
+        .map(|root| root.join(candidate).is_file())
+        .unwrap_or_else(|| candidate.is_file())
+}
+
+fn javascript_module_candidate_is_dir(candidate: &Path, repo_root: Option<&Path>) -> bool {
+    repo_root
+        .map(|root| root.join(candidate).is_dir())
+        .unwrap_or_else(|| candidate.is_dir())
+}
+
+fn javascript_module_candidate_path(
+    candidate: PathBuf,
+    repo_root: Option<&Path>,
+) -> Option<String> {
+    if repo_root.is_some() {
+        return Some(normalize_relative_path(&candidate));
+    }
+    candidate
+        .canonicalize()
+        .ok()
+        .map(|path| path.to_string_lossy().to_string())
 }
 
 fn javascript_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
@@ -5517,6 +5603,46 @@ describe('Service', () => {
                 && edge.source == "service.test.ts::helper"
                 && edge.target.contains("it:runs")
         }));
+    }
+
+    #[test]
+    fn resolves_typescript_imported_call_targets() {
+        let mut repo_root = std::env::temp_dir();
+        repo_root.push(format!(
+            "dagayn-parser-ts-import-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        let _ = std::fs::remove_dir_all(&repo_root);
+        std::fs::create_dir_all(repo_root.join("src")).unwrap();
+        std::fs::write(
+            repo_root.join("src/helper.ts"),
+            b"export function helper() { return 1; }\n",
+        )
+        .unwrap();
+
+        let source = br#"import { helper } from './helper';
+
+export function run() {
+  helper();
+  const refs = [helper];
+}
+"#;
+        let mut parser = RustOwnedParser::new();
+        let (_nodes, edges) =
+            parser.parse_file_in_repo(Some(&repo_root), "src/consumer.ts", source);
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CALLS"
+                && edge.source == "src/consumer.ts::run"
+                && edge.target == "src/helper.ts::helper"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "REFERENCES"
+                && edge.source == "src/consumer.ts::run"
+                && edge.target == "src/helper.ts::helper"
+        }));
+
+        let _ = std::fs::remove_dir_all(&repo_root);
     }
 
     #[test]

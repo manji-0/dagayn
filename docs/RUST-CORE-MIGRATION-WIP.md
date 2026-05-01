@@ -457,9 +457,10 @@ Parser migration progress:
   Rust grammar crate. The Rust-owned parser now routes `.js`, `.mjs`, and `.ts`
   files through tree-sitter and covers the core JS/TS structural graph:
   classes/interfaces, functions/methods, imports, calls, test-runner synthetic
-  tests, same-file call resolution, value-reference REFERENCES, TESTED_BY, and
-  subprocess/file bridge CROSS_ARTIFACT edges. `.tsx` remains on the Python
-  path until JSX component resolution reaches parity.
+  tests, same-file and relative-import call/reference resolution,
+  value-reference REFERENCES, TESTED_BY, and subprocess/file bridge
+  CROSS_ARTIFACT edges. `.tsx` remains on the Python path until JSX component
+  resolution reaches parity.
 - FTS rebuilds now route through `dagayn._core.GraphStore.rebuild_fts_index`
   when the Rust backend is active. Python's `dagayn.search.rebuild_fts_index`
   keeps the existing SQLite implementation as the fallback for the Python
