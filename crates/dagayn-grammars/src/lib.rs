@@ -24,6 +24,7 @@ extern "C" {
     fn tree_sitter_solidity() -> *const ();
     fn tree_sitter_dart() -> *const ();
     fn tree_sitter_lua() -> *const ();
+    fn tree_sitter_luau() -> *const ();
 }
 
 pub const MARKDOWN_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_markdown) };
@@ -44,6 +45,7 @@ pub const SCALA_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter
 pub const SOLIDITY_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_solidity) };
 pub const DART_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_dart) };
 pub const LUA_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_lua) };
+pub const LUAU_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_luau) };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GrammarStatus {
@@ -124,6 +126,10 @@ pub fn dart_language() -> tree_sitter::Language {
 
 pub fn lua_language() -> tree_sitter::Language {
     LUA_LANGUAGE.into()
+}
+
+pub fn luau_language() -> tree_sitter::Language {
+    LUAU_LANGUAGE.into()
 }
 
 #[cfg(test)]
@@ -352,6 +358,18 @@ mod tests {
         let tree = parser
             .parse("function greet(name)\n  print(name)\nend\n", None)
             .expect("parse Lua");
+        assert!(!tree.root_node().has_error());
+    }
+
+    #[test]
+    fn loads_luau_language() {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&luau_language())
+            .expect("load pinned Luau grammar");
+        let tree = parser
+            .parse("type Callback = (input: string) -> string\n", None)
+            .expect("parse Luau");
         assert!(!tree.root_node().has_error());
     }
 }

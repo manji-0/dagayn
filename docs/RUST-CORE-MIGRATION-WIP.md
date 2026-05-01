@@ -522,6 +522,10 @@ Parser migration progress:
   require imports, top-level and variable-assigned functions, table-qualified
   methods, test-function detection, TESTED_BY edges, CALLS, and the existing
   Lua subprocess/file/FFI bridge patterns.
+- Luau grammar sources are pinned to the same tree-sitter-language-pack 0.13.0
+  grammar revision previously used by the Python parser. The Rust-owned parser
+  routes `.luau` files through tree-sitter-luau and reuses the Lua extraction
+  path, with Luau type aliases emitted as Class nodes with type-role metadata.
 - FTS rebuilds now route through `dagayn._core.GraphStore.rebuild_fts_index`
   when the Rust backend is active. Python's `dagayn.search.rebuild_fts_index`
   keeps the existing SQLite implementation as the fallback for the Python
@@ -597,7 +601,7 @@ Parity acceptance:
 
 Deliverable: `dagayn-parser` and `dagayn-grammars` replacing Python `parser.py` (7 572 lines).
 
-Language introduction order: Markdown → Terraform → Rust → Python/notebooks → TypeScript/JS/TSX/JSX → Bash → Go → Java → Ruby → C# → PHP → Kotlin → Scala → Solidity → Dart → Lua, with Swift deferred until generated grammar sources are part of the packaging flow and the remaining Python-owned language extractors moving only after parity is explicit.
+Language introduction order: Markdown → Terraform → Rust → Python/notebooks → TypeScript/JS/TSX/JSX → Bash → Go → Java → Ruby → C# → PHP → Kotlin → Scala → Solidity → Dart → Lua → Luau, with Swift deferred until generated grammar sources are part of the packaging flow and the remaining Python-owned language extractors moving only after parity is explicit.
 
 Grammar provisioning: `dagayn-grammars/build.rs` fetches pinned grammar archives and compiles them via `cc`. Cache behavior and the `DAGAYN_GRAMMAR_CACHE_DIR` env variable must match the contract in `docs/GRAMMAR-PROVISIONING.md`.
 
