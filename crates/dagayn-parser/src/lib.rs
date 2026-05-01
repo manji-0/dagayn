@@ -340,6 +340,8 @@ pub struct RustOwnedParser {
     terraform_parser: Option<tree_sitter::Parser>,
     rust_parser: Option<tree_sitter::Parser>,
     python_parser: Option<tree_sitter::Parser>,
+    javascript_parser: Option<tree_sitter::Parser>,
+    typescript_parser: Option<tree_sitter::Parser>,
 }
 
 impl RustOwnedParser {
@@ -349,6 +351,8 @@ impl RustOwnedParser {
             terraform_parser: new_terraform_parser(),
             rust_parser: new_rust_parser(),
             python_parser: new_python_parser(),
+            javascript_parser: new_javascript_parser(),
+            typescript_parser: new_typescript_parser(),
         }
     }
 
@@ -384,6 +388,18 @@ impl RustOwnedParser {
                 source,
                 self.python_parser.as_mut(),
                 repo_root,
+            ),
+            RustOwnedPathKind::JavaScript => parse_javascript_like_with_parser(
+                file_path,
+                source,
+                "javascript",
+                self.javascript_parser.as_mut(),
+            ),
+            RustOwnedPathKind::TypeScript => parse_javascript_like_with_parser(
+                file_path,
+                source,
+                "typescript",
+                self.typescript_parser.as_mut(),
             ),
             RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
         }
@@ -2056,6 +2072,989 @@ pub fn parse_rust_compact_json(file_path: &str, source: &[u8]) -> String {
     parsed_compact_json(nodes, edges)
 }
 
+fn parse_javascript_like(
+    file_path: &str,
+    source: &[u8],
+    language: &'static str,
+) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let mut parser = match language {
+        "javascript" => new_javascript_parser(),
+        "typescript" => new_typescript_parser(),
+        _ => None,
+    };
+    parse_javascript_like_with_parser(file_path, source, language, parser.as_mut())
+}
+
+fn parse_javascript_like_with_parser(
+    file_path: &str,
+    source: &[u8],
+    language: &'static str,
+    parser: Option<&mut tree_sitter::Parser>,
+) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
+    let test_file = is_javascript_test_file(file_path);
+    let mut nodes = vec![ParsedNode {
+        kind: "File".to_string(),
+        name: file_path.to_string(),
+        file_path: file_path.to_string(),
+        line_start: 1,
+        line_end,
+        language: language.to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: test_file,
+        extra: json!({}),
+    }];
+    let mut edges = Vec::new();
+
+    if let Some(parser) = parser {
+        if let Some(tree) = parser.parse(source, None) {
+            let root = tree.root_node();
+            let mut defined_names = HashSet::new();
+            collect_javascript_defined_names(root, source, &mut defined_names);
+            let mut imported_names = HashSet::new();
+            collect_javascript_imported_names(root, source, &mut imported_names);
+            let context = JavaScriptParseContext {
+                source,
+                file_path,
+                language,
+                test_file,
+                defined_names: &defined_names,
+                imported_names: &imported_names,
+            };
+            javascript_walk_children(root, &context, None, None, &mut nodes, &mut edges);
+            let mut edges = resolve_rust_call_targets(&nodes, edges, file_path);
+            if test_file {
+                add_tested_by_edges(&nodes, &mut edges);
+            }
+            return (nodes, edges);
+        }
+    }
+
+    (nodes, edges)
+}
+
+struct JavaScriptParseContext<'a> {
+    source: &'a [u8],
+    file_path: &'a str,
+    language: &'static str,
+    test_file: bool,
+    defined_names: &'a HashSet<String>,
+    imported_names: &'a HashSet<String>,
+}
+
+fn javascript_walk_children(
+    node: tree_sitter::Node<'_>,
+    context: &JavaScriptParseContext<'_>,
+    enclosing_class: Option<&str>,
+    enclosing_func: Option<&str>,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        match child.kind() {
+            "class_declaration" | "class" | "interface_declaration" => {
+                if let Some(name) = javascript_named_child(
+                    child,
+                    context.source,
+                    &["identifier", "type_identifier"],
+                ) {
+                    let qualified = qualify(context.file_path, &name, enclosing_class);
+                    nodes.push(ParsedNode {
+                        kind: "Class".to_string(),
+                        name: name.clone(),
+                        file_path: context.file_path.to_string(),
+                        line_start: child.start_position().row as i64 + 1,
+                        line_end: child.end_position().row as i64 + 1,
+                        language: context.language.to_string(),
+                        parent_name: enclosing_class.map(str::to_string),
+                        params: None,
+                        return_type: None,
+                        modifiers: None,
+                        is_test: false,
+                        extra: javascript_class_extra(child.kind()),
+                    });
+                    edges.push(ParsedEdge {
+                        kind: "CONTAINS".to_string(),
+                        source: context.file_path.to_string(),
+                        target: qualified.clone(),
+                        file_path: context.file_path.to_string(),
+                        line: child.start_position().row as i64 + 1,
+                        extra: json!({}),
+                    });
+                    emit_javascript_inheritance_edges(child, context, &qualified, edges);
+                    javascript_walk_children(child, context, Some(&name), None, nodes, edges);
+                    continue;
+                }
+            }
+            "function_declaration" | "method_definition" | "arrow_function" => {
+                if javascript_emit_function_node(child, context, enclosing_class, nodes, edges) {
+                    if let Some(name) = javascript_function_name(child, context.source) {
+                        javascript_walk_children(
+                            child,
+                            context,
+                            enclosing_class,
+                            Some(&name),
+                            nodes,
+                            edges,
+                        );
+                    }
+                    continue;
+                }
+            }
+            "lexical_declaration" | "variable_declaration" => {
+                if javascript_emit_variable_functions(child, context, enclosing_class, nodes, edges)
+                {
+                    continue;
+                }
+            }
+            "public_field_definition" => {
+                if javascript_emit_field_function(child, context, enclosing_class, nodes, edges) {
+                    continue;
+                }
+            }
+            "import_statement" => {
+                for target in javascript_import_targets(child, context.source) {
+                    let resolved =
+                        resolve_javascript_module(&target, context.file_path).unwrap_or(target);
+                    edges.push(ParsedEdge {
+                        kind: "IMPORTS_FROM".to_string(),
+                        source: context.file_path.to_string(),
+                        target: resolved,
+                        file_path: context.file_path.to_string(),
+                        line: child.start_position().row as i64 + 1,
+                        extra: json!({}),
+                    });
+                }
+                continue;
+            }
+            "call_expression" => {
+                if javascript_emit_call(
+                    child,
+                    context,
+                    enclosing_class,
+                    enclosing_func,
+                    nodes,
+                    edges,
+                ) {
+                    continue;
+                }
+            }
+            "pair"
+            | "assignment_expression"
+            | "array"
+            | "arguments"
+            | "shorthand_property_identifier" => {
+                javascript_emit_value_references(
+                    child,
+                    context,
+                    enclosing_class,
+                    enclosing_func,
+                    edges,
+                );
+            }
+            _ => {}
+        }
+        javascript_walk_children(
+            child,
+            context,
+            enclosing_class,
+            enclosing_func,
+            nodes,
+            edges,
+        );
+    }
+}
+
+fn javascript_emit_function_node(
+    node: tree_sitter::Node<'_>,
+    context: &JavaScriptParseContext<'_>,
+    enclosing_class: Option<&str>,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) -> bool {
+    let Some(name) = javascript_function_name(node, context.source) else {
+        return false;
+    };
+    let is_test = is_javascript_test_function(&name, context.file_path);
+    let qualified = qualify(context.file_path, &name, enclosing_class);
+    nodes.push(ParsedNode {
+        kind: if is_test { "Test" } else { "Function" }.to_string(),
+        name: name.clone(),
+        file_path: context.file_path.to_string(),
+        line_start: node.start_position().row as i64 + 1,
+        line_end: node.end_position().row as i64 + 1,
+        language: context.language.to_string(),
+        parent_name: enclosing_class.map(str::to_string),
+        params: if node.kind() == "arrow_function" {
+            None
+        } else {
+            javascript_child_text(node, context.source, "formal_parameters")
+        },
+        return_type: javascript_child_text(node, context.source, "type_annotation"),
+        modifiers: None,
+        is_test,
+        extra: json!({}),
+    });
+    let container = enclosing_class
+        .map(|name| qualify(context.file_path, name, None))
+        .unwrap_or_else(|| context.file_path.to_string());
+    edges.push(ParsedEdge {
+        kind: "CONTAINS".to_string(),
+        source: container,
+        target: qualified,
+        file_path: context.file_path.to_string(),
+        line: node.start_position().row as i64 + 1,
+        extra: json!({}),
+    });
+    true
+}
+
+fn javascript_emit_variable_functions(
+    node: tree_sitter::Node<'_>,
+    context: &JavaScriptParseContext<'_>,
+    enclosing_class: Option<&str>,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) -> bool {
+    let mut handled = false;
+    let mut cursor = node.walk();
+    for declarator in node.children(&mut cursor) {
+        if declarator.kind() != "variable_declarator" {
+            continue;
+        }
+        let mut name = None;
+        let mut function_node = None;
+        let mut declarator_cursor = declarator.walk();
+        for child in declarator.children(&mut declarator_cursor) {
+            if child.kind() == "identifier" && name.is_none() {
+                name = Some(node_text(child, context.source));
+            } else if is_javascript_function_value(child.kind()) {
+                function_node = Some(child);
+            }
+        }
+        let (Some(name), Some(function_node)) = (name, function_node) else {
+            continue;
+        };
+        let is_test = is_javascript_test_function(&name, context.file_path);
+        let qualified = qualify(context.file_path, &name, enclosing_class);
+        nodes.push(ParsedNode {
+            kind: if is_test { "Test" } else { "Function" }.to_string(),
+            name: name.clone(),
+            file_path: context.file_path.to_string(),
+            line_start: node.start_position().row as i64 + 1,
+            line_end: node.end_position().row as i64 + 1,
+            language: context.language.to_string(),
+            parent_name: enclosing_class.map(str::to_string),
+            params: javascript_child_text(function_node, context.source, "formal_parameters"),
+            return_type: javascript_child_text(function_node, context.source, "type_annotation"),
+            modifiers: None,
+            is_test,
+            extra: json!({}),
+        });
+        let container = enclosing_class
+            .map(|class_name| qualify(context.file_path, class_name, None))
+            .unwrap_or_else(|| context.file_path.to_string());
+        edges.push(ParsedEdge {
+            kind: "CONTAINS".to_string(),
+            source: container,
+            target: qualified,
+            file_path: context.file_path.to_string(),
+            line: node.start_position().row as i64 + 1,
+            extra: json!({}),
+        });
+        javascript_walk_children(
+            function_node,
+            context,
+            enclosing_class,
+            Some(&name),
+            nodes,
+            edges,
+        );
+        handled = true;
+    }
+    handled
+}
+
+fn javascript_emit_field_function(
+    node: tree_sitter::Node<'_>,
+    context: &JavaScriptParseContext<'_>,
+    enclosing_class: Option<&str>,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) -> bool {
+    let mut name = None;
+    let mut function_node = None;
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "property_identifier" && name.is_none() {
+            name = Some(node_text(child, context.source));
+        } else if is_javascript_function_value(child.kind()) {
+            function_node = Some(child);
+        }
+    }
+    let (Some(name), Some(function_node)) = (name, function_node) else {
+        return false;
+    };
+    let is_test = is_javascript_test_function(&name, context.file_path);
+    let qualified = qualify(context.file_path, &name, enclosing_class);
+    nodes.push(ParsedNode {
+        kind: if is_test { "Test" } else { "Function" }.to_string(),
+        name: name.clone(),
+        file_path: context.file_path.to_string(),
+        line_start: node.start_position().row as i64 + 1,
+        line_end: node.end_position().row as i64 + 1,
+        language: context.language.to_string(),
+        parent_name: enclosing_class.map(str::to_string),
+        params: javascript_child_text(function_node, context.source, "formal_parameters"),
+        return_type: javascript_child_text(function_node, context.source, "type_annotation"),
+        modifiers: None,
+        is_test,
+        extra: json!({}),
+    });
+    let container = enclosing_class
+        .map(|class_name| qualify(context.file_path, class_name, None))
+        .unwrap_or_else(|| context.file_path.to_string());
+    edges.push(ParsedEdge {
+        kind: "CONTAINS".to_string(),
+        source: container,
+        target: qualified,
+        file_path: context.file_path.to_string(),
+        line: node.start_position().row as i64 + 1,
+        extra: json!({}),
+    });
+    javascript_walk_children(
+        function_node,
+        context,
+        enclosing_class,
+        Some(&name),
+        nodes,
+        edges,
+    );
+    true
+}
+
+fn javascript_emit_call(
+    node: tree_sitter::Node<'_>,
+    context: &JavaScriptParseContext<'_>,
+    enclosing_class: Option<&str>,
+    enclosing_func: Option<&str>,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) -> bool {
+    let Some(call_name) = javascript_call_name(node, context.source) else {
+        return false;
+    };
+    let effective_call_name = if context.test_file && !is_test_runner_name(&call_name) {
+        javascript_base_test_runner_name(node, context.source).unwrap_or_else(|| call_name.clone())
+    } else {
+        call_name.clone()
+    };
+    if context.test_file && is_test_runner_name(&effective_call_name) {
+        let line = node.start_position().row as i64 + 1;
+        let synthetic_name = match javascript_first_string_arg(node, context.source) {
+            Some(description) if !description.is_empty() => {
+                format!("{effective_call_name}:{description}@L{line}")
+            }
+            _ => format!("{effective_call_name}@L{line}"),
+        };
+        let qualified = qualify(context.file_path, &synthetic_name, enclosing_class);
+        nodes.push(ParsedNode {
+            kind: "Test".to_string(),
+            name: synthetic_name.clone(),
+            file_path: context.file_path.to_string(),
+            line_start: line,
+            line_end: node.end_position().row as i64 + 1,
+            language: context.language.to_string(),
+            parent_name: enclosing_class.map(str::to_string),
+            params: None,
+            return_type: None,
+            modifiers: None,
+            is_test: true,
+            extra: json!({}),
+        });
+        let container = enclosing_func
+            .map(|func| qualify(context.file_path, func, enclosing_class))
+            .unwrap_or_else(|| context.file_path.to_string());
+        edges.push(ParsedEdge {
+            kind: "CONTAINS".to_string(),
+            source: container,
+            target: qualified,
+            file_path: context.file_path.to_string(),
+            line,
+            extra: json!({}),
+        });
+        javascript_walk_children(
+            node,
+            context,
+            enclosing_class,
+            Some(&synthetic_name),
+            nodes,
+            edges,
+        );
+        return true;
+    }
+
+    let caller = enclosing_func
+        .map(|func| qualify(context.file_path, func, enclosing_class))
+        .unwrap_or_else(|| context.file_path.to_string());
+    edges.push(ParsedEdge {
+        kind: "CALLS".to_string(),
+        source: caller.clone(),
+        target: call_name,
+        file_path: context.file_path.to_string(),
+        line: node.start_position().row as i64 + 1,
+        extra: json!({}),
+    });
+    if let Some(edge) = javascript_bridge_edge(node, context, &caller) {
+        edges.push(edge);
+    }
+    false
+}
+
+fn javascript_emit_value_references(
+    node: tree_sitter::Node<'_>,
+    context: &JavaScriptParseContext<'_>,
+    enclosing_class: Option<&str>,
+    enclosing_func: Option<&str>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let caller = enclosing_func
+        .map(|func| qualify(context.file_path, func, enclosing_class))
+        .unwrap_or_else(|| context.file_path.to_string());
+    match node.kind() {
+        "pair" => {
+            if let Some(value) = javascript_pair_value_identifier(node, context.source) {
+                javascript_emit_reference_if_known(node, context, &caller, &value, edges);
+            }
+        }
+        "shorthand_property_identifier" => {
+            let value = node_text(node, context.source);
+            javascript_emit_reference_if_known(node, context, &caller, &value, edges);
+        }
+        "assignment_expression" => {
+            if let Some(value) = javascript_last_identifier_child(node, context.source) {
+                javascript_emit_reference_if_known(node, context, &caller, &value, edges);
+            }
+        }
+        "array" | "arguments" => {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if child.kind() == "identifier" {
+                    let value = node_text(child, context.source);
+                    javascript_emit_reference_if_known(child, context, &caller, &value, edges);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn javascript_emit_reference_if_known(
+    node: tree_sitter::Node<'_>,
+    context: &JavaScriptParseContext<'_>,
+    caller: &str,
+    name: &str,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    if javascript_should_skip_value_reference(name)
+        || (!context.defined_names.contains(name) && !context.imported_names.contains(name))
+    {
+        return;
+    }
+    let target = if context.defined_names.contains(name) {
+        qualify(context.file_path, name, None)
+    } else {
+        name.to_string()
+    };
+    edges.push(ParsedEdge {
+        kind: "REFERENCES".to_string(),
+        source: caller.to_string(),
+        target,
+        file_path: context.file_path.to_string(),
+        line: node.start_position().row as i64 + 1,
+        extra: json!({}),
+    });
+}
+
+fn collect_javascript_defined_names(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    names: &mut HashSet<String>,
+) {
+    match node.kind() {
+        "class_declaration" | "class" | "interface_declaration" => {
+            if let Some(name) =
+                javascript_named_child(node, source, &["identifier", "type_identifier"])
+            {
+                names.insert(name);
+            }
+        }
+        "function_declaration" | "method_definition" => {
+            if let Some(name) = javascript_function_name(node, source) {
+                names.insert(name);
+            }
+        }
+        "lexical_declaration" | "variable_declaration" => {
+            let mut cursor = node.walk();
+            for declarator in node.children(&mut cursor) {
+                if declarator.kind() != "variable_declarator" {
+                    continue;
+                }
+                if let Some(name) = javascript_variable_declarator_function_name(declarator, source)
+                {
+                    names.insert(name);
+                }
+            }
+        }
+        _ => {}
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_javascript_defined_names(child, source, names);
+    }
+}
+
+fn collect_javascript_imported_names(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    names: &mut HashSet<String>,
+) {
+    if node.kind() == "import_specifier" || node.kind() == "namespace_import" {
+        if let Some(name) =
+            javascript_last_named_descendant(node, source, &["identifier", "property_identifier"])
+        {
+            names.insert(name);
+        }
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_javascript_imported_names(child, source, names);
+    }
+}
+
+fn javascript_last_named_descendant(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    kinds: &[&str],
+) -> Option<String> {
+    let mut cursor = node.walk();
+    let children = node.children(&mut cursor).collect::<Vec<_>>();
+    for child in children.into_iter().rev() {
+        if kinds.contains(&child.kind()) {
+            return Some(node_text(child, source));
+        }
+        if let Some(name) = javascript_last_named_descendant(child, source, kinds) {
+            return Some(name);
+        }
+    }
+    None
+}
+
+fn javascript_variable_declarator_function_name(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> Option<String> {
+    let mut name = None;
+    let mut has_function = false;
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "identifier" && name.is_none() {
+            name = Some(node_text(child, source));
+        } else if is_javascript_function_value(child.kind()) {
+            has_function = true;
+        }
+    }
+    has_function.then_some(name).flatten()
+}
+
+fn javascript_function_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    javascript_named_child(
+        node,
+        source,
+        &["identifier", "property_identifier", "type_identifier"],
+    )
+}
+
+fn javascript_named_child(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    kinds: &[&str],
+) -> Option<String> {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if kinds.contains(&child.kind()) {
+            return Some(node_text(child, source));
+        }
+    }
+    None
+}
+
+fn javascript_child_text(node: tree_sitter::Node<'_>, source: &[u8], kind: &str) -> Option<String> {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == kind {
+            return Some(node_text(child, source));
+        }
+    }
+    None
+}
+
+fn javascript_class_extra(kind: &str) -> Value {
+    if kind == "interface_declaration" {
+        json!({"type_role": "interface", "is_abstract": true, "is_contract": true})
+    } else {
+        json!({"type_role": "class"})
+    }
+}
+
+fn emit_javascript_inheritance_edges(
+    node: tree_sitter::Node<'_>,
+    context: &JavaScriptParseContext<'_>,
+    qualified: &str,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let mut bases = Vec::new();
+    collect_javascript_bases(node, context.source, &mut bases);
+    for (base, role) in bases {
+        edges.push(ParsedEdge {
+            kind: if role == "implements" {
+                "IMPLEMENTS".to_string()
+            } else {
+                "INHERITS".to_string()
+            },
+            source: qualified.to_string(),
+            target: base,
+            file_path: context.file_path.to_string(),
+            line: node.start_position().row as i64 + 1,
+            extra: json!({"relationship_role": role, "syntax_source": node.kind()}),
+        });
+    }
+}
+
+fn collect_javascript_bases(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    bases: &mut Vec<(String, &'static str)>,
+) {
+    let role = match node.kind() {
+        "extends_clause" => Some("extends"),
+        "implements_clause" => Some("implements"),
+        _ => None,
+    };
+    if let Some(role) = role {
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if matches!(
+                child.kind(),
+                "identifier" | "type_identifier" | "nested_identifier"
+            ) {
+                bases.push((node_text(child, source), role));
+            }
+        }
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_javascript_bases(child, source, bases);
+    }
+}
+
+fn javascript_import_targets(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {
+    let mut targets = Vec::new();
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "string" {
+            let target = decode_javascript_string_literal(child, source);
+            if !target.is_empty() {
+                targets.push(target);
+            }
+        }
+    }
+    targets
+}
+
+fn resolve_javascript_module(module: &str, file_path: &str) -> Option<String> {
+    if !module.starts_with('.') {
+        return None;
+    }
+    let caller_dir = Path::new(file_path).parent()?;
+    let base = caller_dir.join(module);
+    if base.is_file() {
+        return base
+            .canonicalize()
+            .ok()
+            .map(|path| path.to_string_lossy().into_owned());
+    }
+    for ext in [".ts", ".tsx", ".js", ".jsx", ".vue"] {
+        let target = base.with_extension(ext.trim_start_matches('.'));
+        if target.is_file() {
+            return target
+                .canonicalize()
+                .ok()
+                .map(|path| path.to_string_lossy().into_owned());
+        }
+    }
+    if base.is_dir() {
+        for ext in [".ts", ".tsx", ".js", ".jsx", ".vue"] {
+            let target = base.join(format!("index{ext}"));
+            if target.is_file() {
+                return target
+                    .canonicalize()
+                    .ok()
+                    .map(|path| path.to_string_lossy().into_owned());
+            }
+        }
+    }
+    None
+}
+
+fn javascript_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let callee = javascript_callee_node(node)?;
+    match callee.kind() {
+        "identifier" | "property_identifier" => Some(node_text(callee, source)),
+        "member_expression" => javascript_rightmost_identifier(callee, source),
+        _ => None,
+    }
+}
+
+fn javascript_callee_node(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
+    let mut cursor = node.walk();
+    let callee = node
+        .children(&mut cursor)
+        .find(|child| child.kind() != "arguments");
+    callee
+}
+
+fn javascript_rightmost_identifier(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut cursor = node.walk();
+    let children = node.children(&mut cursor).collect::<Vec<_>>();
+    for child in children.into_iter().rev() {
+        if matches!(
+            child.kind(),
+            "identifier" | "property_identifier" | "type_identifier"
+        ) {
+            return Some(node_text(child, source));
+        }
+        if let Some(name) = javascript_rightmost_identifier(child, source) {
+            return Some(name);
+        }
+    }
+    None
+}
+
+fn javascript_call_signature(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    javascript_callee_node(node)
+        .map(|callee| node_text(callee, source).trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn javascript_bridge_edge(
+    node: tree_sitter::Node<'_>,
+    context: &JavaScriptParseContext<'_>,
+    caller: &str,
+) -> Option<ParsedEdge> {
+    let signature = javascript_call_signature(node, context.source)?;
+    let (relationship_role, bridge_kind) = javascript_bridge_pattern(&signature)?;
+    let line = node.start_position().row as i64 + 1;
+    let (target, confidence, confidence_tier) =
+        match javascript_first_string_arg(node, context.source) {
+            Some(target) if !target.is_empty() => (target, 0.8, "HIGH"),
+            _ => (
+                format!("<dynamic:{signature}@{}:{line}>", context.file_path),
+                0.2,
+                "LOW",
+            ),
+        };
+    Some(ParsedEdge {
+        kind: "CROSS_ARTIFACT".to_string(),
+        source: caller.to_string(),
+        target,
+        file_path: context.file_path.to_string(),
+        line,
+        extra: json!({
+            "relationship_role": relationship_role,
+            "bridge_kind": bridge_kind,
+            "evidence_kind": "syntax",
+            "evidence_source": signature,
+            "source_language": context.language,
+            "target_language": "unknown",
+            "confidence": confidence,
+            "confidence_tier": confidence_tier,
+        }),
+    })
+}
+
+fn javascript_bridge_pattern(signature: &str) -> Option<(&'static str, &'static str)> {
+    match signature {
+        "child_process.exec"
+        | "child_process.execFile"
+        | "child_process.execSync"
+        | "child_process.execFileSync"
+        | "child_process.spawn"
+        | "child_process.spawnSync"
+        | "child_process.fork" => Some(("invokes_binary", "subprocess")),
+        "fs.readFile" | "fs.readFileSync" | "fs.promises.readFile" => {
+            Some(("reads_file", "file_io"))
+        }
+        "fs.writeFile" | "fs.writeFileSync" | "fs.promises.writeFile" => {
+            Some(("writes_file", "file_io"))
+        }
+        _ => None,
+    }
+}
+
+fn javascript_first_string_arg(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut cursor = node.walk();
+    let arguments = node
+        .children(&mut cursor)
+        .find(|child| child.kind() == "arguments")?;
+    let mut arg_cursor = arguments.walk();
+    for child in arguments.children(&mut arg_cursor) {
+        if matches!(child.kind(), "," | "(" | ")" | "{" | "}" | "[" | "]") {
+            continue;
+        }
+        if matches!(child.kind(), "string" | "template_string") {
+            return Some(decode_javascript_string_literal(child, source));
+        }
+        return None;
+    }
+    None
+}
+
+fn decode_javascript_string_literal(node: tree_sitter::Node<'_>, source: &[u8]) -> String {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if matches!(child.kind(), "string_fragment" | "template_chars") {
+            return node_text(child, source);
+        }
+    }
+    node_text(node, source)
+        .trim_matches('"')
+        .trim_matches('\'')
+        .trim_matches('`')
+        .to_string()
+}
+
+fn javascript_pair_value_identifier(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut seen_colon = false;
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == ":" {
+            seen_colon = true;
+            continue;
+        }
+        if seen_colon && child.kind() == "identifier" {
+            return Some(node_text(child, source));
+        }
+    }
+    None
+}
+
+fn javascript_last_identifier_child(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut cursor = node.walk();
+    let children = node.children(&mut cursor).collect::<Vec<_>>();
+    children
+        .into_iter()
+        .rev()
+        .find(|child| child.kind() == "identifier")
+        .map(|child| node_text(child, source))
+}
+
+fn javascript_base_test_runner_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let callee = javascript_callee_node(node)?;
+    if callee.kind() != "member_expression" {
+        return None;
+    }
+    let rightmost = javascript_rightmost_identifier(callee, source)?;
+    if !matches!(
+        rightmost.as_str(),
+        "only" | "skip" | "each" | "todo" | "concurrent"
+    ) {
+        return None;
+    }
+    let mut cursor = callee.walk();
+    for child in callee.children(&mut cursor) {
+        if child.kind() == "identifier" {
+            return Some(node_text(child, source));
+        }
+        if child.kind() == "member_expression" {
+            let mut inner = child.walk();
+            for sub in child.children(&mut inner) {
+                if sub.kind() == "identifier" {
+                    return Some(node_text(sub, source));
+                }
+            }
+        }
+    }
+    None
+}
+
+fn is_test_runner_name(name: &str) -> bool {
+    matches!(name, "describe" | "it" | "test")
+}
+
+fn is_javascript_function_value(kind: &str) -> bool {
+    matches!(kind, "arrow_function" | "function_expression" | "function")
+}
+
+fn is_javascript_test_function(name: &str, file_path: &str) -> bool {
+    starts_with_ascii_ignore_case(name, "test_")
+        || name.starts_with("Test")
+        || name.ends_with("_test")
+        || name.ends_with("_spec")
+        || (is_javascript_test_file(file_path) && is_test_runner_name(name))
+}
+
+fn is_javascript_test_file(file_path: &str) -> bool {
+    is_test_file(file_path)
+        || ends_with_ascii_ignore_case(file_path, ".test.ts")
+        || ends_with_ascii_ignore_case(file_path, ".spec.ts")
+        || ends_with_ascii_ignore_case(file_path, ".test.js")
+        || ends_with_ascii_ignore_case(file_path, ".spec.js")
+}
+
+fn javascript_should_skip_value_reference(name: &str) -> bool {
+    matches!(
+        name,
+        "true"
+            | "false"
+            | "null"
+            | "undefined"
+            | "None"
+            | "True"
+            | "False"
+            | "self"
+            | "this"
+            | "cls"
+            | "super"
+    ) || name.len() <= 1
+        || name.bytes().all(|byte| !byte.is_ascii_lowercase())
+}
+
+fn add_tested_by_edges(nodes: &[ParsedNode], edges: &mut Vec<ParsedEdge>) {
+    let test_qnames = nodes
+        .iter()
+        .filter(|node| node.is_test)
+        .map(|node| qualify(&node.file_path, &node.name, node.parent_name.as_deref()))
+        .collect::<HashSet<_>>();
+    let tested_by = edges
+        .iter()
+        .filter(|edge| edge.kind == "CALLS" && test_qnames.contains(&edge.source))
+        .map(|edge| ParsedEdge {
+            kind: "TESTED_BY".to_string(),
+            source: edge.target.clone(),
+            target: edge.source.clone(),
+            file_path: edge.file_path.clone(),
+            line: edge.line,
+            extra: json!({}),
+        })
+        .collect::<Vec<_>>();
+    edges.extend(tested_by);
+}
+
 fn rust_walk_children(
     node: tree_sitter::Node<'_>,
     context: &RustParseContext<'_>,
@@ -2558,6 +3557,8 @@ pub fn parse_rust_owned_file(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>
         RustOwnedPathKind::Rust => parse_rust(file_path, source),
         RustOwnedPathKind::Python => parse_python(file_path, source),
         RustOwnedPathKind::Notebook => parse_notebook(file_path, source),
+        RustOwnedPathKind::JavaScript => parse_javascript_like(file_path, source, "javascript"),
+        RustOwnedPathKind::TypeScript => parse_javascript_like(file_path, source, "typescript"),
         RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
     }
 }
@@ -2573,6 +3574,8 @@ enum RustOwnedPathKind {
     Rust,
     Python,
     Notebook,
+    JavaScript,
+    TypeScript,
     Unsupported,
 }
 
@@ -2591,6 +3594,12 @@ fn rust_owned_path_kind(file_path: &str) -> RustOwnedPathKind {
         RustOwnedPathKind::Python
     } else if ends_with_ascii_ignore_case(file_path, ".ipynb") {
         RustOwnedPathKind::Notebook
+    } else if ends_with_ascii_ignore_case(file_path, ".js")
+        || ends_with_ascii_ignore_case(file_path, ".mjs")
+    {
+        RustOwnedPathKind::JavaScript
+    } else if ends_with_ascii_ignore_case(file_path, ".ts") {
+        RustOwnedPathKind::TypeScript
     } else {
         RustOwnedPathKind::Unsupported
     }
@@ -2676,6 +3685,30 @@ fn new_python_parser() -> Option<tree_sitter::Parser> {
     let mut parser = tree_sitter::Parser::new();
     if parser
         .set_language(&dagayn_grammars::python_language())
+        .is_ok()
+    {
+        Some(parser)
+    } else {
+        None
+    }
+}
+
+fn new_javascript_parser() -> Option<tree_sitter::Parser> {
+    let mut parser = tree_sitter::Parser::new();
+    if parser
+        .set_language(&dagayn_grammars::javascript_language())
+        .is_ok()
+    {
+        Some(parser)
+    } else {
+        None
+    }
+}
+
+fn new_typescript_parser() -> Option<tree_sitter::Parser> {
+    let mut parser = tree_sitter::Parser::new();
+    if parser
+        .set_language(&dagayn_grammars::typescript_language())
         .is_ok()
     {
         Some(parser)
@@ -4409,6 +5442,107 @@ def helper(value: str) -> None:
             edge.kind == "CALLS"
                 && edge.source == "app.py::Service.run"
                 && edge.target == "app.py::helper"
+        }));
+    }
+
+    #[test]
+    fn parses_typescript_items_calls_tests_and_references() {
+        let source = br#"import { Thing } from './thing';
+
+interface Shape {
+  id: string;
+}
+
+class Service extends Base {
+  run(input: string): void {
+    helper(input);
+  }
+}
+
+function helper(value: string): void {
+  console.log(value);
+}
+
+const indirect = { helper };
+const callbacks = [helper];
+
+describe('Service', () => {
+  it('runs', () => {
+    helper('x');
+  });
+});
+"#;
+        let (nodes, edges) = parse_javascript_like("service.test.ts", source, "typescript");
+        let node_names = nodes
+            .iter()
+            .map(|node| {
+                (
+                    node.kind.as_str(),
+                    node.name.as_str(),
+                    node.parent_name.as_deref(),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert!(node_names.contains(&("Class", "Shape", None)));
+        assert!(node_names.contains(&("Class", "Service", None)));
+        assert!(node_names
+            .iter()
+            .any(|(_, name, parent)| *name == "run" && *parent == Some("Service")));
+        assert!(node_names
+            .iter()
+            .any(|(_, name, parent)| *name == "helper" && parent.is_none()));
+        assert!(node_names
+            .iter()
+            .any(|(kind, name, _)| *kind == "Test" && name.starts_with("it:runs@L")));
+        assert!(edges
+            .iter()
+            .any(|edge| edge.kind == "IMPORTS_FROM" && edge.target == "./thing"));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "INHERITS"
+                && edge.source == "service.test.ts::Service"
+                && edge.target == "Base"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CALLS"
+                && edge.source == "service.test.ts::Service.run"
+                && edge.target == "service.test.ts::helper"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "REFERENCES"
+                && edge.source == "service.test.ts"
+                && edge.target == "service.test.ts::helper"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "TESTED_BY"
+                && edge.source == "service.test.ts::helper"
+                && edge.target.contains("it:runs")
+        }));
+    }
+
+    #[test]
+    fn parses_javascript_cross_artifact_edges() {
+        let source = br#"child_process.spawn("./bin/tool", ["--flag"]);
+
+function runDynamic(cmd) {
+  child_process.exec(cmd);
+}
+"#;
+        let (nodes, edges) = parse_javascript_like("bridge.js", source, "javascript");
+        assert!(nodes
+            .iter()
+            .any(|node| node.kind == "Function" && node.name == "runDynamic"));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CROSS_ARTIFACT"
+                && edge.source == "bridge.js"
+                && edge.target == "./bin/tool"
+                && edge.extra["evidence_source"] == "child_process.spawn"
+                && edge.extra["confidence_tier"] == "HIGH"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CROSS_ARTIFACT"
+                && edge.source == "bridge.js::runDynamic"
+                && edge.target == "<dynamic:child_process.exec@bridge.js:4>"
+                && edge.extra["confidence_tier"] == "LOW"
         }));
     }
 

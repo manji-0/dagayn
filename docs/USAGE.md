@@ -50,7 +50,8 @@ Use `build` the first time, `update` for change-driven refreshes, and `watch` du
 ## Use the Rust backend
 
 The Python backend is still the default. Set `DAGAYN_BACKEND=rust` to use the
-Rust-backed graph store and Rust-owned Markdown/Terraform parser paths:
+Rust-backed graph store and Rust-owned parser paths for Markdown, Terraform,
+Rust, Python/notebooks, and core JavaScript/TypeScript files:
 
 ```bash
 DAGAYN_BACKEND=rust dagayn build

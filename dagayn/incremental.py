@@ -1125,7 +1125,20 @@ def _rust_backend_enabled() -> bool:
 
 def _rust_parser_owns_path(rel_path: str, repo_root: Path | None = None) -> bool:
     lower = rel_path.lower()
-    return lower.endswith((".md", ".markdown", ".tf", ".tfvars", ".rs", ".py", ".ipynb"))
+    return lower.endswith(
+        (
+            ".md",
+            ".markdown",
+            ".tf",
+            ".tfvars",
+            ".rs",
+            ".py",
+            ".ipynb",
+            ".js",
+            ".mjs",
+            ".ts",
+        )
+    )
 
 
 def _split_rust_parser_files(
