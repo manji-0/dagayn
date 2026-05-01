@@ -311,6 +311,20 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
             "bindings/python/tree_sitter_solidity/binding.c",
         ),
     ),
+    "dart": GrammarSpec(
+        language="dart",
+        owner="UserNobody14",
+        repo="tree-sitter-dart",
+        commit="0fc19c3a57b1109802af41d2b8f60d8835c5da3a",
+        required_paths=(
+            "src/parser.c",
+            "src/scanner.c",
+            "src/tree_sitter/alloc.h",
+            "src/tree_sitter/array.h",
+            "src/tree_sitter/parser.h",
+            "bindings/python/tree_sitter_dart/binding.c",
+        ),
+    ),
 }
 
 

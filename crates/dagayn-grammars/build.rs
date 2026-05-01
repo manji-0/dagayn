@@ -232,6 +232,20 @@ const SOLIDITY: GrammarSpec = GrammarSpec {
     parser_subdirectory: None,
 };
 
+const DART: GrammarSpec = GrammarSpec {
+    language: "dart",
+    symbol: "dart",
+    required_paths: &[
+        "src/parser.c",
+        "src/scanner.c",
+        "src/tree_sitter/alloc.h",
+        "src/tree_sitter/array.h",
+        "src/tree_sitter/parser.h",
+        "bindings/python/tree_sitter_dart/binding.c",
+    ],
+    parser_subdirectory: None,
+};
+
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let repo_root = manifest_dir
@@ -262,6 +276,7 @@ fn main() {
     compile_grammar(&repo_root, &KOTLIN);
     compile_grammar(&repo_root, &SCALA);
     compile_grammar(&repo_root, &SOLIDITY);
+    compile_grammar(&repo_root, &DART);
 }
 
 fn compile_grammar(repo_root: &Path, spec: &GrammarSpec) {

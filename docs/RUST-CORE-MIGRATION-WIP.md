@@ -512,6 +512,11 @@ Parser migration progress:
   types, file and state constants, state variables, functions/constructors/
   modifiers/events/fallback handlers, inheritance, `using` dependencies,
   modifier invocations, emitted events, and same-file CALLS resolution.
+- Dart grammar sources are now pinned through the same provisioning path. The
+  Rust-owned parser routes `.dart` files through tree-sitter-dart and covers
+  imports, classes/mixins/enums with Dart type-role metadata, function
+  signatures, inheritance/mixins, and the existing Dart selector-based CALLS
+  behavior.
 - FTS rebuilds now route through `dagayn._core.GraphStore.rebuild_fts_index`
   when the Rust backend is active. Python's `dagayn.search.rebuild_fts_index`
   keeps the existing SQLite implementation as the fallback for the Python
@@ -587,7 +592,7 @@ Parity acceptance:
 
 Deliverable: `dagayn-parser` and `dagayn-grammars` replacing Python `parser.py` (7 572 lines).
 
-Language introduction order: Markdown → Terraform → Rust → Python/notebooks → TypeScript/JS/TSX/JSX → Bash → Go → Java → Ruby → C# → PHP → Kotlin → Scala → Solidity, with Swift deferred until generated grammar sources are part of the packaging flow and the remaining Python-owned language extractors moving only after parity is explicit.
+Language introduction order: Markdown → Terraform → Rust → Python/notebooks → TypeScript/JS/TSX/JSX → Bash → Go → Java → Ruby → C# → PHP → Kotlin → Scala → Solidity → Dart, with Swift deferred until generated grammar sources are part of the packaging flow and the remaining Python-owned language extractors moving only after parity is explicit.
 
 Grammar provisioning: `dagayn-grammars/build.rs` fetches pinned grammar archives and compiles them via `cc`. Cache behavior and the `DAGAYN_GRAMMAR_CACHE_DIR` env variable must match the contract in `docs/GRAMMAR-PROVISIONING.md`.
 
