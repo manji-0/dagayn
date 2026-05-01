@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from dagayn.incremental import full_build, incremental_update
+from dagayn.parser import CodeParser
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 from parity_export import export_db  # noqa: E402
@@ -124,3 +125,47 @@ def test_rust_backend_routes_databricks_py_exports(tmp_path, monkeypatch):
     assert file_nodes[0]["extra"].get("notebook_format") == "databricks_py"
     imports = {edge["target"] for edge in exported["edges"] if edge["kind"] == "IMPORTS_FROM"}
     assert {"bronze.events", "silver.users", "gold.summary", "silver.processed"} <= imports
+
+
+@pytest.mark.parametrize(
+    "fixture",
+    [
+        "sample.pl",
+        "sample_bridge_perl.pl",
+    ],
+)
+def test_rust_owned_perl_parser_matches_python_parser(fixture):
+    """Perl stays on the same graph contract when routed through Rust."""
+    try:
+        from dagayn._core import parse_rust_owned_files_compact_json
+    except ImportError as exc:
+        pytest.skip(f"Rust extension is not available: {exc}")
+
+    rel_path = f"tests/fixtures/{fixture}"
+    source = Path(rel_path).read_bytes()
+    py_nodes, py_edges = CodeParser().parse_bytes(Path(rel_path), source)
+    payload = json.loads(parse_rust_owned_files_compact_json(Path.cwd(), [rel_path]))
+    rust_nodes = payload["batch"][0][1]
+    rust_edges = payload["batch"][0][2]
+
+    assert rust_nodes == [
+        [
+            node.kind,
+            node.name,
+            node.file_path,
+            node.line_start,
+            node.line_end,
+            node.language,
+            node.parent_name,
+            node.params,
+            node.return_type,
+            node.modifiers,
+            node.is_test,
+            node.extra,
+        ]
+        for node in py_nodes
+    ]
+    assert rust_edges == [
+        [edge.kind, edge.source, edge.target, edge.file_path, edge.line, edge.extra]
+        for edge in py_edges
+    ]

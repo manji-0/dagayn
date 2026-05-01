@@ -450,6 +450,21 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
             "bindings/python/tree_sitter_julia/binding.c",
         ),
     ),
+    "perl": GrammarSpec(
+        language="perl",
+        owner="tree-sitter-perl",
+        repo="tree-sitter-perl",
+        commit="ecd90bd8b381bcc7219fed4fe351903630e761c6",
+        required_paths=(
+            "src/parser.c",
+            "src/scanner.c",
+            "src/tree_sitter/alloc.h",
+            "src/tree_sitter/array.h",
+            "src/tree_sitter/parser.h",
+            "src/bsearch.h",
+            "src/tsp_unicode.h",
+        ),
+    ),
 }
 
 

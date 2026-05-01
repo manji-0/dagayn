@@ -375,6 +375,7 @@ pub struct RustOwnedParser {
     gdscript_parser: Option<tree_sitter::Parser>,
     r_parser: Option<tree_sitter::Parser>,
     julia_parser: Option<tree_sitter::Parser>,
+    perl_parser: Option<tree_sitter::Parser>,
     javascript_export_cache: JavaScriptExportCache,
     javascript_module_cache: JavaScriptModuleCache,
     javascript_tsconfig_cache: JavaScriptTsconfigCache,
@@ -409,6 +410,7 @@ impl RustOwnedParser {
             gdscript_parser: new_gdscript_parser(),
             r_parser: new_r_parser(),
             julia_parser: new_julia_parser(),
+            perl_parser: new_perl_parser(),
             javascript_export_cache: RefCell::new(HashMap::new()),
             javascript_module_cache: RefCell::new(HashMap::new()),
             javascript_tsconfig_cache: RefCell::new(HashMap::new()),
@@ -536,6 +538,9 @@ impl RustOwnedParser {
             RustOwnedPathKind::R => parse_r_with_parser(file_path, source, self.r_parser.as_mut()),
             RustOwnedPathKind::Julia => {
                 parse_julia_with_parser(file_path, source, self.julia_parser.as_mut())
+            }
+            RustOwnedPathKind::Perl => {
+                parse_perl_with_parser(file_path, source, self.perl_parser.as_mut())
             }
             RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
         }
@@ -10833,6 +10838,342 @@ fn resolve_julia_targets(
         .collect()
 }
 
+pub fn parse_perl(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let mut parser = new_perl_parser();
+    parse_perl_with_parser(file_path, source, parser.as_mut())
+}
+
+fn parse_perl_with_parser(
+    file_path: &str,
+    source: &[u8],
+    parser: Option<&mut tree_sitter::Parser>,
+) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
+    let mut nodes = vec![ParsedNode {
+        kind: "File".to_string(),
+        name: file_path.to_string(),
+        file_path: file_path.to_string(),
+        line_start: 1,
+        line_end,
+        language: "perl".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: is_test_file(file_path),
+        extra: json!({}),
+    }];
+    let mut edges = Vec::new();
+    let context = PerlParseContext { source, file_path };
+
+    if let Some(parser) = parser {
+        if let Some(tree) = parser.parse(source, None) {
+            perl_walk_children(tree.root_node(), &context, None, &mut nodes, &mut edges);
+            let mut edges = resolve_perl_call_targets(&nodes, edges, file_path);
+            add_tested_by_edges(&nodes, &mut edges);
+            return (nodes, edges);
+        }
+    }
+
+    (nodes, edges)
+}
+
+struct PerlParseContext<'a> {
+    source: &'a [u8],
+    file_path: &'a str,
+}
+
+fn perl_walk_children(
+    node: tree_sitter::Node<'_>,
+    context: &PerlParseContext<'_>,
+    enclosing_func: Option<&str>,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        match child.kind() {
+            "use_statement" | "require_expression" if enclosing_func.is_none() => {
+                edges.push(ParsedEdge {
+                    kind: "IMPORTS_FROM".to_string(),
+                    source: context.file_path.to_string(),
+                    target: node_text(child, context.source),
+                    file_path: context.file_path.to_string(),
+                    line: child.start_position().row as i64 + 1,
+                    extra: json!({}),
+                });
+                continue;
+            }
+            "package_statement" | "class_statement" | "role_statement" => {
+                if let Some(name) = perl_package_name(child, context.source) {
+                    perl_emit_class(child, context, &name, nodes, edges);
+                }
+                continue;
+            }
+            "subroutine_declaration_statement" | "method_declaration_statement" => {
+                if let Some(name) = perl_subroutine_name(child, context.source) {
+                    perl_emit_function(child, context, &name, nodes, edges);
+                    perl_walk_children(child, context, Some(&name), nodes, edges);
+                }
+                continue;
+            }
+            "function_call_expression"
+            | "ambiguous_function_call_expression"
+            | "method_call_expression"
+            | "anonymous_function_call_expression" => {
+                if let Some(call_name) = perl_call_name(child, context.source) {
+                    perl_emit_call(child, context, &call_name, enclosing_func, edges);
+                }
+            }
+            _ => {}
+        }
+        perl_walk_children(child, context, enclosing_func, nodes, edges);
+    }
+}
+
+fn perl_emit_class(
+    node: tree_sitter::Node<'_>,
+    context: &PerlParseContext<'_>,
+    name: &str,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let qualified = qualify(context.file_path, name, None);
+    nodes.push(ParsedNode {
+        kind: "Class".to_string(),
+        name: name.to_string(),
+        file_path: context.file_path.to_string(),
+        line_start: node.start_position().row as i64 + 1,
+        line_end: node.end_position().row as i64 + 1,
+        language: "perl".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: json!({"type_role": "class"}),
+    });
+    edges.push(ParsedEdge {
+        kind: "CONTAINS".to_string(),
+        source: context.file_path.to_string(),
+        target: qualified,
+        file_path: context.file_path.to_string(),
+        line: node.start_position().row as i64 + 1,
+        extra: json!({}),
+    });
+}
+
+fn perl_emit_function(
+    node: tree_sitter::Node<'_>,
+    context: &PerlParseContext<'_>,
+    name: &str,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let is_test = is_test_function(name, context.file_path, node, context.source);
+    let qualified = qualify(context.file_path, name, None);
+    nodes.push(ParsedNode {
+        kind: if is_test { "Test" } else { "Function" }.to_string(),
+        name: name.to_string(),
+        file_path: context.file_path.to_string(),
+        line_start: node.start_position().row as i64 + 1,
+        line_end: node.end_position().row as i64 + 1,
+        language: "perl".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test,
+        extra: json!({}),
+    });
+    edges.push(ParsedEdge {
+        kind: "CONTAINS".to_string(),
+        source: context.file_path.to_string(),
+        target: qualified,
+        file_path: context.file_path.to_string(),
+        line: node.start_position().row as i64 + 1,
+        extra: json!({}),
+    });
+}
+
+fn perl_emit_call(
+    node: tree_sitter::Node<'_>,
+    context: &PerlParseContext<'_>,
+    call_name: &str,
+    enclosing_func: Option<&str>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let caller = enclosing_func
+        .map(|func| qualify(context.file_path, func, None))
+        .unwrap_or_else(|| context.file_path.to_string());
+    edges.push(ParsedEdge {
+        kind: "CALLS".to_string(),
+        source: caller.clone(),
+        target: call_name.to_string(),
+        file_path: context.file_path.to_string(),
+        line: node.start_position().row as i64 + 1,
+        extra: json!({}),
+    });
+    if let Some(edge) = perl_bridge_edge(node, context, &caller, call_name) {
+        edges.push(edge);
+    }
+}
+
+fn perl_bridge_edge(
+    node: tree_sitter::Node<'_>,
+    context: &PerlParseContext<'_>,
+    caller: &str,
+    call_name: &str,
+) -> Option<ParsedEdge> {
+    let (relationship_role, bridge_kind) = match call_name {
+        "system" | "exec" => ("invokes_binary", "subprocess"),
+        "open" => ("opens_file", "file_io"),
+        "File::Slurp::read_file" => ("reads_file", "file_io"),
+        "File::Slurp::write_file" => ("writes_file", "file_io"),
+        "DynaLoader::dl_load_file" => ("loads_shared_library", "ffi"),
+        _ => return None,
+    };
+    let line = node.start_position().row as i64 + 1;
+    let (target, confidence, confidence_tier) = match perl_first_string_arg(node, context.source) {
+        Some(target) => (target, 0.8, "HIGH"),
+        None => (
+            format!("<dynamic:{call_name}@{}:{line}>", context.file_path),
+            0.2,
+            "LOW",
+        ),
+    };
+    Some(ParsedEdge {
+        kind: "CROSS_ARTIFACT".to_string(),
+        source: caller.to_string(),
+        target,
+        file_path: context.file_path.to_string(),
+        line,
+        extra: json!({
+            "relationship_role": relationship_role,
+            "bridge_kind": bridge_kind,
+            "evidence_kind": "syntax",
+            "evidence_source": call_name,
+            "source_language": "perl",
+            "target_language": "unknown",
+            "confidence": confidence,
+            "confidence_tier": confidence_tier,
+        }),
+    })
+}
+
+fn perl_package_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut cursor = node.walk();
+    let package_name = node
+        .children(&mut cursor)
+        .find(|child| child.is_named() && child.kind() == "package")
+        .map(|child| node_text(child, source));
+    package_name
+}
+
+fn perl_subroutine_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    perl_direct_child_text(node, source, &["bareword", "identifier"])
+}
+
+fn perl_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    if node.kind() == "method_call_expression" {
+        return perl_direct_child_text(node, source, &["method", "bareword", "identifier"]);
+    }
+    perl_direct_child_text(node, source, &["function", "bareword", "identifier"])
+}
+
+fn perl_first_string_arg(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut cursor = node.walk();
+    let mut skipped_callee = false;
+    for child in node.children(&mut cursor) {
+        if matches!(child.kind(), "function" | "method") && !skipped_callee {
+            skipped_callee = true;
+            continue;
+        }
+        if matches!(child.kind(), "," | "(" | ")") {
+            continue;
+        }
+        if matches!(
+            child.kind(),
+            "interpolated_string_literal" | "string_literal" | "quoted_word_list"
+        ) {
+            return perl_string_text(child, source);
+        }
+        if child.is_named() {
+            return None;
+        }
+    }
+    None
+}
+
+fn perl_string_text(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    perl_first_descendant_text(node, source, &["string_content"])
+        .or_else(|| Some(strip_matching_quotes(node_text(node, source).trim()).to_string()))
+        .filter(|value| !value.is_empty())
+}
+
+fn perl_direct_child<'a>(
+    node: tree_sitter::Node<'a>,
+    kinds: &[&str],
+) -> Option<tree_sitter::Node<'a>> {
+    let mut cursor = node.walk();
+    let found = node
+        .children(&mut cursor)
+        .find(|child| kinds.contains(&child.kind()));
+    found
+}
+
+fn perl_direct_child_text(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    kinds: &[&str],
+) -> Option<String> {
+    perl_direct_child(node, kinds).map(|child| node_text(child, source))
+}
+
+fn perl_first_descendant_text(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    kinds: &[&str],
+) -> Option<String> {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if kinds.contains(&child.kind()) {
+            return Some(node_text(child, source));
+        }
+        if let Some(found) = perl_first_descendant_text(child, source, kinds) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+fn resolve_perl_call_targets(
+    nodes: &[ParsedNode],
+    edges: Vec<ParsedEdge>,
+    file_path: &str,
+) -> Vec<ParsedEdge> {
+    let symbols = nodes
+        .iter()
+        .filter(|node| matches!(node.kind.as_str(), "Function" | "Test"))
+        .fold(HashMap::<String, String>::new(), |mut symbols, node| {
+            symbols
+                .entry(node.name.clone())
+                .or_insert_with(|| qualify(file_path, &node.name, None));
+            symbols
+        });
+    edges
+        .into_iter()
+        .map(|mut edge| {
+            if edge.kind == "CALLS" && !edge.target.contains("::") {
+                if let Some(target) = symbols.get(&edge.target) {
+                    edge.target = target.clone();
+                }
+            }
+            edge
+        })
+        .collect()
+}
+
 pub fn parse_c(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let mut parser = new_c_parser();
     parse_c_like_with_parser(file_path, source, "c", parser.as_mut())
@@ -11492,6 +11833,7 @@ pub fn parse_rust_owned_file(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>
         RustOwnedPathKind::Gdscript => parse_gdscript(file_path, source),
         RustOwnedPathKind::R => parse_r(file_path, source),
         RustOwnedPathKind::Julia => parse_julia(file_path, source),
+        RustOwnedPathKind::Perl => parse_perl(file_path, source),
         RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
     }
 }
@@ -11529,6 +11871,7 @@ enum RustOwnedPathKind {
     Gdscript,
     R,
     Julia,
+    Perl,
     Unsupported,
 }
 
@@ -11606,6 +11949,11 @@ fn rust_owned_path_kind(file_path: &str) -> RustOwnedPathKind {
         RustOwnedPathKind::R
     } else if ends_with_ascii_ignore_case(file_path, ".jl") {
         RustOwnedPathKind::Julia
+    } else if ends_with_ascii_ignore_case(file_path, ".pl")
+        || ends_with_ascii_ignore_case(file_path, ".pm")
+        || ends_with_ascii_ignore_case(file_path, ".t")
+    {
+        RustOwnedPathKind::Perl
     } else {
         RustOwnedPathKind::Unsupported
     }
@@ -11946,6 +12294,18 @@ fn new_julia_parser() -> Option<tree_sitter::Parser> {
     let mut parser = tree_sitter::Parser::new();
     if parser
         .set_language(&dagayn_grammars::julia_language())
+        .is_ok()
+    {
+        Some(parser)
+    } else {
+        None
+    }
+}
+
+fn new_perl_parser() -> Option<tree_sitter::Parser> {
+    let mut parser = tree_sitter::Parser::new();
+    if parser
+        .set_language(&dagayn_grammars::perl_language())
         .is_ok()
     {
         Some(parser)
@@ -14886,6 +15246,96 @@ end
             edge.kind == "CROSS_ARTIFACT"
                 && edge.target == "mylib.so"
                 && edge.extra["evidence_source"] == "Libdl.dlopen"
+        }));
+    }
+
+    #[test]
+    fn parses_perl_packages_subroutines_imports_calls_and_bridges() {
+        let source = br#"use strict;
+use warnings;
+use File::Basename;
+
+package Animal;
+
+sub new {
+    my ($class, %args) = @_;
+    return bless \%args, $class;
+}
+
+sub speak {
+    my ($self) = @_;
+    return "...";
+}
+
+package Dog;
+
+sub new {
+    my ($class, %args) = @_;
+    my $self = Animal::new($class, %args);
+    return $self;
+}
+
+sub fetch {
+    my ($self, $item) = @_;
+    return "Fetched $item";
+}
+
+sub bark {
+    my ($self) = @_;
+    print $self->speak() . "\n";
+}
+"#;
+        let (nodes, edges) = parse_perl("sample.pl", source);
+        assert!(nodes.iter().any(|node| {
+            node.kind == "Class"
+                && node.name == "Animal"
+                && node.language == "perl"
+                && node.extra["type_role"] == "class"
+        }));
+        assert!(nodes
+            .iter()
+            .any(|node| { node.kind == "Class" && node.name == "Dog" }));
+        assert!(nodes
+            .iter()
+            .any(|node| { node.kind == "Function" && node.name == "bark" }));
+        assert!(edges
+            .iter()
+            .any(|edge| { edge.kind == "IMPORTS_FROM" && edge.target == "use strict;" }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CALLS" && edge.source == "sample.pl::new" && edge.target == "bless"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CALLS"
+                && edge.source == "sample.pl::bark"
+                && edge.target == "sample.pl::speak"
+        }));
+
+        let bridge_source = br#"sub run_command {
+    system("git status");
+}
+
+sub read_config {
+    open(my $fh, '<', "config.yaml") or die;
+    return $fh;
+}
+
+sub run_dynamic {
+    my ($cmd) = @_;
+    system($cmd);
+}
+"#;
+        let (_nodes, bridge_edges) = parse_perl("bridge.pl", bridge_source);
+        assert!(bridge_edges.iter().any(|edge| {
+            edge.kind == "CROSS_ARTIFACT"
+                && edge.target == "git status"
+                && edge.extra["evidence_source"] == "system"
+                && edge.extra["confidence_tier"] == "HIGH"
+        }));
+        assert!(bridge_edges.iter().any(|edge| {
+            edge.kind == "CROSS_ARTIFACT"
+                && edge.target == "<dynamic:open@bridge.pl:6>"
+                && edge.extra["evidence_source"] == "open"
+                && edge.extra["confidence_tier"] == "LOW"
         }));
     }
 

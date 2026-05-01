@@ -370,6 +370,21 @@ const JULIA: GrammarSpec = GrammarSpec {
     parser_subdirectory: None,
 };
 
+const PERL: GrammarSpec = GrammarSpec {
+    language: "perl",
+    symbol: "perl",
+    required_paths: &[
+        "src/parser.c",
+        "src/scanner.c",
+        "src/tree_sitter/alloc.h",
+        "src/tree_sitter/array.h",
+        "src/tree_sitter/parser.h",
+        "src/bsearch.h",
+        "src/tsp_unicode.h",
+    ],
+    parser_subdirectory: None,
+};
+
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let repo_root = manifest_dir
@@ -410,6 +425,7 @@ fn main() {
     compile_grammar(&repo_root, &GDSCRIPT);
     compile_grammar(&repo_root, &R);
     compile_grammar(&repo_root, &JULIA);
+    compile_grammar(&repo_root, &PERL);
 }
 
 fn compile_grammar(repo_root: &Path, spec: &GrammarSpec) {
