@@ -110,6 +110,18 @@ const TSX: GrammarSpec = GrammarSpec {
     parser_subdirectory: Some("tsx"),
 };
 
+const BASH: GrammarSpec = GrammarSpec {
+    language: "bash",
+    symbol: "bash",
+    required_paths: &[
+        "src/parser.c",
+        "src/scanner.c",
+        "src/tree_sitter/parser.h",
+        "bindings/python/binding.c",
+    ],
+    parser_subdirectory: None,
+};
+
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let repo_root = manifest_dir
@@ -131,6 +143,7 @@ fn main() {
     compile_grammar(&repo_root, &JAVASCRIPT);
     compile_grammar(&repo_root, &TYPESCRIPT);
     compile_grammar(&repo_root, &TSX);
+    compile_grammar(&repo_root, &BASH);
 }
 
 fn compile_grammar(repo_root: &Path, spec: &GrammarSpec) {
@@ -157,6 +170,17 @@ fn compile_grammar(repo_root: &Path, spec: &GrammarSpec) {
         .warnings(false)
         .flag_if_supported("-Wno-unused-parameter")
         .flag_if_supported("-Wno-unused-but-set-variable");
+    if spec.language == "bash" {
+        // tree-sitter-bash's scanner includes generic tree_sitter helper
+        // headers that are staged with the earlier JavaScript grammar.
+        build.include(
+            repo_root
+                .join("dagayn")
+                .join("_vendor_grammars")
+                .join("javascript")
+                .join("src"),
+        );
+    }
     build.compile(&format!("dagayn_tree_sitter_{}", spec.symbol));
 }
 

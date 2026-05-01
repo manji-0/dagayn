@@ -355,6 +355,7 @@ pub struct RustOwnedParser {
     javascript_parser: Option<tree_sitter::Parser>,
     typescript_parser: Option<tree_sitter::Parser>,
     tsx_parser: Option<tree_sitter::Parser>,
+    bash_parser: Option<tree_sitter::Parser>,
     javascript_export_cache: JavaScriptExportCache,
     javascript_module_cache: JavaScriptModuleCache,
     javascript_tsconfig_cache: JavaScriptTsconfigCache,
@@ -370,6 +371,7 @@ impl RustOwnedParser {
             javascript_parser: new_javascript_parser(),
             typescript_parser: new_typescript_parser(),
             tsx_parser: new_tsx_parser(),
+            bash_parser: new_bash_parser(),
             javascript_export_cache: RefCell::new(HashMap::new()),
             javascript_module_cache: RefCell::new(HashMap::new()),
             javascript_tsconfig_cache: RefCell::new(HashMap::new()),
@@ -445,6 +447,9 @@ impl RustOwnedParser {
                     tsconfig: Some(&self.javascript_tsconfig_cache),
                 },
             ),
+            RustOwnedPathKind::Bash => {
+                parse_bash_with_parser(file_path, source, self.bash_parser.as_mut(), repo_root)
+            }
             RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
         }
     }
@@ -4104,6 +4109,225 @@ fn decode_rust_string_literal(node: tree_sitter::Node<'_>, source: &[u8]) -> Str
         .to_string()
 }
 
+pub fn parse_bash(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let mut parser = new_bash_parser();
+    parse_bash_with_parser(file_path, source, parser.as_mut(), None)
+}
+
+fn parse_bash_with_parser(
+    file_path: &str,
+    source: &[u8],
+    parser: Option<&mut tree_sitter::Parser>,
+    repo_root: Option<&Path>,
+) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
+    let mut nodes = vec![ParsedNode {
+        kind: "File".to_string(),
+        name: file_path.to_string(),
+        file_path: file_path.to_string(),
+        line_start: 1,
+        line_end,
+        language: "bash".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: is_test_file(file_path),
+        extra: json!({}),
+    }];
+    let mut edges = Vec::new();
+
+    if let Some(parser) = parser {
+        if let Some(tree) = parser.parse(source, None) {
+            let root = tree.root_node();
+            bash_walk_children(
+                root, source, file_path, repo_root, None, &mut nodes, &mut edges,
+            );
+            let edges = resolve_rust_call_targets(&nodes, edges, file_path);
+            return (nodes, edges);
+        }
+    }
+
+    (nodes, edges)
+}
+
+fn bash_walk_children(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    file_path: &str,
+    repo_root: Option<&Path>,
+    enclosing_func: Option<&str>,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        match child.kind() {
+            "function_definition" => {
+                if let Some(name) = bash_function_name(child, source) {
+                    let qualified = qualify(file_path, &name, None);
+                    nodes.push(ParsedNode {
+                        kind: "Function".to_string(),
+                        name: name.clone(),
+                        file_path: file_path.to_string(),
+                        line_start: child.start_position().row as i64 + 1,
+                        line_end: child.end_position().row as i64 + 1,
+                        language: "bash".to_string(),
+                        parent_name: None,
+                        params: None,
+                        return_type: None,
+                        modifiers: None,
+                        is_test: false,
+                        extra: json!({}),
+                    });
+                    edges.push(ParsedEdge {
+                        kind: "CONTAINS".to_string(),
+                        source: file_path.to_string(),
+                        target: qualified,
+                        file_path: file_path.to_string(),
+                        line: child.start_position().row as i64 + 1,
+                        extra: json!({}),
+                    });
+                    bash_walk_children(
+                        child,
+                        source,
+                        file_path,
+                        repo_root,
+                        Some(&name),
+                        nodes,
+                        edges,
+                    );
+                    continue;
+                }
+            }
+            "command" => {
+                bash_emit_command(child, source, file_path, repo_root, enclosing_func, edges);
+            }
+            _ => {}
+        }
+        bash_walk_children(
+            child,
+            source,
+            file_path,
+            repo_root,
+            enclosing_func,
+            nodes,
+            edges,
+        );
+    }
+}
+
+fn bash_function_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut cursor = node.walk();
+    let name = node
+        .children(&mut cursor)
+        .find(|child| child.kind() == "word")
+        .map(|child| node_text(child, source));
+    name
+}
+
+fn bash_emit_command(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    file_path: &str,
+    repo_root: Option<&Path>,
+    enclosing_func: Option<&str>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let Some(command_name) = bash_command_name(node, source) else {
+        return;
+    };
+    if matches!(command_name.as_str(), "source" | ".") {
+        if let Some(target) = bash_first_command_arg(node, source) {
+            edges.push(ParsedEdge {
+                kind: "IMPORTS_FROM".to_string(),
+                source: file_path.to_string(),
+                target: resolve_bash_source_target(&target, file_path, repo_root).unwrap_or(target),
+                file_path: file_path.to_string(),
+                line: node.start_position().row as i64 + 1,
+                extra: json!({}),
+            });
+        }
+        return;
+    }
+
+    let caller = enclosing_func
+        .map(|func| qualify(file_path, func, None))
+        .unwrap_or_else(|| file_path.to_string());
+    edges.push(ParsedEdge {
+        kind: "CALLS".to_string(),
+        source: caller,
+        target: command_name,
+        file_path: file_path.to_string(),
+        line: node.start_position().row as i64 + 1,
+        extra: json!({}),
+    });
+}
+
+fn bash_command_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "command_name" {
+            return Some(node_text(child, source).trim().to_string())
+                .filter(|name| !name.is_empty());
+        }
+    }
+    None
+}
+
+fn bash_first_command_arg(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut seen_command = false;
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "command_name" {
+            seen_command = true;
+            continue;
+        }
+        if seen_command && matches!(child.kind(), "word" | "string" | "raw_string") {
+            let text = node_text(child, source);
+            return Some(strip_matching_quotes(text.trim()).to_string())
+                .filter(|arg| !arg.is_empty());
+        }
+    }
+    None
+}
+
+fn resolve_bash_source_target(
+    target: &str,
+    file_path: &str,
+    repo_root: Option<&Path>,
+) -> Option<String> {
+    let caller_dir = Path::new(file_path)
+        .parent()
+        .unwrap_or_else(|| Path::new(""));
+    if let Some(repo_root) = repo_root {
+        let candidate = repo_root.join(caller_dir).join(target);
+        if candidate.is_file() {
+            return candidate
+                .strip_prefix(repo_root)
+                .ok()
+                .map(normalize_relative_path);
+        }
+        return None;
+    }
+    let candidate = caller_dir.join(target);
+    candidate
+        .is_file()
+        .then(|| normalize_relative_path(&candidate))
+}
+
+fn strip_matching_quotes(value: &str) -> &str {
+    let bytes = value.as_bytes();
+    if bytes.len() >= 2
+        && matches!(bytes[0], b'\'' | b'"')
+        && bytes.last().is_some_and(|last| *last == bytes[0])
+    {
+        &value[1..value.len() - 1]
+    } else {
+        value
+    }
+}
+
 fn resolve_rust_call_targets(
     nodes: &[ParsedNode],
     edges: Vec<ParsedEdge>,
@@ -4216,6 +4440,7 @@ pub fn parse_rust_owned_file(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>
         RustOwnedPathKind::JavaScript => parse_javascript_like(file_path, source, "javascript"),
         RustOwnedPathKind::TypeScript => parse_javascript_like(file_path, source, "typescript"),
         RustOwnedPathKind::Tsx => parse_javascript_like(file_path, source, "tsx"),
+        RustOwnedPathKind::Bash => parse_bash(file_path, source),
         RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
     }
 }
@@ -4234,6 +4459,7 @@ enum RustOwnedPathKind {
     JavaScript,
     TypeScript,
     Tsx,
+    Bash,
     Unsupported,
 }
 
@@ -4261,6 +4487,12 @@ fn rust_owned_path_kind(file_path: &str) -> RustOwnedPathKind {
         RustOwnedPathKind::TypeScript
     } else if ends_with_ascii_ignore_case(file_path, ".tsx") {
         RustOwnedPathKind::Tsx
+    } else if ends_with_ascii_ignore_case(file_path, ".sh")
+        || ends_with_ascii_ignore_case(file_path, ".bash")
+        || ends_with_ascii_ignore_case(file_path, ".zsh")
+        || ends_with_ascii_ignore_case(file_path, ".ksh")
+    {
+        RustOwnedPathKind::Bash
     } else {
         RustOwnedPathKind::Unsupported
     }
@@ -4382,6 +4614,18 @@ fn new_tsx_parser() -> Option<tree_sitter::Parser> {
     let mut parser = tree_sitter::Parser::new();
     if parser
         .set_language(&dagayn_grammars::tsx_language())
+        .is_ok()
+    {
+        Some(parser)
+    } else {
+        None
+    }
+}
+
+fn new_bash_parser() -> Option<tree_sitter::Parser> {
+    let mut parser = tree_sitter::Parser::new();
+    if parser
+        .set_language(&dagayn_grammars::bash_language())
         .is_ok()
     {
         Some(parser)
@@ -5993,6 +6237,64 @@ output "vpc_id" {
                 && edge.source == "resource.aws_vpc.main"
                 && edge.target == "main.tf::data.aws_caller_identity.current"
         }));
+    }
+
+    #[test]
+    fn parses_bash_functions_calls_and_sources() {
+        let mut repo_root = std::env::temp_dir();
+        repo_root.push(format!(
+            "dagayn-parser-bash-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        let _ = std::fs::remove_dir_all(&repo_root);
+        std::fs::create_dir_all(repo_root.join("scripts")).unwrap();
+        std::fs::write(repo_root.join("scripts/lib.sh"), b"helper() { echo ok; }\n").unwrap();
+
+        let source = br#"#!/usr/bin/env bash
+source ./lib.sh
+
+greet() {
+  echo "hi"
+}
+
+main() {
+  greet
+}
+
+main "$@"
+"#;
+        let mut parser = RustOwnedParser::new();
+        let (nodes, edges) = parser.parse_file_in_repo(Some(&repo_root), "scripts/app.sh", source);
+        assert!(nodes.iter().any(|node| {
+            node.kind == "Function"
+                && node.name == "greet"
+                && node.language == "bash"
+                && node.file_path == "scripts/app.sh"
+        }));
+        assert!(nodes.iter().any(|node| {
+            node.kind == "Function"
+                && node.name == "main"
+                && node.language == "bash"
+                && node.file_path == "scripts/app.sh"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "IMPORTS_FROM"
+                && edge.source == "scripts/app.sh"
+                && edge.target == "scripts/lib.sh"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CALLS"
+                && edge.source == "scripts/app.sh::main"
+                && edge.target == "scripts/app.sh::greet"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CALLS"
+                && edge.source == "scripts/app.sh"
+                && edge.target == "scripts/app.sh::main"
+        }));
+
+        let _ = std::fs::remove_dir_all(&repo_root);
     }
 
     #[test]
