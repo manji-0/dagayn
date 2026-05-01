@@ -269,6 +269,21 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
         inject_python_binding=True,
         parser_subdirectory="php",
     ),
+    "kotlin": GrammarSpec(
+        language="kotlin",
+        owner="fwcd",
+        repo="tree-sitter-kotlin",
+        commit="f66d2908542e93c0204c6c241f794afe4e9cd5d1",
+        required_paths=(
+            "src/parser.c",
+            "src/scanner.c",
+            "src/tree_sitter/alloc.h",
+            "src/tree_sitter/array.h",
+            "src/tree_sitter/parser.h",
+            "bindings/python/binding.c",
+        ),
+        inject_python_binding=True,
+    ),
 }
 
 
