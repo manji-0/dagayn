@@ -649,10 +649,6 @@ fn collect_rust_owned_file_batch(
     let mut parser = dagayn_core::parser::RustOwnedParser::new();
 
     for file_path in file_paths {
-        if !dagayn_core::parser::rust_parser_owns_path(&file_path) {
-            errors.push((file_path, "unsupported Rust parser path".to_string()));
-            continue;
-        }
         let full_path = repo_root.join(&file_path);
         let source = match std::fs::read(&full_path) {
             Ok(source) => source,
@@ -661,6 +657,10 @@ fn collect_rust_owned_file_batch(
                 continue;
             }
         };
+        if !dagayn_core::parser::rust_parser_owns_source(&file_path, &source) {
+            errors.push((file_path, "unsupported Rust parser path".to_string()));
+            continue;
+        }
         let mtime_ns = file_mtime_ns(&full_path).unwrap_or(0);
         let (nodes, edges) =
             parse_rust_owned_file_inputs(&mut parser, repo_root, &file_path, &source);
@@ -685,10 +685,6 @@ fn collect_changed_rust_owned_file_batch(
     let mut parser = dagayn_core::parser::RustOwnedParser::new();
 
     for file_path in file_paths {
-        if !dagayn_core::parser::rust_parser_owns_path(&file_path) {
-            errors.push((file_path, "unsupported Rust parser path".to_string()));
-            continue;
-        }
         let Some((source, file_hash, mtime_ns)) = changed_rust_owned_file_source(
             repo_root,
             &file_path,
@@ -698,6 +694,10 @@ fn collect_changed_rust_owned_file_batch(
         ) else {
             continue;
         };
+        if !dagayn_core::parser::rust_parser_owns_source(&file_path, &source) {
+            errors.push((file_path, "unsupported Rust parser path".to_string()));
+            continue;
+        }
         let (nodes, edges) =
             parse_rust_owned_file_inputs(&mut parser, repo_root, &file_path, &source);
         total_nodes += nodes.len();
@@ -718,9 +718,16 @@ fn classify_changed_rust_owned_file_batch(
     let mut errors = Vec::new();
 
     for file_path in file_paths {
-        if !dagayn_core::parser::rust_parser_owns_path(&file_path) {
-            errors.push((file_path, "unsupported Rust parser path".to_string()));
-            continue;
+        match rust_parser_owns_file(repo_root, &file_path) {
+            Ok(true) => {}
+            Ok(false) => {
+                errors.push((file_path, "unsupported Rust parser path".to_string()));
+                continue;
+            }
+            Err(err) => {
+                errors.push((file_path, err));
+                continue;
+            }
         }
         if changed_rust_owned_file_needs_parse(
             repo_root,
@@ -734,6 +741,16 @@ fn classify_changed_rust_owned_file_batch(
     }
 
     (changed_files, mtime_updates, errors)
+}
+
+fn rust_parser_owns_file(repo_root: &std::path::Path, file_path: &str) -> Result<bool, String> {
+    if dagayn_core::parser::rust_parser_owns_path(file_path) {
+        return Ok(true);
+    }
+    let source = std::fs::read(repo_root.join(file_path)).map_err(|err| err.to_string())?;
+    Ok(dagayn_core::parser::rust_parser_owns_source(
+        file_path, &source,
+    ))
 }
 
 fn changed_rust_owned_file_source(

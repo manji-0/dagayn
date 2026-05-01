@@ -587,6 +587,10 @@ Parser migration progress:
   `.resi` files. This keeps the existing Python graph contract for modules,
   let bindings, externals, types, imports, JSX references, calls, containment,
   interface-file flags, and test edges without adding a separate grammar source.
+- Extensionless shebang scripts for supported scripting languages now stay in
+  the Rust batch path. Source-aware ownership preserves extension precedence and
+  routes bash/sh/zsh/ksh, Python, JavaScript, Ruby, Perl, Lua, R, and PHP
+  shebang files through the matching Rust parser.
 - FTS rebuilds now route through `dagayn._core.GraphStore.rebuild_fts_index`
   when the Rust backend is active. Python's `dagayn.search.rebuild_fts_index`
   keeps the existing SQLite implementation as the fallback for the Python

@@ -481,7 +481,7 @@ impl RustOwnedParser {
         file_path: &str,
         source: &[u8],
     ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
-        match rust_owned_path_kind(file_path) {
+        match rust_owned_path_kind_for_source(file_path, source) {
             RustOwnedPathKind::Markdown => {
                 parse_markdown_with_parser(file_path, source, self.markdown_parser.as_mut())
             }
@@ -741,10 +741,6 @@ pub fn parse_rust_owned_files_compact_json(repo_root: &Path, file_paths: &[Strin
     let mut errors = Vec::new();
     let mut parser = RustOwnedParser::new();
     for file_path in file_paths {
-        if !rust_parser_owns_path(file_path) {
-            errors.push(json!([file_path, "unsupported Rust parser path"]));
-            continue;
-        }
         let full_path = repo_root.join(file_path);
         let source = match std::fs::read(&full_path) {
             Ok(source) => source,
@@ -753,6 +749,10 @@ pub fn parse_rust_owned_files_compact_json(repo_root: &Path, file_paths: &[Strin
                 continue;
             }
         };
+        if !rust_parser_owns_source(file_path, &source) {
+            errors.push(json!([file_path, "unsupported Rust parser path"]));
+            continue;
+        }
         let (nodes, edges) = parser.parse_file_in_repo(Some(repo_root), file_path, &source);
         let (nodes, edges) = parsed_compact_values(nodes, edges);
         batch.push(json!([file_path, nodes, edges, sha256_hex(&source)]));
@@ -13321,7 +13321,7 @@ fn parsed_compact_values(
 }
 
 pub fn parse_rust_owned_file(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
-    match rust_owned_path_kind(file_path) {
+    match rust_owned_path_kind_for_source(file_path, source) {
         RustOwnedPathKind::Markdown => parse_markdown(file_path, source),
         RustOwnedPathKind::Terraform => parse_terraform(file_path, source),
         RustOwnedPathKind::Rust => parse_rust(file_path, source),
@@ -13362,6 +13362,10 @@ pub fn parse_rust_owned_file(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>
 
 pub fn rust_parser_owns_path(file_path: &str) -> bool {
     rust_owned_path_kind(file_path) != RustOwnedPathKind::Unsupported
+}
+
+pub fn rust_parser_owns_source(file_path: &str, source: &[u8]) -> bool {
+    rust_owned_path_kind_for_source(file_path, source) != RustOwnedPathKind::Unsupported
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -13506,6 +13510,30 @@ fn rust_owned_path_kind(file_path: &str) -> RustOwnedPathKind {
         RustOwnedPathKind::Swift
     } else {
         RustOwnedPathKind::Unsupported
+    }
+}
+
+fn rust_owned_path_kind_for_source(file_path: &str, source: &[u8]) -> RustOwnedPathKind {
+    let kind = rust_owned_path_kind(file_path);
+    if kind != RustOwnedPathKind::Unsupported || Path::new(file_path).extension().is_some() {
+        return kind;
+    }
+    detect_language_from_shebang_bytes(source)
+        .and_then(rust_owned_path_kind_for_language)
+        .unwrap_or(RustOwnedPathKind::Unsupported)
+}
+
+fn rust_owned_path_kind_for_language(language: &str) -> Option<RustOwnedPathKind> {
+    match language {
+        "bash" => Some(RustOwnedPathKind::Bash),
+        "python" => Some(RustOwnedPathKind::Python),
+        "javascript" => Some(RustOwnedPathKind::JavaScript),
+        "ruby" => Some(RustOwnedPathKind::Ruby),
+        "perl" => Some(RustOwnedPathKind::Perl),
+        "lua" => Some(RustOwnedPathKind::Lua),
+        "r" => Some(RustOwnedPathKind::R),
+        "php" => Some(RustOwnedPathKind::Php),
+        _ => None,
     }
 }
 
@@ -15333,7 +15361,10 @@ fn detect_language_from_shebang(path: &Path) -> Option<&'static str> {
     let mut file = std::fs::File::open(path).ok()?;
     let mut head = [0_u8; 256];
     let size = file.read(&mut head).ok()?;
-    let head = &head[..size];
+    detect_language_from_shebang_bytes(&head[..size])
+}
+
+fn detect_language_from_shebang_bytes(head: &[u8]) -> Option<&'static str> {
     if !head.starts_with(b"#!") {
         return None;
     }
@@ -15585,6 +15616,29 @@ main "$@"
         }));
 
         let _ = std::fs::remove_dir_all(&repo_root);
+    }
+
+    #[test]
+    fn parses_extensionless_shebang_script_as_rust_owned() {
+        let source = br#"#!/usr/bin/env bash
+deploy() {
+  echo "deploy"
+}
+
+deploy "$@"
+"#;
+        assert!(!rust_parser_owns_path("bin/deploy"));
+        assert!(rust_parser_owns_source("bin/deploy", source));
+
+        let (nodes, edges) = parse_rust_owned_file("bin/deploy", source);
+        assert!(nodes.iter().any(|node| {
+            node.kind == "Function" && node.name == "deploy" && node.language == "bash"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CALLS"
+                && edge.source == "bin/deploy"
+                && edge.target == "bin/deploy::deploy"
+        }));
     }
 
     #[test]

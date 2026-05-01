@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from dagayn.incremental import full_build, incremental_update
+from dagayn.incremental import _split_rust_parser_files, full_build, incremental_update
 from dagayn.parser import CodeParser
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
@@ -228,6 +228,73 @@ static inline int user_id(User *user) {
         [edge.kind, edge.source, edge.target, edge.file_path, edge.line, edge.extra]
         for edge in py_edges
     ]
+
+
+def test_rust_owned_extensionless_shebang_parser_matches_python_parser(tmp_path, monkeypatch):
+    """Extension-less scripts detected by shebang stay in the Rust batch path."""
+    try:
+        from dagayn._core import parse_rust_owned_files_compact_json
+    except ImportError as exc:
+        pytest.skip(f"Rust extension is not available: {exc}")
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "bin").mkdir()
+    rel_path = "bin/deploy"
+    source = (
+        b"#!/usr/bin/env bash\n"
+        b"deploy() {\n"
+        b'  echo "deploy"\n'
+        b"}\n"
+        b"\n"
+        b'deploy "$@"\n'
+    )
+    (repo / rel_path).write_bytes(source)
+
+    monkeypatch.chdir(repo)
+    py_nodes, py_edges = CodeParser().parse_bytes(Path(rel_path), source)
+    payload = json.loads(parse_rust_owned_files_compact_json(repo, [rel_path]))
+
+    assert payload["errors"] == []
+    assert payload["batch"][0][1] == [
+        [
+            node.kind,
+            node.name,
+            node.file_path,
+            node.line_start,
+            node.line_end,
+            node.language,
+            node.parent_name,
+            node.params,
+            node.return_type,
+            node.modifiers,
+            node.is_test,
+            node.extra,
+        ]
+        for node in py_nodes
+    ]
+    assert payload["batch"][0][2] == [
+        [edge.kind, edge.source, edge.target, edge.file_path, edge.line, edge.extra]
+        for edge in py_edges
+    ]
+
+
+def test_rust_backend_routes_extensionless_shebang_files(tmp_path, monkeypatch):
+    """Rust/Python file splitting uses shebang detection for extension-less files."""
+    monkeypatch.setenv("DAGAYN_BACKEND", "rust")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "bin").mkdir()
+    (repo / "bin" / "deploy").write_text("#!/usr/bin/env bash\necho deploy\n")
+    (repo / "README").write_text("plain text without shebang\n")
+
+    rust_files, python_files = _split_rust_parser_files(
+        ["bin/deploy", "README"],
+        repo,
+    )
+
+    assert rust_files == ["bin/deploy"]
+    assert python_files == ["README"]
 
 
 def test_rust_owned_svelte_parser_matches_python_parser(tmp_path):

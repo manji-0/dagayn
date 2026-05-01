@@ -20,6 +20,7 @@ from typing import Any, Callable, Optional
 
 from .graph import GraphStore
 from .parser import CodeParser, EdgeInfo, NodeInfo
+from .parser.dispatch import detect_language as _detect_parser_language
 
 _MAX_PARSE_WORKERS = int(os.environ.get("CRG_PARSE_WORKERS", str(min(os.cpu_count() or 4, 8))))
 _STORE_BATCH_SIZE = int(os.environ.get("DAGAYN_STORE_BATCH_SIZE", "128"))
@@ -1125,7 +1126,7 @@ def _rust_backend_enabled() -> bool:
 
 def _rust_parser_owns_path(rel_path: str, repo_root: Path | None = None) -> bool:
     lower = rel_path.lower()
-    return lower.endswith(
+    if lower.endswith(
         (
             ".md",
             ".markdown",
@@ -1182,7 +1183,20 @@ def _rust_parser_owns_path(rel_path: str, repo_root: Path | None = None) -> bool
             ".resi",
             ".swift",
         )
-    )
+    ):
+        return True
+    if PurePosixPath(rel_path).suffix or repo_root is None:
+        return False
+    return _detect_parser_language(repo_root / rel_path) in {
+        "bash",
+        "python",
+        "javascript",
+        "ruby",
+        "perl",
+        "lua",
+        "r",
+        "php",
+    }
 
 
 def _split_rust_parser_files(
