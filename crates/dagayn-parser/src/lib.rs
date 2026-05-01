@@ -645,15 +645,16 @@ fn parse_python_with_parser(
     if let Some(parser) = parser {
         if let Some(tree) = parser.parse(source, None) {
             let root = tree.root_node();
-            let mut defined_names = HashSet::new();
-            collect_python_defined_names(root, source, &mut defined_names);
+            let (import_map, top_level_defined_names) = collect_python_file_scope(root, source);
             let context = PythonParseContext {
                 source,
                 file_path,
-                defined_names: &defined_names,
+                import_map: &import_map,
+                top_level_defined_names: &top_level_defined_names,
             };
             python_walk_children(root, &context, None, None, &mut nodes, &mut edges);
             let edges = resolve_python_call_targets(&nodes, edges, file_path);
+            let edges = add_python_tested_by_edges(&nodes, edges, file_path);
             return (nodes, edges);
         }
     }
@@ -669,7 +670,8 @@ pub fn parse_python_compact_json(file_path: &str, source: &[u8]) -> String {
 struct PythonParseContext<'a> {
     source: &'a [u8],
     file_path: &'a str,
-    defined_names: &'a HashSet<String>,
+    import_map: &'a HashMap<String, String>,
+    top_level_defined_names: &'a HashSet<String>,
 }
 
 fn python_walk_children(
@@ -718,7 +720,8 @@ fn python_walk_children(
                     let qualified = qualify(context.file_path, &name, enclosing_class);
                     let params = python_child_text(child, context.source, "parameters");
                     let return_type = python_return_type(child, context.source);
-                    let is_test = python_is_test_function(&name, context.file_path, child);
+                    let is_test =
+                        python_is_test_function(&name, context.file_path, child, context.source);
                     nodes.push(ParsedNode {
                         kind: if is_test { "Test" } else { "Function" }.to_string(),
                         name: name.clone(),
@@ -756,7 +759,7 @@ fn python_walk_children(
                 }
             }
             "import_statement" | "import_from_statement" => {
-                for target in python_import_targets(child, context.source) {
+                for target in python_import_targets(child, context.source, context.file_path) {
                     edges.push(ParsedEdge {
                         kind: "IMPORTS_FROM".to_string(),
                         source: context.file_path.to_string(),
@@ -772,20 +775,31 @@ fn python_walk_children(
                     let caller = enclosing_func
                         .map(|name| qualify(context.file_path, name, enclosing_class))
                         .unwrap_or_else(|| context.file_path.to_string());
-                    let target = if context.defined_names.contains(&call_name) {
-                        qualify(context.file_path, &call_name, None)
-                    } else {
-                        call_name
-                    };
+                    let target = python_resolve_imported_call_target(&call_name, context)
+                        .unwrap_or_else(|| call_name.clone());
                     edges.push(ParsedEdge {
                         kind: "CALLS".to_string(),
-                        source: caller,
+                        source: caller.clone(),
                         target,
                         file_path: context.file_path.to_string(),
                         line: child.start_position().row as i64 + 1,
                         extra: json!({}),
                     });
+                    if let Some(edge) =
+                        python_bridge_edge(child, context.source, context.file_path, &caller)
+                    {
+                        edges.push(edge);
+                    }
                 }
+            }
+            "pair" | "assignment" | "list" => {
+                python_emit_value_references(
+                    child,
+                    context,
+                    enclosing_class,
+                    enclosing_func,
+                    edges,
+                );
             }
             _ => {}
         }
@@ -800,20 +814,213 @@ fn python_walk_children(
     }
 }
 
-fn collect_python_defined_names(
+fn python_emit_value_references(
     node: tree_sitter::Node<'_>,
-    source: &[u8],
-    names: &mut HashSet<String>,
+    context: &PythonParseContext<'_>,
+    enclosing_class: Option<&str>,
+    enclosing_func: Option<&str>,
+    edges: &mut Vec<ParsedEdge>,
 ) {
-    if matches!(node.kind(), "class_definition" | "function_definition") {
-        if let Some(name) = python_identifier_child(node, source) {
-            names.insert(name);
+    let caller = enclosing_func
+        .map(|name| qualify(context.file_path, name, enclosing_class))
+        .unwrap_or_else(|| context.file_path.to_string());
+    match node.kind() {
+        "pair" => {
+            if let Some(value_node) = python_last_value_child(node) {
+                if value_node.kind() == "identifier" {
+                    python_emit_reference_if_known(value_node, context, &caller, edges);
+                }
+            }
         }
+        "assignment" => {
+            let Some(lhs) = python_first_child(node) else {
+                return;
+            };
+            if !matches!(lhs.kind(), "attribute" | "subscript") {
+                return;
+            }
+            if let Some(rhs) = python_last_value_child(node) {
+                if rhs.kind() == "identifier" {
+                    python_emit_reference_if_known(rhs, context, &caller, edges);
+                }
+            }
+        }
+        "list" => {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if child.kind() == "identifier" {
+                    python_emit_reference_if_known(child, context, &caller, edges);
+                }
+            }
+        }
+        _ => {}
     }
+}
+
+fn python_last_value_child(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
+    let mut last = None;
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        collect_python_defined_names(child, source, names);
+        if !matches!(
+            child.kind(),
+            ":" | "," | "=" | "comment" | "type_annotation"
+        ) {
+            last = Some(child);
+        }
     }
+    last
+}
+
+fn python_first_child(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
+    let mut cursor = node.walk();
+    let first = node.children(&mut cursor).next();
+    first
+}
+
+fn python_emit_reference_if_known(
+    node: tree_sitter::Node<'_>,
+    context: &PythonParseContext<'_>,
+    caller: &str,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let name = node_text(node, context.source);
+    let Some(target) = python_resolve_reference_target(&name, context) else {
+        return;
+    };
+    edges.push(ParsedEdge {
+        kind: "REFERENCES".to_string(),
+        source: caller.to_string(),
+        target,
+        file_path: context.file_path.to_string(),
+        line: node.start_position().row as i64 + 1,
+        extra: json!({}),
+    });
+}
+
+fn python_resolve_reference_target(name: &str, context: &PythonParseContext<'_>) -> Option<String> {
+    if python_skip_value_reference_name(name) {
+        return None;
+    }
+    if context.top_level_defined_names.contains(name) {
+        return Some(qualify(context.file_path, name, None));
+    }
+    let module = context.import_map.get(name)?;
+    Some(
+        python_resolve_module_to_file(module, context.file_path)
+            .map(|resolved| qualify(&resolved, name, None))
+            .unwrap_or_else(|| name.to_string()),
+    )
+}
+
+fn python_skip_value_reference_name(name: &str) -> bool {
+    name.is_empty()
+        || name.len() <= 1
+        || name.bytes().all(|byte| !byte.is_ascii_lowercase())
+        || matches!(
+            name,
+            "true"
+                | "false"
+                | "null"
+                | "undefined"
+                | "None"
+                | "True"
+                | "False"
+                | "self"
+                | "this"
+                | "cls"
+                | "super"
+        )
+}
+
+fn collect_python_file_scope(
+    root: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> (HashMap<String, String>, HashSet<String>) {
+    let mut import_map = HashMap::new();
+    let mut defined_names = HashSet::new();
+    let mut cursor = root.walk();
+    for child in root.children(&mut cursor) {
+        let target = if child.kind() == "decorated_definition" {
+            python_decorated_target(child)
+        } else {
+            Some(child)
+        };
+        if let Some(target) = target {
+            match target.kind() {
+                "class_definition" | "function_definition" => {
+                    if let Some(name) = python_identifier_child(target, source) {
+                        defined_names.insert(name);
+                    }
+                }
+                "import_statement" | "import_from_statement" => {
+                    collect_python_import_names(target, source, &mut import_map);
+                }
+                _ => {}
+            }
+        }
+    }
+    (import_map, defined_names)
+}
+
+fn python_decorated_target(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if matches!(
+            child.kind(),
+            "class_definition"
+                | "function_definition"
+                | "import_statement"
+                | "import_from_statement"
+        ) {
+            return Some(child);
+        }
+    }
+    None
+}
+
+fn collect_python_import_names(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    import_map: &mut HashMap<String, String>,
+) {
+    if node.kind() != "import_from_statement" {
+        return;
+    }
+
+    let mut module = None;
+    let mut seen_import = false;
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        match child.kind() {
+            "dotted_name" if !seen_import => {
+                module = Some(node_text(child, source));
+            }
+            "import" => {
+                seen_import = true;
+            }
+            "identifier" | "dotted_name" if seen_import => {
+                if let Some(module) = &module {
+                    import_map.insert(node_text(child, source), module.clone());
+                }
+            }
+            "aliased_import" if seen_import => {
+                if let Some(module) = &module {
+                    if let Some(name) = python_aliased_import_name(child, source) {
+                        import_map.insert(name, module.clone());
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn python_aliased_import_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut cursor = node.walk();
+    node.children(&mut cursor)
+        .filter(|child| matches!(child.kind(), "identifier" | "dotted_name"))
+        .map(|child| node_text(child, source))
+        .last()
 }
 
 fn python_identifier_child(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
@@ -849,14 +1056,34 @@ fn python_return_type(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<Stri
     None
 }
 
-fn python_is_test_function(name: &str, file_path: &str, node: tree_sitter::Node<'_>) -> bool {
-    starts_with_ascii_ignore_case(name, "test")
-        || contains_ascii_ignore_case(file_path, "/test/")
-        || contains_ascii_ignore_case(file_path, "/tests/")
-        || python_has_test_decorator(node)
+fn python_is_test_function(
+    name: &str,
+    file_path: &str,
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> bool {
+    python_name_matches_test_pattern(name)
+        || (is_test_file(file_path) && python_is_test_runner_name(name))
+        || python_has_test_annotation(node, source)
 }
 
-fn python_has_test_decorator(node: tree_sitter::Node<'_>) -> bool {
+fn python_name_matches_test_pattern(name: &str) -> bool {
+    name.starts_with("test_")
+        || name.starts_with("Test")
+        || name.ends_with("_test")
+        || name.contains(".test.")
+        || name.contains(".spec.")
+        || name.ends_with("_spec")
+}
+
+fn python_is_test_runner_name(name: &str) -> bool {
+    matches!(
+        name,
+        "describe" | "it" | "test" | "beforeEach" | "afterEach" | "beforeAll" | "afterAll"
+    )
+}
+
+fn python_has_test_annotation(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
     let Some(parent) = node.parent() else {
         return false;
     };
@@ -864,9 +1091,21 @@ fn python_has_test_decorator(node: tree_sitter::Node<'_>) -> bool {
         return false;
     }
     let mut cursor = parent.walk();
-    let has_decorator = parent
-        .children(&mut cursor)
-        .any(|child| child.kind() == "decorator");
+    let has_decorator = parent.children(&mut cursor).any(|child| {
+        if child.kind() != "decorator" {
+            return false;
+        }
+        let text = node_text(child, source);
+        matches!(
+            text.trim_start_matches('@').trim(),
+            "Test"
+                | "ParameterizedTest"
+                | "RepeatedTest"
+                | "TestFactory"
+                | "org.junit.Test"
+                | "org.junit.jupiter.api.Test"
+        )
+    });
     has_decorator
 }
 
@@ -901,13 +1140,18 @@ fn python_emit_bases(
     }
 }
 
-fn python_import_targets(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {
+fn python_import_targets(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    file_path: &str,
+) -> Vec<String> {
     if node.kind() == "import_statement" {
         let mut imports = Vec::new();
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.kind() == "dotted_name" {
-                imports.push(node_text(child, source));
+                let target = node_text(child, source);
+                imports.push(python_resolve_module_to_file(&target, file_path).unwrap_or(target));
             }
         }
         return imports;
@@ -932,7 +1176,10 @@ fn python_import_targets(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<Stri
             _ => {}
         }
     }
-    module.into_iter().collect()
+    module
+        .into_iter()
+        .map(|target| python_resolve_module_to_file(&target, file_path).unwrap_or(target))
+        .collect()
 }
 
 fn python_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
@@ -951,6 +1198,229 @@ fn resolve_python_call_targets(
     file_path: &str,
 ) -> Vec<ParsedEdge> {
     resolve_rust_call_targets(nodes, edges, file_path)
+}
+
+fn python_resolve_imported_call_target(
+    call_name: &str,
+    context: &PythonParseContext<'_>,
+) -> Option<String> {
+    if context.top_level_defined_names.contains(call_name) {
+        return None;
+    }
+    let module = context.import_map.get(call_name)?;
+    let resolved = python_resolve_module_to_file(module, context.file_path)?;
+    Some(qualify(&resolved, call_name, None))
+}
+
+fn add_python_tested_by_edges(
+    nodes: &[ParsedNode],
+    edges: Vec<ParsedEdge>,
+    file_path: &str,
+) -> Vec<ParsedEdge> {
+    if !is_test_file(file_path) {
+        return edges;
+    }
+    let test_qnames = nodes
+        .iter()
+        .filter(|node| node.is_test)
+        .map(|node| qualify(file_path, &node.name, node.parent_name.as_deref()))
+        .collect::<HashSet<_>>();
+    if test_qnames.is_empty() {
+        return edges;
+    }
+    let mut out = edges;
+    let tested_by_edges = out
+        .iter()
+        .filter(|edge| edge.kind == "CALLS" && test_qnames.contains(&edge.source))
+        .map(|edge| ParsedEdge {
+            kind: "TESTED_BY".to_string(),
+            source: edge.target.clone(),
+            target: edge.source.clone(),
+            file_path: edge.file_path.clone(),
+            line: edge.line,
+            extra: json!({}),
+        })
+        .collect::<Vec<_>>();
+    out.extend(tested_by_edges);
+    out
+}
+
+fn python_resolve_module_to_file(module: &str, file_path: &str) -> Option<String> {
+    use std::path::{Path, PathBuf};
+
+    let caller_dir = Path::new(file_path)
+        .parent()
+        .unwrap_or_else(|| Path::new(""));
+    let candidates_for = |base: PathBuf, rel: &str| {
+        [
+            base.join(format!("{rel}.py")),
+            base.join(rel).join("__init__.py"),
+        ]
+    };
+
+    if module.starts_with('.') {
+        let leading_dots = module.bytes().take_while(|byte| *byte == b'.').count();
+        let remainder = &module[leading_dots..];
+        let mut base = caller_dir.to_path_buf();
+        for _ in 0..leading_dots.saturating_sub(1) {
+            base = base.parent().unwrap_or(Path::new("")).to_path_buf();
+        }
+        let candidates = if remainder.is_empty() {
+            vec![base.join("__init__.py")]
+        } else {
+            let rel = remainder.replace('.', "/");
+            candidates_for(base, &rel).into_iter().collect()
+        };
+        return candidates
+            .into_iter()
+            .find(|candidate| candidate.is_file())
+            .and_then(|candidate| candidate.canonicalize().ok())
+            .map(|path| path.to_string_lossy().to_string());
+    }
+
+    let rel = module.replace('.', "/");
+    let mut current = caller_dir.to_path_buf();
+    loop {
+        for candidate in candidates_for(current.clone(), &rel) {
+            if candidate.is_file() {
+                return candidate
+                    .canonicalize()
+                    .ok()
+                    .map(|path| path.to_string_lossy().to_string());
+            }
+        }
+        let Some(parent) = current.parent() else {
+            break;
+        };
+        if parent == current {
+            break;
+        }
+        current = parent.to_path_buf();
+    }
+    None
+}
+
+fn python_bridge_edge(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    file_path: &str,
+    caller: &str,
+) -> Option<ParsedEdge> {
+    let signature = python_call_signature(node, source)?;
+    let (relationship_role, bridge_kind) = python_bridge_pattern(&signature)?;
+    let line = node.start_position().row as i64 + 1;
+    let (target, confidence, confidence_tier) = match python_first_string_arg(node, source) {
+        Some(target) if !target.is_empty() => (target, 0.8, "HIGH"),
+        _ => (
+            format!("<dynamic:{signature}@{file_path}:{line}>"),
+            0.2,
+            "LOW",
+        ),
+    };
+    Some(ParsedEdge {
+        kind: "CROSS_ARTIFACT".to_string(),
+        source: caller.to_string(),
+        target,
+        file_path: file_path.to_string(),
+        line,
+        extra: json!({
+            "relationship_role": relationship_role,
+            "bridge_kind": bridge_kind,
+            "evidence_kind": "syntax",
+            "evidence_source": signature,
+            "source_language": "python",
+            "target_language": "unknown",
+            "confidence": confidence,
+            "confidence_tier": confidence_tier,
+        }),
+    })
+}
+
+fn python_call_signature(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut cursor = node.walk();
+    let signature = node
+        .children(&mut cursor)
+        .find(|child| child.kind() != "argument_list")
+        .map(|child| node_text(child, source).trim().to_string())
+        .filter(|value| !value.is_empty());
+    signature
+}
+
+fn python_bridge_pattern(signature: &str) -> Option<(&'static str, &'static str)> {
+    match signature {
+        "subprocess.run"
+        | "subprocess.Popen"
+        | "subprocess.call"
+        | "subprocess.check_call"
+        | "subprocess.check_output"
+        | "os.system"
+        | "os.popen"
+        | "os.execv"
+        | "os.execvp"
+        | "os.execvpe"
+        | "os.execve"
+        | "os.execl"
+        | "os.execlp"
+        | "os.execlpe"
+        | "os.execle"
+        | "os.spawnv"
+        | "os.spawnvp" => Some(("invokes_binary", "subprocess")),
+        "ctypes.CDLL"
+        | "ctypes.cdll.LoadLibrary"
+        | "ctypes.WinDLL"
+        | "ctypes.PyDLL"
+        | "cffi.FFI().dlopen" => Some(("loads_shared_library", "ffi")),
+        "open" | "io.open" => Some(("opens_file", "file_io")),
+        _ => None,
+    }
+}
+
+fn python_first_string_arg(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut cursor = node.walk();
+    let arguments = node
+        .children(&mut cursor)
+        .find(|child| child.kind() == "argument_list")?;
+    let mut arg_cursor = arguments.walk();
+    for child in arguments.children(&mut arg_cursor) {
+        if matches!(child.kind(), "," | "(" | ")" | "{" | "}" | "[" | "]") {
+            continue;
+        }
+        if child.kind() == "string" {
+            return Some(decode_python_string_literal(child, source));
+        }
+        if matches!(child.kind(), "list" | "tuple") {
+            return python_first_string_in_sequence(child, source);
+        }
+        return None;
+    }
+    None
+}
+
+fn python_first_string_in_sequence(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if matches!(child.kind(), "," | "(" | ")" | "{" | "}" | "[" | "]") {
+            continue;
+        }
+        if child.kind() == "string" {
+            return Some(decode_python_string_literal(child, source));
+        }
+    }
+    None
+}
+
+fn decode_python_string_literal(node: tree_sitter::Node<'_>, source: &[u8]) -> String {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if matches!(child.kind(), "string_content" | "string_fragment") {
+            return node_text(child, source);
+        }
+    }
+    node_text(node, source)
+        .trim_matches('"')
+        .trim_matches('\'')
+        .trim_matches('`')
+        .to_string()
 }
 
 pub fn parse_rust(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
@@ -2892,9 +3362,14 @@ fn dedupe_edges(edges: Vec<ParsedEdge>) -> Vec<ParsedEdge> {
 fn is_test_file(file_path: &str) -> bool {
     contains_ascii_ignore_case(file_path, "/test/")
         || contains_ascii_ignore_case(file_path, "/tests/")
+        || starts_with_ascii_ignore_case(file_path, "test/")
+        || starts_with_ascii_ignore_case(file_path, "tests/")
         || starts_with_ascii_ignore_case(file_path, "test_")
         || ends_with_ascii_ignore_case(file_path, "_test.md")
         || ends_with_ascii_ignore_case(file_path, ".test.md")
+        || ends_with_ascii_ignore_case(file_path, "_test.py")
+        || ends_with_ascii_ignore_case(file_path, ".test.py")
+        || ends_with_ascii_ignore_case(file_path, ".spec.py")
 }
 
 fn starts_with_ascii_ignore_case(value: &str, prefix: &str) -> bool {

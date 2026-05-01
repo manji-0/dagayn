@@ -442,9 +442,12 @@ Parser migration progress:
   from the pinned Rust tree-sitter grammar, removing Rust source files from the
   Python worker parse pool when the Rust backend is active.
 - The pinned Python tree-sitter grammar is now compiled into `dagayn-grammars`
-  and exposed through `parse_python_compact_json` for parity work. `.py` files
-  are not Rust-owned yet; current real-repo gaps are import resolution,
-  TESTED_BY, CROSS_ARTIFACT, and test classification.
+  and exposed through `parse_python_compact_json` for parity work. The Rust
+  parser now mirrors Python-side import alias resolution, TESTED_BY generation,
+  CROSS_ARTIFACT subprocess/file/FFI bridge detection, and function-as-value
+  REFERENCES on this repository's Python files. `.py` files are not Rust-owned
+  yet; the remaining known parity gap is Databricks `.py` notebook export
+  handling, where Python currently splits SQL/R/Python cells before parsing.
 - FTS rebuilds now route through `dagayn._core.GraphStore.rebuild_fts_index`
   when the Rust backend is active. Python's `dagayn.search.rebuild_fts_index`
   keeps the existing SQLite implementation as the fallback for the Python
