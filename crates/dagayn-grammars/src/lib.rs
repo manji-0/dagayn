@@ -30,6 +30,7 @@ extern "C" {
     fn tree_sitter_objc() -> *const ();
     fn tree_sitter_elixir() -> *const ();
     fn tree_sitter_gdscript() -> *const ();
+    fn tree_sitter_r() -> *const ();
 }
 
 pub const MARKDOWN_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_markdown) };
@@ -56,6 +57,7 @@ pub const CPP_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_c
 pub const OBJC_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_objc) };
 pub const ELIXIR_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_elixir) };
 pub const GDSCRIPT_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_gdscript) };
+pub const R_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_r) };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GrammarStatus {
@@ -160,6 +162,10 @@ pub fn elixir_language() -> tree_sitter::Language {
 
 pub fn gdscript_language() -> tree_sitter::Language {
     GDSCRIPT_LANGUAGE.into()
+}
+
+pub fn r_language() -> tree_sitter::Language {
+    R_LANGUAGE.into()
 }
 
 #[cfg(test)]
@@ -463,6 +469,18 @@ mod tests {
                 None,
             )
             .expect("parse GDScript");
+        assert!(!tree.root_node().has_error());
+    }
+
+    #[test]
+    fn loads_r_language() {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&r_language())
+            .expect("load pinned R grammar");
+        let tree = parser
+            .parse("add <- function(x, y) {\n  x + y\n}\n", None)
+            .expect("parse R");
         assert!(!tree.root_node().has_error());
     }
 }
