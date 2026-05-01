@@ -415,6 +415,18 @@ const SVELTE: GrammarSpec = GrammarSpec {
     parser_subdirectory: None,
 };
 
+const ZIG: GrammarSpec = GrammarSpec {
+    language: "zig",
+    symbol: "zig",
+    required_paths: &[
+        "src/parser.c",
+        "src/tree_sitter/alloc.h",
+        "src/tree_sitter/array.h",
+        "src/tree_sitter/parser.h",
+    ],
+    parser_subdirectory: None,
+};
+
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let repo_root = manifest_dir
@@ -458,6 +470,7 @@ fn main() {
     compile_grammar(&repo_root, &PERL);
     compile_grammar(&repo_root, &VUE);
     compile_grammar(&repo_root, &SVELTE);
+    compile_grammar(&repo_root, &ZIG);
 }
 
 fn compile_grammar(repo_root: &Path, spec: &GrammarSpec) {

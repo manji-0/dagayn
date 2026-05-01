@@ -495,6 +495,18 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
             "src/vc_vector.h",
         ),
     ),
+    "zig": GrammarSpec(
+        language="zig",
+        owner="maxxnino",
+        repo="tree-sitter-zig",
+        commit="a80a6e9be81b33b182ce6305ae4ea28e29211bd5",
+        required_paths=(
+            "src/parser.c",
+            "src/tree_sitter/alloc.h",
+            "src/tree_sitter/array.h",
+            "src/tree_sitter/parser.h",
+        ),
+    ),
 }
 
 

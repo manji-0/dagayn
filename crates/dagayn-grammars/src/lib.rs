@@ -35,6 +35,7 @@ extern "C" {
     fn tree_sitter_perl() -> *const ();
     fn tree_sitter_vue() -> *const ();
     fn tree_sitter_svelte() -> *const ();
+    fn tree_sitter_zig() -> *const ();
 }
 
 pub const MARKDOWN_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_markdown) };
@@ -66,6 +67,7 @@ pub const JULIA_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter
 pub const PERL_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_perl) };
 pub const VUE_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_vue) };
 pub const SVELTE_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_svelte) };
+pub const ZIG_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_zig) };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GrammarStatus {
@@ -190,6 +192,10 @@ pub fn vue_language() -> tree_sitter::Language {
 
 pub fn svelte_language() -> tree_sitter::Language {
     SVELTE_LANGUAGE.into()
+}
+
+pub fn zig_language() -> tree_sitter::Language {
+    ZIG_LANGUAGE.into()
 }
 
 #[cfg(test)]
@@ -556,6 +562,21 @@ mod tests {
         let tree = parser
             .parse("<script>const x = 1</script>\n<button>{x}</button>\n", None)
             .expect("parse Svelte");
+        assert!(!tree.root_node().has_error());
+    }
+
+    #[test]
+    fn loads_zig_language() {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&zig_language())
+            .expect("load pinned Zig grammar");
+        let tree = parser
+            .parse(
+                "const std = @import(\"std\");\npub fn main() void {}\n",
+                None,
+            )
+            .expect("parse Zig");
         assert!(!tree.root_node().has_error());
     }
 }

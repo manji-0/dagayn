@@ -378,6 +378,7 @@ pub struct RustOwnedParser {
     perl_parser: Option<tree_sitter::Parser>,
     vue_parser: Option<tree_sitter::Parser>,
     svelte_parser: Option<tree_sitter::Parser>,
+    zig_parser: Option<tree_sitter::Parser>,
     javascript_export_cache: JavaScriptExportCache,
     javascript_module_cache: JavaScriptModuleCache,
     javascript_tsconfig_cache: JavaScriptTsconfigCache,
@@ -415,6 +416,7 @@ impl RustOwnedParser {
             perl_parser: new_perl_parser(),
             vue_parser: new_vue_parser(),
             svelte_parser: None,
+            zig_parser: None,
             javascript_export_cache: RefCell::new(HashMap::new()),
             javascript_module_cache: RefCell::new(HashMap::new()),
             javascript_tsconfig_cache: RefCell::new(HashMap::new()),
@@ -576,6 +578,12 @@ impl RustOwnedParser {
                         tsconfig: Some(&self.javascript_tsconfig_cache),
                     },
                 )
+            }
+            RustOwnedPathKind::Zig => {
+                if self.zig_parser.is_none() {
+                    self.zig_parser = new_zig_parser();
+                }
+                parse_zig_with_parser(file_path, source, self.zig_parser.as_mut())
             }
             RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
         }
@@ -2354,6 +2362,11 @@ pub fn parse_svelte(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<Par
     )
 }
 
+pub fn parse_zig(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let mut parser = new_zig_parser();
+    parse_zig_with_parser(file_path, source, parser.as_mut())
+}
+
 fn parse_vue_with_parsers(
     file_path: &str,
     source: &[u8],
@@ -2397,6 +2410,34 @@ fn parse_svelte_with_parsers(
             repo_root,
             caches,
         },
+    )
+}
+
+fn parse_zig_with_parser(
+    file_path: &str,
+    source: &[u8],
+    parser: Option<&mut tree_sitter::Parser>,
+) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    if let Some(parser) = parser {
+        let _ = parser.parse(source, None);
+    }
+    let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
+    (
+        vec![ParsedNode {
+            kind: "File".to_string(),
+            name: file_path.to_string(),
+            file_path: file_path.to_string(),
+            line_start: 1,
+            line_end,
+            language: "zig".to_string(),
+            parent_name: None,
+            params: None,
+            return_type: None,
+            modifiers: None,
+            is_test: is_test_file(file_path),
+            extra: json!({}),
+        }],
+        Vec::new(),
     )
 }
 
@@ -12073,6 +12114,7 @@ pub fn parse_rust_owned_file(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>
         RustOwnedPathKind::Perl => parse_perl(file_path, source),
         RustOwnedPathKind::Vue => parse_vue(file_path, source),
         RustOwnedPathKind::Svelte => parse_svelte(file_path, source),
+        RustOwnedPathKind::Zig => parse_zig(file_path, source),
         RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
     }
 }
@@ -12113,6 +12155,7 @@ enum RustOwnedPathKind {
     Perl,
     Vue,
     Svelte,
+    Zig,
     Unsupported,
 }
 
@@ -12201,6 +12244,8 @@ fn rust_owned_path_kind(file_path: &str) -> RustOwnedPathKind {
         RustOwnedPathKind::Vue
     } else if ends_with_ascii_ignore_case(file_path, ".svelte") {
         RustOwnedPathKind::Svelte
+    } else if ends_with_ascii_ignore_case(file_path, ".zig") {
+        RustOwnedPathKind::Zig
     } else {
         RustOwnedPathKind::Unsupported
     }
@@ -12577,6 +12622,18 @@ fn new_svelte_parser() -> Option<tree_sitter::Parser> {
     let mut parser = tree_sitter::Parser::new();
     if parser
         .set_language(&dagayn_grammars::svelte_language())
+        .is_ok()
+    {
+        Some(parser)
+    } else {
+        None
+    }
+}
+
+fn new_zig_parser() -> Option<tree_sitter::Parser> {
+    let mut parser = tree_sitter::Parser::new();
+    if parser
+        .set_language(&dagayn_grammars::zig_language())
         .is_ok()
     {
         Some(parser)
@@ -15720,6 +15777,25 @@ function selectUser(user: User) {
                 && edge.target == "log"
                 && edge.line == 11
         }));
+    }
+
+    #[test]
+    fn parses_zig_file_without_extra_nodes_for_python_parity() {
+        let source = br#"const std = @import("std");
+
+pub fn main() void {
+    std.debug.print("hello\n", .{});
+}
+"#;
+        let (nodes, edges) = parse_zig("src/main.zig", source);
+
+        assert_eq!(nodes.len(), 1);
+        assert_eq!(nodes[0].kind, "File");
+        assert_eq!(nodes[0].name, "src/main.zig");
+        assert_eq!(nodes[0].language, "zig");
+        assert_eq!(nodes[0].line_start, 1);
+        assert_eq!(nodes[0].line_end, 6);
+        assert!(edges.is_empty());
     }
 
     #[test]
