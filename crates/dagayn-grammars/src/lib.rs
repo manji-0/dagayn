@@ -20,6 +20,7 @@ extern "C" {
     fn tree_sitter_c_sharp() -> *const ();
     fn tree_sitter_php() -> *const ();
     fn tree_sitter_kotlin() -> *const ();
+    fn tree_sitter_scala() -> *const ();
 }
 
 pub const MARKDOWN_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_markdown) };
@@ -36,6 +37,7 @@ pub const RUBY_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_
 pub const CSHARP_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_c_sharp) };
 pub const PHP_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_php) };
 pub const KOTLIN_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_kotlin) };
+pub const SCALA_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_scala) };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GrammarStatus {
@@ -100,6 +102,10 @@ pub fn php_language() -> tree_sitter::Language {
 
 pub fn kotlin_language() -> tree_sitter::Language {
     KOTLIN_LANGUAGE.into()
+}
+
+pub fn scala_language() -> tree_sitter::Language {
+    SCALA_LANGUAGE.into()
 }
 
 #[cfg(test)]
@@ -280,6 +286,18 @@ mod tests {
             .set_language(&kotlin_language())
             .expect("load pinned Kotlin grammar");
         let tree = parser.parse("fun main() {}\n", None).expect("parse Kotlin");
+        assert!(!tree.root_node().has_error());
+    }
+
+    #[test]
+    fn loads_scala_language() {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&scala_language())
+            .expect("load pinned Scala grammar");
+        let tree = parser
+            .parse("class User:\n  def save(): Unit = println(\"ok\")\n", None)
+            .expect("parse Scala");
         assert!(!tree.root_node().has_error());
     }
 }

@@ -284,6 +284,20 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
         ),
         inject_python_binding=True,
     ),
+    "scala": GrammarSpec(
+        language="scala",
+        owner="tree-sitter",
+        repo="tree-sitter-scala",
+        commit="a68000002745b94eec61cef741efe7cede4ff465",
+        required_paths=(
+            "src/parser.c",
+            "src/scanner.c",
+            "src/tree_sitter/alloc.h",
+            "src/tree_sitter/array.h",
+            "src/tree_sitter/parser.h",
+            "bindings/python/tree_sitter_scala/binding.c",
+        ),
+    ),
 }
 
 
