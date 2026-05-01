@@ -182,7 +182,8 @@ dagayn status
 
 The Python backend remains the default. To use the Rust-backed graph store and
 Rust-owned parser paths for Markdown, Terraform, Rust, Python/notebooks, and
-Bash, plus core JavaScript/JSX/TypeScript/TSX files, set `DAGAYN_BACKEND=rust`:
+Bash/Go, plus core JavaScript/JSX/TypeScript/TSX files, set
+`DAGAYN_BACKEND=rust`:
 
 ```bash
 DAGAYN_BACKEND=rust dagayn build

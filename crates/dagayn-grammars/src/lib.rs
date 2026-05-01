@@ -14,6 +14,7 @@ extern "C" {
     fn tree_sitter_typescript() -> *const ();
     fn tree_sitter_tsx() -> *const ();
     fn tree_sitter_bash() -> *const ();
+    fn tree_sitter_go() -> *const ();
 }
 
 pub const MARKDOWN_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_markdown) };
@@ -24,6 +25,7 @@ pub const JAVASCRIPT_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_s
 pub const TYPESCRIPT_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_typescript) };
 pub const TSX_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_tsx) };
 pub const BASH_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_bash) };
+pub const GO_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_go) };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GrammarStatus {
@@ -64,6 +66,10 @@ pub fn tsx_language() -> tree_sitter::Language {
 
 pub fn bash_language() -> tree_sitter::Language {
     BASH_LANGUAGE.into()
+}
+
+pub fn go_language() -> tree_sitter::Language {
+    GO_LANGUAGE.into()
 }
 
 #[cfg(test)]
@@ -162,6 +168,18 @@ mod tests {
         let tree = parser
             .parse("main() { echo hi; }\nmain\n", None)
             .expect("parse Bash");
+        assert!(!tree.root_node().has_error());
+    }
+
+    #[test]
+    fn loads_go_language() {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&go_language())
+            .expect("load pinned Go grammar");
+        let tree = parser
+            .parse("package main\nfunc main() { println(\"hi\") }\n", None)
+            .expect("parse Go");
         assert!(!tree.root_node().has_error());
     }
 }

@@ -356,6 +356,7 @@ pub struct RustOwnedParser {
     typescript_parser: Option<tree_sitter::Parser>,
     tsx_parser: Option<tree_sitter::Parser>,
     bash_parser: Option<tree_sitter::Parser>,
+    go_parser: Option<tree_sitter::Parser>,
     javascript_export_cache: JavaScriptExportCache,
     javascript_module_cache: JavaScriptModuleCache,
     javascript_tsconfig_cache: JavaScriptTsconfigCache,
@@ -372,6 +373,7 @@ impl RustOwnedParser {
             typescript_parser: new_typescript_parser(),
             tsx_parser: new_tsx_parser(),
             bash_parser: new_bash_parser(),
+            go_parser: new_go_parser(),
             javascript_export_cache: RefCell::new(HashMap::new()),
             javascript_module_cache: RefCell::new(HashMap::new()),
             javascript_tsconfig_cache: RefCell::new(HashMap::new()),
@@ -449,6 +451,9 @@ impl RustOwnedParser {
             ),
             RustOwnedPathKind::Bash => {
                 parse_bash_with_parser(file_path, source, self.bash_parser.as_mut(), repo_root)
+            }
+            RustOwnedPathKind::Go => {
+                parse_go_with_parser(file_path, source, self.go_parser.as_mut())
             }
             RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
         }
@@ -4328,6 +4333,355 @@ fn strip_matching_quotes(value: &str) -> &str {
     }
 }
 
+pub fn parse_go(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let mut parser = new_go_parser();
+    parse_go_with_parser(file_path, source, parser.as_mut())
+}
+
+fn parse_go_with_parser(
+    file_path: &str,
+    source: &[u8],
+    parser: Option<&mut tree_sitter::Parser>,
+) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
+    let mut nodes = vec![ParsedNode {
+        kind: "File".to_string(),
+        name: file_path.to_string(),
+        file_path: file_path.to_string(),
+        line_start: 1,
+        line_end,
+        language: "go".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: is_test_file(file_path),
+        extra: json!({}),
+    }];
+    let mut edges = Vec::new();
+
+    if let Some(parser) = parser {
+        if let Some(tree) = parser.parse(source, None) {
+            let root = tree.root_node();
+            go_walk_children(root, source, file_path, None, &mut nodes, &mut edges);
+            let edges = resolve_rust_call_targets(&nodes, edges, file_path);
+            return (nodes, edges);
+        }
+    }
+
+    (nodes, edges)
+}
+
+fn go_walk_children(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    file_path: &str,
+    enclosing_func: Option<&str>,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        match child.kind() {
+            "import_declaration" => {
+                go_emit_imports(child, source, file_path, edges);
+            }
+            "type_declaration" => {
+                go_emit_types(child, source, file_path, nodes, edges);
+            }
+            "function_declaration" | "method_declaration" => {
+                if let Some((name, receiver)) = go_function_name_and_receiver(child, source) {
+                    go_emit_function(
+                        child,
+                        source,
+                        file_path,
+                        &name,
+                        receiver.as_deref(),
+                        nodes,
+                        edges,
+                    );
+                    go_walk_children(child, source, file_path, Some(&name), nodes, edges);
+                    continue;
+                }
+            }
+            "call_expression" => {
+                go_emit_call(child, source, file_path, enclosing_func, edges);
+            }
+            _ => {}
+        }
+        go_walk_children(child, source, file_path, enclosing_func, nodes, edges);
+    }
+}
+
+fn go_emit_imports(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    file_path: &str,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        go_emit_imports(child, source, file_path, edges);
+        if child.kind() == "interpreted_string_literal" {
+            let target = strip_matching_quotes(node_text(child, source).trim()).to_string();
+            if !target.is_empty() {
+                edges.push(ParsedEdge {
+                    kind: "IMPORTS_FROM".to_string(),
+                    source: file_path.to_string(),
+                    target,
+                    file_path: file_path.to_string(),
+                    line: child.start_position().row as i64 + 1,
+                    extra: json!({}),
+                });
+            }
+        }
+    }
+}
+
+fn go_emit_types(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    file_path: &str,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() != "type_spec" {
+            continue;
+        }
+        let Some(name) = go_direct_child_text(child, source, "type_identifier") else {
+            continue;
+        };
+        let qualified = qualify(file_path, &name, None);
+        nodes.push(ParsedNode {
+            kind: "Class".to_string(),
+            name,
+            file_path: file_path.to_string(),
+            line_start: child.start_position().row as i64 + 1,
+            line_end: child.end_position().row as i64 + 1,
+            language: "go".to_string(),
+            parent_name: None,
+            params: None,
+            return_type: None,
+            modifiers: None,
+            is_test: false,
+            extra: json!({"type_role": "class"}),
+        });
+        edges.push(ParsedEdge {
+            kind: "CONTAINS".to_string(),
+            source: file_path.to_string(),
+            target: qualified,
+            file_path: file_path.to_string(),
+            line: child.start_position().row as i64 + 1,
+            extra: json!({}),
+        });
+    }
+}
+
+fn go_emit_function(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    file_path: &str,
+    name: &str,
+    receiver: Option<&str>,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let qualified = qualify(file_path, name, receiver);
+    nodes.push(ParsedNode {
+        kind: "Function".to_string(),
+        name: name.to_string(),
+        file_path: file_path.to_string(),
+        line_start: node.start_position().row as i64 + 1,
+        line_end: node.end_position().row as i64 + 1,
+        language: "go".to_string(),
+        parent_name: receiver.map(str::to_string),
+        params: go_first_parameter_list(node, source),
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: json!({}),
+    });
+    let container = receiver
+        .map(|receiver| qualify(file_path, receiver, None))
+        .unwrap_or_else(|| file_path.to_string());
+    edges.push(ParsedEdge {
+        kind: "CONTAINS".to_string(),
+        source: container,
+        target: qualified,
+        file_path: file_path.to_string(),
+        line: node.start_position().row as i64 + 1,
+        extra: json!({}),
+    });
+}
+
+fn go_function_name_and_receiver(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> Option<(String, Option<String>)> {
+    if node.kind() == "function_declaration" {
+        return go_direct_child_text(node, source, "identifier").map(|name| (name, None));
+    }
+    let name = go_direct_child_text(node, source, "field_identifier")?;
+    let receiver = go_receiver_name(node, source);
+    Some((name, receiver))
+}
+
+fn go_receiver_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut cursor = node.walk();
+    let receiver_list = node
+        .children(&mut cursor)
+        .find(|child| child.kind() == "parameter_list")?;
+    go_last_named_descendant(receiver_list, source, &["type_identifier"])
+}
+
+fn go_first_parameter_list(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut cursor = node.walk();
+    let params = node
+        .children(&mut cursor)
+        .find(|child| child.kind() == "parameter_list")
+        .map(|child| node_text(child, source));
+    params
+}
+
+fn go_emit_call(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    file_path: &str,
+    enclosing_func: Option<&str>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let Some((call_name, signature)) = go_call_name_and_signature(node, source) else {
+        return;
+    };
+    let caller = enclosing_func
+        .map(|func| qualify(file_path, func, None))
+        .unwrap_or_else(|| file_path.to_string());
+    edges.push(ParsedEdge {
+        kind: "CALLS".to_string(),
+        source: caller.clone(),
+        target: call_name,
+        file_path: file_path.to_string(),
+        line: node.start_position().row as i64 + 1,
+        extra: json!({}),
+    });
+    if let Some(edge) = go_bridge_edge(node, source, file_path, &caller, &signature) {
+        edges.push(edge);
+    }
+}
+
+fn go_call_name_and_signature(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> Option<(String, String)> {
+    let mut cursor = node.walk();
+    let callee = node
+        .children(&mut cursor)
+        .find(|child| child.kind() != "argument_list")?;
+    if callee.kind() == "identifier" {
+        let name = node_text(callee, source);
+        return Some((name.clone(), name));
+    }
+    if callee.kind() == "selector_expression" {
+        let signature = node_text(callee, source);
+        let name = go_last_named_descendant(callee, source, &["field_identifier", "identifier"])?;
+        return Some((name, signature));
+    }
+    None
+}
+
+fn go_bridge_edge(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    file_path: &str,
+    caller: &str,
+    signature: &str,
+) -> Option<ParsedEdge> {
+    let (relationship_role, bridge_kind) = match signature {
+        "exec.Command" => ("invokes_binary", "subprocess"),
+        "os.ReadFile" | "os.Open" => ("reads_file", "file_io"),
+        "os.WriteFile" => ("writes_file", "file_io"),
+        "plugin.Open" => ("loads_shared_library", "ffi"),
+        _ => return None,
+    };
+    let line = node.start_position().row as i64 + 1;
+    let (target, confidence, confidence_tier) = match go_first_string_arg(node, source) {
+        Some(target) => (target, 0.8, "HIGH"),
+        None => (
+            format!("<dynamic:{signature}@{file_path}:{line}>"),
+            0.2,
+            "LOW",
+        ),
+    };
+    Some(ParsedEdge {
+        kind: "CROSS_ARTIFACT".to_string(),
+        source: caller.to_string(),
+        target,
+        file_path: file_path.to_string(),
+        line,
+        extra: json!({
+            "relationship_role": relationship_role,
+            "bridge_kind": bridge_kind,
+            "evidence_kind": "syntax",
+            "evidence_source": signature,
+            "source_language": "go",
+            "target_language": "unknown",
+            "confidence": confidence,
+            "confidence_tier": confidence_tier,
+        }),
+    })
+}
+
+fn go_first_string_arg(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut cursor = node.walk();
+    let arguments = node
+        .children(&mut cursor)
+        .find(|child| child.kind() == "argument_list")?;
+    let mut arg_cursor = arguments.walk();
+    for child in arguments.children(&mut arg_cursor) {
+        if matches!(child.kind(), "," | "(" | ")") {
+            continue;
+        }
+        if matches!(
+            child.kind(),
+            "interpreted_string_literal" | "raw_string_literal"
+        ) {
+            return Some(strip_matching_quotes(node_text(child, source).trim()).to_string());
+        }
+        return None;
+    }
+    None
+}
+
+fn go_direct_child_text(node: tree_sitter::Node<'_>, source: &[u8], kind: &str) -> Option<String> {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == kind {
+            return Some(node_text(child, source));
+        }
+    }
+    None
+}
+
+fn go_last_named_descendant(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    kinds: &[&str],
+) -> Option<String> {
+    let mut found = None;
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if kinds.contains(&child.kind()) {
+            found = Some(node_text(child, source));
+        }
+        if let Some(name) = go_last_named_descendant(child, source, kinds) {
+            found = Some(name);
+        }
+    }
+    found
+}
+
 fn resolve_rust_call_targets(
     nodes: &[ParsedNode],
     edges: Vec<ParsedEdge>,
@@ -4441,6 +4795,7 @@ pub fn parse_rust_owned_file(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>
         RustOwnedPathKind::TypeScript => parse_javascript_like(file_path, source, "typescript"),
         RustOwnedPathKind::Tsx => parse_javascript_like(file_path, source, "tsx"),
         RustOwnedPathKind::Bash => parse_bash(file_path, source),
+        RustOwnedPathKind::Go => parse_go(file_path, source),
         RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
     }
 }
@@ -4460,6 +4815,7 @@ enum RustOwnedPathKind {
     TypeScript,
     Tsx,
     Bash,
+    Go,
     Unsupported,
 }
 
@@ -4493,6 +4849,8 @@ fn rust_owned_path_kind(file_path: &str) -> RustOwnedPathKind {
         || ends_with_ascii_ignore_case(file_path, ".ksh")
     {
         RustOwnedPathKind::Bash
+    } else if ends_with_ascii_ignore_case(file_path, ".go") {
+        RustOwnedPathKind::Go
     } else {
         RustOwnedPathKind::Unsupported
     }
@@ -4628,6 +4986,15 @@ fn new_bash_parser() -> Option<tree_sitter::Parser> {
         .set_language(&dagayn_grammars::bash_language())
         .is_ok()
     {
+        Some(parser)
+    } else {
+        None
+    }
+}
+
+fn new_go_parser() -> Option<tree_sitter::Parser> {
+    let mut parser = tree_sitter::Parser::new();
+    if parser.set_language(&dagayn_grammars::go_language()).is_ok() {
         Some(parser)
     } else {
         None
@@ -6295,6 +6662,67 @@ main "$@"
         }));
 
         let _ = std::fs::remove_dir_all(&repo_root);
+    }
+
+    #[test]
+    fn parses_go_types_methods_calls_and_bridges() {
+        let source = br#"package main
+
+import (
+  "os"
+  "os/exec"
+  "plugin"
+)
+
+type Repo struct {}
+
+func NewRepo() *Repo {
+  return &Repo{}
+}
+
+func (r *Repo) Save() {
+  os.WriteFile("output.json", []byte("ok"), 0644)
+}
+
+func runCommand(path string) {
+  exec.Command("git", "status")
+  os.ReadFile(path)
+  plugin.Open("mylib.so")
+}
+"#;
+        let (nodes, edges) = parse_go("main.go", source);
+        assert!(nodes
+            .iter()
+            .any(|node| { node.kind == "Class" && node.name == "Repo" && node.language == "go" }));
+        assert!(nodes.iter().any(|node| {
+            node.kind == "Function"
+                && node.name == "Save"
+                && node.parent_name.as_deref() == Some("Repo")
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "IMPORTS_FROM" && edge.source == "main.go" && edge.target == "os/exec"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CONTAINS"
+                && edge.source == "main.go::Repo"
+                && edge.target == "main.go::Repo.Save"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CROSS_ARTIFACT"
+                && edge.target == "git"
+                && edge.extra["evidence_source"] == "exec.Command"
+                && edge.extra["confidence_tier"] == "HIGH"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CROSS_ARTIFACT"
+                && edge.target == "<dynamic:os.ReadFile@main.go:21>"
+                && edge.extra["confidence_tier"] == "LOW"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CROSS_ARTIFACT"
+                && edge.target == "mylib.so"
+                && edge.extra["evidence_source"] == "plugin.Open"
+        }));
     }
 
     #[test]

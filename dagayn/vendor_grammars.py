@@ -194,6 +194,20 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
         ),
         inject_python_binding=True,
     ),
+    "go": GrammarSpec(
+        language="go",
+        owner="tree-sitter",
+        repo="tree-sitter-go",
+        commit="2346a3ab1bb3857b48b29d779a1ef9799a248cd7",
+        required_paths=(
+            "src/parser.c",
+            "src/tree_sitter/alloc.h",
+            "src/tree_sitter/array.h",
+            "src/tree_sitter/parser.h",
+            "bindings/python/binding.c",
+        ),
+        inject_python_binding=True,
+    ),
 }
 
 

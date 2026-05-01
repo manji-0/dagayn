@@ -122,6 +122,19 @@ const BASH: GrammarSpec = GrammarSpec {
     parser_subdirectory: None,
 };
 
+const GO: GrammarSpec = GrammarSpec {
+    language: "go",
+    symbol: "go",
+    required_paths: &[
+        "src/parser.c",
+        "src/tree_sitter/alloc.h",
+        "src/tree_sitter/array.h",
+        "src/tree_sitter/parser.h",
+        "bindings/python/binding.c",
+    ],
+    parser_subdirectory: None,
+};
+
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let repo_root = manifest_dir
@@ -144,6 +157,7 @@ fn main() {
     compile_grammar(&repo_root, &TYPESCRIPT);
     compile_grammar(&repo_root, &TSX);
     compile_grammar(&repo_root, &BASH);
+    compile_grammar(&repo_root, &GO);
 }
 
 fn compile_grammar(repo_root: &Path, spec: &GrammarSpec) {
@@ -166,10 +180,13 @@ fn compile_grammar(repo_root: &Path, spec: &GrammarSpec) {
         .include(&src_dir)
         .include(src_dir.join("tree_sitter"))
         .file(src_dir.join("parser.c"))
-        .file(src_dir.join("scanner.c"))
         .warnings(false)
         .flag_if_supported("-Wno-unused-parameter")
         .flag_if_supported("-Wno-unused-but-set-variable");
+    let scanner = src_dir.join("scanner.c");
+    if scanner.exists() {
+        build.file(scanner);
+    }
     if spec.language == "bash" {
         // tree-sitter-bash's scanner includes generic tree_sitter helper
         // headers that are staged with the earlier JavaScript grammar.
