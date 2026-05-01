@@ -436,6 +436,20 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
             "bindings/python/tree_sitter_r/binding.c",
         ),
     ),
+    "julia": GrammarSpec(
+        language="julia",
+        owner="tree-sitter",
+        repo="tree-sitter-julia",
+        commit="e0f9dcd180fdcfcfa8d79a3531e11d99e79321d3",
+        required_paths=(
+            "src/parser.c",
+            "src/scanner.c",
+            "src/tree_sitter/alloc.h",
+            "src/tree_sitter/array.h",
+            "src/tree_sitter/parser.h",
+            "bindings/python/tree_sitter_julia/binding.c",
+        ),
+    ),
 }
 
 

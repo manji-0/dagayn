@@ -31,6 +31,7 @@ extern "C" {
     fn tree_sitter_elixir() -> *const ();
     fn tree_sitter_gdscript() -> *const ();
     fn tree_sitter_r() -> *const ();
+    fn tree_sitter_julia() -> *const ();
 }
 
 pub const MARKDOWN_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_markdown) };
@@ -58,6 +59,7 @@ pub const OBJC_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_
 pub const ELIXIR_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_elixir) };
 pub const GDSCRIPT_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_gdscript) };
 pub const R_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_r) };
+pub const JULIA_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_julia) };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GrammarStatus {
@@ -166,6 +168,10 @@ pub fn gdscript_language() -> tree_sitter::Language {
 
 pub fn r_language() -> tree_sitter::Language {
     R_LANGUAGE.into()
+}
+
+pub fn julia_language() -> tree_sitter::Language {
+    JULIA_LANGUAGE.into()
 }
 
 #[cfg(test)]
@@ -481,6 +487,18 @@ mod tests {
         let tree = parser
             .parse("add <- function(x, y) {\n  x + y\n}\n", None)
             .expect("parse R");
+        assert!(!tree.root_node().has_error());
+    }
+
+    #[test]
+    fn loads_julia_language() {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&julia_language())
+            .expect("load pinned Julia grammar");
+        let tree = parser
+            .parse("module Sample\nfunction greet()\nend\nend\n", None)
+            .expect("parse Julia");
         assert!(!tree.root_node().has_error());
     }
 }
