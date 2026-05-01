@@ -358,6 +358,7 @@ pub struct RustOwnedParser {
     bash_parser: Option<tree_sitter::Parser>,
     go_parser: Option<tree_sitter::Parser>,
     java_parser: Option<tree_sitter::Parser>,
+    ruby_parser: Option<tree_sitter::Parser>,
     javascript_export_cache: JavaScriptExportCache,
     javascript_module_cache: JavaScriptModuleCache,
     javascript_tsconfig_cache: JavaScriptTsconfigCache,
@@ -376,6 +377,7 @@ impl RustOwnedParser {
             bash_parser: new_bash_parser(),
             go_parser: new_go_parser(),
             java_parser: new_java_parser(),
+            ruby_parser: new_ruby_parser(),
             javascript_export_cache: RefCell::new(HashMap::new()),
             javascript_module_cache: RefCell::new(HashMap::new()),
             javascript_tsconfig_cache: RefCell::new(HashMap::new()),
@@ -459,6 +461,9 @@ impl RustOwnedParser {
             }
             RustOwnedPathKind::Java => {
                 parse_java_with_parser(file_path, source, self.java_parser.as_mut(), repo_root)
+            }
+            RustOwnedPathKind::Ruby => {
+                parse_ruby_with_parser(file_path, source, self.ruby_parser.as_mut())
             }
             RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
         }
@@ -5200,6 +5205,336 @@ fn java_direct_child_text(
     None
 }
 
+pub fn parse_ruby(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let mut parser = new_ruby_parser();
+    parse_ruby_with_parser(file_path, source, parser.as_mut())
+}
+
+fn parse_ruby_with_parser(
+    file_path: &str,
+    source: &[u8],
+    parser: Option<&mut tree_sitter::Parser>,
+) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
+    let mut nodes = vec![ParsedNode {
+        kind: "File".to_string(),
+        name: file_path.to_string(),
+        file_path: file_path.to_string(),
+        line_start: 1,
+        line_end,
+        language: "ruby".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: is_test_file(file_path),
+        extra: json!({}),
+    }];
+    let mut edges = Vec::new();
+
+    if let Some(parser) = parser {
+        if let Some(tree) = parser.parse(source, None) {
+            ruby_walk_children(
+                tree.root_node(),
+                source,
+                file_path,
+                None,
+                None,
+                &mut nodes,
+                &mut edges,
+            );
+            let edges = resolve_rust_call_targets(&nodes, edges, file_path);
+            return (nodes, edges);
+        }
+    }
+
+    (nodes, edges)
+}
+
+fn ruby_walk_children(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    file_path: &str,
+    enclosing_class: Option<&str>,
+    enclosing_func: Option<&str>,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        match child.kind() {
+            "module" | "class" => {
+                if let Some(name) = ruby_class_name(child, source) {
+                    ruby_emit_class(child, file_path, &name, enclosing_class, nodes, edges);
+                    ruby_walk_children(child, source, file_path, Some(&name), None, nodes, edges);
+                    continue;
+                }
+            }
+            "method" | "singleton_method" => {
+                if let Some(name) = ruby_method_name(child, source) {
+                    ruby_emit_function(child, file_path, &name, enclosing_class, nodes, edges);
+                    ruby_walk_children(
+                        child,
+                        source,
+                        file_path,
+                        enclosing_class,
+                        Some(&name),
+                        nodes,
+                        edges,
+                    );
+                    continue;
+                }
+            }
+            "call" | "method_call" => {
+                ruby_emit_call(
+                    child,
+                    source,
+                    file_path,
+                    enclosing_class,
+                    enclosing_func,
+                    edges,
+                );
+            }
+            _ => {}
+        }
+        ruby_walk_children(
+            child,
+            source,
+            file_path,
+            enclosing_class,
+            enclosing_func,
+            nodes,
+            edges,
+        );
+    }
+}
+
+fn ruby_emit_class(
+    node: tree_sitter::Node<'_>,
+    file_path: &str,
+    name: &str,
+    enclosing_class: Option<&str>,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    nodes.push(ParsedNode {
+        kind: "Class".to_string(),
+        name: name.to_string(),
+        file_path: file_path.to_string(),
+        line_start: node.start_position().row as i64 + 1,
+        line_end: node.end_position().row as i64 + 1,
+        language: "ruby".to_string(),
+        parent_name: enclosing_class.map(str::to_string),
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: json!({"type_role": "class"}),
+    });
+    edges.push(ParsedEdge {
+        kind: "CONTAINS".to_string(),
+        source: file_path.to_string(),
+        target: qualify(file_path, name, enclosing_class),
+        file_path: file_path.to_string(),
+        line: node.start_position().row as i64 + 1,
+        extra: json!({}),
+    });
+}
+
+fn ruby_emit_function(
+    node: tree_sitter::Node<'_>,
+    file_path: &str,
+    name: &str,
+    enclosing_class: Option<&str>,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let qualified = qualify(file_path, name, enclosing_class);
+    nodes.push(ParsedNode {
+        kind: "Function".to_string(),
+        name: name.to_string(),
+        file_path: file_path.to_string(),
+        line_start: node.start_position().row as i64 + 1,
+        line_end: node.end_position().row as i64 + 1,
+        language: "ruby".to_string(),
+        parent_name: enclosing_class.map(str::to_string),
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: json!({}),
+    });
+    edges.push(ParsedEdge {
+        kind: "CONTAINS".to_string(),
+        source: enclosing_class
+            .map(|class| qualify(file_path, class, None))
+            .unwrap_or_else(|| file_path.to_string()),
+        target: qualified,
+        file_path: file_path.to_string(),
+        line: node.start_position().row as i64 + 1,
+        extra: json!({}),
+    });
+}
+
+fn ruby_emit_call(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    file_path: &str,
+    enclosing_class: Option<&str>,
+    enclosing_func: Option<&str>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let call_name = ruby_call_name(node, source);
+    let caller = enclosing_func
+        .map(|func| qualify(file_path, func, enclosing_class))
+        .unwrap_or_else(|| file_path.to_string());
+    if let Some(call_name) = call_name {
+        if call_name == "require" || call_name == "require_relative" {
+            if let Some(target) = ruby_first_string_arg(node, source) {
+                edges.push(ParsedEdge {
+                    kind: "IMPORTS_FROM".to_string(),
+                    source: file_path.to_string(),
+                    target,
+                    file_path: file_path.to_string(),
+                    line: node.start_position().row as i64 + 1,
+                    extra: json!({}),
+                });
+            }
+        }
+        edges.push(ParsedEdge {
+            kind: "CALLS".to_string(),
+            source: caller.clone(),
+            target: call_name,
+            file_path: file_path.to_string(),
+            line: node.start_position().row as i64 + 1,
+            extra: json!({}),
+        });
+    }
+    if let Some(signature) = ruby_call_signature(node, source) {
+        if let Some(edge) = ruby_bridge_edge(node, source, file_path, &caller, &signature) {
+            edges.push(edge);
+        }
+    }
+}
+
+fn ruby_class_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    ruby_direct_child_text(node, source, &["constant"])
+}
+
+fn ruby_method_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    ruby_direct_child_text(node, source, &["identifier"])
+}
+
+fn ruby_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut cursor = node.walk();
+    let first = node.children(&mut cursor).find(|child| {
+        !matches!(
+            child.kind(),
+            "argument_list" | "do_block" | "block" | "." | "::" | "&."
+        )
+    })?;
+    matches!(first.kind(), "identifier").then(|| node_text(first, source))
+}
+
+fn ruby_call_signature(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut parts = Vec::new();
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if matches!(child.kind(), "argument_list" | "do_block" | "block") {
+            break;
+        }
+        parts.push(node_text(child, source));
+    }
+    let signature = parts.join("").trim().to_string();
+    (!signature.is_empty()).then_some(signature)
+}
+
+fn ruby_bridge_edge(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    file_path: &str,
+    caller: &str,
+    signature: &str,
+) -> Option<ParsedEdge> {
+    let (relationship_role, bridge_kind) = match signature {
+        "system" | "exec" | "spawn" | "Kernel.system" | "Process.spawn" | "IO.popen"
+        | "Open3.capture3" | "Open3.popen3" => ("invokes_binary", "subprocess"),
+        "File.read" | "File.readlines" | "IO.read" => ("reads_file", "file_io"),
+        "File.write" | "IO.write" => ("writes_file", "file_io"),
+        "File.open" => ("opens_file", "file_io"),
+        "Fiddle.dlopen" => ("loads_shared_library", "ffi"),
+        _ => return None,
+    };
+    let line = node.start_position().row as i64 + 1;
+    let (target, confidence, confidence_tier) = match ruby_first_string_arg(node, source) {
+        Some(target) => (target, 0.8, "HIGH"),
+        None => (
+            format!("<dynamic:{signature}@{file_path}:{line}>"),
+            0.2,
+            "LOW",
+        ),
+    };
+    Some(ParsedEdge {
+        kind: "CROSS_ARTIFACT".to_string(),
+        source: caller.to_string(),
+        target,
+        file_path: file_path.to_string(),
+        line,
+        extra: json!({
+            "relationship_role": relationship_role,
+            "bridge_kind": bridge_kind,
+            "evidence_kind": "syntax",
+            "evidence_source": signature,
+            "source_language": "ruby",
+            "target_language": "unknown",
+            "confidence": confidence,
+            "confidence_tier": confidence_tier,
+        }),
+    })
+}
+
+fn ruby_first_string_arg(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut cursor = node.walk();
+    let arguments = node
+        .children(&mut cursor)
+        .find(|child| child.kind() == "argument_list")?;
+    let mut arg_cursor = arguments.walk();
+    for child in arguments.children(&mut arg_cursor) {
+        if matches!(child.kind(), "," | "(" | ")") {
+            continue;
+        }
+        if child.kind() == "string" {
+            return Some(ruby_string_text(child, source));
+        }
+        return None;
+    }
+    None
+}
+
+fn ruby_string_text(node: tree_sitter::Node<'_>, source: &[u8]) -> String {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "string_content" {
+            return node_text(child, source);
+        }
+    }
+    strip_matching_quotes(node_text(node, source).trim()).to_string()
+}
+
+fn ruby_direct_child_text(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    kinds: &[&str],
+) -> Option<String> {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if kinds.contains(&child.kind()) {
+            return Some(node_text(child, source));
+        }
+    }
+    None
+}
+
 fn resolve_rust_call_targets(
     nodes: &[ParsedNode],
     edges: Vec<ParsedEdge>,
@@ -5315,6 +5650,7 @@ pub fn parse_rust_owned_file(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>
         RustOwnedPathKind::Bash => parse_bash(file_path, source),
         RustOwnedPathKind::Go => parse_go(file_path, source),
         RustOwnedPathKind::Java => parse_java(file_path, source),
+        RustOwnedPathKind::Ruby => parse_ruby(file_path, source),
         RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
     }
 }
@@ -5336,6 +5672,7 @@ enum RustOwnedPathKind {
     Bash,
     Go,
     Java,
+    Ruby,
     Unsupported,
 }
 
@@ -5373,6 +5710,8 @@ fn rust_owned_path_kind(file_path: &str) -> RustOwnedPathKind {
         RustOwnedPathKind::Go
     } else if ends_with_ascii_ignore_case(file_path, ".java") {
         RustOwnedPathKind::Java
+    } else if ends_with_ascii_ignore_case(file_path, ".rb") {
+        RustOwnedPathKind::Ruby
     } else {
         RustOwnedPathKind::Unsupported
     }
@@ -5527,6 +5866,18 @@ fn new_java_parser() -> Option<tree_sitter::Parser> {
     let mut parser = tree_sitter::Parser::new();
     if parser
         .set_language(&dagayn_grammars::java_language())
+        .is_ok()
+    {
+        Some(parser)
+    } else {
+        None
+    }
+}
+
+fn new_ruby_parser() -> Option<tree_sitter::Parser> {
+    let mut parser = tree_sitter::Parser::new();
+    if parser
+        .set_language(&dagayn_grammars::ruby_language())
         .is_ok()
     {
         Some(parser)
@@ -7355,6 +7706,78 @@ class CachedRepo extends BaseRepo {
         }));
 
         let _ = std::fs::remove_dir_all(&repo_root);
+    }
+
+    #[test]
+    fn parses_ruby_classes_calls_imports_and_bridges() {
+        let source = br#"require 'json'
+
+module Auth
+  class UserRepository
+    def save(user)
+      File.write("output.json", "{}")
+      puts "Saved #{user}"
+    end
+
+    def create_user(name)
+      save(name)
+    end
+  end
+end
+
+def run_command(path)
+  system("git status")
+  File.read(path)
+  Fiddle.dlopen("mylib.so")
+end
+"#;
+        let (nodes, edges) = parse_ruby("app.rb", source);
+        assert!(nodes.iter().any(|node| {
+            node.kind == "Class"
+                && node.name == "Auth"
+                && node.parent_name.is_none()
+                && node.language == "ruby"
+        }));
+        assert!(nodes.iter().any(|node| {
+            node.kind == "Class"
+                && node.name == "UserRepository"
+                && node.parent_name.as_deref() == Some("Auth")
+        }));
+        assert!(nodes.iter().any(|node| {
+            node.kind == "Function"
+                && node.name == "save"
+                && node.parent_name.as_deref() == Some("UserRepository")
+                && node.params.is_none()
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "IMPORTS_FROM" && edge.source == "app.rb" && edge.target == "json"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CALLS"
+                && edge.source == "app.rb::UserRepository.create_user"
+                && edge.target == "app.rb::UserRepository.save"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CROSS_ARTIFACT"
+                && edge.target == "output.json"
+                && edge.extra["evidence_source"] == "File.write"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CROSS_ARTIFACT"
+                && edge.target == "git status"
+                && edge.extra["evidence_source"] == "system"
+                && edge.extra["confidence_tier"] == "HIGH"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CROSS_ARTIFACT"
+                && edge.target == "<dynamic:File.read@app.rb:18>"
+                && edge.extra["confidence_tier"] == "LOW"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CROSS_ARTIFACT"
+                && edge.target == "mylib.so"
+                && edge.extra["evidence_source"] == "Fiddle.dlopen"
+        }));
     }
 
     #[test]

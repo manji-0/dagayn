@@ -16,6 +16,7 @@ extern "C" {
     fn tree_sitter_bash() -> *const ();
     fn tree_sitter_go() -> *const ();
     fn tree_sitter_java() -> *const ();
+    fn tree_sitter_ruby() -> *const ();
 }
 
 pub const MARKDOWN_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_markdown) };
@@ -28,6 +29,7 @@ pub const TSX_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_t
 pub const BASH_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_bash) };
 pub const GO_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_go) };
 pub const JAVA_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_java) };
+pub const RUBY_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_ruby) };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GrammarStatus {
@@ -76,6 +78,10 @@ pub fn go_language() -> tree_sitter::Language {
 
 pub fn java_language() -> tree_sitter::Language {
     JAVA_LANGUAGE.into()
+}
+
+pub fn ruby_language() -> tree_sitter::Language {
+    RUBY_LANGUAGE.into()
 }
 
 #[cfg(test)]
@@ -201,6 +207,21 @@ mod tests {
                 None,
             )
             .expect("parse Java");
+        assert!(!tree.root_node().has_error());
+    }
+
+    #[test]
+    fn loads_ruby_language() {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&ruby_language())
+            .expect("load pinned Ruby grammar");
+        let tree = parser
+            .parse(
+                "class User\n  def save\n    puts \"ok\"\n  end\nend\n",
+                None,
+            )
+            .expect("parse Ruby");
         assert!(!tree.root_node().has_error());
     }
 }

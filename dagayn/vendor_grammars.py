@@ -222,6 +222,21 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
         ),
         inject_python_binding=True,
     ),
+    "ruby": GrammarSpec(
+        language="ruby",
+        owner="tree-sitter",
+        repo="tree-sitter-ruby",
+        commit="ad907a69da0c8a4f7a943a7fe012712208da6dee",
+        required_paths=(
+            "src/parser.c",
+            "src/scanner.c",
+            "src/tree_sitter/alloc.h",
+            "src/tree_sitter/array.h",
+            "src/tree_sitter/parser.h",
+            "bindings/python/binding.c",
+        ),
+        inject_python_binding=True,
+    ),
 }
 
 
