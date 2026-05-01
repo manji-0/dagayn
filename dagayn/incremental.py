@@ -1125,18 +1125,7 @@ def _rust_backend_enabled() -> bool:
 
 def _rust_parser_owns_path(rel_path: str, repo_root: Path | None = None) -> bool:
     lower = rel_path.lower()
-    if lower.endswith((".md", ".markdown", ".tf", ".tfvars", ".rs")):
-        return True
-    if not lower.endswith(".py"):
-        return False
-    if repo_root is None:
-        return True
-    try:
-        with (repo_root / rel_path).open("rb") as fh:
-            first_line = fh.readline()
-    except (OSError, PermissionError):
-        return False
-    return first_line.strip() != b"# Databricks notebook source"
+    return lower.endswith((".md", ".markdown", ".tf", ".tfvars", ".rs", ".py"))
 
 
 def _split_rust_parser_files(

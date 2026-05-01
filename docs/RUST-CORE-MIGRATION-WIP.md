@@ -445,10 +445,9 @@ Parser migration progress:
   and exposed through `parse_python_compact_json` for parity work. The Rust
   parser now mirrors Python-side import alias resolution, TESTED_BY generation,
   CROSS_ARTIFACT subprocess/file/FFI bridge detection, and function-as-value
-  REFERENCES on this repository's Python files. Non-Databricks `.py` files now
-  route through the Rust-owned parse path when `DAGAYN_BACKEND=rust`;
-  Databricks `.py` notebook exports stay on Python fallback because Python
-  currently splits SQL/R/Python cells before parsing.
+  REFERENCES on this repository's Python files. `.py` files now route through
+  the Rust-owned parse path when `DAGAYN_BACKEND=rust`, including Databricks
+  `.py` notebook exports via Rust-side SQL/R/Python cell splitting.
 - FTS rebuilds now route through `dagayn._core.GraphStore.rebuild_fts_index`
   when the Rust backend is active. Python's `dagayn.search.rebuild_fts_index`
   keeps the existing SQLite implementation as the fallback for the Python

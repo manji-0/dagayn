@@ -38,6 +38,17 @@ static MARKDOWN_DIRECTIVE_RE: LazyLock<Regex> = LazyLock::new(|| {
 });
 static MARKDOWN_INLINE_LINK_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\[[^\]]+\]\(([^)]+)\)").unwrap());
+static NOTEBOOK_SQL_TABLE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?i)(?:FROM|JOIN|INTO|CREATE\s+(?:OR\s+REPLACE\s+)?(?:TABLE|VIEW)|INSERT\s+OVERWRITE)\s+((?:`[^`]+`|\w+)(?:\.(?:`[^`]+`|\w+))*)",
+    )
+    .unwrap()
+});
+static NOTEBOOK_R_FUNCTION_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^\s*([A-Za-z_.][A-Za-z0-9_.]*)\s*<-\s*function\s*(\([^)]*\))").unwrap()
+});
+static NOTEBOOK_R_CALL_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b([A-Za-z_.][A-Za-z0-9_.]*)\s*\(").unwrap());
 static MARKDOWN_REF_LINK_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?m)^\s*\[[^\]]+\]:\s*(\S+)").unwrap());
 static MARKDOWN_CODE_SPAN_RE: LazyLock<Regex> =
@@ -640,6 +651,10 @@ fn parse_python_with_parser(
     parser: Option<&mut tree_sitter::Parser>,
     repo_root: Option<&Path>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    if is_databricks_py_source(source) {
+        return parse_databricks_py_with_parser(file_path, source, parser, repo_root);
+    }
+
     let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
     let mut nodes = vec![ParsedNode {
         kind: "File".to_string(),
@@ -689,6 +704,353 @@ struct PythonParseContext<'a> {
     repo_root: Option<&'a Path>,
     import_map: &'a HashMap<String, String>,
     top_level_defined_names: &'a HashSet<String>,
+}
+
+#[derive(Clone)]
+struct NotebookCell {
+    cell_index: i64,
+    language: &'static str,
+    source: String,
+}
+
+fn is_databricks_py_source(source: &[u8]) -> bool {
+    let first_line = source
+        .split(|byte| *byte == b'\n')
+        .next()
+        .unwrap_or_default();
+    first_line.trim_ascii() == b"# Databricks notebook source"
+}
+
+fn parse_databricks_py_with_parser(
+    file_path: &str,
+    source: &[u8],
+    parser: Option<&mut tree_sitter::Parser>,
+    repo_root: Option<&Path>,
+) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let text = String::from_utf8_lossy(source);
+    let cells = collect_databricks_py_cells(&text);
+    if cells.is_empty() {
+        return (
+            vec![databricks_file_node(file_path, 1, is_test_file(file_path))],
+            Vec::new(),
+        );
+    }
+
+    let mut nodes = Vec::new();
+    let mut edges = Vec::new();
+    let mut cell_offsets = Vec::new();
+    let mut max_line = 1_i64;
+    let mut parser = parser;
+    let mut languages = Vec::<&'static str>::new();
+    for cell in &cells {
+        if !languages.contains(&cell.language) {
+            languages.push(cell.language);
+        }
+    }
+
+    for language in languages {
+        let lang_cells = cells
+            .iter()
+            .filter(|cell| cell.language == language)
+            .cloned()
+            .collect::<Vec<_>>();
+        match language {
+            "python" => {
+                let (mut parsed_nodes, parsed_edges, offsets, current_line) =
+                    parse_databricks_python_cells(
+                        file_path,
+                        &lang_cells,
+                        parser.as_deref_mut(),
+                        repo_root,
+                    );
+                nodes.append(&mut parsed_nodes);
+                edges.extend(parsed_edges);
+                cell_offsets.extend(offsets);
+                max_line = max_line.max(current_line);
+            }
+            "sql" => {
+                for cell in &lang_cells {
+                    extract_databricks_sql_imports(file_path, cell, &mut edges);
+                }
+            }
+            "r" => {
+                let (mut parsed_nodes, parsed_edges, offsets, current_line) =
+                    parse_databricks_r_cells(file_path, &lang_cells);
+                nodes.append(&mut parsed_nodes);
+                edges.extend(parsed_edges);
+                cell_offsets.extend(offsets);
+                max_line = max_line.max(current_line);
+            }
+            _ => {}
+        }
+    }
+
+    let mut file_node = databricks_file_node(file_path, max_line, is_test_file(file_path));
+    file_node.extra = json!({"notebook_format": "databricks_py"});
+    nodes.insert(0, file_node);
+    tag_notebook_cell_indices(&mut nodes, &cell_offsets);
+    let edges = resolve_python_call_targets(&nodes, edges, file_path);
+    let edges = add_python_tested_by_edges(&nodes, edges, file_path);
+    (nodes, edges)
+}
+
+fn databricks_file_node(file_path: &str, line_end: i64, is_test: bool) -> ParsedNode {
+    ParsedNode {
+        kind: "File".to_string(),
+        name: file_path.to_string(),
+        file_path: file_path.to_string(),
+        line_start: 1,
+        line_end,
+        language: "python".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test,
+        extra: json!({}),
+    }
+}
+
+fn collect_databricks_py_cells(text: &str) -> Vec<NotebookCell> {
+    let mut lines = text.split('\n').collect::<Vec<_>>();
+    if lines
+        .first()
+        .is_some_and(|line| line.trim() == "# Databricks notebook source")
+    {
+        lines.remove(0);
+    }
+
+    let mut chunks = vec![Vec::<&str>::new()];
+    for line in lines {
+        if is_databricks_command_line(line) {
+            chunks.push(Vec::new());
+        } else if let Some(chunk) = chunks.last_mut() {
+            chunk.push(line);
+        }
+    }
+
+    let mut cells = Vec::new();
+    for (cell_index, chunk) in chunks.into_iter().enumerate() {
+        let non_empty = chunk
+            .iter()
+            .copied()
+            .filter(|line| !line.trim().is_empty())
+            .collect::<Vec<_>>();
+        if non_empty.is_empty() {
+            continue;
+        }
+        let first_line = non_empty[0];
+        let all_magic = non_empty.iter().all(|line| line.starts_with("# MAGIC "));
+        let magic_language = if all_magic && first_line.starts_with("# MAGIC %sql") {
+            Some("sql")
+        } else if all_magic && first_line.starts_with("# MAGIC %r") {
+            Some("r")
+        } else {
+            None
+        };
+        if let Some(language) = magic_language {
+            let mut stripped = chunk
+                .iter()
+                .map(|line| line.strip_prefix("# MAGIC ").unwrap_or(line).to_string())
+                .collect::<Vec<_>>();
+            if let Some(first_directive) = stripped
+                .iter()
+                .find(|line| !line.trim().is_empty())
+                .filter(|line| line.trim().starts_with('%'))
+                .cloned()
+            {
+                stripped.retain(|line| line != &first_directive);
+            }
+            cells.push(NotebookCell {
+                cell_index: cell_index as i64,
+                language,
+                source: stripped.join("\n"),
+            });
+            continue;
+        }
+        if all_magic
+            && (first_line.starts_with("# MAGIC %md") || first_line.starts_with("# MAGIC %sh"))
+        {
+            continue;
+        }
+        let source = chunk
+            .iter()
+            .copied()
+            .filter(|line| !line.starts_with("# MAGIC "))
+            .collect::<Vec<_>>()
+            .join("\n");
+        cells.push(NotebookCell {
+            cell_index: cell_index as i64,
+            language: "python",
+            source,
+        });
+    }
+    cells
+}
+
+fn is_databricks_command_line(line: &str) -> bool {
+    let trimmed = line.trim();
+    trimmed.starts_with("# COMMAND") && trimmed[9..].trim().bytes().all(|byte| byte == b'-')
+}
+
+type NotebookOffsets = Vec<(i64, i64, i64)>;
+
+fn parse_databricks_python_cells(
+    file_path: &str,
+    cells: &[NotebookCell],
+    parser: Option<&mut tree_sitter::Parser>,
+    repo_root: Option<&Path>,
+) -> (Vec<ParsedNode>, Vec<ParsedEdge>, NotebookOffsets, i64) {
+    let (source, offsets, current_line) = concatenate_notebook_cells(cells);
+    let (nodes, edges) = parse_python_with_parser(file_path, source.as_bytes(), parser, repo_root);
+    (
+        nodes
+            .into_iter()
+            .filter(|node| node.kind != "File")
+            .collect(),
+        edges,
+        offsets,
+        current_line,
+    )
+}
+
+fn parse_databricks_r_cells(
+    file_path: &str,
+    cells: &[NotebookCell],
+) -> (Vec<ParsedNode>, Vec<ParsedEdge>, NotebookOffsets, i64) {
+    let (source, offsets, current_line) = concatenate_notebook_cells(cells);
+    let mut nodes = Vec::new();
+    let mut edges = Vec::new();
+    let lines = source.lines().collect::<Vec<_>>();
+    let mut current_function: Option<String> = None;
+    for (index, line) in lines.iter().enumerate() {
+        let line_no = index as i64 + 1;
+        if let Some(captures) = NOTEBOOK_R_FUNCTION_RE.captures(line) {
+            let Some(name) = captures.get(1).map(|capture| capture.as_str()) else {
+                continue;
+            };
+            let params = captures.get(2).map(|capture| capture.as_str().to_string());
+            let line_end = find_r_function_end(&lines, index);
+            let qualified = qualify(file_path, name, None);
+            nodes.push(ParsedNode {
+                kind: "Function".to_string(),
+                name: name.to_string(),
+                file_path: file_path.to_string(),
+                line_start: line_no,
+                line_end,
+                language: "r".to_string(),
+                parent_name: None,
+                params,
+                return_type: None,
+                modifiers: None,
+                is_test: false,
+                extra: json!({}),
+            });
+            edges.push(ParsedEdge {
+                kind: "CONTAINS".to_string(),
+                source: file_path.to_string(),
+                target: qualified.clone(),
+                file_path: file_path.to_string(),
+                line: line_no,
+                extra: json!({}),
+            });
+            current_function = Some(qualified);
+            continue;
+        }
+        let Some(caller) = current_function.as_ref() else {
+            continue;
+        };
+        for captures in NOTEBOOK_R_CALL_RE.captures_iter(line) {
+            let Some(name) = captures.get(1).map(|capture| capture.as_str()) else {
+                continue;
+            };
+            if name == "function" {
+                continue;
+            }
+            edges.push(ParsedEdge {
+                kind: "CALLS".to_string(),
+                source: caller.clone(),
+                target: name.to_string(),
+                file_path: file_path.to_string(),
+                line: line_no,
+                extra: json!({}),
+            });
+        }
+    }
+    (nodes, edges, offsets, current_line)
+}
+
+fn concatenate_notebook_cells(cells: &[NotebookCell]) -> (String, NotebookOffsets, i64) {
+    let mut chunks = Vec::new();
+    let mut offsets = Vec::new();
+    let mut current_line = 1_i64;
+    for cell in cells {
+        let line_count = cell.source.matches('\n').count() as i64
+            + if cell.source.ends_with('\n') { 0 } else { 1 };
+        offsets.push((cell.cell_index, current_line, current_line + line_count - 1));
+        chunks.push(cell.source.clone());
+        current_line += line_count + 1;
+    }
+    (chunks.join("\n"), offsets, current_line)
+}
+
+fn find_r_function_end(lines: &[&str], start: usize) -> i64 {
+    lines
+        .iter()
+        .enumerate()
+        .skip(start)
+        .find(|(_, line)| line.trim() == "}")
+        .map(|(index, _)| index as i64 + 1)
+        .unwrap_or(start as i64 + 1)
+}
+
+fn extract_databricks_sql_imports(
+    file_path: &str,
+    cell: &NotebookCell,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    for captures in NOTEBOOK_SQL_TABLE_RE.captures_iter(&cell.source) {
+        let Some(target) = captures.get(1).map(|capture| capture.as_str()) else {
+            continue;
+        };
+        edges.push(ParsedEdge {
+            kind: "IMPORTS_FROM".to_string(),
+            source: file_path.to_string(),
+            target: target.replace('`', ""),
+            file_path: file_path.to_string(),
+            line: 1,
+            extra: json!({}),
+        });
+    }
+}
+
+fn tag_notebook_cell_indices(nodes: &mut [ParsedNode], offsets: &[(i64, i64, i64)]) {
+    for node in nodes {
+        if node.kind == "File" {
+            continue;
+        }
+        let mut best = None;
+        let mut best_overlap = -1_i64;
+        for (cell_index, start, end) in offsets {
+            let overlap = node.line_end.min(*end) - node.line_start.max(*start) + 1;
+            if overlap > best_overlap && overlap > 0 {
+                best_overlap = overlap;
+                best = Some(*cell_index);
+            }
+        }
+        if let Some(cell_index) = best {
+            set_node_extra_i64(node, "cell_index", cell_index);
+        }
+    }
+}
+
+fn set_node_extra_i64(node: &mut ParsedNode, key: &str, value: i64) {
+    if !node.extra.is_object() {
+        node.extra = json!({});
+    }
+    if let Some(map) = node.extra.as_object_mut() {
+        map.insert(key.to_string(), json!(value));
+    }
 }
 
 fn python_walk_children(

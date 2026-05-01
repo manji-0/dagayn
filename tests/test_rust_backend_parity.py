@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import sys
@@ -15,6 +16,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 from parity_export import export_db  # noqa: E402
 
 from tests.conftest import PARITY_FIXTURE_DIR
+
+FIXTURES = Path(__file__).parent / "fixtures"
 
 RUST_OWNED_PARITY_FIXTURES = [
     "terraform_only",
@@ -92,3 +95,31 @@ def test_rust_backend_incremental_touch_updates_mtime_without_reparse(
         assert store.get_file_meta_map()["api.md"][1] == new_mtime_ns
     finally:
         store.close()
+
+
+def test_rust_backend_routes_databricks_py_exports(tmp_path, monkeypatch):
+    """Databricks .py exports stay in the Rust-owned backend path."""
+    try:
+        from dagayn._core import GraphStore
+    except ImportError as exc:
+        pytest.skip(f"Rust extension is not available: {exc}")
+
+    monkeypatch.setenv("DAGAYN_BACKEND", "rust")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    shutil.copy2(FIXTURES / "sample_databricks_export.py", repo / "notebook.py")
+
+    db_path = repo / ".dagayn" / "graph.db"
+    store = GraphStore(db_path)
+    try:
+        result = full_build(repo, store)
+    finally:
+        store.close()
+
+    assert result["errors"] == []
+    exported = json.loads(export_db(db_path))
+    file_nodes = [node for node in exported["nodes"] if node["kind"] == "File"]
+    assert file_nodes[0]["extra"].get("notebook_format") == "databricks_py"
+    imports = {edge["target"] for edge in exported["edges"] if edge["kind"] == "IMPORTS_FROM"}
+    assert {"bronze.events", "silver.users", "gold.summary", "silver.processed"} <= imports
