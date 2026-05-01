@@ -298,6 +298,19 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
             "bindings/python/tree_sitter_scala/binding.c",
         ),
     ),
+    "solidity": GrammarSpec(
+        language="solidity",
+        owner="JoranHonig",
+        repo="tree-sitter-solidity",
+        commit="048fe686cb1fde267243739b8bdbec8fc3a55272",
+        required_paths=(
+            "src/parser.c",
+            "src/tree_sitter/alloc.h",
+            "src/tree_sitter/array.h",
+            "src/tree_sitter/parser.h",
+            "bindings/python/tree_sitter_solidity/binding.c",
+        ),
+    ),
 }
 
 

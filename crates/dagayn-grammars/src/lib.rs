@@ -21,6 +21,7 @@ extern "C" {
     fn tree_sitter_php() -> *const ();
     fn tree_sitter_kotlin() -> *const ();
     fn tree_sitter_scala() -> *const ();
+    fn tree_sitter_solidity() -> *const ();
 }
 
 pub const MARKDOWN_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_markdown) };
@@ -38,6 +39,7 @@ pub const CSHARP_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitte
 pub const PHP_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_php) };
 pub const KOTLIN_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_kotlin) };
 pub const SCALA_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_scala) };
+pub const SOLIDITY_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_solidity) };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GrammarStatus {
@@ -106,6 +108,10 @@ pub fn kotlin_language() -> tree_sitter::Language {
 
 pub fn scala_language() -> tree_sitter::Language {
     SCALA_LANGUAGE.into()
+}
+
+pub fn solidity_language() -> tree_sitter::Language {
+    SOLIDITY_LANGUAGE.into()
 }
 
 #[cfg(test)]
@@ -298,6 +304,18 @@ mod tests {
         let tree = parser
             .parse("class User:\n  def save(): Unit = println(\"ok\")\n", None)
             .expect("parse Scala");
+        assert!(!tree.root_node().has_error());
+    }
+
+    #[test]
+    fn loads_solidity_language() {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&solidity_language())
+            .expect("load pinned Solidity grammar");
+        let tree = parser
+            .parse("contract Vault { function stake() external {} }\n", None)
+            .expect("parse Solidity");
         assert!(!tree.root_node().has_error());
     }
 }

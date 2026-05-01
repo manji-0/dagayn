@@ -219,6 +219,19 @@ const SCALA: GrammarSpec = GrammarSpec {
     parser_subdirectory: None,
 };
 
+const SOLIDITY: GrammarSpec = GrammarSpec {
+    language: "solidity",
+    symbol: "solidity",
+    required_paths: &[
+        "src/parser.c",
+        "src/tree_sitter/alloc.h",
+        "src/tree_sitter/array.h",
+        "src/tree_sitter/parser.h",
+        "bindings/python/tree_sitter_solidity/binding.c",
+    ],
+    parser_subdirectory: None,
+};
+
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let repo_root = manifest_dir
@@ -248,6 +261,7 @@ fn main() {
     compile_grammar(&repo_root, &PHP);
     compile_grammar(&repo_root, &KOTLIN);
     compile_grammar(&repo_root, &SCALA);
+    compile_grammar(&repo_root, &SOLIDITY);
 }
 
 fn compile_grammar(repo_root: &Path, spec: &GrammarSpec) {
