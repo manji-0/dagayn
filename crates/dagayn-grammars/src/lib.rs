@@ -37,6 +37,7 @@ extern "C" {
     fn tree_sitter_svelte() -> *const ();
     fn tree_sitter_zig() -> *const ();
     fn tree_sitter_powershell() -> *const ();
+    fn tree_sitter_swift() -> *const ();
 }
 
 pub const MARKDOWN_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_markdown) };
@@ -70,6 +71,7 @@ pub const VUE_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_v
 pub const SVELTE_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_svelte) };
 pub const ZIG_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_zig) };
 pub const POWERSHELL_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_powershell) };
+pub const SWIFT_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_swift) };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GrammarStatus {
@@ -202,6 +204,10 @@ pub fn zig_language() -> tree_sitter::Language {
 
 pub fn powershell_language() -> tree_sitter::Language {
     POWERSHELL_LANGUAGE.into()
+}
+
+pub fn swift_language() -> tree_sitter::Language {
+    SWIFT_LANGUAGE.into()
 }
 
 #[cfg(test)]
@@ -595,6 +601,21 @@ mod tests {
         let tree = parser
             .parse("function Invoke-Hello { Write-Host \"Hello\" }\n", None)
             .expect("parse PowerShell");
+        assert!(!tree.root_node().has_error());
+    }
+
+    #[test]
+    fn loads_swift_language() {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&swift_language())
+            .expect("load pinned Swift grammar");
+        let tree = parser
+            .parse(
+                "import Foundation\nstruct User { let name: String }\n",
+                None,
+            )
+            .expect("parse Swift");
         assert!(!tree.root_node().has_error());
     }
 }

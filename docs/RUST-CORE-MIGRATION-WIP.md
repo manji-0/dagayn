@@ -496,10 +496,12 @@ Parser migration progress:
   and covers imports, classes/interfaces, functions, CALLS, and
   subprocess/file/FFI CROSS_ARTIFACT bridge edges for the existing Kotlin
   bridge patterns.
-- Swift remains Python-owned for now because the Python-side grammar source
-  (`alex-pinkus/tree-sitter-swift`) does not publish generated `src/parser.c`.
-  Moving it safely requires a grammar-generation step in the wheel build flow
-  instead of a simple `cc` compile of pinned C sources.
+- Swift grammar sources are now pinned through the provisioning path using the
+  generated `tree-sitter-language-pack==0.13.0` sdist source for
+  `alex-pinkus/tree-sitter-swift@78d84ef82c387fceeb6094038da28717ea052e39`.
+  The Rust-owned parser routes `.swift` files through tree-sitter-swift and
+  covers imports, class/struct/enum/actor/protocol/extension nodes, inheritance
+  edges, functions, calls, and subprocess/FFI bridge edges.
 - Scala grammar sources are now pinned through the same provisioning path. The
   Rust-owned parser routes `.scala` files through tree-sitter-scala and covers
   selector imports, traits/classes/objects/enums, inheritance/conformance,
@@ -659,7 +661,7 @@ Parity acceptance:
 
 Deliverable: `dagayn-parser` and `dagayn-grammars` replacing Python `parser.py` (7 572 lines).
 
-Language introduction order: Markdown → Terraform → Rust → Python/notebooks → TypeScript/JS/TSX/JSX/Astro → Bash → Go → Java → Ruby → C# → PHP → Kotlin → Scala → Solidity → Dart → Lua → Luau → C/Perl XS → C++ → Objective-C → Elixir → GDScript → R → Julia → Perl → Vue → Svelte → Zig → PowerShell → ReScript, with Swift deferred until generated grammar sources are part of the packaging flow and the remaining Python-owned language extractors moving only after parity is explicit.
+Language introduction order: Markdown → Terraform → Rust → Python/notebooks → TypeScript/JS/TSX/JSX/Astro → Bash → Go → Java → Ruby → C# → PHP → Kotlin → Swift → Scala → Solidity → Dart → Lua → Luau → C/Perl XS → C++ → Objective-C → Elixir → GDScript → R → Julia → Perl → Vue → Svelte → Zig → PowerShell → ReScript, with remaining Python-owned language extractors moving only after parity is explicit.
 
 Grammar provisioning: `dagayn-grammars/build.rs` fetches pinned grammar archives and compiles them via `cc`. Cache behavior and the `DAGAYN_GRAMMAR_CACHE_DIR` env variable must match the contract in `docs/GRAMMAR-PROVISIONING.md`.
 

@@ -136,6 +136,8 @@ def test_rust_backend_routes_databricks_py_exports(tmp_path, monkeypatch):
         "sample.res",
         "sample.resi",
         "sample.xs",
+        "sample.swift",
+        "sample_bridge_swift.swift",
     ],
 )
 def test_rust_owned_parser_matches_python_parser(fixture):

@@ -60,13 +60,19 @@ class GrammarSpec:
     inject_python_binding: bool = False
     source_subdirectory: str | None = None
     parser_subdirectory: str | None = None
+    archive_url_override: str | None = None
+    cache_dir_override: str | None = None
 
     @property
     def archive_url(self) -> str:
+        if self.archive_url_override:
+            return self.archive_url_override
         return f"https://codeload.github.com/{self.owner}/{self.repo}/tar.gz/{self.commit}"
 
     @property
     def cache_dir_name(self) -> str:
+        if self.cache_dir_override:
+            return self.cache_dir_override
         return f"{self.repo}-{self.commit}"
 
 
@@ -519,6 +525,25 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
             "src/tree_sitter/array.h",
             "src/tree_sitter/parser.h",
         ),
+    ),
+    "swift": GrammarSpec(
+        language="swift",
+        owner="alex-pinkus",
+        repo="tree-sitter-swift",
+        commit="78d84ef82c387fceeb6094038da28717ea052e39",
+        required_paths=(
+            "src/parser.c",
+            "src/scanner.c",
+            "src/tree_sitter/alloc.h",
+            "src/tree_sitter/array.h",
+            "src/tree_sitter/parser.h",
+        ),
+        source_subdirectory="parsers/swift",
+        archive_url_override=(
+            "https://files.pythonhosted.org/packages/source/t/"
+            "tree-sitter-language-pack/tree_sitter_language_pack-0.13.0.tar.gz"
+        ),
+        cache_dir_override="tree-sitter-language-pack-0.13.0-swift-78d84ef82c387fceeb6094038da28717ea052e39",
     ),
 }
 
