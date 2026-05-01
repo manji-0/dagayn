@@ -933,8 +933,9 @@ impl GraphStore {
     }
 
     pub fn store_file_batch(&mut self, batch: &[FileBatchItem]) -> Result<()> {
+        let suspend_indexes = !self.bulk_load_indexes_suspended;
         let tx = self.conn.transaction()?;
-        store_file_batch_tx(&tx, batch)?;
+        store_file_batch_tx(&tx, batch, suspend_indexes)?;
         tx.commit()?;
         Ok(())
     }
@@ -3028,15 +3029,6 @@ fn now_seconds() -> Result<f64> {
     Ok(duration.as_secs_f64())
 }
 
-fn make_qualified(node: &NodeInput) -> String {
-    make_qualified_parts(
-        &node.kind,
-        &node.name,
-        &node.file_path,
-        node.parent_name.as_deref(),
-    )
-}
-
 fn make_qualified_parts(
     kind: &str,
     name: &str,
@@ -3193,63 +3185,61 @@ fn community_json_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
     }))
 }
 
-fn store_file_batch_tx(tx: &Transaction<'_>, batch: &[FileBatchItem]) -> Result<()> {
+fn store_file_batch_tx(
+    tx: &Transaction<'_>,
+    batch: &[FileBatchItem],
+    suspend_indexes: bool,
+) -> Result<()> {
     let now = now_seconds()?;
+    let suspend_indexes = suspend_indexes && should_suspend_write_indexes(tx, batch.len())?;
+    if suspend_indexes {
+        drop_graph_write_indexes(tx)?;
+    }
     let file_paths = batch
         .iter()
         .map(|(file_path, _, _, _, _)| file_path.clone())
         .collect::<Vec<_>>();
     remove_files_data_tx(tx, &file_paths)?;
 
-    let mut insert_node = tx.prepare(
-        r#"
-        INSERT INTO nodes
-            (kind, name, qualified_name, file_path, line_start, line_end,
-             language, parent_name, params, return_type, modifiers, is_test,
-             file_hash, mtime_ns, extra, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(qualified_name) DO UPDATE SET
-            kind=excluded.kind, name=excluded.name,
-            file_path=excluded.file_path, line_start=excluded.line_start,
-            line_end=excluded.line_end, language=excluded.language,
-            parent_name=excluded.parent_name, params=excluded.params,
-            return_type=excluded.return_type, modifiers=excluded.modifiers,
-            is_test=excluded.is_test, file_hash=excluded.file_hash,
-            mtime_ns=excluded.mtime_ns, extra=excluded.extra, updated_at=excluded.updated_at
-        "#,
-    )?;
-    let mut insert_edge = tx.prepare(
-        r#"
-        INSERT INTO edges
-            (kind, source_qualified, target_qualified, file_path, line, extra,
-             confidence, confidence_tier, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        "#,
-    )?;
     let mut seen_edges = HashSet::new();
+    let mut node_params =
+        Vec::<SqlValue>::with_capacity(NODE_INSERT_ROWS * NODE_INSERT_PARAM_COUNT);
+    let mut node_rows = 0_usize;
+    let mut edge_params =
+        Vec::<SqlValue>::with_capacity(EDGE_INSERT_ROWS * EDGE_INSERT_PARAM_COUNT);
+    let mut edge_rows = 0_usize;
 
     for (_file_path, nodes, edges, file_hash, mtime_ns) in batch {
         for node in nodes {
-            let qualified = make_qualified(node);
+            let qualified = make_qualified_parts(
+                &node.kind,
+                &node.name,
+                &node.file_path,
+                node.parent_name.as_deref(),
+            );
             let extra = extra_json(&node.extra)?;
-            insert_node.execute(params![
-                node.kind,
-                node.name,
-                qualified,
-                node.file_path,
-                node.line_start,
-                node.line_end,
-                node.language,
-                node.parent_name,
-                node.params,
-                node.return_type,
-                node.modifiers,
-                i64::from(node.is_test),
-                file_hash,
-                mtime_ns,
-                extra,
-                now,
-            ])?;
+            push_text(&mut node_params, &node.kind);
+            push_text(&mut node_params, &node.name);
+            node_params.push(SqlValue::Text(qualified));
+            push_text(&mut node_params, &node.file_path);
+            node_params.push(SqlValue::Integer(node.line_start));
+            node_params.push(SqlValue::Integer(node.line_end));
+            push_text(&mut node_params, &node.language);
+            push_optional_text(&mut node_params, node.parent_name.as_deref());
+            push_optional_text(&mut node_params, node.params.as_deref());
+            push_optional_text(&mut node_params, node.return_type.as_deref());
+            push_optional_text(&mut node_params, node.modifiers.as_deref());
+            node_params.push(SqlValue::Integer(i64::from(node.is_test)));
+            push_text(&mut node_params, file_hash);
+            node_params.push(SqlValue::Integer(*mtime_ns));
+            node_params.push(SqlValue::Text(extra));
+            node_params.push(SqlValue::Real(now));
+            node_rows += 1;
+            if node_rows == NODE_INSERT_ROWS {
+                insert_compact_node_rows(tx, node_rows, &node_params)?;
+                node_params.clear();
+                node_rows = 0;
+            }
         }
 
         for edge in edges {
@@ -3274,18 +3264,31 @@ fn store_file_batch_tx(tx: &Transaction<'_>, batch: &[FileBatchItem]) -> Result<
                 .and_then(Value::as_str)
                 .unwrap_or("EXTRACTED");
             let extra_json = extra_json(&edge.extra)?;
-            insert_edge.execute(params![
-                edge.kind,
-                edge.source,
-                edge.target,
-                edge.file_path,
-                edge.line,
-                extra_json,
-                confidence,
-                confidence_tier,
-                now,
-            ])?;
+            push_text(&mut edge_params, &edge.kind);
+            push_text(&mut edge_params, &edge.source);
+            push_text(&mut edge_params, &edge.target);
+            push_text(&mut edge_params, &edge.file_path);
+            edge_params.push(SqlValue::Integer(edge.line));
+            edge_params.push(SqlValue::Text(extra_json));
+            edge_params.push(SqlValue::Real(confidence));
+            push_text(&mut edge_params, confidence_tier);
+            edge_params.push(SqlValue::Real(now));
+            edge_rows += 1;
+            if edge_rows == EDGE_INSERT_ROWS {
+                insert_compact_edge_rows(tx, edge_rows, &edge_params)?;
+                edge_params.clear();
+                edge_rows = 0;
+            }
         }
+    }
+    if node_rows > 0 {
+        insert_compact_node_rows(tx, node_rows, &node_params)?;
+    }
+    if edge_rows > 0 {
+        insert_compact_edge_rows(tx, edge_rows, &edge_params)?;
+    }
+    if suspend_indexes {
+        create_graph_write_indexes(tx)?;
     }
     Ok(())
 }

@@ -98,7 +98,7 @@ static RESCRIPT_CALL_RE: LazyLock<Regex> = LazyLock::new(|| {
 });
 static RESCRIPT_DEFINITION_START_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?:^|\s)(?:let|type|module|external|and)\s").unwrap());
-type JavaScriptExportCache = RefCell<HashMap<(String, String), Option<String>>>;
+type JavaScriptExportCache = RefCell<HashMap<String, Option<JavaScriptExportIndex>>>;
 type JavaScriptModuleCache = RefCell<HashMap<(String, String), Option<String>>>;
 type JavaScriptTsconfigCache = RefCell<HashMap<PathBuf, Option<(PathBuf, Value)>>>;
 
@@ -107,6 +107,22 @@ struct JavaScriptCaches<'a> {
     export: Option<&'a JavaScriptExportCache>,
     module: Option<&'a JavaScriptModuleCache>,
     tsconfig: Option<&'a JavaScriptTsconfigCache>,
+}
+
+#[derive(Clone)]
+struct JavaScriptExportIndex {
+    defined_names: HashSet<String>,
+    named_exports: HashMap<String, JavaScriptExportTarget>,
+    star_exports: Vec<String>,
+}
+
+#[derive(Clone)]
+enum JavaScriptExportTarget {
+    Local(String),
+    External {
+        module_file: String,
+        symbol_name: String,
+    },
 }
 
 static EXTENSION_TO_LANGUAGE: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| {
@@ -252,9 +268,10 @@ pub fn filter_incremental_candidates(
 
 pub fn collect_parseable_files(repo_root: &Path, recurse_submodules: Option<bool>) -> Vec<String> {
     let ignore_patterns = load_ignore_patterns(repo_root);
+    let globset = build_globset(&ignore_patterns);
     let candidates = get_git_tracked_files(repo_root, recurse_submodules)
         .filter(|files| !files.is_empty())
-        .unwrap_or_else(|| walk_files(repo_root));
+        .unwrap_or_else(|| walk_files(repo_root, &ignore_patterns, globset.as_ref()));
     filter_parseable_files(repo_root, &candidates, &ignore_patterns)
 }
 
@@ -429,34 +446,34 @@ pub struct RustOwnedParser {
 impl RustOwnedParser {
     pub fn new() -> Self {
         Self {
-            markdown_parser: new_markdown_parser(),
-            terraform_parser: new_terraform_parser(),
-            rust_parser: new_rust_parser(),
-            python_parser: new_python_parser(),
-            javascript_parser: new_javascript_parser(),
-            typescript_parser: new_typescript_parser(),
-            tsx_parser: new_tsx_parser(),
-            bash_parser: new_bash_parser(),
-            go_parser: new_go_parser(),
-            java_parser: new_java_parser(),
-            ruby_parser: new_ruby_parser(),
-            csharp_parser: new_csharp_parser(),
-            php_parser: new_php_parser(),
-            kotlin_parser: new_kotlin_parser(),
-            scala_parser: new_scala_parser(),
-            solidity_parser: new_solidity_parser(),
-            dart_parser: new_dart_parser(),
-            lua_parser: new_lua_parser(),
-            luau_parser: new_luau_parser(),
-            c_parser: new_c_parser(),
-            cpp_parser: new_cpp_parser(),
-            objc_parser: new_objc_parser(),
-            elixir_parser: new_elixir_parser(),
-            gdscript_parser: new_gdscript_parser(),
-            r_parser: new_r_parser(),
-            julia_parser: new_julia_parser(),
-            perl_parser: new_perl_parser(),
-            vue_parser: new_vue_parser(),
+            markdown_parser: None,
+            terraform_parser: None,
+            rust_parser: None,
+            python_parser: None,
+            javascript_parser: None,
+            typescript_parser: None,
+            tsx_parser: None,
+            bash_parser: None,
+            go_parser: None,
+            java_parser: None,
+            ruby_parser: None,
+            csharp_parser: None,
+            php_parser: None,
+            kotlin_parser: None,
+            scala_parser: None,
+            solidity_parser: None,
+            dart_parser: None,
+            lua_parser: None,
+            luau_parser: None,
+            c_parser: None,
+            cpp_parser: None,
+            objc_parser: None,
+            elixir_parser: None,
+            gdscript_parser: None,
+            r_parser: None,
+            julia_parser: None,
+            perl_parser: None,
+            vue_parser: None,
             svelte_parser: None,
             zig_parser: None,
             powershell_parser: None,
@@ -482,29 +499,38 @@ impl RustOwnedParser {
         source: &[u8],
     ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
         match rust_owned_path_kind_for_source(file_path, source) {
-            RustOwnedPathKind::Markdown => {
-                parse_markdown_with_parser(file_path, source, self.markdown_parser.as_mut())
-            }
-            RustOwnedPathKind::Terraform => {
-                parse_terraform_with_parser(file_path, source, self.terraform_parser.as_mut())
-            }
-            RustOwnedPathKind::Rust => {
-                parse_rust_with_parser(file_path, source, self.rust_parser.as_mut())
-            }
-            RustOwnedPathKind::Python => {
-                parse_python_with_parser(file_path, source, self.python_parser.as_mut(), repo_root)
-            }
+            RustOwnedPathKind::Markdown => parse_markdown_with_parser(
+                file_path,
+                source,
+                parser_slot(&mut self.markdown_parser, new_markdown_parser),
+            ),
+            RustOwnedPathKind::Terraform => parse_terraform_with_parser(
+                file_path,
+                source,
+                parser_slot(&mut self.terraform_parser, new_terraform_parser),
+            ),
+            RustOwnedPathKind::Rust => parse_rust_with_parser(
+                file_path,
+                source,
+                parser_slot(&mut self.rust_parser, new_rust_parser),
+            ),
+            RustOwnedPathKind::Python => parse_python_with_parser(
+                file_path,
+                source,
+                parser_slot(&mut self.python_parser, new_python_parser),
+                repo_root,
+            ),
             RustOwnedPathKind::Notebook => parse_notebook_with_parser(
                 file_path,
                 source,
-                self.python_parser.as_mut(),
+                parser_slot(&mut self.python_parser, new_python_parser),
                 repo_root,
             ),
             RustOwnedPathKind::JavaScript => parse_javascript_like_with_parser(
                 file_path,
                 source,
                 "javascript",
-                self.javascript_parser.as_mut(),
+                parser_slot(&mut self.javascript_parser, new_javascript_parser),
                 repo_root,
                 JavaScriptCaches {
                     export: Some(&self.javascript_export_cache),
@@ -516,7 +542,7 @@ impl RustOwnedParser {
                 file_path,
                 source,
                 "typescript",
-                self.typescript_parser.as_mut(),
+                parser_slot(&mut self.typescript_parser, new_typescript_parser),
                 repo_root,
                 JavaScriptCaches {
                     export: Some(&self.javascript_export_cache),
@@ -528,7 +554,7 @@ impl RustOwnedParser {
                 file_path,
                 source,
                 "tsx",
-                self.tsx_parser.as_mut(),
+                parser_slot(&mut self.tsx_parser, new_tsx_parser),
                 repo_root,
                 JavaScriptCaches {
                     export: Some(&self.javascript_export_cache),
@@ -536,79 +562,130 @@ impl RustOwnedParser {
                     tsconfig: Some(&self.javascript_tsconfig_cache),
                 },
             ),
-            RustOwnedPathKind::Bash => {
-                parse_bash_with_parser(file_path, source, self.bash_parser.as_mut(), repo_root)
-            }
-            RustOwnedPathKind::Go => {
-                parse_go_with_parser(file_path, source, self.go_parser.as_mut())
-            }
-            RustOwnedPathKind::Java => {
-                parse_java_with_parser(file_path, source, self.java_parser.as_mut(), repo_root)
-            }
-            RustOwnedPathKind::Ruby => {
-                parse_ruby_with_parser(file_path, source, self.ruby_parser.as_mut())
-            }
-            RustOwnedPathKind::CSharp => {
-                parse_csharp_with_parser(file_path, source, self.csharp_parser.as_mut())
-            }
-            RustOwnedPathKind::Php => {
-                parse_php_with_parser(file_path, source, self.php_parser.as_mut())
-            }
-            RustOwnedPathKind::Kotlin => {
-                parse_kotlin_with_parser(file_path, source, self.kotlin_parser.as_mut())
-            }
-            RustOwnedPathKind::Scala => {
-                parse_scala_with_parser(file_path, source, self.scala_parser.as_mut())
-            }
-            RustOwnedPathKind::Solidity => {
-                parse_solidity_with_parser(file_path, source, self.solidity_parser.as_mut())
-            }
-            RustOwnedPathKind::Dart => {
-                parse_dart_with_parser(file_path, source, self.dart_parser.as_mut())
-            }
-            RustOwnedPathKind::Lua => {
-                parse_lua_with_parser(file_path, source, self.lua_parser.as_mut())
-            }
-            RustOwnedPathKind::Luau => {
-                parse_luau_with_parser(file_path, source, self.luau_parser.as_mut())
-            }
-            RustOwnedPathKind::C => parse_c_with_parser(file_path, source, self.c_parser.as_mut()),
-            RustOwnedPathKind::Cpp => {
-                parse_cpp_with_parser(file_path, source, self.cpp_parser.as_mut())
-            }
-            RustOwnedPathKind::ObjC => {
-                parse_objc_with_parser(file_path, source, self.objc_parser.as_mut())
-            }
-            RustOwnedPathKind::Elixir => {
-                parse_elixir_with_parser(file_path, source, self.elixir_parser.as_mut())
-            }
-            RustOwnedPathKind::Gdscript => {
-                parse_gdscript_with_parser(file_path, source, self.gdscript_parser.as_mut())
-            }
-            RustOwnedPathKind::R => parse_r_with_parser(file_path, source, self.r_parser.as_mut()),
-            RustOwnedPathKind::Julia => {
-                parse_julia_with_parser(file_path, source, self.julia_parser.as_mut())
-            }
-            RustOwnedPathKind::Perl => {
-                parse_perl_with_parser(file_path, source, self.perl_parser.as_mut())
-            }
-            RustOwnedPathKind::Vue => parse_vue_with_parsers(
+            RustOwnedPathKind::Bash => parse_bash_with_parser(
                 file_path,
                 source,
-                self.vue_parser.as_mut(),
-                self.javascript_parser.as_mut(),
-                self.typescript_parser.as_mut(),
+                parser_slot(&mut self.bash_parser, new_bash_parser),
                 repo_root,
-                JavaScriptCaches {
-                    export: Some(&self.javascript_export_cache),
-                    module: Some(&self.javascript_module_cache),
-                    tsconfig: Some(&self.javascript_tsconfig_cache),
-                },
             ),
+            RustOwnedPathKind::Go => parse_go_with_parser(
+                file_path,
+                source,
+                parser_slot(&mut self.go_parser, new_go_parser),
+            ),
+            RustOwnedPathKind::Java => parse_java_with_parser(
+                file_path,
+                source,
+                parser_slot(&mut self.java_parser, new_java_parser),
+                repo_root,
+            ),
+            RustOwnedPathKind::Ruby => parse_ruby_with_parser(
+                file_path,
+                source,
+                parser_slot(&mut self.ruby_parser, new_ruby_parser),
+            ),
+            RustOwnedPathKind::CSharp => parse_csharp_with_parser(
+                file_path,
+                source,
+                parser_slot(&mut self.csharp_parser, new_csharp_parser),
+            ),
+            RustOwnedPathKind::Php => parse_php_with_parser(
+                file_path,
+                source,
+                parser_slot(&mut self.php_parser, new_php_parser),
+            ),
+            RustOwnedPathKind::Kotlin => parse_kotlin_with_parser(
+                file_path,
+                source,
+                parser_slot(&mut self.kotlin_parser, new_kotlin_parser),
+            ),
+            RustOwnedPathKind::Scala => parse_scala_with_parser(
+                file_path,
+                source,
+                parser_slot(&mut self.scala_parser, new_scala_parser),
+            ),
+            RustOwnedPathKind::Solidity => parse_solidity_with_parser(
+                file_path,
+                source,
+                parser_slot(&mut self.solidity_parser, new_solidity_parser),
+            ),
+            RustOwnedPathKind::Dart => parse_dart_with_parser(
+                file_path,
+                source,
+                parser_slot(&mut self.dart_parser, new_dart_parser),
+            ),
+            RustOwnedPathKind::Lua => parse_lua_with_parser(
+                file_path,
+                source,
+                parser_slot(&mut self.lua_parser, new_lua_parser),
+            ),
+            RustOwnedPathKind::Luau => parse_luau_with_parser(
+                file_path,
+                source,
+                parser_slot(&mut self.luau_parser, new_luau_parser),
+            ),
+            RustOwnedPathKind::C => parse_c_with_parser(
+                file_path,
+                source,
+                parser_slot(&mut self.c_parser, new_c_parser),
+            ),
+            RustOwnedPathKind::Cpp => parse_cpp_with_parser(
+                file_path,
+                source,
+                parser_slot(&mut self.cpp_parser, new_cpp_parser),
+            ),
+            RustOwnedPathKind::ObjC => parse_objc_with_parser(
+                file_path,
+                source,
+                parser_slot(&mut self.objc_parser, new_objc_parser),
+            ),
+            RustOwnedPathKind::Elixir => parse_elixir_with_parser(
+                file_path,
+                source,
+                parser_slot(&mut self.elixir_parser, new_elixir_parser),
+            ),
+            RustOwnedPathKind::Gdscript => parse_gdscript_with_parser(
+                file_path,
+                source,
+                parser_slot(&mut self.gdscript_parser, new_gdscript_parser),
+            ),
+            RustOwnedPathKind::R => parse_r_with_parser(
+                file_path,
+                source,
+                parser_slot(&mut self.r_parser, new_r_parser),
+            ),
+            RustOwnedPathKind::Julia => parse_julia_with_parser(
+                file_path,
+                source,
+                parser_slot(&mut self.julia_parser, new_julia_parser),
+            ),
+            RustOwnedPathKind::Perl => parse_perl_with_parser(
+                file_path,
+                source,
+                parser_slot(&mut self.perl_parser, new_perl_parser),
+            ),
+            RustOwnedPathKind::Vue => {
+                ensure_parser(&mut self.vue_parser, new_vue_parser);
+                ensure_parser(&mut self.javascript_parser, new_javascript_parser);
+                ensure_parser(&mut self.typescript_parser, new_typescript_parser);
+                parse_vue_with_parsers(
+                    file_path,
+                    source,
+                    self.vue_parser.as_mut(),
+                    self.javascript_parser.as_mut(),
+                    self.typescript_parser.as_mut(),
+                    repo_root,
+                    JavaScriptCaches {
+                        export: Some(&self.javascript_export_cache),
+                        module: Some(&self.javascript_module_cache),
+                        tsconfig: Some(&self.javascript_tsconfig_cache),
+                    },
+                )
+            }
             RustOwnedPathKind::Svelte => {
-                if self.svelte_parser.is_none() {
-                    self.svelte_parser = new_svelte_parser();
-                }
+                ensure_parser(&mut self.svelte_parser, new_svelte_parser);
+                ensure_parser(&mut self.javascript_parser, new_javascript_parser);
+                ensure_parser(&mut self.typescript_parser, new_typescript_parser);
                 parse_svelte_with_parsers(
                     file_path,
                     source,
@@ -624,22 +701,16 @@ impl RustOwnedParser {
                 )
             }
             RustOwnedPathKind::Zig => {
-                if self.zig_parser.is_none() {
-                    self.zig_parser = new_zig_parser();
-                }
+                ensure_parser(&mut self.zig_parser, new_zig_parser);
                 parse_zig_with_parser(file_path, source, self.zig_parser.as_mut())
             }
             RustOwnedPathKind::PowerShell => {
-                if self.powershell_parser.is_none() {
-                    self.powershell_parser = new_powershell_parser();
-                }
+                ensure_parser(&mut self.powershell_parser, new_powershell_parser);
                 parse_powershell_with_parser(file_path, source, self.powershell_parser.as_mut())
             }
             RustOwnedPathKind::ReScript => parse_rescript(file_path, source),
             RustOwnedPathKind::Swift => {
-                if self.swift_parser.is_none() {
-                    self.swift_parser = new_swift_parser();
-                }
+                ensure_parser(&mut self.swift_parser, new_swift_parser);
                 parse_swift_with_parser(file_path, source, self.swift_parser.as_mut())
             }
             RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
@@ -651,6 +722,23 @@ impl Default for RustOwnedParser {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn ensure_parser(
+    slot: &mut Option<tree_sitter::Parser>,
+    init: fn() -> Option<tree_sitter::Parser>,
+) {
+    if slot.is_none() {
+        *slot = init();
+    }
+}
+
+fn parser_slot(
+    slot: &mut Option<tree_sitter::Parser>,
+    init: fn() -> Option<tree_sitter::Parser>,
+) -> Option<&mut tree_sitter::Parser> {
+    ensure_parser(slot, init);
+    slot.as_mut()
 }
 
 pub fn parse_markdown(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
@@ -4404,37 +4492,69 @@ fn resolve_javascript_exported_symbol(
     seen: &mut HashSet<(String, String)>,
 ) -> Option<String> {
     let key = (module_file.to_string(), symbol_name.to_string());
-    if let Some(cache) = caches.export {
-        if let Some(cached) = cache.borrow().get(&key).cloned() {
-            return cached;
-        }
-    }
     if !seen.insert(key) {
         return None;
     }
-    let result = resolve_javascript_exported_symbol_uncached(
-        module_file,
-        symbol_name,
-        repo_root,
-        caches,
-        seen,
-    );
+    let index = javascript_export_index(module_file, repo_root, caches)?;
+    if index.defined_names.contains(symbol_name) {
+        return Some(qualify(module_file, symbol_name, None));
+    }
+    if let Some(target) = index.named_exports.get(symbol_name) {
+        return match target {
+            JavaScriptExportTarget::Local(original_name) => {
+                Some(qualify(module_file, original_name, None))
+            }
+            JavaScriptExportTarget::External {
+                module_file,
+                symbol_name,
+            } => resolve_javascript_exported_symbol(
+                module_file,
+                symbol_name,
+                repo_root,
+                caches,
+                seen,
+            )
+            .or_else(|| Some(qualify(module_file, symbol_name, None))),
+        };
+    }
+    for exported_module in &index.star_exports {
+        if let Some(result) = resolve_javascript_exported_symbol(
+            exported_module,
+            symbol_name,
+            repo_root,
+            caches,
+            seen,
+        ) {
+            return Some(result);
+        }
+    }
+    None
+}
+
+fn javascript_export_index(
+    module_file: &str,
+    repo_root: Option<&Path>,
+    caches: JavaScriptCaches<'_>,
+) -> Option<JavaScriptExportIndex> {
     if let Some(cache) = caches.export {
-        cache.borrow_mut().insert(
-            (module_file.to_string(), symbol_name.to_string()),
-            result.clone(),
-        );
+        if let Some(cached) = cache.borrow().get(module_file).cloned() {
+            return cached;
+        }
+    }
+    let result = javascript_export_index_uncached(module_file, repo_root, caches);
+    if let Some(cache) = caches.export {
+        cache
+            .borrow_mut()
+            .insert(module_file.to_string(), result.clone());
     }
     result
 }
 
-fn resolve_javascript_exported_symbol_uncached(
+fn javascript_export_index_uncached(
     module_file: &str,
-    symbol_name: &str,
     repo_root: Option<&Path>,
     caches: JavaScriptCaches<'_>,
-    seen: &mut HashSet<(String, String)>,
-) -> Option<String> {
+) -> Option<JavaScriptExportIndex> {
     let source_path = repo_root
         .map(|root| root.join(module_file))
         .unwrap_or_else(|| PathBuf::from(module_file));
@@ -4445,9 +4565,8 @@ fn resolve_javascript_exported_symbol_uncached(
 
     let mut defined_names = HashSet::new();
     collect_javascript_defined_names(root, &source, &mut defined_names);
-    if defined_names.contains(symbol_name) {
-        return Some(qualify(module_file, symbol_name, None));
-    }
+    let mut named_exports = HashMap::new();
+    let mut star_exports = Vec::new();
 
     let mut cursor = root.walk();
     for child in root.children(&mut cursor) {
@@ -4470,23 +4589,25 @@ fn resolve_javascript_exported_symbol_uncached(
                 let Some(exported_name) = names.last() else {
                     continue;
                 };
-                if exported_name != symbol_name {
-                    continue;
-                }
                 let original_name = names.first().unwrap_or(exported_name);
                 if let Some(target_module) = target_module.as_deref() {
-                    let resolved_module =
-                        resolve_javascript_module(target_module, module_file, repo_root, caches)?;
-                    return resolve_javascript_exported_symbol(
-                        &resolved_module,
-                        original_name,
-                        repo_root,
-                        caches,
-                        seen,
-                    )
-                    .or_else(|| Some(qualify(&resolved_module, original_name, None)));
+                    if let Some(resolved_module) =
+                        resolve_javascript_module(target_module, module_file, repo_root, caches)
+                    {
+                        named_exports.insert(
+                            exported_name.clone(),
+                            JavaScriptExportTarget::External {
+                                module_file: resolved_module,
+                                symbol_name: original_name.clone(),
+                            },
+                        );
+                    }
+                } else {
+                    named_exports.insert(
+                        exported_name.clone(),
+                        JavaScriptExportTarget::Local(original_name.clone()),
+                    );
                 }
-                return Some(qualify(module_file, original_name, None));
             }
         }
 
@@ -4499,18 +4620,14 @@ fn resolve_javascript_exported_symbol_uncached(
             else {
                 continue;
             };
-            if let Some(result) = resolve_javascript_exported_symbol(
-                &resolved_module,
-                symbol_name,
-                repo_root,
-                caches,
-                seen,
-            ) {
-                return Some(result);
-            }
+            star_exports.push(resolved_module);
         }
     }
-    None
+    Some(JavaScriptExportIndex {
+        defined_names,
+        named_exports,
+        star_exports,
+    })
 }
 
 fn new_javascript_module_parser(module_file: &str) -> Option<tree_sitter::Parser> {
@@ -15302,7 +15419,11 @@ fn get_git_tracked_files(
     )
 }
 
-fn walk_files(repo_root: &Path) -> Vec<String> {
+fn walk_files(
+    repo_root: &Path,
+    ignore_patterns: &[String],
+    globset: Option<&globset::GlobSet>,
+) -> Vec<String> {
     let mut out = Vec::new();
     let mut stack = vec![repo_root.to_path_buf()];
     while let Some(dir) = stack.pop() {
@@ -15311,15 +15432,25 @@ fn walk_files(repo_root: &Path) -> Vec<String> {
         };
         for entry in entries.flatten() {
             let path = entry.path();
+            let rel_path = path
+                .strip_prefix(repo_root)
+                .ok()
+                .map(|rel| rel.to_string_lossy().replace('\\', "/"));
             if path.is_dir() {
+                if rel_path
+                    .as_deref()
+                    .is_some_and(|rel| should_ignore(rel, ignore_patterns, globset))
+                {
+                    continue;
+                }
                 stack.push(path);
                 continue;
             }
             if !path.is_file() {
                 continue;
             }
-            if let Ok(rel) = path.strip_prefix(repo_root) {
-                out.push(rel.to_string_lossy().replace('\\', "/"));
+            if let Some(rel) = rel_path {
+                out.push(rel);
             }
         }
     }
@@ -15451,6 +15582,34 @@ mod tests {
             None
         ));
         assert!(!should_ignore("pkg/app/src/index.js", &patterns, None));
+    }
+
+    #[test]
+    fn walk_files_prunes_ignored_directories() {
+        let mut repo_root = std::env::temp_dir();
+        repo_root.push(format!(
+            "dagayn-parser-walk-ignore-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        let _ = std::fs::remove_dir_all(&repo_root);
+        std::fs::create_dir_all(repo_root.join("src")).unwrap();
+        std::fs::create_dir_all(repo_root.join("pkg/node_modules/lib")).unwrap();
+        std::fs::write(repo_root.join("src/main.py"), b"def main():\n    pass\n").unwrap();
+        std::fs::write(
+            repo_root.join("pkg/node_modules/lib/index.js"),
+            b"export const slow = 1;\n",
+        )
+        .unwrap();
+
+        let patterns = load_ignore_patterns(&repo_root);
+        let globset = build_globset(&patterns);
+        let files = walk_files(&repo_root, &patterns, globset.as_ref());
+
+        assert!(files.contains(&"src/main.py".to_string()));
+        assert!(!files.iter().any(|file| file.contains("node_modules")));
+
+        let _ = std::fs::remove_dir_all(&repo_root);
     }
 
     #[test]
