@@ -28,6 +28,7 @@ extern "C" {
     fn tree_sitter_c() -> *const ();
     fn tree_sitter_cpp() -> *const ();
     fn tree_sitter_objc() -> *const ();
+    fn tree_sitter_elixir() -> *const ();
 }
 
 pub const MARKDOWN_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_markdown) };
@@ -52,6 +53,7 @@ pub const LUAU_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_
 pub const C_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_c) };
 pub const CPP_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_cpp) };
 pub const OBJC_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_objc) };
+pub const ELIXIR_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_elixir) };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GrammarStatus {
@@ -148,6 +150,10 @@ pub fn cpp_language() -> tree_sitter::Language {
 
 pub fn objc_language() -> tree_sitter::Language {
     OBJC_LANGUAGE.into()
+}
+
+pub fn elixir_language() -> tree_sitter::Language {
+    ELIXIR_LANGUAGE.into()
 }
 
 #[cfg(test)]
@@ -424,6 +430,18 @@ mod tests {
         let tree = parser
             .parse("@interface Calculator : NSObject\n@end\n", None)
             .expect("parse Objective-C");
+        assert!(!tree.root_node().has_error());
+    }
+
+    #[test]
+    fn loads_elixir_language() {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&elixir_language())
+            .expect("load pinned Elixir grammar");
+        let tree = parser
+            .parse("defmodule Calculator do\nend\n", None)
+            .expect("parse Elixir");
         assert!(!tree.root_node().has_error());
     }
 }

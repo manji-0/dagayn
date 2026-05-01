@@ -542,6 +542,11 @@ Parser migration progress:
   covers preprocessor imports, interface/implementation Class nodes, method
   definitions, C-style top-level functions, message-expression CALLS,
   call-expression CALLS, and TESTED_BY edges.
+- Elixir grammar sources are now pinned through the same provisioning path.
+  The Rust-owned parser routes `.ex` and `.exs` files through
+  tree-sitter-elixir and covers modules, functions/macros, alias/import/require
+  edges, module-local calls, dotted module calls, module-scope calls, and
+  TESTED_BY edges.
 - FTS rebuilds now route through `dagayn._core.GraphStore.rebuild_fts_index`
   when the Rust backend is active. Python's `dagayn.search.rebuild_fts_index`
   keeps the existing SQLite implementation as the fallback for the Python
@@ -617,7 +622,7 @@ Parity acceptance:
 
 Deliverable: `dagayn-parser` and `dagayn-grammars` replacing Python `parser.py` (7 572 lines).
 
-Language introduction order: Markdown → Terraform → Rust → Python/notebooks → TypeScript/JS/TSX/JSX → Bash → Go → Java → Ruby → C# → PHP → Kotlin → Scala → Solidity → Dart → Lua → Luau → C → C++ → Objective-C, with Swift deferred until generated grammar sources are part of the packaging flow and the remaining Python-owned language extractors moving only after parity is explicit.
+Language introduction order: Markdown → Terraform → Rust → Python/notebooks → TypeScript/JS/TSX/JSX → Bash → Go → Java → Ruby → C# → PHP → Kotlin → Scala → Solidity → Dart → Lua → Luau → C → C++ → Objective-C → Elixir, with Swift deferred until generated grammar sources are part of the packaging flow and the remaining Python-owned language extractors moving only after parity is explicit.
 
 Grammar provisioning: `dagayn-grammars/build.rs` fetches pinned grammar archives and compiles them via `cc`. Cache behavior and the `DAGAYN_GRAMMAR_CACHE_DIR` env variable must match the contract in `docs/GRAMMAR-PROVISIONING.md`.
 

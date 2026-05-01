@@ -394,6 +394,20 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
             "bindings/python/tree_sitter_objc/binding.c",
         ),
     ),
+    "elixir": GrammarSpec(
+        language="elixir",
+        owner="elixir-lang",
+        repo="tree-sitter-elixir",
+        commit="d24cecee673c4c770f797bac6f87ae4b6d7ddec5",
+        required_paths=(
+            "src/parser.c",
+            "src/scanner.c",
+            "src/tree_sitter/alloc.h",
+            "src/tree_sitter/array.h",
+            "src/tree_sitter/parser.h",
+            "bindings/python/tree_sitter_elixir/binding.c",
+        ),
+    ),
 }
 
 
