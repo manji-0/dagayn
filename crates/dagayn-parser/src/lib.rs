@@ -13460,6 +13460,7 @@ fn rust_owned_path_kind(file_path: &str) -> RustOwnedPathKind {
     } else if ends_with_ascii_ignore_case(file_path, ".luau") {
         RustOwnedPathKind::Luau
     } else if ends_with_ascii_ignore_case(file_path, ".c")
+        || ends_with_ascii_ignore_case(file_path, ".h")
         || ends_with_ascii_ignore_case(file_path, ".xs")
     {
         RustOwnedPathKind::C
@@ -17188,6 +17189,38 @@ add(a, b)
         assert!(edges
             .iter()
             .any(|edge| edge.kind == "CALLS" && edge.target.ends_with("::_add")));
+    }
+
+    #[test]
+    fn parses_c_header_as_c_for_python_parity() {
+        let source = br#"#ifndef USER_H
+#define USER_H
+#include <stdint.h>
+
+typedef struct {
+    int id;
+} User;
+
+static inline int user_id(User *user) {
+    return user->id;
+}
+
+#endif
+"#;
+        let (nodes, edges) = parse_rust_owned_file("include/user.h", source);
+
+        assert!(nodes
+            .iter()
+            .any(|node| node.kind == "File" && node.language == "c"));
+        assert!(nodes
+            .iter()
+            .any(|node| node.kind == "Class" && node.name == "User"));
+        assert!(nodes
+            .iter()
+            .any(|node| node.kind == "Function" && node.name == "user_id"));
+        assert!(edges
+            .iter()
+            .any(|edge| edge.kind == "IMPORTS_FROM" && edge.target == "stdint.h"));
     }
 
     #[test]
