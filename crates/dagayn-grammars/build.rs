@@ -385,6 +385,20 @@ const PERL: GrammarSpec = GrammarSpec {
     parser_subdirectory: None,
 };
 
+const VUE: GrammarSpec = GrammarSpec {
+    language: "vue",
+    symbol: "vue",
+    required_paths: &[
+        "src/parser.c",
+        "src/scanner.c",
+        "src/tag.h",
+        "src/tree_sitter/alloc.h",
+        "src/tree_sitter/array.h",
+        "src/tree_sitter/parser.h",
+    ],
+    parser_subdirectory: None,
+};
+
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let repo_root = manifest_dir
@@ -426,6 +440,7 @@ fn main() {
     compile_grammar(&repo_root, &R);
     compile_grammar(&repo_root, &JULIA);
     compile_grammar(&repo_root, &PERL);
+    compile_grammar(&repo_root, &VUE);
 }
 
 fn compile_grammar(repo_root: &Path, spec: &GrammarSpec) {

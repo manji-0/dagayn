@@ -132,10 +132,11 @@ def test_rust_backend_routes_databricks_py_exports(tmp_path, monkeypatch):
     [
         "sample.pl",
         "sample_bridge_perl.pl",
+        "sample_vue.vue",
     ],
 )
-def test_rust_owned_perl_parser_matches_python_parser(fixture):
-    """Perl stays on the same graph contract when routed through Rust."""
+def test_rust_owned_parser_matches_python_parser(fixture):
+    """Selected Rust-owned parser paths stay on the Python graph contract."""
     try:
         from dagayn._core import parse_rust_owned_files_compact_json
     except ImportError as exc:

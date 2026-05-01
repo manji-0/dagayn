@@ -376,6 +376,7 @@ pub struct RustOwnedParser {
     r_parser: Option<tree_sitter::Parser>,
     julia_parser: Option<tree_sitter::Parser>,
     perl_parser: Option<tree_sitter::Parser>,
+    vue_parser: Option<tree_sitter::Parser>,
     javascript_export_cache: JavaScriptExportCache,
     javascript_module_cache: JavaScriptModuleCache,
     javascript_tsconfig_cache: JavaScriptTsconfigCache,
@@ -411,6 +412,7 @@ impl RustOwnedParser {
             r_parser: new_r_parser(),
             julia_parser: new_julia_parser(),
             perl_parser: new_perl_parser(),
+            vue_parser: new_vue_parser(),
             javascript_export_cache: RefCell::new(HashMap::new()),
             javascript_module_cache: RefCell::new(HashMap::new()),
             javascript_tsconfig_cache: RefCell::new(HashMap::new()),
@@ -542,6 +544,19 @@ impl RustOwnedParser {
             RustOwnedPathKind::Perl => {
                 parse_perl_with_parser(file_path, source, self.perl_parser.as_mut())
             }
+            RustOwnedPathKind::Vue => parse_vue_with_parsers(
+                file_path,
+                source,
+                self.vue_parser.as_mut(),
+                self.javascript_parser.as_mut(),
+                self.typescript_parser.as_mut(),
+                repo_root,
+                JavaScriptCaches {
+                    export: Some(&self.javascript_export_cache),
+                    module: Some(&self.javascript_module_cache),
+                    tsconfig: Some(&self.javascript_tsconfig_cache),
+                },
+            ),
             RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
         }
     }
@@ -2287,6 +2302,142 @@ fn parse_javascript_like_with_parser(
     }
 
     (nodes, edges)
+}
+
+pub fn parse_vue(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let mut vue_parser = new_vue_parser();
+    let mut javascript_parser = new_javascript_parser();
+    let mut typescript_parser = new_typescript_parser();
+    parse_vue_with_parsers(
+        file_path,
+        source,
+        vue_parser.as_mut(),
+        javascript_parser.as_mut(),
+        typescript_parser.as_mut(),
+        None,
+        JavaScriptCaches::default(),
+    )
+}
+
+fn parse_vue_with_parsers(
+    file_path: &str,
+    source: &[u8],
+    vue_parser: Option<&mut tree_sitter::Parser>,
+    mut javascript_parser: Option<&mut tree_sitter::Parser>,
+    mut typescript_parser: Option<&mut tree_sitter::Parser>,
+    repo_root: Option<&Path>,
+    caches: JavaScriptCaches<'_>,
+) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
+    let mut nodes = vec![ParsedNode {
+        kind: "File".to_string(),
+        name: file_path.to_string(),
+        file_path: file_path.to_string(),
+        line_start: 1,
+        line_end,
+        language: "vue".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: is_test_file(file_path),
+        extra: json!({}),
+    }];
+    let mut edges = Vec::new();
+
+    if let Some(parser) = vue_parser {
+        if let Some(tree) = parser.parse(source, None) {
+            let root = tree.root_node();
+            let mut cursor = root.walk();
+            for child in root.children(&mut cursor) {
+                if child.kind() != "script_element" {
+                    continue;
+                }
+                let Some(raw_text_node) = vue_direct_child(child, "raw_text") else {
+                    continue;
+                };
+                let script_language = vue_script_language(child, source);
+                let script_parser = if script_language == "typescript" {
+                    typescript_parser.as_deref_mut()
+                } else {
+                    javascript_parser.as_deref_mut()
+                };
+                let script_source = &source[raw_text_node.start_byte()..raw_text_node.end_byte()];
+                let line_offset = raw_text_node.start_position().row as i64;
+                let (script_nodes, script_edges) = parse_javascript_like_with_parser(
+                    file_path,
+                    script_source,
+                    script_language,
+                    script_parser,
+                    repo_root,
+                    caches,
+                );
+
+                nodes.extend(script_nodes.into_iter().skip(1).map(|mut node| {
+                    node.line_start += line_offset;
+                    node.line_end += line_offset;
+                    node.language = "vue".to_string();
+                    node
+                }));
+                edges.extend(script_edges.into_iter().map(|mut edge| {
+                    edge.line += line_offset;
+                    edge
+                }));
+            }
+        }
+    }
+
+    (nodes, edges)
+}
+
+fn vue_direct_child<'a>(node: tree_sitter::Node<'a>, kind: &str) -> Option<tree_sitter::Node<'a>> {
+    let mut cursor = node.walk();
+    let found = node
+        .children(&mut cursor)
+        .find(|child| child.kind() == kind);
+    found
+}
+
+fn vue_script_language(node: tree_sitter::Node<'_>, source: &[u8]) -> &'static str {
+    let Some(start_tag) = vue_direct_child(node, "start_tag") else {
+        return "javascript";
+    };
+    let mut cursor = start_tag.walk();
+    for attr in start_tag.children(&mut cursor) {
+        if attr.kind() != "attribute" {
+            continue;
+        }
+        let Some(name) = javascript_child_text(attr, source, "attribute_name") else {
+            continue;
+        };
+        if name != "lang" {
+            continue;
+        }
+        if matches!(
+            vue_first_descendant_text(attr, source, &["attribute_value"]).as_deref(),
+            Some("ts" | "typescript")
+        ) {
+            return "typescript";
+        }
+    }
+    "javascript"
+}
+
+fn vue_first_descendant_text(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    kinds: &[&str],
+) -> Option<String> {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if kinds.contains(&child.kind()) {
+            return Some(node_text(child, source));
+        }
+        if let Some(found) = vue_first_descendant_text(child, source, kinds) {
+            return Some(found);
+        }
+    }
+    None
 }
 
 struct JavaScriptParseContext<'a> {
@@ -11834,6 +11985,7 @@ pub fn parse_rust_owned_file(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>
         RustOwnedPathKind::R => parse_r(file_path, source),
         RustOwnedPathKind::Julia => parse_julia(file_path, source),
         RustOwnedPathKind::Perl => parse_perl(file_path, source),
+        RustOwnedPathKind::Vue => parse_vue(file_path, source),
         RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
     }
 }
@@ -11872,6 +12024,7 @@ enum RustOwnedPathKind {
     R,
     Julia,
     Perl,
+    Vue,
     Unsupported,
 }
 
@@ -11954,6 +12107,8 @@ fn rust_owned_path_kind(file_path: &str) -> RustOwnedPathKind {
         || ends_with_ascii_ignore_case(file_path, ".t")
     {
         RustOwnedPathKind::Perl
+    } else if ends_with_ascii_ignore_case(file_path, ".vue") {
+        RustOwnedPathKind::Vue
     } else {
         RustOwnedPathKind::Unsupported
     }
@@ -12306,6 +12461,18 @@ fn new_perl_parser() -> Option<tree_sitter::Parser> {
     let mut parser = tree_sitter::Parser::new();
     if parser
         .set_language(&dagayn_grammars::perl_language())
+        .is_ok()
+    {
+        Some(parser)
+    } else {
+        None
+    }
+}
+
+fn new_vue_parser() -> Option<tree_sitter::Parser> {
+    let mut parser = tree_sitter::Parser::new();
+    if parser
+        .set_language(&dagayn_grammars::vue_language())
         .is_ok()
     {
         Some(parser)
@@ -15336,6 +15503,66 @@ sub run_dynamic {
                 && edge.target == "<dynamic:open@bridge.pl:6>"
                 && edge.extra["evidence_source"] == "open"
                 && edge.extra["confidence_tier"] == "LOW"
+        }));
+    }
+
+    #[test]
+    fn parses_vue_script_blocks_with_typescript_offsets() {
+        let source = br#"<template>
+  <div class="app">
+    <UserList :users="users" @select="onSelectUser" />
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, computed } from 'vue'
+import UserList from './UserList.vue'
+
+interface User {
+  id: number
+  name: string
+}
+
+const count = ref(0)
+
+function increment() {
+  count.value++
+}
+
+function onSelectUser(user: User) {
+  console.log(user.name)
+}
+
+const doubled = computed(() => count.value * 2)
+</script>
+"#;
+        let (nodes, edges) = parse_vue("sample.vue", source);
+        assert!(nodes.iter().any(|node| {
+            node.kind == "File" && node.name == "sample.vue" && node.language == "vue"
+        }));
+        assert!(nodes.iter().any(|node| {
+            node.kind == "Class"
+                && node.name == "User"
+                && node.language == "vue"
+                && node.extra["type_role"] == "interface"
+        }));
+        assert!(nodes.iter().any(|node| {
+            node.kind == "Function"
+                && node.name == "increment"
+                && node.language == "vue"
+                && node.line_start == 18
+        }));
+        assert!(edges
+            .iter()
+            .any(|edge| { edge.kind == "IMPORTS_FROM" && edge.target == "vue" && edge.line == 8 }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CALLS" && edge.source == "sample.vue" && edge.target == "ref"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CALLS"
+                && edge.source == "sample.vue::onSelectUser"
+                && edge.target == "log"
+                && edge.line == 23
         }));
     }
 

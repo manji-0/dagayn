@@ -465,6 +465,20 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
             "src/tsp_unicode.h",
         ),
     ),
+    "vue": GrammarSpec(
+        language="vue",
+        owner="tree-sitter-grammars",
+        repo="tree-sitter-vue",
+        commit="22bdfa6c9fc0f5ffa44c6e938ec46869ac8a99ff",
+        required_paths=(
+            "src/parser.c",
+            "src/scanner.c",
+            "src/tag.h",
+            "src/tree_sitter/alloc.h",
+            "src/tree_sitter/array.h",
+            "src/tree_sitter/parser.h",
+        ),
+    ),
 }
 
 

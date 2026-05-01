@@ -33,6 +33,7 @@ extern "C" {
     fn tree_sitter_r() -> *const ();
     fn tree_sitter_julia() -> *const ();
     fn tree_sitter_perl() -> *const ();
+    fn tree_sitter_vue() -> *const ();
 }
 
 pub const MARKDOWN_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_markdown) };
@@ -62,6 +63,7 @@ pub const GDSCRIPT_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sit
 pub const R_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_r) };
 pub const JULIA_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_julia) };
 pub const PERL_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_perl) };
+pub const VUE_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_vue) };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GrammarStatus {
@@ -178,6 +180,10 @@ pub fn julia_language() -> tree_sitter::Language {
 
 pub fn perl_language() -> tree_sitter::Language {
     PERL_LANGUAGE.into()
+}
+
+pub fn vue_language() -> tree_sitter::Language {
+    VUE_LANGUAGE.into()
 }
 
 #[cfg(test)]
@@ -517,6 +523,21 @@ mod tests {
         let tree = parser
             .parse("package Animal;\nsub speak { return \"...\"; }\n", None)
             .expect("parse Perl");
+        assert!(!tree.root_node().has_error());
+    }
+
+    #[test]
+    fn loads_vue_language() {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&vue_language())
+            .expect("load pinned Vue grammar");
+        let tree = parser
+            .parse(
+                "<template><div /></template>\n<script>const x = 1</script>\n",
+                None,
+            )
+            .expect("parse Vue");
         assert!(!tree.root_node().has_error());
     }
 }
