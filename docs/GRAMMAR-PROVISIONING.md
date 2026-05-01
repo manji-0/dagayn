@@ -20,6 +20,7 @@ The current provisioned grammars are:
 - Java
 - Ruby
 - C#
+- PHP
 
 ## Provisioning model
 
@@ -70,7 +71,7 @@ The provisioner injects a small Python binding shim where the pinned source
 tree does not provide the exact binding layout dagayn expects.
 
 The Rust backend currently routes Markdown, Terraform, Rust, Python/notebooks,
-JavaScript/JSX, TypeScript/TSX, Bash, Go, Java, Ruby, and C# through these pinned grammar sources.
+JavaScript/JSX, TypeScript/TSX, Bash, Go, Java, Ruby, C#, and PHP through these pinned grammar sources.
 
 ## Operational expectations
 

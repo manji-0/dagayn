@@ -18,6 +18,7 @@ extern "C" {
     fn tree_sitter_java() -> *const ();
     fn tree_sitter_ruby() -> *const ();
     fn tree_sitter_c_sharp() -> *const ();
+    fn tree_sitter_php() -> *const ();
 }
 
 pub const MARKDOWN_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_markdown) };
@@ -32,6 +33,7 @@ pub const GO_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_go
 pub const JAVA_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_java) };
 pub const RUBY_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_ruby) };
 pub const CSHARP_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_c_sharp) };
+pub const PHP_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_php) };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GrammarStatus {
@@ -88,6 +90,10 @@ pub fn ruby_language() -> tree_sitter::Language {
 
 pub fn csharp_language() -> tree_sitter::Language {
     CSHARP_LANGUAGE.into()
+}
+
+pub fn php_language() -> tree_sitter::Language {
+    PHP_LANGUAGE.into()
 }
 
 #[cfg(test)]
@@ -243,6 +249,21 @@ mod tests {
                 None,
             )
             .expect("parse C#");
+        assert!(!tree.root_node().has_error());
+    }
+
+    #[test]
+    fn loads_php_language() {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&php_language())
+            .expect("load pinned PHP grammar");
+        let tree = parser
+            .parse(
+                "<?php\nclass User { function save() { echo \"ok\"; } }\n",
+                None,
+            )
+            .expect("parse PHP");
         assert!(!tree.root_node().has_error());
     }
 }

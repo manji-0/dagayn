@@ -176,6 +176,21 @@ const CSHARP: GrammarSpec = GrammarSpec {
     parser_subdirectory: None,
 };
 
+const PHP: GrammarSpec = GrammarSpec {
+    language: "php",
+    symbol: "php",
+    required_paths: &[
+        "php/src/parser.c",
+        "php/src/scanner.c",
+        "php/src/tree_sitter/alloc.h",
+        "php/src/tree_sitter/array.h",
+        "php/src/tree_sitter/parser.h",
+        "common/scanner.h",
+        "bindings/python/binding.c",
+    ],
+    parser_subdirectory: Some("php"),
+};
+
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let repo_root = manifest_dir
@@ -202,6 +217,7 @@ fn main() {
     compile_grammar(&repo_root, &JAVA);
     compile_grammar(&repo_root, &RUBY);
     compile_grammar(&repo_root, &CSHARP);
+    compile_grammar(&repo_root, &PHP);
 }
 
 fn compile_grammar(repo_root: &Path, spec: &GrammarSpec) {

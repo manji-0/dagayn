@@ -252,6 +252,23 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
         ),
         inject_python_binding=True,
     ),
+    "php": GrammarSpec(
+        language="php",
+        owner="tree-sitter",
+        repo="tree-sitter-php",
+        commit="3f2465c217d0a966d41e584b42d75522f2a3149e",
+        required_paths=(
+            "php/src/parser.c",
+            "php/src/scanner.c",
+            "php/src/tree_sitter/alloc.h",
+            "php/src/tree_sitter/array.h",
+            "php/src/tree_sitter/parser.h",
+            "common/scanner.h",
+            "bindings/python/binding.c",
+        ),
+        inject_python_binding=True,
+        parser_subdirectory="php",
+    ),
 }
 
 
