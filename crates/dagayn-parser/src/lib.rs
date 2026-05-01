@@ -59,6 +59,7 @@ static MARKDOWN_SYMBOL_RE: LazyLock<Regex> =
 static MARKDOWN_TITLE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"\s+(?:"[^"]*"|'[^']*')\s*$"#).unwrap());
 type JavaScriptExportCache = RefCell<HashMap<(String, String), Option<String>>>;
+type JavaScriptTsconfigCache = RefCell<HashMap<PathBuf, Option<(PathBuf, Value)>>>;
 static EXTENSION_TO_LANGUAGE: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| {
     HashMap::from([
         (".py", "python"),
@@ -346,6 +347,7 @@ pub struct RustOwnedParser {
     typescript_parser: Option<tree_sitter::Parser>,
     tsx_parser: Option<tree_sitter::Parser>,
     javascript_export_cache: JavaScriptExportCache,
+    javascript_tsconfig_cache: JavaScriptTsconfigCache,
 }
 
 impl RustOwnedParser {
@@ -359,6 +361,7 @@ impl RustOwnedParser {
             typescript_parser: new_typescript_parser(),
             tsx_parser: new_tsx_parser(),
             javascript_export_cache: RefCell::new(HashMap::new()),
+            javascript_tsconfig_cache: RefCell::new(HashMap::new()),
         }
     }
 
@@ -402,6 +405,7 @@ impl RustOwnedParser {
                 self.javascript_parser.as_mut(),
                 repo_root,
                 Some(&self.javascript_export_cache),
+                Some(&self.javascript_tsconfig_cache),
             ),
             RustOwnedPathKind::TypeScript => parse_javascript_like_with_parser(
                 file_path,
@@ -410,6 +414,7 @@ impl RustOwnedParser {
                 self.typescript_parser.as_mut(),
                 repo_root,
                 Some(&self.javascript_export_cache),
+                Some(&self.javascript_tsconfig_cache),
             ),
             RustOwnedPathKind::Tsx => parse_javascript_like_with_parser(
                 file_path,
@@ -418,6 +423,7 @@ impl RustOwnedParser {
                 self.tsx_parser.as_mut(),
                 repo_root,
                 Some(&self.javascript_export_cache),
+                Some(&self.javascript_tsconfig_cache),
             ),
             RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
         }
@@ -2101,7 +2107,15 @@ fn parse_javascript_like(
         "tsx" => new_tsx_parser(),
         _ => None,
     };
-    parse_javascript_like_with_parser(file_path, source, language, parser.as_mut(), None, None)
+    parse_javascript_like_with_parser(
+        file_path,
+        source,
+        language,
+        parser.as_mut(),
+        None,
+        None,
+        None,
+    )
 }
 
 fn parse_javascript_like_with_parser(
@@ -2111,6 +2125,7 @@ fn parse_javascript_like_with_parser(
     parser: Option<&mut tree_sitter::Parser>,
     repo_root: Option<&Path>,
     export_cache: Option<&JavaScriptExportCache>,
+    tsconfig_cache: Option<&JavaScriptTsconfigCache>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
     let test_file = is_javascript_test_file(file_path);
@@ -2146,6 +2161,7 @@ fn parse_javascript_like_with_parser(
                 import_map: &import_map,
                 repo_root,
                 export_cache,
+                tsconfig_cache,
             };
             javascript_walk_children(root, &context, None, None, &mut nodes, &mut edges);
             let mut edges = resolve_rust_call_targets(&nodes, edges, file_path);
@@ -2168,6 +2184,7 @@ struct JavaScriptParseContext<'a> {
     import_map: &'a HashMap<String, String>,
     repo_root: Option<&'a Path>,
     export_cache: Option<&'a JavaScriptExportCache>,
+    tsconfig_cache: Option<&'a JavaScriptTsconfigCache>,
 }
 
 fn javascript_walk_children(
@@ -2243,9 +2260,13 @@ fn javascript_walk_children(
             }
             "import_statement" => {
                 for target in javascript_import_targets(child, context.source) {
-                    let resolved =
-                        resolve_javascript_module(&target, context.file_path, context.repo_root)
-                            .unwrap_or(target);
+                    let resolved = resolve_javascript_module(
+                        &target,
+                        context.file_path,
+                        context.repo_root,
+                        context.tsconfig_cache,
+                    )
+                    .unwrap_or(target);
                     edges.push(ParsedEdge {
                         kind: "IMPORTS_FROM".to_string(),
                         source: context.file_path.to_string(),
@@ -2734,12 +2755,18 @@ fn resolve_javascript_imported_symbol(
     module: &str,
     context: &JavaScriptParseContext<'_>,
 ) -> Option<String> {
-    let module_file = resolve_javascript_module(module, context.file_path, context.repo_root)?;
+    let module_file = resolve_javascript_module(
+        module,
+        context.file_path,
+        context.repo_root,
+        context.tsconfig_cache,
+    )?;
     resolve_javascript_exported_symbol(
         &module_file,
         symbol_name,
         context.repo_root,
         context.export_cache,
+        context.tsconfig_cache,
         &mut HashSet::new(),
     )
     .or_else(|| Some(qualify(&module_file, symbol_name, None)))
@@ -2750,6 +2777,7 @@ fn resolve_javascript_exported_symbol(
     symbol_name: &str,
     repo_root: Option<&Path>,
     export_cache: Option<&JavaScriptExportCache>,
+    tsconfig_cache: Option<&JavaScriptTsconfigCache>,
     seen: &mut HashSet<(String, String)>,
 ) -> Option<String> {
     let key = (module_file.to_string(), symbol_name.to_string());
@@ -2766,6 +2794,7 @@ fn resolve_javascript_exported_symbol(
         symbol_name,
         repo_root,
         export_cache,
+        tsconfig_cache,
         seen,
     );
     if let Some(cache) = export_cache {
@@ -2782,6 +2811,7 @@ fn resolve_javascript_exported_symbol_uncached(
     symbol_name: &str,
     repo_root: Option<&Path>,
     export_cache: Option<&JavaScriptExportCache>,
+    tsconfig_cache: Option<&JavaScriptTsconfigCache>,
     seen: &mut HashSet<(String, String)>,
 ) -> Option<String> {
     let source_path = repo_root
@@ -2824,13 +2854,18 @@ fn resolve_javascript_exported_symbol_uncached(
                 }
                 let original_name = names.first().unwrap_or(exported_name);
                 if let Some(target_module) = target_module.as_deref() {
-                    let resolved_module =
-                        resolve_javascript_module(target_module, module_file, repo_root)?;
+                    let resolved_module = resolve_javascript_module(
+                        target_module,
+                        module_file,
+                        repo_root,
+                        tsconfig_cache,
+                    )?;
                     return resolve_javascript_exported_symbol(
                         &resolved_module,
                         original_name,
                         repo_root,
                         export_cache,
+                        tsconfig_cache,
                         seen,
                     )
                     .or_else(|| Some(qualify(&resolved_module, original_name, None)));
@@ -2844,7 +2879,7 @@ fn resolve_javascript_exported_symbol_uncached(
                 continue;
             };
             let Some(resolved_module) =
-                resolve_javascript_module(target_module, module_file, repo_root)
+                resolve_javascript_module(target_module, module_file, repo_root, tsconfig_cache)
             else {
                 continue;
             };
@@ -2853,6 +2888,7 @@ fn resolve_javascript_exported_symbol_uncached(
                 symbol_name,
                 repo_root,
                 export_cache,
+                tsconfig_cache,
                 seen,
             ) {
                 return Some(result);
@@ -3133,9 +3169,10 @@ fn resolve_javascript_module(
     module: &str,
     file_path: &str,
     repo_root: Option<&Path>,
+    tsconfig_cache: Option<&JavaScriptTsconfigCache>,
 ) -> Option<String> {
     if !module.starts_with('.') {
-        return resolve_javascript_alias(module, file_path, repo_root);
+        return resolve_javascript_alias(module, file_path, repo_root, tsconfig_cache);
     }
     let caller_dir = Path::new(file_path)
         .parent()
@@ -3194,8 +3231,9 @@ fn resolve_javascript_alias(
     module: &str,
     file_path: &str,
     repo_root: Option<&Path>,
+    tsconfig_cache: Option<&JavaScriptTsconfigCache>,
 ) -> Option<String> {
-    let (tsconfig_path, config) = find_javascript_tsconfig(file_path, repo_root)?;
+    let (tsconfig_path, config) = find_javascript_tsconfig(file_path, repo_root, tsconfig_cache)?;
     let compiler_options = config.get("compilerOptions")?;
     let paths = compiler_options.get("paths")?.as_object()?;
     let base_url = compiler_options
@@ -3232,13 +3270,31 @@ fn resolve_javascript_alias(
     None
 }
 
-fn find_javascript_tsconfig(file_path: &str, repo_root: Option<&Path>) -> Option<(PathBuf, Value)> {
+fn find_javascript_tsconfig(
+    file_path: &str,
+    repo_root: Option<&Path>,
+    tsconfig_cache: Option<&JavaScriptTsconfigCache>,
+) -> Option<(PathBuf, Value)> {
     let mut current = if let Some(repo_root) = repo_root {
         repo_root.join(file_path)
     } else {
         PathBuf::from(file_path)
     };
     current = current.parent()?.to_path_buf();
+    if let Some(cache) = tsconfig_cache {
+        if let Some(cached) = cache.borrow().get(&current).cloned() {
+            return cached;
+        }
+    }
+    let start_dir = current.clone();
+    let result = find_javascript_tsconfig_uncached(current);
+    if let Some(cache) = tsconfig_cache {
+        cache.borrow_mut().insert(start_dir, result.clone());
+    }
+    result
+}
+
+fn find_javascript_tsconfig_uncached(mut current: PathBuf) -> Option<(PathBuf, Value)> {
     loop {
         for name in ["tsconfig.json", "tsconfig.app.json"] {
             let candidate = current.join(name);
