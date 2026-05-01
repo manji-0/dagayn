@@ -23,6 +23,7 @@ RUST_OWNED_PARITY_FIXTURES = [
     "terraform_only",
     "markdown_only",
     "python_only",
+    "notebook",
     "mixed",
 ]
 

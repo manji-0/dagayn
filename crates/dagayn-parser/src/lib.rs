@@ -379,6 +379,12 @@ impl RustOwnedParser {
             RustOwnedPathKind::Python => {
                 parse_python_with_parser(file_path, source, self.python_parser.as_mut(), repo_root)
             }
+            RustOwnedPathKind::Notebook => parse_notebook_with_parser(
+                file_path,
+                source,
+                self.python_parser.as_mut(),
+                repo_root,
+            ),
             RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
         }
     }
@@ -698,6 +704,39 @@ pub fn parse_python_compact_json(file_path: &str, source: &[u8]) -> String {
     parsed_compact_json(nodes, edges)
 }
 
+pub fn parse_notebook(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let mut parser = new_python_parser();
+    parse_notebook_with_parser(file_path, source, parser.as_mut(), None)
+}
+
+fn parse_notebook_with_parser(
+    file_path: &str,
+    source: &[u8],
+    parser: Option<&mut tree_sitter::Parser>,
+    repo_root: Option<&Path>,
+) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let Ok(notebook) = serde_json::from_slice::<Value>(source) else {
+        return (Vec::new(), Vec::new());
+    };
+    let Some(default_language) = notebook_kernel_language(&notebook) else {
+        return (Vec::new(), Vec::new());
+    };
+    let cells = collect_notebook_cells(&notebook, default_language);
+    if cells.is_empty() {
+        return (
+            vec![notebook_file_node(
+                file_path,
+                1,
+                default_language,
+                is_test_file(file_path),
+                None,
+            )],
+            Vec::new(),
+        );
+    }
+    parse_notebook_cells_with_parser(file_path, &cells, default_language, None, parser, repo_root)
+}
+
 struct PythonParseContext<'a> {
     source: &'a [u8],
     file_path: &'a str,
@@ -735,14 +774,31 @@ fn parse_databricks_py_with_parser(
             Vec::new(),
         );
     }
+    parse_notebook_cells_with_parser(
+        file_path,
+        &cells,
+        "python",
+        Some("databricks_py"),
+        parser,
+        repo_root,
+    )
+}
 
+fn parse_notebook_cells_with_parser(
+    file_path: &str,
+    cells: &[NotebookCell],
+    default_language: &'static str,
+    notebook_format: Option<&'static str>,
+    parser: Option<&mut tree_sitter::Parser>,
+    repo_root: Option<&Path>,
+) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let mut nodes = Vec::new();
     let mut edges = Vec::new();
     let mut cell_offsets = Vec::new();
     let mut max_line = 1_i64;
     let mut parser = parser;
     let mut languages = Vec::<&'static str>::new();
-    for cell in &cells {
+    for cell in cells {
         if !languages.contains(&cell.language) {
             languages.push(cell.language);
         }
@@ -785,8 +841,13 @@ fn parse_databricks_py_with_parser(
         }
     }
 
-    let mut file_node = databricks_file_node(file_path, max_line, is_test_file(file_path));
-    file_node.extra = json!({"notebook_format": "databricks_py"});
+    let file_node = notebook_file_node(
+        file_path,
+        max_line,
+        default_language,
+        is_test_file(file_path),
+        notebook_format,
+    );
     nodes.insert(0, file_node);
     tag_notebook_cell_indices(&mut nodes, &cell_offsets);
     let edges = resolve_python_call_targets(&nodes, edges, file_path);
@@ -795,19 +856,137 @@ fn parse_databricks_py_with_parser(
 }
 
 fn databricks_file_node(file_path: &str, line_end: i64, is_test: bool) -> ParsedNode {
+    notebook_file_node(
+        file_path,
+        line_end,
+        "python",
+        is_test,
+        Some("databricks_py"),
+    )
+}
+
+fn notebook_kernel_language(notebook: &Value) -> Option<&'static str> {
+    let language = notebook
+        .pointer("/metadata/kernelspec/language")
+        .and_then(Value::as_str)
+        .or_else(|| {
+            notebook
+                .pointer("/metadata/language_info/name")
+                .and_then(Value::as_str)
+        })
+        .unwrap_or("python")
+        .to_ascii_lowercase();
+    match language.as_str() {
+        "python" => Some("python"),
+        "r" => Some("r"),
+        _ => None,
+    }
+}
+
+fn collect_notebook_cells(notebook: &Value, default_language: &'static str) -> Vec<NotebookCell> {
+    let Some(cells) = notebook.get("cells").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for (cell_index, cell) in cells.iter().enumerate() {
+        if cell.get("cell_type").and_then(Value::as_str) != Some("code") {
+            continue;
+        }
+        let lines = notebook_source_lines(cell.get("source"));
+        if lines.is_empty() {
+            continue;
+        }
+        let first_line = lines[0].trim();
+        let mut cell_language = default_language;
+        let mut cell_lines = lines.as_slice();
+        if first_line == "%python" || first_line.starts_with("%python ") {
+            cell_language = "python";
+            cell_lines = &lines[1..];
+        } else if first_line == "%sql" || first_line.starts_with("%sql ") {
+            cell_language = "sql";
+            cell_lines = &lines[1..];
+        } else if first_line == "%r" || first_line.starts_with("%r ") {
+            cell_language = "r";
+            cell_lines = &lines[1..];
+        } else if first_line == "%scala"
+            || first_line.starts_with("%scala ")
+            || first_line == "%md"
+            || first_line.starts_with("%md ")
+            || first_line == "%sh"
+            || first_line.starts_with("%sh ")
+        {
+            continue;
+        }
+
+        let filtered = if matches!(cell_language, "python" | "r") {
+            cell_lines
+                .iter()
+                .filter(|line| {
+                    let trimmed = line.trim_start();
+                    !trimmed.starts_with('%') && !trimmed.starts_with('!')
+                })
+                .cloned()
+                .collect::<Vec<_>>()
+        } else {
+            cell_lines.to_vec()
+        };
+        if filtered.is_empty() {
+            continue;
+        }
+        out.push(NotebookCell {
+            cell_index: cell_index as i64,
+            language: cell_language,
+            source: filtered.join(""),
+        });
+    }
+    out
+}
+
+fn notebook_source_lines(source: Option<&Value>) -> Vec<String> {
+    match source {
+        Some(Value::Array(lines)) => lines
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect(),
+        Some(Value::String(text)) => split_lines_keepends(text),
+        _ => Vec::new(),
+    }
+}
+
+fn split_lines_keepends(text: &str) -> Vec<String> {
+    let mut lines = text
+        .split_inclusive('\n')
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    if lines.is_empty() && !text.is_empty() {
+        lines.push(text.to_string());
+    }
+    lines
+}
+
+fn notebook_file_node(
+    file_path: &str,
+    line_end: i64,
+    language: &str,
+    is_test: bool,
+    notebook_format: Option<&str>,
+) -> ParsedNode {
     ParsedNode {
         kind: "File".to_string(),
         name: file_path.to_string(),
         file_path: file_path.to_string(),
         line_start: 1,
         line_end,
-        language: "python".to_string(),
+        language: language.to_string(),
         parent_name: None,
         params: None,
         return_type: None,
         modifiers: None,
         is_test,
-        extra: json!({}),
+        extra: notebook_format
+            .map(|format| json!({"notebook_format": format}))
+            .unwrap_or_else(|| json!({})),
     }
 }
 
@@ -2378,6 +2557,7 @@ pub fn parse_rust_owned_file(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>
         RustOwnedPathKind::Terraform => parse_terraform(file_path, source),
         RustOwnedPathKind::Rust => parse_rust(file_path, source),
         RustOwnedPathKind::Python => parse_python(file_path, source),
+        RustOwnedPathKind::Notebook => parse_notebook(file_path, source),
         RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
     }
 }
@@ -2392,6 +2572,7 @@ enum RustOwnedPathKind {
     Terraform,
     Rust,
     Python,
+    Notebook,
     Unsupported,
 }
 
@@ -2408,6 +2589,8 @@ fn rust_owned_path_kind(file_path: &str) -> RustOwnedPathKind {
         RustOwnedPathKind::Rust
     } else if ends_with_ascii_ignore_case(file_path, ".py") {
         RustOwnedPathKind::Python
+    } else if ends_with_ascii_ignore_case(file_path, ".ipynb") {
+        RustOwnedPathKind::Notebook
     } else {
         RustOwnedPathKind::Unsupported
     }

@@ -448,6 +448,10 @@ Parser migration progress:
   REFERENCES on this repository's Python files. `.py` files now route through
   the Rust-owned parse path when `DAGAYN_BACKEND=rust`, including Databricks
   `.py` notebook exports via Rust-side SQL/R/Python cell splitting.
+- `.ipynb` notebooks also route through the Rust-owned parse path under
+  `DAGAYN_BACKEND=rust`; the Rust path parses notebook JSON, applies the same
+  Python/SQL/R cell grouping and magic filtering, and reuses the Rust Python
+  parser for Python cells.
 - FTS rebuilds now route through `dagayn._core.GraphStore.rebuild_fts_index`
   when the Rust backend is active. Python's `dagayn.search.rebuild_fts_index`
   keeps the existing SQLite implementation as the fallback for the Python
