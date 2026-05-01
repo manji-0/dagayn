@@ -6,6 +6,7 @@
 //! can shrink back toward CLI/MCP interfaces.
 
 use std::borrow::Cow;
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -57,6 +58,7 @@ static MARKDOWN_SYMBOL_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$").unwrap());
 static MARKDOWN_TITLE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"\s+(?:"[^"]*"|'[^']*')\s*$"#).unwrap());
+type JavaScriptExportCache = RefCell<HashMap<(String, String), Option<String>>>;
 static EXTENSION_TO_LANGUAGE: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| {
     HashMap::from([
         (".py", "python"),
@@ -343,6 +345,7 @@ pub struct RustOwnedParser {
     javascript_parser: Option<tree_sitter::Parser>,
     typescript_parser: Option<tree_sitter::Parser>,
     tsx_parser: Option<tree_sitter::Parser>,
+    javascript_export_cache: JavaScriptExportCache,
 }
 
 impl RustOwnedParser {
@@ -355,6 +358,7 @@ impl RustOwnedParser {
             javascript_parser: new_javascript_parser(),
             typescript_parser: new_typescript_parser(),
             tsx_parser: new_tsx_parser(),
+            javascript_export_cache: RefCell::new(HashMap::new()),
         }
     }
 
@@ -397,6 +401,7 @@ impl RustOwnedParser {
                 "javascript",
                 self.javascript_parser.as_mut(),
                 repo_root,
+                Some(&self.javascript_export_cache),
             ),
             RustOwnedPathKind::TypeScript => parse_javascript_like_with_parser(
                 file_path,
@@ -404,6 +409,7 @@ impl RustOwnedParser {
                 "typescript",
                 self.typescript_parser.as_mut(),
                 repo_root,
+                Some(&self.javascript_export_cache),
             ),
             RustOwnedPathKind::Tsx => parse_javascript_like_with_parser(
                 file_path,
@@ -411,6 +417,7 @@ impl RustOwnedParser {
                 "tsx",
                 self.tsx_parser.as_mut(),
                 repo_root,
+                Some(&self.javascript_export_cache),
             ),
             RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
         }
@@ -2094,7 +2101,7 @@ fn parse_javascript_like(
         "tsx" => new_tsx_parser(),
         _ => None,
     };
-    parse_javascript_like_with_parser(file_path, source, language, parser.as_mut(), None)
+    parse_javascript_like_with_parser(file_path, source, language, parser.as_mut(), None, None)
 }
 
 fn parse_javascript_like_with_parser(
@@ -2103,6 +2110,7 @@ fn parse_javascript_like_with_parser(
     language: &'static str,
     parser: Option<&mut tree_sitter::Parser>,
     repo_root: Option<&Path>,
+    export_cache: Option<&JavaScriptExportCache>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
     let test_file = is_javascript_test_file(file_path);
@@ -2137,6 +2145,7 @@ fn parse_javascript_like_with_parser(
                 defined_names: &defined_names,
                 import_map: &import_map,
                 repo_root,
+                export_cache,
             };
             javascript_walk_children(root, &context, None, None, &mut nodes, &mut edges);
             let mut edges = resolve_rust_call_targets(&nodes, edges, file_path);
@@ -2158,6 +2167,7 @@ struct JavaScriptParseContext<'a> {
     defined_names: &'a HashSet<String>,
     import_map: &'a HashMap<String, String>,
     repo_root: Option<&'a Path>,
+    export_cache: Option<&'a JavaScriptExportCache>,
 }
 
 fn javascript_walk_children(
@@ -2729,6 +2739,7 @@ fn resolve_javascript_imported_symbol(
         &module_file,
         symbol_name,
         context.repo_root,
+        context.export_cache,
         &mut HashSet::new(),
     )
     .or_else(|| Some(qualify(&module_file, symbol_name, None)))
@@ -2738,12 +2749,41 @@ fn resolve_javascript_exported_symbol(
     module_file: &str,
     symbol_name: &str,
     repo_root: Option<&Path>,
+    export_cache: Option<&JavaScriptExportCache>,
     seen: &mut HashSet<(String, String)>,
 ) -> Option<String> {
     let key = (module_file.to_string(), symbol_name.to_string());
+    if let Some(cache) = export_cache {
+        if let Some(cached) = cache.borrow().get(&key).cloned() {
+            return cached;
+        }
+    }
     if !seen.insert(key) {
         return None;
     }
+    let result = resolve_javascript_exported_symbol_uncached(
+        module_file,
+        symbol_name,
+        repo_root,
+        export_cache,
+        seen,
+    );
+    if let Some(cache) = export_cache {
+        cache.borrow_mut().insert(
+            (module_file.to_string(), symbol_name.to_string()),
+            result.clone(),
+        );
+    }
+    result
+}
+
+fn resolve_javascript_exported_symbol_uncached(
+    module_file: &str,
+    symbol_name: &str,
+    repo_root: Option<&Path>,
+    export_cache: Option<&JavaScriptExportCache>,
+    seen: &mut HashSet<(String, String)>,
+) -> Option<String> {
     let source_path = repo_root
         .map(|root| root.join(module_file))
         .unwrap_or_else(|| PathBuf::from(module_file));
@@ -2790,6 +2830,7 @@ fn resolve_javascript_exported_symbol(
                         &resolved_module,
                         original_name,
                         repo_root,
+                        export_cache,
                         seen,
                     )
                     .or_else(|| Some(qualify(&resolved_module, original_name, None)));
@@ -2807,9 +2848,13 @@ fn resolve_javascript_exported_symbol(
             else {
                 continue;
             };
-            if let Some(result) =
-                resolve_javascript_exported_symbol(&resolved_module, symbol_name, repo_root, seen)
-            {
+            if let Some(result) = resolve_javascript_exported_symbol(
+                &resolved_module,
+                symbol_name,
+                repo_root,
+                export_cache,
+                seen,
+            ) {
                 return Some(result);
             }
         }
