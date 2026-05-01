@@ -2846,7 +2846,7 @@ fn resolve_javascript_module(
     repo_root: Option<&Path>,
 ) -> Option<String> {
     if !module.starts_with('.') {
-        return None;
+        return resolve_javascript_alias(module, file_path, repo_root);
     }
     let caller_dir = Path::new(file_path)
         .parent()
@@ -2888,13 +2888,201 @@ fn javascript_module_candidate_path(
     candidate: PathBuf,
     repo_root: Option<&Path>,
 ) -> Option<String> {
-    if repo_root.is_some() {
-        return Some(normalize_relative_path(&candidate));
+    if let Some(repo_root) = repo_root {
+        let relative = candidate
+            .strip_prefix(repo_root)
+            .ok()
+            .unwrap_or(candidate.as_path());
+        return Some(normalize_relative_path(relative));
     }
     candidate
         .canonicalize()
         .ok()
         .map(|path| path.to_string_lossy().to_string())
+}
+
+fn resolve_javascript_alias(
+    module: &str,
+    file_path: &str,
+    repo_root: Option<&Path>,
+) -> Option<String> {
+    let (tsconfig_path, config) = find_javascript_tsconfig(file_path, repo_root)?;
+    let compiler_options = config.get("compilerOptions")?;
+    let paths = compiler_options.get("paths")?.as_object()?;
+    let base_url = compiler_options
+        .get("baseUrl")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let base_dir = tsconfig_path.parent().unwrap_or_else(|| Path::new(""));
+    let base_dir = base_dir.join(base_url);
+
+    let mut patterns = paths.iter().collect::<Vec<_>>();
+    patterns.sort_by_key(|(pattern, _)| std::cmp::Reverse(javascript_alias_specificity(pattern)));
+    for (pattern, replacements) in patterns {
+        let Some(suffix) = javascript_alias_match(pattern, module) else {
+            continue;
+        };
+        let Some(replacements) = replacements.as_array() else {
+            continue;
+        };
+        for replacement in replacements {
+            let Some(replacement) = replacement.as_str() else {
+                continue;
+            };
+            let mapped = if replacement.contains('*') {
+                replacement.replacen('*', &suffix, 1)
+            } else {
+                replacement.to_string()
+            };
+            let candidate = base_dir.join(mapped);
+            if let Some(path) = probe_javascript_module_candidate(&candidate, repo_root) {
+                return Some(path);
+            }
+        }
+    }
+    None
+}
+
+fn find_javascript_tsconfig(file_path: &str, repo_root: Option<&Path>) -> Option<(PathBuf, Value)> {
+    let mut current = if let Some(repo_root) = repo_root {
+        repo_root.join(file_path)
+    } else {
+        PathBuf::from(file_path)
+    };
+    current = current.parent()?.to_path_buf();
+    loop {
+        for name in ["tsconfig.json", "tsconfig.app.json"] {
+            let candidate = current.join(name);
+            if candidate.is_file() {
+                let value = read_javascript_tsconfig(&candidate)?;
+                return Some((candidate, value));
+            }
+        }
+        let Some(parent) = current.parent() else {
+            break;
+        };
+        if parent == current {
+            break;
+        }
+        current = parent.to_path_buf();
+    }
+    None
+}
+
+fn read_javascript_tsconfig(path: &Path) -> Option<Value> {
+    let raw = std::fs::read_to_string(path).ok()?;
+    let stripped = strip_jsonc_comments(&raw);
+    serde_json::from_str(&stripped).ok()
+}
+
+fn strip_jsonc_comments(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'"' {
+            out.push('"');
+            i += 1;
+            while i < bytes.len() {
+                let ch = bytes[i] as char;
+                out.push(ch);
+                if bytes[i] == b'\\' && i + 1 < bytes.len() {
+                    i += 1;
+                    out.push(bytes[i] as char);
+                } else if bytes[i] == b'"' {
+                    i += 1;
+                    break;
+                }
+                i += 1;
+            }
+            continue;
+        }
+        if bytes[i] == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'/' {
+            i += 2;
+            while i < bytes.len() && bytes[i] != b'\n' {
+                i += 1;
+            }
+            continue;
+        }
+        if bytes[i] == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'*' {
+            i += 2;
+            while i + 1 < bytes.len() {
+                if bytes[i] == b'*' && bytes[i + 1] == b'/' {
+                    i += 2;
+                    break;
+                }
+                i += 1;
+            }
+            continue;
+        }
+        out.push(bytes[i] as char);
+        i += 1;
+    }
+    strip_json_trailing_commas(&out)
+}
+
+fn strip_json_trailing_commas(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b',' {
+            let mut j = i + 1;
+            while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+                j += 1;
+            }
+            if j < bytes.len() && matches!(bytes[j], b'}' | b']') {
+                i += 1;
+                continue;
+            }
+        }
+        out.push(bytes[i] as char);
+        i += 1;
+    }
+    out
+}
+
+fn javascript_alias_specificity(pattern: &str) -> usize {
+    pattern
+        .split_once('*')
+        .map(|(prefix, _)| prefix.len())
+        .unwrap_or(pattern.len())
+}
+
+fn javascript_alias_match(pattern: &str, module: &str) -> Option<String> {
+    let Some((prefix, suffix)) = pattern.split_once('*') else {
+        return (pattern == module).then(String::new);
+    };
+    if !module.starts_with(prefix) || !module.ends_with(suffix) {
+        return None;
+    }
+    let end = module.len().saturating_sub(suffix.len());
+    Some(module[prefix.len()..end].to_string())
+}
+
+fn probe_javascript_module_candidate(candidate: &Path, repo_root: Option<&Path>) -> Option<String> {
+    if javascript_module_candidate_is_file(candidate, repo_root) {
+        return javascript_module_candidate_path(candidate.to_path_buf(), repo_root);
+    }
+    for ext in [".ts", ".tsx", ".js", ".jsx", ".vue"] {
+        let target = if candidate.extension().is_none() {
+            candidate.with_extension(ext.trim_start_matches('.'))
+        } else {
+            PathBuf::from(format!("{}{}", candidate.to_string_lossy(), ext))
+        };
+        if javascript_module_candidate_is_file(&target, repo_root) {
+            return javascript_module_candidate_path(target, repo_root);
+        }
+    }
+    if javascript_module_candidate_is_dir(candidate, repo_root) {
+        for ext in [".ts", ".tsx", ".js", ".jsx", ".vue"] {
+            let target = candidate.join(format!("index{ext}"));
+            if javascript_module_candidate_is_file(&target, repo_root) {
+                return javascript_module_candidate_path(target, repo_root);
+            }
+        }
+    }
+    None
 }
 
 fn javascript_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
@@ -5640,6 +5828,58 @@ export function run() {
             edge.kind == "REFERENCES"
                 && edge.source == "src/consumer.ts::run"
                 && edge.target == "src/helper.ts::helper"
+        }));
+
+        let _ = std::fs::remove_dir_all(&repo_root);
+    }
+
+    #[test]
+    fn resolves_typescript_tsconfig_alias_imports() {
+        let mut repo_root = std::env::temp_dir();
+        repo_root.push(format!(
+            "dagayn-parser-ts-alias-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        let _ = std::fs::remove_dir_all(&repo_root);
+        std::fs::create_dir_all(repo_root.join("src/lib")).unwrap();
+        std::fs::write(
+            repo_root.join("tsconfig.json"),
+            br#"{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"],
+    },
+  },
+}
+"#,
+        )
+        .unwrap();
+        std::fs::write(
+            repo_root.join("src/lib/utils.ts"),
+            b"export function cn(...args: string[]): string { return args.join(' '); }\n",
+        )
+        .unwrap();
+
+        let source = br#"import { cn } from '@/lib/utils';
+
+export function formatUser(name: string): string {
+  return cn('user', name);
+}
+"#;
+        let mut parser = RustOwnedParser::new();
+        let (_nodes, edges) =
+            parser.parse_file_in_repo(Some(&repo_root), "alias_importer.ts", source);
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "IMPORTS_FROM"
+                && edge.source == "alias_importer.ts"
+                && edge.target == "src/lib/utils.ts"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CALLS"
+                && edge.source == "alias_importer.ts::formatUser"
+                && edge.target == "src/lib/utils.ts::cn"
         }));
 
         let _ = std::fs::remove_dir_all(&repo_root);
