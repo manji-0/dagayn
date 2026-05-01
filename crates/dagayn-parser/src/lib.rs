@@ -2628,9 +2628,140 @@ fn resolve_javascript_call_target(name: &str, context: &JavaScriptParseContext<'
     let Some(module) = context.import_map.get(name) else {
         return name.to_string();
     };
-    resolve_javascript_module(module, context.file_path, context.repo_root)
-        .map(|module_file| qualify(&module_file, name, None))
-        .unwrap_or_else(|| name.to_string())
+    resolve_javascript_imported_symbol(name, module, context).unwrap_or_else(|| name.to_string())
+}
+
+fn resolve_javascript_imported_symbol(
+    symbol_name: &str,
+    module: &str,
+    context: &JavaScriptParseContext<'_>,
+) -> Option<String> {
+    let module_file = resolve_javascript_module(module, context.file_path, context.repo_root)?;
+    resolve_javascript_exported_symbol(
+        &module_file,
+        symbol_name,
+        context.repo_root,
+        &mut HashSet::new(),
+    )
+    .or_else(|| Some(qualify(&module_file, symbol_name, None)))
+}
+
+fn resolve_javascript_exported_symbol(
+    module_file: &str,
+    symbol_name: &str,
+    repo_root: Option<&Path>,
+    seen: &mut HashSet<(String, String)>,
+) -> Option<String> {
+    let key = (module_file.to_string(), symbol_name.to_string());
+    if !seen.insert(key) {
+        return None;
+    }
+    let source_path = repo_root
+        .map(|root| root.join(module_file))
+        .unwrap_or_else(|| PathBuf::from(module_file));
+    let source = std::fs::read(&source_path).ok()?;
+    let mut parser = new_javascript_module_parser(module_file)?;
+    let tree = parser.parse(&source, None)?;
+    let root = tree.root_node();
+
+    let mut defined_names = HashSet::new();
+    collect_javascript_defined_names(root, &source, &mut defined_names);
+    if defined_names.contains(symbol_name) {
+        return Some(qualify(module_file, symbol_name, None));
+    }
+
+    let mut cursor = root.walk();
+    for child in root.children(&mut cursor) {
+        if child.kind() != "export_statement" {
+            continue;
+        }
+        let (export_clause, target_module, has_star_export) =
+            javascript_export_statement_parts(child, &source);
+        if let Some(export_clause) = export_clause {
+            let mut clause_cursor = export_clause.walk();
+            for spec in export_clause.children(&mut clause_cursor) {
+                if spec.kind() != "export_specifier" {
+                    continue;
+                }
+                let names = javascript_named_descendants(
+                    spec,
+                    &source,
+                    &["identifier", "property_identifier"],
+                );
+                let Some(exported_name) = names.last() else {
+                    continue;
+                };
+                if exported_name != symbol_name {
+                    continue;
+                }
+                let original_name = names.first().unwrap_or(exported_name);
+                if let Some(target_module) = target_module.as_deref() {
+                    let resolved_module =
+                        resolve_javascript_module(target_module, module_file, repo_root)?;
+                    return resolve_javascript_exported_symbol(
+                        &resolved_module,
+                        original_name,
+                        repo_root,
+                        seen,
+                    )
+                    .or_else(|| Some(qualify(&resolved_module, original_name, None)));
+                }
+                return Some(qualify(module_file, original_name, None));
+            }
+        }
+
+        if has_star_export {
+            let Some(target_module) = target_module.as_deref() else {
+                continue;
+            };
+            let Some(resolved_module) =
+                resolve_javascript_module(target_module, module_file, repo_root)
+            else {
+                continue;
+            };
+            if let Some(result) =
+                resolve_javascript_exported_symbol(&resolved_module, symbol_name, repo_root, seen)
+            {
+                return Some(result);
+            }
+        }
+    }
+    None
+}
+
+fn new_javascript_module_parser(module_file: &str) -> Option<tree_sitter::Parser> {
+    if ends_with_ascii_ignore_case(module_file, ".tsx") {
+        return new_tsx_parser();
+    }
+    if ends_with_ascii_ignore_case(module_file, ".ts") {
+        return new_typescript_parser();
+    }
+    if ends_with_ascii_ignore_case(module_file, ".js")
+        || ends_with_ascii_ignore_case(module_file, ".jsx")
+        || ends_with_ascii_ignore_case(module_file, ".mjs")
+    {
+        return new_javascript_parser();
+    }
+    None
+}
+
+fn javascript_export_statement_parts<'a>(
+    node: tree_sitter::Node<'a>,
+    source: &[u8],
+) -> (Option<tree_sitter::Node<'a>>, Option<String>, bool) {
+    let mut export_clause = None;
+    let mut target_module = None;
+    let mut has_star_export = false;
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        match child.kind() {
+            "export_clause" => export_clause = Some(child),
+            "string" => target_module = Some(decode_javascript_string_literal(child, source)),
+            "*" => has_star_export = true,
+            _ => {}
+        }
+    }
+    (export_clause, target_module, has_star_export)
 }
 
 fn collect_javascript_import_map(
@@ -2716,6 +2847,31 @@ fn javascript_last_named_descendant(
         }
     }
     None
+}
+
+fn javascript_named_descendants(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    kinds: &[&str],
+) -> Vec<String> {
+    let mut names = Vec::new();
+    collect_javascript_named_descendants(node, source, kinds, &mut names);
+    names
+}
+
+fn collect_javascript_named_descendants(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    kinds: &[&str],
+    names: &mut Vec<String>,
+) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if kinds.contains(&child.kind()) {
+            names.push(node_text(child, source));
+        }
+        collect_javascript_named_descendants(child, source, kinds, names);
+    }
 }
 
 fn javascript_variable_declarator_function_name(
@@ -3983,6 +4139,18 @@ fn new_typescript_parser() -> Option<tree_sitter::Parser> {
     let mut parser = tree_sitter::Parser::new();
     if parser
         .set_language(&dagayn_grammars::typescript_language())
+        .is_ok()
+    {
+        Some(parser)
+    } else {
+        None
+    }
+}
+
+fn new_tsx_parser() -> Option<tree_sitter::Parser> {
+    let mut parser = tree_sitter::Parser::new();
+    if parser
+        .set_language(&dagayn_grammars::tsx_language())
         .is_ok()
     {
         Some(parser)
@@ -5880,6 +6048,82 @@ export function formatUser(name: string): string {
             edge.kind == "CALLS"
                 && edge.source == "alias_importer.ts::formatUser"
                 && edge.target == "src/lib/utils.ts::cn"
+        }));
+
+        let _ = std::fs::remove_dir_all(&repo_root);
+    }
+
+    #[test]
+    fn resolves_typescript_barrel_reexports_to_origin() {
+        let mut repo_root = std::env::temp_dir();
+        repo_root.push(format!(
+            "dagayn-parser-ts-barrel-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        let _ = std::fs::remove_dir_all(&repo_root);
+        std::fs::create_dir_all(repo_root.join("src/components")).unwrap();
+        std::fs::write(
+            repo_root.join("src/components/MarkdownMsg.ts"),
+            b"export function MarkdownMsg() { return 'ok'; }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            repo_root.join("src/components/index.ts"),
+            b"export { MarkdownMsg as Msg } from './MarkdownMsg';\n",
+        )
+        .unwrap();
+
+        let source = br#"import { Msg } from './components';
+
+export function render() {
+  return Msg();
+}
+"#;
+        let mut parser = RustOwnedParser::new();
+        let (_nodes, edges) = parser.parse_file_in_repo(Some(&repo_root), "src/app.ts", source);
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CALLS"
+                && edge.source == "src/app.ts::render"
+                && edge.target == "src/components/MarkdownMsg.ts::MarkdownMsg"
+        }));
+
+        let _ = std::fs::remove_dir_all(&repo_root);
+    }
+
+    #[test]
+    fn resolves_typescript_star_barrel_reexports_to_origin() {
+        let mut repo_root = std::env::temp_dir();
+        repo_root.push(format!(
+            "dagayn-parser-ts-star-barrel-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        let _ = std::fs::remove_dir_all(&repo_root);
+        std::fs::create_dir_all(repo_root.join("src/components")).unwrap();
+        std::fs::write(
+            repo_root.join("src/components/MarkdownMsg.ts"),
+            b"export function MarkdownMsg() { return 'ok'; }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            repo_root.join("src/components/index.ts"),
+            b"export * from './MarkdownMsg';\n",
+        )
+        .unwrap();
+
+        let source = br#"import { MarkdownMsg } from './components';
+
+export function render() {
+  return MarkdownMsg();
+}
+"#;
+        let mut parser = RustOwnedParser::new();
+        let (_nodes, edges) = parser.parse_file_in_repo(Some(&repo_root), "src/app.ts", source);
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CALLS"
+                && edge.source == "src/app.ts::render"
+                && edge.target == "src/components/MarkdownMsg.ts::MarkdownMsg"
         }));
 
         let _ = std::fs::remove_dir_all(&repo_root);
