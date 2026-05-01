@@ -10,13 +10,19 @@ use pyo3::types::{PyAny, PyBool, PyDict, PyIterator, PyList, PyModule, PySet, Py
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::io::Read;
 
 #[pyclass(name = "GraphStore")]
 struct PyGraphStore {
     inner: Mutex<NativeGraphStore>,
     pinned: Mutex<bool>,
     leases: Mutex<i64>,
+    pending_rust_changed: Mutex<HashMap<String, CachedRustChangedFile>>,
+}
+
+struct CachedRustChangedFile {
+    source: Vec<u8>,
+    file_hash: String,
+    mtime_ns: i64,
 }
 
 type RustStoreSummary = (usize, usize, Vec<(String, String)>);
@@ -29,7 +35,11 @@ type RustChangedFileBatchSummary = (
     usize,
     Vec<(String, String)>,
 );
-type RustClassifiedFilesSummary = (Vec<String>, Vec<(String, i64)>, Vec<(String, String)>);
+type RustClassifiedFilesSummary = (
+    Vec<(String, CachedRustChangedFile)>,
+    Vec<(String, i64)>,
+    Vec<(String, String)>,
+);
 
 #[pymethods]
 impl PyGraphStore {
@@ -42,6 +52,7 @@ impl PyGraphStore {
             inner: Mutex::new(inner),
             pinned: Mutex::new(false),
             leases: Mutex::new(0),
+            pending_rust_changed: Mutex::new(HashMap::new()),
         })
     }
 
@@ -406,8 +417,10 @@ impl PyGraphStore {
         let repo_root: String = os.getattr("fspath")?.call1((repo_root,))?.extract()?;
         let repo_root = std::path::PathBuf::from(repo_root);
         let file_meta = self.with_store(|store| store.get_file_meta_for_files(&file_paths))?;
-        let (batch, mtime_updates, total_nodes, total_edges, errors) =
-            py.detach(|| collect_changed_rust_owned_file_batch(&repo_root, file_paths, &file_meta));
+        let cached = self.take_pending_rust_changed(&file_paths)?;
+        let (batch, mtime_updates, total_nodes, total_edges, errors) = py.detach(|| {
+            collect_changed_rust_owned_file_batch(&repo_root, file_paths, &file_meta, cached)
+        });
 
         if !mtime_updates.is_empty() || !batch.is_empty() {
             self.with_store_mut(|store| {
@@ -431,8 +444,13 @@ impl PyGraphStore {
         let repo_root: String = os.getattr("fspath")?.call1((repo_root,))?.extract()?;
         let repo_root = std::path::PathBuf::from(repo_root);
         let file_meta = self.with_store(|store| store.get_file_meta_for_files(&file_paths))?;
-        let (changed_files, mtime_updates, errors) = py
+        let (changed, mtime_updates, errors) = py
             .detach(|| classify_changed_rust_owned_file_batch(&repo_root, file_paths, &file_meta));
+        let changed_files = changed
+            .iter()
+            .map(|(file_path, _)| file_path.clone())
+            .collect::<Vec<_>>();
+        self.extend_pending_rust_changed(changed)?;
 
         if !mtime_updates.is_empty() {
             self.with_store_mut(|store| store.update_file_mtimes(&mtime_updates))?;
@@ -556,6 +574,38 @@ impl PyGraphStore {
             .map_err(|_| PyRuntimeError::new_err("GraphStore lock poisoned"))?;
         f(&mut guard).map_err(to_py_runtime_error)
     }
+
+    fn extend_pending_rust_changed(
+        &self,
+        changed: Vec<(String, CachedRustChangedFile)>,
+    ) -> PyResult<()> {
+        if changed.is_empty() {
+            return Ok(());
+        }
+        let mut pending = self
+            .pending_rust_changed
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Rust changed-file cache lock poisoned"))?;
+        pending.extend(changed);
+        Ok(())
+    }
+
+    fn take_pending_rust_changed(
+        &self,
+        file_paths: &[String],
+    ) -> PyResult<HashMap<String, CachedRustChangedFile>> {
+        let mut pending = self
+            .pending_rust_changed
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Rust changed-file cache lock poisoned"))?;
+        let mut cached = HashMap::new();
+        for file_path in file_paths {
+            if let Some(entry) = pending.remove(file_path) {
+                cached.insert(file_path.clone(), entry);
+            }
+        }
+        Ok(cached)
+    }
 }
 
 fn collect_nodes(py: Python<'_>, value: &Bound<'_, PyAny>) -> PyResult<Vec<NodeInput>> {
@@ -676,6 +726,7 @@ fn collect_changed_rust_owned_file_batch(
     repo_root: &std::path::Path,
     file_paths: Vec<String>,
     file_meta: &HashMap<String, (String, i64)>,
+    mut cached: HashMap<String, CachedRustChangedFile>,
 ) -> RustChangedFileBatchSummary {
     let mut batch = Vec::new();
     let mut mtime_updates = Vec::new();
@@ -685,13 +736,21 @@ fn collect_changed_rust_owned_file_batch(
     let mut parser = dagayn_core::parser::RustOwnedParser::new();
 
     for file_path in file_paths {
-        let Some((source, file_hash, mtime_ns)) = changed_rust_owned_file_source(
-            repo_root,
-            &file_path,
-            file_meta,
-            &mut mtime_updates,
-            &mut errors,
-        ) else {
+        let cached_entry = cached.remove(&file_path).and_then(|entry| {
+            file_mtime_ns(&repo_root.join(&file_path))
+                .ok()
+                .filter(|mtime_ns| *mtime_ns == entry.mtime_ns)
+                .map(|_| (entry.source, entry.file_hash, entry.mtime_ns))
+        });
+        let Some((source, file_hash, mtime_ns)) = cached_entry.or_else(|| {
+            changed_rust_owned_file_source(
+                repo_root,
+                &file_path,
+                file_meta,
+                &mut mtime_updates,
+                &mut errors,
+            )
+        }) else {
             continue;
         };
         if !dagayn_core::parser::rust_parser_owns_source(&file_path, &source) {
@@ -718,39 +777,29 @@ fn classify_changed_rust_owned_file_batch(
     let mut errors = Vec::new();
 
     for file_path in file_paths {
-        match rust_parser_owns_file(repo_root, &file_path) {
-            Ok(true) => {}
-            Ok(false) => {
-                errors.push((file_path, "unsupported Rust parser path".to_string()));
-                continue;
-            }
-            Err(err) => {
-                errors.push((file_path, err));
-                continue;
-            }
-        }
-        if changed_rust_owned_file_needs_parse(
+        if let Some((source, file_hash, mtime_ns)) = changed_rust_owned_file_source(
             repo_root,
             &file_path,
             file_meta,
             &mut mtime_updates,
             &mut errors,
         ) {
-            changed_files.push(file_path);
+            if !dagayn_core::parser::rust_parser_owns_source(&file_path, &source) {
+                errors.push((file_path, "unsupported Rust parser path".to_string()));
+                continue;
+            }
+            changed_files.push((
+                file_path,
+                CachedRustChangedFile {
+                    source,
+                    file_hash,
+                    mtime_ns,
+                },
+            ));
         }
     }
 
     (changed_files, mtime_updates, errors)
-}
-
-fn rust_parser_owns_file(repo_root: &std::path::Path, file_path: &str) -> Result<bool, String> {
-    if dagayn_core::parser::rust_parser_owns_path(file_path) {
-        return Ok(true);
-    }
-    let source = std::fs::read(repo_root.join(file_path)).map_err(|err| err.to_string())?;
-    Ok(dagayn_core::parser::rust_parser_owns_source(
-        file_path, &source,
-    ))
 }
 
 fn changed_rust_owned_file_source(
@@ -792,64 +841,12 @@ fn changed_rust_owned_file_source(
     Some((source, file_hash, mtime_ns))
 }
 
-fn changed_rust_owned_file_needs_parse(
-    repo_root: &std::path::Path,
-    file_path: &str,
-    file_meta: &HashMap<String, (String, i64)>,
-    mtime_updates: &mut Vec<(String, i64)>,
-    errors: &mut Vec<(String, String)>,
-) -> bool {
-    let full_path = repo_root.join(file_path);
-    let mtime_ns = match file_mtime_ns(&full_path) {
-        Ok(mtime_ns) => mtime_ns,
-        Err(err) => {
-            errors.push((file_path.to_string(), err.to_string()));
-            return false;
-        }
-    };
-    if file_meta
-        .get(file_path)
-        .is_some_and(|(_, stored_mtime_ns)| *stored_mtime_ns == mtime_ns)
-    {
-        return false;
-    }
-    let file_hash = match sha256_file(&full_path) {
-        Ok(file_hash) => file_hash,
-        Err(err) => {
-            errors.push((file_path.to_string(), err.to_string()));
-            return false;
-        }
-    };
-    if file_meta
-        .get(file_path)
-        .is_some_and(|(stored_hash, _)| *stored_hash == file_hash)
-    {
-        mtime_updates.push((file_path.to_string(), mtime_ns));
-        return false;
-    }
-    true
-}
-
 fn file_mtime_ns(path: &std::path::Path) -> std::io::Result<i64> {
     let modified = std::fs::metadata(path)?.modified()?;
     Ok(modified
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_nanos().min(i64::MAX as u128) as i64)
         .unwrap_or(0))
-}
-
-fn sha256_file(path: &std::path::Path) -> std::io::Result<String> {
-    let mut file = std::fs::File::open(path)?;
-    let mut hasher = Sha256::new();
-    let mut buffer = [0_u8; 64 * 1024];
-    loop {
-        let size = file.read(&mut buffer)?;
-        if size == 0 {
-            break;
-        }
-        hasher.update(&buffer[..size]);
-    }
-    Ok(hex_digest(hasher.finalize()))
 }
 
 fn parsed_node_to_input(node: dagayn_core::parser::ParsedNode) -> NodeInput {
