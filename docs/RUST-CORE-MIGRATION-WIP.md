@@ -454,8 +454,8 @@ Parser migration progress:
   parser for Python cells.
 - JavaScript, TypeScript, and TSX grammar sources are now pinned through the
   same `dagayn.vendor_grammars` path used by Python parser fallback and the
-  Rust grammar crate. The Rust-owned parser now routes `.js`, `.mjs`, `.ts`,
-  and `.tsx` files through tree-sitter and covers the core JS/TS/TSX
+  Rust grammar crate. The Rust-owned parser now routes `.js`, `.jsx`, `.mjs`,
+  `.ts`, and `.tsx` files through tree-sitter and covers the core JS/TS/TSX
   structural graph: classes/interfaces, functions/methods, imports, calls,
   JSX component call edges for local/default/namespace imports, test-runner
   synthetic tests, same-file and relative-import call/reference resolution,

@@ -4131,6 +4131,7 @@ fn rust_owned_path_kind(file_path: &str) -> RustOwnedPathKind {
     } else if ends_with_ascii_ignore_case(file_path, ".ipynb") {
         RustOwnedPathKind::Notebook
     } else if ends_with_ascii_ignore_case(file_path, ".js")
+        || ends_with_ascii_ignore_case(file_path, ".jsx")
         || ends_with_ascii_ignore_case(file_path, ".mjs")
     {
         RustOwnedPathKind::JavaScript
@@ -6304,6 +6305,40 @@ export function BookWorkspace() {
             edge.kind == "CALLS"
                 && edge.source == "BookWorkspace.tsx::BookWorkspace"
                 && edge.target == "MarkdownMsg.tsx::MarkdownMsg"
+        }));
+
+        let _ = std::fs::remove_dir_all(&repo_root);
+    }
+
+    #[test]
+    fn parses_jsx_component_calls() {
+        let mut repo_root = std::env::temp_dir();
+        repo_root.push(format!(
+            "dagayn-parser-jsx-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        let _ = std::fs::remove_dir_all(&repo_root);
+        std::fs::create_dir_all(&repo_root).unwrap();
+        std::fs::write(
+            repo_root.join("MarkdownMsg.jsx"),
+            b"export function MarkdownMsg() { return <div />; }\n",
+        )
+        .unwrap();
+
+        let source = br#"import { MarkdownMsg } from './MarkdownMsg';
+
+export function BookWorkspace() {
+  return <MarkdownMsg text={value} />;
+}
+"#;
+        let mut parser = RustOwnedParser::new();
+        let (_nodes, edges) =
+            parser.parse_file_in_repo(Some(&repo_root), "BookWorkspace.jsx", source);
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CALLS"
+                && edge.source == "BookWorkspace.jsx::BookWorkspace"
+                && edge.target == "MarkdownMsg.jsx::MarkdownMsg"
         }));
 
         let _ = std::fs::remove_dir_all(&repo_root);
