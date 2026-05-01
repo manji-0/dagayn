@@ -399,6 +399,22 @@ const VUE: GrammarSpec = GrammarSpec {
     parser_subdirectory: None,
 };
 
+const SVELTE: GrammarSpec = GrammarSpec {
+    language: "svelte",
+    symbol: "svelte",
+    required_paths: &[
+        "src/parser.c",
+        "src/scanner.c",
+        "src/allocator.h",
+        "src/ekstring.h",
+        "src/tag.h",
+        "src/tree_sitter/parser.h",
+        "src/uthash.h",
+        "src/vc_vector.h",
+    ],
+    parser_subdirectory: None,
+};
+
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let repo_root = manifest_dir
@@ -441,6 +457,7 @@ fn main() {
     compile_grammar(&repo_root, &JULIA);
     compile_grammar(&repo_root, &PERL);
     compile_grammar(&repo_root, &VUE);
+    compile_grammar(&repo_root, &SVELTE);
 }
 
 fn compile_grammar(repo_root: &Path, spec: &GrammarSpec) {

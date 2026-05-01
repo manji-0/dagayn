@@ -479,6 +479,22 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
             "src/tree_sitter/parser.h",
         ),
     ),
+    "svelte": GrammarSpec(
+        language="svelte",
+        owner="Himujjal",
+        repo="tree-sitter-svelte",
+        commit="60ea1d673a1a3eeeb597e098d9ada9ed0c79ef4b",
+        required_paths=(
+            "src/parser.c",
+            "src/scanner.c",
+            "src/allocator.h",
+            "src/ekstring.h",
+            "src/tag.h",
+            "src/tree_sitter/parser.h",
+            "src/uthash.h",
+            "src/vc_vector.h",
+        ),
+    ),
 }
 
 

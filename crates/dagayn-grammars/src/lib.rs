@@ -34,6 +34,7 @@ extern "C" {
     fn tree_sitter_julia() -> *const ();
     fn tree_sitter_perl() -> *const ();
     fn tree_sitter_vue() -> *const ();
+    fn tree_sitter_svelte() -> *const ();
 }
 
 pub const MARKDOWN_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_markdown) };
@@ -64,6 +65,7 @@ pub const R_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_r) 
 pub const JULIA_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_julia) };
 pub const PERL_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_perl) };
 pub const VUE_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_vue) };
+pub const SVELTE_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_svelte) };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GrammarStatus {
@@ -184,6 +186,10 @@ pub fn perl_language() -> tree_sitter::Language {
 
 pub fn vue_language() -> tree_sitter::Language {
     VUE_LANGUAGE.into()
+}
+
+pub fn svelte_language() -> tree_sitter::Language {
+    SVELTE_LANGUAGE.into()
 }
 
 #[cfg(test)]
@@ -538,6 +544,18 @@ mod tests {
                 None,
             )
             .expect("parse Vue");
+        assert!(!tree.root_node().has_error());
+    }
+
+    #[test]
+    fn loads_svelte_language() {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&svelte_language())
+            .expect("load pinned Svelte grammar");
+        let tree = parser
+            .parse("<script>const x = 1</script>\n<button>{x}</button>\n", None)
+            .expect("parse Svelte");
         assert!(!tree.root_node().has_error());
     }
 }
