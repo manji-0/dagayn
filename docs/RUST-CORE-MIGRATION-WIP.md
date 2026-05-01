@@ -452,6 +452,10 @@ Parser migration progress:
   `DAGAYN_BACKEND=rust`; the Rust path parses notebook JSON, applies the same
   Python/SQL/R cell grouping and magic filtering, and reuses the Rust Python
   parser for Python cells.
+- JavaScript, TypeScript, and TSX grammar sources are now pinned through the
+  same `dagayn.vendor_grammars` path used by Python parser fallback and the
+  Rust grammar crate. This is staging work for moving `.js/.ts/.tsx` into the
+  Rust-owned parser without introducing a grammar mismatch.
 - FTS rebuilds now route through `dagayn._core.GraphStore.rebuild_fts_index`
   when the Rust backend is active. Python's `dagayn.search.rebuild_fts_index`
   keeps the existing SQLite implementation as the fallback for the Python

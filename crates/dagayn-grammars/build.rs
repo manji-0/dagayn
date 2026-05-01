@@ -7,6 +7,7 @@ struct GrammarSpec {
     language: &'static str,
     symbol: &'static str,
     required_paths: &'static [&'static str],
+    parser_subdirectory: Option<&'static str>,
 }
 
 const MARKDOWN: GrammarSpec = GrammarSpec {
@@ -20,6 +21,7 @@ const MARKDOWN: GrammarSpec = GrammarSpec {
         "src/tree_sitter/parser.h",
         "bindings/python/binding.c",
     ],
+    parser_subdirectory: None,
 };
 
 const TERRAFORM: GrammarSpec = GrammarSpec {
@@ -33,6 +35,7 @@ const TERRAFORM: GrammarSpec = GrammarSpec {
         "src/tree_sitter/parser.h",
         "bindings/python/binding.c",
     ],
+    parser_subdirectory: None,
 };
 
 const RUST: GrammarSpec = GrammarSpec {
@@ -46,6 +49,7 @@ const RUST: GrammarSpec = GrammarSpec {
         "src/tree_sitter/parser.h",
         "bindings/python/binding.c",
     ],
+    parser_subdirectory: None,
 };
 
 const PYTHON: GrammarSpec = GrammarSpec {
@@ -59,6 +63,51 @@ const PYTHON: GrammarSpec = GrammarSpec {
         "src/tree_sitter/parser.h",
         "bindings/python/binding.c",
     ],
+    parser_subdirectory: None,
+};
+
+const JAVASCRIPT: GrammarSpec = GrammarSpec {
+    language: "javascript",
+    symbol: "javascript",
+    required_paths: &[
+        "src/parser.c",
+        "src/scanner.c",
+        "src/tree_sitter/alloc.h",
+        "src/tree_sitter/array.h",
+        "src/tree_sitter/parser.h",
+        "bindings/python/binding.c",
+    ],
+    parser_subdirectory: None,
+};
+
+const TYPESCRIPT: GrammarSpec = GrammarSpec {
+    language: "typescript",
+    symbol: "typescript",
+    required_paths: &[
+        "typescript/src/parser.c",
+        "typescript/src/scanner.c",
+        "typescript/src/tree_sitter/alloc.h",
+        "typescript/src/tree_sitter/array.h",
+        "typescript/src/tree_sitter/parser.h",
+        "common/scanner.h",
+        "bindings/python/binding.c",
+    ],
+    parser_subdirectory: Some("typescript"),
+};
+
+const TSX: GrammarSpec = GrammarSpec {
+    language: "tsx",
+    symbol: "tsx",
+    required_paths: &[
+        "tsx/src/parser.c",
+        "tsx/src/scanner.c",
+        "tsx/src/tree_sitter/alloc.h",
+        "tsx/src/tree_sitter/array.h",
+        "tsx/src/tree_sitter/parser.h",
+        "common/scanner.h",
+        "bindings/python/binding.c",
+    ],
+    parser_subdirectory: Some("tsx"),
 };
 
 fn main() {
@@ -79,6 +128,9 @@ fn main() {
     compile_grammar(&repo_root, &TERRAFORM);
     compile_grammar(&repo_root, &RUST);
     compile_grammar(&repo_root, &PYTHON);
+    compile_grammar(&repo_root, &JAVASCRIPT);
+    compile_grammar(&repo_root, &TYPESCRIPT);
+    compile_grammar(&repo_root, &TSX);
 }
 
 fn compile_grammar(repo_root: &Path, spec: &GrammarSpec) {
@@ -91,7 +143,11 @@ fn compile_grammar(repo_root: &Path, spec: &GrammarSpec) {
         );
     }
 
-    let src_dir = source_dir.join("src");
+    let parser_root = spec
+        .parser_subdirectory
+        .map(|subdir| source_dir.join(subdir))
+        .unwrap_or_else(|| source_dir.to_path_buf());
+    let src_dir = parser_root.join("src");
     let mut build = cc::Build::new();
     build
         .include(&src_dir)

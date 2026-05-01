@@ -27,10 +27,15 @@ else:
     Language: Any | None = _TreeSitterLanguage
     Parser: Any | None = _TreeSitterParser
 
-from ..vendor_grammars import ensure_vendor_grammar_source
+from ..vendor_grammars import GRAMMAR_SPECS, ensure_vendor_grammar_source
 
 _MARKDOWN_BINDING_MODULE = "markdown"
 _TERRAFORM_BINDING_MODULE = "terraform"
+_VENDORED_BINDING_MODULES = {
+    "javascript": "javascript",
+    "typescript": "typescript",
+    "tsx": "tsx",
+}
 
 logger = logging.getLogger(__name__)
 
@@ -76,10 +81,16 @@ def _ensure_compiled_vendored_binding(
         if candidate.exists():
             return candidate
 
+    vendor_spec = GRAMMAR_SPECS[language]
+    parser_root = (
+        vendor_dir / vendor_spec.parser_subdirectory
+        if vendor_spec.parser_subdirectory
+        else vendor_dir
+    )
     binding_c = binding_dir / "binding.c"
-    parser_c = vendor_dir / "src" / "parser.c"
-    scanner_c = vendor_dir / "src" / "scanner.c"
-    header_dir = vendor_dir / "src" / "tree_sitter"
+    parser_c = parser_root / "src" / "parser.c"
+    scanner_c = parser_root / "src" / "scanner.c"
+    header_dir = parser_root / "src" / "tree_sitter"
     output_path = binding_dir / f"{module_name}.abi3.so"
 
     required = (binding_c, parser_c, header_dir)
@@ -103,7 +114,7 @@ def _ensure_compiled_vendored_binding(
         "-std=c11",
         "-DPy_LIMITED_API=0x030A0000",
         "-I",
-        str(vendor_dir / "src"),
+        str(parser_root / "src"),
         "-I",
         str(header_dir),
     ]
@@ -227,6 +238,48 @@ def _load_vendored_terraform_binding() -> Any | None:
         return None
 
 
+def _load_vendored_language(language: str) -> Any | None:
+    if Language is None:
+        return None
+    module_name = _VENDORED_BINDING_MODULES.get(language)
+    if module_name is None:
+        return None
+    binding_path = _ensure_compiled_vendored_binding(
+        language=language,
+        module_name=module_name,
+        display_name=language,
+    )
+    if binding_path is None:
+        return None
+    try:
+        spec = importlib.util.spec_from_file_location(module_name, binding_path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"could not create import spec for {binding_path}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        if not hasattr(module, "language"):
+            return None
+        return Language(module.language())
+    except (ImportError, OSError, TypeError, ValueError) as exc:
+        logger.warning("failed to load vendored %s binding %s: %s", language, binding_path, exc)
+        return None
+
+
+def get_vendored_parser(language: str) -> Any | None:
+    """Return a parser for languages pinned in dagayn.vendor_grammars."""
+    language_obj = _load_vendored_language(language)
+    if language_obj is None or Parser is None:
+        return None
+    try:
+        parser_factory: Any = Parser
+        parser = parser_factory()
+        _set_tree_sitter_language(parser, language_obj)
+        return parser
+    except (AttributeError, TypeError, ValueError) as exc:
+        logger.warning("failed to initialize vendored %s parser: %s", language, exc)
+        return None
+
+
 def get_terraform_parser() -> Any | None:
     """Prefer dagayn's pinned Terraform grammar, then fall back to tslp."""
     language_obj = _load_vendored_terraform_language()
@@ -265,6 +318,12 @@ def get_parser(language: str, cache: dict[str, Any]) -> Any | None:
             return None
         cache[language] = parser
         return parser
+
+    if language in _VENDORED_BINDING_MODULES:
+        parser = get_vendored_parser(language)
+        if parser is not None:
+            cache[language] = parser
+            return parser
 
     try:
         if tslp is None:

@@ -59,6 +59,7 @@ class GrammarSpec:
     required_paths: tuple[str, ...]
     inject_python_binding: bool = False
     source_subdirectory: str | None = None
+    parser_subdirectory: str | None = None
 
     @property
     def archive_url(self) -> str:
@@ -130,6 +131,55 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
             "bindings/python/binding.c",
         ),
         inject_python_binding=True,
+    ),
+    "javascript": GrammarSpec(
+        language="javascript",
+        owner="tree-sitter",
+        repo="tree-sitter-javascript",
+        commit="58404d8cf191d69f2674a8fd507bd5776f46cb11",
+        required_paths=(
+            "src/parser.c",
+            "src/scanner.c",
+            "src/tree_sitter/alloc.h",
+            "src/tree_sitter/array.h",
+            "src/tree_sitter/parser.h",
+            "bindings/python/binding.c",
+        ),
+        inject_python_binding=True,
+    ),
+    "typescript": GrammarSpec(
+        language="typescript",
+        owner="tree-sitter",
+        repo="tree-sitter-typescript",
+        commit="75b3874edb2dc714fb1fd77a32013d0f8699989f",
+        required_paths=(
+            "typescript/src/parser.c",
+            "typescript/src/scanner.c",
+            "typescript/src/tree_sitter/alloc.h",
+            "typescript/src/tree_sitter/array.h",
+            "typescript/src/tree_sitter/parser.h",
+            "common/scanner.h",
+            "bindings/python/binding.c",
+        ),
+        inject_python_binding=True,
+        parser_subdirectory="typescript",
+    ),
+    "tsx": GrammarSpec(
+        language="tsx",
+        owner="tree-sitter",
+        repo="tree-sitter-typescript",
+        commit="75b3874edb2dc714fb1fd77a32013d0f8699989f",
+        required_paths=(
+            "tsx/src/parser.c",
+            "tsx/src/scanner.c",
+            "tsx/src/tree_sitter/alloc.h",
+            "tsx/src/tree_sitter/array.h",
+            "tsx/src/tree_sitter/parser.h",
+            "common/scanner.h",
+            "bindings/python/binding.c",
+        ),
+        inject_python_binding=True,
+        parser_subdirectory="tsx",
     ),
 }
 
