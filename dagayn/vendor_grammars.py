@@ -367,6 +367,20 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
             "bindings/python/tree_sitter_c/binding.c",
         ),
     ),
+    "cpp": GrammarSpec(
+        language="cpp",
+        owner="tree-sitter",
+        repo="tree-sitter-cpp",
+        commit="12bd6f7e96080d2e70ec51d4068f2f66120dde35",
+        required_paths=(
+            "src/parser.c",
+            "src/scanner.c",
+            "src/tree_sitter/alloc.h",
+            "src/tree_sitter/array.h",
+            "src/tree_sitter/parser.h",
+            "bindings/python/tree_sitter_cpp/binding.c",
+        ),
+    ),
 }
 
 

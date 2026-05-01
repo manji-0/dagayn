@@ -26,6 +26,7 @@ extern "C" {
     fn tree_sitter_lua() -> *const ();
     fn tree_sitter_luau() -> *const ();
     fn tree_sitter_c() -> *const ();
+    fn tree_sitter_cpp() -> *const ();
 }
 
 pub const MARKDOWN_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_markdown) };
@@ -48,6 +49,7 @@ pub const DART_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_
 pub const LUA_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_lua) };
 pub const LUAU_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_luau) };
 pub const C_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_c) };
+pub const CPP_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_cpp) };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GrammarStatus {
@@ -136,6 +138,10 @@ pub fn luau_language() -> tree_sitter::Language {
 
 pub fn c_language() -> tree_sitter::Language {
     C_LANGUAGE.into()
+}
+
+pub fn cpp_language() -> tree_sitter::Language {
+    CPP_LANGUAGE.into()
 }
 
 #[cfg(test)]
@@ -388,6 +394,18 @@ mod tests {
         let tree = parser
             .parse("int main() { return 0; }\n", None)
             .expect("parse C");
+        assert!(!tree.root_node().has_error());
+    }
+
+    #[test]
+    fn loads_cpp_language() {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&cpp_language())
+            .expect("load pinned C++ grammar");
+        let tree = parser
+            .parse("class Dog { public: void bark() {} };\n", None)
+            .expect("parse C++");
         assert!(!tree.root_node().has_error());
     }
 }

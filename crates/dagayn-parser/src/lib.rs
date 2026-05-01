@@ -369,6 +369,7 @@ pub struct RustOwnedParser {
     lua_parser: Option<tree_sitter::Parser>,
     luau_parser: Option<tree_sitter::Parser>,
     c_parser: Option<tree_sitter::Parser>,
+    cpp_parser: Option<tree_sitter::Parser>,
     javascript_export_cache: JavaScriptExportCache,
     javascript_module_cache: JavaScriptModuleCache,
     javascript_tsconfig_cache: JavaScriptTsconfigCache,
@@ -397,6 +398,7 @@ impl RustOwnedParser {
             lua_parser: new_lua_parser(),
             luau_parser: new_luau_parser(),
             c_parser: new_c_parser(),
+            cpp_parser: new_cpp_parser(),
             javascript_export_cache: RefCell::new(HashMap::new()),
             javascript_module_cache: RefCell::new(HashMap::new()),
             javascript_tsconfig_cache: RefCell::new(HashMap::new()),
@@ -509,6 +511,9 @@ impl RustOwnedParser {
                 parse_luau_with_parser(file_path, source, self.luau_parser.as_mut())
             }
             RustOwnedPathKind::C => parse_c_with_parser(file_path, source, self.c_parser.as_mut()),
+            RustOwnedPathKind::Cpp => {
+                parse_cpp_with_parser(file_path, source, self.cpp_parser.as_mut())
+            }
             RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
         }
     }
@@ -8730,12 +8735,34 @@ fn resolve_lua_call_targets(
 
 pub fn parse_c(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let mut parser = new_c_parser();
-    parse_c_with_parser(file_path, source, parser.as_mut())
+    parse_c_like_with_parser(file_path, source, "c", parser.as_mut())
+}
+
+pub fn parse_cpp(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let mut parser = new_cpp_parser();
+    parse_cpp_with_parser(file_path, source, parser.as_mut())
 }
 
 fn parse_c_with_parser(
     file_path: &str,
     source: &[u8],
+    parser: Option<&mut tree_sitter::Parser>,
+) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    parse_c_like_with_parser(file_path, source, "c", parser)
+}
+
+fn parse_cpp_with_parser(
+    file_path: &str,
+    source: &[u8],
+    parser: Option<&mut tree_sitter::Parser>,
+) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    parse_c_like_with_parser(file_path, source, "cpp", parser)
+}
+
+fn parse_c_like_with_parser(
+    file_path: &str,
+    source: &[u8],
+    language: &str,
     parser: Option<&mut tree_sitter::Parser>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
@@ -8745,7 +8772,7 @@ fn parse_c_with_parser(
         file_path: file_path.to_string(),
         line_start: 1,
         line_end,
-        language: "c".to_string(),
+        language: language.to_string(),
         parent_name: None,
         params: None,
         return_type: None,
@@ -8754,11 +8781,22 @@ fn parse_c_with_parser(
         extra: json!({}),
     }];
     let mut edges = Vec::new();
-    let context = CParseContext { source, file_path };
+    let context = CParseContext {
+        source,
+        file_path,
+        language,
+    };
 
     if let Some(parser) = parser {
         if let Some(tree) = parser.parse(source, None) {
-            c_walk_children(tree.root_node(), &context, None, &mut nodes, &mut edges);
+            c_walk_children(
+                tree.root_node(),
+                &context,
+                None,
+                None,
+                &mut nodes,
+                &mut edges,
+            );
             let mut edges = resolve_c_call_targets(&nodes, edges, file_path);
             add_tested_by_edges(&nodes, &mut edges);
             return (nodes, edges);
@@ -8771,11 +8809,13 @@ fn parse_c_with_parser(
 struct CParseContext<'a> {
     source: &'a [u8],
     file_path: &'a str,
+    language: &'a str,
 }
 
 fn c_walk_children(
     node: tree_sitter::Node<'_>,
     context: &CParseContext<'_>,
+    enclosing_class: Option<&str>,
     enclosing_func: Option<&str>,
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
@@ -8796,25 +8836,38 @@ fn c_walk_children(
                     continue;
                 }
             }
-            "type_definition" | "struct_specifier" if enclosing_func.is_none() => {
+            "type_definition" | "struct_specifier" | "class_specifier"
+                if enclosing_func.is_none() =>
+            {
                 if let Some(name) = c_type_name(child, context.source) {
                     c_emit_type(child, context, &name, nodes, edges);
+                    c_emit_inheritance(child, context, &name, edges);
+                    if context.language == "cpp" {
+                        c_walk_children(child, context, Some(&name), enclosing_func, nodes, edges);
+                    }
                     continue;
                 }
             }
             "function_definition" => {
                 if let Some(name) = c_function_name(child, context.source) {
-                    c_emit_function(child, context, &name, nodes, edges);
-                    c_walk_children(child, context, Some(&name), nodes, edges);
+                    c_emit_function(child, context, &name, enclosing_class, nodes, edges);
+                    c_walk_children(child, context, enclosing_class, Some(&name), nodes, edges);
                     continue;
                 }
             }
             "call_expression" => {
-                c_emit_call(child, context, enclosing_func, edges);
+                c_emit_call(child, context, enclosing_class, enclosing_func, edges);
             }
             _ => {}
         }
-        c_walk_children(child, context, enclosing_func, nodes, edges);
+        c_walk_children(
+            child,
+            context,
+            enclosing_class,
+            enclosing_func,
+            nodes,
+            edges,
+        );
     }
 }
 
@@ -8832,7 +8885,7 @@ fn c_emit_type(
         file_path: context.file_path.to_string(),
         line_start: node.start_position().row as i64 + 1,
         line_end: node.end_position().row as i64 + 1,
-        language: "c".to_string(),
+        language: context.language.to_string(),
         parent_name: None,
         params: None,
         return_type: None,
@@ -8854,19 +8907,20 @@ fn c_emit_function(
     node: tree_sitter::Node<'_>,
     context: &CParseContext<'_>,
     name: &str,
+    enclosing_class: Option<&str>,
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
     let is_test = is_test_function(name, context.file_path, node, context.source);
-    let qualified = qualify(context.file_path, name, None);
+    let qualified = qualify(context.file_path, name, enclosing_class);
     nodes.push(ParsedNode {
         kind: if is_test { "Test" } else { "Function" }.to_string(),
         name: name.to_string(),
         file_path: context.file_path.to_string(),
         line_start: node.start_position().row as i64 + 1,
         line_end: node.end_position().row as i64 + 1,
-        language: "c".to_string(),
-        parent_name: None,
+        language: context.language.to_string(),
+        parent_name: enclosing_class.map(str::to_string),
         params: None,
         return_type: None,
         modifiers: None,
@@ -8875,7 +8929,9 @@ fn c_emit_function(
     });
     edges.push(ParsedEdge {
         kind: "CONTAINS".to_string(),
-        source: context.file_path.to_string(),
+        source: enclosing_class
+            .map(|class| qualify(context.file_path, class, None))
+            .unwrap_or_else(|| context.file_path.to_string()),
         target: qualified,
         file_path: context.file_path.to_string(),
         line: node.start_position().row as i64 + 1,
@@ -8886,26 +8942,76 @@ fn c_emit_function(
 fn c_emit_call(
     node: tree_sitter::Node<'_>,
     context: &CParseContext<'_>,
+    enclosing_class: Option<&str>,
     enclosing_func: Option<&str>,
     edges: &mut Vec<ParsedEdge>,
 ) {
-    let Some(call_name) = c_call_name(node, context.source) else {
+    let caller = enclosing_func
+        .map(|func| qualify(context.file_path, func, enclosing_class))
+        .unwrap_or_else(|| context.file_path.to_string());
+    if let Some(call_name) = c_call_name(node, context.source) {
+        edges.push(ParsedEdge {
+            kind: "CALLS".to_string(),
+            source: caller.clone(),
+            target: call_name,
+            file_path: context.file_path.to_string(),
+            line: node.start_position().row as i64 + 1,
+            extra: json!({}),
+        });
+    }
+    if let Some(signature) = c_call_signature(node, context.source) {
+        if let Some(edge) = c_bridge_edge(node, context, &caller, &signature) {
+            edges.push(edge);
+        }
+    }
+}
+
+fn c_emit_inheritance(
+    node: tree_sitter::Node<'_>,
+    context: &CParseContext<'_>,
+    name: &str,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    if context.language != "cpp" {
+        return;
+    }
+    let Some(base_clause) = c_direct_child(node, &["base_class_clause"]) else {
         return;
     };
-    let caller = enclosing_func
-        .map(|func| qualify(context.file_path, func, None))
-        .unwrap_or_else(|| context.file_path.to_string());
+    let Some(base) = c_last_descendant_text(base_clause, context.source, &["type_identifier"])
+    else {
+        return;
+    };
     edges.push(ParsedEdge {
-        kind: "CALLS".to_string(),
-        source: caller.clone(),
-        target: call_name.clone(),
+        kind: "INHERITS".to_string(),
+        source: qualify(context.file_path, name, None),
+        target: base,
         file_path: context.file_path.to_string(),
         line: node.start_position().row as i64 + 1,
-        extra: json!({}),
+        extra: json!({
+            "relationship_role": "extends",
+            "syntax_source": "class_specifier",
+        }),
     });
-    if let Some(edge) = c_bridge_edge(node, context, &caller, &call_name) {
-        edges.push(edge);
+}
+
+fn c_call_signature(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let callee = c_call_callee(node)?;
+    match callee.kind() {
+        "identifier" | "qualified_identifier" => {
+            Some(node_text(callee, source).replace(" :: ", "::"))
+        }
+        "field_expression" => c_last_descendant_text(callee, source, &["field_identifier"]),
+        _ => None,
     }
+}
+
+fn c_call_callee<'a>(node: tree_sitter::Node<'a>) -> Option<tree_sitter::Node<'a>> {
+    let mut cursor = node.walk();
+    let found = node
+        .children(&mut cursor)
+        .find(|child| child.kind() != "argument_list");
+    found
 }
 
 fn c_include_target(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
@@ -8921,9 +9027,7 @@ fn c_include_target(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String
 }
 
 fn c_type_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    let mut found = None;
-    c_collect_descendant_texts(node, source, &["type_identifier"], &mut found);
-    found
+    c_direct_child_text(node, source, &["type_identifier"])
 }
 
 fn c_function_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
@@ -8932,8 +9036,12 @@ fn c_function_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String>
 }
 
 fn c_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    let callee = c_direct_child(node, &["identifier", "field_identifier"])?;
-    Some(node_text(callee, source))
+    let callee = c_call_callee(node)?;
+    match callee.kind() {
+        "identifier" => Some(node_text(callee, source)),
+        "field_expression" => c_last_descendant_text(callee, source, &["field_identifier"]),
+        _ => None,
+    }
 }
 
 fn c_bridge_edge(
@@ -8950,6 +9058,8 @@ fn c_bridge_edge(
         "fread" => ("reads_file", "file_io"),
         "fwrite" => ("writes_file", "file_io"),
         "dlopen" | "LoadLibrary" => ("loads_shared_library", "ffi"),
+        "std::system" | "boost::process::child" => ("invokes_binary", "subprocess"),
+        "std::ifstream" | "std::ofstream" | "std::fstream" => ("opens_file", "file_io"),
         _ => return None,
     };
     let line = node.start_position().row as i64 + 1;
@@ -8972,7 +9082,7 @@ fn c_bridge_edge(
             "bridge_kind": bridge_kind,
             "evidence_kind": "syntax",
             "evidence_source": signature,
-            "source_language": "c",
+            "source_language": context.language,
             "target_language": "unknown",
             "confidence": confidence,
             "confidence_tier": confidence_tier,
@@ -9046,6 +9156,16 @@ fn c_collect_descendant_texts(
         }
         c_collect_descendant_texts(child, source, kinds, found);
     }
+}
+
+fn c_last_descendant_text(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    kinds: &[&str],
+) -> Option<String> {
+    let mut found = None;
+    c_collect_descendant_texts(node, source, kinds, &mut found);
+    found
 }
 
 fn resolve_c_call_targets(
@@ -9197,6 +9317,7 @@ pub fn parse_rust_owned_file(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>
         RustOwnedPathKind::Lua => parse_lua(file_path, source),
         RustOwnedPathKind::Luau => parse_luau(file_path, source),
         RustOwnedPathKind::C => parse_c(file_path, source),
+        RustOwnedPathKind::Cpp => parse_cpp(file_path, source),
         RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
     }
 }
@@ -9228,6 +9349,7 @@ enum RustOwnedPathKind {
     Lua,
     Luau,
     C,
+    Cpp,
     Unsupported,
 }
 
@@ -9287,6 +9409,12 @@ fn rust_owned_path_kind(file_path: &str) -> RustOwnedPathKind {
         RustOwnedPathKind::Luau
     } else if ends_with_ascii_ignore_case(file_path, ".c") {
         RustOwnedPathKind::C
+    } else if ends_with_ascii_ignore_case(file_path, ".cpp")
+        || ends_with_ascii_ignore_case(file_path, ".cc")
+        || ends_with_ascii_ignore_case(file_path, ".cxx")
+        || ends_with_ascii_ignore_case(file_path, ".hpp")
+    {
+        RustOwnedPathKind::Cpp
     } else {
         RustOwnedPathKind::Unsupported
     }
@@ -9560,6 +9688,18 @@ fn new_luau_parser() -> Option<tree_sitter::Parser> {
 fn new_c_parser() -> Option<tree_sitter::Parser> {
     let mut parser = tree_sitter::Parser::new();
     if parser.set_language(&dagayn_grammars::c_language()).is_ok() {
+        Some(parser)
+    } else {
+        None
+    }
+}
+
+fn new_cpp_parser() -> Option<tree_sitter::Parser> {
+    let mut parser = tree_sitter::Parser::new();
+    if parser
+        .set_language(&dagayn_grammars::cpp_language())
+        .is_ok()
+    {
         Some(parser)
     } else {
         None
@@ -12125,6 +12265,70 @@ int main() {
             edge.kind == "CROSS_ARTIFACT"
                 && edge.target == "<dynamic:system@sample.c:20>"
                 && edge.extra["confidence_tier"] == "LOW"
+        }));
+    }
+
+    #[test]
+    fn parses_cpp_classes_inheritance_functions_imports_calls_and_bridges() {
+        let source = br#"#include <iostream>
+#include <cstdlib>
+
+class Animal {
+public:
+    Animal() {}
+};
+
+class Dog : public Animal {
+public:
+    Dog() : Animal() {}
+    void speak() {}
+};
+
+void greet(const Animal& animal) {}
+
+int main() {
+    Dog d;
+    d.speak();
+    greet(d);
+    return 0;
+}
+
+void run_command() {
+    std::system("git status");
+}
+"#;
+        let (nodes, edges) = parse_cpp("sample.cpp", source);
+        assert!(nodes.iter().any(|node| {
+            node.kind == "Class"
+                && node.name == "Animal"
+                && node.language == "cpp"
+                && node.extra["type_role"] == "class"
+        }));
+        assert!(nodes.iter().any(|node| {
+            node.kind == "Function"
+                && node.name == "Dog"
+                && node.parent_name.as_deref() == Some("Dog")
+        }));
+        assert!(edges
+            .iter()
+            .any(|edge| { edge.kind == "IMPORTS_FROM" && edge.target == "iostream" }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "INHERITS" && edge.source == "sample.cpp::Dog" && edge.target == "Animal"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CALLS" && edge.source == "sample.cpp::main" && edge.target == "speak"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CALLS"
+                && edge.source == "sample.cpp::main"
+                && edge.target == "sample.cpp::greet"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CROSS_ARTIFACT"
+                && edge.source == "sample.cpp::run_command"
+                && edge.target == "git status"
+                && edge.extra["evidence_source"] == "std::system"
+                && edge.extra["source_language"] == "cpp"
         }));
     }
 
