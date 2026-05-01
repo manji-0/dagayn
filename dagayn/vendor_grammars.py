@@ -237,6 +237,21 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
         ),
         inject_python_binding=True,
     ),
+    "csharp": GrammarSpec(
+        language="csharp",
+        owner="tree-sitter",
+        repo="tree-sitter-c-sharp",
+        commit="cac6d5fb595f5811a076336682d5d595ac1c9e85",
+        required_paths=(
+            "src/parser.c",
+            "src/scanner.c",
+            "src/tree_sitter/alloc.h",
+            "src/tree_sitter/array.h",
+            "src/tree_sitter/parser.h",
+            "bindings/python/binding.c",
+        ),
+        inject_python_binding=True,
+    ),
 }
 
 

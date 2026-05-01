@@ -359,6 +359,7 @@ pub struct RustOwnedParser {
     go_parser: Option<tree_sitter::Parser>,
     java_parser: Option<tree_sitter::Parser>,
     ruby_parser: Option<tree_sitter::Parser>,
+    csharp_parser: Option<tree_sitter::Parser>,
     javascript_export_cache: JavaScriptExportCache,
     javascript_module_cache: JavaScriptModuleCache,
     javascript_tsconfig_cache: JavaScriptTsconfigCache,
@@ -378,6 +379,7 @@ impl RustOwnedParser {
             go_parser: new_go_parser(),
             java_parser: new_java_parser(),
             ruby_parser: new_ruby_parser(),
+            csharp_parser: new_csharp_parser(),
             javascript_export_cache: RefCell::new(HashMap::new()),
             javascript_module_cache: RefCell::new(HashMap::new()),
             javascript_tsconfig_cache: RefCell::new(HashMap::new()),
@@ -464,6 +466,9 @@ impl RustOwnedParser {
             }
             RustOwnedPathKind::Ruby => {
                 parse_ruby_with_parser(file_path, source, self.ruby_parser.as_mut())
+            }
+            RustOwnedPathKind::CSharp => {
+                parse_csharp_with_parser(file_path, source, self.csharp_parser.as_mut())
             }
             RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
         }
@@ -5535,6 +5540,410 @@ fn ruby_direct_child_text(
     None
 }
 
+pub fn parse_csharp(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let mut parser = new_csharp_parser();
+    parse_csharp_with_parser(file_path, source, parser.as_mut())
+}
+
+fn parse_csharp_with_parser(
+    file_path: &str,
+    source: &[u8],
+    parser: Option<&mut tree_sitter::Parser>,
+) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let line_end = source.iter().filter(|byte| **byte == b'\n').count() as i64 + 1;
+    let mut nodes = vec![ParsedNode {
+        kind: "File".to_string(),
+        name: file_path.to_string(),
+        file_path: file_path.to_string(),
+        line_start: 1,
+        line_end,
+        language: "csharp".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: is_test_file(file_path),
+        extra: json!({}),
+    }];
+    let mut edges = Vec::new();
+
+    if let Some(parser) = parser {
+        if let Some(tree) = parser.parse(source, None) {
+            csharp_walk_children(
+                tree.root_node(),
+                source,
+                file_path,
+                None,
+                None,
+                &mut nodes,
+                &mut edges,
+            );
+            let edges = resolve_rust_call_targets(&nodes, edges, file_path);
+            return (nodes, edges);
+        }
+    }
+
+    (nodes, edges)
+}
+
+fn csharp_walk_children(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    file_path: &str,
+    enclosing_class: Option<&str>,
+    enclosing_func: Option<&str>,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        match child.kind() {
+            "using_directive" => {
+                csharp_emit_import(child, source, file_path, edges);
+            }
+            "class_declaration"
+            | "interface_declaration"
+            | "enum_declaration"
+            | "struct_declaration" => {
+                if let Some(name) = csharp_type_name(child, source) {
+                    csharp_emit_type(
+                        child,
+                        source,
+                        file_path,
+                        &name,
+                        enclosing_class,
+                        nodes,
+                        edges,
+                    );
+                    csharp_walk_children(child, source, file_path, Some(&name), None, nodes, edges);
+                    continue;
+                }
+            }
+            "method_declaration" | "constructor_declaration" => {
+                if let Some(name) = csharp_function_name(child, source) {
+                    csharp_emit_function(
+                        child,
+                        source,
+                        file_path,
+                        &name,
+                        enclosing_class,
+                        nodes,
+                        edges,
+                    );
+                    csharp_walk_children(
+                        child,
+                        source,
+                        file_path,
+                        enclosing_class,
+                        Some(&name),
+                        nodes,
+                        edges,
+                    );
+                    continue;
+                }
+            }
+            "invocation_expression" | "object_creation_expression" => {
+                csharp_emit_call(
+                    child,
+                    source,
+                    file_path,
+                    enclosing_class,
+                    enclosing_func,
+                    edges,
+                );
+            }
+            _ => {}
+        }
+        csharp_walk_children(
+            child,
+            source,
+            file_path,
+            enclosing_class,
+            enclosing_func,
+            nodes,
+            edges,
+        );
+    }
+}
+
+fn csharp_emit_import(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    file_path: &str,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let text = node_text(node, source);
+    let target = text
+        .trim()
+        .trim_start_matches("using")
+        .trim()
+        .trim_end_matches(';')
+        .trim();
+    if target.is_empty() {
+        return;
+    }
+    edges.push(ParsedEdge {
+        kind: "IMPORTS_FROM".to_string(),
+        source: file_path.to_string(),
+        target: target.to_string(),
+        file_path: file_path.to_string(),
+        line: node.start_position().row as i64 + 1,
+        extra: json!({}),
+    });
+}
+
+fn csharp_emit_type(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    file_path: &str,
+    name: &str,
+    enclosing_class: Option<&str>,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let (type_role, is_abstract, is_contract) = csharp_type_role(node, source);
+    let mut extra = json!({"type_role": type_role});
+    if let Some(map) = extra.as_object_mut() {
+        if is_abstract {
+            map.insert("is_abstract".to_string(), json!(true));
+        }
+        if is_contract {
+            map.insert("is_contract".to_string(), json!(true));
+        }
+    }
+    nodes.push(ParsedNode {
+        kind: "Class".to_string(),
+        name: name.to_string(),
+        file_path: file_path.to_string(),
+        line_start: node.start_position().row as i64 + 1,
+        line_end: node.end_position().row as i64 + 1,
+        language: "csharp".to_string(),
+        parent_name: enclosing_class.map(str::to_string),
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra,
+    });
+    edges.push(ParsedEdge {
+        kind: "CONTAINS".to_string(),
+        source: file_path.to_string(),
+        target: qualify(file_path, name, enclosing_class),
+        file_path: file_path.to_string(),
+        line: node.start_position().row as i64 + 1,
+        extra: json!({}),
+    });
+}
+
+fn csharp_type_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    csharp_direct_child_text(node, source, &["identifier"])
+}
+
+fn csharp_type_role(node: tree_sitter::Node<'_>, source: &[u8]) -> (&'static str, bool, bool) {
+    match node.kind() {
+        "interface_declaration" => ("interface", true, true),
+        "enum_declaration" => ("enum", false, false),
+        "struct_declaration" => ("struct", false, false),
+        _ => {
+            let is_abstract = csharp_direct_child_text(node, source, &["modifier"])
+                .is_some_and(|modifier| modifier == "abstract");
+            if is_abstract {
+                ("abstract_class", true, false)
+            } else {
+                ("class", false, false)
+            }
+        }
+    }
+}
+
+fn csharp_emit_function(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    file_path: &str,
+    name: &str,
+    enclosing_class: Option<&str>,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let qualified = qualify(file_path, name, enclosing_class);
+    nodes.push(ParsedNode {
+        kind: "Function".to_string(),
+        name: name.to_string(),
+        file_path: file_path.to_string(),
+        line_start: node.start_position().row as i64 + 1,
+        line_end: node.end_position().row as i64 + 1,
+        language: "csharp".to_string(),
+        parent_name: enclosing_class.map(str::to_string),
+        params: csharp_direct_child_text(node, source, &["parameter_list"]),
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: json!({}),
+    });
+    edges.push(ParsedEdge {
+        kind: "CONTAINS".to_string(),
+        source: enclosing_class
+            .map(|class| qualify(file_path, class, None))
+            .unwrap_or_else(|| file_path.to_string()),
+        target: qualified,
+        file_path: file_path.to_string(),
+        line: node.start_position().row as i64 + 1,
+        extra: json!({}),
+    });
+}
+
+fn csharp_function_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    csharp_direct_child_text(node, source, &["identifier"])
+}
+
+fn csharp_emit_call(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    file_path: &str,
+    enclosing_class: Option<&str>,
+    enclosing_func: Option<&str>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let caller = enclosing_func
+        .map(|func| qualify(file_path, func, enclosing_class))
+        .unwrap_or_else(|| file_path.to_string());
+    if let Some(call_name) = csharp_call_name(node, source) {
+        edges.push(ParsedEdge {
+            kind: "CALLS".to_string(),
+            source: caller.clone(),
+            target: call_name,
+            file_path: file_path.to_string(),
+            line: node.start_position().row as i64 + 1,
+            extra: json!({}),
+        });
+    }
+    if let Some(signature) = csharp_call_signature(node, source) {
+        if let Some(edge) = csharp_bridge_edge(node, source, file_path, &caller, &signature) {
+            edges.push(edge);
+        }
+    }
+}
+
+fn csharp_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut cursor = node.walk();
+    let first = node
+        .children(&mut cursor)
+        .find(|child| child.kind() != "argument_list")?;
+    matches!(first.kind(), "identifier").then(|| node_text(first, source))
+}
+
+fn csharp_call_signature(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut cursor = node.walk();
+    let callee = node
+        .children(&mut cursor)
+        .find(|child| child.kind() != "argument_list")?;
+    let signature = node_text(callee, source).trim().to_string();
+    (!signature.is_empty()).then_some(signature)
+}
+
+fn csharp_bridge_edge(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    file_path: &str,
+    caller: &str,
+    signature: &str,
+) -> Option<ParsedEdge> {
+    let (relationship_role, bridge_kind) = match signature {
+        "Process.Start" | "System.Diagnostics.Process.Start" => ("invokes_binary", "subprocess"),
+        "File.ReadAllText" | "File.ReadAllBytes" | "File.ReadAllLines" | "File.OpenRead" => {
+            ("reads_file", "file_io")
+        }
+        "File.WriteAllText" | "File.WriteAllBytes" | "File.OpenWrite" | "File.Create" => {
+            ("writes_file", "file_io")
+        }
+        "Assembly.LoadFile" | "NativeLibrary.Load" => ("loads_shared_library", "ffi"),
+        _ => return None,
+    };
+    let line = node.start_position().row as i64 + 1;
+    let (target, confidence, confidence_tier) = match csharp_first_string_arg(node, source) {
+        Some(target) => (target, 0.8, "HIGH"),
+        None => (
+            format!("<dynamic:{signature}@{file_path}:{line}>"),
+            0.2,
+            "LOW",
+        ),
+    };
+    Some(ParsedEdge {
+        kind: "CROSS_ARTIFACT".to_string(),
+        source: caller.to_string(),
+        target,
+        file_path: file_path.to_string(),
+        line,
+        extra: json!({
+            "relationship_role": relationship_role,
+            "bridge_kind": bridge_kind,
+            "evidence_kind": "syntax",
+            "evidence_source": signature,
+            "source_language": "csharp",
+            "target_language": "unknown",
+            "confidence": confidence,
+            "confidence_tier": confidence_tier,
+        }),
+    })
+}
+
+fn csharp_first_string_arg(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut cursor = node.walk();
+    let arguments = node
+        .children(&mut cursor)
+        .find(|child| child.kind() == "argument_list")?;
+    let mut arg_cursor = arguments.walk();
+    for child in arguments.children(&mut arg_cursor) {
+        if matches!(child.kind(), "," | "(" | ")") {
+            continue;
+        }
+        let arg = if child.kind() == "argument" {
+            csharp_first_non_punctuation_child(child).unwrap_or(child)
+        } else {
+            child
+        };
+        if arg.kind() == "string_literal" {
+            return Some(csharp_string_text(arg, source));
+        }
+        return None;
+    }
+    None
+}
+
+fn csharp_first_non_punctuation_child(
+    node: tree_sitter::Node<'_>,
+) -> Option<tree_sitter::Node<'_>> {
+    let mut cursor = node.walk();
+    let child = node
+        .children(&mut cursor)
+        .find(|child| !matches!(child.kind(), "," | "(" | ")"));
+    child
+}
+
+fn csharp_string_text(node: tree_sitter::Node<'_>, source: &[u8]) -> String {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "string_literal_content" {
+            return node_text(child, source);
+        }
+    }
+    strip_matching_quotes(node_text(node, source).trim()).to_string()
+}
+
+fn csharp_direct_child_text(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    kinds: &[&str],
+) -> Option<String> {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if kinds.contains(&child.kind()) {
+            return Some(node_text(child, source));
+        }
+    }
+    None
+}
+
 fn resolve_rust_call_targets(
     nodes: &[ParsedNode],
     edges: Vec<ParsedEdge>,
@@ -5651,6 +6060,7 @@ pub fn parse_rust_owned_file(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>
         RustOwnedPathKind::Go => parse_go(file_path, source),
         RustOwnedPathKind::Java => parse_java(file_path, source),
         RustOwnedPathKind::Ruby => parse_ruby(file_path, source),
+        RustOwnedPathKind::CSharp => parse_csharp(file_path, source),
         RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
     }
 }
@@ -5673,6 +6083,7 @@ enum RustOwnedPathKind {
     Go,
     Java,
     Ruby,
+    CSharp,
     Unsupported,
 }
 
@@ -5712,6 +6123,8 @@ fn rust_owned_path_kind(file_path: &str) -> RustOwnedPathKind {
         RustOwnedPathKind::Java
     } else if ends_with_ascii_ignore_case(file_path, ".rb") {
         RustOwnedPathKind::Ruby
+    } else if ends_with_ascii_ignore_case(file_path, ".cs") {
+        RustOwnedPathKind::CSharp
     } else {
         RustOwnedPathKind::Unsupported
     }
@@ -5878,6 +6291,18 @@ fn new_ruby_parser() -> Option<tree_sitter::Parser> {
     let mut parser = tree_sitter::Parser::new();
     if parser
         .set_language(&dagayn_grammars::ruby_language())
+        .is_ok()
+    {
+        Some(parser)
+    } else {
+        None
+    }
+}
+
+fn new_csharp_parser() -> Option<tree_sitter::Parser> {
+    let mut parser = tree_sitter::Parser::new();
+    if parser
+        .set_language(&dagayn_grammars::csharp_language())
         .is_ok()
     {
         Some(parser)
@@ -7777,6 +8202,79 @@ end
             edge.kind == "CROSS_ARTIFACT"
                 && edge.target == "mylib.so"
                 && edge.extra["evidence_source"] == "Fiddle.dlopen"
+        }));
+    }
+
+    #[test]
+    fn parses_csharp_types_imports_and_bridges() {
+        let source = br#"using System.IO;
+using System.Diagnostics;
+using System.Reflection;
+
+interface IRepository
+{
+    User FindById(int id);
+    void Save(User user);
+}
+
+class BridgeSamples : IRepository
+{
+    public User FindById(int id)
+    {
+        return null;
+    }
+
+    public void Save(User user)
+    {
+        Process.Start("git", "status");
+        File.ReadAllText(user.Path);
+        Assembly.LoadFile("mylib.dll");
+    }
+}
+"#;
+        let (nodes, edges) = parse_csharp("sample.cs", source);
+        assert!(nodes.iter().any(|node| {
+            node.kind == "Class"
+                && node.name == "IRepository"
+                && node.extra["type_role"] == "interface"
+                && node.extra["is_contract"] == true
+        }));
+        assert!(nodes.iter().any(|node| {
+            node.kind == "Class"
+                && node.name == "BridgeSamples"
+                && node.extra["type_role"] == "class"
+        }));
+        assert!(nodes.iter().any(|node| {
+            node.kind == "Function"
+                && node.name == "User"
+                && node.parent_name.as_deref() == Some("BridgeSamples")
+                && node.params.as_deref() == Some("(int id)")
+        }));
+        assert!(nodes.iter().any(|node| {
+            node.kind == "Function"
+                && node.name == "Save"
+                && node.parent_name.as_deref() == Some("BridgeSamples")
+                && node.params.as_deref() == Some("(User user)")
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "IMPORTS_FROM" && edge.source == "sample.cs" && edge.target == "System.IO"
+        }));
+        assert!(edges.iter().all(|edge| edge.kind != "IMPLEMENTS"));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CROSS_ARTIFACT"
+                && edge.target == "git"
+                && edge.extra["evidence_source"] == "Process.Start"
+                && edge.extra["confidence_tier"] == "HIGH"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CROSS_ARTIFACT"
+                && edge.target == "<dynamic:File.ReadAllText@sample.cs:21>"
+                && edge.extra["confidence_tier"] == "LOW"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CROSS_ARTIFACT"
+                && edge.target == "mylib.dll"
+                && edge.extra["evidence_source"] == "Assembly.LoadFile"
         }));
     }
 

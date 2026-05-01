@@ -17,6 +17,7 @@ extern "C" {
     fn tree_sitter_go() -> *const ();
     fn tree_sitter_java() -> *const ();
     fn tree_sitter_ruby() -> *const ();
+    fn tree_sitter_c_sharp() -> *const ();
 }
 
 pub const MARKDOWN_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_markdown) };
@@ -30,6 +31,7 @@ pub const BASH_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_
 pub const GO_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_go) };
 pub const JAVA_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_java) };
 pub const RUBY_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_ruby) };
+pub const CSHARP_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_c_sharp) };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GrammarStatus {
@@ -82,6 +84,10 @@ pub fn java_language() -> tree_sitter::Language {
 
 pub fn ruby_language() -> tree_sitter::Language {
     RUBY_LANGUAGE.into()
+}
+
+pub fn csharp_language() -> tree_sitter::Language {
+    CSHARP_LANGUAGE.into()
 }
 
 #[cfg(test)]
@@ -222,6 +228,21 @@ mod tests {
                 None,
             )
             .expect("parse Ruby");
+        assert!(!tree.root_node().has_error());
+    }
+
+    #[test]
+    fn loads_csharp_language() {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&csharp_language())
+            .expect("load pinned C# grammar");
+        let tree = parser
+            .parse(
+                "class User { void Save() { System.Console.WriteLine(\"ok\"); } }\n",
+                None,
+            )
+            .expect("parse C#");
         assert!(!tree.root_node().has_error());
     }
 }
