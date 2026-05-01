@@ -1157,6 +1157,7 @@ def _rust_parser_owns_path(rel_path: str, repo_root: Path | None = None) -> bool
             ".lua",
             ".luau",
             ".c",
+            ".xs",
             ".cpp",
             ".cc",
             ".cxx",

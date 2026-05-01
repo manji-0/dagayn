@@ -13022,7 +13022,9 @@ fn rust_owned_path_kind(file_path: &str) -> RustOwnedPathKind {
         RustOwnedPathKind::Lua
     } else if ends_with_ascii_ignore_case(file_path, ".luau") {
         RustOwnedPathKind::Luau
-    } else if ends_with_ascii_ignore_case(file_path, ".c") {
+    } else if ends_with_ascii_ignore_case(file_path, ".c")
+        || ends_with_ascii_ignore_case(file_path, ".xs")
+    {
         RustOwnedPathKind::C
     } else if ends_with_ascii_ignore_case(file_path, ".cpp")
         || ends_with_ascii_ignore_case(file_path, ".cc")
@@ -16683,6 +16685,58 @@ let main = () => {
         assert!(edges
             .iter()
             .any(|edge| { edge.kind == "CONTAINS" && edge.target == "src/App.res::User.greet" }));
+    }
+
+    #[test]
+    fn parses_perl_xs_as_c_for_python_parity() {
+        let source = br#"#include "EXTERN.h"
+#include "perl.h"
+#include "XSUB.h"
+#include <string.h>
+
+typedef struct {
+    int x;
+    int y;
+} Point;
+
+static int
+_add(int a, int b) {
+    return a + b;
+}
+
+static double
+compute_distance(int x1, int y1, int x2, int y2) {
+    return _add(x1, x2);
+}
+
+MODULE = MyModule  PACKAGE = MyModule
+
+int
+add(a, b)
+    int a
+    int b
+  CODE:
+    RETVAL = _add(a, b);
+  OUTPUT:
+    RETVAL
+"#;
+        let (nodes, edges) = parse_rust_owned_file("MyModule.xs", source);
+
+        assert!(nodes
+            .iter()
+            .any(|node| node.kind == "Class" && node.name == "Point"));
+        assert!(nodes
+            .iter()
+            .any(|node| node.kind == "Function" && node.name == "_add"));
+        assert!(nodes
+            .iter()
+            .any(|node| node.kind == "Function" && node.name == "compute_distance"));
+        assert!(edges
+            .iter()
+            .any(|edge| edge.kind == "IMPORTS_FROM" && edge.target == "XSUB.h"));
+        assert!(edges
+            .iter()
+            .any(|edge| edge.kind == "CALLS" && edge.target.ends_with("::_add")));
     }
 
     #[test]

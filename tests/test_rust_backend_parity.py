@@ -135,6 +135,7 @@ def test_rust_backend_routes_databricks_py_exports(tmp_path, monkeypatch):
         "sample_vue.vue",
         "sample.res",
         "sample.resi",
+        "sample.xs",
     ],
 )
 def test_rust_owned_parser_matches_python_parser(fixture):
