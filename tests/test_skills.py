@@ -13,7 +13,6 @@ from dagayn.skills import (
     _CLAUDE_MD_SECTION_MARKER,
     _MARKDOWN_POLICY_MARKER,
     PLATFORMS,
-    normalize_platform_target,
     _cursor_hook_scripts,
     _detect_serve_command,
     _in_poetry_project,
@@ -31,6 +30,7 @@ from dagayn.skills import (
     install_hooks,
     install_opencode_plugin,
     install_platform_configs,
+    normalize_platform_target,
 )
 
 EXPECTED_SKILLS = [
@@ -608,7 +608,8 @@ class TestInjectPlatformInstructionsFiltering:
             content = (tmp_path / filename).read_text()
             assert _MARKDOWN_POLICY_MARKER in content, f"{filename} missing policy marker"
         assert _MARKDOWN_POLICY_MARKER in (tmp_path / ".codex" / "AGENTS.md").read_text()
-        assert _MARKDOWN_POLICY_MARKER in (tmp_path / ".config" / "opencode" / "AGENTS.md").read_text()
+        opencode_agents = tmp_path / ".config" / "opencode" / "AGENTS.md"
+        assert _MARKDOWN_POLICY_MARKER in opencode_agents.read_text()
 
     def test_policy_injected_when_only_mcp_section_exists(self, tmp_path):
         """Existing file with only the MCP section gets the policy section on re-run."""

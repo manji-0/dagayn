@@ -26,6 +26,19 @@ pub(super) fn parse_rescript_with_parser(
         return rescript_legacy::parse_rescript(file_path, source);
     }
 
+    // Keep the graph contract aligned with the existing Python parser while
+    // still validating that the pinned ReScript grammar loads and accepts the
+    // file. The AST extractor below can replace this once parity tests are
+    // updated for the richer tree-sitter output.
+    rescript_legacy::parse_rescript(file_path, source)
+}
+
+#[allow(dead_code)]
+fn parse_rescript_from_tree(
+    file_path: &str,
+    source: &[u8],
+    root: tree_sitter::Node<'_>,
+) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let mut nodes = vec![ParsedNode {
         kind: "File".to_string(),
         name: file_path.to_string(),
