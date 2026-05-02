@@ -125,3 +125,26 @@ jobs:
         run: uv run pytest tests/test_rust_backend_parity.py -q
       - name: Smoke-test uvx source install path
         run: uvx --refresh --from . dagayn --help
+
+  install-smoke:
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        install-command:
+          - 'python -m pip install .'
+          - 'uv tool install --refresh --force --from . dagayn'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+      - name: Run install smoke test
+        run: ${{ matrix.install-command }}
+      - name: Verify CLI
+        run: dagayn --help

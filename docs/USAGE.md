@@ -8,6 +8,12 @@
 pip install dagayn
 ```
 
+For a persistent isolated CLI environment:
+
+```bash
+uv tool install dagayn
+```
+
 For an isolated invocation without a persistent environment:
 
 ```bash
@@ -17,12 +23,20 @@ uvx --from dagayn dagayn --help
 To run from the Git repository instead of a published wheel:
 
 ```bash
+pip install git+https://github.com/manji-0/dagayn.git
+```
+
+```bash
+uv tool install --from git+https://github.com/manji-0/dagayn.git dagayn
+```
+
+```bash
 uvx --from git+https://github.com/manji-0/dagayn.git dagayn --help
 ```
 
 Git/source installs build the PyO3 Rust extension locally. Install a Rust
-toolchain and a C compiler first when no prebuilt wheel is available for your
-platform.
+toolchain, a C compiler, and the macOS Command Line Tools first when no
+prebuilt wheel is available for your platform.
 
 ## Register MCP integration
 

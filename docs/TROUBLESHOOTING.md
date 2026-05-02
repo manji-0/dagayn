@@ -27,6 +27,14 @@ Install a wheel that includes the Rust extension, or rebuild from source with a
 Rust toolchain and C compiler available:
 
 ```bash
+pip install git+https://github.com/manji-0/dagayn.git
+```
+
+```bash
+uv tool install --from git+https://github.com/manji-0/dagayn.git dagayn
+```
+
+```bash
 uvx --from git+https://github.com/manji-0/dagayn.git dagayn --help
 ```
 

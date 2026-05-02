@@ -146,21 +146,35 @@ The parser handles:
 pip install dagayn
 ```
 
+For a persistent isolated CLI environment, `uv tool install` works too:
+
+```bash
+uv tool install dagayn
+```
+
 For an isolated one-shot CLI, `uvx` works well:
 
 ```bash
 uvx --from dagayn dagayn --help
 ```
 
-To run directly from the Git repository, use the same `uvx --from` shape:
+To run directly from the Git repository, install from source with `pip` or use the same `uvx --from` shape:
+
+```bash
+pip install git+https://github.com/manji-0/dagayn.git
+```
+
+```bash
+uv tool install --from git+https://github.com/manji-0/dagayn.git dagayn
+```
 
 ```bash
 uvx --from git+https://github.com/manji-0/dagayn.git dagayn --help
 ```
 
 Git/source installs build the PyO3 Rust extension locally, so they require a
-Rust toolchain and a C compiler. Published wheels include the compiled
-extension for supported targets.
+Rust toolchain, a C compiler, and the macOS Command Line Tools when building on
+macOS. Published wheels include the compiled extension for supported targets.
 
 If you prefer persistent isolated tool installs, `pipx` also works.
 
