@@ -1055,6 +1055,15 @@ class TestBuildPostprocess:
 
         shutil.rmtree(self.tmp, ignore_errors=True)
 
+    def test_selected_graph_store_falls_back_when_default_rust_unavailable(self, monkeypatch):
+        from dagayn.graph import GraphStore
+        from dagayn.tools import _common
+
+        monkeypatch.delenv("DAGAYN_BACKEND", raising=False)
+        monkeypatch.setattr(_common, "_rust_backend_enabled", lambda: False)
+
+        assert _common._selected_graph_store() is GraphStore
+
     def test_postprocess_none_produces_nodes_no_flows(self):
         from unittest.mock import patch
 

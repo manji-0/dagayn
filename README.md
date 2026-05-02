@@ -194,20 +194,20 @@ dagayn status
 
 ### Rust backend
 
-The Python backend remains the default. To use the Rust-backed graph store and
-Rust-owned parser paths for Markdown, Terraform, Rust, Python/notebooks, and
-Bash/Go/Java/Ruby/C#/PHP/Kotlin/Swift/Scala/Solidity/Dart/Lua/Luau/C/C headers/Perl XS/C++/Objective-C/Elixir/GDScript/R/Julia/Perl/Vue/Svelte/Zig/PowerShell/ReScript, extensionless shebang scripts for supported scripting languages, plus core JavaScript/JSX/TypeScript/TSX and Astro files, set
-`DAGAYN_BACKEND=rust`:
+The Rust-backed graph store and Rust-owned parser paths are the default for
+Markdown, Terraform, Rust, Python/notebooks, and
+Bash/Go/Java/Ruby/C#/PHP/Kotlin/Swift/Scala/Solidity/Dart/Lua/Luau/C/C headers/Perl XS/C++/Objective-C/Elixir/GDScript/R/Julia/Perl/Vue/Svelte/Zig/PowerShell/ReScript, extensionless shebang scripts for supported scripting languages, plus core JavaScript/JSX/TypeScript/TSX and Astro files:
 
 ```bash
-DAGAYN_BACKEND=rust dagayn build
-DAGAYN_BACKEND=rust dagayn update
+dagayn build
+dagayn update
 ```
 
-The same environment variable works with `uvx`:
+Source checkouts without the native extension fall back to the Python backend
+unless Rust is requested explicitly. To force the Python backend:
 
 ```bash
-DAGAYN_BACKEND=rust uvx --from dagayn dagayn build
+DAGAYN_BACKEND=python dagayn build
 ```
 
 ## Common CLI flows

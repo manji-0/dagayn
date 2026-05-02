@@ -9,6 +9,7 @@ from __future__ import annotations
 import concurrent.futures
 import fnmatch
 import hashlib
+import importlib.util
 import json
 import logging
 import os
@@ -25,6 +26,7 @@ from .parser.dispatch import detect_language as _detect_parser_language
 _MAX_PARSE_WORKERS = int(os.environ.get("CRG_PARSE_WORKERS", str(min(os.cpu_count() or 4, 8))))
 _STORE_BATCH_SIZE = int(os.environ.get("DAGAYN_STORE_BATCH_SIZE", "128"))
 _RUST_PARSE_BATCH_SIZE = int(os.environ.get("DAGAYN_RUST_PARSE_BATCH_SIZE", "500"))
+_DEFAULT_BACKEND = "rust"
 
 StoreBatch = list[tuple[str, list[Any], list[Any], str, int]]
 
@@ -696,10 +698,7 @@ def collect_all_files(
         recurse_submodules: If True, include files from git submodules.
             When *None*, falls back to ``CRG_RECURSE_SUBMODULES`` env var.
     """
-    if (
-        os.environ.get("DAGAYN_BACKEND", "python").strip().lower() == "rust"
-        and detect_vcs(repo_root) != "svn"
-    ):
+    if _rust_backend_enabled() and detect_vcs(repo_root) != "svn":
         try:
             from dagayn._core import collect_parseable_files
 
@@ -1120,8 +1119,22 @@ def _uses_compact_entities(nodes: list[Any], edges: list[Any]) -> bool:
     return _is_compact_entities(nodes) or _is_compact_entities(edges)
 
 
+def _backend_selection() -> str:
+    return os.environ.get("DAGAYN_BACKEND", _DEFAULT_BACKEND).strip().lower()
+
+
+def _rust_backend_explicitly_requested() -> bool:
+    return os.environ.get("DAGAYN_BACKEND", "").strip().lower() == "rust"
+
+
+def _rust_backend_available() -> bool:
+    return importlib.util.find_spec("dagayn._core") is not None
+
+
 def _rust_backend_enabled() -> bool:
-    return os.environ.get("DAGAYN_BACKEND", "python").strip().lower() == "rust"
+    if _backend_selection() != "rust":
+        return False
+    return _rust_backend_explicitly_requested() or _rust_backend_available()
 
 
 def _rust_parser_owns_path(rel_path: str, repo_root: Path | None = None) -> bool:
