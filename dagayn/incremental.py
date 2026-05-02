@@ -1359,7 +1359,6 @@ def full_build(
         recurse_submodules: If True, include files from git submodules.
             When *None*, falls back to ``CRG_RECURSE_SUBMODULES`` env var.
     """
-    parser = CodeParser()
     repo_root = repo_root.resolve()
     store.set_metadata("repo_root", str(repo_root))
     files = collect_all_files(repo_root, recurse_submodules)
@@ -1393,58 +1392,60 @@ def full_build(
             errors.extend(rust_errors)
             logger.info("Progress: %d/%d files parsed", len(rust_files), file_count)
 
-        if use_serial or file_count < 8:
-            # Serial fallback (for debugging or tiny repos)
-            batch: StoreBatch = []
-            for offset, rel_path in enumerate(python_files, 1):
-                i = len(rust_files) + offset
-                full_path = repo_root / rel_path
-                try:
-                    mtime_ns = int(full_path.stat().st_mtime_ns)
-                    source = full_path.read_bytes()
-                    fhash = hashlib.sha256(source).hexdigest()
-                    nodes, edges = parser.parse_bytes(full_path, source)
-                    nodes, edges = _relativize_parsed_entities(nodes, edges, repo_root)
-                    _queue_store_file(store, batch, rel_path, nodes, edges, fhash, mtime_ns)
-                    total_nodes += len(nodes)
-                    total_edges += len(edges)
-                except (OSError, PermissionError) as e:
-                    errors.append({"file": rel_path, "error": str(e)})
-                except Exception as e:
-                    logger.warning("Error parsing %s: %s", rel_path, e)
-                    errors.append({"file": rel_path, "error": str(e)})
-                if i % 50 == 0 or i == file_count:
-                    logger.info("Progress: %d/%d files parsed", i, file_count)
-            _flush_store_batch(store, batch)
-        else:
-            # Parallel parsing — store calls remain serial (SQLite single-writer)
-            args_list = [(rel_path, str(repo_root)) for rel_path in python_files]
-            batch: StoreBatch = []
-            parse_worker = (
-                _parse_single_python_file_compact
-                if _callable_store_attr(store, "store_file_batch_json") is not None
-                else _parse_single_python_file
-            )
-            with concurrent.futures.ProcessPoolExecutor(
-                max_workers=_MAX_PARSE_WORKERS,
-                initializer=_init_worker,
-            ) as executor:
-                for i, (rel_path, nodes, edges, error, fhash, mtime_ns) in enumerate(
-                    executor.map(parse_worker, args_list, chunksize=20),
-                    len(rust_files) + 1,
-                ):
-                    if error:
-                        logger.warning("Error parsing %s: %s", rel_path, error)
-                        errors.append({"file": rel_path, "error": error})
-                        continue
-                    if not _uses_compact_entities(nodes, edges):
+        if python_files:
+            if use_serial or len(python_files) < 8:
+                # Serial fallback (for debugging or tiny repos)
+                batch: StoreBatch = []
+                parser = CodeParser()
+                for offset, rel_path in enumerate(python_files, 1):
+                    i = len(rust_files) + offset
+                    full_path = repo_root / rel_path
+                    try:
+                        mtime_ns = int(full_path.stat().st_mtime_ns)
+                        source = full_path.read_bytes()
+                        fhash = hashlib.sha256(source).hexdigest()
+                        nodes, edges = parser.parse_bytes(full_path, source)
                         nodes, edges = _relativize_parsed_entities(nodes, edges, repo_root)
-                    _queue_store_file(store, batch, rel_path, nodes, edges, fhash, mtime_ns)
-                    total_nodes += len(nodes)
-                    total_edges += len(edges)
-                    if i % 200 == 0 or i == file_count:
+                        _queue_store_file(store, batch, rel_path, nodes, edges, fhash, mtime_ns)
+                        total_nodes += len(nodes)
+                        total_edges += len(edges)
+                    except (OSError, PermissionError) as e:
+                        errors.append({"file": rel_path, "error": str(e)})
+                    except Exception as e:
+                        logger.warning("Error parsing %s: %s", rel_path, e)
+                        errors.append({"file": rel_path, "error": str(e)})
+                    if i % 50 == 0 or i == file_count:
                         logger.info("Progress: %d/%d files parsed", i, file_count)
-            _flush_store_batch(store, batch)
+                _flush_store_batch(store, batch)
+            else:
+                # Parallel parsing — store calls remain serial (SQLite single-writer)
+                args_list = [(rel_path, str(repo_root)) for rel_path in python_files]
+                batch: StoreBatch = []
+                parse_worker = (
+                    _parse_single_python_file_compact
+                    if _callable_store_attr(store, "store_file_batch_json") is not None
+                    else _parse_single_python_file
+                )
+                with concurrent.futures.ProcessPoolExecutor(
+                    max_workers=_MAX_PARSE_WORKERS,
+                    initializer=_init_worker,
+                ) as executor:
+                    for i, (rel_path, nodes, edges, error, fhash, mtime_ns) in enumerate(
+                        executor.map(parse_worker, args_list, chunksize=20),
+                        len(rust_files) + 1,
+                    ):
+                        if error:
+                            logger.warning("Error parsing %s: %s", rel_path, error)
+                            errors.append({"file": rel_path, "error": error})
+                            continue
+                        if not _uses_compact_entities(nodes, edges):
+                            nodes, edges = _relativize_parsed_entities(nodes, edges, repo_root)
+                        _queue_store_file(store, batch, rel_path, nodes, edges, fhash, mtime_ns)
+                        total_nodes += len(nodes)
+                        total_edges += len(edges)
+                        if i % 200 == 0 or i == file_count:
+                            logger.info("Progress: %d/%d files parsed", i, file_count)
+                _flush_store_batch(store, batch)
 
         store.set_metadata("last_updated", time.strftime("%Y-%m-%dT%H:%M:%S"))
         store.set_metadata("last_build_type", "full")
