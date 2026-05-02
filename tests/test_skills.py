@@ -24,11 +24,13 @@ from dagayn.skills import (
     generate_skills,
     inject_claude_md,
     inject_platform_instructions,
+    install_codex_skills,
     install_cursor_hooks,
     install_git_hook,
     install_global_skills,
     install_hooks,
     install_opencode_plugin,
+    install_opencode_skills,
     install_platform_configs,
     normalize_platform_target,
 )
@@ -226,6 +228,32 @@ class TestInstallGlobalSkills:
 
         captured = capsys.readouterr()
         assert "Skipped global skills install" in captured.err
+
+
+class TestInstallTreeSkills:
+    def test_installs_codex_skill_tree(self, tmp_path):
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            result = install_codex_skills()
+
+        assert result == tmp_path / ".codex" / "skills"
+        assert (result / "writing-markdown-document" / "SKILL.md").is_file()
+        assert (result / "reading-markdown-document" / "SKILL.md").is_file()
+
+    def test_installs_opencode_skill_tree(self, tmp_path):
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            result = install_opencode_skills()
+
+        assert result == tmp_path / ".config" / "opencode" / "skills"
+        assert (result / "writing-markdown-document" / "SKILL.md").is_file()
+        assert (result / "reading-markdown-document" / "SKILL.md").is_file()
+
+    def test_tree_skill_install_is_idempotent(self, tmp_path):
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            install_codex_skills()
+            result = install_codex_skills()
+
+        installed = [path.name for path in result.iterdir() if path.is_dir()]
+        assert sorted(installed) == sorted(path[:-3] for path in EXPECTED_SKILLS)
 
 
 class TestGenerateHooksConfig:

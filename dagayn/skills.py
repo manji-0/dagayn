@@ -429,6 +429,24 @@ def generate_skills(repo_root: Path, skills_dir: Path | None = None) -> Path:
     return skills_dir
 
 
+def _install_skill_tree(target_dir: Path) -> Path:
+    """Install packaged skills as ``<name>/SKILL.md`` directories."""
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    source_dir = _resolve_source_skills_dir()
+    if source_dir is None:
+        logger.warning("No skills/ directory found alongside dagayn; nothing installed.")
+        return target_dir
+
+    for entry in sorted(source_dir.iterdir()):
+        if not entry.is_dir() or not (entry / "SKILL.md").is_file():
+            continue
+        shutil.copytree(entry, target_dir / entry.name, dirs_exist_ok=True)
+        logger.info("Wrote skill directory: %s", target_dir / entry.name)
+
+    return target_dir
+
+
 def install_global_skills() -> Path:
     """Install Claude Code skills into ``~/.claude/skills/``.
 
@@ -438,6 +456,16 @@ def install_global_skills() -> Path:
     """
     target = Path.home() / ".claude" / "skills"
     return generate_skills(repo_root=Path.home(), skills_dir=target)
+
+
+def install_codex_skills() -> Path:
+    """Install dagayn skills into Codex's global user skills directory."""
+    return _install_skill_tree(Path.home() / ".codex" / "skills")
+
+
+def install_opencode_skills() -> Path:
+    """Install dagayn skills into OpenCode's global user skills directory."""
+    return _install_skill_tree(Path.home() / ".config" / "opencode" / "skills")
 
 
 def generate_hooks_config(repo_root: Path) -> dict[str, Any]:

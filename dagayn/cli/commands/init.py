@@ -166,11 +166,13 @@ def handle(args: argparse.Namespace) -> None:
         generate_skills,
         inject_claude_md,
         inject_platform_instructions,
+        install_codex_skills,
         install_cursor_hooks,
         install_git_hook,
         install_global_skills,
         install_hooks,
         install_opencode_plugin,
+        install_opencode_skills,
         install_qoder_skills,
     )
 
@@ -183,6 +185,19 @@ def handle(args: argparse.Namespace) -> None:
                 print(f"Installed global skills to {global_skills_dir}")
             except OSError as e:
                 print(f"Skipped global skills install ({e})", file=sys.stderr)
+        configured_platforms = set(configured)
+        if target == "codex" or (target == "all" and "Codex" in configured_platforms):
+            try:
+                codex_skills_dir = install_codex_skills()
+                print(f"Installed Codex skills to {codex_skills_dir}")
+            except OSError as e:
+                print(f"Skipped Codex skills install ({e})", file=sys.stderr)
+        if target == "opencode" or (target == "all" and "OpenCode" in configured_platforms):
+            try:
+                opencode_skills_dir = install_opencode_skills()
+                print(f"Installed OpenCode skills to {opencode_skills_dir}")
+            except OSError as e:
+                print(f"Skipped OpenCode skills install ({e})", file=sys.stderr)
 
     # Confirm before writing instruction files (#173). --yes skips the
     # prompt; --no-instructions skips the whole block.
