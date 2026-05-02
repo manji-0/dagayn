@@ -453,6 +453,20 @@ const SWIFT: GrammarSpec = GrammarSpec {
     parser_subdirectory: None,
 };
 
+const RESCRIPT: GrammarSpec = GrammarSpec {
+    language: "rescript",
+    symbol: "rescript",
+    required_paths: &[
+        "src/parser.c",
+        "src/scanner.c",
+        "src/tree_sitter/alloc.h",
+        "src/tree_sitter/array.h",
+        "src/tree_sitter/parser.h",
+        "bindings/python/tree_sitter_rescript/binding.c",
+    ],
+    parser_subdirectory: None,
+};
+
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let repo_root = manifest_dir
@@ -499,6 +513,7 @@ fn main() {
     compile_grammar(&repo_root, &ZIG);
     compile_grammar(&repo_root, &POWERSHELL);
     compile_grammar(&repo_root, &SWIFT);
+    compile_grammar(&repo_root, &RESCRIPT);
 }
 
 fn compile_grammar(repo_root: &Path, spec: &GrammarSpec) {

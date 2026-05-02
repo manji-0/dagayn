@@ -583,10 +583,10 @@ Parser migration progress:
   The Rust-owned parser routes `.ps1`, `.psm1`, and `.psd1` files through
   tree-sitter-powershell while preserving the current Python File-node-only
   graph contract.
-- ReScript now routes through a Rust-owned regex extractor for `.res` and
-  `.resi` files. This keeps the existing Python graph contract for modules,
-  let bindings, externals, types, imports, JSX references, calls, containment,
-  interface-file flags, and test edges without adding a separate grammar source.
+- ReScript grammar sources are now pinned through the same provisioning path.
+  The Rust-owned parser routes `.res` and `.resi` files through
+  tree-sitter-rescript, with the previous regex extractor retained only as a
+  fallback when the grammar is unavailable or returns a parse error.
 - Extensionless shebang scripts for supported scripting languages now stay in
   the Rust batch path. Source-aware ownership preserves extension precedence and
   routes bash/sh/zsh/ksh, Python, JavaScript, Ruby, Perl, Lua, R, and PHP
