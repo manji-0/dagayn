@@ -671,7 +671,13 @@ Fall back to Grep/Glob/Read **only** when the graph doesn't cover what you need.
 """
 
 
-def _inject_instructions(file_path: Path, marker: str, section: str) -> bool:
+def _inject_instructions(
+    file_path: Path,
+    marker: str,
+    section: str,
+    *,
+    errors: list[str] | None = None,
+) -> bool:
     """Append an instruction section to a file if not already present.
 
     Idempotent: checks if the marker is already present before appending.
@@ -680,34 +686,51 @@ def _inject_instructions(file_path: Path, marker: str, section: str) -> bool:
     Returns True if the file was modified.
     """
     existing = ""
-    if file_path.exists():
-        existing = file_path.read_text(encoding="utf-8", errors="replace")
+    try:
+        if file_path.exists():
+            existing = file_path.read_text(encoding="utf-8", errors="replace")
 
-    if marker in existing:
-        logger.info("%s already contains instructions, skipping.", file_path.name)
+        if marker in existing:
+            logger.info("%s already contains instructions, skipping.", file_path.name)
+            return False
+
+        separator = "\n" if existing and not existing.endswith("\n") else ""
+        extra_newline = "\n" if existing else ""
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path.write_text(existing + separator + extra_newline + section, encoding="utf-8")
+    except OSError as exc:
+        message = f"{file_path} ({exc})"
+        if errors is not None:
+            errors.append(message)
+        logger.debug("Skipped instruction injection for %s: %s", file_path, exc)
         return False
-
-    separator = "\n" if existing and not existing.endswith("\n") else ""
-    extra_newline = "\n" if existing else ""
-    file_path.parent.mkdir(parents=True, exist_ok=True)
-    file_path.write_text(existing + separator + extra_newline + section, encoding="utf-8")
     logger.info("Appended MCP tools section to %s", file_path)
     return True
 
 
-def inject_claude_md(repo_root: Path | None = None) -> None:
+def inject_claude_md(
+    repo_root: Path | None = None,
+    *,
+    errors: list[str] | None = None,
+) -> list[str]:
     """Append MCP tools section and Markdown policy to ``~/.claude/CLAUDE.md``."""
     claude_md = Path.home() / ".claude" / "CLAUDE.md"
-    _inject_instructions(
+    updated = False
+    if _inject_instructions(
         claude_md,
         _CLAUDE_MD_SECTION_MARKER,
         _CLAUDE_MD_SECTION,
-    )
-    _inject_instructions(
+        errors=errors,
+    ):
+        updated = True
+    if _inject_instructions(
         claude_md,
         _MARKDOWN_POLICY_MARKER,
         _MARKDOWN_POLICY_SECTION,
-    )
+        errors=errors,
+    ):
+        updated = True
+    return ["~/.claude/CLAUDE.md"] if updated else []
 
 
 # Cross-platform instruction files and which platforms own each one.
@@ -743,7 +766,12 @@ def _platform_instruction_paths(repo_root: Path, filename: str, target: str) -> 
     return [repo_root / "AGENTS.md"]
 
 
-def inject_platform_instructions(repo_root: Path, target: str = "all") -> list[str]:
+def inject_platform_instructions(
+    repo_root: Path,
+    target: str = "all",
+    *,
+    errors: list[str] | None = None,
+) -> list[str]:
     """Inject 'use graph first' instructions into platform rule files.
 
     Writes AGENTS.md, GEMINI.md, .cursorrules, and/or .windsurfrules
@@ -763,9 +791,19 @@ def inject_platform_instructions(repo_root: Path, target: str = "all") -> list[s
             continue
         changed = False
         for path in _platform_instruction_paths(repo_root, filename, target):
-            if _inject_instructions(path, _CLAUDE_MD_SECTION_MARKER, _CLAUDE_MD_SECTION):
+            if _inject_instructions(
+                path,
+                _CLAUDE_MD_SECTION_MARKER,
+                _CLAUDE_MD_SECTION,
+                errors=errors,
+            ):
                 changed = True
-            if _inject_instructions(path, _MARKDOWN_POLICY_MARKER, _MARKDOWN_POLICY_SECTION):
+            if _inject_instructions(
+                path,
+                _MARKDOWN_POLICY_MARKER,
+                _MARKDOWN_POLICY_SECTION,
+                errors=errors,
+            ):
                 changed = True
         if changed:
             updated.append(filename)

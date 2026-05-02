@@ -191,14 +191,25 @@ def handle(args: argparse.Namespace) -> None:
             "Inject graph instructions into the files above?",
             default_yes=True,
         ):
+            injection_errors: list[str] = []
+            injected: list[str] = []
             if target in ("claude", "all"):
-                inject_claude_md(repo_root)
-            inject_platform_instructions(repo_root, target=target)
-            # Use the precomputed instr_targets list for the confirmation
-            # message; we don't need the fresh return value from
-            # inject_platform_instructions here.
-            names = [t.split(" ")[0] for t in instr_targets]
-            print(f"Injected graph instructions into: {', '.join(names)}")
+                injected.extend(inject_claude_md(repo_root, errors=injection_errors))
+            injected.extend(
+                inject_platform_instructions(
+                    repo_root,
+                    target=target,
+                    errors=injection_errors,
+                )
+            )
+            if injected:
+                print(f"Injected graph instructions into: {', '.join(injected)}")
+            if injection_errors:
+                print("Skipped instruction injection for:", file=sys.stderr)
+                for error in dict.fromkeys(injection_errors):
+                    print(f"  - {error}", file=sys.stderr)
+            if not injected and not injection_errors:
+                print("Graph instructions already present; nothing to inject.")
         else:
             print("Skipped instruction injection (user declined).")
     elif skip_instructions:

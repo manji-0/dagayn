@@ -484,6 +484,18 @@ class TestInjectClaudeMd:
         assert content.count(_CLAUDE_MD_SECTION_MARKER) == 1
         assert _MARKDOWN_POLICY_MARKER in content
 
+    def test_permission_error_is_reported_without_raising(self, tmp_path):
+        errors: list[str] = []
+        with (
+            patch("dagayn.skills.Path.home", return_value=tmp_path),
+            patch("pathlib.Path.write_text", side_effect=PermissionError("read-only")),
+        ):
+            updated = inject_claude_md(tmp_path, errors=errors)
+
+        assert updated == []
+        assert errors
+        assert "read-only" in errors[0]
+
 
 class TestInstructionFilesToModify:
     def test_claude_preview_uses_global_claude_md(self, tmp_path):
@@ -632,6 +644,29 @@ class TestInjectPlatformInstructionsFiltering:
         second = (tmp_path / ".windsurfrules").read_text()
         assert updated == []
         assert first == second
+
+    def test_one_failed_instruction_file_does_not_stop_remaining_files(self, tmp_path):
+        errors: list[str] = []
+        blocked = tmp_path / ".codex" / "AGENTS.md"
+        original_write_text = Path.write_text
+
+        def write_text(path, *args, **kwargs):
+            if path == blocked:
+                raise PermissionError("read-only")
+            return original_write_text(path, *args, **kwargs)
+
+        with (
+            patch("dagayn.skills.Path.home", return_value=tmp_path),
+            patch("pathlib.Path.write_text", new=write_text),
+        ):
+            updated = inject_platform_instructions(tmp_path, target="all", errors=errors)
+
+        assert "AGENTS.md" in updated
+        assert (tmp_path / "AGENTS.md").exists()
+        assert (tmp_path / ".config" / "opencode" / "AGENTS.md").exists()
+        assert (tmp_path / "GEMINI.md").exists()
+        assert errors
+        assert str(blocked) in errors[0]
 
 
 class TestInstallPlatformConfigs:
