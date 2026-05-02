@@ -157,7 +157,7 @@ def get_minimal_context(
                     get_communities(store, sort_by="size")[:3],
                     limit=3,
                 )
-        except (sqlite3.OperationalError, RuntimeError, ImportError, KeyError, TypeError):
+        except (sqlite3.OperationalError, RuntimeError, ImportError, KeyError, TypeError):  # nosec B110
             logger.debug("communities table not yet populated")
 
         # 4. Top 3 critical flows
@@ -173,7 +173,7 @@ def get_minimal_context(
                 from ..flows import get_flows
 
                 top_flows = _names_from_items(get_flows(store, limit=3), limit=3)
-        except (sqlite3.OperationalError, RuntimeError, ImportError, KeyError, TypeError):
+        except (sqlite3.OperationalError, RuntimeError, ImportError, KeyError, TypeError):  # nosec B110
             logger.debug("flows table not yet populated")
 
         # 5. Suggest next tools based on task keywords
