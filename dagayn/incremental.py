@@ -1628,9 +1628,7 @@ def incremental_update(
 
     use_serial = os.environ.get("CRG_SERIAL_PARSE", "") == "1"
     to_parse_mtime = dict(to_parse)
-    store_changed_rust_owned_files = _callable_store_attr(
-        store, "store_changed_rust_owned_files"
-    )
+    store_changed_rust_owned_files = _callable_store_attr(store, "store_changed_rust_owned_files")
     if to_parse_rust_forced:
         if store_changed_rust_owned_files is not None:
             rust_nodes, rust_edges, raw_errors = store_changed_rust_owned_files(

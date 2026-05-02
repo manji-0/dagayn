@@ -144,6 +144,8 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
+      - name: Install pip into uv environment
+        run: uv pip install pip
       - name: Run install smoke test
         run: ${{ matrix.install-command }}
       - name: Verify CLI

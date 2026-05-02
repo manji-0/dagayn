@@ -241,14 +241,7 @@ def test_rust_owned_extensionless_shebang_parser_matches_python_parser(tmp_path,
     repo.mkdir()
     (repo / "bin").mkdir()
     rel_path = "bin/deploy"
-    source = (
-        b"#!/usr/bin/env bash\n"
-        b"deploy() {\n"
-        b'  echo "deploy"\n'
-        b"}\n"
-        b"\n"
-        b'deploy "$@"\n'
-    )
+    source = b'#!/usr/bin/env bash\ndeploy() {\n  echo "deploy"\n}\n\ndeploy "$@"\n'
     (repo / rel_path).write_bytes(source)
 
     monkeypatch.chdir(repo)
