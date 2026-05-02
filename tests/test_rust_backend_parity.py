@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from dagayn.graph import GraphStore
 from dagayn.incremental import (
     _rust_backend_enabled,
     _split_rust_parser_files,
@@ -47,6 +48,26 @@ def test_python_backend_can_be_forced(monkeypatch):
     monkeypatch.setattr("dagayn.incremental._rust_backend_available", lambda: True)
 
     assert _rust_backend_enabled() is False
+
+
+def test_python_store_uses_python_parser_when_rust_is_default(tmp_path, monkeypatch):
+    """Direct Python GraphStore callers keep the Python parser path."""
+    monkeypatch.delenv("DAGAYN_BACKEND", raising=False)
+    monkeypatch.setattr("dagayn.incremental._rust_backend_available", lambda: True)
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    (repo / "main.py").write_text("def hello():\n    return 1\n", encoding="utf-8")
+
+    store = GraphStore(repo / ".dagayn" / "graph.db")
+    try:
+        result = full_build(repo, store)
+    finally:
+        store.close()
+
+    assert result["errors"] == []
+    assert result["files_parsed"] == 1
 
 
 def _copy_fixture(source: Path, dest: Path) -> None:

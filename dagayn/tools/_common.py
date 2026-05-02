@@ -284,11 +284,12 @@ def _get_store(
     repo_root: str | None = None,
     *,
     cached: bool = True,
+    use_backend_default: bool = False,
 ) -> tuple[GraphStore, Path]:
     """Resolve repo root and return a (possibly cached) graph store."""
     root = _validate_repo_root(Path(repo_root)) if repo_root else find_project_root()
     db_path = get_db_path(root)
-    store_cls = _selected_graph_store()
+    store_cls = _selected_graph_store(use_backend_default=use_backend_default)
     if store_cls is not GraphStore:
         return store_cls(db_path), root
 
@@ -334,7 +335,7 @@ def _get_store(
     return store, root
 
 
-def _selected_graph_store() -> type:
+def _selected_graph_store(*, use_backend_default: bool = True) -> type:
     """Return the graph store selected by DAGAYN_BACKEND.
 
     The Rust backend is the default for write-heavy tool flows. If the Rust
@@ -342,6 +343,8 @@ def _selected_graph_store() -> type:
     to the Python store so source checkouts remain usable before a native build.
     """
     if _backend_selection() != "rust":
+        return GraphStore
+    if not use_backend_default and not _rust_backend_explicitly_requested():
         return GraphStore
     if not _rust_backend_enabled():
         return GraphStore

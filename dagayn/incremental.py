@@ -1137,6 +1137,17 @@ def _rust_backend_enabled() -> bool:
     return _rust_backend_explicitly_requested() or _rust_backend_available()
 
 
+def _rust_parser_backend_enabled(store: GraphStore | None = None) -> bool:
+    if not _rust_backend_enabled():
+        return False
+    if store is None:
+        return True
+    return (
+        _callable_store_attr(store, "store_rust_owned_files") is not None
+        or _callable_store_attr(store, "store_file_batch_json") is not None
+    )
+
+
 def _rust_parser_owns_path(rel_path: str, repo_root: Path | None = None) -> bool:
     lower = rel_path.lower()
     if lower.endswith(
@@ -1215,8 +1226,9 @@ def _rust_parser_owns_path(rel_path: str, repo_root: Path | None = None) -> bool
 def _split_rust_parser_files(
     rel_paths: list[str],
     repo_root: Path | None = None,
+    store: GraphStore | None = None,
 ) -> tuple[list[str], list[str]]:
-    if not _rust_backend_enabled():
+    if not _rust_parser_backend_enabled(store):
         return [], rel_paths
     rust_files: list[str] = []
     python_files: list[str] = []
@@ -1393,7 +1405,7 @@ def full_build(
 
     with _StoreBulkLoad(store):
         use_serial = os.environ.get("CRG_SERIAL_PARSE", "") == "1"
-        rust_files, python_files = _split_rust_parser_files(files, repo_root)
+        rust_files, python_files = _split_rust_parser_files(files, repo_root, store)
         if rust_files:
             rust_nodes, rust_edges, rust_errors = _store_rust_parse_batches(
                 repo_root,
@@ -1515,6 +1527,7 @@ def incremental_update(
     rust_changed_candidates, python_changed_candidates = _split_rust_parser_files(
         changed_candidates,
         repo_root,
+        store,
     )
     content_changed_files: set[str] = set()
     rust_content_changed_files: set[str] = set()
@@ -1571,7 +1584,7 @@ def incremental_update(
 
     file_meta = _get_file_meta_for_candidates(store, candidates)
 
-    rust_candidates, python_candidates = _split_rust_parser_files(candidates, repo_root)
+    rust_candidates, python_candidates = _split_rust_parser_files(candidates, repo_root, store)
     to_parse_rust_forced: list[str] = []
     to_parse_rust_checked: list[str] = []
     to_parse: list[tuple[str, int]] = []

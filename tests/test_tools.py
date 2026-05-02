@@ -1062,7 +1062,7 @@ class TestBuildPostprocess:
         monkeypatch.delenv("DAGAYN_BACKEND", raising=False)
         monkeypatch.setattr(_common, "_rust_backend_enabled", lambda: False)
 
-        assert _common._selected_graph_store() is GraphStore
+        assert _common._selected_graph_store(use_backend_default=True) is GraphStore
 
     def test_postprocess_none_produces_nodes_no_flows(self):
         from unittest.mock import patch
