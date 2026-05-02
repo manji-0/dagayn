@@ -10,6 +10,36 @@ The current provisioned grammars are:
 
 - Markdown
 - Terraform
+- Rust
+- Python
+- JavaScript
+- TypeScript
+- TSX
+- Bash
+- Go
+- Java
+- Ruby
+- C#
+- PHP
+- Kotlin
+- Scala
+- Solidity
+- Dart
+- Lua
+- Luau
+- C
+- C++
+- Objective-C
+- Elixir
+- GDScript
+- R
+- Julia
+- Perl
+- Vue
+- Svelte
+- Zig
+- PowerShell
+- Swift
 
 ## Provisioning model
 
@@ -28,6 +58,12 @@ This applies to:
 - test runs
 - package builds
 - CI
+
+For maturin builds, the Rust grammar build script also stages the required
+grammar files under `dagayn/_vendor_grammars/` before wheel/sdist assembly.
+Those generated staging files are ignored by git, but they are included in
+published artifacts so Python and Rust parser paths use the same pinned grammar
+sources after installation.
 
 ## Cache behavior
 
@@ -50,7 +86,11 @@ Each grammar pin must identify:
 - required source files
 - any fork-local assets that must be injected before binding compilation
 
-Markdown currently needs a fork-local Python binding shim injected during provisioning.
+The provisioner injects a small Python binding shim where the pinned source
+tree does not provide the exact binding layout dagayn expects.
+
+The Rust backend currently routes Markdown, Terraform, Rust, Python/notebooks,
+JavaScript/JSX, TypeScript/TSX, Astro, Bash, Go, Java, Ruby, C#, PHP, Kotlin, Swift, Scala, Solidity, Dart, Lua, Luau, C, C++, Objective-C, Elixir, GDScript, R, Julia, Perl, Vue, Svelte, Zig, and PowerShell through these pinned grammar sources.
 
 ## Operational expectations
 

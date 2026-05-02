@@ -317,7 +317,23 @@ class GraphStore:
                (kind, name, qualified_name, file_path, line_start, line_end,
                 language, parent_name, params, return_type, modifiers, is_test,
                 file_hash, mtime_ns, extra, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(qualified_name) DO UPDATE SET
+                   kind=excluded.kind,
+                   name=excluded.name,
+                   file_path=excluded.file_path,
+                   line_start=excluded.line_start,
+                   line_end=excluded.line_end,
+                   language=excluded.language,
+                   parent_name=excluded.parent_name,
+                   params=excluded.params,
+                   return_type=excluded.return_type,
+                   modifiers=excluded.modifiers,
+                   is_test=excluded.is_test,
+                   file_hash=excluded.file_hash,
+                   mtime_ns=excluded.mtime_ns,
+                   extra=excluded.extra,
+                   updated_at=excluded.updated_at""",
             [
                 (
                     n.kind,
@@ -367,6 +383,11 @@ class GraphStore:
             ],
         )
 
+    def remove_files_data(self, file_paths: list[str]) -> None:
+        """Remove graph data for multiple files in one store operation."""
+        for file_path in file_paths:
+            self.remove_file_data(file_path)
+
     def store_file_nodes_edges(
         self,
         file_path: str,
@@ -400,7 +421,12 @@ class GraphStore:
         """
         self._conn.execute("BEGIN IMMEDIATE")
         try:
-            for file_path, nodes, edges, fhash, mtime_ns in batch:
+            for item in batch:
+                if len(item) == 4:
+                    file_path, nodes, edges, fhash = item
+                    mtime_ns = 0
+                else:
+                    file_path, nodes, edges, fhash, mtime_ns = item
                 self.remove_file_data(file_path)
                 self._bulk_insert_nodes(nodes, fhash, mtime_ns)
                 self._bulk_insert_edges(edges)
@@ -439,9 +465,30 @@ class GraphStore:
         ).fetchall()
         return {r["file_path"]: (r["file_hash"] or "", r["mtime_ns"] or 0) for r in rows}
 
+    def get_file_meta_for_files(self, file_paths: list[str]) -> dict[str, tuple[str, int]]:
+        """Return stored ``(file_hash, mtime_ns)`` metadata for selected files."""
+        out: dict[str, tuple[str, int]] = {}
+        for i in range(0, len(file_paths), 450):
+            chunk = file_paths[i : i + 450]
+            if not chunk:
+                continue
+            placeholders = ",".join("?" for _ in chunk)
+            rows = self._conn.execute(
+                "SELECT DISTINCT file_path, file_hash, mtime_ns FROM nodes "
+                "WHERE file_hash IS NOT NULL AND file_hash != '' "
+                f"AND file_path IN ({placeholders})",
+                chunk,
+            ).fetchall()
+            out.update({r["file_path"]: (r["file_hash"] or "", r["mtime_ns"] or 0) for r in rows})
+        return out
+
     def update_file_mtime(self, file_path: str, mtime_ns: int) -> None:
         """Update mtime_ns for all nodes belonging to *file_path*."""
         self._conn.execute("UPDATE nodes SET mtime_ns=? WHERE file_path=?", (mtime_ns, file_path))
+
+    def update_file_mtimes(self, updates: list[tuple[int, str]]) -> None:
+        """Update mtime_ns for multiple files."""
+        self._conn.executemany("UPDATE nodes SET mtime_ns=? WHERE file_path=?", updates)
 
     # --- Read operations ---
 
@@ -518,6 +565,39 @@ class GraphStore:
                 seen_ids.add(row["id"])
                 out.append(self._row_to_node(row))
         return out
+
+    def get_nodes_by_files(self, file_paths: list[str]) -> dict[str, list[GraphNode]]:
+        """Batch-fetch nodes for multiple file paths."""
+        result: dict[str, list[GraphNode]] = {file_path: [] for file_path in file_paths}
+        if not file_paths:
+            return result
+
+        key_to_originals: dict[str, list[str]] = {}
+        for file_path in file_paths:
+            normalized = self._normalize_file_path_key(file_path)
+            keys = [file_path, normalized] if normalized != file_path else [file_path]
+            for key in keys:
+                key_to_originals.setdefault(key, []).append(file_path)
+
+        seen_by_original: dict[str, set[int]] = {file_path: set() for file_path in file_paths}
+        keys = list(key_to_originals)
+        batch_size = 450
+        for i in range(0, len(keys), batch_size):
+            batch = keys[i : i + batch_size]
+            placeholders = ",".join("?" for _ in batch)
+            rows = self._conn.execute(  # nosec B608
+                f"SELECT * FROM nodes WHERE file_path IN ({placeholders})",
+                batch,
+            ).fetchall()
+            for row in rows:
+                node = self._row_to_node(row)
+                for original in key_to_originals.get(row["file_path"], []):
+                    seen = seen_by_original[original]
+                    if node.id in seen:
+                        continue
+                    seen.add(node.id)
+                    result[original].append(node)
+        return result
 
     def get_all_nodes(self, exclude_files: bool = True) -> list[GraphNode]:
         """Return all nodes, optionally excluding File nodes."""
@@ -624,6 +704,56 @@ class GraphStore:
                         seen_in[orig].add(row["id"])
                         incoming[orig].append(edge)
         return outgoing, incoming
+
+    def get_direct_dependents(self, file_paths: list[str]) -> list[str]:
+        """Return files that directly depend on any of *file_paths*."""
+        if not file_paths:
+            return []
+
+        dependents: set[str] = set()
+        fp_keys: list[str] = []
+        seen_keys: set[str] = set()
+        for file_path in file_paths:
+            normalized = self._normalize_qualified_key(file_path)
+            for key in (file_path, normalized):
+                if key not in seen_keys:
+                    seen_keys.add(key)
+                    fp_keys.append(key)
+
+        batch_size = 450
+        for i in range(0, len(fp_keys), batch_size):
+            chunk = fp_keys[i : i + batch_size]
+            placeholders = ",".join("?" for _ in chunk)
+            rows = self._conn.execute(
+                "SELECT file_path FROM edges "
+                f"WHERE target_qualified IN ({placeholders}) AND kind = 'IMPORTS_FROM'",
+                chunk,
+            ).fetchall()
+            dependents.update(row["file_path"] for row in rows)
+
+        node_qns: list[str] = []
+        for i in range(0, len(fp_keys), batch_size):
+            chunk = fp_keys[i : i + batch_size]
+            placeholders = ",".join("?" for _ in chunk)
+            rows = self._conn.execute(
+                f"SELECT qualified_name FROM nodes WHERE file_path IN ({placeholders})",
+                chunk,
+            ).fetchall()
+            node_qns.extend(row["qualified_name"] for row in rows)
+
+        for i in range(0, len(node_qns), batch_size):
+            chunk = node_qns[i : i + batch_size]
+            placeholders = ",".join("?" for _ in chunk)
+            rows = self._conn.execute(
+                "SELECT DISTINCT file_path FROM edges "
+                f"WHERE target_qualified IN ({placeholders}) "
+                "AND kind IN ('CALLS', 'IMPORTS_FROM', 'INHERITS', 'IMPLEMENTS')",
+                chunk,
+            ).fetchall()
+            dependents.update(row["file_path"] for row in rows)
+
+        dependents.difference_update(file_paths)
+        return sorted(dependents)
 
     def search_edges_by_target_name(self, name: str, kind: str = "CALLS") -> list[GraphEdge]:
         """Search for edges where target_qualified matches an unqualified name.
@@ -813,6 +943,22 @@ class GraphStore:
         ).fetchall()
         return [r["file_path"] for r in rows]
 
+    def get_file_hashes(self, file_paths: list[str]) -> dict[str, str]:
+        """Return stored file hashes for the requested repo-relative files."""
+        if not file_paths:
+            return {}
+        out: dict[str, str] = {}
+        for i in range(0, len(file_paths), 900):
+            chunk = file_paths[i : i + 900]
+            placeholders = ",".join("?" for _ in chunk)
+            rows = self._conn.execute(
+                "SELECT file_path, file_hash FROM nodes "
+                f"WHERE kind = 'File' AND file_path IN ({placeholders}) AND file_hash IS NOT NULL",
+                tuple(chunk),
+            ).fetchall()
+            out.update({row["file_path"]: row["file_hash"] for row in rows})
+        return out
+
     def search_nodes(self, query: str, limit: int = 20) -> list[GraphNode]:
         """Keyword search across node names.
 
@@ -911,8 +1057,9 @@ class GraphStore:
 
         # Seed qualified names
         seeds: set[str] = set()
+        nodes_by_file = self.get_nodes_by_files(changed_files)
         for f in changed_files:
-            nodes = self.get_nodes_by_file(f)
+            nodes = nodes_by_file.get(f, [])
             for n in nodes:
                 seeds.add(n.qualified_name)
 
@@ -1024,8 +1171,9 @@ class GraphStore:
         nxg = self._build_networkx_graph()
 
         seeds: set[str] = set()
+        nodes_by_file = self.get_nodes_by_files(changed_files)
         for f in changed_files:
-            nodes = self.get_nodes_by_file(f)
+            nodes = nodes_by_file.get(f, [])
             for n in nodes:
                 seeds.add(n.qualified_name)
 
@@ -1081,18 +1229,17 @@ class GraphStore:
 
     def get_subgraph(self, qualified_names: list[str]) -> dict[str, Any]:
         """Extract a subgraph containing the specified nodes and their connecting edges."""
-        nodes = []
-        for qn in qualified_names:
-            node = self.get_node(qn)
-            if node:
-                nodes.append(node)
-
-        edges = []
         qn_set = set(qualified_names)
-        for qn in qualified_names:
-            for e in self.get_edges_by_source(qn):
-                if e.target_qualified in qn_set:
-                    edges.append(e)
+        nodes_by_qn = self.get_nodes_by_qualified_names(qualified_names)
+        nodes = [node for qn in qualified_names if (node := nodes_by_qn.get(qn))]
+
+        outgoing, _ = self.get_edges_by_endpoints(list(qn_set))
+        edges = [
+            edge
+            for edge_list in outgoing.values()
+            for edge in edge_list
+            if edge.target_qualified in qn_set
+        ]
 
         return {"nodes": nodes, "edges": edges}
 
@@ -1435,6 +1582,27 @@ class GraphStore:
             (flow_id,),
         ).fetchall()
         return {r["qualified_name"] for r in rows}
+
+    def get_flow_qualified_names_for_flows(self, flow_ids: list[int]) -> dict[int, set[str]]:
+        """Batch-return qualified node names keyed by flow id."""
+        result: dict[int, set[str]] = {flow_id: set() for flow_id in flow_ids}
+        if not flow_ids:
+            return result
+
+        unique_ids = list(dict.fromkeys(flow_ids))
+        batch_size = 450
+        for i in range(0, len(unique_ids), batch_size):
+            batch = unique_ids[i : i + batch_size]
+            placeholders = ",".join("?" for _ in batch)
+            rows = self._conn.execute(  # nosec B608
+                "SELECT fm.flow_id, n.qualified_name FROM flow_memberships fm "
+                "JOIN nodes n ON fm.node_id = n.id "
+                f"WHERE fm.flow_id IN ({placeholders})",
+                batch,
+            ).fetchall()
+            for row in rows:
+                result.setdefault(row["flow_id"], set()).add(row["qualified_name"])
+        return result
 
     def get_node_kind_by_id(self, node_id: int) -> str | None:
         """Return just the ``kind`` column for a node, or ``None``."""

@@ -7,6 +7,7 @@ gaps. Produces risk-scored, priority-ordered review guidance.
 from __future__ import annotations
 
 import functools
+import json
 import logging
 import os
 import re
@@ -197,14 +198,17 @@ def map_changes_to_nodes(
     seen: set[str] = set()
     result: list[GraphNode] = []
 
+    nodes_by_file = _get_nodes_for_files_boundary_aware(store, list(changed_ranges))
     for file_path, ranges in changed_ranges.items():
         # Try the path as-is, then also try all nodes to match relative paths.
-        nodes = store.get_nodes_by_file(file_path)
+        nodes = list(nodes_by_file.get(file_path, []))
         if not nodes:
             # The graph may store absolute paths; try a suffix match.
             matched_paths = store.get_files_matching(file_path)
-            for mp in matched_paths:
-                nodes.extend(store.get_nodes_by_file(mp))
+            if matched_paths:
+                matched_nodes = _get_nodes_for_files_boundary_aware(store, matched_paths)
+                for mp in matched_paths:
+                    nodes.extend(matched_nodes.get(mp, []))
 
         for node in nodes:
             if node.qualified_name in seen:
@@ -219,6 +223,16 @@ def map_changes_to_nodes(
                     break
 
     return result
+
+
+def _get_nodes_for_files_boundary_aware(
+    store: GraphStore,
+    file_paths: list[str],
+) -> dict[str, list[GraphNode]]:
+    rust_batch = getattr(store, "get_nodes_by_files", None)
+    if callable(rust_batch) and type(store).__module__.startswith("dagayn._core"):
+        return rust_batch(file_paths)
+    return {file_path: store.get_nodes_by_file(file_path) for file_path in file_paths}
 
 
 # ---------------------------------------------------------------------------
@@ -333,14 +347,22 @@ def analyze_changes(
     if changed_ranges is None and repo_root is not None:
         changed_ranges = parse_diff_ranges(repo_root, base)
 
+    rust_analyze = getattr(store, "analyze_changes_json", None)
+    if callable(rust_analyze):
+        try:
+            return json.loads(rust_analyze(changed_files, json.dumps(changed_ranges or {})))
+        except (RuntimeError, ValueError, TypeError, json.JSONDecodeError):
+            logger.debug("Rust change analysis failed; falling back to Python", exc_info=True)
+
     # Map changes to nodes.
     if changed_ranges:
         changed_nodes = map_changes_to_nodes(store, changed_ranges)
     else:
         # Fallback: all nodes in changed files.
         changed_nodes = []
+        nodes_by_file = _get_nodes_for_files_boundary_aware(store, changed_files)
         for fp in changed_files:
-            changed_nodes.extend(store.get_nodes_by_file(fp))
+            changed_nodes.extend(nodes_by_file.get(fp, []))
 
     # Filter to functions/tests for risk scoring (skip File nodes).
     changed_funcs = [n for n in changed_nodes if n.kind in ("Function", "Test", "Class")]

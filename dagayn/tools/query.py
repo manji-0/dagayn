@@ -315,16 +315,17 @@ def query_graph(
             # (e.g. "Animal") while qn is fully qualified
             # (e.g. "sample.dart::Animal"). Search by plain name too. See: #87
             if not results and node:
+                fallback_edges = []
                 for kind in ("INHERITS", "IMPLEMENTS"):
-                    fallback_edges = store.search_edges_by_target_name(node.name, kind=kind)
-                    results.extend(
-                        _node_dicts_for_edges(
-                            store,
-                            fallback_edges,
-                            qualified_attr="source_qualified",
-                        )
+                    fallback_edges.extend(store.search_edges_by_target_name(node.name, kind=kind))
+                results.extend(
+                    _node_dicts_for_edges(
+                        store,
+                        fallback_edges,
+                        qualified_attr="source_qualified",
                     )
-                    edges_out.extend(edge_to_dict(e) for e in fallback_edges)
+                )
+                edges_out.extend(edge_to_dict(e) for e in fallback_edges)
 
         elif pattern == "file_summary":
             abs_path = str(root / target)

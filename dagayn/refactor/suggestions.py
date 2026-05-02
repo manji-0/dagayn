@@ -38,15 +38,18 @@ def suggest_refactorings(store: GraphStore) -> list[dict[str, Any]]:
 
     if community_rows:
         node_community: dict[str, int] = {}
+        members_by_id = store.get_all_community_member_qns()
         for crow in community_rows:
             cid = crow["id"]
-            member_qns = store.get_community_member_qns(cid)
+            member_qns = members_by_id.get(cid, [])
             for qn in member_qns:
                 node_community[qn] = cid
 
         community_names: dict[int, str] = {r["id"]: r["name"] for r in community_rows}
 
         all_funcs = store.get_nodes_by_kind(["Function"])
+        func_qns = [fnode.qualified_name for fnode in all_funcs]
+        _, incoming_by_qn = store.get_edges_by_endpoints(func_qns)
 
         for fnode in all_funcs:
             f_community = node_community.get(fnode.qualified_name)
@@ -54,7 +57,7 @@ def suggest_refactorings(store: GraphStore) -> list[dict[str, Any]]:
                 continue
 
             incoming_calls = [
-                e for e in store.get_edges_by_target(fnode.qualified_name) if e.kind == "CALLS"
+                e for e in incoming_by_qn.get(fnode.qualified_name, []) if e.kind == "CALLS"
             ]
             if not incoming_calls:
                 continue

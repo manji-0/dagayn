@@ -61,6 +61,12 @@ def resolve_rescript_cross_module(store: GraphStore) -> dict:
     if not basename_to_path:
         return {"files_indexed": 0, "calls_resolved": 0, "imports_resolved": 0}
 
+    existing_qns = {
+        node.qualified_name
+        for node in store.get_all_nodes(exclude_files=True)
+        if node.file_path in rescript_files
+    }
+
     # Per-file opens/includes so we can resolve bare calls.
     opens_by_file: dict[str, list[str]] = {}
     imports_rows = conn.execute(
@@ -97,7 +103,7 @@ def resolve_rescript_cross_module(store: GraphStore) -> dict:
             row["file_path"],
             basename_to_path,
             opens_by_file,
-            store,
+            existing_qns,
         )
         if resolved and resolved != target:
             call_updates.append((resolved, row["id"]))
@@ -146,7 +152,7 @@ def _resolve_call_target(
     file_path: str,
     basename_to_path: dict[str, str],
     opens_by_file: dict[str, list[str]],
-    store: GraphStore,
+    existing_qns: set[str],
 ) -> str | None:
     """Resolve a CALLS edge's ``target_qualified`` to a canonical qualified
     node name. Returns None when no resolution is possible.
@@ -157,7 +163,7 @@ def _resolve_call_target(
         target_file = basename_to_path.get(head)
         if target_file is None:
             return None
-        candidate = _pick_existing_qualified(target_file, rest, store)
+        candidate = _pick_existing_qualified(target_file, rest, existing_qns)
         return candidate
 
     # Bare: `fn` — only resolvable via an open/include in the calling file.
@@ -166,7 +172,7 @@ def _resolve_call_target(
         if target_file is None:
             continue
         candidate = f"{target_file}::{target}"
-        if store.get_node(candidate) is not None:
+        if candidate in existing_qns:
             return candidate
     return None
 
@@ -174,7 +180,7 @@ def _resolve_call_target(
 def _pick_existing_qualified(
     target_file: str,
     rest: str,
-    store: GraphStore,
+    existing_qns: set[str],
 ) -> str | None:
     """Given ``LogicUtils.foo.bar``, try ``file::foo.bar`` then
     ``file::Foo.bar`` then ``file::foo``. Return the first one that
@@ -182,7 +188,7 @@ def _pick_existing_qualified(
     """
     # Direct: rest as the qualified name tail.
     direct = f"{target_file}::{rest}"
-    if store.get_node(direct) is not None:
+    if direct in existing_qns:
         return direct
 
     # Dotted rest like `Sub.fn`: parent_name = Sub, name = fn.
@@ -196,11 +202,11 @@ def _pick_existing_qualified(
     while len(parts) > 1:
         parts.pop()
         candidate = f"{target_file}::{'.'.join(parts)}"
-        if store.get_node(candidate) is not None:
+        if candidate in existing_qns:
             return candidate
     # Last resort: top-level `file::name` (first part only).
     first = rest.split(".", 1)[0]
     candidate = f"{target_file}::{first}"
-    if store.get_node(candidate) is not None:
+    if candidate in existing_qns:
         return candidate
     return None

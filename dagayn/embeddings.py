@@ -952,10 +952,7 @@ def embed_all_nodes(graph_store: GraphStore, embedding_store: EmbeddingStore) ->
     if not embedding_store.available:
         return 0
 
-    all_files = graph_store.get_all_files()
-    all_nodes: list[GraphNode] = []
-    for f in all_files:
-        all_nodes.extend(graph_store.get_nodes_by_file(f))
+    all_nodes = graph_store.get_all_nodes(exclude_files=True)
 
     return embedding_store.embed_nodes(all_nodes)
 
@@ -969,9 +966,10 @@ def semantic_search(
     """Search nodes using vector similarity, falling back to keyword search."""
     if embedding_store.available and embedding_store.count() > 0:
         results = embedding_store.search(query, limit=limit)
+        nodes_by_qn = graph_store.get_nodes_by_qualified_names([qn for qn, _ in results])
         output = []
         for qn, score in results:
-            node = graph_store.get_node(qn)
+            node = nodes_by_qn.get(qn)
             if node:
                 d = node_to_dict(node)
                 d["similarity_score"] = round(score, 4)

@@ -2,11 +2,7 @@
 
 <!-- constrained-by ./ARCHITECTURE.md -->
 
-> **Status:** Spec frozen as of 2026-04-26. Implementation is in progress on a separate branch and has **not yet been merged into `main`**.
->
-> The `main` branch contains no Rust source — no `Cargo.toml`, no `*.rs` files, no `maturin` build backend. A `dagayn/_core.abi3.so` binary may exist locally as a build artifact from the development branch, but it is gitignored and not imported by any production code.
->
-> Phase 1 (Rust graph engine) has not landed in `main`.
+> **Status:** Work in progress — core decisions frozen as of 2026-04-26. Phase 0 complete as of 2026-04-27. Phase 1 (Rust graph engine) started with the initial Rust workspace and PyO3 graph-store scaffold.
 
 ## Frozen decisions
 
@@ -25,7 +21,10 @@ The following design choices are settled and must not be reopened without explic
 
 This specification defines how dagayn should migrate its **core graph pipeline** from Python to Rust without breaking the product contract that existing users and AI tool integrations rely on.
 
-The immediate target is **not** a full product rewrite.
+The immediate target is **not** a full product rewrite, but the end-state
+direction is now explicit: Python should shrink to the CLI/MCP interface layer
+and compatibility glue, while parsing, graph persistence, post-processing,
+query primitives, and normalization move to Rust wherever practical.
 
 The target is the core pipeline only:
 
@@ -117,15 +116,18 @@ A single Python extension module (`dagayn._core`) is built by maturin from the `
 
 A minimal native CLI binary (`dagayn-core`) is kept in `crates/dagayn-core/` for local debugging and A/B comparison against the Python implementation. It is not part of the distributed wheel.
 
-### Layer 3: Python compatibility shell
+### Layer 3: Python interface shell
 
 Python remains responsible for:
 
-- current CLI UX where parity is already good
-- FastMCP tool registration
-- platform install/config flows
-- daemon/watch orchestration
-- optional integrations that are not performance-critical
+- current CLI UX and command argument handling
+- FastMCP tool registration and response shaping
+- platform install/config flows only where they are inherently product-interface work
+- temporary compatibility adapters while Rust reaches parity
+
+Python should not retain core parsing, graph mutation, query, or post-processing
+logic once the corresponding Rust implementation has parity. New performance-
+or correctness-sensitive core logic should land in Rust crates first.
 
 ## Crate workspace layout
 
@@ -239,6 +241,394 @@ Acceptance: `test_build_is_deterministic` in `tests/test_parity_export.py` build
 
 Deliverable: `dagayn-graph` and `dagayn-py` wiring such that `dagayn._core.GraphStore` can replace the Python `GraphStore` in `dagayn/graph.py`.
 
+Initial scaffold:
+
+- root Cargo workspace with `dagayn-core`, `dagayn-graph`, and `dagayn-py`
+- pinned Rust toolchain through `rust-toolchain.toml`
+- `dagayn-graph` opens the SQLite database, creates the Python-compatible base schema, runs migrations through schema version 9, and supports atomic per-file node/edge replacement
+- `dagayn-py` exposes the first `dagayn._core.GraphStore` methods for metadata, file replacement, batch file replacement, and file listing
+- Python `full_build` / `incremental_update` buffer parsed file results and call `store_file_batch`, so the Rust backend crosses the PyO3 boundary at coarse DB-write chunks instead of once per parsed file
+- incremental hash checks use `get_file_hashes(paths)` and stale-file cleanup uses `remove_files_data(paths)`, avoiding per-file PyO3 calls in the update path
+- Rust `GraphStore` now exposes the read methods needed by Python's current
+  incremental dependent expansion (`get_node`, `get_nodes_by_file`,
+  `get_edges_by_source`, and `get_edges_by_target`) while returning the
+  existing Python dataclass shapes through the PyO3 interface.
+- Rust `GraphStore` now also owns FTS5 index rebuilds for the Rust backend,
+  using the same virtual table definition and atomic rebuild sequence as the
+  Python fallback.
+- Rust `GraphStore` computes missing node signatures in one backend call for
+  Rust-backed post-processing, preserving the current Python signature format.
+- Rust `GraphStore` resolves Markdown-to-code CROSS_ARTIFACT placeholders for
+  Rust-backed minimal post-processing, preserving the existing strict
+  unique-match policy.
+- `postprocess="minimal"` no longer re-opens the Python `GraphStore` when the
+  Rust backend exposes the required signature, FTS, and Markdown resolver
+  methods. Full rebuild post-processing now keeps flow tracing, community
+  detection, and summary generation on the Rust store when the required Rust
+  read/write methods are available; remaining Python-store fallback is retained
+  for incremental community detection and incomplete Rust surfaces.
+- Full rebuild community detection can now read from the Rust store and persist
+  through Rust's `store_communities_json` API while the detection heuristics
+  remain in Python. Incremental community detection now uses Rust's
+  `count_affected_communities` API for the affected-community gate before
+  re-running the same Python heuristics over Rust read helpers.
+- Rust `GraphStore` can populate `community_summaries`, `flow_snapshots`, and
+  `risk_index`; full Rust-backed post-processing now runs summary table
+  generation on the Rust store after flow/community data has been written.
+- Rust `GraphStore` exposes the read surface needed by Python flow tracing
+  (`get_all_call_targets`, `get_nodes_by_kind`, and `load_flow_adjacency`) and
+  can persist traced flows through `store_flows_json`.
+- Incremental flow retracing can now stay on the Rust store for its affected
+  flow deletion and append-only flow insertion steps through
+  `delete_affected_flows` and `insert_flows_json`. Python still owns the entry
+  point filtering and BFS trace heuristics.
+- Rust `GraphStore` also exposes stored-flow query JSON APIs for `list_flows`,
+  `get_flow`, and `get_affected_flows`, so those Python-facing tools no longer
+  require direct SQLite connection access under the Rust backend. The
+  `get_minimal_context` MCP entry point now uses those stored-flow APIs instead
+  of querying the `flows` table through Python SQLite.
+- Rust `GraphStore` exposes community persistence and read APIs used by
+  `list_communities`, `get_community`, and architecture overview flows. Python
+  still owns the detection heuristics and optional igraph integration.
+- Rust `GraphStore` exposes `get_stats`, preserving the Python `GraphStats`
+  dataclass shape for MCP/tool entry points such as `get_minimal_context`.
+- Rust `GraphStore` exposes the read helpers used by change risk scoring:
+  file suffix matching, flow membership counts/criticalities, node community
+  lookup, batched community ID lookup, and transitive test lookup.
+- Rust `GraphStore` exposes the process-level store-cache lease attributes
+  (`_pinned`, `_leases`) and `get_edges_by_endpoints`, matching the current
+  Python graph read/cache contract after the mainline performance work.
+- Rust `GraphStore` exposes the mainline batch read helpers for node hydration,
+  flow membership/criticality maps, node community maps, and community member
+  maps. Change-risk, query traversal, flow hydration, and community overview
+  paths can now stay on the Rust backend without falling back to per-node Python
+  SQLite loops.
+- Rust `GraphStore` exposes `analyze_changes_json`, moving change-risk assembly,
+  test-gap detection, affected-flow lookup, and review-priority sorting behind
+  one coarse PyO3 call. Transitive test counts are batched in Rust so
+  `get_minimal_context` no longer pays per-node Python object conversion or
+  per-node test traversal overhead.
+- `DAGAYN_BACKEND=rust` is recognized by the Python graph package and fails loudly if the extension has not been built; `python` remains the default
+
+Current local benchmark baseline, measured on 2026-04-28 with `tools/backend_benchmark.py`
+against this repository copy (307 files, 4,148 parsed nodes, 25,845 parsed edges):
+
+| Mode | Python avg | Rust avg | Current interpretation |
+|---|---:|---:|---|
+| full build, `postprocess=none` | 2.509s | 3.105s | Rust is slower because PyO3 object conversion still dominates the coarse writer call |
+| full build, `postprocess=minimal` | 12.399s | 11.548s | Mostly Python post-processing variance; Rust graph write is not the bottleneck |
+| full build, `postprocess=full` | 11.238s | 11.822s | Mostly Python post-processing; Rust graph write has small visible overhead |
+| writer-only `store_file_batch` | 0.302s | 0.986s | Confirms the current Rust path is conversion-bound, not ready as a performance win |
+
+This baseline means the next Phase 1 optimization should reduce Python-object
+marshalling before adding more Rust methods. Likely options are a compact
+serialized batch format or moving parse output normalization into Rust with the
+writer, rather than crossing PyO3 per node/edge object.
+
+Follow-up read-path benchmark, measured on 2026-04-30 after moving
+`analyze_changes` assembly into Rust JSON APIs:
+
+| Read path | Python avg | Rust avg | Current interpretation |
+|---|---:|---:|---|
+| `analyze_changes` for `crates/dagayn-py/src/lib.rs` | 0.109s | 0.020s | Rust is faster once risk assembly and transitive test counting stay behind one coarse call |
+| `get_minimal_context` for the same changed file | 0.126s | 0.043s | Rust now wins despite stats/community/flow response shaping still crossing Python |
+
+Follow-up implementation: the Rust backend now accepts `store_file_batch_json`,
+a compact tuple-array JSON batch. Python uses this method when available so Rust
+does not perform per-node/per-edge PyO3 `getattr` extraction. A later
+`parse_rust_owned_files_compact_json` path also batches Rust-owned Markdown and
+Terraform parsing across one PyO3 call per chunk. The current path goes one
+step further with `GraphStore.store_rust_owned_files(repo_root, paths)`, which
+parses Rust-owned files and writes them inside the same Rust call so parsed
+node/edge batches no longer round-trip through Python JSON.
+
+The 2026-04-29 local
+benchmarks on this repository (312 files, 4,315 parsed nodes, 27,600 parsed
+edges) measured:
+
+| Mode | Python avg | Rust avg | Current interpretation |
+|---|---:|---:|---|
+| full build, `postprocess=none` | 2.645s | 2.982s | Rust output matches Python counts; Rust is still slower, but the gap narrowed after writer batching |
+| writer-only `store_file_batch` | 0.325s | 0.502s | Prepared statements and direct edge inserts cut Rust writer time by roughly half versus the prior ~1.04s |
+| FTS rebuild only | 0.017s | 0.027s | Rust owns the operation now, but the current SQLite-equivalent implementation is not a speedup yet |
+| missing signature computation only | 12.300s | 0.036s | Rust batches the old Python per-node update loop into one transaction |
+| summary table computation only | 0.051s | 0.100s | Rust owns the operation now, but the current port is slower than the already-batched Python implementation |
+| flow persistence only | 0.010s | 0.013s | Rust owns the transaction now; JSON handoff and equivalent SQLite work make it slightly slower on this graph |
+
+The FTS-only measurement used the current local `.dagayn/graph.db` snapshot and
+indexed 4,265 rows in both backends. The signature-only measurement reset
+signatures on a copied local graph and recomputed 4,270 rows in both backends.
+The summary-only measurement used copied local graph snapshots after flow and
+community data had already been generated. The flow persistence measurement
+stored 254 traced flows into copied local graph snapshots.
+
+This did not materially change the conclusion: the next meaningful
+optimization is to move more non-Markdown/Terraform parsing and post-processing
+into Rust-owned operations, not to add narrow per-item PyO3 methods.
+
+Rust parser grammar design:
+
+- Rust parser extraction must use the same pinned grammar sources as the current
+  Python parser path. Markdown uses `manji-0/tree-sitter-markdown` at
+  `13a2b8bb44965b75ddba5e70f16411c18e6f09fe` with source subdirectory
+  `vendor/tree-sitter-markdown/tree-sitter-markdown`. Terraform uses
+  `manji-0/tree-sitter-terraform` at
+  `5a5b258a71290999ce58797eafeaa098b2d450b9`.
+- Do not replace these grammars with crates.io grammars such as
+  `tree-sitter-hcl` or unrelated Markdown crates. They may parse related
+  languages, but grammar drift would change dagayn's graph contract.
+- `dagayn-grammars` should own the Rust-side pinned grammar provisioning. Its
+  metadata must mirror `dagayn/vendor_grammars.py::GRAMMAR_SPECS`, including
+  repository owner, repository name, commit, required source files, and
+  Markdown source subdirectory.
+- The Rust build should compile the pinned grammar C sources with `cc` and
+  expose `tree_sitter::Language` constructors for `markdown` and `terraform`.
+  Runtime dependency on Python's grammar cache is not acceptable for wheels or
+  CI. Packaged grammar sources may be reused, but the Rust crate must have a
+  deterministic build path.
+- Existing hand-written Markdown and Terraform extractors are transitional.
+  They may remain only as fallback or parity scaffolding until the pinned
+  tree-sitter extractors cover the same behavior. New parser behavior should
+  land against the tree-sitter-backed Rust path first.
+- Acceptance for replacing the transitional parser path requires canonical
+  export parity for `markdown_only`, `terraform_only`, and `mixed`, plus
+  regression fixtures for fenced Markdown code blocks, YAML/TOML frontmatter,
+  blockquote-contained headings, skill frontmatter, relative links, Terraform
+  block labels, provider source edges, module source imports, references, and
+  calls.
+
+Parser migration progress:
+
+- `dagayn-parser` owns parseable-file collection for the Rust backend except
+  SVN-specific listing, which remains in Python for compatibility.
+- `dagayn-parser` now exposes an initial Markdown extractor through
+  `parse_markdown_compact_json(file_path, source)`. It emits compact node/edge
+  arrays equivalent to the Python Markdown parser for the current parity
+  fixtures. `DAGAYN_BACKEND=rust` now routes Markdown files in `full_build` /
+  `incremental_update` through this Rust extractor and stores the compact
+  output directly through the Rust graph writer. `markdown_only` and `mixed`
+  parity snapshots match through this path.
+- `dagayn-parser` now exposes an initial Terraform extractor through
+  `parse_terraform_compact_json(file_path, source)`. `DAGAYN_BACKEND=rust`
+  routes `.tf` / `.tfvars` files through Rust for block extraction, Terraform
+  reference extraction, call extraction, module imports, and provider source
+  dependency edges. `terraform_only`, `markdown_only`, and `mixed` parity
+  snapshots match with `--skip-postprocess` through this path.
+- The Rust parser path now also exposes
+  `parse_rust_owned_files_compact_json(repo_root, file_paths)`, so
+  `full_build` / `incremental_update` batch Markdown and Terraform files into
+  one Rust parser call per chunk before handing the resulting compact batch to
+  the Rust graph writer. The preferred Rust backend path now calls
+  `GraphStore.store_rust_owned_files(repo_root, paths)` so Rust-owned parse
+  output is written without returning node/edge JSON to Python. Python no
+  longer crosses PyO3 once per Rust-owned file in the normal build/update path.
+- `dagayn-grammars` now compiles the pinned `manji-0/tree-sitter-markdown`,
+  `manji-0/tree-sitter-terraform`, and `tree-sitter/tree-sitter-rust` C sources
+  through Rust build.rs and exposes Rust `tree_sitter::Language` constructors.
+- The Markdown extractor now collects headings through the pinned Rust
+  tree-sitter Markdown grammar, with the previous text scanner retained only as
+  fallback. A local full-repo `postprocess=none` smoke benchmark produces
+  identical Python/Rust node and edge counts for the current repository.
+- The Terraform extractor now collects top-level block kind, labels, body text,
+  source ranges, and direct block attributes through the pinned Rust tree-sitter
+  Terraform grammar, with the previous text scanner retained only as fallback.
+  Call extraction now walks `function_call` AST nodes. Reference extraction now
+  walks Terraform traversal expressions and uses template-node compatibility
+  scanning only to preserve existing dotted-string behavior such as
+  `"t3.micro"`. Terraform provider `source` dependencies are collected from
+  nested AST attributes/object elements instead of scanning the block text.
+- The Rust extractor now covers `.rs` files in the Rust-owned parse path. It
+  emits file/type/function nodes plus CONTAINS, IMPORTS_FROM, and CALLS edges
+  from the pinned Rust tree-sitter grammar, removing Rust source files from the
+  Python worker parse pool when the Rust backend is active.
+- The pinned Python tree-sitter grammar is now compiled into `dagayn-grammars`
+  and exposed through `parse_python_compact_json` for parity work. The Rust
+  parser now mirrors Python-side import alias resolution, TESTED_BY generation,
+  CROSS_ARTIFACT subprocess/file/FFI bridge detection, and function-as-value
+  REFERENCES on this repository's Python files. `.py` files now route through
+  the Rust-owned parse path when `DAGAYN_BACKEND=rust`, including Databricks
+  `.py` notebook exports via Rust-side SQL/R/Python cell splitting.
+- `.ipynb` notebooks also route through the Rust-owned parse path under
+  `DAGAYN_BACKEND=rust`; the Rust path parses notebook JSON, applies the same
+  Python/SQL/R cell grouping and magic filtering, and reuses the Rust Python
+  parser for Python cells.
+- JavaScript, TypeScript, and TSX grammar sources are now pinned through the
+  same `dagayn.vendor_grammars` path used by Python parser fallback and the
+  Rust grammar crate. The Rust-owned parser now routes `.js`, `.jsx`, `.mjs`,
+  `.ts`, and `.tsx` files through tree-sitter and covers the core JS/TS/TSX
+  structural graph: classes/interfaces, functions/methods, imports, calls,
+  JSX component call edges for local/default/namespace imports, test-runner
+  synthetic tests, same-file and relative-import call/reference resolution,
+  tsconfig path aliases, JS/TS/TSX barrel re-exports
+  (`export { ... } from` and `export * from`), value-reference REFERENCES,
+  TESTED_BY, and subprocess/file bridge CROSS_ARTIFACT edges.
+- Bash grammar sources are now pinned through the same provisioning path. The
+  Rust-owned parser routes `.sh`, `.bash`, `.zsh`, and `.ksh` files through
+  tree-sitter-bash and covers file/function nodes, CONTAINS, CALLS, and
+  `source` / `.` IMPORTS_FROM edges.
+- Go grammar sources are now pinned through the same provisioning path. The
+  Rust-owned parser routes `.go` files through tree-sitter-go and covers
+  package imports, type/function/method nodes, receiver CONTAINS edges, CALLS,
+  and subprocess/file/FFI CROSS_ARTIFACT bridge edges for the existing Go
+  bridge patterns.
+- Java grammar sources are now pinned through the same provisioning path. The
+  Rust-owned parser routes `.java` files through tree-sitter-java and covers
+  imports with local project resolution, classes/interfaces/enums with
+  type-role metadata, methods/constructors, INHERITS/IMPLEMENTS, CALLS, and
+  subprocess/file/FFI CROSS_ARTIFACT bridge edges for the existing Java bridge
+  patterns.
+- Ruby grammar sources are now pinned through the same provisioning path. The
+  Rust-owned parser routes `.rb` files through tree-sitter-ruby and covers
+  require imports, classes/modules, methods, CALLS, and subprocess/file/FFI
+  CROSS_ARTIFACT bridge edges for the existing Ruby bridge patterns.
+- C# grammar sources are now pinned through the same provisioning path. The
+  Rust-owned parser routes `.cs` files through tree-sitter-c-sharp and covers
+  using imports, classes/interfaces/enums/structs with type-role metadata,
+  methods/constructors, and subprocess/file/FFI CROSS_ARTIFACT bridge edges
+  for the existing C# bridge patterns.
+- PHP grammar sources are now pinned through the same provisioning path. The
+  Rust-owned parser routes `.php` files through tree-sitter-php and covers
+  namespace use imports, classes/interfaces with type-role metadata, functions
+  and methods, CALLS, and subprocess/file/FFI CROSS_ARTIFACT bridge edges for
+  the existing PHP bridge patterns.
+- Kotlin grammar sources are now pinned through the same provisioning path.
+  The Rust-owned parser routes `.kt` and `.kts` files through tree-sitter-kotlin
+  and covers imports, classes/interfaces, functions, CALLS, and
+  subprocess/file/FFI CROSS_ARTIFACT bridge edges for the existing Kotlin
+  bridge patterns.
+- Swift grammar sources are now pinned through the provisioning path using the
+  generated `tree-sitter-language-pack==0.13.0` sdist source for
+  `alex-pinkus/tree-sitter-swift@78d84ef82c387fceeb6094038da28717ea052e39`.
+  The Rust-owned parser routes `.swift` files through tree-sitter-swift and
+  covers imports, class/struct/enum/actor/protocol/extension nodes, inheritance
+  edges, functions, calls, and subprocess/FFI bridge edges.
+- Scala grammar sources are now pinned through the same provisioning path. The
+  Rust-owned parser routes `.scala` files through tree-sitter-scala and covers
+  selector imports, traits/classes/objects/enums, inheritance/conformance,
+  function declarations/definitions, CALLS, constructor calls, and
+  subprocess/file/FFI CROSS_ARTIFACT bridge edges for the existing Scala bridge
+  patterns.
+- Solidity grammar sources are now pinned through the same provisioning path.
+  The Rust-owned parser routes `.sol` files through tree-sitter-solidity and
+  covers imports, contracts/interfaces/libraries/structs/enums/errors/value
+  types, file and state constants, state variables, functions/constructors/
+  modifiers/events/fallback handlers, inheritance, `using` dependencies,
+  modifier invocations, emitted events, and same-file CALLS resolution.
+- Dart grammar sources are now pinned through the same provisioning path. The
+  Rust-owned parser routes `.dart` files through tree-sitter-dart and covers
+  imports, classes/mixins/enums with Dart type-role metadata, function
+  signatures, inheritance/mixins, and the existing Dart selector-based CALLS
+  behavior.
+- Lua grammar sources are now pinned through the same provisioning path. The
+  Rust-owned parser routes `.lua` files through tree-sitter-lua and covers
+  require imports, top-level and variable-assigned functions, table-qualified
+  methods, test-function detection, TESTED_BY edges, CALLS, and the existing
+  Lua subprocess/file/FFI bridge patterns.
+- Luau grammar sources are pinned to the same tree-sitter-language-pack 0.13.0
+  grammar revision previously used by the Python parser. The Rust-owned parser
+  routes `.luau` files through tree-sitter-luau and reuses the Lua extraction
+  path, with Luau type aliases emitted as Class nodes with type-role metadata.
+- C grammar sources are now pinned through the same provisioning path. The
+  Rust-owned parser routes `.c`, C header `.h`, and Perl XS `.xs` files through
+  tree-sitter-c and covers include imports, typedef struct Class nodes,
+  function definitions, CALLS, TESTED_BY edges, and existing C subprocess/file/FFI
+  bridge patterns.
+- C++ grammar sources are now pinned through the same provisioning path. The
+  Rust-owned parser routes `.cpp`, `.cc`, `.cxx`, and `.hpp` files through
+  tree-sitter-cpp and covers includes, class/struct nodes, constructor
+  functions, simple inheritance edges, top-level function calls, TESTED_BY
+  edges, and existing C++ subprocess bridge patterns.
+- Objective-C grammar sources are now pinned through the same provisioning
+  path. The Rust-owned parser routes `.m` files through tree-sitter-objc and
+  covers preprocessor imports, interface/implementation Class nodes, method
+  definitions, C-style top-level functions, message-expression CALLS,
+  call-expression CALLS, and TESTED_BY edges.
+- Elixir grammar sources are now pinned through the same provisioning path.
+  The Rust-owned parser routes `.ex` and `.exs` files through
+  tree-sitter-elixir and covers modules, functions/macros, alias/import/require
+  edges, module-local calls, dotted module calls, module-scope calls, and
+  TESTED_BY edges.
+- GDScript grammar sources are now pinned through the same provisioning path.
+  The Rust-owned parser routes `.gd` files through tree-sitter-gdscript and
+  covers `extends` imports, `class_name` and inner class nodes, top-level and
+  class functions, direct calls, attribute calls, and TESTED_BY edges.
+- R grammar sources are now pinned through the same provisioning path. The
+  Rust-owned parser routes `.r` and `.R` files through tree-sitter-r and
+  covers assignment-defined functions, `setRefClass`/`setClass` class calls,
+  class methods, library/source imports, namespace calls, subprocess/FFI/file
+  bridge edges, and TESTED_BY edges.
+- Julia grammar sources are now pinned through the same provisioning path. The
+  Rust-owned parser routes `.jl` files through tree-sitter-julia and covers
+  modules, structs, abstract types, enum macro calls, long- and short-form
+  functions, macros, imports, exports/public references, testsets, nested
+  functions, bridge edges, and TESTED_BY edges.
+- Perl grammar sources are now pinned through the same provisioning path. The
+  Rust-owned parser routes `.pl`, `.pm`, and `.t` files through
+  tree-sitter-perl and covers packages, subroutines, imports, function/method
+  calls, subprocess/file/FFI bridge edges, and TESTED_BY edges.
+- Vue grammar sources are now pinned through the same provisioning path. The
+  Rust-owned parser routes `.vue` files through tree-sitter-vue for SFC
+  structure, then reuses the Rust JavaScript/TypeScript parser for script
+  blocks while preserving Vue file line offsets and node language.
+- Svelte grammar sources are now pinned through the same provisioning path. The
+  Rust-owned parser routes `.svelte` files through tree-sitter-svelte for SFC
+  structure and shares the same Rust JavaScript/TypeScript script-block path
+  used by Vue.
+- `.astro` files now route through the Rust-owned TypeScript parser, matching
+  the existing Python dispatch contract.
+- Zig grammar sources are now pinned through the same provisioning path. The
+  Rust-owned parser routes `.zig` files through tree-sitter-zig while preserving
+  the current Python File-node-only graph contract.
+- PowerShell grammar sources are now pinned through the same provisioning path.
+  The Rust-owned parser routes `.ps1`, `.psm1`, and `.psd1` files through
+  tree-sitter-powershell while preserving the current Python File-node-only
+  graph contract.
+- ReScript now routes through a Rust-owned regex extractor for `.res` and
+  `.resi` files. This keeps the existing Python graph contract for modules,
+  let bindings, externals, types, imports, JSX references, calls, containment,
+  interface-file flags, and test edges without adding a separate grammar source.
+- Extensionless shebang scripts for supported scripting languages now stay in
+  the Rust batch path. Source-aware ownership preserves extension precedence and
+  routes bash/sh/zsh/ksh, Python, JavaScript, Ruby, Perl, Lua, R, and PHP
+  shebang files through the matching Rust parser.
+- FTS rebuilds now route through `dagayn._core.GraphStore.rebuild_fts_index`
+  when the Rust backend is active. Python's `dagayn.search.rebuild_fts_index`
+  keeps the existing SQLite implementation as the fallback for the Python
+  backend and tests.
+- Missing signature computation now routes through
+  `dagayn._core.GraphStore.compute_missing_signatures` when available, avoiding
+  one Python-to-store update per unsigned node in Rust-backed post-processing.
+- Markdown artifact reference resolution now routes through
+  `dagayn._core.GraphStore.resolve_markdown_artifact_refs` when available.
+  The Rust path rewrites exactly one matching non-Markdown target to HIGH
+  confidence and deletes unmatched or ambiguous placeholder edges, matching the
+  Python fallback policy.
+- Summary table computation now routes through
+  `dagayn._core.GraphStore.compute_summaries` when available, covering
+  community summaries, flow snapshots, and risk index rows with the same
+  batched aggregate strategy as the Python fallback.
+- Flow tracing can now run against the Rust store for full rebuilds while the
+  tracing heuristics remain in Python. The traced flow dictionaries are stored
+  through `dagayn._core.GraphStore.store_flows_json`, so the flow persistence
+  transaction is Rust-owned. Incremental flow retracing now uses Rust-owned
+  affected-flow deletion and append-only insertion, avoiding Python `_conn`
+  access under `DAGAYN_BACKEND=rust`.
+- Stored flow retrieval now routes through Rust JSON methods when available:
+  `get_flows_json`, `get_flow_by_id_json`, and `get_affected_flows_json`.
+- Community persistence and retrieval now route through Rust JSON methods when
+  available: `store_communities_json` and `get_communities_json`, with
+  node/edge read helpers exposed for Python's existing detection and overview
+  logic. Full rebuild community detection now runs over those Rust read helpers
+  under `DAGAYN_BACKEND=rust`; incremental community detection uses
+  `count_affected_communities` to avoid Python-only SQLite connection access
+  for the skip/redetect decision. `get_minimal_context` also reads top
+  communities through this API instead of direct Python SQLite access.
+- Graph stats now route through Rust `GraphStore.get_stats` while returning the
+  existing Python `GraphStats` dataclass shape.
+- Change risk analysis under `get_minimal_context` now has the Rust read
+  helpers it needs for risk scoring and test-gap summaries, instead of falling
+  back to degraded output when `DAGAYN_BACKEND=rust` is active.
+
 Python modules being replaced: `dagayn/graph.py` (`GraphStore` upsert and replacement logic), `dagayn/incremental.py` (path normalization and VCS metadata helpers such as `_make_repo_relative`), `dagayn/migrations.py`.
 
 Integration path: with `DAGAYN_BACKEND=rust`, the Python parser continues to emit `GraphNode` / `GraphEdge` records, but they are passed to `dagayn._core.GraphStore` for writes. This hybrid path is the first production exposure of the Rust backend.
@@ -276,7 +666,7 @@ Parity acceptance:
 
 Deliverable: `dagayn-parser` and `dagayn-grammars` replacing Python `parser.py` (7 572 lines).
 
-Language introduction order: Python → TypeScript/JS → Java → R → Bash → Markdown → Terraform → ipynb.
+Language introduction order: Markdown → Terraform → Rust → Python/notebooks → TypeScript/JS/TSX/JSX/Astro → Bash → Go → Java → Ruby → C# → PHP → Kotlin → Swift → Scala → Solidity → Dart → Lua → Luau → C/C headers/Perl XS → C++ → Objective-C → Elixir → GDScript → R → Julia → Perl → Vue → Svelte → Zig → PowerShell → ReScript, with remaining Python-owned language extractors moving only after parity is explicit.
 
 Grammar provisioning: `dagayn-grammars/build.rs` fetches pinned grammar archives and compiles them via `cc`. Cache behavior and the `DAGAYN_GRAMMAR_CACHE_DIR` env variable must match the contract in `docs/GRAMMAR-PROVISIONING.md`.
 

@@ -21,6 +21,29 @@ If the repository moved on disk, rebuild so stored metadata matches the current 
 
 Ensure `docs/LLM-OPTIMIZED-REFERENCE.md` exists in the repo or installed package layout.
 
+## `DAGAYN_BACKEND=rust` says `dagayn._core` is missing
+
+Install a wheel that includes the Rust extension, or rebuild from source with a
+Rust toolchain and C compiler available:
+
+```bash
+pip install git+https://github.com/manji-0/dagayn.git
+```
+
+```bash
+uv tool install --from git+https://github.com/manji-0/dagayn.git dagayn
+```
+
+```bash
+uvx --from git+https://github.com/manji-0/dagayn.git dagayn --help
+```
+
+For a checkout, rebuild the editable extension:
+
+```bash
+uvx maturin develop --release
+```
+
 ## Type checking fails locally but not in CI
 
 CI uses `ty` with Python 3.13 assumptions and ignores unresolved third-party imports. Runtime support currently starts at Python 3.12.

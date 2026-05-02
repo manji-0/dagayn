@@ -3,7 +3,7 @@
 <!-- derived-from ./COMMANDS.md -->
 
 <section name="usage">
-Install with `pip install git+https://github.com/manji-0/dagayn.git`, run `dagayn install`, then `dagayn build`.
+Install with `pip install dagayn` or `uv tool install dagayn`, then run `dagayn install` and `dagayn build`.
 
 Use `dagayn update` for change-driven refreshes and `dagayn watch` for live development.
 

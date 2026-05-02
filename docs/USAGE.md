@@ -5,8 +5,38 @@
 ## Install the package
 
 ```bash
+pip install dagayn
+```
+
+For a persistent isolated CLI environment:
+
+```bash
+uv tool install dagayn
+```
+
+For an isolated invocation without a persistent environment:
+
+```bash
+uvx --from dagayn dagayn --help
+```
+
+To run from the Git repository instead of a published wheel:
+
+```bash
 pip install git+https://github.com/manji-0/dagayn.git
 ```
+
+```bash
+uv tool install --from git+https://github.com/manji-0/dagayn.git dagayn
+```
+
+```bash
+uvx --from git+https://github.com/manji-0/dagayn.git dagayn --help
+```
+
+Git/source installs build the PyO3 Rust extension locally. Install a Rust
+toolchain, a C compiler, and the macOS Command Line Tools first when no
+prebuilt wheel is available for your platform.
 
 ## Register MCP integration
 
@@ -30,6 +60,23 @@ dagayn status
 ```
 
 Use `build` the first time, `update` for change-driven refreshes, and `watch` during active development.
+
+## Use the Rust backend
+
+The Python backend is still the default. Set `DAGAYN_BACKEND=rust` to use the
+Rust-backed graph store and Rust-owned parser paths for Markdown, Terraform,
+Rust, Python/notebooks, Bash/Go/Java/Ruby/C#/PHP/Kotlin/Swift/Scala/Solidity/Dart/Lua/Luau/C/C headers/Perl XS/C++/Objective-C/Elixir/GDScript/R/Julia/Perl/Vue/Svelte/Zig/PowerShell/ReScript, extensionless shebang scripts for supported scripting languages, and core JavaScript/JSX/TypeScript/TSX/Astro files:
+
+```bash
+DAGAYN_BACKEND=rust dagayn build
+DAGAYN_BACKEND=rust dagayn update
+```
+
+With `uvx`, pass the same environment variable:
+
+```bash
+DAGAYN_BACKEND=rust uvx --from dagayn dagayn build
+```
 
 ## Review changes
 

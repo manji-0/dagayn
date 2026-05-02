@@ -306,7 +306,8 @@ def handle(args: argparse.Namespace) -> None:
             print(f"Full build: {parsed} files, {nodes} nodes, {edges} edges (postprocess={pp})")
             if result.get("errors"):
                 print(f"Errors: {len(result['errors'])}")
-            _cli_post_process(store)
+            if pp != "none" and hasattr(store, "_conn"):
+                _cli_post_process(store)
 
         elif args.command == "update":
             pp = (
@@ -330,7 +331,7 @@ def handle(args: argparse.Namespace) -> None:
                 f"{nodes} nodes, {edges} edges"
                 f" (postprocess={pp})"
             )
-            if result.get("files_updated", 0) > 0:
+            if pp != "none" and result.get("files_updated", 0) > 0 and hasattr(store, "_conn"):
                 _cli_post_process(store)
 
         elif args.command == "status":

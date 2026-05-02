@@ -6,6 +6,7 @@ optional) with a file-based grouping fallback when igraph is not installed.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from collections import Counter, defaultdict
@@ -659,17 +660,23 @@ def incremental_detect_communities(
     if not changed_files:
         return 0
 
-    conn = store._conn
+    affected_count = 0
+    rust_count = getattr(store, "count_affected_communities", None)
+    if callable(rust_count):
+        affected_count = int(rust_count(changed_files))
+    else:
+        conn = store._conn
 
-    # Check if any communities are affected
-    placeholders = ",".join("?" * len(changed_files))
-    affected = conn.execute(
-        f"SELECT COUNT(DISTINCT community_id) FROM nodes "  # nosec B608
-        f"WHERE community_id IS NOT NULL AND file_path IN ({placeholders})",
-        changed_files,
-    ).fetchone()
+        # Check if any communities are affected
+        placeholders = ",".join("?" * len(changed_files))
+        affected = conn.execute(
+            f"SELECT COUNT(DISTINCT community_id) FROM nodes "  # nosec B608
+            f"WHERE community_id IS NOT NULL AND file_path IN ({placeholders})",
+            changed_files,
+        ).fetchone()
+        affected_count = affected[0] if affected else 0
 
-    if not affected or affected[0] == 0:
+    if affected_count == 0:
         return 0  # No communities affected, skip
 
     # Re-run full community detection (correct and fast enough)
@@ -690,6 +697,22 @@ def store_communities(store: GraphStore, communities: list[dict[str, Any]]) -> i
     Returns:
         Number of communities stored.
     """
+    rust_store = getattr(store, "store_communities_json", None)
+    if callable(rust_store):
+        payload = [
+            {
+                "name": comm["name"],
+                "level": comm.get("level", 0),
+                "cohesion": comm.get("cohesion", 0.0),
+                "size": comm["size"],
+                "dominant_language": comm.get("dominant_language", ""),
+                "description": comm.get("description", ""),
+                "members": list(comm.get("members", [])),
+            }
+            for comm in communities
+        ]
+        return int(rust_store(json.dumps(payload)))
+
     # NOTE: store_communities uses _conn directly because it performs
     # multi-statement batch writes (DELETE + INSERT loop + UPDATE loop)
     # that are tightly coupled to the DB transaction lifecycle.
@@ -766,6 +789,10 @@ def get_communities(
     valid_sorts = {"size", "cohesion", "name"}
     if sort_by not in valid_sorts:
         sort_by = "size"
+
+    rust_get = getattr(store, "get_communities_json", None)
+    if callable(rust_get):
+        return json.loads(rust_get(sort_by, min_size))
 
     order = "DESC" if sort_by in ("size", "cohesion") else "ASC"
 

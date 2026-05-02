@@ -11,12 +11,12 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import sqlite3
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from dagayn.graph import GraphStore
 from dagayn.graph.helpers import _sanitize_name
 from dagayn.migrations import LATEST_VERSION
 
@@ -73,13 +73,13 @@ def _edge_row(row) -> dict:
 
 def export_db(db_path: Path) -> str:
     """Return a deterministic canonical JSON snapshot of the graph at db_path."""
-    store = GraphStore(db_path)
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
     try:
-        conn = store._conn
         node_rows = conn.execute("SELECT * FROM nodes").fetchall()
         edge_rows = conn.execute("SELECT * FROM edges").fetchall()
     finally:
-        store.close()
+        conn.close()
 
     nodes = sorted(
         [_node_row(r) for r in node_rows],

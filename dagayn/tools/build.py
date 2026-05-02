@@ -7,10 +7,78 @@ import sqlite3
 import time
 from typing import Any
 
-from ..incremental import full_build, incremental_update
+from ..incremental import full_build, get_db_path, incremental_update
 from ._common import _evict_store_cache, _get_store
 
 logger = logging.getLogger(__name__)
+
+
+def _can_run_minimal_postprocess(store: Any) -> bool:
+    return all(
+        hasattr(store, name)
+        for name in (
+            "compute_missing_signatures",
+            "rebuild_fts_index",
+            "resolve_markdown_artifact_refs",
+        )
+    )
+
+
+def _can_trace_full_flows(store: Any) -> bool:
+    return all(
+        hasattr(store, name)
+        for name in (
+            "get_all_call_targets",
+            "get_nodes_by_kind",
+            "load_flow_adjacency",
+            "store_flows_json",
+        )
+    )
+
+
+def _can_trace_incremental_flows(store: Any) -> bool:
+    return all(
+        hasattr(store, name)
+        for name in (
+            "delete_affected_flows",
+            "get_all_call_targets",
+            "get_nodes_by_kind",
+            "insert_flows_json",
+            "load_flow_adjacency",
+        )
+    )
+
+
+def _can_detect_full_communities(store: Any) -> bool:
+    return all(
+        hasattr(store, name)
+        for name in (
+            "get_all_nodes",
+            "get_all_edges",
+            "store_communities_json",
+        )
+    )
+
+
+def _can_detect_incremental_communities(store: Any) -> bool:
+    return _can_detect_full_communities(store) and hasattr(store, "count_affected_communities")
+
+
+def _postprocess_store(store: Any, root: Any, postprocess: str):
+    """Return a Python GraphStore for post-processing when needed.
+
+    Full incremental community detection still needs Python-only connection
+    access. Minimal post-processing can stay on the Rust store once the Rust
+    methods cover all minimal steps.
+    """
+    if hasattr(store, "_conn"):
+        return store, False
+    if postprocess == "minimal" and _can_run_minimal_postprocess(store):
+        return store, False
+
+    from ..graph.core import GraphStore as PythonGraphStore
+
+    return PythonGraphStore(get_db_path(root)), True
 
 
 def _run_postprocess(
@@ -19,6 +87,10 @@ def _run_postprocess(
     postprocess: str,
     full_rebuild: bool = False,
     changed_files: list[str] | None = None,
+    skip_minimal_steps: bool = False,
+    skip_flow_steps: bool = False,
+    skip_community_steps: bool = False,
+    skip_summary_steps: bool = False,
 ) -> list[str]:
     """Run post-build steps based on *postprocess* level.
 
@@ -33,56 +105,61 @@ def _run_postprocess(
     if postprocess == "none":
         return warnings
 
-    # -- Signatures + FTS (fast, always run unless "none") --
-    try:
-        rows = store.get_nodes_without_signature()
-        for row in rows:
-            node_id, name, kind, params, ret = (
-                row[0],
-                row[1],
-                row[2],
-                row[3],
-                row[4],
-            )
-            if kind in ("Function", "Test"):
-                sig = f"def {name}({params or ''})"
-                if ret:
-                    sig += f" -> {ret}"
-            elif kind == "Class":
-                sig = f"class {name}"
+    if not skip_minimal_steps:
+        # -- Signatures + FTS (fast, always run unless "none") --
+        try:
+            rust_compute = getattr(store, "compute_missing_signatures", None)
+            if callable(rust_compute):
+                rust_compute()
             else:
-                sig = name
-            store.update_node_signature(node_id, sig[:512])
-        store.commit()
-        build_result["signatures_updated"] = True
-    except (sqlite3.OperationalError, TypeError, KeyError) as e:
-        logger.warning("Signature computation failed: %s", e)
-        warnings.append(f"Signature computation failed: {type(e).__name__}: {e}")
+                rows = store.get_nodes_without_signature()
+                for row in rows:
+                    node_id, name, kind, params, ret = (
+                        row[0],
+                        row[1],
+                        row[2],
+                        row[3],
+                        row[4],
+                    )
+                    if kind in ("Function", "Test"):
+                        sig = f"def {name}({params or ''})"
+                        if ret:
+                            sig += f" -> {ret}"
+                    elif kind == "Class":
+                        sig = f"class {name}"
+                    else:
+                        sig = name
+                    store.update_node_signature(node_id, sig[:512])
+                store.commit()
+            build_result["signatures_updated"] = True
+        except (sqlite3.OperationalError, RuntimeError, TypeError, KeyError) as e:
+            logger.warning("Signature computation failed: %s", e)
+            warnings.append(f"Signature computation failed: {type(e).__name__}: {e}")
 
-    try:
-        from dagayn.search import rebuild_fts_index
+        try:
+            from dagayn.search import rebuild_fts_index
 
-        fts_count = rebuild_fts_index(store)
-        build_result["fts_indexed"] = fts_count
-        build_result["fts_rebuilt"] = True
-    except (sqlite3.OperationalError, ImportError) as e:
-        logger.warning("FTS index rebuild failed: %s", e)
-        warnings.append(f"FTS index rebuild failed: {type(e).__name__}: {e}")
+            fts_count = rebuild_fts_index(store)
+            build_result["fts_indexed"] = fts_count
+            build_result["fts_rebuilt"] = True
+        except (sqlite3.OperationalError, ImportError) as e:
+            logger.warning("FTS index rebuild failed: %s", e)
+            warnings.append(f"FTS index rebuild failed: {type(e).__name__}: {e}")
 
-    try:
-        from dagayn.postprocessing import _resolve_markdown_artifact_refs
+        try:
+            from dagayn.postprocessing import _resolve_markdown_artifact_refs
 
-        _result: dict[str, Any] = {}
-        _resolve_markdown_artifact_refs(store, _result, warnings)
-        build_result["markdown_artifact_refs_resolved"] = _result.get(
-            "markdown_artifact_refs_resolved", 0
-        )
-        build_result["markdown_artifact_refs_dropped"] = _result.get(
-            "markdown_artifact_refs_dropped", 0
-        )
-    except (sqlite3.OperationalError, ImportError) as e:
-        logger.warning("Markdown artifact ref resolution failed: %s", e)
-        warnings.append(f"Markdown artifact ref resolution failed: {type(e).__name__}: {e}")
+            _result: dict[str, Any] = {}
+            _resolve_markdown_artifact_refs(store, _result, warnings)
+            build_result["markdown_artifact_refs_resolved"] = _result.get(
+                "markdown_artifact_refs_resolved", 0
+            )
+            build_result["markdown_artifact_refs_dropped"] = _result.get(
+                "markdown_artifact_refs_dropped", 0
+            )
+        except (sqlite3.OperationalError, ImportError) as e:
+            logger.warning("Markdown artifact ref resolution failed: %s", e)
+            warnings.append(f"Markdown artifact ref resolution failed: {type(e).__name__}: {e}")
 
     if postprocess == "minimal":
         return warnings
@@ -90,51 +167,54 @@ def _run_postprocess(
     # -- Expensive: flows + communities (only for "full") --
     use_incremental = not full_rebuild and bool(changed_files)
 
-    try:
-        if use_incremental:
-            from dagayn.flows import incremental_trace_flows
+    if not skip_flow_steps:
+        try:
+            if use_incremental:
+                from dagayn.flows import incremental_trace_flows
 
-            count = incremental_trace_flows(store, changed_files or [])
-        else:
-            from dagayn.flows import store_flows as _store_flows
-            from dagayn.flows import trace_flows as _trace_flows
+                count = incremental_trace_flows(store, changed_files or [])
+            else:
+                from dagayn.flows import store_flows as _store_flows
+                from dagayn.flows import trace_flows as _trace_flows
 
-            flows = _trace_flows(store)
-            count = _store_flows(store, flows)
-        build_result["flows_detected"] = count
-    except (sqlite3.OperationalError, ImportError) as e:
-        logger.warning("Flow detection failed: %s", e)
-        warnings.append(f"Flow detection failed: {type(e).__name__}: {e}")
+                flows = _trace_flows(store)
+                count = _store_flows(store, flows)
+            build_result["flows_detected"] = count
+        except (sqlite3.OperationalError, RuntimeError, ImportError) as e:
+            logger.warning("Flow detection failed: %s", e)
+            warnings.append(f"Flow detection failed: {type(e).__name__}: {e}")
 
-    try:
-        if use_incremental:
-            from dagayn.communities import (
-                incremental_detect_communities,
-            )
+    if not skip_community_steps:
+        try:
+            if use_incremental:
+                from dagayn.communities import (
+                    incremental_detect_communities,
+                )
 
-            count = incremental_detect_communities(store, changed_files or [])
-        else:
-            from dagayn.communities import (
-                detect_communities as _detect_communities,
-            )
-            from dagayn.communities import (
-                store_communities as _store_communities,
-            )
+                count = incremental_detect_communities(store, changed_files or [])
+            else:
+                from dagayn.communities import (
+                    detect_communities as _detect_communities,
+                )
+                from dagayn.communities import (
+                    store_communities as _store_communities,
+                )
 
-            comms = _detect_communities(store)
-            count = _store_communities(store, comms)
-        build_result["communities_detected"] = count
-    except (sqlite3.OperationalError, ImportError) as e:
-        logger.warning("Community detection failed: %s", e)
-        warnings.append(f"Community detection failed: {type(e).__name__}: {e}")
+                comms = _detect_communities(store)
+                count = _store_communities(store, comms)
+            build_result["communities_detected"] = count
+        except (sqlite3.OperationalError, RuntimeError, ImportError) as e:
+            logger.warning("Community detection failed: %s", e)
+            warnings.append(f"Community detection failed: {type(e).__name__}: {e}")
 
-    # -- Compute pre-computed summary tables --
-    try:
-        _compute_summaries(store)
-        build_result["summaries_computed"] = True
-    except (sqlite3.OperationalError, Exception) as e:
-        logger.warning("Summary computation failed: %s", e)
-        warnings.append(f"Summary computation failed: {type(e).__name__}: {e}")
+    if not skip_summary_steps:
+        # -- Compute pre-computed summary tables --
+        try:
+            _compute_summaries(store)
+            build_result["summaries_computed"] = True
+        except (sqlite3.OperationalError, RuntimeError, Exception) as e:
+            logger.warning("Summary computation failed: %s", e)
+            warnings.append(f"Summary computation failed: {type(e).__name__}: {e}")
 
     store.set_metadata(
         "last_postprocessed_at",
@@ -159,6 +239,11 @@ def _compute_summaries(store: Any) -> None:
     is wrapped in an explicit transaction so the DELETE + INSERT sequence
     is atomic.  If a table doesn't exist yet the block is silently skipped.
     """
+    rust_compute = getattr(store, "compute_summaries", None)
+    if callable(rust_compute):
+        rust_compute()
+        return
+
     import json as _json
     from collections import defaultdict
     from os.path import commonprefix
@@ -439,15 +524,130 @@ def build_or_update_graph(
                 **result,
             }
 
-        # Pass changed_files for incremental flow/community detection
+        # Pass changed_files for incremental flow/community detection.
         changed = result.get("changed_files") if not full_rebuild else None
-        warnings = _run_postprocess(
-            store,
-            build_result,
-            postprocess,
-            full_rebuild=full_rebuild,
-            changed_files=changed,
-        )
+        if postprocess == "none":
+            warnings = _run_postprocess(
+                store,
+                build_result,
+                postprocess,
+                full_rebuild=full_rebuild,
+                changed_files=changed,
+            )
+        elif (
+            postprocess == "full"
+            and not hasattr(store, "_conn")
+            and _can_run_minimal_postprocess(store)
+        ):
+            can_compute_rust_summaries = hasattr(store, "compute_summaries")
+            can_trace_rust_flows = (full_rebuild and _can_trace_full_flows(store)) or (
+                not full_rebuild and _can_trace_incremental_flows(store)
+            )
+            can_detect_rust_communities = (
+                full_rebuild and _can_detect_full_communities(store)
+            ) or (not full_rebuild and _can_detect_incremental_communities(store))
+            warnings = _run_postprocess(
+                store,
+                build_result,
+                "minimal",
+                full_rebuild=full_rebuild,
+                changed_files=changed,
+            )
+            if can_trace_rust_flows:
+                try:
+                    if full_rebuild:
+                        from dagayn.flows import store_flows as _store_flows
+                        from dagayn.flows import trace_flows as _trace_flows
+
+                        traced = _trace_flows(store)
+                        build_result["flows_detected"] = _store_flows(store, traced)
+                    else:
+                        from dagayn.flows import incremental_trace_flows
+
+                        build_result["flows_detected"] = incremental_trace_flows(
+                            store, changed or []
+                        )
+                except (sqlite3.OperationalError, RuntimeError, ImportError) as e:
+                    logger.warning("Flow detection failed: %s", e)
+                    warnings.append(f"Flow detection failed: {type(e).__name__}: {e}")
+            if can_detect_rust_communities:
+                try:
+                    if full_rebuild:
+                        from dagayn.communities import (
+                            detect_communities as _detect_communities,
+                        )
+                        from dagayn.communities import (
+                            store_communities as _store_communities,
+                        )
+
+                        comms = _detect_communities(store)
+                        build_result["communities_detected"] = _store_communities(store, comms)
+                    else:
+                        from dagayn.communities import incremental_detect_communities
+
+                        build_result["communities_detected"] = incremental_detect_communities(
+                            store, changed or []
+                        )
+                except (sqlite3.OperationalError, RuntimeError, ImportError) as e:
+                    logger.warning("Community detection failed: %s", e)
+                    warnings.append(f"Community detection failed: {type(e).__name__}: {e}")
+
+            needs_python_fallback = not (
+                can_trace_rust_flows and can_detect_rust_communities and can_compute_rust_summaries
+            )
+            if needs_python_fallback:
+                pp_store, close_pp_store = _postprocess_store(store, root, postprocess)
+                try:
+                    warnings.extend(
+                        _run_postprocess(
+                            pp_store,
+                            build_result,
+                            postprocess,
+                            full_rebuild=full_rebuild,
+                            changed_files=changed,
+                            skip_minimal_steps=True,
+                            skip_flow_steps=can_trace_rust_flows,
+                            skip_community_steps=can_detect_rust_communities,
+                            skip_summary_steps=can_compute_rust_summaries,
+                        )
+                    )
+                finally:
+                    if close_pp_store:
+                        pp_store.close()
+            if can_compute_rust_summaries:
+                try:
+                    _compute_summaries(store)
+                    build_result["summaries_computed"] = True
+                except (sqlite3.OperationalError, RuntimeError, Exception) as e:
+                    logger.warning("Summary computation failed: %s", e)
+                    warnings.append(f"Summary computation failed: {type(e).__name__}: {e}")
+            if not needs_python_fallback:
+                warnings.extend(
+                    _run_postprocess(
+                        store,
+                        build_result,
+                        postprocess,
+                        full_rebuild=full_rebuild,
+                        changed_files=changed,
+                        skip_minimal_steps=True,
+                        skip_flow_steps=True,
+                        skip_community_steps=True,
+                        skip_summary_steps=True,
+                    )
+                )
+        else:
+            pp_store, close_pp_store = _postprocess_store(store, root, postprocess)
+            try:
+                warnings = _run_postprocess(
+                    pp_store,
+                    build_result,
+                    postprocess,
+                    full_rebuild=full_rebuild,
+                    changed_files=changed,
+                )
+            finally:
+                if close_pp_store:
+                    pp_store.close()
         if warnings:
             build_result["warnings"] = warnings
         return build_result
@@ -485,27 +685,31 @@ def run_postprocess(
 
     try:
         try:
-            rows = store.get_nodes_without_signature()
-            for row in rows:
-                node_id, name, kind, params, ret = (
-                    row[0],
-                    row[1],
-                    row[2],
-                    row[3],
-                    row[4],
-                )
-                if kind in ("Function", "Test"):
-                    sig = f"def {name}({params or ''})"
-                    if ret:
-                        sig += f" -> {ret}"
-                elif kind == "Class":
-                    sig = f"class {name}"
-                else:
-                    sig = name
-                store.update_node_signature(node_id, sig[:512])
-            store.commit()
+            rust_compute = getattr(store, "compute_missing_signatures", None)
+            if callable(rust_compute):
+                rust_compute()
+            else:
+                rows = store.get_nodes_without_signature()
+                for row in rows:
+                    node_id, name, kind, params, ret = (
+                        row[0],
+                        row[1],
+                        row[2],
+                        row[3],
+                        row[4],
+                    )
+                    if kind in ("Function", "Test"):
+                        sig = f"def {name}({params or ''})"
+                        if ret:
+                            sig += f" -> {ret}"
+                    elif kind == "Class":
+                        sig = f"class {name}"
+                    else:
+                        sig = name
+                    store.update_node_signature(node_id, sig[:512])
+                store.commit()
             result["signatures_updated"] = True
-        except (sqlite3.OperationalError, TypeError, KeyError) as e:
+        except (sqlite3.OperationalError, RuntimeError, TypeError, KeyError) as e:
             logger.warning("Signature computation failed: %s", e)
             warnings.append(f"Signature computation failed: {type(e).__name__}: {e}")
 

@@ -35,6 +35,10 @@ Thumbs.db
 # Node
 node_modules/
 
+# Rust
+target/
+dagayn/_vendor_grammars/
+
 # VS Code extension build artifacts
 code-review-graph-vscode/dist/
 *.vsix
@@ -89,3 +93,5 @@ SCALING_AND_TOKEN_EFFICIENCY_PLAN.md
 # Beads / Dolt files (added by bd init)
 .dolt/
 .beads-credential-key
+# Added by dagayn
+.dagayn/

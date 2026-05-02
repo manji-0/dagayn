@@ -75,6 +75,12 @@ def rebuild_fts_index(store: GraphStore) -> int:
     Returns:
         Number of rows indexed.
     """
+    rust_rebuild = getattr(store, "rebuild_fts_index", None)
+    if callable(rust_rebuild):
+        count = int(rust_rebuild())
+        logger.info("FTS index rebuilt: %d rows indexed", count)
+        return count
+
     # NOTE: rebuild_fts_index uses store._conn directly because it manages
     # the FTS5 virtual table DDL, which is tightly coupled to SQLite internals.
     conn = store._conn
@@ -233,9 +239,10 @@ def _embedding_search(
             return []
 
         results = emb_store.search(query, limit=limit)
+        nodes_by_qn = store.get_nodes_by_qualified_names([qn for qn, _ in results])
         id_scores: list[tuple[int, float]] = []
         for qn, score in results:
-            node = store.get_node(qn)
+            node = nodes_by_qn.get(qn)
             if node:
                 id_scores.append((node.id, score))
         return id_scores

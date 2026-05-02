@@ -96,27 +96,96 @@ def _make_relative(file_path: str, repo_root: str) -> str:
         return file_path
 
 
-def _get_community_name(conn: Any, community_id: int) -> str:
-    """Fetch a community name by ID."""
-    row = conn.execute("SELECT name FROM communities WHERE id = ?", (community_id,)).fetchone()
-    return row["name"] if row else ""
+def _get_community_names_for_nodes(conn: Any, nodes: list[Any]) -> dict[int, str]:
+    """Fetch community names for a batch of nodes."""
+    node_ids = [node.id for node in nodes]
+    if not node_ids:
+        return {}
+
+    community_by_node: dict[int, int] = {}
+    for i in range(0, len(node_ids), 450):
+        batch = node_ids[i : i + 450]
+        placeholders = ",".join("?" for _ in batch)
+        rows = conn.execute(  # nosec B608
+            f"SELECT id, community_id FROM nodes WHERE id IN ({placeholders})",
+            batch,
+        ).fetchall()
+        for row in rows:
+            if row["community_id"]:
+                community_by_node[row["id"]] = row["community_id"]
+
+    community_ids = list(dict.fromkeys(community_by_node.values()))
+    if not community_ids:
+        return {}
+
+    name_by_id: dict[int, str] = {}
+    for i in range(0, len(community_ids), 450):
+        batch = community_ids[i : i + 450]
+        placeholders = ",".join("?" for _ in batch)
+        rows = conn.execute(  # nosec B608
+            f"SELECT id, name FROM communities WHERE id IN ({placeholders})",
+            batch,
+        ).fetchall()
+        name_by_id.update({row["id"]: row["name"] for row in rows})
+
+    return {
+        node_id: name_by_id[community_id]
+        for node_id, community_id in community_by_node.items()
+        if community_id in name_by_id
+    }
 
 
-def _get_flow_names_for_node(conn: Any, node_id: int) -> list[str]:
-    """Fetch execution flow names that a node participates in (max 3)."""
-    rows = conn.execute(
-        "SELECT f.name FROM flow_memberships fm "
-        "JOIN flows f ON fm.flow_id = f.id "
-        "WHERE fm.node_id = ? LIMIT 3",
-        (node_id,),
-    ).fetchall()
-    return [r["name"] for r in rows]
+def _get_flow_names_for_nodes(conn: Any, nodes: list[Any]) -> dict[int, list[str]]:
+    """Fetch up to three flow names for each node in a batch."""
+    node_ids = [node.id for node in nodes]
+    if not node_ids:
+        return {}
+
+    out: dict[int, list[str]] = {node_id: [] for node_id in node_ids}
+    for i in range(0, len(node_ids), 450):
+        batch = node_ids[i : i + 450]
+        placeholders = ",".join("?" for _ in batch)
+        rows = conn.execute(  # nosec B608
+            "SELECT fm.node_id, f.name FROM flow_memberships fm "
+            "JOIN flows f ON fm.flow_id = f.id "
+            f"WHERE fm.node_id IN ({placeholders}) "
+            "ORDER BY fm.node_id, f.criticality DESC",
+            batch,
+        ).fetchall()
+        for row in rows:
+            names = out.setdefault(row["node_id"], [])
+            if len(names) < 3:
+                names.append(row["name"])
+    return out
+
+
+def _prepare_context_for_nodes(nodes: list[Any], store: Any, conn: Any) -> dict[str, Any]:
+    qns = [node.qualified_name for node in nodes]
+    outgoing, incoming = store.get_edges_by_endpoints(qns)
+
+    related_qns: set[str] = set()
+    for node in nodes:
+        qn = node.qualified_name
+        for edge in incoming.get(qn, []):
+            if edge.kind in ("CALLS", "TESTED_BY"):
+                related_qns.add(edge.source_qualified)
+        for edge in outgoing.get(qn, []):
+            if edge.kind == "CALLS":
+                related_qns.add(edge.target_qualified)
+
+    related_nodes = store.get_nodes_by_qualified_names(list(related_qns)) if related_qns else {}
+    return {
+        "incoming": incoming,
+        "outgoing": outgoing,
+        "related_nodes": related_nodes,
+        "community_names": _get_community_names_for_nodes(conn, nodes),
+        "flow_names": _get_flow_names_for_nodes(conn, nodes),
+    }
 
 
 def _format_node_context(
     node: Any,
-    store: Any,
-    conn: Any,
+    context: dict[str, Any],
     repo_root: str,
 ) -> list[str]:
     """Format a single node's structural context as plain text lines."""
@@ -132,26 +201,21 @@ def _format_node_context(
     header = f"{node.name} ({loc})"
 
     # Community
-    if node.extra.get("community_id"):
-        cname = _get_community_name(conn, node.extra["community_id"])
-        if cname:
-            header += f" [{cname}]"
-    else:
-        # Check via direct query
-        row = conn.execute("SELECT community_id FROM nodes WHERE id = ?", (node.id,)).fetchone()
-        if row and row["community_id"]:
-            cname = _get_community_name(conn, row["community_id"])
-            if cname:
-                header += f" [{cname}]"
+    cname = context["community_names"].get(node.id)
+    if cname:
+        header += f" [{cname}]"
 
     lines = [header]
+    incoming = context["incoming"].get(qn, [])
+    outgoing = context["outgoing"].get(qn, [])
+    related_nodes = context["related_nodes"]
 
     # Callers (max 5, deduplicated)
     callers: list[str] = []
     seen: set[str] = set()
-    for e in store.get_edges_by_target(qn):
+    for e in incoming:
         if e.kind == "CALLS" and len(callers) < 5:
-            c = store.get_node(e.source_qualified)
+            c = related_nodes.get(e.source_qualified)
             if c and c.name not in seen:
                 seen.add(c.name)
                 callers.append(c.name)
@@ -161,9 +225,9 @@ def _format_node_context(
     # Callees (max 5, deduplicated)
     callees: list[str] = []
     seen.clear()
-    for e in store.get_edges_by_source(qn):
+    for e in outgoing:
         if e.kind == "CALLS" and len(callees) < 5:
-            c = store.get_node(e.target_qualified)
+            c = related_nodes.get(e.target_qualified)
             if c and c.name not in seen:
                 seen.add(c.name)
                 callees.append(c.name)
@@ -171,15 +235,15 @@ def _format_node_context(
         lines.append(f"  Calls: {', '.join(callees)}")
 
     # Execution flows
-    flow_names = _get_flow_names_for_node(conn, node.id)
+    flow_names = context["flow_names"].get(node.id, [])
     if flow_names:
         lines.append(f"  Flows: {', '.join(flow_names)}")
 
     # Tests
     tests: list[str] = []
-    for e in store.get_edges_by_target(qn):
+    for e in incoming:
         if e.kind == "TESTED_BY" and len(tests) < 3:
-            t = store.get_node(e.source_qualified)
+            t = related_nodes.get(e.source_qualified)
             if t:
                 tests.append(t.name)
     if tests:
@@ -205,18 +269,25 @@ def enrich_search(pattern: str, repo_root: str) -> str:
         if not fts_results:
             return ""
 
-        all_lines: list[str] = []
-        count = 0
+        nodes_by_id = store.get_nodes_by_ids([node_id for node_id, _score in fts_results])
+        selected = []
         for node_id, _score in fts_results:
-            if count >= 5:
+            if len(selected) >= 5:
                 break
-            node = store.get_node_by_id(node_id)
-            if not node or node.is_test:
-                continue
-            node_lines = _format_node_context(node, store, conn, repo_root)
+            node = nodes_by_id.get(node_id)
+            if node and not node.is_test:
+                selected.append(node)
+
+        if not selected:
+            return ""
+
+        context = _prepare_context_for_nodes(selected, store, conn)
+        all_lines: list[str] = []
+        for node in selected:
+            node_lines = _format_node_context(node, context, repo_root)
             all_lines.extend(node_lines)
             all_lines.append("")
-            count += 1
+        count = len(selected)
 
         if not all_lines:
             return ""
@@ -256,8 +327,9 @@ def enrich_file_read(file_path: str, repo_root: str) -> str:
             return ""
 
         all_lines: list[str] = []
+        context = _prepare_context_for_nodes(interesting, store, conn)
         for node in interesting:
-            node_lines = _format_node_context(node, store, conn, repo_root)
+            node_lines = _format_node_context(node, context, repo_root)
             all_lines.extend(node_lines)
             all_lines.append("")
 
