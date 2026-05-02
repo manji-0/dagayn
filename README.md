@@ -251,6 +251,14 @@ dagayn serve
 
 You can limit installation to a single platform with `--platform <name>`.
 
+Platform-specific instruction files are also installed where needed:
+
+- Claude uses `~/.claude/CLAUDE.md`
+- Codex uses `~/.codex/AGENTS.md`
+- OpenCode uses `~/.config/opencode/AGENTS.md`
+- Qoder uses `QODER.md`
+- `--platform qcoder` is accepted as an alias for `qoder`
+
 ## How the graph is used
 
 A typical review loop looks like this:

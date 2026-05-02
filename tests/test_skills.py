@@ -13,6 +13,7 @@ from dagayn.skills import (
     _CLAUDE_MD_SECTION_MARKER,
     _MARKDOWN_POLICY_MARKER,
     PLATFORMS,
+    normalize_platform_target,
     _cursor_hook_scripts,
     _detect_serve_command,
     _in_poetry_project,
@@ -405,16 +406,19 @@ class TestInstallHooks:
 
 class TestInjectClaudeMd:
     def test_creates_section_in_new_file(self, tmp_path):
-        inject_claude_md(tmp_path)
-        content = (tmp_path / "CLAUDE.md").read_text()
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            inject_claude_md(tmp_path)
+        content = (tmp_path / ".claude" / "CLAUDE.md").read_text()
         assert _CLAUDE_MD_SECTION_MARKER in content
         assert "MCP Tools" in content
 
     def test_appends_to_existing_file(self, tmp_path):
-        claude_md = tmp_path / "CLAUDE.md"
+        claude_md = tmp_path / ".claude" / "CLAUDE.md"
+        claude_md.parent.mkdir(parents=True)
         claude_md.write_text("# My Project\n\nExisting content.\n")
 
-        inject_claude_md(tmp_path)
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            inject_claude_md(tmp_path)
 
         content = claude_md.read_text()
         assert "# My Project" in content
@@ -423,57 +427,103 @@ class TestInjectClaudeMd:
 
     def test_idempotent(self, tmp_path):
         """Running twice should not duplicate the section."""
-        inject_claude_md(tmp_path)
-        first_content = (tmp_path / "CLAUDE.md").read_text()
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            inject_claude_md(tmp_path)
+        first_content = (tmp_path / ".claude" / "CLAUDE.md").read_text()
 
-        inject_claude_md(tmp_path)
-        second_content = (tmp_path / "CLAUDE.md").read_text()
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            inject_claude_md(tmp_path)
+        second_content = (tmp_path / ".claude" / "CLAUDE.md").read_text()
 
         assert first_content == second_content
         assert second_content.count(_CLAUDE_MD_SECTION_MARKER) == 1
 
     def test_idempotent_with_existing_content(self, tmp_path):
-        claude_md = tmp_path / "CLAUDE.md"
+        claude_md = tmp_path / ".claude" / "CLAUDE.md"
+        claude_md.parent.mkdir(parents=True)
         claude_md.write_text("# Existing\n")
 
-        inject_claude_md(tmp_path)
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            inject_claude_md(tmp_path)
         first_content = claude_md.read_text()
 
-        inject_claude_md(tmp_path)
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            inject_claude_md(tmp_path)
         second_content = claude_md.read_text()
 
         assert first_content == second_content
         assert second_content.count(_CLAUDE_MD_SECTION_MARKER) == 1
 
     def test_also_injects_markdown_policy(self, tmp_path):
-        inject_claude_md(tmp_path)
-        content = (tmp_path / "CLAUDE.md").read_text()
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            inject_claude_md(tmp_path)
+        content = (tmp_path / ".claude" / "CLAUDE.md").read_text()
         assert _MARKDOWN_POLICY_MARKER in content
         assert "constrained-by" in content
 
     def test_policy_idempotent(self, tmp_path):
-        inject_claude_md(tmp_path)
-        first = (tmp_path / "CLAUDE.md").read_text()
-        inject_claude_md(tmp_path)
-        second = (tmp_path / "CLAUDE.md").read_text()
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            inject_claude_md(tmp_path)
+        first = (tmp_path / ".claude" / "CLAUDE.md").read_text()
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            inject_claude_md(tmp_path)
+        second = (tmp_path / ".claude" / "CLAUDE.md").read_text()
         assert first == second
         assert second.count(_MARKDOWN_POLICY_MARKER) == 1
 
     def test_policy_appended_to_existing_mcp_section(self, tmp_path):
         """Re-install onto a file that already has the MCP tools section adds the policy."""
-        claude_md = tmp_path / "CLAUDE.md"
+        claude_md = tmp_path / ".claude" / "CLAUDE.md"
+        claude_md.parent.mkdir(parents=True)
         claude_md.write_text(f"{_CLAUDE_MD_SECTION_MARKER}\n## MCP Tools: dagayn\n(existing)\n")
 
-        inject_claude_md(tmp_path)
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            inject_claude_md(tmp_path)
 
         content = claude_md.read_text()
         assert content.count(_CLAUDE_MD_SECTION_MARKER) == 1
         assert _MARKDOWN_POLICY_MARKER in content
 
 
+class TestInstructionFilesToModify:
+    def test_claude_preview_uses_global_claude_md(self, tmp_path):
+        from dagayn.cli.commands.init import _instruction_files_to_modify
+
+        with patch("dagayn.cli.commands.init.Path.home", return_value=tmp_path):
+            targets = _instruction_files_to_modify(tmp_path, "claude")
+
+        assert targets == ["~/.claude/CLAUDE.md (new)"]
+
+    def test_codex_preview_uses_global_agents_md(self, tmp_path):
+        from dagayn.cli.commands.init import _instruction_files_to_modify
+
+        with patch("dagayn.cli.commands.init.Path.home", return_value=tmp_path):
+            targets = _instruction_files_to_modify(tmp_path, "codex")
+
+        assert targets == ["~/.codex/AGENTS.md (new)"]
+
+    def test_opencode_preview_uses_global_agents_md(self, tmp_path):
+        from dagayn.cli.commands.init import _instruction_files_to_modify
+
+        with patch("dagayn.cli.commands.init.Path.home", return_value=tmp_path):
+            targets = _instruction_files_to_modify(tmp_path, "opencode")
+
+        assert targets == ["~/.config/opencode/AGENTS.md (new)"]
+
+    def test_all_preview_includes_global_agents_md_targets(self, tmp_path):
+        from dagayn.cli.commands.init import _instruction_files_to_modify
+
+        with patch("dagayn.cli.commands.init.Path.home", return_value=tmp_path):
+            targets = _instruction_files_to_modify(tmp_path, "all")
+
+        assert "~/.codex/AGENTS.md (new)" in targets
+        assert "~/.config/opencode/AGENTS.md (new)" in targets
+
+
 class TestInjectPlatformInstructionsFiltering:
     def test_all_writes_every_file(self, tmp_path):
-        updated = inject_platform_instructions(tmp_path, target="all")
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            updated = inject_platform_instructions(tmp_path, target="all")
         assert set(updated) == {
             "AGENTS.md",
             "GEMINI.md",
@@ -482,9 +532,12 @@ class TestInjectPlatformInstructionsFiltering:
             "QODER.md",
             ".kiro/steering/dagayn.md",
         }
+        assert (tmp_path / ".codex" / "AGENTS.md").exists()
+        assert (tmp_path / ".config" / "opencode" / "AGENTS.md").exists()
 
     def test_default_is_all(self, tmp_path):
-        updated = inject_platform_instructions(tmp_path)
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            updated = inject_platform_instructions(tmp_path)
         assert set(updated) == {
             "AGENTS.md",
             "GEMINI.md",
@@ -493,11 +546,15 @@ class TestInjectPlatformInstructionsFiltering:
             "QODER.md",
             ".kiro/steering/dagayn.md",
         }
+        assert (tmp_path / ".codex" / "AGENTS.md").exists()
+        assert (tmp_path / ".config" / "opencode" / "AGENTS.md").exists()
 
     def test_claude_writes_nothing(self, tmp_path):
         updated = inject_platform_instructions(tmp_path, target="claude")
         assert updated == []
         assert not (tmp_path / "AGENTS.md").exists()
+        assert not (tmp_path / ".codex" / "AGENTS.md").exists()
+        assert not (tmp_path / ".config" / "opencode" / "AGENTS.md").exists()
         assert not (tmp_path / "GEMINI.md").exists()
         assert not (tmp_path / ".cursorrules").exists()
         assert not (tmp_path / ".windsurfrules").exists()
@@ -519,8 +576,22 @@ class TestInjectPlatformInstructionsFiltering:
         assert set(updated) == {"AGENTS.md", "GEMINI.md"}
 
     def test_opencode_writes_only_agents(self, tmp_path):
-        updated = inject_platform_instructions(tmp_path, target="opencode")
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            updated = inject_platform_instructions(tmp_path, target="opencode")
         assert updated == ["AGENTS.md"]
+        assert (tmp_path / ".config" / "opencode" / "AGENTS.md").exists()
+        assert not (tmp_path / "AGENTS.md").exists()
+
+    def test_codex_writes_only_agents(self, tmp_path):
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            updated = inject_platform_instructions(tmp_path, target="codex")
+        assert updated == ["AGENTS.md"]
+        assert (tmp_path / ".codex" / "AGENTS.md").exists()
+        assert not (tmp_path / "AGENTS.md").exists()
+
+    def test_qcoder_alias_writes_only_qoder_md(self, tmp_path):
+        updated = inject_platform_instructions(tmp_path, target="qcoder")
+        assert updated == ["QODER.md"]
 
     def test_qoder_writes_only_qoder_md(self, tmp_path):
         updated = inject_platform_instructions(tmp_path, target="qoder")
@@ -531,17 +602,22 @@ class TestInjectPlatformInstructionsFiltering:
         assert not (tmp_path / ".windsurfrules").exists()
 
     def test_files_contain_markdown_policy(self, tmp_path):
-        inject_platform_instructions(tmp_path, target="all")
-        for filename in ("AGENTS.md", "GEMINI.md", ".cursorrules", ".windsurfrules", "QODER.md"):
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            inject_platform_instructions(tmp_path, target="all")
+        for filename in ("GEMINI.md", ".cursorrules", ".windsurfrules", "QODER.md"):
             content = (tmp_path / filename).read_text()
             assert _MARKDOWN_POLICY_MARKER in content, f"{filename} missing policy marker"
+        assert _MARKDOWN_POLICY_MARKER in (tmp_path / ".codex" / "AGENTS.md").read_text()
+        assert _MARKDOWN_POLICY_MARKER in (tmp_path / ".config" / "opencode" / "AGENTS.md").read_text()
 
     def test_policy_injected_when_only_mcp_section_exists(self, tmp_path):
         """Existing file with only the MCP section gets the policy section on re-run."""
-        agents_md = tmp_path / "AGENTS.md"
+        agents_md = tmp_path / ".config" / "opencode" / "AGENTS.md"
+        agents_md.parent.mkdir(parents=True)
         agents_md.write_text(f"{_CLAUDE_MD_SECTION_MARKER}\n## MCP Tools: dagayn\n(stale)\n")
 
-        updated = inject_platform_instructions(tmp_path, target="opencode")
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            updated = inject_platform_instructions(tmp_path, target="opencode")
 
         assert updated == ["AGENTS.md"]
         content = agents_md.read_text()
@@ -858,6 +934,33 @@ class TestInstallPlatformConfigs:
         expected_cmd, expected_args = _detect_serve_command()
         assert data["mcpServers"]["dagayn"]["command"] == expected_cmd
         assert data["mcpServers"]["dagayn"]["args"] == expected_args
+
+    def test_install_qcoder_alias_config(self, tmp_path):
+        qoder_config = tmp_path / ".qoder" / "mcp.json"
+        with patch.dict(
+            PLATFORMS,
+            {
+                "qoder": {
+                    **PLATFORMS["qoder"],
+                    "config_path": lambda root: qoder_config,
+                    "detect": lambda: True,
+                },
+            },
+        ):
+            configured = install_platform_configs(tmp_path, target="qcoder")
+        assert "Qoder" in configured
+        assert qoder_config.exists()
+
+
+class TestNormalizePlatformTarget:
+    def test_claude_code_alias(self):
+        assert normalize_platform_target("claude-code") == "claude"
+
+    def test_qcoder_alias(self):
+        assert normalize_platform_target("qcoder") == "qoder"
+
+    def test_passthrough(self):
+        assert normalize_platform_target("opencode") == "opencode"
 
 
 class TestCursorHooksConfig:

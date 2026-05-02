@@ -50,6 +50,8 @@ Useful flags:
 - `--dry-run` to preview generated config
 - `--no-skills`, `--no-hooks`, `--no-instructions` to skip optional setup steps
 
+Claude instruction injection writes to `~/.claude/CLAUDE.md`; Codex and OpenCode write global `AGENTS.md` files under `~/.codex/` and `~/.config/opencode/`; repo-local rule files such as `QODER.md` are still written in the workspace when their platforms are selected.
+
 ## Build and refresh the graph
 
 ```bash

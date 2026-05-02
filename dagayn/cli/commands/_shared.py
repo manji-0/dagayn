@@ -17,6 +17,7 @@ _PLATFORM_CHOICES = [
     "qwen",
     "kiro",
     "qoder",
+    "qcoder",
     "all",
 ]
 

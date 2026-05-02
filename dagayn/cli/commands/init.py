@@ -32,7 +32,7 @@ def register_commands(sub: argparse._SubParsersAction) -> dict:
         p.add_argument(
             "--no-instructions",
             action="store_true",
-            help="Skip injecting graph instructions into CLAUDE.md / AGENTS.md / etc.",
+            help="Skip injecting graph instructions into ~/.claude/CLAUDE.md / AGENTS.md / etc.",
         )
         p.add_argument(
             "-y",
@@ -72,32 +72,41 @@ def _instruction_files_to_modify(
         _CLAUDE_MD_SECTION_MARKER,
         _MARKDOWN_POLICY_MARKER,
         _PLATFORM_INSTRUCTION_FILES,
+        _platform_instruction_paths,
+        normalize_platform_target,
     )
 
     def _needs_update(content: str) -> bool:
         return _CLAUDE_MD_SECTION_MARKER not in content or _MARKDOWN_POLICY_MARKER not in content
 
+    target = normalize_platform_target(target)
     targets: list[str] = []
 
     if target in ("claude", "all"):
-        claude_md = repo_root / "CLAUDE.md"
+        claude_md = Path.home() / ".claude" / "CLAUDE.md"
         if claude_md.exists():
             content = claude_md.read_text(encoding="utf-8")
             if _needs_update(content):
-                targets.append("CLAUDE.md (append)")
+                targets.append("~/.claude/CLAUDE.md (append)")
         else:
-            targets.append("CLAUDE.md (new)")
+            targets.append("~/.claude/CLAUDE.md (new)")
 
     for filename, owners in _PLATFORM_INSTRUCTION_FILES.items():
         if target != "all" and target not in owners:
             continue
-        path = repo_root / filename
-        if path.exists():
-            content = path.read_text(encoding="utf-8")
-            if _needs_update(content):
-                targets.append(f"{filename} (append)")
-        else:
-            targets.append(f"{filename} (new)")
+        for path in _platform_instruction_paths(repo_root, filename, target):
+            if path == Path.home() / ".codex" / "AGENTS.md":
+                display_name = "~/.codex/AGENTS.md"
+            elif path == Path.home() / ".config" / "opencode" / "AGENTS.md":
+                display_name = "~/.config/opencode/AGENTS.md"
+            else:
+                display_name = filename
+            if path.exists():
+                content = path.read_text(encoding="utf-8")
+                if _needs_update(content):
+                    targets.append(f"{display_name} (append)")
+            else:
+                targets.append(f"{display_name} (new)")
 
     return targets
 
@@ -105,16 +114,14 @@ def _instruction_files_to_modify(
 def handle(args: argparse.Namespace) -> None:
     """Set up MCP config for detected AI coding platforms."""
     from ...incremental import ensure_repo_gitignore_excludes_crg, find_repo_root
-    from ...skills import install_platform_configs
+    from ...skills import install_platform_configs, normalize_platform_target
 
     repo_root = Path(args.repo) if args.repo else find_repo_root()
     if not repo_root:
         repo_root = Path.cwd()
 
     dry_run = getattr(args, "dry_run", False)
-    target = getattr(args, "platform", "all") or "all"
-    if target == "claude-code":
-        target = "claude"
+    target = normalize_platform_target(getattr(args, "platform", "all") or "all")
     auto_yes = getattr(args, "yes", False)
     skip_instructions = getattr(args, "no_instructions", False)
 
@@ -168,13 +175,14 @@ def handle(args: argparse.Namespace) -> None:
     )
 
     if not skip_skills:
-        skills_dir = generate_skills(repo_root)
-        print(f"Generated skills in {skills_dir}")
-        try:
-            global_skills_dir = install_global_skills()
-            print(f"Installed global skills to {global_skills_dir}")
-        except OSError as e:
-            print(f"Skipped global skills install ({e})", file=sys.stderr)
+        if target in ("all", "claude"):
+            skills_dir = generate_skills(repo_root)
+            print(f"Generated skills in {skills_dir}")
+            try:
+                global_skills_dir = install_global_skills()
+                print(f"Installed global skills to {global_skills_dir}")
+            except OSError as e:
+                print(f"Skipped global skills install ({e})", file=sys.stderr)
 
     # Confirm before writing instruction files (#173). --yes skips the
     # prompt; --no-instructions skips the whole block.

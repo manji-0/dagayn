@@ -123,6 +123,16 @@ PLATFORMS: dict[str, dict[str, Any]] = {
     },
 }
 
+_PLATFORM_ALIASES = {
+    "claude-code": "claude",
+    "qcoder": "qoder",
+}
+
+
+def normalize_platform_target(target: str) -> str:
+    """Return the canonical platform key for CLI/config aliases."""
+    return _PLATFORM_ALIASES.get(target, target)
+
 
 def _in_poetry_project() -> bool:
     """Return True when the running interpreter is a Poetry-managed virtualenv.
@@ -275,6 +285,8 @@ def install_platform_configs(
     Returns:
         List of platform names that were configured.
     """
+    target = normalize_platform_target(target)
+
     if target == "all":
         platforms_to_install = {k: v for k, v in PLATFORMS.items() if v["detect"]()}
         # Workspace-level Kiro detection
@@ -525,6 +537,8 @@ def install_hooks(repo_root: Path, platform: str = "claude") -> None:
         repo_root: Repository root directory.
         platform: Target platform ("claude" or "qoder").
     """
+    platform = normalize_platform_target(platform)
+
     if platform == "qoder":
         settings_dir = repo_root / ".qoder"
     else:
@@ -681,15 +695,16 @@ def _inject_instructions(file_path: Path, marker: str, section: str) -> bool:
     return True
 
 
-def inject_claude_md(repo_root: Path) -> None:
-    """Append MCP tools section and Markdown policy to CLAUDE.md."""
+def inject_claude_md(repo_root: Path | None = None) -> None:
+    """Append MCP tools section and Markdown policy to ``~/.claude/CLAUDE.md``."""
+    claude_md = Path.home() / ".claude" / "CLAUDE.md"
     _inject_instructions(
-        repo_root / "CLAUDE.md",
+        claude_md,
         _CLAUDE_MD_SECTION_MARKER,
         _CLAUDE_MD_SECTION,
     )
     _inject_instructions(
-        repo_root / "CLAUDE.md",
+        claude_md,
         _MARKDOWN_POLICY_MARKER,
         _MARKDOWN_POLICY_SECTION,
     )
@@ -699,13 +714,33 @@ def inject_claude_md(repo_root: Path) -> None:
 # Used to filter writes when the user passes --platform <X>: only files
 # whose owner set includes the target (or "all") are written.
 _PLATFORM_INSTRUCTION_FILES: dict[str, tuple[str, ...]] = {
-    "AGENTS.md": ("cursor", "opencode", "antigravity"),
+    "AGENTS.md": ("codex", "cursor", "opencode", "antigravity"),
     "GEMINI.md": ("antigravity",),
     ".cursorrules": ("cursor",),
     ".windsurfrules": ("windsurf",),
     "QODER.md": ("qoder",),
     ".kiro/steering/dagayn.md": ("kiro",),
 }
+
+
+def _platform_instruction_paths(repo_root: Path, filename: str, target: str) -> list[Path]:
+    """Return the destination path(s) for a platform instruction file."""
+    target = normalize_platform_target(target)
+
+    if filename != "AGENTS.md":
+        return [repo_root / filename]
+
+    if target == "codex":
+        return [Path.home() / ".codex" / "AGENTS.md"]
+    if target == "opencode":
+        return [Path.home() / ".config" / "opencode" / "AGENTS.md"]
+    if target == "all":
+        return [
+            repo_root / "AGENTS.md",
+            Path.home() / ".codex" / "AGENTS.md",
+            Path.home() / ".config" / "opencode" / "AGENTS.md",
+        ]
+    return [repo_root / "AGENTS.md"]
 
 
 def inject_platform_instructions(repo_root: Path, target: str = "all") -> list[str]:
@@ -715,22 +750,23 @@ def inject_platform_instructions(repo_root: Path, target: str = "all") -> list[s
     depending on ``target``:
 
     - ``"all"`` (default): writes every file — matches pre-filter behavior.
-    - ``"claude"``: writes nothing (CLAUDE.md is handled by ``inject_claude_md``).
+    - ``"claude"``: writes nothing (``~/.claude/CLAUDE.md`` is handled by ``inject_claude_md``).
     - any other platform key (``cursor``, ``windsurf``, ``antigravity``,
       ``opencode``): writes only the files associated with that platform.
 
     Returns list of filenames that were created or updated.
     """
+    target = normalize_platform_target(target)
     updated: list[str] = []
     for filename, owners in _PLATFORM_INSTRUCTION_FILES.items():
         if target != "all" and target not in owners:
             continue
-        path = repo_root / filename
         changed = False
-        if _inject_instructions(path, _CLAUDE_MD_SECTION_MARKER, _CLAUDE_MD_SECTION):
-            changed = True
-        if _inject_instructions(path, _MARKDOWN_POLICY_MARKER, _MARKDOWN_POLICY_SECTION):
-            changed = True
+        for path in _platform_instruction_paths(repo_root, filename, target):
+            if _inject_instructions(path, _CLAUDE_MD_SECTION_MARKER, _CLAUDE_MD_SECTION):
+                changed = True
+            if _inject_instructions(path, _MARKDOWN_POLICY_MARKER, _MARKDOWN_POLICY_SECTION):
+                changed = True
         if changed:
             updated.append(filename)
     return updated
