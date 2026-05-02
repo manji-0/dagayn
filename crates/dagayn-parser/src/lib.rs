@@ -1581,7 +1581,7 @@ fn python_walk_children(
     node: tree_sitter::Node<'_>,
     context: &PythonParseContext<'_>,
     enclosing_class: Option<&str>,
-    enclosing_func: Option<&str>,
+    enclosing_qualified: Option<&str>,
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
@@ -1645,7 +1645,7 @@ fn python_walk_children(
                     edges.push(ParsedEdge {
                         kind: "CONTAINS".to_string(),
                         source: container,
-                        target: qualified,
+                        target: qualified.clone(),
                         file_path: context.file_path.to_string(),
                         line: child.start_position().row as i64 + 1,
                         extra: json!({}),
@@ -1654,7 +1654,7 @@ fn python_walk_children(
                         child,
                         context,
                         enclosing_class,
-                        Some(&name),
+                        Some(&qualified),
                         nodes,
                         edges,
                     );
@@ -1680,21 +1680,19 @@ fn python_walk_children(
             }
             "call" => {
                 if let Some(call_name) = python_call_name(child, context.source) {
-                    let caller = enclosing_func
-                        .map(|name| qualify(context.file_path, name, enclosing_class))
-                        .unwrap_or_else(|| context.file_path.to_string());
+                    let caller = enclosing_qualified.unwrap_or(context.file_path);
                     let target = python_resolve_imported_call_target(&call_name, context)
                         .unwrap_or_else(|| call_name.clone());
                     edges.push(ParsedEdge {
                         kind: "CALLS".to_string(),
-                        source: caller.clone(),
+                        source: caller.to_string(),
                         target,
                         file_path: context.file_path.to_string(),
                         line: child.start_position().row as i64 + 1,
                         extra: json!({}),
                     });
                     if let Some(edge) =
-                        python_bridge_edge(child, context.source, context.file_path, &caller)
+                        python_bridge_edge(child, context.source, context.file_path, caller)
                     {
                         edges.push(edge);
                     }
@@ -1704,8 +1702,7 @@ fn python_walk_children(
                 python_emit_value_references(
                     child,
                     context,
-                    enclosing_class,
-                    enclosing_func,
+                    enclosing_qualified.unwrap_or(context.file_path),
                     edges,
                 );
             }
@@ -1715,7 +1712,7 @@ fn python_walk_children(
             child,
             context,
             enclosing_class,
-            enclosing_func,
+            enclosing_qualified,
             nodes,
             edges,
         );
@@ -1725,18 +1722,14 @@ fn python_walk_children(
 fn python_emit_value_references(
     node: tree_sitter::Node<'_>,
     context: &PythonParseContext<'_>,
-    enclosing_class: Option<&str>,
-    enclosing_func: Option<&str>,
+    caller: &str,
     edges: &mut Vec<ParsedEdge>,
 ) {
-    let caller = enclosing_func
-        .map(|name| qualify(context.file_path, name, enclosing_class))
-        .unwrap_or_else(|| context.file_path.to_string());
     match node.kind() {
         "pair" => {
             if let Some(value_node) = python_last_value_child(node) {
                 if value_node.kind() == "identifier" {
-                    python_emit_reference_if_known(value_node, context, &caller, edges);
+                    python_emit_reference_if_known(value_node, context, caller, edges);
                 }
             }
         }
@@ -1749,7 +1742,7 @@ fn python_emit_value_references(
             }
             if let Some(rhs) = python_last_value_child(node) {
                 if rhs.kind() == "identifier" {
-                    python_emit_reference_if_known(rhs, context, &caller, edges);
+                    python_emit_reference_if_known(rhs, context, caller, edges);
                 }
             }
         }
@@ -1757,7 +1750,7 @@ fn python_emit_value_references(
             let mut cursor = node.walk();
             for child in node.children(&mut cursor) {
                 if child.kind() == "identifier" {
-                    python_emit_reference_if_known(child, context, &caller, edges);
+                    python_emit_reference_if_known(child, context, caller, edges);
                 }
             }
         }
