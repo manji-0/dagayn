@@ -20,8 +20,6 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_DAGAYN_GIT_URL = "git+https://github.com/manji-0/dagayn.git"
-
 # --- Multi-platform MCP install ---
 
 
@@ -186,8 +184,8 @@ def _detect_serve_command() -> tuple[str, list[str]]:
     2. **uv project** – ``UV_PROJECT_ENVIRONMENT`` is set, or a ``uv.lock``
        ancestor is found alongside ``sys.executable``, and ``uv`` is on PATH
        → ``uv run dagayn serve``
-    3. **uvx** – ``uvx`` is available on PATH (existing behaviour, unchanged)
-       → ``uvx --from git+https://github.com/manji-0/dagayn.git dagayn serve``
+    3. **uvx** – ``uvx`` is available on PATH
+       → ``uvx dagayn serve``
     4. **Fallback** – use the absolute path of the running Python interpreter
        → ``sys.executable -m dagayn serve``
 
@@ -207,9 +205,9 @@ def _detect_serve_command() -> tuple[str, list[str]]:
         if uv:
             return ("uv", ["run", "dagayn", "serve"])
 
-    # 3. uvx global tool runner (existing behaviour, unchanged)
+    # 3. uvx global tool runner
     if shutil.which("uvx"):
-        return ("uvx", ["--from", _DAGAYN_GIT_URL, "dagayn", "serve"])
+        return ("uvx", ["dagayn", "serve"])
 
     # 4. Absolute-path fallback using the running interpreter
     return (sys.executable, ["-m", "dagayn", "serve"])

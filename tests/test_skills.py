@@ -749,8 +749,7 @@ class TestInstallPlatformConfigs:
                 [
                     "[mcp_servers.dagayn]",
                     'command = "uvx"',
-                    'args = ["--from", "git+https://github.com/manji-0/dagayn.git",'
-                    ' "dagayn", "serve"]',
+                    'args = ["dagayn", "serve"]',
                     'type = "stdio"',
                     "",
                 ]
@@ -950,13 +949,12 @@ class TestInstallPlatformConfigs:
     def test_continue_array_no_duplicate(self, tmp_path):
         config_path = tmp_path / ".continue" / "config.json"
         config_path.parent.mkdir(parents=True)
-        _git_url = "git+https://github.com/manji-0/dagayn.git"
         existing = {
             "mcpServers": [
                 {
                     "name": "dagayn",
                     "command": "uvx",
-                    "args": ["--from", _git_url, "dagayn", "serve"],
+                    "args": ["dagayn", "serve"],
                 }
             ]
         }
@@ -1392,7 +1390,7 @@ class TestDetectServeCommand:
         assert args == ["run", "dagayn", "serve"]
 
     def test_uvx_fallback(self, monkeypatch):
-        """Not in Poetry/uv but uvx available → use uvx (original behaviour)."""
+        """Not in Poetry/uv but uvx available -> use uvx."""
         monkeypatch.delenv("POETRY_ACTIVE", raising=False)
         monkeypatch.delenv("VIRTUAL_ENV", raising=False)
         monkeypatch.delenv("UV_PROJECT_ENVIRONMENT", raising=False)
@@ -1403,7 +1401,7 @@ class TestDetectServeCommand:
         )
         cmd, args = _detect_serve_command()
         assert cmd == "uvx"
-        assert args == ["--from", "git+https://github.com/manji-0/dagayn.git", "dagayn", "serve"]
+        assert args == ["dagayn", "serve"]
 
     def test_sys_executable_fallback(self, monkeypatch):
         """Nothing else available → fall back to sys.executable -m."""
