@@ -20,7 +20,7 @@ import networkx as nx
 
 from ..constants import BFS_ENGINE, MAX_IMPACT_DEPTH, MAX_IMPACT_NODES
 from ..migrations import get_schema_version, run_migrations
-from ..parser import EdgeInfo, NodeInfo
+from ..parser._base.types import EdgeInfo, NodeInfo
 from .helpers import _sanitize_name, edge_to_dict, node_to_dict  # noqa: F401
 from .types import FlowAdjacency, GraphEdge, GraphNode, GraphStats
 

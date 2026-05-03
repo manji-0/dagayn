@@ -9,6 +9,7 @@ from __future__ import annotations
 import concurrent.futures
 import fnmatch
 import hashlib
+import importlib
 import importlib.util
 import json
 import logging
@@ -20,7 +21,8 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Optional
 
 from .graph import GraphStore
-from .parser import CodeParser, EdgeInfo, NodeInfo
+from .parser import CodeParser
+from .parser._base.types import EdgeInfo, NodeInfo
 from .parser.dispatch import detect_language as _detect_parser_language
 
 _MAX_PARSE_WORKERS = int(os.environ.get("CRG_PARSE_WORKERS", str(min(os.cpu_count() or 4, 8))))
@@ -52,8 +54,10 @@ def _run_rescript_resolver(store: GraphStore) -> Optional[dict]:
         # relevant post-processing slice moves across as a coarse operation.
         return None
     try:
-        from .rescript_resolver import resolve_rescript_cross_module
-
+        resolve_rescript_cross_module = importlib.import_module(
+            ".rescript_resolver",
+            __package__,
+        ).resolve_rescript_cross_module
         return resolve_rescript_cross_module(store)
     except Exception as exc:  # noqa: BLE001 - best-effort post-pass
         logger.warning("ReScript cross-module resolver failed: %s", exc)

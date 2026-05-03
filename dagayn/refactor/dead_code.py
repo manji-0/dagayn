@@ -117,6 +117,64 @@ def _is_plausible_caller(
     return False
 
 
+def _survives_dead_code_node_filters(
+    node: Any,
+    type_ref_names: set[str],
+    class_bases: dict[str, list[str]],
+) -> bool:
+    if node.is_test or _is_test_file(node.file_path):
+        return False
+    if node.file_path.endswith(".d.ts"):
+        return False
+    if node.name.startswith("__") and node.name.endswith("__"):
+        return False
+    if node.name == "constructor" and node.parent_name:
+        return False
+    if _is_entry_point(node):
+        return False
+    if node.kind == "Class" and node.name in type_ref_names:
+        return False
+    if node.kind == "Class" and _has_framework_decorator(node):
+        return False
+
+    check_qn = (
+        node.qualified_name
+        if node.kind == "Class"
+        else (node.qualified_name.rsplit(".", 1)[0] if node.parent_name else None)
+    )
+    is_framework_class = bool(
+        check_qn and set(class_bases.get(check_qn, [])) & _FRAMEWORK_BASE_CLASSES
+    )
+    if node.kind == "Class":
+        if is_framework_class:
+            return False
+        if any(node.name.endswith(s) for s in _CDK_CLASS_SUFFIXES):
+            return False
+    if node.kind == "Function" and is_framework_class:
+        return False
+    if (
+        node.kind == "Function"
+        and node.parent_name
+        and any(node.parent_name.endswith(s) for s in _CDK_CLASS_SUFFIXES)
+    ):
+        return False
+
+    decorators = node.extra.get("decorators", ())
+    if isinstance(decorators, (list, tuple)) and decorators:
+        if node.kind in ("Function", "Test"):
+            if any(
+                d in ("property", "abstractmethod", "classmethod", "staticmethod")
+                or d.endswith(".abstractmethod")
+                or d.startswith("HostListener")
+                for d in decorators
+            ):
+                return False
+        if node.kind == "Class" and any("dataclass" in d for d in decorators):
+            return False
+
+    return True
+
+
 def find_dead_code(
     store: GraphStore,
     kind: Optional[str] = None,
@@ -185,59 +243,8 @@ def find_dead_code(
     # ---------------------------------------------------------------------------
     surviving: list[Any] = []
     for node in candidates:
-        if node.is_test or _is_test_file(node.file_path):
-            continue
-        if node.file_path.endswith(".d.ts"):
-            continue
-        if node.name.startswith("__") and node.name.endswith("__"):
-            continue
-        if node.name == "constructor" and node.parent_name:
-            continue
-        if _is_entry_point(node):
-            continue
-        if node.kind == "Class" and node.name in type_ref_names:
-            continue
-        if node.kind == "Class" and _has_framework_decorator(node):
-            continue
-
-        # Framework-class check: use preloaded class_bases instead of SQL
-        _check_qn = (
-            node.qualified_name
-            if node.kind == "Class"
-            else (node.qualified_name.rsplit(".", 1)[0] if node.parent_name else None)
-        )
-        _is_framework_class = bool(
-            _check_qn and set(class_bases.get(_check_qn, [])) & _FRAMEWORK_BASE_CLASSES
-        )
-        if node.kind == "Class":
-            if _is_framework_class:
-                continue
-            if any(node.name.endswith(s) for s in _CDK_CLASS_SUFFIXES):
-                continue
-        if node.kind == "Function" and _is_framework_class:
-            continue
-        if (
-            node.kind == "Function"
-            and node.parent_name
-            and any(node.parent_name.endswith(s) for s in _CDK_CLASS_SUFFIXES)
-        ):
-            continue
-
-        decorators = node.extra.get("decorators", ())
-        if isinstance(decorators, (list, tuple)) and decorators:
-            if node.kind in ("Function", "Test"):
-                if any(
-                    d in ("property", "abstractmethod", "classmethod", "staticmethod")
-                    or d.endswith(".abstractmethod")
-                    or d.startswith("HostListener")
-                    for d in decorators
-                ):
-                    continue
-            if node.kind == "Class":
-                if any("dataclass" in d for d in decorators):
-                    continue
-
-        surviving.append(node)
+        if _survives_dead_code_node_filters(node, type_ref_names, class_bases):
+            surviving.append(node)
 
     # ---------------------------------------------------------------------------
     # Batch preloads for the main analysis pass

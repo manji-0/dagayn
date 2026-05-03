@@ -10,8 +10,11 @@ import logging
 from pathlib import Path
 from typing import Optional
 
+import dagayn.parser.node_shape as node_shape
+import dagayn.parser.refs as refs
+import dagayn.parser.resolver as resolver
+
 from ..tsconfig_resolver import TsconfigResolver
-from . import bridges, dispatch, grammars, node_shape, refs, resolver
 from ._base.test_detection import (
     _TEST_RUNNER_NAMES,
 )
@@ -23,7 +26,9 @@ from ._base.test_detection import (
 )
 from ._base.types import EdgeInfo, NodeInfo
 from ._constants import _CALL_TYPES, _CLASS_TYPES, _FUNCTION_TYPES, _IMPORT_TYPES
-from .bridges import _BRIDGE_PATTERNS
+from .bridges import _BRIDGE_PATTERNS, detect_cross_language_bridge
+from .dispatch import detect_language as _detect_language
+from .grammars import get_parser as _get_parser
 from .languages import SPECIAL_HANDLERS as _SPECIAL_HANDLERS
 from .languages import julia as _julia_lang
 from .languages import markdown as _markdown_lang
@@ -49,10 +54,10 @@ class CodeParser:
         self._dart_pubspec_cache: dict[tuple[str, str], Optional[Path]] = {}
 
     def _get_parser(self, language: str):
-        return grammars.get_parser(language, self._parsers)
+        return _get_parser(language, self._parsers)
 
     def detect_language(self, path: Path) -> Optional[str]:
-        return dispatch.detect_language(path)
+        return _detect_language(path)
 
     def parse_file(self, path: Path) -> tuple[list[NodeInfo], list[EdgeInfo]]:
         """Parse a single file and return extracted nodes and edges."""
@@ -1184,7 +1189,7 @@ class CodeParser:
         file_path: str,
         caller: str,
     ) -> list[EdgeInfo]:
-        return bridges.detect_cross_language_bridge(call_node, language, file_path, caller)
+        return detect_cross_language_bridge(call_node, language, file_path, caller)
 
     def _extract_solidity_constructs(
         self,
