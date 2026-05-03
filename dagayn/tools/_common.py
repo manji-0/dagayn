@@ -13,7 +13,6 @@ from typing import Any
 from ..graph import GraphStore
 from ..incremental import (
     _backend_selection,
-    _rust_backend_enabled,
     _rust_backend_explicitly_requested,
     find_project_root,
     get_db_path,
@@ -338,24 +337,24 @@ def _get_store(
 def _selected_graph_store(*, use_backend_default: bool = True) -> type:
     """Return the graph store selected by DAGAYN_BACKEND.
 
-    The Rust backend is the default for write-heavy tool flows. If the Rust
-    extension is absent and the user did not explicitly request it, fall back
-    to the Python store so source checkouts remain usable before a native build.
+    The Rust backend is the default for write-heavy tool flows. Source
+    checkouts without the native extension must opt into the Python backend
+    explicitly with ``DAGAYN_BACKEND=python``.
     """
     if _backend_selection() != "rust":
         return GraphStore
     if not use_backend_default and not _rust_backend_explicitly_requested():
         return GraphStore
-    if not _rust_backend_enabled():
-        return GraphStore
     try:
         from dagayn._core import GraphStore as RustGraphStore
 
         return RustGraphStore
-    except ImportError:
-        if _rust_backend_explicitly_requested():
-            raise
-        return GraphStore
+    except ImportError as exc:
+        raise RuntimeError(
+            "DAGAYN_BACKEND=rust requires dagayn._core. "
+            "Install a wheel with the native extension, rebuild from source, "
+            "or set DAGAYN_BACKEND=python explicitly."
+        ) from exc
 
 
 def _hints_from_next_tool_suggestions(

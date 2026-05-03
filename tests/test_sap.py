@@ -273,3 +273,27 @@ def test_file_scope_kind(tmp_path):
     s.commit()
     metrics = compute_sap_metrics(s, scope_kind="file")
     assert any(m["scope_key"] == "src/a.java" for m in metrics)
+
+
+def test_isolated_scopes_not_flagged_as_violations(tmp_path):
+    """Isolated scopes (Ca=0, Ce=0) should not appear in violations even
+    though their distance is 1.0. They have no dependencies so they cannot
+    violate SAP."""
+    s = GraphStore(tmp_path / "iso_viol.db")
+    # Isolated package: no incoming or outgoing deps
+    s.upsert_node(_node("File", "alone/a.java", "alone/a.java"))
+    s.upsert_node(_node("Class", "Solo", "alone/a.java", extra={"type_role": "class"}))
+    # Another isolated package with an abstract class
+    s.upsert_node(_node("File", "ghost/g.java", "ghost/g.java"))
+    s.upsert_node(
+        _node("Class", "IGhost", "ghost/g.java", extra={"type_role": "interface"})
+    )
+    s.commit()
+    # Both have D=1.0 but should NOT be violations
+    violations = find_sap_violations(s, min_distance=0.5)
+    assert violations == []
+    # compute_sap_metrics should still return them (full data)
+    metrics = compute_sap_metrics(s, scope_kind="package")
+    assert any(m["scope_key"] == "alone" for m in metrics)
+    assert any(m["scope_key"] == "ghost" for m in metrics)
+    assert all(m["ca"] + m["ce"] == 0 for m in metrics)

@@ -23,7 +23,7 @@ If the repository moved on disk, rebuild so stored metadata matches the current 
 
 Ensure `docs/LLM-OPTIMIZED-REFERENCE.md` exists in the repo or installed package layout.
 
-## `DAGAYN_BACKEND=rust` says `dagayn._core` is missing
+## `dagayn._core` is missing
 
 <!-- derived-from ./USAGE.md#use-the-rust-backend -->
 
@@ -37,6 +37,9 @@ pip install git+https://github.com/manji-0/dagayn.git
 ```bash
 uv tool install --from git+https://github.com/manji-0/dagayn.git dagayn
 ```
+
+For a source checkout without the native extension, set
+`DAGAYN_BACKEND=python` explicitly to use the Python compatibility backend.
 
 ```bash
 uvx --from git+https://github.com/manji-0/dagayn.git dagayn --help

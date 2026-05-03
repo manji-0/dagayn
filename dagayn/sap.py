@@ -173,6 +173,10 @@ def find_sap_violations(
         store,
         scope_kind=scope_kind,
     )
-    violations = [m for m in metrics if m["distance"] > min_distance]
+    violations = [
+        m
+        for m in metrics
+        if m["distance"] > min_distance and m["ca"] + m["ce"] > 0
+    ]
     violations.sort(key=lambda x: x["distance"], reverse=True)
     return violations

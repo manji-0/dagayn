@@ -1,6 +1,7 @@
 """Tests for MCP tool functions."""
 
 import tempfile
+import sys
 from pathlib import Path
 
 import pytest
@@ -1055,20 +1056,21 @@ class TestBuildPostprocess:
 
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def test_selected_graph_store_falls_back_when_default_rust_unavailable(self, monkeypatch):
-        from dagayn.graph import GraphStore
+    def test_selected_graph_store_requires_rust_extension_by_default(self, monkeypatch):
         from dagayn.tools import _common
 
         monkeypatch.delenv("DAGAYN_BACKEND", raising=False)
-        monkeypatch.setattr(_common, "_rust_backend_enabled", lambda: False)
+        monkeypatch.setitem(sys.modules, "dagayn._core", None)
 
-        assert _common._selected_graph_store(use_backend_default=True) is GraphStore
+        with pytest.raises(RuntimeError, match="requires dagayn._core"):
+            _common._selected_graph_store(use_backend_default=True)
 
-    def test_postprocess_none_produces_nodes_no_flows(self):
+    def test_postprocess_none_produces_nodes_no_flows(self, monkeypatch):
         from unittest.mock import patch
 
         from dagayn.tools.build import build_or_update_graph
 
+        monkeypatch.setenv("DAGAYN_BACKEND", "python")
         with patch(
             "dagayn.incremental.get_all_tracked_files",
             return_value=["sample.py"],
@@ -1085,11 +1087,12 @@ class TestBuildPostprocess:
         assert "communities_detected" not in result
         assert "fts_indexed" not in result
 
-    def test_postprocess_minimal_has_fts_no_flows(self):
+    def test_postprocess_minimal_has_fts_no_flows(self, monkeypatch):
         from unittest.mock import patch
 
         from dagayn.tools.build import build_or_update_graph
 
+        monkeypatch.setenv("DAGAYN_BACKEND", "python")
         with patch(
             "dagayn.incremental.get_all_tracked_files",
             return_value=["sample.py"],
@@ -1124,11 +1127,21 @@ class TestBuildPostprocess:
         assert selected is store
         assert should_close is False
 
-    def test_postprocess_full_matches_default(self):
+    def test_postprocess_full_does_not_reopen_python_store_for_rust(self):
+        from dagayn.tools.build import _postprocess_store
+
+        class FakeRustStore:
+            pass
+
+        with pytest.raises(RuntimeError, match="Rust post-processing requires"):
+            _postprocess_store(FakeRustStore(), self.root, "full")
+
+    def test_postprocess_full_matches_default(self, monkeypatch):
         from unittest.mock import patch
 
         from dagayn.tools.build import build_or_update_graph
 
+        monkeypatch.setenv("DAGAYN_BACKEND", "python")
         with patch(
             "dagayn.incremental.get_all_tracked_files",
             return_value=["sample.py"],

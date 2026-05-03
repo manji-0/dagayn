@@ -267,8 +267,8 @@ Initial scaffold:
   Rust backend exposes the required signature, FTS, and Markdown resolver
   methods. Full rebuild post-processing now keeps flow tracing, community
   detection, and summary generation on the Rust store when the required Rust
-  read/write methods are available; remaining Python-store fallback is retained
-  for incremental community detection and incomplete Rust surfaces.
+  read/write methods are available. Missing Rust post-processing surfaces now
+  fail clearly instead of reopening the Python store implicitly.
 - Full rebuild community detection can now read from the Rust store and persist
   through Rust's `store_communities_json` API while the detection heuristics
   remain in Python. Incremental community detection now uses Rust's
@@ -603,12 +603,11 @@ Parser migration progress:
 - Markdown artifact reference resolution now routes through
   `dagayn._core.GraphStore.resolve_markdown_artifact_refs` when available.
   The Rust path rewrites exactly one matching non-Markdown target to HIGH
-  confidence and deletes unmatched or ambiguous placeholder edges, matching the
-  Python fallback policy.
+  confidence and deletes unmatched or ambiguous placeholder edges.
 - Summary table computation now routes through
   `dagayn._core.GraphStore.compute_summaries` when available, covering
   community summaries, flow snapshots, and risk index rows with the same
-  batched aggregate strategy as the Python fallback.
+  batched aggregate strategy as the Python compatibility backend.
 - Flow tracing can now run against the Rust store for full rebuilds while the
   tracing heuristics remain in Python. The traced flow dictionaries are stored
   through `dagayn._core.GraphStore.store_flows_json`, so the flow persistence

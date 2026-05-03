@@ -73,19 +73,20 @@ Use `build` the first time, `update` for change-driven refreshes, and `watch` du
 
 <!-- constrained-by ./RUST-CORE-MIGRATION-WIP.md -->
 
-The Python backend is still the default. Set `DAGAYN_BACKEND=rust` to use the
-Rust-backed graph store and Rust-owned parser paths for Markdown, Terraform,
+The Rust backend is the default. It uses the Rust-backed graph store and
+Rust-owned parser paths for Markdown, Terraform,
 Rust, Python/notebooks, Bash/Go/Java/Ruby/C#/PHP/Kotlin/Swift/Scala/Solidity/Dart/Lua/Luau/C/C headers/Perl XS/C++/Objective-C/Elixir/GDScript/R/Julia/Perl/Vue/Svelte/Zig/PowerShell/ReScript, extensionless shebang scripts for supported scripting languages, and core JavaScript/JSX/TypeScript/TSX/Astro files:
 
 ```bash
-DAGAYN_BACKEND=rust dagayn build
-DAGAYN_BACKEND=rust dagayn update
+dagayn build
+dagayn update
 ```
 
-With `uvx`, pass the same environment variable:
+Source checkouts without `dagayn._core` fail clearly instead of falling back
+implicitly. To use the Python compatibility backend, set:
 
 ```bash
-DAGAYN_BACKEND=rust uvx --from dagayn dagayn build
+DAGAYN_BACKEND=python dagayn build
 ```
 
 ## Review changes

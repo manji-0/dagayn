@@ -708,7 +708,10 @@ def collect_all_files(
 
             return collect_parseable_files(repo_root, recurse_submodules)
         except (ImportError, RuntimeError, TypeError, ValueError) as exc:
-            logger.warning("Rust file discovery unavailable, falling back to Python: %s", exc)
+            raise RuntimeError(
+                "Rust file discovery requires dagayn._core. "
+                "Set DAGAYN_BACKEND=python explicitly to use Python discovery."
+            ) from exc
 
     ignore_patterns = _load_ignore_patterns(repo_root)
     parser = CodeParser()
@@ -959,10 +962,10 @@ def _filter_incremental_candidates(
                 ignore_patterns,
             )
         except (ImportError, RuntimeError, TypeError, ValueError) as exc:
-            logger.warning(
-                "Rust incremental candidate filtering unavailable, falling back: %s",
-                exc,
-            )
+            raise RuntimeError(
+                "Rust incremental candidate filtering requires dagayn._core. "
+                "Set DAGAYN_BACKEND=python explicitly to use Python filtering."
+            ) from exc
 
     existing_files: list[str] = []
     removed_files: list[str] = []
@@ -1136,9 +1139,7 @@ def _rust_backend_available() -> bool:
 
 
 def _rust_backend_enabled() -> bool:
-    if _backend_selection() != "rust":
-        return False
-    return _rust_backend_explicitly_requested() or _rust_backend_available()
+    return _backend_selection() == "rust"
 
 
 def _rust_parser_backend_enabled(store: GraphStore | None = None) -> bool:
@@ -1352,13 +1353,9 @@ def _parse_with_rust_if_enabled(
         ValueError,
         json.JSONDecodeError,
     ) as exc:
-        logger.warning(
-            "Rust %s parser unavailable for %s, falling back: %s",
-            parser_name,
-            rel_path,
-            exc,
-        )
-        return None
+        raise RuntimeError(
+            f"Rust {parser_name} parser unavailable for {rel_path}: {exc}"
+        ) from exc
 
 
 def _queue_store_file(

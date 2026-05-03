@@ -17,7 +17,7 @@ Expected cross-package coupling:
 Expected SAP values:
   api:    Na=2, Nt=2, A=1.0  Ca=1, Ce=0, I=0.0  D=0.0  (main sequence)
   impl:   Na=1, Nt=2, A=0.5  Ca=0, Ce=1, I=1.0  D=0.5
-  domain: Na=0, Nt=1, A=0.0  Ca=0, Ce=0, I=0.0  D=1.0  (Zone of Pain — isolated)
+  domain: Na=0, Nt=1, A=0.0  Ca=0, Ce=0, I=0.0  D=1.0  (isolated — not a violation)
 """
 
 from __future__ import annotations
@@ -270,11 +270,15 @@ class TestSapMetrics:
 
 
 class TestSapViolations:
-    def test_domain_flagged_as_zone_of_pain(self, java_store):
-        """domain/ has D=1.0, should appear in violations at default threshold."""
-        violations = find_sap_violations(java_store, min_distance=0.5)
+    def test_domain_not_flagged_as_zone_of_pain(self, java_store):
+        """domain/ has D=1.0 but Ca=0, Ce=0 (isolated) — should NOT appear in
+        violations. Isolated scopes cannot violate SAP because they have no
+        dependencies."""
+        violations = find_sap_violations(java_store, min_distance=0.4)
         flagged = {v["scope_key"] for v in violations}
-        assert _scope("domain") in flagged
+        assert _scope("domain") not in flagged
+        # impl should be flagged (D=0.5, Ce=1)
+        assert _scope("impl") in flagged
 
     def test_api_not_flagged_as_violation(self, java_store):
         """api/ has D=0.0, should not appear in violations."""

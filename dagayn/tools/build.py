@@ -7,7 +7,7 @@ import sqlite3
 import time
 from typing import Any
 
-from ..incremental import full_build, get_db_path, incremental_update
+from ..incremental import full_build, incremental_update
 from ._common import _evict_store_cache, _get_store
 
 logger = logging.getLogger(__name__)
@@ -65,20 +65,16 @@ def _can_detect_incremental_communities(store: Any) -> bool:
 
 
 def _postprocess_store(store: Any, root: Any, postprocess: str):
-    """Return a Python GraphStore for post-processing when needed.
-
-    Full incremental community detection still needs Python-only connection
-    access. Minimal post-processing can stay on the Rust store once the Rust
-    methods cover all minimal steps.
-    """
+    """Return the store used for post-processing."""
     if hasattr(store, "_conn"):
         return store, False
     if postprocess == "minimal" and _can_run_minimal_postprocess(store):
         return store, False
-
-    from ..graph.core import GraphStore as PythonGraphStore
-
-    return PythonGraphStore(get_db_path(root)), True
+    raise RuntimeError(
+        "Rust post-processing requires dagayn._core support for the requested "
+        "postprocess level. Set DAGAYN_BACKEND=python explicitly to use the "
+        "Python compatibility backend."
+    )
 
 
 def _run_postprocess(
@@ -546,6 +542,20 @@ def build_or_update_graph(
             can_detect_rust_communities = (
                 full_rebuild and _can_detect_full_communities(store)
             ) or (not full_rebuild and _can_detect_incremental_communities(store))
+            missing = []
+            if not can_trace_rust_flows:
+                missing.append("flow tracing")
+            if not can_detect_rust_communities:
+                missing.append("community detection")
+            if not can_compute_rust_summaries:
+                missing.append("summary computation")
+            if missing:
+                raise RuntimeError(
+                    "Rust post-processing is missing support for "
+                    + ", ".join(missing)
+                    + ". Set DAGAYN_BACKEND=python explicitly to use the Python "
+                    "compatibility backend."
+                )
             warnings = _run_postprocess(
                 store,
                 build_result,
@@ -592,49 +602,25 @@ def build_or_update_graph(
                     logger.warning("Community detection failed: %s", e)
                     warnings.append(f"Community detection failed: {type(e).__name__}: {e}")
 
-            needs_python_fallback = not (
-                can_trace_rust_flows and can_detect_rust_communities and can_compute_rust_summaries
-            )
-            if needs_python_fallback:
-                pp_store, close_pp_store = _postprocess_store(store, root, postprocess)
-                try:
-                    warnings.extend(
-                        _run_postprocess(
-                            pp_store,
-                            build_result,
-                            postprocess,
-                            full_rebuild=full_rebuild,
-                            changed_files=changed,
-                            skip_minimal_steps=True,
-                            skip_flow_steps=can_trace_rust_flows,
-                            skip_community_steps=can_detect_rust_communities,
-                            skip_summary_steps=can_compute_rust_summaries,
-                        )
-                    )
-                finally:
-                    if close_pp_store:
-                        pp_store.close()
-            if can_compute_rust_summaries:
-                try:
-                    _compute_summaries(store)
-                    build_result["summaries_computed"] = True
-                except (sqlite3.OperationalError, RuntimeError, Exception) as e:
-                    logger.warning("Summary computation failed: %s", e)
-                    warnings.append(f"Summary computation failed: {type(e).__name__}: {e}")
-            if not needs_python_fallback:
-                warnings.extend(
-                    _run_postprocess(
-                        store,
-                        build_result,
-                        postprocess,
-                        full_rebuild=full_rebuild,
-                        changed_files=changed,
-                        skip_minimal_steps=True,
-                        skip_flow_steps=True,
-                        skip_community_steps=True,
-                        skip_summary_steps=True,
-                    )
+            try:
+                _compute_summaries(store)
+                build_result["summaries_computed"] = True
+            except (sqlite3.OperationalError, RuntimeError, Exception) as e:
+                logger.warning("Summary computation failed: %s", e)
+                warnings.append(f"Summary computation failed: {type(e).__name__}: {e}")
+            warnings.extend(
+                _run_postprocess(
+                    store,
+                    build_result,
+                    postprocess,
+                    full_rebuild=full_rebuild,
+                    changed_files=changed,
+                    skip_minimal_steps=True,
+                    skip_flow_steps=True,
+                    skip_community_steps=True,
+                    skip_summary_steps=True,
                 )
+            )
         else:
             pp_store, close_pp_store = _postprocess_store(store, root, postprocess)
             try:

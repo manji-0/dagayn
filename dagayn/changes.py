@@ -351,8 +351,8 @@ def analyze_changes(
     if callable(rust_analyze):
         try:
             return json.loads(rust_analyze(changed_files, json.dumps(changed_ranges or {})))
-        except (RuntimeError, ValueError, TypeError, json.JSONDecodeError):
-            logger.debug("Rust change analysis failed; falling back to Python", exc_info=True)
+        except (RuntimeError, ValueError, TypeError, json.JSONDecodeError) as exc:
+            raise RuntimeError("Rust change analysis failed") from exc
 
     # Map changes to nodes.
     if changed_ranges:
