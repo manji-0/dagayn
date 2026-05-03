@@ -285,9 +285,7 @@ def test_isolated_scopes_not_flagged_as_violations(tmp_path):
     s.upsert_node(_node("Class", "Solo", "alone/a.java", extra={"type_role": "class"}))
     # Another isolated package with an abstract class
     s.upsert_node(_node("File", "ghost/g.java", "ghost/g.java"))
-    s.upsert_node(
-        _node("Class", "IGhost", "ghost/g.java", extra={"type_role": "interface"})
-    )
+    s.upsert_node(_node("Class", "IGhost", "ghost/g.java", extra={"type_role": "interface"}))
     s.commit()
     # Both have D=1.0 but should NOT be violations
     violations = find_sap_violations(s, min_distance=0.5)

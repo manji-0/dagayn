@@ -1353,9 +1353,7 @@ def _parse_with_rust_if_enabled(
         ValueError,
         json.JSONDecodeError,
     ) as exc:
-        raise RuntimeError(
-            f"Rust {parser_name} parser unavailable for {rel_path}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Rust {parser_name} parser unavailable for {rel_path}: {exc}") from exc
 
 
 def _queue_store_file(
