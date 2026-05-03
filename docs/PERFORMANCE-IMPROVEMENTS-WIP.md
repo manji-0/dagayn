@@ -2,6 +2,8 @@
 
 <!-- constrained-by ./ARCHITECTURE.md -->
 <!-- constrained-by ./SCHEMA.md -->
+<!-- constrained-by ./RUST-CORE-MIGRATION-WIP.md -->
+<!-- constrained-by ./DAEMON-CONFIG.md -->
 
 > **Status:** Implementation in progress — multiple items shipped, others still tracked. Last updated 2026-04-30.
 >

@@ -1,8 +1,8 @@
 # Commands and surfaces
 
-<!-- constrained-by ./ARCHITECTURE.md -->
-
 ## CLI commands
+
+<!-- constrained-by ./ARCHITECTURE.md -->
 
 ### Core graph lifecycle
 
@@ -41,6 +41,8 @@ Graphviz / DOT is not a built-in export target. Jupyter / Databricks notebooks a
 
 ## MCP tools
 
+<!-- constrained-by ./ARCHITECTURE.md#query-surfaces -->
+
 The MCP server exposes tools for:
 
 - graph build and post-processing
@@ -69,6 +71,8 @@ Representative tool names include:
 - `cross_repo_search`
 
 ## MCP prompts
+
+<!-- constrained-by ./ARCHITECTURE.md#pipeline-overview -->
 
 The fork ships prompt surfaces for:
 

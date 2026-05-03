@@ -6,6 +6,8 @@
 
 ## Core capabilities
 
+<!-- derived-from ./ARCHITECTURE.md -->
+
 - full and incremental graph builds
 - repo-root-relative graph registration for dagayn workflows
 - local SQLite storage
@@ -17,11 +19,15 @@
 
 ## Languages and formats the fork emphasizes
 
+<!-- derived-from ./ARCHITECTURE.md#parsing-model -->
+
 - application languages such as Python, TypeScript, JavaScript, Go, Rust, Java, C#, Ruby, PHP, Kotlin, Swift, Scala, Dart, and more
 - repo-adjacent assets such as Markdown, Jupyter notebooks, and Databricks notebook sources/exports
 - Terraform as a first-class graph source
 
 ## Notable fork-specific additions
+
+<!-- derived-from ./ARCHITECTURE.md#parsing-model -->
 
 - commit-pinned Terraform grammar support fetched from the fork at build/test/runtime
 - Markdown heading, reference, and directive extraction
@@ -29,6 +35,8 @@
 - updated CI stack using `ruff` and `ty`
 
 ## Operational strengths
+
+<!-- derived-from ./ARCHITECTURE.md#storage-model -->
 
 - no external database required
 - works well in terminal-oriented AI workflows

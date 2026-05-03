@@ -1,5 +1,11 @@
 # dagayn documentation index
 
+<!-- constrained-by ./USAGE.md -->
+<!-- constrained-by ./COMMANDS.md -->
+<!-- constrained-by ./ARCHITECTURE.md -->
+<!-- constrained-by ./SCHEMA.md -->
+<!-- constrained-by ./FEATURES.md -->
+
 This directory documents the fork as `dagayn`.
 
 ## Core references

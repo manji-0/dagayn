@@ -4,6 +4,8 @@
 
 ## Install the package
 
+<!-- derived-from #install-the-package -->
+
 ```bash
 pip install dagayn
 ```
@@ -40,6 +42,8 @@ prebuilt wheel is available for your platform.
 
 ## Register MCP integration
 
+<!-- constrained-by ./DAEMON-CONFIG.md -->
+
 ```bash
 dagayn install
 ```
@@ -54,6 +58,8 @@ Claude instruction injection writes to `~/.claude/CLAUDE.md`; Codex and OpenCode
 
 ## Build and refresh the graph
 
+<!-- constrained-by ./ARCHITECTURE.md#pipeline-overview -->
+
 ```bash
 dagayn build
 dagayn update
@@ -64,6 +70,8 @@ dagayn status
 Use `build` the first time, `update` for change-driven refreshes, and `watch` during active development.
 
 ## Use the Rust backend
+
+<!-- constrained-by ./RUST-CORE-MIGRATION-WIP.md -->
 
 The Python backend is still the default. Set `DAGAYN_BACKEND=rust` to use the
 Rust-backed graph store and Rust-owned parser paths for Markdown, Terraform,
@@ -82,6 +90,8 @@ DAGAYN_BACKEND=rust uvx --from dagayn dagayn build
 
 ## Review changes
 
+<!-- constrained-by ./ARCHITECTURE.md#pipeline-overview -->
+
 ```bash
 dagayn detect-changes --base HEAD~1
 ```
@@ -97,6 +107,8 @@ dagayn serve
 By default the server runs over stdio. Use the HTTP flags if you explicitly need local HTTP transport.
 
 ## Visualize or export the graph
+
+<!-- constrained-by ./ARCHITECTURE.md#post-processing -->
 
 ```bash
 dagayn visualize --serve
@@ -119,6 +131,8 @@ Notes:
 - `svg` export requires matplotlib, available via `dagayn[eval]`
 
 ## Multi-repo workflows
+
+<!-- constrained-by ./DAEMON-CONFIG.md -->
 
 ```bash
 dagayn register /path/to/repo --alias app

@@ -1,5 +1,8 @@
 # dagayn agent guide
 
+<!-- constrained-by ./docs/USAGE.md -->
+<!-- constrained-by ./docs/COMMANDS.md -->
+
 This repository ships `dagayn`, a fork of `code-review-graph` with extra emphasis on Terraform, Markdown, and mixed-language monorepos.
 
 ## How agents should work with this repo

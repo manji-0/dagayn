@@ -4,6 +4,8 @@
 
 ## Purpose
 
+<!-- derived-from ./ARCHITECTURE.md#parsing-model -->
+
 dagayn uses fork-specific Tree-sitter grammars for language support that is more opinionated than the generic upstream language-pack path.
 
 The current provisioned grammars are:
@@ -44,6 +46,8 @@ The current provisioned grammars are:
 
 ## Provisioning model
 
+<!-- derived-from ./ARCHITECTURE.md#parsing-model -->
+
 Grammar source trees are **not** stored as tracked vendor directories in this repository.
 
 Instead, dagayn:
@@ -68,6 +72,8 @@ sources after installation.
 
 ## Cache behavior
 
+<!-- derived-from ./ARCHITECTURE.md#storage-model -->
+
 The default grammar cache lives under the user cache directory for the current platform.
 
 An explicit override is supported with:
@@ -79,6 +85,8 @@ DAGAYN_GRAMMAR_CACHE_DIR=/custom/cache/path
 The cache key includes the pinned commit, so changing the pin yields a separate cached tree.
 
 ## Pinned source contract
+
+<!-- derived-from ./ARCHITECTURE.md#parsing-model -->
 
 Each grammar pin must identify:
 
@@ -95,11 +103,15 @@ JavaScript/JSX, TypeScript/TSX, Astro, Bash, Go, Java, Ruby, C#, PHP, Kotlin, Sw
 
 ## Operational expectations
 
+<!-- derived-from ./ARCHITECTURE.md#storage-model -->
+
 - builds should remain reproducible because the grammar revision is pinned
 - CI should be able to prefetch grammars explicitly
 - parser initialization may trigger fetch/build the first time a pinned grammar is needed
 
 ## Related design concerns
+
+<!-- derived-from ./ARCHITECTURE.md#storage-model -->
 
 - cache invalidation must be commit-based, not mutable-branch-based
 - docs should describe dagayn behavior, not assume upstream code-review-graph vendor layout

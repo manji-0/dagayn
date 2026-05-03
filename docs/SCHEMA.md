@@ -4,6 +4,8 @@
 
 ## Nodes
 
+<!-- derived-from ./ARCHITECTURE.md#storage-model -->
+
 Core node kinds include:
 
 - `File`
@@ -15,6 +17,8 @@ Core node kinds include:
 Nodes store file path, qualified name, language, line range, and an `extra` payload for format-specific metadata.
 
 ## Edges
+
+<!-- derived-from ./ARCHITECTURE.md#parsing-model -->
 
 Edge kinds include:
 
@@ -32,9 +36,13 @@ The fork also stores confidence-related metadata and graph relationships used by
 
 ## Metadata
 
+<!-- derived-from ./ARCHITECTURE.md#storage-model -->
+
 The metadata table tracks graph-level state such as build timing, VCS information, and repo root information needed for path normalization.
 
 ## Derived structures
+
+<!-- derived-from ./ARCHITECTURE.md#post-processing -->
 
 Post-processing may populate additional tables for:
 

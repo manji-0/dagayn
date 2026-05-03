@@ -1,12 +1,14 @@
 # Troubleshooting
 
-<!-- derived-from ./USAGE.md -->
-
 ## `dagayn install` did not touch my editor
+
+<!-- derived-from ./USAGE.md#register-mcp-integration -->
 
 Run with `--dry-run` first and confirm the platform was detected. Some integrations are repo-level and only activate when their config directories already exist.
 
 ## The graph is empty or stale
+
+<!-- derived-from ./USAGE.md#build-and-refresh-the-graph -->
 
 Start with:
 
@@ -22,6 +24,8 @@ If the repository moved on disk, rebuild so stored metadata matches the current 
 Ensure `docs/LLM-OPTIMIZED-REFERENCE.md` exists in the repo or installed package layout.
 
 ## `DAGAYN_BACKEND=rust` says `dagayn._core` is missing
+
+<!-- derived-from ./USAGE.md#use-the-rust-backend -->
 
 Install a wheel that includes the Rust extension, or rebuild from source with a
 Rust toolchain and C compiler available:
@@ -59,5 +63,7 @@ ty check dagayn --python-version 3.13 --ignore unresolved-import
 Bandit may log informational warnings while still exiting successfully. The repository config decides which rules are enforced.
 
 ## Notebook cell indexes look wrong
+
+<!-- derived-from ./ARCHITECTURE.md#parsing-model -->
 
 Rebuild after notebook fixture or formatting changes. The parser now tags cells by span overlap to stay stable when line endings shift.

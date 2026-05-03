@@ -4,6 +4,8 @@
 
 ## Purpose
 
+<!-- derived-from ./COMMANDS.md#multi-repo-management -->
+
 dagayn supports multi-repo workflows through:
 
 - a JSON registry of known repositories
@@ -12,6 +14,8 @@ dagayn supports multi-repo workflows through:
 This document describes those local file contracts.
 
 ## Registry file
+
+<!-- derived-from ./COMMANDS.md#multi-repo-management -->
 
 The repository registry lives at:
 
@@ -39,6 +43,8 @@ Rules:
 - registration accepts repositories containing either `.git` or `.dagayn`
 
 ## Watch daemon config
+
+<!-- derived-from ./COMMANDS.md#multi-repo-management -->
 
 The watch daemon config lives at:
 
@@ -81,6 +87,8 @@ Validation rules:
 - duplicate aliases are skipped
 
 ## Runtime state files
+
+<!-- derived-from ./COMMANDS.md#multi-repo-management -->
 
 Additional local state files live under `~/.dagayn/`:
 

@@ -1,5 +1,8 @@
 # Terraform grammar integration plan
 
+<!-- constrained-by ../GRAMMAR-PROVISIONING.md -->
+<!-- constrained-by ../ARCHITECTURE.md -->
+
 ## Goal
 
 Document the fork-specific plan for Terraform support through a dedicated grammar path rather than relying only on generic language packs.

@@ -1,6 +1,7 @@
 # Refactoring a codebase by reading its graph, not its files
 
 <!-- derived-from ./ARCHITECTURE.md -->
+<!-- constrained-by ./RUST-CORE-MIGRATION-WIP.md -->
 
 > **Snapshot:** This is a static case study captured during the cohesion refactoring effort (2026). The code paths described reflect the repository state at that time.
 

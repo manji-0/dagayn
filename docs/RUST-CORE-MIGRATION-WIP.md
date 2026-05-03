@@ -1,6 +1,8 @@
 # Rust core migration specification
 
 <!-- constrained-by ./ARCHITECTURE.md -->
+<!-- constrained-by ./GRAMMAR-PROVISIONING.md -->
+<!-- constrained-by ./CROSS-ARTIFACT-EDGES-WIP.md -->
 
 > **Status:** Work in progress — core decisions frozen as of 2026-04-26. Phase 0 complete as of 2026-04-27. Phase 1 (Rust graph engine) started with the initial Rust workspace and PyO3 graph-store scaffold.
 
