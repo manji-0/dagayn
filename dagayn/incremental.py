@@ -9,6 +9,7 @@ from __future__ import annotations
 import concurrent.futures
 import fnmatch
 import hashlib
+import importlib.util
 import json
 import logging
 import os
@@ -25,6 +26,7 @@ from .parser.dispatch import detect_language as _detect_parser_language
 _MAX_PARSE_WORKERS = int(os.environ.get("CRG_PARSE_WORKERS", str(min(os.cpu_count() or 4, 8))))
 _STORE_BATCH_SIZE = int(os.environ.get("DAGAYN_STORE_BATCH_SIZE", "128"))
 _RUST_PARSE_BATCH_SIZE = int(os.environ.get("DAGAYN_RUST_PARSE_BATCH_SIZE", "500"))
+_DEFAULT_BACKEND = "rust"
 
 StoreBatch = list[tuple[str, list[Any], list[Any], str, int]]
 
@@ -696,10 +698,7 @@ def collect_all_files(
         recurse_submodules: If True, include files from git submodules.
             When *None*, falls back to ``CRG_RECURSE_SUBMODULES`` env var.
     """
-    if (
-        os.environ.get("DAGAYN_BACKEND", "python").strip().lower() == "rust"
-        and detect_vcs(repo_root) != "svn"
-    ):
+    if _rust_backend_enabled() and detect_vcs(repo_root) != "svn":
         try:
             from dagayn._core import collect_parseable_files
 
@@ -1120,8 +1119,33 @@ def _uses_compact_entities(nodes: list[Any], edges: list[Any]) -> bool:
     return _is_compact_entities(nodes) or _is_compact_entities(edges)
 
 
+def _backend_selection() -> str:
+    return os.environ.get("DAGAYN_BACKEND", _DEFAULT_BACKEND).strip().lower()
+
+
+def _rust_backend_explicitly_requested() -> bool:
+    return os.environ.get("DAGAYN_BACKEND", "").strip().lower() == "rust"
+
+
+def _rust_backend_available() -> bool:
+    return importlib.util.find_spec("dagayn._core") is not None
+
+
 def _rust_backend_enabled() -> bool:
-    return os.environ.get("DAGAYN_BACKEND", "python").strip().lower() == "rust"
+    if _backend_selection() != "rust":
+        return False
+    return _rust_backend_explicitly_requested() or _rust_backend_available()
+
+
+def _rust_parser_backend_enabled(store: GraphStore | None = None) -> bool:
+    if not _rust_backend_enabled():
+        return False
+    if store is None:
+        return True
+    return (
+        _callable_store_attr(store, "store_rust_owned_files") is not None
+        or _callable_store_attr(store, "store_file_batch_json") is not None
+    )
 
 
 def _rust_parser_owns_path(rel_path: str, repo_root: Path | None = None) -> bool:
@@ -1202,8 +1226,9 @@ def _rust_parser_owns_path(rel_path: str, repo_root: Path | None = None) -> bool
 def _split_rust_parser_files(
     rel_paths: list[str],
     repo_root: Path | None = None,
+    store: GraphStore | None = None,
 ) -> tuple[list[str], list[str]]:
-    if not _rust_backend_enabled():
+    if not _rust_parser_backend_enabled(store):
         return [], rel_paths
     rust_files: list[str] = []
     python_files: list[str] = []
@@ -1380,7 +1405,7 @@ def full_build(
 
     with _StoreBulkLoad(store):
         use_serial = os.environ.get("CRG_SERIAL_PARSE", "") == "1"
-        rust_files, python_files = _split_rust_parser_files(files, repo_root)
+        rust_files, python_files = _split_rust_parser_files(files, repo_root, store)
         if rust_files:
             rust_nodes, rust_edges, rust_errors = _store_rust_parse_batches(
                 repo_root,
@@ -1502,6 +1527,7 @@ def incremental_update(
     rust_changed_candidates, python_changed_candidates = _split_rust_parser_files(
         changed_candidates,
         repo_root,
+        store,
     )
     content_changed_files: set[str] = set()
     rust_content_changed_files: set[str] = set()
@@ -1558,7 +1584,7 @@ def incremental_update(
 
     file_meta = _get_file_meta_for_candidates(store, candidates)
 
-    rust_candidates, python_candidates = _split_rust_parser_files(candidates, repo_root)
+    rust_candidates, python_candidates = _split_rust_parser_files(candidates, repo_root, store)
     to_parse_rust_forced: list[str] = []
     to_parse_rust_checked: list[str] = []
     to_parse: list[tuple[str, int]] = []

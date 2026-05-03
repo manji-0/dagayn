@@ -10,7 +10,13 @@ from pathlib import Path
 
 import pytest
 
-from dagayn.incremental import _split_rust_parser_files, full_build, incremental_update
+from dagayn.graph import GraphStore
+from dagayn.incremental import (
+    _rust_backend_enabled,
+    _split_rust_parser_files,
+    full_build,
+    incremental_update,
+)
 from dagayn.parser import CodeParser
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
@@ -27,6 +33,41 @@ RUST_OWNED_PARITY_FIXTURES = [
     "notebook",
     "mixed",
 ]
+
+
+def test_rust_backend_is_default_when_extension_is_available(monkeypatch):
+    """DAGAYN_BACKEND defaults to Rust when the native extension can be loaded."""
+    monkeypatch.delenv("DAGAYN_BACKEND", raising=False)
+    monkeypatch.setattr("dagayn.incremental._rust_backend_available", lambda: True)
+
+    assert _rust_backend_enabled() is True
+
+
+def test_python_backend_can_be_forced(monkeypatch):
+    monkeypatch.setenv("DAGAYN_BACKEND", "python")
+    monkeypatch.setattr("dagayn.incremental._rust_backend_available", lambda: True)
+
+    assert _rust_backend_enabled() is False
+
+
+def test_python_store_uses_python_parser_when_rust_is_default(tmp_path, monkeypatch):
+    """Direct Python GraphStore callers keep the Python parser path."""
+    monkeypatch.delenv("DAGAYN_BACKEND", raising=False)
+    monkeypatch.setattr("dagayn.incremental._rust_backend_available", lambda: True)
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    (repo / "main.py").write_text("def hello():\n    return 1\n", encoding="utf-8")
+
+    store = GraphStore(repo / ".dagayn" / "graph.db")
+    try:
+        result = full_build(repo, store)
+    finally:
+        store.close()
+
+    assert result["errors"] == []
+    assert result["files_parsed"] == 1
 
 
 def _copy_fixture(source: Path, dest: Path) -> None:

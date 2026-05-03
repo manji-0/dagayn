@@ -11,7 +11,13 @@ from pathlib import Path
 from typing import Any
 
 from ..graph import GraphStore
-from ..incremental import find_project_root, get_db_path
+from ..incremental import (
+    _backend_selection,
+    _rust_backend_enabled,
+    _rust_backend_explicitly_requested,
+    find_project_root,
+    get_db_path,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -278,13 +284,17 @@ def _get_store(
     repo_root: str | None = None,
     *,
     cached: bool = True,
+    use_backend_default: bool = False,
 ) -> tuple[GraphStore, Path]:
     """Resolve repo root and return a (possibly cached) graph store."""
     root = _validate_repo_root(Path(repo_root)) if repo_root else find_project_root()
     db_path = get_db_path(root)
+    store_cls = _selected_graph_store(use_backend_default=use_backend_default)
+    if store_cls is not GraphStore:
+        return store_cls(db_path), root
 
     if not cached or _cache_disabled():
-        store = GraphStore(db_path)
+        store = store_cls(db_path)
         store._leases = 1  # caller holds the only lease; close() will close
         return store, root
 
@@ -294,7 +304,7 @@ def _get_store(
         # First-time use: nothing to cache yet, fall back to a fresh
         # transient store.  The next call will populate the cache once
         # the DB has been created.
-        store = GraphStore(db_path)
+        store = store_cls(db_path)
         store._leases = 1
         return store, root
 
@@ -318,11 +328,34 @@ def _get_store(
             # else: last close() will _force_close when _leases reaches 0.
             _store_cache.pop(db_path, None)
 
-        store = GraphStore(db_path)
+        store = store_cls(db_path)
         store._pinned = True
         store._leases = 1  # set inside the lock before inserting into cache
         _store_cache[db_path] = (store, mtime)
     return store, root
+
+
+def _selected_graph_store(*, use_backend_default: bool = True) -> type:
+    """Return the graph store selected by DAGAYN_BACKEND.
+
+    The Rust backend is the default for write-heavy tool flows. If the Rust
+    extension is absent and the user did not explicitly request it, fall back
+    to the Python store so source checkouts remain usable before a native build.
+    """
+    if _backend_selection() != "rust":
+        return GraphStore
+    if not use_backend_default and not _rust_backend_explicitly_requested():
+        return GraphStore
+    if not _rust_backend_enabled():
+        return GraphStore
+    try:
+        from dagayn._core import GraphStore as RustGraphStore
+
+        return RustGraphStore
+    except ImportError:
+        if _rust_backend_explicitly_requested():
+            raise
+        return GraphStore
 
 
 def _hints_from_next_tool_suggestions(

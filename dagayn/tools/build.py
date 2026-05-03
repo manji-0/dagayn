@@ -487,7 +487,7 @@ def build_or_update_graph(
     # Build/update is a write workload — opt out of the read-only store
     # cache so we don't hold a stale connection open across mutations.
     _evict_store_cache()
-    store, root = _get_store(repo_root, cached=False)
+    store, root = _get_store(repo_root, cached=False, use_backend_default=True)
     try:
         if full_rebuild:
             result = full_build(root, store, recurse_submodules)
