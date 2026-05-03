@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "dagayn"
-version = "2.3.10"
+version = "2.3.11"
 description = "Fork of code-review-graph with first-class Terraform support powered by treesitter-tf"
 readme = "README.md"
 license = "MIT"
