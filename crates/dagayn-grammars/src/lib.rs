@@ -38,7 +38,6 @@ extern "C" {
     fn tree_sitter_zig() -> *const ();
     fn tree_sitter_powershell() -> *const ();
     fn tree_sitter_swift() -> *const ();
-    fn tree_sitter_rescript() -> *const ();
 }
 
 pub const MARKDOWN_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_markdown) };
@@ -73,7 +72,6 @@ pub const SVELTE_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitte
 pub const ZIG_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_zig) };
 pub const POWERSHELL_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_powershell) };
 pub const SWIFT_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_swift) };
-pub const RESCRIPT_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_rescript) };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GrammarStatus {
@@ -210,10 +208,6 @@ pub fn powershell_language() -> tree_sitter::Language {
 
 pub fn swift_language() -> tree_sitter::Language {
     SWIFT_LANGUAGE.into()
-}
-
-pub fn rescript_language() -> tree_sitter::Language {
-    RESCRIPT_LANGUAGE.into()
 }
 
 #[cfg(test)]
@@ -622,18 +616,6 @@ mod tests {
                 None,
             )
             .expect("parse Swift");
-        assert!(!tree.root_node().has_error());
-    }
-
-    #[test]
-    fn loads_rescript_language() {
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&rescript_language())
-            .expect("load pinned ReScript grammar");
-        let tree = parser
-            .parse("module User = { let make = name => {name} }\n", None)
-            .expect("parse ReScript");
         assert!(!tree.root_node().has_error());
     }
 }

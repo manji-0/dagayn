@@ -37,7 +37,6 @@ pub(super) enum RustOwnedPathKind {
     Svelte,
     Zig,
     PowerShell,
-    ReScript,
     Swift,
     Unsupported,
 }
@@ -137,10 +136,6 @@ pub(super) fn rust_owned_path_kind(file_path: &str) -> RustOwnedPathKind {
         || ends_with_ascii_ignore_case(file_path, ".psd1")
     {
         RustOwnedPathKind::PowerShell
-    } else if ends_with_ascii_ignore_case(file_path, ".res")
-        || ends_with_ascii_ignore_case(file_path, ".resi")
-    {
-        RustOwnedPathKind::ReScript
     } else if ends_with_ascii_ignore_case(file_path, ".swift") {
         RustOwnedPathKind::Swift
     } else {

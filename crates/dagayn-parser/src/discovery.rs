@@ -55,8 +55,6 @@ static EXTENSION_TO_LANGUAGE: LazyLock<HashMap<&'static str, &'static str>> = La
         (".psd1", "powershell"),
         (".svelte", "svelte"),
         (".jl", "julia"),
-        (".res", "rescript"),
-        (".resi", "rescript"),
         (".gd", "gdscript"),
         (".tf", "terraform"),
         (".tfvars", "terraform"),

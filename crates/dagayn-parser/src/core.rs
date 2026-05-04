@@ -56,10 +56,6 @@ mod php;
 mod python;
 #[path = "r.rs"]
 mod r;
-#[path = "rescript.rs"]
-mod rescript;
-#[path = "rescript_legacy.rs"]
-mod rescript_legacy;
 #[path = "ruby.rs"]
 mod ruby;
 #[path = "rust_lang.rs"]
@@ -130,7 +126,6 @@ pub struct RustOwnedParser {
     zig_parser: Option<tree_sitter::Parser>,
     powershell_parser: Option<tree_sitter::Parser>,
     swift_parser: Option<tree_sitter::Parser>,
-    rescript_parser: Option<tree_sitter::Parser>,
     javascript_export_cache: js_modules::JavaScriptExportCache,
     javascript_module_cache: js_modules::JavaScriptModuleCache,
     javascript_tsconfig_cache: js_modules::JavaScriptTsconfigCache,
@@ -171,7 +166,6 @@ impl RustOwnedParser {
             zig_parser: None,
             powershell_parser: None,
             swift_parser: None,
-            rescript_parser: None,
             javascript_export_cache: Default::default(),
             javascript_module_cache: Default::default(),
             javascript_tsconfig_cache: Default::default(),
@@ -406,14 +400,6 @@ impl RustOwnedParser {
                     self.powershell_parser.as_mut(),
                 )
             }
-            RustOwnedPathKind::ReScript => {
-                ensure_parser(&mut self.rescript_parser, new_rescript_parser);
-                rescript::parse_rescript_with_parser(
-                    file_path,
-                    source,
-                    self.rescript_parser.as_mut(),
-                )
-            }
             RustOwnedPathKind::Swift => {
                 ensure_parser(&mut self.swift_parser, new_swift_parser);
                 swift::parse_swift_with_parser(file_path, source, self.swift_parser.as_mut())
@@ -528,11 +514,6 @@ pub fn parse_powershell(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec
 pub fn parse_swift(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let mut parser = new_swift_parser();
     swift::parse_swift_with_parser(file_path, source, parser.as_mut())
-}
-
-pub fn parse_rescript(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
-    let mut parser = new_rescript_parser();
-    rescript::parse_rescript_with_parser(file_path, source, parser.as_mut())
 }
 
 fn add_tested_by_edges(nodes: &[ParsedNode], edges: &mut Vec<ParsedEdge>) {
@@ -796,7 +777,6 @@ pub fn parse_rust_owned_file(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>
         RustOwnedPathKind::Svelte => parse_svelte(file_path, source),
         RustOwnedPathKind::Zig => parse_zig(file_path, source),
         RustOwnedPathKind::PowerShell => parse_powershell(file_path, source),
-        RustOwnedPathKind::ReScript => parse_rescript(file_path, source),
         RustOwnedPathKind::Swift => parse_swift(file_path, source),
         RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
     }

@@ -198,7 +198,7 @@ dagayn status
 
 The Rust-backed graph store and Rust-owned parser paths are the default for
 Markdown, Terraform, Rust, Python/notebooks, and
-Bash/Go/Java/Ruby/C#/PHP/Kotlin/Swift/Scala/Solidity/Dart/Lua/Luau/C/C headers/Perl XS/C++/Objective-C/Elixir/GDScript/R/Julia/Perl/Vue/Svelte/Zig/PowerShell/ReScript, extensionless shebang scripts for supported scripting languages, plus core JavaScript/JSX/TypeScript/TSX and Astro files:
+Bash/Go/Java/Ruby/C#/PHP/Kotlin/Swift/Scala/Solidity/Dart/Lua/Luau/C/C headers/Perl XS/C++/Objective-C/Elixir/GDScript/R/Julia/Perl/Vue/Svelte/Zig/PowerShell, extensionless shebang scripts for supported scripting languages, plus core JavaScript/JSX/TypeScript/TSX and Astro files:
 
 ```bash
 dagayn build

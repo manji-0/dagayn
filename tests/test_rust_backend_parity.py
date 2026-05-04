@@ -174,8 +174,6 @@ def test_rust_backend_routes_databricks_py_exports(tmp_path, monkeypatch):
         "sample.pl",
         "sample_bridge_perl.pl",
         "sample_vue.vue",
-        "sample.res",
-        "sample.resi",
         "sample.xs",
         "sample.swift",
         "sample_bridge_swift.swift",

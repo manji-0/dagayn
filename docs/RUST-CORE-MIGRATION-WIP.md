@@ -585,10 +585,6 @@ Parser migration progress:
   The Rust-owned parser routes `.ps1`, `.psm1`, and `.psd1` files through
   tree-sitter-powershell while preserving the current Python File-node-only
   graph contract.
-- ReScript grammar sources are now pinned through the same provisioning path.
-  The Rust-owned parser routes `.res` and `.resi` files through
-  tree-sitter-rescript, with the previous regex extractor retained only as a
-  fallback when the grammar is unavailable or returns a parse error.
 - Extensionless shebang scripts for supported scripting languages now stay in
   the Rust batch path. Source-aware ownership preserves extension precedence and
   routes bash/sh/zsh/ksh, Python, JavaScript, Ruby, Perl, Lua, R, and PHP
@@ -667,7 +663,7 @@ Parity acceptance:
 
 Deliverable: `dagayn-parser` and `dagayn-grammars` replacing Python `parser.py` (7 572 lines).
 
-Language introduction order: Markdown → Terraform → Rust → Python/notebooks → TypeScript/JS/TSX/JSX/Astro → Bash → Go → Java → Ruby → C# → PHP → Kotlin → Swift → Scala → Solidity → Dart → Lua → Luau → C/C headers/Perl XS → C++ → Objective-C → Elixir → GDScript → R → Julia → Perl → Vue → Svelte → Zig → PowerShell → ReScript, with remaining Python-owned language extractors moving only after parity is explicit.
+Language introduction order: Markdown → Terraform → Rust → Python/notebooks → TypeScript/JS/TSX/JSX/Astro → Bash → Go → Java → Ruby → C# → PHP → Kotlin → Swift → Scala → Solidity → Dart → Lua → Luau → C/C headers/Perl XS → C++ → Objective-C → Elixir → GDScript → R → Julia → Perl → Vue → Svelte → Zig → PowerShell, with remaining Python-owned language extractors moving only after parity is explicit.
 
 Grammar provisioning: `dagayn-grammars/build.rs` fetches pinned grammar archives and compiles them via `cc`. Cache behavior and the `DAGAYN_GRAMMAR_CACHE_DIR` env variable must match the contract in `docs/GRAMMAR-PROVISIONING.md`.
 

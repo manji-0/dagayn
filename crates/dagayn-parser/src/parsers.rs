@@ -372,15 +372,3 @@ pub(super) fn new_swift_parser() -> Option<tree_sitter::Parser> {
         None
     }
 }
-
-pub(super) fn new_rescript_parser() -> Option<tree_sitter::Parser> {
-    let mut parser = tree_sitter::Parser::new();
-    if parser
-        .set_language(&dagayn_grammars::rescript_language())
-        .is_ok()
-    {
-        Some(parser)
-    } else {
-        None
-    }
-}
