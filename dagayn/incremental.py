@@ -706,7 +706,11 @@ def collect_all_files(
         try:
             from dagayn._core import collect_parseable_files
 
-            return collect_parseable_files(repo_root, recurse_submodules)
+            rust_files = collect_parseable_files(repo_root, recurse_submodules)
+            return _merge_unique(
+                rust_files,
+                _collect_python_only_files(repo_root, recurse_submodules),
+            )
         except (ImportError, RuntimeError, TypeError, ValueError) as exc:
             raise RuntimeError(
                 "Rust file discovery requires dagayn._core. "
@@ -738,6 +742,43 @@ def collect_all_files(
             continue
         files.append(rel_path)
 
+    return files
+
+
+def _merge_unique(primary: list[str], secondary: list[str]) -> list[str]:
+    merged = list(primary)
+    seen = set(primary)
+    for rel_path in secondary:
+        if rel_path not in seen:
+            merged.append(rel_path)
+            seen.add(rel_path)
+    return merged
+
+
+def _collect_python_only_files(
+    repo_root: Path,
+    recurse_submodules: bool | None = None,
+) -> list[str]:
+    """Collect languages still handled only by the Python parser."""
+    ignore_patterns = _load_ignore_patterns(repo_root)
+    tracked = get_all_tracked_files(repo_root, recurse_submodules)
+    if tracked:
+        candidates = tracked
+    else:
+        candidates = [str(p.relative_to(repo_root)) for p in repo_root.rglob("*") if p.is_file()]
+
+    files: list[str] = []
+    for rel_path in candidates:
+        if not rel_path.lower().endswith((".res", ".resi")):
+            continue
+        if _should_ignore(rel_path, ignore_patterns):
+            continue
+        full_path = repo_root / rel_path
+        if not full_path.is_file() or full_path.is_symlink():
+            continue
+        if _is_binary(full_path):
+            continue
+        files.append(rel_path)
     return files
 
 
@@ -1208,8 +1249,6 @@ def _rust_parser_owns_path(rel_path: str, repo_root: Path | None = None) -> bool
             ".ps1",
             ".psm1",
             ".psd1",
-            ".res",
-            ".resi",
             ".swift",
         )
     ):

@@ -14,6 +14,7 @@ from dagayn.graph import GraphStore
 from dagayn.incremental import (
     _rust_backend_enabled,
     _split_rust_parser_files,
+    collect_all_files,
     full_build,
     incremental_update,
 )
@@ -327,6 +328,26 @@ def test_rust_backend_routes_extensionless_shebang_files(tmp_path, monkeypatch):
 
     assert rust_files == ["bin/deploy"]
     assert python_files == ["README"]
+
+
+def test_rust_backend_keeps_rescript_on_python_parser(tmp_path, monkeypatch):
+    """ReScript remains Python-owned after Rust ReScript support was removed."""
+    monkeypatch.setenv("DAGAYN_BACKEND", "rust")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    (repo / "LogicUtils.res").write_text("let safeParse = (s) => s\n", encoding="utf-8")
+    (repo / "LogicUtils.resi").write_text("let safeParse: string => string\n", encoding="utf-8")
+
+    files = collect_all_files(repo)
+    rust_files, python_files = _split_rust_parser_files(files, repo)
+
+    assert "LogicUtils.res" in files
+    assert "LogicUtils.resi" in files
+    assert "LogicUtils.res" not in rust_files
+    assert "LogicUtils.resi" not in rust_files
+    assert "LogicUtils.res" in python_files
+    assert "LogicUtils.resi" in python_files
 
 
 def test_rust_owned_svelte_parser_matches_python_parser(tmp_path):
