@@ -414,10 +414,10 @@ def export_svg(store: GraphStore, output_path: Path) -> Path:
     Returns the path to the written file.
     """
     try:
-        import matplotlib
+        import matplotlib  # ty: ignore[unresolved-import]
 
         matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
+        import matplotlib.pyplot as plt  # ty: ignore[unresolved-import]
     except ImportError:
         raise ImportError(
             "matplotlib is required for SVG export. Install with: pip install matplotlib"

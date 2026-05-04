@@ -79,11 +79,12 @@ class _FallbackFastMCP:
 
 
 try:
-    from fastmcp import FastMCP
+    from fastmcp import FastMCP as _ImportedFastMCP
 
+    FastMCP: Any = _ImportedFastMCP
     _FASTMCP_IMPORT_ERROR: BaseException | None = None
 except (ImportError, TypeError) as exc:
-    FastMCP = _FallbackFastMCP  # type: ignore[assignment]
+    FastMCP = _FallbackFastMCP
     _FASTMCP_IMPORT_ERROR = exc
 
 # NOTE: Thread-safe for stdio MCP (single-threaded). If adding HTTP/SSE

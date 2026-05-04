@@ -52,7 +52,7 @@ def register_command(sub: argparse._SubParsersAction) -> argparse.ArgumentParser
 
 def _import_profiler() -> type | None:
     try:
-        from pyinstrument import Profiler  # type: ignore[import-untyped]
+        from pyinstrument import Profiler  # ty: ignore[unresolved-import]
     except ImportError:
         return None
     return Profiler
