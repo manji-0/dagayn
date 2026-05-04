@@ -10,21 +10,27 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sqlite3
 import threading
 import time
+from importlib import import_module
 from pathlib import Path
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import networkx as nx
 
-from ..constants import BFS_ENGINE, MAX_IMPACT_DEPTH, MAX_IMPACT_NODES
-from ..migrations import get_schema_version, run_migrations
-from ..parser._base.types import EdgeInfo, NodeInfo
 from .helpers import _sanitize_name, edge_to_dict, node_to_dict  # noqa: F401
 from .types import FlowAdjacency, GraphEdge, GraphNode, GraphStats
 
+if TYPE_CHECKING:
+    from ..parser._base.types import EdgeInfo, NodeInfo
+
 logger = logging.getLogger(__name__)
+
+MAX_IMPACT_NODES = int(os.environ.get("CRG_MAX_IMPACT_NODES", "500"))
+MAX_IMPACT_DEPTH = int(os.environ.get("CRG_MAX_IMPACT_DEPTH", "2"))
+BFS_ENGINE = os.environ.get("CRG_BFS_ENGINE", "sql")
 
 # ---------------------------------------------------------------------------
 # Schema
@@ -106,13 +112,14 @@ class GraphStore:
         self._conn.execute("PRAGMA temp_store=MEMORY")
         self._init_schema()
         # Ensure schema_version is set, then run pending migrations
-        if get_schema_version(self._conn) < 1:
+        migrations = import_module("dagayn.migrations")
+        if migrations.get_schema_version(self._conn) < 1:
             # Fresh DB — metadata table just created by _init_schema
             self._conn.execute(
                 "INSERT OR IGNORE INTO metadata (key, value) VALUES ('schema_version', '1')"
             )
             self._conn.commit()
-        run_migrations(self._conn)
+        migrations.run_migrations(self._conn)
         self._nxg_cache: nx.DiGraph | None = None
         self._cache_lock = threading.Lock()
         # When *True*, :meth:`close` becomes a no-op so that the

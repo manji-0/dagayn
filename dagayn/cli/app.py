@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from importlib import import_module
 
 # Python version check — must come before any other imports
 if sys.version_info < (3, 12):
@@ -14,17 +15,6 @@ if sys.version_info < (3, 12):
 
 import argparse
 
-from .commands import (
-    build,
-    daemon,
-    detect_changes,
-    eval_cmd,
-    init,
-    profile,
-    registry,
-    serve,
-    wiki,
-)
 from .utils import _get_version, _print_banner
 
 # Build commands that are handled by build.py's handle()
@@ -45,8 +35,23 @@ _BUILD_COMMANDS = frozenset(
 )
 
 
+def _command_module(name: str):
+    """Load a command module lazily to keep cli package imports acyclic."""
+    return import_module(f"dagayn.cli.commands.{name}")
+
+
 def main() -> None:
     """Main CLI entry point."""
+    init = _command_module("init")
+    build = _command_module("build")
+    serve = _command_module("serve")
+    detect_changes = _command_module("detect_changes")
+    wiki = _command_module("wiki")
+    registry = _command_module("registry")
+    daemon = _command_module("daemon")
+    eval_cmd = _command_module("eval_cmd")
+    profile = _command_module("profile")
+
     ap = argparse.ArgumentParser(
         prog="dagayn",
         description="Persistent incremental knowledge graph for code reviews",

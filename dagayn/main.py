@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from importlib import import_module
 from typing import Any, Literal, Optional
 
 from fastmcp import FastMCP
@@ -20,43 +21,6 @@ from .prompts import (
     onboard_developer_prompt,
     pre_merge_check_prompt,
     review_changes_prompt,
-)
-from .tools import (
-    apply_refactor_func,
-    build_or_update_graph,
-    compute_sap_metrics_func,
-    compute_sdp_metrics_func,
-    cross_repo_search_func,
-    detect_adp_violations_func,
-    detect_changes_func,
-    detect_sap_violations_func,
-    detect_sdp_violations_func,
-    embed_graph,
-    find_large_functions,
-    generate_wiki_func,
-    get_affected_flows_func,
-    get_architecture_overview_func,
-    get_bridge_nodes_func,
-    get_community_func,
-    get_docs_section,
-    get_flow,
-    get_hub_nodes_func,
-    get_impact_radius,
-    get_knowledge_gaps_func,
-    get_minimal_context,
-    get_review_context,
-    get_suggested_questions_func,
-    get_surprising_connections_func,
-    get_wiki_page_func,
-    list_communities_func,
-    list_flows,
-    list_graph_stats,
-    list_repos_func,
-    query_graph,
-    refactor_func,
-    run_postprocess,
-    semantic_search_nodes,
-    traverse_graph_func,
 )
 
 # NOTE: Thread-safe for stdio MCP (single-threaded). If adding HTTP/SSE
@@ -78,6 +42,11 @@ def _resolve_repo_root(repo_root: Optional[str]) -> Optional[str]:
     follow-up.
     """
     return repo_root if repo_root else _default_repo_root
+
+
+def _tool(name: str) -> Any:
+    """Resolve a tool implementation lazily to keep package imports acyclic."""
+    return getattr(import_module("dagayn.tools"), name)
 
 
 mcp = FastMCP(
@@ -121,7 +90,7 @@ async def build_or_update_graph_tool(
             When None (default), falls back to CRG_RECURSE_SUBMODULES env var.
     """
     return await asyncio.to_thread(
-        build_or_update_graph,
+        _tool("build_or_update_graph"),
         full_rebuild=full_rebuild,
         repo_root=_resolve_repo_root(repo_root),
         base=base,
@@ -153,7 +122,7 @@ async def run_postprocess_tool(
         repo_root: Repository root path. Auto-detected if omitted.
     """
     return await asyncio.to_thread(
-        run_postprocess,
+        _tool("run_postprocess"),
         flows=flows,
         communities=communities,
         fts=fts,
@@ -180,7 +149,7 @@ def get_minimal_context_tool(
         repo_root: Repository root path. Auto-detected if omitted.
         base: Git ref for diff comparison. Default: HEAD~1.
     """
-    return get_minimal_context(
+    return _tool("get_minimal_context")(
         task=task,
         changed_files=changed_files,
         repo_root=_resolve_repo_root(repo_root),
@@ -211,7 +180,7 @@ def get_impact_radius_tool(
         base: Git ref for auto-detecting changes. Default: HEAD~1.
         detail_level: "standard" for full output, "minimal" for compact summary. Default: standard.
     """
-    return get_impact_radius(
+    return _tool("get_impact_radius")(
         changed_files=changed_files,
         max_depth=max_depth,
         max_results=max_nodes,
@@ -246,7 +215,7 @@ def query_graph_tool(
         repo_root: Repository root path. Auto-detected if omitted.
         detail_level: "standard" for full output, "minimal" for compact summary. Default: standard.
     """
-    return query_graph(
+    return _tool("query_graph")(
         pattern=pattern,
         target=target,
         repo_root=_resolve_repo_root(repo_root),
@@ -279,7 +248,7 @@ def get_review_context_tool(
         detail_level: "standard" for full output, "minimal" for
             token-efficient summary. Default: standard.
     """
-    return get_review_context(
+    return _tool("get_review_context")(
         changed_files=changed_files,
         max_depth=max_depth,
         include_source=include_source,
@@ -320,7 +289,7 @@ def semantic_search_nodes_tool(
                   or "minimax". Must match the provider used during embed_graph.
         detail_level: "standard" for full output, "minimal" for compact summary. Default: standard.
     """
-    return semantic_search_nodes(
+    return _tool("semantic_search_nodes")(
         query=query,
         kind=kind,
         limit=limit,
@@ -366,7 +335,7 @@ async def embed_graph_tool(
                   endpoint (real OpenAI, Azure, new-api, LiteLLM, vLLM, etc.).
     """
     return await asyncio.to_thread(
-        embed_graph,
+        _tool("embed_graph"),
         repo_root=_resolve_repo_root(repo_root),
         model=model,
         provider=provider,
@@ -385,7 +354,7 @@ def list_graph_stats_tool(
     Args:
         repo_root: Repository root path. Auto-detected if omitted.
     """
-    return list_graph_stats(repo_root=_resolve_repo_root(repo_root))
+    return _tool("list_graph_stats")(repo_root=_resolve_repo_root(repo_root))
 
 
 @mcp.tool()
@@ -407,7 +376,11 @@ def get_docs_section_tool(
         repo_root: Repository root path. Auto-detected if omitted.
         max_chars: Maximum characters to return. Default: 4000.
     """
-    return get_docs_section(section_name=section_name, repo_root=repo_root, max_chars=max_chars)
+    return _tool("get_docs_section")(
+        section_name=section_name,
+        repo_root=repo_root,
+        max_chars=max_chars,
+    )
 
 
 @mcp.tool()
@@ -430,7 +403,7 @@ def find_large_functions_tool(
         limit: Maximum results. Default: 50.
         repo_root: Repository root path. Auto-detected if omitted.
     """
-    return find_large_functions(
+    return _tool("find_large_functions")(
         min_lines=min_lines,
         kind=kind,
         file_path_pattern=file_path_pattern,
@@ -461,7 +434,7 @@ def list_flows_tool(
                       returns only name, criticality, and node_count per flow.
         repo_root: Repository root path. Auto-detected if omitted.
     """
-    return list_flows(
+    return _tool("list_flows")(
         repo_root=_resolve_repo_root(repo_root),
         sort_by=sort_by,
         limit=limit,
@@ -490,7 +463,7 @@ def get_flow_tool(
         include_source: Include source code snippets for each step. Default: False.
         repo_root: Repository root path. Auto-detected if omitted.
     """
-    return get_flow(
+    return _tool("get_flow")(
         flow_id=flow_id,
         flow_name=flow_name,
         include_source=include_source,
@@ -515,7 +488,7 @@ def get_affected_flows_tool(
         base: Git ref for auto-detecting changes. Default: HEAD~1.
         repo_root: Repository root path. Auto-detected if omitted.
     """
-    return get_affected_flows_func(
+    return _tool("get_affected_flows_func")(
         changed_files=changed_files,
         base=base,
         repo_root=_resolve_repo_root(repo_root),
@@ -543,7 +516,7 @@ def list_communities_tool(
                       per community.
         repo_root: Repository root path. Auto-detected if omitted.
     """
-    return list_communities_func(
+    return _tool("list_communities_func")(
         repo_root=_resolve_repo_root(repo_root),
         sort_by=sort_by,
         min_size=min_size,
@@ -572,7 +545,7 @@ def get_community_tool(
         include_members: Include full member node details. Default: False.
         repo_root: Repository root path. Auto-detected if omitted.
     """
-    return get_community_func(
+    return _tool("get_community_func")(
         community_name=community_name,
         community_id=community_id,
         include_members=include_members,
@@ -602,7 +575,7 @@ def get_architecture_overview_tool(
         detail_level: Output verbosity: "minimal", "standard" (default), or "verbose".
         top_n: Maximum coupled pairs to include in standard mode. Default 20.
     """
-    return get_architecture_overview_func(
+    return _tool("get_architecture_overview_func")(
         repo_root=_resolve_repo_root(repo_root),
         detail_level=detail_level,
         top_n=top_n,
@@ -638,7 +611,7 @@ async def detect_changes_tool(
             token-efficient summary. Default: standard.
     """
     return await asyncio.to_thread(
-        detect_changes_func,
+        _tool("detect_changes_func"),
         base=base,
         changed_files=changed_files,
         include_source=include_source,
@@ -681,7 +654,7 @@ def refactor_tool(
             When truncated, total shows the full count.
         repo_root: Repository root path. Auto-detected if omitted.
     """
-    return refactor_func(
+    return _tool("refactor_func")(
         mode=mode,
         old_name=old_name,
         new_name=new_name,
@@ -716,7 +689,7 @@ def apply_refactor_tool(
             dry_run. Use this for a human-in-the-loop review before
             committing changes to disk. See: #176
     """
-    return apply_refactor_func(
+    return _tool("apply_refactor_func")(
         refactor_id=refactor_id,
         repo_root=_resolve_repo_root(repo_root),
         dry_run=dry_run,
@@ -743,7 +716,7 @@ async def generate_wiki_tool(
         force: If True, regenerate all pages even if content unchanged. Default: False.
     """
     return await asyncio.to_thread(
-        generate_wiki_func,
+        _tool("generate_wiki_func"),
         repo_root=_resolve_repo_root(repo_root),
         force=force,
     )
@@ -763,7 +736,7 @@ def get_wiki_page_tool(
         community_name: Community name to look up.
         repo_root: Repository root path. Auto-detected if omitted.
     """
-    return get_wiki_page_func(
+    return _tool("get_wiki_page_func")(
         community_name=community_name,
         repo_root=_resolve_repo_root(repo_root),
     )
@@ -783,7 +756,7 @@ def get_hub_nodes_tool(
         top_n: Number of top hubs to return. Default: 10.
         repo_root: Repository root path. Auto-detected if omitted.
     """
-    return get_hub_nodes_func(
+    return _tool("get_hub_nodes_func")(
         repo_root=_resolve_repo_root(repo_root),
         top_n=top_n,
     )
@@ -804,7 +777,7 @@ def get_bridge_nodes_tool(
         top_n: Number of top bridges to return. Default: 10.
         repo_root: Repository root path. Auto-detected if omitted.
     """
-    return get_bridge_nodes_func(
+    return _tool("get_bridge_nodes_func")(
         repo_root=_resolve_repo_root(repo_root),
         top_n=top_n,
     )
@@ -823,7 +796,7 @@ def get_knowledge_gaps_tool(
     Args:
         repo_root: Repository root path. Auto-detected if omitted.
     """
-    return get_knowledge_gaps_func(
+    return _tool("get_knowledge_gaps_func")(
         repo_root=_resolve_repo_root(repo_root),
     )
 
@@ -843,7 +816,7 @@ def get_surprising_connections_tool(
         top_n: Number of top surprises to return. Default: 15.
         repo_root: Repository root path. Auto-detected if omitted.
     """
-    return get_surprising_connections_func(
+    return _tool("get_surprising_connections_func")(
         repo_root=_resolve_repo_root(repo_root),
         top_n=top_n,
     )
@@ -864,7 +837,7 @@ def get_suggested_questions_tool(
         top_n: Maximum questions to return, high-priority first. Default: 15.
         repo_root: Repository root path. Auto-detected if omitted.
     """
-    return get_suggested_questions_func(
+    return _tool("get_suggested_questions_func")(
         repo_root=_resolve_repo_root(repo_root),
         top_n=top_n,
     )
@@ -893,7 +866,7 @@ def traverse_graph_tool(
             Default: 2000.
         repo_root: Repository root path. Auto-detected if omitted.
     """
-    return traverse_graph_func(
+    return _tool("traverse_graph_func")(
         query=query,
         mode=mode,
         depth=depth,
@@ -924,7 +897,7 @@ def detect_adp_violations_tool(
         top_n: Maximum violations to return, ordered by severity. Default: 30.
         repo_root: Repository root path. Auto-detected if omitted.
     """
-    return detect_adp_violations_func(
+    return _tool("detect_adp_violations_func")(
         repo_root=_resolve_repo_root(repo_root),
         granularity=granularity,
         min_cycle_size=min_cycle_size,
@@ -951,7 +924,7 @@ def compute_sdp_metrics_tool(
         top_n: Return the N most unstable entries. Default: 30.
         repo_root: Repository root path. Auto-detected if omitted.
     """
-    return compute_sdp_metrics_func(
+    return _tool("compute_sdp_metrics_func")(
         repo_root=_resolve_repo_root(repo_root),
         granularity=granularity,
         top_n=top_n,
@@ -977,7 +950,7 @@ def detect_sdp_violations_tool(
         top_n: Return the N highest-gap violations. Default: 30.
         repo_root: Repository root path. Auto-detected if omitted.
     """
-    return detect_sdp_violations_func(
+    return _tool("detect_sdp_violations_func")(
         repo_root=_resolve_repo_root(repo_root),
         granularity=granularity,
         min_delta=min_delta,
@@ -1007,7 +980,7 @@ def compute_sap_metrics_tool(
         top_n: Return the N entries with highest distance. Default: 30.
         repo_root: Repository root path. Auto-detected if omitted.
     """
-    return compute_sap_metrics_func(
+    return _tool("compute_sap_metrics_func")(
         repo_root=_resolve_repo_root(repo_root),
         scope_kind=scope_kind,
         unit_filter=unit_filter,
@@ -1037,7 +1010,7 @@ def detect_sap_violations_tool(
         top_n: Return the N violations with highest distance. Default: 30.
         repo_root: Repository root path. Auto-detected if omitted.
     """
-    return detect_sap_violations_func(
+    return _tool("detect_sap_violations_func")(
         repo_root=_resolve_repo_root(repo_root),
         scope_kind=scope_kind,
         min_distance=min_distance,
@@ -1052,7 +1025,7 @@ def list_repos_tool() -> dict:
     Returns the list of repos registered at ~/.dagayn/registry.json.
     Use the CLI 'register' command to add repos.
     """
-    return list_repos_func()
+    return _tool("list_repos_func")()
 
 
 @mcp.tool()
@@ -1071,7 +1044,7 @@ def cross_repo_search_tool(
         kind: Optional filter: File, Class, Function, Type, or Test.
         limit: Maximum results per repo. Default: 20.
     """
-    return cross_repo_search_func(query=query, kind=kind, limit=limit)
+    return _tool("cross_repo_search_func")(query=query, kind=kind, limit=limit)
 
 
 @mcp.prompt()

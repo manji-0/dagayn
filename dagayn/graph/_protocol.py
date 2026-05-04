@@ -9,10 +9,12 @@ from the SQLite implementation details.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Optional, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Optional, Protocol, runtime_checkable
 
-from ..parser._base.types import EdgeInfo, NodeInfo
 from .types import FlowAdjacency, GraphEdge, GraphNode, GraphStats
+
+if TYPE_CHECKING:
+    from ..parser._base.types import EdgeInfo, NodeInfo
 
 
 @runtime_checkable
