@@ -100,6 +100,10 @@ def refactor_func(
                 "dead_code": dead[:limit],
                 "total": total,
                 "truncated": truncated,
+                "caveats": [
+                    "Dead-code results are graph-backed candidates; verify dynamic dispatch, "
+                    "plugin registration, reflection, and generated entry points before deleting."
+                ],
             }
             result["_hints"] = generate_hints("refactor", result, get_session())
             return result
@@ -108,6 +112,10 @@ def refactor_func(
             suggestions = suggest_refactorings(store)
             total = len(suggestions)
             truncated = total > limit
+            counts_by_type: dict[str, int] = {}
+            for suggestion in suggestions:
+                stype = str(suggestion.get("type", "unknown"))
+                counts_by_type[stype] = counts_by_type.get(stype, 0) + 1
             result: dict[str, Any] = {
                 "status": "ok",
                 "summary": f"Generated {total} refactoring suggestion(s)."
@@ -115,6 +123,7 @@ def refactor_func(
                 "suggestions": suggestions[:limit],
                 "total": total,
                 "truncated": truncated,
+                "counts_by_type": counts_by_type,
             }
             result["_hints"] = generate_hints("refactor", result, get_session())
             return result

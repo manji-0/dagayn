@@ -8,7 +8,7 @@ import re
 from typing import Any, Optional
 
 from ..flows import _has_framework_decorator, _matches_entry_name
-from ..graph import GraphStore
+from ..graph import GraphStore, _sanitize_name
 
 logger = logging.getLogger(__name__)
 
@@ -122,7 +122,11 @@ def _survives_dead_code_node_filters(
     type_ref_names: set[str],
     class_bases: dict[str, list[str]],
 ) -> bool:
+    if node.language == "markdown":
+        return False
     if node.is_test or _is_test_file(node.file_path):
+        return False
+    if node.language == "rust" and node.parent_name and "tests" in node.parent_name.split("::"):
         return False
     if node.file_path.endswith(".d.ts"):
         return False
@@ -175,6 +179,50 @@ def _survives_dead_code_node_filters(
     return True
 
 
+def _dead_code_record(
+    node: Any,
+    *,
+    caller_count: int,
+    test_ref_count: int,
+    importer_count: int,
+    reference_count: int,
+    subclass_count: int,
+) -> dict[str, Any]:
+    reason_codes = []
+    if caller_count == 0:
+        reason_codes.append("no_callers")
+    if test_ref_count == 0:
+        reason_codes.append("no_test_references")
+    if importer_count == 0:
+        reason_codes.append("no_importers")
+    if reference_count == 0:
+        reason_codes.append("no_references")
+    if node.kind == "Class" and subclass_count == 0:
+        reason_codes.append("no_subclasses")
+
+    return {
+        "name": _sanitize_name(node.name),
+        "qualified_name": _sanitize_name(node.qualified_name),
+        "kind": node.kind,
+        "file": node.file_path,
+        "line": node.line_start,
+        "language": node.language,
+        "confidence": "medium",
+        "reason_codes": reason_codes,
+        "evidence": {
+            "caller_count": caller_count,
+            "test_ref_count": test_ref_count,
+            "importer_count": importer_count,
+            "reference_count": reference_count,
+            "subclass_count": subclass_count,
+        },
+        "caveats": [
+            "Static analysis can miss runtime dispatch, plugin registration, reflection, "
+            "and dynamic imports."
+        ],
+    }
+
+
 def find_dead_code(
     store: GraphStore,
     kind: Optional[str] = None,
@@ -203,8 +251,6 @@ def find_dead_code(
         List of dead-code dicts with name, qualified_name, kind, file, line,
         and a top-level ``caveats`` note.
     """
-    from ..graph import _sanitize_name
-
     candidates = store.get_nodes_by_kind(
         kinds=[kind] if kind else ["Function", "Class"],
         file_pattern=file_pattern,
@@ -394,6 +440,12 @@ def find_dead_code(
             if member_calls > 0:
                 has_callers = True
 
+        caller_count = sum(1 for e in incoming if e.kind == "CALLS")
+        test_ref_count = sum(1 for e in incoming if e.kind == "TESTED_BY")
+        importer_count = sum(1 for e in incoming if e.kind == "IMPORTS_FROM")
+        reference_count = sum(1 for e in incoming if e.kind == "REFERENCES")
+        subclass_count = sum(1 for e in incoming if e.kind == "INHERITS")
+
         if not (has_callers or has_test_refs or has_importers or has_references or has_subclasses):
             if node.kind == "Function" and node.parent_name and not has_callers:
                 method_suffix = "." + node.name
@@ -420,13 +472,14 @@ def find_dead_code(
 
             if not has_callers:
                 dead.append(
-                    {
-                        "name": _sanitize_name(node.name),
-                        "qualified_name": _sanitize_name(node.qualified_name),
-                        "kind": node.kind,
-                        "file": node.file_path,
-                        "line": node.line_start,
-                    }
+                    _dead_code_record(
+                        node,
+                        caller_count=caller_count,
+                        test_ref_count=test_ref_count,
+                        importer_count=importer_count,
+                        reference_count=reference_count,
+                        subclass_count=subclass_count,
+                    )
                 )
 
     logger.info("find_dead_code: found %d dead symbols", len(dead))

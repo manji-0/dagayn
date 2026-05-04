@@ -38,6 +38,7 @@ def rename_preview(
     if node is None:
         logger.warning("rename_preview: node %r not found", old_name)
         return None
+    exact_candidates = [c for c in candidates if c.name == old_name]
 
     edits: list[dict[str, Any]] = []
 
@@ -48,6 +49,7 @@ def rename_preview(
             "old": old_name,
             "new": new_name,
             "confidence": "high",
+            "source": "definition",
         }
     )
 
@@ -61,6 +63,8 @@ def rename_preview(
                     "old": old_name,
                     "new": new_name,
                     "confidence": "high",
+                    "source": "call",
+                    "edge_kind": edge.kind,
                 }
             )
 
@@ -75,7 +79,9 @@ def rename_preview(
                     "line": edge.line,
                     "old": old_name,
                     "new": new_name,
-                    "confidence": "high",
+                    "confidence": "medium",
+                    "source": "bare_call",
+                    "edge_kind": edge.kind,
                 }
             )
             seen.add(key)
@@ -92,6 +98,8 @@ def rename_preview(
                         "old": old_name,
                         "new": new_name,
                         "confidence": "high",
+                        "source": "import",
+                        "edge_kind": edge.kind,
                     }
                 )
                 seen.add(key)
@@ -106,9 +114,34 @@ def rename_preview(
         "type": "rename",
         "old_name": _sanitize_name(old_name),
         "new_name": _sanitize_name(new_name),
+        "target": {
+            "name": _sanitize_name(node.name),
+            "qualified_name": _sanitize_name(node.qualified_name),
+            "kind": node.kind,
+            "file": node.file_path,
+            "line": node.line_start,
+            "language": node.language,
+        },
+        "ambiguous": len(exact_candidates) > 1,
+        "candidate_count": len(exact_candidates),
+        "candidates": [
+            {
+                "qualified_name": _sanitize_name(c.qualified_name),
+                "kind": c.kind,
+                "file": c.file_path,
+                "line": c.line_start,
+                "language": c.language,
+            }
+            for c in exact_candidates
+        ],
         "edits": edits,
         "stats": stats,
         "created_at": time.time(),
+        "warnings": (
+            ["Multiple exact symbol matches were found; preview uses the first match."]
+            if len(exact_candidates) > 1
+            else []
+        ),
     }
 
     with _refactor_lock:

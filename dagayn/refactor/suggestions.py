@@ -23,17 +23,6 @@ def suggest_refactorings(store: GraphStore) -> list[dict[str, Any]]:
     """
     suggestions: list[dict[str, Any]] = []
 
-    dead = find_dead_code(store)
-    for d in dead:
-        suggestions.append(
-            {
-                "type": "remove",
-                "description": f"Remove unused {d['kind'].lower()} '{d['name']}'",
-                "symbols": [d["qualified_name"]],
-                "rationale": "No callers, no test references, no importers, not an entry point.",
-            }
-        )
-
     community_rows = store.get_communities_list()
 
     if community_rows:
@@ -87,8 +76,41 @@ def suggest_refactorings(store: GraphStore) -> list[dict[str, Any]]:
                                 f"Function is in community '{src_name}' but only "
                                 f"called by members of community '{tgt_name}'."
                             ),
+                            "priority": "medium",
+                            "confidence": "medium",
+                            "estimated_risk": "medium",
+                            "affected_files": [fnode.file_path],
+                            "verification_steps": [
+                                "Review imports and call sites before moving the function.",
+                                "Run tests for both source and target communities.",
+                            ],
                         }
                     )
+
+    dead = find_dead_code(store)
+    for d in dead:
+        evidence = d.get("evidence", {})
+        suggestions.append(
+            {
+                "type": "remove",
+                "description": f"Remove unused {d['kind'].lower()} '{d['name']}'",
+                "symbols": [d["qualified_name"]],
+                "rationale": (
+                    "No callers, test references, importers, references, or subclasses "
+                    "were found in the graph."
+                ),
+                "priority": "low",
+                "confidence": d.get("confidence", "medium"),
+                "estimated_risk": "medium",
+                "affected_files": [d["file"]],
+                "reason_codes": d.get("reason_codes", []),
+                "evidence": evidence,
+                "verification_steps": [
+                    "Search for runtime registration or dynamic dispatch before deleting.",
+                    "Run the tests that cover the affected file or package.",
+                ],
+            }
+        )
 
     logger.info("suggest_refactorings: produced %d suggestions", len(suggestions))
     return suggestions

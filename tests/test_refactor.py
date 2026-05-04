@@ -109,10 +109,15 @@ class TestRenamePreview:
         assert result["type"] == "rename"
         assert result["old_name"] == "helper"
         assert result["new_name"] == "new_helper"
+        assert result["target"]["qualified_name"] == "/repo/utils.py::helper"
+        assert result["target"]["kind"] == "Function"
+        assert result["ambiguous"] is False
+        assert result["candidate_count"] == 1
         assert isinstance(result["edits"], list)
         assert len(result["edits"]) > 0
         assert "stats" in result
         assert result["stats"]["high"] > 0
+        assert all("source" in edit for edit in result["edits"])
 
     def test_rename_finds_callers(self):
         """rename_preview finds definition + call sites."""
@@ -643,6 +648,51 @@ class TestFindDeadCode:
         dead_names = {d["name"] for d in dead}
         assert "db" not in dead_names
 
+    def test_find_dead_code_excludes_markdown_sections(self):
+        """Markdown heading nodes are documentation structure, not dead classes."""
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Class",
+                name="getting-started",
+                file_path="/repo/README.md",
+                line_start=1,
+                line_end=1,
+                language="markdown",
+                extra={"markdown_kind": "section"},
+            )
+        )
+        self.store.commit()
+        dead = find_dead_code(self.store)
+        dead_qnames = {d["qualified_name"] for d in dead}
+        assert "/repo/README.md::getting-started" not in dead_qnames
+
+    def test_find_dead_code_excludes_rust_cfg_test_functions(self):
+        """Rust functions under a tests module are test helpers, not dead code."""
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="loads_markdown_language",
+                file_path="/repo/src/lib.rs",
+                line_start=224,
+                line_end=231,
+                language="rust",
+                parent_name="/repo/src/lib.rs::tests",
+            )
+        )
+        self.store.commit()
+        dead = find_dead_code(self.store)
+        dead_names = {d["name"] for d in dead}
+        assert "loads_markdown_language" not in dead_names
+
+    def test_find_dead_code_includes_evidence(self):
+        """Dead-code output includes enough evidence for review decisions."""
+        dead = find_dead_code(self.store)
+        orphan = next(d for d in dead if d["name"] == "dead_func")
+        assert orphan["confidence"] == "medium"
+        assert "no_callers" in orphan["reason_codes"]
+        assert orphan["evidence"]["caller_count"] == 0
+        assert orphan["caveats"]
+
 
 class TestSuggestRefactorings:
     """Tests for suggest_refactorings."""
@@ -698,6 +748,11 @@ class TestSuggestRefactorings:
             assert "description" in s
             assert "symbols" in s
             assert "rationale" in s
+            assert "priority" in s
+            assert "confidence" in s
+            assert "estimated_risk" in s
+            assert "affected_files" in s
+            assert "verification_steps" in s
             assert s["type"] in ("move", "remove")
 
 
