@@ -1782,6 +1782,51 @@ let main = () => {
 }
 
 #[test]
+fn parses_rescript_test_files_and_js_bindings() {
+    let source = br#"module Fs = {
+  @module("node:fs")
+  external readFile: string => string = "readFileSync"
+}
+
+let helper = () => Fs.readFile("README.md")
+let test_reads_file = () => helper()
+"#;
+    let (nodes, edges) = parse_rescript("tests/app_test.res", source);
+
+    let file = nodes.iter().find(|node| node.kind == "File").unwrap();
+    assert!(file.is_test);
+
+    let fs_module = nodes.iter().find(|node| node.name == "Fs").unwrap();
+    assert_eq!(
+        fs_module
+            .extra
+            .get("rescript_kind")
+            .and_then(|value| value.as_str()),
+        Some("js_binding")
+    );
+
+    let test_node = nodes
+        .iter()
+        .find(|node| node.name == "test_reads_file")
+        .unwrap();
+    assert_eq!(test_node.kind, "Test");
+    assert!(test_node.is_test);
+
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "IMPORTS_FROM"
+            && edge.target == "node:fs"
+            && edge
+                .extra
+                .get("rescript_import_kind")
+                .and_then(|value| value.as_str())
+                == Some("external_module")
+    }));
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "TESTED_BY" && edge.target == "tests/app_test.res::test_reads_file"
+    }));
+}
+
+#[test]
 fn parses_perl_xs_as_c_for_python_parity() {
     let source = br#"#include "EXTERN.h"
 #include "perl.h"

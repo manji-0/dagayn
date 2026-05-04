@@ -1,10 +1,11 @@
 import * as vscode from 'vscode';
-import { SqliteReader, GraphNode } from '../backend/sqlite';
+import { SqliteReader, GraphNode, GraphEdge } from '../backend/sqlite';
 import { resolveNodeAtCursor, navigateToNode } from './cursorResolver';
 
-type QueryDef = { edgeKind: string; direction: 'incoming' | 'outgoing' };
+export type QueryDirection = 'incoming' | 'outgoing';
+export type QueryDef = { edgeKind: string; direction: QueryDirection };
 
-const QUERY_PATTERNS: Array<{ label: string; description: string }> = [
+export const QUERY_PATTERNS: Array<{ label: string; description: string }> = [
     { label: 'callers_of', description: 'Find functions calling the target' },
     { label: 'callees_of', description: 'Find functions called by the target' },
     { label: 'imports_of', description: 'Find modules imported by a file' },
@@ -15,7 +16,7 @@ const QUERY_PATTERNS: Array<{ label: string; description: string }> = [
     { label: 'file_summary', description: 'List all nodes in a file' },
 ];
 
-const QUERY_MAP: Record<string, QueryDef> = {
+export const QUERY_MAP: Record<string, QueryDef> = {
     callers_of: { edgeKind: 'CALLS', direction: 'incoming' },
     callees_of: { edgeKind: 'CALLS', direction: 'outgoing' },
     imports_of: { edgeKind: 'IMPORTS_FROM', direction: 'outgoing' },
@@ -25,6 +26,57 @@ const QUERY_MAP: Record<string, QueryDef> = {
     inheritors_of: { edgeKind: 'INHERITS', direction: 'incoming' },
     file_summary: { edgeKind: 'CONTAINS', direction: 'outgoing' },
 };
+
+export type NavigationItem = {
+    label: string;
+    description: string;
+    detail: string;
+    node: GraphNode | undefined;
+};
+
+export function collectTestQualifiedNames(reader: SqliteReader, node: GraphNode): string[] {
+    const incomingEdges = reader.getEdgesByTarget(node.qualifiedName);
+    const incomingTestEdges = incomingEdges.filter((e) => e.kind === 'TESTED_BY');
+
+    const outgoingEdges = reader.getEdgesBySource(node.qualifiedName);
+    const outgoingTestEdges = outgoingEdges.filter((e) => e.kind === 'TESTED_BY');
+
+    const testQualifiedNames = new Set<string>([
+        ...incomingTestEdges.map((e) => e.sourceQualified),
+        ...outgoingTestEdges.map((e) => e.targetQualified),
+    ]);
+
+    const conventionPatterns = [`test_${node.name}`, `Test${node.name}`];
+    for (const pattern of conventionPatterns) {
+        const matches = reader.searchNodes(pattern, 10);
+        for (const match of matches) {
+            if (match.isTest || match.kind === 'Test') {
+                testQualifiedNames.add(match.qualifiedName);
+            }
+        }
+    }
+
+    return [...testQualifiedNames].sort();
+}
+
+export function buildRelatedItems(
+    reader: SqliteReader,
+    edges: GraphEdge[],
+    direction: QueryDirection,
+): NavigationItem[] {
+    return edges.map((edge) => {
+        const relatedQn = direction === 'incoming'
+            ? edge.sourceQualified
+            : edge.targetQualified;
+        const relatedNode = reader.getNode(relatedQn);
+        return {
+            label: relatedNode?.name ?? relatedQn,
+            description: relatedNode ? `${relatedNode.kind} · ${relatedNode.filePath}` : '',
+            detail: `Line ${relatedNode?.lineStart ?? edge.line}`,
+            node: relatedNode,
+        };
+    });
+}
 
 /**
  * Register the navigation commands: findCallers, findTests, findCallees,
@@ -114,29 +166,9 @@ export function registerNavigationCommands(
             }
 
             // --- Collect test qualified names from TESTED_BY edges (both directions) ---
-            const incomingEdges = reader.getEdgesByTarget(node.qualifiedName);
-            const incomingTestEdges = incomingEdges.filter((e) => e.kind === 'TESTED_BY');
+            const testQualifiedNames = collectTestQualifiedNames(reader, node);
 
-            const outgoingEdges = reader.getEdgesBySource(node.qualifiedName);
-            const outgoingTestEdges = outgoingEdges.filter((e) => e.kind === 'TESTED_BY');
-
-            const testQualifiedNames = new Set<string>([
-                ...incomingTestEdges.map((e) => e.sourceQualified),
-                ...outgoingTestEdges.map((e) => e.targetQualified),
-            ]);
-
-            // --- Also search by naming convention: test_{name}, Test{name} ---
-            const conventionPatterns = [`test_${node.name}`, `Test${node.name}`];
-            for (const pattern of conventionPatterns) {
-                const matches = reader.searchNodes(pattern, 10);
-                for (const match of matches) {
-                    if (match.isTest || match.kind === 'Test') {
-                        testQualifiedNames.add(match.qualifiedName);
-                    }
-                }
-            }
-
-            if (testQualifiedNames.size === 0) {
+            if (testQualifiedNames.length === 0) {
                 vscode.window.showInformationMessage(
                     `Code Graph: No tests found for "${node.name}".`,
                 );
@@ -289,16 +321,7 @@ export function registerNavigationCommands(
                 return;
             }
 
-            const items = filtered.map((e) => {
-                const relatedQn = qdef.direction === 'incoming' ? e.sourceQualified : e.targetQualified;
-                const relatedNode = reader.getNode(relatedQn);
-                return {
-                    label: relatedNode?.name ?? relatedQn,
-                    description: relatedNode ? `${relatedNode.kind} · ${relatedNode.filePath}` : '',
-                    detail: `Line ${relatedNode?.lineStart ?? e.line}`,
-                    node: relatedNode,
-                };
-            });
+            const items = buildRelatedItems(reader, filtered, qdef.direction);
 
             const selected = await vscode.window.showQuickPick(items, {
                 placeHolder: `${pattern.label}: ${node.name} (${filtered.length} results)`,

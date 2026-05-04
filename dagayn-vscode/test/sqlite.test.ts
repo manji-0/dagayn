@@ -12,6 +12,11 @@ import * as os from 'os';
 import * as path from 'path';
 import Database from 'better-sqlite3';
 import { SqliteReader, GraphNode, GraphEdge } from '../src/backend/sqlite';
+import {
+  buildRelatedItems,
+  collectTestQualifiedNames,
+  QUERY_MAP,
+} from '../src/features/navigation';
 
 // ---------------------------------------------------------------------------
 // Schema (mirrors the Python backend exactly)
@@ -346,6 +351,27 @@ describe('SqliteReader', () => {
     assert.strictEqual(edges.length, 2);
     const kinds = edges.map((e) => e.kind).sort();
     assert.deepStrictEqual(kinds, ['CALLS', 'CONTAINS']);
+  });
+
+  it('navigation helpers build related quick-pick items', () => {
+    const edges = reader
+      .getEdgesByTarget('src/auth.py::login')
+      .filter((edge) => edge.kind === 'CALLS');
+    const items = buildRelatedItems(reader, edges, QUERY_MAP.callers_of.direction);
+
+    assert.strictEqual(items.length, 1);
+    assert.strictEqual(items[0].label, 'handle_login');
+    assert.strictEqual(items[0].description, 'Function · src/routes.py');
+    assert.strictEqual(items[0].detail, 'Line 10');
+  });
+
+  it('navigation helpers collect TESTED_BY and naming-convention tests', () => {
+    const node = reader.getNode('src/auth.py::login');
+    assert.ok(node);
+
+    const tests = collectTestQualifiedNames(reader, node);
+
+    assert.deepStrictEqual(tests, ['tests/test_auth.py::test_login']);
   });
 
   // -- getEdgesAmong ------------------------------------------------------

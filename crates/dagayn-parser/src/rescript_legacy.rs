@@ -87,116 +87,29 @@ pub fn parse_rescript(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<P
     assign_rescript_module_parents(&mut modules);
     let depth = rescript_brace_depth_array(&cleaned);
 
-    for module in &modules {
-        nodes.push(ParsedNode {
-            kind: "Class".to_string(),
-            name: module.name.clone(),
-            file_path: file_path.to_string(),
-            line_start: module.start_line,
-            line_end: module.end_line,
-            language: "rescript".to_string(),
-            parent_name: module.parent.clone(),
-            params: None,
-            return_type: None,
-            modifiers: None,
-            is_test: false,
-            extra: json!({"rescript_kind": "module"}),
-        });
-    }
+    push_rescript_module_nodes(&mut nodes, file_path, &modules);
 
     let mut lets = collect_rescript_lets(file_path, &cleaned, &line_starts, &modules, &depth);
     fill_rescript_let_ends(&mut lets, &cleaned, &line_starts, &modules);
-    for entry in &lets {
-        nodes.push(ParsedNode {
-            kind: if entry.is_test { "Test" } else { "Function" }.to_string(),
-            name: entry.name.clone(),
-            file_path: file_path.to_string(),
-            line_start: entry.line_start,
-            line_end: entry.line_end,
-            language: "rescript".to_string(),
-            parent_name: entry.parent.clone(),
-            params: None,
-            return_type: None,
-            modifiers: None,
-            is_test: entry.is_test,
-            extra: json!({}),
-        });
-    }
-
-    for capture in RESCRIPT_EXTERNAL_RE.captures_iter(&cleaned) {
-        let Some(name_match) = capture.get(1) else {
-            continue;
-        };
-        let name = name_match.as_str();
-        if rescript_is_keyword(name) {
-            continue;
-        }
-        let off = name_match.start();
-        let parent = rescript_enclosing_module(&modules, off);
-        if !rescript_is_top_level(off, parent.as_deref(), &modules, &depth) {
-            continue;
-        }
-        let line_start = offset_to_line(&line_starts, off);
-        nodes.push(ParsedNode {
-            kind: "Function".to_string(),
-            name: name.to_string(),
-            file_path: file_path.to_string(),
-            line_start,
-            line_end: line_start,
-            language: "rescript".to_string(),
-            parent_name: parent,
-            params: None,
-            return_type: None,
-            modifiers: None,
-            is_test: false,
-            extra: json!({"rescript_external": true}),
-        });
-        let look_start = off.saturating_sub(200);
-        if let Some(snippet) = safe_str_slice(&text, look_start, off) {
-            for attr in RESCRIPT_MODULE_ATTR_RE.captures_iter(snippet) {
-                if let Some(target) = attr.get(1) {
-                    edges.push(ParsedEdge {
-                        kind: "IMPORTS_FROM".to_string(),
-                        source: file_path.to_string(),
-                        target: target.as_str().to_string(),
-                        file_path: file_path.to_string(),
-                        line: line_start,
-                        extra: json!({"rescript_import_kind": "external_module"}),
-                    });
-                }
-            }
-        }
-    }
-
-    for capture in RESCRIPT_TYPE_RE.captures_iter(&cleaned) {
-        let Some(name_match) = capture.get(1) else {
-            continue;
-        };
-        let name = name_match.as_str();
-        if rescript_is_keyword(name) {
-            continue;
-        }
-        let off = name_match.start();
-        let parent = rescript_enclosing_module(&modules, off);
-        if !rescript_is_top_level(off, parent.as_deref(), &modules, &depth) {
-            continue;
-        }
-        let line_start = offset_to_line(&line_starts, off);
-        nodes.push(ParsedNode {
-            kind: "Type".to_string(),
-            name: name.to_string(),
-            file_path: file_path.to_string(),
-            line_start,
-            line_end: line_start,
-            language: "rescript".to_string(),
-            parent_name: parent,
-            params: None,
-            return_type: None,
-            modifiers: None,
-            is_test: false,
-            extra: json!({}),
-        });
-    }
+    push_rescript_let_nodes(&mut nodes, file_path, &lets);
+    collect_rescript_external_nodes_and_edges(
+        &mut nodes,
+        &mut edges,
+        file_path,
+        &text,
+        &cleaned,
+        &line_starts,
+        &modules,
+        &depth,
+    );
+    collect_rescript_type_nodes(
+        &mut nodes,
+        file_path,
+        &cleaned,
+        &line_starts,
+        &modules,
+        &depth,
+    );
 
     for capture in RESCRIPT_OPEN_RE.captures_iter(&cleaned) {
         let Some(kind) = capture.get(1) else {
@@ -353,6 +266,143 @@ struct RescriptLet {
     is_test: bool,
     end_off: usize,
     line_end: i64,
+}
+
+fn push_rescript_module_nodes(
+    nodes: &mut Vec<ParsedNode>,
+    file_path: &str,
+    modules: &[RescriptModule],
+) {
+    for module in modules {
+        nodes.push(ParsedNode {
+            kind: "Class".to_string(),
+            name: module.name.clone(),
+            file_path: file_path.to_string(),
+            line_start: module.start_line,
+            line_end: module.end_line,
+            language: "rescript".to_string(),
+            parent_name: module.parent.clone(),
+            params: None,
+            return_type: None,
+            modifiers: None,
+            is_test: false,
+            extra: json!({"rescript_kind": "module"}),
+        });
+    }
+}
+
+fn push_rescript_let_nodes(nodes: &mut Vec<ParsedNode>, file_path: &str, lets: &[RescriptLet]) {
+    for entry in lets {
+        nodes.push(ParsedNode {
+            kind: if entry.is_test { "Test" } else { "Function" }.to_string(),
+            name: entry.name.clone(),
+            file_path: file_path.to_string(),
+            line_start: entry.line_start,
+            line_end: entry.line_end,
+            language: "rescript".to_string(),
+            parent_name: entry.parent.clone(),
+            params: None,
+            return_type: None,
+            modifiers: None,
+            is_test: entry.is_test,
+            extra: json!({}),
+        });
+    }
+}
+
+fn collect_rescript_external_nodes_and_edges(
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+    file_path: &str,
+    text: &str,
+    cleaned: &str,
+    line_starts: &[usize],
+    modules: &[RescriptModule],
+    depth: &[usize],
+) {
+    for capture in RESCRIPT_EXTERNAL_RE.captures_iter(cleaned) {
+        let Some(name_match) = capture.get(1) else {
+            continue;
+        };
+        let name = name_match.as_str();
+        if rescript_is_keyword(name) {
+            continue;
+        }
+        let off = name_match.start();
+        let parent = rescript_enclosing_module(modules, off);
+        if !rescript_is_top_level(off, parent.as_deref(), modules, depth) {
+            continue;
+        }
+        let line_start = offset_to_line(line_starts, off);
+        nodes.push(ParsedNode {
+            kind: "Function".to_string(),
+            name: name.to_string(),
+            file_path: file_path.to_string(),
+            line_start,
+            line_end: line_start,
+            language: "rescript".to_string(),
+            parent_name: parent,
+            params: None,
+            return_type: None,
+            modifiers: None,
+            is_test: false,
+            extra: json!({"rescript_external": true}),
+        });
+        let look_start = off.saturating_sub(200);
+        if let Some(snippet) = safe_str_slice(text, look_start, off) {
+            for attr in RESCRIPT_MODULE_ATTR_RE.captures_iter(snippet) {
+                if let Some(target) = attr.get(1) {
+                    edges.push(ParsedEdge {
+                        kind: "IMPORTS_FROM".to_string(),
+                        source: file_path.to_string(),
+                        target: target.as_str().to_string(),
+                        file_path: file_path.to_string(),
+                        line: line_start,
+                        extra: json!({"rescript_import_kind": "external_module"}),
+                    });
+                }
+            }
+        }
+    }
+}
+
+fn collect_rescript_type_nodes(
+    nodes: &mut Vec<ParsedNode>,
+    file_path: &str,
+    cleaned: &str,
+    line_starts: &[usize],
+    modules: &[RescriptModule],
+    depth: &[usize],
+) {
+    for capture in RESCRIPT_TYPE_RE.captures_iter(cleaned) {
+        let Some(name_match) = capture.get(1) else {
+            continue;
+        };
+        let name = name_match.as_str();
+        if rescript_is_keyword(name) {
+            continue;
+        }
+        let off = name_match.start();
+        let parent = rescript_enclosing_module(modules, off);
+        if !rescript_is_top_level(off, parent.as_deref(), modules, depth) {
+            continue;
+        }
+        let line_start = offset_to_line(line_starts, off);
+        nodes.push(ParsedNode {
+            kind: "Type".to_string(),
+            name: name.to_string(),
+            file_path: file_path.to_string(),
+            line_start,
+            line_end: line_start,
+            language: "rescript".to_string(),
+            parent_name: parent,
+            params: None,
+            return_type: None,
+            modifiers: None,
+            is_test: false,
+            extra: json!({}),
+        });
+    }
 }
 
 fn strip_rescript_noise(text: &str) -> String {

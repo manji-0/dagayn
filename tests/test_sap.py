@@ -243,6 +243,16 @@ def test_output_fields_complete(balanced_store):
         assert not missing, f"Missing fields in {m['scope_key']}: {missing}"
 
 
+def test_compute_sap_metrics_reports_dependency_counts(balanced_store):
+    """Direct regression coverage for compute_sap_metrics dependency summaries."""
+    metrics = compute_sap_metrics(balanced_store, scope_kind="package")
+    by_scope = {m["scope_key"]: m for m in metrics}
+
+    assert by_scope["api"]["top_outgoing_dependencies"] == [{"scope": "util", "count": 1}]
+    assert by_scope["api"]["top_incoming_dependencies"] == [{"scope": "impl", "count": 1}]
+    assert by_scope["impl"]["top_outgoing_dependencies"] == [{"scope": "api", "count": 1}]
+
+
 def test_sorted_by_distance_descending(balanced_store):
     metrics = compute_sap_metrics(balanced_store, scope_kind="package")
     distances = [m["distance"] for m in metrics]

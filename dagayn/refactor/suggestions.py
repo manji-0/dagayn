@@ -10,6 +10,62 @@ from .dead_code import find_dead_code
 
 logger = logging.getLogger(__name__)
 
+_PRODUCTION_LANGUAGES = frozenset(
+    {
+        "python",
+        "rust",
+        "javascript",
+        "typescript",
+        "tsx",
+        "java",
+        "go",
+        "ruby",
+        "php",
+        "c",
+        "cpp",
+        "csharp",
+        "swift",
+        "kotlin",
+        "scala",
+        "dart",
+        "lua",
+        "luau",
+        "julia",
+        "r",
+        "elixir",
+        "solidity",
+        "rescript",
+        "vue",
+        "bash",
+        "terraform",
+    }
+)
+
+
+def _dead_code_category(record: dict[str, Any]) -> str:
+    language = record.get("language")
+    file_path = str(record.get("file", ""))
+    if language == "markdown":
+        return "documentation"
+    if "/fixtures/" in file_path or file_path.startswith("tests/fixtures/"):
+        return "fixture"
+    if language in _PRODUCTION_LANGUAGES:
+        return "executable"
+    return "unknown"
+
+
+def _suggestion_sort_key(suggestion: dict[str, Any]) -> tuple[int, str]:
+    category_rank = {
+        "executable": 0,
+        "unknown": 1,
+        "fixture": 2,
+        "documentation": 3,
+    }
+    return (
+        category_rank.get(suggestion.get("category", "unknown"), 1),
+        suggestion.get("symbols", [""])[0],
+    )
+
 
 def suggest_refactorings(store: GraphStore) -> list[dict[str, Any]]:
     """Produce community-driven refactoring suggestions.
@@ -78,6 +134,7 @@ def suggest_refactorings(store: GraphStore) -> list[dict[str, Any]]:
                             ),
                             "priority": "medium",
                             "confidence": "medium",
+                            "category": "executable",
                             "estimated_risk": "medium",
                             "affected_files": [fnode.file_path],
                             "verification_steps": [
@@ -90,6 +147,7 @@ def suggest_refactorings(store: GraphStore) -> list[dict[str, Any]]:
     dead = find_dead_code(store)
     for d in dead:
         evidence = d.get("evidence", {})
+        category = _dead_code_category(d)
         suggestions.append(
             {
                 "type": "remove",
@@ -101,6 +159,7 @@ def suggest_refactorings(store: GraphStore) -> list[dict[str, Any]]:
                 ),
                 "priority": "low",
                 "confidence": d.get("confidence", "medium"),
+                "category": category,
                 "estimated_risk": "medium",
                 "affected_files": [d["file"]],
                 "reason_codes": d.get("reason_codes", []),
@@ -112,5 +171,6 @@ def suggest_refactorings(store: GraphStore) -> list[dict[str, Any]]:
             }
         )
 
+    suggestions.sort(key=_suggestion_sort_key)
     logger.info("suggest_refactorings: produced %d suggestions", len(suggestions))
     return suggestions

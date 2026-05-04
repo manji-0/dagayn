@@ -750,10 +750,31 @@ class TestSuggestRefactorings:
             assert "rationale" in s
             assert "priority" in s
             assert "confidence" in s
+            assert "category" in s
             assert "estimated_risk" in s
             assert "affected_files" in s
             assert "verification_steps" in s
             assert s["type"] in ("move", "remove")
+
+    def test_remove_suggestions_prioritize_executable_code(self):
+        """Executable dead-code suggestions rank ahead of docs and fixtures."""
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="fixture_helper",
+                file_path="tests/fixtures/helpers.py",
+                line_start=1,
+                line_end=3,
+                language="python",
+            )
+        )
+        self.store.commit()
+
+        suggestions = [s for s in suggest_refactorings(self.store) if s["type"] == "remove"]
+
+        assert suggestions[0]["symbols"] == ["/repo/lib.py::orphan_func"]
+        assert suggestions[0]["category"] == "executable"
+        assert any(s["category"] == "fixture" for s in suggestions)
 
 
 class TestApplyRefactor:
