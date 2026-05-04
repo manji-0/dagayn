@@ -83,11 +83,7 @@ dagayn update
 ```
 
 Source checkouts without `dagayn._core` fail clearly instead of falling back
-implicitly. To use the Python compatibility backend, set:
-
-```bash
-DAGAYN_BACKEND=python dagayn build
-```
+to the removed Python parser implementation.
 
 ## Review changes
 

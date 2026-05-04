@@ -38,8 +38,8 @@ pip install git+https://github.com/manji-0/dagayn.git
 uv tool install --from git+https://github.com/manji-0/dagayn.git dagayn
 ```
 
-For a source checkout without the native extension, set
-`DAGAYN_BACKEND=python` explicitly to use the Python compatibility backend.
+For a source checkout without the native extension, rebuild the editable
+extension. The old Python parser implementation is no longer shipped.
 
 ```bash
 uvx --from git+https://github.com/manji-0/dagayn.git dagayn --help

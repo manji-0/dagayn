@@ -72,8 +72,8 @@ def _postprocess_store(store: Any, root: Any, postprocess: str):
         return store, False
     raise RuntimeError(
         "Rust post-processing requires dagayn._core support for the requested "
-        "postprocess level. Set DAGAYN_BACKEND=python explicitly to use the "
-        "Python compatibility backend."
+        "postprocess level. Install a wheel with the native extension or rebuild "
+        "from source."
     )
 
 
@@ -553,8 +553,7 @@ def build_or_update_graph(
                 raise RuntimeError(
                     "Rust post-processing is missing support for "
                     + ", ".join(missing)
-                    + ". Set DAGAYN_BACKEND=python explicitly to use the Python "
-                    "compatibility backend."
+                    + ". Install a wheel with the native extension or rebuild from source."
                 )
             warnings = _run_postprocess(
                 store,

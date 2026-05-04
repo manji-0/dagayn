@@ -11,8 +11,8 @@ _LAZY_EXPORTS = {
     "CodeParserProtocol": ("._protocol", "CodeParserProtocol"),
     "EXTENSION_TO_LANGUAGE": (".dispatch", "EXTENSION_TO_LANGUAGE"),
     "SHEBANG_INTERPRETER_TO_LANGUAGE": (".dispatch", "SHEBANG_INTERPRETER_TO_LANGUAGE"),
-    "_SQL_TABLE_RE": (".languages.notebook", "_SQL_TABLE_RE"),
-    "file_hash": (".grammars", "file_hash"),
+    "_SQL_TABLE_RE": (".core", "_SQL_TABLE_RE"),
+    "file_hash": (".core", "file_hash"),
 }
 
 

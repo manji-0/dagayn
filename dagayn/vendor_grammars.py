@@ -545,20 +545,6 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
         ),
         cache_dir_override="tree-sitter-language-pack-0.13.0-swift-78d84ef82c387fceeb6094038da28717ea052e39",
     ),
-    "rescript": GrammarSpec(
-        language="rescript",
-        owner="rescript-lang",
-        repo="tree-sitter-rescript",
-        commit="5b90cd4e4138b1231a67977303bda47eb608480a",
-        required_paths=(
-            "src/parser.c",
-            "src/scanner.c",
-            "src/tree_sitter/alloc.h",
-            "src/tree_sitter/array.h",
-            "src/tree_sitter/parser.h",
-            "bindings/python/tree_sitter_rescript/binding.c",
-        ),
-    ),
 }
 
 

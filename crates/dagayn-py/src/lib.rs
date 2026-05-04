@@ -1233,6 +1233,10 @@ fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
         parse_rust_owned_files_compact_json,
         module
     )?)?;
+    module.add_function(wrap_pyfunction!(
+        parse_rust_owned_file_compact_json,
+        module
+    )?)?;
     module.add_function(wrap_pyfunction!(parse_markdown_compact_json, module)?)?;
     module.add_function(wrap_pyfunction!(parse_terraform_compact_json, module)?)?;
     module.add_function(wrap_pyfunction!(parse_rust_compact_json, module)?)?;
@@ -1298,6 +1302,13 @@ fn parse_rust_owned_files_compact_json(
     Ok(dagayn_core::parser::parse_rust_owned_files_compact_json(
         std::path::Path::new(&repo_root),
         &file_paths,
+    ))
+}
+
+#[pyfunction]
+fn parse_rust_owned_file_compact_json(file_path: &str, source: &[u8]) -> PyResult<String> {
+    Ok(dagayn_core::parser::parse_rust_owned_file_compact_json(
+        file_path, source,
     ))
 }
 

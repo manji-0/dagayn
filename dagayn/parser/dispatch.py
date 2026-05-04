@@ -53,12 +53,6 @@ EXTENSION_TO_LANGUAGE: dict[str, str] = {
     ".psd1": "powershell",
     ".svelte": "svelte",
     ".jl": "julia",
-    # ReScript: .res is implementation, .resi is interface. Both share one
-    # language label; the parser flags interface files via extra metadata.
-    # No tree-sitter grammar is bundled in tree_sitter_language_pack, so
-    # extraction is regex-based (see _parse_rescript).
-    ".res": "rescript",
-    ".resi": "rescript",
     ".gd": "gdscript",
     ".tf": "terraform",
     ".tfvars": "terraform",

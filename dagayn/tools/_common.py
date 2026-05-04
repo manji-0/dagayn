@@ -338,8 +338,7 @@ def _selected_graph_store(*, use_backend_default: bool = True) -> type:
     """Return the graph store selected by DAGAYN_BACKEND.
 
     The Rust backend is the default for write-heavy tool flows. Source
-    checkouts without the native extension must opt into the Python backend
-    explicitly with ``DAGAYN_BACKEND=python``.
+    checkouts require the native extension.
     """
     if _backend_selection() != "rust":
         return GraphStore
@@ -352,8 +351,7 @@ def _selected_graph_store(*, use_backend_default: bool = True) -> type:
     except ImportError as exc:
         raise RuntimeError(
             "DAGAYN_BACKEND=rust requires dagayn._core. "
-            "Install a wheel with the native extension, rebuild from source, "
-            "or set DAGAYN_BACKEND=python explicitly."
+            "Install a wheel with the native extension or rebuild from source."
         ) from exc
 
 

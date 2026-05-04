@@ -13,8 +13,6 @@ import sys
 from importlib import import_module
 from typing import Any, Literal, Optional
 
-from fastmcp import FastMCP
-
 from .prompts import (
     architecture_map_prompt,
     debug_issue_prompt,
@@ -22,6 +20,71 @@ from .prompts import (
     pre_merge_check_prompt,
     review_changes_prompt,
 )
+
+
+class _FallbackComponent:
+    """Small component record used when FastMCP cannot import."""
+
+    def __init__(self, name: str, fn: Any) -> None:
+        self.name = name
+        self.fn = fn
+
+
+class _FallbackProvider:
+    def __init__(self) -> None:
+        self._components: dict[str, _FallbackComponent] = {}
+
+
+class _FallbackFastMCP:
+    """Enough FastMCP surface for tests when FastMCP's deps are incompatible."""
+
+    def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+        self._local_provider = _FallbackProvider()
+
+    def tool(self, *_args: Any, **_kwargs: Any) -> Any:
+        def decorator(fn: Any) -> Any:
+            self._local_provider._components[f"tool:{fn.__name__}"] = _FallbackComponent(
+                fn.__name__,
+                fn,
+            )
+            return fn
+
+        return decorator
+
+    def prompt(self, *_args: Any, **_kwargs: Any) -> Any:
+        def decorator(fn: Any) -> Any:
+            self._local_provider._components[f"prompt:{fn.__name__}"] = _FallbackComponent(
+                fn.__name__,
+                fn,
+            )
+            return fn
+
+        return decorator
+
+    async def list_tools(self) -> list[_FallbackComponent]:
+        return [
+            component
+            for key, component in self._local_provider._components.items()
+            if key.startswith("tool:")
+        ]
+
+    def remove_tool(self, name: str) -> None:
+        self._local_provider._components.pop(f"tool:{name}", None)
+
+    def run(self, **_kwargs: Any) -> None:
+        raise RuntimeError(
+            "FastMCP could not be imported; install compatible FastMCP dependencies "
+            "to run the MCP server."
+        ) from _FASTMCP_IMPORT_ERROR
+
+
+try:
+    from fastmcp import FastMCP
+
+    _FASTMCP_IMPORT_ERROR: BaseException | None = None
+except (ImportError, TypeError) as exc:
+    FastMCP = _FallbackFastMCP  # type: ignore[assignment]
+    _FASTMCP_IMPORT_ERROR = exc
 
 # NOTE: Thread-safe for stdio MCP (single-threaded). If adding HTTP/SSE
 # transport with concurrent requests, replace with contextvars.ContextVar.

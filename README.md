@@ -43,7 +43,7 @@ See [NOTICE](NOTICE) for upstream attribution and original author information.
 
 Highlights include:
 
-- Python, JavaScript, TypeScript, TSX, Go, Rust, Java, C#, Ruby, PHP, Kotlin, Swift, Scala, Solidity, Dart, Lua, Luau, Objective-C, Bash, Elixir, Zig, PowerShell, Julia, GDScript, Vue, Svelte, Astro, ReScript
+- Python, JavaScript, TypeScript, TSX, Go, Rust, Java, C#, Ruby, PHP, Kotlin, Swift, Scala, Solidity, Dart, Lua, Luau, Objective-C, Bash, Elixir, Zig, PowerShell, Julia, GDScript, Vue, Svelte, Astro
 - Markdown
 - Jupyter notebooks and Databricks notebook sources/exports as graph inputs
 - Terraform
@@ -206,11 +206,7 @@ dagayn update
 ```
 
 Source checkouts without the native extension now fail clearly instead of
-falling back implicitly. To use the Python compatibility backend:
-
-```bash
-DAGAYN_BACKEND=python dagayn build
-```
+falling back to the removed Python parser implementation.
 
 ## Common CLI flows
 

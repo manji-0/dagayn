@@ -9,7 +9,6 @@ from __future__ import annotations
 import concurrent.futures
 import fnmatch
 import hashlib
-import importlib
 import importlib.util
 import json
 import logging
@@ -42,26 +41,6 @@ def _init_worker() -> None:
     """Initialise one CodeParser per worker process, avoiding repeated grammar loads."""
     global _worker_parser
     _worker_parser = CodeParser()
-
-
-def _run_rescript_resolver(store: GraphStore) -> Optional[dict]:
-    """Run the ReScript cross-module resolver, swallowing any failure so
-    build never fails because of it. Returns stats or None on error.
-    """
-    if not hasattr(store, "_conn"):
-        # Phase 1 Rust backend owns the SQLite connection internally. The
-        # Python ReScript post-pass is left on the Python backend until the
-        # relevant post-processing slice moves across as a coarse operation.
-        return None
-    try:
-        resolve_rescript_cross_module = importlib.import_module(
-            ".rescript_resolver",
-            __package__,
-        ).resolve_rescript_cross_module
-        return resolve_rescript_cross_module(store)
-    except Exception as exc:  # noqa: BLE001 - best-effort post-pass
-        logger.warning("ReScript cross-module resolver failed: %s", exc)
-        return None
 
 
 # Default ignore patterns (in addition to .gitignore).
@@ -706,15 +685,11 @@ def collect_all_files(
         try:
             from dagayn._core import collect_parseable_files
 
-            rust_files = collect_parseable_files(repo_root, recurse_submodules)
-            return _merge_unique(
-                rust_files,
-                _collect_python_only_files(repo_root, recurse_submodules),
-            )
+            return collect_parseable_files(repo_root, recurse_submodules)
         except (ImportError, RuntimeError, TypeError, ValueError) as exc:
             raise RuntimeError(
                 "Rust file discovery requires dagayn._core. "
-                "Set DAGAYN_BACKEND=python explicitly to use Python discovery."
+                "Install a wheel with the native extension or rebuild from source."
             ) from exc
 
     ignore_patterns = _load_ignore_patterns(repo_root)
@@ -742,43 +717,6 @@ def collect_all_files(
             continue
         files.append(rel_path)
 
-    return files
-
-
-def _merge_unique(primary: list[str], secondary: list[str]) -> list[str]:
-    merged = list(primary)
-    seen = set(primary)
-    for rel_path in secondary:
-        if rel_path not in seen:
-            merged.append(rel_path)
-            seen.add(rel_path)
-    return merged
-
-
-def _collect_python_only_files(
-    repo_root: Path,
-    recurse_submodules: bool | None = None,
-) -> list[str]:
-    """Collect languages still handled only by the Python parser."""
-    ignore_patterns = _load_ignore_patterns(repo_root)
-    tracked = get_all_tracked_files(repo_root, recurse_submodules)
-    if tracked:
-        candidates = tracked
-    else:
-        candidates = [str(p.relative_to(repo_root)) for p in repo_root.rglob("*") if p.is_file()]
-
-    files: list[str] = []
-    for rel_path in candidates:
-        if not rel_path.lower().endswith((".res", ".resi")):
-            continue
-        if _should_ignore(rel_path, ignore_patterns):
-            continue
-        full_path = repo_root / rel_path
-        if not full_path.is_file() or full_path.is_symlink():
-            continue
-        if _is_binary(full_path):
-            continue
-        files.append(rel_path)
     return files
 
 
@@ -1005,7 +943,7 @@ def _filter_incremental_candidates(
         except (ImportError, RuntimeError, TypeError, ValueError) as exc:
             raise RuntimeError(
                 "Rust incremental candidate filtering requires dagayn._core. "
-                "Set DAGAYN_BACKEND=python explicitly to use Python filtering."
+                "Install a wheel with the native extension or rebuild from source."
             ) from exc
 
     existing_files: list[str] = []
@@ -1515,14 +1453,11 @@ def full_build(
         _store_vcs_metadata(repo_root, store)
         store.commit()
 
-    rescript_stats = _run_rescript_resolver(store)
-
     return {
         "files_parsed": len(files),
         "total_nodes": total_nodes,
         "total_edges": total_edges,
         "errors": errors,
-        "rescript_resolution": rescript_stats,
     }
 
 
@@ -1687,7 +1622,6 @@ def incremental_update(
             "changed_files": list(changed_files),
             "dependent_files": list(dependent_files),
             "errors": errors,
-            "rescript_resolution": None,
         }
 
     use_serial = os.environ.get("CRG_SERIAL_PARSE", "") == "1"
@@ -1785,11 +1719,6 @@ def incremental_update(
     _store_vcs_metadata(repo_root, store)
     store.commit()
 
-    # Only re-run ReScript resolver when changed files touched .res/.resi;
-    # otherwise prior resolution state is unaffected.
-    rescript_changed = any(rp.endswith((".res", ".resi")) for rp in all_files)
-    rescript_stats = _run_rescript_resolver(store) if rescript_changed else None
-
     return {
         "files_updated": len(all_files),
         "total_nodes": total_nodes,
@@ -1797,7 +1726,6 @@ def incremental_update(
         "changed_files": list(changed_files),
         "dependent_files": list(dependent_files),
         "errors": errors,
-        "rescript_resolution": rescript_stats,
     }
 
 

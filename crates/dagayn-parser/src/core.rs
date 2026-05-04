@@ -466,6 +466,12 @@ pub fn parse_rust_owned_files_compact_json(repo_root: &Path, file_paths: &[Strin
     json!({"batch": batch, "errors": errors}).to_string()
 }
 
+pub fn parse_rust_owned_file_compact_json(file_path: &str, source: &[u8]) -> String {
+    let mut parser = RustOwnedParser::new();
+    let (nodes, edges) = parser.parse_file_in_repo(None, file_path, source);
+    parsed_compact_json(nodes, edges)
+}
+
 pub fn parse_terraform(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let mut parser = new_terraform_parser();
     terraform::parse_terraform_with_parser(file_path, source, parser.as_mut())

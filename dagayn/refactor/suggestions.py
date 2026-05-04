@@ -34,7 +34,6 @@ _PRODUCTION_LANGUAGES = frozenset(
         "r",
         "elixir",
         "solidity",
-        "rescript",
         "vue",
         "bash",
         "terraform",
