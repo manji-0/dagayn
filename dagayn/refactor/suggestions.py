@@ -209,7 +209,9 @@ def _evidence_sort_value(suggestion: dict[str, Any]) -> float:
     return 0.0
 
 
-def _suggestion_sort_key(suggestion: dict[str, Any]) -> tuple[int, int, int, int, float, str]:
+def _suggestion_sort_key(
+    suggestion: dict[str, Any],
+) -> tuple[int, int, int, int, int, float, str]:
     category_rank = {
         "executable": 0,
         "unknown": 1,
@@ -222,6 +224,8 @@ def _suggestion_sort_key(suggestion: dict[str, Any]) -> tuple[int, int, int, int
     confidence_rank = {"high": 0, "medium": 1, "low": 2}
     risk_rank = {"low": 0, "medium": 1, "high": 2}
     type_rank = {"split": 0, "move": 1, "document": 2, "remove": 3}
+    symbols = suggestion.get("symbols", [])
+    symbol = str(symbols[0]) if isinstance(symbols, list) and symbols else ""
     return (
         category_rank.get(suggestion.get("category", "unknown"), 1),
         priority_rank.get(suggestion.get("priority", "medium"), 1),
@@ -229,7 +233,7 @@ def _suggestion_sort_key(suggestion: dict[str, Any]) -> tuple[int, int, int, int
         risk_rank.get(suggestion.get("estimated_risk", "medium"), 1),
         type_rank.get(suggestion.get("type", "unknown"), 2),
         _evidence_sort_value(suggestion),
-        suggestion.get("symbols", [""])[0],
+        symbol,
     )
 
 
@@ -582,6 +586,8 @@ def suggest_refactorings(store: GraphStore) -> list[dict[str, Any]]:
                 "reason_codes": [*d.get("reason_codes", []), "public_api_candidate"],
             }
         category = _dead_code_category(d)
+        kind_name = str(d.get("kind", "")).lower()
+        name = str(d.get("name", ""))
         estimated_risk = "high" if category == "public_api" else "medium"
         verification_steps = [
             "Search for runtime registration or dynamic dispatch before deleting.",
@@ -595,7 +601,7 @@ def suggest_refactorings(store: GraphStore) -> list[dict[str, Any]]:
         suggestions.append(
             {
                 "type": "remove",
-                "description": f"Remove unused {d['kind'].lower()} '{d['name']}'",
+                "description": f"Remove unused {kind_name} '{name}'",
                 "symbols": [d["qualified_name"]],
                 "rationale": (
                     "No callers, test references, importers, references, or subclasses "
