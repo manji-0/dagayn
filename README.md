@@ -219,6 +219,35 @@ dagayn visualize --serve
 dagayn serve
 ```
 
+### MCP tool profiles
+
+<!-- derived-from ./docs/COMMANDS.md#tool-profiles -->
+
+`dagayn serve` exposes the `default` MCP tool profile unless you select another
+profile or an exact tool allow-list. Profiles keep routine agent sessions small
+while leaving specialized review, architecture, and refactor surfaces available
+when a workflow needs them.
+
+| Profile | Use when |
+|---|---|
+| `default` | General agent use with the compact first-choice tool set |
+| `review` | Local diff and PR review |
+| `architecture` | Architecture mapping and hotspot analysis |
+| `refactor` | Refactor planning and safe apply flows |
+| `full` | Legacy all-tools behavior |
+
+```bash
+dagayn serve --tool-profile review
+dagayn serve --tool-profile architecture
+dagayn serve --tool-profile refactor
+dagayn serve --tool-profile full
+dagayn serve --tools query_graph_tool,semantic_search_nodes_tool
+```
+
+`--tools` is an exact comma-separated allow-list and overrides profiles.
+Persistent server configs can use `DAGAYN_TOOL_PROFILE`, `CRG_TOOL_PROFILE`, or
+`CRG_TOOLS` for the same controls.
+
 ## Reporting and export outputs
 
 `dagayn visualize` is the current report/export surface for graph artifacts.
