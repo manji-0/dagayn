@@ -85,6 +85,24 @@ class TestGenerateSkills:
         assert (skills_dir / "writing-markdown-document.md").is_file()
         assert (skills_dir / "reading-markdown-document.md").is_file()
 
+    def test_review_skills_use_composed_analysis_outputs(self, tmp_path):
+        """Generated review skills should point agents at composed Tier 1 output."""
+        skills_dir = generate_skills(tmp_path)
+        review_changes = (skills_dir / "review-changes.md").read_text()
+        review_delta = (skills_dir / "review-delta.md").read_text()
+        review_pr = (skills_dir / "review-pr.md").read_text()
+
+        assert "analysis_summary" in review_changes
+        assert "analysis_summary" in review_delta
+        assert "analysis_summary" in review_pr
+        assert "recommended_tests" in review_pr
+
+    def test_explore_skill_uses_architecture_health(self, tmp_path):
+        """Generated exploration skill should use the composed architecture surface."""
+        skills_dir = generate_skills(tmp_path)
+        content = (skills_dir / "explore-codebase.md").read_text()
+        assert "architecture_health" in content
+
     def test_idempotent(self, tmp_path):
         """Running twice should not fail and files should still be valid."""
         generate_skills(tmp_path)
@@ -442,6 +460,9 @@ class TestInjectClaudeMd:
         assert "get_minimal_context" in content
         assert "How to judge analysis output" in content
         assert "truncated" in content
+        assert "--tool-profile full" in content
+        assert "analysis_summary" in content
+        assert "architecture_health" in content
 
     def test_appends_to_existing_file(self, tmp_path):
         claude_md = tmp_path / ".claude" / "CLAUDE.md"
@@ -653,6 +674,16 @@ class TestInjectPlatformInstructionsFiltering:
         assert _MARKDOWN_POLICY_MARKER in (tmp_path / ".codex" / "AGENTS.md").read_text()
         opencode_agents = tmp_path / ".config" / "opencode" / "AGENTS.md"
         assert _MARKDOWN_POLICY_MARKER in opencode_agents.read_text()
+
+    def test_agents_md_mentions_tool_profiles_and_composed_outputs(self, tmp_path):
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            inject_platform_instructions(tmp_path, target="codex")
+
+        content = (tmp_path / ".codex" / "AGENTS.md").read_text()
+        assert "--tool-profile full" in content
+        assert "analysis_summary" in content
+        assert "architecture_health" in content
+        assert "Drill-down tools" in content
 
     def test_policy_injected_when_only_mcp_section_exists(self, tmp_path):
         """Existing file with only the MCP section gets the policy section on re-run."""

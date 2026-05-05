@@ -11,8 +11,10 @@ Use the dagayn MCP tools to explore and understand the codebase.
 
 1. Run `get_minimal_context(task="<what you need to understand>")` to see graph
    freshness, risk, major communities, and suggested next tools.
-2. Run `get_architecture_overview` for high-level community structure when the
-   task is architectural; use `list_communities` and `get_community` for drill-down.
+2. Run `get_architecture_overview` for high-level architecture questions. Read
+   `architecture_health` first; it summarizes coupling, hubs, bridges,
+   knowledge gaps, surprising connections, and ADP/SDP/SAP signals.
+   Use `list_communities` and `get_community` only for drill-down.
 3. Use `semantic_search_nodes` to find specific functions or classes.
 4. Use `query_graph` with patterns like `callers_of`, `callees_of`, `imports_of`
    to trace relationships.
@@ -22,7 +24,8 @@ Use the dagayn MCP tools to explore and understand the codebase.
 
 ### Tips
 
-- Start broad (stats, architecture) then narrow down to specific areas.
+- Start broad (minimal context, architecture health) then narrow down to
+  specific areas.
 - Use `children_of` on a file to see all its functions and classes.
 - Use `find_large_functions` to identify complex code.
 - Treat graph output as evidence: cite counts, thresholds, reason codes, and

@@ -60,6 +60,15 @@ class TestResolveRepoRoot:
 class TestServeMainTransport:
     """``main()`` wires FastMCP to stdio or Streamable HTTP."""
 
+    @pytest.fixture(autouse=True)
+    def _restore_tools_and_env(self, monkeypatch):
+        original = crg_main._snapshot_components()
+        monkeypatch.delenv("CRG_TOOLS", raising=False)
+        monkeypatch.delenv("DAGAYN_TOOL_PROFILE", raising=False)
+        monkeypatch.delenv("CRG_TOOL_PROFILE", raising=False)
+        yield
+        crg_main._restore_components(original)
+
     def test_stdio_calls_mcp_run_stdio(self, monkeypatch):
         calls: list[dict] = []
 
@@ -247,15 +256,31 @@ class TestApplyToolFilter:
 
     @pytest.fixture(autouse=True)
     def _clean_env(self, monkeypatch):
-        """Ensure CRG_TOOLS is not set from the outer environment."""
+        """Ensure tool filter env vars are not set from the outer environment."""
         monkeypatch.delenv("CRG_TOOLS", raising=False)
+        monkeypatch.delenv("DAGAYN_TOOL_PROFILE", raising=False)
+        monkeypatch.delenv("CRG_TOOL_PROFILE", raising=False)
 
-    def test_no_filter_keeps_all_tools(self):
-        """When neither --tools nor CRG_TOOLS is set, all tools remain."""
-        before = _tool_names()
+    def test_default_profile_is_used_when_no_filter_is_set(self):
+        """When no exact allow-list is set, the default profile is applied."""
         crg_main._apply_tool_filter(None)
         after = _tool_names()
-        assert before == after
+        assert after == set(crg_main.TOOL_PROFILES[crg_main.DEFAULT_TOOL_PROFILE])
+
+    def test_full_profile_keeps_all_tools(self):
+        """The ``full`` profile preserves the legacy all-tools surface."""
+        before = _tool_names()
+        crg_main._apply_tool_filter(tool_profile="full")
+        after = _tool_names()
+        assert after == before
+
+    def test_profiles_reference_registered_tools(self):
+        """Every bounded profile should reference registered MCP tool names."""
+        registered = _tool_names()
+        for profile, profile_tools in crg_main.TOOL_PROFILES.items():
+            if profile_tools is None:
+                continue
+            assert set(profile_tools) <= registered, profile
 
     def test_filter_via_argument(self):
         """The ``tools`` argument keeps only the listed tools."""
@@ -277,6 +302,44 @@ class TestApplyToolFilter:
         crg_main._apply_tool_filter("query_graph_tool")
         remaining = _tool_names()
         assert remaining == {"query_graph_tool"}
+
+    def test_argument_takes_precedence_over_profile(self):
+        """CLI --tools also wins over named profiles."""
+        crg_main._apply_tool_filter("query_graph_tool", tool_profile="architecture")
+        remaining = _tool_names()
+        assert remaining == {"query_graph_tool"}
+
+    def test_profile_via_argument(self):
+        """Named profiles expand to their configured tool sets."""
+        crg_main._apply_tool_filter(tool_profile="review")
+        remaining = _tool_names()
+        assert remaining == set(crg_main.TOOL_PROFILES["review"])
+
+    def test_profile_via_env_var(self, monkeypatch):
+        """DAGAYN_TOOL_PROFILE works as fallback when no exact list is set."""
+        monkeypatch.setenv("DAGAYN_TOOL_PROFILE", "refactor")
+        crg_main._apply_tool_filter(None)
+        remaining = _tool_names()
+        assert remaining == set(crg_main.TOOL_PROFILES["refactor"])
+
+    def test_crg_tools_env_takes_precedence_over_profile_env(self, monkeypatch):
+        """Exact env allow-lists still beat profile env vars."""
+        monkeypatch.setenv("CRG_TOOLS", "query_graph_tool")
+        monkeypatch.setenv("DAGAYN_TOOL_PROFILE", "architecture")
+        crg_main._apply_tool_filter(None)
+        remaining = _tool_names()
+        assert remaining == {"query_graph_tool"}
+
+    def test_profile_argument_takes_precedence_over_crg_tools_env(self, monkeypatch):
+        """Explicit CLI profiles beat exact allow-lists from the environment."""
+        monkeypatch.setenv("CRG_TOOLS", "query_graph_tool")
+        crg_main._apply_tool_filter(tool_profile="refactor")
+        remaining = _tool_names()
+        assert remaining == set(crg_main.TOOL_PROFILES["refactor"])
+
+    def test_unknown_profile_raises(self):
+        with pytest.raises(ValueError, match="unknown tool profile"):
+            crg_main._apply_tool_filter(tool_profile="unknown")
 
     def test_empty_string_is_noop(self):
         """An empty string should not remove all tools."""

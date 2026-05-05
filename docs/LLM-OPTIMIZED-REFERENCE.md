@@ -7,6 +7,8 @@ Install with `pip install dagayn` or `uv tool install dagayn`, then run `dagayn 
 
 Use `dagayn update` for change-driven refreshes and `dagayn watch` for live development.
 
+`dagayn serve` uses the `default` MCP tool profile unless another profile or exact allow-list is supplied.
+
 Use `dagayn` in all user-facing guidance.
 </section>
 
@@ -17,6 +19,10 @@ Recommended sequence for reviewing a delta:
 2. call `detect_changes` or `get_review_context`
 3. inspect affected nodes, flows, and tests
 4. read only the files that remain ambiguous after graph queries
+
+`detect_changes` returns an `analysis_summary` with risk reasons, recommended
+tests, affected-flow rankings, documentation update candidates, hotspot
+proximity, and architecture risks in changed scopes.
 
 The fork is designed to work well when docs, app code, and Terraform all change together.
 </section>
@@ -39,6 +45,12 @@ Important CLI commands:
 - `dagayn visualize`
 - `dagayn serve`
 - `dagayn register` / `dagayn repos` / `dagayn daemon`
+
+`dagayn serve --tool-profile review|architecture|refactor|full` selects a named MCP tool surface. The default profile keeps ordinary agent use small; `full` restores the legacy all-tools surface. `--tools` is an exact allow-list.
+
+`get_architecture_overview` returns `architecture_health`, a bounded composed
+summary of coupling, hubs, bridges, knowledge gaps, surprising connections, and
+ADP/SDP/SAP signals.
 
 `dagayn visualize` is the report/export surface. It supports HTML output with `--mode auto|full|community|file`, plus `graphml`, `mermaid-c4`, `svg`, `cypher`, and `obsidian` via `--format`.
 

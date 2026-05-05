@@ -670,29 +670,46 @@ scanning cannot.
 - **Any new task**: `get_minimal_context` for graph freshness, risk, and next-tool hints
 - **Exploring code**: `semantic_search_nodes` or `query_graph` instead of Grep
 - **Understanding impact**: `get_impact_radius` instead of manually tracing imports
-- **Code review**: `detect_changes` + `get_review_context` instead of reading entire files
+- **Code review**: `detect_changes` first; use its `analysis_summary` before
+  calling drill-down tools
 - **Finding relationships**: `query_graph` with callers_of/callees_of/imports_of/tests_for
-- **Architecture questions**: `get_architecture_overview` + `list_communities`
+- **Architecture questions**: `get_architecture_overview` first; use its
+  `architecture_health` before calling drill-down tools
 
 Fall back to Grep/Glob/Read **only** when the graph result is missing, stale,
 ambiguous, or lacks the exact source text needed for the task.
 
-### Key Tools
+### Tool surface
+
+`dagayn serve` uses the `default` MCP tool profile unless configured otherwise.
+The default profile intentionally exposes a small first-choice surface. Use
+`dagayn serve --tool-profile review|architecture|refactor` for broader workflow
+profiles, `--tool-profile full` for all tools, or `--tools ...` for an exact
+allow-list.
+
+### Default workflow tools
 
 | Tool | Use when |
 | ------ | ---------- |
 | `get_minimal_context` | Starting point: graph freshness, risk, communities, suggested next tools |
-| `detect_changes` | Reviewing code changes — gives risk-scored analysis |
+| `detect_changes` | Primary change review — returns `analysis_summary` |
 | `get_review_context` | Need source snippets for review — token-efficient |
-| `get_impact_radius` | Understanding blast radius of a change |
-| `get_affected_flows` | Finding which execution paths are impacted |
+| `get_architecture_overview` | Primary architecture review — returns `architecture_health` |
+| `refactor_tool` | Planning renames, finding dead code, and evidence-ranked refactor suggestions |
 | `query_graph` | Tracing callers, callees, imports, tests, dependencies |
 | `semantic_search_nodes` | Finding functions/classes by name or keyword |
-| `get_architecture_overview` | Understanding high-level codebase structure |
+
+### Drill-down tools
+
+| Tool | Use when |
+| ------ | ---------- |
+| `get_impact_radius` | Need a wider or deeper blast-radius view than `detect_changes` returned |
+| `get_affected_flows` | Need full affected execution-path details |
+| `list_flows` / `get_flow` | Need flow lists or step-by-step flow paths |
+| `list_communities` / `get_community` | Need community drill-down after `architecture_health` |
 | `get_hub_nodes` / `get_bridge_nodes` | Finding high-degree hotspots and betweenness chokepoints |
 | `get_knowledge_gaps` | Finding graph gaps and untested hotspots |
 | `get_surprising_connections` | Finding cross-boundary coupling with qualitative reason codes |
-| `refactor_tool` | Planning renames, finding dead code, and evidence-ranked refactor suggestions |
 
 ### How to judge analysis output
 
@@ -710,11 +727,14 @@ ambiguous, or lacks the exact source text needed for the task.
 
 1. Start with `get_minimal_context(task=...)`.
 2. Use the suggested next tool or a targeted query.
-3. For reviews, use `detect_changes`, then `get_affected_flows` and
-   `query_graph` pattern=\"tests_for\" for coverage.
-4. For architecture/refactor work, combine quantitative tools
-   (`get_hub_nodes`, `get_bridge_nodes`, `get_knowledge_gaps`) with source reads
-   for the final decision.
+3. For reviews, use `detect_changes` and read `analysis_summary` first.
+   Call `get_review_context` for source snippets and `get_affected_flows`,
+   `get_impact_radius`, or `query_graph` only when the summary points there.
+4. For architecture work, use `get_architecture_overview` and read
+   `architecture_health` first. Drill into communities, hubs, bridges, gaps, or
+   ADP/SDP/SAP only when the health summary identifies a concrete risk.
+5. For refactors, use `refactor_tool(mode=\"suggest\")` first, then preview
+   renames with `refactor_tool(mode=\"rename\")` and `apply_refactor_tool(dry_run=True)`.
 """
 
 

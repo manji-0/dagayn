@@ -16,24 +16,35 @@ Perform a focused, token-efficient code review of only the changed code and its 
 
 2. **Ensure the graph is current** by calling `build_or_update_graph_tool()` (incremental update).
 
-3. **Get review context** by calling `get_review_context_tool()`. This returns:
-   - Changed files (auto-detected from git diff)
-   - Impacted nodes and files (blast radius)
-   - Source code snippets for changed areas
-   - Review guidance (test coverage gaps, wide impact warnings, inheritance concerns)
+3. **Get risk and review priorities** by calling `detect_changes_tool()`.
+   Read `analysis_summary` first. It returns:
+   - Risk level, risk score, and reason codes
+   - Changed/impacted node and file counts
+   - Recommended tests
+   - Affected-flow rankings
+   - Documentation update candidates
+   - Hotspot proximity
+   - Architecture risks in changed scopes
 
-4. **Analyze the blast radius** by reviewing the `impacted_nodes` and `impacted_files` in the context. Focus on:
+4. **Fetch source context only when needed** by calling
+   `get_review_context_tool()` for files or functions where source snippets are
+   required.
+
+5. **Analyze the blast radius** by reviewing the impact fields in
+   `analysis_summary` and, when needed, calling `get_impact_radius_tool()`.
+   Focus on:
    - Functions whose callers changed (may need signature/behavior verification)
    - Classes with inheritance changes (Liskov substitution concerns)
    - Files with many dependents (high-risk changes)
 
-5. **Perform the review** using the context. For each changed file:
+6. **Perform the review** using the context. For each changed file:
    - Review the source snippet for correctness, style, and potential bugs
    - Check if impacted callers/dependents need updates
-   - Verify test coverage using `query_graph_tool(pattern="tests_for", target=<function_name>)`
+   - Prefer `analysis_summary.recommended_tests` first, then verify uncertain
+     coverage using `query_graph_tool(pattern="tests_for", target=<function_name>)`
    - Flag any untested changed functions
 
-6. **Report findings** in a structured format:
+7. **Report findings** in a structured format:
    - **Summary**: One-line overview of the changes
    - **Risk level**: Low / Medium / High (based on blast radius)
    - **Issues found**: Bugs, style issues, missing tests
@@ -42,15 +53,16 @@ Perform a focused, token-efficient code review of only the changed code and its 
 
 ## Advantages Over Full-Repo Review
 
-- Only sends changed + impacted code to the model (5-10x fewer tokens)
+- Uses composed change analysis before fetching source snippets
 - Automatically identifies blast radius without manual file searching
 - Provides structural context (who calls what, inheritance chains)
-- Flags untested functions automatically
+- Recommends likely tests and flags untested functions automatically
 
 ## Evidence Rules
 
-- Cite the concrete metric behind each risk label: blast-radius count, affected
-  flow, dependency direction, test gap, or changed public surface.
+- Cite the concrete metric behind each risk label:
+  `analysis_summary.reason_codes`, blast-radius count, affected flow,
+  dependency direction, test gap, or changed public surface.
 - Treat missing tests as a lead until `tests_for` and source-level behavior are
   checked.
 - If a graph result is truncated, narrow it before making a final review claim.

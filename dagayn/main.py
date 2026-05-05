@@ -20,6 +20,11 @@ from .prompts import (
     pre_merge_check_prompt,
     review_changes_prompt,
 )
+from .tool_profiles import (
+    DEFAULT_TOOL_PROFILE,
+    TOOL_PROFILE_ENV_VARS,
+    TOOL_PROFILES,
+)
 
 
 class _FallbackComponent:
@@ -1201,38 +1206,85 @@ def _restore_components(snapshot: dict[str, Any]) -> None:
     components.update(snapshot)
 
 
-def _apply_tool_filter(tools: str | None = None) -> None:
+def _parse_tool_allow_list(raw: str) -> set[str]:
+    """Parse a comma-separated MCP tool allow-list."""
+    return {tool.strip() for tool in raw.split(",") if tool.strip()}
+
+
+def _profile_tools(profile: str) -> set[str] | None:
+    """Return the allow-list for a named profile, or None for full exposure."""
+    profile_name = profile.strip()
+    if not profile_name:
+        return None
+    if profile_name not in TOOL_PROFILES:
+        known = ", ".join(TOOL_PROFILES)
+        raise ValueError(f"unknown tool profile {profile_name!r}; expected one of: {known}")
+    profile_tools = TOOL_PROFILES[profile_name]
+    if profile_tools is None:
+        return None
+    return set(profile_tools)
+
+
+def _resolve_tool_allow_list(
+    tools: str | None = None,
+    tool_profile: str | None = None,
+) -> set[str] | None:
+    """Resolve exact tool filtering from CLI/env args and named profiles."""
+    import os
+
+    if tools is not None:
+        return _parse_tool_allow_list(tools) or None
+
+    if tool_profile is not None:
+        return _profile_tools(tool_profile)
+
+    env_tools = os.environ.get("CRG_TOOLS")
+    if env_tools is not None:
+        return _parse_tool_allow_list(env_tools) or None
+
+    profile = next(
+        (os.environ[name] for name in TOOL_PROFILE_ENV_VARS if os.environ.get(name)),
+        DEFAULT_TOOL_PROFILE,
+    )
+    return _profile_tools(profile)
+
+
+def _apply_tool_filter(
+    tools: str | None = None,
+    tool_profile: str | None = None,
+) -> None:
     """Remove tools not listed in the allow-list.
 
-    Accepts a comma-separated string of tool names to keep.  When set,
-    every registered MCP tool whose name is **not** in the list is
+    Accepts either a comma-separated string of tool names to keep or a named
+    profile.  Every registered MCP tool outside the resolved allow-list is
     removed via ``FastMCP.remove_tool()``.
 
-    The allow-list can be supplied in two ways (first match wins):
+    The allow-list can be supplied in these ways (first match wins):
 
     1. ``tools`` argument (from ``serve --tools ...``).
-    2. ``CRG_TOOLS`` environment variable.
+    2. ``tool_profile`` argument (from ``serve --tool-profile ...``).
+    3. ``CRG_TOOLS`` environment variable.
+    4. ``DAGAYN_TOOL_PROFILE`` or ``CRG_TOOL_PROFILE`` environment variable.
+    5. The built-in ``default`` profile.
 
-    When neither is set, all tools remain available.
+    Use the ``full`` profile to expose all tools, matching the legacy behavior.
 
-    This is useful for token-constrained environments: CRG exposes 28+
-    tools by default (~8k description tokens per LLM turn).  Filtering
-    to a working set of 5-10 tools can reduce overhead by 70-85%.
+    This is useful for token-constrained environments: dagayn exposes many
+    tools when unfiltered.  Filtering to a workflow profile keeps the first
+    choice small while preserving exact allow-lists for advanced users.
 
     Example::
 
         # via CLI
+        dagayn serve --tool-profile review
         dagayn serve --tools query_graph_tool,semantic_search_nodes_tool
 
         # via env var
         CRG_TOOLS=query_graph_tool,semantic_search_nodes_tool
+        DAGAYN_TOOL_PROFILE=architecture
     """
-    import os
 
-    raw = tools or os.environ.get("CRG_TOOLS")
-    if not raw:
-        return
-    allowed = {t.strip() for t in raw.split(",") if t.strip()}
+    allowed = _resolve_tool_allow_list(tools=tools, tool_profile=tool_profile)
     if not allowed:
         return
     registered = _registered_tool_names()
@@ -1244,6 +1296,7 @@ def _apply_tool_filter(tools: str | None = None) -> None:
 def main(
     repo_root: str | None = None,
     tools: str | None = None,
+    tool_profile: str | None = None,
     *,
     transport: str = "stdio",
     host: str | None = None,
@@ -1262,15 +1315,17 @@ def main(
     Args:
         repo_root: Default repository root for all tool calls.
         tools: Comma-separated list of tool names to expose.
-            Falls back to ``CRG_TOOLS`` env var.  When unset, all
-            tools are available.
+            Falls back to ``CRG_TOOLS`` env var and overrides tool profiles.
+        tool_profile: Named workflow profile. Defaults to ``default`` unless
+            ``DAGAYN_TOOL_PROFILE`` or ``CRG_TOOL_PROFILE`` is set. Use
+            ``full`` for legacy all-tools behavior.
         transport: ``"stdio"`` (default) or ``"streamable-http"`` for local HTTP.
         host: Bind address when using HTTP (required for HTTP; set by CLI).
         port: Port when using HTTP (required for HTTP; set by CLI).
     """
     global _default_repo_root
     _default_repo_root = repo_root
-    _apply_tool_filter(tools)
+    _apply_tool_filter(tools=tools, tool_profile=tool_profile)
     if sys.platform == "win32":
         import asyncio
 

@@ -14,8 +14,11 @@ Use the knowledge graph to systematically trace and debug issues.
 2. Use `semantic_search_nodes` to find code related to the issue.
 3. Use `query_graph` with `callers_of` and `callees_of` to trace call chains.
 4. Use `get_flow` to see full execution paths through suspected areas.
-5. Run `detect_changes` to check if recent changes caused the issue.
-6. Use `get_impact_radius` on suspected files to see what else is affected.
+5. Run `detect_changes` to check if recent changes caused the issue. Read
+   `analysis_summary` for risk reasons, affected-flow rankings, hotspot
+   proximity, and recommended tests.
+6. Use `get_impact_radius` on suspected files only when `analysis_summary` or
+   the call trace leaves the blast radius unclear.
 7. Read source directly once graph evidence identifies the likely failing path.
 
 ### Tips

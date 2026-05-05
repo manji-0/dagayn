@@ -43,6 +43,7 @@ Graphviz / DOT is not a built-in export target. Jupyter / Databricks notebooks a
 
 <!-- constrained-by ./ARCHITECTURE.md#query-surfaces -->
 <!-- derived-from ./refactor-tool-suggest-spec.md -->
+<!-- derived-from ./plans/ANALYSIS-TOOL-STRATEGY.md#tool-tiers -->
 
 The MCP server exposes tools for:
 
@@ -71,6 +72,42 @@ Representative tool names include:
 - `refactor_tool`
 - `generate_wiki`
 - `cross_repo_search`
+
+### Tool profiles
+
+<!-- derived-from ./plans/ANALYSIS-TOOL-STRATEGY.md#tool-profile-plan -->
+
+`dagayn serve` exposes the `default` profile unless an exact allow-list or
+another profile is selected. Profiles keep the ordinary MCP surface small while
+leaving specialized tools available for workflows that need them.
+
+| Profile | Use when |
+| --- | --- |
+| `default` | General agent use with a small first-choice tool list |
+| `review` | PR and local diff review |
+| `architecture` | Architecture mapping and cleanup |
+| `refactor` | Refactor planning and safe apply flows |
+| `full` | Legacy all-tools behavior |
+
+```bash
+dagayn serve --tool-profile review
+dagayn serve --tool-profile full
+dagayn serve --tools query_graph_tool,semantic_search_nodes_tool
+```
+
+`--tools` is an exact comma-separated allow-list and overrides profiles. The
+same exact allow-list can be supplied with `CRG_TOOLS`. Named profiles can be
+supplied with `DAGAYN_TOOL_PROFILE` or `CRG_TOOL_PROFILE`.
+
+`detect_changes_tool` is the primary change-analysis surface. Standard output
+includes `analysis_summary` with risk level, reason codes, recommended tests,
+affected-flow rankings, documentation update candidates, hotspot proximity, and
+architecture risks in changed scopes.
+
+`get_architecture_overview_tool` is the primary architecture-analysis surface.
+Output includes `architecture_health`, which composes community coupling, hubs,
+bridges, knowledge gaps, surprising connections, and ADP/SDP/SAP signals into a
+bounded health summary with drill-down tool names.
 
 `refactor_tool(mode="suggest")` returns graph-backed remove, move, split, and
 document candidates. Treat them as evidence-ranked leads; verify public APIs,

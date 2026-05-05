@@ -1002,6 +1002,9 @@ class TestCommunityTools:
         assert "cross_community_coupling" in result
         assert "warnings" in result
         assert "summary" in result
+        assert "architecture_health" in result
+        assert "counts" in result["architecture_health"]
+        assert "drill_downs" in result["architecture_health"]
 
     def test_get_architecture_overview_summary_format(self):
         result = get_architecture_overview_func(repo_root=str(self.root))

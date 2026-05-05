@@ -440,6 +440,18 @@ class TestChanges:
         from dagayn.tools import detect_changes_func
 
         self._add_func("my_func", path="/fake/repo/app.py", line_start=1, line_end=10)
+        self._add_func(
+            "test_my_func",
+            path="/fake/repo/test_app.py",
+            is_test=True,
+            line_start=1,
+            line_end=10,
+        )
+        self._add_tested_by(
+            "/fake/repo/test_app.py::test_my_func",
+            "/fake/repo/app.py::my_func",
+            path="/fake/repo/test_app.py",
+        )
 
         with (
             patch("dagayn.tools.review._get_store") as mock_get_store,
@@ -458,6 +470,15 @@ class TestChanges:
             assert "risk_score" in result
             assert "test_gaps" in result
             assert "review_priorities" in result
+            assert "analysis_summary" in result
+            summary = result["analysis_summary"]
+            assert summary["risk_level"] in {"low", "medium", "high"}
+            assert summary["changed_node_count"] >= 1
+            assert summary["impacted_node_count"] >= 1
+            assert summary["impacted_file_count"] >= 1
+            assert "reason_codes" in summary
+            assert summary["recommended_tests"][0]["qualified_name"].endswith("test_my_func")
+            assert "next_drill_downs" in summary
 
     def test_detect_changes_tool_trims_changed_functions(self):
         """detect_changes_func should budget changed_functions for large PRs."""

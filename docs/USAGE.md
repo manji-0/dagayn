@@ -88,20 +88,38 @@ to the removed Python parser implementation.
 ## Review changes
 
 <!-- constrained-by ./ARCHITECTURE.md#pipeline-overview -->
+<!-- derived-from ./plans/ANALYSIS-TOOL-STRATEGY.md#phase-1-document-the-default-path -->
 
 ```bash
 dagayn detect-changes --base HEAD~1
 ```
 
-In MCP clients, the equivalent workflow usually starts with `detect_changes`, `get_review_context`, or `get_minimal_context`.
+In MCP clients, start with `get_minimal_context_tool`, then choose
+`detect_changes_tool`, `get_architecture_overview_tool`, `refactor_tool`, or
+`query_graph_tool`. Follow response hints to drill-down tools only when needed.
 
 ## Start the MCP server
+
+<!-- derived-from ./plans/ANALYSIS-TOOL-STRATEGY.md#tool-profile-plan -->
 
 ```bash
 dagayn serve
 ```
 
-By default the server runs over stdio. Use the HTTP flags if you explicitly need local HTTP transport.
+By default the server runs over stdio and exposes the `default` tool profile,
+which keeps the first-choice MCP tool list small. Use a named profile for a
+broader workflow:
+
+```bash
+dagayn serve --tool-profile review
+dagayn serve --tool-profile architecture
+dagayn serve --tool-profile refactor
+dagayn serve --tool-profile full
+```
+
+Use `--tool-profile full` for the legacy all-tools surface. Use `--tools` when
+you need an exact comma-separated allow-list; it overrides the profile. Use the
+HTTP flags if you explicitly need local HTTP transport.
 
 ## Visualize or export the graph
 

@@ -9,6 +9,136 @@ from ..graph import node_to_dict
 from ..hints import generate_hints, get_session
 from ._common import _get_store, apply_output_budget
 
+
+def _architecture_health_summary(
+    store: Any,
+    overview: dict[str, Any],
+    *,
+    top_n: int,
+) -> dict[str, Any]:
+    """Compose specialized architecture signals into one bounded report."""
+    example_limit = min(max(top_n, 1), 5)
+
+    try:
+        from ..analysis import (
+            find_bridge_nodes,
+            find_hub_nodes,
+            find_knowledge_gaps,
+            find_surprising_connections,
+        )
+        from ..architecture import find_adp_violations, find_sdp_violations
+        from ..sap import find_sap_violations
+
+        hubs = find_hub_nodes(store, top_n=example_limit)
+        bridges = find_bridge_nodes(store, top_n=example_limit)
+        gaps = find_knowledge_gaps(store, top_n=example_limit)
+        surprises = find_surprising_connections(store, top_n=example_limit)
+        adp = find_adp_violations(store, granularity="package")[:example_limit]
+        sdp = find_sdp_violations(store, granularity="package")[:example_limit]
+        sap = find_sap_violations(store, scope_kind="package")[:example_limit]
+    except Exception as exc:  # pragma: no cover - defensive for backend parity drift
+        return {
+            "status": "partial",
+            "error": str(exc),
+            "drill_downs": {
+                "hubs": "get_hub_nodes_tool",
+                "bridges": "get_bridge_nodes_tool",
+                "knowledge_gaps": "get_knowledge_gaps_tool",
+                "surprising_connections": "get_surprising_connections_tool",
+                "adp": "detect_adp_violations_tool",
+                "sdp": "detect_sdp_violations_tool",
+                "sap": "detect_sap_violations_tool",
+            },
+        }
+
+    gap_keys = (
+        "isolated_nodes",
+        "thin_communities",
+        "untested_hotspots",
+        "single_file_communities",
+    )
+    gap_meta = gaps.get("_meta", {})
+    raw_gap_counts = gap_meta.get("raw_counts", {})
+    gap_counts = {key: int(raw_gap_counts.get(key, len(gaps.get(key, [])))) for key in gap_keys}
+
+    reason_codes: list[str] = []
+    if overview.get("warnings"):
+        reason_codes.append("high_cross_community_coupling")
+    if hubs:
+        reason_codes.append("hub_nodes")
+    if bridges:
+        reason_codes.append("bridge_nodes")
+    if sum(gap_counts.values()):
+        reason_codes.append("knowledge_gaps")
+    if surprises:
+        reason_codes.append("surprising_connections")
+    if adp:
+        reason_codes.append("adp_violations")
+    if sdp:
+        reason_codes.append("sdp_violations")
+    if sap:
+        reason_codes.append("sap_violations")
+
+    return {
+        "status": "ok",
+        "scoring_policy": {
+            "version": "architecture-health-v1",
+            "signals": [
+                "community_coupling",
+                "hub_nodes",
+                "bridge_nodes",
+                "knowledge_gaps",
+                "surprising_connections",
+                "adp",
+                "sdp",
+                "sap",
+            ],
+            "bounded_top_n": example_limit,
+        },
+        "counts": {
+            "communities": len(overview.get("communities", [])),
+            "coupled_pairs_shown": len(overview.get("cross_community_coupling", [])),
+            "warnings": len(overview.get("warnings", [])),
+            "hub_nodes": len(hubs),
+            "bridge_nodes": len(bridges),
+            "knowledge_gaps": sum(gap_counts.values()),
+            "surprising_connections": len(surprises),
+            "adp_violations": len(adp),
+            "sdp_violations": len(sdp),
+            "sap_violations": len(sap),
+        },
+        "reason_codes": reason_codes,
+        "top_examples": {
+            "hub_nodes": hubs,
+            "bridge_nodes": bridges,
+            "knowledge_gaps": {key: gaps.get(key, [])[: min(3, example_limit)] for key in gap_keys},
+            "surprising_connections": surprises,
+            "adp_violations": adp,
+            "sdp_violations": sdp,
+            "sap_violations": [
+                {
+                    "scope_key": violation.get("scope_key"),
+                    "display_name": violation.get("display_name"),
+                    "distance": violation.get("distance"),
+                    "zone": violation.get("zone"),
+                }
+                for violation in sap
+            ],
+        },
+        "drill_downs": {
+            "communities": "list_communities_tool",
+            "coupling": "get_architecture_overview_tool",
+            "hubs": "get_hub_nodes_tool",
+            "bridges": "get_bridge_nodes_tool",
+            "knowledge_gaps": "get_knowledge_gaps_tool",
+            "surprising_connections": "get_surprising_connections_tool",
+            "adp": "detect_adp_violations_tool",
+            "sdp": "detect_sdp_violations_tool",
+            "sap": "detect_sap_violations_tool",
+        },
+    }
+
+
 # ---------------------------------------------------------------------------
 # Tool 13: list_communities  [EXPLORE]
 # ---------------------------------------------------------------------------
@@ -199,10 +329,16 @@ def get_architecture_overview_func(
             ),
             **overview,
         }
+        result["architecture_health"] = _architecture_health_summary(
+            store,
+            overview,
+            top_n=top_n,
+        )
         apply_output_budget(
             result,
             budget_tokens=4000,
             list_priorities=[
+                "architecture_health",
                 "warnings",
                 "communities",
                 "cross_community_coupling",

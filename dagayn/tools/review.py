@@ -28,6 +28,319 @@ def _relative_qualified_name(qualified_name: str, root: Path) -> str:
     return f"{head}::{tail}" if sep else head
 
 
+def _risk_level(score: float) -> str:
+    if score >= 0.7:
+        return "high"
+    if score >= 0.35:
+        return "medium"
+    return "low"
+
+
+def _is_markdown_path(path: str) -> bool:
+    return path.lower().endswith((".md", ".markdown", ".mdx"))
+
+
+def _changed_scope_keys(changed_files: list[str]) -> set[str]:
+    scopes: set[str] = set()
+    for file_path in changed_files:
+        normalized = file_path.replace("\\", "/").lstrip("/")
+        if not normalized:
+            continue
+        parts = normalized.split("/")
+        scopes.add(parts[0] if len(parts) == 1 else "/".join(parts[:2]))
+        if len(parts) >= 3:
+            scopes.add("/".join(parts[:3]))
+    return scopes
+
+
+def _dedupe_dicts_by_key(items: list[dict[str, Any]], key: str, limit: int) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    out: list[dict[str, Any]] = []
+    for item in items:
+        value = item.get(key)
+        if not isinstance(value, str) or not value or value in seen:
+            continue
+        seen.add(value)
+        out.append(item)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _recommend_tests(
+    store: Any,
+    changed_functions: list[dict[str, Any]],
+    affected_flows: list[dict[str, Any]],
+    *,
+    limit: int = 10,
+) -> list[dict[str, Any]]:
+    """Recommend tests that directly or indirectly cover changed code."""
+    recommendations: list[dict[str, Any]] = []
+
+    for func in changed_functions:
+        qualified_name = func.get("qualified_name")
+        if not isinstance(qualified_name, str) or not qualified_name:
+            continue
+        try:
+            tests = store.get_transitive_tests(qualified_name)
+        except Exception:  # pragma: no cover - defensive for backend parity drift
+            tests = []
+        for test in tests:
+            test_qn = test.get("qualified_name")
+            if not isinstance(test_qn, str):
+                continue
+            recommendations.append(
+                {
+                    "name": test.get("name", test_qn.rsplit("::", 1)[-1]),
+                    "qualified_name": test_qn,
+                    "file": test.get("file_path"),
+                    "reason": (
+                        "indirect coverage via changed dependency"
+                        if test.get("indirect")
+                        else "direct coverage of changed code"
+                    ),
+                    "source": qualified_name,
+                }
+            )
+
+    # Flow names are not tests by definition, but test-named flows are useful
+    # review commands when the graph cannot resolve TESTED_BY edges.
+    for flow in affected_flows:
+        name = str(flow.get("name", ""))
+        if not name.lower().startswith(("test", "it:", "describe")):
+            continue
+        recommendations.append(
+            {
+                "name": name,
+                "qualified_name": name,
+                "file": None,
+                "reason": "affected test flow",
+                "source": "affected_flows",
+            }
+        )
+
+    return _dedupe_dicts_by_key(recommendations, "qualified_name", limit)
+
+
+def _documentation_update_candidates(
+    impact: dict[str, Any],
+    changed_files: list[str],
+    *,
+    limit: int = 10,
+) -> list[dict[str, Any]]:
+    changed_set = {str(path) for path in changed_files}
+    code_changed = any(not _is_markdown_path(path) for path in changed_files)
+    if not code_changed:
+        return []
+
+    candidates: list[dict[str, Any]] = []
+    for node in impact.get("impacted_nodes", []):
+        file_path = getattr(node, "file_path", "")
+        if not isinstance(file_path, str) or not _is_markdown_path(file_path):
+            continue
+        if file_path in changed_set:
+            continue
+        candidates.append(
+            {
+                "file": file_path,
+                "section": getattr(node, "name", None),
+                "qualified_name": getattr(node, "qualified_name", None),
+                "reason": "markdown node reached from changed code/doc graph",
+            }
+        )
+
+    return _dedupe_dicts_by_key(candidates, "qualified_name", limit)
+
+
+def _hotspot_proximity(
+    store: Any,
+    impact: dict[str, Any],
+    *,
+    top_n: int = 25,
+    limit: int = 5,
+) -> dict[str, Any]:
+    try:
+        from ..analysis import find_bridge_nodes, find_hub_nodes
+
+        hubs = find_hub_nodes(store, top_n=top_n)
+        bridges = find_bridge_nodes(store, top_n=top_n)
+    except Exception:  # pragma: no cover - defensive for backend parity drift
+        hubs = []
+        bridges = []
+
+    changed_qns = {
+        getattr(node, "qualified_name", "")
+        for node in impact.get("changed_nodes", [])
+        if getattr(node, "qualified_name", "")
+    }
+    impacted_qns = {
+        getattr(node, "qualified_name", "")
+        for node in impact.get("impacted_nodes", [])
+        if getattr(node, "qualified_name", "")
+    }
+
+    def _matches(items: list[dict[str, Any]], qns: set[str]) -> list[dict[str, Any]]:
+        return [item for item in items if item.get("qualified_name") in qns][:limit]
+
+    return {
+        "changed_hubs": _matches(hubs, changed_qns),
+        "changed_bridges": _matches(bridges, changed_qns),
+        "impacted_hubs": _matches(hubs, impacted_qns),
+        "impacted_bridges": _matches(bridges, impacted_qns),
+        "method": {
+            "hub": f"top {top_n} by total degree",
+            "bridge": f"top {top_n} by betweenness centrality",
+        },
+    }
+
+
+def _architecture_delta_summary(
+    store: Any,
+    changed_files: list[str],
+    *,
+    limit: int = 5,
+) -> dict[str, Any]:
+    """Summarize current architecture risks in scopes touched by the change."""
+    scopes = _changed_scope_keys(changed_files)
+    if not scopes:
+        return {
+            "mode": "current_graph_changed_scope",
+            "changed_scopes": [],
+            "related_violations": {},
+            "counts": {},
+            "note": "No changed scopes were available for architecture filtering.",
+        }
+
+    try:
+        from ..architecture import find_adp_violations, find_sdp_violations
+        from ..sap import find_sap_violations
+
+        adp = find_adp_violations(store, granularity="package")
+        sdp = find_sdp_violations(store, granularity="package")
+        sap = find_sap_violations(store, scope_kind="package")
+    except Exception:  # pragma: no cover - defensive for backend parity drift
+        adp = []
+        sdp = []
+        sap = []
+
+    def _touches_scope(value: str) -> bool:
+        normalized = value.replace("\\", "/")
+        return any(normalized == scope or normalized.startswith(f"{scope}/") for scope in scopes)
+
+    related_adp = [
+        violation
+        for violation in adp
+        if any(_touches_scope(str(node)) for node in violation.get("nodes", []))
+    ][:limit]
+    related_sdp = [
+        violation
+        for violation in sdp
+        if _touches_scope(str(violation.get("source", "")))
+        or _touches_scope(str(violation.get("target", "")))
+    ][:limit]
+    related_sap = [
+        violation
+        for violation in sap
+        if _touches_scope(str(violation.get("scope_key", "")))
+        or _touches_scope(str(violation.get("display_name", "")))
+    ][:limit]
+
+    return {
+        "mode": "current_graph_changed_scope",
+        "changed_scopes": sorted(scopes),
+        "related_violations": {
+            "adp": related_adp,
+            "sdp": related_sdp,
+            "sap": related_sap,
+        },
+        "counts": {
+            "adp": len(related_adp),
+            "sdp": len(related_sdp),
+            "sap": len(related_sap),
+        },
+        "note": (
+            "This summarizes current graph violations that touch changed scopes; "
+            "it does not build a separate baseline graph."
+        ),
+    }
+
+
+def _change_analysis_summary(
+    store: Any,
+    analysis: dict[str, Any],
+    impact: dict[str, Any],
+    changed_files: list[str],
+) -> dict[str, Any]:
+    risk_score = float(analysis.get("risk_score", 0.0) or 0.0)
+    affected_flows = list(analysis.get("affected_flows", []))
+    test_gaps = list(analysis.get("test_gaps", []))
+    changed_functions = list(analysis.get("changed_functions", []))
+    risk = _risk_level(risk_score)
+
+    docs = _documentation_update_candidates(impact, changed_files)
+    hotspots = _hotspot_proximity(store, impact)
+    architecture_delta = _architecture_delta_summary(store, changed_files)
+    recommended_tests = _recommend_tests(store, changed_functions, affected_flows)
+
+    reason_codes: list[str] = []
+    if risk == "high":
+        reason_codes.append("high_risk_score")
+    elif risk == "medium":
+        reason_codes.append("medium_risk_score")
+    if len(changed_functions) >= 10:
+        reason_codes.append("many_changed_graph_nodes")
+    if affected_flows:
+        reason_codes.append("affected_flows")
+    if any(float(flow.get("criticality", 0.0) or 0.0) >= 0.5 for flow in affected_flows):
+        reason_codes.append("critical_flow_affected")
+    if test_gaps:
+        reason_codes.append("test_gaps")
+    if len(impact.get("impacted_nodes", [])) > 20:
+        reason_codes.append("wide_blast_radius")
+    if docs:
+        reason_codes.append("documentation_update_candidates")
+    if hotspots["changed_hubs"] or hotspots["changed_bridges"]:
+        reason_codes.append("changed_hotspot")
+    elif hotspots["impacted_hubs"] or hotspots["impacted_bridges"]:
+        reason_codes.append("impacted_hotspot")
+    if any(architecture_delta["counts"].values()):
+        reason_codes.append("architecture_violation_in_changed_scope")
+
+    affected_flow_rankings = [
+        {
+            "name": flow.get("name"),
+            "criticality": flow.get("criticality", 0.0),
+            "node_count": flow.get("node_count"),
+            "file_count": flow.get("file_count"),
+        }
+        for flow in sorted(
+            affected_flows,
+            key=lambda item: float(item.get("criticality", 0.0) or 0.0),
+            reverse=True,
+        )[:10]
+    ]
+
+    return {
+        "risk_level": risk,
+        "risk_score": risk_score,
+        "changed_node_count": len(impact.get("changed_nodes", [])),
+        "impacted_node_count": len(impact.get("impacted_nodes", [])),
+        "impacted_file_count": len(impact.get("impacted_files", [])),
+        "reason_codes": reason_codes,
+        "recommended_tests": recommended_tests,
+        "affected_flow_rankings": affected_flow_rankings,
+        "documentation_update_candidates": docs,
+        "hotspot_proximity": hotspots,
+        "architecture_delta": architecture_delta,
+        "next_drill_downs": {
+            "impact_radius": "get_impact_radius_tool",
+            "flows": "get_affected_flows_tool",
+            "review_context": "get_review_context_tool",
+            "architecture": "get_architecture_overview_tool",
+        },
+    }
+
+
 # ---------------------------------------------------------------------------
 # Tool 4: get_review_context
 # ---------------------------------------------------------------------------
@@ -397,6 +710,14 @@ def detect_changes_func(
             base=base,
         )
 
+        impact = store.get_impact_radius(abs_files, max_depth=max_depth)
+        analysis_summary = _change_analysis_summary(
+            store,
+            analysis,
+            impact,
+            changed_files,
+        )
+
         # Optionally include source snippets for changed functions.
         if include_source:
             for func in analysis.get("changed_functions", []):
@@ -425,20 +746,35 @@ def detect_changes_func(
                 "status": "ok",
                 "summary": analysis.get("summary", ""),
                 "risk_score": analysis.get("risk_score", 0.0),
+                "risk_level": analysis_summary["risk_level"],
+                "reason_codes": analysis_summary["reason_codes"],
                 "changed_file_count": len(changed_files),
+                "changed_node_count": analysis_summary["changed_node_count"],
+                "impacted_node_count": analysis_summary["impacted_node_count"],
+                "impacted_file_count": analysis_summary["impacted_file_count"],
                 "test_gap_count": len(analysis.get("test_gaps", [])),
+                "recommended_tests": analysis_summary["recommended_tests"][:5],
+                "affected_flow_rankings": analysis_summary["affected_flow_rankings"][:5],
+                "documentation_update_candidates": analysis_summary[
+                    "documentation_update_candidates"
+                ][:5],
                 "review_priorities": top_priorities,
+                "next_drill_downs": analysis_summary["next_drill_downs"],
             }
         else:
             result = {
                 "status": "ok",
                 "changed_files": changed_files,
                 **analysis,
+                "analysis_summary": analysis_summary,
             }
             apply_output_budget(
                 result,
                 budget_tokens=8000,
                 list_priorities=[
+                    "analysis_summary.recommended_tests",
+                    "analysis_summary.affected_flow_rankings",
+                    "analysis_summary.documentation_update_candidates",
                     "review_priorities",
                     "affected_flows",
                     "test_gaps",
