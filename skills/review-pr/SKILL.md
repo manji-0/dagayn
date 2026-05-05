@@ -12,27 +12,29 @@ Perform a comprehensive code review of a pull request or branch diff using the k
 
 ## Steps
 
-1. **Identify the changes** for the PR:
+1. **Orient first** by calling `get_minimal_context_tool(task="<PR review>")`.
+
+2. **Identify the changes** for the PR:
    - If a PR number or branch is provided, use `git diff main...<branch>` to get changed files
    - Otherwise auto-detect from the current branch vs main/master
 
-2. **Update the graph** by calling `build_or_update_graph_tool(base="main")` to ensure the graph reflects the current state.
+3. **Update the graph** by calling `build_or_update_graph_tool(base="main")` to ensure the graph reflects the current state.
 
-3. **Get the full review context** by calling `get_review_context_tool(base="main")`:
+4. **Get the full review context** by calling `get_review_context_tool(base="main")`:
    - This uses `main` (or the specified base branch) as the diff base
    - Returns all changed files across all commits in the PR
 
-4. **Analyze impact** by calling `get_impact_radius_tool(base="main")`:
+5. **Analyze impact** by calling `get_impact_radius_tool(base="main")`:
    - Review the blast radius across the entire PR
    - Identify high-risk areas (widely depended-upon code)
 
-5. **Deep-dive each changed file**:
+6. **Deep-dive each changed file**:
    - Read the full source of files with significant changes
    - Use `query_graph_tool(pattern="callers_of", target=<func>)` for high-risk functions
    - Use `query_graph_tool(pattern="tests_for", target=<func>)` to verify test coverage
    - Check for breaking changes in public APIs
 
-6. **Generate structured review output**:
+7. **Generate structured review output**:
 
    ```
    ## PR Review: <title>
@@ -64,3 +66,7 @@ Perform a comprehensive code review of a pull request or branch diff using the k
 - For large PRs, focus on the highest-impact files first (most dependents)
 - Use `semantic_search_nodes_tool` to find related code the PR might have missed
 - Check if renamed/moved functions have updated all callers
+- Use graph risk labels as prioritization, not proof. Confirm behavioral issues
+  in source or tests before reporting them as findings.
+- Include `truncated`, `total`, approximation, or threshold metadata in the
+  review when a tool's output is bounded.

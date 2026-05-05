@@ -9,11 +9,15 @@ Use the knowledge graph to plan and execute refactoring with confidence.
 
 ### Steps
 
-1. Use `refactor_tool` with mode="suggest" for community-driven refactoring suggestions.
-2. Use `refactor_tool` with mode="dead_code" to find unreferenced code.
-3. For renames, use `refactor_tool` with mode="rename" to preview all affected locations.
-4. Use `apply_refactor_tool` with the refactor_id to apply renames.
-5. After changes, run `detect_changes` to verify the refactoring impact.
+1. Run `get_minimal_context(task="<refactor goal>")` to check graph freshness,
+   risk, and suggested next tools.
+2. Use `refactor_tool` with mode="suggest" for evidence-ranked remove, move,
+   split, and document candidates.
+3. Use `refactor_tool` with mode="dead_code" to find unreferenced code.
+4. For renames, use `refactor_tool` with mode="rename" to preview all affected locations.
+5. Use `apply_refactor_tool` with `dry_run=True` first, then apply with the
+   refactor_id only after the diff is acceptable.
+6. After changes, run `detect_changes` to verify the refactoring impact.
 
 ### Safety Checks
 
@@ -21,6 +25,11 @@ Use the knowledge graph to plan and execute refactoring with confidence.
 - Check `get_impact_radius` before major refactors.
 - Use `get_affected_flows` to ensure no critical paths are broken.
 - Run `find_large_functions` to identify decomposition targets.
+- Treat suggestions as leads, not approval. Verify public APIs, dynamic
+  dispatch, generated code, test artifacts, and framework entry points before
+  removing or moving code.
+- Prefer suggestions with explicit counts, thresholds, callers, communities, and
+  reason codes; narrow truncated output with `top_n` or follow-up graph queries.
 
 ## Token Efficiency Rules
 - ALWAYS start with `get_minimal_context(task="<your task>")` before any other graph tool.

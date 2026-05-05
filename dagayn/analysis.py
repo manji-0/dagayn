@@ -5,7 +5,10 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import math
 from collections import Counter, defaultdict
+from pathlib import PurePosixPath
+from typing import Any
 
 from .graph import GraphEdge, GraphNode, GraphStore, _sanitize_name
 
@@ -162,16 +165,20 @@ def find_bridge_nodes(
 
 def find_knowledge_gaps(
     store: GraphStore,
+    top_n: int = 20,
     *,
     snapshot: GraphSnapshot | None = None,
-) -> dict[str, list[dict]]:
+) -> dict[str, Any]:
     """Identify structural weaknesses in the codebase graph.
 
     Returns dict with categories:
-    - isolated_nodes: degree <= 1, disconnected from graph
-    - thin_communities: fewer than 3 members
-    - untested_hotspots: high-degree nodes with no TESTED_BY edges
+    - isolated_nodes: degree <= isolated_max_degree, disconnected from graph
+    - thin_communities: fewer than thin_community_min_size members
+    - untested_hotspots: degree >= p95 degree threshold and no TESTED_BY edges
     - single_file_communities: entire community in one file
+
+    The hotspot threshold is derived from the observed non-file node degree
+    distribution instead of a fixed language-specific constant.
     """
     if snapshot is None:
         snapshot = build_graph_snapshot(store)
@@ -185,6 +192,20 @@ def find_knowledge_gaps(
     for qn, c in snapshot.out_degree.items():
         degree[qn] += c
     tested_nodes = snapshot.tested_sources
+    positive_degrees = sorted(
+        degree.get(n.qualified_name, 0)
+        for n in nodes
+        if not _is_analysis_excluded_from_test_gap(n) and degree.get(n.qualified_name, 0) > 0
+    )
+    degree_p95 = _nearest_rank_percentile(positive_degrees, 0.95)
+    hotspot_min_degree = max(5, degree_p95)
+    top_n = max(1, top_n)
+    category_keys = (
+        "isolated_nodes",
+        "thin_communities",
+        "untested_hotspots",
+        "single_file_communities",
+    )
 
     # 1. Isolated nodes (degree <= 1, not File)
     isolated = []
@@ -225,11 +246,15 @@ def find_knowledge_gaps(
                 }
             )
 
-    # 3. Untested hotspots (degree >= 5, no TESTED_BY)
+    # 3. Untested hotspots (p95 production-candidate degree, no TESTED_BY)
     untested_hotspots = []
     for n in nodes:
         d = degree.get(n.qualified_name, 0)
-        if d >= 5 and n.qualified_name not in tested_nodes and not n.is_test:
+        if (
+            d >= hotspot_min_degree
+            and n.qualified_name not in tested_nodes
+            and not _is_analysis_excluded_from_test_gap(n)
+        ):
             untested_hotspots.append(
                 {
                     "name": _sanitize_name(n.name),
@@ -237,6 +262,11 @@ def find_knowledge_gaps(
                     "kind": n.kind,
                     "file": n.file_path,
                     "degree": d,
+                    "hotspot_min_degree": hotspot_min_degree,
+                    "evidence": (
+                        "degree is at or above the repository p95 non-file "
+                        "degree threshold and no TESTED_BY edge targets it"
+                    ),
                 }
             )
     untested_hotspots.sort(
@@ -260,12 +290,75 @@ def find_knowledge_gaps(
                 }
             )
 
-    return {
-        "isolated_nodes": isolated[:50],
-        "thin_communities": thin,
-        "untested_hotspots": untested_hotspots[:20],
-        "single_file_communities": single_file,
+    raw_counts = {
+        "isolated_nodes": len(isolated),
+        "thin_communities": len(thin),
+        "untested_hotspots": len(untested_hotspots),
+        "single_file_communities": len(single_file),
     }
+    returned = {
+        "isolated_nodes": isolated[:top_n],
+        "thin_communities": thin[:top_n],
+        "untested_hotspots": untested_hotspots[:top_n],
+        "single_file_communities": single_file[:top_n],
+    }
+    returned_counts = {key: len(returned[key]) for key in category_keys}
+    return {
+        **returned,
+        "_meta": {
+            "thresholds": {
+                "isolated_max_degree": 1,
+                "thin_community_min_size": 3,
+                "single_file_min_size": 3,
+                "untested_hotspot_min_degree": hotspot_min_degree,
+                "untested_hotspot_percentile": 0.95,
+            },
+            "degree_distribution": {
+                "candidate_positive_degree_count": len(positive_degrees),
+                "p95_degree": degree_p95,
+            },
+            "top_n": top_n,
+            "raw_counts": raw_counts,
+            "returned_counts": returned_counts,
+            "truncated": any(raw_counts[key] > returned_counts[key] for key in category_keys),
+            "exclusions": {
+                "untested_hotspots": [
+                    "test nodes and test-like file paths",
+                    "markdown documentation sections",
+                ]
+            },
+        },
+    }
+
+
+def _nearest_rank_percentile(values: list[int], percentile: float) -> int:
+    """Return a deterministic nearest-rank percentile for integer metrics."""
+    if not values:
+        return 0
+    rank = math.ceil(percentile * len(values))
+    index = min(max(rank - 1, 0), len(values) - 1)
+    return values[index]
+
+
+def _is_analysis_excluded_from_test_gap(node: GraphNode) -> bool:
+    """Filter nodes where missing TESTED_BY is not production test-risk evidence."""
+    if node.is_test or node.kind == "Test" or node.language == "markdown":
+        return True
+    path = PurePosixPath(node.file_path.replace("\\", "/"))
+    name = path.name.lower()
+    parts = {part.lower() for part in path.parts}
+    if "tests" in parts or "test" in parts or "__tests__" in parts:
+        return True
+    return (
+        name.startswith("test_")
+        or name in {"test.rs", "tests.rs"}
+        or name.endswith("_test.py")
+        or name.endswith("_tests.py")
+        or name.endswith("_test.rs")
+        or name.endswith("_tests.rs")
+        or ".test." in name
+        or ".spec." in name
+    )
 
 
 def find_surprising_connections(

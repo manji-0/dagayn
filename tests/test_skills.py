@@ -439,6 +439,9 @@ class TestInjectClaudeMd:
         content = (tmp_path / ".claude" / "CLAUDE.md").read_text()
         assert _CLAUDE_MD_SECTION_MARKER in content
         assert "MCP Tools" in content
+        assert "get_minimal_context" in content
+        assert "How to judge analysis output" in content
+        assert "truncated" in content
 
     def test_appends_to_existing_file(self, tmp_path):
         claude_md = tmp_path / ".claude" / "CLAUDE.md"

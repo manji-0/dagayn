@@ -185,8 +185,10 @@ class TestFindKnowledgeGaps:
         from dagayn.analysis import find_knowledge_gaps
 
         result = find_knowledge_gaps(store)
+        threshold = result["_meta"]["thresholds"]["untested_hotspot_min_degree"]
         for h in result["untested_hotspots"]:
-            assert h["degree"] >= 5
+            assert h["degree"] >= threshold
+            assert "evidence" in h
 
     def test_empty_store_returns_empty_categories(self, empty_store):
         from dagayn.analysis import find_knowledge_gaps
@@ -194,6 +196,77 @@ class TestFindKnowledgeGaps:
         result = find_knowledge_gaps(empty_store)
         assert result["isolated_nodes"] == []
         assert result["untested_hotspots"] == []
+        assert result["_meta"]["thresholds"]["untested_hotspot_min_degree"] == 5
+
+    def test_top_n_and_meta_counts_are_reported(self, store):
+        from dagayn.analysis import find_knowledge_gaps
+
+        result = find_knowledge_gaps(store, top_n=1)
+
+        assert result["_meta"]["top_n"] == 1
+        assert result["_meta"]["raw_counts"]["isolated_nodes"] >= len(result["isolated_nodes"])
+        assert len(result["isolated_nodes"]) <= 1
+
+    def test_untested_hotspots_exclude_docs_and_tests(self, tmp_path):
+        from dagayn.analysis import find_knowledge_gaps
+
+        db_path = tmp_path / "gaps.db"
+        s = GraphStore(db_path)
+
+        def _node(kind, name, file_path, *, language="python", is_test=False):
+            return NodeInfo(
+                kind=kind,
+                name=name,
+                file_path=file_path,
+                line_start=1,
+                line_end=10,
+                language=language,
+                parent_name=None,
+                params=None,
+                return_type=None,
+                modifiers=None,
+                is_test=is_test,
+                extra={},
+            )
+
+        def _edge(source, target):
+            return EdgeInfo(
+                kind="CALLS",
+                source=source,
+                target=target,
+                file_path="src/service.py",
+                line=1,
+                extra={},
+            )
+
+        candidates = [
+            _node("Function", "service", "src/service.py"),
+            _node("Class", "design", "docs/design.md", language="markdown"),
+            _node("Function", "test_service", "tests/test_service.py", is_test=True),
+            _node("Function", "integration_helper", "src/tests.rs"),
+        ]
+        for idx in range(8):
+            candidates.append(_node("Function", f"caller_{idx}", f"src/caller_{idx}.py"))
+        for n in candidates:
+            s.upsert_node(n)
+        for idx in range(8):
+            s.upsert_edge(_edge(f"src/caller_{idx}.py::caller_{idx}", "src/service.py::service"))
+            s.upsert_edge(_edge(f"src/caller_{idx}.py::caller_{idx}", "docs/design.md::design"))
+            s.upsert_edge(
+                _edge(f"src/caller_{idx}.py::caller_{idx}", "tests/test_service.py::test_service")
+            )
+            s.upsert_edge(
+                _edge(f"src/caller_{idx}.py::caller_{idx}", "src/tests.rs::integration_helper")
+            )
+        s.commit()
+
+        result = find_knowledge_gaps(s, top_n=10)
+        qns = {h["qualified_name"] for h in result["untested_hotspots"]}
+
+        assert "src/service.py::service" in qns
+        assert "docs/design.md::design" not in qns
+        assert "tests/test_service.py::test_service" not in qns
+        assert "src/tests.rs::integration_helper" not in qns
 
 
 class TestFindSurprisingConnections:

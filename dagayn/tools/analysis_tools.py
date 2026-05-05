@@ -74,6 +74,7 @@ def get_bridge_nodes_func(
 
 def get_knowledge_gaps_func(
     repo_root: Optional[str] = None,
+    top_n: int = 20,
 ) -> dict[str, Any]:
     """Identify structural weaknesses in the codebase.
 
@@ -83,21 +84,29 @@ def get_knowledge_gaps_func(
 
     Args:
         repo_root: Repository root (auto-detected if empty).
+        top_n: Maximum items to return per gap category.
     """
     store, _root = _get_store(repo_root)
-    gaps = find_knowledge_gaps(store)
-    total = sum(len(v) for v in gaps.values())
+    gaps = find_knowledge_gaps(store, top_n=top_n)
+    category_keys = (
+        "isolated_nodes",
+        "thin_communities",
+        "untested_hotspots",
+        "single_file_communities",
+    )
+    meta = gaps.get("_meta", {})
+    raw_counts = meta.get("raw_counts", {})
+    total = sum(int(raw_counts.get(key, len(gaps[key]))) for key in category_keys)
     payload = make_response(
         "ok",
         f"Found {total} knowledge gaps across 4 categories.",
         gaps=gaps,
         total_gaps=total,
-        gap_counts={
-            "isolated_nodes": len(gaps["isolated_nodes"]),
-            "thin_communities": len(gaps["thin_communities"]),
-            "untested_hotspots": len(gaps["untested_hotspots"]),
-            "single_file_communities": len(gaps["single_file_communities"]),
-        },
+        gap_counts={key: len(gaps[key]) for key in category_keys},
+        raw_gap_counts={key: int(raw_counts.get(key, len(gaps[key]))) for key in category_keys},
+        thresholds=meta.get("thresholds", {}),
+        degree_distribution=meta.get("degree_distribution", {}),
+        truncated=bool(meta.get("truncated", False)),
         next_tool_suggestions=[
             "refactor dead_code -- find unused symbols",
             "get_hub_nodes -- find high-impact nodes",
@@ -105,6 +114,7 @@ def get_knowledge_gaps_func(
         ],
     )
     # trim least-important lists first to stay within MCP token limits
+    before_budget_counts = {key: len(gaps[key]) for key in category_keys}
     apply_output_budget(
         payload["gaps"],
         budget_tokens=4000,
@@ -115,6 +125,14 @@ def get_knowledge_gaps_func(
             "untested_hotspots",
         ],
     )
+    after_budget_counts = {key: len(gaps[key]) for key in category_keys}
+    if payload["gaps"].get("truncated"):
+        payload["truncated"] = True
+        payload["budget_truncation"] = payload["gaps"].get("_truncation", {})
+        payload["gap_counts"] = after_budget_counts
+    elif after_budget_counts != before_budget_counts:
+        payload["truncated"] = True
+        payload["gap_counts"] = after_budget_counts
     return payload
 
 

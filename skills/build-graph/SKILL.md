@@ -35,4 +35,6 @@ Build or incrementally update the persistent code knowledge graph for this repos
 
 - The graph is stored as a SQLite database (`.dagayn/graph.db`) in the repo root
 - Binary files, generated files, and patterns in `.dagaynignore` are skipped
-- Supported languages: Python, TypeScript/JavaScript, Vue, Go, Rust, Java, Scala, C#, Ruby, Kotlin, Swift, PHP, Solidity, C/C++
+- Supported languages evolve with the parser registry; check `README.md`
+  "Supported languages and file types" rather than relying on this skill as the
+  authoritative language list.

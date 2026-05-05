@@ -667,18 +667,21 @@ scanning cannot.
 
 ### When to use graph tools FIRST
 
+- **Any new task**: `get_minimal_context` for graph freshness, risk, and next-tool hints
 - **Exploring code**: `semantic_search_nodes` or `query_graph` instead of Grep
 - **Understanding impact**: `get_impact_radius` instead of manually tracing imports
 - **Code review**: `detect_changes` + `get_review_context` instead of reading entire files
 - **Finding relationships**: `query_graph` with callers_of/callees_of/imports_of/tests_for
 - **Architecture questions**: `get_architecture_overview` + `list_communities`
 
-Fall back to Grep/Glob/Read **only** when the graph doesn't cover what you need.
+Fall back to Grep/Glob/Read **only** when the graph result is missing, stale,
+ambiguous, or lacks the exact source text needed for the task.
 
 ### Key Tools
 
 | Tool | Use when |
 | ------ | ---------- |
+| `get_minimal_context` | Starting point: graph freshness, risk, communities, suggested next tools |
 | `detect_changes` | Reviewing code changes — gives risk-scored analysis |
 | `get_review_context` | Need source snippets for review — token-efficient |
 | `get_impact_radius` | Understanding blast radius of a change |
@@ -686,14 +689,32 @@ Fall back to Grep/Glob/Read **only** when the graph doesn't cover what you need.
 | `query_graph` | Tracing callers, callees, imports, tests, dependencies |
 | `semantic_search_nodes` | Finding functions/classes by name or keyword |
 | `get_architecture_overview` | Understanding high-level codebase structure |
-| `refactor_tool` | Planning renames, finding dead code |
+| `get_hub_nodes` / `get_bridge_nodes` | Finding high-degree hotspots and betweenness chokepoints |
+| `get_knowledge_gaps` | Finding graph gaps and untested hotspots |
+| `get_surprising_connections` | Finding cross-boundary coupling with qualitative reason codes |
+| `refactor_tool` | Planning renames, finding dead code, and evidence-ranked refactor suggestions |
+
+### How to judge analysis output
+
+- Treat graph insights as **evidence-ranked leads**, not automatic truth.
+- Prefer outputs that expose metrics, thresholds, counts, reason codes, and
+  `truncated`/`total` fields; mention those numbers when making recommendations.
+- Check test coverage with `query_graph` pattern=\"tests_for\" before claiming a
+  code path is untested.
+- For refactors, verify public APIs, dynamic dispatch, generated code, test
+  artifacts, and framework entry points before editing.
+- If an output is truncated or approximate, narrow with `top_n`, `detail_level`,
+  `max_depth`, or a targeted follow-up query before drawing conclusions.
 
 ### Workflow
 
-1. The graph auto-updates on file changes (via hooks).
-2. Use `detect_changes` for code review.
-3. Use `get_affected_flows` to understand impact.
-4. Use `query_graph` pattern=\"tests_for\" to check coverage.
+1. Start with `get_minimal_context(task=...)`.
+2. Use the suggested next tool or a targeted query.
+3. For reviews, use `detect_changes`, then `get_affected_flows` and
+   `query_graph` pattern=\"tests_for\" for coverage.
+4. For architecture/refactor work, combine quantitative tools
+   (`get_hub_nodes`, `get_bridge_nodes`, `get_knowledge_gaps`) with source reads
+   for the final decision.
 """
 
 

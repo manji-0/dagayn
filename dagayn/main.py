@@ -849,6 +849,7 @@ def get_bridge_nodes_tool(
 
 @mcp.tool()
 def get_knowledge_gaps_tool(
+    top_n: int = 20,
     repo_root: Optional[str] = None,
 ) -> dict:
     """Identify structural weaknesses in the codebase graph.
@@ -858,10 +859,12 @@ def get_knowledge_gaps_tool(
     single-file communities.
 
     Args:
+        top_n: Maximum items to return per gap category. Default: 20.
         repo_root: Repository root path. Auto-detected if omitted.
     """
     return _tool("get_knowledge_gaps_func")(
         repo_root=_resolve_repo_root(repo_root),
+        top_n=top_n,
     )
 
 

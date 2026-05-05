@@ -67,6 +67,7 @@ Representative tool names include:
 - `detect_changes`
 - `list_flows`
 - `list_communities`
+- `get_knowledge_gaps`
 - `refactor_tool`
 - `generate_wiki`
 - `cross_repo_search`
@@ -75,6 +76,11 @@ Representative tool names include:
 document candidates. Treat them as evidence-ranked leads; verify public APIs,
 test artifacts, dynamic dispatch, and generated entry points before changing
 source.
+
+`get_knowledge_gaps(top_n=20)` returns bounded structural weakness categories
+with explicit thresholds and raw counts. Untested-hotspot candidates are ranked
+against the repository's observed production-node degree distribution rather
+than a fixed language-specific size rule.
 
 ## MCP prompts
 
