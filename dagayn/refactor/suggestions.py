@@ -237,6 +237,117 @@ def _suggestion_sort_key(
     )
 
 
+def _execution_plan_for_suggestion(suggestion: dict[str, Any]) -> dict[str, Any]:
+    stype = str(suggestion.get("type", "unknown"))
+    affected_files = [str(path) for path in suggestion.get("affected_files", [])]
+    required_tests = [
+        f"Run tests covering {path}" for path in affected_files[:3]
+    ] or ["Run the narrowest tests that cover the affected symbol"]
+
+    if stype == "split":
+        return {
+            "why_now": "The symbol crosses size or complexity thresholds in the evidence block.",
+            "minimum_steps": [
+                "Identify one cohesive responsibility to extract first.",
+                "Move that responsibility behind a private helper or collaborator.",
+                "Run focused tests and inspect detect_changes before continuing.",
+            ],
+            "safety_checks": [
+                "Keep public names and call signatures stable in the first pass.",
+                "Avoid moving unrelated logic while extracting the first responsibility.",
+            ],
+            "required_tests": required_tests,
+            "rollback": (
+                "Revert the extraction commit if focused tests or impact review widen "
+                "unexpectedly."
+            ),
+            "defer_if": [
+                "The symbol is public API and no caller contract is documented.",
+                "No focused tests or reliable manual checks exist for the behavior.",
+            ],
+        }
+
+    if stype == "move":
+        return {
+            "why_now": "Callers are concentrated in another community according to graph evidence.",
+            "minimum_steps": [
+                "Inspect all listed callers and imports.",
+                "Move the symbol without changing behavior.",
+                "Run tests for both source and target communities.",
+            ],
+            "safety_checks": [
+                "Check for dynamic imports or framework registration.",
+                "Preserve public re-export paths when downstream callers may exist.",
+            ],
+            "required_tests": required_tests,
+            "rollback": "Move the symbol back if imports, packaging, or external callers break.",
+            "defer_if": [
+                "Unknown callers are present.",
+                "The target community boundary is not stable.",
+            ],
+        }
+
+    if stype == "remove":
+        return {
+            "why_now": "The graph found no callers, importers, references, tests, or subclasses.",
+            "minimum_steps": [
+                (
+                    "Search for runtime registration, reflection, generated references, "
+                    "and docs mentions."
+                ),
+                "Delete the smallest candidate first.",
+                "Run focused tests and detect_changes before deleting more candidates.",
+            ],
+            "safety_checks": [
+                "Treat public API, fixtures, and plugin entry points as high-risk.",
+                "Verify generated code and downstream package exports manually.",
+            ],
+            "required_tests": required_tests,
+            "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
+            "defer_if": [
+                "The symbol is public API.",
+                "The only evidence is absence from the graph and dynamic use is plausible.",
+            ],
+        }
+
+    if stype == "document":
+        return {
+            "why_now": "The symbol is public or complex but has low explanation density.",
+            "minimum_steps": [
+                "Document contracts, invariants, and non-obvious edge cases.",
+                "Avoid comments that restate individual statements.",
+                "Run docs or lint checks if the repository provides them.",
+            ],
+            "safety_checks": [
+                "Keep documentation close to the behavior it constrains.",
+                "Update related Markdown references when the contract is user-facing.",
+            ],
+            "required_tests": ["Run formatting or lint checks for touched files"],
+            "rollback": "Remove or tighten comments that drift from behavior during review.",
+            "defer_if": [
+                "The code is about to be rewritten.",
+                "The intended contract is still unresolved.",
+            ],
+        }
+
+    return {
+        "why_now": "The suggestion has graph evidence but no specialized plan.",
+        "minimum_steps": [
+            "Inspect evidence, make the smallest safe change, then run focused tests."
+        ],
+        "safety_checks": [
+            "Verify public APIs, generated code, and dynamic dispatch before editing."
+        ],
+        "required_tests": required_tests,
+        "rollback": "Revert if impact review grows beyond the intended scope.",
+        "defer_if": ["Evidence is ambiguous or the affected contract is unknown."],
+    }
+
+
+def _attach_execution_plan(suggestion: dict[str, Any]) -> dict[str, Any]:
+    return {**suggestion, "execution_plan": _execution_plan_for_suggestion(suggestion)}
+
+
 def _is_public_api_node(node: Any, store: GraphStore, source_cache: dict[str, list[str]]) -> bool:
     record = {
         "language": node.language,
@@ -619,6 +730,7 @@ def suggest_refactorings(store: GraphStore) -> list[dict[str, Any]]:
         )
 
     suggestions.extend(_structural_suggestions(store, dead_qns))
+    suggestions = [_attach_execution_plan(suggestion) for suggestion in suggestions]
     suggestions.sort(key=_suggestion_sort_key)
     logger.info("suggest_refactorings: produced %d suggestions", len(suggestions))
     return suggestions

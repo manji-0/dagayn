@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from ..changes import analyze_changes, parse_diff_ranges, parse_git_diff_ranges  # noqa: F401
+from ..coverage import infer_tests_for_node
 from ..flows import get_affected_flows as _get_affected_flows
 from ..graph import edge_to_dict, node_to_dict
 from ..hints import generate_hints, get_session
@@ -67,6 +68,73 @@ def _dedupe_dicts_by_key(items: list[dict[str, Any]], key: str, limit: int) -> l
     return out
 
 
+def _classify_test_gap(gap: dict[str, Any]) -> str:
+    file_path = str(gap.get("file", ""))
+    language = str(gap.get("language", ""))
+    if _is_markdown_path(file_path) or language == "markdown":
+        return "documentation"
+    normalized = file_path.replace("\\", "/")
+    if (
+        normalized.startswith("tests/")
+        or "/tests/" in normalized
+        or gap.get("kind") == "Test"
+    ):
+        return "test_artifact"
+    return "actionable"
+
+
+def _rank_test_gaps(test_gaps: list[dict[str, Any]], *, limit: int = 5) -> dict[str, Any]:
+    buckets = {"actionable": [], "documentation": [], "test_artifact": []}
+    for gap in test_gaps:
+        bucket = _classify_test_gap(gap)
+        buckets.setdefault(bucket, []).append(gap)
+
+    return {
+        "top_actionable": buckets["actionable"][:limit],
+        "counts": {name: len(items) for name, items in buckets.items()},
+        "note": (
+            "actionable gaps are production-code nodes without direct or credible "
+            "heuristic test evidence; documentation and test artifacts are separated "
+            "to reduce review noise."
+        ),
+    }
+
+
+def _review_signal_quality(
+    reason_codes: list[str],
+    docs: list[dict[str, Any]],
+    test_gaps: list[dict[str, Any]],
+) -> dict[str, Any]:
+    uncertain = []
+    if docs:
+        uncertain.append("documentation candidates are graph-reachable markdown nodes")
+    if test_gaps:
+        uncertain.append(
+            "test gaps use direct TESTED_BY edges plus medium-confidence naming/source heuristics"
+        )
+    return {
+        "graph_facts": [
+            code
+            for code in reason_codes
+            if code
+            in {
+                "affected_flows",
+                "critical_flow_affected",
+                "wide_blast_radius",
+                "changed_hotspot",
+                "impacted_hotspot",
+                "architecture_violation_in_changed_scope",
+            }
+        ],
+        "heuristics": [
+            code
+            for code in reason_codes
+            if code in {"test_gaps", "documentation_update_candidates"}
+        ],
+        "uncertain": uncertain,
+    }
+
+
 def _recommend_tests(
     store: Any,
     changed_functions: list[dict[str, Any]],
@@ -100,6 +168,29 @@ def _recommend_tests(
                         else "direct coverage of changed code"
                     ),
                     "source": qualified_name,
+                }
+            )
+        if tests:
+            continue
+        try:
+            node = store.get_node(qualified_name)
+        except Exception:  # pragma: no cover - defensive for backend parity drift
+            node = None
+        if node is None:
+            continue
+        for test in infer_tests_for_node(store, node, limit=3, minimum_confidence="medium"):
+            test_qn = test.get("qualified_name")
+            if not isinstance(test_qn, str):
+                continue
+            recommendations.append(
+                {
+                    "name": test.get("name", test_qn.rsplit("::", 1)[-1]),
+                    "qualified_name": test_qn,
+                    "file": test.get("file_path"),
+                    "reason": "heuristic coverage candidate",
+                    "source": qualified_name,
+                    "confidence": test.get("confidence"),
+                    "evidence": test.get("evidence", []),
                 }
             )
 
@@ -281,6 +372,7 @@ def _change_analysis_summary(
     hotspots = _hotspot_proximity(store, impact)
     architecture_delta = _architecture_delta_summary(store, changed_files)
     recommended_tests = _recommend_tests(store, changed_functions, affected_flows)
+    test_gap_ranking = _rank_test_gaps(test_gaps)
 
     reason_codes: list[str] = []
     if risk == "high":
@@ -330,6 +422,8 @@ def _change_analysis_summary(
         "recommended_tests": recommended_tests,
         "affected_flow_rankings": affected_flow_rankings,
         "documentation_update_candidates": docs,
+        "test_gap_ranking": test_gap_ranking,
+        "signal_quality": _review_signal_quality(reason_codes, docs, test_gaps),
         "hotspot_proximity": hotspots,
         "architecture_delta": architecture_delta,
         "next_drill_downs": {
@@ -412,7 +506,7 @@ def get_review_context(
                 n for n in impact["changed_nodes"] if n.kind == "Function" and not n.is_test
             ]
             test_edges = [e for e in impact["edges"] if e.kind == "TESTED_BY"]
-            tested_qualified = {e.source_qualified for e in test_edges}
+            tested_qualified = {e.target_qualified for e in test_edges}
             test_gap_count = sum(
                 1 for f in changed_funcs if f.qualified_name not in tested_qualified
             )
@@ -536,7 +630,7 @@ def _generate_review_guidance(impact: dict, changed_files: list[str]) -> str:
     # Check for test coverage
     changed_funcs = [n for n in impact["changed_nodes"] if n.kind == "Function"]
     test_edges = [e for e in impact["edges"] if e.kind == "TESTED_BY"]
-    tested_funcs = {e.source_qualified for e in test_edges}
+    tested_funcs = {e.target_qualified for e in test_edges}
 
     untested = [f for f in changed_funcs if f.qualified_name not in tested_funcs and not f.is_test]
     if untested:
@@ -753,6 +847,8 @@ def detect_changes_func(
                 "impacted_node_count": analysis_summary["impacted_node_count"],
                 "impacted_file_count": analysis_summary["impacted_file_count"],
                 "test_gap_count": len(analysis.get("test_gaps", [])),
+                "test_gap_ranking": analysis_summary["test_gap_ranking"],
+                "signal_quality": analysis_summary["signal_quality"],
                 "recommended_tests": analysis_summary["recommended_tests"][:5],
                 "affected_flow_rankings": analysis_summary["affected_flow_rankings"][:5],
                 "documentation_update_candidates": analysis_summary[

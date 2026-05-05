@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from ..coverage import infer_tests_for_node
 from ..embeddings import EmbeddingStore
 from ..graph import _sanitize_name, edge_to_dict, node_to_dict
 from ..hints import generate_hints, get_session
@@ -290,18 +291,12 @@ def query_graph(
             )
 
         elif pattern == "tests_for":
-            test_edges = [e for e in store.get_edges_by_target(qn) if e.kind == "TESTED_BY"]
-            results.extend(
-                _node_dicts_for_edges(store, test_edges, qualified_attr="source_qualified")
-            )
-            # Also search by naming convention
-            name = node.name if node else target
-            test_nodes = store.search_nodes(f"test_{name}", limit=10)
-            test_nodes += store.search_nodes(f"Test{name}", limit=10)
-            seen = {r.get("qualified_name") for r in results}
-            for t in test_nodes:
-                if t.qualified_name not in seen and t.is_test:
-                    results.append(node_to_dict(t))
+            if node is not None:
+                results.extend(infer_tests_for_node(store, node))
+                test_edges = [
+                    e for e in store.get_edges_by_target(qn) if e.kind == "TESTED_BY"
+                ]
+                edges_out.extend(edge_to_dict(e) for e in test_edges)
 
         elif pattern == "inheritors_of":
             inherit_edges = [
@@ -337,7 +332,12 @@ def query_graph(
 
         if detail_level == "minimal":
             minimal_results = [
-                {k: r[k] for k in ("name", "kind", "file_path") if k in r} for r in results[:5]
+                {
+                    k: r[k]
+                    for k in ("name", "kind", "file_path", "confidence", "coverage_source")
+                    if k in r
+                }
+                for r in results[:5]
             ]
             return {
                 "status": "ok",

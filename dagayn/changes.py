@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from .constants import SECURITY_KEYWORDS as _SECURITY_KEYWORDS
+from .coverage import has_coverage_evidence
 from .flows import get_affected_flows
 from .graph import GraphEdge, GraphNode, GraphStore, _sanitize_name, node_to_dict
 
@@ -420,15 +421,22 @@ def analyze_changes(
     for node in changed_funcs:
         if node.is_test:
             continue
+        if node.language == "markdown":
+            continue
         tested = inbound_map.get(node.qualified_name, [])
-        if not any(e.kind == "TESTED_BY" for e in tested):
+        has_direct_coverage = any(e.kind == "TESTED_BY" for e in tested)
+        has_heuristic_coverage = has_coverage_evidence(store, node)
+        if not has_direct_coverage and not has_heuristic_coverage:
             test_gaps.append(
                 {
                     "name": _sanitize_name(node.name),
                     "qualified_name": _sanitize_name(node.qualified_name),
                     "file": node.file_path,
+                    "kind": node.kind,
+                    "language": node.language,
                     "line_start": node.line_start,
                     "line_end": node.line_end,
+                    "coverage_confidence": "none",
                 }
             )
 

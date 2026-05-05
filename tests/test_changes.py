@@ -185,6 +185,30 @@ class TestChanges:
         assert len(nodes) == 1
         assert nodes[0].name == "func_a"
 
+    def test_analyze_changes_uses_heuristic_test_coverage(self):
+        """Test-like nodes that name the target suppress false test gaps."""
+        self._add_func(
+            "get_minimal_context",
+            path="dagayn/tools/context.py",
+            line_start=1,
+            line_end=20,
+        )
+        self._add_func(
+            "TestGetMinimalContext",
+            path="tests/test_tools.py",
+            is_test=True,
+            line_start=1,
+            line_end=20,
+        )
+
+        result = analyze_changes(
+            self.store,
+            changed_files=["dagayn/tools/context.py"],
+            changed_ranges={"dagayn/tools/context.py": [(1, 20)]},
+        )
+
+        assert result["test_gaps"] == []
+
     def test_map_changes_to_nodes_different_files(self):
         """Maps changes across different files."""
         self._add_func("func_x", path="x.py", line_start=1, line_end=10)
@@ -435,6 +459,14 @@ class TestChanges:
             assert result["changed_functions"] == []
             assert result["test_gaps"] == []
 
+    def test_classify_test_gap_buckets_docs_and_tests(self):
+        """Review gap classification separates docs, tests, and production code."""
+        from dagayn.tools.review import _classify_test_gap
+
+        assert _classify_test_gap({"file": "docs/COMMANDS.md"}) == "documentation"
+        assert _classify_test_gap({"file": "tests/test_tools.py"}) == "test_artifact"
+        assert _classify_test_gap({"file": "dagayn/tools/review.py"}) == "actionable"
+
     def test_detect_changes_tool_with_changes(self):
         """detect_changes_func returns full analysis for changed files."""
         from dagayn.tools import detect_changes_func
@@ -479,6 +511,8 @@ class TestChanges:
             assert "reason_codes" in summary
             assert summary["recommended_tests"][0]["qualified_name"].endswith("test_my_func")
             assert "next_drill_downs" in summary
+            assert "test_gap_ranking" in summary
+            assert "signal_quality" in summary
 
     def test_detect_changes_tool_trims_changed_functions(self):
         """detect_changes_func should budget changed_functions for large PRs."""

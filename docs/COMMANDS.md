@@ -104,6 +104,12 @@ includes `analysis_summary` with risk level, reason codes, recommended tests,
 affected-flow rankings, documentation update candidates, hotspot proximity, and
 architecture risks in changed scopes.
 
+`get_minimal_context_tool` routes common English and Japanese task descriptions
+for review, debugging, exploration, feature addition, and refactoring to the
+next small set of MCP tools. It also returns `workflow`,
+`recommended_action`, `why`, and `confidence` so clients can show the next
+step without requiring users to know tool names.
+
 `get_architecture_overview_tool` is the primary architecture-analysis surface.
 Output includes `architecture_health`, which composes community coupling, hubs,
 bridges, knowledge gaps, surprising connections, and ADP/SDP/SAP signals into a
@@ -112,7 +118,8 @@ bounded health summary with drill-down tool names.
 `refactor_tool(mode="suggest")` returns graph-backed remove, move, split, and
 document candidates. Treat them as evidence-ranked leads; verify public APIs,
 test artifacts, dynamic dispatch, and generated entry points before changing
-source.
+source. Suggestions include `execution_plan` with minimum safe steps, required
+tests, rollback guidance, and defer conditions.
 
 `get_knowledge_gaps(top_n=20)` returns bounded structural weakness categories
 with explicit thresholds and raw counts. Untested-hotspot candidates are ranked

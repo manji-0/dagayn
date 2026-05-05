@@ -269,6 +269,51 @@ class TestTools:
         assert result["status"] == "ok"
         assert len(result["results"]) == 3
 
+    def test_query_graph_tests_for_uses_heuristic_test_names(self, monkeypatch):
+        from dagayn.tools import query as query_module
+
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="get_minimal_context",
+                file_path="/repo/dagayn/tools/context.py",
+                line_start=1,
+                line_end=20,
+                language="python",
+            )
+        )
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Class",
+                name="TestGetMinimalContext",
+                file_path="/repo/tests/test_tools.py",
+                line_start=1,
+                line_end=20,
+                language="python",
+                is_test=True,
+            )
+        )
+        self.store.commit()
+        monkeypatch.setattr(
+            query_module,
+            "_get_store",
+            lambda repo_root: (self.store, Path("/repo")),
+        )
+        self.store.close = lambda: None
+
+        result = query_module.query_graph(
+            pattern="tests_for",
+            target="/repo/dagayn/tools/context.py::get_minimal_context",
+            repo_root="/repo",
+            detail_level="minimal",
+        )
+
+        assert result["status"] == "ok"
+        assert result["result_count"] >= 1
+        assert result["results"][0]["name"] == "TestGetMinimalContext"
+        assert result["results"][0]["confidence"] == "medium"
+        assert "setup_method" not in {item["name"] for item in result["results"]}
+
 
 class TestGetDocsSection:
     """Tests for the get_docs_section tool."""
@@ -1609,6 +1654,33 @@ class TestGetMinimalContext:
             repo_root=str(self.root),
         )
         assert "refactor" in result["next_tool_suggestions"]
+
+    @pytest.mark.parametrize(
+        ("task", "expected_tool"),
+        [
+            ("コード探索をしたい", "get_architecture_overview"),
+            ("コードレビューをしたい", "get_review_context"),
+            ("新規機能追加をしたい", "query_graph"),
+            ("リファクタリングをしたい", "refactor"),
+            ("リファクタリングでヘルパーを追加したい", "refactor"),
+        ],
+    )
+    def test_task_routing_japanese_workflows(self, task, expected_tool):
+        from dagayn.tools.context import get_minimal_context
+
+        result = get_minimal_context(task=task, repo_root=str(self.root))
+
+        assert expected_tool in result["next_tool_suggestions"]
+
+    def test_task_routing_returns_structured_workflow_guidance(self):
+        from dagayn.tools.context import get_minimal_context
+
+        result = get_minimal_context(task="コードレビューをしたい", repo_root=str(self.root))
+
+        assert result["workflow"] == "review"
+        assert result["recommended_action"]
+        assert result["why"]
+        assert result["confidence"] == "high"
 
     def test_uses_review_priorities_and_affected_flows(self, monkeypatch):
         import dagayn.changes as changes

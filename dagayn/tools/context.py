@@ -12,6 +12,140 @@ from ._common import _get_store, compact_response
 
 logger = logging.getLogger(__name__)
 
+_REVIEW_TASK_KEYWORDS = (
+    "review",
+    "pr",
+    "merge",
+    "diff",
+    "レビュー",
+    "差分",
+    "プルリク",
+    "マージ",
+)
+_DEBUG_TASK_KEYWORDS = (
+    "debug",
+    "bug",
+    "error",
+    "fix",
+    "デバッグ",
+    "バグ",
+    "不具合",
+    "エラー",
+    "修正",
+)
+_FEATURE_TASK_KEYWORDS = (
+    "feature",
+    "add",
+    "implement",
+    "機能追加",
+    "新規機能",
+    "実装",
+    "追加",
+)
+_REFACTOR_TASK_KEYWORDS = (
+    "refactor",
+    "rename",
+    "dead",
+    "clean",
+    "リファクタ",
+    "リファクタリング",
+    "名称変更",
+    "改名",
+    "デッドコード",
+    "整理",
+)
+_EXPLORE_TASK_KEYWORDS = (
+    "onboard",
+    "understand",
+    "explore",
+    "arch",
+    "探索",
+    "理解",
+    "アーキテクチャ",
+    "構造",
+    "オンボーディング",
+)
+
+_REVIEW_TOOL_SUGGESTIONS = ["detect_changes", "get_affected_flows", "get_review_context"]
+_DEBUG_TOOL_SUGGESTIONS = ["semantic_search_nodes", "query_graph", "get_flow"]
+_FEATURE_TOOL_SUGGESTIONS = ["semantic_search_nodes", "query_graph", "detect_changes"]
+_REFACTOR_TOOL_SUGGESTIONS = ["refactor", "find_large_functions", "get_architecture_overview"]
+_EXPLORE_TOOL_SUGGESTIONS = [
+    "get_architecture_overview",
+    "list_communities",
+    "list_flows",
+]
+_DEFAULT_TOOL_SUGGESTIONS = [
+    "detect_changes",
+    "semantic_search_nodes",
+    "get_architecture_overview",
+]
+_WORKFLOW_GUIDANCE: dict[str, dict[str, str]] = {
+    "review": {
+        "recommended_action": (
+            "Run detect_changes first, then drill into review context only when needed."
+        ),
+        "why": (
+            "The task mentions reviewing a diff or PR, so risk and changed-node ranking "
+            "are the fastest entry point."
+        ),
+        "confidence": "high",
+    },
+    "debug": {
+        "recommended_action": (
+            "Search for the failing concept, then trace callers and callees around the "
+            "matching node."
+        ),
+        "why": (
+            "The task mentions a bug or failure, so locating the relevant symbol before "
+            "graph traversal reduces noise."
+        ),
+        "confidence": "high",
+    },
+    "refactor": {
+        "recommended_action": (
+            "Get graph-backed refactor suggestions, then verify impact before editing."
+        ),
+        "why": (
+            "The task mentions cleanup or refactoring, so candidate ranking and safety "
+            "checks should precede file edits."
+        ),
+        "confidence": "high",
+    },
+    "explore": {
+        "recommended_action": (
+            "Start with architecture overview, then drill into communities or flows."
+        ),
+        "why": (
+            "The task asks to understand structure, so a broad graph summary is cheaper "
+            "than reading files first."
+        ),
+        "confidence": "high",
+    },
+    "feature": {
+        "recommended_action": (
+            "Search for related symbols, trace dependencies, then run change review "
+            "after implementation."
+        ),
+        "why": (
+            "The task mentions adding behavior, so finding extension points should come "
+            "before editing."
+        ),
+        "confidence": "medium",
+    },
+    "general": {
+        "recommended_action": (
+            "Use minimal change review, semantic search, or architecture overview based "
+            "on the first concrete finding."
+        ),
+        "why": (
+            "No specific workflow keyword was detected, so the default keeps broad "
+            "options available."
+        ),
+        "confidence": "low",
+    },
+}
+
 
 def _has_git_changes(root: Path, base: str) -> bool:
     """Quick check for uncommitted or diffed changes."""
@@ -71,6 +205,43 @@ def _names_from_items(items: list[dict[str, Any]], *, limit: int) -> list[str]:
         if len(names) >= limit:
             break
     return names
+
+
+def _task_mentions(task: str, keywords: tuple[str, ...]) -> bool:
+    """Return whether *task* contains any workflow keyword."""
+    task_folded = task.casefold()
+    return any(keyword.casefold() in task_folded for keyword in keywords)
+
+
+def _suggest_tools_for_task(task: str) -> list[str]:
+    """Choose next MCP tool suggestions from a natural-language task."""
+    workflow = _workflow_for_task(task)
+    if workflow == "review":
+        return list(_REVIEW_TOOL_SUGGESTIONS)
+    if workflow == "debug":
+        return list(_DEBUG_TOOL_SUGGESTIONS)
+    if workflow == "refactor":
+        return list(_REFACTOR_TOOL_SUGGESTIONS)
+    if workflow == "explore":
+        return list(_EXPLORE_TOOL_SUGGESTIONS)
+    if workflow == "feature":
+        return list(_FEATURE_TOOL_SUGGESTIONS)
+    return list(_DEFAULT_TOOL_SUGGESTIONS)
+
+
+def _workflow_for_task(task: str) -> str:
+    """Classify a natural-language task into a coarse workflow."""
+    if _task_mentions(task, _REVIEW_TASK_KEYWORDS):
+        return "review"
+    if _task_mentions(task, _DEBUG_TASK_KEYWORDS):
+        return "debug"
+    if _task_mentions(task, _REFACTOR_TASK_KEYWORDS):
+        return "refactor"
+    if _task_mentions(task, _EXPLORE_TASK_KEYWORDS):
+        return "explore"
+    if _task_mentions(task, _FEATURE_TASK_KEYWORDS):
+        return "feature"
+    return "general"
 
 
 def get_minimal_context(
@@ -177,25 +348,9 @@ def get_minimal_context(
             logger.debug("flows table not yet populated")
 
         # 5. Suggest next tools based on task keywords
-        task_lower = task.lower()
-        if any(w in task_lower for w in ("review", "pr", "merge", "diff")):
-            suggestions = ["detect_changes", "get_affected_flows", "get_review_context"]
-        elif any(w in task_lower for w in ("debug", "bug", "error", "fix")):
-            suggestions = ["semantic_search_nodes", "query_graph", "get_flow"]
-        elif any(w in task_lower for w in ("refactor", "rename", "dead", "clean")):
-            suggestions = ["refactor", "find_large_functions", "get_architecture_overview"]
-        elif any(w in task_lower for w in ("onboard", "understand", "explore", "arch")):
-            suggestions = [
-                "get_architecture_overview",
-                "list_communities",
-                "list_flows",
-            ]
-        else:
-            suggestions = [
-                "detect_changes",
-                "semantic_search_nodes",
-                "get_architecture_overview",
-            ]
+        workflow = _workflow_for_task(task)
+        suggestions = _suggest_tools_for_task(task)
+        guidance = _WORKFLOW_GUIDANCE[workflow]
 
         # Build summary
         summary_parts = [
@@ -207,7 +362,7 @@ def get_minimal_context(
         if test_gap_count:
             summary_parts.append(f"{test_gap_count} test gaps.")
 
-        return compact_response(
+        response = compact_response(
             summary=" ".join(summary_parts),
             key_entities=top_affected or None,
             risk=risk,
@@ -216,5 +371,10 @@ def get_minimal_context(
             flows_affected=affected_flows or None,
             next_tool_suggestions=suggestions,
         )
+        response["workflow"] = workflow
+        response["recommended_action"] = guidance["recommended_action"]
+        response["why"] = guidance["why"]
+        response["confidence"] = guidance["confidence"]
+        return response
     finally:
         store.close()
