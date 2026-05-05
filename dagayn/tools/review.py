@@ -74,11 +74,7 @@ def _classify_test_gap(gap: dict[str, Any]) -> str:
     if _is_markdown_path(file_path) or language == "markdown":
         return "documentation"
     normalized = file_path.replace("\\", "/")
-    if (
-        normalized.startswith("tests/")
-        or "/tests/" in normalized
-        or gap.get("kind") == "Test"
-    ):
+    if normalized.startswith("tests/") or "/tests/" in normalized or gap.get("kind") == "Test":
         return "test_artifact"
     return "actionable"
 

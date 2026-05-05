@@ -240,9 +240,9 @@ def _suggestion_sort_key(
 def _execution_plan_for_suggestion(suggestion: dict[str, Any]) -> dict[str, Any]:
     stype = str(suggestion.get("type", "unknown"))
     affected_files = [str(path) for path in suggestion.get("affected_files", [])]
-    required_tests = [
-        f"Run tests covering {path}" for path in affected_files[:3]
-    ] or ["Run the narrowest tests that cover the affected symbol"]
+    required_tests = [f"Run tests covering {path}" for path in affected_files[:3]] or [
+        "Run the narrowest tests that cover the affected symbol"
+    ]
 
     if stype == "split":
         return {
@@ -258,8 +258,7 @@ def _execution_plan_for_suggestion(suggestion: dict[str, Any]) -> dict[str, Any]
             ],
             "required_tests": required_tests,
             "rollback": (
-                "Revert the extraction commit if focused tests or impact review widen "
-                "unexpectedly."
+                "Revert the extraction commit if focused tests or impact review widen unexpectedly."
             ),
             "defer_if": [
                 "The symbol is public API and no caller contract is documented.",

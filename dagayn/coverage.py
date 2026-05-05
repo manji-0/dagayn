@@ -63,10 +63,7 @@ def _is_test_like_node(node: GraphNode) -> bool:
         return False
     if node.kind == "Function" and not node.is_test:
         return (
-            name.startswith(("test_", "test"))
-            or "::test" in qn
-            or ".test." in qn
-            or ".spec." in qn
+            name.startswith(("test_", "test")) or "::test" in qn or ".test." in qn or ".spec." in qn
         )
     return (
         bool(node.is_test)
@@ -241,9 +238,7 @@ def has_coverage_evidence(
     seen.add(target.qualified_name)
 
     caller_edges = [
-        edge
-        for edge in store.get_edges_by_target(target.qualified_name)
-        if edge.kind == "CALLS"
+        edge for edge in store.get_edges_by_target(target.qualified_name) if edge.kind == "CALLS"
     ]
     caller_nodes = store.get_nodes_by_qualified_names(
         [edge.source_qualified for edge in caller_edges]
