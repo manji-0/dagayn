@@ -42,6 +42,7 @@ Graphviz / DOT is not a built-in export target. Jupyter / Databricks notebooks a
 ## MCP tools
 
 <!-- constrained-by ./ARCHITECTURE.md#query-surfaces -->
+<!-- derived-from ./refactor-tool-suggest-spec.md -->
 
 The MCP server exposes tools for:
 
@@ -69,6 +70,11 @@ Representative tool names include:
 - `refactor_tool`
 - `generate_wiki`
 - `cross_repo_search`
+
+`refactor_tool(mode="suggest")` returns graph-backed remove, move, split, and
+document candidates. Treat them as evidence-ranked leads; verify public APIs,
+test artifacts, dynamic dispatch, and generated entry points before changing
+source.
 
 ## MCP prompts
 

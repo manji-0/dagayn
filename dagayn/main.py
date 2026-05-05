@@ -705,8 +705,8 @@ def refactor_tool(
       to pass to apply_refactor_tool. Requires old_name and new_name.
     - dead_code: Find unreferenced functions/classes (no callers, tests, or
       importers, and not entry points).
-    - suggest: Get community-driven refactoring suggestions (move misplaced
-      functions, remove dead code).
+    - suggest: Get graph-backed refactoring suggestions, including remove,
+      move, split, and document candidates.
 
     Args:
         mode: Operation mode: "rename", "dead_code", or "suggest".

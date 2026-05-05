@@ -28,7 +28,7 @@ dagayn serve
 - `get_minimal_context` for quick orientation
 - `detect_changes` or `get_review_context` for review work
 - `query_graph`, `traverse_graph`, `list_flows`, and `list_communities` for exploration
-- `refactor_tool` for rename previews and dead-code analysis
+- `refactor_tool` for rename previews, dead-code analysis, and refactor suggestions
 
 ## Documentation rule
 

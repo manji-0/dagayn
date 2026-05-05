@@ -35,7 +35,8 @@ def refactor_func(
     - ``rename``: Preview renaming a symbol (requires *old_name* and
       *new_name*).
     - ``dead_code``: Find unreferenced functions/classes.
-    - ``suggest``: Get community-driven refactoring suggestions.
+    - ``suggest``: Get graph-backed refactoring suggestions: remove, move,
+      split, and document candidates.
 
     Args:
         mode: One of ``"rename"``, ``"dead_code"``, or ``"suggest"``.
