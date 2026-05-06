@@ -158,23 +158,8 @@ For an isolated one-shot CLI, `uvx` works well:
 uvx --from dagayn dagayn --help
 ```
 
-To run directly from the Git repository, install from source with `pip` or use the same `uvx --from` shape:
-
-```bash
-pip install git+https://github.com/manji-0/dagayn.git
-```
-
-```bash
-uv tool install --from git+https://github.com/manji-0/dagayn.git dagayn
-```
-
-```bash
-uvx --from git+https://github.com/manji-0/dagayn.git dagayn --help
-```
-
-Git/source installs build the PyO3 Rust extension locally, so they require a
-Rust toolchain, a C compiler, and the macOS Command Line Tools when building on
-macOS. Published wheels include the compiled extension for supported targets.
+Published wheels include the compiled extension for supported targets, so the
+normal PyPI install paths do not require building from the Git repository.
 
 If you prefer persistent isolated tool installs, `pipx` also works.
 
@@ -256,7 +241,7 @@ Persistent server configs can use `DAGAYN_TOOL_PROFILE`, `CRG_TOOL_PROFILE`, or
 - HTML rendering supports `--mode auto|full|community|file`
 - `--format` supports `html`, `graphml`, `mermaid-c4`, `svg`, `cypher`, and `obsidian`
 - `mermaid-c4` emits Mermaid `C4Component` code with files collapsed into components and cross-file relations
-- `svg` export uses matplotlib, so install the eval extra when you need it: `pip install "dagayn[eval] @ git+https://github.com/manji-0/dagayn.git"`
+- `svg` export uses matplotlib, so install the eval extra when you need it: `pip install "dagayn[eval]"`
 - Graphviz/DOT is not a built-in export target in this fork
 - Jupyter / Databricks notebooks are parsed as graph inputs, not emitted as report formats
 
@@ -316,7 +301,7 @@ The `openai` provider speaks the standard `/v1/embeddings` schema, so it works w
 ### Installing the local provider
 
 ```bash
-pip install "dagayn[embeddings] @ git+https://github.com/manji-0/dagayn.git"
+pip install "dagayn[embeddings]"
 ```
 
 ### Running embedding
