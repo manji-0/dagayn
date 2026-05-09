@@ -24,6 +24,7 @@ from dagayn.skills import (
     generate_skills,
     inject_claude_md,
     inject_platform_instructions,
+    install_codex_hooks,
     install_codex_skills,
     install_cursor_hooks,
     install_git_hook,
@@ -448,6 +449,63 @@ class TestInstallHooks:
         data = json.loads((settings_dir / "settings.json").read_text())
         assert data["customSetting"] is True
         assert "hooks" in data
+
+
+class TestInstallCodexHooks:
+    def test_creates_hooks_json_and_enables_feature(self, tmp_path):
+        hooks_path = install_codex_hooks(tmp_path)
+
+        assert hooks_path == tmp_path / ".codex" / "hooks.json"
+        data = json.loads(hooks_path.read_text())
+        assert "PostToolUse" in data["hooks"]
+        assert "SessionStart" in data["hooks"]
+
+        config = tomllib.loads((tmp_path / ".codex" / "config.toml").read_text())
+        assert config["features"]["codex_hooks"] is True
+
+    def test_merges_existing_hooks_json(self, tmp_path):
+        codex_dir = tmp_path / ".codex"
+        codex_dir.mkdir()
+        existing = {"hooks": {"Stop": []}, "customSetting": True}
+        (codex_dir / "hooks.json").write_text(json.dumps(existing), encoding="utf-8")
+
+        install_codex_hooks(tmp_path)
+
+        data = json.loads((codex_dir / "hooks.json").read_text())
+        assert data["customSetting"] is True
+        assert "Stop" in data["hooks"]
+        assert "PostToolUse" in data["hooks"]
+        assert "SessionStart" in data["hooks"]
+        assert json.loads((codex_dir / "hooks.json.bak").read_text()) == existing
+
+    def test_preserves_existing_codex_config_toml(self, tmp_path):
+        codex_dir = tmp_path / ".codex"
+        codex_dir.mkdir()
+        (codex_dir / "config.toml").write_text(
+            'model = "gpt-5.4"\n\n[mcp_servers.other]\ncommand = "other"\n',
+            encoding="utf-8",
+        )
+
+        install_codex_hooks(tmp_path)
+
+        config = tomllib.loads((codex_dir / "config.toml").read_text())
+        assert config["model"] == "gpt-5.4"
+        assert config["mcp_servers"]["other"]["command"] == "other"
+        assert config["features"]["codex_hooks"] is True
+
+    def test_no_duplicate_on_reinstall(self, tmp_path):
+        install_codex_hooks(tmp_path)
+        install_codex_hooks(tmp_path)
+
+        data = json.loads((tmp_path / ".codex" / "hooks.json").read_text())
+        for entries in data["hooks"].values():
+            dagayn_hooks = [
+                entry
+                for entry in entries
+                if any("dagayn" in hook.get("command", "") for hook in entry.get("hooks", []))
+            ]
+            assert len(dagayn_hooks) == 1
+        assert (tmp_path / ".codex" / "config.toml").read_text().count("codex_hooks") == 1
 
 
 class TestInjectClaudeMd:

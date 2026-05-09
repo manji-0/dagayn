@@ -27,7 +27,7 @@ def register_commands(sub: argparse._SubParsersAction) -> dict:
         p.add_argument(
             "--no-hooks",
             action="store_true",
-            help="Skip installing Claude Code hooks",
+            help="Skip installing AI coding tool hooks",
         )
         p.add_argument(
             "--no-instructions",
@@ -166,6 +166,7 @@ def handle(args: argparse.Namespace) -> None:
         generate_skills,
         inject_claude_md,
         inject_platform_instructions,
+        install_codex_hooks,
         install_codex_skills,
         install_cursor_hooks,
         install_git_hook,
@@ -235,6 +236,13 @@ def handle(args: argparse.Namespace) -> None:
         qoder_skills_dir = install_qoder_skills(repo_root)
         if qoder_skills_dir:
             print(f"Installed Qoder skills to {qoder_skills_dir}")
+    if not skip_hooks and (target in ("codex", "all") or "Codex" in set(configured)):
+        try:
+            hooks_path = install_codex_hooks(repo_root)
+            print(f"Installed Codex hooks in {hooks_path}")
+        except OSError as e:
+            print(f"Skipped Codex hooks install ({e})", file=sys.stderr)
+
     if not skip_hooks and target in ("claude", "qoder", "all"):
         platforms_to_install = [target] if target != "all" else ["claude", "qoder"]
         for plat in platforms_to_install:

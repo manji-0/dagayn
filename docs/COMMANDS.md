@@ -32,6 +32,10 @@ Graphviz / DOT is not a built-in export target. Jupyter / Databricks notebooks a
 - `dagayn init`
 - `dagayn serve`
 
+`dagayn install --platform codex` configures the Codex MCP server, installs
+Codex skills, and writes repo-local Codex hooks in `.codex/hooks.json` with the
+required `.codex/config.toml` feature flag. `--no-hooks` skips the hook files.
+
 ### Multi-repo management
 
 - `dagayn register`

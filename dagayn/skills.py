@@ -513,6 +513,69 @@ def generate_hooks_config(repo_root: Path) -> dict[str, Any]:
     }
 
 
+def _ensure_codex_hooks_feature(config_path: Path) -> None:
+    """Enable Codex hooks in a repo-local config.toml without clobbering settings."""
+    if not config_path.exists():
+        config_path.write_text("[features]\ncodex_hooks = true\n", encoding="utf-8")
+        return
+
+    existing = config_path.read_text(encoding="utf-8", errors="replace")
+    if "codex_hooks" in existing:
+        return
+
+    lines = existing.splitlines()
+    for index, line in enumerate(lines):
+        if line.strip() == "[features]":
+            lines.insert(index + 1, "codex_hooks = true")
+            config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            return
+
+    prefix = existing if existing.endswith("\n") else existing + "\n"
+    if not prefix.endswith("\n\n"):
+        prefix += "\n"
+    config_path.write_text(prefix + "[features]\ncodex_hooks = true\n", encoding="utf-8")
+
+
+def install_codex_hooks(repo_root: Path) -> Path:
+    """Write Codex repo-local hooks.json and enable the hooks feature flag."""
+    codex_dir = repo_root / ".codex"
+    codex_dir.mkdir(parents=True, exist_ok=True)
+
+    hooks_path = codex_dir / "hooks.json"
+    existing: dict[str, Any] = {}
+    if hooks_path.exists():
+        try:
+            existing = json.loads(hooks_path.read_text(encoding="utf-8", errors="replace"))
+            backup_path = codex_dir / "hooks.json.bak"
+            shutil.copy2(hooks_path, backup_path)
+            logger.info("Backed up existing Codex hooks to %s", backup_path)
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning("Could not read existing %s: %s", hooks_path, exc)
+
+    hooks_config = generate_hooks_config(repo_root)
+    existing_hooks = existing.get("hooks", {})
+    if not isinstance(existing_hooks, dict):
+        logger.warning("Existing Codex hooks config is not a dict; replacing with defaults")
+        existing_hooks = {}
+
+    merged_hooks = dict(existing_hooks)
+    for hook_name, hook_entries in hooks_config.get("hooks", {}).items():
+        if isinstance(merged_hooks.get(hook_name), list):
+            merged_list = list(merged_hooks[hook_name])
+            for entry in hook_entries:
+                if entry not in merged_list:
+                    merged_list.append(entry)
+            merged_hooks[hook_name] = merged_list
+        else:
+            merged_hooks[hook_name] = hook_entries
+
+    existing["hooks"] = merged_hooks
+    hooks_path.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
+    _ensure_codex_hooks_feature(codex_dir / "config.toml")
+    logger.info("Wrote Codex hooks config: %s", hooks_path)
+    return hooks_path
+
+
 def install_git_hook(repo_root: Path) -> Path | None:
     """Install a git pre-commit hook that prints a risk summary before each commit.
 

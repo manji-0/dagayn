@@ -262,6 +262,8 @@ Persistent server configs can use `DAGAYN_TOOL_PROFILE`, `CRG_TOOL_PROFILE`, or
 - Qoder
 
 You can limit installation to a single platform with `--platform <name>`.
+For Codex, install also creates repo-local `.codex/hooks.json` and enables
+`.codex/config.toml` hooks so the graph refreshes during Codex sessions.
 
 Platform-specific instruction files are also installed where needed:
 

@@ -48,6 +48,9 @@ Important CLI commands:
 
 `dagayn serve --tool-profile review|architecture|refactor|full` selects a named MCP tool surface. The default profile keeps ordinary agent use small; `full` restores the legacy all-tools surface. `--tools` is an exact allow-list.
 
+`dagayn install --platform codex` also writes `.codex/hooks.json` and enables
+Codex hooks in `.codex/config.toml`, unless `--no-hooks` is used.
+
 `get_architecture_overview` returns `architecture_health`, a bounded composed
 summary of coupling, hubs, bridges, knowledge gaps, surprising connections, and
 ADP/SDP/SAP signals.

@@ -56,6 +56,8 @@ Useful flags:
 
 Claude instruction injection writes to `~/.claude/CLAUDE.md`; Codex and OpenCode write global `AGENTS.md` files under `~/.codex/` and `~/.config/opencode/`; repo-local rule files such as `QODER.md` are still written in the workspace when their platforms are selected.
 
+When Codex is selected, `dagayn install` also writes repo-local hooks to `.codex/hooks.json` and enables `[features].codex_hooks` in `.codex/config.toml`. The hooks mirror the Claude Code graph refresh flow: update after file or shell tool use and show graph status at session start.
+
 ## Build and refresh the graph
 
 <!-- constrained-by ./ARCHITECTURE.md#pipeline-overview -->
