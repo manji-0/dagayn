@@ -73,9 +73,14 @@ Use `dagayn update` when you want a one-shot incremental refresh tied to a chang
 </section>
 
 <section name="embeddings">
+<!-- derived-from ./LOCAL-EMBEDDINGS.md -->
 Embeddings are optional.
 
 Use them when semantic search quality matters more than minimal dependencies. If provider imports are unavailable, keyword-based graph search still works.
+
+For local Qwen embeddings during graph refresh, use `dagayn build --local-embedding high`
+or `dagayn update --local-embedding low`. dagayn reuses a compatible
+`llama-server` on localhost or starts one as a subprocess for the command.
 </section>
 
 <section name="languages">

@@ -13,6 +13,50 @@ if TYPE_CHECKING:
     from ...graph import GraphStore
 
 
+def _add_local_embedding_args(cmd: argparse.ArgumentParser) -> None:
+    cmd.add_argument(
+        "--local-embedding",
+        choices=["none", "low", "high"],
+        default="none",
+        help="Generate local Qwen embeddings after build/update (default: none)",
+    )
+    cmd.add_argument(
+        "--local-embedding-port",
+        type=int,
+        default=18080,
+        help="Local llama-server port for --local-embedding (default: 18080)",
+    )
+    cmd.add_argument(
+        "--local-embedding-bin",
+        default="llama-server",
+        help="llama-server executable name or path (default: llama-server)",
+    )
+    cmd.add_argument(
+        "--keep-local-embedding-server",
+        action="store_true",
+        help="Leave a dagayn-started local embedding server running after embeddings finish",
+    )
+    cmd.add_argument(
+        "--local-embedding-timeout",
+        type=int,
+        default=300,
+        help="Seconds to wait for llama-server readiness (default: 300)",
+    )
+
+
+def _print_local_embedding_summary(result: dict) -> None:
+    emb = result.get("local_embedding")
+    if not emb:
+        return
+    started = "started" if emb.get("server_started") else "reused"
+    print(
+        "Local embeddings "
+        f"({emb.get('preset')}, {started} server): "
+        f"{emb.get('newly_embedded', 0)} new, "
+        f"{emb.get('total_embeddings', 0)} total"
+    )
+
+
 def register_commands(sub: argparse._SubParsersAction) -> dict:
     """Register build/update/postprocess/watch/status/visualize subcommands."""
 
@@ -29,6 +73,7 @@ def register_commands(sub: argparse._SubParsersAction) -> dict:
         action="store_true",
         help="Skip all post-processing (raw parse only)",
     )
+    _add_local_embedding_args(build_cmd)
 
     # update
     update_cmd = sub.add_parser("update", help="Incremental update (only changed files)")
@@ -44,6 +89,7 @@ def register_commands(sub: argparse._SubParsersAction) -> dict:
         action="store_true",
         help="Skip all post-processing (raw parse only)",
     )
+    _add_local_embedding_args(update_cmd)
 
     # postprocess
     pp_cmd = sub.add_parser(
@@ -299,6 +345,15 @@ def handle(args: argparse.Namespace) -> None:
                 full_rebuild=True,
                 repo_root=str(repo_root),
                 postprocess=pp,
+                local_embedding=getattr(args, "local_embedding", "none"),
+                local_embedding_port=getattr(args, "local_embedding_port", 18080),
+                local_embedding_bin=getattr(args, "local_embedding_bin", "llama-server"),
+                keep_local_embedding_server=getattr(
+                    args,
+                    "keep_local_embedding_server",
+                    False,
+                ),
+                local_embedding_timeout=getattr(args, "local_embedding_timeout", 300),
             )
             parsed = result.get("files_parsed", 0)
             nodes = result.get("total_nodes", 0)
@@ -306,6 +361,7 @@ def handle(args: argparse.Namespace) -> None:
             print(f"Full build: {parsed} files, {nodes} nodes, {edges} edges (postprocess={pp})")
             if result.get("errors"):
                 print(f"Errors: {len(result['errors'])}")
+            _print_local_embedding_summary(result)
             if pp != "none" and hasattr(store, "_conn"):
                 _cli_post_process(store)
 
@@ -322,6 +378,15 @@ def handle(args: argparse.Namespace) -> None:
                 repo_root=str(repo_root),
                 base=args.base,
                 postprocess=pp,
+                local_embedding=getattr(args, "local_embedding", "none"),
+                local_embedding_port=getattr(args, "local_embedding_port", 18080),
+                local_embedding_bin=getattr(args, "local_embedding_bin", "llama-server"),
+                keep_local_embedding_server=getattr(
+                    args,
+                    "keep_local_embedding_server",
+                    False,
+                ),
+                local_embedding_timeout=getattr(args, "local_embedding_timeout", 300),
             )
             updated = result.get("files_updated", 0)
             nodes = result.get("total_nodes", 0)
@@ -331,6 +396,7 @@ def handle(args: argparse.Namespace) -> None:
                 f"{nodes} nodes, {edges} edges"
                 f" (postprocess={pp})"
             )
+            _print_local_embedding_summary(result)
             if pp != "none" and result.get("files_updated", 0) > 0 and hasattr(store, "_conn"):
                 _cli_post_process(store)
 

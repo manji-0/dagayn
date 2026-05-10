@@ -12,6 +12,20 @@
 - `dagayn watch`
 - `dagayn status`
 
+### Local embedding refresh
+
+<!-- derived-from ./LOCAL-EMBEDDINGS.md -->
+
+`dagayn build` and `dagayn update` can also generate local Qwen embeddings
+after the graph refresh:
+
+```bash
+dagayn build --local-embedding high
+dagayn update --local-embedding low
+```
+
+Use `--local-embedding none` to keep the default graph-only behavior.
+
 ### Analysis and review
 
 - `dagayn detect-changes`
