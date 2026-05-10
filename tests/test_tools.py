@@ -1205,6 +1205,110 @@ class TestBuildPostprocess:
         assert "flows_detected" in result
         assert "communities_detected" in result
 
+    def test_local_embedding_runs_after_build(self, monkeypatch):
+        from unittest.mock import patch
+
+        from dagayn.tools.build import build_or_update_graph
+
+        monkeypatch.setenv("DAGAYN_BACKEND", "python")
+        embed_result = {
+            "status": "ok",
+            "preset": "high",
+            "model": "qwen3-embedding-4b-gguf-q4_k_m",
+            "dimension": 2560,
+            "server_started": True,
+            "server_url": "http://127.0.0.1:18080/v1",
+            "newly_embedded": 3,
+            "total_embeddings": 3,
+        }
+        with (
+            patch(
+                "dagayn.incremental.get_all_tracked_files",
+                return_value=["sample.py"],
+            ),
+            patch("dagayn.tools.build._run_local_embedding", return_value=embed_result) as run,
+        ):
+            result = build_or_update_graph(
+                full_rebuild=True,
+                repo_root=str(self.root),
+                postprocess="minimal",
+                local_embedding="high",
+                local_embedding_port=19090,
+                local_embedding_bin="/tmp/llama-server",
+                keep_local_embedding_server=True,
+                local_embedding_timeout=12,
+            )
+
+        assert result["local_embedding"] == embed_result
+        run.assert_called_once()
+        kwargs = run.call_args.kwargs
+        assert kwargs["local_embedding"] == "high"
+        assert kwargs["local_embedding_port"] == 19090
+        assert kwargs["local_embedding_bin"] == "/tmp/llama-server"
+        assert kwargs["keep_local_embedding_server"] is True
+        assert kwargs["local_embedding_timeout"] == 12
+
+    def test_local_embedding_skips_when_none(self, monkeypatch):
+        from unittest.mock import patch
+
+        from dagayn.tools.build import build_or_update_graph
+
+        monkeypatch.setenv("DAGAYN_BACKEND", "python")
+        with (
+            patch(
+                "dagayn.incremental.get_all_tracked_files",
+                return_value=["sample.py"],
+            ),
+            patch("dagayn.tools.build._run_local_embedding") as run,
+        ):
+            result = build_or_update_graph(
+                full_rebuild=True,
+                repo_root=str(self.root),
+                postprocess="minimal",
+                local_embedding="none",
+            )
+
+        assert "local_embedding" not in result
+        run.assert_not_called()
+
+    def test_local_embedding_runs_when_incremental_has_no_changes(self, monkeypatch):
+        from unittest.mock import patch
+
+        from dagayn.tools.build import build_or_update_graph
+
+        monkeypatch.setenv("DAGAYN_BACKEND", "python")
+        embed_result = {
+            "status": "ok",
+            "preset": "low",
+            "model": "qwen3-embedding-0.6b-gguf-q8_0",
+            "dimension": 1024,
+            "server_started": False,
+            "server_url": "http://127.0.0.1:18080/v1",
+            "newly_embedded": 0,
+            "total_embeddings": 9,
+        }
+        update_result = {
+            "files_updated": 0,
+            "total_nodes": 0,
+            "total_edges": 0,
+        }
+
+        with (
+            patch("dagayn.tools.build.incremental_update", return_value=update_result),
+            patch("dagayn.tools.build._run_local_embedding", return_value=embed_result) as run,
+        ):
+            result = build_or_update_graph(
+                full_rebuild=False,
+                repo_root=str(self.root),
+                postprocess="minimal",
+                local_embedding="low",
+            )
+
+        assert result["summary"] == "No changes detected. Graph is up to date."
+        assert result["local_embedding"] == embed_result
+        run.assert_called_once()
+        assert run.call_args.kwargs["local_embedding"] == "low"
+
 
 class TestComputeSummaries:
     """Tests for _compute_summaries: pins the contents of the three

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+import os
 import sqlite3
+import threading
 import time
 from typing import Any
 
@@ -11,6 +13,9 @@ from ..incremental import full_build, incremental_update
 from ._common import _evict_store_cache, _get_store
 
 logger = logging.getLogger(__name__)
+
+_LOCAL_EMBEDDING_DISABLED = {None, "", "none"}
+_LOCAL_EMBEDDING_ENV_LOCK = threading.Lock()
 
 
 def _can_run_minimal_postprocess(store: Any) -> bool:
@@ -75,6 +80,72 @@ def _postprocess_store(store: Any, root: Any, postprocess: str):
         "postprocess level. Install a wheel with the native extension or rebuild "
         "from source."
     )
+
+
+def _local_embedding_requested(local_embedding: str | None) -> bool:
+    return (local_embedding or "").strip().lower() not in _LOCAL_EMBEDDING_DISABLED
+
+
+def _run_local_embedding(
+    root: Any,
+    *,
+    local_embedding: str,
+    local_embedding_port: int,
+    local_embedding_bin: str,
+    keep_local_embedding_server: bool,
+    local_embedding_timeout: int,
+) -> dict[str, Any]:
+    """Run graph embedding through a managed local llama-server process."""
+    from dagayn.local_embeddings import local_embedding_server
+    from dagayn.tools.docs import embed_graph
+
+    with local_embedding_server(
+        local_embedding,
+        port=local_embedding_port,
+        binary=local_embedding_bin,
+        keep_running=keep_local_embedding_server,
+        startup_timeout=local_embedding_timeout,
+    ) as server:
+        env_keys = (
+            "CRG_OPENAI_API_KEY",
+            "CRG_OPENAI_BASE_URL",
+            "CRG_OPENAI_BATCH_SIZE",
+            "CRG_OPENAI_DIMENSION",
+        )
+        with _LOCAL_EMBEDDING_ENV_LOCK:
+            old_env = {key: os.environ.get(key) for key in env_keys}
+            try:
+                os.environ["CRG_OPENAI_API_KEY"] = "dagayn-local"
+                os.environ["CRG_OPENAI_BASE_URL"] = server.base_url
+                os.environ["CRG_OPENAI_BATCH_SIZE"] = old_env["CRG_OPENAI_BATCH_SIZE"] or "16"
+                os.environ.pop("CRG_OPENAI_DIMENSION", None)
+                result = embed_graph(
+                    repo_root=str(root),
+                    provider="openai",
+                    model=server.preset.model,
+                )
+            finally:
+                for key, value in old_env.items():
+                    if value is None:
+                        os.environ.pop(key, None)
+                    else:
+                        os.environ[key] = value
+
+    if result.get("status") != "ok":
+        raise RuntimeError(result.get("error") or "Local embedding generation failed.")
+
+    return {
+        "status": "ok",
+        "preset": server.preset.level,
+        "model": server.preset.model,
+        "dimension": server.preset.dimension,
+        "server_started": server.started,
+        "server_url": server.base_url,
+        "server_command": server.command,
+        "newly_embedded": result.get("newly_embedded", 0),
+        "total_embeddings": result.get("total_embeddings", 0),
+        "summary": result.get("summary", ""),
+    }
 
 
 def _run_postprocess(
@@ -460,6 +531,11 @@ def build_or_update_graph(
     base: str = "HEAD~1",
     postprocess: str = "full",
     recurse_submodules: bool | None = None,
+    local_embedding: str | None = None,
+    local_embedding_port: int = 18080,
+    local_embedding_bin: str = "llama-server",
+    keep_local_embedding_server: bool = False,
+    local_embedding_timeout: int = 300,
 ) -> dict[str, Any]:
     """Build or incrementally update the code knowledge graph.
 
@@ -476,6 +552,14 @@ def build_or_update_graph(
             via ``git ls-files --recurse-submodules``. When None
             (default), falls back to the CRG_RECURSE_SUBMODULES
             environment variable. Default: disabled.
+        local_embedding: Optional local Qwen embedding preset: ``"low"``
+            or ``"high"``. ``None`` / ``"none"`` skips embeddings.
+        local_embedding_port: localhost port for the OpenAI-compatible
+            llama-server endpoint.
+        local_embedding_bin: ``llama-server`` executable name or path.
+        keep_local_embedding_server: Leave a dagayn-started server running
+            after embedding completes.
+        local_embedding_timeout: Seconds to wait for llama-server readiness.
 
     Returns:
         Summary with files_parsed/updated, node/edge counts, and errors.
@@ -500,13 +584,23 @@ def build_or_update_graph(
         else:
             result = incremental_update(root, store, base=base)
             if result["files_updated"] == 0:
-                return {
+                build_result = {
                     "status": "ok",
                     "build_type": "incremental",
                     "summary": "No changes detected. Graph is up to date.",
                     "postprocess_level": postprocess,
                     **result,
                 }
+                if _local_embedding_requested(local_embedding):
+                    build_result["local_embedding"] = _run_local_embedding(
+                        root,
+                        local_embedding=local_embedding or "none",
+                        local_embedding_port=local_embedding_port,
+                        local_embedding_bin=local_embedding_bin,
+                        keep_local_embedding_server=keep_local_embedding_server,
+                        local_embedding_timeout=local_embedding_timeout,
+                    )
+                return build_result
             build_result = {
                 "status": "ok",
                 "build_type": "incremental",
@@ -635,6 +729,15 @@ def build_or_update_graph(
                     pp_store.close()
         if warnings:
             build_result["warnings"] = warnings
+        if _local_embedding_requested(local_embedding):
+            build_result["local_embedding"] = _run_local_embedding(
+                root,
+                local_embedding=local_embedding or "none",
+                local_embedding_port=local_embedding_port,
+                local_embedding_bin=local_embedding_bin,
+                keep_local_embedding_server=keep_local_embedding_server,
+                local_embedding_timeout=local_embedding_timeout,
+            )
         return build_result
     finally:
         store.close()

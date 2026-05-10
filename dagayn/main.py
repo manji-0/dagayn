@@ -135,6 +135,11 @@ async def build_or_update_graph_tool(
     base: str = "HEAD~1",
     postprocess: str = "full",
     recurse_submodules: Optional[bool] = None,
+    local_embedding: Optional[str] = None,
+    local_embedding_port: int = 18080,
+    local_embedding_bin: str = "llama-server",
+    keep_local_embedding_server: bool = False,
+    local_embedding_timeout: int = 300,
 ) -> dict:
     """Build or incrementally update the code knowledge graph.
 
@@ -157,6 +162,11 @@ async def build_or_update_graph_tool(
                      or "none" (skip all post-processing). Use "minimal" for faster builds.
         recurse_submodules: If True, include files from git submodules.
             When None (default), falls back to CRG_RECURSE_SUBMODULES env var.
+        local_embedding: Optional local Qwen embedding preset: "low" or "high".
+        local_embedding_port: localhost port for the managed llama-server.
+        local_embedding_bin: llama-server executable name or path.
+        keep_local_embedding_server: Leave a dagayn-started server running.
+        local_embedding_timeout: Seconds to wait for llama-server readiness.
     """
     return await asyncio.to_thread(
         _tool("build_or_update_graph"),
@@ -165,6 +175,11 @@ async def build_or_update_graph_tool(
         base=base,
         postprocess=postprocess,
         recurse_submodules=recurse_submodules,
+        local_embedding=local_embedding,
+        local_embedding_port=local_embedding_port,
+        local_embedding_bin=local_embedding_bin,
+        keep_local_embedding_server=keep_local_embedding_server,
+        local_embedding_timeout=local_embedding_timeout,
     )
 
 
