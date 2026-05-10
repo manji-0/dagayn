@@ -82,10 +82,12 @@ def get_local_embedding_preset(level: str) -> LocalEmbeddingPreset:
     normalized = level.strip().lower()
     if normalized == "0.8b":
         normalized = "low"
-    if normalized not in LOCAL_EMBEDDING_PRESETS:
-        choices = ", ".join(["none", *LOCAL_EMBEDDING_PRESETS])
-        raise ValueError(f"Unknown local embedding preset '{level}'. Expected one of: {choices}.")
-    return LOCAL_EMBEDDING_PRESETS[normalized]  # type: ignore[index]
+    if normalized == "low":
+        return LOCAL_EMBEDDING_PRESETS["low"]
+    if normalized == "high":
+        return LOCAL_EMBEDDING_PRESETS["high"]
+    choices = ", ".join(["none", *LOCAL_EMBEDDING_PRESETS])
+    raise ValueError(f"Unknown local embedding preset '{level}'. Expected one of: {choices}.")
 
 
 def local_embedding_base_url(port: int) -> str:
