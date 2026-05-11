@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import logging
 import re
-import sqlite3
 import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
@@ -83,6 +82,7 @@ def rebuild_fts_index(store: GraphStore) -> int:
 
     # NOTE: rebuild_fts_index uses store._conn directly because it manages
     # the FTS5 virtual table DDL, which is tightly coupled to SQLite internals.
+    # Future Rust-backed stores should expose rebuild_fts_index() natively.
     conn = store._conn
 
     # Wrap the full DROP + CREATE + INSERT sequence in an explicit transaction
@@ -187,36 +187,6 @@ def rrf_merge(*result_lists: list[tuple[int, float]], k: int = 60) -> list[tuple
 
 
 # ---------------------------------------------------------------------------
-# FTS5 search
-# ---------------------------------------------------------------------------
-
-
-def _fts_search(
-    conn: sqlite3.Connection,
-    query: str,
-    limit: int = 50,
-) -> list[tuple[int, float]]:
-    """Run an FTS5 BM25 search against the nodes_fts table.
-
-    Returns list of ``(node_id, bm25_score)`` tuples. The BM25 score is
-    negated so higher = better (FTS5 returns negative BM25).
-    """
-    # Sanitize: wrap in double quotes to prevent FTS5 operator injection
-    safe_query = '"' + query.replace('"', '""') + '"'
-
-    try:
-        rows = conn.execute(
-            "SELECT rowid, rank FROM nodes_fts WHERE nodes_fts MATCH ? ORDER BY rank LIMIT ?",
-            (safe_query, limit),
-        ).fetchall()
-        # FTS5 rank is negative BM25 (lower = better), negate for consistency
-        return [(row[0], -row[1]) for row in rows]
-    except sqlite3.OperationalError as e:
-        logger.warning("FTS5 search failed: %s", e)
-        return []
-
-
-# ---------------------------------------------------------------------------
 # Embedding search (optional)
 # ---------------------------------------------------------------------------
 
@@ -252,57 +222,6 @@ def _embedding_search(
 
 
 # ---------------------------------------------------------------------------
-# Keyword LIKE fallback
-# ---------------------------------------------------------------------------
-
-
-def _keyword_search(
-    conn: sqlite3.Connection,
-    query: str,
-    limit: int = 50,
-) -> list[tuple[int, float]]:
-    """Fall back to simple LIKE keyword matching.
-
-    Each word in the query must match independently (AND logic).
-    Returns ``(node_id, score)`` tuples with a basic relevance score.
-    """
-    words = query.lower().split()
-    if not words:
-        return []
-
-    conditions: list[str] = []
-    params: list[str | int] = []
-    for word in words:
-        conditions.append("(LOWER(name) LIKE ? OR LOWER(qualified_name) LIKE ?)")
-        params.extend([f"%{word}%", f"%{word}%"])
-
-    where = " AND ".join(conditions)
-    params.append(limit)
-    sql = f"SELECT id, name, qualified_name FROM nodes WHERE {where} LIMIT ?"  # nosec B608
-
-    try:
-        rows = conn.execute(sql, params).fetchall()
-    except sqlite3.OperationalError:
-        return []
-
-    # Assign a simple relevance score: exact name match > prefix > contains
-    q_lower = query.lower()
-    results: list[tuple[int, float]] = []
-    for row in rows:
-        name_lower = row["name"].lower()
-        if name_lower == q_lower:
-            score = 3.0
-        elif name_lower.startswith(q_lower):
-            score = 2.0
-        else:
-            score = 1.0
-        results.append((row["id"], score))
-
-    results.sort(key=lambda x: x[1], reverse=True)
-    return results
-
-
-# ---------------------------------------------------------------------------
 # Main hybrid search
 # ---------------------------------------------------------------------------
 
@@ -315,7 +234,7 @@ def hybrid_search(
     context_files: Optional[list[str]] = None,
     model: Optional[str] = None,
     provider: Optional[str] = None,
-) -> list[dict[str, Any]]:
+) -> dict[str, Any]:
     """Hybrid search combining FTS5 BM25 and vector embeddings via RRF.
 
     Attempts FTS5 + embedding search first, falling back to FTS5-only,
@@ -330,24 +249,25 @@ def hybrid_search(
             receive a 1.5x score boost.
 
     Returns:
-        List of dicts with node metadata and ``score`` field.
+        Dict with keys:
+        - ``"mode"``: which search arms contributed — one of ``"hybrid"``,
+          ``"fts_only"``, ``"embedding_only"``, ``"keyword_fallback"``,
+          ``"empty"``.
+        - ``"results"``: list of dicts with node metadata, ``"score"``, and
+          ``"source"`` (``"fts"``, ``"embedding"``, ``"both"``, ``"keyword"``).
     """
     if not query or not query.strip():
-        return []
+        return {"mode": "empty", "results": []}
 
-    # NOTE: hybrid_search uses store._conn for FTS5 and keyword queries
-    # because those operate on the FTS virtual table or need raw Row
-    # access for batch-fetch performance.  This is documented coupling.
-    conn = store._conn
     fetch_limit = limit * 3  # Fetch extra to allow for filtering and boosting
 
     # ------ Phase 1: Gather ranked lists ------
     fts_results: list[tuple[int, float]] = []
     emb_results: list[tuple[int, float]] = []
 
-    # Try FTS5 search
+    # Try FTS5 search via protocol method
     try:
-        fts_results = _fts_search(conn, query, limit=fetch_limit)
+        fts_results = store.fts_query(query, limit=fetch_limit)
     except Exception as e:
         logger.warning("FTS5 unavailable, will use fallback: %s", e)
 
@@ -361,6 +281,7 @@ def hybrid_search(
     )
 
     # ------ Phase 2: Merge via RRF or fallback ------
+    keyword_mode = False
     if fts_results or emb_results:
         lists_to_merge = []
         if fts_results:
@@ -369,82 +290,91 @@ def hybrid_search(
             lists_to_merge.append(emb_results)
         merged = rrf_merge(*lists_to_merge)
     else:
-        # Fallback: keyword LIKE matching
-        keyword_results = _keyword_search(conn, query, limit=fetch_limit)
+        # Fallback: keyword LIKE matching via protocol method
+        keyword_results = store.keyword_query(query, limit=fetch_limit)
         if not keyword_results:
-            return []
+            return {"mode": "empty", "results": []}
         merged = keyword_results
+        keyword_mode = True
+
+    # Determine top-level mode
+    if keyword_mode:
+        mode = "keyword_fallback"
+    elif fts_results and emb_results:
+        mode = "hybrid"
+    elif fts_results:
+        mode = "fts_only"
+    else:
+        mode = "embedding_only"
+
+    # Track per-arm node sets for per-result source tagging
+    fts_ids: set[int] = {nid for nid, _ in fts_results}
+    emb_ids: set[int] = {nid for nid, _ in emb_results}
 
     # ------ Phase 3+4: Batch-fetch nodes, apply boosting and kind filter ------
     kind_boosts = detect_query_kind_boost(query)
     context_set = set(context_files) if context_files else set()
 
-    # Batch-fetch all candidate nodes in one query
     candidate_ids = [node_id for node_id, _ in merged]
-    node_rows: dict[int, Any] = {}
-    batch_size = 450
-    for i in range(0, len(candidate_ids), batch_size):
-        batch = candidate_ids[i : i + batch_size]
-        placeholders = ",".join("?" for _ in batch)
-        rows = conn.execute(
-            f"SELECT * FROM nodes WHERE id IN ({placeholders})",  # nosec B608
-            batch,
-        ).fetchall()
-        for row in rows:
-            node_rows[row["id"]] = row
+    node_map = store.get_nodes_by_ids(candidate_ids)
 
     # Apply boosting
     boosted: list[tuple[int, float]] = []
     for node_id, score in merged:
-        row = node_rows.get(node_id)
-        if not row:
+        node = node_map.get(node_id)
+        if not node:
             continue
 
-        node_kind = row["kind"]
-        file_path = row["file_path"]
-        qualified_name = row["qualified_name"]
-
         boost = 1.0
-        if node_kind in kind_boosts:
-            boost *= kind_boosts[node_kind]
+        if node.kind in kind_boosts:
+            boost *= kind_boosts[node.kind]
         if "_qualified" in kind_boosts and "." in query:
-            if query.lower() in qualified_name.lower():
+            if query.lower() in node.qualified_name.lower():
                 boost *= kind_boosts["_qualified"]
-        if context_set and file_path in context_set:
+        if context_set and node.file_path in context_set:
             boost *= 1.5
 
         boosted.append((node_id, score * boost))
 
     boosted.sort(key=lambda x: x[1], reverse=True)
 
-    # Build results from the already-fetched rows
+    # Build results
     results: list[dict[str, Any]] = []
     for node_id, final_score in boosted:
         if len(results) >= limit:
             break
 
-        row = node_rows.get(node_id)
-        if not row:
+        node = node_map.get(node_id)
+        if not node:
             continue
 
-        node_kind = row["kind"]
-        if kind and node_kind != kind:
+        if kind and node.kind != kind:
             continue
+
+        if keyword_mode:
+            source = "keyword"
+        elif node_id in fts_ids and node_id in emb_ids:
+            source = "both"
+        elif node_id in fts_ids:
+            source = "fts"
+        else:
+            source = "embedding"
 
         results.append(
             {
-                "name": _sanitize_name(row["name"]),
-                "qualified_name": _sanitize_name(row["qualified_name"]),
-                "kind": node_kind,
-                "file_path": row["file_path"],
-                "line_start": row["line_start"],
-                "line_end": row["line_end"],
-                "language": row["language"] or "",
-                "params": row["params"],
-                "return_type": row["return_type"],
-                "signature": row["signature"] if "signature" in row.keys() else None,
+                "name": _sanitize_name(node.name),
+                "qualified_name": _sanitize_name(node.qualified_name),
+                "kind": node.kind,
+                "file_path": node.file_path,
+                "line_start": node.line_start,
+                "line_end": node.line_end,
+                "language": node.language or "",
+                "params": node.params,
+                "return_type": node.return_type,
+                "signature": getattr(node, "signature", None),
                 "score": round(final_score, 6),
+                "source": source,
             }
         )
 
-    return results
+    return {"mode": mode, "results": results}

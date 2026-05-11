@@ -50,7 +50,10 @@ def test_traverse_graph_not_found_has_standard_envelope(monkeypatch) -> None:
         "dagayn.tools.query._get_store",
         lambda repo_root: (_Closable(), Path("/repo")),
     )
-    monkeypatch.setattr("dagayn.tools.query.hybrid_search", lambda store, query, limit=1: [])
+    monkeypatch.setattr(
+        "dagayn.tools.query.hybrid_search",
+        lambda store, query, limit=1: {"mode": "empty", "results": []},
+    )
 
     result = traverse_graph_func(query="missing-symbol", repo_root="/repo")
 

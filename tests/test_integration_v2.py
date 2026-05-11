@@ -397,13 +397,13 @@ class TestV2Integration:
         assert fts_count > 0, "FTS should index at least some nodes"
 
         # Search for known functions
-        results = hybrid_search(self.store, "login")
+        results = hybrid_search(self.store, "login")["results"]
         assert len(results) > 0, "hybrid_search should find 'login'"
         names = [r["name"] for r in results]
         assert any("login" in n for n in names)
 
         # Search by kind
-        results_func = hybrid_search(self.store, "query", kind="Function")
+        results_func = hybrid_search(self.store, "query", kind="Function")["results"]
         assert len(results_func) > 0
 
         # ---- Step 5: analyze_changes ----
@@ -542,14 +542,14 @@ class TestV2Integration:
         rebuild_fts_index(self.store)
 
         # Exact function name
-        results = hybrid_search(self.store, "create_user")
+        results = hybrid_search(self.store, "create_user")["results"]
         assert any(r["name"] == "create_user" for r in results)
 
         # Class name
-        results = hybrid_search(self.store, "Database")
+        results = hybrid_search(self.store, "Database")["results"]
         assert any(r["name"] == "Database" for r in results)
 
         # Partial match
-        results = hybrid_search(self.store, "user")
+        results = hybrid_search(self.store, "user")["results"]
         names = [r["name"] for r in results]
         assert any("user" in n.lower() for n in names)

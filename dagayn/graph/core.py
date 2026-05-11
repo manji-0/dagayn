@@ -966,46 +966,82 @@ class GraphStore:
             out.update({row["file_path"]: row["file_hash"] for row in rows})
         return out
 
+    def fts_query(self, query: str, limit: int = 50) -> list[tuple[int, float]]:
+        """FTS5 BM25 search. Returns (node_id, score) with higher = better.
+
+        Wraps the query in double quotes to prevent FTS5 operator injection.
+        Returns [] when the FTS index is unavailable.
+        """
+        safe_query = '"' + query.replace('"', '""') + '"'
+        try:
+            rows = self._conn.execute(
+                "SELECT rowid, rank FROM nodes_fts WHERE nodes_fts MATCH ? ORDER BY rank LIMIT ?",
+                (safe_query, limit),
+            ).fetchall()
+            # FTS5 rank is negative BM25 (lower = better), negate for consistency
+            return [(row[0], -row[1]) for row in rows]
+        except sqlite3.OperationalError as e:
+            logger.warning("FTS5 search failed: %s", e)
+            return []
+
+    def keyword_query(self, query: str, limit: int = 50) -> list[tuple[int, float]]:
+        """AND-of-words LIKE fallback. Returns (node_id, score) with 3/2/1 scoring.
+
+        Used only when FTS5 is unavailable (index not yet built).
+        """
+        words = query.lower().split()
+        if not words:
+            return []
+
+        conditions: list[str] = []
+        params: list[str | int] = []
+        for word in words:
+            conditions.append("(LOWER(name) LIKE ? OR LOWER(qualified_name) LIKE ?)")
+            params.extend([f"%{word}%", f"%{word}%"])
+
+        where = " AND ".join(conditions)
+        params.append(limit)
+        sql = f"SELECT id, name FROM nodes WHERE {where} LIMIT ?"  # nosec B608
+
+        try:
+            rows = self._conn.execute(sql, params).fetchall()
+        except sqlite3.OperationalError:
+            return []
+
+        q_lower = query.lower()
+        results: list[tuple[int, float]] = []
+        for row in rows:
+            name_lower = row["name"].lower()
+            if name_lower == q_lower:
+                score = 3.0
+            elif name_lower.startswith(q_lower):
+                score = 2.0
+            else:
+                score = 1.0
+            results.append((row["id"], score))
+
+        results.sort(key=lambda x: x[1], reverse=True)
+        return results
+
     def search_nodes(self, query: str, limit: int = 20) -> list[GraphNode]:
         """Keyword search across node names.
 
         Tries FTS5 first (fast, tokenized matching), then falls back to
         LIKE-based substring search when FTS5 returns no results.
         """
-        words = query.split()
-        if not words:
-            return []
+        fts_results = self.fts_query(query, limit=limit)
+        if fts_results:
+            node_ids = [nid for nid, _ in fts_results]
+            by_id = self.get_nodes_by_ids(node_ids)
+            return [by_id[nid] for nid in node_ids if nid in by_id]
 
-        # Phase 1: FTS5 search (uses the indexed nodes_fts table)
-        try:
-            if len(words) == 1:
-                fts_query = '"' + query.replace('"', '""') + '"'
-            else:
-                fts_query = " AND ".join('"' + w.replace('"', '""') + '"' for w in words)
-            rows = self._conn.execute(
-                "SELECT n.* FROM nodes_fts f "
-                "JOIN nodes n ON f.rowid = n.id "
-                "WHERE nodes_fts MATCH ? LIMIT ?",
-                (fts_query, limit),
-            ).fetchall()
-            if rows:
-                return [self._row_to_node(r) for r in rows]
-        except Exception:  # nosec B110 - FTS5 table may not exist on older schemas
-            pass
+        keyword_results = self.keyword_query(query, limit=limit)
+        if keyword_results:
+            node_ids = [nid for nid, _ in keyword_results]
+            by_id = self.get_nodes_by_ids(node_ids)
+            return [by_id[nid] for nid in node_ids if nid in by_id]
 
-        # Phase 2: LIKE fallback (substring matching)
-        conditions: list[str] = []
-        params: list[str | int] = []
-        for word in words:
-            w = word.lower()
-            conditions.append("(LOWER(name) LIKE ? OR LOWER(qualified_name) LIKE ?)")
-            params.extend([f"%{w}%", f"%{w}%"])
-
-        where = " AND ".join(conditions)
-        sql = f"SELECT * FROM nodes WHERE {where} LIMIT ?"  # nosec B608
-        params.append(limit)
-        rows = self._conn.execute(sql, params).fetchall()
-        return [self._row_to_node(r) for r in rows]
+        return []
 
     # --- Impact / Graph traversal ---
 

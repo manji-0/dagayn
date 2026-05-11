@@ -19,7 +19,7 @@ def run(repo_path: Path, store, config: dict) -> list[dict]:
         try:
             from dagayn.search import hybrid_search
 
-            search_results = hybrid_search(store, query, limit=20)
+            search_results = hybrid_search(store, query, limit=20)["results"]
         except (ImportError, sqlite3.OperationalError) as exc:
             logger.debug("hybrid_search unavailable, using fallback: %s", exc)
             # Fallback to basic search

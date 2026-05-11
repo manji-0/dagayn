@@ -34,7 +34,7 @@ else:
         np = None
         _NUMPY_AVAILABLE = False
 
-from .graph import GraphNode, GraphStore, node_to_dict
+from .graph import GraphNode, GraphStore
 
 logger = logging.getLogger(__name__)
 
@@ -955,27 +955,3 @@ def embed_all_nodes(graph_store: GraphStore, embedding_store: EmbeddingStore) ->
     all_nodes = graph_store.get_all_nodes(exclude_files=True)
 
     return embedding_store.embed_nodes(all_nodes)
-
-
-def semantic_search(
-    query: str,
-    graph_store: GraphStore,
-    embedding_store: EmbeddingStore,
-    limit: int = 20,
-) -> list[dict[str, Any]]:
-    """Search nodes using vector similarity, falling back to keyword search."""
-    if embedding_store.available and embedding_store.count() > 0:
-        results = embedding_store.search(query, limit=limit)
-        nodes_by_qn = graph_store.get_nodes_by_qualified_names([qn for qn, _ in results])
-        output = []
-        for qn, score in results:
-            node = nodes_by_qn.get(qn)
-            if node:
-                d = node_to_dict(node)
-                d["similarity_score"] = round(score, 4)
-                output.append(d)
-        return output
-
-    # Fallback to keyword search
-    nodes = graph_store.search_nodes(query, limit=limit)
-    return [node_to_dict(n) for n in nodes]

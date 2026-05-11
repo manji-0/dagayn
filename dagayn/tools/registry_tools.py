@@ -96,12 +96,12 @@ def cross_repo_search_func(
             try:
                 store = GraphStore(str(db_path))
                 try:
-                    results = hybrid_search(store, query, kind=kind, limit=limit)
+                    hs = hybrid_search(store, query, kind=kind, limit=limit)
                     alias = repo_entry.get("alias", repo_path.name)
-                    for r in results:
+                    for r in hs["results"]:
                         r["repo"] = alias
                         r["repo_path"] = str(repo_path)
-                    all_results.extend(results)
+                    all_results.extend(hs["results"])
                     searched_repos.append(alias)
                 finally:
                     store.close()

@@ -255,7 +255,6 @@ def _format_node_context(
 def enrich_search(pattern: str, repo_root: str) -> str:
     """Search the graph for pattern and return enriched context."""
     from .graph import GraphStore
-    from .search import _fts_search
 
     db_path = Path(repo_root) / ".dagayn" / "graph.db"
     if not db_path.exists():
@@ -265,7 +264,7 @@ def enrich_search(pattern: str, repo_root: str) -> str:
     try:
         conn = store._conn
 
-        fts_results = _fts_search(conn, pattern, limit=8)
+        fts_results = store.fts_query(pattern, limit=8)
         if not fts_results:
             return ""
 

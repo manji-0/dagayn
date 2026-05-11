@@ -287,7 +287,9 @@ The graph is stored locally under `.dagayn/` by default. No external database is
 
 ## Semantic search and embeddings
 
-By default, `semantic_search_nodes` uses FTS5 keyword matching — no setup required. If you run `embed_graph_tool` first, the search switches to cosine-similarity over stored vector embeddings, giving you meaning-aware results even when the exact term does not appear in the source.
+`semantic_search_nodes` runs FTS5 BM25 and vector cosine similarity **in parallel**, then merges both ranked lists via Reciprocal Rank Fusion (RRF). When embeddings are not yet present only the FTS5 arm contributes; when both are available you get hybrid results automatically — no configuration change required.
+
+A `search_mode` field in the response reports which arms contributed: `"hybrid"` (both), `"fts_only"`, `"embedding_only"`, or `"keyword_fallback"` (LIKE substring, triggered only when the FTS5 index does not exist). Search results are further ranked by a query-aware kind boost (PascalCase → classes, snake_case → functions) and an optional context-file boost for nodes in files you are currently editing.
 
 ### Providers
 

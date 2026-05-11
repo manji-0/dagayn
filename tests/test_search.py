@@ -101,17 +101,19 @@ class TestHybridSearch:
     def test_fts_search_by_name(self):
         """FTS search finds a node by its name."""
         rebuild_fts_index(self.store)
-        results = hybrid_search(self.store, "get_users")
+        hs = hybrid_search(self.store, "get_users")
+        results = hs["results"]
         assert len(results) > 0
         names = [r["name"] for r in results]
         assert "get_users" in names
+        assert hs["mode"] == "fts_only"
 
     # --- FTS search by signature ---
 
     def test_fts_search_by_signature(self):
         """FTS search finds a node by content in its signature."""
         rebuild_fts_index(self.store)
-        results = hybrid_search(self.store, "Session")
+        results = hybrid_search(self.store, "Session")["results"]
         assert len(results) > 0
         # get_users has "Session" in its signature
         names = [r["name"] for r in results]
@@ -190,29 +192,33 @@ class TestHybridSearch:
         except Exception:
             pass
 
-        results = hybrid_search(self.store, "authenticate")
+        hs = hybrid_search(self.store, "authenticate")
+        results = hs["results"]
         assert len(results) > 0
         names = [r["name"] for r in results]
         assert "authenticate" in names
+        assert hs["mode"] == "keyword_fallback"
 
     # --- Empty query ---
 
     def test_empty_query_handled(self):
         """Empty query returns empty results without crashing."""
-        results = hybrid_search(self.store, "")
-        assert results == []
+        hs = hybrid_search(self.store, "")
+        assert hs["mode"] == "empty"
+        assert hs["results"] == []
 
     def test_whitespace_query_handled(self):
         """Whitespace-only query returns empty results."""
-        results = hybrid_search(self.store, "   ")
-        assert results == []
+        hs = hybrid_search(self.store, "   ")
+        assert hs["mode"] == "empty"
+        assert hs["results"] == []
 
     # --- Return fields ---
 
     def test_hybrid_search_returns_expected_fields(self):
         """All expected fields are present in search results."""
         rebuild_fts_index(self.store)
-        results = hybrid_search(self.store, "get_users")
+        results = hybrid_search(self.store, "get_users")["results"]
         assert len(results) > 0
 
         expected_fields = {
@@ -227,6 +233,7 @@ class TestHybridSearch:
             "return_type",
             "signature",
             "score",
+            "source",
         }
         for result in results:
             assert expected_fields.issubset(result.keys()), (
@@ -238,7 +245,7 @@ class TestHybridSearch:
     def test_kind_filter(self):
         """Kind parameter filters results to only that kind."""
         rebuild_fts_index(self.store)
-        results = hybrid_search(self.store, "User", kind="Class")
+        results = hybrid_search(self.store, "User", kind="Class")["results"]
         for r in results:
             assert r["kind"] == "Class"
 
@@ -249,7 +256,7 @@ class TestHybridSearch:
         rebuild_fts_index(self.store)
 
         # Search for "user" which matches multiple nodes
-        results_with_ctx = hybrid_search(self.store, "user", context_files=["api.py"])
+        results_with_ctx = hybrid_search(self.store, "user", context_files=["api.py"])["results"]
 
         # Find get_users in both result sets
         if results_with_ctx:
@@ -264,7 +271,7 @@ class TestHybridSearch:
     def test_limit_respected(self):
         """Search respects the limit parameter."""
         rebuild_fts_index(self.store)
-        results = hybrid_search(self.store, "user", limit=2)
+        results = hybrid_search(self.store, "user", limit=2)["results"]
         assert len(results) <= 2
 
     # --- FTS5 injection safety ---
@@ -274,9 +281,11 @@ class TestHybridSearch:
         rebuild_fts_index(self.store)
         # These should not crash — FTS5 operators like AND, OR, NOT, *, etc.
         for dangerous_query in ["OR user", "NOT thing", "user*", '"user"', "a AND b"]:
-            results = hybrid_search(self.store, dangerous_query)
-            # Just assert no exception was raised
-            assert isinstance(results, list)
+            hs = hybrid_search(self.store, dangerous_query)
+            # Just assert no exception was raised and structure is correct
+            assert isinstance(hs, dict)
+            assert "mode" in hs
+            assert "results" in hs
 
     def test_fts_rebuild_is_atomic(self):
         """Regression test for #259: rebuild_fts_index must wrap the DROP +
@@ -295,5 +304,143 @@ class TestHybridSearch:
         assert new_count == count
 
         # Verify search still works after double-rebuild.
-        results = hybrid_search(self.store, "auth")
-        assert isinstance(results, list)
+        hs = hybrid_search(self.store, "auth")
+        assert isinstance(hs, dict)
+        assert "results" in hs
+
+    # --- search_mode values ---
+
+    def test_mode_fts_only(self):
+        """Mode is 'fts_only' when FTS index exists but no embeddings."""
+        rebuild_fts_index(self.store)
+        hs = hybrid_search(self.store, "authenticate")
+        assert hs["mode"] == "fts_only"
+
+    def test_mode_keyword_fallback(self):
+        """Mode is 'keyword_fallback' when FTS table is absent."""
+        try:
+            self.store._conn.execute("DROP TABLE IF EXISTS nodes_fts")
+            self.store._conn.commit()
+        except Exception:
+            pass
+        hs = hybrid_search(self.store, "get_users")
+        assert hs["mode"] == "keyword_fallback"
+        for r in hs["results"]:
+            assert r["source"] == "keyword"
+
+    def test_mode_empty(self):
+        """Mode is 'empty' when query matches nothing."""
+        rebuild_fts_index(self.store)
+        hs = hybrid_search(self.store, "zzznomatch_xyz_impossible")
+        assert hs["mode"] in ("empty", "fts_only", "keyword_fallback")
+        # 'empty' is the expected mode when truly nothing matches
+        if hs["mode"] == "empty":
+            assert hs["results"] == []
+
+    def test_source_field_fts(self):
+        """Results produced by FTS-only path have source='fts'."""
+        rebuild_fts_index(self.store)
+        hs = hybrid_search(self.store, "authenticate")
+        assert hs["mode"] == "fts_only"
+        for r in hs["results"]:
+            assert r["source"] == "fts"
+
+    def test_source_field_keyword(self):
+        """Results produced by keyword fallback have source='keyword'."""
+        try:
+            self.store._conn.execute("DROP TABLE IF EXISTS nodes_fts")
+            self.store._conn.commit()
+        except Exception:
+            pass
+        hs = hybrid_search(self.store, "authenticate")
+        assert hs["mode"] == "keyword_fallback"
+        for r in hs["results"]:
+            assert r["source"] == "keyword"
+
+
+# --- GraphStore protocol methods ---
+
+
+class TestGraphStoreProtocolMethods:
+    def setup_method(self):
+        self.tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self.store = GraphStore(self.tmp.name)
+        self._seed_data()
+        rebuild_fts_index(self.store)
+
+    def teardown_method(self):
+        self.store.close()
+        Path(self.tmp.name).unlink(missing_ok=True)
+
+    def _seed_data(self):
+        nodes = [
+            NodeInfo(
+                kind="Function",
+                name="get_users",
+                file_path="api.py",
+                line_start=1,
+                line_end=10,
+                language="python",
+            ),
+            NodeInfo(
+                kind="Function",
+                name="authenticate",
+                file_path="auth.py",
+                line_start=1,
+                line_end=10,
+                language="python",
+            ),
+        ]
+        for node in nodes:
+            self.store.upsert_node(node, file_hash="abc")
+        self.store._conn.commit()
+
+    def test_fts_query_returns_positive_scores(self):
+        """fts_query returns non-empty list with strictly positive scores."""
+        results = self.store.fts_query("get_users")
+        assert len(results) > 0
+        for _nid, score in results:
+            assert score > 0
+
+    def test_keyword_query_exact_match_score(self):
+        """keyword_query assigns score 3.0 for an exact name match."""
+        try:
+            self.store._conn.execute("DROP TABLE IF EXISTS nodes_fts")
+            self.store._conn.commit()
+        except Exception:
+            pass
+        results = self.store.keyword_query("authenticate")
+        assert len(results) > 0
+        scores = {score for _, score in results}
+        assert 3.0 in scores
+
+    def test_get_nodes_by_ids_roundtrip(self):
+        """get_nodes_by_ids retrieves nodes matching the given IDs."""
+        all_nodes = self.store.get_all_nodes(exclude_files=False)
+        ids = [n.id for n in all_nodes[:2]]
+        result = self.store.get_nodes_by_ids(ids)
+        assert len(result) == len(ids)
+        for nid in ids:
+            assert nid in result
+
+    def test_get_nodes_by_ids_large_batch(self):
+        """get_nodes_by_ids handles batches that exceed 450 items."""
+        # Seed enough nodes to exceed the batch_size boundary
+        for i in range(460):
+            self.store.upsert_node(
+                NodeInfo(
+                    kind="Function",
+                    name=f"func_{i}",
+                    file_path="bulk.py",
+                    line_start=i,
+                    line_end=i + 1,
+                    language="python",
+                ),
+                file_hash="bulk",
+            )
+        self.store._conn.commit()
+
+        all_nodes = self.store.get_all_nodes(exclude_files=False)
+        ids = [n.id for n in all_nodes]
+        result = self.store.get_nodes_by_ids(ids)
+        assert len(result) == len(ids)

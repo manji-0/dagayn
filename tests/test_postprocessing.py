@@ -152,7 +152,7 @@ class TestRunPostProcessing:
 
         from dagayn.search import hybrid_search
 
-        hits = hybrid_search(self.store, "handle")
+        hits = hybrid_search(self.store, "handle")["results"]
         names = {h["name"] for h in hits}
         assert "handle" in names
 

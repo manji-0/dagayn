@@ -395,7 +395,7 @@ def semantic_search_nodes(
     """
     store, root = _get_store(repo_root)
     try:
-        results = hybrid_search(
+        hs = hybrid_search(
             store,
             query,
             kind=kind,
@@ -404,10 +404,8 @@ def semantic_search_nodes(
             model=model,
             provider=provider,
         )
-
-        search_mode = "hybrid"
-        if not results:
-            search_mode = "keyword"
+        results = hs["results"]
+        search_mode = hs["mode"]
 
         summary = f"Found {len(results)} node(s) matching '{query}'" + (
             f" (kind={kind})" if kind else ""
@@ -592,7 +590,7 @@ def traverse_graph_func(
     """
     store, root = _get_store(repo_root)
     try:
-        results = hybrid_search(store, query, limit=1)
+        results = hybrid_search(store, query, limit=1)["results"]
         if not results:
             return make_response(
                 "not_found",
