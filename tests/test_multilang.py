@@ -754,7 +754,7 @@ class TestMarkdownParsing:
         assert self.parser.detect_language(Path("design.markdown")) == "markdown"
 
     def test_finds_section_nodes_with_unique_slugs(self):
-        sections = [n for n in self.nodes if n.kind == "Class"]
+        sections = [n for n in self.nodes if n.kind == "DocSection"]
         names = {s.name for s in sections}
         assert "overview" in names
         assert "usage" in names
@@ -1617,9 +1617,9 @@ class TestMarkdownMultiFileBuild(_TempRepoBuildMixin):
         spec_nodes = store.get_nodes_by_file(spec_path)
         impl_nodes = store.get_nodes_by_file(impl_path)
         assert any(n.kind == "File" and n.language == "markdown" for n in spec_nodes)
-        assert any(n.kind == "Class" and n.name == "api-design" for n in spec_nodes)
+        assert any(n.kind == "DocSection" and n.name == "api-design" for n in spec_nodes)
         assert any(n.kind == "File" and n.language == "markdown" for n in impl_nodes)
-        assert any(n.kind == "Class" and n.name == "implementation" for n in impl_nodes)
+        assert any(n.kind == "DocSection" and n.name == "implementation" for n in impl_nodes)
 
     def test_build_links_directives_across_markdown_files(self, tmp_path):
         store, _ = self._build(tmp_path)

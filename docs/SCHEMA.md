@@ -13,6 +13,7 @@ Core node kinds include:
 - `Function`
 - `Type`
 - `Test`
+- `DocSection` — Markdown heading (`#`, `##`, …). Distinguished from `Class` to reduce search noise when querying for code symbols.
 
 Nodes store file path, qualified name, language, line range, and an `extra` payload for format-specific metadata.
 

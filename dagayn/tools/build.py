@@ -194,6 +194,8 @@ def _run_postprocess(
                             sig += f" -> {ret}"
                     elif kind == "Class":
                         sig = f"class {name}"
+                    elif kind == "DocSection":
+                        sig = f"# {name}"
                     else:
                         sig = name
                     store.update_node_signature(node_id, sig[:512])
@@ -792,6 +794,8 @@ def run_postprocess(
                             sig += f" -> {ret}"
                     elif kind == "Class":
                         sig = f"class {name}"
+                    elif kind == "DocSection":
+                        sig = f"# {name}"
                     else:
                         sig = name
                     store.update_node_signature(node_id, sig[:512])

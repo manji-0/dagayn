@@ -230,6 +230,8 @@ def _compute_signatures(
                     sig += f" -> {ret}"
             elif kind == "Class":
                 sig = f"class {name}"
+            elif kind == "DocSection":
+                sig = f"# {name}"
             else:
                 sig = name
             store.update_node_signature(node_id, sig[:512])

@@ -650,10 +650,10 @@ class TestFindDeadCode:
         assert "db" not in dead_names
 
     def test_find_dead_code_excludes_markdown_sections(self):
-        """Markdown heading nodes are documentation structure, not dead classes."""
+        """Markdown heading nodes are documentation structure, not dead code."""
         self.store.upsert_node(
             NodeInfo(
-                kind="Class",
+                kind="DocSection",
                 name="getting-started",
                 file_path="/repo/README.md",
                 line_start=1,

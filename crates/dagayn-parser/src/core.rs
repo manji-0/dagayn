@@ -650,7 +650,7 @@ pub(super) fn resolve_rust_call_targets(
 ) -> Vec<ParsedEdge> {
     let symbols = nodes
         .iter()
-        .filter(|node| matches!(node.kind.as_str(), "Function" | "Class" | "Type" | "Test"))
+        .filter(|node| matches!(node.kind.as_str(), "Function" | "Class" | "Type" | "Test" | "DocSection"))
         .fold(HashMap::<String, String>::new(), |mut symbols, node| {
             symbols
                 .entry(node.name.clone())

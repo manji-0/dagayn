@@ -444,3 +444,81 @@ class TestGraphStoreProtocolMethods:
         ids = [n.id for n in all_nodes]
         result = self.store.get_nodes_by_ids(ids)
         assert len(result) == len(ids)
+
+
+class TestHybridSearchRankAndDocSource:
+    def setup_method(self):
+        self.tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self.store = GraphStore(self.tmp.name)
+        self._seed_data()
+
+    def teardown_method(self):
+        self.store.close()
+        Path(self.tmp.name).unlink(missing_ok=True)
+
+    def _seed_data(self):
+        nodes = [
+            NodeInfo(
+                kind="Function",
+                name="get_users",
+                file_path="api.py",
+                line_start=1,
+                line_end=10,
+                language="python",
+            ),
+            NodeInfo(
+                kind="Function",
+                name="create_user",
+                file_path="api.py",
+                line_start=12,
+                line_end=25,
+                language="python",
+            ),
+            NodeInfo(
+                kind="DocSection",
+                name="getting-started",
+                file_path="README.md",
+                line_start=1,
+                line_end=1,
+                language="markdown",
+                extra={"markdown_kind": "section", "display_name": "Getting Started"},
+            ),
+        ]
+        for node in nodes:
+            self.store.upsert_node(node, file_hash="test")
+        self.store._conn.commit()
+        rebuild_fts_index(self.store)
+
+    def test_results_have_rank_field(self):
+        hs = hybrid_search(self.store, "user")
+        results = hs["results"]
+        assert len(results) > 0
+        for i, r in enumerate(results):
+            assert "rank" in r, f"result {i} missing 'rank'"
+            assert r["rank"] == i + 1, f"rank should be 1-based: expected {i + 1}, got {r['rank']}"
+
+    def test_keyword_fallback_results_have_rank(self):
+        try:
+            self.store._conn.execute("DROP TABLE IF EXISTS nodes_fts")
+            self.store._conn.commit()
+        except Exception:
+            pass
+        hs = hybrid_search(self.store, "get_users")
+        results = hs["results"]
+        if results:
+            for i, r in enumerate(results):
+                assert r["rank"] == i + 1
+
+    def test_docsection_source_is_doc(self):
+        hs = hybrid_search(self.store, "getting-started")
+        results = hs["results"]
+        doc_results = [r for r in results if r["kind"] == "DocSection"]
+        assert len(doc_results) > 0, "Expected at least one DocSection result"
+        for r in doc_results:
+            assert r["source"] == "doc", f"DocSection source should be 'doc', got {r['source']}"
+
+    def test_docsection_kind_in_results(self):
+        hs = hybrid_search(self.store, "getting started")
+        results = hs["results"]
+        kinds = {r["kind"] for r in results}
+        assert "DocSection" in kinds

@@ -164,7 +164,7 @@ pub(super) fn parse_markdown_with_parser(
             .map(|(_, qname)| qname.clone())
             .unwrap_or_else(|| file_path.to_string());
         nodes.push(ParsedNode {
-            kind: "Class".to_string(),
+            kind: "DocSection".to_string(),
             name: heading.slug.clone(),
             file_path: file_path.to_string(),
             line_start: heading.line,

@@ -241,7 +241,7 @@ class TestFindKnowledgeGaps:
 
         candidates = [
             _node("Function", "service", "src/service.py"),
-            _node("Class", "design", "docs/design.md", language="markdown"),
+            _node("DocSection", "design", "docs/design.md", language="markdown"),
             _node("Function", "test_service", "tests/test_service.py", is_test=True),
             _node("Function", "integration_helper", "src/tests.rs"),
         ]

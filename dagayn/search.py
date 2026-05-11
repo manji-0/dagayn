@@ -253,8 +253,10 @@ def hybrid_search(
         - ``"mode"``: which search arms contributed — one of ``"hybrid"``,
           ``"fts_only"``, ``"embedding_only"``, ``"keyword_fallback"``,
           ``"empty"``.
-        - ``"results"``: list of dicts with node metadata, ``"score"``, and
-          ``"source"`` (``"fts"``, ``"embedding"``, ``"both"``, ``"keyword"``).
+        - ``"results"``: list of dicts with node metadata, ``"score"``,
+          ``"rank"`` (1-based position in final sorted list), and
+          ``"source"`` (``"fts"``, ``"embedding"``, ``"both"``, ``"keyword"``,
+          or ``"doc"`` for Markdown DocSection nodes).
     """
     if not query or not query.strip():
         return {"mode": "empty", "results": []}
@@ -351,7 +353,9 @@ def hybrid_search(
         if kind and node.kind != kind:
             continue
 
-        if keyword_mode:
+        if node.kind == "DocSection":
+            source = "doc"
+        elif keyword_mode:
             source = "keyword"
         elif node_id in fts_ids and node_id in emb_ids:
             source = "both"
@@ -373,6 +377,7 @@ def hybrid_search(
                 "return_type": node.return_type,
                 "signature": getattr(node, "signature", None),
                 "score": round(final_score, 6),
+                "rank": len(results) + 1,
                 "source": source,
             }
         )
