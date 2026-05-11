@@ -6,6 +6,7 @@ from pathlib import Path
 from dagayn.graph import GraphStore
 from dagayn.parser import NodeInfo
 from dagayn.search import (
+    _qualified_name_matches,
     detect_query_kind_boost,
     hybrid_search,
     rebuild_fts_index,
@@ -138,6 +139,56 @@ class TestHybridSearch:
         boosts = detect_query_kind_boost("api.get_users")
         assert "_qualified" in boosts
         assert boosts["_qualified"] > 1.0
+
+    def test_qualified_match_substring(self):
+        """Class.method dotted query matches file.py::Class.method as substring."""
+        assert _qualified_name_matches("Service.handle", "app.py::Service.handle")
+
+    def test_qualified_match_across_separators(self):
+        """Module-prefixed dotted query matches across .py:: boundary."""
+        assert _qualified_name_matches("api.get_users", "path/to/api.py::get_users")
+
+    def test_qualified_match_segment_order_required(self):
+        """Dotted segments must appear in order in the qualified name."""
+        assert not _qualified_name_matches("get_users.api", "path/to/api.py::get_users")
+
+    def test_qualified_match_no_match(self):
+        """Unrelated dotted query does not falsely match."""
+        assert not _qualified_name_matches("foo.bar", "path/to/api.py::get_users")
+
+    def test_dotted_query_boosts_actual_score(self):
+        """End-to-end: dotted query that spans .py:: receives the qualified boost."""
+        # 'api.get_users' should boost the node whose qualified_name is
+        # '*/api.py::get_users' even though the literal substring isn't present.
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="get_users",
+                file_path="services/api.py",
+                line_start=1,
+                line_end=5,
+                language="python",
+            ),
+            file_hash="boost-test",
+        )
+        self.store._conn.commit()
+        rebuild_fts_index(self.store)
+
+        results = hybrid_search(self.store, "api.get_users")["results"]
+        # Find the boosted node
+        target = next(
+            (r for r in results if r["qualified_name"] == "services/api.py::get_users"),
+            None,
+        )
+        assert target is not None
+        # Compare against the same query without dots to confirm boost was applied
+        plain = hybrid_search(self.store, "get_users")["results"]
+        plain_target = next(
+            (r for r in plain if r["qualified_name"] == "services/api.py::get_users"),
+            None,
+        )
+        assert plain_target is not None
+        assert target["score"] > plain_target["score"]
 
     def test_kind_boost_empty(self):
         """Empty query returns no boosts."""

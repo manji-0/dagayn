@@ -121,6 +121,32 @@ def rebuild_fts_index(store: GraphStore) -> int:
 # ---------------------------------------------------------------------------
 
 
+_QUALIFIED_SPLIT_RE = re.compile(r"[./:]+")
+
+
+def _qualified_name_matches(query: str, qualified_name: str) -> bool:
+    """True when a dotted query matches a qualified name.
+
+    Accepts an exact lowercased substring (covers ``Class.method`` against
+    ``file.py::Class.method``) or an ordered subsequence of dot-separated
+    tokens against the qualified name's segments (covers ``api.get_users``
+    against ``path/to/api.py::get_users``).
+    """
+    q = query.lower()
+    qn = qualified_name.lower()
+    if q in qn:
+        return True
+    q_tokens = [t for t in _QUALIFIED_SPLIT_RE.split(q) if t]
+    if not q_tokens:
+        return False
+    qn_tokens = [t for t in _QUALIFIED_SPLIT_RE.split(qn) if t]
+    i = 0
+    for tok in qn_tokens:
+        if i < len(q_tokens) and tok == q_tokens[i]:
+            i += 1
+    return i == len(q_tokens)
+
+
 def detect_query_kind_boost(query: str) -> dict[str, float]:
     """Detect query patterns and return kind-specific boost multipliers.
 
@@ -330,8 +356,8 @@ def hybrid_search(
         boost = 1.0
         if node.kind in kind_boosts:
             boost *= kind_boosts[node.kind]
-        if "_qualified" in kind_boosts and "." in query:
-            if query.lower() in node.qualified_name.lower():
+        if "_qualified" in kind_boosts:
+            if _qualified_name_matches(query, node.qualified_name):
                 boost *= kind_boosts["_qualified"]
         if context_set and node.file_path in context_set:
             boost *= 1.5

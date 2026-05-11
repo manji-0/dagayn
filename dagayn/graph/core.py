@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import sqlite3
 import threading
 import time
@@ -969,10 +970,19 @@ class GraphStore:
     def fts_query(self, query: str, limit: int = 50) -> list[tuple[int, float]]:
         """FTS5 BM25 search. Returns (node_id, score) with higher = better.
 
-        Wraps the query in double quotes to prevent FTS5 operator injection.
+        Builds an AND-of-quoted-segments query when the input contains
+        separators (``.``, ``/``, ``::``) so that ``api.get_users`` matches
+        ``api.py::get_users`` (where the tokens are not adjacent). Otherwise
+        wraps the whole query as a single phrase. Quotes prevent FTS5
+        operator injection.
+
         Returns [] when the FTS index is unavailable.
         """
-        safe_query = '"' + query.replace('"', '""') + '"'
+        segments = [seg for seg in re.split(r"[./:\s]+", query) if seg]
+        if len(segments) > 1:
+            safe_query = " AND ".join('"' + seg.replace('"', '""') + '"' for seg in segments)
+        else:
+            safe_query = '"' + query.replace('"', '""') + '"'
         try:
             rows = self._conn.execute(
                 "SELECT rowid, rank FROM nodes_fts WHERE nodes_fts MATCH ? ORDER BY rank LIMIT ?",
