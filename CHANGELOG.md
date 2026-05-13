@@ -97,4 +97,26 @@ All notable changes to `dagayn` are documented here.
 - Package name, CLI, and storage directory unified under `dagayn`
 - See [NOTICE](NOTICE) for upstream attribution
 
+## 2.9.0 — 2026-05-13
+
+### Features
+
+- Embedding progress bar: `dagayn update --local-embedding` now shows a live
+  progress bar (nodes/s, ETA) on stderr when running interactively
+- `CRG_OPENAI_TIMEOUT` env var: controls the per-call HTTP timeout for the
+  OpenAI-compatible embedding provider (default 120 s); local embedding runs
+  automatically inherit `--local-embedding-timeout` so large/slow models no
+  longer hit the 120 s ceiling
+- `dagayn serve --local-embedding {low,high}`: managed llama-server sidecar
+  for semantic search during MCP sessions
+- `dagayn install --local-embedding {low,high}`: bakes the llama-server flags
+  into the generated MCP server entry so the model is available after restart
+- FTS search-quality benchmark (`dagayn/eval/`) with 12 labelled queries;
+  results published in `docs/LOCAL-EMBEDDINGS.md` and `README.md`
+
+### Fixes
+
+- Local embedding runs now set `CRG_OPENAI_TIMEOUT` to the startup-timeout
+  value, preventing spurious HTTP timeouts on slow/large GGUF models
+
 ## Unreleased
