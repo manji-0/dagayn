@@ -144,26 +144,32 @@ class TestFtsQualityRun(_FtsFixture):
         assert run(Path("/tmp"), self.store, {"name": "x", "search_queries": []}) == []
 
     def test_returns_per_query_plus_aggregate(self):
-        config = self._config([
-            {"query": "hybrid_search", "expected": "dagayn/search.py::hybrid_search"},
-            {"query": "rrf_merge", "expected": "dagayn/search.py::rrf_merge"},
-        ])
+        config = self._config(
+            [
+                {"query": "hybrid_search", "expected": "dagayn/search.py::hybrid_search"},
+                {"query": "rrf_merge", "expected": "dagayn/search.py::rrf_merge"},
+            ]
+        )
         rows = run(Path("/tmp"), self.store, config)
         assert len(rows) == 3  # 2 per-query + 1 aggregate
 
     def test_aggregate_row_marker(self):
-        config = self._config([
-            {"query": "hybrid_search", "expected": "dagayn/search.py::hybrid_search"},
-        ])
+        config = self._config(
+            [
+                {"query": "hybrid_search", "expected": "dagayn/search.py::hybrid_search"},
+            ]
+        )
         rows = run(Path("/tmp"), self.store, config)
         agg = rows[-1]
         assert agg["query"] == "__aggregate__"
         assert agg["search_mode"] == "aggregate"
 
     def test_aggregate_contains_metrics(self):
-        config = self._config([
-            {"query": "hybrid_search", "expected": "dagayn/search.py::hybrid_search"},
-        ])
+        config = self._config(
+            [
+                {"query": "hybrid_search", "expected": "dagayn/search.py::hybrid_search"},
+            ]
+        )
         rows = run(Path("/tmp"), self.store, config)
         agg = rows[-1]
         assert "mean_mrr" in agg
@@ -172,21 +178,25 @@ class TestFtsQualityRun(_FtsFixture):
         assert agg["query_count"] == 1
 
     def test_label_is_preserved(self):
-        config = self._config([
-            {
-                "query": "rrf_merge",
-                "expected": "dagayn/search.py::rrf_merge",
-                "label": "exact_name",
-            },
-        ])
+        config = self._config(
+            [
+                {
+                    "query": "rrf_merge",
+                    "expected": "dagayn/search.py::rrf_merge",
+                    "label": "exact_name",
+                },
+            ]
+        )
         rows = run(Path("/tmp"), self.store, config)
         row = next(r for r in rows if r["query"] == "rrf_merge")
         assert row["label"] == "exact_name"
 
     def test_missing_label_defaults_empty(self):
-        config = self._config([
-            {"query": "rrf_merge", "expected": "dagayn/search.py::rrf_merge"},
-        ])
+        config = self._config(
+            [
+                {"query": "rrf_merge", "expected": "dagayn/search.py::rrf_merge"},
+            ]
+        )
         rows = run(Path("/tmp"), self.store, config)
         row = next(r for r in rows if r["query"] == "rrf_merge")
         assert row["label"] == ""
@@ -240,29 +250,35 @@ class TestFtsExactNameQueries(_FtsFixture):
 
 class TestFtsAggregateMetrics(_FtsFixture):
     def test_mean_mrr_between_0_and_1(self):
-        config = self._config([
-            {"query": "hybrid_search", "expected": "dagayn/search.py::hybrid_search"},
-            {"query": "zzz_missing", "expected": "nowhere.py::missing"},
-        ])
+        config = self._config(
+            [
+                {"query": "hybrid_search", "expected": "dagayn/search.py::hybrid_search"},
+                {"query": "zzz_missing", "expected": "nowhere.py::missing"},
+            ]
+        )
         rows = run(Path("/tmp"), self.store, config)
         agg = rows[-1]
         assert 0.0 <= agg["mean_mrr"] <= 1.0
 
     def test_perfect_mean_mrr(self):
-        config = self._config([
-            {"query": "hybrid_search", "expected": "dagayn/search.py::hybrid_search"},
-            {"query": "rrf_merge", "expected": "dagayn/search.py::rrf_merge"},
-            {"query": "rebuild_fts_index", "expected": "dagayn/search.py::rebuild_fts_index"},
-        ])
+        config = self._config(
+            [
+                {"query": "hybrid_search", "expected": "dagayn/search.py::hybrid_search"},
+                {"query": "rrf_merge", "expected": "dagayn/search.py::rrf_merge"},
+                {"query": "rebuild_fts_index", "expected": "dagayn/search.py::rebuild_fts_index"},
+            ]
+        )
         rows = run(Path("/tmp"), self.store, config)
         agg = rows[-1]
         assert agg["mean_mrr"] == 1.0
 
     def test_zero_mean_mrr_when_all_miss(self):
-        config = self._config([
-            {"query": "zzz_nothing", "expected": "nowhere.py::zzz"},
-            {"query": "aaa_nothing", "expected": "nowhere.py::aaa"},
-        ])
+        config = self._config(
+            [
+                {"query": "zzz_nothing", "expected": "nowhere.py::zzz"},
+                {"query": "aaa_nothing", "expected": "nowhere.py::aaa"},
+            ]
+        )
         rows = run(Path("/tmp"), self.store, config)
         agg = rows[-1]
         assert agg["mean_mrr"] == 0.0
@@ -280,10 +296,15 @@ class TestFtsAggregateMetrics(_FtsFixture):
         assert agg["query_count"] == len(queries)
 
     def test_precision_at_1_correct(self):
-        config = self._config([
-            {"query": "hybrid_search", "expected": "dagayn/search.py::hybrid_search"},  # hit@1=1
-            {"query": "zzz_nothing", "expected": "nowhere.py::zzz"},  # hit@1=0
-        ])
+        config = self._config(
+            [
+                {
+                    "query": "hybrid_search",
+                    "expected": "dagayn/search.py::hybrid_search",
+                },  # hit@1=1
+                {"query": "zzz_nothing", "expected": "nowhere.py::zzz"},  # hit@1=0
+            ]
+        )
         rows = run(Path("/tmp"), self.store, config)
         agg = rows[-1]
         assert agg["precision_at_1"] == 0.5
@@ -296,9 +317,11 @@ class TestFtsAggregateMetrics(_FtsFixture):
 
 class TestFtsSearchMode(_FtsFixture):
     def test_mode_is_fts_only_without_embeddings(self):
-        config = self._config([
-            {"query": "rebuild_fts_index", "expected": "dagayn/search.py::rebuild_fts_index"},
-        ])
+        config = self._config(
+            [
+                {"query": "rebuild_fts_index", "expected": "dagayn/search.py::rebuild_fts_index"},
+            ]
+        )
         rows = run(Path("/tmp"), self.store, config)
         row = next(r for r in rows if r["query"] == "rebuild_fts_index")
         assert row["search_mode"] in ("fts_only", "keyword_fallback", "hybrid")
