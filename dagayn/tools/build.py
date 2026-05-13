@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import sqlite3
+import sys
 import threading
 import time
 from typing import Any
@@ -111,6 +112,7 @@ def _run_local_embedding(
             "CRG_OPENAI_BASE_URL",
             "CRG_OPENAI_BATCH_SIZE",
             "CRG_OPENAI_DIMENSION",
+            "CRG_OPENAI_TIMEOUT",
         )
         with _LOCAL_EMBEDDING_ENV_LOCK:
             old_env = {key: os.environ.get(key) for key in env_keys}
@@ -118,11 +120,13 @@ def _run_local_embedding(
                 os.environ["CRG_OPENAI_API_KEY"] = "dagayn-local"
                 os.environ["CRG_OPENAI_BASE_URL"] = server.base_url
                 os.environ["CRG_OPENAI_BATCH_SIZE"] = old_env["CRG_OPENAI_BATCH_SIZE"] or "16"
+                os.environ["CRG_OPENAI_TIMEOUT"] = str(local_embedding_timeout)
                 os.environ.pop("CRG_OPENAI_DIMENSION", None)
                 result = embed_graph(
                     repo_root=str(root),
                     provider="openai",
                     model=server.preset.model,
+                    show_progress=sys.stderr.isatty(),
                 )
             finally:
                 for key, value in old_env.items():

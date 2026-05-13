@@ -63,6 +63,11 @@ class EmbeddingProvider(ABC):
     def name(self) -> str:
         pass
 
+    @property
+    def preferred_batch_size(self) -> int:
+        """Number of texts to send per API call. Override in concrete providers."""
+        return 64
+
 
 LOCAL_DEFAULT_MODEL = "all-MiniLM-L6-v2"
 
@@ -524,6 +529,10 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         return self._call_api([text])[0]
 
     @property
+    def preferred_batch_size(self) -> int:
+        return self._batch_size
+
+    @property
     def dimension(self) -> int:
         if self._dimension is not None:
             return self._dimension
@@ -627,6 +636,8 @@ def get_provider(
         dimension = int(dim_env) if dim_env else None
         batch_env = os.environ.get("CRG_OPENAI_BATCH_SIZE")
         batch_size = int(batch_env) if batch_env else None
+        timeout_env = os.environ.get("CRG_OPENAI_TIMEOUT")
+        timeout = int(timeout_env) if timeout_env else 120
         if not _is_localhost_url(base_url):
             _warn_cloud_egress("openai")
         return OpenAIEmbeddingProvider(
@@ -635,6 +646,7 @@ def get_provider(
             model=resolved_model,
             dimension=dimension,
             batch_size=batch_size,
+            timeout=timeout,
         )
 
     if provider == "minimax":
@@ -814,7 +826,12 @@ class EmbeddingStore:
     def close(self) -> None:
         self._conn.close()
 
-    def embed_nodes(self, nodes: list[GraphNode], batch_size: int = 64) -> int:
+    def embed_nodes(
+        self,
+        nodes: list[GraphNode],
+        *,
+        show_progress: bool = False,
+    ) -> int:
         """Compute and store embeddings for a list of nodes."""
         if not self.provider:
             return 0
@@ -827,10 +844,10 @@ class EmbeddingStore:
 
         # Batch-fetch existing hashes in one query instead of N individual SELECTs
         qns = [n.qualified_name for n in candidate_nodes]
-        batch_size = 450
+        _hash_fetch_batch = 450  # SQLite variable limit is 999
         existing_hashes: dict[str, tuple[str, str]] = {}  # qn -> (text_hash, provider)
-        for i in range(0, len(qns), batch_size):
-            chunk = qns[i : i + batch_size]
+        for i in range(0, len(qns), _hash_fetch_batch):
+            chunk = qns[i : i + _hash_fetch_batch]
             placeholders = ",".join("?" for _ in chunk)
             rows = self._conn.execute(  # nosec B608
                 f"SELECT qualified_name, text_hash, provider FROM embeddings"
@@ -852,9 +869,21 @@ class EmbeddingStore:
         if not to_embed:
             return 0
 
-        # Encode in batches
-        texts = [t for _, t, _ in to_embed]
-        vectors = self.provider.embed(texts)
+        # Encode in provider-sized batches, optionally showing progress
+        api_batch = self.provider.preferred_batch_size
+        total = len(to_embed)
+        all_vectors: list[list[float]] = []
+        use_progress = show_progress and sys.stderr.isatty()
+        start_time = time.monotonic()
+
+        for i in range(0, total, api_batch):
+            batch = to_embed[i : i + api_batch]
+            batch_texts = [t for _, t, _ in batch]
+            all_vectors.extend(self.provider.embed(batch_texts))
+            if use_progress:
+                done = min(i + api_batch, total)
+                elapsed = time.monotonic() - start_time
+                _draw_embed_progress(done, total, elapsed, end=(done >= total))
 
         # Bulk-insert via executemany
         self._conn.executemany(
@@ -862,7 +891,7 @@ class EmbeddingStore:
                VALUES (?, ?, ?, ?)""",
             [
                 (node.qualified_name, _encode_vector(vec), text_hash, provider_name)
-                for (node, _text, text_hash), vec in zip(to_embed, vectors)
+                for (node, _text, text_hash), vec in zip(to_embed, all_vectors)
             ],
         )
         self._conn.commit()
@@ -947,11 +976,34 @@ class EmbeddingStore:
         return self._conn.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0]
 
 
-def embed_all_nodes(graph_store: GraphStore, embedding_store: EmbeddingStore) -> int:
+def _draw_embed_progress(done: int, total: int, elapsed: float, *, end: bool = False) -> None:
+    """Draw a single-line embedding progress bar to stderr."""
+    if total == 0:
+        return
+    pct = done / total
+    width = 20
+    filled = int(width * pct)
+    bar = "█" * filled + "░" * (width - filled)
+    rate = done / elapsed if elapsed > 0 else 0
+    if rate > 0 and done < total:
+        secs_left = (total - done) / rate
+        eta = f"{int(secs_left // 60)}:{int(secs_left % 60):02d}"
+    else:
+        eta = "--:--"
+    line = f"\rEmbedding  [{bar}]  {done}/{total}  {pct:3.0%}  {rate:.1f} nodes/s  ETA {eta}"
+    print(line, end="\n" if end else "", flush=True, file=sys.stderr)
+
+
+def embed_all_nodes(
+    graph_store: GraphStore,
+    embedding_store: EmbeddingStore,
+    *,
+    show_progress: bool = False,
+) -> int:
     """Embed all non-file nodes in the graph."""
     if not embedding_store.available:
         return 0
 
     all_nodes = graph_store.get_all_nodes(exclude_files=True)
 
-    return embedding_store.embed_nodes(all_nodes)
+    return embedding_store.embed_nodes(all_nodes, show_progress=show_progress)

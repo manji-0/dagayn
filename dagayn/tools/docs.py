@@ -18,6 +18,8 @@ def embed_graph(
     repo_root: str | None = None,
     model: str | None = None,
     provider: str | None = None,
+    *,
+    show_progress: bool = False,
 ) -> dict[str, Any]:
     """Compute vector embeddings for all graph nodes to enable semantic search.
 
@@ -66,7 +68,7 @@ def embed_graph(
                 )
             return {"status": "error", "error": err}
 
-        newly_embedded = embed_all_nodes(store, emb_store)
+        newly_embedded = embed_all_nodes(store, emb_store, show_progress=show_progress)
         total = emb_store.count()
 
         return {
