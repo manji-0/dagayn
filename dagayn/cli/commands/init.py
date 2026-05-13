@@ -6,7 +6,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from ._shared import _PLATFORM_CHOICES, _confirm_yes_no
+from ._shared import _PLATFORM_CHOICES, _add_local_embedding_args, _confirm_yes_no
 
 
 def register_commands(sub: argparse._SubParsersAction) -> dict:
@@ -53,9 +53,11 @@ def register_commands(sub: argparse._SubParsersAction) -> dict:
 
     install_cmd = sub.add_parser("install", help="Register MCP server with AI coding platforms")
     _add_common(install_cmd)
+    _add_local_embedding_args(install_cmd)
 
     init_cmd = sub.add_parser("init", help="Alias for install")
     _add_common(init_cmd)
+    _add_local_embedding_args(init_cmd)
 
     return {"install": install_cmd, "init": init_cmd}
 
@@ -125,8 +127,27 @@ def handle(args: argparse.Namespace) -> None:
     auto_yes = getattr(args, "yes", False)
     skip_instructions = getattr(args, "no_instructions", False)
 
+    local_embedding = getattr(args, "local_embedding", "none") or "none"
+    extra_serve_args: list[str] = []
+    if local_embedding != "none":
+        extra_serve_args += ["--local-embedding", local_embedding]
+        le_port = getattr(args, "local_embedding_port", None)
+        le_bin = getattr(args, "local_embedding_bin", None)
+        le_timeout = getattr(args, "local_embedding_timeout", None)
+        if le_port is not None and le_port != 18080:
+            extra_serve_args += ["--local-embedding-port", str(le_port)]
+        if le_bin is not None and le_bin != "llama-server":
+            extra_serve_args += ["--local-embedding-bin", le_bin]
+        if le_timeout is not None and le_timeout != 300:
+            extra_serve_args += ["--local-embedding-timeout", str(le_timeout)]
+
     print("Installing MCP server config...")
-    configured = install_platform_configs(repo_root, target=target, dry_run=dry_run)
+    configured = install_platform_configs(
+        repo_root,
+        target=target,
+        dry_run=dry_run,
+        extra_serve_args=extra_serve_args or None,
+    )
 
     if not configured:
         print("No platforms detected.")

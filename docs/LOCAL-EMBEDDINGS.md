@@ -100,6 +100,36 @@ Leave a dagayn-started server running for reuse:
 dagayn build --local-embedding high --keep-local-embedding-server
 ```
 
+## Search quality
+
+Measured on the dagayn codebase (4,597 nodes). Query set: 5 exact function names, 3 PascalCase class names, 4 conceptual natural-language queries.
+
+### Aggregate
+
+| Mode | mean MRR | Precision@1 | Precision@5 |
+|---|---|---|---|
+| FTS5 only | 0.71 | 0.67 | 0.75 |
+| Qwen3-Embedding-4B `high` (hybrid) | **0.82** | **0.75** | **0.92** |
+
+### Per-query breakdown
+
+| Query | Label | FTS rank | Qwen3-4B rank |
+|---|---|---|---|
+| `hybrid_search` | exact_name | 1 | 1 |
+| `rebuild_fts_index` | exact_name | 1 | 1 |
+| `rrf_merge` | exact_name | 1 | 1 |
+| `full_build` | exact_name | 2 | 2 |
+| `detect_query_kind_boost` | exact_name | 1 | 1 |
+| `GraphStore` | pascal_case_class | 1 | 1 |
+| `EmbeddingProvider` | pascal_case_class | 1 | 1 |
+| `LocalEmbeddingProvider` | pascal_case_class | 1 | 1 |
+| "reciprocal rank fusion" | conceptual | — | **1** |
+| "sentence transformers local model" | conceptual | — | **3** |
+| "kind boost detection query" | conceptual | 1 | 1 |
+| "incremental graph construction" | conceptual | — | — |
+
+FTS5 is strong on exact and PascalCase queries. Qwen3-4B closes the gap on conceptual queries where FTS5 returns nothing. The last query ("incremental graph construction" → `full_build`) is a miss for both because the function name shares no tokens with the query.
+
 ## Troubleshooting
 
 <!-- derived-from #manual-check -->

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 
 from ...tool_profiles import DEFAULT_TOOL_PROFILE, FULL_TOOL_PROFILE, TOOL_PROFILE_NAMES
+from ._shared import _add_local_embedding_args
 
 
 def register_command(sub: argparse._SubParsersAction) -> argparse.ArgumentParser:
@@ -51,27 +52,50 @@ def register_command(sub: argparse._SubParsersAction) -> argparse.ArgumentParser
         metavar="PORT",
         help="Port for --http (default: 5555)",
     )
+    _add_local_embedding_args(serve_cmd)
     return serve_cmd
 
 
 def handle(args: argparse.Namespace, serve_parser: argparse.ArgumentParser) -> None:
-    """Start the MCP server."""
+    """Start the MCP server, optionally managing a local embedding server."""
+    import os
+
     from ...main import main as serve_main
 
     if args.port is not None and not args.http:
         serve_parser.error("--port requires --http")
     if args.host is not None and not args.http:
         serve_parser.error("--host requires --http")
-    if args.http:
-        host = args.host if args.host is not None else "127.0.0.1"
-        port = args.port if args.port is not None else 5555
-        serve_main(
-            repo_root=args.repo,
-            transport="streamable-http",
-            host=host,
-            port=port,
-            tools=args.tools,
-            tool_profile=args.tool_profile,
-        )
+
+    def _run() -> None:
+        if args.http:
+            host = args.host if args.host is not None else "127.0.0.1"
+            port = args.port if args.port is not None else 5555
+            serve_main(
+                repo_root=args.repo,
+                transport="streamable-http",
+                host=host,
+                port=port,
+                tools=args.tools,
+                tool_profile=args.tool_profile,
+            )
+        else:
+            serve_main(repo_root=args.repo, tools=args.tools, tool_profile=args.tool_profile)
+
+    local_embedding = args.local_embedding
+    if local_embedding and local_embedding != "none":
+        from ...local_embeddings import local_embedding_server
+
+        with local_embedding_server(
+            local_embedding,
+            port=args.local_embedding_port,
+            binary=args.local_embedding_bin,
+            keep_running=args.keep_local_embedding_server,
+            startup_timeout=args.local_embedding_timeout,
+        ) as server:
+            os.environ["CRG_OPENAI_API_KEY"] = "dagayn-local"
+            os.environ["CRG_OPENAI_BASE_URL"] = server.base_url
+            os.environ.setdefault("CRG_OPENAI_BATCH_SIZE", "16")
+            _run()
     else:
-        serve_main(repo_root=args.repo, tools=args.tools, tool_profile=args.tool_profile)
+        _run()

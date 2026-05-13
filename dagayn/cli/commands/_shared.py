@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import sys
 
 _PLATFORM_CHOICES = [
@@ -20,6 +21,38 @@ _PLATFORM_CHOICES = [
     "qcoder",
     "all",
 ]
+
+
+def _add_local_embedding_args(cmd: argparse.ArgumentParser) -> None:
+    """Add --local-embedding* flags to a subcommand parser."""
+    cmd.add_argument(
+        "--local-embedding",
+        choices=["none", "low", "high"],
+        default="none",
+        help="Use a local Qwen GGUF embedding server (default: none)",
+    )
+    cmd.add_argument(
+        "--local-embedding-port",
+        type=int,
+        default=18080,
+        help="Local llama-server port (default: 18080)",
+    )
+    cmd.add_argument(
+        "--local-embedding-bin",
+        default="llama-server",
+        help="llama-server executable name or path (default: llama-server)",
+    )
+    cmd.add_argument(
+        "--keep-local-embedding-server",
+        action="store_true",
+        help="Leave a dagayn-started local embedding server running after the command finishes",
+    )
+    cmd.add_argument(
+        "--local-embedding-timeout",
+        type=int,
+        default=300,
+        help="Seconds to wait for llama-server readiness (default: 300)",
+    )
 
 
 def _confirm_yes_no(prompt: str, default_yes: bool = True) -> bool:

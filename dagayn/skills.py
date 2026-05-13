@@ -213,9 +213,15 @@ def _detect_serve_command() -> tuple[str, list[str]]:
     return (sys.executable, ["-m", "dagayn", "serve"])
 
 
-def _build_server_entry(plat: dict[str, Any], key: str = "") -> dict[str, Any]:
+def _build_server_entry(
+    plat: dict[str, Any],
+    key: str = "",
+    extra_serve_args: list[str] | None = None,
+) -> dict[str, Any]:
     """Build the MCP server entry for a platform."""
     command, args = _detect_serve_command()
+    if extra_serve_args:
+        args = args + extra_serve_args
     entry: dict[str, Any] = {"command": command, "args": args}
     if plat["needs_type"]:
         entry["type"] = "stdio"
@@ -272,6 +278,7 @@ def install_platform_configs(
     repo_root: Path,
     target: str = "all",
     dry_run: bool = False,
+    extra_serve_args: list[str] | None = None,
 ) -> list[str]:
     """Install MCP config for one or all detected platforms.
 
@@ -279,6 +286,9 @@ def install_platform_configs(
         repo_root: Project root directory.
         target: Platform key or "all".
         dry_run: If True, print what would be done without writing.
+        extra_serve_args: Additional CLI args appended to the ``dagayn serve``
+            command written into MCP config files (e.g.
+            ``["--local-embedding", "high"]``).
 
     Returns:
         List of platform names that were configured.
@@ -301,7 +311,7 @@ def install_platform_configs(
     for key, plat in platforms_to_install.items():
         config_path: Path = plat["config_path"](repo_root)
         server_key = plat["key"]
-        server_entry = _build_server_entry(plat, key=key)
+        server_entry = _build_server_entry(plat, key=key, extra_serve_args=extra_serve_args)
 
         if plat["format"] == "toml":
             changed = _merge_toml_mcp_server(

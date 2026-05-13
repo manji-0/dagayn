@@ -319,7 +319,18 @@ embed_graph_tool(provider="google")   # reads GOOGLE_API_KEY from env
 embed_graph_tool(provider="minimax")  # reads MINIMAX_API_KEY from env
 ```
 
-Embeddings are stored in `.dagayn/embeddings.db`. Switching provider or model invalidates the cache and triggers a full re-embed on the next call.
+Embeddings are stored in the `embeddings` table inside `.dagayn/graph.db`. Switching provider or model invalidates the cache and triggers a full re-embed on the next call.
+
+### Search quality
+
+Measured on the dagayn codebase itself (4,597 nodes, 12 queries spanning exact function names, PascalCase class names, and conceptual natural-language queries).
+
+| Mode | mean MRR | Precision@1 | Precision@5 |
+|---|---|---|---|
+| FTS5 only | 0.71 | 0.67 | 0.75 |
+| Qwen3-Embedding-4B (local, `high`) | **0.82** | **0.75** | **0.92** |
+
+FTS5 handles exact-name and PascalCase queries well. Embeddings close the gap on conceptual queries where FTS5 returns no results (e.g. "reciprocal rank fusion" → `rrf_merge`, rank 1). The hybrid mode combines both automatically. See `docs/LOCAL-EMBEDDINGS.md` for the per-query breakdown.
 
 ### Privacy and cloud egress
 

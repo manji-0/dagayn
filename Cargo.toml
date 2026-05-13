@@ -14,6 +14,12 @@ edition = "2021"
 license = "MIT"
 repository = "https://github.com/tirth8205/code-review-graph"
 
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+panic = "abort"
+
 [workspace.dependencies]
 anyhow = "1"
 globset = "0.4"

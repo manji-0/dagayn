@@ -9,39 +9,10 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ._shared import _add_local_embedding_args
+
 if TYPE_CHECKING:
     from ...graph import GraphStore
-
-
-def _add_local_embedding_args(cmd: argparse.ArgumentParser) -> None:
-    cmd.add_argument(
-        "--local-embedding",
-        choices=["none", "low", "high"],
-        default="none",
-        help="Generate local Qwen embeddings after build/update (default: none)",
-    )
-    cmd.add_argument(
-        "--local-embedding-port",
-        type=int,
-        default=18080,
-        help="Local llama-server port for --local-embedding (default: 18080)",
-    )
-    cmd.add_argument(
-        "--local-embedding-bin",
-        default="llama-server",
-        help="llama-server executable name or path (default: llama-server)",
-    )
-    cmd.add_argument(
-        "--keep-local-embedding-server",
-        action="store_true",
-        help="Leave a dagayn-started local embedding server running after embeddings finish",
-    )
-    cmd.add_argument(
-        "--local-embedding-timeout",
-        type=int,
-        default=300,
-        help="Seconds to wait for llama-server readiness (default: 300)",
-    )
 
 
 def _print_local_embedding_summary(result: dict) -> None:

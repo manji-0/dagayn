@@ -1,0 +1,61 @@
+name: dagayn
+url: https://github.com/watarumanji/dagayn
+commit: HEAD
+language: python
+size_category: medium
+
+entry_points:
+  - "dagayn/search.py::hybrid_search"
+  - "dagayn/graph/core.py::GraphStore"
+
+search_queries:
+  # --- Exact name matches (FTS strength) ---
+  - query: "hybrid_search"
+    expected: "dagayn/search.py::hybrid_search"
+    label: "exact_name"
+
+  - query: "rebuild_fts_index"
+    expected: "dagayn/search.py::rebuild_fts_index"
+    label: "exact_name"
+
+  - query: "rrf_merge"
+    expected: "dagayn/search.py::rrf_merge"
+    label: "exact_name"
+
+  - query: "full_build"
+    expected: "dagayn/incremental.py::full_build"
+    label: "exact_name"
+
+  - query: "detect_query_kind_boost"
+    expected: "dagayn/search.py::detect_query_kind_boost"
+    label: "exact_name"
+
+  # --- PascalCase class names (kind-boost path) ---
+  - query: "GraphStore"
+    expected: "dagayn/graph/core.py::GraphStore"
+    label: "pascal_case_class"
+
+  - query: "EmbeddingProvider"
+    expected: "dagayn/embeddings.py::EmbeddingProvider"
+    label: "pascal_case_class"
+
+  - query: "LocalEmbeddingProvider"
+    expected: "dagayn/embeddings.py::LocalEmbeddingProvider"
+    label: "pascal_case_class"
+
+  # --- Conceptual / natural language (FTS weakness baseline) ---
+  - query: "reciprocal rank fusion"
+    expected: "dagayn/search.py::rrf_merge"
+    label: "conceptual"
+
+  - query: "sentence transformers local model"
+    expected: "dagayn/embeddings.py::LocalEmbeddingProvider"
+    label: "conceptual"
+
+  - query: "kind boost detection query"
+    expected: "dagayn/search.py::detect_query_kind_boost"
+    label: "conceptual"
+
+  - query: "incremental graph construction"
+    expected: "dagayn/incremental.py::full_build"
+    label: "conceptual"
