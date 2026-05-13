@@ -91,7 +91,10 @@ def run(repo_path: Path, store, config: dict) -> list[dict]:
 
         rank = 0
         for i, r in enumerate(search_results):
-            qn = r.get("qualified_name", "") if isinstance(r, dict) else getattr(r, "qualified_name", "")
+            if isinstance(r, dict):
+                qn = r.get("qualified_name", "")
+            else:
+                qn = getattr(r, "qualified_name", "")
             if _matches(qn, expected):
                 rank = i + 1
                 break

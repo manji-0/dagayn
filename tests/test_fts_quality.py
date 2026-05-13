@@ -3,12 +3,10 @@
 import tempfile
 from pathlib import Path
 
+from dagayn.eval.benchmarks.fts_quality import _matches, run
 from dagayn.graph import GraphStore
 from dagayn.parser import NodeInfo
 from dagayn.search import rebuild_fts_index
-
-from dagayn.eval.benchmarks.fts_quality import run, _matches
-
 
 # ---------------------------------------------------------------------------
 # _matches helper
@@ -175,7 +173,11 @@ class TestFtsQualityRun(_FtsFixture):
 
     def test_label_is_preserved(self):
         config = self._config([
-            {"query": "rrf_merge", "expected": "dagayn/search.py::rrf_merge", "label": "exact_name"},
+            {
+                "query": "rrf_merge",
+                "expected": "dagayn/search.py::rrf_merge",
+                "label": "exact_name",
+            },
         ])
         rows = run(Path("/tmp"), self.store, config)
         row = next(r for r in rows if r["query"] == "rrf_merge")
