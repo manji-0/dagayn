@@ -6,6 +6,7 @@ from pathlib import Path
 from dagayn.graph import GraphStore
 from dagayn.parser import NodeInfo
 from dagayn.search import (
+    _extract_identifiers,
     _qualified_name_matches,
     detect_query_kind_boost,
     hybrid_search,
@@ -285,6 +286,7 @@ class TestHybridSearch:
             "signature",
             "score",
             "source",
+            "is_test",
         }
         for result in results:
             assert expected_fields.issubset(result.keys()), (
@@ -573,3 +575,106 @@ class TestHybridSearchRankAndDocSource:
         results = hs["results"]
         kinds = {r["kind"] for r in results}
         assert "DocSection" in kinds
+
+
+# ---------------------------------------------------------------------------
+# Identifier extraction (Issue 3)
+# ---------------------------------------------------------------------------
+
+
+class TestExtractIdentifiers:
+    def test_picks_snake_case(self):
+        assert _extract_identifiers("find which functions test embed_graph") == ["embed_graph"]
+
+    def test_picks_pascal_case(self):
+        assert _extract_identifiers("how is GraphStore initialized") == ["GraphStore"]
+
+    def test_picks_camel_case(self):
+        assert _extract_identifiers("debug rrfMerge behaviour") == ["rrfMerge"]
+
+    def test_picks_screaming_snake(self):
+        assert _extract_identifiers("change RRF_K to 10") == ["RRF_K"]
+
+    def test_skips_plain_english_words(self):
+        assert _extract_identifiers("compute blast radius for a change") == []
+
+    def test_skips_stopwords_even_if_identifier_shaped(self):
+        # "Find" matches the regex but is in the stopword list.
+        assert _extract_identifiers("Find users") == []
+
+    def test_dedups(self):
+        assert _extract_identifiers("GraphStore and GraphStore again") == ["GraphStore"]
+
+    def test_empty_query(self):
+        assert _extract_identifiers("") == []
+
+    def test_preserves_order(self):
+        assert _extract_identifiers("call embed_graph then GraphStore") == [
+            "embed_graph",
+            "GraphStore",
+        ]
+
+
+# ---------------------------------------------------------------------------
+# Test deboost (Issue 1)
+# ---------------------------------------------------------------------------
+
+
+class TestTestDeboost:
+    def setup_method(self):
+        self.tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self.store = GraphStore(self.tmp.name)
+        # Seed: one Function plus a near-clone test that exercises it.
+        nodes = [
+            NodeInfo(
+                kind="Function",
+                name="compute_blast_radius",
+                file_path="dagayn/impact.py",
+                line_start=1,
+                line_end=20,
+                language="python",
+                is_test=False,
+            ),
+            NodeInfo(
+                kind="Function",
+                name="test_compute_blast_radius",
+                file_path="tests/test_impact.py",
+                line_start=1,
+                line_end=20,
+                language="python",
+                is_test=True,
+            ),
+        ]
+        for n in nodes:
+            self.store.upsert_node(n, file_hash="test_deboost_fixture")
+        self.store._conn.commit()
+        rebuild_fts_index(self.store)
+
+    def teardown_method(self):
+        self.store.close()
+        Path(self.tmp.name).unlink(missing_ok=True)
+
+    def test_source_outranks_test_with_same_name(self):
+        """When both source and test match equally, the source ranks first."""
+        results = hybrid_search(self.store, "compute_blast_radius")["results"]
+        assert len(results) >= 2
+        # Find both nodes; source must precede test.
+        names = [r["name"] for r in results]
+        src_idx = names.index("compute_blast_radius")
+        test_idx = names.index("test_compute_blast_radius")
+        assert src_idx < test_idx
+
+    def test_is_test_flag_exposed_in_results(self):
+        """Each result dict carries the boolean is_test field."""
+        results = hybrid_search(self.store, "compute_blast_radius")["results"]
+        assert len(results) >= 2
+        flags = {r["name"]: r["is_test"] for r in results}
+        assert flags["compute_blast_radius"] is False
+        assert flags["test_compute_blast_radius"] is True
+
+    def test_test_node_still_returned_for_exact_name_query(self):
+        """Deboost shrinks score but does not filter — querying the test name
+        directly still surfaces it."""
+        results = hybrid_search(self.store, "test_compute_blast_radius")["results"]
+        names = [r["name"] for r in results]
+        assert "test_compute_blast_radius" in names

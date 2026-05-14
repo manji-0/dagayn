@@ -123,6 +123,84 @@ def rebuild_fts_index(store: GraphStore) -> int:
 
 _QUALIFIED_SPLIT_RE = re.compile(r"[./:]+")
 
+# Identifier extraction for natural-language queries (Issue 3 fix).
+# Matches anything that looks like a programming identifier; the structural
+# filter (snake_case / camelCase / PascalCase) happens in _extract_identifiers.
+_IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]+")
+
+# English stopwords commonly seen in natural-language code queries.  Any
+# token matching one of these (case-insensitively) is rejected even if the
+# regex thinks it is identifier-shaped.
+_QUERY_STOPWORDS = frozenset(
+    {
+        "the",
+        "a",
+        "an",
+        "is",
+        "are",
+        "for",
+        "of",
+        "to",
+        "in",
+        "on",
+        "by",
+        "with",
+        "from",
+        "and",
+        "or",
+        "not",
+        "where",
+        "how",
+        "what",
+        "which",
+        "find",
+        "show",
+        "list",
+        "all",
+        "any",
+        "this",
+        "that",
+        "these",
+        "those",
+        "it",
+        "we",
+        "do",
+        "does",
+        "did",
+    }
+)
+
+# Multiplier applied to is_test=True nodes during boosting so that source
+# code outranks the tests that exercise it on semantic queries.  Tests
+# remain visible (deboost, not filter) so that queries targeting a test
+# by name still surface the test itself.
+_TEST_DEBOOST = 0.6
+
+
+def _extract_identifiers(query: str) -> list[str]:
+    """Pull identifier-shaped tokens (snake_case / camelCase / PascalCase) out of
+    a natural-language query so each can drive its own FTS arm.
+
+    A token is accepted when it looks like a programming symbol — either
+    containing an underscore (``embed_graph``, ``RRF_K``) or having internal
+    case variation (``GraphStore``, ``rrfMerge``).  Plain lowercase English
+    words (``find``, ``merge``, ``functions``) are rejected.
+    """
+    out: list[str] = []
+    seen: set[str] = set()
+    for c in _IDENT_RE.findall(query):
+        if c.lower() in _QUERY_STOPWORDS:
+            continue
+        is_snake = "_" in c
+        is_camelish = any(ch.isupper() for ch in c[1:])
+        if not (is_snake or is_camelish):
+            continue
+        if c in seen:
+            continue
+        seen.add(c)
+        out.append(c)
+    return out
+
 
 def _qualified_name_matches(query: str, qualified_name: str) -> bool:
     """True when a dotted query matches a qualified name.
@@ -186,7 +264,7 @@ def detect_query_kind_boost(query: str) -> dict[str, float]:
 # ---------------------------------------------------------------------------
 
 
-def rrf_merge(*result_lists: list[tuple[int, float]], k: int = 60) -> list[tuple[int, float]]:
+def rrf_merge(*result_lists: list[tuple[int, float]], k: int = 10) -> list[tuple[int, float]]:
     """Merge multiple ranked result lists using Reciprocal Rank Fusion.
 
     Each input list contains ``(id, score)`` tuples, ordered by score
@@ -196,8 +274,12 @@ def rrf_merge(*result_lists: list[tuple[int, float]], k: int = 60) -> list[tuple
 
     Args:
         *result_lists: Variable number of ranked result lists.
-        k: RRF constant (default 60). Higher values reduce the impact of
-           rank differences.
+        k: RRF constant (default 10).  The textbook value is 60; we use a
+           lower constant so the resulting scores spread across ~0.05–0.2
+           instead of being compressed into a 0.015–0.016 band, which
+           makes the ``score`` field meaningful for comparing results
+           within a single query.  Item order is invariant under positive
+           ``k`` so this is purely a calibration knob.
 
     Returns:
         Merged list of ``(id, rrf_score)`` tuples sorted by score descending.
@@ -280,9 +362,11 @@ def hybrid_search(
           ``"fts_only"``, ``"embedding_only"``, ``"keyword_fallback"``,
           ``"empty"``.
         - ``"results"``: list of dicts with node metadata, ``"score"``,
-          ``"rank"`` (1-based position in final sorted list), and
+          ``"rank"`` (1-based position in final sorted list),
           ``"source"`` (``"fts"``, ``"embedding"``, ``"both"``, ``"keyword"``,
-          or ``"doc"`` for Markdown DocSection nodes).
+          or ``"doc"`` for Markdown DocSection nodes), and ``"is_test"``
+          (``True`` when the node was detected as test code; such nodes
+          are deboosted so source code outranks the tests for it).
     """
     if not query or not query.strip():
         return {"mode": "empty", "results": []}
@@ -296,6 +380,18 @@ def hybrid_search(
     # Try FTS5 search via protocol method
     try:
         fts_results = store.fts_query(query, limit=fetch_limit)
+        # Additional FTS arms for each identifier-shaped token in the query
+        # so natural-language phrases like "tests for embed_graph" still
+        # match the embed_graph symbol directly.  Extra hits accumulate
+        # into the same list; rrf_merge handles repeated ids additively.
+        for ident in _extract_identifiers(query):
+            try:
+                extra = store.fts_query(ident, limit=fetch_limit)
+            except Exception as e:
+                logger.debug("FTS5 sub-query failed for %r: %s", ident, e)
+                continue
+            if extra:
+                fts_results.extend(extra)
     except Exception as e:
         logger.warning("FTS5 unavailable, will use fallback: %s", e)
 
@@ -361,6 +457,12 @@ def hybrid_search(
                 boost *= kind_boosts["_qualified"]
         if context_set and node.file_path in context_set:
             boost *= 1.5
+        if node.is_test:
+            # Tests whose names/docstrings mirror the function under test
+            # cluster next to that function in embedding space and crowd
+            # out the source — deboost so the source wins on semantic
+            # queries.  Tests are still returned (not filtered).
+            boost *= _TEST_DEBOOST
 
         boosted.append((node_id, score * boost))
 
@@ -405,6 +507,7 @@ def hybrid_search(
                 "score": round(final_score, 6),
                 "rank": len(results) + 1,
                 "source": source,
+                "is_test": bool(node.is_test),
             }
         )
 
