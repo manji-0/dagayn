@@ -74,3 +74,106 @@ def _confirm_yes_no(prompt: str, default_yes: bool = True) -> bool:
     if not answer:
         return default_yes
     return answer in ("y", "yes")
+
+
+# Environment variables a user needs to set in the shell that launches their
+# AI coding tool when ``--mode remote`` is selected.  Kept in sync by hand
+# with ``dagayn/embeddings.py:get_provider``.  See: test_resolve_install_mode.
+_REMOTE_ENV_VARS = {
+    "openai": ["CRG_OPENAI_API_KEY", "CRG_OPENAI_BASE_URL", "CRG_OPENAI_MODEL"],
+    "google": ["GOOGLE_API_KEY"],
+    "minimax": ["MINIMAX_API_KEY"],
+}
+
+
+def _read_choice(prompt: str, mapping: dict[str, str]) -> str:
+    """Loop until the user picks a valid menu item.
+
+    ``mapping`` maps the keys the user can type (e.g. ``"1"``) to the
+    canonical value to return (e.g. ``"fts"``).  KeyboardInterrupt and
+    EOF abort the install with a clear ``SystemExit``.
+    """
+    while True:
+        try:
+            ans = input(prompt).strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            raise SystemExit("Aborted.")
+        if ans in mapping:
+            return mapping[ans]
+        print(f"  Please enter one of: {', '.join(sorted(mapping))}")
+
+
+def _prompt_install_mode() -> tuple[str, str | None, str | None]:
+    """Interactive 1-2-3 menu for selecting the install mode and its sub-option.
+
+    Returns ``(mode, preset, provider)``.  ``preset`` is set only for
+    ``local``, ``provider`` is set only for ``remote``.
+    """
+    print("Which embedding mode would you like?")
+    print("  1) fts    — FTS only (no embeddings, fastest, no model download)")
+    print("  2) local  — Managed llama.cpp sidecar with Qwen3 GGUF")
+    print("  3) remote — OpenAI-compatible / Google / MiniMax cloud embeddings")
+    choice = _read_choice(
+        "Choose [1-3]: ",
+        {"1": "fts", "2": "local", "3": "remote"},
+    )
+    if choice == "fts":
+        return "fts", None, None
+    if choice == "local":
+        print("Which preset?")
+        print("  1) low  — Qwen3-Embedding-0.6B (~1 GB, recommended)")
+        print("  2) high — Qwen3-Embedding-4B (~3 GB)")
+        preset = _read_choice(
+            "Choose [1-2]: ",
+            {"1": "low", "2": "high"},
+        )
+        return "local", preset, None
+    # remote
+    print("Which provider?")
+    print("  1) openai  — OpenAI-compatible API")
+    print("  2) google  — Google Gemini")
+    print("  3) minimax — MiniMax embo-01")
+    provider = _read_choice(
+        "Choose [1-3]: ",
+        {"1": "openai", "2": "google", "3": "minimax"},
+    )
+    return "remote", None, provider
+
+
+def _resolve_install_mode(args: argparse.Namespace) -> tuple[str, str | None, str | None]:
+    """Resolve the install mode from CLI flags or by prompting the user.
+
+    Precedence:
+    1. Explicit ``--mode`` flag (with paired ``--preset`` / ``--provider``
+       validation).
+    2. Legacy ``--local-embedding low|high`` implies ``local`` mode.
+    3. Otherwise: interactive prompt on a TTY, fail-fast under ``-y`` or
+       a non-TTY stdin.
+
+    Returns ``(mode, preset, provider)``.
+    """
+    mode = getattr(args, "mode", None)
+    preset = getattr(args, "preset", None)
+    provider = getattr(args, "provider", None)
+    legacy_le = getattr(args, "local_embedding", "none") or "none"
+    auto_yes = getattr(args, "yes", False)
+
+    if mode is not None:
+        if mode == "local" and not preset:
+            raise SystemExit("--mode local requires --preset {low,high}")
+        if mode == "remote" and not provider:
+            raise SystemExit("--mode remote requires --provider {openai,google,minimax}")
+        return mode, preset, provider
+
+    if legacy_le in ("low", "high"):
+        return "local", legacy_le, None
+
+    if auto_yes or not sys.stdin.isatty():
+        raise SystemExit(
+            "--mode is required when stdin is not a TTY or --yes is set.\n"
+            "  Use --mode fts | --mode local --preset {low,high} | "
+            "--mode remote --provider {openai,google,minimax}."
+        )
+
+    return _prompt_install_mode()

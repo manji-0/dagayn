@@ -2,9 +2,12 @@
 
 <!-- constrained-by ./COMMANDS.md -->
 
-dagayn can generate semantic-search embeddings locally during `build` and
-`update` by starting `llama-server` as a subprocess and talking to its
-OpenAI-compatible `/v1/embeddings` endpoint.
+This document describes the **`--mode local`** install path: dagayn generates
+semantic-search embeddings locally during `build` and `update` by starting
+`llama-server` as a subprocess and talking to its OpenAI-compatible
+`/v1/embeddings` endpoint.  The other two install modes are `--mode fts`
+(no embeddings, fastest) and `--mode remote` (OpenAI-compatible / Google /
+MiniMax cloud APIs) — see the README's "Choosing an install mode" section.
 
 ## Presets
 

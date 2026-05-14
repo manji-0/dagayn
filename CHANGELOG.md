@@ -135,4 +135,20 @@ All notable changes to `dagayn` are documented here.
   extra FTS arm per identifier, so phrases like
   "tests for embed_graph" still match the `embed_graph` symbol directly.
 
+## 2.10.0 — 2026-05-14
+
+### Features
+
+- `dagayn install --mode {fts,local,remote}` makes the three install
+  patterns first-class CLI choices.  Each mode has paired sub-options:
+  `--preset {low,high}` for local, `--provider {openai,google,minimax}`
+  for remote.  When `--mode` is omitted on a TTY, the user is prompted
+  interactively; under `-y` or a non-TTY stdin the install fails fast
+  with a helpful error.  Legacy `--local-embedding low|high` continues
+  to work as a shortcut for `--mode local --preset $X`.
+- `--mode remote` prints the provider-specific environment variables the
+  user needs to set in the shell that launches their AI coding tool
+  (e.g. `CRG_OPENAI_API_KEY`, `CRG_OPENAI_BASE_URL`, `CRG_OPENAI_MODEL`
+  for `openai`).  The MCP server inherits those at launch time.
+
 ## Unreleased

@@ -6,7 +6,13 @@ import argparse
 import sys
 from pathlib import Path
 
-from ._shared import _PLATFORM_CHOICES, _add_local_embedding_args, _confirm_yes_no
+from ._shared import (
+    _PLATFORM_CHOICES,
+    _REMOTE_ENV_VARS,
+    _add_local_embedding_args,
+    _confirm_yes_no,
+    _resolve_install_mode,
+)
 
 
 def register_commands(sub: argparse._SubParsersAction) -> dict:
@@ -49,6 +55,37 @@ def register_commands(sub: argparse._SubParsersAction) -> dict:
             choices=_PLATFORM_CHOICES,
             default="all",
             help="Target platform for MCP config (default: all detected)",
+        )
+        # Embedding mode selection.  Omit to choose interactively on a TTY,
+        # fail-fast under -y or a non-TTY stdin.  The legacy
+        # --local-embedding flag still works as a shortcut for --mode local.
+        p.add_argument(
+            "--mode",
+            choices=["fts", "local", "remote"],
+            default=None,
+            help=(
+                "Embedding strategy: fts (no embeddings), local (managed "
+                "llama-server sidecar), or remote (cloud API).  Omit to "
+                "choose interactively on a TTY."
+            ),
+        )
+        p.add_argument(
+            "--preset",
+            choices=["low", "high"],
+            default=None,
+            help=(
+                "Preset for --mode local: low (Qwen3-Embedding-0.6B, ~1 GB) "
+                "or high (Qwen3-Embedding-4B, ~3 GB)."
+            ),
+        )
+        p.add_argument(
+            "--provider",
+            choices=["openai", "google", "minimax"],
+            default=None,
+            help=(
+                "Provider for --mode remote: openai (OpenAI-compatible), "
+                "google (Gemini), or minimax (embo-01)."
+            ),
         )
 
     install_cmd = sub.add_parser("install", help="Register MCP server with AI coding platforms")
@@ -127,10 +164,25 @@ def handle(args: argparse.Namespace) -> None:
     auto_yes = getattr(args, "yes", False)
     skip_instructions = getattr(args, "no_instructions", False)
 
-    local_embedding = getattr(args, "local_embedding", "none") or "none"
+    mode, preset, provider = _resolve_install_mode(args)
+    sub_label = f" (preset={preset})" if preset else f" (provider={provider})" if provider else ""
+    print(f"Selected mode: {mode}{sub_label}")
+    if mode == "remote":
+        print(
+            f"[remote/{provider}] Set these environment variables in the shell "
+            "that launches your AI coding tool:",
+            file=sys.stderr,
+        )
+        for var in _REMOTE_ENV_VARS[provider]:
+            print(f"  {var}", file=sys.stderr)
+        print(
+            "  (the MCP server inherits the parent shell's environment at launch time)",
+            file=sys.stderr,
+        )
+
     extra_serve_args: list[str] = []
-    if local_embedding != "none":
-        extra_serve_args += ["--local-embedding", local_embedding]
+    if mode == "local":
+        extra_serve_args += ["--local-embedding", preset]
         le_port = getattr(args, "local_embedding_port", None)
         le_bin = getattr(args, "local_embedding_bin", None)
         le_timeout = getattr(args, "local_embedding_timeout", None)

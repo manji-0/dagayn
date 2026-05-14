@@ -171,11 +171,31 @@ dagayn build
 dagayn status
 ```
 
-`install` auto-detects supported AI coding platforms and writes MCP configuration where appropriate.
+`install` auto-detects supported AI coding platforms and writes MCP configuration where appropriate.  Run without arguments on a TTY to be prompted for one of three embedding modes (see below); under `-y` or a non-TTY stdin the mode must be passed explicitly.
 
 `build` creates the initial graph.
 
 `status` confirms the graph exists and reports basic counts.
+
+### Choosing an install mode
+
+`dagayn install` supports three embedding strategies as first-class options:
+
+```bash
+# 1. FTS only — no embeddings, fastest, no model download.
+dagayn install --mode fts
+
+# 2. Local — managed llama.cpp sidecar with a Qwen3 GGUF.
+dagayn install --mode local --preset low    # Qwen3-Embedding-0.6B (~1 GB)
+dagayn install --mode local --preset high   # Qwen3-Embedding-4B (~3 GB)
+
+# 3. Remote — OpenAI-compatible / Google / MiniMax cloud embeddings.
+dagayn install --mode remote --provider openai
+dagayn install --mode remote --provider google
+dagayn install --mode remote --provider minimax
+```
+
+For `--mode remote`, set the provider's environment variables in the shell that launches your AI coding tool (e.g. `CRG_OPENAI_API_KEY`, `CRG_OPENAI_BASE_URL`, `CRG_OPENAI_MODEL` for `openai`); the MCP server inherits those at launch time.  The exact list is printed at install time.  The legacy `--local-embedding low|high` flag still works as a shortcut for `--mode local --preset $X`.
 
 ### Rust backend
 

@@ -228,6 +228,9 @@ class TestInstallGlobalSkills:
             skills=False,
             hooks=False,
             install_all=False,
+            mode="fts",
+            preset=None,
+            provider=None,
         )
 
         with (
