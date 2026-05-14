@@ -119,4 +119,20 @@ All notable changes to `dagayn` are documented here.
 - Local embedding runs now set `CRG_OPENAI_TIMEOUT` to the startup-timeout
   value, preventing spurious HTTP timeouts on slow/large GGUF models
 
+## 2.9.1 — 2026-05-14
+
+### Improvements
+
+- `hybrid_search` test deboost: nodes detected as test code (`is_test=True`)
+  are multiplied by 0.6× during boosting so source ranks above the tests
+  that exercise it. Tests remain visible (deboost, not filter). Each
+  result dict now exposes `is_test: bool`.
+- RRF default `k` changed from 60 to 10 so the `score` field spreads over
+  ~0.05–0.2 instead of being compressed into 0.015–0.016 with L2-normalised
+  embeddings. Item order is preserved.
+- Natural-language identifier extraction: `hybrid_search` now extracts
+  snake_case / camelCase / PascalCase tokens from the query and fires an
+  extra FTS arm per identifier, so phrases like
+  "tests for embed_graph" still match the `embed_graph` symbol directly.
+
 ## Unreleased
