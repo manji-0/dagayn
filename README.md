@@ -328,9 +328,10 @@ Measured on the dagayn codebase itself (4,597 nodes, 12 queries spanning exact f
 | Mode | mean MRR | Precision@1 | Precision@5 |
 |---|---|---|---|
 | FTS5 only | 0.71 | 0.67 | 0.75 |
-| Qwen3-Embedding-4B (local, `high`) | **0.82** | **0.75** | **0.92** |
+| Qwen3-Embedding-0.6B (local, `low`) | **0.88** | **0.83** | **0.92** |
+| Qwen3-Embedding-4B (local, `high`) | 0.82 | 0.75 | 0.92 |
 
-FTS5 handles exact-name and PascalCase queries well. Embeddings close the gap on conceptual queries where FTS5 returns no results (e.g. "reciprocal rank fusion" → `rrf_merge`, rank 1). The hybrid mode combines both automatically. See `docs/LOCAL-EMBEDDINGS.md` for the per-query breakdown.
+FTS5 handles exact-name and PascalCase queries well. Embeddings close the gap on conceptual queries where FTS5 returns no results (e.g. "reciprocal rank fusion" → `rrf_merge`, rank 1). On this 12-query suite the 0.6B model performs as well as the 4B model at ~1/7 the memory footprint. The hybrid mode combines both automatically. See `docs/LOCAL-EMBEDDINGS.md` for the per-query breakdown.
 
 ### Privacy and cloud egress
 
