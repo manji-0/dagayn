@@ -168,6 +168,8 @@ def handle(args: argparse.Namespace) -> None:
     sub_label = f" (preset={preset})" if preset else f" (provider={provider})" if provider else ""
     print(f"Selected mode: {mode}{sub_label}")
     if mode == "remote":
+        # _resolve_install_mode guarantees provider is set when mode == "remote".
+        assert provider is not None
         print(
             f"[remote/{provider}] Set these environment variables in the shell "
             "that launches your AI coding tool:",
@@ -182,6 +184,8 @@ def handle(args: argparse.Namespace) -> None:
 
     extra_serve_args: list[str] = []
     if mode == "local":
+        # _resolve_install_mode guarantees preset is set when mode == "local".
+        assert preset is not None
         extra_serve_args += ["--local-embedding", preset]
         le_port = getattr(args, "local_embedding_port", None)
         le_bin = getattr(args, "local_embedding_bin", None)
