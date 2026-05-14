@@ -45,22 +45,36 @@ jobs:
           enable-cache: true
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        # The macOS-14 runner image ships a stale ``$HOME/.cargo/bin/cargo``
+        # that is actually a rustup-init binary (verified by running
+        # ``cargo --version`` and seeing ``rustup-init 1.29.0``).
+        # ``dtolnay/rust-toolchain@stable`` doesn't rebuild that shim
+        # reliably, so we wipe ~/.cargo and reinstall via the upstream
+        # installer.  This makes ``cargo metadata`` (which maturin invokes
+        # during the build) resolve to a real cargo, not to rustup-init.
+        shell: bash
+        run: |
+          rm -rf "${HOME}/.cargo" "${HOME}/.rustup"
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --default-toolchain stable --profile minimal
+          echo "${HOME}/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Verify Rust toolchain
+        shell: bash
+        run: |
+          export PATH="${HOME}/.cargo/bin:$PATH"
+          cargo --version
+          rustc --version
 
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
 
       - name: Build wheel
-        # ``uvx`` builds a temporary venv whose bin is prepended to PATH;
-        # on macOS runners the pre-installed ``rustup-init`` then resolves
-        # ahead of the Rust toolchain we just installed, breaking
-        # ``cargo metadata`` (rustup-init rejects the ``metadata`` argument).
-        # Force ``$CARGO_HOME/bin`` to the front of PATH so the real cargo
-        # shim wins.
+        # ``uvx`` builds a temporary venv whose bin is prepended to PATH,
+        # so force ``$HOME/.cargo/bin`` back to the front before invoking it.
         shell: bash
         run: |
-          export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
-          cargo --version
+          export PATH="${HOME}/.cargo/bin:$PATH"
           uvx maturin build --release --out dist -i python
 
       - name: Upload wheel artifact
