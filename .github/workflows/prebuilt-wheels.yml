@@ -51,7 +51,17 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Build wheel
-        run: uvx maturin build --release --out dist -i python
+        # ``uvx`` builds a temporary venv whose bin is prepended to PATH;
+        # on macOS runners the pre-installed ``rustup-init`` then resolves
+        # ahead of the Rust toolchain we just installed, breaking
+        # ``cargo metadata`` (rustup-init rejects the ``metadata`` argument).
+        # Force ``$CARGO_HOME/bin`` to the front of PATH so the real cargo
+        # shim wins.
+        shell: bash
+        run: |
+          export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
+          cargo --version
+          uvx maturin build --release --out dist -i python
 
       - name: Upload wheel artifact
         uses: actions/upload-artifact@v4

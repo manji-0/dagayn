@@ -147,6 +147,13 @@ jobs:
       - name: Install pip into uv environment
         run: uv pip install pip
       - name: Run install smoke test
-        run: ${{ matrix.install-command }}
+        # See prebuilt-wheels.yml: on macOS the pre-installed ``rustup-init``
+        # can resolve ahead of the toolchain we installed, breaking the
+        # ``cargo metadata`` call that maturin makes during the build.
+        shell: bash
+        run: |
+          export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
+          cargo --version
+          ${{ matrix.install-command }}
       - name: Verify CLI
         run: dagayn --help
