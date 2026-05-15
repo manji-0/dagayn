@@ -1738,6 +1738,58 @@ class TestCrossArtifactEdges:
         assert sub_edge is not None
         assert "subsection" in sub_edge.source
 
+    def test_markdown_dagayn_directives_emit_explicit_documentation_roles(self):
+        _, edges = self.parser.parse_bytes(
+            Path("docs/auth-spec.md"),
+            b"# Auth Spec\n\n"
+            b"## Token Refresh\n\n"
+            b"<!-- dagayn: implemented-by services/auth.py::refresh_token -->\n"
+            b"<!-- dagayn: raises-issue-for resource.aws_s3_bucket.graph_store -->\n",
+        )
+        ca = [e for e in edges if e.kind == "CROSS_ARTIFACT"]
+
+        implemented = next(e for e in ca if e.extra.get("relationship_role") == "implemented_by")
+        assert implemented.source == "docs/auth-spec.md::token-refresh"
+        assert implemented.target == "services/auth.py::refresh_token"
+        assert implemented.extra["evidence_kind"] == "markdown_directive"
+        assert implemented.extra["dagayn_directive_kind"] == "implemented-by"
+        assert implemented.extra["confidence_tier"] == "HIGH"
+
+        issue = next(e for e in ca if e.extra.get("relationship_role") == "raises_issue_for")
+        assert issue.target == "<unresolved:resource.aws_s3_bucket.graph_store>"
+        assert issue.extra["original_symbol_name"] == "resource.aws_s3_bucket.graph_store"
+        assert issue.extra["confidence_tier"] == "LOW"
+
+    def test_python_dagayn_comment_directive_attaches_to_following_symbol(self):
+        _, edges = self.parser.parse_bytes(
+            Path("services/auth.py"),
+            b"# dagayn: implements docs/auth-spec.md#Token Refresh\n"
+            b"def refresh_token():\n"
+            b"    return 'ok'\n",
+        )
+        edge = next(e for e in edges if e.kind == "CROSS_ARTIFACT")
+        assert edge.source == "services/auth.py::refresh_token"
+        assert edge.target == "docs/auth-spec.md::token-refresh"
+        assert edge.extra["relationship_role"] == "implements_contract"
+        assert edge.extra["evidence_kind"] == "comment_directive"
+        assert edge.extra["source_language"] == "python"
+        assert edge.extra["target_language"] == "markdown"
+
+    def test_terraform_dagayn_comment_directive_attaches_to_following_block(self):
+        _, edges = self.parser.parse_bytes(
+            Path("infra/main.tf"),
+            b"# dagayn: has-runbook ../docs/infra.md#Graph Store Bucket\n"
+            b'resource "aws_s3_bucket" "graph_store" {\n'
+            b"}\n",
+        )
+        edge = next(e for e in edges if e.kind == "CROSS_ARTIFACT")
+        assert edge.source == "infra/main.tf::resource.aws_s3_bucket.graph_store"
+        assert edge.target == "docs/infra.md::graph-store-bucket"
+        assert edge.extra["relationship_role"] == "has_runbook"
+        assert edge.extra["evidence_kind"] == "comment_directive"
+        assert edge.extra["source_language"] == "terraform"
+        assert edge.extra["target_language"] == "markdown"
+
 
 class TestFileIOBridges:
     """CROSS_ARTIFACT edges for external file-I/O calls (Part 2 bridge patterns)."""

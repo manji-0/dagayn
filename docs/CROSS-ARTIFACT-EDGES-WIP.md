@@ -11,11 +11,12 @@
 > one important bridge family within this umbrella, but it is no longer the
 > only one. The edge kind has been renamed `CROSS_LANGUAGE` → `CROSS_ARTIFACT`.
 >
-> **Status:** Phase 1 (schema/storage) + Phase 2 Layer-1 extractors are implemented for **two bridge families**:
+> **Status:** Phase 1 (schema/storage) + Phase 2 Layer-1 extractors are implemented for **three bridge families**:
 > 1. Cross-language process/FFI bridges (multi-language, syntax-local)
 > 2. Markdown → code symbol references (doc-to-code, two-phase: parse + postprocess resolve)
+> 3. Explicit documentation bridge directives in Markdown, Python comments, and Terraform comments
 >
-> The remaining phases (Terraform↔code, manifest-backed bridges, analysis integration, annotation directives) are still WIP.
+> The remaining phases (Terraform↔code, manifest-backed bridges, and broader analysis integration) are still WIP.
 >
 > **What is implemented:**
 >
@@ -42,7 +43,14 @@
 > - Parser phase emits unresolved candidates (`target=<unresolved:{name}>`, `confidence_tier=LOW`, `extra.original_symbol_name=<raw symbol>`)
 > - `_resolve_markdown_artifact_refs` (`dagayn/postprocessing.py`) runs on every postprocess call (full build and incremental alike) and is **idempotent**: for each CROSS_ARTIFACT edge carrying `original_symbol_name`, it consults the current nodes table and updates the target to the unique qualified_name (confidence HIGH 0.8) or reverts to `<unresolved:{name}>` (confidence LOW 0.2). Edges are **never deleted** — they persist so that symbol changes in incrementally-updated Python files are reflected on the next postprocess run without re-parsing the Markdown source.
 > - 4 parser tests + 7 resolver tests (`TestMarkdownArtifactResolver` in `tests/test_postprocessing.py`) + 6 idempotence integration tests (`tests/test_cross_artifact_idempotence.py`)
-> - **Limitation:** fenced code blocks not processed (too noisy for v1); code → doc direction deferred
+> - **Limitation:** fenced code blocks not processed (too noisy for v1); low-intent code → doc inference remains deferred unless explicit directives are present
+>
+> ### Bridge family 3 — explicit documentation directives
+>
+> - Markdown comments such as `<!-- dagayn: implemented-by services/auth.py::refresh_token -->` emit high-confidence `CROSS_ARTIFACT` edges from the enclosing Markdown section.
+> - Python and Terraform line comments such as `# dagayn: implements docs/auth-spec.md#Token Refresh` emit `CROSS_ARTIFACT` edges from the nearest enclosing or following implementation node.
+> - Supported roles include `implemented_by`, `implements_contract`, `explained_by`, `has_runbook`, `problem_described_by`, `discussed_by`, `discusses_artifact`, and `raises_issue_for`.
+> - `query_graph` exposes `docs_for` and `implementations_of` patterns so agents can follow inverse labels without materializing duplicate inverse edges.
 >
 > Edges surface automatically in graph stats (`edges_by_kind`) and `query_graph` without additional code.
 
@@ -150,6 +158,15 @@ Recommended values:
 - `invokes_binary`
 - `loads_native_module`
 - `loads_shared_library`
+- `implemented_by`
+- `implements_contract`
+- `describes_symbol`
+- `explained_by`
+- `discusses_artifact`
+- `discussed_by`
+- `raises_issue_for`
+- `problem_described_by`
+- `has_runbook`
 - `binds_generated_client`
 - `binds_generated_server`
 - `builds_artifact`
@@ -207,6 +224,159 @@ Examples:
 - an explicit `ctypes.CDLL("./target/release/libfoo.so")` match is `HIGH` or `EXACT`
 - a `subprocess.run(["foo-cli"])` inferred to a local Cargo binary by name is `MEDIUM`
 - a manifest-level guessed mapping by package naming convention is `LOW`
+
+## Documentation bridge semantics
+
+<!-- derived-from #recommended-edge-model -->
+<!-- derived-from #proposed-metadata-contract -->
+
+Documentation bridges need more precision than a single `documented_by` role.
+Two relationships look similar in graph traversal, but they carry different
+ownership and review semantics:
+
+1. a specification, design note, ADR, or task document defines intent that is
+   implemented by code, Terraform, or another artifact
+2. a document explains, operates, audits, or raises a problem about an existing
+   implementation
+
+`documented_by` should therefore be treated as a query/display alias, not as a
+stored `relationship_role`.  The stored role should preserve who owns the
+relationship and why a reviewer should follow it.
+
+### Contract-to-implementation links
+
+When a document owns the intent and implementation artifacts realize that
+intent, prefer a document-authored edge:
+
+- source: the Markdown section that defines the contract
+- target: the concrete function, class, Terraform block, resource, module, or
+  file that realizes it
+- `relationship_role = "implemented_by"`
+- `bridge_kind = "documentation"`
+- `evidence_kind = "markdown_directive"` or `markdown_code_span`
+
+Example future Markdown directive:
+
+```markdown
+## Token refresh
+
+<!-- dagayn: implemented-by services/auth.py::refresh_token -->
+<!-- dagayn: implemented-by infra/main.tf::resource.aws_lambda_function.auth -->
+```
+
+This means that a change to `docs/auth-spec.md::token-refresh` should pull the
+listed implementation nodes into the review surface as possible work to update.
+
+Sometimes the implementation is the better authoring site because the code is
+the only stable place where the obligation is visible.  In that case, prefer a
+code-authored inverse edge rather than materializing both directions:
+
+```python
+# dagayn: implements docs/auth-spec.md#token-refresh
+def refresh_token(...):
+    ...
+```
+
+```hcl
+# dagayn: implements ../docs/auth-spec.md#token-refresh
+resource "aws_lambda_function" "auth" {
+  ...
+}
+```
+
+The stored edge is then:
+
+- source: the nearest enclosing implementation node
+- target: the Markdown file or section
+- `relationship_role = "implements_contract"`
+- `bridge_kind = "documentation"`
+- `evidence_kind = "comment_directive"`
+
+Query surfaces may present `implements_contract` as the inverse of
+`implemented_by`, but the graph should not create a duplicate inverse edge by
+default.  Keeping only the authored edge avoids stale paired edges during
+incremental updates.
+
+### Implementation-to-context links
+
+When the implementation owns the pointer to explanatory, operational, or problem
+context, prefer a code- or Terraform-authored edge:
+
+```python
+# dagayn: explained-by docs/auth-runbook.md#refresh-token-failures
+# dagayn: problem-described-by docs/audits/auth-refresh.md#stale-cache-window
+def refresh_token(...):
+    ...
+```
+
+```hcl
+# dagayn: has-runbook ../docs/infra-runbook.md#graph-store-bucket
+resource "aws_s3_bucket" "graph_store" {
+  ...
+}
+```
+
+Recommended stored roles:
+
+- `explained_by` — background, rationale, or behavioral explanation
+- `has_runbook` — operational procedure for the implementation
+- `problem_described_by` — audit, incident, known issue, or problem statement
+- `discussed_by` — weaker catch-all for notes that do not fit the above
+
+These edges should pull documents into the review surface when the source
+implementation changes, because the document may become stale even when no
+contract is violated.
+
+### Document-authored context links
+
+Some explanation or problem documents are naturally authored from the document
+side.  For those, use document-to-artifact roles instead of pretending the code
+owns the pointer:
+
+```markdown
+## Stale cache window
+
+<!-- dagayn: raises-issue-for services/auth.py::refresh_token -->
+```
+
+Recommended stored roles:
+
+- `describes_symbol` — low-intent symbol mention, currently emitted from inline
+  Markdown code spans
+- `discusses_artifact` — explicit prose discussion of an artifact
+- `raises_issue_for` — explicit problem statement about an artifact
+
+`describes_symbol` should remain broad and low-confidence unless postprocessing
+resolves it uniquely.  Higher-intent relations such as `implemented_by`,
+`discusses_artifact`, and `raises_issue_for` should use explicit directives so
+ordinary backticks do not create review obligations accidentally.
+
+### Direction and inverse policy
+
+The source node should be the artifact that owns the authored assertion:
+
+- contract document owns intent -> document to implementation
+- implementation declares conformance -> implementation to contract document
+- implementation points to explanatory context -> implementation to document
+- explanation or issue document owns the discussion -> document to implementation
+
+Do not materialize inverse edges by default.  Instead, query tools should expose
+inverse labels:
+
+| Stored role | Natural inverse label |
+|-------------|-----------------------|
+| `implemented_by` | `implements_contract` |
+| `implements_contract` | `implemented_by` |
+| `explained_by` | `explains` |
+| `has_runbook` | `runbook_for` |
+| `problem_described_by` | `describes_problem_in` |
+| `discussed_by` | `discusses` |
+| `discusses_artifact` | `discussed_by` |
+| `raises_issue_for` | `has_issue_note` |
+
+This keeps storage idempotent while still letting agents ask both questions:
+"what implements this spec?" and "which specs or docs should I read before
+changing this implementation?"
 
 ## Node targets
 

@@ -2,6 +2,10 @@ use std::collections::HashSet;
 
 use serde_json::json;
 
+use super::documentation_directives::{
+    extract_line_comment_dagayn_directives, nearest_documentation_source,
+    push_documentation_directive_edge,
+};
 use super::terraform_collect::{
     collect_terraform_blocks, collect_terraform_reference_targets, strip_tf_string,
     terraform_attrs, terraform_provider_sources, TerraformAttr, TerraformBlock, TERRAFORM_CALL_RE,
@@ -139,7 +143,28 @@ pub(super) fn parse_terraform_with_parser(
         }
     }
 
+    extract_terraform_documentation_directives(file_path, &text, &nodes, &mut edges);
+
     (nodes, dedupe_edges(edges))
+}
+
+fn extract_terraform_documentation_directives(
+    file_path: &str,
+    text: &str,
+    nodes: &[ParsedNode],
+    edges: &mut Vec<ParsedEdge>,
+) {
+    for directive in extract_line_comment_dagayn_directives(text, &["#", "//"]) {
+        let source = nearest_documentation_source(file_path, nodes, directive.line);
+        push_documentation_directive_edge(
+            edges,
+            source,
+            file_path,
+            "terraform",
+            &directive,
+            "comment_directive",
+        );
+    }
 }
 
 fn terraform_defined_name(block: &TerraformBlock) -> Option<String> {

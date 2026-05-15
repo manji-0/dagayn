@@ -162,4 +162,20 @@ All notable changes to `dagayn` are documented here.
 - Avoid reporting SAP violations for scopes with no eligible concrete or
   abstract types.
 
-## Unreleased
+## 2.11.0 — 2026-05-16
+
+### Features
+
+- Add explicit documentation bridge directives for Markdown, Python comments,
+  and Terraform comments. Directives emit `CROSS_ARTIFACT` edges for
+  `implemented_by`, `implements_contract`, `explained_by`, `has_runbook`,
+  `problem_described_by`, `discussed_by`, `discusses_artifact`, and
+  `raises_issue_for` relationships.
+- Add `query_graph` patterns `docs_for` and `implementations_of` so agents can
+  traverse documentation relationships in either direction without storing
+  duplicate inverse edges.
+
+### Documentation
+
+- Document the documentation bridge role model and authoring-site policy in the
+  cross-artifact edge specification.

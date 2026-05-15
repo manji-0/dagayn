@@ -5,6 +5,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 use serde_json::json;
 
+use super::documentation_directives::{parse_dagayn_directive, push_documentation_directive_edge};
 use super::types::{ParsedEdge, ParsedNode};
 use super::util::{dedupe_edges, is_test_file, line_count, node_text, normalize_relative_path};
 
@@ -201,6 +202,7 @@ pub(super) fn parse_markdown_with_parser(
         extract_markdown_reference_links_from_text(&line_context, &text, &mut edges);
     }
     extract_markdown_inline_links(&line_context, &text, &mut edges);
+    extract_markdown_dagayn_directives(&line_context, &text, &mut edges);
     extract_markdown_code_spans(&line_context, &text, &mut edges);
     (nodes, dedupe_edges(edges))
 }
@@ -660,6 +662,41 @@ fn extract_markdown_code_spans(
                 "original_symbol_name": sym,
             }),
         });
+    }
+}
+
+fn extract_markdown_dagayn_directives(
+    line_context: &MarkdownLineContext<'_>,
+    text: &str,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let mut lines = LineCursor::new(text);
+    for (offset, _) in text.match_indices("<!--") {
+        let rest = &text[offset..];
+        let Some(end) = rest.find("-->") else {
+            continue;
+        };
+        let full = &rest[..end + 3];
+        let line = lines.line_for_offset(offset);
+        let Some(inner) = full
+            .trim()
+            .strip_prefix("<!--")
+            .and_then(|value| value.trim().strip_suffix("-->"))
+            .map(str::trim)
+        else {
+            continue;
+        };
+        let Some(directive) = parse_dagayn_directive(inner, line) else {
+            continue;
+        };
+        push_documentation_directive_edge(
+            edges,
+            line_context.source_for_line(line),
+            line_context.file_path,
+            "markdown",
+            &directive,
+            "markdown_directive",
+        );
     }
 }
 

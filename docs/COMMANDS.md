@@ -91,6 +91,13 @@ Representative tool names include:
 - `generate_wiki`
 - `cross_repo_search`
 
+`query_graph` includes documentation-aware bridge patterns in addition to
+ordinary code relationships. Use `docs_for` to find specifications, runbooks,
+issue notes, and explanations linked to a code, Terraform, or artifact node.
+Use `implementations_of` to find code or Terraform nodes linked to a Markdown
+contract section through `implemented_by` / `implements_contract`
+`CROSS_ARTIFACT` edges.
+
 ### Tool profiles
 
 <!-- derived-from ./plans/ANALYSIS-TOOL-STRATEGY.md#tool-profile-plan -->

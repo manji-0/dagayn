@@ -20,6 +20,8 @@ mod csharp;
 mod dart;
 #[path = "discovery.rs"]
 mod discovery;
+#[path = "documentation_directives.rs"]
+mod documentation_directives;
 #[path = "elixir.rs"]
 mod elixir;
 #[path = "file_only.rs"]

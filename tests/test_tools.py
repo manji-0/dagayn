@@ -314,6 +314,143 @@ class TestTools:
         assert result["results"][0]["confidence"] == "medium"
         assert "setup_method" not in {item["name"] for item in result["results"]}
 
+    def test_query_graph_docs_for_uses_documentation_inverse_labels(self, monkeypatch):
+        from dagayn.tools import query as query_module
+
+        self.store.upsert_node(
+            NodeInfo(
+                kind="File",
+                name="/repo/docs/auth.md",
+                file_path="/repo/docs/auth.md",
+                line_start=1,
+                line_end=20,
+                language="markdown",
+            )
+        )
+        self.store.upsert_node(
+            NodeInfo(
+                kind="DocSection",
+                name="login-contract",
+                file_path="/repo/docs/auth.md",
+                line_start=3,
+                line_end=3,
+                language="markdown",
+            )
+        )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CROSS_ARTIFACT",
+                source="/repo/docs/auth.md::login-contract",
+                target="/repo/auth.py::AuthService.login",
+                file_path="/repo/docs/auth.md",
+                line=4,
+                extra={
+                    "relationship_role": "implemented_by",
+                    "bridge_kind": "documentation",
+                },
+            )
+        )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CROSS_ARTIFACT",
+                source="/repo/auth.py::AuthService.login",
+                target="/repo/docs/auth.md::login-contract",
+                file_path="/repo/auth.py",
+                line=9,
+                extra={
+                    "relationship_role": "explained_by",
+                    "bridge_kind": "documentation",
+                },
+            )
+        )
+        self.store.commit()
+        monkeypatch.setattr(
+            query_module,
+            "_get_store",
+            lambda repo_root: (self.store, Path("/repo")),
+        )
+        self.store.close = lambda: None
+
+        result = query_module.query_graph(
+            pattern="docs_for",
+            target="/repo/auth.py::AuthService.login",
+            repo_root="/repo",
+        )
+
+        assert result["status"] == "ok"
+        roles = {item["relationship_role"] for item in result["results"]}
+        assert {"implemented_by", "explained_by"} <= roles
+        inverse_labels = {item["inverse_label"] for item in result["results"]}
+        assert {"implements_contract", "explains"} <= inverse_labels
+
+    def test_query_graph_implementations_of_reads_both_authored_directions(self, monkeypatch):
+        from dagayn.tools import query as query_module
+
+        self.store.upsert_node(
+            NodeInfo(
+                kind="File",
+                name="/repo/docs/auth.md",
+                file_path="/repo/docs/auth.md",
+                line_start=1,
+                line_end=20,
+                language="markdown",
+            )
+        )
+        self.store.upsert_node(
+            NodeInfo(
+                kind="DocSection",
+                name="login-contract",
+                file_path="/repo/docs/auth.md",
+                line_start=3,
+                line_end=3,
+                language="markdown",
+            )
+        )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CROSS_ARTIFACT",
+                source="/repo/docs/auth.md::login-contract",
+                target="/repo/auth.py::AuthService.login",
+                file_path="/repo/docs/auth.md",
+                line=4,
+                extra={
+                    "relationship_role": "implemented_by",
+                    "bridge_kind": "documentation",
+                },
+            )
+        )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CROSS_ARTIFACT",
+                source="/repo/main.py::process",
+                target="/repo/docs/auth.md::login-contract",
+                file_path="/repo/main.py",
+                line=4,
+                extra={
+                    "relationship_role": "implements_contract",
+                    "bridge_kind": "documentation",
+                },
+            )
+        )
+        self.store.commit()
+        monkeypatch.setattr(
+            query_module,
+            "_get_store",
+            lambda repo_root: (self.store, Path("/repo")),
+        )
+        self.store.close = lambda: None
+
+        result = query_module.query_graph(
+            pattern="implementations_of",
+            target="/repo/docs/auth.md::login-contract",
+            repo_root="/repo",
+        )
+
+        assert result["status"] == "ok"
+        endpoints = {item["matched_endpoint"] for item in result["results"]}
+        assert "/repo/auth.py::AuthService.login" in endpoints
+        assert "/repo/main.py::process" in endpoints
+
 
 class TestGetDocsSection:
     """Tests for the get_docs_section tool."""

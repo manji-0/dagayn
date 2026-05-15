@@ -288,6 +288,8 @@ def query_graph_tool(
     - callees_of: Find functions called by the target
     - imports_of: Find what the target imports
     - importers_of: Find files that import the target
+    - docs_for: Find docs linked to a code/Terraform/artifact node
+    - implementations_of: Find implementation artifacts linked to a document node
     - children_of: Find nodes contained in a file or class
     - tests_for: Find tests for the target
     - inheritors_of: Find classes inheriting from the target

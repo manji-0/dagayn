@@ -25,10 +25,27 @@ _QUERY_PATTERNS = {
     "callees_of": "Find all functions called by a given function",
     "imports_of": "Find all imports of a given file or module",
     "importers_of": "Find all files that import a given file or module",
+    "docs_for": "Find documentation linked to a code, Terraform, or artifact node",
+    "implementations_of": "Find implementation artifacts linked to a document node",
     "children_of": "Find all nodes contained in a file or class",
     "tests_for": "Find all tests for a given function or class",
     "inheritors_of": "Find all classes that inherit from a given class",
     "file_summary": "Get a summary of all nodes in a file",
+}
+
+_DOC_TO_ARTIFACT_ROLES = {
+    "implemented_by": "implements_contract",
+    "describes_symbol": "described_by",
+    "discusses_artifact": "discussed_by",
+    "raises_issue_for": "has_issue_note",
+}
+
+_ARTIFACT_TO_DOC_ROLES = {
+    "implements_contract": "implemented_by",
+    "explained_by": "explains",
+    "has_runbook": "runbook_for",
+    "problem_described_by": "describes_problem_in",
+    "discussed_by": "discusses",
 }
 
 
@@ -50,6 +67,31 @@ def _node_dicts_for_edges(
         if node is not None:
             results.append(node_to_dict(node))
     return results
+
+
+def _cross_artifact_role(edge: Any) -> str | None:
+    if edge.kind != "CROSS_ARTIFACT":
+        return None
+    extra = edge.extra if isinstance(edge.extra, dict) else {}
+    role = extra.get("relationship_role")
+    return role if isinstance(role, str) else None
+
+
+def _documentation_result(edge: Any, *, endpoint: str, inverse_label: str | None = None) -> dict:
+    role = _cross_artifact_role(edge)
+    result = {
+        "source": edge.source_qualified,
+        "target": edge.target_qualified,
+        "matched_endpoint": endpoint,
+        "relationship_role": role,
+        "file": edge.file_path,
+        "line": edge.line,
+        "confidence": edge.confidence,
+        "confidence_tier": edge.confidence_tier,
+    }
+    if inverse_label:
+        result["inverse_label"] = inverse_label
+    return result
 
 
 def get_impact_radius(
@@ -175,7 +217,8 @@ def query_graph(
 
     Args:
         pattern: Query pattern. One of: callers_of, callees_of, imports_of,
-                 importers_of, children_of, tests_for, inheritors_of, file_summary.
+                 importers_of, docs_for, implementations_of, children_of,
+                 tests_for, inheritors_of, file_summary.
         target: The node name, qualified name, or file path to query about.
         repo_root: Repository root path. Auto-detected if omitted.
         detail_level: "standard" (full output) or "minimal" (summary only).
@@ -284,6 +327,48 @@ def query_graph(
                     )
                     edges_out.append(edge_to_dict(e))
 
+        elif pattern == "docs_for":
+            for e in store.get_edges_by_source(qn):
+                role = _cross_artifact_role(e)
+                if role in _ARTIFACT_TO_DOC_ROLES:
+                    results.append(
+                        _documentation_result(
+                            e,
+                            endpoint=e.target_qualified,
+                            inverse_label=_ARTIFACT_TO_DOC_ROLES[role],
+                        )
+                    )
+                    edges_out.append(edge_to_dict(e))
+            for e in store.get_edges_by_target(qn):
+                role = _cross_artifact_role(e)
+                if role in _DOC_TO_ARTIFACT_ROLES:
+                    results.append(
+                        _documentation_result(
+                            e,
+                            endpoint=e.source_qualified,
+                            inverse_label=_DOC_TO_ARTIFACT_ROLES[role],
+                        )
+                    )
+                    edges_out.append(edge_to_dict(e))
+
+        elif pattern == "implementations_of":
+            for e in store.get_edges_by_source(qn):
+                role = _cross_artifact_role(e)
+                if role == "implemented_by":
+                    results.append(_documentation_result(e, endpoint=e.target_qualified))
+                    edges_out.append(edge_to_dict(e))
+            for e in store.get_edges_by_target(qn):
+                role = _cross_artifact_role(e)
+                if role == "implements_contract":
+                    results.append(
+                        _documentation_result(
+                            e,
+                            endpoint=e.source_qualified,
+                            inverse_label="implemented_by",
+                        )
+                    )
+                    edges_out.append(edge_to_dict(e))
+
         elif pattern == "children_of":
             child_edges = [e for e in store.get_edges_by_source(qn) if e.kind == "CONTAINS"]
             results.extend(
@@ -333,6 +418,14 @@ def query_graph(
                 {
                     k: r[k]
                     for k in ("name", "kind", "file_path", "confidence", "coverage_source")
+                    + (
+                        "source",
+                        "target",
+                        "matched_endpoint",
+                        "relationship_role",
+                        "inverse_label",
+                        "file",
+                    )
                     if k in r
                 }
                 for r in results[:5]

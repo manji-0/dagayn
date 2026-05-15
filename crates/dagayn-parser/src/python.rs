@@ -5,6 +5,10 @@ use std::sync::LazyLock;
 use regex::Regex;
 use serde_json::{json, Value};
 
+use super::documentation_directives::{
+    extract_line_comment_dagayn_directives, nearest_documentation_source,
+    push_documentation_directive_edge,
+};
 use super::types::{ParsedEdge, ParsedNode};
 use super::util::{is_test_file, line_count, node_text};
 use super::{qualify, resolve_rust_call_targets};
@@ -60,6 +64,7 @@ pub(super) fn parse_python_with_parser(
                 top_level_defined_names: &top_level_defined_names,
             };
             python_walk_children(root, &context, None, None, &mut nodes, &mut edges);
+            extract_python_documentation_directives(file_path, source, &nodes, &mut edges);
             let edges = resolve_python_call_targets(&nodes, edges, file_path);
             let edges = add_python_tested_by_edges(&nodes, edges, file_path);
             return (nodes, edges);
@@ -67,6 +72,26 @@ pub(super) fn parse_python_with_parser(
     }
 
     (nodes, edges)
+}
+
+fn extract_python_documentation_directives(
+    file_path: &str,
+    source: &[u8],
+    nodes: &[ParsedNode],
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let text = String::from_utf8_lossy(source);
+    for directive in extract_line_comment_dagayn_directives(&text, &["#"]) {
+        let source = nearest_documentation_source(file_path, nodes, directive.line);
+        push_documentation_directive_edge(
+            edges,
+            source,
+            file_path,
+            "python",
+            &directive,
+            "comment_directive",
+        );
+    }
 }
 
 pub(super) fn parse_notebook_with_parser(
