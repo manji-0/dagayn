@@ -151,4 +151,15 @@ All notable changes to `dagayn` are documented here.
   (e.g. `CRG_OPENAI_API_KEY`, `CRG_OPENAI_BASE_URL`, `CRG_OPENAI_MODEL`
   for `openai`).  The MCP server inherits those at launch time.
 
+## 2.10.1 — 2026-05-15
+
+### Fixes
+
+- Align `TESTED_BY` scoring semantics across Python and Rust analysis paths:
+  production symbols now consistently point to the test symbols that cover
+  them, matching parser output and schema documentation.
+- Make sampled bridge-centrality scoring deterministic.
+- Avoid reporting SAP violations for scopes with no eligible concrete or
+  abstract types.
+
 ## Unreleased
