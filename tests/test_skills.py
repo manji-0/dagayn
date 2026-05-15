@@ -325,11 +325,21 @@ class TestGenerateHooksConfig:
         session_cmd = config["hooks"]["SessionStart"][0]["hooks"][0]["command"]
         assert "/my/project" in post_cmd
         assert "/my/project" in session_cmd
+        assert 'git -C "/my/project"' in post_cmd
+        assert 'git -C "/my/project"' in session_cmd
 
     def test_quotes_repo_paths_with_spaces(self):
         config = generate_hooks_config(Path("/repo with spaces"))
         post_cmd = config["hooks"]["PostToolUse"][0]["hooks"][0]["command"]
         assert '"' in post_cmd  # path is JSON-encoded so spaces are quoted
+
+    def test_extra_update_args_are_added_to_update_hook(self):
+        config = generate_hooks_config(
+            Path("/repo"),
+            extra_update_args=["--local-embedding", "low"],
+        )
+        post_cmd = config["hooks"]["PostToolUse"][0]["hooks"][0]["command"]
+        assert "dagayn update --skip-flows --local-embedding low --repo" in post_cmd
 
     def test_entries_use_claude_code_hook_schema(self):
         """Regression guard for the Claude Code hook schema.
@@ -393,19 +403,21 @@ class TestInstallGitHook:
 
 class TestInstallHooks:
     def test_creates_settings_file(self, tmp_path):
-        install_hooks(tmp_path)
-        settings_path = tmp_path / ".claude" / "settings.json"
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            settings_path = install_hooks(tmp_path)
+        assert settings_path == tmp_path / ".claude" / "settings.json"
         assert settings_path.exists()
         data = json.loads(settings_path.read_text())
         assert "hooks" in data
 
     def test_merges_with_existing(self, tmp_path):
-        settings_dir = tmp_path / ".claude"
-        settings_dir.mkdir(parents=True)
-        existing = {"customSetting": True, "hooks": {"OtherHook": []}}
-        (settings_dir / "settings.json").write_text(json.dumps(existing))
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            settings_dir = tmp_path / ".claude"
+            settings_dir.mkdir(parents=True)
+            existing = {"customSetting": True, "hooks": {"OtherHook": []}}
+            (settings_dir / "settings.json").write_text(json.dumps(existing))
 
-        install_hooks(tmp_path)
+            install_hooks(tmp_path)
 
         data = json.loads((settings_dir / "settings.json").read_text())
         assert data["customSetting"] is True
@@ -416,12 +428,13 @@ class TestInstallHooks:
         assert "OtherHook" in data["hooks"]  # pre-existing hooks must not be clobbered
 
     def test_creates_settings_backup(self, tmp_path):
-        settings_dir = tmp_path / ".claude"
-        settings_dir.mkdir(parents=True)
-        existing = {"hooks": {"OtherHook": []}}
-        (settings_dir / "settings.json").write_text(json.dumps(existing))
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            settings_dir = tmp_path / ".claude"
+            settings_dir.mkdir(parents=True)
+            existing = {"hooks": {"OtherHook": []}}
+            (settings_dir / "settings.json").write_text(json.dumps(existing))
 
-        install_hooks(tmp_path)
+            install_hooks(tmp_path)
 
         backup_path = settings_dir / "settings.json.bak"
         assert backup_path.exists()
@@ -429,8 +442,30 @@ class TestInstallHooks:
         assert backup == existing
 
     def test_creates_claude_directory(self, tmp_path):
-        install_hooks(tmp_path)
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            install_hooks(tmp_path)
         assert (tmp_path / ".claude").is_dir()
+
+    def test_claude_hooks_are_global_not_project_local(self, tmp_path):
+        repo = tmp_path / "repo"
+        home = tmp_path / "home"
+        repo.mkdir()
+        with patch("dagayn.skills.Path.home", return_value=home):
+            settings_path = install_hooks(repo)
+
+        assert settings_path == home / ".claude" / "settings.json"
+        assert not (repo / ".claude" / "settings.json").exists()
+
+    def test_passes_extra_update_args_to_claude_hooks(self, tmp_path):
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            settings_path = install_hooks(
+                tmp_path / "repo",
+                extra_update_args=["--local-embedding", "low"],
+            )
+
+        data = json.loads(settings_path.read_text())
+        command = data["hooks"]["PostToolUse"][0]["hooks"][0]["command"]
+        assert "--local-embedding low" in command
 
     def test_install_qoder_hooks(self, tmp_path):
         install_hooks(tmp_path, platform="qoder")
@@ -456,14 +491,19 @@ class TestInstallHooks:
 
 class TestInstallCodexHooks:
     def test_creates_hooks_json_and_enables_feature(self, tmp_path):
-        hooks_path = install_codex_hooks(tmp_path)
+        repo = tmp_path / "repo"
+        home = tmp_path / "home"
+        repo.mkdir()
+        with patch("dagayn.skills.Path.home", return_value=home):
+            hooks_path = install_codex_hooks(repo)
 
-        assert hooks_path == tmp_path / ".codex" / "hooks.json"
+        assert hooks_path == home / ".codex" / "hooks.json"
+        assert not (repo / ".codex" / "hooks.json").exists()
         data = json.loads(hooks_path.read_text())
         assert "PostToolUse" in data["hooks"]
         assert "SessionStart" in data["hooks"]
 
-        config = tomllib.loads((tmp_path / ".codex" / "config.toml").read_text())
+        config = tomllib.loads((home / ".codex" / "config.toml").read_text())
         assert config["features"]["codex_hooks"] is True
 
     def test_merges_existing_hooks_json(self, tmp_path):
@@ -472,7 +512,8 @@ class TestInstallCodexHooks:
         existing = {"hooks": {"Stop": []}, "customSetting": True}
         (codex_dir / "hooks.json").write_text(json.dumps(existing), encoding="utf-8")
 
-        install_codex_hooks(tmp_path)
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            install_codex_hooks(tmp_path / "repo")
 
         data = json.loads((codex_dir / "hooks.json").read_text())
         assert data["customSetting"] is True
@@ -489,7 +530,8 @@ class TestInstallCodexHooks:
             encoding="utf-8",
         )
 
-        install_codex_hooks(tmp_path)
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            install_codex_hooks(tmp_path / "repo")
 
         config = tomllib.loads((codex_dir / "config.toml").read_text())
         assert config["model"] == "gpt-5.4"
@@ -497,8 +539,9 @@ class TestInstallCodexHooks:
         assert config["features"]["codex_hooks"] is True
 
     def test_no_duplicate_on_reinstall(self, tmp_path):
-        install_codex_hooks(tmp_path)
-        install_codex_hooks(tmp_path)
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            install_codex_hooks(tmp_path / "repo")
+            install_codex_hooks(tmp_path / "repo")
 
         data = json.loads((tmp_path / ".codex" / "hooks.json").read_text())
         for entries in data["hooks"].values():
@@ -509,6 +552,17 @@ class TestInstallCodexHooks:
             ]
             assert len(dagayn_hooks) == 1
         assert (tmp_path / ".codex" / "config.toml").read_text().count("codex_hooks") == 1
+
+    def test_passes_extra_update_args_to_codex_hooks(self, tmp_path):
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            hooks_path = install_codex_hooks(
+                tmp_path / "repo",
+                extra_update_args=["--local-embedding", "low"],
+            )
+
+        data = json.loads(hooks_path.read_text())
+        command = data["hooks"]["PostToolUse"][0]["hooks"][0]["command"]
+        assert "--local-embedding low" in command
 
 
 class TestInjectClaudeMd:

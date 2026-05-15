@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import platform
+import shlex
 import shutil
 import stat
 import sys
@@ -476,7 +477,10 @@ def install_opencode_skills() -> Path:
     return _install_skill_tree(Path.home() / ".config" / "opencode" / "skills")
 
 
-def generate_hooks_config(repo_root: Path) -> dict[str, Any]:
+def generate_hooks_config(
+    repo_root: Path,
+    extra_update_args: list[str] | None = None,
+) -> dict[str, Any]:
     """Generate Claude Code hooks configuration.
 
     Hooks use the v1.x+ schema: each entry needs a ``matcher`` and a nested
@@ -484,6 +488,9 @@ def generate_hooks_config(repo_root: Path) -> dict[str, Any]:
     Claude Code event — pre-commit checks are handled by ``install_git_hook``.
     """
     repo_arg = json.dumps(repo_root.resolve().as_posix())
+    update_args = ""
+    if extra_update_args:
+        update_args = " " + " ".join(shlex.quote(arg) for arg in extra_update_args)
     return {
         "hooks": {
             "PostToolUse": [
@@ -493,8 +500,9 @@ def generate_hooks_config(repo_root: Path) -> dict[str, Any]:
                         {
                             "type": "command",
                             "command": (
-                                "git rev-parse --git-dir >/dev/null 2>&1"
+                                f"git -C {repo_arg} rev-parse --git-dir >/dev/null 2>&1"
                                 f" && dagayn update --skip-flows"
+                                f"{update_args}"
                                 f" --repo {repo_arg}"
                                 " || true"
                             ),
@@ -510,7 +518,7 @@ def generate_hooks_config(repo_root: Path) -> dict[str, Any]:
                         {
                             "type": "command",
                             "command": (
-                                "git rev-parse --git-dir >/dev/null 2>&1"
+                                f"git -C {repo_arg} rev-parse --git-dir >/dev/null 2>&1"
                                 f" && dagayn status --repo {repo_arg}"
                                 " || echo 'Not a git repo, skipping'"
                             ),
@@ -524,7 +532,7 @@ def generate_hooks_config(repo_root: Path) -> dict[str, Any]:
 
 
 def _ensure_codex_hooks_feature(config_path: Path) -> None:
-    """Enable Codex hooks in a repo-local config.toml without clobbering settings."""
+    """Enable Codex hooks in config.toml without clobbering settings."""
     if not config_path.exists():
         config_path.write_text("[features]\ncodex_hooks = true\n", encoding="utf-8")
         return
@@ -546,9 +554,12 @@ def _ensure_codex_hooks_feature(config_path: Path) -> None:
     config_path.write_text(prefix + "[features]\ncodex_hooks = true\n", encoding="utf-8")
 
 
-def install_codex_hooks(repo_root: Path) -> Path:
-    """Write Codex repo-local hooks.json and enable the hooks feature flag."""
-    codex_dir = repo_root / ".codex"
+def install_codex_hooks(
+    repo_root: Path,
+    extra_update_args: list[str] | None = None,
+) -> Path:
+    """Write Codex global hooks.json and enable the hooks feature flag."""
+    codex_dir = Path.home() / ".codex"
     codex_dir.mkdir(parents=True, exist_ok=True)
 
     hooks_path = codex_dir / "hooks.json"
@@ -562,7 +573,7 @@ def install_codex_hooks(repo_root: Path) -> Path:
         except (json.JSONDecodeError, OSError) as exc:
             logger.warning("Could not read existing %s: %s", hooks_path, exc)
 
-    hooks_config = generate_hooks_config(repo_root)
+    hooks_config = generate_hooks_config(repo_root, extra_update_args=extra_update_args)
     existing_hooks = existing.get("hooks", {})
     if not isinstance(existing_hooks, dict):
         logger.warning("Existing Codex hooks config is not a dict; replacing with defaults")
@@ -625,7 +636,11 @@ fi
     return hook_path
 
 
-def install_hooks(repo_root: Path, platform: str = "claude") -> None:
+def install_hooks(
+    repo_root: Path,
+    platform: str = "claude",
+    extra_update_args: list[str] | None = None,
+) -> Path:
     """Write hooks config to platform-specific settings.json.
 
     Merges new hook entries into existing settings, preserving both
@@ -634,14 +649,17 @@ def install_hooks(repo_root: Path, platform: str = "claude") -> None:
 
     Args:
         repo_root: Repository root directory.
-        platform: Target platform ("claude" or "qoder").
+        platform: Target platform ("claude" or "qoder"). Claude hooks are
+            written to the global user settings; Qoder hooks remain project-local.
+        extra_update_args: Additional CLI args appended to the hook's
+            ``dagayn update`` command.
     """
     platform = normalize_platform_target(platform)
 
     if platform == "qoder":
         settings_dir = repo_root / ".qoder"
     else:
-        settings_dir = repo_root / ".claude"
+        settings_dir = Path.home() / ".claude"
     settings_dir.mkdir(parents=True, exist_ok=True)
     settings_path = settings_dir / "settings.json"
 
@@ -655,7 +673,7 @@ def install_hooks(repo_root: Path, platform: str = "claude") -> None:
         except (json.JSONDecodeError, OSError) as exc:
             logger.warning("Could not read existing %s: %s", settings_path, exc)
 
-    hooks_config = generate_hooks_config(repo_root)
+    hooks_config = generate_hooks_config(repo_root, extra_update_args=extra_update_args)
     existing_hooks = existing.get("hooks", {})
     if not isinstance(existing_hooks, dict):
         logger.warning("Existing hooks config is not a dict; replacing with defaults")
@@ -676,6 +694,7 @@ def install_hooks(repo_root: Path, platform: str = "claude") -> None:
 
     settings_path.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
     logger.info("Wrote hooks config: %s", settings_path)
+    return settings_path
 
 
 _CLAUDE_MD_SECTION_MARKER = "<!-- dagayn MCP tools -->"

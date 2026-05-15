@@ -282,8 +282,9 @@ Persistent server configs can use `DAGAYN_TOOL_PROFILE`, `CRG_TOOL_PROFILE`, or
 - Qoder
 
 You can limit installation to a single platform with `--platform <name>`.
-For Codex, install also creates repo-local `.codex/hooks.json` and enables
-`.codex/config.toml` hooks so the graph refreshes during Codex sessions.
+For Codex, install also creates global `~/.codex/hooks.json` and enables
+hooks in `~/.codex/config.toml` so the graph refreshes during Codex sessions.
+Claude hooks are written to global `~/.claude/settings.json`.
 
 Platform-specific instruction files are also installed where needed:
 

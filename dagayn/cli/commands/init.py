@@ -196,6 +196,7 @@ def handle(args: argparse.Namespace) -> None:
             extra_serve_args += ["--local-embedding-bin", le_bin]
         if le_timeout is not None and le_timeout != 300:
             extra_serve_args += ["--local-embedding-timeout", str(le_timeout)]
+    extra_hook_update_args = list(extra_serve_args)
 
     print("Installing MCP server config...")
     configured = install_platform_configs(
@@ -315,7 +316,10 @@ def handle(args: argparse.Namespace) -> None:
             print(f"Installed Qoder skills to {qoder_skills_dir}")
     if not skip_hooks and (target in ("codex", "all") or "Codex" in set(configured)):
         try:
-            hooks_path = install_codex_hooks(repo_root)
+            hooks_path = install_codex_hooks(
+                repo_root,
+                extra_update_args=extra_hook_update_args or None,
+            )
             print(f"Installed Codex hooks in {hooks_path}")
         except OSError as e:
             print(f"Skipped Codex hooks install ({e})", file=sys.stderr)
@@ -323,8 +327,12 @@ def handle(args: argparse.Namespace) -> None:
     if not skip_hooks and target in ("claude", "qoder", "all"):
         platforms_to_install = [target] if target != "all" else ["claude", "qoder"]
         for plat in platforms_to_install:
-            install_hooks(repo_root, platform=plat)
-            print(f"Installed hooks in {repo_root / f'.{plat}' / 'settings.json'}")
+            hooks_path = install_hooks(
+                repo_root,
+                platform=plat,
+                extra_update_args=extra_hook_update_args or None,
+            )
+            print(f"Installed hooks in {hooks_path}")
         git_hook = install_git_hook(repo_root)
         if git_hook:
             print(f"Installed git pre-commit hook in {git_hook}")
