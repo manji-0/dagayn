@@ -382,6 +382,8 @@ class TestCodeParser:
         nodes, edges = self.parser.parse_file(FIXTURES / "test_sample.py")
         tested_by = [e for e in edges if e.kind == "TESTED_BY"]
         assert len(tested_by) >= 1
+        assert all("test_sample.py::test_" in e.target for e in tested_by)
+        assert any("sample_python.py::AuthService" in e.source for e in tested_by)
 
     def test_recursion_depth_guard(self):
         """Parser should not crash on deeply nested code."""
@@ -675,6 +677,7 @@ class TestCodeParser:
             f"Expected TESTED_BY edges, got none. "
             f"All edges: {[(e.kind, e.source, e.target) for e in edges]}"
         )
+        assert all("sample_vitest.test.ts::" in e.target for e in tested_by)
 
     def test_non_test_file_describe_not_special(self):
         """describe() in a non-test file should NOT create Test nodes."""

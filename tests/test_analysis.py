@@ -156,6 +156,27 @@ class TestFindBridgeNodes:
         result = find_bridge_nodes(store, top_n=1)
         assert len(result) <= 1
 
+    def test_large_graph_approximation_uses_deterministic_seed(self, store, monkeypatch):
+        import networkx as nx
+
+        from dagayn.analysis import find_bridge_nodes
+
+        g = nx.path_graph(5001)
+        mapping = {idx: f"node_{idx}" for idx in g.nodes}
+        g = nx.relabel_nodes(g, mapping)
+        monkeypatch.setattr(store, "_build_networkx_graph", lambda: g)
+
+        calls = []
+
+        def fake_betweenness(graph, *, k=None, normalized=True, seed=None):
+            calls.append({"k": k, "normalized": normalized, "seed": seed})
+            return {}
+
+        monkeypatch.setattr(nx, "betweenness_centrality", fake_betweenness)
+
+        assert find_bridge_nodes(store) == []
+        assert calls == [{"k": 500, "normalized": True, "seed": 0}]
+
 
 class TestFindKnowledgeGaps:
     def test_returns_dict_with_expected_keys(self, store):

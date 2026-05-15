@@ -159,13 +159,13 @@ def infer_tests_for_node(
 
     direct_edges = [
         edge
-        for edge in store.get_edges_by_target(target.qualified_name)
+        for edge in store.get_edges_by_source(target.qualified_name)
         if edge.kind == "TESTED_BY"
     ]
-    direct_sources = [edge.source_qualified for edge in direct_edges]
-    direct_nodes = store.get_nodes_by_qualified_names(direct_sources)
+    direct_targets = [edge.target_qualified for edge in direct_edges]
+    direct_nodes = store.get_nodes_by_qualified_names(direct_targets)
     for edge in direct_edges:
-        test_node = direct_nodes.get(edge.source_qualified)
+        test_node = direct_nodes.get(edge.target_qualified)
         if test_node is None:
             continue
         record = _coverage_record(

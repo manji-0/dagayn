@@ -318,7 +318,20 @@ def find_dead_code(
             edge = store._row_to_edge(row)
             incoming_by_qn.setdefault(row["target_qualified"], []).append(edge)
 
-    # Bare-name edges (target_qualified == node.name) for CALLS/TESTED_BY/INHERITS
+    # TESTED_BY edges are directed from covered production symbol to test symbol.
+    tested_by_source_qn: dict[str, list[Any]] = {}
+    for i in range(0, len(incoming_qns), batch_size):
+        chunk = incoming_qns[i : i + batch_size]
+        placeholders = ",".join("?" for _ in chunk)
+        for row in conn.execute(  # nosec B608
+            f"SELECT * FROM edges WHERE source_qualified IN ({placeholders}) "
+            "AND kind = 'TESTED_BY'",
+            chunk,
+        ).fetchall():
+            edge = store._row_to_edge(row)
+            tested_by_source_qn.setdefault(row["source_qualified"], []).append(edge)
+
+    # Bare-name edges for CALLS/TESTED_BY/INHERITS
     bare_calls_by_name: dict[str, list[Any]] = {}
     bare_tested_by_name: dict[str, list[Any]] = {}
     bare_inherits_by_name: dict[str, list[Any]] = {}
@@ -328,17 +341,22 @@ def find_dead_code(
         placeholders = ",".join("?" for _ in chunk)
         for row in conn.execute(  # nosec B608
             f"SELECT * FROM edges WHERE target_qualified IN ({placeholders}) "
-            f"AND kind IN ('CALLS', 'TESTED_BY', 'INHERITS')",
+            f"AND kind IN ('CALLS', 'INHERITS')",
             chunk,
         ).fetchall():
             edge = store._row_to_edge(row)
             kind, tgt = row["kind"], row["target_qualified"]
             if kind == "CALLS":
                 bare_calls_by_name.setdefault(tgt, []).append(edge)
-            elif kind == "TESTED_BY":
-                bare_tested_by_name.setdefault(tgt, []).append(edge)
             else:
                 bare_inherits_by_name.setdefault(tgt, []).append(edge)
+        for row in conn.execute(  # nosec B608
+            f"SELECT * FROM edges WHERE source_qualified IN ({placeholders}) "
+            "AND kind = 'TESTED_BY'",
+            chunk,
+        ).fetchall():
+            edge = store._row_to_edge(row)
+            bare_tested_by_name.setdefault(row["source_qualified"], []).append(edge)
 
     # Suffix-qualified CALLS edges: target_qualified LIKE '%::name'.
     # Load once and index by the last '::' segment so per-node LIKE queries
@@ -408,7 +426,11 @@ def find_dead_code(
                 )
             ]
             incoming = incoming + all_bare
-        if not any(e.kind == "TESTED_BY" for e in incoming):
+        tested_by_edges = list(tested_by_source_qn.get(node.qualified_name, []))
+        if node.parent_name:
+            class_qn = f"{node.parent_name}::{node.name}"
+            tested_by_edges.extend(tested_by_source_qn.get(class_qn, []))
+        if not tested_by_edges:
             bare_tb = [
                 e
                 for e in bare_tested_by_name.get(node.name, [])
@@ -416,12 +438,12 @@ def find_dead_code(
                     e.file_path, node.file_path, node.name, importer_files, name_counts
                 )
             ]
-            incoming = incoming + bare_tb
+            tested_by_edges.extend(bare_tb)
         if node.kind == "Class" and not any(e.kind == "INHERITS" for e in incoming):
             incoming = incoming + bare_inherits_by_name.get(node.name, [])
 
         has_callers = any(e.kind == "CALLS" for e in incoming)
-        has_test_refs = any(e.kind == "TESTED_BY" for e in incoming)
+        has_test_refs = bool(tested_by_edges)
         has_importers = any(e.kind == "IMPORTS_FROM" for e in incoming)
         has_references = any(e.kind == "REFERENCES" for e in incoming)
         has_subclasses = any(e.kind == "INHERITS" for e in incoming)
@@ -441,7 +463,7 @@ def find_dead_code(
                 has_callers = True
 
         caller_count = sum(1 for e in incoming if e.kind == "CALLS")
-        test_ref_count = sum(1 for e in incoming if e.kind == "TESTED_BY")
+        test_ref_count = len(tested_by_edges)
         importer_count = sum(1 for e in incoming if e.kind == "IMPORTS_FROM")
         reference_count = sum(1 for e in incoming if e.kind == "REFERENCES")
         subclass_count = sum(1 for e in incoming if e.kind == "INHERITS")

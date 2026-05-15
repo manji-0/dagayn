@@ -1332,8 +1332,8 @@ class TestComputeSummaries:
         Shape (auth.py community, community_id=1):
             login  ->  check_token   (CALLS, internal)
             logout ->  check_token   (CALLS, internal)
-            test_login -> login      (TESTED_BY)
-            test_login -> logout     (TESTED_BY)
+            login  ->  test_login   (TESTED_BY)
+            logout ->  test_login   (TESTED_BY)
             (login is called from db.py::query to force cross-community
              edges into caller_counts)
 
@@ -1447,7 +1447,7 @@ class TestComputeSummaries:
             )
         )
 
-        # TESTED_BY edges from the Test node back to auth functions.
+        # TESTED_BY edges from covered auth functions to the Test node.
         self.store.upsert_edge(
             EdgeInfo(
                 kind="TESTED_BY",

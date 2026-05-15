@@ -167,10 +167,10 @@ def _prepare_context_for_nodes(nodes: list[Any], store: Any, conn: Any) -> dict[
     for node in nodes:
         qn = node.qualified_name
         for edge in incoming.get(qn, []):
-            if edge.kind in ("CALLS", "TESTED_BY"):
+            if edge.kind == "CALLS":
                 related_qns.add(edge.source_qualified)
         for edge in outgoing.get(qn, []):
-            if edge.kind == "CALLS":
+            if edge.kind in ("CALLS", "TESTED_BY"):
                 related_qns.add(edge.target_qualified)
 
     related_nodes = store.get_nodes_by_qualified_names(list(related_qns)) if related_qns else {}
@@ -241,9 +241,9 @@ def _format_node_context(
 
     # Tests
     tests: list[str] = []
-    for e in incoming:
+    for e in outgoing:
         if e.kind == "TESTED_BY" and len(tests) < 3:
-            t = related_nodes.get(e.source_qualified)
+            t = related_nodes.get(e.target_qualified)
             if t:
                 tests.append(t.name)
     if tests:

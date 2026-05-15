@@ -33,6 +33,9 @@ Edge kinds include:
 - `DEPENDS_ON`
 - `CROSS_ARTIFACT` — cross-boundary references between artifacts (cross-language process/FFI bridges, Markdown → code symbol references). Carries `bridge_kind`, `relationship_role`, `evidence_kind`, and `confidence_tier` in `extra`. Markdown-sourced edges also carry `extra.original_symbol_name` — the raw backtick span symbol — so the idempotent resolver can re-evaluate them on every postprocess run without requiring a Markdown re-parse.
 
+`TESTED_BY` edges are directed from the covered production symbol to the test
+symbol that exercises it. For example, `src/auth.py::login -> tests/test_auth.py::test_login`.
+
 The fork also stores confidence-related metadata and graph relationships used by higher-order analysis.
 
 ## Metadata

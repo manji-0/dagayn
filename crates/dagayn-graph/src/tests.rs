@@ -582,8 +582,8 @@ fn stores_flows_and_reads_flow_inputs() {
     };
     let tested_by = EdgeInput {
         kind: "TESTED_BY".to_string(),
-        source: "test_app.py::test_callee".to_string(),
-        target: "app.py::callee".to_string(),
+        source: "app.py::callee".to_string(),
+        target: "test_app.py::test_callee".to_string(),
         file_path: "test_app.py".to_string(),
         line: 2,
         extra: Value::Object(Default::default()),

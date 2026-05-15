@@ -313,8 +313,8 @@ class TestV2Integration:
         s.upsert_edge(
             EdgeInfo(
                 kind="TESTED_BY",
-                source="test_auth.py::test_login",
-                target="auth.py::login",
+                source="auth.py::login",
+                target="test_auth.py::test_login",
                 file_path="test_auth.py",
                 line=5,
             )

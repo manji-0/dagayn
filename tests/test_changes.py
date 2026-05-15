@@ -63,11 +63,11 @@ class TestChanges:
         self.store.upsert_edge(edge)
         self.store.commit()
 
-    def _add_tested_by(self, test_qn: str, target_qn: str, path: str = "app.py") -> None:
+    def _add_tested_by(self, target_qn: str, test_qn: str, path: str = "app.py") -> None:
         edge = EdgeInfo(
             kind="TESTED_BY",
-            source=test_qn,
-            target=target_qn,
+            source=target_qn,
+            target=test_qn,
             file_path=path,
             line=1,
         )
@@ -240,7 +240,7 @@ class TestChanges:
         self._add_func("untested_func", path="a.py", line_start=1, line_end=10)
         self._add_func("tested_func", path="b.py", line_start=1, line_end=10)
         self._add_func("test_tested_func", path="test_b.py", is_test=True)
-        self._add_tested_by("test_b.py::test_tested_func", "b.py::tested_func", "test_b.py")
+        self._add_tested_by("b.py::tested_func", "test_b.py::test_tested_func", "test_b.py")
 
         untested = self.store.get_node("a.py::untested_func")
         tested = self.store.get_node("b.py::tested_func")
@@ -376,7 +376,7 @@ class TestChanges:
 
         # Only tested_c has a test.
         self._add_func("test_c", path="test_app.py", is_test=True)
-        self._add_tested_by("test_app.py::test_c", "app.py::tested_c", "test_app.py")
+        self._add_tested_by("app.py::tested_c", "test_app.py::test_c", "test_app.py")
 
         result = analyze_changes(
             self.store,
@@ -387,6 +387,31 @@ class TestChanges:
         assert "untested_a" in gap_names
         assert "untested_b" in gap_names
         assert "tested_c" not in gap_names
+
+    def test_tested_by_direction_matches_parser_contract(self):
+        """TESTED_BY is production -> test for risk, coverage, and test gaps."""
+        from dagayn.coverage import infer_tests_for_node
+
+        self._add_func("core_func", path="app.py", line_start=1, line_end=10)
+        self._add_func("test_behavior", path="tests/test_app.py", is_test=True)
+        self._add_tested_by("app.py::core_func", "tests/test_app.py::test_behavior")
+
+        node = self.store.get_node("app.py::core_func")
+        assert node is not None
+
+        assert compute_risk_score(self.store, node) < 0.30
+        assert self.store.get_transitive_tests(node.qualified_name)[0]["qualified_name"] == (
+            "tests/test_app.py::test_behavior"
+        )
+        inferred = infer_tests_for_node(self.store, node)
+        assert inferred[0]["qualified_name"] == "tests/test_app.py::test_behavior"
+
+        result = analyze_changes(
+            self.store,
+            changed_files=["app.py"],
+            changed_ranges={"app.py": [(1, 10)]},
+        )
+        assert result["test_gaps"] == []
 
     def test_analyze_changes_with_flows(self):
         """analyze_changes detects affected flows."""
@@ -480,8 +505,8 @@ class TestChanges:
             line_end=10,
         )
         self._add_tested_by(
-            "/fake/repo/test_app.py::test_my_func",
             "/fake/repo/app.py::my_func",
+            "/fake/repo/test_app.py::test_my_func",
             path="/fake/repo/test_app.py",
         )
 

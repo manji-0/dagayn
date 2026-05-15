@@ -293,7 +293,7 @@ def query_graph(
         elif pattern == "tests_for":
             if node is not None:
                 results.extend(infer_tests_for_node(store, node))
-                test_edges = [e for e in store.get_edges_by_target(qn) if e.kind == "TESTED_BY"]
+                test_edges = [e for e in store.get_edges_by_source(qn) if e.kind == "TESTED_BY"]
                 edges_out.extend(edge_to_dict(e) for e in test_edges)
 
         elif pattern == "inheritors_of":

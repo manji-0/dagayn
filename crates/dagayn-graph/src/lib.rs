@@ -1574,9 +1574,9 @@ impl GraphStore {
         }
 
         for qn in &input_qns {
-            for source in self.get_test_sources_for_target(qn)? {
-                if seen.insert(source.clone()) {
-                    if let Some(test_node) = self.test_node_json(&source, false)? {
+            for test_target in self.get_test_targets_for_source(qn)? {
+                if seen.insert(test_target.clone()) {
+                    if let Some(test_node) = self.test_node_json(&test_target, false)? {
                         results.push(test_node);
                     }
                 }
@@ -1587,9 +1587,9 @@ impl GraphStore {
             .rsplit_once("::")
             .map(|(_, name)| name)
             .unwrap_or(qualified_name);
-        for source in self.get_test_sources_for_target(bare)? {
-            if seen.insert(source.clone()) {
-                if let Some(test_node) = self.test_node_json(&source, false)? {
+        for test_target in self.get_test_targets_for_source(bare)? {
+            if seen.insert(test_target.clone()) {
+                if let Some(test_node) = self.test_node_json(&test_target, false)? {
                     results.push(test_node);
                 }
             }
@@ -1609,9 +1609,9 @@ impl GraphStore {
                 }
             }
             for callee in &next_frontier {
-                for source in self.get_test_sources_for_target(callee)? {
-                    if seen.insert(source.clone()) {
-                        if let Some(test_node) = self.test_node_json(&source, true)? {
+                for test_target in self.get_test_targets_for_source(callee)? {
+                    if seen.insert(test_target.clone()) {
+                        if let Some(test_node) = self.test_node_json(&test_target, true)? {
                             results.push(test_node);
                         }
                     }
@@ -1685,11 +1685,11 @@ impl GraphStore {
             .keys()
             .cloned()
             .collect::<Vec<_>>();
-        for (target, source) in self.get_test_sources_by_targets(&direct_targets)? {
-            if let Some(originals) = direct_target_to_originals.get(&target) {
+        for (source, test_target) in self.get_test_targets_by_sources(&direct_targets)? {
+            if let Some(originals) = direct_target_to_originals.get(&source) {
                 for original in originals {
                     if let Some(seen) = seen_tests.get_mut(original) {
-                        seen.insert(source.clone());
+                        seen.insert(test_target.clone());
                     }
                 }
             }
@@ -1716,11 +1716,11 @@ impl GraphStore {
             }
 
             let callees = callee_to_originals.keys().cloned().collect::<Vec<_>>();
-            for (target, source) in self.get_test_sources_by_targets(&callees)? {
-                if let Some(originals) = callee_to_originals.get(&target) {
+            for (source, test_target) in self.get_test_targets_by_sources(&callees)? {
+                if let Some(originals) = callee_to_originals.get(&source) {
                     for original in originals {
                         if let Some(seen) = seen_tests.get_mut(original) {
-                            seen.insert(source.clone());
+                            seen.insert(test_target.clone());
                         }
                     }
                 }
@@ -1807,9 +1807,9 @@ impl GraphStore {
         Ok(out)
     }
 
-    fn get_test_sources_by_targets(&self, targets: &[String]) -> Result<Vec<(String, String)>> {
+    fn get_test_targets_by_sources(&self, sources: &[String]) -> Result<Vec<(String, String)>> {
         let mut out = Vec::new();
-        for chunk in targets.chunks(450) {
+        for chunk in sources.chunks(450) {
             if chunk.is_empty() {
                 continue;
             }
@@ -1817,9 +1817,9 @@ impl GraphStore {
                 .collect::<Vec<_>>()
                 .join(",");
             let sql = format!(
-                "SELECT e.target_qualified, e.source_qualified FROM edges e \
-                 JOIN nodes n ON n.qualified_name = e.source_qualified \
-                 WHERE e.kind = 'TESTED_BY' AND e.target_qualified IN ({placeholders})"
+                "SELECT e.source_qualified, e.target_qualified FROM edges e \
+                 JOIN nodes n ON n.qualified_name = e.target_qualified \
+                 WHERE e.kind = 'TESTED_BY' AND e.source_qualified IN ({placeholders})"
             );
             let mut stmt = self.conn.prepare(&sql)?;
             let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
@@ -1875,7 +1875,7 @@ impl GraphStore {
             if kind == "CALLS" {
                 calls_out.entry(source).or_default().push(target);
             } else {
-                has_tested_by.insert(target);
+                has_tested_by.insert(source);
             }
         }
         Ok((calls_out, has_tested_by))
@@ -2008,7 +2008,7 @@ impl GraphStore {
             self.count_flow_memberships_for_nodes(&nodes_needing_count)?
         };
         let node_cid_map = self.get_community_ids_by_node_ids(&func_ids)?;
-        let (_, inbound_map) = self.get_edges_by_endpoints(&func_qns)?;
+        let (outbound_map, inbound_map) = self.get_edges_by_endpoints(&func_qns)?;
 
         let mut caller_qns = HashSet::new();
         for edges in inbound_map.values() {
@@ -2066,7 +2066,7 @@ impl GraphStore {
             if node.is_test {
                 continue;
             }
-            let tested = inbound_map
+            let tested = outbound_map
                 .get(&node.qualified_name)
                 .map(|edges| edges.iter().any(|edge| edge.kind == "TESTED_BY"))
                 .unwrap_or(false);
@@ -2307,12 +2307,12 @@ impl GraphStore {
         Ok(out)
     }
 
-    fn get_test_sources_for_target(&self, target_qualified: &str) -> Result<Vec<String>> {
+    fn get_test_targets_for_source(&self, source_qualified: &str) -> Result<Vec<String>> {
         let mut stmt = self.conn.prepare(
-            "SELECT source_qualified FROM edges \
-             WHERE target_qualified = ? AND kind = 'TESTED_BY'",
+            "SELECT target_qualified FROM edges \
+             WHERE source_qualified = ? AND kind = 'TESTED_BY'",
         )?;
-        let rows = stmt.query_map([target_qualified], |row| row.get::<_, String>(0))?;
+        let rows = stmt.query_map([source_qualified], |row| row.get::<_, String>(0))?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(Into::into)
     }

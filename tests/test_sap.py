@@ -275,6 +275,31 @@ def test_find_sap_violations_empty_on_high_threshold(single_concrete_stable_stor
     assert violations == []
 
 
+def test_find_sap_violations_excludes_no_eligible_types(tmp_path):
+    """Scopes with no eligible types are reported as metrics, not SAP violations."""
+    s = GraphStore(tmp_path / "noeligible_violation.db")
+    s.upsert_node(_node("File", "scripts/build.sh", "scripts/build.sh"))
+    s.upsert_node(
+        NodeInfo(
+            kind="Function",
+            name="build",
+            file_path="scripts/build.sh",
+            line_start=1,
+            line_end=5,
+            language="bash",
+        )
+    )
+    s.upsert_node(_node("File", "client/a.java", "client/a.java"))
+    s.upsert_edge(_edge("IMPORTS_FROM", "client/a.java", "scripts/build.sh"))
+    s.commit()
+
+    metrics = compute_sap_metrics(s, scope_kind="package")
+    scripts = next(m for m in metrics if m["scope_key"] == "scripts")
+    assert scripts["distance"] == 1.0
+    assert "no-eligible-types" in scripts.get("notes", [])
+    assert all(v["scope_key"] != "scripts" for v in find_sap_violations(s))
+
+
 def test_file_scope_kind(tmp_path):
     """scope_kind='file' uses file path as scope key."""
     s = GraphStore(tmp_path / "file.db")

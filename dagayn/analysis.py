@@ -127,7 +127,7 @@ def find_bridge_nodes(
     if n_nodes > 5000:
         # Sample-based approximation for large graphs
         k = min(500, n_nodes)
-        bc = nx.betweenness_centrality(nxg, k=k, normalized=True)
+        bc = nx.betweenness_centrality(nxg, k=k, normalized=True, seed=0)
     elif n_nodes > 0:
         bc = nx.betweenness_centrality(nxg, normalized=True)
     else:
@@ -265,7 +265,7 @@ def find_knowledge_gaps(
                     "hotspot_min_degree": hotspot_min_degree,
                     "evidence": (
                         "degree is at or above the repository p95 non-file "
-                        "degree threshold and no TESTED_BY edge targets it"
+                        "degree threshold and no TESTED_BY edge starts from it"
                     ),
                 }
             )

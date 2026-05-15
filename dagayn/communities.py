@@ -874,7 +874,7 @@ def get_architecture_overview(
     cross_edges: list[dict[str, Any]] = []
 
     for e in all_edges:
-        # TESTED_BY edges are expected cross-community coupling (test → code),
+        # TESTED_BY edges are expected cross-community coupling (code → test),
         # not an architectural smell.
         if e.kind == "TESTED_BY":
             continue

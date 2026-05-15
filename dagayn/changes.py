@@ -378,7 +378,7 @@ def analyze_changes(
         store.count_flow_memberships_for_nodes(nodes_needing_count) if nodes_needing_count else {}
     )
     node_cid_map = store.get_community_ids_by_node_ids(func_ids)
-    _, inbound_map = store.get_edges_by_endpoints(func_qns)
+    outbound_map, inbound_map = store.get_edges_by_endpoints(func_qns)
 
     # Caller communities: collect every CALLS source seen across all nodes
     # and resolve in a single batch.
@@ -423,7 +423,7 @@ def analyze_changes(
             continue
         if node.language == "markdown":
             continue
-        tested = inbound_map.get(node.qualified_name, [])
+        tested = outbound_map.get(node.qualified_name, [])
         has_direct_coverage = any(e.kind == "TESTED_BY" for e in tested)
         has_heuristic_coverage = has_coverage_evidence(store, node)
         if not has_direct_coverage and not has_heuristic_coverage:
