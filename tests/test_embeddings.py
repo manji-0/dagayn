@@ -116,6 +116,24 @@ class TestNodeToText:
 
 
 class TestEmbeddingStore:
+    def _make_node(self, name: str, node_id: int) -> GraphNode:
+        return GraphNode(
+            id=node_id,
+            kind="Function",
+            name=name,
+            qualified_name=f"file.py::{name}",
+            file_path="file.py",
+            line_start=node_id,
+            line_end=node_id,
+            language="python",
+            parent_name=None,
+            params=None,
+            return_type=None,
+            is_test=False,
+            file_hash=None,
+            extra={},
+        )
+
     def test_store_initializes(self, tmp_path):
         db = tmp_path / "embeddings.db"
         with patch("dagayn.embeddings.get_provider", return_value=None):
@@ -152,6 +170,62 @@ class TestEmbeddingStore:
             store = EmbeddingStore(db)
             # Should not raise even if node doesn't exist
             store.remove_node("nonexistent::func")
+            store.close()
+
+    def test_embed_nodes_persists_each_successful_batch(self, tmp_path):
+        db = tmp_path / "embeddings.db"
+
+        class FakeProvider:
+            name = "fake"
+            preferred_batch_size = 2
+
+            def __init__(self):
+                self.calls = 0
+
+            def embed(self, texts):
+                self.calls += 1
+                if self.calls == 2:
+                    raise TimeoutError("read timed out")
+                return [[float(i)] for i, _ in enumerate(texts)]
+
+            def embed_query(self, text):
+                return [1.0]
+
+            @property
+            def dimension(self):
+                return 1
+
+        provider = FakeProvider()
+        nodes = [self._make_node(f"func_{i}", i + 1) for i in range(3)]
+        with patch("dagayn.embeddings.get_provider", return_value=provider):
+            store = EmbeddingStore(db)
+            with pytest.raises(RuntimeError, match=r"Embedding batch 2/2 failed"):
+                store.embed_nodes(nodes)
+            assert store.count() == 2
+            store.close()
+
+    def test_embed_nodes_reports_vector_count_mismatch_with_batch_context(self, tmp_path):
+        db = tmp_path / "embeddings.db"
+
+        class FakeProvider:
+            name = "fake"
+            preferred_batch_size = 2
+
+            def embed(self, texts):
+                return [[1.0]]
+
+            def embed_query(self, text):
+                return [1.0]
+
+            @property
+            def dimension(self):
+                return 1
+
+        with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
+            store = EmbeddingStore(db)
+            with pytest.raises(RuntimeError, match=r"batch 1/1 returned 1 vector"):
+                store.embed_nodes([self._make_node("a", 1), self._make_node("b", 2)])
+            assert store.count() == 0
             store.close()
 
 

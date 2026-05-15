@@ -95,8 +95,8 @@ def handle(args: argparse.Namespace, serve_parser: argparse.ArgumentParser) -> N
         ) as server:
             os.environ["CRG_OPENAI_API_KEY"] = "dagayn-local"
             os.environ["CRG_OPENAI_BASE_URL"] = server.base_url
-            os.environ.setdefault("CRG_OPENAI_BATCH_SIZE", "16")
-            os.environ.setdefault("CRG_OPENAI_TIMEOUT", str(args.local_embedding_timeout))
+            os.environ["CRG_OPENAI_BATCH_SIZE"] = str(args.local_embedding_batch_size)
+            os.environ["CRG_OPENAI_TIMEOUT"] = str(args.local_embedding_request_timeout)
             _run()
     else:
         _run()

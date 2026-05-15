@@ -24,7 +24,12 @@ dagayn build --local-embedding high
 dagayn update --local-embedding low
 ```
 
-Use `--local-embedding none` to keep the default graph-only behavior.
+Use `--local-embedding none` to keep the default graph-only behavior. The
+server startup timeout and each embedding request timeout are separate knobs:
+`--local-embedding-timeout` controls readiness, while
+`--local-embedding-request-timeout` controls a single `/v1/embeddings` call.
+Local embedding requests use `--local-embedding-batch-size 16` by default,
+regardless of any ambient `CRG_OPENAI_BATCH_SIZE`.
 
 ### Analysis and review
 

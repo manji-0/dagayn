@@ -325,6 +325,12 @@ def handle(args: argparse.Namespace) -> None:
                     False,
                 ),
                 local_embedding_timeout=getattr(args, "local_embedding_timeout", 300),
+                local_embedding_request_timeout=getattr(
+                    args,
+                    "local_embedding_request_timeout",
+                    60,
+                ),
+                local_embedding_batch_size=getattr(args, "local_embedding_batch_size", 16),
             )
             parsed = result.get("files_parsed", 0)
             nodes = result.get("total_nodes", 0)
@@ -358,6 +364,12 @@ def handle(args: argparse.Namespace) -> None:
                     False,
                 ),
                 local_embedding_timeout=getattr(args, "local_embedding_timeout", 300),
+                local_embedding_request_timeout=getattr(
+                    args,
+                    "local_embedding_request_timeout",
+                    60,
+                ),
+                local_embedding_batch_size=getattr(args, "local_embedding_batch_size", 16),
             )
             updated = result.get("files_updated", 0)
             nodes = result.get("total_nodes", 0)

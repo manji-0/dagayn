@@ -1,5 +1,6 @@
 """Tests for MCP tool functions."""
 
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -1384,6 +1385,8 @@ class TestBuildPostprocess:
         assert kwargs["local_embedding_bin"] == "/tmp/llama-server"
         assert kwargs["keep_local_embedding_server"] is True
         assert kwargs["local_embedding_timeout"] == 12
+        assert kwargs["local_embedding_request_timeout"] == 60
+        assert kwargs["local_embedding_batch_size"] == 16
 
     def test_local_embedding_skips_when_none(self, monkeypatch):
         from unittest.mock import patch
@@ -1445,6 +1448,52 @@ class TestBuildPostprocess:
         assert result["local_embedding"] == embed_result
         run.assert_called_once()
         assert run.call_args.kwargs["local_embedding"] == "low"
+
+    def test_run_local_embedding_uses_separate_request_timeout(self, monkeypatch):
+        from contextlib import contextmanager
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        from dagayn.tools.build import _run_local_embedding
+
+        @contextmanager
+        def fake_server(*_args, **_kwargs):
+            yield SimpleNamespace(
+                base_url="http://127.0.0.1:18080/v1",
+                preset=SimpleNamespace(
+                    level="low",
+                    model="qwen3-embedding-0.6b-gguf-q8_0",
+                    dimension=1024,
+                ),
+                started=False,
+                command=[],
+            )
+
+        def fake_embed_graph(**_kwargs):
+            assert os.environ["CRG_OPENAI_TIMEOUT"] == "17"
+            assert os.environ["CRG_OPENAI_BATCH_SIZE"] == "8"
+            return {"status": "ok", "newly_embedded": 1, "total_embeddings": 1}
+
+        monkeypatch.setenv("CRG_OPENAI_TIMEOUT", "999")
+        monkeypatch.setenv("CRG_OPENAI_BATCH_SIZE", "2048")
+        with (
+            patch("dagayn.local_embeddings.local_embedding_server", fake_server),
+            patch("dagayn.tools.docs.embed_graph", side_effect=fake_embed_graph),
+        ):
+            result = _run_local_embedding(
+                self.root,
+                local_embedding="low",
+                local_embedding_port=18080,
+                local_embedding_bin="llama-server",
+                keep_local_embedding_server=False,
+                local_embedding_timeout=300,
+                local_embedding_request_timeout=17,
+                local_embedding_batch_size=8,
+            )
+
+        assert result["newly_embedded"] == 1
+        assert os.environ["CRG_OPENAI_TIMEOUT"] == "999"
+        assert os.environ["CRG_OPENAI_BATCH_SIZE"] == "2048"
 
 
 class TestComputeSummaries:

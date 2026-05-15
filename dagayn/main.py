@@ -140,6 +140,8 @@ async def build_or_update_graph_tool(
     local_embedding_bin: str = "llama-server",
     keep_local_embedding_server: bool = False,
     local_embedding_timeout: int = 300,
+    local_embedding_request_timeout: int = 60,
+    local_embedding_batch_size: int = 16,
 ) -> dict:
     """Build or incrementally update the code knowledge graph.
 
@@ -167,6 +169,10 @@ async def build_or_update_graph_tool(
         local_embedding_bin: llama-server executable name or path.
         keep_local_embedding_server: Leave a dagayn-started server running.
         local_embedding_timeout: Seconds to wait for llama-server readiness.
+        local_embedding_request_timeout: Seconds to wait for each embedding
+            HTTP request after llama-server is ready.
+        local_embedding_batch_size: Texts to send in each local embedding
+            HTTP request.
     """
     return await asyncio.to_thread(
         _tool("build_or_update_graph"),
@@ -180,6 +186,8 @@ async def build_or_update_graph_tool(
         local_embedding_bin=local_embedding_bin,
         keep_local_embedding_server=keep_local_embedding_server,
         local_embedding_timeout=local_embedding_timeout,
+        local_embedding_request_timeout=local_embedding_request_timeout,
+        local_embedding_batch_size=local_embedding_batch_size,
     )
 
 

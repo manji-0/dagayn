@@ -95,6 +95,8 @@ def _run_local_embedding(
     local_embedding_bin: str,
     keep_local_embedding_server: bool,
     local_embedding_timeout: int,
+    local_embedding_request_timeout: int,
+    local_embedding_batch_size: int,
 ) -> dict[str, Any]:
     """Run graph embedding through a managed local llama-server process."""
     from dagayn.local_embeddings import local_embedding_server
@@ -119,8 +121,8 @@ def _run_local_embedding(
             try:
                 os.environ["CRG_OPENAI_API_KEY"] = "dagayn-local"
                 os.environ["CRG_OPENAI_BASE_URL"] = server.base_url
-                os.environ["CRG_OPENAI_BATCH_SIZE"] = old_env["CRG_OPENAI_BATCH_SIZE"] or "16"
-                os.environ["CRG_OPENAI_TIMEOUT"] = str(local_embedding_timeout)
+                os.environ["CRG_OPENAI_BATCH_SIZE"] = str(local_embedding_batch_size)
+                os.environ["CRG_OPENAI_TIMEOUT"] = str(local_embedding_request_timeout)
                 os.environ.pop("CRG_OPENAI_DIMENSION", None)
                 result = embed_graph(
                     repo_root=str(root),
@@ -542,6 +544,8 @@ def build_or_update_graph(
     local_embedding_bin: str = "llama-server",
     keep_local_embedding_server: bool = False,
     local_embedding_timeout: int = 300,
+    local_embedding_request_timeout: int = 60,
+    local_embedding_batch_size: int = 16,
 ) -> dict[str, Any]:
     """Build or incrementally update the code knowledge graph.
 
@@ -566,6 +570,10 @@ def build_or_update_graph(
         keep_local_embedding_server: Leave a dagayn-started server running
             after embedding completes.
         local_embedding_timeout: Seconds to wait for llama-server readiness.
+        local_embedding_request_timeout: Seconds to wait for each embedding
+            HTTP request once the server is ready.
+        local_embedding_batch_size: Texts to send in each local embedding
+            HTTP request.
 
     Returns:
         Summary with files_parsed/updated, node/edge counts, and errors.
@@ -605,6 +613,8 @@ def build_or_update_graph(
                         local_embedding_bin=local_embedding_bin,
                         keep_local_embedding_server=keep_local_embedding_server,
                         local_embedding_timeout=local_embedding_timeout,
+                        local_embedding_request_timeout=local_embedding_request_timeout,
+                        local_embedding_batch_size=local_embedding_batch_size,
                     )
                 return build_result
             build_result = {
@@ -743,6 +753,8 @@ def build_or_update_graph(
                 local_embedding_bin=local_embedding_bin,
                 keep_local_embedding_server=keep_local_embedding_server,
                 local_embedding_timeout=local_embedding_timeout,
+                local_embedding_request_timeout=local_embedding_request_timeout,
+                local_embedding_batch_size=local_embedding_batch_size,
             )
         return build_result
     finally:

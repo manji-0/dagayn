@@ -869,33 +869,51 @@ class EmbeddingStore:
         if not to_embed:
             return 0
 
-        # Encode in provider-sized batches, optionally showing progress
+        # Encode and persist in provider-sized batches. Persisting each batch
+        # makes long local embedding runs resumable if a later request stalls.
         api_batch = self.provider.preferred_batch_size
         total = len(to_embed)
-        all_vectors: list[list[float]] = []
         use_progress = show_progress and sys.stderr.isatty()
         start_time = time.monotonic()
+        embedded = 0
 
         for i in range(0, total, api_batch):
             batch = to_embed[i : i + api_batch]
             batch_texts = [t for _, t, _ in batch]
-            all_vectors.extend(self.provider.embed(batch_texts))
+            batch_number = (i // api_batch) + 1
+            batch_total = (total + api_batch - 1) // api_batch
+            try:
+                vectors = self.provider.embed(batch_texts)
+            except Exception as e:
+                first_qn = batch[0][0].qualified_name if batch else "<empty>"
+                raise RuntimeError(
+                    "Embedding batch "
+                    f"{batch_number}/{batch_total} failed "
+                    f"({len(batch_texts)} node(s), first={first_qn!r}): {e}"
+                ) from e
+            if len(vectors) != len(batch):
+                first_qn = batch[0][0].qualified_name if batch else "<empty>"
+                raise RuntimeError(
+                    "Embedding batch "
+                    f"{batch_number}/{batch_total} returned {len(vectors)} vector(s) "
+                    f"for {len(batch)} node(s), first={first_qn!r}."
+                )
+            self._conn.executemany(
+                """INSERT OR REPLACE INTO embeddings (qualified_name, vector, text_hash, provider)
+                   VALUES (?, ?, ?, ?)""",
+                [
+                    (node.qualified_name, _encode_vector(vec), text_hash, provider_name)
+                    for (node, _text, text_hash), vec in zip(batch, vectors)
+                ],
+            )
+            self._conn.commit()
+            embedded += len(batch)
             if use_progress:
                 done = min(i + api_batch, total)
                 elapsed = time.monotonic() - start_time
                 _draw_embed_progress(done, total, elapsed, end=(done >= total))
 
-        # Bulk-insert via executemany
-        self._conn.executemany(
-            """INSERT OR REPLACE INTO embeddings (qualified_name, vector, text_hash, provider)
-               VALUES (?, ?, ?, ?)""",
-            [
-                (node.qualified_name, _encode_vector(vec), text_hash, provider_name)
-                for (node, _text, text_hash), vec in zip(to_embed, all_vectors)
-            ],
-        )
-        self._conn.commit()
-        return len(to_embed)
+        return embedded
 
     def search(self, query: str, limit: int = 20) -> list[tuple[str, float]]:
         """Search for nodes by semantic similarity.

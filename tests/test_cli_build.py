@@ -25,6 +25,10 @@ def test_build_parser_accepts_local_embedding_options():
             "--keep-local-embedding-server",
             "--local-embedding-timeout",
             "12",
+            "--local-embedding-request-timeout",
+            "17",
+            "--local-embedding-batch-size",
+            "8",
         ]
     )
 
@@ -34,6 +38,8 @@ def test_build_parser_accepts_local_embedding_options():
     assert args.local_embedding_bin == "/tmp/llama-server"
     assert args.keep_local_embedding_server is True
     assert args.local_embedding_timeout == 12
+    assert args.local_embedding_request_timeout == 17
+    assert args.local_embedding_batch_size == 8
 
 
 def test_update_parser_accepts_local_embedding_options():
@@ -45,3 +51,5 @@ def test_update_parser_accepts_local_embedding_options():
     assert args.local_embedding_bin == "llama-server"
     assert args.keep_local_embedding_server is False
     assert args.local_embedding_timeout == 300
+    assert args.local_embedding_request_timeout == 60
+    assert args.local_embedding_batch_size == 16

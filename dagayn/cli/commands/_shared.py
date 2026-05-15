@@ -53,6 +53,18 @@ def _add_local_embedding_args(cmd: argparse.ArgumentParser) -> None:
         default=300,
         help="Seconds to wait for llama-server readiness (default: 300)",
     )
+    cmd.add_argument(
+        "--local-embedding-request-timeout",
+        type=int,
+        default=60,
+        help="Seconds to wait for each local embedding request (default: 60)",
+    )
+    cmd.add_argument(
+        "--local-embedding-batch-size",
+        type=int,
+        default=16,
+        help="Texts per local embedding request (default: 16)",
+    )
 
 
 def _confirm_yes_no(prompt: str, default_yes: bool = True) -> bool:
