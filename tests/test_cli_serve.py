@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from types import SimpleNamespace
 
 import pytest
@@ -53,6 +54,7 @@ def test_serve_local_embedding_sets_search_default_to_openai(monkeypatch):
         lambda *_args, **_kwargs: FakeContext(),
     )
     monkeypatch.setattr("dagayn.main.main", lambda **kwargs: calls.append(kwargs))
+    monkeypatch.setenv("CRG_OPENAI_MODEL", "old-model")
 
     parser = _parser()
     args = parser.parse_args(["serve", "--local-embedding", "low"])
@@ -60,6 +62,7 @@ def test_serve_local_embedding_sets_search_default_to_openai(monkeypatch):
 
     assert calls[0]["embedding_provider"] == "openai"
     assert calls[0]["embedding_model"] == "qwen3-embedding-0.6b-gguf-q8_0"
+    assert os.environ["CRG_OPENAI_MODEL"] == "qwen3-embedding-0.6b-gguf-q8_0"
 
 
 def test_serve_remote_embedding_sets_search_default(monkeypatch):

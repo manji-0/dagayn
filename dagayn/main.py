@@ -982,6 +982,8 @@ def traverse_graph_tool(
     depth: int = 3,
     token_budget: int = 2000,
     repo_root: Optional[str] = None,
+    model: Optional[str] = None,
+    provider: Optional[str] = None,
 ) -> dict:
     """BFS/DFS traversal from best-matching node with token budget.
 
@@ -997,6 +999,10 @@ def traverse_graph_tool(
         token_budget: Approximate token limit for results.
             Default: 2000.
         repo_root: Repository root path. Auto-detected if omitted.
+        model: Embedding model for the initial search. Defaults to the
+            server's embedding model when configured by ``dagayn serve``.
+        provider: Embedding provider for the initial search. Defaults to the
+            server's embedding provider when configured by ``dagayn serve``.
     """
     return _tool("traverse_graph_func")(
         query=query,
@@ -1004,6 +1010,8 @@ def traverse_graph_tool(
         depth=depth,
         token_budget=token_budget,
         repo_root=_resolve_repo_root(repo_root) or "",
+        model=_resolve_embedding_model(model),
+        provider=_resolve_embedding_provider(provider),
     )
 
 
@@ -1165,6 +1173,8 @@ def cross_repo_search_tool(
     query: str,
     kind: Optional[str] = None,
     limit: int = 20,
+    model: Optional[str] = None,
+    provider: Optional[str] = None,
 ) -> dict:
     """Search for code entities across all registered repositories.
 
@@ -1175,8 +1185,18 @@ def cross_repo_search_tool(
         query: Search string to match against node names.
         kind: Optional filter: File, Class, Function, Type, or Test.
         limit: Maximum results per repo. Default: 20.
+        model: Embedding model for hybrid search. Defaults to the server's
+            embedding model when configured by ``dagayn serve``.
+        provider: Embedding provider for hybrid search. Defaults to the
+            server's embedding provider when configured by ``dagayn serve``.
     """
-    return _tool("cross_repo_search_func")(query=query, kind=kind, limit=limit)
+    return _tool("cross_repo_search_func")(
+        query=query,
+        kind=kind,
+        limit=limit,
+        model=_resolve_embedding_model(model),
+        provider=_resolve_embedding_provider(provider),
+    )
 
 
 @mcp.prompt()

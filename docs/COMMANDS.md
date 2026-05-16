@@ -83,6 +83,12 @@ The MCP server exposes tools for:
 - wiki generation and wiki page lookup
 - multi-repo registry and cross-repo search
 
+When the server is launched with `dagayn serve --local-embedding low|high`,
+search-oriented MCP tools default to the managed OpenAI-compatible local
+embedding endpoint. This makes `semantic_search_nodes`, `traverse_graph`, and
+`cross_repo_search` run hybrid FTS + embedding retrieval unless the client
+explicitly passes another provider or model.
+
 Representative tool names include:
 
 - `build_or_update_graph`

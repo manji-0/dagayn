@@ -671,6 +671,8 @@ def traverse_graph_func(
     depth: int = 3,
     token_budget: int = 2000,
     repo_root: str | None = None,
+    model: str | None = None,
+    provider: str | None = None,
 ) -> dict[str, Any]:
     """BFS/DFS traversal from best-matching node.
 
@@ -680,10 +682,18 @@ def traverse_graph_func(
         depth: Max traversal depth (1-6). Default: 3.
         token_budget: Approximate token limit for results.
         repo_root: Repository root path.
+        model: Embedding model for the initial hybrid search.
+        provider: Embedding provider for the initial hybrid search.
     """
     store, root = _get_store(repo_root)
     try:
-        results = hybrid_search(store, query, limit=1)["results"]
+        results = hybrid_search(
+            store,
+            query,
+            limit=1,
+            model=model,
+            provider=provider,
+        )["results"]
         if not results:
             return make_response(
                 "not_found",

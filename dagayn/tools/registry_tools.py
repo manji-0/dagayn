@@ -54,6 +54,8 @@ def cross_repo_search_func(
     query: str,
     kind: str | None = None,
     limit: int = 20,
+    model: str | None = None,
+    provider: str | None = None,
 ) -> dict[str, Any]:
     """Search across all registered repositories.
 
@@ -64,6 +66,8 @@ def cross_repo_search_func(
         query: Search query string.
         kind: Optional node kind filter (e.g. "Function", "Class").
         limit: Maximum results per repo (default: 20).
+        model: Embedding model for hybrid search.
+        provider: Embedding provider for hybrid search.
 
     Returns:
         Combined search results from all registered repos.
@@ -96,7 +100,14 @@ def cross_repo_search_func(
             try:
                 store = GraphStore(str(db_path))
                 try:
-                    hs = hybrid_search(store, query, kind=kind, limit=limit)
+                    hs = hybrid_search(
+                        store,
+                        query,
+                        kind=kind,
+                        limit=limit,
+                        model=model,
+                        provider=provider,
+                    )
                     alias = repo_entry.get("alias", repo_path.name)
                     for r in hs["results"]:
                         r["repo"] = alias
