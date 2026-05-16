@@ -39,7 +39,7 @@ Optional post-processing layers add:
 
 `semantic_search_nodes` runs two ranked retrieval arms in parallel and merges them with Reciprocal Rank Fusion (RRF, k=10):
 
-1. **FTS5 BM25** — full-text search over the `nodes_fts` virtual table (porter + unicode61 tokenizer). Always available. The query is fired once as a whole, then re-fired once per identifier-shaped token (snake_case / PascalCase / camelCase) extracted from natural-language phrasing so a query like `"tests for embed_graph"` still hits the `embed_graph` symbol directly.
+1. **FTS5 BM25** — full-text search over the `nodes_fts` virtual table (porter + unicode61 tokenizer). Always available. The index stores symbol names, qualified names, paths, signatures, generated identifier tokens (for example `LocalEmbeddingProvider` → `local embedding provider`), and bounded source/document text such as docstrings and Markdown section bodies. The query is fired once as a whole, then re-fired once per identifier-shaped token (snake_case / PascalCase / camelCase) extracted from natural-language phrasing so a query like `"tests for embed_graph"` still hits the `embed_graph` symbol directly.
 2. **Cosine similarity** — vector search over the embedding store. Available only when embeddings have been built.
 
 The RRF constant is 10 (rather than the textbook 60) so the resulting `score` field spreads over ~0.05–0.2 instead of being compressed into 0.015–0.016. The constant is a calibration knob only: positive `k` preserves item order, it just affects the magnitude of the merged score.

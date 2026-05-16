@@ -7,6 +7,7 @@ boosting for relevance tuning.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import threading
@@ -65,6 +66,103 @@ def _get_cached_emb_store(
 # ---------------------------------------------------------------------------
 
 
+_FTS_DDL = """
+    CREATE VIRTUAL TABLE nodes_fts USING fts5(
+        name, qualified_name, file_path, signature, identifier_tokens, doc_text,
+        tokenize='porter unicode61'
+    )
+"""
+
+_IDENT_BOUNDARY_RE = re.compile(
+    r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])"
+)
+_IDENT_SPLIT_RE = re.compile(r"[^A-Za-z0-9]+")
+_MARKDOWN_HEADING_RE = re.compile(r"^(#{1,6})\s+")
+
+
+def _identifier_search_text(*values: object) -> str:
+    """Return identifier-friendly tokens for FTS (camel/snake/path split)."""
+    tokens: list[str] = []
+    for value in values:
+        if not value:
+            continue
+        for chunk in _IDENT_SPLIT_RE.split(str(value)):
+            if not chunk:
+                continue
+            tokens.extend(part.lower() for part in _IDENT_BOUNDARY_RE.sub(" ", chunk).split())
+    return " ".join(tokens)
+
+
+def _read_node_source_excerpt(repo_root: Path | None, row: Any) -> str:
+    """Read a bounded source/doc span for FTS, best-effort and side-effect free."""
+    file_path = Path(row["file_path"])
+    if not file_path.is_absolute():
+        if repo_root is None:
+            return ""
+        file_path = repo_root / file_path
+    try:
+        lines = file_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return ""
+
+    line_start = row["line_start"] or 1
+    line_end = row["line_end"] or line_start
+    start = max(int(line_start) - 1, 0)
+    end = min(max(int(line_end), int(line_start)), len(lines))
+
+    if row["kind"] == "DocSection":
+        level = None
+        if start < len(lines):
+            match = _MARKDOWN_HEADING_RE.match(lines[start])
+            if match:
+                level = len(match.group(1))
+        end = len(lines)
+        for idx in range(start + 1, len(lines)):
+            match = _MARKDOWN_HEADING_RE.match(lines[idx])
+            if match and (level is None or len(match.group(1)) <= level):
+                end = idx
+                break
+
+    return "\n".join(lines[start:end])[:4096]
+
+
+def _fts_rows(conn: Any, repo_root: Path | None) -> list[tuple]:
+    rows = conn.execute(
+        "SELECT rowid AS node_rowid, kind, name, qualified_name, file_path, line_start, line_end, "
+        "signature, extra FROM nodes"
+    ).fetchall()
+    out = []
+    for row in rows:
+        try:
+            extra = json.loads(row["extra"] or "{}")
+        except (TypeError, json.JSONDecodeError):
+            extra = {}
+        display_name = extra.get("display_name", "")
+        identifier_tokens = _identifier_search_text(
+            row["name"], row["qualified_name"], row["file_path"], display_name
+        )
+        doc_text = " ".join(
+            part
+            for part in (
+                str(display_name) if display_name else "",
+                _read_node_source_excerpt(repo_root, row),
+            )
+            if part
+        )
+        out.append(
+            (
+                row["node_rowid"],
+                row["name"],
+                row["qualified_name"],
+                row["file_path"],
+                row["signature"] or "",
+                identifier_tokens,
+                doc_text,
+            )
+        )
+    return out
+
+
 def rebuild_fts_index(store: GraphStore) -> int:
     """Rebuild the FTS5 index from the nodes table.
 
@@ -93,18 +191,19 @@ def rebuild_fts_index(store: GraphStore) -> int:
         conn.rollback()
     conn.execute("BEGIN IMMEDIATE")
     try:
-        # Drop and recreate the FTS table with content sync to match migration v5
+        # Drop and recreate the FTS table. This is intentionally not an
+        # external-content FTS table: identifier_tokens/doc_text are generated
+        # search fields, not columns in nodes.
         conn.execute("DROP TABLE IF EXISTS nodes_fts")
-        conn.execute("""
-            CREATE VIRTUAL TABLE nodes_fts USING fts5(
-                name, qualified_name, file_path, signature,
-                content='nodes', content_rowid='rowid',
-                tokenize='porter unicode61'
-            )
-        """)
+        conn.execute(_FTS_DDL)
 
-        # Rebuild from the content table (nodes) using the FTS5 rebuild command
-        conn.execute("INSERT INTO nodes_fts(nodes_fts) VALUES('rebuild')")
+        repo_root_value = getattr(store, "get_metadata", lambda _key: None)("repo_root")
+        repo_root = Path(repo_root_value) if repo_root_value else None
+        conn.executemany(
+            "INSERT INTO nodes_fts(rowid, name, qualified_name, file_path, signature, "
+            "identifier_tokens, doc_text) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            _fts_rows(conn, repo_root),
+        )
 
         conn.commit()
     except BaseException:

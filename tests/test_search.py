@@ -121,6 +121,57 @@ class TestHybridSearch:
         names = [r["name"] for r in results]
         assert "get_users" in names
 
+    def test_fts_search_splits_camel_case_identifiers(self):
+        """FTS search matches natural-language words against PascalCase symbols."""
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Class",
+                name="LocalEmbeddingProvider",
+                file_path="embeddings.py",
+                line_start=1,
+                line_end=10,
+                language="python",
+            ),
+            file_hash="abc123",
+        )
+        self.store.commit()
+        rebuild_fts_index(self.store)
+
+        results = hybrid_search(self.store, "local embedding provider")["results"]
+        assert results
+        assert results[0]["name"] == "LocalEmbeddingProvider"
+
+    def test_fts_search_indexes_markdown_section_body(self, tmp_path):
+        """Markdown section body text is searchable, not just the heading slug."""
+        docs = tmp_path / "docs"
+        docs.mkdir()
+        (docs / "design.md").write_text(
+            "# Search Quality\n\n"
+            "Use reciprocal rank fusion to merge ranked lists.\n\n"
+            "# Other\n\n"
+            "Unrelated text.\n",
+            encoding="utf-8",
+        )
+        self.store.set_metadata("repo_root", str(tmp_path))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="DocSection",
+                name="search-quality",
+                file_path="docs/design.md",
+                line_start=1,
+                line_end=1,
+                language="markdown",
+                extra={"display_name": "Search Quality"},
+            ),
+            file_hash="abc123",
+        )
+        self.store.commit()
+        rebuild_fts_index(self.store)
+
+        results = hybrid_search(self.store, "reciprocal rank fusion")["results"]
+        assert results
+        assert results[0]["qualified_name"] == "docs/design.md::search-quality"
+
     # --- Kind boosting ---
 
     def test_kind_boost_pascal_case(self):

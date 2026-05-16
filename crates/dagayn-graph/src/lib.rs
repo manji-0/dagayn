@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::types::Value as SqlValue;
@@ -9,7 +9,7 @@ use serde_json::value::RawValue;
 use serde_json::{json, Value};
 use thiserror::Error;
 
-const LATEST_VERSION: i64 = 11;
+const LATEST_VERSION: i64 = 13;
 const MAX_INSERT_PARAMS: usize = 30_000;
 const NODE_INSERT_PARAM_COUNT: usize = 16;
 const EDGE_INSERT_PARAM_COUNT: usize = 9;
@@ -393,18 +393,97 @@ impl GraphStore {
     }
 
     pub fn rebuild_fts_index(&mut self) -> Result<i64> {
+        let repo_root = self.get_metadata("repo_root")?.map(PathBuf::from);
         let tx = self.conn.transaction()?;
         tx.execute_batch(
             r#"
             DROP TABLE IF EXISTS nodes_fts;
             CREATE VIRTUAL TABLE nodes_fts USING fts5(
-                name, qualified_name, file_path, signature,
-                content='nodes', content_rowid='rowid',
+                name, qualified_name, file_path, signature, identifier_tokens, doc_text,
                 tokenize='porter unicode61'
             );
-            INSERT INTO nodes_fts(nodes_fts) VALUES('rebuild');
             "#,
         )?;
+        let fts_rows = {
+            let mut stmt = tx.prepare(
+                "SELECT rowid AS node_rowid, kind, name, qualified_name, file_path, line_start, line_end, \
+                 signature, extra FROM nodes",
+            )?;
+            let mapped = stmt.query_map([], |row| {
+                let rowid: i64 = row.get("node_rowid")?;
+                let kind: String = row.get("kind")?;
+                let name: String = row.get("name")?;
+                let qualified_name: String = row.get("qualified_name")?;
+                let file_path: String = row.get("file_path")?;
+                let line_start: Option<i64> = row.get("line_start")?;
+                let line_end: Option<i64> = row.get("line_end")?;
+                let signature: Option<String> = row.get("signature")?;
+                let extra_raw: Option<String> = row.get("extra")?;
+                Ok((
+                    rowid,
+                    kind,
+                    name,
+                    qualified_name,
+                    file_path,
+                    line_start,
+                    line_end,
+                    signature,
+                    extra_raw,
+                ))
+            })?;
+            let mut collected = Vec::new();
+            for row in mapped {
+                collected.push(row?);
+            }
+            collected
+        };
+        {
+            let mut insert = tx.prepare(
+                "INSERT INTO nodes_fts(rowid, name, qualified_name, file_path, signature, \
+                 identifier_tokens, doc_text) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            )?;
+            for (
+                rowid,
+                kind,
+                name,
+                qualified_name,
+                file_path,
+                line_start,
+                line_end,
+                signature,
+                extra_raw,
+            ) in fts_rows
+            {
+                let extra = parse_json_column(extra_raw)?;
+                let display_name = extra
+                    .get("display_name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                let identifier_tokens =
+                    identifier_search_text([&name, &qualified_name, &file_path, display_name]);
+                let source_excerpt = read_node_source_excerpt(
+                    repo_root.as_deref(),
+                    &kind,
+                    &file_path,
+                    line_start,
+                    line_end,
+                );
+                let doc_text = [display_name, source_excerpt.as_str()]
+                    .into_iter()
+                    .filter(|part| !part.is_empty())
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                insert.execute(params![
+                    rowid,
+                    name,
+                    qualified_name,
+                    file_path,
+                    signature.unwrap_or_default(),
+                    identifier_tokens,
+                    doc_text
+                ])?;
+            }
+        }
         let count = tx.query_row("SELECT count(*) FROM nodes_fts", [], |row| row.get(0))?;
         tx.commit()?;
         Ok(count)
@@ -2771,6 +2850,8 @@ impl GraphStore {
                 9 => self.migrate_v9()?,
                 10 => self.migrate_v10()?,
                 11 => self.migrate_v11()?,
+                12 => self.migrate_v12()?,
+                13 => self.migrate_v13()?,
                 _ => {}
             }
             self.set_metadata("schema_version", &version.to_string())?;
@@ -2850,8 +2931,7 @@ impl GraphStore {
             self.conn.execute(
                 r#"
                 CREATE VIRTUAL TABLE nodes_fts USING fts5(
-                    name, qualified_name, file_path, signature,
-                    content='nodes', content_rowid='rowid',
+                    name, qualified_name, file_path, signature, identifier_tokens, doc_text,
                     tokenize='porter unicode61'
                 )
                 "#,
@@ -2952,6 +3032,29 @@ impl GraphStore {
                 [],
             )?;
         }
+        Ok(())
+    }
+
+    fn migrate_v12(&self) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM edges WHERE kind='CROSS_ARTIFACT'", [])?;
+        Ok(())
+    }
+
+    fn migrate_v13(&self) -> Result<()> {
+        self.conn.execute_batch(
+            r#"
+            DROP TABLE IF EXISTS nodes_fts;
+            CREATE VIRTUAL TABLE nodes_fts USING fts5(
+                name, qualified_name, file_path, signature, identifier_tokens, doc_text,
+                tokenize='porter unicode61'
+            );
+            INSERT INTO nodes_fts(rowid, name, qualified_name, file_path, signature,
+                                  identifier_tokens, doc_text)
+            SELECT rowid, name, qualified_name, file_path, COALESCE(signature, ''), '', ''
+            FROM nodes;
+            "#,
+        )?;
         Ok(())
     }
 
@@ -3567,6 +3670,109 @@ fn parse_json_column(raw: Option<String>) -> serde_json::Result<Value> {
     match raw {
         Some(raw) if !raw.is_empty() => serde_json::from_str(&raw),
         _ => Ok(Value::Object(Default::default())),
+    }
+}
+
+fn identifier_search_text<'a>(values: impl IntoIterator<Item = &'a str>) -> String {
+    let mut tokens = Vec::new();
+    for value in values {
+        let mut chunk = String::new();
+        for ch in value.chars() {
+            if ch.is_ascii_alphanumeric() {
+                chunk.push(ch);
+            } else if !chunk.is_empty() {
+                push_identifier_parts(&chunk, &mut tokens);
+                chunk.clear();
+            }
+        }
+        if !chunk.is_empty() {
+            push_identifier_parts(&chunk, &mut tokens);
+        }
+    }
+    tokens.join(" ")
+}
+
+fn push_identifier_parts(chunk: &str, tokens: &mut Vec<String>) {
+    let chars = chunk.chars().collect::<Vec<_>>();
+    let mut start = 0;
+    for idx in 1..chars.len() {
+        let prev = chars[idx - 1];
+        let current = chars[idx];
+        let next = chars.get(idx + 1).copied();
+        let lower_to_upper =
+            (prev.is_ascii_lowercase() || prev.is_ascii_digit()) && current.is_ascii_uppercase();
+        let acronym_boundary = prev.is_ascii_uppercase()
+            && current.is_ascii_uppercase()
+            && next.is_some_and(|ch| ch.is_ascii_lowercase());
+        if lower_to_upper || acronym_boundary {
+            tokens.push(
+                chars[start..idx]
+                    .iter()
+                    .collect::<String>()
+                    .to_ascii_lowercase(),
+            );
+            start = idx;
+        }
+    }
+    if start < chars.len() {
+        tokens.push(
+            chars[start..]
+                .iter()
+                .collect::<String>()
+                .to_ascii_lowercase(),
+        );
+    }
+}
+
+fn read_node_source_excerpt(
+    repo_root: Option<&Path>,
+    kind: &str,
+    file_path: &str,
+    line_start: Option<i64>,
+    line_end: Option<i64>,
+) -> String {
+    let mut path = PathBuf::from(file_path);
+    if !path.is_absolute() {
+        let Some(root) = repo_root else {
+            return String::new();
+        };
+        path = root.join(path);
+    }
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return String::new();
+    };
+    let lines = text.lines().collect::<Vec<_>>();
+    if lines.is_empty() {
+        return String::new();
+    }
+    let start = line_start.unwrap_or(1).saturating_sub(1).max(0) as usize;
+    let mut end = line_end
+        .unwrap_or(line_start.unwrap_or(1))
+        .max(line_start.unwrap_or(1)) as usize;
+    let start = start.min(lines.len().saturating_sub(1));
+    end = end.min(lines.len());
+    if kind == "DocSection" {
+        let level = markdown_heading_level(lines[start]);
+        end = lines.len();
+        for (idx, line) in lines.iter().enumerate().skip(start + 1) {
+            if let Some(candidate_level) = markdown_heading_level(line) {
+                if level.map_or(true, |current_level| candidate_level <= current_level) {
+                    end = idx;
+                    break;
+                }
+            }
+        }
+    }
+    lines[start..end].join("\n").chars().take(4096).collect()
+}
+
+fn markdown_heading_level(line: &str) -> Option<usize> {
+    let trimmed = line.trim_start();
+    let level = trimmed.chars().take_while(|ch| *ch == '#').count();
+    if (1..=6).contains(&level) && trimmed.chars().nth(level).is_some_and(|ch| ch == ' ') {
+        Some(level)
+    } else {
+        None
     }
 }
 

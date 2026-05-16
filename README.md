@@ -308,7 +308,9 @@ The graph is stored locally under `.dagayn/` by default. No external database is
 
 ## Semantic search and embeddings
 
-`semantic_search_nodes` runs FTS5 BM25 and vector cosine similarity **in parallel**, then merges both ranked lists via Reciprocal Rank Fusion (RRF). When embeddings are not yet present only the FTS5 arm contributes; when both are available you get hybrid results automatically — no configuration change required.
+<!-- derived-from ./docs/ARCHITECTURE.md#hybrid-search -->
+
+`semantic_search_nodes` runs FTS5 BM25 and vector cosine similarity **in parallel**, then merges both ranked lists via Reciprocal Rank Fusion (RRF). When embeddings are not yet present only the FTS5 arm contributes; when both are available you get hybrid results automatically — no configuration change required. The FTS index includes generated identifier tokens (so `LocalEmbeddingProvider` also matches `local embedding provider`) plus bounded source/document text such as docstrings and Markdown section bodies.
 
 A `search_mode` field in the response reports which arms contributed: `"hybrid"` (both), `"fts_only"`, `"embedding_only"`, or `"keyword_fallback"` (LIKE substring, triggered only when the FTS5 index does not exist). Search results are further ranked by a query-aware kind boost (PascalCase → classes, snake_case → functions) and an optional context-file boost for nodes in files you are currently editing.
 

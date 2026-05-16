@@ -979,15 +979,21 @@ class GraphStore:
         Returns [] when the FTS index is unavailable.
         """
         segments = [seg for seg in re.split(r"[./:\s]+", query) if seg]
-        if len(segments) > 1:
-            safe_query = " AND ".join('"' + seg.replace('"', '""') + '"' for seg in segments)
+        quoted_segments = ['"' + seg.replace('"', '""') + '"' for seg in segments]
+        if len(quoted_segments) > 1:
+            safe_query = " AND ".join(quoted_segments)
+            fallback_query = " OR ".join(quoted_segments)
         else:
             safe_query = '"' + query.replace('"', '""') + '"'
+            fallback_query = safe_query
+        sql = (
+            "SELECT rowid, bm25(nodes_fts, 8.0, 6.0, 3.0, 4.0, 5.0, 1.0) AS score "
+            "FROM nodes_fts WHERE nodes_fts MATCH ? ORDER BY score LIMIT ?"
+        )
         try:
-            rows = self._conn.execute(
-                "SELECT rowid, rank FROM nodes_fts WHERE nodes_fts MATCH ? ORDER BY rank LIMIT ?",
-                (safe_query, limit),
-            ).fetchall()
+            rows = self._conn.execute(sql, (safe_query, limit)).fetchall()
+            if not rows and fallback_query != safe_query:
+                rows = self._conn.execute(sql, (fallback_query, limit)).fetchall()
             # FTS5 rank is negative BM25 (lower = better), negate for consistency
             return [(row[0], -row[1]) for row in rows]
         except sqlite3.OperationalError as e:

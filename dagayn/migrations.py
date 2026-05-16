@@ -148,8 +148,7 @@ def _migrate_v5(conn: sqlite3.Connection) -> None:
     if not _table_exists(conn, "nodes_fts"):
         conn.execute("""
             CREATE VIRTUAL TABLE nodes_fts USING fts5(
-                name, qualified_name, file_path, signature,
-                content='nodes', content_rowid='rowid',
+                name, qualified_name, file_path, signature, identifier_tokens, doc_text,
                 tokenize='porter unicode61'
             )
         """)
@@ -272,6 +271,30 @@ def _migrate_v12(conn: sqlite3.Connection) -> None:
     logger.info("Migration v12: removed %d stale CROSS_ARTIFACT edges", count)
 
 
+def _migrate_v13(conn: sqlite3.Connection) -> None:
+    """v13: Recreate the FTS table with generated search-text columns.
+
+    The rebuild step populates ``identifier_tokens`` and ``doc_text`` from
+    node metadata and source spans, so the FTS table can no longer be an
+    external-content mirror of the ``nodes`` table.
+    """
+    if _table_exists(conn, "nodes_fts"):
+        conn.execute("DROP TABLE nodes_fts")
+    conn.execute("""
+        CREATE VIRTUAL TABLE nodes_fts USING fts5(
+            name, qualified_name, file_path, signature, identifier_tokens, doc_text,
+            tokenize='porter unicode61'
+        )
+    """)
+    conn.execute("""
+        INSERT INTO nodes_fts(rowid, name, qualified_name, file_path, signature,
+                              identifier_tokens, doc_text)
+        SELECT rowid, name, qualified_name, file_path, COALESCE(signature, ''), '', ''
+        FROM nodes
+    """)
+    logger.info("Migration v13: recreated nodes_fts with generated search-text columns")
+
+
 # ---------------------------------------------------------------------------
 # Migration registry
 # ---------------------------------------------------------------------------
@@ -288,6 +311,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     10: _migrate_v10,
     11: _migrate_v11,
     12: _migrate_v12,
+    13: _migrate_v13,
 }
 
 LATEST_VERSION = max(MIGRATIONS.keys())
