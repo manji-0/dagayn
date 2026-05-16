@@ -2,12 +2,15 @@
 
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
 from dagayn.graph import GraphStore
 from dagayn.parser import NodeInfo
 from dagayn.search import (
     _extract_identifiers,
+    _intent_boost,
     _qualified_name_matches,
+    _query_tokens,
     detect_query_kind_boost,
     hybrid_search,
     rebuild_fts_index,
@@ -729,3 +732,48 @@ class TestTestDeboost:
         results = hybrid_search(self.store, "test_compute_blast_radius")["results"]
         names = [r["name"] for r in results]
         assert "test_compute_blast_radius" in names
+
+
+# ---------------------------------------------------------------------------
+# Intent reranking
+# ---------------------------------------------------------------------------
+
+
+class TestIntentReranking:
+    def test_code_intent_prefers_code_over_markdown(self):
+        tokens = _query_tokens("find the implementation that combines ranked search results")
+        function = SimpleNamespace(
+            kind="Function",
+            name="hybrid_search",
+            file_path="dagayn/search.py",
+            is_test=False,
+        )
+        doc = SimpleNamespace(
+            kind="DocSection",
+            name="hybrid-search",
+            file_path="README.md",
+            is_test=False,
+        )
+
+        assert _intent_boost(tokens, function, None, None, hybrid_mode=True) > _intent_boost(
+            tokens, doc, None, None, hybrid_mode=True
+        )
+
+    def test_documentation_intent_prefers_docsection(self):
+        tokens = _query_tokens("documentation section for starting the mcp server")
+        function = SimpleNamespace(
+            kind="Function",
+            name="start_server",
+            file_path="dagayn/main.py",
+            is_test=False,
+        )
+        doc = SimpleNamespace(
+            kind="DocSection",
+            name="start-the-mcp-server",
+            file_path="docs/USAGE.md",
+            is_test=False,
+        )
+
+        assert _intent_boost(tokens, doc, None, None, hybrid_mode=True) > _intent_boost(
+            tokens, function, None, None, hybrid_mode=True
+        )

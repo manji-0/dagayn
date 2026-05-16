@@ -275,6 +275,40 @@ _QUERY_STOPWORDS = frozenset(
 # by name still surface the test itself.
 _TEST_DEBOOST = 0.6
 
+_CODE_INTENT_TERMS = frozenset(
+    {
+        "code",
+        "function",
+        "implementation",
+        "implements",
+        "logic",
+        "helper",
+        "wrapper",
+        "path",
+        "handler",
+        "method",
+        "class",
+        "rust",
+        "python",
+        "typescript",
+        "test",
+        "tests",
+    }
+)
+
+_DOC_INTENT_TERMS = frozenset(
+    {
+        "documentation",
+        "readme",
+        "usage",
+        "guide",
+        "section",
+        "instructions",
+    }
+)
+
+_TOKEN_RE = re.compile(r"[A-Za-z0-9_]+")
+
 
 def _extract_identifiers(query: str) -> list[str]:
     """Pull identifier-shaped tokens (snake_case / camelCase / PascalCase) out of
@@ -299,6 +333,79 @@ def _extract_identifiers(query: str) -> list[str]:
         seen.add(c)
         out.append(c)
     return out
+
+
+def _query_tokens(query: str) -> set[str]:
+    return {t.lower() for t in _TOKEN_RE.findall(query)}
+
+
+def _is_markdown_node(node: Any) -> bool:
+    return node.kind == "DocSection" or str(node.file_path).lower().endswith(".md")
+
+
+def _split_identifier_terms(value: str) -> set[str]:
+    return {
+        part.lower()
+        for part in _IDENT_BOUNDARY_RE.sub(" ", value.replace("_", " ")).split()
+        if part
+    }
+
+
+def _intent_boost(
+    query_tokens: set[str],
+    node: Any,
+    fts_rank: int | None,
+    emb_rank: int | None,
+    *,
+    hybrid_mode: bool,
+) -> float:
+    """Return a small reranking multiplier from query intent and arm ranks.
+
+    RRF is intentionally broad: it is good at recall, but long natural-language
+    queries often put nearby docs/tests/wrappers ahead of the specific code
+    artifact the user asked for.  This boost keeps the ranking explainable:
+    exact FTS evidence still matters, semantic-only hits still surface, and
+    docs are favored only when the query asks for docs.
+    """
+    if not hybrid_mode:
+        return 1.0
+
+    boost = 1.0
+    code_intent = bool(query_tokens & _CODE_INTENT_TERMS)
+    doc_intent = bool(query_tokens & _DOC_INTENT_TERMS)
+    test_intent = bool(query_tokens & {"test", "tests", "coverage", "proves"})
+    markdown_node = _is_markdown_node(node)
+
+    if fts_rank is not None and fts_rank <= 3:
+        boost *= 1.25
+    if fts_rank == 1:
+        boost *= 1.15
+    if emb_rank == 1:
+        boost *= 1.30
+    if fts_rank is not None and emb_rank is not None:
+        boost *= 1.15
+
+    if code_intent and not doc_intent:
+        if markdown_node:
+            boost *= 0.45
+        elif node.kind in {"Function", "Class", "Type", "Test"}:
+            boost *= 1.18
+
+    if doc_intent:
+        if node.kind == "DocSection":
+            boost *= 1.35
+        elif markdown_node:
+            boost *= 1.15
+
+    if test_intent:
+        if bool(getattr(node, "is_test", False)) or str(node.file_path).startswith("tests/"):
+            boost *= 1.55
+
+    name_terms = _split_identifier_terms(str(node.name))
+    if name_terms and name_terms.issubset(query_tokens):
+        boost *= 1.70 if node.kind in {"Function", "Class", "Type", "Test"} else 1.30
+
+    return boost
 
 
 def _qualified_name_matches(query: str, qualified_name: str) -> bool:
@@ -533,10 +640,18 @@ def hybrid_search(
     # Track per-arm node sets for per-result source tagging
     fts_ids: set[int] = {nid for nid, _ in fts_results}
     emb_ids: set[int] = {nid for nid, _ in emb_results}
+    fts_rank_by_id: dict[int, int] = {}
+    emb_rank_by_id: dict[int, int] = {}
+    for rank, (nid, _score) in enumerate(fts_results, start=1):
+        fts_rank_by_id.setdefault(nid, rank)
+    for rank, (nid, _score) in enumerate(emb_results, start=1):
+        emb_rank_by_id.setdefault(nid, rank)
 
     # ------ Phase 3+4: Batch-fetch nodes, apply boosting and kind filter ------
     kind_boosts = detect_query_kind_boost(query)
     context_set = set(context_files) if context_files else set()
+    query_tokens = _query_tokens(query)
+    hybrid_mode = bool(fts_results and emb_results)
 
     candidate_ids = [node_id for node_id, _ in merged]
     node_map = store.get_nodes_by_ids(candidate_ids)
@@ -556,12 +671,20 @@ def hybrid_search(
                 boost *= kind_boosts["_qualified"]
         if context_set and node.file_path in context_set:
             boost *= 1.5
+        boost *= _intent_boost(
+            query_tokens,
+            node,
+            fts_rank_by_id.get(node_id),
+            emb_rank_by_id.get(node_id),
+            hybrid_mode=hybrid_mode,
+        )
         if node.is_test:
             # Tests whose names/docstrings mirror the function under test
             # cluster next to that function in embedding space and crowd
             # out the source — deboost so the source wins on semantic
             # queries.  Tests are still returned (not filtered).
-            boost *= _TEST_DEBOOST
+            if not (query_tokens & {"test", "tests", "coverage", "proves"}):
+                boost *= _TEST_DEBOOST
 
         boosted.append((node_id, score * boost))
 

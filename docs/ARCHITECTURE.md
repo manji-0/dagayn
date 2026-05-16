@@ -47,7 +47,8 @@ The RRF constant is 10 (rather than the textbook 60) so the resulting `score` fi
 Results are post-processed with:
 - **Kind boost** — query heuristic: PascalCase → 1.5× for classes/types; snake_case → 1.5× for functions; dotted path → 2.0× for qualified names.
 - **Context-file boost** — 1.5× for nodes in files passed as `context_files`.
-- **Test deboost** — 0.6× for nodes detected as test code (`is_test=True`). Tests cluster textually next to the functions they exercise and would otherwise crowd out the source on semantic queries. Tests remain visible (deboost, not filter) so a query targeting a test by name still surfaces it.
+- **Intent rerank** — long natural-language queries are classified with lightweight token heuristics. Implementation/code/test queries favor code artifacts and deboost Markdown unless the query explicitly asks for documentation; documentation queries favor Markdown sections; top-ranked FTS or embedding hits get a small confidence boost so a strong single-arm signal is not lost in RRF.
+- **Test deboost** — 0.6× for nodes detected as test code (`is_test=True`). Tests cluster textually next to the functions they exercise and would otherwise crowd out the source on semantic queries. Tests remain visible (deboost, not filter) and the deboost is skipped for explicit test/coverage queries.
 
 Fallback chain: hybrid → FTS-only (no embeddings) → embedding-only (FTS index corrupt) → LIKE keyword (FTS index absent).
 
