@@ -177,7 +177,7 @@ class TestEmbeddingStore:
 
         class FakeProvider:
             name = "fake"
-            preferred_batch_size = 2
+            preferred_batch_size = 1
 
             def __init__(self):
                 self.calls = 0
@@ -199,8 +199,71 @@ class TestEmbeddingStore:
         nodes = [self._make_node(f"func_{i}", i + 1) for i in range(3)]
         with patch("dagayn.embeddings.get_provider", return_value=provider):
             store = EmbeddingStore(db)
-            with pytest.raises(RuntimeError, match=r"Embedding batch 2/2 failed"):
+            with pytest.raises(RuntimeError, match=r"Embedding batch 2/3 failed"):
                 store.embed_nodes(nodes)
+            assert store.count() == 1
+            store.close()
+
+    def test_embed_nodes_isolates_failed_nodes_after_batch_failure(self, tmp_path):
+        db = tmp_path / "embeddings.db"
+
+        class FakeProvider:
+            name = "fake"
+            preferred_batch_size = 3
+
+            def embed(self, texts):
+                if len(texts) > 1:
+                    raise TimeoutError("batch timed out")
+                if "bad" in texts[0]:
+                    raise TimeoutError("single node timed out")
+                return [[1.0]]
+
+            def embed_query(self, text):
+                return [1.0]
+
+            @property
+            def dimension(self):
+                return 1
+
+        nodes = [
+            self._make_node("good_a", 1),
+            self._make_node("bad_node", 2),
+            self._make_node("good_b", 3),
+        ]
+        with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
+            store = EmbeddingStore(db)
+            with pytest.raises(RuntimeError) as exc_info:
+                store.embed_nodes(nodes)
+            message = str(exc_info.value)
+            assert "failed as a batch" in message
+            assert "file.py::bad_node" in message
+            assert "single node timed out" in message
+            assert store.count() == 2
+            store.close()
+
+    def test_embed_nodes_recovers_when_batch_fails_but_individual_nodes_succeed(self, tmp_path):
+        db = tmp_path / "embeddings.db"
+
+        class FakeProvider:
+            name = "fake"
+            preferred_batch_size = 2
+
+            def embed(self, texts):
+                if len(texts) > 1:
+                    raise TimeoutError("batch timed out")
+                return [[1.0]]
+
+            def embed_query(self, text):
+                return [1.0]
+
+            @property
+            def dimension(self):
+                return 1
+
+        nodes = [self._make_node("a", 1), self._make_node("b", 2)]
+        with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
+            store = EmbeddingStore(db)
+            assert store.embed_nodes(nodes) == 2
             assert store.count() == 2
             store.close()
 

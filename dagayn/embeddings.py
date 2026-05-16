@@ -38,6 +38,8 @@ from .graph import GraphNode, GraphStore
 
 logger = logging.getLogger(__name__)
 
+_DEFAULT_SLOW_EMBED_BATCH_SECONDS = 10.0
+
 # ---------------------------------------------------------------------------
 # Provider Interface and Implementations
 # ---------------------------------------------------------------------------
@@ -770,6 +772,16 @@ def _node_to_text(node: GraphNode) -> str:
     return " ".join(parts)
 
 
+def _slow_embed_batch_seconds() -> float:
+    raw = os.environ.get("CRG_EMBEDDING_SLOW_BATCH_SECONDS")
+    if raw is None:
+        return _DEFAULT_SLOW_EMBED_BATCH_SECONDS
+    try:
+        return max(0.0, float(raw))
+    except ValueError:
+        return _DEFAULT_SLOW_EMBED_BATCH_SECONDS
+
+
 @functools.lru_cache(maxsize=256)
 def _embed_query_cached(provider: "EmbeddingProvider", query: str) -> list[float]:
     """Cache embed_query results keyed on (provider, query_text).
@@ -876,15 +888,30 @@ class EmbeddingStore:
         use_progress = show_progress and sys.stderr.isatty()
         start_time = time.monotonic()
         embedded = 0
+        slow_batch_seconds = _slow_embed_batch_seconds()
 
         for i in range(0, total, api_batch):
             batch = to_embed[i : i + api_batch]
             batch_texts = [t for _, t, _ in batch]
             batch_number = (i // api_batch) + 1
             batch_total = (total + api_batch - 1) // api_batch
+            batch_started = time.monotonic()
             try:
                 vectors = self.provider.embed(batch_texts)
             except Exception as e:
+                if len(batch) > 1:
+                    embedded += self._embed_nodes_individually_after_batch_failure(
+                        batch,
+                        provider_name=provider_name,
+                        batch_number=batch_number,
+                        batch_total=batch_total,
+                        original_error=e,
+                    )
+                    if use_progress:
+                        done = min(i + api_batch, total)
+                        elapsed = time.monotonic() - start_time
+                        _draw_embed_progress(done, total, elapsed, end=(done >= total))
+                    continue
                 first_qn = batch[0][0].qualified_name if batch else "<empty>"
                 raise RuntimeError(
                     "Embedding batch "
@@ -897,6 +924,17 @@ class EmbeddingStore:
                     "Embedding batch "
                     f"{batch_number}/{batch_total} returned {len(vectors)} vector(s) "
                     f"for {len(batch)} node(s), first={first_qn!r}."
+                )
+            elapsed_batch = time.monotonic() - batch_started
+            if slow_batch_seconds and elapsed_batch >= slow_batch_seconds:
+                logger.warning(
+                    "Embedding batch %d/%d took %.1fs (%d node(s), first=%r, last=%r)",
+                    batch_number,
+                    batch_total,
+                    elapsed_batch,
+                    len(batch),
+                    batch[0][0].qualified_name,
+                    batch[-1][0].qualified_name,
                 )
             self._conn.executemany(
                 """INSERT OR REPLACE INTO embeddings (qualified_name, vector, text_hash, provider)
@@ -913,6 +951,60 @@ class EmbeddingStore:
                 elapsed = time.monotonic() - start_time
                 _draw_embed_progress(done, total, elapsed, end=(done >= total))
 
+        return embedded
+
+    def _embed_nodes_individually_after_batch_failure(
+        self,
+        batch: list[tuple[GraphNode, str, str]],
+        *,
+        provider_name: str,
+        batch_number: int,
+        batch_total: int,
+        original_error: Exception,
+    ) -> int:
+        """Retry a failed provider batch one node at a time to isolate bad inputs."""
+        embedded = 0
+        failures: list[tuple[str, str]] = []
+        for node, text, text_hash in batch:
+            try:
+                vectors = self.provider.embed([text]) if self.provider else []
+            except Exception as e:
+                failures.append((node.qualified_name, str(e)))
+                continue
+            if len(vectors) != 1:
+                failures.append(
+                    (
+                        node.qualified_name,
+                        f"returned {len(vectors)} vector(s) for one node",
+                    )
+                )
+                continue
+            self._conn.execute(
+                """INSERT OR REPLACE INTO embeddings (qualified_name, vector, text_hash, provider)
+                   VALUES (?, ?, ?, ?)""",
+                (node.qualified_name, _encode_vector(vectors[0]), text_hash, provider_name),
+            )
+            self._conn.commit()
+            embedded += 1
+
+        if failures:
+            sample = "; ".join(f"{qn}: {err}" for qn, err in failures[:5])
+            more = "" if len(failures) <= 5 else f"; ... +{len(failures) - 5} more"
+            raise RuntimeError(
+                "Embedding batch "
+                f"{batch_number}/{batch_total} failed as a batch "
+                f"({len(batch)} node(s)): {original_error}. "
+                f"Isolated {len(failures)} failing node(s): {sample}{more}"
+            ) from original_error
+
+        logger.warning(
+            "Embedding batch %d/%d failed as a batch but all %d node(s) succeeded "
+            "when retried individually: %s",
+            batch_number,
+            batch_total,
+            len(batch),
+            original_error,
+        )
         return embedded
 
     def search(self, query: str, limit: int = 20) -> list[tuple[str, float]]:
