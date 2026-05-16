@@ -66,3 +66,16 @@ Perform a focused, token-efficient code review of only the changed code and its 
 - Treat missing tests as a lead until `tests_for` and source-level behavior are
   checked.
 - If a graph result is truncated, narrow it before making a final review claim.
+
+## CLI Fallback
+
+Use MCP tools first. If the current MCP server profile does not expose a review
+drill-down tool, run the same implementation through the CLI without restarting
+the agent:
+
+```bash
+dagayn tool detect_changes_tool --arg detail_level='"minimal"'
+dagayn tool get_review_context_tool --arg detail_level='"minimal"'
+dagayn tool get_impact_radius_tool --arg detail_level='"minimal"'
+dagayn tool query_graph_tool --arg pattern='"tests_for"' --arg target='"src/app.py::handler"'
+```

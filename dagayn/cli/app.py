@@ -33,6 +33,7 @@ _BUILD_COMMANDS = frozenset(
         "detect-sap",
     }
 )
+_TOOL_COMMANDS = frozenset({"tool"})
 
 
 def _command_module(name: str):
@@ -51,6 +52,7 @@ def main() -> None:
     daemon = _command_module("daemon")
     eval_cmd = _command_module("eval_cmd")
     profile = _command_module("profile")
+    tool = _command_module("tool")
 
     ap = argparse.ArgumentParser(
         prog="dagayn",
@@ -69,6 +71,7 @@ def main() -> None:
     daemon_parser = daemon.register_command(sub)
     eval_cmd.register_command(sub)
     profile.register_command(sub)
+    tool.register_command(sub)
 
     args = ap.parse_args()
 
@@ -100,3 +103,5 @@ def main() -> None:
         rc = profile.handle(args)
         if rc:
             sys.exit(rc)
+    elif args.command in _TOOL_COMMANDS:
+        tool.handle(args)

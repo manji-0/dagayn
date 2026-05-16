@@ -29,6 +29,18 @@ Use the knowledge graph to systematically trace and debug issues.
 - Do not infer root cause from graph centrality alone; require an observed
   failing path, changed behavior, or source-level defect.
 
+## CLI Fallback
+
+Use MCP tools first. If the current MCP server profile does not expose a tool
+such as `get_flow_tool` or `get_impact_radius_tool`, run the same implementation
+through the CLI without restarting the agent:
+
+```bash
+dagayn tool get_minimal_context_tool --arg 'task="debug login timeout"'
+dagayn tool get_flow_tool --arg 'flow_name="handle_request"'
+dagayn tool get_impact_radius_tool --arg 'changed_files=["src/auth.py"]'
+```
+
 ## Token Efficiency Rules
 - ALWAYS start with `get_minimal_context(task="<your task>")` before any other graph tool.
 - Use `detail_level="minimal"` on all calls. Only escalate to "standard" when minimal is insufficient.

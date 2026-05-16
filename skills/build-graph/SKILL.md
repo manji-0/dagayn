@@ -38,3 +38,14 @@ Build or incrementally update the persistent code knowledge graph for this repos
 - Supported languages evolve with the parser registry; check `README.md`
   "Supported languages and file types" rather than relying on this skill as the
   authoritative language list.
+
+## CLI Fallback
+
+Use MCP tools first. If the current MCP server profile does not expose a tool,
+run the same implementation through the CLI without restarting the agent:
+
+```bash
+dagayn tool list_graph_stats_tool
+dagayn tool build_or_update_graph_tool --arg full_rebuild=true
+dagayn tool run_postprocess_tool --arg fts=true
+```

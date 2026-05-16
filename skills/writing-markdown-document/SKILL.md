@@ -107,6 +107,19 @@ Add the wrap-up sections **last**, once the rest of the body is stable:
 
 Final check: `query_graph_tool(pattern="file_summary", target="<doc.md>")` should list every section. Done.
 
+## CLI Fallback
+
+Use MCP tools first. If the current MCP server profile does not expose a graph
+tool needed for Markdown authoring or verification, run the same implementation
+through the CLI without restarting the agent:
+
+```bash
+dagayn tool build_or_update_graph_tool
+dagayn tool query_graph_tool --arg pattern='"file_summary"' --arg target='"docs/design.md"'
+dagayn tool get_impact_radius_tool --arg 'changed_files=["docs/design.md"]' --arg detail_level='"minimal"'
+dagayn tool semantic_search_nodes_tool --arg query='"BridgeDetector"' --arg detail_level='"minimal"'
+```
+
 ## Token Efficiency Rules (graph exploration only)
 
 These bound the *graph-tool* spend; they don't apply to drafting prose or to the per-section verification loops which have their own budgets above.

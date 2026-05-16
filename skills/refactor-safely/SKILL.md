@@ -33,6 +33,18 @@ Use the knowledge graph to plan and execute refactoring with confidence.
 - Prefer suggestions with explicit counts, thresholds, callers, communities, and
   reason codes; narrow truncated output with `top_n` or follow-up graph queries.
 
+## CLI Fallback
+
+Use MCP tools first. If the current MCP server profile does not expose a
+refactor-only tool such as `apply_refactor_tool` or `find_large_functions_tool`,
+run the same implementation through the CLI without restarting the agent:
+
+```bash
+dagayn tool refactor_tool --arg mode='"suggest"' --arg limit=10
+dagayn tool refactor_tool --arg mode='"rename"' --arg old_name='"old_symbol"' --arg new_name='"new_symbol"'
+dagayn tool apply_refactor_tool --arg refactor_id='"refactor_123"' --arg dry_run=true
+```
+
 ## Token Efficiency Rules
 - ALWAYS start with `get_minimal_context(task="<your task>")` before any other graph tool.
 - Use `detail_level="minimal"` on all calls. Only escalate to "standard" when minimal is insufficient.

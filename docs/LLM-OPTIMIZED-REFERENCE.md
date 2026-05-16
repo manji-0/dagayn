@@ -42,11 +42,17 @@ Important CLI commands:
 - `dagayn watch`
 - `dagayn status`
 - `dagayn detect-changes`
+- `dagayn tool`
 - `dagayn visualize`
 - `dagayn serve`
 - `dagayn register` / `dagayn repos` / `dagayn daemon`
 
 `dagayn serve --tool-profile review|architecture|refactor|full` selects a named MCP tool surface. The default profile keeps ordinary agent use small; `full` restores the legacy all-tools surface. `--tools` is an exact allow-list.
+
+Tool profiles are fixed at MCP server startup. For profile-specific tools that
+are not exposed by the running server, use `dagayn tool <mcp-tool-name>` with
+`--arg KEY=VALUE` or `--json-args '{...}'` to invoke the same implementation
+from the CLI.
 
 `dagayn install --platform codex` also writes `~/.codex/hooks.json` and enables
 Codex hooks in `~/.codex/config.toml`, unless `--no-hooks` is used. Claude hooks

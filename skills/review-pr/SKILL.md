@@ -80,3 +80,16 @@ Perform a comprehensive code review of a pull request or branch diff using the k
   in source or tests before reporting them as findings.
 - Include `truncated`, `total`, approximation, or threshold metadata in the
   review when a tool's output is bounded.
+
+## CLI Fallback
+
+Use MCP tools first. If the current MCP server profile does not expose a PR
+review drill-down tool, run the same implementation through the CLI without
+restarting the agent:
+
+```bash
+dagayn tool detect_changes_tool --arg base='"main"' --arg detail_level='"minimal"'
+dagayn tool get_review_context_tool --arg base='"main"' --arg detail_level='"minimal"'
+dagayn tool get_impact_radius_tool --arg base='"main"' --arg detail_level='"minimal"'
+dagayn tool list_flows_tool --arg detail_level='"minimal"'
+```

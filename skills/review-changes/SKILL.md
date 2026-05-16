@@ -39,6 +39,19 @@ Provide findings grouped by risk level (high/medium/low) with:
 - Read exact source before reporting a behavioral bug; graph structure alone is
   not enough for a correctness finding.
 
+## CLI Fallback
+
+Use MCP tools first. If the current MCP server profile does not expose a review
+drill-down tool such as `get_affected_flows_tool` or `get_impact_radius_tool`,
+run the same implementation through the CLI without restarting the agent:
+
+```bash
+dagayn tool detect_changes_tool --arg detail_level='"minimal"'
+dagayn tool get_review_context_tool --arg detail_level='"minimal"'
+dagayn tool get_affected_flows_tool --arg 'changed_files=["src/app.py"]'
+dagayn tool get_impact_radius_tool --arg 'changed_files=["src/app.py"]' --arg detail_level='"minimal"'
+```
+
 ## Token Efficiency Rules
 - ALWAYS start with `get_minimal_context(task="<your task>")` before any other graph tool.
 - Use `detail_level="minimal"` on all calls. Only escalate to "standard" when minimal is insufficient.

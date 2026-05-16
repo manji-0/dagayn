@@ -64,6 +64,18 @@ Now read the file top-to-bottom:
 
 Stage 3 done when: you reach EOF, you've read every section, and your "surprises" list is captured. The list is the output of this skill — surface it back to the user along with a one-paragraph summary.
 
+## CLI Fallback
+
+Use MCP tools first. If the current MCP server profile does not expose a graph
+tool needed for document reading, run the same implementation through the CLI
+without restarting the agent:
+
+```bash
+dagayn tool list_graph_stats_tool
+dagayn tool query_graph_tool --arg pattern='"file_summary"' --arg target='"docs/adr.md"'
+dagayn tool get_impact_radius_tool --arg 'changed_files=["docs/adr.md"]' --arg detail_level='"minimal"'
+```
+
 ## Token Efficiency Rules
 
 - For ad-hoc graph exploration *outside* the per-stage calls listed above, start with `get_minimal_context_tool(task="<your task>")` first.

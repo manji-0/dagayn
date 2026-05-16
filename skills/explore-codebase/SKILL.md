@@ -31,6 +31,20 @@ Use the dagayn MCP tools to explore and understand the codebase.
 - Treat graph output as evidence: cite counts, thresholds, reason codes, and
   truncation flags when making architectural claims.
 
+## CLI Fallback
+
+Use MCP tools first. If the current MCP server profile does not expose a
+drill-down tool such as `list_flows_tool`, `list_communities_tool`, or
+`find_large_functions_tool`, run the same implementation through the CLI without
+restarting the agent:
+
+```bash
+dagayn tool get_architecture_overview_tool --arg detail_level='"minimal"'
+dagayn tool list_flows_tool --arg detail_level='"minimal"'
+dagayn tool list_communities_tool --arg detail_level='"minimal"'
+dagayn tool find_large_functions_tool --arg min_lines=80
+```
+
 ## Token Efficiency Rules
 - ALWAYS start with `get_minimal_context(task="<your task>")` before any other graph tool.
 - Use `detail_level="minimal"` on all calls. Only escalate to "standard" when minimal is insufficient.
