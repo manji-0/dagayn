@@ -319,19 +319,24 @@ class TestGenerateHooksConfig:
                 assert "hooks" in entry, f"{hook_type} entry missing 'hooks' array"
                 assert "command" not in entry, f"{hook_type} has bare 'command' outside hooks[]"
 
-    def test_repo_root_embedded_in_commands(self):
+    def test_repo_root_resolved_at_hook_runtime(self):
         config = generate_hooks_config(Path("/my/project"))
         post_cmd = config["hooks"]["PostToolUse"][0]["hooks"][0]["command"]
         session_cmd = config["hooks"]["SessionStart"][0]["hooks"][0]["command"]
-        assert "/my/project" in post_cmd
-        assert "/my/project" in session_cmd
-        assert 'git -C "/my/project"' in post_cmd
-        assert 'git -C "/my/project"' in session_cmd
+        assert "/my/project" not in post_cmd
+        assert "/my/project" not in session_cmd
+        assert "git -C" not in post_cmd
+        assert "git -C" not in session_cmd
+        assert 'repo="$(git rev-parse --show-toplevel 2>/dev/null)"' in post_cmd
+        assert 'repo="$(git rev-parse --show-toplevel 2>/dev/null)"' in session_cmd
+        assert '--repo "$repo"' in post_cmd
+        assert '--repo "$repo"' in session_cmd
 
     def test_quotes_repo_paths_with_spaces(self):
         config = generate_hooks_config(Path("/repo with spaces"))
         post_cmd = config["hooks"]["PostToolUse"][0]["hooks"][0]["command"]
-        assert '"' in post_cmd  # path is JSON-encoded so spaces are quoted
+        assert "/repo with spaces" not in post_cmd
+        assert '--repo "$repo"' in post_cmd
 
     def test_extra_update_args_are_added_to_update_hook(self):
         config = generate_hooks_config(
@@ -339,7 +344,7 @@ class TestGenerateHooksConfig:
             extra_update_args=["--local-embedding", "low"],
         )
         post_cmd = config["hooks"]["PostToolUse"][0]["hooks"][0]["command"]
-        assert "dagayn update --skip-flows --local-embedding low --repo" in post_cmd
+        assert 'dagayn update --skip-flows --local-embedding low --repo "$repo"' in post_cmd
 
     def test_entries_use_claude_code_hook_schema(self):
         """Regression guard for the Claude Code hook schema.

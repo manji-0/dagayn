@@ -487,10 +487,11 @@ def generate_hooks_config(
     ``hooks`` array. Timeouts are in seconds. ``PreCommit`` is not a valid
     Claude Code event — pre-commit checks are handled by ``install_git_hook``.
     """
-    repo_arg = json.dumps(repo_root.resolve().as_posix())
+    del repo_root  # Hooks are global; resolve the active repository at runtime.
     update_args = ""
     if extra_update_args:
         update_args = " " + " ".join(shlex.quote(arg) for arg in extra_update_args)
+    repo_expr = 'repo="$(git rev-parse --show-toplevel 2>/dev/null)"'
     return {
         "hooks": {
             "PostToolUse": [
@@ -500,10 +501,10 @@ def generate_hooks_config(
                         {
                             "type": "command",
                             "command": (
-                                f"git -C {repo_arg} rev-parse --git-dir >/dev/null 2>&1"
+                                f"{repo_expr}"
                                 f" && dagayn update --skip-flows"
                                 f"{update_args}"
-                                f" --repo {repo_arg}"
+                                ' --repo "$repo"'
                                 " || true"
                             ),
                             "timeout": 30,
@@ -518,8 +519,8 @@ def generate_hooks_config(
                         {
                             "type": "command",
                             "command": (
-                                f"git -C {repo_arg} rev-parse --git-dir >/dev/null 2>&1"
-                                f" && dagayn status --repo {repo_arg}"
+                                f"{repo_expr}"
+                                ' && dagayn status --repo "$repo"'
                                 " || echo 'Not a git repo, skipping'"
                             ),
                             "timeout": 10,
