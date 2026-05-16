@@ -15,6 +15,21 @@ import pytest
 
 from dagayn import main as crg_main
 
+SPLIT_ARCHITECTURE_TOOL_NAMES = {
+    "get_architecture_overview_tool",
+    "list_communities_tool",
+    "get_community_tool",
+    "get_hub_nodes_tool",
+    "get_bridge_nodes_tool",
+    "get_knowledge_gaps_tool",
+    "get_surprising_connections_tool",
+    "detect_adp_violations_tool",
+    "compute_sdp_metrics_tool",
+    "detect_sdp_violations_tool",
+    "compute_sap_metrics_tool",
+    "detect_sap_violations_tool",
+}
+
 
 def _tool_names() -> set[str]:
     import asyncio
@@ -391,11 +406,16 @@ class TestApplyToolFilter:
         assert after == set(crg_main.TOOL_PROFILES[crg_main.DEFAULT_TOOL_PROFILE])
 
     def test_full_profile_keeps_all_tools(self):
-        """The ``full`` profile preserves the legacy all-tools surface."""
+        """The ``full`` profile preserves all public registered tools."""
         before = _tool_names()
         crg_main._apply_tool_filter(tool_profile="full")
         after = _tool_names()
         assert after == before
+
+    def test_architecture_dispatcher_replaces_split_public_tools(self):
+        registered = _tool_names()
+        assert "architecture_analysis_tool" in registered
+        assert registered.isdisjoint(SPLIT_ARCHITECTURE_TOOL_NAMES)
 
     def test_profiles_reference_registered_tools(self):
         """Every bounded profile should reference registered MCP tool names."""
@@ -404,6 +424,13 @@ class TestApplyToolFilter:
             if profile_tools is None:
                 continue
             assert set(profile_tools) <= registered, profile
+
+    def test_profiles_use_architecture_dispatcher(self):
+        for profile, profile_tools in crg_main.TOOL_PROFILES.items():
+            if profile_tools is None:
+                continue
+            assert "architecture_analysis_tool" in profile_tools
+            assert set(profile_tools).isdisjoint(SPLIT_ARCHITECTURE_TOOL_NAMES)
 
     def test_filter_via_argument(self):
         """The ``tools`` argument keeps only the listed tools."""

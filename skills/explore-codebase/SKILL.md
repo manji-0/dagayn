@@ -11,10 +11,11 @@ Use the dagayn MCP tools to explore and understand the codebase.
 
 1. Run `get_minimal_context(task="<what you need to understand>")` to see graph
    freshness, risk, major communities, and suggested next tools.
-2. Run `get_architecture_overview` for high-level architecture questions. Read
-   `architecture_health` first; it summarizes coupling, hubs, bridges,
-   knowledge gaps, surprising connections, and ADP/SDP/SAP signals.
-   Use `list_communities` and `get_community` only for drill-down.
+2. Run `architecture_analysis_tool(mode="overview", detail_level="minimal")`
+   for high-level architecture questions. Read `architecture_health` first; it
+   summarizes coupling, hubs, bridges, knowledge gaps, surprising connections,
+   and ADP/SDP/SAP signals. Use the Architecture Analysis skill for mode
+   selection before drilling down.
 3. Use `semantic_search_nodes` to find specific functions or classes.
 4. Use `query_graph` with patterns like `callers_of`, `callees_of`, `imports_of`
    to trace relationships.
@@ -34,14 +35,14 @@ Use the dagayn MCP tools to explore and understand the codebase.
 ## CLI Fallback
 
 Use MCP tools first. If the current MCP server profile does not expose a
-drill-down tool such as `list_flows_tool`, `list_communities_tool`, or
+drill-down tool such as `list_flows_tool`, `architecture_analysis_tool`, or
 `find_large_functions_tool`, run the same implementation through the CLI without
 restarting the agent:
 
 ```bash
-dagayn tool get_architecture_overview_tool --arg detail_level='"minimal"'
 dagayn tool list_flows_tool --arg detail_level='"minimal"'
-dagayn tool list_communities_tool --arg detail_level='"minimal"'
+dagayn tool architecture_analysis_tool --arg mode='"overview"' --arg detail_level='"minimal"'
+dagayn tool architecture_analysis_tool --arg mode='"communities"'
 dagayn tool find_large_functions_tool --arg min_lines=80
 ```
 

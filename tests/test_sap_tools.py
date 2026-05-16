@@ -1,20 +1,9 @@
-from __future__ import annotations
-
-import inspect
-
-from dagayn import main as crg_main
 from dagayn.tools.sap_tools import detect_sap_violations_func
 
 
 class _DummyStore:
     def close(self) -> None:
         pass
-
-
-def test_detect_sap_wrapper_exposes_top_n() -> None:
-    params = inspect.signature(crg_main.detect_sap_violations_tool).parameters
-    assert "top_n" in params
-    assert params["top_n"].default == 30
 
 
 def test_detect_sap_violations_uses_compact_envelope(monkeypatch) -> None:

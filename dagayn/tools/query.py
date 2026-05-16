@@ -571,7 +571,7 @@ def list_graph_stats(repo_root: str | None = None) -> dict[str, Any]:
             last_updated=stats.last_updated,
             embeddings_count=emb_count,
             next_tool_suggestions=[
-                "list_communities_tool -- inspect the high-level code structure",
+                'architecture_analysis_tool mode="communities" -- inspect structure',
                 "list_flows_tool -- inspect critical execution paths",
                 "semantic_search_nodes_tool -- search for specific entities",
             ],

@@ -625,89 +625,55 @@ def get_affected_flows_tool(
 
 
 @mcp.tool()
-def list_communities_tool(
-    sort_by: str = "size",
+def architecture_analysis_tool(
+    mode: Literal[
+        "overview",
+        "communities",
+        "community",
+        "hubs",
+        "bridges",
+        "knowledge_gaps",
+        "surprising_connections",
+        "adp_violations",
+        "sdp_metrics",
+        "sdp_violations",
+        "sap_metrics",
+        "sap_violations",
+    ] = "overview",
+    detail_level: Literal["minimal", "standard", "verbose"] = "minimal",
+    top_n: int = 10,
+    sort_by: Literal["size", "cohesion", "name"] = "size",
     min_size: int = 0,
-    detail_level: str = "standard",
-    repo_root: Optional[str] = None,
-) -> dict:
-    """List detected code communities in the codebase.
-
-    Each community represents a cluster of related code entities (functions,
-    classes) detected via the Leiden algorithm or file-based grouping.
-    Use this to understand the high-level structure of the codebase.
-
-    Args:
-        sort_by: Sort column: size, cohesion, or name.
-        min_size: Minimum community size to include. Default: 0.
-        detail_level: "standard" (default) returns full community data;
-                      "minimal" returns only name, size, and cohesion
-                      per community.
-        repo_root: Repository root path. Auto-detected if omitted.
-    """
-    return _tool("list_communities_func")(
-        repo_root=_resolve_repo_root(repo_root),
-        sort_by=sort_by,
-        min_size=min_size,
-        detail_level=detail_level,
-    )
-
-
-@mcp.tool()
-def get_community_tool(
     community_name: Optional[str] = None,
     community_id: Optional[int] = None,
     include_members: bool = False,
+    granularity: Literal["file", "package"] = "package",
+    scope_kind: Literal["file", "package", "directory"] = "package",
+    unit_filter: Optional[list[str]] = None,
+    min_cycle_size: int = 2,
+    max_cycle_length: int = 10,
+    min_delta: float = 0.1,
+    min_distance: float = 0.5,
     repo_root: Optional[str] = None,
 ) -> dict:
-    """Get detailed information about a single code community.
-
-    Returns community metadata including size, cohesion, dominant language,
-    and member list. Optionally includes full node details for each member.
-
-    Provide either community_id (from list_communities_tool) or community_name
-    to search by name.
-
-    Args:
-        community_name: Name to search for (partial match). Ignored if community_id given.
-        community_id: Database ID of the community.
-        include_members: Include full member node details. Default: False.
-        repo_root: Repository root path. Auto-detected if omitted.
-    """
-    return _tool("get_community_func")(
+    """Run architecture analysis through a single mode-based dispatcher."""
+    return _tool("architecture_analysis_func")(
+        mode=mode,
+        detail_level=detail_level,
+        top_n=top_n,
+        sort_by=sort_by,
+        min_size=min_size,
         community_name=community_name,
         community_id=community_id,
         include_members=include_members,
+        granularity=granularity,
+        scope_kind=scope_kind,
+        unit_filter=unit_filter,
+        min_cycle_size=min_cycle_size,
+        max_cycle_length=max_cycle_length,
+        min_delta=min_delta,
+        min_distance=min_distance,
         repo_root=_resolve_repo_root(repo_root),
-    )
-
-
-@mcp.tool()
-def get_architecture_overview_tool(
-    repo_root: Optional[str] = None,
-    detail_level: str = "standard",
-    top_n: int = 20,
-) -> dict:
-    """Generate an architecture overview based on community structure.
-
-    Builds a high-level view of the codebase architecture by analyzing
-    community boundaries and cross-community coupling. Includes warnings
-    for high coupling between communities.
-
-    detail_level controls output verbosity:
-      "minimal"  — name/size/cohesion per community, top-5 coupling pairs, warnings only
-      "standard" — full community metadata (no member lists), top-N coupling pairs (default)
-      "verbose"  — includes member lists and raw per-edge cross_community_edges list
-
-    Args:
-        repo_root: Repository root path. Auto-detected if omitted.
-        detail_level: Output verbosity: "minimal", "standard" (default), or "verbose".
-        top_n: Maximum coupled pairs to include in standard mode. Default 20.
-    """
-    return _tool("get_architecture_overview_func")(
-        repo_root=_resolve_repo_root(repo_root),
-        detail_level=detail_level,
-        top_n=top_n,
     )
 
 
@@ -872,89 +838,6 @@ def get_wiki_page_tool(
 
 
 @mcp.tool()
-def get_hub_nodes_tool(
-    top_n: int = 10,
-    repo_root: Optional[str] = None,
-) -> dict:
-    """Find the most connected nodes in the codebase (architectural hotspots).
-
-    Hub nodes have the highest total degree (in + out edges). Changes to
-    them have disproportionate blast radius. Excludes File nodes.
-
-    Args:
-        top_n: Number of top hubs to return. Default: 10.
-        repo_root: Repository root path. Auto-detected if omitted.
-    """
-    return _tool("get_hub_nodes_func")(
-        repo_root=_resolve_repo_root(repo_root),
-        top_n=top_n,
-    )
-
-
-@mcp.tool()
-def get_bridge_nodes_tool(
-    top_n: int = 10,
-    repo_root: Optional[str] = None,
-) -> dict:
-    """Find architectural chokepoints via betweenness centrality.
-
-    Bridge nodes sit on shortest paths between many node pairs.
-    If they break, multiple code regions lose connectivity.
-    Uses sampling approximation for graphs > 5000 nodes.
-
-    Args:
-        top_n: Number of top bridges to return. Default: 10.
-        repo_root: Repository root path. Auto-detected if omitted.
-    """
-    return _tool("get_bridge_nodes_func")(
-        repo_root=_resolve_repo_root(repo_root),
-        top_n=top_n,
-    )
-
-
-@mcp.tool()
-def get_knowledge_gaps_tool(
-    top_n: int = 20,
-    repo_root: Optional[str] = None,
-) -> dict:
-    """Identify structural weaknesses in the codebase graph.
-
-    Finds isolated nodes (disconnected), thin communities (< 3 members),
-    untested hotspots (high-degree nodes without test coverage), and
-    single-file communities.
-
-    Args:
-        top_n: Maximum items to return per gap category. Default: 20.
-        repo_root: Repository root path. Auto-detected if omitted.
-    """
-    return _tool("get_knowledge_gaps_func")(
-        repo_root=_resolve_repo_root(repo_root),
-        top_n=top_n,
-    )
-
-
-@mcp.tool()
-def get_surprising_connections_tool(
-    top_n: int = 15,
-    repo_root: Optional[str] = None,
-) -> dict:
-    """Find unexpected architectural coupling via composite surprise scoring.
-
-    Scores edges by: cross-community (+0.3), cross-language (+0.2),
-    peripheral-to-hub (+0.2), cross-test-boundary (+0.15), and
-    unusual edge kinds (+0.15).
-
-    Args:
-        top_n: Number of top surprises to return. Default: 15.
-        repo_root: Repository root path. Auto-detected if omitted.
-    """
-    return _tool("get_surprising_connections_func")(
-        repo_root=_resolve_repo_root(repo_root),
-        top_n=top_n,
-    )
-
-
-@mcp.tool()
 def get_suggested_questions_tool(
     top_n: int = 15,
     repo_root: Optional[str] = None,
@@ -1012,149 +895,6 @@ def traverse_graph_tool(
         repo_root=_resolve_repo_root(repo_root) or "",
         model=_resolve_embedding_model(model),
         provider=_resolve_embedding_provider(provider),
-    )
-
-
-@mcp.tool()
-def detect_adp_violations_tool(
-    granularity: Literal["file", "package"] = "package",
-    min_cycle_size: int = 2,
-    max_cycle_length: int = 10,
-    top_n: int = 30,
-    repo_root: Optional[str] = None,
-) -> dict:
-    """Find cyclic dependencies that violate the Acyclic Dependencies Principle.
-
-    Scans IMPORTS_FROM and DEPENDS_ON edges for directed cycles. Each
-    violation lists the nodes in the cycle, its length, and a severity
-    score. Use granularity="file" for per-file cycles or "package" for
-    directory-level aggregation (default).
-
-    Args:
-        granularity: "package" (directory-level) or "file". Default: package.
-        min_cycle_size: Minimum nodes in a cycle to report. Default: 2.
-        max_cycle_length: Upper bound on cycle length searched. Default: 10.
-        top_n: Maximum violations to return, ordered by severity. Default: 30.
-        repo_root: Repository root path. Auto-detected if omitted.
-    """
-    return _tool("detect_adp_violations_func")(
-        repo_root=_resolve_repo_root(repo_root),
-        granularity=granularity,
-        min_cycle_size=min_cycle_size,
-        max_cycle_length=max_cycle_length,
-        top_n=top_n,
-    )
-
-
-@mcp.tool()
-def compute_sdp_metrics_tool(
-    granularity: Literal["file", "package"] = "package",
-    top_n: int = 30,
-    repo_root: Optional[str] = None,
-) -> dict:
-    """Compute Stable Dependencies Principle instability scores per module.
-
-    Instability I = Ce / (Ca + Ce), where Ca = afferent couplings (how
-    many modules depend on this one) and Ce = efferent couplings (how many
-    modules this one depends on). I = 0 is maximally stable, I = 1 is
-    maximally unstable.
-
-    Args:
-        granularity: "package" (directory-level) or "file". Default: package.
-        top_n: Return the N most unstable entries. Default: 30.
-        repo_root: Repository root path. Auto-detected if omitted.
-    """
-    return _tool("compute_sdp_metrics_func")(
-        repo_root=_resolve_repo_root(repo_root),
-        granularity=granularity,
-        top_n=top_n,
-    )
-
-
-@mcp.tool()
-def detect_sdp_violations_tool(
-    granularity: Literal["file", "package"] = "package",
-    min_delta: float = 0.1,
-    top_n: int = 30,
-    repo_root: Optional[str] = None,
-) -> dict:
-    """Find SDP violations: stable modules that depend on unstable ones.
-
-    Reports edges A -> B where I(A) < I(B) - min_delta. A stable module
-    depending on an unstable one increases coupling risk — changes to the
-    unstable module force changes in the stable one.
-
-    Args:
-        granularity: "package" (directory-level) or "file". Default: package.
-        min_delta: Minimum instability gap to flag. Default: 0.1.
-        top_n: Return the N highest-gap violations. Default: 30.
-        repo_root: Repository root path. Auto-detected if omitted.
-    """
-    return _tool("detect_sdp_violations_func")(
-        repo_root=_resolve_repo_root(repo_root),
-        granularity=granularity,
-        min_delta=min_delta,
-        top_n=top_n,
-    )
-
-
-@mcp.tool()
-def compute_sap_metrics_tool(
-    scope_kind: Literal["file", "package", "directory"] = "package",
-    unit_filter: Optional[list[str]] = None,
-    top_n: int = 30,
-    repo_root: Optional[str] = None,
-) -> dict:
-    """Compute SAP abstractness, instability, and distance scores per scope.
-
-    Measures A = Na/Nt (abstractness), I = Ce/(Ca+Ce) (instability), and
-    D = |A+I-1| (distance from the main sequence) for each scope. Scopes
-    with high D are either in the Zone of Pain (concrete + stable) or the
-    Zone of Uselessness (abstract + unstable).
-
-    Dependency edges: IMPORTS_FROM + DEPENDS_ON + INHERITS + IMPLEMENTS (fixed).
-
-    Args:
-        scope_kind: "package" (directory-level, default), "file", or "directory".
-        unit_filter: Optional list of scope_key prefix strings to restrict output.
-        top_n: Return the N entries with highest distance. Default: 30.
-        repo_root: Repository root path. Auto-detected if omitted.
-    """
-    return _tool("compute_sap_metrics_func")(
-        repo_root=_resolve_repo_root(repo_root),
-        scope_kind=scope_kind,
-        unit_filter=unit_filter,
-        top_n=top_n,
-    )
-
-
-@mcp.tool()
-def detect_sap_violations_tool(
-    scope_kind: Literal["file", "package", "directory"] = "package",
-    min_distance: float = 0.5,
-    top_n: int = 30,
-    repo_root: Optional[str] = None,
-) -> dict:
-    """Find scopes that violate the Stable Abstractions Principle.
-
-    Reports scopes where D = |A+I-1| > min_distance. High-D scopes are
-    architectural risks: Zone of Pain scopes are hard to change because
-    everything depends on them; Zone of Uselessness scopes are abstract
-    but have no dependents.
-
-    Dependency edges: IMPORTS_FROM + DEPENDS_ON + INHERITS + IMPLEMENTS (fixed).
-
-    Args:
-        scope_kind: "package" (default), "file", or "directory".
-        min_distance: Minimum D to flag (exclusive). Default: 0.5.
-        top_n: Return the N violations with highest distance. Default: 30.
-        repo_root: Repository root path. Auto-detected if omitted.
-    """
-    return _tool("detect_sap_violations_func")(
-        repo_root=_resolve_repo_root(repo_root),
-        scope_kind=scope_kind,
-        min_distance=min_distance,
-        top_n=top_n,
     )
 
 

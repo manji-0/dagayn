@@ -28,7 +28,7 @@ The fork is designed to work well when docs, app code, and Terraform all change 
 </section>
 
 <section name="review-pr">
-For larger reviews, start with `get_minimal_context`, then use `detect_changes`, `get_impact_radius`, `list_flows`, and `list_communities` as needed.
+For larger reviews, start with `get_minimal_context`, then use `detect_changes`, `get_impact_radius`, `list_flows`, and `architecture_analysis_tool(mode="communities")` as needed.
 
 If the PR touches infrastructure, assume Terraform nodes and references are part of the review surface.
 </section>
@@ -47,7 +47,7 @@ Important CLI commands:
 - `dagayn serve`
 - `dagayn register` / `dagayn repos` / `dagayn daemon`
 
-`dagayn serve --tool-profile review|architecture|refactor|full` selects a named MCP tool surface. The default profile keeps ordinary agent use small; `full` restores the legacy all-tools surface. `--tools` is an exact allow-list.
+`dagayn serve --tool-profile review|architecture|refactor|full` selects a named MCP tool surface. The default profile keeps ordinary agent use small; `full` exposes all public tools. `--tools` is an exact allow-list.
 
 Tool profiles are fixed at MCP server startup. For profile-specific tools that
 are not exposed by the running server, use `dagayn tool <mcp-tool-name>` with
@@ -58,9 +58,10 @@ from the CLI.
 Codex hooks in `~/.codex/config.toml`, unless `--no-hooks` is used. Claude hooks
 are written to `~/.claude/settings.json`.
 
-`get_architecture_overview` returns `architecture_health`, a bounded composed
-summary of coupling, hubs, bridges, knowledge gaps, surprising connections, and
-ADP/SDP/SAP signals.
+`architecture_analysis_tool(mode="overview")` returns `architecture_health`, a
+bounded composed summary of coupling, hubs, bridges, knowledge gaps, surprising
+connections, and ADP/SDP/SAP signals. v2 split architecture tools were removed;
+use `architecture_analysis_tool(mode=...)` for drill-downs.
 
 `dagayn visualize` is the report/export surface. It supports HTML output with `--mode auto|full|community|file`, plus `graphml`, `mermaid-c4`, `svg`, `cypher`, and `obsidian` via `--format`.
 

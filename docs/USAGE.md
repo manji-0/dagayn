@@ -97,7 +97,7 @@ dagayn detect-changes --base HEAD~1
 ```
 
 In MCP clients, start with `get_minimal_context_tool`, then choose
-`detect_changes_tool`, `get_architecture_overview_tool`, `refactor_tool`, or
+`detect_changes_tool`, `architecture_analysis_tool`, `refactor_tool`, or
 `query_graph_tool`. Follow response hints to drill-down tools only when needed.
 
 ## Start the MCP server
@@ -119,9 +119,14 @@ dagayn serve --tool-profile refactor
 dagayn serve --tool-profile full
 ```
 
-Use `--tool-profile full` for the legacy all-tools surface. Use `--tools` when
-you need an exact comma-separated allow-list; it overrides the profile. Use the
-HTTP flags if you explicitly need local HTTP transport.
+Use `--tool-profile full` for all public tools. Use `--tools` when you need an
+exact comma-separated allow-list; it overrides the profile. Use the HTTP flags
+if you explicitly need local HTTP transport.
+
+In dagayn 3.0, v2 split architecture MCP/CLI tools were removed. Use
+`architecture_analysis_tool(mode=...)`, for example
+`architecture_analysis_tool(mode="overview")` or
+`architecture_analysis_tool(mode="sdp_violations")`.
 
 ## Visualize or export the graph
 

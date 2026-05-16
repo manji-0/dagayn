@@ -3,7 +3,10 @@
 <!-- constrained-by ./SCHEMA.md -->
 <!-- constrained-by ./ARCHITECTURE.md -->
 
-> **Status:** Implemented. CLI commands `sap-metrics` / `detect-sap` and MCP tools `compute_sap_metrics_tool` / `detect_sap_violations_tool` are available. See `dagayn/sap.py`, `dagayn/tools/sap_tools.py`, and `tests/test_sap.py`.
+> **Status:** Implemented. SAP is exposed through
+> `architecture_analysis_tool(mode="sap_metrics")` and
+> `architecture_analysis_tool(mode="sap_violations")`. See `dagayn/sap.py`,
+> `dagayn/tools/sap_tools.py`, and `tests/test_sap.py`.
 
 ## Purpose
 

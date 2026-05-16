@@ -1954,7 +1954,7 @@ class TestGetMinimalContext:
     @pytest.mark.parametrize(
         ("task", "expected_tool"),
         [
-            ("コード探索をしたい", "get_architecture_overview"),
+            ("コード探索をしたい", "architecture_analysis_tool"),
             ("コードレビューをしたい", "get_review_context"),
             ("新規機能追加をしたい", "query_graph"),
             ("リファクタリングをしたい", "refactor"),

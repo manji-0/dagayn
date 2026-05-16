@@ -70,7 +70,7 @@ def test_handle_runs_tool_and_injects_repo_root(monkeypatch, capsys):
     args = _parser().parse_args(
         [
             "tool",
-            "get_hub_nodes_tool",
+            "architecture_analysis_tool",
             "--repo",
             "/tmp/repo",
             "--arg",
@@ -82,6 +82,27 @@ def test_handle_runs_tool_and_injects_repo_root(monkeypatch, capsys):
 
     assert calls == [{"repo_root": "/tmp/repo", "top_n": 3}]
     assert json.loads(capsys.readouterr().out)["summary"] == "done"
+
+
+def test_tool_registry_uses_architecture_dispatcher_only():
+    removed = {
+        "get_architecture_overview_tool",
+        "list_communities_tool",
+        "get_community_tool",
+        "get_hub_nodes_tool",
+        "get_bridge_nodes_tool",
+        "get_knowledge_gaps_tool",
+        "get_surprising_connections_tool",
+        "detect_adp_violations_tool",
+        "compute_sdp_metrics_tool",
+        "detect_sdp_violations_tool",
+        "compute_sap_metrics_tool",
+        "detect_sap_violations_tool",
+    }
+
+    assert "architecture_analysis_tool" in tool.TOOL_REGISTRY
+    assert tool.TOOL_ALIASES["architecture_analysis"] == "architecture_analysis_tool"
+    assert set(tool.TOOL_REGISTRY).isdisjoint(removed)
 
 
 def test_handle_summary_format(monkeypatch, capsys):

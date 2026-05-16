@@ -22,7 +22,7 @@ is insufficient.
 entities that need deeper inspection.
 4. Never request more than 3 tool calls per turn unless absolutely necessary.
 5. Prefer targeted queries (query_graph with a specific symbol) over broad \
-scans (list_communities with full members).
+architecture_analysis drill-downs.
 6. When reviewing changes: detect_changes(detail_level="minimal") → only \
 expand on high-risk items.
 """
@@ -72,13 +72,13 @@ def architecture_map_prompt() -> list[dict]:
                 f"{_TOKEN_EFFICIENCY_PREAMBLE}\n"
                 "## Architecture Mapping Workflow\n"
                 '1. Call `get_minimal_context(task="map architecture")`.\n'
-                '2. Call `get_architecture_overview(detail_level="minimal")` '
-                "for community coupling summary.\n"
+                '2. Call `architecture_analysis_tool(mode="overview", '
+                'detail_level="minimal")` for community coupling summary.\n'
                 '3. Call `list_flows(detail_level="minimal")` for critical '
                 "flow names + criticality scores.\n"
-                "4. Only call `get_community(name=<X>, "
-                'detail_level="standard")` for the 1-2 communities the user '
-                "is most interested in.\n"
+                "4. Only call `architecture_analysis_tool(mode=\"community\", "
+                "community_name=<X>)` for the 1-2 communities the user is most "
+                "interested in.\n"
                 "5. Produce a concise Mermaid diagram showing communities as "
                 "boxes and key flows as arrows."
             ),
@@ -126,9 +126,10 @@ def onboard_developer_prompt() -> list[dict]:
                 "## Onboarding Workflow\n"
                 '1. Call `get_minimal_context(task="onboard developer")`.\n'
                 "2. Call `list_graph_stats()` for technology overview.\n"
-                '3. Call `get_architecture_overview(detail_level="minimal")` '
-                "for the 30-second mental model.\n"
-                '4. Call `list_communities(detail_level="minimal")` — '
+                '3. Call `architecture_analysis_tool(mode="overview", '
+                'detail_level="minimal")` for the 30-second mental model.\n'
+                '4. Call `architecture_analysis_tool(mode="communities", '
+                'detail_level="minimal")` — '
                 "present as a table of module names + sizes.\n"
                 '5. Call `list_flows(detail_level="minimal")` — highlight '
                 "the top 3 critical flows.\n"

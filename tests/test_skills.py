@@ -38,6 +38,7 @@ from dagayn.skills import (
 )
 
 EXPECTED_SKILLS = [
+    "architecture-analysis.md",
     "build-graph.md",
     "debug-issue.md",
     "explore-codebase.md",
@@ -104,6 +105,15 @@ class TestGenerateSkills:
         skills_dir = generate_skills(tmp_path)
         content = (skills_dir / "explore-codebase.md").read_text()
         assert "architecture_health" in content
+        assert "architecture_analysis_tool" in content
+
+    def test_architecture_skill_uses_dispatcher_modes(self, tmp_path):
+        skills_dir = generate_skills(tmp_path)
+        content = (skills_dir / "architecture-analysis.md").read_text()
+        assert 'architecture_analysis_tool(mode="overview"' in content
+        assert "sdp_violations" in content
+        assert "sap_violations" in content
+        assert "get_architecture_overview_tool" not in content
 
     def test_idempotent(self, tmp_path):
         """Running twice should not fail and files should still be valid."""
@@ -735,6 +745,8 @@ class TestInjectClaudeMd:
         assert "--tool-profile full" in content
         assert "analysis_summary" in content
         assert "architecture_health" in content
+        assert "architecture_analysis_tool" in content
+        assert "get_architecture_overview" not in content
 
     def test_appends_to_existing_file(self, tmp_path):
         claude_md = tmp_path / ".claude" / "CLAUDE.md"
@@ -955,6 +967,7 @@ class TestInjectPlatformInstructionsFiltering:
         assert "--tool-profile full" in content
         assert "analysis_summary" in content
         assert "architecture_health" in content
+        assert "architecture_analysis_tool" in content
         assert "Drill-down tools" in content
 
     def test_policy_injected_when_only_mcp_section_exists(self, tmp_path):

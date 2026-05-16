@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import inspect
 from pathlib import Path
 from types import SimpleNamespace
 
-from dagayn import main as crg_main
 from dagayn.tools.architecture_tools import detect_sdp_violations_func
 from dagayn.tools.query import list_graph_stats, traverse_graph_func
 from dagayn.tools.registry_tools import list_repos_func
@@ -14,12 +12,6 @@ from dagayn.tools.review import get_review_context
 class _Closable:
     def close(self) -> None:
         pass
-
-
-def test_detect_sdp_wrapper_exposes_top_n() -> None:
-    params = inspect.signature(crg_main.detect_sdp_violations_tool).parameters
-    assert "top_n" in params
-    assert params["top_n"].default == 30
 
 
 def test_detect_sdp_violations_truncates(monkeypatch) -> None:
@@ -42,7 +34,7 @@ def test_detect_sdp_violations_truncates(monkeypatch) -> None:
     assert result["total"] == 2
     assert result["truncated"] is True
     assert len(result["violations"]) == 1
-    assert result["_hints"]["next_steps"][0]["tool"] == "compute_sdp_metrics"
+    assert result["_hints"]["next_steps"][0]["tool"] == "architecture_analysis_tool"
 
 
 def test_traverse_graph_not_found_has_standard_envelope(monkeypatch) -> None:
@@ -52,7 +44,7 @@ def test_traverse_graph_not_found_has_standard_envelope(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         "dagayn.tools.query.hybrid_search",
-        lambda store, query, limit=1: {"mode": "empty", "results": []},
+        lambda store, query, **kwargs: {"mode": "empty", "results": []},
     )
 
     result = traverse_graph_func(query="missing-symbol", repo_root="/repo")
@@ -133,7 +125,7 @@ def test_list_graph_stats_has_hints(monkeypatch, tmp_path) -> None:
 
     assert result["status"] == "ok"
     assert result["embeddings_count"] == 3
-    assert result["_hints"]["next_steps"][0]["tool"] == "list_communities_tool"
+    assert result["_hints"]["next_steps"][0]["tool"] == "architecture_analysis_tool"
 
 
 def test_list_repos_has_hints(monkeypatch) -> None:

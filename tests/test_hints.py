@@ -59,7 +59,7 @@ class TestGenerateHints:
         """Already-called tools must not appear in next_steps."""
         session = SessionState()
         # Call list_flows, then generate hints for it
-        # list_flows suggests get_flow, get_affected_flows, get_architecture_overview
+        # list_flows suggests get_flow, get_affected_flows, architecture_analysis_tool
         generate_hints("list_flows", {"status": "ok"}, session)
 
         # Now call get_flow and regenerate hints for list_flows
@@ -190,6 +190,6 @@ class TestGlobalSession:
                 {"message": "Circular dependency detected"},
             ],
         }
-        hints = generate_hints("get_architecture_overview", result, session)
+        hints = generate_hints("architecture_analysis", result, session)
         assert any("High coupling" in w for w in hints["warnings"])
         assert any("Circular dependency" in w for w in hints["warnings"])

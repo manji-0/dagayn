@@ -426,7 +426,7 @@ def _change_analysis_summary(
             "impact_radius": "get_impact_radius_tool",
             "flows": "get_affected_flows_tool",
             "review_context": "get_review_context_tool",
-            "architecture": "get_architecture_overview_tool",
+            "architecture": {"tool": "architecture_analysis_tool", "mode": "overview"},
         },
     }
 

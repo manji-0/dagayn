@@ -1,3 +1,3 @@
 """dagayn - dagayn fork with Terraform-aware knowledge graphs."""
 
-__version__ = "2.11.2"
+__version__ = "3.0.0"

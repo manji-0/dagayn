@@ -69,16 +69,16 @@ _EXPLORE_TASK_KEYWORDS = (
 _REVIEW_TOOL_SUGGESTIONS = ["detect_changes", "get_affected_flows", "get_review_context"]
 _DEBUG_TOOL_SUGGESTIONS = ["semantic_search_nodes", "query_graph", "get_flow"]
 _FEATURE_TOOL_SUGGESTIONS = ["semantic_search_nodes", "query_graph", "detect_changes"]
-_REFACTOR_TOOL_SUGGESTIONS = ["refactor", "find_large_functions", "get_architecture_overview"]
+_REFACTOR_TOOL_SUGGESTIONS = ["refactor", "find_large_functions", "architecture_analysis_tool"]
 _EXPLORE_TOOL_SUGGESTIONS = [
-    "get_architecture_overview",
-    "list_communities",
+    "architecture_analysis_tool",
     "list_flows",
+    "query_graph",
 ]
 _DEFAULT_TOOL_SUGGESTIONS = [
     "detect_changes",
     "semantic_search_nodes",
-    "get_architecture_overview",
+    "architecture_analysis_tool",
 ]
 _WORKFLOW_GUIDANCE: dict[str, dict[str, str]] = {
     "review": {
@@ -114,7 +114,8 @@ _WORKFLOW_GUIDANCE: dict[str, dict[str, str]] = {
     },
     "explore": {
         "recommended_action": (
-            "Start with architecture overview, then drill into communities or flows."
+            "Start with architecture_analysis_tool mode=overview, "
+            "then drill into communities or flows."
         ),
         "why": (
             "The task asks to understand structure, so a broad graph summary is cheaper "

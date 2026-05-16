@@ -48,7 +48,7 @@ def detect_adp_violations_func(
         next_tool_suggestions=[
             "get_impact_radius -- check blast radius of a cyclic module",
             "query_graph imports_of -- trace what a module imports",
-            "detect_sdp_violations -- check stability-direction violations",
+            'architecture_analysis_tool mode="sdp_violations" -- check stability direction',
         ],
     )
 
@@ -79,9 +79,9 @@ def compute_sdp_metrics_func(
         total=len(metrics),
         granularity=granularity,
         next_tool_suggestions=[
-            "detect_sdp_violations -- find stability-direction violations",
-            "detect_adp_violations -- find cyclic dependencies",
-            "get_hub_nodes -- find most connected nodes",
+            'architecture_analysis_tool mode="sdp_violations" -- find stability violations',
+            'architecture_analysis_tool mode="adp_violations" -- find cyclic dependencies',
+            'architecture_analysis_tool mode="hubs" -- find most connected nodes',
         ],
     )
 
@@ -121,8 +121,8 @@ def detect_sdp_violations_func(
         truncated=truncated,
         granularity=granularity,
         next_tool_suggestions=[
-            "compute_sdp_metrics -- see full instability scores",
-            "detect_adp_violations -- check for cyclic dependencies",
+            'architecture_analysis_tool mode="sdp_metrics" -- see instability scores',
+            'architecture_analysis_tool mode="adp_violations" -- check cyclic dependencies',
             "get_impact_radius -- check blast radius of a violating module",
         ],
     )

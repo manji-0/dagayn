@@ -40,16 +40,16 @@ Graph tools used:
 | --- | --- |
 | `get_minimal_context_tool` | Overall risk medium at 0.65, 39 test gaps. |
 | `list_graph_stats_tool` | Current graph size and language mix. |
-| `get_architecture_overview_tool` | Docs/test coupling warnings. |
-| `list_communities_tool` | Low-cohesion communities and large clusters. |
-| `get_hub_nodes_tool` | High-degree nodes with large blast radius. |
-| `get_bridge_nodes_tool` | Betweenness chokepoints. |
+| `architecture_analysis_tool(mode="overview")` | Docs/test coupling warnings. |
+| `architecture_analysis_tool(mode="communities")` | Low-cohesion communities and large clusters. |
+| `architecture_analysis_tool(mode="hubs")` | High-degree nodes with large blast radius. |
+| `architecture_analysis_tool(mode="bridges")` | Betweenness chokepoints. |
 | `find_large_functions_tool` | Long functions, production and tests. |
 | `get_impact_radius_tool` | File-level risk and impacted node counts. |
-| `detect_adp_violations_tool` | Package cycles. |
-| `detect_sdp_violations_tool` | Stable modules depending on less stable ones. |
-| `compute_sap_metrics_tool` | Pain/uselessness zones. |
-| `get_knowledge_gaps_tool` | Untested hotspots and graph gaps. |
+| `architecture_analysis_tool(mode="adp_violations")` | Package cycles. |
+| `architecture_analysis_tool(mode="sdp_violations")` | Stable modules depending on less stable ones. |
+| `architecture_analysis_tool(mode="sap_metrics")` | Pain/uselessness zones. |
+| `architecture_analysis_tool(mode="knowledge_gaps")` | Untested hotspots and graph gaps. |
 | `refactor_tool` | Dead-code and refactor suggestion quality. |
 
 ## Ranked Backlog

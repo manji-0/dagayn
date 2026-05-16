@@ -22,7 +22,7 @@ DEFAULT_WORKFLOW_TOOLS = frozenset(
         "get_minimal_context_tool",
         "detect_changes_tool",
         "get_review_context_tool",
-        "get_architecture_overview_tool",
+        "architecture_analysis_tool",
         "refactor_tool",
         "query_graph_tool",
         "semantic_search_nodes_tool",
@@ -45,17 +45,6 @@ ARCHITECTURE_TOOL_PROFILE_TOOLS = DEFAULT_TOOL_PROFILE_TOOLS | frozenset(
     {
         "list_flows_tool",
         "get_flow_tool",
-        "list_communities_tool",
-        "get_community_tool",
-        "get_hub_nodes_tool",
-        "get_bridge_nodes_tool",
-        "get_knowledge_gaps_tool",
-        "get_surprising_connections_tool",
-        "detect_adp_violations_tool",
-        "compute_sdp_metrics_tool",
-        "detect_sdp_violations_tool",
-        "compute_sap_metrics_tool",
-        "detect_sap_violations_tool",
     }
 )
 

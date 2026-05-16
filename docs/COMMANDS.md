@@ -46,7 +46,7 @@ that are outside the currently running MCP server profile:
 ```bash
 dagayn tool get_impact_radius_tool --arg 'changed_files=["src/app.py"]' --arg max_depth=3
 dagayn tool list_flows_tool --arg detail_level='"minimal"'
-dagayn tool get_knowledge_gaps_tool --arg top_n=10 --format summary
+dagayn tool architecture_analysis_tool --arg mode='"knowledge_gaps"' --arg top_n=10 --format summary
 ```
 
 `dagayn visualize` is the main report/export command. It generates:
@@ -109,9 +109,8 @@ Representative tool names include:
 - `get_impact_radius`
 - `query_graph`
 - `detect_changes`
+- `architecture_analysis`
 - `list_flows`
-- `list_communities`
-- `get_knowledge_gaps`
 - `refactor_tool`
 - `generate_wiki`
 - `cross_repo_search`
@@ -135,14 +134,15 @@ leaving specialized tools available for workflows that need them.
 | --- | --- |
 | `default` | General agent use with a small first-choice tool list |
 | `review` | PR and local diff review |
-| `architecture` | Architecture mapping and cleanup |
+| `architecture` | Architecture mapping and cleanup through `architecture_analysis_tool` |
 | `refactor` | Refactor planning and safe apply flows |
-| `full` | Legacy all-tools behavior |
+| `full` | All public tools |
 
 ```bash
 dagayn serve --tool-profile review
 dagayn serve --tool-profile full
 dagayn serve --tools query_graph_tool,semantic_search_nodes_tool
+dagayn tool architecture_analysis_tool --arg mode='"overview"'
 dagayn serve --local-embedding low
 dagayn serve --remote-embedding openai
 ```
@@ -176,10 +176,17 @@ next small set of MCP tools. It also returns `workflow`,
 `recommended_action`, `why`, and `confidence` so clients can show the next
 step without requiring users to know tool names.
 
-`get_architecture_overview_tool` is the primary architecture-analysis surface.
-Output includes `architecture_health`, which composes community coupling, hubs,
-bridges, knowledge gaps, surprising connections, and ADP/SDP/SAP signals into a
-bounded health summary with drill-down tool names.
+`architecture_analysis_tool` is the primary architecture-analysis surface. Start
+with `mode="overview"` and `detail_level="minimal"`. Output includes
+`architecture_health`, which composes community coupling, hubs, bridges,
+knowledge gaps, surprising connections, and ADP/SDP/SAP signals into a bounded
+health summary with drill-down mode hints.
+
+Migration note for dagayn 3.0: v2 split architecture MCP/CLI tools such as
+`get_architecture_overview_tool`, `list_communities_tool`,
+`get_hub_nodes_tool`, `compute_sdp_metrics_tool`, and
+`detect_sap_violations_tool` were removed from the public surface. Use
+`architecture_analysis_tool(mode=...)` instead.
 
 `refactor_tool(mode="suggest")` returns graph-backed remove, move, split, and
 document candidates. Treat them as evidence-ranked leads; verify public APIs,
@@ -187,10 +194,11 @@ test artifacts, dynamic dispatch, and generated entry points before changing
 source. Suggestions include `execution_plan` with minimum safe steps, required
 tests, rollback guidance, and defer conditions.
 
-`get_knowledge_gaps(top_n=20)` returns bounded structural weakness categories
-with explicit thresholds and raw counts. Untested-hotspot candidates are ranked
-against the repository's observed production-node degree distribution rather
-than a fixed language-specific size rule.
+`architecture_analysis_tool(mode="knowledge_gaps", top_n=20)` returns bounded
+structural weakness categories with explicit thresholds and raw counts.
+Untested-hotspot candidates are ranked against the repository's observed
+production-node degree distribution rather than a fixed language-specific size
+rule.
 
 ## MCP prompts
 

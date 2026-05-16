@@ -851,8 +851,9 @@ scanning cannot.
 - **Code review**: `detect_changes` first; use its `analysis_summary` before
   calling drill-down tools
 - **Finding relationships**: `query_graph` with callers_of/callees_of/imports_of/tests_for
-- **Architecture questions**: `get_architecture_overview` first; use its
-  `architecture_health` before calling drill-down tools
+- **Architecture questions**: `architecture_analysis_tool(mode="overview")`
+  first; use `architecture_health` and the Architecture Analysis skill before
+  choosing a drill-down mode
 
 Fall back to Grep/Glob/Read **only** when the graph result is missing, stale,
 ambiguous, or lacks the exact source text needed for the task.
@@ -872,7 +873,7 @@ allow-list.
 | `get_minimal_context` | Starting point: graph freshness, risk, communities, suggested next tools |
 | `detect_changes` | Primary change review — returns `analysis_summary` |
 | `get_review_context` | Need source snippets for review — token-efficient |
-| `get_architecture_overview` | Primary architecture review — returns `architecture_health` |
+| `architecture_analysis_tool` | Primary architecture review and drill-down dispatcher |
 | `refactor_tool` | Planning renames, finding dead code, and evidence-ranked refactor suggestions |
 | `query_graph` | Tracing callers, callees, imports, tests, dependencies |
 | `semantic_search_nodes` | Finding functions/classes by name or keyword |
@@ -884,10 +885,7 @@ allow-list.
 | `get_impact_radius` | Need a wider or deeper blast-radius view than `detect_changes` returned |
 | `get_affected_flows` | Need full affected execution-path details |
 | `list_flows` / `get_flow` | Need flow lists or step-by-step flow paths |
-| `list_communities` / `get_community` | Need community drill-down after `architecture_health` |
-| `get_hub_nodes` / `get_bridge_nodes` | Finding high-degree hotspots and betweenness chokepoints |
-| `get_knowledge_gaps` | Finding graph gaps and untested hotspots |
-| `get_surprising_connections` | Finding cross-boundary coupling with qualitative reason codes |
+| `architecture_analysis_tool(mode=...)` | Architecture drill-downs for boundaries and metrics |
 
 ### How to judge analysis output
 
@@ -908,9 +906,10 @@ allow-list.
 3. For reviews, use `detect_changes` and read `analysis_summary` first.
    Call `get_review_context` for source snippets and `get_affected_flows`,
    `get_impact_radius`, or `query_graph` only when the summary points there.
-4. For architecture work, use `get_architecture_overview` and read
-   `architecture_health` first. Drill into communities, hubs, bridges, gaps, or
-   ADP/SDP/SAP only when the health summary identifies a concrete risk.
+4. For architecture work, use
+   `architecture_analysis_tool(mode=\"overview\", detail_level=\"minimal\")`
+   and read `architecture_health` first. Use the Architecture Analysis skill to
+   choose drill-down modes only when the health summary identifies a concrete risk.
 5. For refactors, use `refactor_tool(mode=\"suggest\")` first, then preview
    renames with `refactor_tool(mode=\"rename\")` and `apply_refactor_tool(dry_run=True)`.
 """

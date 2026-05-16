@@ -1,40 +1,4 @@
-"""MCP tool definitions for the Dagayn server.
-
-Exposes 33 tools:
-1. build_or_update_graph  - full or incremental build
-2. get_impact_radius      - blast radius from changed files
-3. query_graph            - predefined graph queries
-4. get_review_context     - focused subgraph + review prompt
-5. semantic_search_nodes  - keyword + vector search across nodes
-6. list_graph_stats       - aggregate statistics
-7. embed_graph            - compute vector embeddings for semantic search
-8. get_docs_section       - token-optimized documentation retrieval
-9. find_large_functions   - find oversized functions/classes by line count
-10. list_flows            - list execution flows sorted by criticality
-11. get_flow              - get details of a single execution flow
-12. get_affected_flows    - find flows affected by changed files
-13. list_communities      - list detected code communities
-14. get_community         - get details of a single community
-15. get_architecture_overview - architecture overview from community structure
-16. detect_changes        - risk-scored change impact analysis for code review
-17. refactor_tool         - unified refactoring (rename preview, dead code, suggestions)
-18. apply_refactor_tool   - apply a previously previewed refactoring
-19. generate_wiki         - generate markdown wiki from community structure
-20. get_wiki_page         - retrieve a specific wiki page
-21. list_repos            - list registered repositories
-22. cross_repo_search     - search across all registered repositories
-23. get_hub_nodes         - find most connected nodes (architectural hotspots)
-24. get_bridge_nodes      - find architectural chokepoints (betweenness centrality)
-25. get_knowledge_gaps    - identify structural weaknesses
-26. get_surprising_connections - find unexpected architectural coupling
-27. get_suggested_questions - auto-generated review questions from graph analysis
-28. traverse_graph        - BFS/DFS traversal from best-matching node
-29. detect_adp_violations - find cyclic dependencies (ADP violations)
-30. compute_sdp_metrics   - instability scores per module/package (SDP)
-31. detect_sdp_violations - find dependencies pointing toward instability (SDP)
-32. compute_sap_metrics   - abstractness/instability/distance scores per scope (SAP)
-33. detect_sap_violations - find scopes far from the main sequence (SAP)
-"""
+"""MCP tool implementation functions for the Dagayn server."""
 
 from __future__ import annotations
 
@@ -73,6 +37,9 @@ from .analysis_tools import (
     get_suggested_questions_func,
     get_surprising_connections_func,
 )
+
+# -- architecture_analysis --------------------------------------------------
+from .architecture_analysis import architecture_analysis_func
 
 # -- architecture_tools -----------------------------------------------------
 from .architecture_tools import (
@@ -136,6 +103,8 @@ __all__ = [
     "run_postprocess",
     # context
     "get_minimal_context",
+    # architecture_analysis
+    "architecture_analysis_func",
     # community_tools
     "get_architecture_overview_func",
     "get_community_func",

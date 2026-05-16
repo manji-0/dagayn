@@ -41,13 +41,19 @@ def _architecture_health_summary(
             "status": "partial",
             "error": str(exc),
             "drill_downs": {
-                "hubs": "get_hub_nodes_tool",
-                "bridges": "get_bridge_nodes_tool",
-                "knowledge_gaps": "get_knowledge_gaps_tool",
-                "surprising_connections": "get_surprising_connections_tool",
-                "adp": "detect_adp_violations_tool",
-                "sdp": "detect_sdp_violations_tool",
-                "sap": "detect_sap_violations_tool",
+                "hubs": {"tool": "architecture_analysis_tool", "mode": "hubs"},
+                "bridges": {"tool": "architecture_analysis_tool", "mode": "bridges"},
+                "knowledge_gaps": {
+                    "tool": "architecture_analysis_tool",
+                    "mode": "knowledge_gaps",
+                },
+                "surprising_connections": {
+                    "tool": "architecture_analysis_tool",
+                    "mode": "surprising_connections",
+                },
+                "adp": {"tool": "architecture_analysis_tool", "mode": "adp_violations"},
+                "sdp": {"tool": "architecture_analysis_tool", "mode": "sdp_violations"},
+                "sap": {"tool": "architecture_analysis_tool", "mode": "sap_violations"},
             },
         }
 
@@ -126,15 +132,21 @@ def _architecture_health_summary(
             ],
         },
         "drill_downs": {
-            "communities": "list_communities_tool",
-            "coupling": "get_architecture_overview_tool",
-            "hubs": "get_hub_nodes_tool",
-            "bridges": "get_bridge_nodes_tool",
-            "knowledge_gaps": "get_knowledge_gaps_tool",
-            "surprising_connections": "get_surprising_connections_tool",
-            "adp": "detect_adp_violations_tool",
-            "sdp": "detect_sdp_violations_tool",
-            "sap": "detect_sap_violations_tool",
+            "communities": {"tool": "architecture_analysis_tool", "mode": "communities"},
+            "coupling": {"tool": "architecture_analysis_tool", "mode": "overview"},
+            "hubs": {"tool": "architecture_analysis_tool", "mode": "hubs"},
+            "bridges": {"tool": "architecture_analysis_tool", "mode": "bridges"},
+            "knowledge_gaps": {
+                "tool": "architecture_analysis_tool",
+                "mode": "knowledge_gaps",
+            },
+            "surprising_connections": {
+                "tool": "architecture_analysis_tool",
+                "mode": "surprising_connections",
+            },
+            "adp": {"tool": "architecture_analysis_tool", "mode": "adp_violations"},
+            "sdp": {"tool": "architecture_analysis_tool", "mode": "sdp_violations"},
+            "sap": {"tool": "architecture_analysis_tool", "mode": "sap_violations"},
         },
     }
 

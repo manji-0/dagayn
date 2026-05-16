@@ -36,7 +36,7 @@ These are the tools that should appear in the recommended default path:
 - `get_minimal_context_tool`
 - `detect_changes_tool`
 - `get_review_context_tool`
-- `get_architecture_overview_tool`
+- `architecture_analysis_tool`
 - `refactor_tool`
 - `query_graph_tool`
 - `semantic_search_nodes_tool`
@@ -53,12 +53,6 @@ from Tier 1 results rather than presented as equal first choices:
 - `get_affected_flows_tool`
 - `list_flows_tool`
 - `get_flow_tool`
-- `list_communities_tool`
-- `get_community_tool`
-- `get_hub_nodes_tool`
-- `get_bridge_nodes_tool`
-- `get_knowledge_gaps_tool`
-- `get_surprising_connections_tool`
 - `get_suggested_questions_tool`
 - `traverse_graph_tool`
 
@@ -69,11 +63,6 @@ first choices for a user who is still deciding what kind of analysis is needed.
 
 These tools should be documented as expert or maintenance surfaces:
 
-- `compute_sdp_metrics_tool`
-- `detect_sdp_violations_tool`
-- `compute_sap_metrics_tool`
-- `detect_sap_violations_tool`
-- `detect_adp_violations_tool`
 - `embed_graph_tool`
 - `generate_wiki_tool`
 - `get_wiki_page_tool`
@@ -125,7 +114,7 @@ questions.
 <!-- constrained-by ../ARCHITECTURE.md#post-processing -->
 
 The primary architecture-analysis surface should be
-`get_architecture_overview_tool`.
+`architecture_analysis_tool(mode="overview")`.
 
 It should summarize:
 
@@ -137,9 +126,10 @@ It should summarize:
 - surprising connections
 - ADP, SDP, and SAP violations
 
-The specialized architecture tools should remain drill-downs. The overview
-should return counts, top examples, reason codes, scoring-policy metadata, and
-links to the exact tool that can expand each section.
+Specialized architecture signals should remain dispatcher modes, not separate
+public MCP tools. The overview should return counts, top examples, reason codes,
+scoring-policy metadata, and links to the exact mode that can expand each
+section.
 
 ### Refactor opportunity analysis
 
@@ -180,7 +170,7 @@ named tool profiles that expand to explicit allow-lists:
 | --- | --- | --- |
 | `default` | General agent use with low tool-choice overhead | Tier 1 plus graph lifecycle basics |
 | `review` | PR and local diff review | `default` plus impact, flow, and suggested-question drill-downs |
-| `architecture` | Architecture mapping and cleanup | `default` plus community, flow, hub, bridge, gap, surprise, ADP, SDP, and SAP drill-downs |
+| `architecture` | Architecture mapping and cleanup | `default` plus flow drill-downs; architecture signals stay behind `architecture_analysis_tool(mode=...)` |
 | `refactor` | Refactor planning and safe apply flows | `default` plus large-function, impact, and apply-refactor surfaces |
 | `full` | Current behavior for power users and compatibility | All registered tools |
 
@@ -199,7 +189,7 @@ A new top-level analysis tool is justified only when all of these are true:
 6. The tool can recommend its own next drill-down step.
 
 If any condition fails, implement the analysis as a composed signal inside
-`detect_changes_tool`, `get_architecture_overview_tool`, or `refactor_tool`.
+`detect_changes_tool`, `architecture_analysis_tool`, or `refactor_tool`.
 
 ## Implementation phases
 
@@ -208,7 +198,7 @@ If any condition fails, implement the analysis as a composed signal inside
 Update command and usage docs so the recommended flow is:
 
 1. start with `get_minimal_context_tool`
-2. choose `detect_changes_tool`, `get_architecture_overview_tool`,
+2. choose `detect_changes_tool`, `architecture_analysis_tool`,
    `refactor_tool`, or `query_graph_tool`
 3. follow response hints to Tier 2 tools only when needed
 
@@ -230,10 +220,10 @@ standard mode and compact risk/test/flow/doc fields in minimal mode.
 
 ### Phase 4: enrich architecture overview
 
-Extend `get_architecture_overview_tool` so it composes the current specialized
-architecture tools into one bounded health report.
+Extend `architecture_analysis_tool(mode="overview")` so it composes the current
+specialized architecture signals into one bounded health report.
 
-Status: implemented. `get_architecture_overview_tool` now returns
+Status: replaced in v3. `architecture_analysis_tool(mode="overview")` returns
 `architecture_health`, which composes community coupling, hubs, bridges,
 knowledge gaps, surprising connections, and ADP/SDP/SAP signals.
 

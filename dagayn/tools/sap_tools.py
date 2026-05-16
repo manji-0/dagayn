@@ -64,9 +64,9 @@ def compute_sap_metrics_func(
         total=len(metrics),
         scope_kind=scope_kind,
         next_tool_suggestions=[
-            "detect_sap_violations -- find scopes far from the main sequence",
-            "compute_sdp_metrics -- check raw instability without abstractness",
-            "get_community -- explore the scope as a community",
+            'architecture_analysis_tool mode="sap_violations" -- find far-from-sequence scopes',
+            'architecture_analysis_tool mode="sdp_metrics" -- check raw instability',
+            'architecture_analysis_tool mode="community" -- explore the scope as a community',
         ],
     )
 
@@ -120,8 +120,8 @@ def detect_sap_violations_func(
         scope_kind=scope_kind,
         min_distance=min_distance,
         next_tool_suggestions=[
-            "compute_sap_metrics -- see full A/I/D scores",
-            "detect_adp_violations -- check for cyclic dependencies",
+            'architecture_analysis_tool mode="sap_metrics" -- see full A/I/D scores',
+            'architecture_analysis_tool mode="adp_violations" -- check cyclic dependencies',
             "get_impact_radius -- check blast radius of a violating scope",
         ],
     )

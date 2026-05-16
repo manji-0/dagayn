@@ -59,10 +59,12 @@ judgments about the code.
 ## The initial readings
 
 A `dagayn build` on this repository produced a graph with 3518 nodes, 29070 edges, and
-194 files. Six MCP tool calls — `list_graph_stats_tool`, `get_architecture_overview_tool`,
-`list_communities_tool`, `get_hub_nodes_tool`, `get_bridge_nodes_tool`, and
-`find_large_functions_tool` — were enough to surface every problem this session ended
-up addressing. No file was read during the observation phase.
+194 files. A small set of MCP calls — `list_graph_stats_tool`,
+`architecture_analysis_tool(mode="overview")`,
+`architecture_analysis_tool(mode="communities")`,
+`architecture_analysis_tool(mode="hubs")`, `architecture_analysis_tool(mode="bridges")`,
+and `find_large_functions_tool` — were enough to surface every problem this session
+ended up addressing. No file was read during the observation phase.
 
 The community map was the first surprise. Leiden split the codebase into roughly two
 dozen communities, but one of them — labelled `dagayn-tool`, community id 33 — held
@@ -242,13 +244,13 @@ to you.
 The recipe is short enough to run on any codebase that dagayn supports:
 
 1. Run `dagayn build` to get a fresh graph.
-2. Call `list_communities_tool`. Any community with cohesion below ~0.20 and
+2. Call `architecture_analysis_tool(mode="communities")`. Any community with cohesion below ~0.20 and
    more than ~300 nodes is a candidate for splitting — Leiden is telling you it
    couldn't find an internal boundary.
-3. Call `get_hub_nodes_tool`. Very high in-degree on a symbol that is *not* a
+3. Call `architecture_analysis_tool(mode="hubs")`. Very high in-degree on a symbol that is *not* a
    facade is type or utility coupling; very high out-degree on a single function
    is dispatcher coupling.
-4. Call `get_bridge_nodes_tool`. The top-5 by betweenness are your chokepoints,
+4. Call `architecture_analysis_tool(mode="bridges")`. The top-5 by betweenness are your chokepoints,
    ranked by blast radius.
 5. Call `find_large_functions_tool` to cross-check that the structural problems
    correlate with size problems. They usually will.

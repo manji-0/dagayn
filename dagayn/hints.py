@@ -32,8 +32,7 @@ _INTENT_TOOLS: dict[str, set[str]] = {
         "suggest_refactorings",
     },
     "exploring": {
-        "list_communities",
-        "get_architecture_overview",
+        "architecture_analysis",
         "list_flows",
         "list_graph_stats",
     },
@@ -52,8 +51,8 @@ _WORKFLOW: dict[str, list[dict[str, str]]] = {
             "suggestion": "Check which flows are affected by recent changes",
         },
         {
-            "tool": "get_architecture_overview",
-            "suggestion": "See the high-level architecture",
+            "tool": "architecture_analysis_tool",
+            "suggestion": 'See the high-level architecture with mode="overview"',
         },
     ],
     "get_flow": [
@@ -90,8 +89,8 @@ _WORKFLOW: dict[str, list[dict[str, str]]] = {
             "suggestion": "Inspect a specific community's members",
         },
         {
-            "tool": "get_architecture_overview",
-            "suggestion": "See cross-community coupling and warnings",
+            "tool": "architecture_analysis_tool",
+            "suggestion": 'See cross-community coupling with mode="overview"',
         },
         {
             "tool": "list_flows",
@@ -108,14 +107,14 @@ _WORKFLOW: dict[str, list[dict[str, str]]] = {
             "suggestion": "Browse other communities",
         },
         {
-            "tool": "get_architecture_overview",
-            "suggestion": "See how this community fits the architecture",
+            "tool": "architecture_analysis_tool",
+            "suggestion": 'See how this community fits the architecture with mode="overview"',
         },
     ],
-    "get_architecture_overview": [
+    "architecture_analysis": [
         {
-            "tool": "get_community",
-            "suggestion": "Drill into a community with include_members=True for full member list",
+            "tool": "architecture_analysis_tool",
+            "suggestion": 'Drill into communities with mode="communities" or mode="community"',
         },
         {
             "tool": "query_graph",
@@ -128,6 +127,20 @@ _WORKFLOW: dict[str, list[dict[str, str]]] = {
         {
             "tool": "list_flows",
             "suggestion": "Explore execution flows",
+        },
+    ],
+    "get_architecture_overview": [
+        {
+            "tool": "architecture_analysis_tool",
+            "suggestion": 'Use the public dispatcher with mode="overview"',
+        },
+        {
+            "tool": "query_graph",
+            "suggestion": "Trace callers/callees between coupled communities (pattern=callers_of)",
+        },
+        {
+            "tool": "detect_changes",
+            "suggestion": "See how recent changes affect the architecture",
         },
     ],
     "detect_changes": [

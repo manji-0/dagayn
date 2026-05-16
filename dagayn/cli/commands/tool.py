@@ -12,34 +12,21 @@ from typing import Any
 
 TOOL_REGISTRY: dict[str, str] = {
     "apply_refactor_tool": "dagayn.tools.refactor_tools:apply_refactor_func",
+    "architecture_analysis_tool": "dagayn.tools.architecture_analysis:architecture_analysis_func",
     "build_or_update_graph_tool": "dagayn.tools.build:build_or_update_graph",
-    "compute_sap_metrics_tool": "dagayn.tools.sap_tools:compute_sap_metrics_func",
-    "compute_sdp_metrics_tool": "dagayn.tools.architecture_tools:compute_sdp_metrics_func",
     "cross_repo_search_tool": "dagayn.tools.registry_tools:cross_repo_search_func",
-    "detect_adp_violations_tool": "dagayn.tools.architecture_tools:detect_adp_violations_func",
     "detect_changes_tool": "dagayn.tools.review:detect_changes_func",
-    "detect_sap_violations_tool": "dagayn.tools.sap_tools:detect_sap_violations_func",
-    "detect_sdp_violations_tool": "dagayn.tools.architecture_tools:detect_sdp_violations_func",
     "embed_graph_tool": "dagayn.tools.docs:embed_graph",
     "find_large_functions_tool": "dagayn.tools.query:find_large_functions",
     "generate_wiki_tool": "dagayn.tools.docs:generate_wiki_func",
     "get_affected_flows_tool": "dagayn.tools.review:get_affected_flows_func",
-    "get_architecture_overview_tool": "dagayn.tools.community_tools:get_architecture_overview_func",
-    "get_bridge_nodes_tool": "dagayn.tools.analysis_tools:get_bridge_nodes_func",
-    "get_community_tool": "dagayn.tools.community_tools:get_community_func",
     "get_docs_section_tool": "dagayn.tools.docs:get_docs_section",
     "get_flow_tool": "dagayn.tools.flows_tools:get_flow",
-    "get_hub_nodes_tool": "dagayn.tools.analysis_tools:get_hub_nodes_func",
     "get_impact_radius_tool": "dagayn.tools.query:get_impact_radius",
-    "get_knowledge_gaps_tool": "dagayn.tools.analysis_tools:get_knowledge_gaps_func",
     "get_minimal_context_tool": "dagayn.tools.context:get_minimal_context",
     "get_review_context_tool": "dagayn.tools.review:get_review_context",
     "get_suggested_questions_tool": "dagayn.tools.analysis_tools:get_suggested_questions_func",
-    "get_surprising_connections_tool": (
-        "dagayn.tools.analysis_tools:get_surprising_connections_func"
-    ),
     "get_wiki_page_tool": "dagayn.tools.docs:get_wiki_page_func",
-    "list_communities_tool": "dagayn.tools.community_tools:list_communities_func",
     "list_flows_tool": "dagayn.tools.flows_tools:list_flows",
     "list_graph_stats_tool": "dagayn.tools.query:list_graph_stats",
     "list_repos_tool": "dagayn.tools.registry_tools:list_repos_func",
@@ -56,6 +43,7 @@ TOOL_ALIASES: dict[str, str] = {
     if name.endswith("_tool") and name != "refactor_tool"
 }
 TOOL_ALIASES["refactor"] = "refactor_tool"
+TOOL_ALIASES["architecture_analysis"] = "architecture_analysis_tool"
 
 
 def register_command(sub: argparse._SubParsersAction) -> argparse.ArgumentParser:
