@@ -20,18 +20,18 @@ Perform a comprehensive code review of a pull request or branch diff using the k
 
 3. **Update the graph** by calling `build_or_update_graph_tool(base="main")` to ensure the graph reflects the current state.
 
-4. **Get risk and review priorities** by calling `detect_changes_tool(base="main")`:
+4. **Get risk and review priorities** by calling `review_tool(mode="changes", base="main")`:
    - This uses `main` (or the specified base branch) as the diff base
    - Returns all changed files across all commits in the PR
    - Read `analysis_summary` for risk reasons, recommended tests, affected-flow
      rankings, documentation update candidates, hotspot proximity, and
      architecture risks in changed scopes
 
-5. **Fetch focused source context** by calling `get_review_context_tool(base="main")`
+5. **Fetch focused source context** by calling `review_tool(mode="context", base="main")`
    for the files or functions that need exact snippets.
 
 6. **Analyze impact** by using `analysis_summary` first, then calling
-   `get_impact_radius_tool(base="main")` only when a wider view is needed:
+   `review_tool(mode="impact", base="main")` only when a wider view is needed:
    - Review the blast radius across the entire PR
    - Identify high-risk areas (widely depended-upon code)
 
@@ -74,7 +74,7 @@ Perform a comprehensive code review of a pull request or branch diff using the k
 - For large PRs, focus on the highest-impact files first (most dependents)
 - Use `semantic_search_nodes_tool` to find related code the PR might have missed
 - Check if renamed/moved functions have updated all callers
-- Prefer `detect_changes_tool.analysis_summary` before calling drill-down
+- Prefer `review_tool(mode="changes").analysis_summary` before calling drill-down
   review tools.
 - Use graph risk labels as prioritization, not proof. Confirm behavioral issues
   in source or tests before reporting them as findings.
@@ -88,8 +88,8 @@ review drill-down tool, run the same implementation through the CLI without
 restarting the agent:
 
 ```bash
-dagayn tool detect_changes_tool --arg base='"main"' --arg detail_level='"minimal"'
-dagayn tool get_review_context_tool --arg base='"main"' --arg detail_level='"minimal"'
-dagayn tool get_impact_radius_tool --arg base='"main"' --arg detail_level='"minimal"'
-dagayn tool list_flows_tool --arg detail_level='"minimal"'
+dagayn tool review_tool --arg mode='"changes"' --arg base='"main"' --arg detail_level='"minimal"'
+dagayn tool review_tool --arg mode='"context"' --arg base='"main"' --arg detail_level='"minimal"'
+dagayn tool review_tool --arg mode='"impact"' --arg base='"main"' --arg detail_level='"minimal"'
+dagayn tool flow_tool --arg mode='"list"' --arg detail_level='"minimal"'
 ```

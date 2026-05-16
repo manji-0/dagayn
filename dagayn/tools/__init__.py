@@ -64,6 +64,9 @@ from .context import get_minimal_context
 # -- docs -------------------------------------------------------------------
 from .docs import embed_graph, generate_wiki_func, get_docs_section, get_wiki_page_func
 
+# -- flow_dispatcher --------------------------------------------------------
+from .flow_dispatcher import flow_func
+
 # -- flows_tools ------------------------------------------------------------
 from .flows_tools import get_flow, list_flows
 
@@ -90,6 +93,9 @@ from .review import (
     get_review_context,
 )
 
+# -- review_dispatcher ------------------------------------------------------
+from .review_dispatcher import review_func
+
 # -- sap_tools --------------------------------------------------------------
 from .sap_tools import compute_sap_metrics_func, detect_sap_violations_func
 
@@ -114,6 +120,8 @@ __all__ = [
     "generate_wiki_func",
     "get_docs_section",
     "get_wiki_page_func",
+    # flow_dispatcher
+    "flow_func",
     # flows_tools
     "get_flow",
     "list_flows",
@@ -134,6 +142,8 @@ __all__ = [
     "detect_changes_func",
     "get_affected_flows_func",
     "get_review_context",
+    # review_dispatcher
+    "review_func",
     # analysis_tools
     "get_bridge_nodes_func",
     "get_hub_nodes_func",

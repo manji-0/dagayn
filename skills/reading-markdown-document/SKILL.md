@@ -27,7 +27,7 @@ Take a structural snapshot before opening the file:
    - If this returns empty (the doc isn't yet in the graph), Stage 0 missed an update — re-run `build_or_update_graph_tool()` once. If still empty, the file is brand new; treat it as a plain text read and skip to Stage 3.
 2. **Inbound edges** — `query_graph_tool(pattern="importers_of", target="<doc.md>", detail_level="minimal")`. **Use the file path only**, not `<doc.md>::<section>` — `importers_of` resolves to file paths; section-form targets silently return zero hits (`tools/query.py:241`).
 3. **Outbound file-level imports** — `query_graph_tool(pattern="imports_of", target="<doc.md>", detail_level="minimal")` to list cross-doc `IMPORTS_FROM` edges (directives + links targeting other files).
-4. **Outbound blast radius** — `get_impact_radius_tool(changed_files=["<doc.md>"], detail_level="minimal")` to see everything that would be affected if this doc changed. This is your set of downstream consumers.
+4. **Outbound blast radius** — `review_tool(mode="impact", changed_files=["<doc.md>"], detail_level="minimal")` to see everything that would be affected if this doc changed. This is your set of downstream consumers.
 
 Tool-call budget for Stage 1: ≤ 4 calls (one per step). Stop here before any pre-reading.
 
@@ -73,7 +73,7 @@ without restarting the agent:
 ```bash
 dagayn tool list_graph_stats_tool
 dagayn tool query_graph_tool --arg pattern='"file_summary"' --arg target='"docs/adr.md"'
-dagayn tool get_impact_radius_tool --arg 'changed_files=["docs/adr.md"]' --arg detail_level='"minimal"'
+dagayn tool review_tool --arg mode='"impact"' --arg 'changed_files=["docs/adr.md"]' --arg detail_level='"minimal"'
 ```
 
 ## Token Efficiency Rules

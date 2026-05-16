@@ -20,8 +20,7 @@ GRAPH_LIFECYCLE_TOOLS = frozenset(
 DEFAULT_WORKFLOW_TOOLS = frozenset(
     {
         "get_minimal_context_tool",
-        "detect_changes_tool",
-        "get_review_context_tool",
+        "review_tool",
         "architecture_analysis_tool",
         "refactor_tool",
         "query_graph_tool",
@@ -33,25 +32,21 @@ DEFAULT_TOOL_PROFILE_TOOLS = GRAPH_LIFECYCLE_TOOLS | DEFAULT_WORKFLOW_TOOLS
 
 REVIEW_TOOL_PROFILE_TOOLS = DEFAULT_TOOL_PROFILE_TOOLS | frozenset(
     {
-        "get_impact_radius_tool",
-        "get_affected_flows_tool",
-        "list_flows_tool",
-        "get_flow_tool",
+        "flow_tool",
         "get_suggested_questions_tool",
     }
 )
 
 ARCHITECTURE_TOOL_PROFILE_TOOLS = DEFAULT_TOOL_PROFILE_TOOLS | frozenset(
     {
-        "list_flows_tool",
-        "get_flow_tool",
+        "flow_tool",
     }
 )
 
 REFACTOR_TOOL_PROFILE_TOOLS = DEFAULT_TOOL_PROFILE_TOOLS | frozenset(
     {
         "find_large_functions_tool",
-        "get_impact_radius_tool",
+        "flow_tool",
         "apply_refactor_tool",
     }
 )

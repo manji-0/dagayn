@@ -16,11 +16,11 @@ Use `dagayn` in all user-facing guidance.
 Recommended sequence for reviewing a delta:
 
 1. ensure the graph is up to date
-2. call `detect_changes` or `get_review_context`
+2. call `review_tool(mode="changes")` or `review_tool(mode="context")`
 3. inspect affected nodes, flows, and tests
 4. read only the files that remain ambiguous after graph queries
 
-`detect_changes` returns an `analysis_summary` with risk reasons, recommended
+`review_tool(mode="changes")` returns an `analysis_summary` with risk reasons, recommended
 tests, affected-flow rankings, documentation update candidates, hotspot
 proximity, and architecture risks in changed scopes.
 
@@ -28,7 +28,7 @@ The fork is designed to work well when docs, app code, and Terraform all change 
 </section>
 
 <section name="review-pr">
-For larger reviews, start with `get_minimal_context`, then use `detect_changes`, `get_impact_radius`, `list_flows`, and `architecture_analysis_tool(mode="communities")` as needed.
+For larger reviews, start with `get_minimal_context`, then use `review_tool`, `flow_tool`, and `architecture_analysis_tool(mode="communities")` as needed.
 
 If the PR touches infrastructure, assume Terraform nodes and references are part of the review surface.
 </section>

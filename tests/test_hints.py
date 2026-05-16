@@ -19,14 +19,14 @@ class TestSessionState:
     def test_review_intent_detected(self):
         """Recording review-oriented tools should infer 'reviewing'."""
         session = SessionState()
-        for tool in ("detect_changes", "get_review_context", "get_affected_flows"):
+        for tool in ("review", "detect_changes", "get_review_context", "get_affected_flows"):
             session.record_tool_call(tool)
         assert infer_intent(session) == "reviewing"
 
     def test_debug_intent_detected(self):
         """Recording debug-oriented tools should infer 'debugging'."""
         session = SessionState()
-        for tool in ("query_graph", "get_flow", "semantic_search_nodes"):
+        for tool in ("query_graph", "flow", "get_flow", "semantic_search_nodes"):
             session.record_tool_call(tool)
         assert infer_intent(session) == "debugging"
 
@@ -58,28 +58,25 @@ class TestGenerateHints:
     def test_hints_no_repeat(self):
         """Already-called tools must not appear in next_steps."""
         session = SessionState()
-        # Call list_flows, then generate hints for it
-        # list_flows suggests get_flow, get_affected_flows, architecture_analysis_tool
-        generate_hints("list_flows", {"status": "ok"}, session)
+        # Call flow, then generate hints for it.
+        generate_hints("flow", {"status": "ok"}, session)
 
-        # Now call get_flow and regenerate hints for list_flows
-        hints2 = generate_hints("list_flows", {"status": "ok"}, session)
+        # Now regenerate hints for flow.
+        hints2 = generate_hints("flow", {"status": "ok"}, session)
         suggested_tools2 = {s["tool"] for s in hints2["next_steps"]}
-        # list_flows itself was called, so it shouldn't be suggested by get_flow workflow
-        # Also, the first list_flows call should be excluded from next suggestions
-        assert "list_flows" not in suggested_tools2
+        assert "flow" not in suggested_tools2
 
     def test_hints_max_three(self):
         """Each hints category should have at most 3 entries."""
         session = SessionState()
-        # detect_changes has 4 workflow entries
+        # review has 4 workflow entries
         result = {
             "status": "ok",
             "test_gaps": [{"name": f"gap_{i}"} for i in range(10)],
             "risk_score": 0.9,
             "warnings": ["coupling warning 1", "coupling warning 2"],
         }
-        hints = generate_hints("detect_changes", result, session)
+        hints = generate_hints("review", result, session)
         assert len(hints["next_steps"]) <= _MAX_PER_CATEGORY
         assert len(hints["warnings"]) <= _MAX_PER_CATEGORY
         assert len(hints["related"]) <= _MAX_PER_CATEGORY

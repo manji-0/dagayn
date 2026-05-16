@@ -15,23 +15,19 @@ TOOL_REGISTRY: dict[str, str] = {
     "architecture_analysis_tool": "dagayn.tools.architecture_analysis:architecture_analysis_func",
     "build_or_update_graph_tool": "dagayn.tools.build:build_or_update_graph",
     "cross_repo_search_tool": "dagayn.tools.registry_tools:cross_repo_search_func",
-    "detect_changes_tool": "dagayn.tools.review:detect_changes_func",
     "embed_graph_tool": "dagayn.tools.docs:embed_graph",
     "find_large_functions_tool": "dagayn.tools.query:find_large_functions",
+    "flow_tool": "dagayn.tools.flow_dispatcher:flow_func",
     "generate_wiki_tool": "dagayn.tools.docs:generate_wiki_func",
-    "get_affected_flows_tool": "dagayn.tools.review:get_affected_flows_func",
     "get_docs_section_tool": "dagayn.tools.docs:get_docs_section",
-    "get_flow_tool": "dagayn.tools.flows_tools:get_flow",
-    "get_impact_radius_tool": "dagayn.tools.query:get_impact_radius",
     "get_minimal_context_tool": "dagayn.tools.context:get_minimal_context",
-    "get_review_context_tool": "dagayn.tools.review:get_review_context",
     "get_suggested_questions_tool": "dagayn.tools.analysis_tools:get_suggested_questions_func",
     "get_wiki_page_tool": "dagayn.tools.docs:get_wiki_page_func",
-    "list_flows_tool": "dagayn.tools.flows_tools:list_flows",
     "list_graph_stats_tool": "dagayn.tools.query:list_graph_stats",
     "list_repos_tool": "dagayn.tools.registry_tools:list_repos_func",
     "query_graph_tool": "dagayn.tools.query:query_graph",
     "refactor_tool": "dagayn.tools.refactor_tools:refactor_func",
+    "review_tool": "dagayn.tools.review_dispatcher:review_func",
     "run_postprocess_tool": "dagayn.tools.build:run_postprocess",
     "semantic_search_nodes_tool": "dagayn.tools.query:semantic_search_nodes",
     "traverse_graph_tool": "dagayn.tools.query:traverse_graph_func",
@@ -44,6 +40,8 @@ TOOL_ALIASES: dict[str, str] = {
 }
 TOOL_ALIASES["refactor"] = "refactor_tool"
 TOOL_ALIASES["architecture_analysis"] = "architecture_analysis_tool"
+TOOL_ALIASES["review"] = "review_tool"
+TOOL_ALIASES["flow"] = "flow_tool"
 
 
 def register_command(sub: argparse._SubParsersAction) -> argparse.ArgumentParser:
@@ -57,7 +55,7 @@ def register_command(sub: argparse._SubParsersAction) -> argparse.ArgumentParser
             "key/value pairs."
         ),
     )
-    parser.add_argument("tool_name", nargs="?", help="MCP tool name, e.g. get_impact_radius_tool")
+    parser.add_argument("tool_name", nargs="?", help="MCP tool name, e.g. review_tool")
     parser.add_argument("--repo", default=None, help="Repository root passed as repo_root")
     parser.add_argument("--list", action="store_true", help="List available tool names and exit")
     parser.add_argument(

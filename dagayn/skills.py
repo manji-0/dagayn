@@ -792,7 +792,7 @@ _MARKDOWN_POLICY_SECTION = f"""{_MARKDOWN_POLICY_MARKER}
 When authoring or editing a Markdown document in this repository, declare
 inter-section and inter-document dependencies as HTML directive comments so
 they are captured by the dagayn graph (`DEPENDS_ON` / `IMPORTS_FROM` edges)
-and discoverable via `query_graph` / `get_impact_radius`.
+and discoverable via `query_graph` / `review_tool(mode="impact")`.
 
 ### Required form
 
@@ -847,8 +847,8 @@ scanning cannot.
 
 - **Any new task**: `get_minimal_context` for graph freshness, risk, and next-tool hints
 - **Exploring code**: `semantic_search_nodes` or `query_graph` instead of Grep
-- **Understanding impact**: `get_impact_radius` instead of manually tracing imports
-- **Code review**: `detect_changes` first; use its `analysis_summary` before
+- **Understanding impact**: `review_tool(mode="impact")` instead of manually tracing imports
+- **Code review**: `review_tool(mode="changes")` first; use its `analysis_summary` before
   calling drill-down tools
 - **Finding relationships**: `query_graph` with callers_of/callees_of/imports_of/tests_for
 - **Architecture questions**: `architecture_analysis_tool(mode="overview")`
@@ -871,8 +871,7 @@ allow-list.
 | Tool | Use when |
 | ------ | ---------- |
 | `get_minimal_context` | Starting point: graph freshness, risk, communities, suggested next tools |
-| `detect_changes` | Primary change review — returns `analysis_summary` |
-| `get_review_context` | Need source snippets for review — token-efficient |
+| `review_tool` | Primary change review and review drill-down dispatcher |
 | `architecture_analysis_tool` | Primary architecture review and drill-down dispatcher |
 | `refactor_tool` | Planning renames, finding dead code, and evidence-ranked refactor suggestions |
 | `query_graph` | Tracing callers, callees, imports, tests, dependencies |
@@ -882,9 +881,9 @@ allow-list.
 
 | Tool | Use when |
 | ------ | ---------- |
-| `get_impact_radius` | Need a wider or deeper blast-radius view than `detect_changes` returned |
-| `get_affected_flows` | Need full affected execution-path details |
-| `list_flows` / `get_flow` | Need flow lists or step-by-step flow paths |
+| `review_tool(mode="impact")` | Need a wider or deeper blast-radius view |
+| `review_tool(mode="affected_flows")` | Need full affected execution-path details |
+| `flow_tool(mode=...)` | Need flow lists or step-by-step flow paths |
 | `architecture_analysis_tool(mode=...)` | Architecture drill-downs for boundaries and metrics |
 
 ### How to judge analysis output
@@ -903,9 +902,9 @@ allow-list.
 
 1. Start with `get_minimal_context(task=...)`.
 2. Use the suggested next tool or a targeted query.
-3. For reviews, use `detect_changes` and read `analysis_summary` first.
-   Call `get_review_context` for source snippets and `get_affected_flows`,
-   `get_impact_radius`, or `query_graph` only when the summary points there.
+3. For reviews, use `review_tool(mode=\"changes\")` and read `analysis_summary`
+   first. Call `review_tool(mode=\"context\")`, `review_tool(mode=\"affected_flows\")`,
+   `review_tool(mode=\"impact\")`, or `query_graph` only when the summary points there.
 4. For architecture work, use
    `architecture_analysis_tool(mode=\"overview\", detail_level=\"minimal\")`
    and read `architecture_health` first. Use the Architecture Analysis skill to

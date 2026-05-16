@@ -3,7 +3,7 @@
 Provides 5 pre-built prompt workflows, all enforcing token-efficient
 detail_level="minimal" first patterns with get_minimal_context entry point.
 
-1. review_changes   - pre-commit review using detect_changes + affected_flows
+1. review_changes   - pre-commit review using review_tool
 2. architecture_map - architecture docs using communities, flows, Mermaid
 3. debug_issue      - guided debugging using search, flow tracing
 4. onboard_developer - new dev orientation using stats, architecture, flows
@@ -23,7 +23,7 @@ entities that need deeper inspection.
 4. Never request more than 3 tool calls per turn unless absolutely necessary.
 5. Prefer targeted queries (query_graph with a specific symbol) over broad \
 architecture_analysis drill-downs.
-6. When reviewing changes: detect_changes(detail_level="minimal") → only \
+6. When reviewing changes: review_tool(mode="changes", detail_level="minimal") → only \
 expand on high-risk items.
 """
 )
@@ -44,20 +44,20 @@ def review_changes_prompt(base: str = "HEAD~1") -> list[dict]:
                 f'1. Call `get_minimal_context(task="review changes against '
                 f'{base}")` to get risk overview.\n'
                 f'2. If risk is "low": call '
-                f'`detect_changes(detail_level="minimal")` → report summary '
+                f'`review_tool(mode="changes", detail_level="minimal")` → report summary '
                 f"+ any test gaps.\n"
                 f'3. If risk is "medium" or "high":\n'
-                f'   a. Call `detect_changes(detail_level="standard")` for '
+                f'   a. Call `review_tool(mode="changes", detail_level="standard")` for '
                 f"full change list.\n"
                 f"   b. For each high-risk function, call "
                 f'`query_graph(pattern="callers_of", target=<func>, '
                 f'detail_level="minimal")`.\n'
-                f'   c. Call `get_affected_flows(detail_level="minimal")` '
+                f'   c. Call `review_tool(mode="affected_flows", detail_level="minimal")` '
                 f"only if >3 changed functions.\n"
                 f"4. Summarize: risk level, what changed, test gaps, "
                 f"specific improvements needed.\n\n"
-                f"Do NOT call get_review_context unless you need source code "
-                f"snippets for a specific function."
+                f"Do NOT call review_tool(mode=\"context\") unless you need "
+                f"source code snippets for a specific function."
             ),
         }
     ]
@@ -74,7 +74,7 @@ def architecture_map_prompt() -> list[dict]:
                 '1. Call `get_minimal_context(task="map architecture")`.\n'
                 '2. Call `architecture_analysis_tool(mode="overview", '
                 'detail_level="minimal")` for community coupling summary.\n'
-                '3. Call `list_flows(detail_level="minimal")` for critical '
+                '3. Call `flow_tool(mode="list", detail_level="minimal")` for critical '
                 "flow names + criticality scores.\n"
                 "4. Only call `architecture_analysis_tool(mode=\"community\", "
                 "community_name=<X>)` for the 1-2 communities the user is most "
@@ -107,9 +107,9 @@ def debug_issue_prompt(description: str = "") -> list[dict]:
                 '`query_graph(pattern="callers_of", target=<name>, '
                 'detail_level="minimal")`.\n'
                 "4. If the issue involves execution flow: call "
-                "`get_flow(name=<relevant flow>)` for the single most "
+                "`flow_tool(mode=\"get\", flow_name=<relevant flow>)` for the single most "
                 "relevant flow.\n"
-                "5. Only call `get_review_context` or `get_impact_radius` "
+                "5. Only call `review_tool(mode=\"context\")` or `review_tool(mode=\"impact\")` "
                 "if you need to trace the blast radius of a specific change."
             ),
         }
@@ -131,7 +131,7 @@ def onboard_developer_prompt() -> list[dict]:
                 '4. Call `architecture_analysis_tool(mode="communities", '
                 'detail_level="minimal")` — '
                 "present as a table of module names + sizes.\n"
-                '5. Call `list_flows(detail_level="minimal")` — highlight '
+                '5. Call `flow_tool(mode="list", detail_level="minimal")` — highlight '
                 "the top 3 critical flows.\n"
                 "6. Only drill into a specific community or flow if the "
                 "developer asks."
@@ -153,17 +153,17 @@ def pre_merge_check_prompt(base: str = "HEAD~1") -> list[dict]:
                 f"{_TOKEN_EFFICIENCY_PREAMBLE}\n"
                 "## Pre-Merge Check Workflow\n"
                 '1. Call `get_minimal_context(task="pre-merge check")`.\n'
-                '2. Call `detect_changes(detail_level="minimal")` for risk '
+                '2. Call `review_tool(mode="changes", detail_level="minimal")` for risk '
                 "score and test gaps.\n"
                 "3. If risk > 0.4: call "
-                '`get_affected_flows(detail_level="minimal")`.\n'
+                '`review_tool(mode="affected_flows", detail_level="minimal")`.\n'
                 "4. If test_gap_count > 0: call "
                 '`query_graph(pattern="tests_for", '
                 'target=<each untested function>, detail_level="minimal")` '
                 "for up to 3 functions.\n"
                 '5. Call `refactor(mode="dead_code", '
                 'detail_level="minimal")` to check for newly dead code.\n'
-                "6. Only call `find_large_functions` or `get_impact_radius` "
+                "6. Only call `find_large_functions` or `review_tool(mode=\"impact\")` "
                 "if risk > 0.7.\n"
                 "7. Output: GO/NO-GO recommendation with 1-sentence "
                 "justification + list of required follow-ups."

@@ -16,7 +16,7 @@ Perform a focused, token-efficient code review of only the changed code and its 
 
 2. **Ensure the graph is current** by calling `build_or_update_graph_tool()` (incremental update).
 
-3. **Get risk and review priorities** by calling `detect_changes_tool()`.
+3. **Get risk and review priorities** by calling `review_tool(mode="changes")`.
    Read `analysis_summary` first. It returns:
    - Risk level, risk score, and reason codes
    - Changed/impacted node and file counts
@@ -27,11 +27,11 @@ Perform a focused, token-efficient code review of only the changed code and its 
    - Architecture risks in changed scopes
 
 4. **Fetch source context only when needed** by calling
-   `get_review_context_tool()` for files or functions where source snippets are
-   required.
+   `review_tool(mode="context")` for files or functions where source snippets
+   are required.
 
 5. **Analyze the blast radius** by reviewing the impact fields in
-   `analysis_summary` and, when needed, calling `get_impact_radius_tool()`.
+   `analysis_summary` and, when needed, calling `review_tool(mode="impact")`.
    Focus on:
    - Functions whose callers changed (may need signature/behavior verification)
    - Classes with inheritance changes (Liskov substitution concerns)
@@ -74,8 +74,8 @@ drill-down tool, run the same implementation through the CLI without restarting
 the agent:
 
 ```bash
-dagayn tool detect_changes_tool --arg detail_level='"minimal"'
-dagayn tool get_review_context_tool --arg detail_level='"minimal"'
-dagayn tool get_impact_radius_tool --arg detail_level='"minimal"'
+dagayn tool review_tool --arg mode='"changes"' --arg detail_level='"minimal"'
+dagayn tool review_tool --arg mode='"context"' --arg detail_level='"minimal"'
+dagayn tool review_tool --arg mode='"impact"' --arg detail_level='"minimal"'
 dagayn tool query_graph_tool --arg pattern='"tests_for"' --arg target='"src/app.py::handler"'
 ```

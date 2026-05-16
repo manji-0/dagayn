@@ -99,6 +99,11 @@ class TestGenerateSkills:
         assert "analysis_summary" in review_delta
         assert "analysis_summary" in review_pr
         assert "recommended_tests" in review_pr
+        for content in (review_changes, review_delta, review_pr):
+            assert "review_tool" in content
+            assert "detect_changes_tool" not in content
+            assert "get_review_context_tool" not in content
+            assert "get_impact_radius_tool" not in content
 
     def test_explore_skill_uses_architecture_health(self, tmp_path):
         """Generated exploration skill should use the composed architecture surface."""
@@ -106,6 +111,7 @@ class TestGenerateSkills:
         content = (skills_dir / "explore-codebase.md").read_text()
         assert "architecture_health" in content
         assert "architecture_analysis_tool" in content
+        assert "flow_tool" in content
 
     def test_architecture_skill_uses_dispatcher_modes(self, tmp_path):
         skills_dir = generate_skills(tmp_path)
@@ -746,6 +752,8 @@ class TestInjectClaudeMd:
         assert "analysis_summary" in content
         assert "architecture_health" in content
         assert "architecture_analysis_tool" in content
+        assert "review_tool" in content
+        assert "flow_tool" in content
         assert "get_architecture_overview" not in content
 
     def test_appends_to_existing_file(self, tmp_path):

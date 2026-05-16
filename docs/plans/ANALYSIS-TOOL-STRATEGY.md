@@ -34,25 +34,22 @@ internal signal, a response section, or an advanced drill-down tool.
 These are the tools that should appear in the recommended default path:
 
 - `get_minimal_context_tool`
-- `detect_changes_tool`
-- `get_review_context_tool`
+- `review_tool`
+- `flow_tool`
 - `architecture_analysis_tool`
 - `refactor_tool`
 - `query_graph_tool`
 - `semantic_search_nodes_tool`
 
-This set keeps the user-facing shape small: one orientation tool, two review
-tools, one architecture tool, one refactor tool, and two exploration tools.
+This set keeps the user-facing shape small: one orientation tool, one review
+dispatcher, one flow dispatcher, one architecture tool, one refactor tool, and
+two exploration tools.
 
 ### Tier 2: drill-down tools
 
 These tools should remain available, but they should be reached through hints
 from Tier 1 results rather than presented as equal first choices:
 
-- `get_impact_radius_tool`
-- `get_affected_flows_tool`
-- `list_flows_tool`
-- `get_flow_tool`
 - `get_suggested_questions_tool`
 - `traverse_graph_tool`
 
@@ -83,7 +80,7 @@ controls. They should not be marketed as the ordinary analysis starting point.
 
 <!-- constrained-by ../COMMANDS.md#mcp-tools -->
 
-The primary change-analysis surface should be `detect_changes_tool`.
+The primary change-analysis surface should be `review_tool(mode="changes")`.
 
 It should compose these signals:
 
@@ -189,7 +186,7 @@ A new top-level analysis tool is justified only when all of these are true:
 6. The tool can recommend its own next drill-down step.
 
 If any condition fails, implement the analysis as a composed signal inside
-`detect_changes_tool`, `architecture_analysis_tool`, or `refactor_tool`.
+`review_tool`, `architecture_analysis_tool`, or `refactor_tool`.
 
 ## Implementation phases
 
@@ -198,7 +195,7 @@ If any condition fails, implement the analysis as a composed signal inside
 Update command and usage docs so the recommended flow is:
 
 1. start with `get_minimal_context_tool`
-2. choose `detect_changes_tool`, `architecture_analysis_tool`,
+2. choose `review_tool`, `architecture_analysis_tool`,
    `refactor_tool`, or `query_graph_tool`
 3. follow response hints to Tier 2 tools only when needed
 
@@ -212,10 +209,10 @@ while `--tool-profile full` preserves the legacy all-tools behavior.
 
 ### Phase 3: enrich change analysis
 
-Extend `detect_changes_tool` with recommended tests, affected-flow ranking,
+Extend `review_tool(mode="changes")` with recommended tests, affected-flow ranking,
 architecture-delta summaries, and documentation-drift hints.
 
-Status: implemented. `detect_changes_tool` now returns `analysis_summary` in
+Status: implemented. `review_tool(mode="changes")` now returns `analysis_summary` in
 standard mode and compact risk/test/flow/doc fields in minimal mode.
 
 ### Phase 4: enrich architecture overview

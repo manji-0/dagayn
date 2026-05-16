@@ -83,7 +83,7 @@ For each section, in dependency order:
 3. **Save the file** and unconditionally run `build_or_update_graph_tool()` (it's idempotent and cheap; do not try to detect whether hooks are running).
 4. **Verify the edges resolved:**
    - `query_graph_tool(pattern="importers_of", target="<doc.md>", detail_level="minimal")` — file-level inbound edges. **Use the file path only — `importers_of` resolves the target to a file path; `<doc.md>::<section>` will silently return zero hits** (`tools/query.py:241`).
-   - `get_impact_radius_tool(changed_files=["<doc.md>"], detail_level="minimal")` — outbound blast radius for the whole file.
+   - `review_tool(mode="impact", changed_files=["<doc.md>"], detail_level="minimal")` — outbound blast radius for the whole file.
 5. **If a directive looks like it didn't take effect**, re-read your slug against the rules in the reference table above (most common bug: punctuation in heading not accounted for, or section slug typo). Fix and re-run step 3 + 4.
 
 Tool-call budget for Stage 2: ≤ 3 calls per section in the happy path (build + importers_of + impact). Allow 1 extra retry per section for slug fixes.
@@ -94,7 +94,7 @@ Stage 2 done for the section when: the directive's intended target appears eithe
 
 1. Re-read the full draft top-to-bottom; tighten prose; merge or split sections if Stage 2 surfaced badly-balanced ones.
 2. For every backticked `Symbol`, run `semantic_search_nodes_tool(query="<symbol>", detail_level="minimal")` and require exactly one match. If multiple, qualify (`module.Symbol`); if still multiple after qualification, **accept that this edge will be dropped by postprocessing** and either (a) leave the backticks for prose readability and add a `<!-- TODO: ambiguous symbol — qualify when API stabilizes -->` comment, or (b) remove the backticks and use plain text.
-3. Run `build_or_update_graph_tool()` once more, then `get_impact_radius_tool` again. Compare its output to Stage 2's. **Done criterion: no edge that was present in Stage 2 has disappeared.**
+3. Run `build_or_update_graph_tool()` once more, then `review_tool(mode="impact")` again. Compare its output to Stage 2's. **Done criterion: no edge that was present in Stage 2 has disappeared.**
 
 Tool-call budget for Stage 3: ≤ 1 call per backticked symbol + 2 final builds.
 
@@ -116,7 +116,7 @@ through the CLI without restarting the agent:
 ```bash
 dagayn tool build_or_update_graph_tool
 dagayn tool query_graph_tool --arg pattern='"file_summary"' --arg target='"docs/design.md"'
-dagayn tool get_impact_radius_tool --arg 'changed_files=["docs/design.md"]' --arg detail_level='"minimal"'
+dagayn tool review_tool --arg mode='"impact"' --arg 'changed_files=["docs/design.md"]' --arg detail_level='"minimal"'
 dagayn tool semantic_search_nodes_tool --arg query='"BridgeDetector"' --arg detail_level='"minimal"'
 ```
 

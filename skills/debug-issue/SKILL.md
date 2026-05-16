@@ -13,11 +13,11 @@ Use the knowledge graph to systematically trace and debug issues.
    risk, and suggested next tools.
 2. Use `semantic_search_nodes` to find code related to the issue.
 3. Use `query_graph` with `callers_of` and `callees_of` to trace call chains.
-4. Use `get_flow` to see full execution paths through suspected areas.
-5. Run `detect_changes` to check if recent changes caused the issue. Read
+4. Use `flow_tool(mode="get")` to see full execution paths through suspected areas.
+5. Run `review_tool(mode="changes")` to check if recent changes caused the issue. Read
    `analysis_summary` for risk reasons, affected-flow rankings, hotspot
    proximity, and recommended tests.
-6. Use `get_impact_radius` on suspected files only when `analysis_summary` or
+6. Use `review_tool(mode="impact")` on suspected files only when `analysis_summary` or
    the call trace leaves the blast radius unclear.
 7. Read source directly once graph evidence identifies the likely failing path.
 
@@ -32,13 +32,13 @@ Use the knowledge graph to systematically trace and debug issues.
 ## CLI Fallback
 
 Use MCP tools first. If the current MCP server profile does not expose a tool
-such as `get_flow_tool` or `get_impact_radius_tool`, run the same implementation
+such as `flow_tool` or `review_tool`, run the same implementation
 through the CLI without restarting the agent:
 
 ```bash
 dagayn tool get_minimal_context_tool --arg 'task="debug login timeout"'
-dagayn tool get_flow_tool --arg 'flow_name="handle_request"'
-dagayn tool get_impact_radius_tool --arg 'changed_files=["src/auth.py"]'
+dagayn tool flow_tool --arg mode='"get"' --arg 'flow_name="handle_request"'
+dagayn tool review_tool --arg mode='"impact"' --arg 'changed_files=["src/auth.py"]'
 ```
 
 ## Token Efficiency Rules

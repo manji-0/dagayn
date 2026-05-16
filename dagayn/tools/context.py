@@ -66,24 +66,24 @@ _EXPLORE_TASK_KEYWORDS = (
     "オンボーディング",
 )
 
-_REVIEW_TOOL_SUGGESTIONS = ["detect_changes", "get_affected_flows", "get_review_context"]
-_DEBUG_TOOL_SUGGESTIONS = ["semantic_search_nodes", "query_graph", "get_flow"]
-_FEATURE_TOOL_SUGGESTIONS = ["semantic_search_nodes", "query_graph", "detect_changes"]
+_REVIEW_TOOL_SUGGESTIONS = ["review_tool", "flow_tool", "query_graph"]
+_DEBUG_TOOL_SUGGESTIONS = ["semantic_search_nodes", "query_graph", "flow_tool"]
+_FEATURE_TOOL_SUGGESTIONS = ["semantic_search_nodes", "query_graph", "review_tool"]
 _REFACTOR_TOOL_SUGGESTIONS = ["refactor", "find_large_functions", "architecture_analysis_tool"]
 _EXPLORE_TOOL_SUGGESTIONS = [
     "architecture_analysis_tool",
-    "list_flows",
+    "flow_tool",
     "query_graph",
 ]
 _DEFAULT_TOOL_SUGGESTIONS = [
-    "detect_changes",
+    "review_tool",
     "semantic_search_nodes",
     "architecture_analysis_tool",
 ]
 _WORKFLOW_GUIDANCE: dict[str, dict[str, str]] = {
     "review": {
         "recommended_action": (
-            "Run detect_changes first, then drill into review context only when needed."
+            "Run review_tool mode=changes first, then drill into context only when needed."
         ),
         "why": (
             "The task mentions reviewing a diff or PR, so risk and changed-node ranking "
@@ -115,7 +115,7 @@ _WORKFLOW_GUIDANCE: dict[str, dict[str, str]] = {
     "explore": {
         "recommended_action": (
             "Start with architecture_analysis_tool mode=overview, "
-            "then drill into communities or flows."
+            "then drill into communities or flow_tool mode=list."
         ),
         "why": (
             "The task asks to understand structure, so a broad graph summary is cheaper "

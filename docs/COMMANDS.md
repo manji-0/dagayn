@@ -44,8 +44,8 @@ MCP tool and prints JSON. This gives agents and scripts a CLI path to tools
 that are outside the currently running MCP server profile:
 
 ```bash
-dagayn tool get_impact_radius_tool --arg 'changed_files=["src/app.py"]' --arg max_depth=3
-dagayn tool list_flows_tool --arg detail_level='"minimal"'
+dagayn tool review_tool --arg mode='"impact"' --arg 'changed_files=["src/app.py"]' --arg max_depth=3
+dagayn tool flow_tool --arg mode='"list"' --arg detail_level='"minimal"'
 dagayn tool architecture_analysis_tool --arg mode='"knowledge_gaps"' --arg top_n=10 --format summary
 ```
 
@@ -106,11 +106,10 @@ Representative tool names include:
 
 - `build_or_update_graph`
 - `get_minimal_context`
-- `get_impact_radius`
+- `review_tool`
 - `query_graph`
-- `detect_changes`
+- `flow_tool`
 - `architecture_analysis`
-- `list_flows`
 - `refactor_tool`
 - `generate_wiki`
 - `cross_repo_search`
@@ -165,7 +164,7 @@ uses that remote provider unless the client explicitly passes a different
 default only when exactly one provider's required environment variables are
 configured.
 
-`detect_changes_tool` is the primary change-analysis surface. Standard output
+`review_tool(mode="changes")` is the primary change-analysis surface. Standard output
 includes `analysis_summary` with risk level, reason codes, recommended tests,
 affected-flow rankings, documentation update candidates, hotspot proximity, and
 architecture risks in changed scopes.
@@ -187,6 +186,10 @@ Migration note for dagayn 3.0: v2 split architecture MCP/CLI tools such as
 `get_hub_nodes_tool`, `compute_sdp_metrics_tool`, and
 `detect_sap_violations_tool` were removed from the public surface. Use
 `architecture_analysis_tool(mode=...)` instead.
+
+Review and execution-flow drill-downs are also dispatcher-based in v3. Use
+`review_tool(mode="changes"|"context"|"affected_flows"|"impact")` and
+`flow_tool(mode="list"|"get")` instead of the v2 split MCP/CLI tools.
 
 `refactor_tool(mode="suggest")` returns graph-backed remove, move, split, and
 document candidates. Treat them as evidence-ranked leads; verify public APIs,

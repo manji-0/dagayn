@@ -36,7 +36,7 @@ def get_hub_nodes_func(
         hub_nodes=hubs,
         count=len(hubs),
         next_tool_suggestions=[
-            "get_impact_radius -- check blast radius of a hub",
+            'review_tool mode="impact" -- check blast radius of a hub',
             "query_graph callers_of -- see what calls a hub",
             'architecture_analysis_tool mode="bridges" -- find architectural chokepoints',
         ],
@@ -66,8 +66,8 @@ def get_bridge_nodes_func(
         count=len(bridges),
         next_tool_suggestions=[
             'architecture_analysis_tool mode="hubs" -- find most connected nodes',
-            "get_impact_radius -- check blast radius",
-            "detect_changes -- see if bridges are affected",
+            'review_tool mode="impact" -- check blast radius',
+            'review_tool mode="changes" -- see if bridges are affected',
         ],
     )
 
@@ -159,7 +159,7 @@ def get_surprising_connections_func(
         next_tool_suggestions=[
             'architecture_analysis_tool mode="overview" -- community structure',
             "query_graph callers_of -- trace the coupling",
-            "get_bridge_nodes -- find chokepoints",
+            'architecture_analysis_tool mode="bridges" -- find chokepoints',
         ],
     )
 
@@ -205,8 +205,8 @@ def get_suggested_questions_func(
         truncated=truncated,
         by_priority={k: len(v) for k, v in by_priority.items()},
         next_tool_suggestions=[
-            "get_knowledge_gaps -- structural weaknesses",
-            "detect_changes -- risk-scored review",
+            'architecture_analysis_tool mode="knowledge_gaps" -- structural weaknesses',
+            'review_tool mode="changes" -- risk-scored review',
             'architecture_analysis_tool mode="overview" -- community map',
         ],
     )

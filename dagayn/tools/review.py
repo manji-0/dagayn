@@ -423,9 +423,9 @@ def _change_analysis_summary(
         "hotspot_proximity": hotspots,
         "architecture_delta": architecture_delta,
         "next_drill_downs": {
-            "impact_radius": "get_impact_radius_tool",
-            "flows": "get_affected_flows_tool",
-            "review_context": "get_review_context_tool",
+            "impact_radius": {"tool": "review_tool", "mode": "impact"},
+            "flows": {"tool": "review_tool", "mode": "affected_flows"},
+            "review_context": {"tool": "review_tool", "mode": "context"},
             "architecture": {"tool": "architecture_analysis_tool", "mode": "overview"},
         },
     }
@@ -523,9 +523,9 @@ def get_review_context(
                 "key_entities": key_entities,
                 "test_gaps": test_gap_count,
                 "next_tool_suggestions": [
-                    "detect_changes",
-                    "get_affected_flows",
-                    "get_impact_radius",
+                    'review_tool mode="changes"',
+                    'review_tool mode="affected_flows"',
+                    'review_tool mode="impact"',
                 ],
             }
 

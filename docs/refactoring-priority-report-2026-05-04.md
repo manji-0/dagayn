@@ -45,7 +45,7 @@ Graph tools used:
 | `architecture_analysis_tool(mode="hubs")` | High-degree nodes with large blast radius. |
 | `architecture_analysis_tool(mode="bridges")` | Betweenness chokepoints. |
 | `find_large_functions_tool` | Long functions, production and tests. |
-| `get_impact_radius_tool` | File-level risk and impacted node counts. |
+| `review_tool(mode="impact")` | File-level risk and impacted node counts. |
 | `architecture_analysis_tool(mode="adp_violations")` | Package cycles. |
 | `architecture_analysis_tool(mode="sdp_violations")` | Stable modules depending on less stable ones. |
 | `architecture_analysis_tool(mode="sap_metrics")` | Pain/uselessness zones. |

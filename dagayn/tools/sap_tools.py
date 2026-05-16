@@ -122,7 +122,7 @@ def detect_sap_violations_func(
         next_tool_suggestions=[
             'architecture_analysis_tool mode="sap_metrics" -- see full A/I/D scores',
             'architecture_analysis_tool mode="adp_violations" -- check cyclic dependencies',
-            "get_impact_radius -- check blast radius of a violating scope",
+            'review_tool mode="impact" -- check blast radius of a violating scope',
         ],
     )
     apply_output_budget(payload, budget_tokens=5000, list_priorities=["violations"])

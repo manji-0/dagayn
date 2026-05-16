@@ -19,7 +19,7 @@ Use the dagayn MCP tools to explore and understand the codebase.
 3. Use `semantic_search_nodes` to find specific functions or classes.
 4. Use `query_graph` with patterns like `callers_of`, `callees_of`, `imports_of`
    to trace relationships.
-5. Use `list_flows` and `get_flow` to understand execution paths.
+5. Use `flow_tool(mode="list")` and `flow_tool(mode="get")` to understand execution paths.
 6. Fall back to `rg`/file reads when graph output is stale, ambiguous, truncated,
    or missing exact source text.
 
@@ -35,12 +35,12 @@ Use the dagayn MCP tools to explore and understand the codebase.
 ## CLI Fallback
 
 Use MCP tools first. If the current MCP server profile does not expose a
-drill-down tool such as `list_flows_tool`, `architecture_analysis_tool`, or
+drill-down tool such as `flow_tool`, `architecture_analysis_tool`, or
 `find_large_functions_tool`, run the same implementation through the CLI without
 restarting the agent:
 
 ```bash
-dagayn tool list_flows_tool --arg detail_level='"minimal"'
+dagayn tool flow_tool --arg mode='"list"' --arg detail_level='"minimal"'
 dagayn tool architecture_analysis_tool --arg mode='"overview"' --arg detail_level='"minimal"'
 dagayn tool architecture_analysis_tool --arg mode='"communities"'
 dagayn tool find_large_functions_tool --arg min_lines=80

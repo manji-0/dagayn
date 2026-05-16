@@ -16,6 +16,8 @@ from typing import Any
 
 _INTENT_TOOLS: dict[str, set[str]] = {
     "reviewing": {
+        "review",
+        "review_tool",
         "detect_changes",
         "get_review_context",
         "get_affected_flows",
@@ -23,6 +25,8 @@ _INTENT_TOOLS: dict[str, set[str]] = {
     },
     "debugging": {
         "query_graph",
+        "flow",
+        "flow_tool",
         "get_flow",
         "semantic_search_nodes",
     },
@@ -33,6 +37,8 @@ _INTENT_TOOLS: dict[str, set[str]] = {
     },
     "exploring": {
         "architecture_analysis",
+        "flow",
+        "flow_tool",
         "list_flows",
         "list_graph_stats",
     },
@@ -41,14 +47,28 @@ _INTENT_TOOLS: dict[str, set[str]] = {
 # ---- workflow adjacency: for each tool, which tools are useful next ----
 
 _WORKFLOW: dict[str, list[dict[str, str]]] = {
-    "list_flows": [
+    "flow": [
         {
-            "tool": "get_flow",
-            "suggestion": "Drill into a specific flow for step-by-step details",
+            "tool": "flow_tool",
+            "suggestion": 'Drill into a specific flow with mode="get"',
         },
         {
-            "tool": "get_affected_flows",
-            "suggestion": "Check which flows are affected by recent changes",
+            "tool": "review_tool",
+            "suggestion": 'Check changed-file flow impact with mode="affected_flows"',
+        },
+        {
+            "tool": "architecture_analysis_tool",
+            "suggestion": 'See the high-level architecture with mode="overview"',
+        },
+    ],
+    "list_flows": [
+        {
+            "tool": "flow_tool",
+            "suggestion": 'Use the public dispatcher with mode="get"',
+        },
+        {
+            "tool": "review_tool",
+            "suggestion": 'Check changed-file flow impact with mode="affected_flows"',
         },
         {
             "tool": "architecture_analysis_tool",
@@ -61,39 +81,39 @@ _WORKFLOW: dict[str, list[dict[str, str]]] = {
             "suggestion": "Inspect callers/callees of a step in this flow",
         },
         {
-            "tool": "get_affected_flows",
-            "suggestion": "Check if changes affect this flow",
+            "tool": "review_tool",
+            "suggestion": 'Check changed-file flow impact with mode="affected_flows"',
         },
         {
-            "tool": "list_flows",
-            "suggestion": "Browse other execution flows",
+            "tool": "flow_tool",
+            "suggestion": 'Browse other execution flows with mode="list"',
         },
     ],
     "get_affected_flows": [
         {
-            "tool": "detect_changes",
-            "suggestion": "Get risk-scored change analysis",
+            "tool": "review_tool",
+            "suggestion": 'Get risk-scored change analysis with mode="changes"',
         },
         {
-            "tool": "get_flow",
-            "suggestion": "Inspect a specific affected flow",
+            "tool": "flow_tool",
+            "suggestion": 'Inspect a specific affected flow with mode="get"',
         },
         {
-            "tool": "get_review_context",
-            "suggestion": "Build a full review context for the changes",
+            "tool": "review_tool",
+            "suggestion": 'Build full review context with mode="context"',
         },
     ],
     "list_communities": [
         {
-            "tool": "get_community",
-            "suggestion": "Inspect a specific community's members",
+            "tool": "architecture_analysis_tool",
+            "suggestion": 'Inspect a specific community with mode="community"',
         },
         {
             "tool": "architecture_analysis_tool",
             "suggestion": 'See cross-community coupling with mode="overview"',
         },
         {
-            "tool": "list_flows",
+            "tool": "flow_tool",
             "suggestion": "See execution flows across communities",
         },
     ],
@@ -103,8 +123,8 @@ _WORKFLOW: dict[str, list[dict[str, str]]] = {
             "suggestion": "Explore callers/callees of community members",
         },
         {
-            "tool": "list_communities",
-            "suggestion": "Browse other communities",
+            "tool": "architecture_analysis_tool",
+            "suggestion": 'Browse other communities with mode="communities"',
         },
         {
             "tool": "architecture_analysis_tool",
@@ -121,11 +141,11 @@ _WORKFLOW: dict[str, list[dict[str, str]]] = {
             "suggestion": "Trace callers/callees between coupled communities (pattern=callers_of)",
         },
         {
-            "tool": "detect_changes",
+            "tool": "review_tool",
             "suggestion": "See how recent changes affect the architecture",
         },
         {
-            "tool": "list_flows",
+            "tool": "flow_tool",
             "suggestion": "Explore execution flows",
         },
     ],
@@ -139,22 +159,40 @@ _WORKFLOW: dict[str, list[dict[str, str]]] = {
             "suggestion": "Trace callers/callees between coupled communities (pattern=callers_of)",
         },
         {
-            "tool": "detect_changes",
+            "tool": "review_tool",
             "suggestion": "See how recent changes affect the architecture",
+        },
+    ],
+    "review": [
+        {
+            "tool": "review_tool",
+            "suggestion": 'Fetch focused source context with mode="context"',
+        },
+        {
+            "tool": "review_tool",
+            "suggestion": 'Inspect affected execution paths with mode="affected_flows"',
+        },
+        {
+            "tool": "review_tool",
+            "suggestion": 'Expand blast radius with mode="impact"',
+        },
+        {
+            "tool": "flow_tool",
+            "suggestion": 'Inspect a specific flow with mode="get"',
         },
     ],
     "detect_changes": [
         {
-            "tool": "get_review_context",
-            "suggestion": "Build a full review context with source snippets",
+            "tool": "review_tool",
+            "suggestion": 'Build full review context with mode="context"',
         },
         {
-            "tool": "get_affected_flows",
-            "suggestion": "See which execution flows are affected",
+            "tool": "review_tool",
+            "suggestion": 'See affected execution flows with mode="affected_flows"',
         },
         {
-            "tool": "get_impact_radius",
-            "suggestion": "Expand the blast radius analysis",
+            "tool": "review_tool",
+            "suggestion": 'Expand blast radius with mode="impact"',
         },
         {
             "tool": "refactor",
@@ -167,7 +205,7 @@ _WORKFLOW: dict[str, list[dict[str, str]]] = {
             "suggestion": "Verify call sites before applying a rename",
         },
         {
-            "tool": "detect_changes",
+            "tool": "review_tool",
             "suggestion": "Check risk of the refactored code",
         },
         {
@@ -181,11 +219,11 @@ _WORKFLOW: dict[str, list[dict[str, str]]] = {
             "suggestion": "Inspect callers/callees of a search result",
         },
         {
-            "tool": "get_flow",
+            "tool": "flow_tool",
             "suggestion": "See the execution flow through a matched node",
         },
         {
-            "tool": "get_impact_radius",
+            "tool": "review_tool",
             "suggestion": "Check the blast radius from matched nodes",
         },
     ],

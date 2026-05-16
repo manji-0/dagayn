@@ -19,7 +19,7 @@ def test_tool_parser_accepts_json_args_and_key_value_args():
     args = _parser().parse_args(
         [
             "tool",
-            "get_impact_radius_tool",
+            "review_tool",
             "--repo",
             "/tmp/repo",
             "--json-args",
@@ -32,7 +32,7 @@ def test_tool_parser_accepts_json_args_and_key_value_args():
     )
 
     assert args.command == "tool"
-    assert args.tool_name == "get_impact_radius_tool"
+    assert args.tool_name == "review_tool"
     assert args.repo == "/tmp/repo"
     assert args.json_args == '{"changed_files": ["app.py"]}'
     assert args.arg == ["max_depth=3", 'detail_level="minimal"']
@@ -42,7 +42,7 @@ def test_tool_kwargs_parse_json_values():
     args = _parser().parse_args(
         [
             "tool",
-            "list_flows_tool",
+            "flow_tool",
             "--arg",
             "limit=5",
             "--arg",
@@ -105,13 +105,30 @@ def test_tool_registry_uses_architecture_dispatcher_only():
     assert set(tool.TOOL_REGISTRY).isdisjoint(removed)
 
 
+def test_tool_registry_uses_review_and_flow_dispatchers_only():
+    removed = {
+        "detect_changes_tool",
+        "get_review_context_tool",
+        "get_affected_flows_tool",
+        "get_impact_radius_tool",
+        "list_flows_tool",
+        "get_flow_tool",
+    }
+
+    assert "review_tool" in tool.TOOL_REGISTRY
+    assert "flow_tool" in tool.TOOL_REGISTRY
+    assert tool.TOOL_ALIASES["review"] == "review_tool"
+    assert tool.TOOL_ALIASES["flow"] == "flow_tool"
+    assert set(tool.TOOL_REGISTRY).isdisjoint(removed)
+
+
 def test_handle_summary_format(monkeypatch, capsys):
     monkeypatch.setattr(
         tool,
         "_load_tool",
         lambda name: lambda **kwargs: {"status": "ok", "summary": "short"},
     )
-    args = _parser().parse_args(["tool", "list_flows_tool", "--format", "summary"])
+    args = _parser().parse_args(["tool", "flow_tool", "--format", "summary"])
 
     tool.handle(args)
 

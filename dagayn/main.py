@@ -285,39 +285,6 @@ def get_minimal_context_tool(
 
 
 @mcp.tool()
-def get_impact_radius_tool(
-    changed_files: Optional[list[str]] = None,
-    max_depth: int = 2,
-    max_nodes: int = 50,
-    repo_root: Optional[str] = None,
-    base: str = "HEAD~1",
-    detail_level: str = "standard",
-) -> dict:
-    """Analyze the blast radius of changed files in the codebase.
-
-    Shows which functions, classes, and files are impacted by changes.
-    Auto-detects changed files from git if not specified.
-
-    Args:
-        changed_files: List of changed file paths (relative to repo root). Auto-detected if omitted.
-        max_depth: Number of hops to traverse in the dependency graph. Default: 2.
-        max_nodes: Maximum impacted nodes to return in standard mode. Default: 50.
-            When the result is truncated, truncated=True and total_impacted show the full count.
-        repo_root: Repository root path. Auto-detected if omitted.
-        base: Git ref for auto-detecting changes. Default: HEAD~1.
-        detail_level: "standard" for full output, "minimal" for compact summary. Default: standard.
-    """
-    return _tool("get_impact_radius")(
-        changed_files=changed_files,
-        max_depth=max_depth,
-        max_results=max_nodes,
-        repo_root=_resolve_repo_root(repo_root),
-        base=base,
-        detail_level=detail_level,
-    )
-
-
-@mcp.tool()
 def query_graph_tool(
     pattern: str,
     target: str,
@@ -348,42 +315,6 @@ def query_graph_tool(
         pattern=pattern,
         target=target,
         repo_root=_resolve_repo_root(repo_root),
-        detail_level=detail_level,
-    )
-
-
-@mcp.tool()
-def get_review_context_tool(
-    changed_files: Optional[list[str]] = None,
-    max_depth: int = 2,
-    include_source: bool = True,
-    max_lines_per_file: int = 200,
-    repo_root: Optional[str] = None,
-    base: str = "HEAD~1",
-    detail_level: str = "standard",
-) -> dict:
-    """Generate a focused, token-efficient review context for code changes.
-
-    Combines impact analysis with source snippets and review guidance.
-    Use this for comprehensive code reviews.
-
-    Args:
-        changed_files: Files to review. Auto-detected from git diff if omitted.
-        max_depth: Impact radius depth. Default: 2.
-        include_source: Include source code snippets. Default: True.
-        max_lines_per_file: Max source lines per file. Default: 200.
-        repo_root: Repository root path. Auto-detected if omitted.
-        base: Git ref for change detection. Default: HEAD~1.
-        detail_level: "standard" for full output, "minimal" for
-            token-efficient summary. Default: standard.
-    """
-    return _tool("get_review_context")(
-        changed_files=changed_files,
-        max_depth=max_depth,
-        include_source=include_source,
-        max_lines_per_file=max_lines_per_file,
-        repo_root=_resolve_repo_root(repo_root),
-        base=base,
         detail_level=detail_level,
     )
 
@@ -542,89 +473,6 @@ def find_large_functions_tool(
 
 
 @mcp.tool()
-def list_flows_tool(
-    sort_by: str = "criticality",
-    limit: int = 50,
-    kind: Optional[str] = None,
-    detail_level: str = "standard",
-    repo_root: Optional[str] = None,
-) -> dict:
-    """List execution flows in the codebase, sorted by criticality.
-
-    Each flow represents a call chain starting from an entry point
-    (HTTP handler, CLI command, test function, etc.). Use this to
-    understand the main execution paths through the codebase.
-
-    Args:
-        sort_by: Sort column: criticality, depth, node_count, file_count, or name.
-        limit: Maximum flows to return. Default: 50.
-        kind: Optional filter by entry point kind (e.g. "Test", "Function").
-        detail_level: "standard" (default) returns full flow data; "minimal"
-                      returns only name, criticality, and node_count per flow.
-        repo_root: Repository root path. Auto-detected if omitted.
-    """
-    return _tool("list_flows")(
-        repo_root=_resolve_repo_root(repo_root),
-        sort_by=sort_by,
-        limit=limit,
-        kind=kind,
-        detail_level=detail_level,
-    )
-
-
-@mcp.tool()
-def get_flow_tool(
-    flow_id: Optional[int] = None,
-    flow_name: Optional[str] = None,
-    include_source: bool = False,
-    repo_root: Optional[str] = None,
-) -> dict:
-    """Get detailed information about a single execution flow.
-
-    Returns the full call path with each step's function name, file, and
-    line numbers. Optionally includes source code snippets for each step.
-
-    Provide either flow_id (from list_flows_tool) or flow_name to search by name.
-
-    Args:
-        flow_id: Database ID of the flow.
-        flow_name: Name to search for (partial match). Ignored if flow_id given.
-        include_source: Include source code snippets for each step. Default: False.
-        repo_root: Repository root path. Auto-detected if omitted.
-    """
-    return _tool("get_flow")(
-        flow_id=flow_id,
-        flow_name=flow_name,
-        include_source=include_source,
-        repo_root=_resolve_repo_root(repo_root),
-    )
-
-
-@mcp.tool()
-def get_affected_flows_tool(
-    changed_files: Optional[list[str]] = None,
-    base: str = "HEAD~1",
-    repo_root: Optional[str] = None,
-) -> dict:
-    """Find execution flows affected by changed files.
-
-    Identifies which execution flows pass through nodes in the changed files.
-    Useful during code review to understand which user-facing or critical paths
-    are impacted by a change. Auto-detects changed files from git if not specified.
-
-    Args:
-        changed_files: List of changed file paths (relative to repo root). Auto-detected if omitted.
-        base: Git ref for auto-detecting changes. Default: HEAD~1.
-        repo_root: Repository root path. Auto-detected if omitted.
-    """
-    return _tool("get_affected_flows_func")(
-        changed_files=changed_files,
-        base=base,
-        repo_root=_resolve_repo_root(repo_root),
-    )
-
-
-@mcp.tool()
 def architecture_analysis_tool(
     mode: Literal[
         "overview",
@@ -678,41 +526,55 @@ def architecture_analysis_tool(
 
 
 @mcp.tool()
-async def detect_changes_tool(
+async def review_tool(
+    mode: Literal["changes", "context", "affected_flows", "impact"] = "changes",
     base: str = "HEAD~1",
     changed_files: Optional[list[str]] = None,
-    include_source: bool = False,
+    include_source: Optional[bool] = None,
     max_depth: int = 2,
+    max_nodes: int = 50,
+    max_lines_per_file: int = 200,
     repo_root: Optional[str] = None,
-    detail_level: str = "standard",
+    detail_level: Literal["minimal", "standard"] = "standard",
 ) -> dict:
-    """Detect changes and produce risk-scored, priority-ordered review guidance.
-
-    Primary tool for code review. Maps git diffs to affected functions,
-    flows, communities, and test coverage gaps. Returns risk scores and
-    prioritized review items. Replaces get_review_context for change-aware reviews.
-
-    Offloaded to a thread via ``asyncio.to_thread`` — runs `git diff`
-    subprocesses and BFS traversals that can take several seconds on
-    large repos. See: #46, #136.
-
-    Args:
-        base: Git ref to diff against. Default: HEAD~1.
-        changed_files: List of changed file paths (relative to repo root). Auto-detected if omitted.
-        include_source: Include source code snippets for changed functions. Default: False.
-        max_depth: Impact radius depth for BFS traversal. Default: 2.
-        repo_root: Repository root path. Auto-detected if omitted.
-        detail_level: "standard" for full output, "minimal" for
-            token-efficient summary. Default: standard.
-    """
+    """Run review analysis through a single mode-based dispatcher."""
     return await asyncio.to_thread(
-        _tool("detect_changes_func"),
+        _tool("review_func"),
+        mode=mode,
         base=base,
         changed_files=changed_files,
         include_source=include_source,
         max_depth=max_depth,
+        max_nodes=max_nodes,
+        max_lines_per_file=max_lines_per_file,
         repo_root=_resolve_repo_root(repo_root),
         detail_level=detail_level,
+    )
+
+
+@mcp.tool()
+def flow_tool(
+    mode: Literal["list", "get"] = "list",
+    sort_by: Literal["criticality", "depth", "node_count", "file_count", "name"] = "criticality",
+    limit: int = 50,
+    kind: Optional[str] = None,
+    detail_level: Literal["minimal", "standard"] = "standard",
+    flow_id: Optional[int] = None,
+    flow_name: Optional[str] = None,
+    include_source: bool = False,
+    repo_root: Optional[str] = None,
+) -> dict:
+    """Run execution-flow analysis through a single mode-based dispatcher."""
+    return _tool("flow_func")(
+        mode=mode,
+        sort_by=sort_by,
+        limit=limit,
+        kind=kind,
+        detail_level=detail_level,
+        flow_id=flow_id,
+        flow_name=flow_name,
+        include_source=include_source,
+        repo_root=_resolve_repo_root(repo_root),
     )
 
 
@@ -941,7 +803,7 @@ def cross_repo_search_tool(
 
 @mcp.prompt()
 def review_changes(base: str = "HEAD~1") -> list[dict]:
-    """Pre-commit review workflow using detect_changes, affected_flows, and test gaps.
+    """Pre-commit review workflow using review_tool, affected flows, and test gaps.
 
     Produces a structured code review with risk levels and actionable findings.
 

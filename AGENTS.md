@@ -32,10 +32,10 @@ dagayn serve
 ## Useful MCP flows
 
 - `get_minimal_context` for quick orientation
-- `detect_changes` or `get_review_context` for review work
-- `query_graph`, `traverse_graph`, `list_flows`, and `list_communities` for exploration
-- `get_hub_nodes`, `get_bridge_nodes`, `get_knowledge_gaps`, and
-  `get_surprising_connections` for evidence-backed architecture analysis
+- `review_tool(mode="changes")` or `review_tool(mode="context")` for review work
+- `query_graph`, `traverse_graph`, and `flow_tool(mode="list")` for exploration
+- `architecture_analysis_tool(mode="overview")` and its drill-down modes for
+  evidence-backed architecture analysis
 - `refactor_tool` for rename previews, dead-code analysis, and refactor suggestions
 
 ## How to judge dagayn analysis
@@ -43,7 +43,7 @@ dagayn serve
 - Hub scores are degree-based; bridge scores are betweenness-based.
 - Knowledge-gap hotspots are based on repository-relative degree thresholds and
   explicit test/documentation exclusions.
-- Architecture principle tools should expose their metric formulas or reason
+- Architecture analysis modes should expose their metric formulas or reason
   codes; use them as review leads, not automatic edit approval.
 - Refactor suggestions must be verified against public APIs, dynamic dispatch,
   generated code, test artifacts, and framework entry points before applying.

@@ -18,14 +18,15 @@ Use the knowledge graph to plan and execute refactoring with confidence.
 4. For renames, use `refactor_tool` with mode="rename" to preview all affected locations.
 5. Use `apply_refactor_tool` with `dry_run=True` first, then apply with the
    refactor_id only after the diff is acceptable.
-6. After changes, run `detect_changes` and inspect `analysis_summary` to verify
+6. After changes, run `review_tool(mode="changes")` and inspect `analysis_summary` to verify
    impact, recommended tests, affected flows, and architecture risks.
 
 ### Safety Checks
 
 - Always preview before applying (rename mode gives you an edit list).
-- Use `detect_changes.analysis_summary` first; call `get_impact_radius` or
-  `get_affected_flows` only when a wider drill-down is needed.
+- Use `review_tool(mode="changes").analysis_summary` first; call
+  `review_tool(mode="impact")` or `review_tool(mode="affected_flows")` only
+  when a wider drill-down is needed.
 - Run `find_large_functions` to identify decomposition targets.
 - Treat suggestions as leads, not approval. Verify public APIs, dynamic
   dispatch, generated code, test artifacts, and framework entry points before

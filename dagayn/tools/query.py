@@ -572,7 +572,7 @@ def list_graph_stats(repo_root: str | None = None) -> dict[str, Any]:
             embeddings_count=emb_count,
             next_tool_suggestions=[
                 'architecture_analysis_tool mode="communities" -- inspect structure',
-                "list_flows_tool -- inspect critical execution paths",
+                'flow_tool mode="list" -- inspect critical execution paths',
                 "semantic_search_nodes_tool -- search for specific entities",
             ],
         )
@@ -827,7 +827,7 @@ def traverse_graph_func(
             truncated=budget_exceeded,
             next_tool_suggestions=[
                 "query_graph callers_of -- focused relationship query",
-                "get_impact_radius -- blast radius analysis",
+                'review_tool mode="impact" -- blast radius analysis',
             ],
         )
     finally:

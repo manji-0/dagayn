@@ -30,9 +30,9 @@ class TestReviewChangesPrompt:
         result = review_changes_prompt(base="main")
         assert "main" in result[0]["content"]
 
-    def test_mentions_detect_changes(self):
+    def test_mentions_review_tool(self):
         result = review_changes_prompt()
-        assert "detect_changes" in result[0]["content"]
+        assert "review_tool" in result[0]["content"]
 
     def test_mentions_affected_flows(self):
         result = review_changes_prompt()

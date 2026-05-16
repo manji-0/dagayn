@@ -30,6 +30,15 @@ SPLIT_ARCHITECTURE_TOOL_NAMES = {
     "detect_sap_violations_tool",
 }
 
+SPLIT_REVIEW_FLOW_TOOL_NAMES = {
+    "detect_changes_tool",
+    "get_review_context_tool",
+    "get_affected_flows_tool",
+    "get_impact_radius_tool",
+    "list_flows_tool",
+    "get_flow_tool",
+}
+
 
 def _tool_names() -> set[str]:
     import asyncio
@@ -257,7 +266,7 @@ class TestLongRunningToolsAreAsync:
         "build_or_update_graph_tool",
         "run_postprocess_tool",
         "embed_graph_tool",
-        "detect_changes_tool",
+        "review_tool",
         "generate_wiki_tool",
     }
 
@@ -417,6 +426,12 @@ class TestApplyToolFilter:
         assert "architecture_analysis_tool" in registered
         assert registered.isdisjoint(SPLIT_ARCHITECTURE_TOOL_NAMES)
 
+    def test_review_and_flow_dispatchers_replace_split_public_tools(self):
+        registered = _tool_names()
+        assert "review_tool" in registered
+        assert "flow_tool" in registered
+        assert registered.isdisjoint(SPLIT_REVIEW_FLOW_TOOL_NAMES)
+
     def test_profiles_reference_registered_tools(self):
         """Every bounded profile should reference registered MCP tool names."""
         registered = _tool_names()
@@ -431,6 +446,8 @@ class TestApplyToolFilter:
                 continue
             assert "architecture_analysis_tool" in profile_tools
             assert set(profile_tools).isdisjoint(SPLIT_ARCHITECTURE_TOOL_NAMES)
+            assert "review_tool" in profile_tools
+            assert set(profile_tools).isdisjoint(SPLIT_REVIEW_FLOW_TOOL_NAMES)
 
     def test_filter_via_argument(self):
         """The ``tools`` argument keeps only the listed tools."""

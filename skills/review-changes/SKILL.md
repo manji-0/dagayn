@@ -11,12 +11,12 @@ Perform a thorough, risk-aware code review using the knowledge graph.
 
 1. Run `get_minimal_context(task="<review goal>")` to check graph freshness,
    risk, and suggested next tools.
-2. Run `detect_changes` to get risk-scored change analysis. Read
+2. Run `review_tool(mode="changes")` to get risk-scored change analysis. Read
    `analysis_summary` first; it includes reason codes, recommended tests,
    affected-flow rankings, documentation update candidates, hotspot proximity,
    and architecture risks in changed scopes.
-3. Call `get_review_context` when exact source snippets are needed.
-4. Call `get_affected_flows`, `get_impact_radius`, or
+3. Call `review_tool(mode="context")` when exact source snippets are needed.
+4. Call `review_tool(mode="affected_flows")`, `review_tool(mode="impact")`, or
    `query_graph(pattern="tests_for")` only when `analysis_summary` points to a
    concrete flow, blast-radius, or coverage question.
 5. For any remaining untested changes, suggest specific test cases.
@@ -42,14 +42,14 @@ Provide findings grouped by risk level (high/medium/low) with:
 ## CLI Fallback
 
 Use MCP tools first. If the current MCP server profile does not expose a review
-drill-down tool such as `get_affected_flows_tool` or `get_impact_radius_tool`,
+drill-down mode such as `affected_flows` or `impact`,
 run the same implementation through the CLI without restarting the agent:
 
 ```bash
-dagayn tool detect_changes_tool --arg detail_level='"minimal"'
-dagayn tool get_review_context_tool --arg detail_level='"minimal"'
-dagayn tool get_affected_flows_tool --arg 'changed_files=["src/app.py"]'
-dagayn tool get_impact_radius_tool --arg 'changed_files=["src/app.py"]' --arg detail_level='"minimal"'
+dagayn tool review_tool --arg mode='"changes"' --arg detail_level='"minimal"'
+dagayn tool review_tool --arg mode='"context"' --arg detail_level='"minimal"'
+dagayn tool review_tool --arg mode='"affected_flows"' --arg 'changed_files=["src/app.py"]'
+dagayn tool review_tool --arg mode='"impact"' --arg 'changed_files=["src/app.py"]' --arg detail_level='"minimal"'
 ```
 
 ## Token Efficiency Rules

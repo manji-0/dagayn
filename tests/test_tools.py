@@ -1931,7 +1931,7 @@ class TestGetMinimalContext:
             task="review PR #42",
             repo_root=str(self.root),
         )
-        assert "detect_changes" in result["next_tool_suggestions"]
+        assert "review_tool" in result["next_tool_suggestions"]
 
     def test_task_routing_debug(self):
         from dagayn.tools.context import get_minimal_context
@@ -1955,7 +1955,7 @@ class TestGetMinimalContext:
         ("task", "expected_tool"),
         [
             ("コード探索をしたい", "architecture_analysis_tool"),
-            ("コードレビューをしたい", "get_review_context"),
+            ("コードレビューをしたい", "review_tool"),
             ("新規機能追加をしたい", "query_graph"),
             ("リファクタリングをしたい", "refactor"),
             ("リファクタリングでヘルパーを追加したい", "refactor"),
