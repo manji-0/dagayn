@@ -52,4 +52,4 @@ def test_update_parser_accepts_local_embedding_options():
     assert args.keep_local_embedding_server is False
     assert args.local_embedding_timeout == 300
     assert args.local_embedding_request_timeout == 60
-    assert args.local_embedding_batch_size == 16
+    assert args.local_embedding_batch_size == 1

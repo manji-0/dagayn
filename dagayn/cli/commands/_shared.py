@@ -62,8 +62,8 @@ def _add_local_embedding_args(cmd: argparse.ArgumentParser) -> None:
     cmd.add_argument(
         "--local-embedding-batch-size",
         type=int,
-        default=16,
-        help="Texts per local embedding request (default: 16)",
+        default=1,
+        help="Texts per local embedding request (default: 1)",
     )
 
 

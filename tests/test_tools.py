@@ -1386,7 +1386,7 @@ class TestBuildPostprocess:
         assert kwargs["keep_local_embedding_server"] is True
         assert kwargs["local_embedding_timeout"] == 12
         assert kwargs["local_embedding_request_timeout"] == 60
-        assert kwargs["local_embedding_batch_size"] == 16
+        assert kwargs["local_embedding_batch_size"] == 1
 
     def test_local_embedding_skips_when_none(self, monkeypatch):
         from unittest.mock import patch

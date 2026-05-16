@@ -96,7 +96,7 @@ dagayn build \
   --local-embedding-bin llama-server \
   --local-embedding-timeout 300 \
   --local-embedding-request-timeout 60 \
-  --local-embedding-batch-size 16
+  --local-embedding-batch-size 1
 ```
 
 `--local-embedding-timeout` only controls server readiness. If an individual
@@ -106,9 +106,9 @@ batches are saved as they complete, so rerunning the command resumes from the
 remaining stale or missing embeddings.
 
 The batch size is also pinned for local embeddings. `dagayn build
---local-embedding low` defaults to 16 texts per request even if the shell has
-`CRG_OPENAI_BATCH_SIZE` set for another provider. Lower it to 4 or 8 if
-`llama-server` stalls on larger batches; raise it only after measuring.
+--local-embedding low` defaults to 1 text per request even if the shell has
+`CRG_OPENAI_BATCH_SIZE` set for another provider. Raise it only after measuring;
+larger batches can make llama-server's embedding endpoint stall on some hosts.
 
 Leave a dagayn-started server running for reuse:
 

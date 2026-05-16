@@ -545,7 +545,7 @@ def build_or_update_graph(
     keep_local_embedding_server: bool = False,
     local_embedding_timeout: int = 300,
     local_embedding_request_timeout: int = 60,
-    local_embedding_batch_size: int = 16,
+    local_embedding_batch_size: int = 1,
 ) -> dict[str, Any]:
     """Build or incrementally update the code knowledge graph.
 
