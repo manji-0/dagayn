@@ -339,7 +339,7 @@ def handle(args: argparse.Namespace) -> None:
             print(f"Installed hooks in {hooks_path}")
         git_hook = install_git_hook(repo_root)
         if git_hook:
-            print(f"Installed git pre-commit hook in {git_hook}")
+            print(f"Installed git commit hooks in {git_hook.parent}")
 
         # Cursor hooks (user-level, only if ~/.cursor exists — matching MCP detect)
         if target in ("all", "cursor") and PLATFORMS["cursor"]["detect"]():

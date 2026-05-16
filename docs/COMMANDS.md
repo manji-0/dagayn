@@ -34,9 +34,20 @@ regardless of any ambient `CRG_OPENAI_BATCH_SIZE`.
 ### Analysis and review
 
 - `dagayn detect-changes`
+- `dagayn tool`
 - `dagayn visualize`
 - `dagayn wiki`
 - `dagayn eval`
+
+`dagayn tool <mcp-tool-name>` invokes the same underlying implementation as an
+MCP tool and prints JSON. This gives agents and scripts a CLI path to tools
+that are outside the currently running MCP server profile:
+
+```bash
+dagayn tool get_impact_radius_tool --arg 'changed_files=["src/app.py"]' --arg max_depth=3
+dagayn tool list_flows_tool --arg detail_level='"minimal"'
+dagayn tool get_knowledge_gaps_tool --arg top_n=10 --format summary
+```
 
 `dagayn visualize` is the main report/export command. It generates:
 
@@ -54,7 +65,9 @@ Graphviz / DOT is not a built-in export target. Jupyter / Databricks notebooks a
 `dagayn install --platform codex` configures the Codex MCP server, installs
 Codex skills, and writes global Codex hooks in `~/.codex/hooks.json` with the
 required `~/.codex/config.toml` feature flag. Claude hooks are written to
-`~/.claude/settings.json`. `--no-hooks` skips the hook files.
+`~/.claude/settings.json`. Git hooks installed by `dagayn install` refresh
+cheaply with `dagayn update --skip-flows` before commit-time checks and run a
+full `dagayn update` after a commit. `--no-hooks` skips the hook files.
 
 ### Multi-repo management
 
@@ -137,6 +150,11 @@ dagayn serve --remote-embedding openai
 `--tools` is an exact comma-separated allow-list and overrides profiles. The
 same exact allow-list can be supplied with `CRG_TOOLS`. Named profiles can be
 supplied with `DAGAYN_TOOL_PROFILE` or `CRG_TOOL_PROFILE`.
+
+Tool profiles are applied when `dagayn serve` starts; a running MCP server does
+not reload a broader profile dynamically. Use `dagayn tool <tool-name>` for
+ad-hoc access to profile-specific tools from a shell without restarting the
+agent's MCP server.
 
 When `dagayn serve --local-embedding {low,high}` starts a managed local
 embedding sidecar, MCP `semantic_search_nodes_tool` automatically searches with

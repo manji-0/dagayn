@@ -452,7 +452,18 @@ class TestInstallGitHook:
         assert os.access(hook_path, os.X_OK)
         content = hook_path.read_text()
         assert content.startswith("#!/")
+        assert "dagayn update --skip-flows" in content
         assert "dagayn detect-changes" in content
+
+    def test_creates_executable_post_commit_hook(self, tmp_path):
+        repo = self._make_git_repo(tmp_path)
+        install_git_hook(repo)
+        hook_path = repo / ".git" / "hooks" / "post-commit"
+        assert hook_path.exists()
+        assert os.access(hook_path, os.X_OK)
+        content = hook_path.read_text()
+        assert "dagayn update || true" in content
+        assert "dagayn detect-changes" not in content
 
     def test_appends_to_existing_hook(self, tmp_path):
         repo = self._make_git_repo(tmp_path)
@@ -470,6 +481,36 @@ class TestInstallGitHook:
         install_git_hook(repo)
         content = (repo / ".git" / "hooks" / "pre-commit").read_text()
         assert content.count("dagayn detect-changes") == 1
+        post_content = (repo / ".git" / "hooks" / "post-commit").read_text()
+        assert post_content.count("dagayn update || true") == 1
+
+    def test_reinstall_preserves_executable_bit(self, tmp_path):
+        repo = self._make_git_repo(tmp_path)
+        install_git_hook(repo)
+        pre_commit = repo / ".git" / "hooks" / "pre-commit"
+        pre_commit.chmod(0o644)
+        install_git_hook(repo)
+        assert os.access(pre_commit, os.X_OK)
+
+    def test_replaces_legacy_pre_commit_full_update_block(self, tmp_path):
+        repo = self._make_git_repo(tmp_path)
+        hook_path = repo / ".git" / "hooks" / "pre-commit"
+        hook_path.write_text(
+            "#!/bin/sh\n"
+            "existing-command\n"
+            "# Installed by dagayn. Remove this file to disable pre-commit graph checks.\n"
+            "if command -v dagayn >/dev/null 2>&1; then\n"
+            "    dagayn update || true\n"
+            "    dagayn detect-changes --brief || true\n"
+            "fi\n",
+            encoding="utf-8",
+        )
+        install_git_hook(repo)
+        content = hook_path.read_text()
+        assert "existing-command" in content
+        assert "dagayn update --skip-flows" in content
+        assert content.count("dagayn detect-changes") == 1
+        assert "    dagayn update || true" not in content
 
     def test_no_git_dir_returns_none(self, tmp_path):
         assert install_git_hook(tmp_path) is None
@@ -1467,6 +1508,7 @@ class TestCursorHookScripts:
 
     def test_pre_commit_script_runs_detect_changes(self):
         scripts = _cursor_hook_scripts()
+        assert "dagayn update --skip-flows" in scripts["crg-pre-commit.sh"]
         assert "dagayn detect-changes --brief" in scripts["crg-pre-commit.sh"]
 
 

@@ -668,43 +668,69 @@ def install_codex_hooks(
     return hooks_path
 
 
+def _install_git_hook_script(hook_path: Path, script: str, marker: str) -> None:
+    """Install or replace one dagayn-managed block in a git hook."""
+    if hook_path.exists():
+        existing = hook_path.read_text(encoding="utf-8")
+        if marker in existing:
+            hook_path.chmod(0o755)
+            return
+        old_marker = "# Installed by dagayn. Remove this file to disable pre-commit graph checks."
+        if old_marker in existing and "dagayn detect-changes" in existing:
+            existing = existing[: existing.index(old_marker)].rstrip("\n")
+        hook_path.write_text(existing.rstrip("\n") + "\n" + script, encoding="utf-8")
+    else:
+        hook_path.write_text(script, encoding="utf-8")
+
+    hook_path.chmod(0o755)
+
+
 def install_git_hook(repo_root: Path) -> Path | None:
-    """Install a git pre-commit hook that prints a risk summary before each commit.
+    """Install git hooks that keep the graph current around commits.
 
     Called automatically by ``dagayn install``
-    Creates ``.git/hooks/pre-commit`` if it doesn't exist, or appends to an
-    existing one — preserving any hooks already there. Returns None when no
-    ``.git`` directory is found.
+    Creates ``.git/hooks/pre-commit`` and ``.git/hooks/post-commit`` if they
+    don't exist, or appends to existing hooks — preserving any hooks already
+    there. Returns None when no ``.git`` directory is found.
     """
-    script = """\
+    pre_commit_script = """\
 #!/bin/sh
-# Installed by dagayn. Remove this file to disable pre-commit graph checks.
+# >>> dagayn pre-commit
+# Installed by dagayn. Remove this block to disable pre-commit graph checks.
 if command -v dagayn >/dev/null 2>&1; then
-    dagayn update || true
+    dagayn update --skip-flows || true
     dagayn detect-changes --brief || true
 fi
+# <<< dagayn pre-commit
 """
-    marker = "dagayn detect-changes"
+    post_commit_script = """\
+#!/bin/sh
+# >>> dagayn post-commit
+# Installed by dagayn. Remove this block to disable post-commit graph refresh.
+if command -v dagayn >/dev/null 2>&1; then
+    dagayn update || true
+fi
+# <<< dagayn post-commit
+"""
+    pre_marker = "# >>> dagayn pre-commit"
+    post_marker = "# >>> dagayn post-commit"
 
     git_dir = repo_root / ".git"
     if not git_dir.is_dir():
         logger.warning("No .git directory found at %s — skipping git hook install.", repo_root)
         return None
 
-    hook_path = git_dir / "hooks" / "pre-commit"
-    hook_path.parent.mkdir(exist_ok=True)
+    hooks_dir = git_dir / "hooks"
+    hooks_dir.mkdir(exist_ok=True)
+    pre_commit_path = hooks_dir / "pre-commit"
+    post_commit_path = hooks_dir / "post-commit"
 
-    if hook_path.exists():
-        existing = hook_path.read_text(encoding="utf-8")
-        if marker in existing:
-            return hook_path
-        hook_path.write_text(existing.rstrip("\n") + "\n" + script, encoding="utf-8")
-    else:
-        hook_path.write_text(script, encoding="utf-8")
+    _install_git_hook_script(pre_commit_path, pre_commit_script, pre_marker)
+    _install_git_hook_script(post_commit_path, post_commit_script, post_marker)
 
-    hook_path.chmod(0o755)
-    logger.info("Wrote git pre-commit hook: %s", hook_path)
-    return hook_path
+    logger.info("Wrote git pre-commit hook: %s", pre_commit_path)
+    logger.info("Wrote git post-commit hook: %s", post_commit_path)
+    return pre_commit_path
 
 
 def install_hooks(
@@ -1075,8 +1101,8 @@ def _cursor_hook_scripts() -> dict[str, str]:
     Three scripts are generated:
     - crg-update.sh: runs ``dagayn update --skip-flows`` after file edits
     - crg-session-start.sh: runs ``dagayn status`` on session start
-    - crg-pre-commit.sh: runs ``dagayn detect-changes --brief`` before
-      git commit commands
+    - crg-pre-commit.sh: runs ``dagayn update --skip-flows`` and
+      ``dagayn detect-changes --brief`` before git commit commands
 
     All scripts:
     - Read stdin (Cursor passes JSON context) and discard it
@@ -1135,7 +1161,8 @@ set -euo pipefail
 # Consume stdin
 cat > /dev/null
 
-# Run detect-changes; swallow errors
+# Refresh the graph cheaply, then run detect-changes; swallow errors.
+dagayn update --skip-flows >/dev/null 2>&1 || true
 output=$(dagayn detect-changes --brief 2>&1) || output=""
 
 # Emit valid JSON on stdout
@@ -1273,7 +1300,8 @@ def _opencode_plugin_content() -> str:
     1. ``file.edited`` — runs ``dagayn update --skip-flows``
     2. ``session.created`` — runs ``dagayn status``
     3. ``tool.execute.before`` — when the tool is a shell command starting
-       with ``git commit``, runs ``dagayn detect-changes --brief``
+       with ``git commit``, runs ``dagayn update --skip-flows`` followed by
+       ``dagayn detect-changes --brief``
 
     All handlers use try/catch so errors never break the editor session.
     The plugin uses Bun's ``$`` shell API (provided by OpenCode's plugin
@@ -1331,6 +1359,7 @@ export default (app: any) => {
       const cmd =
         input.command ?? input.cmd ?? input.content ?? ""
       if (typeof cmd === "string" && /^git\\s+commit/i.test(cmd)) {
+        await ctx.$`dagayn update --skip-flows`.quiet()
         const result =
           await ctx.$`dagayn detect-changes --brief`.quiet()
         const output = result.stdout?.toString().trim()
