@@ -162,6 +162,9 @@ All notable changes to `dagayn` are documented here.
 - Re-running `dagayn install` with local or remote embedding enabled now updates
   existing MCP config entries and dagayn-generated hooks instead of leaving the
   old `dagayn serve` / `dagayn update` arguments in place.
+- Re-running `dagayn install` now refreshes dagayn-managed skill Markdown
+  placements from the packaged source, replacing stale skill content while
+  preserving unrelated user-created skills.
 - Align `TESTED_BY` scoring semantics across Python and Rust analysis paths:
   production symbols now consistently point to the test symbols that cover
   them, matching parser output and schema documentation.

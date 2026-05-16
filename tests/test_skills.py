@@ -33,6 +33,7 @@ from dagayn.skills import (
     install_opencode_plugin,
     install_opencode_skills,
     install_platform_configs,
+    install_qoder_skills,
     normalize_platform_target,
 )
 
@@ -110,6 +111,17 @@ class TestGenerateSkills:
         generate_skills(tmp_path)
         skills_dir = tmp_path / ".claude" / "skills"
         assert len(list(skills_dir.iterdir())) == len(EXPECTED_SKILLS)
+
+    def test_reinstall_updates_existing_flat_skill_content(self, tmp_path):
+        generate_skills(tmp_path)
+        skills_dir = tmp_path / ".claude" / "skills"
+        target = skills_dir / "writing-markdown-document.md"
+        target.write_text("stale skill content", encoding="utf-8")
+
+        generate_skills(tmp_path)
+
+        assert target.read_text(encoding="utf-8") != "stale skill content"
+        assert "writing-markdown-document" in target.read_text(encoding="utf-8")
 
 
 class TestResolveSourceSkillsDir:
@@ -276,6 +288,63 @@ class TestInstallTreeSkills:
 
         installed = [path.name for path in result.iterdir() if path.is_dir()]
         assert sorted(installed) == sorted(path[:-3] for path in EXPECTED_SKILLS)
+
+    def test_reinstall_updates_existing_tree_skill_content(self, tmp_path):
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            result = install_codex_skills()
+            target = result / "writing-markdown-document" / "SKILL.md"
+            target.write_text("stale skill content", encoding="utf-8")
+            install_codex_skills()
+
+        assert target.read_text(encoding="utf-8") != "stale skill content"
+        assert "writing-markdown-document" in target.read_text(encoding="utf-8")
+
+    def test_reinstall_replaces_managed_tree_skill_directory(self, tmp_path):
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            result = install_codex_skills()
+            managed_dir = result / "writing-markdown-document"
+            stale_file = managed_dir / "removed-old-file.txt"
+            stale_file.write_text("old", encoding="utf-8")
+            user_skill = result / "user-skill" / "SKILL.md"
+            user_skill.parent.mkdir(parents=True)
+            user_skill.write_text("user", encoding="utf-8")
+
+            install_codex_skills()
+
+        assert not stale_file.exists()
+        assert user_skill.read_text(encoding="utf-8") == "user"
+
+
+class TestInstallQoderSkills:
+    def test_reinstall_updates_existing_qoder_skill_content(self, tmp_path):
+        skills_dir = tmp_path / "skills" / "sample"
+        skills_dir.mkdir(parents=True)
+        (skills_dir / "SKILL.md").write_text("fresh", encoding="utf-8")
+        result = install_qoder_skills(tmp_path)
+        assert result is not None
+        target = result / "sample" / "SKILL.md"
+        target.write_text("stale", encoding="utf-8")
+
+        install_qoder_skills(tmp_path)
+
+        assert target.read_text(encoding="utf-8") == "fresh"
+
+    def test_reinstall_replaces_managed_qoder_skill_directory(self, tmp_path):
+        skills_dir = tmp_path / "skills" / "sample"
+        skills_dir.mkdir(parents=True)
+        (skills_dir / "SKILL.md").write_text("fresh", encoding="utf-8")
+        result = install_qoder_skills(tmp_path)
+        assert result is not None
+        stale_file = result / "sample" / "removed-old-file.txt"
+        stale_file.write_text("old", encoding="utf-8")
+        user_skill = result / "user-skill" / "SKILL.md"
+        user_skill.parent.mkdir(parents=True)
+        user_skill.write_text("user", encoding="utf-8")
+
+        install_qoder_skills(tmp_path)
+
+        assert not stale_file.exists()
+        assert user_skill.read_text(encoding="utf-8") == "user"
 
 
 class TestGenerateHooksConfig:

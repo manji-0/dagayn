@@ -465,7 +465,13 @@ def generate_skills(repo_root: Path, skills_dir: Path | None = None) -> Path:
 
 
 def _install_skill_tree(target_dir: Path) -> Path:
-    """Install packaged skills as ``<name>/SKILL.md`` directories."""
+    """Install packaged skills as ``<name>/SKILL.md`` directories.
+
+    Each dagayn-managed skill directory is replaced from source on every run
+    so stale ``SKILL.md`` content or removed auxiliary files do not linger
+    after upgrading dagayn. Unrelated user-created skills in the same root are
+    left untouched.
+    """
     target_dir.mkdir(parents=True, exist_ok=True)
 
     source_dir = _resolve_source_skills_dir()
@@ -476,8 +482,11 @@ def _install_skill_tree(target_dir: Path) -> Path:
     for entry in sorted(source_dir.iterdir()):
         if not entry.is_dir() or not (entry / "SKILL.md").is_file():
             continue
-        shutil.copytree(entry, target_dir / entry.name, dirs_exist_ok=True)
-        logger.info("Wrote skill directory: %s", target_dir / entry.name)
+        destination = target_dir / entry.name
+        if destination.exists():
+            shutil.rmtree(destination)
+        shutil.copytree(entry, destination)
+        logger.info("Wrote skill directory: %s", destination)
 
     return target_dir
 
@@ -1240,9 +1249,9 @@ def install_qoder_skills(repo_root: Path) -> Path | None:
             skill_file = skill_dir / "SKILL.md"
             if skill_file.exists():
                 target_dir = qoder_skills_dir / skill_dir.name
-                target_dir.mkdir(parents=True, exist_ok=True)
-                target_file = target_dir / "SKILL.md"
-                target_file.write_text(skill_file.read_text(encoding="utf-8"), encoding="utf-8")
+                if target_dir.exists():
+                    shutil.rmtree(target_dir)
+                shutil.copytree(skill_dir, target_dir)
                 logger.info("Installed Qoder skill: %s", skill_dir.name)
                 installed_count += 1
 
