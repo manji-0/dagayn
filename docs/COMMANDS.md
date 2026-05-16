@@ -57,6 +57,11 @@ dagayn tool architecture_analysis_tool --arg mode='"knowledge_gaps"' --arg top_n
 
 Graphviz / DOT is not a built-in export target. Jupyter / Databricks notebooks are supported as graph inputs rather than report output formats.
 
+`dagayn wiki` writes Markdown pages under `.dagayn/wiki/` from detected graph
+communities. Each community page includes members, execution flows,
+cross-community dependencies, and package-level ADP/SDP/SAP architecture
+metrics filtered to the scopes represented by that community.
+
 ### Integration and serving
 
 - `dagayn install`

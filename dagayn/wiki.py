@@ -13,9 +13,12 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from ._scope import build_node_scope_maps
+from .architecture import compute_sdp_metrics, find_adp_violations, find_sdp_violations
 from .communities import get_communities
 from .flows import get_flows
 from .graph import GraphStore, _sanitize_name
+from .sap import compute_sap_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +29,191 @@ def _slugify(name: str) -> str:
     return slug[:80] or "unnamed"
 
 
-def _generate_community_page(store: GraphStore, community: dict[str, Any]) -> str:
+def _build_architecture_metrics_context(store: GraphStore) -> dict[str, Any]:
+    """Precompute package-level architecture metrics for wiki rendering."""
+    qualified_to_scope, _name_to_scope = build_node_scope_maps(store, "package")
+
+    try:
+        sdp_metrics = compute_sdp_metrics(store, granularity="package")
+        sdp_violations = find_sdp_violations(store, granularity="package")
+        adp_violations = find_adp_violations(store, granularity="package")
+        sap_metrics = compute_sap_metrics(store, scope_kind="package")
+    except Exception as exc:
+        logger.warning("wiki: architecture metrics unavailable: %s", exc)
+        return {
+            "available": False,
+            "error": str(exc),
+            "qualified_to_scope": qualified_to_scope,
+        }
+
+    return {
+        "available": True,
+        "qualified_to_scope": qualified_to_scope,
+        "sdp_metrics_by_scope": {m["name"]: m for m in sdp_metrics},
+        "sdp_violations": sdp_violations,
+        "adp_violations": adp_violations,
+        "sap_metrics_by_scope": {m["scope_key"]: m for m in sap_metrics},
+    }
+
+
+def _format_metric(value: Any) -> str:
+    if isinstance(value, float):
+        return f"{value:.2f}"
+    return str(value)
+
+
+def _sap_notes(metric: dict[str, Any]) -> str:
+    notes = list(metric.get("notes", []))
+    abstractness = metric.get("abstractness", 0.0)
+    instability = metric.get("instability", 0.0)
+    distance = metric.get("distance", 0.0)
+
+    if distance >= 0.5 and abstractness <= 0.2 and instability <= 0.2:
+        notes.append("zone-of-pain")
+    elif distance >= 0.5 and abstractness >= 0.8 and instability >= 0.8:
+        notes.append("zone-of-uselessness")
+
+    return ", ".join(dict.fromkeys(notes)) or "-"
+
+
+def _community_package_scopes(
+    community: dict[str, Any],
+    metrics_context: dict[str, Any],
+) -> list[str]:
+    qualified_to_scope = metrics_context.get("qualified_to_scope", {})
+    member_qns = community.get("members", [])
+    scopes = {qualified_to_scope[qn] for qn in member_qns if qn in qualified_to_scope}
+    return sorted(scopes)
+
+
+def _render_architecture_metrics_section(
+    community: dict[str, Any],
+    metrics_context: dict[str, Any],
+) -> list[str]:
+    lines: list[str] = ["## Architecture Metrics", ""]
+
+    if not metrics_context.get("available", False):
+        error = metrics_context.get("error", "unknown error")
+        lines.append(f"Architecture metrics unavailable: {error}")
+        lines.append("")
+        return lines
+
+    scopes = _community_package_scopes(community, metrics_context)
+    if not scopes:
+        lines.append("No package scopes detected for this community.")
+        lines.append("")
+        return lines
+
+    scope_set = set(scopes)
+    lines.append(
+        "Package-level ADP/SDP/SAP results filtered to scopes represented by this community."
+    )
+    lines.append("")
+    lines.append(f"- **Package scopes covered**: {len(scopes)}")
+
+    sdp_metrics = [
+        metrics_context["sdp_metrics_by_scope"][scope]
+        for scope in scopes
+        if scope in metrics_context["sdp_metrics_by_scope"]
+    ]
+    if sdp_metrics:
+        avg_i = sum(m["instability"] for m in sdp_metrics) / len(sdp_metrics)
+        most_unstable = max(sdp_metrics, key=lambda m: m["instability"])
+        lines.append(f"- **Average instability**: {avg_i:.2f}")
+        lines.append(
+            "- **Most unstable scope**: "
+            f"`{_sanitize_name(most_unstable['name'])}` "
+            f"(I={most_unstable['instability']:.2f}, "
+            f"Ca={most_unstable['ca']}, Ce={most_unstable['ce']})"
+        )
+    else:
+        lines.append("- **Average instability**: n/a")
+    lines.append("")
+
+    lines.append("### Stable Dependencies")
+    lines.append("")
+    if sdp_metrics:
+        lines.append("| Scope | Ca | Ce | I |")
+        lines.append("|-------|---:|---:|---:|")
+        for metric in sorted(sdp_metrics, key=lambda m: m["instability"], reverse=True)[:10]:
+            lines.append(
+                f"| `{_sanitize_name(metric['name'])}` | {metric['ca']} | {metric['ce']} "
+                f"| {_format_metric(metric['instability'])} |"
+            )
+    else:
+        lines.append("No SDP metrics available for covered scopes.")
+    lines.append("")
+
+    sdp_violations = [
+        v
+        for v in metrics_context["sdp_violations"]
+        if v.get("source") in scope_set or v.get("target") in scope_set
+    ]
+    if sdp_violations:
+        lines.append("#### SDP Violations")
+        lines.append("")
+        lines.append("| Source | Target | Delta |")
+        lines.append("|--------|--------|------:|")
+        for violation in sdp_violations[:10]:
+            lines.append(
+                f"| `{_sanitize_name(violation['source'])}` | "
+                f"`{_sanitize_name(violation['target'])}` | "
+                f"{_format_metric(violation['delta'])} |"
+            )
+        lines.append("")
+
+    lines.append("### Stable Abstractions")
+    lines.append("")
+    sap_metrics = [
+        metrics_context["sap_metrics_by_scope"][scope]
+        for scope in scopes
+        if scope in metrics_context["sap_metrics_by_scope"]
+    ]
+    if sap_metrics:
+        lines.append("| Scope | A | I | D | Na/Nt | Notes |")
+        lines.append("|-------|---:|---:|---:|------:|-------|")
+        for metric in sorted(sap_metrics, key=lambda m: m["distance"], reverse=True)[:10]:
+            lines.append(
+                f"| `{_sanitize_name(metric['scope_key'])}` "
+                f"| {_format_metric(metric['abstractness'])} "
+                f"| {_format_metric(metric['instability'])} "
+                f"| {_format_metric(metric['distance'])} "
+                f"| {metric['na']}/{metric['nt']} "
+                f"| {_sap_notes(metric)} |"
+            )
+    else:
+        lines.append("No SAP metrics available for covered scopes.")
+    lines.append("")
+
+    lines.append("### Acyclic Dependencies")
+    lines.append("")
+    adp_violations = [
+        v for v in metrics_context["adp_violations"] if set(v.get("nodes", [])) & scope_set
+    ]
+    if adp_violations:
+        lines.append(
+            f"{len(adp_violations)} package-level cycle(s) touch this community."
+        )
+        lines.append("")
+        lines.append("| Cycle | Length | Severity |")
+        lines.append("|-------|-------:|---------:|")
+        for violation in adp_violations[:10]:
+            cycle = " -> ".join(f"`{_sanitize_name(node)}`" for node in violation["nodes"])
+            lines.append(
+                f"| {cycle} | {violation['length']} | {violation['severity']} |"
+            )
+    else:
+        lines.append("No package-level dependency cycles touch this community.")
+    lines.append("")
+
+    return lines
+
+
+def _generate_community_page(
+    store: GraphStore,
+    community: dict[str, Any],
+    metrics_context: dict[str, Any] | None = None,
+) -> str:
     """Build markdown content for a single community.
 
     Includes: heading, overview (size, cohesion, language), members table
@@ -60,6 +247,10 @@ def _generate_community_page(store: GraphStore, community: dict[str, Any]) -> st
     if lang:
         lines.append(f"- **Dominant Language**: {lang}")
     lines.append("")
+
+    if metrics_context is None:
+        metrics_context = _build_architecture_metrics_context(store)
+    lines.extend(_render_architecture_metrics_section(community, metrics_context))
 
     # Members table (top 50)
     member_qns = community.get("members", [])
@@ -198,6 +389,7 @@ def generate_wiki(
     pages_unchanged = 0
 
     page_entries: list[tuple[str, str, int]] = []  # (slug, name, size)
+    metrics_context = _build_architecture_metrics_context(store)
 
     # Track slugs we've already used in THIS run so two communities that
     # slugify to the same filename don't overwrite each other (#222 follow-up).
@@ -220,7 +412,7 @@ def generate_wiki(
         filename = f"{slug}.md"
         filepath = wiki_path / filename
 
-        content = _generate_community_page(store, comm)
+        content = _generate_community_page(store, comm, metrics_context=metrics_context)
 
         if filepath.exists() and not force:
             existing = filepath.read_text(encoding="utf-8", errors="replace")

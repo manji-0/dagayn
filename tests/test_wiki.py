@@ -207,6 +207,99 @@ class TestWiki:
         assert "## Execution Flows" in page
         assert "## Dependencies" in page
 
+    def test_generate_wiki_includes_architecture_metrics(self, monkeypatch):
+        """Community pages include package-level ADP/SDP/SAP summaries."""
+        for file_path in [
+            "core/base.java",
+            "util/helper.java",
+            "leaf/item.java",
+            "client/one.java",
+            "client/two.java",
+        ]:
+            self.store.upsert_node(
+                NodeInfo(
+                    kind="File",
+                    name=Path(file_path).name,
+                    file_path=file_path,
+                    line_start=1,
+                    line_end=20,
+                    language="java",
+                ),
+                file_hash=file_path,
+            )
+
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Class",
+                name="Base",
+                file_path="core/base.java",
+                line_start=2,
+                line_end=10,
+                language="java",
+                extra={"type_role": "class"},
+            ),
+            file_hash="core/base.java",
+        )
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Class",
+                name="Helper",
+                file_path="util/helper.java",
+                line_start=2,
+                line_end=10,
+                language="java",
+                extra={"type_role": "interface", "is_contract": True},
+            ),
+            file_hash="util/helper.java",
+        )
+        for source, target in [
+            ("core/base.java", "util/helper.java"),
+            ("util/helper.java", "leaf/item.java"),
+            ("util/helper.java", "core/base.java"),
+            ("client/one.java", "core/base.java"),
+            ("client/two.java", "core/base.java"),
+        ]:
+            self.store.upsert_edge(
+                EdgeInfo(
+                    kind="IMPORTS_FROM",
+                    source=source,
+                    target=target,
+                    file_path=source,
+                    line=1,
+                )
+            )
+        self.store.commit()
+
+        import dagayn.wiki as wiki_mod
+
+        monkeypatch.setattr(
+            wiki_mod,
+            "get_communities",
+            lambda store: [
+                {
+                    "name": "Example Community",
+                    "size": 2,
+                    "cohesion": 0.8,
+                    "dominant_language": "java",
+                    "description": "example",
+                    "members": ["core/base.java::Base", "util/helper.java::Helper"],
+                }
+            ],
+        )
+
+        generate_wiki(self.store, self.wiki_dir)
+        content = (Path(self.wiki_dir) / "example-community.md").read_text()
+
+        assert "## Architecture Metrics" in content
+        assert "Package-level ADP/SDP/SAP results" in content
+        assert "### Stable Dependencies" in content
+        assert "`core`" in content
+        assert "#### SDP Violations" in content
+        assert "### Stable Abstractions" in content
+        assert "Na/Nt" in content
+        assert "### Acyclic Dependencies" in content
+        assert "package-level cycle" in content
+
     def test_slugify(self):
         """_slugify converts names to safe filenames."""
         assert _slugify("auth-login") == "auth-login"
