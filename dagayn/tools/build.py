@@ -149,6 +149,7 @@ def _run_local_embedding(
         "server_url": server.base_url,
         "server_command": server.command,
         "newly_embedded": result.get("newly_embedded", 0),
+        "orphans_removed": result.get("orphans_removed", 0),
         "total_embeddings": result.get("total_embeddings", 0),
         "summary": result.get("summary", ""),
     }

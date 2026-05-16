@@ -24,6 +24,7 @@ def _print_local_embedding_summary(result: dict) -> None:
         "Local embeddings "
         f"({emb.get('preset')}, {started} server): "
         f"{emb.get('newly_embedded', 0)} new, "
+        f"{emb.get('orphans_removed', 0)} orphan removed, "
         f"{emb.get('total_embeddings', 0)} total"
     )
 

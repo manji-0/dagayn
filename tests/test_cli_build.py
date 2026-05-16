@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 
-from dagayn.cli.commands.build import register_commands
+from dagayn.cli.commands.build import _print_local_embedding_summary, register_commands
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -53,3 +53,19 @@ def test_update_parser_accepts_local_embedding_options():
     assert args.local_embedding_timeout == 300
     assert args.local_embedding_request_timeout == 60
     assert args.local_embedding_batch_size == 1
+
+
+def test_print_local_embedding_summary_includes_orphan_count(capsys):
+    _print_local_embedding_summary(
+        {
+            "local_embedding": {
+                "preset": "high",
+                "server_started": False,
+                "newly_embedded": 1,
+                "orphans_removed": 2,
+                "total_embeddings": 9,
+            }
+        }
+    )
+
+    assert "1 new, 2 orphan removed, 9 total" in capsys.readouterr().out

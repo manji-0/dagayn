@@ -818,6 +818,7 @@ class EmbeddingStore:
         self._conn.execute("PRAGMA mmap_size=134217728")  # 128 MB memory-mapped I/O
         self._conn.execute("PRAGMA temp_store=MEMORY")
         self._conn.executescript(_EMBEDDINGS_SCHEMA)
+        self.last_orphans_removed = 0
 
         # Migration for existing DBs missing the provider column
         try:
@@ -1082,6 +1083,38 @@ class EmbeddingStore:
         self._conn.execute("DELETE FROM embeddings WHERE qualified_name = ?", (qualified_name,))
         self._conn.commit()
 
+    def remove_orphans(self, live_qualified_names: set[str]) -> int:
+        """Delete embeddings for this provider whose nodes no longer exist."""
+        if not self.provider:
+            return 0
+
+        provider_name = self.provider.name
+        rows = self._conn.execute(
+            "SELECT qualified_name FROM embeddings WHERE provider = ?",
+            (provider_name,),
+        ).fetchall()
+        orphan_names = [
+            row["qualified_name"]
+            for row in rows
+            if row["qualified_name"] not in live_qualified_names
+        ]
+        if not orphan_names:
+            return 0
+
+        batch_size = 450
+        deleted = 0
+        for i in range(0, len(orphan_names), batch_size):
+            chunk = orphan_names[i : i + batch_size]
+            placeholders = ",".join("?" for _ in chunk)
+            cursor = self._conn.execute(  # nosec B608
+                f"DELETE FROM embeddings WHERE provider = ?"
+                f" AND qualified_name IN ({placeholders})",
+                [provider_name, *chunk],
+            )
+            deleted += cursor.rowcount if cursor.rowcount is not None else len(chunk)
+        self._conn.commit()
+        return deleted
+
     def count(self) -> int:
         return self._conn.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0]
 
@@ -1115,5 +1148,8 @@ def embed_all_nodes(
         return 0
 
     all_nodes = graph_store.get_all_nodes(exclude_files=True)
+    embedding_store.last_orphans_removed = embedding_store.remove_orphans(
+        {node.qualified_name for node in all_nodes}
+    )
 
     return embedding_store.embed_nodes(all_nodes, show_progress=show_progress)

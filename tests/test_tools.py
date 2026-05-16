@@ -1472,7 +1472,12 @@ class TestBuildPostprocess:
         def fake_embed_graph(**_kwargs):
             assert os.environ["CRG_OPENAI_TIMEOUT"] == "17"
             assert os.environ["CRG_OPENAI_BATCH_SIZE"] == "8"
-            return {"status": "ok", "newly_embedded": 1, "total_embeddings": 1}
+            return {
+                "status": "ok",
+                "newly_embedded": 1,
+                "orphans_removed": 2,
+                "total_embeddings": 1,
+            }
 
         monkeypatch.setenv("CRG_OPENAI_TIMEOUT", "999")
         monkeypatch.setenv("CRG_OPENAI_BATCH_SIZE", "2048")
@@ -1492,6 +1497,7 @@ class TestBuildPostprocess:
             )
 
         assert result["newly_embedded"] == 1
+        assert result["orphans_removed"] == 2
         assert os.environ["CRG_OPENAI_TIMEOUT"] == "999"
         assert os.environ["CRG_OPENAI_BATCH_SIZE"] == "2048"
 

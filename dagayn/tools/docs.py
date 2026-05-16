@@ -69,16 +69,19 @@ def embed_graph(
             return {"status": "error", "error": err}
 
         newly_embedded = embed_all_nodes(store, emb_store, show_progress=show_progress)
+        orphans_removed = emb_store.last_orphans_removed
         total = emb_store.count()
 
         return {
             "status": "ok",
             "summary": (
                 f"Embedded {newly_embedded} new node(s). "
+                f"Removed {orphans_removed} orphan embedding(s). "
                 f"Total embeddings: {total}. "
                 "Semantic search is now active."
             ),
             "newly_embedded": newly_embedded,
+            "orphans_removed": orphans_removed,
             "total_embeddings": total,
         }
     finally:

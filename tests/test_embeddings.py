@@ -172,6 +172,91 @@ class TestEmbeddingStore:
             store.remove_node("nonexistent::func")
             store.close()
 
+    def test_remove_orphans_deletes_only_current_provider_rows(self, tmp_path):
+        db = tmp_path / "embeddings.db"
+
+        class FakeProvider:
+            name = "fake"
+            preferred_batch_size = 1
+
+            def embed(self, texts):
+                return [[1.0] for _ in texts]
+
+            def embed_query(self, text):
+                return [1.0]
+
+            @property
+            def dimension(self):
+                return 1
+
+        with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
+            store = EmbeddingStore(db)
+            store._conn.executemany(
+                """INSERT INTO embeddings (qualified_name, vector, text_hash, provider)
+                   VALUES (?, ?, ?, ?)""",
+                [
+                    ("file.py::live", _encode_vector([1.0]), "h1", "fake"),
+                    ("file.py::orphan", _encode_vector([2.0]), "h2", "fake"),
+                    ("file.py::other_orphan", _encode_vector([3.0]), "h3", "other"),
+                ],
+            )
+            store._conn.commit()
+
+            assert store.remove_orphans({"file.py::live"}) == 1
+
+            rows = store._conn.execute(
+                "SELECT qualified_name, provider FROM embeddings ORDER BY provider"
+            ).fetchall()
+            assert [(row["qualified_name"], row["provider"]) for row in rows] == [
+                ("file.py::live", "fake"),
+                ("file.py::other_orphan", "other"),
+            ]
+            store.close()
+
+    def test_embed_all_nodes_removes_orphans_before_embedding(self, tmp_path):
+        from dagayn.embeddings import embed_all_nodes
+
+        db = tmp_path / "embeddings.db"
+        live = self._make_node("live", 1)
+
+        class FakeGraphStore:
+            def get_all_nodes(self, exclude_files=True):
+                assert exclude_files is True
+                return [live]
+
+        class FakeProvider:
+            name = "fake"
+            preferred_batch_size = 1
+
+            def embed(self, texts):
+                return [[1.0] for _ in texts]
+
+            def embed_query(self, text):
+                return [1.0]
+
+            @property
+            def dimension(self):
+                return 1
+
+        with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
+            store = EmbeddingStore(db)
+            store._conn.execute(
+                """INSERT INTO embeddings (qualified_name, vector, text_hash, provider)
+                   VALUES (?, ?, ?, ?)""",
+                ("file.py::orphan", _encode_vector([2.0]), "old", "fake"),
+            )
+            store._conn.commit()
+
+            assert embed_all_nodes(FakeGraphStore(), store) == 1
+            assert store.last_orphans_removed == 1
+
+            names = [
+                row["qualified_name"]
+                for row in store._conn.execute("SELECT qualified_name FROM embeddings")
+            ]
+            assert names == ["file.py::live"]
+            store.close()
+
     def test_embed_nodes_persists_each_successful_batch(self, tmp_path):
         db = tmp_path / "embeddings.db"
 
