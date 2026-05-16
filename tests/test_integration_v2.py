@@ -459,7 +459,7 @@ class TestV2Integration:
         assert isinstance(prompt_messages, list)
         assert len(prompt_messages) > 0
         assert prompt_messages[0]["role"] == "user"
-        assert "detect_changes" in prompt_messages[0]["content"]
+        assert 'review_tool(mode="changes"' in prompt_messages[0]["content"]
 
         # ---- Step 10: generate_wiki ----
         with tempfile.TemporaryDirectory() as wiki_dir:
