@@ -472,6 +472,27 @@ class TestInstallHooks:
         command = data["hooks"]["PostToolUse"][0]["hooks"][0]["command"]
         assert "--local-embedding low" in command
 
+    def test_reinstall_updates_claude_hooks_when_extra_args_change(self, tmp_path):
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            settings_path = install_hooks(tmp_path / "repo")
+            install_hooks(
+                tmp_path / "repo",
+                extra_update_args=["--local-embedding", "low"],
+            )
+
+        data = json.loads(settings_path.read_text())
+        post_tool_hooks = data["hooks"]["PostToolUse"]
+        dagayn_hooks = [
+            entry
+            for entry in post_tool_hooks
+            if any(
+                "dagayn update --skip-flows" in hook.get("command", "")
+                for hook in entry["hooks"]
+            )
+        ]
+        assert len(dagayn_hooks) == 1
+        assert "--local-embedding low" in dagayn_hooks[0]["hooks"][0]["command"]
+
     def test_install_qoder_hooks(self, tmp_path):
         install_hooks(tmp_path, platform="qoder")
         settings_path = tmp_path / ".qoder" / "settings.json"
@@ -568,6 +589,27 @@ class TestInstallCodexHooks:
         data = json.loads(hooks_path.read_text())
         command = data["hooks"]["PostToolUse"][0]["hooks"][0]["command"]
         assert "--local-embedding low" in command
+
+    def test_reinstall_updates_codex_hooks_when_extra_args_change(self, tmp_path):
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            hooks_path = install_codex_hooks(tmp_path / "repo")
+            install_codex_hooks(
+                tmp_path / "repo",
+                extra_update_args=["--local-embedding", "low"],
+            )
+
+        data = json.loads(hooks_path.read_text())
+        post_tool_hooks = data["hooks"]["PostToolUse"]
+        dagayn_hooks = [
+            entry
+            for entry in post_tool_hooks
+            if any(
+                "dagayn update --skip-flows" in hook.get("command", "")
+                for hook in entry["hooks"]
+            )
+        ]
+        assert len(dagayn_hooks) == 1
+        assert "--local-embedding low" in dagayn_hooks[0]["hooks"][0]["command"]
 
 
 class TestInjectClaudeMd:
@@ -923,6 +965,48 @@ class TestInstallPlatformConfigs:
             install_platform_configs(tmp_path, target="codex")
         assert codex_config.read_text().count("[mcp_servers.dagayn]") == 1
 
+    def test_reinstall_codex_updates_existing_dagayn_args(self, tmp_path):
+        codex_config = tmp_path / ".codex" / "config.toml"
+        codex_config.parent.mkdir(parents=True)
+        codex_config.write_text(
+            "\n".join(
+                [
+                    'model = "gpt-5.4"',
+                    "",
+                    "[mcp_servers.dagayn]",
+                    'command = "uvx"',
+                    'args = ["dagayn", "serve"]',
+                    'type = "stdio"',
+                    "",
+                    "[mcp_servers.other]",
+                    'command = "other"',
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        with patch.dict(
+            PLATFORMS,
+            {
+                "codex": {
+                    **PLATFORMS["codex"],
+                    "config_path": lambda root: codex_config,
+                    "detect": lambda: True,
+                },
+            },
+        ):
+            install_platform_configs(
+                tmp_path,
+                target="codex",
+                extra_serve_args=["--local-embedding", "low"],
+            )
+
+        data = tomllib.loads(codex_config.read_text())
+        assert data["model"] == "gpt-5.4"
+        assert data["mcp_servers"]["other"]["command"] == "other"
+        assert data["mcp_servers"]["dagayn"]["args"][-2:] == ["--local-embedding", "low"]
+        assert codex_config.read_text().count("[mcp_servers.dagayn]") == 1
+
     def test_install_cursor_config(self, tmp_path):
         with patch.dict(
             PLATFORMS,
@@ -1090,6 +1174,26 @@ class TestInstallPlatformConfigs:
         assert "other-server" in data["mcpServers"]
         assert "dagayn" in data["mcpServers"]
 
+    def test_reinstall_json_config_updates_existing_dagayn_args(self, tmp_path):
+        mcp_path = tmp_path / ".mcp.json"
+        existing = {
+            "mcpServers": {
+                "dagayn": {"command": "uvx", "args": ["dagayn", "serve"], "type": "stdio"},
+                "other-server": {"command": "other"},
+            }
+        }
+        mcp_path.write_text(json.dumps(existing))
+
+        install_platform_configs(
+            tmp_path,
+            target="claude",
+            extra_serve_args=["--local-embedding", "low"],
+        )
+
+        data = json.loads(mcp_path.read_text())
+        assert data["mcpServers"]["other-server"]["command"] == "other"
+        assert data["mcpServers"]["dagayn"]["args"][-2:] == ["--local-embedding", "low"]
+
     def test_dry_run_no_write(self, tmp_path):
         configured = install_platform_configs(tmp_path, target="claude", dry_run=True)
         assert "Claude Code" in configured
@@ -1126,6 +1230,37 @@ class TestInstallPlatformConfigs:
             install_platform_configs(tmp_path, target="continue")
         data = json.loads(config_path.read_text())
         assert len(data["mcpServers"]) == 1
+
+    def test_reinstall_continue_array_updates_existing_dagayn_args(self, tmp_path):
+        config_path = tmp_path / ".continue" / "config.json"
+        config_path.parent.mkdir(parents=True)
+        existing = {
+            "mcpServers": [
+                {"name": "dagayn", "command": "uvx", "args": ["dagayn", "serve"]},
+                {"name": "other", "command": "other"},
+            ]
+        }
+        config_path.write_text(json.dumps(existing))
+        with patch.dict(
+            PLATFORMS,
+            {
+                "continue": {
+                    **PLATFORMS["continue"],
+                    "config_path": lambda root: config_path,
+                    "detect": lambda: True,
+                },
+            },
+        ):
+            install_platform_configs(
+                tmp_path,
+                target="continue",
+                extra_serve_args=["--local-embedding", "low"],
+            )
+
+        data = json.loads(config_path.read_text())
+        assert len(data["mcpServers"]) == 2
+        dagayn_entry = next(entry for entry in data["mcpServers"] if entry["name"] == "dagayn")
+        assert dagayn_entry["args"][-2:] == ["--local-embedding", "low"]
 
     def test_install_qoder_config(self, tmp_path):
         qoder_config = tmp_path / ".qoder" / "mcp.json"

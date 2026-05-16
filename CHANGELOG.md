@@ -159,6 +159,9 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixes
 
+- Re-running `dagayn install` with local or remote embedding enabled now updates
+  existing MCP config entries and dagayn-generated hooks instead of leaving the
+  old `dagayn serve` / `dagayn update` arguments in place.
 - Align `TESTED_BY` scoring semantics across Python and Rust analysis paths:
   production symbols now consistently point to the test symbols that cover
   them, matching parser output and schema documentation.
