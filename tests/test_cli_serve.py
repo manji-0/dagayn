@@ -30,9 +30,7 @@ def test_serve_parser_rejects_removed_tool_profile_flag():
 
 def test_serve_rejects_local_and_remote_embedding_together():
     parser = _parser()
-    args = parser.parse_args(
-        ["serve", "--local-embedding", "low", "--remote-embedding", "openai"]
-    )
+    args = parser.parse_args(["serve", "--local-embedding", "low", "--remote-embedding", "openai"])
 
     with pytest.raises(SystemExit):
         handle(args, parser)

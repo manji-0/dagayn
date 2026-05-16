@@ -191,17 +191,13 @@ def _render_architecture_metrics_section(
         v for v in metrics_context["adp_violations"] if set(v.get("nodes", [])) & scope_set
     ]
     if adp_violations:
-        lines.append(
-            f"{len(adp_violations)} package-level cycle(s) touch this community."
-        )
+        lines.append(f"{len(adp_violations)} package-level cycle(s) touch this community.")
         lines.append("")
         lines.append("| Cycle | Length | Severity |")
         lines.append("|-------|-------:|---------:|")
         for violation in adp_violations[:10]:
             cycle = " -> ".join(f"`{_sanitize_name(node)}`" for node in violation["nodes"])
-            lines.append(
-                f"| {cycle} | {violation['length']} | {violation['severity']} |"
-            )
+            lines.append(f"| {cycle} | {violation['length']} | {violation['severity']} |")
     else:
         lines.append("No package-level dependency cycles touch this community.")
     lines.append("")

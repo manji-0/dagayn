@@ -73,9 +73,7 @@ _FTS_DDL = """
     )
 """
 
-_IDENT_BOUNDARY_RE = re.compile(
-    r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])"
-)
+_IDENT_BOUNDARY_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 _IDENT_SPLIT_RE = re.compile(r"[^A-Za-z0-9]+")
 _MARKDOWN_HEADING_RE = re.compile(r"^(#{1,6})\s+")
 

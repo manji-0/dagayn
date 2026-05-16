@@ -1107,8 +1107,7 @@ class EmbeddingStore:
             chunk = orphan_names[i : i + batch_size]
             placeholders = ",".join("?" for _ in chunk)
             cursor = self._conn.execute(  # nosec B608
-                f"DELETE FROM embeddings WHERE provider = ?"
-                f" AND qualified_name IN ({placeholders})",
+                f"DELETE FROM embeddings WHERE provider = ? AND qualified_name IN ({placeholders})",
                 [provider_name, *chunk],
             )
             deleted += cursor.rowcount if cursor.rowcount is not None else len(chunk)

@@ -56,7 +56,7 @@ def review_changes_prompt(base: str = "HEAD~1") -> list[dict]:
                 f"only if >3 changed functions.\n"
                 f"4. Summarize: risk level, what changed, test gaps, "
                 f"specific improvements needed.\n\n"
-                f"Do NOT call review_tool(mode=\"context\") unless you need "
+                f'Do NOT call review_tool(mode="context") unless you need '
                 f"source code snippets for a specific function."
             ),
         }
@@ -76,7 +76,7 @@ def architecture_map_prompt() -> list[dict]:
                 'detail_level="minimal")` for community coupling summary.\n'
                 '3. Call `flow_tool(mode="list", detail_level="minimal")` for critical '
                 "flow names + criticality scores.\n"
-                "4. Only call `architecture_analysis_tool(mode=\"community\", "
+                '4. Only call `architecture_analysis_tool(mode="community", '
                 "community_name=<X>)` for the 1-2 communities the user is most "
                 "interested in.\n"
                 "5. Produce a concise Mermaid diagram showing communities as "
@@ -107,9 +107,9 @@ def debug_issue_prompt(description: str = "") -> list[dict]:
                 '`query_graph(pattern="callers_of", target=<name>, '
                 'detail_level="minimal")`.\n'
                 "4. If the issue involves execution flow: call "
-                "`flow_tool(mode=\"get\", flow_name=<relevant flow>)` for the single most "
+                '`flow_tool(mode="get", flow_name=<relevant flow>)` for the single most '
                 "relevant flow.\n"
-                "5. Only call `review_tool(mode=\"context\")` or `review_tool(mode=\"impact\")` "
+                '5. Only call `review_tool(mode="context")` or `review_tool(mode="impact")` '
                 "if you need to trace the blast radius of a specific change."
             ),
         }
@@ -163,7 +163,7 @@ def pre_merge_check_prompt(base: str = "HEAD~1") -> list[dict]:
                 "for up to 3 functions.\n"
                 '5. Call `refactor(mode="dead_code", '
                 'detail_level="minimal")` to check for newly dead code.\n'
-                "6. Only call `find_large_functions` or `review_tool(mode=\"impact\")` "
+                '6. Only call `find_large_functions` or `review_tool(mode="impact")` '
                 "if risk > 0.7.\n"
                 "7. Output: GO/NO-GO recommendation with 1-sentence "
                 "justification + list of required follow-ups."

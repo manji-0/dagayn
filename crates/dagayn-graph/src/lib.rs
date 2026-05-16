@@ -3756,7 +3756,7 @@ fn read_node_source_excerpt(
         end = lines.len();
         for (idx, line) in lines.iter().enumerate().skip(start + 1) {
             if let Some(candidate_level) = markdown_heading_level(line) {
-                if level.map_or(true, |current_level| candidate_level <= current_level) {
+                if level.is_none_or(|current_level| candidate_level <= current_level) {
                     end = idx;
                     break;
                 }

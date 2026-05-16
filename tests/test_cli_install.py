@@ -168,8 +168,9 @@ class TestInstallHandleRemoteMode:
 
         monkeypatch.setattr(
             "dagayn.skills.install_platform_configs",
-            lambda repo_root, **kwargs: calls.append({"repo_root": repo_root, **kwargs})
-            or ["codex"],
+            lambda repo_root, **kwargs: (
+                calls.append({"repo_root": repo_root, **kwargs}) or ["codex"]
+            ),
         )
         monkeypatch.setattr("dagayn.skills.normalize_platform_target", lambda target: target)
         monkeypatch.setattr(

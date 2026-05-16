@@ -612,8 +612,7 @@ class TestInstallHooks:
             entry
             for entry in post_tool_hooks
             if any(
-                "dagayn update --skip-flows" in hook.get("command", "")
-                for hook in entry["hooks"]
+                "dagayn update --skip-flows" in hook.get("command", "") for hook in entry["hooks"]
             )
         ]
         assert len(dagayn_hooks) == 1
@@ -730,8 +729,7 @@ class TestInstallCodexHooks:
             entry
             for entry in post_tool_hooks
             if any(
-                "dagayn update --skip-flows" in hook.get("command", "")
-                for hook in entry["hooks"]
+                "dagayn update --skip-flows" in hook.get("command", "") for hook in entry["hooks"]
             )
         ]
         assert len(dagayn_hooks) == 1

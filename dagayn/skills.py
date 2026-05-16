@@ -583,10 +583,7 @@ def _is_dagayn_generated_hook_entry(hook_name: str, entry: Any) -> bool:
     hooks = entry.get("hooks", [])
     if not isinstance(hooks, list):
         return False
-    return any(
-        isinstance(hook, dict) and needle in str(hook.get("command", ""))
-        for hook in hooks
-    )
+    return any(isinstance(hook, dict) and needle in str(hook.get("command", "")) for hook in hooks)
 
 
 def _merge_dagayn_hook_entries(
