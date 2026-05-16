@@ -9,6 +9,7 @@ by default).
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 from importlib import import_module
 from typing import Any, Literal, Optional
@@ -95,6 +96,8 @@ except (ImportError, TypeError) as exc:
 # NOTE: Thread-safe for stdio MCP (single-threaded). If adding HTTP/SSE
 # transport with concurrent requests, replace with contextvars.ContextVar.
 _default_repo_root: str | None = None
+_default_embedding_provider: str | None = None
+_default_embedding_model: str | None = None
 
 
 def _resolve_repo_root(repo_root: Optional[str]) -> Optional[str]:
@@ -111,6 +114,38 @@ def _resolve_repo_root(repo_root: Optional[str]) -> Optional[str]:
     follow-up.
     """
     return repo_root if repo_root else _default_repo_root
+
+
+def _infer_remote_embedding_provider_from_env() -> str | None:
+    """Infer a remote embedding provider from the current server environment.
+
+    ``dagayn install --mode remote`` asks users to launch the MCP server from
+    an environment that contains exactly one remote provider's credentials.
+    When that is true, make MCP search use that provider automatically.  If
+    multiple remote providers are configured, stay unset so clients can choose
+    explicitly rather than guessing which external API should receive queries.
+    """
+    candidates: list[str] = []
+    if all(
+        os.environ.get(name)
+        for name in ("CRG_OPENAI_API_KEY", "CRG_OPENAI_BASE_URL", "CRG_OPENAI_MODEL")
+    ):
+        candidates.append("openai")
+    if os.environ.get("GOOGLE_API_KEY"):
+        candidates.append("google")
+    if os.environ.get("MINIMAX_API_KEY"):
+        candidates.append("minimax")
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def _resolve_embedding_provider(provider: Optional[str]) -> Optional[str]:
+    """Resolve the provider for search, preserving explicit client choice."""
+    return provider if provider else _default_embedding_provider
+
+
+def _resolve_embedding_model(model: Optional[str]) -> Optional[str]:
+    """Resolve the embedding model for search, preserving explicit client choice."""
+    return model if model else _default_embedding_model
 
 
 def _tool(name: str) -> Any:
@@ -388,8 +423,8 @@ def semantic_search_nodes_tool(
         kind=kind,
         limit=limit,
         repo_root=_resolve_repo_root(repo_root),
-        model=model,
-        provider=provider,
+        model=_resolve_embedding_model(model),
+        provider=_resolve_embedding_provider(provider),
         detail_level=detail_level,
     )
 
@@ -1322,6 +1357,8 @@ def main(
     repo_root: str | None = None,
     tools: str | None = None,
     tool_profile: str | None = None,
+    embedding_provider: str | None = None,
+    embedding_model: str | None = None,
     *,
     transport: str = "stdio",
     host: str | None = None,
@@ -1344,12 +1381,18 @@ def main(
         tool_profile: Named workflow profile. Defaults to ``default`` unless
             ``DAGAYN_TOOL_PROFILE`` or ``CRG_TOOL_PROFILE`` is set. Use
             ``full`` for legacy all-tools behavior.
+        embedding_provider: Default embedding provider for MCP search when a
+            client omits the provider argument.
+        embedding_model: Default embedding model for MCP search when a client
+            omits the model argument.
         transport: ``"stdio"`` (default) or ``"streamable-http"`` for local HTTP.
         host: Bind address when using HTTP (required for HTTP; set by CLI).
         port: Port when using HTTP (required for HTTP; set by CLI).
     """
-    global _default_repo_root
+    global _default_embedding_model, _default_embedding_provider, _default_repo_root
     _default_repo_root = repo_root
+    _default_embedding_provider = embedding_provider or _infer_remote_embedding_provider_from_env()
+    _default_embedding_model = embedding_model
     _apply_tool_filter(tools=tools, tool_profile=tool_profile)
     if sys.platform == "win32":
         import asyncio

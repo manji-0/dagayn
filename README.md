@@ -195,7 +195,7 @@ dagayn install --mode remote --provider google
 dagayn install --mode remote --provider minimax
 ```
 
-For `--mode remote`, set the provider's environment variables in the shell that launches your AI coding tool (e.g. `CRG_OPENAI_API_KEY`, `CRG_OPENAI_BASE_URL`, `CRG_OPENAI_MODEL` for `openai`); the MCP server inherits those at launch time.  The exact list is printed at install time.  The legacy `--local-embedding low|high` flag still works as a shortcut for `--mode local --preset $X`.
+For `--mode remote`, set the provider's environment variables in the shell that launches your AI coding tool (e.g. `CRG_OPENAI_API_KEY`, `CRG_OPENAI_BASE_URL`, `CRG_OPENAI_MODEL` for `openai`); the MCP server inherits those at launch time and the generated `dagayn serve --remote-embedding <provider>` entry makes MCP search use that provider automatically.  The exact env-var list is printed at install time.  The legacy `--local-embedding low|high` flag still works as a shortcut for `--mode local --preset $X`.
 
 ### Rust backend
 
@@ -310,7 +310,7 @@ The graph is stored locally under `.dagayn/` by default. No external database is
 
 <!-- derived-from ./docs/ARCHITECTURE.md#hybrid-search -->
 
-`semantic_search_nodes` runs FTS5 BM25 and vector cosine similarity **in parallel**, then merges both ranked lists via Reciprocal Rank Fusion (RRF). When embeddings are not yet present only the FTS5 arm contributes; when both are available you get hybrid results automatically — no configuration change required. The FTS index includes generated identifier tokens (so `LocalEmbeddingProvider` also matches `local embedding provider`) plus bounded source/document text such as docstrings and Markdown section bodies.
+`semantic_search_nodes` runs FTS5 BM25 and vector cosine similarity **in parallel**, then merges both ranked lists via Reciprocal Rank Fusion (RRF). When embeddings are not yet present only the FTS5 arm contributes; when both are available you get hybrid results automatically — no per-search configuration change required. `dagayn serve --local-embedding {low,high}` makes MCP search default to the matching local OpenAI-compatible sidecar, and `dagayn serve --remote-embedding {openai,google,minimax}` makes MCP search default to that remote provider. The FTS index includes generated identifier tokens (so `LocalEmbeddingProvider` also matches `local embedding provider`) plus bounded source/document text such as docstrings and Markdown section bodies.
 
 A `search_mode` field in the response reports which arms contributed: `"hybrid"` (both), `"fts_only"`, `"embedding_only"`, or `"keyword_fallback"` (LIKE substring, triggered only when the FTS5 index does not exist). Search results are further ranked by a query-aware kind boost (PascalCase → classes, snake_case → functions) and an optional context-file boost for nodes in files you are currently editing.
 

@@ -11,6 +11,7 @@ from dagayn.cli.commands._shared import (
     _prompt_install_mode,
     _resolve_install_mode,
 )
+from dagayn.cli.commands.init import handle
 
 
 def _ns(**overrides) -> argparse.Namespace:
@@ -159,3 +160,35 @@ class TestRemoteEnvVars:
 
     def test_minimax_lists_required_vars(self):
         assert _REMOTE_ENV_VARS["minimax"] == ["MINIMAX_API_KEY"]
+
+
+class TestInstallHandleRemoteMode:
+    def test_remote_mode_bakes_provider_into_serve_args(self, tmp_path, monkeypatch):
+        calls: list[dict] = []
+
+        monkeypatch.setattr(
+            "dagayn.skills.install_platform_configs",
+            lambda repo_root, **kwargs: calls.append({"repo_root": repo_root, **kwargs})
+            or ["codex"],
+        )
+        monkeypatch.setattr("dagayn.skills.normalize_platform_target", lambda target: target)
+        monkeypatch.setattr(
+            "dagayn.cli.commands.init._instruction_files_to_modify",
+            lambda *_args, **_kwargs: [],
+        )
+
+        handle(
+            argparse.Namespace(
+                repo=str(tmp_path),
+                dry_run=True,
+                platform="codex",
+                yes=True,
+                no_instructions=True,
+                mode="remote",
+                preset=None,
+                provider="google",
+                local_embedding="none",
+            )
+        )
+
+        assert calls[0]["extra_serve_args"] == ["--remote-embedding", "google"]

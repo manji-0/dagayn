@@ -57,17 +57,87 @@ class TestResolveRepoRoot:
         assert crg_main._resolve_repo_root("/explicit") == "/explicit"
 
 
+class TestResolveEmbeddingDefaults:
+    """Precedence rules for MCP semantic-search embedding defaults."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_defaults(self, monkeypatch):
+        original_provider = crg_main._default_embedding_provider
+        original_model = crg_main._default_embedding_model
+        for key in (
+            "CRG_OPENAI_API_KEY",
+            "CRG_OPENAI_BASE_URL",
+            "CRG_OPENAI_MODEL",
+            "GOOGLE_API_KEY",
+            "MINIMAX_API_KEY",
+        ):
+            monkeypatch.delenv(key, raising=False)
+        yield
+        crg_main._default_embedding_provider = original_provider
+        crg_main._default_embedding_model = original_model
+
+    def test_explicit_client_provider_wins(self):
+        crg_main._default_embedding_provider = "openai"
+        assert crg_main._resolve_embedding_provider("google") == "google"
+
+    def test_server_default_used_when_client_omits_provider(self):
+        crg_main._default_embedding_provider = "openai"
+        assert crg_main._resolve_embedding_provider(None) == "openai"
+
+    def test_server_default_model_used_when_client_omits_model(self):
+        crg_main._default_embedding_model = "qwen3-embedding-0.6b-gguf-q8_0"
+        assert crg_main._resolve_embedding_model(None) == "qwen3-embedding-0.6b-gguf-q8_0"
+
+    def test_infers_openai_when_only_openai_env_is_configured(self, monkeypatch):
+        monkeypatch.setenv("CRG_OPENAI_API_KEY", "k")
+        monkeypatch.setenv("CRG_OPENAI_BASE_URL", "http://127.0.0.1:18080/v1")
+        monkeypatch.setenv("CRG_OPENAI_MODEL", "m")
+        assert crg_main._infer_remote_embedding_provider_from_env() == "openai"
+
+    def test_does_not_guess_when_multiple_remote_envs_are_configured(self, monkeypatch):
+        monkeypatch.setenv("CRG_OPENAI_API_KEY", "k")
+        monkeypatch.setenv("CRG_OPENAI_BASE_URL", "https://example.test/v1")
+        monkeypatch.setenv("CRG_OPENAI_MODEL", "m")
+        monkeypatch.setenv("GOOGLE_API_KEY", "g")
+        assert crg_main._infer_remote_embedding_provider_from_env() is None
+
+    def test_semantic_search_tool_applies_server_defaults(self, monkeypatch):
+        calls: list[dict] = []
+
+        def fake_tool(name):
+            assert name == "semantic_search_nodes"
+
+            def fake_semantic_search_nodes(**kwargs):
+                calls.append(kwargs)
+                return {"status": "ok", "results": []}
+
+            return fake_semantic_search_nodes
+
+        monkeypatch.setattr(crg_main, "_tool", fake_tool)
+        crg_main._default_embedding_provider = "openai"
+        crg_main._default_embedding_model = "qwen3"
+
+        crg_main.semantic_search_nodes_tool(query="embedding search")
+
+        assert calls[0]["provider"] == "openai"
+        assert calls[0]["model"] == "qwen3"
+
+
 class TestServeMainTransport:
     """``main()`` wires FastMCP to stdio or Streamable HTTP."""
 
     @pytest.fixture(autouse=True)
     def _restore_tools_and_env(self, monkeypatch):
         original = crg_main._snapshot_components()
+        original_provider = crg_main._default_embedding_provider
+        original_model = crg_main._default_embedding_model
         monkeypatch.delenv("CRG_TOOLS", raising=False)
         monkeypatch.delenv("DAGAYN_TOOL_PROFILE", raising=False)
         monkeypatch.delenv("CRG_TOOL_PROFILE", raising=False)
         yield
         crg_main._restore_components(original)
+        crg_main._default_embedding_provider = original_provider
+        crg_main._default_embedding_model = original_model
 
     def test_stdio_calls_mcp_run_stdio(self, monkeypatch):
         calls: list[dict] = []
@@ -78,6 +148,17 @@ class TestServeMainTransport:
         monkeypatch.setattr(crg_main.mcp, "run", fake_run)
         crg_main.main(repo_root=None)
         assert calls == [{"transport": "stdio", "show_banner": False}]
+
+    def test_main_records_embedding_defaults(self, monkeypatch):
+        monkeypatch.setattr(crg_main.mcp, "run", lambda **_kwargs: None)
+        crg_main.main(
+            repo_root=None,
+            embedding_provider="openai",
+            embedding_model="qwen3",
+        )
+
+        assert crg_main._default_embedding_provider == "openai"
+        assert crg_main._default_embedding_model == "qwen3"
 
     def test_http_calls_mcp_run_with_host_port(self, monkeypatch):
         calls: list[dict] = []

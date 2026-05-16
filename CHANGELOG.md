@@ -123,6 +123,10 @@ All notable changes to `dagayn` are documented here.
 
 ### Improvements
 
+- MCP semantic search now inherits the embedding mode selected for `dagayn serve`:
+  `--local-embedding {low,high}` defaults search to the managed local
+  OpenAI-compatible sidecar, and `--remote-embedding {openai,google,minimax}`
+  defaults search to the selected remote provider.
 - `hybrid_search` test deboost: nodes detected as test code (`is_test=True`)
   are multiplied by 0.6× during boosting so source ranks above the tests
   that exercise it. Tests remain visible (deboost, not filter). Each

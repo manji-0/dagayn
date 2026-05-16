@@ -124,11 +124,22 @@ leaving specialized tools available for workflows that need them.
 dagayn serve --tool-profile review
 dagayn serve --tool-profile full
 dagayn serve --tools query_graph_tool,semantic_search_nodes_tool
+dagayn serve --local-embedding low
+dagayn serve --remote-embedding openai
 ```
 
 `--tools` is an exact comma-separated allow-list and overrides profiles. The
 same exact allow-list can be supplied with `CRG_TOOLS`. Named profiles can be
 supplied with `DAGAYN_TOOL_PROFILE` or `CRG_TOOL_PROFILE`.
+
+When `dagayn serve --local-embedding {low,high}` starts a managed local
+embedding sidecar, MCP `semantic_search_nodes_tool` automatically searches with
+the matching OpenAI-compatible provider and Qwen model. When
+`--remote-embedding {openai,google,minimax}` is set, MCP search automatically
+uses that remote provider unless the client explicitly passes a different
+`provider`. If no `--remote-embedding` flag is supplied, `serve` infers a remote
+default only when exactly one provider's required environment variables are
+configured.
 
 `detect_changes_tool` is the primary change-analysis surface. Standard output
 includes `analysis_summary` with risk level, reason codes, recommended tests,

@@ -196,6 +196,10 @@ def handle(args: argparse.Namespace) -> None:
             extra_serve_args += ["--local-embedding-bin", le_bin]
         if le_timeout is not None and le_timeout != 300:
             extra_serve_args += ["--local-embedding-timeout", str(le_timeout)]
+    elif mode == "remote":
+        # _resolve_install_mode guarantees provider is set when mode == "remote".
+        assert provider is not None
+        extra_serve_args += ["--remote-embedding", provider]
     extra_hook_update_args = list(extra_serve_args)
 
     print("Installing MCP server config...")

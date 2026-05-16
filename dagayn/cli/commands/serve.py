@@ -7,6 +7,8 @@ import argparse
 from ...tool_profiles import DEFAULT_TOOL_PROFILE, FULL_TOOL_PROFILE, TOOL_PROFILE_NAMES
 from ._shared import _add_local_embedding_args
 
+_REMOTE_EMBEDDING_CHOICES = ["none", "openai", "google", "minimax"]
+
 
 def register_command(sub: argparse._SubParsersAction) -> argparse.ArgumentParser:
     """Register the serve subcommand. Returns the subparser."""
@@ -53,6 +55,15 @@ def register_command(sub: argparse._SubParsersAction) -> argparse.ArgumentParser
         help="Port for --http (default: 5555)",
     )
     _add_local_embedding_args(serve_cmd)
+    serve_cmd.add_argument(
+        "--remote-embedding",
+        choices=_REMOTE_EMBEDDING_CHOICES,
+        default="none",
+        help=(
+            "Use this remote embedding provider by default for MCP semantic search "
+            "(default: infer from environment when exactly one provider is configured)"
+        ),
+    )
     return serve_cmd
 
 
@@ -66,8 +77,16 @@ def handle(args: argparse.Namespace, serve_parser: argparse.ArgumentParser) -> N
         serve_parser.error("--port requires --http")
     if args.host is not None and not args.http:
         serve_parser.error("--host requires --http")
+    if args.local_embedding != "none" and args.remote_embedding != "none":
+        serve_parser.error("--local-embedding and --remote-embedding are mutually exclusive")
 
-    def _run() -> None:
+    remote_embedding = args.remote_embedding if args.remote_embedding != "none" else None
+
+    def _run(
+        *,
+        embedding_provider: str | None = remote_embedding,
+        embedding_model: str | None = None,
+    ) -> None:
         if args.http:
             host = args.host if args.host is not None else "127.0.0.1"
             port = args.port if args.port is not None else 5555
@@ -78,9 +97,17 @@ def handle(args: argparse.Namespace, serve_parser: argparse.ArgumentParser) -> N
                 port=port,
                 tools=args.tools,
                 tool_profile=args.tool_profile,
+                embedding_provider=embedding_provider,
+                embedding_model=embedding_model,
             )
         else:
-            serve_main(repo_root=args.repo, tools=args.tools, tool_profile=args.tool_profile)
+            serve_main(
+                repo_root=args.repo,
+                tools=args.tools,
+                tool_profile=args.tool_profile,
+                embedding_provider=embedding_provider,
+                embedding_model=embedding_model,
+            )
 
     local_embedding = args.local_embedding
     if local_embedding and local_embedding != "none":
@@ -97,6 +124,6 @@ def handle(args: argparse.Namespace, serve_parser: argparse.ArgumentParser) -> N
             os.environ["CRG_OPENAI_BASE_URL"] = server.base_url
             os.environ["CRG_OPENAI_BATCH_SIZE"] = str(args.local_embedding_batch_size)
             os.environ["CRG_OPENAI_TIMEOUT"] = str(args.local_embedding_request_timeout)
-            _run()
+            _run(embedding_provider="openai", embedding_model=server.preset.model)
     else:
         _run()
