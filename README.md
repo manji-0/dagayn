@@ -224,34 +224,23 @@ dagayn visualize --serve
 dagayn serve
 ```
 
-### MCP tool profiles
+### MCP tool surface
 
-<!-- derived-from ./docs/COMMANDS.md#tool-profiles -->
+<!-- derived-from ./docs/COMMANDS.md#mcp-tool-surface -->
 
-`dagayn serve` exposes the `default` MCP tool profile unless you select another
-profile or an exact tool allow-list. Profiles keep routine agent sessions small
-while leaving specialized review, architecture, and refactor surfaces available
-when a workflow needs them.
-
-| Profile | Use when |
-|---|---|
-| `default` | General agent use with the compact first-choice tool set |
-| `review` | Local diff and PR review |
-| `architecture` | Architecture mapping and hotspot analysis |
-| `refactor` | Refactor planning and safe apply flows |
-| `full` | Legacy all-tools behavior |
+`dagayn serve` exposes every public MCP main tool by default. Workflow-specific
+analysis is routed through dispatcher tools such as `review_tool`,
+`flow_tool`, and `architecture_analysis_tool`, so routine sessions no longer
+need named server profiles.
 
 ```bash
-dagayn serve --tool-profile review
-dagayn serve --tool-profile architecture
-dagayn serve --tool-profile refactor
-dagayn serve --tool-profile full
+dagayn serve
 dagayn serve --tools query_graph_tool,semantic_search_nodes_tool
 ```
 
-`--tools` is an exact comma-separated allow-list and overrides profiles.
-Persistent server configs can use `DAGAYN_TOOL_PROFILE`, `CRG_TOOL_PROFILE`, or
-`CRG_TOOLS` for the same controls.
+`--tools` is an exact comma-separated allow-list for deployments that need to
+hide some public tools. Persistent server configs can use `CRG_TOOLS` for the
+same control.
 
 ## Reporting and export outputs
 

@@ -158,21 +158,19 @@ They serve different questions:
 `traverse_graph_tool` should be an advanced follow-up when the user wants a
 neighborhood rather than a specific relationship.
 
-## Tool profile plan
+## MCP tool surface plan
 
-The current `dagayn serve --tools` allow-list is useful but too manual. Add
-named tool profiles that expand to explicit allow-lists:
+Dagayn v3 exposes every public MCP main tool by default. Tool-choice overhead
+is controlled by dispatcher schemas and skill guidance rather than named server
+profiles. Keep explicit `--tools` / `CRG_TOOLS` support for deployments that
+need an exact allow-list, but do not add profile presets back into the public
+serve API.
 
-| Profile | Purpose | Tools |
-| --- | --- | --- |
-| `default` | General agent use with low tool-choice overhead | Tier 1 plus graph lifecycle basics |
-| `review` | PR and local diff review | `default` plus impact, flow, and suggested-question drill-downs |
-| `architecture` | Architecture mapping and cleanup | `default` plus flow drill-downs; architecture signals stay behind `architecture_analysis_tool(mode=...)` |
-| `refactor` | Refactor planning and safe apply flows | `default` plus large-function, impact, and apply-refactor surfaces |
-| `full` | Current behavior for power users and compatibility | All registered tools |
-
-Keep explicit `--tools` support. Profiles should be a convenience layer, not a
-replacement for exact allow-lists.
+The public surface should stay centered on workflow dispatchers:
+`review_tool`, `flow_tool`, `architecture_analysis_tool`, `refactor_tool`,
+`query_graph_tool`, `semantic_search_nodes_tool`, and graph lifecycle tools.
+Metric-specific implementation functions can remain internal subtools when
+they are better represented as `mode` branches.
 
 ## Selection rules for new analyses
 
@@ -199,13 +197,14 @@ Update command and usage docs so the recommended flow is:
    `refactor_tool`, or `query_graph_tool`
 3. follow response hints to Tier 2 tools only when needed
 
-### Phase 2: add tool profiles
+### Phase 2: remove tool profiles
 
-Add `dagayn serve --tool-profile default|review|architecture|refactor|full`.
-The existing `--tools` flag should override or refine the profile.
+Remove `dagayn serve --tool-profile default|review|architecture|refactor|full`
+and profile environment variables. The existing `--tools` flag remains an exact
+allow-list.
 
-Status: implemented. `dagayn serve` now defaults to the `default` profile,
-while `--tool-profile full` preserves the legacy all-tools behavior.
+Status: implemented for v3. `dagayn serve` now exposes all public MCP main
+tools by default, and dispatcher tools replace profile-based specialization.
 
 ### Phase 3: enrich change analysis
 
@@ -239,9 +238,10 @@ existing Tier 1 surfaces.
 <!-- derived-from #product-principle -->
 <!-- derived-from #tool-tiers -->
 <!-- derived-from #analysis-products -->
-<!-- derived-from #tool-profile-plan -->
+<!-- derived-from #mcp-tool-surface-plan -->
 
 Dagayn should provide more analysis by composing existing graph signals into
 fewer workflow tools, not by exposing every metric as a separate first-choice
-tool. The default path should be small, the drill-down path should remain rich,
-and every result should explain why the next tool is worth calling.
+tool. The public serve surface can expose all main tools because dispatcher
+schemas and skills keep the default path clear, the drill-down path rich, and
+every result accountable for why the next mode is worth calling.

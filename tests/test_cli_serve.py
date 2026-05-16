@@ -23,6 +23,11 @@ def test_serve_parser_accepts_remote_embedding_provider():
     assert args.remote_embedding == "openai"
 
 
+def test_serve_parser_rejects_removed_tool_profile_flag():
+    with pytest.raises(SystemExit):
+        _parser().parse_args(["serve", "--tool-profile", "review"])
+
+
 def test_serve_rejects_local_and_remote_embedding_together():
     parser = _parser()
     args = parser.parse_args(

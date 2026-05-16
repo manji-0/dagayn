@@ -102,26 +102,23 @@ In MCP clients, start with `get_minimal_context_tool`, then choose
 
 ## Start the MCP server
 
-<!-- derived-from ./plans/ANALYSIS-TOOL-STRATEGY.md#tool-profile-plan -->
+<!-- derived-from ./plans/ANALYSIS-TOOL-STRATEGY.md#mcp-tool-surface-plan -->
 
 ```bash
 dagayn serve
 ```
 
-By default the server runs over stdio and exposes the `default` tool profile,
-which keeps the first-choice MCP tool list small. Use a named profile for a
-broader workflow:
+By default the server runs over stdio and exposes every public MCP main tool.
+Use `--tools` only when you need an exact comma-separated allow-list:
 
 ```bash
-dagayn serve --tool-profile review
-dagayn serve --tool-profile architecture
-dagayn serve --tool-profile refactor
-dagayn serve --tool-profile full
+dagayn serve --tools query_graph_tool,semantic_search_nodes_tool
 ```
 
-Use `--tool-profile full` for all public tools. Use `--tools` when you need an
-exact comma-separated allow-list; it overrides the profile. Use the HTTP flags
-if you explicitly need local HTTP transport.
+The same exact allow-list can be supplied with `CRG_TOOLS`. Use the HTTP flags
+if you explicitly need local HTTP transport. Dagayn v3 removed named MCP tool
+profiles; dispatcher tools keep the public surface small enough for ordinary
+agent use while preserving drill-down access through `mode` arguments.
 
 In dagayn 3.0, v2 split architecture MCP/CLI tools were removed. Use
 `architecture_analysis_tool(mode=...)`, for example

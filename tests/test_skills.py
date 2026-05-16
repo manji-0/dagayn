@@ -748,7 +748,8 @@ class TestInjectClaudeMd:
         assert "get_minimal_context" in content
         assert "How to judge analysis output" in content
         assert "truncated" in content
-        assert "--tool-profile full" in content
+        assert "--tools" in content
+        assert "--tool-profile" not in content
         assert "analysis_summary" in content
         assert "architecture_health" in content
         assert "architecture_analysis_tool" in content
@@ -967,12 +968,13 @@ class TestInjectPlatformInstructionsFiltering:
         opencode_agents = tmp_path / ".config" / "opencode" / "AGENTS.md"
         assert _MARKDOWN_POLICY_MARKER in opencode_agents.read_text()
 
-    def test_agents_md_mentions_tool_profiles_and_composed_outputs(self, tmp_path):
+    def test_agents_md_mentions_tool_surface_and_composed_outputs(self, tmp_path):
         with patch("dagayn.skills.Path.home", return_value=tmp_path):
             inject_platform_instructions(tmp_path, target="codex")
 
         content = (tmp_path / ".codex" / "AGENTS.md").read_text()
-        assert "--tool-profile full" in content
+        assert "--tools" in content
+        assert "--tool-profile" not in content
         assert "analysis_summary" in content
         assert "architecture_health" in content
         assert "architecture_analysis_tool" in content

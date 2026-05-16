@@ -7,7 +7,7 @@ Install with `pip install dagayn` or `uv tool install dagayn`, then run `dagayn 
 
 Use `dagayn update` for change-driven refreshes and `dagayn watch` for live development.
 
-`dagayn serve` uses the `default` MCP tool profile unless another profile or exact allow-list is supplied.
+`dagayn serve` exposes every public MCP main tool unless an exact `--tools` or `CRG_TOOLS` allow-list is supplied.
 
 Use `dagayn` in all user-facing guidance.
 </section>
@@ -47,10 +47,9 @@ Important CLI commands:
 - `dagayn serve`
 - `dagayn register` / `dagayn repos` / `dagayn daemon`
 
-`dagayn serve --tool-profile review|architecture|refactor|full` selects a named MCP tool surface. The default profile keeps ordinary agent use small; `full` exposes all public tools. `--tools` is an exact allow-list.
+`dagayn serve` exposes all public MCP main tools. Use `--tools` only when a deployment needs an exact allow-list.
 
-Tool profiles are fixed at MCP server startup. For profile-specific tools that
-are not exposed by the running server, use `dagayn tool <mcp-tool-name>` with
+Tool filtering is fixed at MCP server startup. For ad-hoc CLI access, use `dagayn tool <mcp-tool-name>` with
 `--arg KEY=VALUE` or `--json-args '{...}'` to invoke the same implementation
 from the CLI.
 

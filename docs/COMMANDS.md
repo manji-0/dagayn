@@ -40,8 +40,9 @@ regardless of any ambient `CRG_OPENAI_BATCH_SIZE`.
 - `dagayn eval`
 
 `dagayn tool <mcp-tool-name>` invokes the same underlying implementation as an
-MCP tool and prints JSON. This gives agents and scripts a CLI path to tools
-that are outside the currently running MCP server profile:
+MCP tool and prints JSON. This gives agents and scripts a CLI path to run a
+single tool directly, including when a running MCP server was started with a
+narrow `--tools` allow-list:
 
 ```bash
 dagayn tool review_tool --arg mode='"impact"' --arg 'changed_files=["src/app.py"]' --arg max_depth=3
@@ -121,38 +122,27 @@ Use `implementations_of` to find code or Terraform nodes linked to a Markdown
 contract section through `implemented_by` / `implements_contract`
 `CROSS_ARTIFACT` edges.
 
-### Tool profiles
+### MCP tool surface
 
-<!-- derived-from ./plans/ANALYSIS-TOOL-STRATEGY.md#tool-profile-plan -->
+<!-- derived-from ./plans/ANALYSIS-TOOL-STRATEGY.md#mcp-tool-surface-plan -->
 
-`dagayn serve` exposes the `default` profile unless an exact allow-list or
-another profile is selected. Profiles keep the ordinary MCP surface small while
-leaving specialized tools available for workflows that need them.
-
-| Profile | Use when |
-| --- | --- |
-| `default` | General agent use with a small first-choice tool list |
-| `review` | PR and local diff review |
-| `architecture` | Architecture mapping and cleanup through `architecture_analysis_tool` |
-| `refactor` | Refactor planning and safe apply flows |
-| `full` | All public tools |
+`dagayn serve` exposes every public MCP main tool by default. Dagayn v3 removed
+named tool profiles; specialized analysis now lives behind dispatcher tools
+such as `review_tool`, `flow_tool`, and `architecture_analysis_tool`.
 
 ```bash
-dagayn serve --tool-profile review
-dagayn serve --tool-profile full
+dagayn serve
 dagayn serve --tools query_graph_tool,semantic_search_nodes_tool
 dagayn tool architecture_analysis_tool --arg mode='"overview"'
 dagayn serve --local-embedding low
 dagayn serve --remote-embedding openai
 ```
 
-`--tools` is an exact comma-separated allow-list and overrides profiles. The
-same exact allow-list can be supplied with `CRG_TOOLS`. Named profiles can be
-supplied with `DAGAYN_TOOL_PROFILE` or `CRG_TOOL_PROFILE`.
-
-Tool profiles are applied when `dagayn serve` starts; a running MCP server does
-not reload a broader profile dynamically. Use `dagayn tool <tool-name>` for
-ad-hoc access to profile-specific tools from a shell without restarting the
+`--tools` is an exact comma-separated allow-list for deployments that need to
+hide some public tools. The same exact allow-list can be supplied with
+`CRG_TOOLS`. Tool filtering is applied when `dagayn serve` starts; a running MCP
+server does not reload a broader allow-list dynamically. Use
+`dagayn tool <tool-name>` for ad-hoc shell access without restarting the
 agent's MCP server.
 
 When `dagayn serve --local-embedding {low,high}` starts a managed local

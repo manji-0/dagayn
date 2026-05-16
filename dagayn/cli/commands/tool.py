@@ -50,8 +50,8 @@ def register_command(sub: argparse._SubParsersAction) -> argparse.ArgumentParser
         "tool",
         help="Run a dagayn MCP tool implementation from the CLI.",
         description=(
-            "Invoke any dagayn MCP tool by name without changing the running "
-            "MCP server's tool profile. Arguments are passed as JSON-compatible "
+            "Invoke any dagayn MCP tool by name without changing or restarting "
+            "a running MCP server. Arguments are passed as JSON-compatible "
             "key/value pairs."
         ),
     )

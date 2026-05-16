@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 
-from ...tool_profiles import DEFAULT_TOOL_PROFILE, FULL_TOOL_PROFILE, TOOL_PROFILE_NAMES
 from ._shared import _add_local_embedding_args
 
 _REMOTE_EMBEDDING_CHOICES = ["none", "openai", "google", "minimax"]
@@ -23,17 +22,8 @@ def register_command(sub: argparse._SubParsersAction) -> argparse.ArgumentParser
         help=(
             "Comma-separated list of tool names to expose "
             "(e.g. query_graph_tool,semantic_search_nodes_tool). "
-            "Unlisted tools are removed. Overrides any tool profile. "
+            "Unlisted tools are removed. "
             "Falls back to CRG_TOOLS env var."
-        ),
-    )
-    serve_cmd.add_argument(
-        "--tool-profile",
-        choices=TOOL_PROFILE_NAMES,
-        default=None,
-        help=(
-            f"Named MCP tool profile (default: {DEFAULT_TOOL_PROFILE}; "
-            f"use {FULL_TOOL_PROFILE} for all tools)."
         ),
     )
     serve_cmd.add_argument(
@@ -96,7 +86,6 @@ def handle(args: argparse.Namespace, serve_parser: argparse.ArgumentParser) -> N
                 host=host,
                 port=port,
                 tools=args.tools,
-                tool_profile=args.tool_profile,
                 embedding_provider=embedding_provider,
                 embedding_model=embedding_model,
             )
@@ -104,7 +93,6 @@ def handle(args: argparse.Namespace, serve_parser: argparse.ArgumentParser) -> N
             serve_main(
                 repo_root=args.repo,
                 tools=args.tools,
-                tool_profile=args.tool_profile,
                 embedding_provider=embedding_provider,
                 embedding_model=embedding_model,
             )

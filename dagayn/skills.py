@@ -860,11 +860,9 @@ ambiguous, or lacks the exact source text needed for the task.
 
 ### Tool surface
 
-`dagayn serve` uses the `default` MCP tool profile unless configured otherwise.
-The default profile intentionally exposes a small first-choice surface. Use
-`dagayn serve --tool-profile review|architecture|refactor` for broader workflow
-profiles, `--tool-profile full` for all tools, or `--tools ...` for an exact
-allow-list.
+`dagayn serve` exposes every public MCP main tool by default. Use
+`dagayn serve --tools ...` only when a deployment needs an exact allow-list;
+the same allow-list can be supplied with `CRG_TOOLS`.
 
 ### Default workflow tools
 
