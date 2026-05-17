@@ -42,6 +42,11 @@ retrieval setup.
    `review_tool(mode="impact", base="main")` only when a wider view is needed:
    - Review the blast radius across the entire PR
    - Identify high-risk areas (widely depended-upon code)
+   - Follow documentation bridges only when relevant to the changed surface:
+     `query_graph_tool(pattern="docs_for", target=<path::symbol>)` for changed
+     code/Terraform nodes, and
+     `query_graph_tool(pattern="implementations_of", target=<doc.md>::<section-slug>)`
+     for changed Markdown contract sections
 
 7. **Deep-dive each changed file**:
    - Read the full source of files with significant changes
@@ -49,6 +54,11 @@ retrieval setup.
    - Start with `analysis_summary.recommended_tests`; use
      `query_graph_tool(pattern="tests_for", target=<func>)` to verify uncertain coverage
    - Check for breaking changes in public APIs
+   - When `dagayn:` documentation directives are present, interpret direction
+     by authoring site: Markdown `implemented-by` means the doc owns the
+     contract; code `implements` means the implementation declares conformance;
+     `explained-by`, `has-runbook`, and `problem-described-by` mean linked docs
+     may be stale after code changes. Do not expect duplicate inverse edges.
 
 8. **Generate structured review output**:
 
@@ -90,6 +100,9 @@ retrieval setup.
   in source or tests before reporting them as findings.
 - Include `truncated`, `total`, approximation, or threshold metadata in the
   review when a tool's output is bounded.
+- Cite `CROSS_ARTIFACT` documentation roles and query patterns when they drive a
+  finding: `docs_for` for code→docs context, `implementations_of` for
+  doc→implementation context.
 
 ## Efficiency Rules
 
@@ -110,5 +123,7 @@ restarting the agent:
 dagayn tool review_tool --arg mode='"changes"' --arg base='"main"' --arg detail_level='"minimal"'
 dagayn tool review_tool --arg mode='"context"' --arg base='"main"' --arg detail_level='"minimal"'
 dagayn tool review_tool --arg mode='"impact"' --arg base='"main"' --arg detail_level='"minimal"'
+dagayn tool query_graph_tool --arg pattern='"docs_for"' --arg target='"src/app.py::handler"'
+dagayn tool query_graph_tool --arg pattern='"implementations_of"' --arg target='"docs/spec.md::contract-section"'
 dagayn tool flow_tool --arg mode='"list"' --arg detail_level='"minimal"'
 ```

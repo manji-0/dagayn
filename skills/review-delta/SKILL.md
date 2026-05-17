@@ -36,12 +36,22 @@ Perform a focused, token-efficient code review of only the changed code and its 
    - Functions whose callers changed (may need signature/behavior verification)
    - Classes with inheritance changes (Liskov substitution concerns)
    - Files with many dependents (high-risk changes)
+   - `CROSS_ARTIFACT` documentation links where changed code points have linked
+     specs/runbooks (`query_graph_tool(pattern="docs_for", target=<path::symbol>)`)
+     or changed Markdown sections have linked implementations
+     (`query_graph_tool(pattern="implementations_of", target=<doc.md>::<section-slug>)`)
 
 6. **Perform the review** using the context. For each changed file:
    - Review the source snippet for correctness, style, and potential bugs
    - Check if impacted callers/dependents need updates
    - Prefer `analysis_summary.recommended_tests` first, then verify uncertain
      coverage using `query_graph_tool(pattern="tests_for", target=<function_name>)`
+   - If a `dagayn:` documentation directive links the changed surface to a
+     Markdown section or code point, verify whether that linked artifact also
+     needs review or an update. Use the stored role (`implemented_by`,
+     `implements_contract`, `explained_by`, `has_runbook`,
+     `problem_described_by`, `discusses_artifact`, `raises_issue_for`) as the
+     reason, and avoid assuming duplicate inverse edges exist.
    - Flag any untested changed functions
 
 7. **Report findings** in a structured format:
@@ -87,4 +97,6 @@ dagayn tool review_tool --arg mode='"changes"' --arg detail_level='"minimal"'
 dagayn tool review_tool --arg mode='"context"' --arg detail_level='"minimal"'
 dagayn tool review_tool --arg mode='"impact"' --arg detail_level='"minimal"'
 dagayn tool query_graph_tool --arg pattern='"tests_for"' --arg target='"src/app.py::handler"'
+dagayn tool query_graph_tool --arg pattern='"docs_for"' --arg target='"src/app.py::handler"'
+dagayn tool query_graph_tool --arg pattern='"implementations_of"' --arg target='"docs/spec.md::contract-section"'
 ```

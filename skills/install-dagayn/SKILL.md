@@ -31,6 +31,9 @@ hooks, instruction injection, or embedding mode selection.
      or the requested preset.
    - Codex hooks: `~/.codex/hooks.json` should run `dagayn update --skip-flows`.
    - Skills: `~/.codex/skills/<skill>/SKILL.md` should exist for packaged skills.
+   - Markdown/code traceability guidance: installed writing/review/explore
+     skills should mention `docs_for`, `implementations_of`, and `dagayn:`
+     documentation directives.
 5. Run `dagayn status` or `list_graph_stats_tool` in a target repo. If the graph
    is missing, run `build_or_update_graph_tool(full_rebuild=True)`.
 

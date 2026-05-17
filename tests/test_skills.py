@@ -269,6 +269,21 @@ class TestGenerateSkills:
         assert "rg -n '<!--" in content
         assert "grep -nE" not in content
 
+    def test_generated_skills_include_markdown_code_traceability_guidance(self, tmp_path):
+        skills_dir = generate_skills(tmp_path)
+        writing = (skills_dir / "writing-markdown-document.md").read_text()
+        reading = (skills_dir / "reading-markdown-document.md").read_text()
+        review = (skills_dir / "review-changes.md").read_text()
+        explore = (skills_dir / "explore-codebase.md").read_text()
+
+        assert "Markdown ↔ code documentation links" in writing
+        assert "<!-- dagayn: implemented-by services/auth.py::refresh_token -->" in writing
+        assert "# dagayn: implements docs/auth-spec.md#Token Refresh" in writing
+        assert 'query_graph_tool(pattern="implementations_of"' in reading
+        assert 'query_graph_tool(pattern="docs_for"' in reading
+        assert "`CROSS_ARTIFACT` documentation roles" in review
+        assert "Markdown ↔ code traceability" in explore
+
     def test_idempotent(self, tmp_path):
         """Running twice should not fail and files should still be valid."""
         generate_skills(tmp_path)
@@ -494,6 +509,17 @@ class TestInstallTreeSkills:
 
         assert not stale_file.exists()
         assert user_skill.read_text(encoding="utf-8") == "user"
+
+    def test_tree_skill_install_includes_markdown_code_traceability_guidance(self, tmp_path):
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            result = install_codex_skills()
+
+        writing = (result / "writing-markdown-document" / "SKILL.md").read_text()
+        reading = (result / "reading-markdown-document" / "SKILL.md").read_text()
+
+        assert "Markdown ↔ code documentation links" in writing
+        assert 'query_graph_tool(pattern="implementations_of"' in reading
+        assert 'query_graph_tool(pattern="docs_for"' in reading
 
 
 class TestInstallQoderSkills:

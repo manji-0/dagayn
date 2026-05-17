@@ -25,7 +25,11 @@ the selected embedding mode so exploration chooses the right search strategy.
    selection before drilling down.
 3. Use `semantic_search_nodes_tool` to find specific functions or classes.
 4. Use `query_graph_tool` with patterns like `callers_of`, `callees_of`, `imports_of`
-   to trace relationships.
+   to trace relationships. Use `docs_for` when starting from a code/Terraform
+   node and you need linked specs, runbooks, explanations, or issue notes. Use
+   `implementations_of` when starting from a Markdown section and you need the
+   code points linked by `implemented_by` / `implements_contract` documentation
+   bridges.
 5. Use `flow_tool(mode="list", detail_level="minimal")` to find candidate
    execution paths. Call `flow_tool(mode="get")` only after choosing a concrete
    flow name.
@@ -38,6 +42,13 @@ the selected embedding mode so exploration chooses the right search strategy.
   specific areas.
 - Use `children_of` on a file to see all its functions and classes.
 - Use `find_large_functions_tool` to identify complex code.
+- For Markdown ↔ code traceability, treat `dagayn:` directives as authored
+  `CROSS_ARTIFACT` evidence. Markdown comments such as
+  `<!-- dagayn: implemented-by path::symbol -->` point from a doc section to a
+  code point; Python/Terraform comments such as
+  `# dagayn: implements docs/spec.md#Section` point from code to a Markdown
+  section. Query tools expose inverse labels, so do not assume both directions
+  are stored.
 - For tiny literal lookups, one `rg` is fine after minimal context; switch back
   to graph tools once you have a file, function, or class name.
 - Treat graph output as evidence: cite counts, thresholds, reason codes, and
@@ -55,6 +66,8 @@ dagayn tool flow_tool --arg mode='"list"' --arg detail_level='"minimal"'
 dagayn tool architecture_analysis_tool --arg mode='"overview"' --arg detail_level='"minimal"'
 dagayn tool architecture_analysis_tool --arg mode='"communities"'
 dagayn tool find_large_functions_tool --arg min_lines=80
+dagayn tool query_graph_tool --arg pattern='"docs_for"' --arg target='"src/app.py::handler"'
+dagayn tool query_graph_tool --arg pattern='"implementations_of"' --arg target='"docs/spec.md::contract-section"'
 ```
 
 ## Token Efficiency Rules

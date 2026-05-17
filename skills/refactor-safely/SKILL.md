@@ -18,7 +18,12 @@ Use the knowledge graph to plan and execute refactoring with confidence.
 4. For renames, use `refactor_tool` with mode="rename" to preview all affected locations.
 5. Use `apply_refactor_tool` with `dry_run=True` first, then apply with the
    refactor_id only after the diff is acceptable.
-6. After changes, run `review_tool(mode="changes")` and inspect `analysis_summary` to verify
+6. Before renaming, moving, or deleting public code, follow documentation bridge
+   edges when present: `query_graph_tool(pattern="docs_for", target="<path::symbol>", detail_level="minimal")`
+   for specs/runbooks/issue notes attached to code, and
+   `query_graph_tool(pattern="implementations_of", target="<doc.md>::<section-slug>", detail_level="minimal")`
+   when the refactor starts from a Markdown contract section.
+7. After changes, run `review_tool(mode="changes")` and inspect `analysis_summary` to verify
    impact, recommended tests, affected flows, and architecture risks.
 
 ### Safety Checks
@@ -28,6 +33,10 @@ Use the knowledge graph to plan and execute refactoring with confidence.
   `review_tool(mode="impact")` or `review_tool(mode="affected_flows")` only
   when a wider drill-down is needed.
 - Run `find_large_functions_tool` to identify decomposition targets.
+- Preserve authored `dagayn:` documentation directives. Update Markdown
+  `implemented-by path::symbol` targets after code renames, and update code
+  `implements docs/spec.md#Section` targets after doc heading/path changes.
+  Do not add duplicate inverse directives unless there are two distinct claims.
 - Treat suggestions as leads, not approval. Verify public APIs, dynamic
   dispatch, generated code, test artifacts, and framework entry points before
   removing or moving code.
@@ -44,6 +53,8 @@ run the same implementation through the CLI without restarting the agent:
 dagayn tool refactor_tool --arg mode='"suggest"' --arg limit=10
 dagayn tool refactor_tool --arg mode='"rename"' --arg old_name='"old_symbol"' --arg new_name='"new_symbol"'
 dagayn tool apply_refactor_tool --arg refactor_id='"refactor_123"' --arg dry_run=true
+dagayn tool query_graph_tool --arg pattern='"docs_for"' --arg target='"src/app.py::handler"'
+dagayn tool query_graph_tool --arg pattern='"implementations_of"' --arg target='"docs/spec.md::contract-section"'
 ```
 
 ## Token Efficiency Rules

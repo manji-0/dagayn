@@ -28,6 +28,12 @@ question points to a signal.
    - `sap_metrics` / `sap_violations`: abstraction/stability balance
 4. Use `query_graph_tool` or source reads only after the metric output identifies a
    concrete node, edge, community, package, or file to verify.
+5. For architecture questions that cross documentation/code boundaries, use
+   `query_graph_tool(pattern="docs_for", target="<path::symbol>", detail_level="minimal")`
+   from code/Terraform nodes and
+   `query_graph_tool(pattern="implementations_of", target="<doc.md>::<section-slug>", detail_level="minimal")`
+   from Markdown contract sections. Treat `CROSS_ARTIFACT` documentation roles
+   as authored traceability evidence, not automatic architectural coupling.
 
 ### Evidence Rules
 
@@ -38,6 +44,10 @@ question points to a signal.
   when the result is too narrow to answer the question.
 - Verify source behavior before turning graph structure into a correctness or
   refactor recommendation.
+- When citing Markdown ↔ code relationships, name the stored role
+  (`implemented_by`, `implements_contract`, `explained_by`, `has_runbook`,
+  `problem_described_by`, `discusses_artifact`, or `raises_issue_for`) and
+  whether it came from Markdown or code.
 
 ## CLI Fallback
 
@@ -48,6 +58,8 @@ the same implementation through the CLI:
 dagayn tool architecture_analysis_tool --arg mode='"overview"' --arg detail_level='"minimal"'
 dagayn tool architecture_analysis_tool --arg mode='"sdp_violations"' --arg top_n=10
 dagayn tool architecture_analysis_tool --arg mode='"community"' --arg community_name='"auth"'
+dagayn tool query_graph_tool --arg pattern='"docs_for"' --arg target='"src/app.py::handler"'
+dagayn tool query_graph_tool --arg pattern='"implementations_of"' --arg target='"docs/spec.md::contract-section"'
 ```
 
 ## Token Efficiency Rules

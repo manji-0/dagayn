@@ -19,7 +19,10 @@ Perform a thorough, risk-aware code review using the knowledge graph.
 4. Call `review_tool(mode="affected_flows")`, `review_tool(mode="impact")`, or
    `query_graph_tool(pattern="tests_for")` only when `analysis_summary` points to a
    concrete flow, blast-radius, or coverage question.
-5. For any remaining untested changes, suggest specific test cases.
+5. Follow documentation bridge edges when they can change the review outcome:
+   - For changed code or Terraform nodes, use `query_graph_tool(pattern="docs_for", target="<path::symbol>", detail_level="minimal")` to find linked specs, runbooks, explanations, or issue notes from `dagayn:` documentation directives.
+   - For changed Markdown contract sections, use `query_graph_tool(pattern="implementations_of", target="<doc.md>::<section-slug>", detail_level="minimal")` to find code linked by Markdown `implemented-by` or code `implements` directives.
+6. For any remaining untested changes, suggest specific test cases.
 
 ### Output Format
 
@@ -34,6 +37,10 @@ Provide findings grouped by risk level (high/medium/low) with:
 - Base risk claims on changed-node count, blast radius, affected flows, test
   coverage, `analysis_summary.reason_codes`, and public API/dependency
   direction changes.
+- Treat `CROSS_ARTIFACT` documentation roles as authored evidence, not duplicate
+  inverse facts. `implemented_by` and `implements_contract` answer the same
+  contract question from opposite authoring sites; cite the stored role and the
+  query pattern (`docs_for` or `implementations_of`) used.
 - Report `truncated`, `total`, or approximation metadata when a tool response is
   incomplete.
 - Read exact source before reporting a behavioral bug; graph structure alone is
@@ -50,6 +57,8 @@ dagayn tool review_tool --arg mode='"changes"' --arg detail_level='"minimal"'
 dagayn tool review_tool --arg mode='"context"' --arg detail_level='"minimal"'
 dagayn tool review_tool --arg mode='"affected_flows"' --arg 'changed_files=["src/app.py"]'
 dagayn tool review_tool --arg mode='"impact"' --arg 'changed_files=["src/app.py"]' --arg detail_level='"minimal"'
+dagayn tool query_graph_tool --arg pattern='"docs_for"' --arg target='"src/app.py::handler"'
+dagayn tool query_graph_tool --arg pattern='"implementations_of"' --arg target='"docs/spec.md::contract-section"'
 ```
 
 ## Token Efficiency Rules
