@@ -774,24 +774,53 @@ def _merge_dagayn_hook_entries(
 def _ensure_codex_hooks_feature(config_path: Path) -> None:
     """Enable Codex hooks in config.toml without clobbering settings."""
     if not config_path.exists():
-        config_path.write_text("[features]\ncodex_hooks = true\n", encoding="utf-8")
+        config_path.write_text("[features]\nhooks = true\n", encoding="utf-8")
         return
 
     existing = config_path.read_text(encoding="utf-8", errors="replace")
-    if "codex_hooks" in existing:
-        return
-
     lines = existing.splitlines()
+    in_features = False
+    features_index: int | None = None
+    hooks_index: int | None = None
+    codex_hooks_index: int | None = None
+
     for index, line in enumerate(lines):
         if line.strip() == "[features]":
-            lines.insert(index + 1, "codex_hooks = true")
-            config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-            return
+            in_features = True
+            features_index = index
+            continue
+        if in_features and line.lstrip().startswith("[") and line.strip().endswith("]"):
+            in_features = False
+        if not in_features:
+            continue
+        if re.match(r"^\s*hooks\s*=", line):
+            hooks_index = index
+        elif re.match(r"^\s*codex_hooks\s*=", line):
+            codex_hooks_index = index
+
+    if hooks_index is not None:
+        lines[hooks_index] = re.sub(r"=\s*.*$", "= true", lines[hooks_index], count=1)
+        if codex_hooks_index is not None:
+            del lines[codex_hooks_index]
+        config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return
+
+    if codex_hooks_index is not None:
+        lines[codex_hooks_index] = re.sub(
+            r"codex_hooks\s*=\s*.*$", "hooks = true", lines[codex_hooks_index], count=1
+        )
+        config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return
+
+    if features_index is not None:
+        lines.insert(features_index + 1, "hooks = true")
+        config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return
 
     prefix = existing if existing.endswith("\n") else existing + "\n"
     if not prefix.endswith("\n\n"):
         prefix += "\n"
-    config_path.write_text(prefix + "[features]\ncodex_hooks = true\n", encoding="utf-8")
+    config_path.write_text(prefix + "[features]\nhooks = true\n", encoding="utf-8")
 
 
 def install_codex_hooks(

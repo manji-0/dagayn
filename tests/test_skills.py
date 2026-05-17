@@ -842,7 +842,7 @@ class TestInstallCodexHooks:
         assert "SessionStart" in data["hooks"]
 
         config = tomllib.loads((home / ".codex" / "config.toml").read_text())
-        assert config["features"]["codex_hooks"] is True
+        assert config["features"]["hooks"] is True
 
     def test_merges_existing_hooks_json(self, tmp_path):
         codex_dir = tmp_path / ".codex"
@@ -874,7 +874,23 @@ class TestInstallCodexHooks:
         config = tomllib.loads((codex_dir / "config.toml").read_text())
         assert config["model"] == "gpt-5.4"
         assert config["mcp_servers"]["other"]["command"] == "other"
-        assert config["features"]["codex_hooks"] is True
+        assert config["features"]["hooks"] is True
+
+    def test_migrates_deprecated_codex_hooks_feature(self, tmp_path):
+        codex_dir = tmp_path / ".codex"
+        codex_dir.mkdir()
+        (codex_dir / "config.toml").write_text(
+            "[features]\ncodex_hooks = true\n",
+            encoding="utf-8",
+        )
+
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            install_codex_hooks(tmp_path / "repo")
+
+        config_text = (codex_dir / "config.toml").read_text()
+        config = tomllib.loads(config_text)
+        assert config["features"]["hooks"] is True
+        assert "codex_hooks" not in config_text
 
     def test_no_duplicate_on_reinstall(self, tmp_path):
         with patch("dagayn.skills.Path.home", return_value=tmp_path):
@@ -889,7 +905,7 @@ class TestInstallCodexHooks:
                 if any("dagayn" in hook.get("command", "") for hook in entry.get("hooks", []))
             ]
             assert len(dagayn_hooks) == 1
-        assert (tmp_path / ".codex" / "config.toml").read_text().count("codex_hooks") == 1
+        assert (tmp_path / ".codex" / "config.toml").read_text().count("hooks = true") == 1
 
     def test_passes_extra_update_args_to_codex_hooks(self, tmp_path):
         with patch("dagayn.skills.Path.home", return_value=tmp_path):
