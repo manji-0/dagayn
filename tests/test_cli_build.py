@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import argparse
 
-from dagayn.cli.commands.build import _print_local_embedding_summary, register_commands
+from dagayn.cli.commands.build import (
+    _print_local_embedding_summary,
+    _remove_existing_graph_database,
+    register_commands,
+)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -40,6 +44,29 @@ def test_build_parser_accepts_local_embedding_options():
     assert args.local_embedding_timeout == 12
     assert args.local_embedding_request_timeout == 17
     assert args.local_embedding_batch_size == 8
+
+
+def test_build_parser_accepts_force_full_build_options():
+    args = _parser().parse_args(["build", "--force-full-build"])
+    alias_args = _parser().parse_args(["build", "--force"])
+
+    assert args.command == "build"
+    assert args.force_full_build is True
+    assert alias_args.force_full_build is True
+
+
+def test_remove_existing_graph_database_removes_sqlite_sidecars(tmp_path):
+    db_path = tmp_path / "graph.db"
+    paths = [db_path] + [
+        db_path.with_name(f"{db_path.name}{suffix}") for suffix in ("-wal", "-shm", "-journal")
+    ]
+    for path in paths:
+        path.write_text("stale")
+
+    removed = _remove_existing_graph_database(db_path)
+
+    assert removed == paths
+    assert all(not path.exists() for path in paths)
 
 
 def test_update_parser_accepts_local_embedding_options():

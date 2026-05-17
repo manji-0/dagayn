@@ -70,6 +70,8 @@ dagayn status
 ```
 
 Use `build` the first time, `update` for change-driven refreshes, and `watch` during active development.
+Use `dagayn build --force-full-build` (or `--force`) to delete the existing
+graph database and SQLite sidecar files before running a clean full parse.
 
 ## Use the Rust backend
 

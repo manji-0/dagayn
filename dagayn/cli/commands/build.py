@@ -15,6 +15,23 @@ if TYPE_CHECKING:
     from ...graph import GraphStore
 
 
+def _remove_existing_graph_database(db_path: Path) -> list[Path]:
+    """Remove the graph database and SQLite sidecar files before a forced build."""
+    removed: list[Path] = []
+    sidecars = [
+        db_path.with_name(f"{db_path.name}{suffix}")
+        for suffix in ("-wal", "-shm", "-journal")
+    ]
+    candidates = [db_path] + sidecars
+    for path in candidates:
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            continue
+        removed.append(path)
+    return removed
+
+
 def _print_local_embedding_summary(result: dict) -> None:
     emb = result.get("local_embedding")
     if not emb:
@@ -35,6 +52,13 @@ def register_commands(sub: argparse._SubParsersAction) -> dict:
     # build
     build_cmd = sub.add_parser("build", help="Full graph build (re-parse all files)")
     build_cmd.add_argument("--repo", default=None, help="Repository root (auto-detected)")
+    build_cmd.add_argument(
+        "--force-full-build",
+        "--force",
+        dest="force_full_build",
+        action="store_true",
+        help="Delete the existing graph database before rebuilding",
+    )
     build_cmd.add_argument(
         "--skip-flows",
         action="store_true",
@@ -302,6 +326,12 @@ def handle(args: argparse.Namespace) -> None:
         repo_root = Path(args.repo) if args.repo else find_project_root()
 
     db_path = get_db_path(repo_root)
+    if args.command == "build" and getattr(args, "force_full_build", False):
+        from ...tools._common import _evict_store_cache
+
+        _evict_store_cache(db_path)
+        _remove_existing_graph_database(db_path)
+
     store = GraphStore(db_path)
 
     try:

@@ -12,6 +12,10 @@
 - `dagayn watch`
 - `dagayn status`
 
+Use `dagayn build --force-full-build` when you need a clean graph rebuild from
+scratch. It removes the existing `graph.db` plus SQLite sidecar files before
+running the normal full parse. `--force` is accepted as a shorter alias.
+
 ### Local embedding refresh
 
 <!-- derived-from ./LOCAL-EMBEDDINGS.md -->

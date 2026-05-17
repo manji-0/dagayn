@@ -175,6 +175,9 @@ dagayn status
 
 `build` creates the initial graph.
 
+Use `dagayn build --force-full-build` (or `--force`) when you want to delete the
+existing graph database before rebuilding from scratch.
+
 `status` confirms the graph exists and reports basic counts.
 
 ### Choosing an install mode
