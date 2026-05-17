@@ -19,6 +19,11 @@ All notable changes to `dagayn` are documented here.
 - Extend review, exploration, debug, refactor, and architecture skills so
   documentation bridge edges are considered when they affect the task.
 
+### Fixes
+
+- Pass install-time skill rendering context explicitly so `ty` can type-check
+  the `dagayn install` command path.
+
 ## 3.1.0 — 2026-05-17
 
 ### Features
