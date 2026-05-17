@@ -19,8 +19,7 @@ def _remove_existing_graph_database(db_path: Path) -> list[Path]:
     """Remove the graph database and SQLite sidecar files before a forced build."""
     removed: list[Path] = []
     sidecars = [
-        db_path.with_name(f"{db_path.name}{suffix}")
-        for suffix in ("-wal", "-shm", "-journal")
+        db_path.with_name(f"{db_path.name}{suffix}") for suffix in ("-wal", "-shm", "-journal")
     ]
     candidates = [db_path] + sidecars
     for path in candidates:
