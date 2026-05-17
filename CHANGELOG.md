@@ -2,6 +2,23 @@
 
 All notable changes to `dagayn` are documented here.
 
+## 3.2.0 — 2026-05-17
+
+### Features
+
+- Add `dagayn build --force` to force a full graph rebuild even when an existing
+  graph database is present.
+- Teach installed skills how to follow explicit Markdown ↔ code documentation
+  traceability through `dagayn:` directives, `docs_for`, and
+  `implementations_of`.
+
+### Improvements
+
+- Clarify Markdown `CROSS_ARTIFACT` resolution semantics for unresolved or
+  ambiguous code-span references.
+- Extend review, exploration, debug, refactor, and architecture skills so
+  documentation bridge edges are considered when they affect the task.
+
 ## 3.1.0 — 2026-05-17
 
 ### Features
