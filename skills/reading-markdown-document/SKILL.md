@@ -15,7 +15,7 @@ Read a Markdown doc the way dagayn indexes it: load its dependency graph first, 
 3. **Skip-to-prose shortcut.** Run a quick check:
    ```
    wc -l <path>
-   grep -E '<!--|`[^`]+`|]\(' <path> | wc -l
+   rg -n '<!--|`[^`]+`|]\(' <path> | wc -l
    ```
    If line count < 100 **and** the second grep returns 0, jump straight to Stage 3 — there are no graph-relevant constructs to pre-read.
 
@@ -36,9 +36,9 @@ Tool-call budget for Stage 1: ≤ 4 calls (one per step). Stop here before any p
 The directives, links, and code-spans in the doc itself are the authoritative outbound-edge list (the parser regexes are at `markdown.py:13–22`). Before reading prose, scan the raw file with one pass and build a per-edge-type triage list:
 
 ```
-grep -nE '<!-- *(constrained-by|blocked-by|supersedes|derived-from)' <path>   # DEPENDS_ON / IMPORTS_FROM
-grep -nE '\[[^]]+\]\([^)]+\)' <path>                                          # IMPORTS_FROM / REFERENCES
-grep -nE '`[A-Za-z_][A-Za-z0-9_.]*`' <path>                                   # CROSS_ARTIFACT (candidates)
+rg -n '<!-- *(constrained-by|blocked-by|supersedes|derived-from)' <path>   # DEPENDS_ON / IMPORTS_FROM
+rg -n '\[[^]]+\]\([^)]+\)' <path>                                          # IMPORTS_FROM / REFERENCES
+rg -n '`[A-Za-z_][A-Za-z0-9_.]*`' <path>                                   # CROSS_ARTIFACT (candidates)
 ```
 
 Then handle each type with a fixed budget:

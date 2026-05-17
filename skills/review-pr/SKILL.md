@@ -10,6 +10,14 @@ Perform a comprehensive code review of a pull request or branch diff using the k
 
 **Token optimization:** Before starting, call `get_docs_section_tool(section_name="review-pr")` for the optimized workflow. Never include full files unless explicitly asked.
 
+<!-- dagayn skill embedding context -->
+## Installed Search Mode
+
+This packaged skill is mode-neutral. `dagayn install` rewrites this section with
+the selected embedding mode so related-code search matches the installed
+retrieval setup.
+<!-- /dagayn skill embedding context -->
+
 ## Steps
 
 1. **Orient first** by calling `get_minimal_context_tool(task="<PR review>")`.
@@ -72,7 +80,9 @@ Perform a comprehensive code review of a pull request or branch diff using the k
 ## Tips
 
 - For large PRs, focus on the highest-impact files first (most dependents)
-- Use `semantic_search_nodes_tool` to find related code the PR might have missed
+- Use `semantic_search_nodes_tool` for conceptual or fuzzy related-code search.
+  For exact renamed or moved symbols, prefer `query_graph_tool` relationships or
+  a targeted `rg` literal check after graph triage.
 - Check if renamed/moved functions have updated all callers
 - Prefer `review_tool(mode="changes").analysis_summary` before calling drill-down
   review tools.
@@ -80,6 +90,15 @@ Perform a comprehensive code review of a pull request or branch diff using the k
   in source or tests before reporting them as findings.
 - Include `truncated`, `total`, approximation, or threshold metadata in the
   review when a tool's output is bounded.
+
+## Efficiency Rules
+
+- Review highest-risk files first from `analysis_summary`; do not read every
+  changed file before triage on large PRs.
+- Use `review_tool(mode="context")` for focused snippets, then full file reads
+  only when behavior cannot be judged from the snippet.
+- For broad PRs, cap graph drill-down to the top few impacted functions per
+  risk area before reporting residual uncertainty.
 
 ## CLI Fallback
 

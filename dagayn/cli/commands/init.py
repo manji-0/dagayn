@@ -111,12 +111,15 @@ def _instruction_files_to_modify(
         _CLAUDE_MD_SECTION_MARKER,
         _MARKDOWN_POLICY_MARKER,
         _PLATFORM_INSTRUCTION_FILES,
+        _has_instruction_section,
         _platform_instruction_paths,
         normalize_platform_target,
     )
 
     def _needs_update(content: str) -> bool:
-        return _CLAUDE_MD_SECTION_MARKER not in content or _MARKDOWN_POLICY_MARKER not in content
+        has_tools = _has_instruction_section(content, _CLAUDE_MD_SECTION_MARKER)
+        has_policy = _has_instruction_section(content, _MARKDOWN_POLICY_MARKER)
+        return not has_tools or not has_policy
 
     target = normalize_platform_target(target)
     targets: list[str] = []
@@ -260,24 +263,29 @@ def handle(args: argparse.Namespace) -> None:
     )
 
     if not skip_skills:
+        skill_context = {
+            "embedding_mode": mode,
+            "embedding_preset": preset,
+            "embedding_provider": provider,
+        }
         if target in ("all", "claude"):
-            skills_dir = generate_skills(repo_root)
+            skills_dir = generate_skills(repo_root, **skill_context)
             print(f"Generated skills in {skills_dir}")
             try:
-                global_skills_dir = install_global_skills()
+                global_skills_dir = install_global_skills(**skill_context)
                 print(f"Installed global skills to {global_skills_dir}")
             except OSError as e:
                 print(f"Skipped global skills install ({e})", file=sys.stderr)
         configured_platforms = set(configured)
         if target == "codex" or (target == "all" and "Codex" in configured_platforms):
             try:
-                codex_skills_dir = install_codex_skills()
+                codex_skills_dir = install_codex_skills(**skill_context)
                 print(f"Installed Codex skills to {codex_skills_dir}")
             except OSError as e:
                 print(f"Skipped Codex skills install ({e})", file=sys.stderr)
         if target == "opencode" or (target == "all" and "OpenCode" in configured_platforms):
             try:
-                opencode_skills_dir = install_opencode_skills()
+                opencode_skills_dir = install_opencode_skills(**skill_context)
                 print(f"Installed OpenCode skills to {opencode_skills_dir}")
             except OSError as e:
                 print(f"Skipped OpenCode skills install ({e})", file=sys.stderr)
@@ -315,7 +323,12 @@ def handle(args: argparse.Namespace) -> None:
 
     # Install Qoder skills (global user-level skills directory)
     if not skip_skills and target in ("qoder", "all"):
-        qoder_skills_dir = install_qoder_skills(repo_root)
+        qoder_skills_dir = install_qoder_skills(
+            repo_root,
+            embedding_mode=mode,
+            embedding_preset=preset,
+            embedding_provider=provider,
+        )
         if qoder_skills_dir:
             print(f"Installed Qoder skills to {qoder_skills_dir}")
     if not skip_hooks and (target in ("codex", "all") or "Codex" in set(configured)):

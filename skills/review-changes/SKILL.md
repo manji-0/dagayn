@@ -9,7 +9,7 @@ Perform a thorough, risk-aware code review using the knowledge graph.
 
 ### Steps
 
-1. Run `get_minimal_context(task="<review goal>")` to check graph freshness,
+1. Run `get_minimal_context_tool(task="<review goal>")` to check graph freshness,
    risk, and suggested next tools.
 2. Run `review_tool(mode="changes")` to get risk-scored change analysis. Read
    `analysis_summary` first; it includes reason codes, recommended tests,
@@ -17,7 +17,7 @@ Perform a thorough, risk-aware code review using the knowledge graph.
    and architecture risks in changed scopes.
 3. Call `review_tool(mode="context")` when exact source snippets are needed.
 4. Call `review_tool(mode="affected_flows")`, `review_tool(mode="impact")`, or
-   `query_graph(pattern="tests_for")` only when `analysis_summary` points to a
+   `query_graph_tool(pattern="tests_for")` only when `analysis_summary` points to a
    concrete flow, blast-radius, or coverage question.
 5. For any remaining untested changes, suggest specific test cases.
 
@@ -53,6 +53,6 @@ dagayn tool review_tool --arg mode='"impact"' --arg 'changed_files=["src/app.py"
 ```
 
 ## Token Efficiency Rules
-- ALWAYS start with `get_minimal_context(task="<your task>")` before any other graph tool.
+- ALWAYS start with `get_minimal_context_tool(task="<your task>")` before any other graph tool.
 - Use `detail_level="minimal"` on all calls. Only escalate to "standard" when minimal is insufficient.
 - Target: complete any review/debug/refactor task in ≤5 tool calls and ≤800 total output tokens.

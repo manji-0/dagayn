@@ -2,6 +2,36 @@
 
 All notable changes to `dagayn` are documented here.
 
+## 3.1.0 — 2026-05-17
+
+### Features
+
+- Add install-time skill rendering so search and graph-build skills adapt to
+  the selected embedding mode (`fts`, `local`, or `remote`).
+- Add operational skills for dagayn installation, semantic search, wiki
+  research, and cross-repository workflows.
+- Make `build_or_update_graph_tool()` inherit the local embedding preset from
+  `dagayn serve --local-embedding low|high`; explicit
+  `local_embedding="none"` remains available for deliberate FTS-only refreshes.
+- Prefer the globally installed `dagayn serve` command in generated MCP config
+  when `dagayn` is available on `PATH`, matching `uv tool install` workflows.
+
+### Improvements
+
+- Align packaged skills with the 3.x MCP dispatcher surface and remove stale
+  split-tool names.
+- Refresh graph exploration, debugging, review, refactor, and Markdown authoring
+  skills with token-efficient graph-first workflows.
+- Make Markdown symbol checks robust under hybrid semantic search by requiring
+  exact symbol matches for `CROSS_ARTIFACT` resolution.
+
+### Fixes
+
+- Avoid duplicate AGENTS/CLAUDE instruction injection when an existing dagayn
+  heading is present without a marker.
+- Ensure `dagayn install` rewrites managed skill content while preserving
+  unrelated user-created skills.
+
 ## 2.3.5 — 2026-04-30
 
 ### Performance

@@ -9,7 +9,7 @@ Use the knowledge graph to plan and execute refactoring with confidence.
 
 ### Steps
 
-1. Run `get_minimal_context(task="<refactor goal>")` to check graph freshness,
+1. Run `get_minimal_context_tool(task="<refactor goal>")` to check graph freshness,
    risk, and suggested next tools.
 2. Use `refactor_tool` with mode="suggest" for evidence-ranked remove, move,
    split, and document candidates.
@@ -27,7 +27,7 @@ Use the knowledge graph to plan and execute refactoring with confidence.
 - Use `review_tool(mode="changes").analysis_summary` first; call
   `review_tool(mode="impact")` or `review_tool(mode="affected_flows")` only
   when a wider drill-down is needed.
-- Run `find_large_functions` to identify decomposition targets.
+- Run `find_large_functions_tool` to identify decomposition targets.
 - Treat suggestions as leads, not approval. Verify public APIs, dynamic
   dispatch, generated code, test artifacts, and framework entry points before
   removing or moving code.
@@ -47,6 +47,6 @@ dagayn tool apply_refactor_tool --arg refactor_id='"refactor_123"' --arg dry_run
 ```
 
 ## Token Efficiency Rules
-- ALWAYS start with `get_minimal_context(task="<your task>")` before any other graph tool.
+- ALWAYS start with `get_minimal_context_tool(task="<your task>")` before any other graph tool.
 - Use `detail_level="minimal"` on all calls. Only escalate to "standard" when minimal is insufficient.
 - Target: complete any review/debug/refactor task in ≤5 tool calls and ≤800 total output tokens.

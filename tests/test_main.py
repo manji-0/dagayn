@@ -88,6 +88,13 @@ class TestResolveEmbeddingDefaults:
     def _reset_defaults(self, monkeypatch):
         original_provider = crg_main._default_embedding_provider
         original_model = crg_main._default_embedding_model
+        original_local = crg_main._default_local_embedding
+        original_local_port = crg_main._default_local_embedding_port
+        original_local_bin = crg_main._default_local_embedding_bin
+        original_keep_local = crg_main._default_keep_local_embedding_server
+        original_local_timeout = crg_main._default_local_embedding_timeout
+        original_local_request_timeout = crg_main._default_local_embedding_request_timeout
+        original_local_batch_size = crg_main._default_local_embedding_batch_size
         for key in (
             "CRG_OPENAI_API_KEY",
             "CRG_OPENAI_BASE_URL",
@@ -99,6 +106,13 @@ class TestResolveEmbeddingDefaults:
         yield
         crg_main._default_embedding_provider = original_provider
         crg_main._default_embedding_model = original_model
+        crg_main._default_local_embedding = original_local
+        crg_main._default_local_embedding_port = original_local_port
+        crg_main._default_local_embedding_bin = original_local_bin
+        crg_main._default_keep_local_embedding_server = original_keep_local
+        crg_main._default_local_embedding_timeout = original_local_timeout
+        crg_main._default_local_embedding_request_timeout = original_local_request_timeout
+        crg_main._default_local_embedding_batch_size = original_local_batch_size
 
     def test_explicit_client_provider_wins(self):
         crg_main._default_embedding_provider = "openai"
@@ -188,6 +202,56 @@ class TestResolveEmbeddingDefaults:
         assert calls[0]["provider"] == "openai"
         assert calls[0]["model"] == "qwen3"
 
+    def test_build_update_tool_applies_server_local_embedding_default(self, monkeypatch):
+        calls: list[dict] = []
+
+        def fake_tool(name):
+            assert name == "build_or_update_graph"
+
+            def fake_build_or_update_graph(**kwargs):
+                calls.append(kwargs)
+                return {"status": "ok"}
+
+            return fake_build_or_update_graph
+
+        monkeypatch.setattr(crg_main, "_tool", fake_tool)
+        crg_main._default_local_embedding = "high"
+        crg_main._default_local_embedding_port = 19090
+        crg_main._default_local_embedding_bin = "/tmp/llama-server"
+        crg_main._default_keep_local_embedding_server = True
+        crg_main._default_local_embedding_timeout = 12
+        crg_main._default_local_embedding_request_timeout = 17
+        crg_main._default_local_embedding_batch_size = 8
+
+        asyncio.run(crg_main.build_or_update_graph_tool(repo_root="/repo"))
+
+        assert calls[0]["local_embedding"] == "high"
+        assert calls[0]["local_embedding_port"] == 19090
+        assert calls[0]["local_embedding_bin"] == "/tmp/llama-server"
+        assert calls[0]["keep_local_embedding_server"] is True
+        assert calls[0]["local_embedding_timeout"] == 12
+        assert calls[0]["local_embedding_request_timeout"] == 17
+        assert calls[0]["local_embedding_batch_size"] == 8
+
+    def test_build_update_tool_explicit_none_overrides_server_local_embedding(self, monkeypatch):
+        calls: list[dict] = []
+
+        def fake_tool(name):
+            assert name == "build_or_update_graph"
+
+            def fake_build_or_update_graph(**kwargs):
+                calls.append(kwargs)
+                return {"status": "ok"}
+
+            return fake_build_or_update_graph
+
+        monkeypatch.setattr(crg_main, "_tool", fake_tool)
+        crg_main._default_local_embedding = "high"
+
+        asyncio.run(crg_main.build_or_update_graph_tool(repo_root="/repo", local_embedding="none"))
+
+        assert calls[0]["local_embedding"] == "none"
+
 
 class TestServeMainTransport:
     """``main()`` wires FastMCP to stdio or Streamable HTTP."""
@@ -219,10 +283,24 @@ class TestServeMainTransport:
             repo_root=None,
             embedding_provider="openai",
             embedding_model="qwen3",
+            local_embedding="high",
+            local_embedding_port=19090,
+            local_embedding_bin="/tmp/llama-server",
+            keep_local_embedding_server=True,
+            local_embedding_timeout=12,
+            local_embedding_request_timeout=17,
+            local_embedding_batch_size=8,
         )
 
         assert crg_main._default_embedding_provider == "openai"
         assert crg_main._default_embedding_model == "qwen3"
+        assert crg_main._default_local_embedding == "high"
+        assert crg_main._default_local_embedding_port == 19090
+        assert crg_main._default_local_embedding_bin == "/tmp/llama-server"
+        assert crg_main._default_keep_local_embedding_server is True
+        assert crg_main._default_local_embedding_timeout == 12
+        assert crg_main._default_local_embedding_request_timeout == 17
+        assert crg_main._default_local_embedding_batch_size == 8
 
     def test_http_calls_mcp_run_with_host_port(self, monkeypatch):
         calls: list[dict] = []

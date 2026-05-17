@@ -11,7 +11,7 @@ question points to a signal.
 
 ### Steps
 
-1. Run `get_minimal_context(task="<architecture goal>")` to check graph
+1. Run `get_minimal_context_tool(task="<architecture goal>")` to check graph
    freshness, risk, and suggested next tools.
 2. Run `architecture_analysis_tool(mode="overview", detail_level="minimal")`.
    Read `architecture_health.reason_codes`, counts, examples, and
@@ -26,7 +26,7 @@ question points to a signal.
    - `adp_violations`: dependency cycles
    - `sdp_metrics` / `sdp_violations`: dependency stability direction
    - `sap_metrics` / `sap_violations`: abstraction/stability balance
-4. Use `query_graph` or source reads only after the metric output identifies a
+4. Use `query_graph_tool` or source reads only after the metric output identifies a
    concrete node, edge, community, package, or file to verify.
 
 ### Evidence Rules
@@ -52,7 +52,7 @@ dagayn tool architecture_analysis_tool --arg mode='"community"' --arg community_
 
 ## Token Efficiency Rules
 
-- ALWAYS start with `get_minimal_context(task="<your task>")`.
+- ALWAYS start with `get_minimal_context_tool(task="<your task>")`.
 - Use `architecture_analysis_tool(mode="overview", detail_level="minimal")`
   before any architecture drill-down mode.
 - Target: answer architecture questions in <=5 tool calls unless a concrete

@@ -58,6 +58,15 @@ Perform a focused, token-efficient code review of only the changed code and its 
 - Provides structural context (who calls what, inheritance chains)
 - Recommends likely tests and flags untested functions automatically
 
+## Efficiency Rules
+
+- Stay on `review_tool(mode="changes")` and `analysis_summary` until there is a
+  concrete source, flow, impact, or coverage question.
+- Fetch snippets with `review_tool(mode="context")` only for files that can
+  change the review outcome.
+- Prefer recommended tests first; use `query_graph_tool(pattern="tests_for")`
+  only for uncertain coverage.
+
 ## Evidence Rules
 
 - Cite the concrete metric behind each risk label:

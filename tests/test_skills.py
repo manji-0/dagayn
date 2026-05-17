@@ -10,11 +10,14 @@ from unittest.mock import patch
 
 import dagayn.skills as _skills_module
 from dagayn.skills import (
+    _CLAUDE_MD_SECTION_HEADING,
     _CLAUDE_MD_SECTION_MARKER,
+    _MARKDOWN_POLICY_HEADING,
     _MARKDOWN_POLICY_MARKER,
     PLATFORMS,
     _cursor_hook_scripts,
     _detect_serve_command,
+    _has_instruction_section,
     _in_poetry_project,
     _in_uv_project,
     _opencode_plugin_content,
@@ -40,14 +43,48 @@ from dagayn.skills import (
 EXPECTED_SKILLS = [
     "architecture-analysis.md",
     "build-graph.md",
+    "cross-repo-workflows.md",
     "debug-issue.md",
     "explore-codebase.md",
+    "install-dagayn.md",
     "reading-markdown-document.md",
     "refactor-safely.md",
     "review-changes.md",
     "review-delta.md",
     "review-pr.md",
+    "semantic-search.md",
+    "wiki-research.md",
     "writing-markdown-document.md",
+]
+
+LEGACY_MCP_TOOL_NAMES = [
+    "detect_changes_tool",
+    "get_review_context_tool",
+    "get_impact_radius_tool",
+    "get_affected_flows_tool",
+    "get_architecture_overview_tool",
+    "semantic_search_nodes`",
+    "query_graph`",
+    "find_large_functions`",
+    "get_minimal_context`",
+]
+
+CURRENT_MCP_TOOL_NAMES = [
+    "apply_refactor_tool",
+    "get_minimal_context_tool",
+    "review_tool",
+    "architecture_analysis_tool",
+    "query_graph_tool",
+    "semantic_search_nodes_tool",
+    "flow_tool",
+    "refactor_tool",
+    "build_or_update_graph_tool",
+    "cross_repo_search_tool",
+    "embed_graph_tool",
+    "generate_wiki_tool",
+    "get_wiki_page_tool",
+    "list_repos_tool",
+    "run_postprocess_tool",
 ]
 
 
@@ -88,6 +125,89 @@ class TestGenerateSkills:
         assert (skills_dir / "writing-markdown-document.md").is_file()
         assert (skills_dir / "reading-markdown-document.md").is_file()
 
+    def test_operational_skills_cover_3_0_surfaces(self, tmp_path):
+        """Install target should cover setup, embeddings, wiki, and cross-repo work."""
+        skills_dir = generate_skills(tmp_path)
+        install = (skills_dir / "install-dagayn.md").read_text()
+        semantic = (skills_dir / "semantic-search.md").read_text()
+        wiki = (skills_dir / "wiki-research.md").read_text()
+        cross_repo = (skills_dir / "cross-repo-workflows.md").read_text()
+
+        assert "dagayn install --platform codex" in install
+        assert "--no-instructions" in install
+        assert "embed_graph_tool" in semantic
+        assert 'search_mode="hybrid"' in semantic
+        assert "generate_wiki_tool" in wiki
+        assert "dagayn visualize" in wiki
+        assert "cross_repo_search_tool" in cross_repo
+        assert "dagayn daemon" in cross_repo
+
+    def test_search_skills_are_mode_neutral_without_install_context(self, tmp_path):
+        skills_dir = generate_skills(tmp_path)
+        semantic = (skills_dir / "semantic-search.md").read_text()
+        explore = (skills_dir / "explore-codebase.md").read_text()
+        build = (skills_dir / "build-graph.md").read_text()
+        writing = (skills_dir / "writing-markdown-document.md").read_text()
+
+        assert "mode-neutral" in semantic
+        assert "mode-neutral" in explore
+        assert "mode-neutral" in build
+        assert "mode-neutral" in writing
+        assert "<!-- dagayn skill embedding context -->" in semantic
+        assert "<!-- /dagayn skill embedding context -->" in semantic
+
+    def test_generate_skills_renders_local_embedding_context(self, tmp_path):
+        skills_dir = generate_skills(
+            tmp_path,
+            embedding_mode="local",
+            embedding_preset="high",
+        )
+        semantic = (skills_dir / "semantic-search.md").read_text()
+        debug = (skills_dir / "debug-issue.md").read_text()
+        build = (skills_dir / "build-graph.md").read_text()
+        writing = (skills_dir / "writing-markdown-document.md").read_text()
+        review_pr = (skills_dir / "review-pr.md").read_text()
+
+        assert "--mode local --preset high" in semantic
+        assert "build_or_update_graph_tool()" in semantic
+        assert 'local_embedding="none"' in semantic
+        assert "mode-neutral" not in semantic
+        assert "--mode local --preset high" in debug
+        assert "--mode local --preset high" in build
+        assert "--local-embedding low|high" in build
+        assert "inherits" in build
+        assert "--mode local --preset high" in writing
+        assert "exact symbol match" in writing
+        assert "Ignore semantic near-matches" in writing
+        assert "--mode local --preset high" in review_pr
+
+    def test_generate_skills_renders_fts_context(self, tmp_path):
+        skills_dir = generate_skills(tmp_path, embedding_mode="fts")
+        semantic = (skills_dir / "semantic-search.md").read_text()
+        cross_repo = (skills_dir / "cross-repo-workflows.md").read_text()
+        build = (skills_dir / "build-graph.md").read_text()
+
+        assert "FTS-only mode" in semantic
+        assert "Do not rebuild embeddings" in semantic
+        assert "keyword/FTS search" in cross_repo
+        assert "FTS-only mode" in build
+        assert "Do not rebuild embeddings" in build
+
+    def test_generate_skills_renders_remote_context(self, tmp_path):
+        skills_dir = generate_skills(
+            tmp_path,
+            embedding_mode="remote",
+            embedding_provider="openai",
+        )
+        semantic = (skills_dir / "semantic-search.md").read_text()
+        cross_repo = (skills_dir / "cross-repo-workflows.md").read_text()
+        review_pr = (skills_dir / "review-pr.md").read_text()
+
+        assert "--mode remote --provider openai" in semantic
+        assert 'embed_graph_tool(provider="openai")' in semantic
+        assert "remote embedding calls" in cross_repo
+        assert "--mode remote --provider openai" in review_pr
+
     def test_review_skills_use_composed_analysis_outputs(self, tmp_path):
         """Generated review skills should point agents at composed Tier 1 output."""
         skills_dir = generate_skills(tmp_path)
@@ -105,6 +225,16 @@ class TestGenerateSkills:
             assert "get_review_context_tool" not in content
             assert "get_impact_radius_tool" not in content
 
+    def test_generated_skills_use_current_mcp_tool_names(self, tmp_path):
+        """Packaged skills should match the 3.0 MCP dispatcher interface."""
+        skills_dir = generate_skills(tmp_path)
+        combined = "\n".join(path.read_text() for path in skills_dir.iterdir())
+
+        for tool_name in CURRENT_MCP_TOOL_NAMES:
+            assert tool_name in combined
+        for legacy_name in LEGACY_MCP_TOOL_NAMES:
+            assert legacy_name not in combined
+
     def test_explore_skill_uses_architecture_health(self, tmp_path):
         """Generated exploration skill should use the composed architecture surface."""
         skills_dir = generate_skills(tmp_path)
@@ -120,6 +250,24 @@ class TestGenerateSkills:
         assert "sdp_violations" in content
         assert "sap_violations" in content
         assert "get_architecture_overview_tool" not in content
+
+    def test_debug_and_explore_list_flows_before_get(self, tmp_path):
+        skills_dir = generate_skills(tmp_path)
+        debug = (skills_dir / "debug-issue.md").read_text()
+        explore = (skills_dir / "explore-codebase.md").read_text()
+
+        assert 'flow_tool(mode="list"' in debug
+        assert 'flow_tool(mode="get")' in debug
+        assert debug.index('flow_tool(mode="list"') < debug.index('flow_tool(mode="get")')
+        assert 'flow_tool(mode="list"' in explore
+        assert 'flow_tool(mode="get")' in explore
+
+    def test_markdown_reading_prefers_rg_for_raw_scans(self, tmp_path):
+        skills_dir = generate_skills(tmp_path)
+        content = (skills_dir / "reading-markdown-document.md").read_text()
+
+        assert "rg -n '<!--" in content
+        assert "grep -nE" not in content
 
     def test_idempotent(self, tmp_path):
         """Running twice should not fail and files should still be valid."""
@@ -217,6 +365,14 @@ class TestInstallGlobalSkills:
         assert (target / "writing-markdown-document.md").is_file()
         assert (target / "reading-markdown-document.md").is_file()
 
+    def test_renders_embedding_context(self, tmp_path):
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            install_global_skills(embedding_mode="local", embedding_preset="low")
+        target = tmp_path / ".claude" / "skills" / "semantic-search.md"
+        content = target.read_text()
+        assert "--mode local --preset low" in content
+        assert "mode-neutral" not in content
+
     def test_idempotent(self, tmp_path):
         with patch("dagayn.skills.Path.home", return_value=tmp_path):
             install_global_skills()
@@ -297,6 +453,15 @@ class TestInstallTreeSkills:
         assert (result / "writing-markdown-document" / "SKILL.md").is_file()
         assert (result / "reading-markdown-document" / "SKILL.md").is_file()
 
+    def test_tree_skill_install_renders_embedding_context(self, tmp_path):
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            result = install_codex_skills(embedding_mode="local", embedding_preset="low")
+
+        target = result / "semantic-search" / "SKILL.md"
+        content = target.read_text()
+        assert "--mode local --preset low" in content
+        assert "build_or_update_graph_tool()" in content
+
     def test_tree_skill_install_is_idempotent(self, tmp_path):
         with patch("dagayn.skills.Path.home", return_value=tmp_path):
             install_codex_skills()
@@ -332,6 +497,28 @@ class TestInstallTreeSkills:
 
 
 class TestInstallQoderSkills:
+    def test_renders_embedding_context(self, tmp_path):
+        skills_dir = tmp_path / "skills" / "semantic-search"
+        skills_dir.mkdir(parents=True)
+        (skills_dir / "SKILL.md").write_text(
+            "---\nname: semantic-search\ndescription: x\n---\n\n"
+            "<!-- dagayn skill embedding context -->\n"
+            "stale\n"
+            "<!-- /dagayn skill embedding context -->\n",
+            encoding="utf-8",
+        )
+
+        result = install_qoder_skills(
+            tmp_path,
+            embedding_mode="remote",
+            embedding_provider="google",
+        )
+
+        assert result is not None
+        content = (result / "semantic-search" / "SKILL.md").read_text()
+        assert "--mode remote --provider google" in content
+        assert 'embed_graph_tool(provider="google")' in content
+
     def test_reinstall_updates_existing_qoder_skill_content(self, tmp_path):
         skills_dir = tmp_path / "skills" / "sample"
         skills_dir.mkdir(parents=True)
@@ -737,13 +924,27 @@ class TestInstallCodexHooks:
 
 
 class TestInjectClaudeMd:
+    def test_has_instruction_section_accepts_markers_and_heading_aliases(self):
+        assert _has_instruction_section(_CLAUDE_MD_SECTION_MARKER, _CLAUDE_MD_SECTION_MARKER)
+        assert _has_instruction_section(_CLAUDE_MD_SECTION_HEADING, _CLAUDE_MD_SECTION_MARKER)
+        assert _has_instruction_section(_MARKDOWN_POLICY_MARKER, _MARKDOWN_POLICY_MARKER)
+        assert _has_instruction_section(
+            _MARKDOWN_POLICY_HEADING,
+            _MARKDOWN_POLICY_MARKER,
+        )
+        assert _has_instruction_section(
+            "## Markdown documentation policy\nBody",
+            _MARKDOWN_POLICY_MARKER,
+        )
+        assert not _has_instruction_section("plain text", _CLAUDE_MD_SECTION_MARKER)
+
     def test_creates_section_in_new_file(self, tmp_path):
         with patch("dagayn.skills.Path.home", return_value=tmp_path):
             inject_claude_md(tmp_path)
         content = (tmp_path / ".claude" / "CLAUDE.md").read_text()
         assert _CLAUDE_MD_SECTION_MARKER in content
         assert "MCP Tools" in content
-        assert "get_minimal_context" in content
+        assert "get_minimal_context_tool" in content
         assert "How to judge analysis output" in content
         assert "truncated" in content
         assert "--tools" in content
@@ -754,6 +955,8 @@ class TestInjectClaudeMd:
         assert "review_tool" in content
         assert "flow_tool" in content
         assert "get_architecture_overview" not in content
+        for legacy_name in LEGACY_MCP_TOOL_NAMES:
+            assert legacy_name not in content
 
     def test_appends_to_existing_file(self, tmp_path):
         claude_md = tmp_path / ".claude" / "CLAUDE.md"
@@ -813,6 +1016,32 @@ class TestInjectClaudeMd:
         second = (tmp_path / ".claude" / "CLAUDE.md").read_text()
         assert first == second
         assert second.count(_MARKDOWN_POLICY_MARKER) == 1
+
+    def test_existing_sections_without_markers_are_normalized_not_duplicated(self, tmp_path):
+        claude_md = tmp_path / ".claude" / "CLAUDE.md"
+        claude_md.parent.mkdir(parents=True)
+        claude_md.write_text(
+            "\n".join(
+                [
+                    _CLAUDE_MD_SECTION_HEADING,
+                    "Use dagayn tools.",
+                    "",
+                    _MARKDOWN_POLICY_HEADING,
+                    "Use dependency directives.",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            inject_claude_md(tmp_path)
+
+        content = claude_md.read_text(encoding="utf-8")
+        assert content.count(_CLAUDE_MD_SECTION_HEADING) == 1
+        assert content.count(_MARKDOWN_POLICY_HEADING) == 1
+        assert content.count(_CLAUDE_MD_SECTION_MARKER) == 1
+        assert content.count(_MARKDOWN_POLICY_MARKER) == 1
 
     def test_policy_appended_to_existing_mcp_section(self, tmp_path):
         """Re-install onto a file that already has the MCP tools section adds the policy."""
@@ -1810,8 +2039,22 @@ class TestDetectServeCommand:
         assert cmd == "uv"
         assert args == ["run", "dagayn", "serve"]
 
+    def test_installed_dagayn_preferred_before_uvx(self, monkeypatch):
+        """Not in Poetry/uv but dagayn available -> use installed CLI."""
+        monkeypatch.delenv("POETRY_ACTIVE", raising=False)
+        monkeypatch.delenv("VIRTUAL_ENV", raising=False)
+        monkeypatch.delenv("UV_PROJECT_ENVIRONMENT", raising=False)
+        monkeypatch.setattr("dagayn.skills._in_uv_project", lambda: False)
+        monkeypatch.setattr(
+            "dagayn.skills.shutil.which",
+            lambda x: f"/usr/bin/{x}" if x in {"dagayn", "uvx"} else None,
+        )
+        cmd, args = _detect_serve_command()
+        assert cmd == "dagayn"
+        assert args == ["serve"]
+
     def test_uvx_fallback(self, monkeypatch):
-        """Not in Poetry/uv but uvx available -> use uvx."""
+        """Not in Poetry/uv and no dagayn executable, but uvx available -> use uvx."""
         monkeypatch.delenv("POETRY_ACTIVE", raising=False)
         monkeypatch.delenv("VIRTUAL_ENV", raising=False)
         monkeypatch.delenv("UV_PROJECT_ENVIRONMENT", raising=False)

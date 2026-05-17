@@ -186,9 +186,11 @@ def _detect_serve_command() -> tuple[str, list[str]]:
     2. **uv project** – ``UV_PROJECT_ENVIRONMENT`` is set, or a ``uv.lock``
        ancestor is found alongside ``sys.executable``, and ``uv`` is on PATH
        → ``uv run dagayn serve``
-    3. **uvx** – ``uvx`` is available on PATH
+    3. **Installed CLI** – ``dagayn`` is available on PATH
+       → ``dagayn serve``
+    4. **uvx** – ``uvx`` is available on PATH
        → ``uvx dagayn serve``
-    4. **Fallback** – use the absolute path of the running Python interpreter
+    5. **Fallback** – use the absolute path of the running Python interpreter
        → ``sys.executable -m dagayn serve``
 
     The fallback is always safe: ``sys.executable`` is the exact interpreter
@@ -207,11 +209,15 @@ def _detect_serve_command() -> tuple[str, list[str]]:
         if uv:
             return ("uv", ["run", "dagayn", "serve"])
 
-    # 3. uvx global tool runner
+    # 3. Globally installed CLI (for ``uv tool install dagayn`` or equivalent)
+    if shutil.which("dagayn"):
+        return ("dagayn", ["serve"])
+
+    # 4. uvx global tool runner
     if shutil.which("uvx"):
         return ("uvx", ["dagayn", "serve"])
 
-    # 4. Absolute-path fallback using the running interpreter
+    # 5. Absolute-path fallback using the running interpreter
     return (sys.executable, ["-m", "dagayn", "serve"])
 
 
@@ -405,6 +411,10 @@ def install_platform_configs(
 # --- Skill file contents ---
 
 
+_SKILL_EMBEDDING_CONTEXT_START = "<!-- dagayn skill embedding context -->"
+_SKILL_EMBEDDING_CONTEXT_END = "<!-- /dagayn skill embedding context -->"
+
+
 def _resolve_source_skills_dir() -> Path | None:
     """Locate the on-disk ``skills/`` directory shipped with dagayn.
 
@@ -429,7 +439,99 @@ def _resolve_source_skills_dir() -> Path | None:
     return None
 
 
-def generate_skills(repo_root: Path, skills_dir: Path | None = None) -> Path:
+def _embedding_context_lines(
+    embedding_mode: str | None = None,
+    embedding_preset: str | None = None,
+    embedding_provider: str | None = None,
+) -> list[str]:
+    """Return install-specific search guidance for generated skills."""
+    if embedding_mode == "local":
+        preset = embedding_preset or "high"
+        return [
+            "## Installed Search Mode",
+            "",
+            f"Installed with local embeddings (`--mode local --preset {preset}`).",
+            "",
+            "- MCP search defaults to hybrid retrieval when matching embeddings exist.",
+            "- `build_or_update_graph_tool()` inherits the server local embedding preset; "
+            'use `local_embedding="none"` only for a deliberate FTS-only refresh.',
+            "- Exact identifier lookup can still rely on FTS; use semantic search for "
+            "fuzzy concepts, domain terms, cross-language search, or unfamiliar code.",
+        ]
+    if embedding_mode == "remote":
+        provider = embedding_provider or "openai"
+        return [
+            "## Installed Search Mode",
+            "",
+            f"Installed with remote embeddings (`--mode remote --provider {provider}`).",
+            "",
+            "- MCP search defaults to the configured provider when matching embeddings exist.",
+            "- `build_or_update_graph_tool()` refreshes graph and FTS data; run "
+            f'`embed_graph_tool(provider="{provider}")` after graph refresh when hybrid '
+            "search is required.",
+            "- Use FTS for exact lookup and reserve remote embedding calls for fuzzy, "
+            "cross-repo, or conceptual searches.",
+        ]
+    if embedding_mode == "fts":
+        return [
+            "## Installed Search Mode",
+            "",
+            "Installed in FTS-only mode (`--mode fts`).",
+            "",
+            "- Treat `semantic_search_nodes_tool` as keyword/FTS search, not vector "
+            "semantic search.",
+            "- Prefer exact symbols, file names, graph relationships, and one targeted "
+            "`rg` for literals.",
+            "- Do not rebuild embeddings unless the user explicitly changes install mode.",
+        ]
+    return [
+        "## Installed Search Mode",
+        "",
+        "This packaged skill is mode-neutral. `dagayn install` rewrites this section with",
+        "the selected embedding mode so agents can avoid stale or wasteful search advice.",
+        "Without that install context, inspect MCP serve args or `semantic_search_nodes_tool`",
+        "`search_mode` before assuming hybrid search is available.",
+    ]
+
+
+def _render_skill_content(
+    content: str,
+    *,
+    embedding_mode: str | None = None,
+    embedding_preset: str | None = None,
+    embedding_provider: str | None = None,
+) -> str:
+    """Render install-time context inside a packaged skill if it opts in."""
+    start_index = content.find(_SKILL_EMBEDDING_CONTEXT_START)
+    if start_index < 0:
+        return content
+    end_index = content.find(_SKILL_EMBEDDING_CONTEXT_END, start_index)
+    if end_index < 0:
+        return content
+
+    context = "\n".join(
+        _embedding_context_lines(
+            embedding_mode=embedding_mode,
+            embedding_preset=embedding_preset,
+            embedding_provider=embedding_provider,
+        )
+    )
+    replacement = f"{_SKILL_EMBEDDING_CONTEXT_START}\n{context}\n{_SKILL_EMBEDDING_CONTEXT_END}"
+    return (
+        content[:start_index]
+        + replacement
+        + content[end_index + len(_SKILL_EMBEDDING_CONTEXT_END) :]
+    )
+
+
+def generate_skills(
+    repo_root: Path,
+    skills_dir: Path | None = None,
+    *,
+    embedding_mode: str | None = None,
+    embedding_preset: str | None = None,
+    embedding_provider: str | None = None,
+) -> Path:
     """Generate Claude Code skill files.
 
     Reads ``skills/<name>/SKILL.md`` from the dagayn package and writes
@@ -438,6 +540,12 @@ def generate_skills(repo_root: Path, skills_dir: Path | None = None) -> Path:
     Args:
         repo_root: Repository root directory.
         skills_dir: Custom skills directory. Defaults to repo_root/.claude/skills.
+        embedding_mode: Optional install mode (``fts``, ``local``, or ``remote``)
+            used to render search guidance in skills that opt in.
+        embedding_preset: Local embedding preset when ``embedding_mode`` is
+            ``local``.
+        embedding_provider: Remote embedding provider when ``embedding_mode`` is
+            ``remote``.
 
     Returns:
         Path to the skills directory.
@@ -458,13 +566,25 @@ def generate_skills(repo_root: Path, skills_dir: Path | None = None) -> Path:
         if not skill_file.is_file():
             continue
         target = skills_dir / f"{entry.name}.md"
-        target.write_text(skill_file.read_text(encoding="utf-8"), encoding="utf-8")
+        content = _render_skill_content(
+            skill_file.read_text(encoding="utf-8"),
+            embedding_mode=embedding_mode,
+            embedding_preset=embedding_preset,
+            embedding_provider=embedding_provider,
+        )
+        target.write_text(content, encoding="utf-8")
         logger.info("Wrote skill: %s", target)
 
     return skills_dir
 
 
-def _install_skill_tree(target_dir: Path) -> Path:
+def _install_skill_tree(
+    target_dir: Path,
+    *,
+    embedding_mode: str | None = None,
+    embedding_preset: str | None = None,
+    embedding_provider: str | None = None,
+) -> Path:
     """Install packaged skills as ``<name>/SKILL.md`` directories.
 
     Each dagayn-managed skill directory is replaced from source on every run
@@ -486,12 +606,27 @@ def _install_skill_tree(target_dir: Path) -> Path:
         if destination.exists():
             shutil.rmtree(destination)
         shutil.copytree(entry, destination)
+        target_skill = destination / "SKILL.md"
+        target_skill.write_text(
+            _render_skill_content(
+                target_skill.read_text(encoding="utf-8"),
+                embedding_mode=embedding_mode,
+                embedding_preset=embedding_preset,
+                embedding_provider=embedding_provider,
+            ),
+            encoding="utf-8",
+        )
         logger.info("Wrote skill directory: %s", destination)
 
     return target_dir
 
 
-def install_global_skills() -> Path:
+def install_global_skills(
+    *,
+    embedding_mode: str | None = None,
+    embedding_preset: str | None = None,
+    embedding_provider: str | None = None,
+) -> Path:
     """Install Claude Code skills into ``~/.claude/skills/``.
 
     Mirrors the source ``skills/`` tree as flat ``<name>.md`` files under
@@ -499,17 +634,43 @@ def install_global_skills() -> Path:
     other dagayn skills) are available across all projects.
     """
     target = Path.home() / ".claude" / "skills"
-    return generate_skills(repo_root=Path.home(), skills_dir=target)
+    return generate_skills(
+        repo_root=Path.home(),
+        skills_dir=target,
+        embedding_mode=embedding_mode,
+        embedding_preset=embedding_preset,
+        embedding_provider=embedding_provider,
+    )
 
 
-def install_codex_skills() -> Path:
+def install_codex_skills(
+    *,
+    embedding_mode: str | None = None,
+    embedding_preset: str | None = None,
+    embedding_provider: str | None = None,
+) -> Path:
     """Install dagayn skills into Codex's global user skills directory."""
-    return _install_skill_tree(Path.home() / ".codex" / "skills")
+    return _install_skill_tree(
+        Path.home() / ".codex" / "skills",
+        embedding_mode=embedding_mode,
+        embedding_preset=embedding_preset,
+        embedding_provider=embedding_provider,
+    )
 
 
-def install_opencode_skills() -> Path:
+def install_opencode_skills(
+    *,
+    embedding_mode: str | None = None,
+    embedding_preset: str | None = None,
+    embedding_provider: str | None = None,
+) -> Path:
     """Install dagayn skills into OpenCode's global user skills directory."""
-    return _install_skill_tree(Path.home() / ".config" / "opencode" / "skills")
+    return _install_skill_tree(
+        Path.home() / ".config" / "opencode" / "skills",
+        embedding_mode=embedding_mode,
+        embedding_preset=embedding_preset,
+        embedding_provider=embedding_provider,
+    )
 
 
 def generate_hooks_config(
@@ -782,6 +943,30 @@ def install_hooks(
 
 _CLAUDE_MD_SECTION_MARKER = "<!-- dagayn MCP tools -->"
 _MARKDOWN_POLICY_MARKER = "<!-- dagayn markdown policy -->"
+_CLAUDE_MD_SECTION_HEADING = "## MCP Tools: dagayn"
+_MARKDOWN_POLICY_HEADING = (
+    "## Markdown documentation policy: declare dependencies via directive comments"
+)
+
+
+def _instruction_section_aliases(marker: str) -> tuple[str, ...]:
+    if marker == _CLAUDE_MD_SECTION_MARKER:
+        return (_CLAUDE_MD_SECTION_HEADING,)
+    if marker == _MARKDOWN_POLICY_MARKER:
+        return (
+            _MARKDOWN_POLICY_HEADING,
+            "## Markdown documentation policy",
+            "### Markdown documentation policy",
+        )
+    return ()
+
+
+def _has_instruction_section(content: str, marker: str) -> bool:
+    """Return True when content already has a dagayn section, marker or not."""
+    return marker in content or any(
+        alias in content for alias in _instruction_section_aliases(marker)
+    )
+
 
 _MARKDOWN_POLICY_SECTION = f"""{_MARKDOWN_POLICY_MARKER}
 ## Markdown documentation policy: declare dependencies via directive comments
@@ -789,7 +974,7 @@ _MARKDOWN_POLICY_SECTION = f"""{_MARKDOWN_POLICY_MARKER}
 When authoring or editing a Markdown document in this repository, declare
 inter-section and inter-document dependencies as HTML directive comments so
 they are captured by the dagayn graph (`DEPENDS_ON` / `IMPORTS_FROM` edges)
-and discoverable via `query_graph` / `review_tool(mode="impact")`.
+and discoverable via `query_graph_tool` / `review_tool(mode="impact")`.
 
 ### Required form
 
@@ -842,12 +1027,12 @@ scanning cannot.
 
 ### When to use graph tools FIRST
 
-- **Any new task**: `get_minimal_context` for graph freshness, risk, and next-tool hints
-- **Exploring code**: `semantic_search_nodes` or `query_graph` instead of Grep
+- **Any new task**: `get_minimal_context_tool` for graph freshness, risk, and next-tool hints
+- **Exploring code**: `semantic_search_nodes_tool` or `query_graph_tool` instead of Grep
 - **Understanding impact**: `review_tool(mode="impact")` instead of manually tracing imports
 - **Code review**: `review_tool(mode="changes")` first; use its `analysis_summary` before
   calling drill-down tools
-- **Finding relationships**: `query_graph` with callers_of/callees_of/imports_of/tests_for
+- **Finding relationships**: `query_graph_tool` with callers_of/callees_of/imports_of/tests_for
 - **Architecture questions**: `architecture_analysis_tool(mode="overview")`
   first; use `architecture_health` and the Architecture Analysis skill before
   choosing a drill-down mode
@@ -865,12 +1050,12 @@ the same allow-list can be supplied with `CRG_TOOLS`.
 
 | Tool | Use when |
 | ------ | ---------- |
-| `get_minimal_context` | Starting point: graph freshness, risk, communities, suggested next tools |
+| `get_minimal_context_tool` | Start here: graph freshness, risk, communities, next tools |
 | `review_tool` | Primary change review and review drill-down dispatcher |
 | `architecture_analysis_tool` | Primary architecture review and drill-down dispatcher |
 | `refactor_tool` | Planning renames, finding dead code, and evidence-ranked refactor suggestions |
-| `query_graph` | Tracing callers, callees, imports, tests, dependencies |
-| `semantic_search_nodes` | Finding functions/classes by name or keyword |
+| `query_graph_tool` | Tracing callers, callees, imports, tests, dependencies |
+| `semantic_search_nodes_tool` | Finding functions/classes by name or keyword |
 
 ### Drill-down tools
 
@@ -886,7 +1071,7 @@ the same allow-list can be supplied with `CRG_TOOLS`.
 - Treat graph insights as **evidence-ranked leads**, not automatic truth.
 - Prefer outputs that expose metrics, thresholds, counts, reason codes, and
   `truncated`/`total` fields; mention those numbers when making recommendations.
-- Check test coverage with `query_graph` pattern=\"tests_for\" before claiming a
+- Check test coverage with `query_graph_tool` pattern=\"tests_for\" before claiming a
   code path is untested.
 - For refactors, verify public APIs, dynamic dispatch, generated code, test
   artifacts, and framework entry points before editing.
@@ -895,11 +1080,11 @@ the same allow-list can be supplied with `CRG_TOOLS`.
 
 ### Workflow
 
-1. Start with `get_minimal_context(task=...)`.
+1. Start with `get_minimal_context_tool(task=...)`.
 2. Use the suggested next tool or a targeted query.
 3. For reviews, use `review_tool(mode=\"changes\")` and read `analysis_summary`
    first. Call `review_tool(mode=\"context\")`, `review_tool(mode=\"affected_flows\")`,
-   `review_tool(mode=\"impact\")`, or `query_graph` only when the summary points there.
+   `review_tool(mode=\"impact\")`, or `query_graph_tool` only when the summary points there.
 4. For architecture work, use
    `architecture_analysis_tool(mode=\"overview\", detail_level=\"minimal\")`
    and read `architecture_health` first. Use the Architecture Analysis skill to
@@ -931,6 +1116,13 @@ def _inject_instructions(
         if marker in existing:
             logger.info("%s already contains instructions, skipping.", file_path.name)
             return False
+
+        for marker_heading in _instruction_section_aliases(marker):
+            if marker_heading in existing:
+                updated = existing.replace(marker_heading, f"{marker}\n{marker_heading}", 1)
+                file_path.write_text(updated, encoding="utf-8")
+                logger.info("Added missing dagayn marker to %s", file_path)
+                return True
 
         separator = "\n" if existing and not existing.endswith("\n") else ""
         extra_newline = "\n" if existing else ""
@@ -1241,7 +1433,13 @@ def install_cursor_hooks() -> Path:
     return hooks_json_path
 
 
-def install_qoder_skills(repo_root: Path) -> Path | None:
+def install_qoder_skills(
+    repo_root: Path,
+    *,
+    embedding_mode: str | None = None,
+    embedding_preset: str | None = None,
+    embedding_provider: str | None = None,
+) -> Path | None:
     """Install skills to Qoder's project-level skills directory.
 
     Qoder expects skills in .qoder/skills/{skillName}/SKILL.md format within the project.
@@ -1249,6 +1447,12 @@ def install_qoder_skills(repo_root: Path) -> Path | None:
 
     Args:
         repo_root: Repository root directory (where the skills/ folder is located).
+        embedding_mode: Optional install mode (``fts``, ``local``, or ``remote``)
+            used to render search guidance in skills that opt in.
+        embedding_preset: Local embedding preset when ``embedding_mode`` is
+            ``local``.
+        embedding_provider: Remote embedding provider when ``embedding_mode`` is
+            ``remote``.
 
     Returns:
         Path to the Qoder skills directory, or None if installation failed.
@@ -1272,6 +1476,16 @@ def install_qoder_skills(repo_root: Path) -> Path | None:
                 if target_dir.exists():
                     shutil.rmtree(target_dir)
                 shutil.copytree(skill_dir, target_dir)
+                target_skill = target_dir / "SKILL.md"
+                target_skill.write_text(
+                    _render_skill_content(
+                        target_skill.read_text(encoding="utf-8"),
+                        embedding_mode=embedding_mode,
+                        embedding_preset=embedding_preset,
+                        embedding_provider=embedding_provider,
+                    ),
+                    encoding="utf-8",
+                )
                 logger.info("Installed Qoder skill: %s", skill_dir.name)
                 installed_count += 1
 

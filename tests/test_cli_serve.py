@@ -65,6 +65,13 @@ def test_serve_local_embedding_sets_search_default_to_openai(monkeypatch):
 
     assert calls[0]["embedding_provider"] == "openai"
     assert calls[0]["embedding_model"] == "qwen3-embedding-0.6b-gguf-q8_0"
+    assert calls[0]["local_embedding"] == "low"
+    assert calls[0]["local_embedding_port"] == 18080
+    assert calls[0]["local_embedding_bin"] == "llama-server"
+    assert calls[0]["keep_local_embedding_server"] is False
+    assert calls[0]["local_embedding_timeout"] == 300
+    assert calls[0]["local_embedding_request_timeout"] == 60
+    assert calls[0]["local_embedding_batch_size"] == 1
     assert os.environ["CRG_OPENAI_MODEL"] == "qwen3-embedding-0.6b-gguf-q8_0"
 
 
@@ -78,3 +85,4 @@ def test_serve_remote_embedding_sets_search_default(monkeypatch):
 
     assert calls[0]["embedding_provider"] == "google"
     assert calls[0]["embedding_model"] is None
+    assert calls[0]["local_embedding"] is None

@@ -93,6 +93,13 @@ except (ImportError, TypeError) as exc:
 _default_repo_root: str | None = None
 _default_embedding_provider: str | None = None
 _default_embedding_model: str | None = None
+_default_local_embedding: str | None = None
+_default_local_embedding_port: int = 18080
+_default_local_embedding_bin: str = "llama-server"
+_default_keep_local_embedding_server: bool = False
+_default_local_embedding_timeout: int = 300
+_default_local_embedding_request_timeout: int = 60
+_default_local_embedding_batch_size: int = 1
 
 
 def _resolve_repo_root(repo_root: Optional[str]) -> Optional[str]:
@@ -141,6 +148,16 @@ def _resolve_embedding_provider(provider: Optional[str]) -> Optional[str]:
 def _resolve_embedding_model(model: Optional[str]) -> Optional[str]:
     """Resolve the embedding model for search, preserving explicit client choice."""
     return model if model else _default_embedding_model
+
+
+def _resolve_local_embedding(local_embedding: Optional[str]) -> Optional[str]:
+    """Resolve local embedding preset for build/update.
+
+    ``None`` means the MCP client omitted the argument, so inherit the server's
+    ``dagayn serve --local-embedding`` preset. Explicit ``"none"`` remains an
+    opt-out and is passed through to the underlying build tool.
+    """
+    return local_embedding if local_embedding is not None else _default_local_embedding
 
 
 def _tool(name: str) -> Any:
@@ -204,6 +221,15 @@ async def build_or_update_graph_tool(
         local_embedding_batch_size: Texts to send in each local embedding
             HTTP request.
     """
+    effective_local_embedding = _resolve_local_embedding(local_embedding)
+    if local_embedding is None and effective_local_embedding is not None:
+        local_embedding_port = _default_local_embedding_port
+        local_embedding_bin = _default_local_embedding_bin
+        keep_local_embedding_server = _default_keep_local_embedding_server
+        local_embedding_timeout = _default_local_embedding_timeout
+        local_embedding_request_timeout = _default_local_embedding_request_timeout
+        local_embedding_batch_size = _default_local_embedding_batch_size
+
     return await asyncio.to_thread(
         _tool("build_or_update_graph"),
         full_rebuild=full_rebuild,
@@ -211,7 +237,7 @@ async def build_or_update_graph_tool(
         base=base,
         postprocess=postprocess,
         recurse_submodules=recurse_submodules,
-        local_embedding=local_embedding,
+        local_embedding=effective_local_embedding,
         local_embedding_port=local_embedding_port,
         local_embedding_bin=local_embedding_bin,
         keep_local_embedding_server=keep_local_embedding_server,
@@ -940,6 +966,13 @@ def main(
     tools: str | None = None,
     embedding_provider: str | None = None,
     embedding_model: str | None = None,
+    local_embedding: str | None = None,
+    local_embedding_port: int = 18080,
+    local_embedding_bin: str = "llama-server",
+    keep_local_embedding_server: bool = False,
+    local_embedding_timeout: int = 300,
+    local_embedding_request_timeout: int = 60,
+    local_embedding_batch_size: int = 1,
     *,
     transport: str = "stdio",
     host: str | None = None,
@@ -964,14 +997,27 @@ def main(
             client omits the provider argument.
         embedding_model: Default embedding model for MCP search when a client
             omits the model argument.
+        local_embedding: Default local embedding preset for build/update when
+            a client omits the ``local_embedding`` argument.
         transport: ``"stdio"`` (default) or ``"streamable-http"`` for local HTTP.
         host: Bind address when using HTTP (required for HTTP; set by CLI).
         port: Port when using HTTP (required for HTTP; set by CLI).
     """
     global _default_embedding_model, _default_embedding_provider, _default_repo_root
+    global _default_keep_local_embedding_server, _default_local_embedding
+    global _default_local_embedding_batch_size, _default_local_embedding_bin
+    global _default_local_embedding_port, _default_local_embedding_request_timeout
+    global _default_local_embedding_timeout
     _default_repo_root = repo_root
     _default_embedding_provider = embedding_provider or _infer_remote_embedding_provider_from_env()
     _default_embedding_model = embedding_model
+    _default_local_embedding = local_embedding if local_embedding != "none" else None
+    _default_local_embedding_port = local_embedding_port
+    _default_local_embedding_bin = local_embedding_bin
+    _default_keep_local_embedding_server = keep_local_embedding_server
+    _default_local_embedding_timeout = local_embedding_timeout
+    _default_local_embedding_request_timeout = local_embedding_request_timeout
+    _default_local_embedding_batch_size = local_embedding_batch_size
     _apply_tool_filter(tools=tools)
     if sys.platform == "win32":
         import asyncio

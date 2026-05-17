@@ -76,6 +76,7 @@ def handle(args: argparse.Namespace, serve_parser: argparse.ArgumentParser) -> N
         *,
         embedding_provider: str | None = remote_embedding,
         embedding_model: str | None = None,
+        local_embedding_default: str | None = None,
     ) -> None:
         if args.http:
             host = args.host if args.host is not None else "127.0.0.1"
@@ -88,6 +89,13 @@ def handle(args: argparse.Namespace, serve_parser: argparse.ArgumentParser) -> N
                 tools=args.tools,
                 embedding_provider=embedding_provider,
                 embedding_model=embedding_model,
+                local_embedding=local_embedding_default,
+                local_embedding_port=args.local_embedding_port,
+                local_embedding_bin=args.local_embedding_bin,
+                keep_local_embedding_server=args.keep_local_embedding_server,
+                local_embedding_timeout=args.local_embedding_timeout,
+                local_embedding_request_timeout=args.local_embedding_request_timeout,
+                local_embedding_batch_size=args.local_embedding_batch_size,
             )
         else:
             serve_main(
@@ -95,6 +103,13 @@ def handle(args: argparse.Namespace, serve_parser: argparse.ArgumentParser) -> N
                 tools=args.tools,
                 embedding_provider=embedding_provider,
                 embedding_model=embedding_model,
+                local_embedding=local_embedding_default,
+                local_embedding_port=args.local_embedding_port,
+                local_embedding_bin=args.local_embedding_bin,
+                keep_local_embedding_server=args.keep_local_embedding_server,
+                local_embedding_timeout=args.local_embedding_timeout,
+                local_embedding_request_timeout=args.local_embedding_request_timeout,
+                local_embedding_batch_size=args.local_embedding_batch_size,
             )
 
     local_embedding = args.local_embedding
@@ -113,6 +128,10 @@ def handle(args: argparse.Namespace, serve_parser: argparse.ArgumentParser) -> N
             os.environ["CRG_OPENAI_MODEL"] = server.preset.model
             os.environ["CRG_OPENAI_BATCH_SIZE"] = str(args.local_embedding_batch_size)
             os.environ["CRG_OPENAI_TIMEOUT"] = str(args.local_embedding_request_timeout)
-            _run(embedding_provider="openai", embedding_model=server.preset.model)
+            _run(
+                embedding_provider="openai",
+                embedding_model=server.preset.model,
+                local_embedding_default=local_embedding,
+            )
     else:
         _run()

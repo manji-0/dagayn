@@ -8,6 +8,14 @@ argument-hint: "[doc path]"
 
 Write Markdown that dagayn can index correctly so the document becomes a first-class node in the knowledge graph, with dependency edges to other docs and to code.
 
+<!-- dagayn skill embedding context -->
+## Installed Search Mode
+
+This packaged skill is mode-neutral. `dagayn install` rewrites this section with
+the selected embedding mode so code-symbol lookup handles FTS and hybrid search
+correctly.
+<!-- /dagayn skill embedding context -->
+
 ## Stage 0 — Prerequisites
 
 Run **once** at the start, regardless of what the rest of the flow says:
@@ -63,7 +71,7 @@ Worked examples:
 1. Draft a section list (one line per section, in any order).
 2. For each prospective section, list its dependencies:
    - **Existing docs you intend to depend on** — for each candidate doc that is *already in the repo*, run `query_graph_tool(pattern="file_summary", target="<doc.md>", detail_level="minimal")` to confirm the section slug you plan to cite actually exists.
-   - **Code symbols you plan to backtick** — run `semantic_search_nodes_tool(query="<symbol>", detail_level="minimal")` and require **exactly one** result. If zero, the symbol doesn't exist (don't reference it). If multiple, qualify the name with module/file prefix (`module.Foo`) and re-check.
+   - **Code symbols you plan to backtick** — run `semantic_search_nodes_tool(query="<symbol>", detail_level="minimal")` and require **exactly one exact symbol match**. With hybrid search, ignore fuzzy/semantic hits whose `name` or `qualified_name` does not exactly match the symbol you will write. If zero exact matches remain, the symbol does not resolve (don't reference it). If multiple exact matches remain, qualify the name with module/file prefix (`module.Foo`) and re-check.
 3. Topologically sort sections so each appears **after** every section it depends on. If a cycle remains after splitting offending sections in two, **stop and ask the user** which dependency to break — do not silently emit a forward reference.
 
 Stage 1 done when: every prospective dependency is verified (or explicitly noted as "external — not in graph"), and the section list is acyclic.
@@ -93,7 +101,7 @@ Stage 2 done for the section when: the directive's intended target appears eithe
 ## Stage 3 — Polish
 
 1. Re-read the full draft top-to-bottom; tighten prose; merge or split sections if Stage 2 surfaced badly-balanced ones.
-2. For every backticked `Symbol`, run `semantic_search_nodes_tool(query="<symbol>", detail_level="minimal")` and require exactly one match. If multiple, qualify (`module.Symbol`); if still multiple after qualification, **accept that this edge will be dropped by postprocessing** and either (a) leave the backticks for prose readability and add a `<!-- TODO: ambiguous symbol — qualify when API stabilizes -->` comment, or (b) remove the backticks and use plain text.
+2. For every backticked `Symbol`, run `semantic_search_nodes_tool(query="<symbol>", detail_level="minimal")` and require exactly one exact symbol match. Ignore semantic near-matches when embeddings are enabled; only exact `name` / `qualified_name` matches count for `CROSS_ARTIFACT` resolution. If multiple exact matches remain, qualify (`module.Symbol`); if still multiple after qualification, **accept that this edge will be dropped by postprocessing** and either (a) leave the backticks for prose readability and add a `<!-- TODO: ambiguous symbol — qualify when API stabilizes -->` comment, or (b) remove the backticks and use plain text.
 3. Run `build_or_update_graph_tool()` once more, then `review_tool(mode="impact")` again. Compare its output to Stage 2's. **Done criterion: no edge that was present in Stage 2 has disappeared.**
 
 Tool-call budget for Stage 3: ≤ 1 call per backticked symbol + 2 final builds.
