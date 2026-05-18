@@ -800,6 +800,8 @@ def _node_to_text(node: GraphNode) -> str:
         parts.append(node.kind.lower())
     if node.parent_name:
         parts.append(f"in {node.parent_name}")
+    if node.signature:
+        parts.append(node.signature)
     if node.params:
         parts.append(node.params)
     if node.return_type:

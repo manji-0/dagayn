@@ -2016,6 +2016,7 @@ class GraphStore:
             is_test=bool(row["is_test"]),
             file_hash=row["file_hash"],
             extra=json.loads(row["extra"]) if row["extra"] else {},
+            signature=row["signature"] if "signature" in row.keys() else None,
         )
 
     def _row_to_edge(self, row: sqlite3.Row) -> GraphEdge:

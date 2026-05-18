@@ -70,6 +70,16 @@ class TestGraphStore:
         assert result.kind == "Function"
         assert result.name == "my_func"
 
+    def test_get_node_includes_signature(self):
+        func = self._make_func_node()
+        node_id = self.store.upsert_node(func)
+        self.store.update_node_signature(node_id, "def my_func(value: int) -> bool")
+        self.store.commit()
+
+        result = self.store.get_node("/test/file.py::my_func")
+        assert result is not None
+        assert result.signature == "def my_func(value: int) -> bool"
+
     def test_upsert_method_node(self):
         method = self._make_func_node(name="do_thing", parent="MyClass")
         self.store.upsert_node(method)

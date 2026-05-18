@@ -22,6 +22,7 @@ class GraphNode:
     is_test: bool
     file_hash: Optional[str]
     extra: dict
+    signature: Optional[str] = None
 
 
 @dataclass

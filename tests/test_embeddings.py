@@ -87,6 +87,7 @@ class TestNodeToText:
             is_test=False,
             file_hash=None,
             extra={},
+            signature=None,
         )
         defaults.update(kwargs)
         return GraphNode(**defaults)
@@ -120,6 +121,13 @@ class TestNodeToText:
         assert "(x: int, y: str)" in text
         assert "returns bool" in text
 
+    def test_includes_signature(self):
+        node = self._make_node(signature="def fetch_user(session: Session, user_id: int) -> User")
+        text = _node_to_text(node)
+        assert "Session" in text
+        assert "user_id" in text
+        assert "-> User" in text
+
     def test_file_node_no_kind(self):
         node = self._make_node(kind="File", name="file.py")
         text = _node_to_text(node)
@@ -144,6 +152,7 @@ class TestEmbeddingStore:
             is_test=False,
             file_hash=None,
             extra={},
+            signature=None,
         )
 
     def test_store_initializes(self, tmp_path):
