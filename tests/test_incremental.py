@@ -8,6 +8,7 @@ from dagayn.incremental import (
     _is_binary,
     _load_ignore_patterns,
     _parse_single_file,
+    _relativize_parsed_entities,
     _should_ignore,
     _single_hop_dependents,
     ensure_repo_gitignore_excludes_crg,
@@ -22,6 +23,7 @@ from dagayn.incremental import (
     get_staged_and_unstaged,
     incremental_update,
 )
+from dagayn.parser import EdgeInfo, NodeInfo
 
 
 class TestFindRepoRoot:
@@ -78,6 +80,44 @@ class TestFindRepoRoot:
 
         # The walk examines ``boundary`` and finds the .git before stopping.
         assert find_repo_root(inner, stop_at=boundary) == boundary
+
+
+def test_relativize_parsed_entities_normalizes_qname_extras(tmp_path):
+    repo_root = tmp_path / "repo"
+    markdown_file = repo_root / "docs" / "guide.md"
+    markdown_file.parent.mkdir(parents=True)
+    markdown_file.write_text("# Overview\n\nBody\n", encoding="utf-8")
+
+    nodes = [
+        NodeInfo(
+            kind="DocBody",
+            name="overview--body-1",
+            file_path=str(markdown_file),
+            line_start=3,
+            line_end=3,
+            language="markdown",
+            extra={
+                "parent_section": f"{markdown_file}::overview",
+                "nested": [{"parent_section": f"{markdown_file}::details"}],
+            },
+        )
+    ]
+    edges = [
+        EdgeInfo(
+            kind="CONTAINS",
+            source=f"{markdown_file}::overview",
+            target=f"{markdown_file}::overview--body-1",
+            file_path=str(markdown_file),
+            line=3,
+            extra={"parent_section": f"{markdown_file}::overview"},
+        )
+    ]
+
+    rel_nodes, rel_edges = _relativize_parsed_entities(nodes, edges, repo_root)
+
+    assert rel_nodes[0].extra["parent_section"] == "docs/guide.md::overview"
+    assert rel_nodes[0].extra["nested"][0]["parent_section"] == "docs/guide.md::details"
+    assert rel_edges[0].extra["parent_section"] == "docs/guide.md::overview"
 
 
 class TestFindProjectRoot:

@@ -281,6 +281,26 @@ def _make_repo_relative_qualified(value: str, repo_root: Path) -> str:
     return f"{_make_repo_relative(file_path, repo_root)}::{rest}"
 
 
+_REPO_RELATIVE_QUALIFIED_EXTRA_KEYS = frozenset(
+    {
+        "parent_section",
+    }
+)
+
+
+def _relativize_extra(value: object, repo_root: Path) -> object:
+    if isinstance(value, dict):
+        return {
+            key: _make_repo_relative_qualified(extra_value, repo_root)
+            if key in _REPO_RELATIVE_QUALIFIED_EXTRA_KEYS and isinstance(extra_value, str)
+            else _relativize_extra(extra_value, repo_root)
+            for key, extra_value in value.items()
+        }
+    if isinstance(value, list):
+        return [_relativize_extra(item, repo_root) for item in value]
+    return value
+
+
 def _relativize_parsed_entities(
     nodes: list[NodeInfo], edges: list[EdgeInfo], repo_root: Path
 ) -> tuple[list[NodeInfo], list[EdgeInfo]]:
@@ -297,7 +317,7 @@ def _relativize_parsed_entities(
             return_type=node.return_type,
             modifiers=node.modifiers,
             is_test=node.is_test,
-            extra=node.extra,
+            extra=_relativize_extra(node.extra, repo_root),
         )
         for node in nodes
     ]
@@ -308,7 +328,7 @@ def _relativize_parsed_entities(
             target=_make_repo_relative_qualified(edge.target, repo_root),
             file_path=_make_repo_relative(edge.file_path, repo_root),
             line=edge.line,
-            extra=edge.extra,
+            extra=_relativize_extra(edge.extra, repo_root),
         )
         for edge in edges
     ]
