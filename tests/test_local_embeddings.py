@@ -44,8 +44,8 @@ def test_local_embedding_presets_are_stable():
     assert low.model == "qwen3-embedding-0.6b-gguf-q8_0"
     assert low.dimension == 1024
     assert low.text_mode == "metadata"
-    assert high.hf_selector == "Qwen/Qwen3-Embedding-4B-GGUF:Q4_K_M"
-    assert high.model == "qwen3-embedding-4b-gguf-q4_k_m"
+    assert high.hf_selector == "Qwen/Qwen3-Embedding-4B-GGUF:Q8_0"
+    assert high.model == "qwen3-embedding-4b-gguf-q8_0"
     assert high.dimension == 2560
     assert high.text_mode == "body"
 
@@ -56,19 +56,19 @@ def test_local_embedding_base_url_uses_openai_v1_path():
 
 def test_infer_local_embedding_provider_from_persisted_name():
     inferred = infer_local_embedding_provider(
-        "openai:qwen3-embedding-4b-gguf-q4_k_m@http://127.0.0.1:19090/v1"
+        "openai:qwen3-embedding-4b-gguf-q8_0@http://127.0.0.1:19090/v1"
     )
 
     assert inferred is not None
     assert inferred.level == "high"
-    assert inferred.model == "qwen3-embedding-4b-gguf-q4_k_m"
+    assert inferred.model == "qwen3-embedding-4b-gguf-q8_0"
     assert inferred.port == 19090
 
 
 def test_infer_local_embedding_provider_refuses_cloud_endpoint():
     assert (
         infer_local_embedding_provider(
-            "openai:qwen3-embedding-4b-gguf-q4_k_m@https://api.example.com/v1"
+            "openai:qwen3-embedding-4b-gguf-q8_0@https://api.example.com/v1"
         )
         is None
     )
@@ -91,7 +91,7 @@ def test_probe_rejects_wrong_embedding_dimension(monkeypatch):
 
     result = _probe_embedding_server(
         "http://127.0.0.1:18080/v1",
-        "qwen3-embedding-4b-gguf-q4_k_m",
+        "qwen3-embedding-4b-gguf-q8_0",
         2560,
     )
 
@@ -113,7 +113,7 @@ def test_probe_treats_retryable_http_as_not_ready(monkeypatch):
 
     result = _probe_embedding_server(
         "http://127.0.0.1:18080/v1",
-        "qwen3-embedding-4b-gguf-q4_k_m",
+        "qwen3-embedding-4b-gguf-q8_0",
         2560,
     )
 
@@ -161,13 +161,13 @@ def test_local_embedding_server_starts_and_stops_llama_server(monkeypatch):
         assert server.command[:3] == [
             "/bin/llama-server",
             "-hf",
-            "Qwen/Qwen3-Embedding-4B-GGUF:Q4_K_M",
+            "Qwen/Qwen3-Embedding-4B-GGUF:Q8_0",
         ]
         assert "--embedding" in server.command
         assert "--pooling" in server.command
         assert "last" in server.command
         assert "--alias" in server.command
-        assert "qwen3-embedding-4b-gguf-q4_k_m" in server.command
+        assert "qwen3-embedding-4b-gguf-q8_0" in server.command
 
     assert commands
     assert commands[0][1]["stdin"] is subprocess.DEVNULL

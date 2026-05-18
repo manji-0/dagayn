@@ -1418,7 +1418,7 @@ class TestBuildPostprocess:
         embed_result = {
             "status": "ok",
             "preset": "high",
-            "model": "qwen3-embedding-4b-gguf-q4_k_m",
+            "model": "qwen3-embedding-4b-gguf-q8_0",
             "dimension": 2560,
             "server_started": True,
             "server_url": "http://127.0.0.1:18080/v1",

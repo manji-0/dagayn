@@ -14,10 +14,10 @@ MiniMax cloud APIs) — see the README's "Choosing an install mode" section.
 | Preset | Model | Quantization | Dimension |
 | --- | --- | --- | --- |
 | `low` | `Qwen/Qwen3-Embedding-0.6B-GGUF` | `Q8_0` | 1024 |
-| `high` | `Qwen/Qwen3-Embedding-4B-GGUF` | `Q4_K_M` | 2560 |
+| `high` | `Qwen/Qwen3-Embedding-4B-GGUF` | `Q8_0` | 2560 |
 
 The Qwen3 Embedding series is published as `0.6B`, `4B`, and `8B` embedding
-models. The `high` preset uses the official 4B GGUF 4-bit quantization, while
+models. The `high` preset uses the official 4B GGUF 8-bit quantization, while
 `low` uses the official 0.6B GGUF preset.
 
 ## Setup
@@ -49,13 +49,13 @@ compatible server already listening on the configured port.
 
 ```bash
 llama-server \
-  -hf Qwen/Qwen3-Embedding-4B-GGUF:Q4_K_M \
+  -hf Qwen/Qwen3-Embedding-4B-GGUF:Q8_0 \
   --embedding \
   --pooling last \
   -ub 8192 \
   --host 127.0.0.1 \
   --port 18080 \
-  --alias qwen3-embedding-4b-gguf-q4_k_m
+  --alias qwen3-embedding-4b-gguf-q8_0
 ```
 
 Then verify the OpenAI-compatible endpoint:
@@ -64,7 +64,7 @@ Then verify the OpenAI-compatible endpoint:
 curl http://127.0.0.1:18080/v1/embeddings \
   -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer dagayn-local' \
-  -d '{"model":"qwen3-embedding-4b-gguf-q4_k_m","input":["dagayn local embedding test"]}'
+  -d '{"model":"qwen3-embedding-4b-gguf-q8_0","input":["dagayn local embedding test"]}'
 ```
 
 ## Build And Update
@@ -140,9 +140,9 @@ embeds metadata plus bounded source body text.
 
 | Mode | text embedded | build time | mean MRR | Precision@1 | Precision@5 | avg query latency |
 |---|---|---:|---:|---:|---:|---:|
-| FTS5 only | n/a | n/a | 0.7000 | 0.5833 | 0.9167 | 1.0 ms |
-| Qwen3-Embedding-0.6B `low` (hybrid) | metadata | 133.7 s | **0.7222** | 0.5833 | 0.9167 | 427.5 ms |
-| Qwen3-Embedding-4B `high` (hybrid) | metadata + body | 974.2 s | 0.7153 | 0.5833 | 0.9167 | 886.4 ms |
+| FTS5 only | n/a | n/a | 0.7417 | 0.6667 | 0.9167 | 1.0 ms |
+| Qwen3-Embedding-0.6B Q8 `low` (hybrid) | metadata | 133.2 s | **0.7222** | 0.5833 | 0.9167 | 413.2 ms |
+| Qwen3-Embedding-4B Q8 `high` (hybrid) | metadata + body | 941.1 s | 0.7153 | 0.5833 | 0.9167 | 889.1 ms |
 
 ### Per-query breakdown
 
@@ -156,15 +156,15 @@ embeds metadata plus bounded source body text.
 | `GraphStore` | pascal_case_class | 1 | 2 | 2 |
 | `EmbeddingProvider` | pascal_case_class | 1 | 1 | 1 |
 | `LocalEmbeddingProvider` | pascal_case_class | 1 | 1 | 1 |
-| "reciprocal rank fusion" | conceptual | 2 | **1** | **1** |
+| "reciprocal rank fusion" | conceptual | **1** | **1** | **1** |
 | "sentence transformers local model" | conceptual | **1** | **1** | **1** |
 | "kind boost detection query" | conceptual | 1 | 1 | 1 |
 | "incremental graph construction" | conceptual | — | — | — |
 
 FTS5 is strong on exact and PascalCase queries. Both Qwen3 presets improve the
 conceptual subset to 0.75 mean MRR, but the 4B `high` preset does not beat
-`low` on this query set despite embedding source bodies. It is about 7.3x
-slower to embed and about 2.1x slower per query on the measured machine, so
+`low` on this query set despite embedding source bodies. It is about 7.1x
+slower to embed and about 2.2x slower per query on the measured machine, so
 `low` is the recommended default unless you have a specific body-only search
 workload and have measured a benefit. The last query ("incremental graph
 construction" → `full_build`) is a miss for all modes because the target shares

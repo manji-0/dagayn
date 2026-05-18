@@ -135,7 +135,7 @@ def _prompt_install_mode() -> tuple[str, str | None, str | None]:
     if choice == "local":
         print("Which preset?")
         print("  1) low  — Qwen3-Embedding-0.6B (~1 GB, recommended)")
-        print("  2) high — Qwen3-Embedding-4B (~3 GB)")
+        print("  2) high — Qwen3-Embedding-4B (~4.3 GB)")
         preset = _read_choice(
             "Choose [1-2]: ",
             {"1": "low", "2": "high"},

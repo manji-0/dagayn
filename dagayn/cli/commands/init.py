@@ -75,7 +75,7 @@ def register_commands(sub: argparse._SubParsersAction) -> dict:
             default=None,
             help=(
                 "Preset for --mode local: low (Qwen3-Embedding-0.6B, ~1 GB) "
-                "or high (Qwen3-Embedding-4B, ~3 GB)."
+                "or high (Qwen3-Embedding-4B, ~4.3 GB)."
             ),
         )
         p.add_argument(

@@ -84,8 +84,8 @@ LOCAL_EMBEDDING_PRESETS: dict[LocalEmbeddingLevel, LocalEmbeddingPreset] = {
     "high": LocalEmbeddingPreset(
         level="high",
         repo_id="Qwen/Qwen3-Embedding-4B-GGUF",
-        quant="Q4_K_M",
-        model="qwen3-embedding-4b-gguf-q4_k_m",
+        quant="Q8_0",
+        model="qwen3-embedding-4b-gguf-q8_0",
         dimension=2560,
         text_mode="body",
     ),

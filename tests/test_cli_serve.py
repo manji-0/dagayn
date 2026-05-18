@@ -115,7 +115,7 @@ def test_serve_infers_local_embedding_from_existing_graph(monkeypatch, tmp_path)
                 "dagayn/search.py::hybrid_search",
                 b"\x00\x00\x00\x00",
                 "hash",
-                "openai:qwen3-embedding-4b-gguf-q4_k_m@http://127.0.0.1:19090/v1",
+                "openai:qwen3-embedding-4b-gguf-q8_0@http://127.0.0.1:19090/v1",
             ),
         )
         conn.commit()
@@ -126,7 +126,7 @@ def test_serve_infers_local_embedding_from_existing_graph(monkeypatch, tmp_path)
         base_url = "http://127.0.0.1:19090/v1"
         started = True
         command: list[str] = []
-        preset = SimpleNamespace(model="qwen3-embedding-4b-gguf-q4_k_m", text_mode="body")
+        preset = SimpleNamespace(model="qwen3-embedding-4b-gguf-q8_0", text_mode="body")
 
     class FakeContext:
         def __enter__(self):
@@ -156,7 +156,7 @@ def test_serve_infers_local_embedding_from_existing_graph(monkeypatch, tmp_path)
         }
     ]
     assert calls[0]["embedding_provider"] == "openai"
-    assert calls[0]["embedding_model"] == "qwen3-embedding-4b-gguf-q4_k_m"
+    assert calls[0]["embedding_model"] == "qwen3-embedding-4b-gguf-q8_0"
     assert calls[0]["local_embedding"] == "high"
     assert calls[0]["local_embedding_port"] == 19090
     assert os.environ["DAGAYN_EMBEDDING_TEXT_MODE"] == "body"

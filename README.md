@@ -190,7 +190,7 @@ dagayn install --mode fts
 
 # 2. Local — managed llama.cpp sidecar with a Qwen3 GGUF.
 dagayn install --mode local --preset low    # Qwen3-Embedding-0.6B (~1 GB)
-dagayn install --mode local --preset high   # Qwen3-Embedding-4B (~3 GB)
+dagayn install --mode local --preset high   # Qwen3-Embedding-4B (~4.3 GB)
 
 # 3. Remote — OpenAI-compatible / Google / MiniMax cloud embeddings.
 dagayn install --mode remote --provider openai
@@ -347,13 +347,13 @@ only; `high` embeds metadata plus bounded source body text.
 
 | Mode | text embedded | build time | mean MRR | Precision@1 | Precision@5 | avg query latency |
 |---|---|---:|---:|---:|---:|---:|
-| FTS5 only | n/a | n/a | 0.7000 | 0.5833 | 0.9167 | 1.0 ms |
-| Qwen3-Embedding-0.6B (local, `low`) | metadata | 133.7 s | **0.7222** | 0.5833 | 0.9167 | 427.5 ms |
-| Qwen3-Embedding-4B (local, `high`) | metadata + body | 974.2 s | 0.7153 | 0.5833 | 0.9167 | 886.4 ms |
+| FTS5 only | n/a | n/a | 0.7417 | 0.6667 | 0.9167 | 1.0 ms |
+| Qwen3-Embedding-0.6B Q8 (local, `low`) | metadata | 133.2 s | **0.7222** | 0.5833 | 0.9167 | 413.2 ms |
+| Qwen3-Embedding-4B Q8 (local, `high`) | metadata + body | 941.1 s | 0.7153 | 0.5833 | 0.9167 | 889.1 ms |
 
 FTS5 is already strong on exact-name and PascalCase queries. On this small
 suite, both local presets improve conceptual MRR to 0.75, but `high` does not
-beat `low`; it is about 7.3x slower to embed and about 2.1x slower per query
+beat `low`; it is about 7.1x slower to embed and about 2.2x slower per query
 on the measured machine. Use `low` for day-to-day local search unless you are
 specifically chasing body-only implementation terms and have measured a benefit.
 The hybrid mode combines FTS and embeddings automatically. See
