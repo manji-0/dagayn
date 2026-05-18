@@ -42,6 +42,13 @@ struct MarkdownTreeFacts {
     reference_links: Vec<MarkdownLink>,
 }
 
+#[derive(Default)]
+struct MarkdownDocBodyState {
+    counters: HashMap<String, i64>,
+    block_start: Option<i64>,
+    block_lines: Vec<String>,
+}
+
 struct MarkdownDirective {
     kind: String,
     target: String,
@@ -221,9 +228,7 @@ fn extract_markdown_doc_bodies(
     let context = MarkdownLineContext::new(file_path, headings);
     let heading_lines: HashMap<i64, ()> =
         headings.iter().map(|heading| (heading.line, ())).collect();
-    let mut counters: HashMap<String, i64> = HashMap::new();
-    let mut block_start: Option<i64> = None;
-    let mut block_lines: Vec<String> = Vec::new();
+    let mut body_state = MarkdownDocBodyState::default();
 
     for (idx, line) in text.lines().enumerate() {
         let line_no = idx as i64 + 1;
@@ -235,31 +240,27 @@ fn extract_markdown_doc_bodies(
             flush_markdown_doc_body(
                 file_path,
                 &context,
-                &mut counters,
                 nodes,
                 edges,
-                &mut block_start,
-                &mut block_lines,
+                &mut body_state,
                 line_no - 1,
             );
             continue;
         }
-        if block_start.is_none() {
-            block_start = Some(line_no);
-            block_lines.clear();
+        if body_state.block_start.is_none() {
+            body_state.block_start = Some(line_no);
+            body_state.block_lines.clear();
         }
-        block_lines.push(line.to_string());
+        body_state.block_lines.push(line.to_string());
     }
 
     let final_line = text.lines().count() as i64;
     flush_markdown_doc_body(
         file_path,
         &context,
-        &mut counters,
         nodes,
         edges,
-        &mut block_start,
-        &mut block_lines,
+        &mut body_state,
         final_line,
     );
 }
@@ -272,29 +273,28 @@ fn is_markdown_non_body_line(trimmed: &str) -> bool {
 fn flush_markdown_doc_body(
     file_path: &str,
     context: &MarkdownLineContext<'_>,
-    counters: &mut HashMap<String, i64>,
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
-    block_start: &mut Option<i64>,
-    block_lines: &mut Vec<String>,
+    state: &mut MarkdownDocBodyState,
     block_end: i64,
 ) {
-    let Some(start_line) = block_start.take() else {
+    let Some(start_line) = state.block_start.take() else {
         return;
     };
-    if block_lines.is_empty() {
+    if state.block_lines.is_empty() {
         return;
     }
     let Some(parent_section) = context.section_for_line(start_line) else {
-        block_lines.clear();
+        state.block_lines.clear();
         return;
     };
     let parent_slug = parent_section.rsplit("::").next().unwrap_or("document");
-    let counter = counters.entry(parent_section.clone()).or_insert(0);
+    let counter = state.counters.entry(parent_section.clone()).or_insert(0);
     *counter += 1;
     let name = format!("{parent_slug}--body-{counter}");
     let qualified_name = format!("{file_path}::{name}");
-    let display_name = block_lines
+    let display_name = state
+        .block_lines
         .iter()
         .map(|line| line.trim())
         .find(|line| !line.is_empty())
@@ -329,7 +329,7 @@ fn flush_markdown_doc_body(
         line: start_line,
         extra: json!({}),
     });
-    block_lines.clear();
+    state.block_lines.clear();
 }
 
 fn collect_markdown_tree_facts(
