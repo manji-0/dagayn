@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import sqlite3
 from types import SimpleNamespace
 
 import pytest
@@ -86,3 +87,74 @@ def test_serve_remote_embedding_sets_search_default(monkeypatch):
     assert calls[0]["embedding_provider"] == "google"
     assert calls[0]["embedding_model"] is None
     assert calls[0]["local_embedding"] is None
+
+
+def test_serve_infers_local_embedding_from_existing_graph(monkeypatch, tmp_path):
+    calls: list[dict] = []
+    server_calls: list[dict] = []
+    repo = tmp_path / "repo"
+    db_dir = repo / ".dagayn"
+    db_dir.mkdir(parents=True)
+    db = db_dir / "graph.db"
+    conn = sqlite3.connect(db)
+    try:
+        conn.execute(
+            """
+            CREATE TABLE embeddings (
+                qualified_name TEXT PRIMARY KEY,
+                vector BLOB NOT NULL,
+                text_hash TEXT NOT NULL,
+                provider TEXT NOT NULL DEFAULT 'unknown'
+            )
+            """
+        )
+        conn.execute(
+            "INSERT INTO embeddings VALUES (?, ?, ?, ?)",
+            (
+                "dagayn/search.py::hybrid_search",
+                b"\x00\x00\x00\x00",
+                "hash",
+                "openai:qwen3-embedding-4b-gguf-q4_k_m@http://127.0.0.1:19090/v1",
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    class FakeServer:
+        base_url = "http://127.0.0.1:19090/v1"
+        started = True
+        command: list[str] = []
+        preset = SimpleNamespace(model="qwen3-embedding-4b-gguf-q4_k_m")
+
+    class FakeContext:
+        def __enter__(self):
+            return FakeServer()
+
+        def __exit__(self, *_args):
+            return None
+
+    def fake_server(level, **kwargs):
+        server_calls.append({"level": level, **kwargs})
+        return FakeContext()
+
+    monkeypatch.setattr("dagayn.local_embeddings.local_embedding_server", fake_server)
+    monkeypatch.setattr("dagayn.main.main", lambda **kwargs: calls.append(kwargs))
+
+    parser = _parser()
+    args = parser.parse_args(["serve", "--repo", str(repo)])
+    handle(args, parser)
+
+    assert server_calls == [
+        {
+            "level": "high",
+            "port": 19090,
+            "binary": "llama-server",
+            "keep_running": False,
+            "startup_timeout": 300,
+        }
+    ]
+    assert calls[0]["embedding_provider"] == "openai"
+    assert calls[0]["embedding_model"] == "qwen3-embedding-4b-gguf-q4_k_m"
+    assert calls[0]["local_embedding"] == "high"
+    assert calls[0]["local_embedding_port"] == 19090

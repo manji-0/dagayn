@@ -9,6 +9,7 @@ from dagayn.local_embeddings import (
     _probe_embedding_server,
     _ProbeResult,
     get_local_embedding_preset,
+    infer_local_embedding_provider,
     local_embedding_base_url,
     local_embedding_server,
 )
@@ -49,6 +50,26 @@ def test_local_embedding_presets_are_stable():
 
 def test_local_embedding_base_url_uses_openai_v1_path():
     assert local_embedding_base_url(18080) == "http://127.0.0.1:18080/v1"
+
+
+def test_infer_local_embedding_provider_from_persisted_name():
+    inferred = infer_local_embedding_provider(
+        "openai:qwen3-embedding-4b-gguf-q4_k_m@http://127.0.0.1:19090/v1"
+    )
+
+    assert inferred is not None
+    assert inferred.level == "high"
+    assert inferred.model == "qwen3-embedding-4b-gguf-q4_k_m"
+    assert inferred.port == 19090
+
+
+def test_infer_local_embedding_provider_refuses_cloud_endpoint():
+    assert (
+        infer_local_embedding_provider(
+            "openai:qwen3-embedding-4b-gguf-q4_k_m@https://api.example.com/v1"
+        )
+        is None
+    )
 
 
 def test_probe_rejects_wrong_embedding_dimension(monkeypatch):

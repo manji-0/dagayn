@@ -19,6 +19,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlparse
 
 LocalEmbeddingLevel = Literal["low", "high"]
 
@@ -51,6 +52,16 @@ class LocalEmbeddingServer:
     base_url: str
     command: list[str]
     started: bool
+
+
+@dataclass(frozen=True)
+class PersistedLocalEmbeddingProvider:
+    """Local embedding preset inferred from a persisted provider identity."""
+
+    level: LocalEmbeddingLevel
+    model: str
+    base_url: str
+    port: int
 
 
 @dataclass(frozen=True)
@@ -93,6 +104,44 @@ def get_local_embedding_preset(level: str) -> LocalEmbeddingPreset:
 def local_embedding_base_url(port: int) -> str:
     """Return the localhost OpenAI-compatible base URL for *port*."""
     return f"http://127.0.0.1:{port}/v1"
+
+
+def infer_local_embedding_provider(
+    provider_name: str,
+) -> PersistedLocalEmbeddingProvider | None:
+    """Infer a managed local embedding preset from a persisted provider name.
+
+    Only localhost OpenAI-compatible provider identities are accepted.  This is
+    used by ``dagayn serve`` to keep semantic search live when the graph DB
+    already contains local Qwen vectors, without ever guessing cloud providers.
+    """
+    prefix = "openai:"
+    if not provider_name.startswith(prefix):
+        return None
+    try:
+        model, base_url = provider_name[len(prefix) :].rsplit("@", 1)
+    except ValueError:
+        return None
+
+    parsed = urlparse(base_url)
+    host = (parsed.hostname or "").lower()
+    if host not in {"127.0.0.1", "localhost", "::1"}:
+        return None
+    if parsed.scheme.lower() != "http":
+        return None
+    port = parsed.port
+    if port is None:
+        return None
+
+    for level, preset in LOCAL_EMBEDDING_PRESETS.items():
+        if preset.model == model:
+            return PersistedLocalEmbeddingProvider(
+                level=level,
+                model=model,
+                base_url=base_url,
+                port=port,
+            )
+    return None
 
 
 def _probe_embedding_server(

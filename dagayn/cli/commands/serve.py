@@ -3,10 +3,45 @@
 from __future__ import annotations
 
 import argparse
+import sqlite3
+from pathlib import Path
 
 from ._shared import _add_local_embedding_args
 
 _REMOTE_EMBEDDING_CHOICES = ["none", "openai", "google", "minimax"]
+
+
+def _embedding_provider_counts(db_path: Path) -> dict[str, int]:
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        try:
+            rows = conn.execute(
+                "SELECT provider, COUNT(*) FROM embeddings GROUP BY provider"
+            ).fetchall()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return {}
+    return {str(provider): int(count) for provider, count in rows}
+
+
+def _infer_persisted_local_embedding(repo_root: str | None):
+    if repo_root is None:
+        from ...incremental import find_project_root
+
+        root = find_project_root()
+    else:
+        root = Path(repo_root).expanduser().resolve()
+
+    from ...incremental import get_db_path
+    from ...local_embeddings import infer_local_embedding_provider
+
+    db_path = get_db_path(root)
+    provider_counts = _embedding_provider_counts(db_path)
+    if len(provider_counts) != 1:
+        return None
+    provider_name = next(iter(provider_counts))
+    return infer_local_embedding_provider(provider_name)
 
 
 def register_command(sub: argparse._SubParsersAction) -> argparse.ArgumentParser:
@@ -22,7 +57,7 @@ def register_command(sub: argparse._SubParsersAction) -> argparse.ArgumentParser
         help=(
             "Comma-separated list of tool names to expose "
             "(e.g. query_graph_tool,semantic_search_nodes_tool). "
-            "Unlisted tools are removed. "
+            "Unlisted tools are removed; use 'all' for every tool. "
             "Falls back to CRG_TOOLS env var."
         ),
     )
@@ -71,6 +106,7 @@ def handle(args: argparse.Namespace, serve_parser: argparse.ArgumentParser) -> N
         serve_parser.error("--local-embedding and --remote-embedding are mutually exclusive")
 
     remote_embedding = args.remote_embedding if args.remote_embedding != "none" else None
+    effective_local_embedding_port = args.local_embedding_port
 
     def _run(
         *,
@@ -90,7 +126,7 @@ def handle(args: argparse.Namespace, serve_parser: argparse.ArgumentParser) -> N
                 embedding_provider=embedding_provider,
                 embedding_model=embedding_model,
                 local_embedding=local_embedding_default,
-                local_embedding_port=args.local_embedding_port,
+                local_embedding_port=effective_local_embedding_port,
                 local_embedding_bin=args.local_embedding_bin,
                 keep_local_embedding_server=args.keep_local_embedding_server,
                 local_embedding_timeout=args.local_embedding_timeout,
@@ -104,7 +140,7 @@ def handle(args: argparse.Namespace, serve_parser: argparse.ArgumentParser) -> N
                 embedding_provider=embedding_provider,
                 embedding_model=embedding_model,
                 local_embedding=local_embedding_default,
-                local_embedding_port=args.local_embedding_port,
+                local_embedding_port=effective_local_embedding_port,
                 local_embedding_bin=args.local_embedding_bin,
                 keep_local_embedding_server=args.keep_local_embedding_server,
                 local_embedding_timeout=args.local_embedding_timeout,
@@ -112,13 +148,20 @@ def handle(args: argparse.Namespace, serve_parser: argparse.ArgumentParser) -> N
                 local_embedding_batch_size=args.local_embedding_batch_size,
             )
 
+    inferred_local_embedding = None
     local_embedding = args.local_embedding
+    if (not local_embedding or local_embedding == "none") and remote_embedding is None:
+        inferred_local_embedding = _infer_persisted_local_embedding(args.repo)
+        if inferred_local_embedding is not None:
+            local_embedding = inferred_local_embedding.level
+            effective_local_embedding_port = inferred_local_embedding.port
+
     if local_embedding and local_embedding != "none":
         from ...local_embeddings import local_embedding_server
 
         with local_embedding_server(
             local_embedding,
-            port=args.local_embedding_port,
+            port=effective_local_embedding_port,
             binary=args.local_embedding_bin,
             keep_running=args.keep_local_embedding_server,
             startup_timeout=args.local_embedding_timeout,
