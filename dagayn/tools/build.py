@@ -115,6 +115,7 @@ def _run_local_embedding(
             "CRG_OPENAI_BATCH_SIZE",
             "CRG_OPENAI_DIMENSION",
             "CRG_OPENAI_TIMEOUT",
+            "DAGAYN_EMBEDDING_TEXT_MODE",
         )
         with _LOCAL_EMBEDDING_ENV_LOCK:
             old_env = {key: os.environ.get(key) for key in env_keys}
@@ -123,6 +124,7 @@ def _run_local_embedding(
                 os.environ["CRG_OPENAI_BASE_URL"] = server.base_url
                 os.environ["CRG_OPENAI_BATCH_SIZE"] = str(local_embedding_batch_size)
                 os.environ["CRG_OPENAI_TIMEOUT"] = str(local_embedding_request_timeout)
+                os.environ["DAGAYN_EMBEDDING_TEXT_MODE"] = server.preset.text_mode
                 os.environ.pop("CRG_OPENAI_DIMENSION", None)
                 result = embed_graph(
                     repo_root=str(root),
@@ -145,6 +147,7 @@ def _run_local_embedding(
         "preset": server.preset.level,
         "model": server.preset.model,
         "dimension": server.preset.dimension,
+        "text_mode": server.preset.text_mode,
         "server_started": server.started,
         "server_url": server.base_url,
         "server_command": server.command,

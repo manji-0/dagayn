@@ -22,6 +22,7 @@ from typing import Literal
 from urllib.parse import urlparse
 
 LocalEmbeddingLevel = Literal["low", "high"]
+EmbeddingTextMode = Literal["metadata", "body"]
 
 DEFAULT_LOCAL_EMBEDDING_PORT = 18080
 DEFAULT_LOCAL_EMBEDDING_BIN = "llama-server"
@@ -37,6 +38,7 @@ class LocalEmbeddingPreset:
     quant: str
     model: str
     dimension: int
+    text_mode: EmbeddingTextMode = "metadata"
     ubatch: int = 8192
 
     @property
@@ -77,6 +79,7 @@ LOCAL_EMBEDDING_PRESETS: dict[LocalEmbeddingLevel, LocalEmbeddingPreset] = {
         quant="Q8_0",
         model="qwen3-embedding-0.6b-gguf-q8_0",
         dimension=1024,
+        text_mode="metadata",
     ),
     "high": LocalEmbeddingPreset(
         level="high",
@@ -84,6 +87,7 @@ LOCAL_EMBEDDING_PRESETS: dict[LocalEmbeddingLevel, LocalEmbeddingPreset] = {
         quant="Q4_K_M",
         model="qwen3-embedding-4b-gguf-q4_k_m",
         dimension=2560,
+        text_mode="body",
     ),
 }
 

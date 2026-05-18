@@ -1530,6 +1530,7 @@ class TestBuildPostprocess:
                     level="low",
                     model="qwen3-embedding-0.6b-gguf-q8_0",
                     dimension=1024,
+                    text_mode="metadata",
                 ),
                 started=False,
                 command=[],
@@ -1538,6 +1539,7 @@ class TestBuildPostprocess:
         def fake_embed_graph(**_kwargs):
             assert os.environ["CRG_OPENAI_TIMEOUT"] == "17"
             assert os.environ["CRG_OPENAI_BATCH_SIZE"] == "8"
+            assert os.environ["DAGAYN_EMBEDDING_TEXT_MODE"] == "metadata"
             return {
                 "status": "ok",
                 "newly_embedded": 1,
@@ -1547,6 +1549,7 @@ class TestBuildPostprocess:
 
         monkeypatch.setenv("CRG_OPENAI_TIMEOUT", "999")
         monkeypatch.setenv("CRG_OPENAI_BATCH_SIZE", "2048")
+        monkeypatch.setenv("DAGAYN_EMBEDDING_TEXT_MODE", "body")
         with (
             patch("dagayn.local_embeddings.local_embedding_server", fake_server),
             patch("dagayn.tools.docs.embed_graph", side_effect=fake_embed_graph),
@@ -1564,8 +1567,10 @@ class TestBuildPostprocess:
 
         assert result["newly_embedded"] == 1
         assert result["orphans_removed"] == 2
+        assert result["text_mode"] == "metadata"
         assert os.environ["CRG_OPENAI_TIMEOUT"] == "999"
         assert os.environ["CRG_OPENAI_BATCH_SIZE"] == "2048"
+        assert os.environ["DAGAYN_EMBEDDING_TEXT_MODE"] == "body"
 
 
 class TestComputeSummaries:

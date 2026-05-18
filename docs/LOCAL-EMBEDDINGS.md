@@ -110,14 +110,18 @@ The batch size is also pinned for local embeddings. `dagayn build
 `CRG_OPENAI_BATCH_SIZE` set for another provider. Raise it only after measuring;
 larger batches can make llama-server's embedding endpoint stall on some hosts.
 
-By default, embeddings are generated from graph metadata: symbol name,
-qualified name, file path, display name, signature, params, return type, kind,
-parent, and language. Set `DAGAYN_EMBEDDING_TEXT_MODE=body` to append each
-non-file node's bounded source span to that metadata before embedding. The
-source span is capped by `DAGAYN_EMBEDDING_SOURCE_CHARS` and defaults to 2048
-characters. Body mode can improve conceptual searches where the query terms
-appear only in implementation text, at the cost of larger embedding inputs and
-more frequent re-embedding when function bodies change.
+Local preset defaults trade quality for rebuild cost: `low` embeds graph
+metadata only, while `high` appends each non-file node's bounded source span to
+that metadata before embedding. The metadata includes symbol name, qualified
+name, file path, display name, signature, params, return type, kind, parent,
+and language.
+
+Set `DAGAYN_EMBEDDING_TEXT_MODE=metadata` or `body` to override that behavior
+for any provider or preset. The source span is capped by
+`DAGAYN_EMBEDDING_SOURCE_CHARS` and defaults to 2048 characters. Body mode can
+improve conceptual searches where the query terms appear only in implementation
+text, at the cost of larger embedding inputs and more frequent re-embedding
+when function bodies change.
 
 Leave a dagayn-started server running for reuse:
 

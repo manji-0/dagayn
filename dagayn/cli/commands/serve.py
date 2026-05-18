@@ -171,6 +171,7 @@ def handle(args: argparse.Namespace, serve_parser: argparse.ArgumentParser) -> N
             os.environ["CRG_OPENAI_MODEL"] = server.preset.model
             os.environ["CRG_OPENAI_BATCH_SIZE"] = str(args.local_embedding_batch_size)
             os.environ["CRG_OPENAI_TIMEOUT"] = str(args.local_embedding_request_timeout)
+            os.environ["DAGAYN_EMBEDDING_TEXT_MODE"] = server.preset.text_mode
             _run(
                 embedding_provider="openai",
                 embedding_model=server.preset.model,

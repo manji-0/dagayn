@@ -88,6 +88,7 @@ def test_print_local_embedding_summary_includes_orphan_count(capsys):
         {
             "local_embedding": {
                 "preset": "high",
+                "text_mode": "body",
                 "server_started": False,
                 "newly_embedded": 1,
                 "orphans_removed": 2,
@@ -96,7 +97,9 @@ def test_print_local_embedding_summary_includes_orphan_count(capsys):
         }
     )
 
-    assert "1 new, 2 orphan removed, 9 total" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "Local embeddings (high/body, reused server)" in out
+    assert "1 new, 2 orphan removed, 9 total" in out
 
 
 def test_handle_runs_full_build_without_postprocess(tmp_path, monkeypatch, capsys):

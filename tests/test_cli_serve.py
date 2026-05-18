@@ -44,7 +44,7 @@ def test_serve_local_embedding_sets_search_default_to_openai(monkeypatch):
         base_url = "http://127.0.0.1:18080/v1"
         started = False
         command: list[str] = []
-        preset = SimpleNamespace(model="qwen3-embedding-0.6b-gguf-q8_0")
+        preset = SimpleNamespace(model="qwen3-embedding-0.6b-gguf-q8_0", text_mode="metadata")
 
     class FakeContext:
         def __enter__(self):
@@ -74,6 +74,7 @@ def test_serve_local_embedding_sets_search_default_to_openai(monkeypatch):
     assert calls[0]["local_embedding_request_timeout"] == 60
     assert calls[0]["local_embedding_batch_size"] == 1
     assert os.environ["CRG_OPENAI_MODEL"] == "qwen3-embedding-0.6b-gguf-q8_0"
+    assert os.environ["DAGAYN_EMBEDDING_TEXT_MODE"] == "metadata"
 
 
 def test_serve_remote_embedding_sets_search_default(monkeypatch):
@@ -125,7 +126,7 @@ def test_serve_infers_local_embedding_from_existing_graph(monkeypatch, tmp_path)
         base_url = "http://127.0.0.1:19090/v1"
         started = True
         command: list[str] = []
-        preset = SimpleNamespace(model="qwen3-embedding-4b-gguf-q4_k_m")
+        preset = SimpleNamespace(model="qwen3-embedding-4b-gguf-q4_k_m", text_mode="body")
 
     class FakeContext:
         def __enter__(self):
@@ -158,3 +159,4 @@ def test_serve_infers_local_embedding_from_existing_graph(monkeypatch, tmp_path)
     assert calls[0]["embedding_model"] == "qwen3-embedding-4b-gguf-q4_k_m"
     assert calls[0]["local_embedding"] == "high"
     assert calls[0]["local_embedding_port"] == 19090
+    assert os.environ["DAGAYN_EMBEDDING_TEXT_MODE"] == "body"

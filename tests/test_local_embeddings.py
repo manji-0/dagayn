@@ -43,9 +43,11 @@ def test_local_embedding_presets_are_stable():
     assert low.hf_selector == "Qwen/Qwen3-Embedding-0.6B-GGUF:Q8_0"
     assert low.model == "qwen3-embedding-0.6b-gguf-q8_0"
     assert low.dimension == 1024
+    assert low.text_mode == "metadata"
     assert high.hf_selector == "Qwen/Qwen3-Embedding-4B-GGUF:Q4_K_M"
     assert high.model == "qwen3-embedding-4b-gguf-q4_k_m"
     assert high.dimension == 2560
+    assert high.text_mode == "body"
 
 
 def test_local_embedding_base_url_uses_openai_v1_path():

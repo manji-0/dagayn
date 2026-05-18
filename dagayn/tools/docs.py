@@ -83,6 +83,7 @@ def embed_graph(
             "newly_embedded": newly_embedded,
             "orphans_removed": orphans_removed,
             "total_embeddings": total,
+            "text_mode": emb_store.text_mode,
         }
     finally:
         emb_store.close()
