@@ -13,7 +13,7 @@ def register_command(sub: argparse._SubParsersAction) -> argparse.ArgumentParser
         "--benchmark",
         default=None,
         help="Comma-separated benchmarks to run (token_efficiency, impact_accuracy, "
-        "flow_completeness, search_quality, build_performance)",
+        "flow_completeness, search_quality, build_performance, nplusone_count, mcp_latency)",
     )
     eval_parser.add_argument("--repo", default=None, help="Comma-separated repo config names")
     eval_parser.add_argument(

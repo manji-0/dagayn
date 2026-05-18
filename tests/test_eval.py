@@ -366,6 +366,18 @@ def test_runner_with_mock_repo():
         assert "node_count" in bp_results[0]
         assert bp_results[0]["node_count"] > 0
 
+        # Run mcp_latency as a local baseline generator
+        from dagayn.eval.benchmarks import mcp_latency
+
+        latency_results = mcp_latency.run(
+            repo_path,
+            store,
+            {**config, "latency_repeat": 1},
+        )
+        assert len(latency_results) >= 1
+        assert all(row["benchmark"] == "mcp_latency" for row in latency_results)
+        assert all(row["status"] in {"baseline", "error"} for row in latency_results)
+
         store.close()
 
 

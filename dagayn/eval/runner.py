@@ -18,6 +18,7 @@ from dagayn.eval.benchmarks import (
     build_performance,
     flow_completeness,
     impact_accuracy,
+    mcp_latency,
     nplusone_count,
     search_quality,
     token_efficiency,
@@ -32,6 +33,7 @@ BENCHMARK_REGISTRY = {
     "search_quality": search_quality.run,
     "build_performance": build_performance.run,
     "nplusone_count": nplusone_count.run,
+    "mcp_latency": mcp_latency.run,
 }
 
 CONFIGS_DIR = Path(__file__).parent / "configs"
