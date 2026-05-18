@@ -15,6 +15,7 @@ This directory documents the fork as `dagayn`.
 - [FEATURES.md](./FEATURES.md) — fork-specific capabilities and practical strengths
 - [ARCHITECTURE.md](./ARCHITECTURE.md) — parser, storage, and post-processing pipeline
 - [SCHEMA.md](./SCHEMA.md) — graph entities, tables, and stored metadata
+- [MARKDOWN-AUTHORING.md](./MARKDOWN-AUTHORING.md) — graph-aware Markdown dependency and directive guidance
 
 ## Operation
 
