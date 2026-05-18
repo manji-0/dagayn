@@ -288,7 +288,7 @@ _REPO_RELATIVE_QUALIFIED_EXTRA_KEYS = frozenset(
 )
 
 
-def _relativize_extra(value: object, repo_root: Path) -> object:
+def _relativize_extra(value: Any, repo_root: Path) -> Any:
     if isinstance(value, dict):
         return {
             key: _make_repo_relative_qualified(extra_value, repo_root)
