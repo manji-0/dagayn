@@ -2,7 +2,7 @@
 
 <!-- constrained-by ../COMMANDS.md#mcp-tools -->
 <!-- constrained-by ../ARCHITECTURE.md#query-surfaces -->
-<!-- derived-from ../audits/mcp-tool-heuristic-review-2026-05-05.md#low-interface-count-is-high-but-mostly-purposeful -->
+<!-- Informed by ../audits/mcp-tool-heuristic-review-2026-05-05.md; not a graph dependency. -->
 
 ## Goal
 
