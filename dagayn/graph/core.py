@@ -33,6 +33,11 @@ MAX_IMPACT_NODES = int(os.environ.get("CRG_MAX_IMPACT_NODES", "500"))
 MAX_IMPACT_DEPTH = int(os.environ.get("CRG_MAX_IMPACT_DEPTH", "2"))
 BFS_ENGINE = os.environ.get("CRG_BFS_ENGINE", "sql")
 
+
+def _edge_target_name(target_qualified: str) -> str:
+    """Return the normalized target name used for indexed bare-name lookup."""
+    return target_qualified.rsplit("::", 1)[-1]
+
 # ---------------------------------------------------------------------------
 # Schema
 # ---------------------------------------------------------------------------
@@ -62,6 +67,7 @@ CREATE TABLE IF NOT EXISTS edges (
     kind TEXT NOT NULL,           -- CALLS, IMPORTS_FROM, INHERITS, REFERENCES, CROSS_ARTIFACT, etc.
     source_qualified TEXT NOT NULL,
     target_qualified TEXT NOT NULL,
+    target_name TEXT NOT NULL DEFAULT '',
     file_path TEXT NOT NULL,
     line INTEGER DEFAULT 0,
     extra TEXT DEFAULT '{}',
@@ -300,22 +306,31 @@ class GraphStore:
 
         if existing:
             self._conn.execute(
-                "UPDATE edges SET line=?, extra=?, confidence=?, confidence_tier=?,"
+                "UPDATE edges SET target_name=?, line=?, extra=?, confidence=?, confidence_tier=?,"
                 " updated_at=? WHERE id=?",
-                (edge.line, extra, confidence, confidence_tier, now, existing["id"]),
+                (
+                    _edge_target_name(edge.target),
+                    edge.line,
+                    extra,
+                    confidence,
+                    confidence_tier,
+                    now,
+                    existing["id"],
+                ),
             )
             self._invalidate_cache()
             return existing["id"]
 
         cursor = self._conn.execute(
             """INSERT INTO edges
-               (kind, source_qualified, target_qualified, file_path, line, extra,
+               (kind, source_qualified, target_qualified, target_name, file_path, line, extra,
                 confidence, confidence_tier, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 edge.kind,
                 edge.source,
                 edge.target,
+                _edge_target_name(edge.target),
                 edge.file_path,
                 edge.line,
                 extra,
@@ -410,14 +425,15 @@ class GraphStore:
         now = time.time()
         self._conn.executemany(
             """INSERT INTO edges
-               (kind, source_qualified, target_qualified, file_path, line, extra,
+               (kind, source_qualified, target_qualified, target_name, file_path, line, extra,
                 confidence, confidence_tier, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             [
                 (
                     e.kind,
                     e.source,
                     e.target,
+                    _edge_target_name(e.target),
                     e.file_path,
                     e.line,
                     json.dumps(e.extra) if e.extra else "{}",
@@ -839,10 +855,18 @@ class GraphStore:
         returns nothing.
         """
         rows = self._conn.execute(
-            "SELECT * FROM edges WHERE target_qualified = ? AND kind = ?",
+            "SELECT * FROM edges WHERE target_name = ? AND kind = ?",
             (name, kind),
         ).fetchall()
         return [self._row_to_edge(r) for r in rows]
+
+    def count_edges_by_target_name_prefix(self, prefix: str, kind: str = "CALLS") -> int:
+        """Count edges whose normalized target name starts with *prefix*."""
+        row = self._conn.execute(
+            "SELECT COUNT(*) FROM edges WHERE kind = ? AND target_name LIKE ?",
+            (kind, f"{prefix}%"),
+        ).fetchone()
+        return int(row[0] if row else 0)
 
     def get_transitive_tests(
         self,
@@ -1001,8 +1025,8 @@ class GraphStore:
                     continue
 
             conn.execute(
-                "UPDATE edges SET target_qualified = ? WHERE id = ?",
-                (qualified, edge["id"]),
+                "UPDATE edges SET target_qualified = ?, target_name = ? WHERE id = ?",
+                (qualified, _edge_target_name(qualified), edge["id"]),
             )
             resolved += 1
 

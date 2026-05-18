@@ -202,10 +202,33 @@ class TestTools:
                 line=20,
             )
         )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CALLS",
+                source="/repo/worker.py::process",
+                target="/repo/helpers.py::helper",
+                file_path="/repo/worker.py",
+                line=21,
+            )
+        )
         self.store.commit()
         edges = self.store.search_edges_by_target_name("helper")
-        assert len(edges) == 1
-        assert edges[0].source_qualified == "/repo/main.py::process"
+        sources = {edge.source_qualified for edge in edges}
+        assert sources == {"/repo/main.py::process", "/repo/worker.py::process"}
+
+    def test_count_edges_by_target_name_prefix(self):
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CALLS",
+                source="/repo/main.py::run",
+                target="/repo/service.py::Service.start",
+                file_path="/repo/main.py",
+                line=20,
+            )
+        )
+        self.store.commit()
+
+        assert self.store.count_edges_by_target_name_prefix("Service.") == 1
 
     def test_query_graph_callers_uses_batched_node_lookup(self, monkeypatch):
         from dagayn.tools import query as query_module

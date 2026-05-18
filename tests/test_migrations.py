@@ -67,6 +67,12 @@ class TestMigrations:
         columns = [row[1] if isinstance(row, tuple) else row["name"] for row in cursor]
         assert "signature" in columns
 
+    def test_edge_target_name_column_exists_after_migration(self):
+        """The edges table should have a normalized target_name column."""
+        cursor = self.store._conn.execute("PRAGMA table_info(edges)")
+        columns = [row[1] if isinstance(row, tuple) else row["name"] for row in cursor]
+        assert "target_name" in columns
+
     def test_flows_table_exists_after_migration(self):
         """The flows and flow_memberships tables should exist after migration."""
         tables = _get_table_names(self.store._conn)

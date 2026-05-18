@@ -295,6 +295,34 @@ def _migrate_v13(conn: sqlite3.Connection) -> None:
     logger.info("Migration v13: recreated nodes_fts with generated search-text columns")
 
 
+def _edge_target_name(target_qualified: str) -> str:
+    return target_qualified.rsplit("::", 1)[-1]
+
+
+def _migrate_v14(conn: sqlite3.Connection) -> None:
+    """v14: Add normalized edge target names for indexed bare-name lookups."""
+    if not _has_column(conn, "edges", "target_name"):
+        conn.execute("ALTER TABLE edges ADD COLUMN target_name TEXT NOT NULL DEFAULT ''")
+    rows = conn.execute(
+        "SELECT id, target_qualified FROM edges WHERE target_name = '' OR target_name IS NULL"
+    ).fetchall()
+    if rows:
+        conn.executemany(
+            "UPDATE edges SET target_name = ? WHERE id = ?",
+            [
+                (
+                    _edge_target_name(row["target_qualified"] if hasattr(row, "keys") else row[1]),
+                    row["id"] if hasattr(row, "keys") else row[0],
+                )
+                for row in rows
+            ],
+        )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_edges_target_name_kind ON edges(target_name, kind)"
+    )
+    logger.info("Migration v14: populated normalized edge target names")
+
+
 # ---------------------------------------------------------------------------
 # Migration registry
 # ---------------------------------------------------------------------------
@@ -312,6 +340,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     11: _migrate_v11,
     12: _migrate_v12,
     13: _migrate_v13,
+    14: _migrate_v14,
 }
 
 LATEST_VERSION = max(MIGRATIONS.keys())

@@ -358,16 +358,19 @@ def find_dead_code(
             edge = store._row_to_edge(row)
             bare_tested_by_name.setdefault(row["source_qualified"], []).append(edge)
 
-    # Suffix-qualified CALLS edges: target_qualified LIKE '%::name'.
-    # Load once and index by the last '::' segment so per-node LIKE queries
-    # can be replaced by an O(1) dict lookup.
+    # Qualified CALLS edges indexed by normalized target_name. This replaces
+    # suffix LIKE scans over target_qualified when matching by bare symbol name.
     suffix_calls_by_name: dict[str, list[Any]] = {}
-    for row in conn.execute(
-        "SELECT * FROM edges WHERE kind = 'CALLS' AND target_qualified LIKE '%::%'"
-    ).fetchall():
-        edge = store._row_to_edge(row)
-        suffix = row["target_qualified"].rsplit("::", 1)[-1]
-        suffix_calls_by_name.setdefault(suffix, []).append(edge)
+    for i in range(0, len(survivor_names_list), batch_size):
+        chunk = survivor_names_list[i : i + batch_size]
+        placeholders = ",".join("?" for _ in chunk)
+        for row in conn.execute(  # nosec B608
+            f"SELECT * FROM edges WHERE target_name IN ({placeholders}) "
+            "AND kind = 'CALLS' AND target_qualified != target_name",
+            chunk,
+        ).fetchall():
+            edge = store._row_to_edge(row)
+            suffix_calls_by_name.setdefault(row["target_name"], []).append(edge)
 
     # Preload base-method nodes for the abstractmethod check (lines ~250-268).
     # Compute all candidate (base_class_qn.method_name) keys from class_inherits_targets.
@@ -452,13 +455,8 @@ def find_dead_code(
             has_callers or has_test_refs or has_importers or has_references or has_subclasses
         )
         if node.kind == "Class" and no_refs:
-            member_prefix = node.qualified_name + "."
             bare_prefix = node.name + "."
-            member_calls = conn.execute(
-                "SELECT COUNT(*) FROM edges WHERE kind = 'CALLS'"
-                " AND (target_qualified LIKE ? OR target_qualified LIKE ?)",
-                (f"%{member_prefix}%", f"%{bare_prefix}%"),
-            ).fetchone()[0]
+            member_calls = store.count_edges_by_target_name_prefix(bare_prefix, kind="CALLS")
             if member_calls > 0:
                 has_callers = True
 
