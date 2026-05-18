@@ -131,34 +131,44 @@ dagayn build --local-embedding high --keep-local-embedding-server
 
 ## Search quality
 
-Measured on the dagayn codebase (4,597 nodes). Query set: 5 exact function names, 3 PascalCase class names, 4 conceptual natural-language queries.
+Measured on the dagayn codebase (6,197 graph nodes, 5,811 embedded non-file
+nodes). Query set: 5 exact function names, 3 PascalCase class names, 4
+conceptual natural-language queries. `low` embeds graph metadata only; `high`
+embeds metadata plus bounded source body text.
 
 ### Aggregate
 
-| Mode | mean MRR | Precision@1 | Precision@5 |
-|---|---|---|---|
-| FTS5 only | 0.71 | 0.67 | 0.75 |
-| Qwen3-Embedding-0.6B `low` (hybrid) | **0.88** | **0.83** | **0.92** |
-| Qwen3-Embedding-4B `high` (hybrid) | 0.82 | 0.75 | 0.92 |
+| Mode | text embedded | build time | mean MRR | Precision@1 | Precision@5 | avg query latency |
+|---|---|---:|---:|---:|---:|---:|
+| FTS5 only | n/a | n/a | 0.7000 | 0.5833 | 0.9167 | 1.0 ms |
+| Qwen3-Embedding-0.6B `low` (hybrid) | metadata | 133.7 s | **0.7222** | 0.5833 | 0.9167 | 427.5 ms |
+| Qwen3-Embedding-4B `high` (hybrid) | metadata + body | 974.2 s | 0.7153 | 0.5833 | 0.9167 | 886.4 ms |
 
 ### Per-query breakdown
 
-| Query | Label | FTS rank | Qwen3-0.6B rank | Qwen3-4B rank |
+| Query | Label | FTS rank | Qwen3-0.6B `low` rank | Qwen3-4B `high` rank |
 |---|---|---|---|---|
-| `hybrid_search` | exact_name | 1 | 1 | 1 |
-| `rebuild_fts_index` | exact_name | 1 | 1 | 1 |
+| `hybrid_search` | exact_name | 5 | 2 | 2 |
+| `rebuild_fts_index` | exact_name | 5 | 3 | 3 |
 | `rrf_merge` | exact_name | 1 | 1 | 1 |
-| `full_build` | exact_name | 2 | 2 | 2 |
+| `full_build` | exact_name | 2 | 3 | 4 |
 | `detect_query_kind_boost` | exact_name | 1 | 1 | 1 |
-| `GraphStore` | pascal_case_class | 1 | 1 | 1 |
+| `GraphStore` | pascal_case_class | 1 | 2 | 2 |
 | `EmbeddingProvider` | pascal_case_class | 1 | 1 | 1 |
 | `LocalEmbeddingProvider` | pascal_case_class | 1 | 1 | 1 |
-| "reciprocal rank fusion" | conceptual | — | **1** | **1** |
-| "sentence transformers local model" | conceptual | — | **1** | **3** |
+| "reciprocal rank fusion" | conceptual | 2 | **1** | **1** |
+| "sentence transformers local model" | conceptual | **1** | **1** | **1** |
 | "kind boost detection query" | conceptual | 1 | 1 | 1 |
 | "incremental graph construction" | conceptual | — | — | — |
 
-FTS5 is strong on exact and PascalCase queries. Both Qwen3 sizes close the gap on conceptual queries where FTS5 returns nothing. The 0.6B model matches or beats the 4B model on this 12-query suite (notably ranking "sentence transformers local model" → `LocalEmbeddingProvider` at 1 vs. 4B's 3), at ~1/7 the memory footprint — so `low` is the recommended default unless you have a specific reason to use `high`. The last query ("incremental graph construction" → `full_build`) is a miss for both because the function name shares no tokens with the query.
+FTS5 is strong on exact and PascalCase queries. Both Qwen3 presets improve the
+conceptual subset to 0.75 mean MRR, but the 4B `high` preset does not beat
+`low` on this query set despite embedding source bodies. It is about 7.3x
+slower to embed and about 2.1x slower per query on the measured machine, so
+`low` is the recommended default unless you have a specific body-only search
+workload and have measured a benefit. The last query ("incremental graph
+construction" → `full_build`) is a miss for all modes because the target shares
+little lexical or semantic surface with the query.
 
 ## Troubleshooting
 

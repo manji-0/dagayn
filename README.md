@@ -340,15 +340,24 @@ Embeddings are stored in the `embeddings` table inside `.dagayn/graph.db`. Switc
 
 ### Search quality
 
-Measured on the dagayn codebase itself (4,597 nodes, 12 queries spanning exact function names, PascalCase class names, and conceptual natural-language queries).
+Measured on the dagayn codebase itself (6,197 graph nodes, 5,811 embedded
+non-file nodes, 12 queries spanning exact function names, PascalCase class
+names, and conceptual natural-language queries). `low` embeds graph metadata
+only; `high` embeds metadata plus bounded source body text.
 
-| Mode | mean MRR | Precision@1 | Precision@5 |
-|---|---|---|---|
-| FTS5 only | 0.71 | 0.67 | 0.75 |
-| Qwen3-Embedding-0.6B (local, `low`) | **0.88** | **0.83** | **0.92** |
-| Qwen3-Embedding-4B (local, `high`) | 0.82 | 0.75 | 0.92 |
+| Mode | text embedded | build time | mean MRR | Precision@1 | Precision@5 | avg query latency |
+|---|---|---:|---:|---:|---:|---:|
+| FTS5 only | n/a | n/a | 0.7000 | 0.5833 | 0.9167 | 1.0 ms |
+| Qwen3-Embedding-0.6B (local, `low`) | metadata | 133.7 s | **0.7222** | 0.5833 | 0.9167 | 427.5 ms |
+| Qwen3-Embedding-4B (local, `high`) | metadata + body | 974.2 s | 0.7153 | 0.5833 | 0.9167 | 886.4 ms |
 
-FTS5 handles exact-name and PascalCase queries well. Embeddings close the gap on conceptual queries where FTS5 returns no results (e.g. "reciprocal rank fusion" → `rrf_merge`, rank 1). On this 12-query suite the 0.6B model performs as well as the 4B model at ~1/7 the memory footprint. The hybrid mode combines both automatically. See `docs/LOCAL-EMBEDDINGS.md` for the per-query breakdown.
+FTS5 is already strong on exact-name and PascalCase queries. On this small
+suite, both local presets improve conceptual MRR to 0.75, but `high` does not
+beat `low`; it is about 7.3x slower to embed and about 2.1x slower per query
+on the measured machine. Use `low` for day-to-day local search unless you are
+specifically chasing body-only implementation terms and have measured a benefit.
+The hybrid mode combines FTS and embeddings automatically. See
+`docs/LOCAL-EMBEDDINGS.md` for the per-query breakdown.
 
 ### Privacy and cloud egress
 
