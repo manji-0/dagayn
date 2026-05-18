@@ -16,6 +16,7 @@ except ImportError:
 
 from dagayn.eval.benchmarks import (
     build_performance,
+    embedding_text_modes,
     flow_completeness,
     impact_accuracy,
     mcp_latency,
@@ -33,6 +34,7 @@ BENCHMARK_REGISTRY = {
     "flow_completeness": flow_completeness.run,
     "search_quality": search_quality.run,
     "build_performance": build_performance.run,
+    "embedding_text_modes": embedding_text_modes.run,
     "nplusone_count": nplusone_count.run,
     "mcp_latency": mcp_latency.run,
     "recent_changes_effects": recent_changes_effects.run,

@@ -39,6 +39,8 @@ from .graph import GraphNode, GraphStore
 logger = logging.getLogger(__name__)
 
 _DEFAULT_SLOW_EMBED_BATCH_SECONDS = 10.0
+_DEFAULT_SOURCE_CHARS = 2048
+_EMBEDDING_TEXT_MODES = {"metadata", "body"}
 
 # ---------------------------------------------------------------------------
 # Provider Interface and Implementations
@@ -790,7 +792,61 @@ def _load_vec_matrix(conn: sqlite3.Connection, provider_name: str) -> tuple[Any,
     return matrix, names, row_norms
 
 
-def _node_to_text(node: GraphNode) -> str:
+def _embedding_text_mode(text_mode: str | None = None) -> str:
+    mode = (text_mode or os.environ.get("DAGAYN_EMBEDDING_TEXT_MODE") or "metadata").lower()
+    if mode not in _EMBEDDING_TEXT_MODES:
+        raise ValueError(
+            "DAGAYN_EMBEDDING_TEXT_MODE must be one of: "
+            + ", ".join(sorted(_EMBEDDING_TEXT_MODES))
+        )
+    return mode
+
+
+def _embedding_source_chars() -> int:
+    raw = os.environ.get("DAGAYN_EMBEDDING_SOURCE_CHARS")
+    if raw is None:
+        return _DEFAULT_SOURCE_CHARS
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        logger.warning("Invalid DAGAYN_EMBEDDING_SOURCE_CHARS=%r; using default", raw)
+        return _DEFAULT_SOURCE_CHARS
+
+
+def _read_node_source_excerpt(
+    node: GraphNode,
+    *,
+    source_root: Path | None = None,
+    max_chars: int | None = None,
+) -> str:
+    """Read a bounded source span for embedding text, best-effort."""
+    limit = _embedding_source_chars() if max_chars is None else max(0, max_chars)
+    if limit <= 0:
+        return ""
+
+    file_path = Path(node.file_path)
+    if not file_path.is_absolute():
+        if source_root is None:
+            return ""
+        file_path = source_root / file_path
+    try:
+        lines = file_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return ""
+
+    line_start = node.line_start or 1
+    line_end = node.line_end or line_start
+    start = max(int(line_start) - 1, 0)
+    end = min(max(int(line_end), int(line_start)), len(lines))
+    return "\n".join(lines[start:end])[:limit]
+
+
+def _node_to_text(
+    node: GraphNode,
+    *,
+    source_root: Path | None = None,
+    text_mode: str | None = None,
+) -> str:
     """Convert a node to a searchable text representation."""
     parts = [node.name, node.qualified_name, str(node.file_path).replace("/", " ")]
     display_name = node.extra.get("display_name") if isinstance(node.extra, dict) else None
@@ -808,6 +864,10 @@ def _node_to_text(node: GraphNode) -> str:
         parts.append(f"returns {node.return_type}")
     if node.language:
         parts.append(node.language)
+    if _embedding_text_mode(text_mode) == "body":
+        source_excerpt = _read_node_source_excerpt(node, source_root=source_root)
+        if source_excerpt:
+            parts.append(source_excerpt)
     return " ".join(parts)
 
 
@@ -841,10 +901,14 @@ class EmbeddingStore:
         provider: str | None = None,
         model: str | None = None,
         provider_instance: EmbeddingProvider | None = None,
+        text_mode: str | None = None,
+        source_root: str | Path | None = None,
     ) -> None:
         self.provider = provider_instance or get_provider(provider, model=model)
         self.available = self.provider is not None
         self.db_path = Path(db_path)
+        self.text_mode = _embedding_text_mode(text_mode)
+        self.source_root = Path(source_root) if source_root is not None else None
         self._conn = sqlite3.connect(
             str(self.db_path),
             timeout=30,
@@ -912,7 +976,7 @@ class EmbeddingStore:
 
         to_embed: list[tuple[GraphNode, str, str]] = []
         for node in candidate_nodes:
-            text = _node_to_text(node)
+            text = _node_to_text(node, source_root=self.source_root, text_mode=self.text_mode)
             text_hash = hashlib.sha256(text.encode()).hexdigest()
             ex = existing_hashes.get(node.qualified_name)
             if ex and ex[0] == text_hash and ex[1] == provider_name:
@@ -1198,5 +1262,10 @@ def embed_all_nodes(
     embedding_store.last_orphans_removed = embedding_store.remove_orphans(
         {node.qualified_name for node in all_nodes}
     )
+
+    if embedding_store.source_root is None:
+        get_repo_root = getattr(graph_store, "get_repo_root", None)
+        if callable(get_repo_root):
+            embedding_store.source_root = get_repo_root()
 
     return embedding_store.embed_nodes(all_nodes, show_progress=show_progress)

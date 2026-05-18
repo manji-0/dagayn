@@ -413,6 +413,68 @@ def test_runner_with_mock_repo():
         store.close()
 
 
+def test_embedding_text_modes_benchmark_compares_body_mode(tmp_path):
+    from dagayn.eval.benchmarks import embedding_text_modes
+    from dagayn.graph import GraphStore
+    from dagayn.parser import NodeInfo
+
+    repo_path = tmp_path / "repo"
+    repo_path.mkdir()
+    (repo_path / "service.py").write_text(
+        "def handle_failure():\n"
+        "    retry_budget_exhausted = True\n"
+        "    return retry_budget_exhausted\n",
+        encoding="utf-8",
+    )
+    (repo_path / "other.py").write_text("def helper():\n    return True\n", encoding="utf-8")
+    (repo_path / ".dagayn").mkdir()
+
+    store = GraphStore(repo_path / ".dagayn" / "graph.db")
+    store.set_metadata("repo_root", str(repo_path))
+    store.upsert_node(
+        NodeInfo(
+            kind="Function",
+            name="handle_failure",
+            file_path="service.py",
+            line_start=1,
+            line_end=3,
+            language="python",
+        )
+    )
+    store.upsert_node(
+        NodeInfo(
+            kind="Function",
+            name="helper",
+            file_path="other.py",
+            line_start=1,
+            line_end=2,
+            language="python",
+        )
+    )
+    store.commit()
+
+    rows = embedding_text_modes.run(
+        repo_path,
+        store,
+        {
+            "name": "text_mode_fixture",
+            "embedding_text_mode_queries": [
+                {
+                    "query": "retry budget exhausted",
+                    "expected": "service.py::handle_failure",
+                    "label": "source_body",
+                }
+            ],
+        },
+    )
+    by_mode = {row["text_mode"]: row for row in rows}
+
+    assert set(by_mode) == {"metadata", "body"}
+    assert by_mode["body"]["hit_at_5"] == 1
+    assert by_mode["body"]["reciprocal_rank"] >= by_mode["metadata"]["reciprocal_rank"]
+    store.close()
+
+
 # --- Token benchmark tests ---
 
 

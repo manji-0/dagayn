@@ -128,6 +128,22 @@ class TestNodeToText:
         assert "user_id" in text
         assert "-> User" in text
 
+    def test_body_mode_includes_source_excerpt(self, tmp_path):
+        source = tmp_path / "service.py"
+        source.write_text(
+            "def my_func():\n"
+            "    retry_budget_exhausted = True\n"
+            "    return retry_budget_exhausted\n",
+            encoding="utf-8",
+        )
+        node = self._make_node(file_path="service.py", line_start=1, line_end=3)
+
+        metadata_text = _node_to_text(node, source_root=tmp_path, text_mode="metadata")
+        body_text = _node_to_text(node, source_root=tmp_path, text_mode="body")
+
+        assert "retry_budget_exhausted" not in metadata_text
+        assert "retry_budget_exhausted" in body_text
+
     def test_file_node_no_kind(self):
         node = self._make_node(kind="File", name="file.py")
         text = _node_to_text(node)
@@ -309,6 +325,38 @@ class TestEmbeddingStore:
             with pytest.raises(RuntimeError, match=r"Embedding batch 2/3 failed"):
                 store.embed_nodes(nodes)
             assert store.count() == 1
+            store.close()
+
+    def test_embed_nodes_honors_body_text_mode(self, tmp_path):
+        db = tmp_path / "embeddings.db"
+        source = tmp_path / "file.py"
+        source.write_text("def func_1():\n    source_only_token = True\n", encoding="utf-8")
+
+        class CapturingProvider:
+            name = "capture"
+            preferred_batch_size = 1
+
+            def __init__(self):
+                self.texts = []
+
+            def embed(self, texts):
+                self.texts.extend(texts)
+                return [[1.0] for _ in texts]
+
+            def embed_query(self, text):
+                return [1.0]
+
+            @property
+            def dimension(self):
+                return 1
+
+        provider = CapturingProvider()
+        with patch("dagayn.embeddings.get_provider", return_value=provider):
+            store = EmbeddingStore(db, text_mode="body", source_root=tmp_path)
+            node = self._make_node("func_1", 1)
+            node.line_end = 2
+            assert store.embed_nodes([node]) == 1
+            assert "source_only_token" in provider.texts[0]
             store.close()
 
     def test_embed_nodes_isolates_failed_nodes_after_batch_failure(self, tmp_path):
