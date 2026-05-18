@@ -215,7 +215,7 @@ class TestResolveEmbeddingDefaults:
             return fake_build_or_update_graph
 
         monkeypatch.setattr(crg_main, "_tool", fake_tool)
-        crg_main._default_local_embedding = "high"
+        crg_main._default_local_embedding = "low"
         crg_main._default_local_embedding_port = 19090
         crg_main._default_local_embedding_bin = "/tmp/llama-server"
         crg_main._default_keep_local_embedding_server = True
@@ -225,7 +225,7 @@ class TestResolveEmbeddingDefaults:
 
         asyncio.run(crg_main.build_or_update_graph_tool(repo_root="/repo"))
 
-        assert calls[0]["local_embedding"] == "high"
+        assert calls[0]["local_embedding"] == "low"
         assert calls[0]["local_embedding_port"] == 19090
         assert calls[0]["local_embedding_bin"] == "/tmp/llama-server"
         assert calls[0]["keep_local_embedding_server"] is True
@@ -246,7 +246,7 @@ class TestResolveEmbeddingDefaults:
             return fake_build_or_update_graph
 
         monkeypatch.setattr(crg_main, "_tool", fake_tool)
-        crg_main._default_local_embedding = "high"
+        crg_main._default_local_embedding = "low"
 
         asyncio.run(crg_main.build_or_update_graph_tool(repo_root="/repo", local_embedding="none"))
 
@@ -283,7 +283,7 @@ class TestServeMainTransport:
             repo_root=None,
             embedding_provider="openai",
             embedding_model="qwen3",
-            local_embedding="high",
+            local_embedding="low",
             local_embedding_port=19090,
             local_embedding_bin="/tmp/llama-server",
             keep_local_embedding_server=True,
@@ -294,7 +294,7 @@ class TestServeMainTransport:
 
         assert crg_main._default_embedding_provider == "openai"
         assert crg_main._default_embedding_model == "qwen3"
-        assert crg_main._default_local_embedding == "high"
+        assert crg_main._default_local_embedding == "low"
         assert crg_main._default_local_embedding_port == 19090
         assert crg_main._default_local_embedding_bin == "/tmp/llama-server"
         assert crg_main._default_keep_local_embedding_server is True

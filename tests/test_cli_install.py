@@ -40,9 +40,12 @@ class TestResolveInstallMode:
         ns = _ns(mode="local", preset="low")
         assert _resolve_install_mode(ns) == ("local", "low", None)
 
-    def test_explicit_local_requires_preset(self):
-        with pytest.raises(SystemExit, match="--mode local requires --preset"):
-            _resolve_install_mode(_ns(mode="local"))
+    def test_explicit_local_defaults_to_low(self):
+        assert _resolve_install_mode(_ns(mode="local")) == ("local", "low", None)
+
+    def test_explicit_local_rejects_removed_high_preset(self):
+        with pytest.raises(SystemExit, match="only supports --preset low"):
+            _resolve_install_mode(_ns(mode="local", preset="high"))
 
     def test_explicit_remote_with_provider(self):
         ns = _ns(mode="remote", provider="openai")
@@ -56,9 +59,9 @@ class TestResolveInstallMode:
         ns = _ns(local_embedding="low")
         assert _resolve_install_mode(ns) == ("local", "low", None)
 
-    def test_legacy_local_embedding_high(self):
-        ns = _ns(local_embedding="high")
-        assert _resolve_install_mode(ns) == ("local", "high", None)
+    def test_legacy_local_embedding_rejects_removed_high(self):
+        with pytest.raises(SystemExit, match="only supports low"):
+            _resolve_install_mode(_ns(local_embedding="high"))
 
     def test_explicit_mode_overrides_legacy(self):
         # --mode fts wins over --local-embedding low.
@@ -102,12 +105,8 @@ class TestPromptInstallMode:
         assert _prompt_install_mode() == ("fts", None, None)
 
     def test_picks_local_low(self, monkeypatch):
-        _scripted_input(monkeypatch, ["2", "1"])
+        _scripted_input(monkeypatch, ["2"])
         assert _prompt_install_mode() == ("local", "low", None)
-
-    def test_picks_local_high(self, monkeypatch):
-        _scripted_input(monkeypatch, ["2", "2"])
-        assert _prompt_install_mode() == ("local", "high", None)
 
     def test_picks_remote_openai(self, monkeypatch):
         _scripted_input(monkeypatch, ["3", "1"])

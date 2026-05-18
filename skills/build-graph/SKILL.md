@@ -25,7 +25,7 @@ the selected embedding mode so graph builds refresh the right retrieval indexes.
    - For first-time setup: `build_or_update_graph_tool(full_rebuild=True)`
    - For updates: `build_or_update_graph_tool()` (incremental by default)
    - Do not pass `local_embedding` just to match the installed mode. When the
-     MCP server was started with `--local-embedding low|high`, the tool inherits
+     MCP server was started with `--local-embedding low`, the tool inherits
      that preset. Pass `local_embedding="none"` only for a deliberate FTS-only
      refresh, or pass an explicit preset only when overriding the server default.
 

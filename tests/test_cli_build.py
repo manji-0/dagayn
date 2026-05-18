@@ -22,7 +22,7 @@ def test_build_parser_accepts_local_embedding_options():
         [
             "build",
             "--local-embedding",
-            "high",
+            "low",
             "--local-embedding-port",
             "19090",
             "--local-embedding-bin",
@@ -38,7 +38,7 @@ def test_build_parser_accepts_local_embedding_options():
     )
 
     assert args.command == "build"
-    assert args.local_embedding == "high"
+    assert args.local_embedding == "low"
     assert args.local_embedding_port == 19090
     assert args.local_embedding_bin == "/tmp/llama-server"
     assert args.keep_local_embedding_server is True
@@ -87,8 +87,8 @@ def test_print_local_embedding_summary_includes_orphan_count(capsys):
     _print_local_embedding_summary(
         {
             "local_embedding": {
-                "preset": "high",
-                "text_mode": "body",
+                "preset": "low",
+                "text_mode": "metadata",
                 "server_started": False,
                 "newly_embedded": 1,
                 "orphans_removed": 2,
@@ -98,7 +98,7 @@ def test_print_local_embedding_summary_includes_orphan_count(capsys):
     )
 
     out = capsys.readouterr().out
-    assert "Local embeddings (high/body, reused server)" in out
+    assert "Local embeddings (low/metadata, reused server)" in out
     assert "1 new, 2 orphan removed, 9 total" in out
 
 

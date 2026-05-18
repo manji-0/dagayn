@@ -103,7 +103,7 @@ def test_handle_starts_persisted_local_embedding_for_semantic_tool(monkeypatch, 
 
     class FakeServer:
         base_url = "http://127.0.0.1:19090/v1"
-        preset = SimpleNamespace(model="qwen3-embedding-4b-gguf-q8_0")
+        preset = SimpleNamespace(model="qwen3-embedding-0.6b-gguf-q8_0")
 
     class FakeContext:
         def __enter__(self):
@@ -120,8 +120,8 @@ def test_handle_starts_persisted_local_embedding_for_semantic_tool(monkeypatch, 
     monkeypatch.setattr(
         "dagayn.cli.commands.serve._infer_persisted_local_embedding",
         lambda repo_root: SimpleNamespace(
-            level="high",
-            model="qwen3-embedding-4b-gguf-q8_0",
+            level="low",
+            model="qwen3-embedding-0.6b-gguf-q8_0",
             base_url="http://127.0.0.1:19090/v1",
             port=19090,
         ),
@@ -136,13 +136,13 @@ def test_handle_starts_persisted_local_embedding_for_semantic_tool(monkeypatch, 
     )
     tool.handle(args)
 
-    assert server_calls == [{"level": "high", "port": 19090}]
+    assert server_calls == [{"level": "low", "port": 19090}]
     assert calls == [
         {
             "repo_root": "/tmp/repo",
             "api_key": "dagayn-local",
             "base_url": "http://127.0.0.1:19090/v1",
-            "model": "qwen3-embedding-4b-gguf-q8_0",
+            "model": "qwen3-embedding-0.6b-gguf-q8_0",
         }
     ]
     assert json.loads(capsys.readouterr().out)["status"] == "ok"
@@ -181,7 +181,7 @@ def test_handle_caches_local_embedding_start_failure(monkeypatch, capsys):
     from dagayn.search import _emb_failure_cache
 
     calls: list[dict] = []
-    provider_name = "openai:qwen3-embedding-4b-gguf-q8_0@http://127.0.0.1:19090/v1"
+    provider_name = "openai:qwen3-embedding-0.6b-gguf-q8_0@http://127.0.0.1:19090/v1"
 
     def fake_tool(**kwargs):
         calls.append(kwargs)
@@ -191,8 +191,8 @@ def test_handle_caches_local_embedding_start_failure(monkeypatch, capsys):
     monkeypatch.setattr(
         "dagayn.cli.commands.serve._infer_persisted_local_embedding",
         lambda repo_root: SimpleNamespace(
-            level="high",
-            model="qwen3-embedding-4b-gguf-q8_0",
+            level="low",
+            model="qwen3-embedding-0.6b-gguf-q8_0",
             base_url="http://127.0.0.1:19090/v1",
             port=19090,
         ),

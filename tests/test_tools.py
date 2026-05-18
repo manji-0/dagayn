@@ -1417,9 +1417,9 @@ class TestBuildPostprocess:
         monkeypatch.setenv("DAGAYN_BACKEND", "python")
         embed_result = {
             "status": "ok",
-            "preset": "high",
-            "model": "qwen3-embedding-4b-gguf-q8_0",
-            "dimension": 2560,
+            "preset": "low",
+            "model": "qwen3-embedding-0.6b-gguf-q8_0",
+            "dimension": 1024,
             "server_started": True,
             "server_url": "http://127.0.0.1:18080/v1",
             "newly_embedded": 3,
@@ -1436,7 +1436,7 @@ class TestBuildPostprocess:
                 full_rebuild=True,
                 repo_root=str(self.root),
                 postprocess="minimal",
-                local_embedding="high",
+                local_embedding="low",
                 local_embedding_port=19090,
                 local_embedding_bin="/tmp/llama-server",
                 keep_local_embedding_server=True,
@@ -1446,7 +1446,7 @@ class TestBuildPostprocess:
         assert result["local_embedding"] == embed_result
         run.assert_called_once()
         kwargs = run.call_args.kwargs
-        assert kwargs["local_embedding"] == "high"
+        assert kwargs["local_embedding"] == "low"
         assert kwargs["local_embedding_port"] == 19090
         assert kwargs["local_embedding_bin"] == "/tmp/llama-server"
         assert kwargs["keep_local_embedding_server"] is True

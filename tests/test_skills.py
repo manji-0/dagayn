@@ -160,7 +160,7 @@ class TestGenerateSkills:
         skills_dir = generate_skills(
             tmp_path,
             embedding_mode="local",
-            embedding_preset="high",
+            embedding_preset="low",
         )
         semantic = (skills_dir / "semantic-search.md").read_text()
         debug = (skills_dir / "debug-issue.md").read_text()
@@ -168,18 +168,18 @@ class TestGenerateSkills:
         writing = (skills_dir / "writing-markdown-document.md").read_text()
         review_pr = (skills_dir / "review-pr.md").read_text()
 
-        assert "--mode local --preset high" in semantic
+        assert "--mode local --preset low" in semantic
         assert "build_or_update_graph_tool()" in semantic
         assert 'local_embedding="none"' in semantic
         assert "mode-neutral" not in semantic
-        assert "--mode local --preset high" in debug
-        assert "--mode local --preset high" in build
-        assert "--local-embedding low|high" in build
+        assert "--mode local --preset low" in debug
+        assert "--mode local --preset low" in build
+        assert "--local-embedding low" in build
         assert "inherits" in build
-        assert "--mode local --preset high" in writing
+        assert "--mode local --preset low" in writing
         assert "exact symbol match" in writing
         assert "Ignore semantic near-matches" in writing
-        assert "--mode local --preset high" in review_pr
+        assert "--mode local --preset low" in review_pr
 
     def test_generate_skills_renders_fts_context(self, tmp_path):
         skills_dir = generate_skills(tmp_path, embedding_mode="fts")

@@ -29,13 +29,13 @@ the selected embedding mode so agents can avoid stale or wasteful search advice.
    `search_mode="hybrid"` means embeddings and FTS were merged. `fts_only`
    is still valid, but semantic recall is lower.
 3. If embeddings are missing or stale, build them through the graph tools:
-   - Local high quality: `build_or_update_graph_tool(full_rebuild=True, local_embedding="high")`
-   - Incremental local refresh: `build_or_update_graph_tool(local_embedding="high")`
+   - Full local refresh: `build_or_update_graph_tool(full_rebuild=True, local_embedding="low")`
+   - Incremental local refresh: `build_or_update_graph_tool(local_embedding="low")`
    - Dedicated embedding pass: `embed_graph_tool`
 4. For CLI fallback:
    ```bash
-   dagayn build --local-embedding high
-   dagayn update --local-embedding high
+   dagayn build --local-embedding low
+   dagayn update --local-embedding low
    dagayn tool embed_graph_tool
    ```
 5. Re-run the same `semantic_search_nodes_tool` query and compare result count,
@@ -46,8 +46,8 @@ the selected embedding mode so agents can avoid stale or wasteful search advice.
 
 - `fts_only` is acceptable for exact symbol/name lookup; do not rebuild
   embeddings just to find a precise identifier.
-- Prefer local high for reusable developer environments and local low when
-  startup time or memory is tight.
+- Use local `low` for reusable developer environments when embeddings are
+  useful; use FTS-only when startup time or memory is tight.
 - If local embedding startup fails, check the `llama-server` path, port, and
   timeout before changing graph data.
 - If provider imports are unavailable, keep going with FTS and report the

@@ -305,7 +305,7 @@ def install_platform_configs(
         dry_run: If True, print what would be done without writing.
         extra_serve_args: Additional CLI args appended to the ``dagayn serve``
             command written into MCP config files (e.g.
-            ``["--local-embedding", "high"]``).
+            ``["--local-embedding", "low"]``).
 
     Returns:
         List of platform names that were configured.
@@ -446,7 +446,7 @@ def _embedding_context_lines(
 ) -> list[str]:
     """Return install-specific search guidance for generated skills."""
     if embedding_mode == "local":
-        preset = embedding_preset or "high"
+        preset = embedding_preset or "low"
         return [
             "## Installed Search Mode",
             "",

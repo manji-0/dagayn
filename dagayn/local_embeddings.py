@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
 
-LocalEmbeddingLevel = Literal["low", "high"]
+LocalEmbeddingLevel = Literal["low"]
 EmbeddingTextMode = Literal["metadata", "body"]
 
 DEFAULT_LOCAL_EMBEDDING_PORT = 18080
@@ -81,14 +81,6 @@ LOCAL_EMBEDDING_PRESETS: dict[LocalEmbeddingLevel, LocalEmbeddingPreset] = {
         dimension=1024,
         text_mode="metadata",
     ),
-    "high": LocalEmbeddingPreset(
-        level="high",
-        repo_id="Qwen/Qwen3-Embedding-4B-GGUF",
-        quant="Q8_0",
-        model="qwen3-embedding-4b-gguf-q8_0",
-        dimension=2560,
-        text_mode="body",
-    ),
 }
 
 
@@ -99,8 +91,6 @@ def get_local_embedding_preset(level: str) -> LocalEmbeddingPreset:
         normalized = "low"
     if normalized == "low":
         return LOCAL_EMBEDDING_PRESETS["low"]
-    if normalized == "high":
-        return LOCAL_EMBEDDING_PRESETS["high"]
     choices = ", ".join(["none", *LOCAL_EMBEDDING_PRESETS])
     raise ValueError(f"Unknown local embedding preset '{level}'. Expected one of: {choices}.")
 

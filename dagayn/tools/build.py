@@ -566,8 +566,8 @@ def build_or_update_graph(
             via ``git ls-files --recurse-submodules``. When None
             (default), falls back to the CRG_RECURSE_SUBMODULES
             environment variable. Default: disabled.
-        local_embedding: Optional local Qwen embedding preset: ``"low"``
-            or ``"high"``. ``None`` / ``"none"`` skips embeddings.
+        local_embedding: Optional local Qwen embedding preset: ``"low"``.
+            ``None`` / ``"none"`` skips embeddings.
         local_embedding_port: localhost port for the OpenAI-compatible
             llama-server endpoint.
         local_embedding_bin: ``llama-server`` executable name or path.

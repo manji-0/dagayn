@@ -24,7 +24,7 @@ running the normal full parse. `--force` is accepted as a shorter alias.
 after the graph refresh:
 
 ```bash
-dagayn build --local-embedding high
+dagayn build --local-embedding low
 dagayn update --local-embedding low
 ```
 
@@ -106,7 +106,7 @@ The MCP server exposes tools for:
 - wiki generation and wiki page lookup
 - multi-repo registry and cross-repo search
 
-When the server is launched with `dagayn serve --local-embedding low|high`,
+When the server is launched with `dagayn serve --local-embedding low`,
 search-oriented MCP tools default to the managed OpenAI-compatible local
 embedding endpoint. This makes `semantic_search_nodes`, `traverse_graph`, and
 `cross_repo_search` run hybrid FTS + embedding retrieval unless the client
@@ -154,7 +154,7 @@ server does not reload a broader allow-list dynamically. Use
 `dagayn tool <tool-name>` for ad-hoc shell access without restarting the
 agent's MCP server.
 
-When `dagayn serve --local-embedding {low,high}` starts a managed local
+When `dagayn serve --local-embedding low` starts a managed local
 embedding sidecar, MCP `semantic_search_nodes_tool` automatically searches with
 the matching OpenAI-compatible provider and Qwen model. When
 `--remote-embedding {openai,google,minimax}` is set, MCP search automatically

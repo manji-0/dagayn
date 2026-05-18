@@ -211,7 +211,7 @@ async def build_or_update_graph_tool(
                      or "none" (skip all post-processing). Use "minimal" for faster builds.
         recurse_submodules: If True, include files from git submodules.
             When None (default), falls back to CRG_RECURSE_SUBMODULES env var.
-        local_embedding: Optional local Qwen embedding preset: "low" or "high".
+        local_embedding: Optional local Qwen embedding preset: "low".
         local_embedding_port: localhost port for the managed llama-server.
         local_embedding_bin: llama-server executable name or path.
         keep_local_embedding_server: Leave a dagayn-started server running.

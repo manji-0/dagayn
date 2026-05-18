@@ -85,7 +85,7 @@ Embeddings are optional.
 
 Embeddings are additive: with embeddings built, `semantic_search_nodes` merges BM25 and cosine via RRF and returns `search_mode: "hybrid"`; without them it falls back to FTS5-only (`"fts_only"`). The per-result `source` field (`"fts"`, `"embedding"`, `"both"`, `"keyword"`) shows which arm produced each hit. If provider imports are unavailable, keyword-based graph search still works.
 
-For local Qwen embeddings during graph refresh, use `dagayn build --local-embedding high`
+For local Qwen embeddings during graph refresh, use `dagayn build --local-embedding low`
 or `dagayn update --local-embedding low`. dagayn reuses a compatible
 `llama-server` on localhost or starts one as a subprocess for the command.
 </section>

@@ -27,9 +27,9 @@ def _add_local_embedding_args(cmd: argparse.ArgumentParser) -> None:
     """Add --local-embedding* flags to a subcommand parser."""
     cmd.add_argument(
         "--local-embedding",
-        choices=["none", "low", "high"],
+        choices=["none", "low"],
         default="none",
-        help="Use a local Qwen GGUF embedding server (default: none)",
+        help="Use the local Qwen 0.6B GGUF embedding server (default: none)",
     )
     cmd.add_argument(
         "--local-embedding-port",
@@ -133,14 +133,8 @@ def _prompt_install_mode() -> tuple[str, str | None, str | None]:
     if choice == "fts":
         return "fts", None, None
     if choice == "local":
-        print("Which preset?")
-        print("  1) low  — Qwen3-Embedding-0.6B (~1 GB, recommended)")
-        print("  2) high — Qwen3-Embedding-4B (~4.3 GB)")
-        preset = _read_choice(
-            "Choose [1-2]: ",
-            {"1": "low", "2": "high"},
-        )
-        return "local", preset, None
+        print("Using local preset: low — Qwen3-Embedding-0.6B (~1 GB)")
+        return "local", "low", None
     # remote
     print("Which provider?")
     print("  1) openai  — OpenAI-compatible API")
@@ -159,7 +153,7 @@ def _resolve_install_mode(args: argparse.Namespace) -> tuple[str, str | None, st
     Precedence:
     1. Explicit ``--mode`` flag (with paired ``--preset`` / ``--provider``
        validation).
-    2. Legacy ``--local-embedding low|high`` implies ``local`` mode.
+    2. Legacy ``--local-embedding low`` implies ``local`` mode.
     3. Otherwise: interactive prompt on a TTY, fail-fast under ``-y`` or
        a non-TTY stdin.
 
@@ -172,19 +166,23 @@ def _resolve_install_mode(args: argparse.Namespace) -> tuple[str, str | None, st
     auto_yes = getattr(args, "yes", False)
 
     if mode is not None:
-        if mode == "local" and not preset:
-            raise SystemExit("--mode local requires --preset {low,high}")
+        if mode == "local":
+            if preset not in (None, "low"):
+                raise SystemExit("--mode local only supports --preset low")
+            return mode, preset or "low", provider
         if mode == "remote" and not provider:
             raise SystemExit("--mode remote requires --provider {openai,google,minimax}")
         return mode, preset, provider
 
-    if legacy_le in ("low", "high"):
+    if legacy_le == "low":
         return "local", legacy_le, None
+    if legacy_le not in ("none", ""):
+        raise SystemExit("--local-embedding only supports low")
 
     if auto_yes or not sys.stdin.isatty():
         raise SystemExit(
             "--mode is required when stdin is not a TTY or --yes is set.\n"
-            "  Use --mode fts | --mode local --preset {low,high} | "
+            "  Use --mode fts | --mode local [--preset low] | "
             "--mode remote --provider {openai,google,minimax}."
         )
 

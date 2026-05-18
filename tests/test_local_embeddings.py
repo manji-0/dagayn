@@ -38,16 +38,16 @@ class FakeProcess:
 
 def test_local_embedding_presets_are_stable():
     low = get_local_embedding_preset("low")
-    high = get_local_embedding_preset("high")
 
     assert low.hf_selector == "Qwen/Qwen3-Embedding-0.6B-GGUF:Q8_0"
     assert low.model == "qwen3-embedding-0.6b-gguf-q8_0"
     assert low.dimension == 1024
     assert low.text_mode == "metadata"
-    assert high.hf_selector == "Qwen/Qwen3-Embedding-4B-GGUF:Q8_0"
-    assert high.model == "qwen3-embedding-4b-gguf-q8_0"
-    assert high.dimension == 2560
-    assert high.text_mode == "body"
+
+
+def test_local_embedding_rejects_removed_high_preset():
+    with pytest.raises(ValueError, match="Expected one of: none, low"):
+        get_local_embedding_preset("high")
 
 
 def test_local_embedding_base_url_uses_openai_v1_path():
@@ -56,19 +56,19 @@ def test_local_embedding_base_url_uses_openai_v1_path():
 
 def test_infer_local_embedding_provider_from_persisted_name():
     inferred = infer_local_embedding_provider(
-        "openai:qwen3-embedding-4b-gguf-q8_0@http://127.0.0.1:19090/v1"
+        "openai:qwen3-embedding-0.6b-gguf-q8_0@http://127.0.0.1:19090/v1"
     )
 
     assert inferred is not None
-    assert inferred.level == "high"
-    assert inferred.model == "qwen3-embedding-4b-gguf-q8_0"
+    assert inferred.level == "low"
+    assert inferred.model == "qwen3-embedding-0.6b-gguf-q8_0"
     assert inferred.port == 19090
 
 
 def test_infer_local_embedding_provider_refuses_cloud_endpoint():
     assert (
         infer_local_embedding_provider(
-            "openai:qwen3-embedding-4b-gguf-q8_0@https://api.example.com/v1"
+            "openai:qwen3-embedding-0.6b-gguf-q8_0@https://api.example.com/v1"
         )
         is None
     )
@@ -91,8 +91,8 @@ def test_probe_rejects_wrong_embedding_dimension(monkeypatch):
 
     result = _probe_embedding_server(
         "http://127.0.0.1:18080/v1",
-        "qwen3-embedding-4b-gguf-q8_0",
-        2560,
+        "qwen3-embedding-0.6b-gguf-q8_0",
+        1024,
     )
 
     assert result.status == "incompatible"
@@ -113,8 +113,8 @@ def test_probe_treats_retryable_http_as_not_ready(monkeypatch):
 
     result = _probe_embedding_server(
         "http://127.0.0.1:18080/v1",
-        "qwen3-embedding-4b-gguf-q8_0",
-        2560,
+        "qwen3-embedding-0.6b-gguf-q8_0",
+        1024,
     )
 
     assert result.status == "not_ready"
@@ -131,7 +131,7 @@ def test_local_embedding_server_reuses_ready_endpoint(monkeypatch):
         "dagayn.local_embeddings.subprocess.Popen", lambda *a, **k: popen_calls.append(a)
     )
 
-    with local_embedding_server("high", port=18080) as server:
+    with local_embedding_server("low", port=18080) as server:
         assert server.started is False
         assert server.base_url == "http://127.0.0.1:18080/v1"
         assert server.command == []
@@ -156,18 +156,18 @@ def test_local_embedding_server_starts_and_stops_llama_server(monkeypatch):
 
     monkeypatch.setattr("dagayn.local_embeddings.subprocess.Popen", fake_popen)
 
-    with local_embedding_server("high", port=19090, startup_timeout=1) as server:
+    with local_embedding_server("low", port=19090, startup_timeout=1) as server:
         assert server.started is True
         assert server.command[:3] == [
             "/bin/llama-server",
             "-hf",
-            "Qwen/Qwen3-Embedding-4B-GGUF:Q8_0",
+            "Qwen/Qwen3-Embedding-0.6B-GGUF:Q8_0",
         ]
         assert "--embedding" in server.command
         assert "--pooling" in server.command
         assert "last" in server.command
         assert "--alias" in server.command
-        assert "qwen3-embedding-4b-gguf-q8_0" in server.command
+        assert "qwen3-embedding-0.6b-gguf-q8_0" in server.command
 
     assert commands
     assert commands[0][1]["stdin"] is subprocess.DEVNULL

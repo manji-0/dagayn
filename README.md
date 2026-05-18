@@ -190,7 +190,6 @@ dagayn install --mode fts
 
 # 2. Local — managed llama.cpp sidecar with a Qwen3 GGUF.
 dagayn install --mode local --preset low    # Qwen3-Embedding-0.6B (~1 GB)
-dagayn install --mode local --preset high   # Qwen3-Embedding-4B (~4.3 GB)
 
 # 3. Remote — OpenAI-compatible / Google / MiniMax cloud embeddings.
 dagayn install --mode remote --provider openai
@@ -198,7 +197,7 @@ dagayn install --mode remote --provider google
 dagayn install --mode remote --provider minimax
 ```
 
-For `--mode remote`, set the provider's environment variables in the shell that launches your AI coding tool (e.g. `CRG_OPENAI_API_KEY`, `CRG_OPENAI_BASE_URL`, `CRG_OPENAI_MODEL` for `openai`); the MCP server inherits those at launch time and the generated `dagayn serve --remote-embedding <provider>` entry makes MCP search use that provider automatically.  The exact env-var list is printed at install time.  The legacy `--local-embedding low|high` flag still works as a shortcut for `--mode local --preset $X`.
+For `--mode remote`, set the provider's environment variables in the shell that launches your AI coding tool (e.g. `CRG_OPENAI_API_KEY`, `CRG_OPENAI_BASE_URL`, `CRG_OPENAI_MODEL` for `openai`); the MCP server inherits those at launch time and the generated `dagayn serve --remote-embedding <provider>` entry makes MCP search use that provider automatically.  The exact env-var list is printed at install time.  The legacy `--local-embedding low` flag still works as a shortcut for `--mode local --preset low`.
 
 ### Rust backend
 
@@ -304,7 +303,7 @@ The graph is stored locally under `.dagayn/` by default. No external database is
 
 <!-- derived-from ./docs/ARCHITECTURE.md#hybrid-search -->
 
-`semantic_search_nodes` runs FTS5 BM25 and vector cosine similarity **in parallel**, then merges both ranked lists via Reciprocal Rank Fusion (RRF). When embeddings are not yet present only the FTS5 arm contributes; when both are available you get hybrid results automatically — no per-search configuration change required. `dagayn serve --local-embedding {low,high}` makes MCP search default to the matching local OpenAI-compatible sidecar, and `dagayn serve --remote-embedding {openai,google,minimax}` makes MCP search default to that remote provider. The FTS index includes generated identifier tokens (so `LocalEmbeddingProvider` also matches `local embedding provider`) plus bounded source/document text such as docstrings and Markdown section bodies.
+`semantic_search_nodes` runs FTS5 BM25 and vector cosine similarity **in parallel**, then merges both ranked lists via Reciprocal Rank Fusion (RRF). When embeddings are not yet present only the FTS5 arm contributes; when both are available you get hybrid results automatically — no per-search configuration change required. `dagayn serve --local-embedding low` makes MCP search default to the matching local OpenAI-compatible sidecar, and `dagayn serve --remote-embedding {openai,google,minimax}` makes MCP search default to that remote provider. The FTS index includes generated identifier tokens (so `LocalEmbeddingProvider` also matches `local embedding provider`) plus bounded source/document text such as docstrings and Markdown section bodies.
 
 A `search_mode` field in the response reports which arms contributed: `"hybrid"` (both), `"fts_only"`, `"embedding_only"`, or `"keyword_fallback"` (LIKE substring, triggered only when the FTS5 index does not exist). Search results are further ranked by a query-aware kind boost (PascalCase → classes, snake_case → functions) and an optional context-file boost for nodes in files you are currently editing.
 
@@ -342,22 +341,19 @@ Embeddings are stored in the `embeddings` table inside `.dagayn/graph.db`. Switc
 
 Measured on the dagayn codebase itself (6,197 graph nodes, 5,811 embedded
 non-file nodes, 12 queries spanning exact function names, PascalCase class
-names, and conceptual natural-language queries). `low` embeds graph metadata
-only; `high` embeds metadata plus bounded source body text.
+names, and conceptual natural-language queries). Local embeddings use the
+`low` preset, which embeds graph metadata.
 
 | Mode | text embedded | build time | mean MRR | Precision@1 | Precision@5 | avg query latency |
 |---|---|---:|---:|---:|---:|---:|
 | FTS5 only | n/a | n/a | 0.7417 | 0.6667 | 0.9167 | 1.0 ms |
 | Qwen3-Embedding-0.6B Q8 (local, `low`) | metadata | 133.2 s | **0.7222** | 0.5833 | 0.9167 | 413.2 ms |
-| Qwen3-Embedding-4B Q8 (local, `high`) | metadata + body | 941.1 s | 0.7153 | 0.5833 | 0.9167 | 889.1 ms |
 
 FTS5 is already strong on exact-name and PascalCase queries. On this small
-suite, both local presets improve conceptual MRR to 0.75, but `high` does not
-beat `low`; it is about 7.1x slower to embed and about 2.2x slower per query
-on the measured machine. Use `low` for day-to-day local search unless you are
-specifically chasing body-only implementation terms and have measured a benefit.
-The hybrid mode combines FTS and embeddings automatically. See
-`docs/LOCAL-EMBEDDINGS.md` for the per-query breakdown.
+suite, the previous 4B `high` experiment did not beat `low` and was about 7x
+slower to embed, so the local preset surface now keeps only `low`. The hybrid
+mode combines FTS and embeddings automatically. See `docs/LOCAL-EMBEDDINGS.md`
+for the per-query breakdown.
 
 ### Privacy and cloud egress
 
