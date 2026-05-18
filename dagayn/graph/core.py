@@ -422,8 +422,27 @@ class GraphStore:
 
     def remove_files_data(self, file_paths: list[str]) -> None:
         """Remove graph data for multiple files in one store operation."""
+        keys: list[str] = []
+        seen: set[str] = set()
         for file_path in file_paths:
-            self.remove_file_data(file_path)
+            for key in (file_path, self._normalize_file_path_key(file_path)):
+                if key not in seen:
+                    seen.add(key)
+                    keys.append(key)
+        for i in range(0, len(keys), 450):
+            chunk = keys[i : i + 450]
+            if not chunk:
+                continue
+            placeholders = ",".join("?" for _ in chunk)
+            self._conn.execute(
+                f"DELETE FROM nodes WHERE file_path IN ({placeholders})",
+                chunk,
+            )
+            self._conn.execute(
+                f"DELETE FROM edges WHERE file_path IN ({placeholders})",
+                chunk,
+            )
+        self._invalidate_cache()
 
     def store_file_nodes_edges(
         self,
