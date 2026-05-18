@@ -758,7 +758,10 @@ def _load_vec_matrix(conn: sqlite3.Connection, provider_name: str) -> tuple[Any,
 
 def _node_to_text(node: GraphNode) -> str:
     """Convert a node to a searchable text representation."""
-    parts = [node.name]
+    parts = [node.name, node.qualified_name, str(node.file_path).replace("/", " ")]
+    display_name = node.extra.get("display_name") if isinstance(node.extra, dict) else None
+    if display_name:
+        parts.append(str(display_name))
     if node.kind != "File":
         parts.append(node.kind.lower())
     if node.parent_name:
@@ -1116,6 +1119,14 @@ class EmbeddingStore:
 
     def count(self) -> int:
         return self._conn.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0]
+
+    def count_provider(self) -> int:
+        if not self.provider:
+            return 0
+        return self._conn.execute(
+            "SELECT COUNT(*) FROM embeddings WHERE provider = ?",
+            (self.provider.name,),
+        ).fetchone()[0]
 
 
 def _draw_embed_progress(done: int, total: int, elapsed: float, *, end: bool = False) -> None:

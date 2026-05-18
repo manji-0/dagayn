@@ -422,6 +422,37 @@ class TestHybridSearch:
         rebuild_fts_index(self.store)
         hs = hybrid_search(self.store, "authenticate")
         assert hs["mode"] == "fts_only"
+        assert hs["embedding_health"]["status"] in {
+            "provider_unavailable",
+            "missing_vectors",
+        }
+
+    def test_embedding_health_reports_missing_provider_env(self, monkeypatch):
+        rebuild_fts_index(self.store)
+        monkeypatch.delenv("CRG_OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("CRG_OPENAI_BASE_URL", raising=False)
+        monkeypatch.delenv("CRG_OPENAI_MODEL", raising=False)
+        self.store._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS embeddings (
+                qualified_name TEXT PRIMARY KEY,
+                vector BLOB NOT NULL,
+                text_hash TEXT NOT NULL,
+                provider TEXT NOT NULL DEFAULT 'unknown'
+            )
+            """
+        )
+        self.store._conn.execute(
+            "INSERT OR REPLACE INTO embeddings VALUES (?, ?, ?, ?)",
+            ("auth.py::authenticate", b"\x00\x00\x00\x00", "hash", "openai:qwen3@localhost"),
+        )
+        self.store._conn.commit()
+
+        hs = hybrid_search(self.store, "authenticate", provider="openai", model="qwen3")
+
+        assert hs["mode"] == "fts_only"
+        assert hs["embedding_health"]["status"] == "missing_provider_env"
+        assert hs["embedding_health"]["provider_counts"] == {"openai:qwen3@localhost": 1}
 
     def test_mode_keyword_fallback(self):
         """Mode is 'keyword_fallback' when FTS table is absent."""

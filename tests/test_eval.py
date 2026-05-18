@@ -357,6 +357,11 @@ def test_runner_with_mock_repo():
         sq_results = search_quality.run(repo_path, store, config)
         assert len(sq_results) == 1
         assert "reciprocal_rank" in sq_results[0]
+        assert "hit_at_5" in sq_results[0]
+        assert "ndcg_at_20" in sq_results[0]
+        assert "search_mode" in sq_results[0]
+        assert "embedding_status" in sq_results[0]
+        assert "latency_ms" in sq_results[0]
 
         # Run build_performance
         from dagayn.eval.benchmarks import build_performance

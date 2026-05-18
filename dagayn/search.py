@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import sqlite3
 import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
@@ -515,10 +516,55 @@ def _embedding_search(
     Returns list of ``(node_id, similarity_score)`` tuples.
     Gracefully returns an empty list if embeddings are not available.
     """
+    return _embedding_search_with_health(store, query, limit, model, provider)[0]
+
+
+def _embedding_provider_counts(db_path: Path) -> dict[str, int]:
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        try:
+            rows = conn.execute(
+                "SELECT provider, COUNT(*) FROM embeddings GROUP BY provider"
+            ).fetchall()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return {}
+    return {str(provider): int(count) for provider, count in rows}
+
+
+def _embedding_search_with_health(
+    store: GraphStore,
+    query: str,
+    limit: int = 50,
+    model: str | None = None,
+    provider: str | None = None,
+) -> tuple[list[tuple[int, float]], dict[str, Any]]:
+    """Run vector search and return health metadata for fallback diagnosis."""
+    provider_counts = _embedding_provider_counts(store.db_path)
+    health: dict[str, Any] = {
+        "status": "unknown",
+        "requested_provider": provider,
+        "requested_model": model,
+        "resolved_provider": None,
+        "matching_vector_count": 0,
+        "provider_counts": provider_counts,
+    }
+
     try:
         emb_store = _get_cached_emb_store(store.db_path, provider, model)
-        if emb_store is None or not emb_store.available or emb_store.count() == 0:
-            return []
+        if emb_store is None or not emb_store.available or emb_store.provider is None:
+            health["status"] = "provider_unavailable"
+            return [], health
+
+        provider_name = emb_store.provider.name
+        matching_count = emb_store.count_provider()
+        health["resolved_provider"] = provider_name
+        health["matching_vector_count"] = matching_count
+
+        if matching_count == 0:
+            health["status"] = "provider_mismatch" if provider_counts else "missing_vectors"
+            return [], health
 
         results = emb_store.search(query, limit=limit)
         nodes_by_qn = store.get_nodes_by_qualified_names([qn for qn, _ in results])
@@ -527,10 +573,23 @@ def _embedding_search(
             node = nodes_by_qn.get(qn)
             if node:
                 id_scores.append((node.id, score))
-        return id_scores
-    except Exception as e:
+        health["status"] = "available"
+        return id_scores, health
+    except ValueError as e:
+        message = str(e)
+        health["status"] = (
+            "missing_provider_env"
+            if "Missing required environment variable" in message
+            else "provider_config_error"
+        )
+        health["error"] = message
         logger.warning("Embedding search failed: %s", e)
-        return []
+        return [], health
+    except Exception as e:
+        health["status"] = "search_failed"
+        health["error"] = str(e)
+        logger.warning("Embedding search failed: %s", e)
+        return [], health
 
 
 # ---------------------------------------------------------------------------
@@ -600,7 +659,7 @@ def hybrid_search(
         logger.warning("FTS5 unavailable, will use fallback: %s", e)
 
     # Try embedding search
-    emb_results = _embedding_search(
+    emb_results, embedding_health = _embedding_search_with_health(
         store,
         query,
         limit=fetch_limit,
@@ -621,7 +680,7 @@ def hybrid_search(
         # Fallback: keyword LIKE matching via protocol method
         keyword_results = store.keyword_query(query, limit=fetch_limit)
         if not keyword_results:
-            return {"mode": "empty", "results": []}
+            return {"mode": "empty", "results": [], "embedding_health": embedding_health}
         merged = keyword_results
         keyword_mode = True
 
@@ -731,4 +790,4 @@ def hybrid_search(
             }
         )
 
-    return {"mode": mode, "results": results}
+    return {"mode": mode, "results": results, "embedding_health": embedding_health}

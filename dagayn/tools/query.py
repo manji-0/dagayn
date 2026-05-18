@@ -499,6 +499,7 @@ def semantic_search_nodes(
         )
         results = hs["results"]
         search_mode = hs["mode"]
+        embedding_health = hs.get("embedding_health", {})
 
         summary = f"Found {len(results)} node(s) matching '{query}'" + (
             f" (kind={kind})" if kind else ""
@@ -513,6 +514,7 @@ def semantic_search_nodes(
                 "status": "ok",
                 "query": query,
                 "search_mode": search_mode,
+                "embedding_health": embedding_health,
                 "summary": summary,
                 "results": minimal_results,
             }
@@ -521,6 +523,7 @@ def semantic_search_nodes(
             "status": "ok",
             "query": query,
             "search_mode": search_mode,
+            "embedding_health": embedding_health,
             "summary": summary,
             "results": results,
         }

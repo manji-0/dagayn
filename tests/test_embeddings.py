@@ -94,8 +94,19 @@ class TestNodeToText:
         node = self._make_node()
         text = _node_to_text(node)
         assert "my_func" in text
+        assert "file.py::my_func" in text
         assert "function" in text
         assert "python" in text
+
+    def test_includes_file_path_terms_and_display_name(self):
+        node = self._make_node(
+            qualified_name="src/auth_service.py::AuthService.login",
+            file_path="src/auth_service.py",
+            extra={"display_name": "Auth Service Login"},
+        )
+        text = _node_to_text(node)
+        assert "src auth_service.py" in text
+        assert "Auth Service Login" in text
 
     def test_method_with_parent(self):
         node = self._make_node(parent_name="MyClass")
@@ -146,6 +157,7 @@ class TestEmbeddingStore:
         with patch("dagayn.embeddings.get_provider", return_value=None):
             store = EmbeddingStore(db)
             assert store.count() == 0
+            assert store.count_provider() == 0
             store.close()
 
     def test_embed_nodes_returns_zero_when_unavailable(self, tmp_path):
