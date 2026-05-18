@@ -324,6 +324,58 @@ class TestFindKnowledgeGaps:
         assert "tests/test_service.py::test_service" not in qns
         assert "src/tests.rs::integration_helper" not in qns
 
+    def test_natural_single_file_doc_communities_are_classified_as_noise(self, tmp_path):
+        from dagayn.analysis import find_knowledge_gaps
+
+        db_path = tmp_path / "single_file_noise.db"
+        s = GraphStore(db_path)
+
+        def _node(kind, name, file_path, *, language="markdown"):
+            return NodeInfo(
+                kind=kind,
+                name=name,
+                file_path=file_path,
+                line_start=1,
+                line_end=10,
+                language=language,
+                parent_name=None,
+                params=None,
+                return_type=None,
+                modifiers=None,
+                is_test=False,
+                extra={},
+            )
+
+        for node in (
+            _node("File", "README.ja.md", "README.ja.md"),
+            _node("DocSection", "overview", "README.ja.md"),
+            _node("DocSection", "usage", "README.ja.md"),
+            _node("DocSection", "faq", "README.ja.md"),
+            _node("File", "service.py", "src/service.py", language="python"),
+            _node("Class", "Service", "src/service.py", language="python"),
+            _node("Function", "run", "src/service.py", language="python"),
+            _node("Function", "stop", "src/service.py", language="python"),
+        ):
+            s.upsert_node(node)
+
+        s._conn.executemany(
+            "INSERT INTO communities (id, name, size) VALUES (?, ?, ?)",
+            [(1, "readme-ja", 3), (2, "service", 3)],
+        )
+        s._conn.execute("UPDATE nodes SET community_id = 1 WHERE file_path = 'README.ja.md'")
+        s._conn.execute("UPDATE nodes SET community_id = 2 WHERE file_path = 'src/service.py'")
+        s.commit()
+
+        result = find_knowledge_gaps(s, top_n=10)
+
+        files = {item["file"] for item in result["single_file_communities"]}
+        noise = result["_meta"]["classified_noise_examples"]["natural_single_file_communities"]
+
+        assert "src/service.py" in files
+        assert "README.ja.md" not in files
+        assert result["_meta"]["classified_noise_counts"]["natural_single_file_communities"] == 1
+        assert noise[0]["classification"] == "standalone_readme"
+
 
 class TestFindSurprisingConnections:
     def test_returns_list(self, store):

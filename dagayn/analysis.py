@@ -431,19 +431,24 @@ def find_knowledge_gaps(
 
     # 4. Single-file communities
     single_file = []
+    natural_single_file = []
     for c in communities:
         cid = int(c["id"])
         files = comm_files.get(cid, set())
         size = comm_sizes.get(cid, 0)
         if len(files) == 1 and size >= 3:
-            single_file.append(
-                {
-                    "community_id": cid,
-                    "name": str(c["name"]),
-                    "size": size,
-                    "file": next(iter(files)),
-                }
-            )
+            file_path = next(iter(files))
+            item = {
+                "community_id": cid,
+                "name": str(c["name"]),
+                "size": size,
+                "file": file_path,
+            }
+            natural_reason = _natural_single_file_community_reason(file_path)
+            if natural_reason:
+                natural_single_file.append({**item, "classification": natural_reason})
+            else:
+                single_file.append(item)
 
     raw_counts = {
         "isolated_nodes": len(isolated),
@@ -480,7 +485,17 @@ def find_knowledge_gaps(
                 "untested_hotspots": [
                     "test nodes and test-like file paths",
                     "markdown documentation sections",
-                ]
+                ],
+                "single_file_communities": [
+                    "natural standalone repo documents such as README, LICENSE, "
+                    "SECURITY, CODE_OF_CONDUCT",
+                ],
+            },
+            "classified_noise_counts": {
+                "natural_single_file_communities": len(natural_single_file),
+            },
+            "classified_noise_examples": {
+                "natural_single_file_communities": natural_single_file[:top_n],
             },
         },
     }
@@ -514,6 +529,41 @@ def _is_analysis_excluded_from_test_gap(node: GraphNode) -> bool:
         or ".test." in name
         or ".spec." in name
     )
+
+
+def _natural_single_file_community_reason(file_path: str) -> str | None:
+    """Classify standalone repository documents that are expected to stay isolated."""
+    path = PurePosixPath(file_path.replace("\\", "/"))
+    name = path.name.lower()
+    stem = path.stem.lower()
+
+    if name.startswith("readme") and path.suffix.lower() in {".md", ".rst", ".txt"}:
+        return "standalone_readme"
+    if stem in {
+        "license",
+        "licence",
+        "copying",
+        "security",
+        "code_of_conduct",
+        "contributing",
+        "authors",
+        "contributors",
+        "changelog",
+        "changes",
+        "release_notes",
+    }:
+        return f"standalone_{stem}"
+    if name in {
+        "license",
+        "licence",
+        "copying",
+        "notice",
+        "authors",
+        "contributors",
+        "changelog",
+    }:
+        return f"standalone_{name}"
+    return None
 
 
 def find_surprising_connections(
