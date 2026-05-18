@@ -121,7 +121,6 @@ def parse_svn_diff_ranges(
     return _parse_unified_diff(result.stdout)
 
 
-@functools.lru_cache(maxsize=64)
 def parse_diff_ranges(
     repo_root: str,
     base: str = "HEAD~1",
@@ -138,11 +137,23 @@ def parse_diff_ranges(
               when *base* is not a valid SVN revision, working-copy changes
               (``svn diff``) are used instead.
     """
+    cached = _parse_diff_ranges_cached(str(Path(repo_root).resolve()), base)
+    return {path: list(ranges) for path, ranges in cached}
+
+
+@functools.lru_cache(maxsize=64)
+def _parse_diff_ranges_cached(
+    repo_root: str,
+    base: str,
+) -> tuple[tuple[str, tuple[tuple[int, int], ...]], ...]:
+    """Cached diff range parser with an immutable result payload."""
     root_path = Path(repo_root)
     if (root_path / ".svn").exists():
         rev_range = base if _SAFE_SVN_REV.match(base) else None
-        return parse_svn_diff_ranges(repo_root, rev_range)
-    return parse_git_diff_ranges(repo_root, base)
+        ranges = parse_svn_diff_ranges(repo_root, rev_range)
+    else:
+        ranges = parse_git_diff_ranges(repo_root, base)
+    return tuple((path, tuple(path_ranges)) for path, path_ranges in sorted(ranges.items()))
 
 
 def _parse_unified_diff(diff_text: str) -> dict[str, list[tuple[int, int]]]:

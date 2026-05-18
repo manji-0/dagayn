@@ -5,10 +5,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 from dagayn.changes import (
+    _parse_diff_ranges_cached,
     _parse_unified_diff,
     analyze_changes,
     compute_risk_score,
     map_changes_to_nodes,
+    parse_diff_ranges,
     parse_git_diff_ranges,
 )
 from dagayn.flows import store_flows, trace_flows
@@ -147,6 +149,28 @@ class TestChanges:
         """Returns empty dict when git command fails."""
         result = parse_git_diff_ranges("/nonexistent/path", base="HEAD~1")
         assert result == {}
+
+    def test_parse_diff_ranges_caches_git_diff_and_returns_copy(self, tmp_path):
+        """Repeated review calls should reuse git diff output without sharing mutable results."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        calls = []
+
+        def fake_git_ranges(repo_root: str, base: str = "HEAD~1"):
+            calls.append((repo_root, base))
+            return {"app.py": [(1, 2)]}
+
+        _parse_diff_ranges_cached.cache_clear()
+        try:
+            with patch("dagayn.changes.parse_git_diff_ranges", side_effect=fake_git_ranges):
+                first = parse_diff_ranges(str(repo), "HEAD~1")
+                first["app.py"].append((99, 99))
+                second = parse_diff_ranges(str(repo), "HEAD~1")
+
+            assert calls == [(str(repo.resolve()), "HEAD~1")]
+            assert second == {"app.py": [(1, 2)]}
+        finally:
+            _parse_diff_ranges_cached.cache_clear()
 
     # ---------------------------------------------------------------
     # map_changes_to_nodes
