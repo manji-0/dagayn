@@ -406,9 +406,7 @@ def test_runner_with_mock_repo():
         assert "remove_files_data_batch" in scenarios
         assert "store_file_batch_bulk_replace" in scenarios
         assert any(scenario.startswith("mcp_latency:") for scenario in scenarios)
-        assert all(
-            row["benchmark"] == "recent_changes_effects" for row in effect_results
-        )
+        assert all(row["benchmark"] == "recent_changes_effects" for row in effect_results)
 
         store.close()
 

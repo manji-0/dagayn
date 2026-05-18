@@ -574,9 +574,7 @@ def _embedding_search_with_health(
         "provider_counts": provider_counts,
     }
     provider_name_hint = (
-        _single_provider_name(provider_counts)
-        if provider is None and model is None
-        else None
+        _single_provider_name(provider_counts) if provider is None and model is None else None
     )
 
     try:

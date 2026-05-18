@@ -669,9 +669,7 @@ def find_large_functions(
 
 
 def _estimate_traversal_entry_tokens(entry: dict) -> int:
-    return (
-        len(entry["qualified_name"]) + len(entry["file"]) + len(entry["name"]) + 30
-    ) // 4
+    return (len(entry["qualified_name"]) + len(entry["file"]) + len(entry["name"]) + 30) // 4
 
 
 def _traverse_dfs_lazy(

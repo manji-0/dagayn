@@ -796,8 +796,7 @@ def _embedding_text_mode(text_mode: str | None = None) -> str:
     mode = (text_mode or os.environ.get("DAGAYN_EMBEDDING_TEXT_MODE") or "metadata").lower()
     if mode not in _EMBEDDING_TEXT_MODES:
         raise ValueError(
-            "DAGAYN_EMBEDDING_TEXT_MODE must be one of: "
-            + ", ".join(sorted(_EMBEDDING_TEXT_MODES))
+            "DAGAYN_EMBEDDING_TEXT_MODE must be one of: " + ", ".join(sorted(_EMBEDDING_TEXT_MODES))
         )
     return mode
 

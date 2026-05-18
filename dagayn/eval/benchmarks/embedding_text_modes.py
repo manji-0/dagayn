@@ -64,11 +64,7 @@ def _matches_expected(qualified_name: str, expected: str) -> bool:
     exp_lower = expected.lower()
     exp_name = expected.rsplit("::", 1)[-1] if "::" in expected else expected
     qn_name = qualified_name.rsplit("::", 1)[-1] if "::" in qualified_name else qualified_name
-    return (
-        exp_lower in qn_lower
-        or qn_lower in exp_lower
-        or exp_name.lower() == qn_name.lower()
-    )
+    return exp_lower in qn_lower or qn_lower in exp_lower or exp_name.lower() == qn_name.lower()
 
 
 def run(repo_path: Path, store, config: dict[str, Any]) -> list[dict[str, Any]]:

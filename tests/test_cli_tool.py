@@ -131,9 +131,7 @@ def test_handle_starts_persisted_local_embedding_for_semantic_tool(monkeypatch, 
     monkeypatch.delenv("CRG_OPENAI_BASE_URL", raising=False)
     monkeypatch.delenv("CRG_OPENAI_MODEL", raising=False)
 
-    args = _parser().parse_args(
-        ["tool", "semantic_search_nodes_tool", "--repo", "/tmp/repo"]
-    )
+    args = _parser().parse_args(["tool", "semantic_search_nodes_tool", "--repo", "/tmp/repo"])
     tool.handle(args)
 
     assert server_calls == [{"level": "low", "port": 19090}]

@@ -38,6 +38,7 @@ def _edge_target_name(target_qualified: str) -> str:
     """Return the normalized target name used for indexed bare-name lookup."""
     return target_qualified.rsplit("::", 1)[-1]
 
+
 # ---------------------------------------------------------------------------
 # Schema
 # ---------------------------------------------------------------------------
