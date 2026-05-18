@@ -1,360 +1,661 @@
-<!-- derived-from ./skills/writing-markdown-document/SKILL.md#stage-0--prerequisites -->
-<!-- derived-from ./skills/writing-markdown-document/SKILL.md#dagayn-markdown-reference -->
-<!-- derived-from ./skills/writing-markdown-document/SKILL.md#stage-1--outline--sort-sections -->
-<!-- derived-from ./skills/writing-markdown-document/SKILL.md#stage-2--draft--verify-edges -->
-<!-- derived-from ./skills/writing-markdown-document/SKILL.md#stage-3--polish -->
-<!-- derived-from ./skills/writing-markdown-document/SKILL.md#stage-4--summary--conclusion -->
-<!-- derived-from ./skills/review-delta/SKILL.md#review-delta -->
-<!-- derived-from ./skills/review-delta/SKILL.md#steps -->
-<!-- derived-from ./skills/review-delta/SKILL.md#advantages-over-full-repo-review -->
-<!-- derived-from ./skills/review-pr/SKILL.md#review-pr -->
-<!-- derived-from ./skills/review-pr/SKILL.md#steps -->
-<!-- derived-from ./skills/review-pr/SKILL.md#tips -->
-<!-- derived-from ./skills/explore-codebase/SKILL.md#explore-codebase -->
-<!-- derived-from ./skills/explore-codebase/SKILL.md#steps -->
-<!-- derived-from ./skills/explore-codebase/SKILL.md#tips -->
-<!-- derived-from ./skills/explore-codebase/SKILL.md#token-efficiency-rules -->
+<!-- constrained-by ./AGENTS.md -->
+<!-- constrained-by ./docs/USAGE.md -->
+<!-- constrained-by ./docs/COMMANDS.md -->
+<!-- derived-from ./README.md -->
+<!-- derived-from ./docs/ARCHITECTURE.md -->
+<!-- derived-from ./docs/FEATURES.md -->
+<!-- derived-from ./docs/SCHEMA.md -->
+<!-- derived-from ./docs/PERFORMANCE-IMPROVEMENTS-WIP.md -->
+<!-- derived-from ./docs/RUST-CORE-MIGRATION-WIP.md -->
+<!-- derived-from ./docs/LOCAL-EMBEDDINGS.md -->
+<!-- derived-from ./docs/DAEMON-CONFIG.md -->
+<!-- derived-from ./docs/plans/ANALYSIS-TOOL-STRATEGY.md -->
+<!-- derived-from ./skills/writing-markdown-document/SKILL.md -->
 
-# dagayn コード分析レポート
+# dagayn 総合分析レポート
 
-> 生成日: 2026-05-03 | グラフ: 5,693ノード / 41,172エッジ / 377ファイル / 30言語
+> 作成日: 2026-05-18
+> 対象リポジトリ: `/Users/manji0/src/dagayn`
+> 対象バージョン: `pyproject.toml` 上の `dagayn` 3.2.0
+> グラフ根拠: `list_graph_stats_tool` / `architecture_analysis_tool` / `flow_tool` / `query_graph_tool` / `review_tool` / `dagayn tool find_large_functions_tool`
 
----
+この文書は、dagayn の思想、提供機能、実装構造、性能上の設計と課題、そして dagayn 自身を dagayn で分析した結果を1つにまとめた総合レポートである。単なる機能一覧ではなく、なぜその設計になっているのか、どのコード・ドキュメント・グラフ指標が根拠になっているのか、今後どこを改善すべきかまでを一貫して説明する。
 
-## 1. グラフ概要
+## 1. エグゼクティブサマリー
 
-`list_graph_tool` で取得したグラフ全体の統計。`build_or_update_graph_tool` によって構築されたグラフには以下のノード・エッジが存在する。
+dagayn は「DAG is All You Need」を掲げる、コードレビューと影響分析のためのローカル知識グラフ基盤である。リポジトリを SQLite ベースの構造グラフに変換し、ファイル、シンボル、呼び出し、インポート、テスト、Markdown 依存、Terraform 参照、実行フロー、コミュニティ、検索インデックスを同じデータモデル上で扱う。
 
-| 項目 | 値 |
-|------|-----|
-| ノード数 | 5,693 |
-| エッジ数 | 41,172 |
-| ファイル数 | 377 |
-| 対応言語 | 30言語 |
-| テスト数 | 1,526 |
-| 最終更新 | 2026-05-03T13:28:00 |
+中心思想は明確である。AI エージェントが毎回リポジトリ全体を読むのではなく、構造化されたグラフを先に問い合わせ、必要な箇所だけを読む。これにより、レビュー対象の絞り込み、変更影響の推定、テスト候補の提示、アーキテクチャ上の危険箇所の発見、ドキュメントとコードの対応付けを、トークン効率よく行える。
 
-### エッジ内訳
+この fork は upstream の `code-review-graph` から派生しているが、現行ドキュメントでは upstream prose を canonical とは扱わない。dagayn 自体の特長は、Terraform と Markdown を first-class に扱うこと、Rust バックエンドへ移行していること、MCP 3.0 の小さな dispatcher surface を採用していること、Codex / Claude / OpenCode などのエージェント設定を自動化すること、そして mixed-language monorepo を主対象にしていることである。
 
-| エッジ種別 | 件数 |
-|------------|------|
-| CALLS | 27,200 |
-| TESTED_BY | 5,432 |
-| CONTAINS | 5,322 |
-| IMPORTS_FROM | 1,723 |
-| CROSS_ARTIFACT | 1,259 |
-| DEPENDS_ON | 53 |
-| INHERITS | 37 |
+2026-05-18 の full rebuild 後の自己分析では、グラフは 6,070 ノード、43,159 エッジ、382 ファイル、29 言語、5,688 embedding を持つ。ノード種別は `Function` 2,770、`Test` 1,705、`DocSection` 767、`Class` 446、`File` 382。エッジ種別は `CALLS` 27,213、`TESTED_BY` 6,284、`CONTAINS` 5,745、`IMPORTS_FROM` 1,766、`CROSS_ARTIFACT` 1,802、`DEPENDS_ON` 166、`REFERENCES` 138、`INHERITS` 41、`IMPLEMENTS` 4 である。
+
+アーキテクチャ分析の主な発見は次の通りである。
+
+- コミュニティは全体で 342、サイズ3以上は 261。最大は `docs-tool` 436 ノード、次に `tests-detect` 274 ノード、`tests-files` 239 ノード。
+- `architecture_analysis_tool(mode="overview")` は 2 件の high coupling warning を返した。最大は `docs-tool` と `tests-files` の 17 エッジ結合で、次は `tests-files` と `tests-detect` の 12 エッジ結合。出力は top 10 coupling のうち 1 件のみ保持され、`truncated=true` だった。
+- ハブ上位は `dagayn/cli/commands/build.py::handle` degree 159、`tests/test_flows.py::TestFlows._add_func` degree 158、`crates/dagayn-graph/src/tests.rs::stores_flows_and_reads_flow_inputs` degree 147。
+- ブリッジ上位は `tests/test_main.py::TestLongRunningToolsAreAsync.test_regression_guard_does_not_depend_on_fastmcp_internals` betweenness 0.015101、`tests/test_integration_v2.py::TestV2Integration.test_full_pipeline` 0.011609、`dagayn/main.py::_tool` 0.005960。
+- 知識ギャップは raw count 1,021。内訳は isolated nodes 686、thin communities 146、untested hotspots 74、single-file communities 115。未テスト hotspot の p95 degree 閾値は 37。
+- ADP 違反は package granularity で 8 件。最大 severity は `docs/audits -> <root> -> docs -> docs/plans` の 168。
+- SDP 違反は 2 件。`docs -> <root>` が instability delta 0.1714、`docs/plans -> docs/audits` が 0.1667。
+- SAP 違反は 7 件。最大 distance 1.0 は `dagayn-vscode/src/webview`、`dagayn/parser/_base`、`dagayn-vscode/test`。
+
+## 2. dagayn の思想
+
+<!-- constrained-by #1-エグゼクティブサマリー -->
+
+### 2.1 グラフを読むことを最初の行動にする
+
+dagayn の思想は「コードを読む前に、構造を読む」である。`AGENTS.md` でも、広範なテキスト検索の前に `get_minimal_context_tool` を呼ぶことが明示されている。これは単なる作法ではなく、AI エージェントの制約に対する設計方針である。
+
+AI エージェントは大きなコードベースを一度に完全には読めない。全文検索だけに頼ると、検索語に依存した断片的な把握になりやすい。dagayn は、呼び出し関係、インポート、テスト、ドキュメント依存、コミュニティ、フローを先に抽出しておくことで、エージェントが「どこを読むべきか」を構造的に判断できるようにする。
+
+この方針は次の挙動に現れている。
+
+- `get_minimal_context_tool` はタスク説明から workflow、risk、key entities、top communities / flows、次に呼ぶべきツールを返す。
+- `review_tool(mode="changes")` は変更ファイルからリスク、理由コード、推奨テスト、影響フロー、ドキュメント更新候補をまとめる。
+- `architecture_analysis_tool(mode="overview")` は概要に留め、必要なら `hubs`、`bridges`、`knowledge_gaps`、`adp_violations` などへ drill down する。
+- `query_graph_tool` は callers / callees / imports / tests / docs / implementations などの定型関係に限定し、探索を小さく保つ。
+
+つまり dagayn は「便利な可視化ツール」ではなく、エージェントの探索順序を制御するコンテキスト圧縮装置である。
+
+### 2.2 ローカル性と再現性
+
+dagayn はローカル SQLite を中核にする。外部データベースは不要で、`.dagayn/graph.db` と必要に応じて `.dagayn/embeddings.db` を使う。これにより、レビューや探索は基本的にローカルで完結する。
+
+ローカル性には3つの意味がある。
+
+1. セキュリティ: ソースコードを外部サービスへ送らずに構造分析できる。
+2. 再現性: 同じコミット、同じ graph build なら、同じ nodes / edges / metrics を参照できる。
+3. エージェント適合性: MCP server がローカルプロセスとして起動し、Codex などのクライアントから低コストで問い合わせられる。
+
+embedding は例外的にローカルまたはリモートを選べる。`dagayn install --mode fts` は embedding なしの FTS-only、`--mode local` は managed Qwen GGUF sidecar、`--mode remote` は OpenAI-compatible / Google / MiniMax provider を使う。重要なのは、検索の基盤が FTS5 によって常に成立し、embedding は任意の品質向上層として設計されている点である。
+
+### 2.3 コード、ドキュメント、インフラを同じグラフに入れる
+
+dagayn は一般的なソースコードだけでなく、Markdown、Jupyter / Databricks notebook、Terraform を graph source として扱う。これは mixed-language monorepo を主対象にする fork-specific な設計である。
+
+この思想の実践例は Markdown policy に最もよく表れている。Markdown の見出しは `DocSection` ノードになり、相対リンクは `IMPORTS_FROM` / `REFERENCES`、directive comment は `DEPENDS_ON`、backtick symbol や `dagayn:` directive は `CROSS_ARTIFACT` になる。ドキュメントはコードの外にある説明ではなく、コードと同じグラフで影響分析される artifact である。
+
+Terraform についても同じである。`resource`、`data`、`module`、`variable`、`local`、`output`、`provider`、`check` などがノードになり、`var.x`、`local.x`、`module.x`、provider source、module source、`depends_on` 相当の制約が edge になる。アプリケーションコードとインフラコードが同じ影響分析に入ることが、この fork の実用上の価値である。
+
+### 2.4 分析結果は「証拠付きのリード」であって、自動承認ではない
+
+dagayn の設計は、グラフ分析を絶対視しない。`AGENTS.md` は、threshold、count、reason code、truncation state を明示し、結果は review lead として扱うよう求めている。これは実装上も重要である。
+
+たとえば `knowledge_gaps` の untested hotspot は、p95 degree 以上で `TESTED_BY` edge がないノードを検出する。これは重要な候補を浮かび上がらせるが、動的 dispatch、外部 entry point、fixture、生成コード、CLI entry などを完全に理解するわけではない。したがって、修正前には実際の public API、テスト、動的呼び出しを確認する必要がある。
+
+dagayn は「正解を出すツール」ではなく、「正解に近づくための構造的な足場」である。
+
+## 3. 提供機能
+
+<!-- derived-from #2-dagayn-の思想 -->
+
+### 3.1 グラフライフサイクル
+
+基本コマンドは `dagayn build`、`dagayn update`、`dagayn postprocess`、`dagayn watch`、`dagayn status` である。
+
+`build` は初回または full rebuild 用で、`--force-full-build` / `--force` により既存 graph database と SQLite sidecar を削除してから再構築する。`update` は変更差分に基づく incremental refresh を行う。`watch` は開発中のファイル変更を監視する。`postprocess` は既存グラフに対して flows、communities、FTS などを再計算する。
+
+`build` と `update` は `--local-embedding low|high|none` を受け取り、graph refresh 後に local Qwen embedding を生成できる。local embedding server の readiness timeout、request timeout、batch size はそれぞれ別パラメータで制御される。
+
+### 3.2 MCP 3.0 の compact dispatcher surface
+
+dagayn v3 は MCP の公開面を小さく保つ。デフォルトで露出する主要ツールは次の7つである。
+
+| ツール | 役割 |
+|---|---|
+| `get_minimal_context_tool` | タスクの初期方針、risk、key entities、次ツール候補 |
+| `review_tool` | `changes` / `context` / `affected_flows` / `impact` のレビュー dispatcher |
+| `flow_tool` | `list` / `get` の実行フロー dispatcher |
+| `architecture_analysis_tool` | architecture overview / hubs / bridges / gaps / ADP / SDP / SAP dispatcher |
+| `refactor_tool` | rename preview、dead code、refactor suggestion |
+| `query_graph_tool` | callers、callees、imports、tests、docs、implementations、file summary |
+| `semantic_search_nodes_tool` | FTS / embedding / hybrid semantic search |
+
+高度な maintenance tools、wiki generation、embedding build、refactor application、cross-repo search は、`dagayn serve --tools all` または明示的な allow-list で公開する。CLI では `dagayn tool <tool-name>` が同じ実装を JSON で呼び出すため、MCP server の allow-list が狭くても shell 経由で補える。
+
+この設計は、エージェントに大量のツール名を見せないためのものでもある。ユーザーやエージェントは、最初に小さな dispatcher を呼び、必要な mode だけを選べばよい。
+
+### 3.3 変更レビューと影響分析
+
+`review_tool(mode="changes")` は dagayn の中核的なレビュー面である。変更ファイルを検出し、変更ノード、risk score、reason codes、affected flows、recommended tests、documentation candidates、hotspot proximity、architecture risks をまとめる。
+
+`review_tool(mode="impact")` は指定ファイルの blast radius を返す。今回、`dagayn-analysis-report.md` に対して実行した結果は、直接変更 48 ノード、2 hop 以内の impact 14 ノード、追加影響ファイル 4、risk medium、`truncated=false` だった。これは Markdown 文書の更新が周辺ドキュメントと一部 artifact edge に波及していることを示す。
+
+`review_tool(mode="affected_flows")` は変更が実行フローへどう波及するかを見る。`mode="context"` は変更周辺の source context を取得する。これらは同一 dispatcher にまとまっているため、レビュー手順は「changes で全体を見る、必要なら impact / affected_flows / context へ drill down」という形になる。
+
+### 3.4 アーキテクチャ分析
+
+`architecture_analysis_tool` は dagayn の構造分析 dispatcher である。mode は `overview`、`communities`、`community`、`hubs`、`bridges`、`knowledge_gaps`、`surprising_connections`、`adp_violations`、`sdp_metrics`、`sdp_violations`、`sap_metrics`、`sap_violations` を持つ。
+
+`overview` は `architecture_health` を含む。今回の出力では、signals は `community_coupling`、`hub_nodes`、`bridge_nodes`、`knowledge_gaps`、`surprising_connections`、`adp`、`sdp`、`sap`。reason codes は `high_cross_community_coupling`、`hub_nodes`、`bridge_nodes`、`knowledge_gaps`、`surprising_connections`、`adp_violations`、`sdp_violations`、`sap_violations` だった。
+
+各分析は数量と閾値を返す。たとえば `knowledge_gaps` は p95 degree 37 を untested hotspot 閾値として使い、test nodes、test-like file paths、Markdown documentation sections を除外する。このように、結果の根拠と限界が response に含まれる。
+
+### 3.5 検索
+
+`semantic_search_nodes_tool` は hybrid search を提供する。設計は2本の retrieval arm を Reciprocal Rank Fusion でマージする形である。
+
+1. FTS5 BM25: `nodes_fts` virtual table を使い、symbol name、qualified name、path、signature、identifier token、docstring、Markdown body などを検索する。
+2. Cosine similarity: embedding store が構築済みなら vector search を行う。
+
+RRF の k は 10。一般的な 60 より小さく、score の差が 0.05 から 0.2 程度に広がるように調整されている。結果には `search_mode` と `source` が付き、hybrid / fts_only / embedding_only / keyword_fallback、fts / embedding / both / keyword を区別できる。
+
+rerank には kind boost、context-file boost、intent rerank、test deboost がある。PascalCase は class/type、snake_case は function、dotted path は qualified name を強める。自然言語クエリでは documentation intent と code/test intent を軽く分類し、Markdown とコードの順位を調整する。
+
+### 3.6 Refactor support
+
+`refactor_tool` は `rename`、`dead_code`、`suggest` を提供する。rename は refactor preview を返し、`apply_refactor_tool` に渡せる refactor id を生成する。dead code は caller、test、importer、entry point を見て未参照候補を出す。suggest は remove、move、split、document などの候補と execution plan、required tests、rollback guidance、defer conditions を返す。
+
+重要なのは、refactor suggestion は自動実行の指示ではない点である。dynamic dispatch、public API、generated entry point、test artifact を確認してから実施する設計になっている。
+
+### 3.7 Docs、wiki、visualization、export
+
+`dagayn visualize` は HTML、GraphML、Mermaid C4、SVG、Cypher、Obsidian export を出力する。HTML mode は auto / full / community / file。Jupyter / Databricks notebook は input であり report output ではない。Graphviz / DOT は built-in export target ではない。
+
+`dagayn wiki` は `.dagayn/wiki/` に community-based Markdown wiki を生成する。各 community page は members、execution flows、cross-community dependencies、package-level ADP / SDP / SAP metrics を含む。
+
+Markdown は単に可視化対象ではなく、graph extraction 対象である。heading、relative link、reference-style link、HTML dependency directive、`dagayn:` documentation directive、backtick symbol が graph edge になる。
+
+### 3.8 Integration、hooks、multi-repo
+
+`dagayn install` は Codex、Claude、OpenCode などの AI coding platform を検出し、MCP configuration、skills、hooks、instructions を書く。Codex の場合は `~/.codex/hooks.json` と `~/.codex/config.toml` の hooks feature flag を更新する。Claude は `~/.claude/settings.json` に hooks を書く。
+
+hooks は session start、編集後、commit 前後の graph refresh を担う。典型的には編集後や commit-time checks 前に `dagayn update --skip-flows`、post-commit で full `dagayn update` を走らせる。
+
+multi-repo では `dagayn register`、`dagayn unregister`、`dagayn repos`、`dagayn daemon` がある。registry は `~/.dagayn/registry.json` に保存され、daemon は複数 repo の watch / refresh を管理する。
+
+## 4. 実装構造
+
+<!-- derived-from #3-提供機能 -->
+
+### 4.1 全体パイプライン
+
+`docs/ARCHITECTURE.md` は dagayn の pipeline を5段階で説明している。
+
+1. file discovery と language detection
+2. parser extraction による nodes / edges 生成
+3. SQLite persistence
+4. optional post-processing: flows、communities、search indexes
+5. query-time analysis: review、search、refactor
+
+この pipeline は、CLI と MCP の両方から同じ実装を呼ぶ。CLI は `dagayn/cli/commands/*`、MCP は `dagayn/main.py` と `dagayn/tools/*` が入口である。
+
+### 4.2 Python frontend と Rust backend
+
+現行 dagayn は Rust backend が default である。Python 側の `dagayn/parser/core.py::CodeParser` は compatibility wrapper で、実際の parsing は native extension `dagayn._core.parse_rust_owned_file_compact_json` に渡す。source checkout に native extension がない場合は、削除済みの Python parser へ fallback せず、明確に失敗する。
+
+Rust crates は主に次の役割を持つ。
+
+| crate | 役割 |
+|---|---|
+| `crates/dagayn-parser` | Rust-owned parser。言語別 parser、Markdown、Terraform、notebook 周辺を含む |
+| `crates/dagayn-graph` | Rust-backed graph store と analysis JSON surface |
+| `crates/dagayn-py` | PyO3 binding。Python package から Rust core を呼ぶ入口 |
+| `crates/dagayn-core` | core 型・共有基盤 |
+| `crates/dagayn-grammars` | Tree-sitter grammar provisioning |
+| `crates/dagayn-postproc` | post-processing 用 Rust crate |
+
+`pyproject.toml` は maturin build backend を使い、Python package に Rust extension を組み込む。Python 要件は 3.12 以上で、runtime dependency は `mcp`、`fastmcp`、`networkx`、`watchdog`、`igraph`。dev dependency には `pytest`、`ruff`、`pyinstrument` などが含まれる。
+
+### 4.3 Parser extraction
+
+Parser は各ファイルから `NodeInfo` と `EdgeInfo` を生成する。ノードは file path、qualified name、line range、language、parent、params、return type、modifier、test flag、extra を持つ。edge は kind、source、target、file path、line、extra を持つ。
+
+Rust-owned parser は compact JSON を返し、Python wrapper が `NodeInfo` / `EdgeInfo` に decode する。`_normalize_path_string` は parser path と display path の差を吸収し、qualified name 内の path も表示側へ変換する。
+
+language detection は `dagayn/parser/dispatch.py` 側に集約され、Markdown、Terraform、Rust、Python / notebook、Bash、Go、Java、Ruby、C#、PHP、Kotlin、Swift、Scala、Solidity、Dart、Lua、Luau、C/C headers、Perl XS、C++、Objective-C、Elixir、GDScript、R、Julia、Perl、Vue、Svelte、Zig、PowerShell、JavaScript / JSX / TypeScript / TSX / Astro などを扱う。
+
+### 4.4 Markdown extraction
+
+Markdown parser は heading を `DocSection` として抽出する。inline link / reference-style link は `IMPORTS_FROM` と `REFERENCES`、HTML directive は `DEPENDS_ON`、`dagayn:` directive と backtick symbol は `CROSS_ARTIFACT` になる。
+
+この文書冒頭の `constrained-by` / `derived-from` コメントも dagayn が読むためのものである。これは装飾ではなく、この総合レポートがどのドキュメントに制約され、どの資料から派生したかを graph に残すための dependency declaration である。
+
+Markdown-sourced `CROSS_ARTIFACT` は post-processing で code graph の symbol name と照合される。ちょうど1つの non-Markdown match があれば high confidence で target が promoted され、0件または複数件なら unresolved のまま low confidence として残る。これにより、将来 graph update で解決可能になる。
+
+### 4.5 Terraform extraction
+
+Terraform parser は `.tf` と `.tfvars` を first-class に扱う。`resource.type.name`、`data.type.name`、`module.name`、`var.name`、`local.key`、`output.name`、`provider.name` などを qualified name にする。
+
+edge は `REFERENCES`、`CALLS`、`IMPORTS_FROM`、`CONTAINS`、`DEPENDS_ON` を生成する。module source が local path なら、呼び出し module から target directory への `IMPORTS_FROM` により module boundary をまたぐ impact analysis が可能になる。`.tfvars` の top-level assignment は `var.name` ノードになり、対応する variable block と `REFERENCES` で結ばれる。
+
+### 4.6 Storage model
+
+Graph data は SQLite に保存される。schema の安定した user-facing model は、nodes、edges、metadata、derived structures である。
+
+Node kind は `File`、`Class`、`Function`、`Type`、`Test`、`DocSection`。Edge kind は `CALLS`、`IMPORTS_FROM`、`REFERENCES`、`CONTAINS`、`INHERITS`、`IMPLEMENTS`、`TESTED_BY`、`DEPENDS_ON`、`CROSS_ARTIFACT`。
+
+`TESTED_BY` は covered production symbol から test symbol へ向く。`CROSS_ARTIFACT` は bridge kind、relationship role、evidence kind、confidence tier を extra に持つ。Markdown 由来の場合は raw backtick span を `extra.original_symbol_name` として残し、postprocess が idempotent に再解決できる。
+
+Derived structures として communities、flow memberships、FTS、embeddings がある。FTS5 の `nodes_fts` は build 後に常に利用可能で、embedding は optional である。
+
+### 4.7 Incremental build
+
+`dagayn/incremental.py` は changed files を git diff などから検出し、変更ファイルと影響ファイルだけを parse / store する。default parser backend は Rust。ignore pattern は `.dagayn/**`、`node_modules/**`、`.git/**`、`target/**`、`vendor/**`、`coverage/**`、lockfile、SQLite sidecar などを除外する。
+
+performance 改善として、worker process ごとに `CodeParser` を singleton 化している。`ProcessPoolExecutor(initializer=_init_worker)` により、各 worker が Tree-sitter grammar を毎ファイル再ロードしない。store batch size は `DAGAYN_STORE_BATCH_SIZE`、Rust parse batch size は `DAGAYN_RUST_PARSE_BATCH_SIZE` で調整可能である。
+
+repo root 解決は `CRG_REPO_ROOT` を最優先し、git / svn root を探索し、最後に cwd へ fallback する。data dir は通常 `<repo>/.dagayn` だが、`CRG_DATA_DIR` で外部化できる。
+
+### 4.8 MCP server implementation
+
+`dagayn/main.py` は FastMCP server entry point である。`_DEFAULT_MCP_TOOL_NAMES` は compact surface を定義し、`dagayn serve --tools` または `CRG_TOOLS` によって公開ツールを制御する。
+
+heavy tools は asyncio event loop を塞がないよう `asyncio.to_thread` で offload される。`build_or_update_graph_tool`、`run_postprocess_tool`、`embed_graph_tool`、`review_tool` などが該当する。これは Windows で `ProcessPoolExecutor` と sync handler が single event loop thread を塞ぐ問題への対策でもある。
+
+`_resolve_repo_root` は explicit `repo_root`、`dagayn serve --repo` の default、None の順で解決する。embedding provider も server default と client override を分ける。remote embedding provider は OpenAI-compatible、Google、MiniMax の必要 env vars がちょうど1 provider 分だけ存在するときに自動推論される。
+
+### 4.9 Tool implementation
+
+MCP tool は `dagayn/tools/*` に分割されている。
+
+| ファイル | 主な責務 |
+|---|---|
+| `tools/context.py` | minimal context、workflow routing、risk summary |
+| `tools/review.py` / `review_dispatcher.py` | change review、impact、affected flows、context |
+| `tools/query.py` | graph query、semantic search、traversal |
+| `tools/architecture_analysis.py` | architecture dispatcher |
+| `tools/analysis_tools.py` | hubs、bridges、knowledge gaps、surprises |
+| `tools/community_tools.py` | communities、architecture overview |
+| `tools/architecture_tools.py` | ADP / SDP |
+| `tools/sap_tools.py` | SAP metrics / violations |
+| `tools/refactor_tools.py` | rename / dead code / suggest |
+| `tools/build.py` | build/update/postprocess/embed graph tools |
+| `tools/_common.py` | store acquisition、output budgeting、common response |
+
+3.0 では v2 の split architecture tools は public surface から取り除かれ、`architecture_analysis_tool(mode=...)` に集約されている。同様に review と flow も dispatcher-based である。
+
+### 4.10 CLI implementation
+
+CLI command files は `dagayn/cli/commands` にあり、`build.py`、`detect_changes.py`、`eval_cmd.py`、`init.py`、`profile.py`、`registry.py`、`serve.py`、`tool.py`、`wiki.py`、`daemon.py` などに分かれる。
+
+CLI は人間と automation の両方を想定する。`dagayn tool` は MCP tool implementation を shell から呼ぶための互換面で、MCP server の公開ツールを変更せずに advanced tool を使う escape hatch になっている。`dagayn profile` は `pyinstrument` により build / search / mcp-tool などを profile し、`.dagayn/profiles/` に HTML を出力する。
+
+## 5. 性能設計と現状
+
+<!-- derived-from #4-実装構造 -->
+
+### 5.1 性能の基本方針
+
+dagayn の性能方針は「parse と postprocess は必要なときにまとめて行い、query time は graph / index を読むだけに寄せる」である。AI エージェントから呼ばれる MCP tool は対話的であるため、query-time latency と token budget が重要になる。
+
+そのために以下の設計がある。
+
+- incremental update により全ファイル再 parse を避ける。
+- Rust-owned parser と Rust-backed graph store によって parser / storage のホットパスを移行する。
+- FTS5 index を build 後に常備し、semantic search は embedding がない場合も FTS-only で機能する。
+- MCP heavy tool は thread offload し、stdio event loop を塞がない。
+- `_get_store` は process-level store cache を持ち、GraphStore と NetworkX graph cache を tool call 間で再利用する。
+- query / analysis では N+1 を batch query や snapshot injection へ置き換える。
+
+### 5.2 実装済み性能改善
+
+`docs/PERFORMANCE-IMPROVEMENTS-WIP.md` によれば、以下は shipped である。
+
+| 領域 | shipped 内容 |
+|---|---|
+| `compute_risk_score` | `analyze_changes` が inbound edges、flow criticalities、community IDs、transitive test count などを batch prefetch |
+| `get_communities` | all community member qualified names を1クエリで取得 |
+| `get_affected_flows` | `_hydrate_flow_rows` 経由で path nodes を bulk fetch |
+| `traverse_graph` BFS | depth frontier ごとに nodes / edges を batch fetch |
+| `_single_hop_dependents` | `_batch_hop_dependents` へ委譲し file batch ごとに1クエリ |
+| `generate_suggested_questions` | `GraphSnapshot` を一度作り、hub / bridge / surprise / gap 分析へ注入 |
+| process-level store cache | `_store_cache`、mtime staleness、lease / pinned、`DAGAYN_DISABLE_STORE_CACHE` |
+| PRAGMA tuning | `synchronous=NORMAL`、64MB cache、256MB mmap、temp in memory |
+| parser singleton | worker process ごとに `CodeParser` を再利用 |
+| token estimate | `str(dict)` を避け、qualified name / file / name 長から概算 |
+| `idx_nodes_parent_name` | `parent_name, name` index を追加 |
+
+### 5.3 検索性能
+
+dagayn の検索性能は、単純な全文検索の速さだけでなく、AI エージェントが短い待ち時間で「読むべきノード」を見つけられるかを基準に設計されている。検索パスは `semantic_search_nodes_tool` から `dagayn/tools/query.py::semantic_search_nodes`、さらに `dagayn/search.py::hybrid_search` へ入り、FTS5、embedding、RRF merge、boost / deboost、batch node fetch の順に処理される。
+
+検索性能の基礎は FTS5 である。`nodes_fts` は build / postprocess 後に常備され、`GraphStore.fts_query` は SQLite FTS5 の BM25 を使う。BM25 の重みは `name` 8.0、`qualified_name` 6.0、`file_path` 3.0、`signature` 4.0、`identifier_tokens` 5.0、`doc_text` 1.0 で、短い identifier match が本文中の偶然一致より強く出るようにしている。入力は quoted phrase または separator split された AND / OR query に変換され、FTS5 operator injection を避ける。
+
+FTS index には、名前、qualified name、file path、signature だけでなく、camelCase / PascalCase / snake_case / path を分解した `identifier_tokens` と、上限付きの source / Markdown section body も入る。これにより、`LocalEmbeddingProvider` のような PascalCase symbol は `local embedding provider` でも検索でき、Markdown section も検索対象になる。
+
+`hybrid_search` は FTS arm と embedding arm を別々に走らせ、Reciprocal Rank Fusion で統合する。さらに自然言語クエリから identifier-shaped token を抽出し、たとえば "tests for embed_graph" のような文でも `embed_graph` 単体の FTS sub-query を追加する。merge 後は candidate ids をまとめて `get_nodes_by_ids` で batch fetch し、kind boost、qualified-name boost、context-file boost、intent rerank、test deboost を適用する。テストは source と名前や docstring が近くなりやすいため、明示的な test / coverage query でない限り 0.6 倍に deboost される。
+
+embedding 側の性能は、現行実装では2段階に分かれる。`dagayn/search.py` は process-level `EmbeddingStore` cache を持ち、key は `(db_path, provider, model)`、invalidator は database mtime である。これにより、検索ごとに embedding SQLite connection と provider wrapper を作り直すコストは避けられている。
+
+さらに `dagayn/embeddings.py::EmbeddingStore.search` は numpy が利用可能な場合、embedding rows を `(N, D)` の `float32` matrix と row norm として process-level cache に載せ、query vector との類似度を `matrix @ q` の1回の BLAS call で計算する。cache key は `(db_path, provider_name, mtime_ns)` で、同じ database / provider の古い entry は削除される。numpy がない環境では pure-Python loop に fallback するため、機能は維持されるが、大きい embedding store では latency が伸びる。
+
+検索品質の既存測定では、`docs/LOCAL-EMBEDDINGS.md` の 4,597 nodes / 12 query suite で FTS5 only は mean MRR 0.71、Precision@1 0.67、Precision@5 0.75。Qwen3-Embedding-0.6B `low` の hybrid は mean MRR 0.88、Precision@1 0.83、Precision@5 0.92。Qwen3-Embedding-4B `high` は mean MRR 0.82、Precision@1 0.75、Precision@5 0.92 だった。FTS5 は exact name と PascalCase に強く、embedding は conceptual query の穴を埋める。小さい 0.6B preset がこの suite では 4B と同等以上で、メモリは約 1/7 なので、通常は `low` が妥当な既定値である。
+
+検索性能の現状評価は次の通りである。
+
+| 項目 | 現状 | 性能上の意味 |
+|---|---|---|
+| Exact identifier search | FTS5 BM25 + identifier token | 高速で、embedding なしでも強い |
+| Natural-language conceptual search | FTS + embedding RRF | embedding がある場合に recall が上がる |
+| Fallback | hybrid -> FTS-only -> embedding-only -> keyword LIKE | index や provider が欠けても検索不能になりにくい |
+| EmbeddingStore lifecycle | process-level cache | tool call ごとの connection / provider 初期化を削減 |
+| Vector similarity | numpy matrix cache + BLAS fast path | embedding rows 全件に対する Python loop を回避 |
+| Result hydration | candidate ids の batch fetch | merge 後の N+1 fetch を避ける |
+| Ranking tuning | kind / context / intent / test deboost | source node が test や docs に埋もれにくい |
+
+残る検索性能課題は、品質と latency の両面にある。まず、embedding の生成側では `embed_nodes` の既存 embedding 確認と insert がまだ batch 化余地を持つ。次に、query vector の provider call は `_embed_query_cached` で cache されるが、provider や model の組み合わせ、remote endpoint の latency、失敗時の fallback policy は実運用でさらに測る必要がある。最後に、`semantic_search_nodes` の p95 latency target は WIP plan では 500 ms 未満だが、まだ CI gate ではなく、current repo / larger synthetic repo / remote provider の3条件で baseline を分ける必要がある。
+
+### 5.4 残る性能課題
+
+未実装または partial の項目も明確である。
+
+- `get_flow_by_id` 単体呼び出しは path step ごとに `get_node_by_id` を呼ぶ。
+- hub / bridge scores は runtime calculation が残る。特に bridge は NetworkX betweenness を query time に走らせる。
+- write side は `upsert_node` / `upsert_edge` の per-row INSERT + SELECT、`store_file_batch` 未使用、communities / flows の insert loops が残る。
+- Markdown artifact ref resolver は edge ごとに SELECT + UPDATE / DELETE している。
+- embedding search は numpy 利用時の matrix cache + BLAS fast path を持つが、numpy 非導入環境では pure-Python cosine loop に fallback する。
+- `embed_nodes` は node ごとに embedding SELECT / INSERT している。
+- suffix LIKE は index が効きにくい。
+- incremental update は mtime が変わっていないファイルでも bytes read + sha256 を行う。
+- DFS traversal は BFS と違い size-1 batch のまま。
+- `parse_diff_ranges` は複数 tool call で同じ `git diff` を繰り返し得る。
+- provider `embed_query` 結果は `_embed_query_cached` で LRU cache されるが、remote provider ごとの latency baseline と cache hit rate はまだ継続測定が必要である。
+
+これらは性能上の TODO であると同時に、設計の方向性を示している。dagayn は query-time の全表 scan や Python loop を段階的に postprocess / Rust / cache / batch へ移す途中にある。
+
+### 5.5 Benchmark と測定
+
+`dagayn eval` は build performance、flow completeness、impact accuracy、N+1 count、search quality、token efficiency などの benchmark を持つ。`nplusone_count.py` は `sqlite3.set_trace_callback` による SQL statement counter を使い、baseline を超えたら failure にできる。
+
+`dagayn profile` は `pyinstrument` により CPU profiler output を `.dagayn/profiles/profile_<subcommand>_<timestamp>.html` に書く。
+
+未整備のものとして、per-MCP-tool wall-clock latency benchmark と CI regression gates が残る。WIP plan の初期 target は、`semantic_search_nodes` p95 < 500 ms、`detect_changes` < 300 ms、`get_impact_radius` < 100 ms、`get_review_context` < 200 ms、hub / bridge post-Fix B < 50 ms、depth 3 traversal < 150 ms である。ただしこれは hard acceptance criteria ではなく、測定後に調整される calibration target とされている。
+
+## 6. dagayn 自身のグラフ分析
+
+<!-- derived-from #5-性能設計と現状 -->
+
+### 6.1 グラフ統計
+
+`list_graph_stats_tool` の 2026-05-18 出力は以下である。
+
+| 指標 | 値 |
+|---|---:|
+| total nodes | 6,070 |
+| total edges | 43,159 |
+| files | 382 |
+| languages | 29 |
+| embeddings | 5,688 |
+| last updated | 2026-05-18T01:05:04 |
+
+ノード種別:
+
+| kind | count |
+|---|---:|
+| Function | 2,770 |
+| Test | 1,705 |
+| DocSection | 767 |
+| Class | 446 |
+| File | 382 |
+
+エッジ種別:
+
+| kind | count |
+|---|---:|
+| CALLS | 27,213 |
+| TESTED_BY | 6,284 |
+| CONTAINS | 5,745 |
+| CROSS_ARTIFACT | 1,802 |
+| IMPORTS_FROM | 1,766 |
+| DEPENDS_ON | 166 |
+| REFERENCES | 138 |
+| INHERITS | 41 |
 | IMPLEMENTS | 4 |
-| REFERENCES | 142 |
 
----
+この構成から、dagayn 自身のグラフはコード呼び出しとテスト関係が大きな割合を占めつつ、Markdown / cross artifact edge もかなり多いことが分かる。特に `CROSS_ARTIFACT` 1,802 は、この repo がドキュメントと実装の対応を積極的に graph 化していることを示す。
+
+### 6.2 コミュニティ構造
+
+`architecture_analysis_tool(mode="overview", detail_level="standard")` は 342 communities、top 10 coupled pairs、2 warnings を返した。最大 warning は `docs-tool` から `tests-files` への 17 edges coupling、次は `tests-files` から `tests-detect` への 12 edges coupling である。出力は `truncated=true` で、communities は 342 件中 1 件、cross-community coupling は 10 件中 1 件だけ保持されていた。
+
+`architecture_analysis_tool(mode="communities", min_size=3)` では 261 communities が返った。上位は次の通りである。
+
+| community | size | cohesion |
+|---|---:|---:|
+| docs-tool | 436 | 0.4959 |
+| tests-detect | 274 | 0.6467 |
+| tests-files | 239 | 0.5204 |
+| tests-install | 234 | 0.5528 |
+| tests-method | 153 | 0.4155 |
+| tests-fts | 148 | 0.6317 |
+| src-file | 137 | 0.5176 |
+| src-py | 111 | 0.6659 |
+| tests-provider | 109 | 0.6033 |
+| tests-flows | 99 | 0.2247 |
+| graph-nodes | 95 | 0.8916 |
+
+最大 community が `docs-tool` であることは、この repo の特徴をよく表している。dagayn は tool surface と agent workflow をドキュメントとして厚く持ち、それらが code / tests と `CROSS_ARTIFACT` で結びつく。
 
-## 2. アーキテクチャ構造
+### 6.3 ハブノード
+
+`architecture_analysis_tool(mode="hubs", top_n=10)` は最高 degree のノードを返した。
 
-`list_communities_tool` と `get_architecture_overview` で取得したアーキテクチャ構造。352のコミュニティが検出され、そのうちサイズ5以上は203。`get_impact_radius` でハイカップリングも検出される。
+| rank | qualified name | kind | in | out | total |
+|---:|---|---|---:|---:|---:|
+| 1 | `dagayn/cli/commands/build.py::handle` | Function | 1 | 158 | 159 |
+| 2 | `tests/test_flows.py::TestFlows._add_func` | Function | 78 | 80 | 158 |
+| 3 | `crates/dagayn-graph/src/tests.rs::stores_flows_and_reads_flow_inputs` | Function | 1 | 146 | 147 |
+| 4 | `dagayn/incremental.py::incremental_update` | Function | 18 | 108 | 126 |
+| 5 | `dagayn/refactor/dead_code.py::find_dead_code` | Function | 4 | 114 | 118 |
+| 6 | `tests/test_integration_v2.py::TestV2Integration.test_full_pipeline` | Test | 56 | 55 | 111 |
+| 7 | `dagayn/search.py::hybrid_search` | Function | 40 | 69 | 109 |
+| 8 | `crates/dagayn-graph/src/lib.rs::GraphStore` | Class | 2 | 102 | 104 |
+| 9 | `dagayn/sap.py::compute_sap_metrics` | Function | 34 | 68 | 102 |
+| 10 | `crates/dagayn-parser/src/core.rs::RustOwnedParser.parse_file_in_repo` | Function | 4 | 96 | 100 |
+
+ハブは変更時の blast radius が大きい。特に `build.py::handle`、`incremental_update`、Rust `GraphStore`、`hybrid_search` は product behavior の中心なので、変更時には `review_tool(mode="impact")` と関連テストの確認が必要である。
+
+### 6.4 ブリッジノード
+
+`architecture_analysis_tool(mode="bridges", top_n=10)` は betweenness centrality 上位を返した。
 
-- **コミュニティ数**: 352 (サイズ5以上: 203)
-- **ハイカップリング警告**: 2件
+| rank | qualified name | kind | betweenness |
+|---:|---|---|---:|
+| 1 | `tests/test_main.py::TestLongRunningToolsAreAsync.test_regression_guard_does_not_depend_on_fastmcp_internals` | Test | 0.015101 |
+| 2 | `tests/test_integration_v2.py::TestV2Integration.test_full_pipeline` | Test | 0.011609 |
+| 3 | `dagayn/main.py::_tool` | Function | 0.005960 |
+| 4 | `dagayn/search.py::hybrid_search` | Function | 0.004360 |
+| 5 | `dagayn/incremental.py::full_build` | Function | 0.003343 |
+| 6 | `dagayn-vscode/test/sqlite.test.ts::describe:SqliteReader@L248` | Test | 0.003279 |
+| 7 | `dagayn/sap.py::compute_sap_metrics` | Function | 0.003160 |
+| 8 | `tests/test_daemon.py::TestWatchDaemon.test_status_from_state_reports_alive` | Test | 0.003089 |
+| 9 | `tests/test_parser.py::TestBridgeExpansion._bridges` | Function | 0.003046 |
+| 10 | `dagayn/daemon.py::WatchDaemon` | Class | 0.002989 |
+
+上位に test が多いのは、この repo の test graph が複数領域を横断しているためである。production code では `_tool`、`hybrid_search`、`full_build`、`compute_sap_metrics`、`WatchDaemon` が chokepoint として見える。
+
+### 6.5 知識ギャップ
+
+`architecture_analysis_tool(mode="knowledge_gaps", top_n=10)` は raw total 1,021、`truncated=true` を返した。
+
+| category | raw count | returned | threshold / note |
+|---|---:|---:|---|
+| isolated_nodes | 686 | 10 | degree <= 1 |
+| thin_communities | 146 | 10 | size < 3 |
+| untested_hotspots | 74 | 10 | non-file degree p95 >= 37 |
+| single_file_communities | 115 | 10 | size >= 3 and one file |
+
+degree distribution は candidate positive degree count 2,120、p95 degree 37。untested hotspot からは test nodes、test-like file paths、Markdown sections が除外される。
+
+上位 untested hotspot は次の通りである。
+
+| qualified name | degree | evidence |
+|---|---:|---|
+| `dagayn/cli/commands/build.py::handle` | 159 | p95 以上かつ direct `TESTED_BY` edge なし |
+| `dagayn/refactor/dead_code.py::find_dead_code` | 118 | p95 以上かつ direct `TESTED_BY` edge なし |
+| `crates/dagayn-graph/src/lib.rs::GraphStore` | 104 | p95 以上かつ direct `TESTED_BY` edge なし |
+| `crates/dagayn-parser/src/core.rs::RustOwnedParser.parse_file_in_repo` | 100 | p95 以上かつ direct `TESTED_BY` edge なし |
+| `dagayn/tools/query.py::query_graph` | 95 | p95 以上かつ direct `TESTED_BY` edge なし |
+| `crates/dagayn-graph/src/lib.rs::GraphStore.analyze_changes_json` | 92 | p95 以上かつ direct `TESTED_BY` edge なし |
+| `dagayn/graph/core.py::GraphStore` | 87 | p95 以上かつ direct `TESTED_BY` edge なし |
+| `diagrams/generate_diagrams.py::TC` | 84 | p95 以上かつ direct `TESTED_BY` edge なし |
+| `dagayn/exports.py::export_obsidian_vault` | 83 | p95 以上かつ direct `TESTED_BY` edge なし |
+| `crates/dagayn-graph/src/lib.rs::GraphStore.get_edges_by_endpoints` | 82 | p95 以上かつ direct `TESTED_BY` edge なし |
+
+これは「テストが存在しない」と断定するものではない。graph 上の direct `TESTED_BY` edge がない、という構造的な signal である。Rust 側は Rust unit tests や Python parity tests が間接的に守っている可能性があるため、改善時には direct / transitive / heuristic coverage の見直しが必要である。
+
+### 6.6 Surprising connections
+
+`architecture_analysis_tool(mode="surprising_connections", top_n=10)` は cross-community、rare-community-pair、cross-language、degree-imbalance などの reason を持つ接続を返した。
+
+上位例:
+
+| source | target | edge | score | reasons |
+|---|---|---|---:|---|
+| `CHANGELOG.md::performance` | `dagayn/refactor/dead_code.py::find_dead_code` | CROSS_ARTIFACT | 0.557 | cross-community, rare-community-pair, cross-language, degree-imbalance |
+| `docs/refactoring-priority-report.md::hotspots-and-chokepoints` | `dagayn/sap.py::compute_sap_metrics` | CROSS_ARTIFACT | 0.557 | cross-community, rare-community-pair, cross-language, degree-imbalance |
+| `docs/refactoring-priority-report.md::hotspots-and-chokepoints` | `dagayn/embeddings.py::get_provider` | CROSS_ARTIFACT | 0.554 | cross-community, rare-community-pair, cross-language, degree-imbalance |
+| `docs/refactoring-priority-report.md::hotspots-and-chokepoints` | `dagayn/postprocessing.py::run_post_processing` | CROSS_ARTIFACT | 0.552 | cross-community, rare-community-pair, cross-language, degree-imbalance |
+| `docs/audits/dagayn-usability-scorecard.md::phase-1-coverage-evidence` | `tests/test_tools.py::TestGetMinimalContext` | CROSS_ARTIFACT | 0.551 | cross-community, rare-community-pair, cross-language, degree-imbalance |
+
+ここで重要なのは、surprising connection の多くが Markdown から code / test symbol への `CROSS_ARTIFACT` である点である。これはドキュメントと実装が結びついているという利点でもあり、cross-community noise の源泉でもある。Markdown レポートを書くときは、読みやすさのための backtick と、graph に残したい code obligation を意識的に分ける必要がある。
+
+### 6.7 ADP / SDP / SAP
+
+ADP violations は package granularity で 8 件、top 5 表示のため `truncated=true`。
+
+| cycle | length | weight | severity |
+|---|---:|---:|---:|
+| `docs/audits -> <root> -> docs -> docs/plans` | 4 | 42 | 168 |
+| `<root> -> docs/plans -> docs` | 3 | 22 | 66 |
+| `<root> -> docs` | 2 | 32 | 64 |
+| `docs/audits -> docs -> <root> -> docs/plans` | 4 | 14 | 56 |
+| `docs/audits -> docs -> docs/plans` | 3 | 18 | 54 |
+
+SDP violations は 2 件、`truncated=false`。
+
+| source | target | source instability | target instability | delta |
+|---|---|---:|---:|---:|
+| docs | `<root>` | 0.4 | 0.5714 | 0.1714 |
+| docs/plans | docs/audits | 0.5 | 0.6667 | 0.1667 |
+
+SAP violations は 7 件、`min_distance=0.5`、`truncated=false`。
+
+| scope | distance | zone |
+|---|---:|---|
+| `dagayn-vscode/src/webview` | 1.0 | uselessness |
+| `dagayn/parser/_base` | 1.0 | pain |
+| `dagayn-vscode/test` | 1.0 | uselessness |
+| `dagayn/graph` | 0.8889 | pain |
+| `dagayn/parser` | 0.75 | pain |
+| `dagayn` | 0.6667 | pain |
+| `dagayn-vscode/src/views` | 0.6667 | pain |
 
-### トップコミュニティ
+今回の ADP / SDP の主な問題は docs 周辺であり、旧レポート時点のような `dagayn/tools` と `dagayn/cli/commands` の巨大循環ではない。これは graph とツール実装の進化により、以前の評価をそのまま使えないことを示している。分析レポートは必ず current graph に基づいて更新すべきである。
+
+### 6.8 実行フロー
+
+`flow_tool(mode="list", sort_by="criticality", limit=20)` の上位は次の通り。
+
+| rank | flow | criticality | node count |
+|---:|---|---:|---:|
+| 1 | activate | 0.665 | 20 |
+| 2 | benchmark_review_workflow | 0.61 | 2 |
+| 3 | benchmark_architecture_workflow | 0.61 | 2 |
+| 4 | benchmark_debug_workflow | 0.61 | 2 |
+| 5 | benchmark_onboard_workflow | 0.61 | 2 |
+| 6 | benchmark_pre_merge_workflow | 0.61 | 2 |
+| 7 | query_graph | 0.61 | 4 |
+| 8 | main | 0.4967 | 6 |
+| 9 | compute_missing_signatures | 0.485 | 2 |
+| 10 | computes_missing_signatures | 0.485 | 2 |
+| 15 | search_nodes | 0.47 | 5 |
+| 20 | resolve_javascript_call_target | 0.44 | 29 |
 
-| 名前 | サイズ | 協調性 | 主要言語 | 内容 |
-|------|--------|--------|----------|------|
-| tests-files | 251 | 0.525 | Python | `embeddings`, `incremental`, tests, パフォーマンス/マイグレーションドキュメント |
+`activate` は VS Code extension 側の activation flow と見られ、最も criticality が高い。MCP / CLI では `query_graph`、`main`、`search_nodes` が目立つ。変更レビュー時には affected flows がここに乗るかどうかが重要である。
 
-### ハイカップリング警告
+### 6.9 大規模ファイル・クラス
 
-| 出側コミュニティ | 入側コミュニティ | エッジ数 | 種別 |
-|-----------------|-----------------|----------|------|
-| tests-communities | tests-flows | 17 | CROSS_ARTIFACT: 6, CALLS: 9, CONTAINS: 2 |
-| tests-files | tests-flows | 14 | — |
+`dagayn tool find_large_functions_tool --arg min_lines=200 --arg limit=20` は 20 件を返した。
 
----
+| rank | node | kind | lines |
+|---:|---|---|---:|
+| 1 | `crates/dagayn-graph/src/lib.rs` | File | 3,836 |
+| 2 | `crates/dagayn-graph/src/lib.rs::GraphStore` | Class | 2,827 |
+| 3 | `crates/dagayn-parser/src/core_tests.rs` | File | 2,610 |
+| 4 | `tests/test_skills.py` | File | 2,258 |
+| 5 | `tests/test_parser.py` | File | 2,227 |
+| 6 | `tests/test_tools.py` | File | 2,119 |
+| 7 | `dagayn/graph/core.py` | File | 1,970 |
+| 8 | `dagayn/incremental.py` | File | 1,885 |
+| 9 | `dagayn/graph/core.py::GraphStore` | Class | 1,875 |
+| 10 | `tests/test_multilang.py` | File | 1,806 |
+| 11 | `tests/test_refactor.py` | File | 1,646 |
+| 12 | `dagayn/skills.py` | File | 1,633 |
+| 13 | `crates/dagayn-parser/src/python.rs` | File | 1,402 |
+| 14 | `tests/test_embeddings.py` | File | 1,387 |
+| 15 | `crates/dagayn-py/src/lib.rs` | File | 1,342 |
+| 16 | `dagayn/embeddings.py` | File | 1,155 |
+| 17 | `dagayn/main.py` | File | 1,067 |
+| 18 | `tests/test_parser.py::TestCodeParser` | Class | 989 |
+| 19 | `dagayn/communities.py` | File | 944 |
+| 20 | `tests/test_daemon.py` | File | 943 |
 
-## 3. ハブノード（接続数上位15）
+最大の構造課題は Rust `GraphStore` と Python `GraphStore` の二重の大きさである。Rust 移行途中のためある程度は避けられないが、責務境界、query APIs、migration、analysis JSON surface を分ける余地がある。テストファイルも大きいが、これは多言語 fixture と parity coverage の厚さを反映している。
 
-`get_hub_nodes_tool` で取得した、高い次数（in + out）を持つノード。変更時の影響範囲が大きい。Fileノードは除外。`review-pr` スキルの `steps` で言及されるように、ハブノードへの変更はアーキテクチャ全体に波及する。
+## 7. 総合評価
 
-| # | 名前 | 修飾名 | 種別 | 入次数 | 出次数 | 総次数 | ファイル |
-|---|------|--------|------|--------|--------|--------|----------|
-| 1 | `_add_func` | tests/test_flows.py::TestFlows._add_func | Function | 78 | 80 | 158 | tests/test_flows.py |
-| 2 | `parse_rescript` | crates/dagayn-parser/src/rescript_legacy.rs::parse_rescript | Function | 1 | 155 | 156 | crates/dagayn-parser/src/rescript_legacy.rs |
-| 3 | `stores_flows_and_reads_flow_inputs` | crates/dagayn-graph/src/tests.rs::stores_flows_and_reads_flow_inputs | Function | 1 | 149 | 150 | crates/dagayn-graph/src/tests.rs |
-| 4 | `handle` | dagayn/cli/commands/build.py::handle | Function | 1 | 139 | 140 | dagayn/cli/commands/build.py |
-| 5 | `incremental_update` | dagayn/incremental.py::incremental_update | Function | 13 | 114 | 127 | dagayn/incremental.py |
-| 6 | `find_dead_code` | dagayn/refactor/dead_code.py::find_dead_code | Function | 3 | 115 | 118 | dagayn/refactor/dead_code.py |
-| 7 | `test_full_pipeline` | tests/test_integration_v2.py::TestV2Integration.test_full_pipeline | Test | 56 | 55 | 111 | tests/test_integration_v2.py |
-| 8 | `parse` | dagayn/parser/languages/rescript.py::parse | Function | 1 | 104 | 105 | dagayn/parser/languages/rescript.py |
-| 9 | `parse_file_in_repo` | crates/dagayn-parser/src/core.rs::RustOwnedParser.parse_file_in_repo | Function | 3 | 100 | 103 | crates/dagayn-parser/src/core.rs |
-| 10 | `GraphStore` | crates/dagayn-graph/src/lib.rs::GraphStore | Class | 2 | 100 | 102 | crates/dagayn-graph/src/lib.rs |
-| 11 | `buildGraph` | dagayn-vscode/src/webview/graph.ts::buildGraph | Function | 6 | 90 | 96 | dagayn-vscode/src/webview/graph.ts |
-| 12 | `compute_sap_metrics` | dagayn/sap.py::compute_sap_metrics | Function | 30 | 66 | 96 | dagayn/sap.py |
-| 13 | `computes_summary_tables` | crates/dagayn-graph/src/tests.rs::computes_summary_tables | Function | 1 | 94 | 95 | crates/dagayn-graph/src/tests.rs |
-| 14 | `analyze_changes_json` | crates/dagayn-graph/src/lib.rs::GraphStore.analyze_changes_json | Function | 1 | 91 | 92 | crates/dagayn-graph/src/lib.rs |
-| 15 | `OpenAIEmbeddingProvider` | dagayn/embeddings.py::OpenAIEmbeddingProvider | Class | 43 | 49 | 92 | dagayn/embeddings.py |
+<!-- derived-from #6-dagayn-自身のグラフ分析 -->
 
----
+### 7.1 強み
 
-## 4. ブリッジノード（betweenness centrality 上位15）
+dagayn の最大の強みは、エージェントが実際に使う workflow を中心に設計されている点である。`get_minimal_context_tool` から始め、review / architecture / query / search / refactor へ進む動線が明確で、tool surface も v3 で整理されている。
 
-`get_bridge_nodes_tool` で取得した、多くのノードペア間の最短パス上に位置するノード。切断されると複数のコード領域の接続性が失われる。`review-delta` スキルの `advantages-over-full-repo-review` で言及されるように、ブリッジノードの特定は変更影響範囲の理解に不可欠。
-
-| # | 名前 | 修飾名 | 種別 | Betweenness | ファイル |
-|---|------|--------|------|-------------|----------|
-| 1 | `test_full_pipeline` | tests/test_integration_v2.py::TestV2Integration.test_full_pipeline | Test | 0.011432 | tests/test_integration_v2.py |
-| 2 | `test_regression_guard_does_not_depend_on_fastmcp_internals` | tests/test_main.py::TestLongRunningToolsAreAsync.test_regression_guard_does_not_depend_on_fastmcp_internals | Test | 0.011022 | tests/test_main.py |
-| 3 | `it:isValid() returns false after close()@L483` | dagayn-vscode/test/sqlite.test.ts::it:isValid() returns false after close()@L483 | Test | 0.005768 | dagayn-vscode/test/sqlite.test.ts |
-| 4 | `_bridges` | tests/test_parser.py::TestBridgeExpansion._bridges | Function | 0.004045 | tests/test_parser.py |
-| 5 | `full_build` | dagayn/incremental.py::full_build | Function | 0.003753 | dagayn/incremental.py |
-| 6 | `test_status_from_state_reports_alive` | tests/test_daemon.py::TestWatchDaemon.test_status_from_state_reports_alive | Test | 0.003380 | tests/test_daemon.py |
-| 7 | `incremental_update` | dagayn/incremental.py::incremental_update | Function | 0.003320 | dagayn/incremental.py |
-| 8 | `WatchDaemon` | dagayn/daemon.py::WatchDaemon | Class | 0.003284 | dagayn/daemon.py |
-| 9 | `EmbeddingStore` | dagayn/embeddings.py::EmbeddingStore | Class | 0.002760 | dagayn/embeddings.py |
-| 10 | `run_post_processing` | dagayn/postprocessing.py::run_post_processing | Function | 0.002478 | dagayn/postprocessing.py |
-| 11 | `test_detected_cohesions_match_direct_computation` | tests/test_communities.py::TestCommunities.test_detected_cohesions_match_direct_computation | Test | 0.002407 | tests/test_communities.py |
-| 12 | `describe:SqliteReader@L243` | dagayn-vscode/test/sqlite.test.ts::describe:SqliteReader@L243 | Test | 0.002365 | dagayn-vscode/test/sqlite.test.ts |
-| 13 | `compute_sap_metrics` | dagayn/sap.py::compute_sap_metrics | Function | 0.002306 | dagayn/sap.py |
-| 14 | `test_rust_backend_routes_databricks_py_exports` | tests/test_rust_backend_parity.py::test_rust_backend_routes_databricks_py_exports | Test | 0.002293 | tests/test_rust_backend_parity.py |
-| 15 | `get_provider` | dagayn/embeddings.py::get_provider | Function | 0.002184 | dagayn/embeddings.py |
-
----
-
-## 5. 知識ギャップ（349件）
-
-`get_knowledge_gaps_tool` で取得した、構造的な弱点を4カテゴリに分類。`explore-codebase` スキルの `steps` で言及されるように、孤立ノードや未テストハブの特定はコードベースの健全性評価に不可欠。
-
-### 5.1 孤立ノード（50件）
-
-接続数1のノード。CHANGELOG.md, CLAUDE.md, CODE_OF_CONDUCT.md, CONTRIBUTING.md, README.hi-IN.md, README.ja-JP.md の見出しセクションが大半を占める。
-
-代表的な孤立ノード:
-- `CHANGELOG.md::features`, `::performance-1`, `::fixes`, `::tests`, `::010--initial-dagayn-fork`, `::unreleased`
-- `CLAUDE.md::suggested-local-workflow`, `::verification-commands`, `::good-prompts-to-start-with`, `::fork-specific-emphasis`, `::golden-rule`, `::build--compile-80-90-savings`, `::test-60-99-savings`, `::git-59-80-savings`, `::github-26-87-savings`, `::javascripttypescript-tooling-70-90-savings`, `::files--search-60-75-savings`, `::analysis--debug-70-90-savings`, `::infrastructure-85-savings`, `::network-65-70-savings`, `::meta-commands`, `::token-savings-overview`
-- `CODE_OF_CONDUCT.md::expected-behavior`, `::unacceptable-behavior`, `::maintainer-responsibilities`, `::contribution-policy`, `::scope`
-- `CONTRIBUTING.md::issues`, `::pull-requests`, `::development-setup-maintainers`
-
-### 5.2 薄コミュニティ（151件）
-
-メンバー数3未満のコミュニティ。`src-markdown` (サイズ0) が代表例。
-
-### 5.3 テスト未カバーハブ（20件）
-
-次数が高くながらテストからの参照がないノード。`review-pr` スキルの `tips` で言及されるように、ハブノードのテストカバレッジは必須のレビュー項目。
-
-| 名前 | 修飾名 | 種別 | 次数 | ファイル |
-|------|--------|------|------|----------|
-| `parse_rescript` | crates/dagayn-parser/src/rescript_legacy.rs::parse_rescript | Function | 156 | crates/dagayn-parser/src/rescript_legacy.rs |
-
-**重大な懸念:** Rustパーサーの核心関数 `parse_rescript` (degree 156) がテスト未カバー。
-
-### 5.4 単一ファイルコミュニティ（128件）
-
-1ファイルのみで構成されるコミュニティ。`CLAUDE.md` (サイズ5), `skills/reading-markdown-document`, `skills/writing-markdown-document`, `skills/debug-issue`, `skills/review-delta`, `docs/audits`, `dagayn-vscode` など。
-
----
-
-## 6. 不自然な接続（Surprising Connections）上位15
-
-`get_surprising_connections_tool` で取得した、コミュニティ間・言語間の予期せぬ結合。スコアが高いほどアーキテクチャ上の懸念度が高い。`review-delta` スキルの `steps` で言及されるように、不自然な接続はアーキテクチャの腐敗を示す指標となる。
-
-| # | 出側 | 入側 | エッジ種別 | スコア | 理由 |
-|---|------|------|-----------|--------|------|
-| 1 | `CHANGELOG.md::performance` | `dagayn/refactor/dead_code.py::find_dead_code` | CROSS_ARTIFACT | 0.557 | cross-community, rare-community-pair, cross-language, degree-imbalance |
-| 2 | `docs/CROSS-ARTIFACT-EDGES-WIP.md::bridge-family-2--markdown--code-symbol-references-` | `dagayn/tools/query.py::query_graph` | CROSS_ARTIFACT | 0.555 | cross-community, rare-community-pair, cross-language, degree-imbalance |
-| 3 | `docs/PERFORMANCE-IMPROVEMENTS-WIP.md::embeddingstore-re-instantiated-per-search` | `dagayn/search.py::hybrid_search` | CROSS_ARTIFACT | 0.554 | cross-community, rare-community-pair, cross-language, degree-imbalance |
-| 4 | `docs/PERFORMANCE-IMPROVEMENTS-WIP.md::42-codeparser-singleton-per-worker-quick-win--shipped` | `dagayn/parser/core.py::CodeParser` | CROSS_ARTIFACT | 0.553 | cross-community, rare-community-pair, cross-language, degree-imbalance |
-| 5 | `docs/COMMANDS.md::mcp-tools` | `dagayn/tools/build.py::build_or_update_graph` | CROSS_ARTIFACT | 0.552 | cross-community, rare-community-pair, cross-language, degree-imbalance |
-| 6 | `docs/audits/mcp-tool-output-review.md::36-get_review_context_tool-minimal--key_entities-に絶対パス混入` | `dagayn/tools/_common.py::_get_store` | CROSS_ARTIFACT | 0.552 | cross-community, rare-community-pair, cross-language, degree-imbalance |
-| 7 | `CHANGELOG.md::performance` | `dagayn/graph/core.py::GraphStore.get_local_subgraph` | CROSS_ARTIFACT | 0.551 | cross-community, rare-community-pair, cross-language, degree-imbalance |
-| 8 | `docs/audits/mcp-tool-output-review.md::phase-3--mediumlow-改修-commit-tbd` | `dagayn/analysis.py::find_surprising_connections` | CROSS_ARTIFACT | 0.551 | cross-community, rare-community-pair, cross-language, degree-imbalance |
-| 9 | `dagayn/embeddings.py::LocalEmbeddingProvider` | `dagayn/embeddings.py::LocalEmbeddingProvider.embed_query` | CONTAINS | 0.526 | cross-community, rare-community-pair, peripheral-to-hub, degree-imbalance |
-| 10 | `docs/COMMANDS.md::mcp-tools` | `dagayn/wiki.py::generate_wiki` | CROSS_ARTIFACT | 0.511 | cross-community, rare-community-pair, cross-language, degree-imbalance |
-| 11 | `skills/explore-codebase/SKILL.md::steps` | `dagayn/communities.py::get_architecture_overview` | CROSS_ARTIFACT | 0.511 | cross-community, rare-community-pair, cross-language, degree-imbalance |
-| 12 | `AGENTS.md::when-to-use-graph-tools-first` | `dagayn/communities.py::get_architecture_overview` | CROSS_ARTIFACT | 0.511 | cross-community, rare-community-pair, cross-language, degree-imbalance |
-| 13 | `AGENTS.md::key-tools` | `dagayn/communities.py::get_architecture_overview` | CROSS_ARTIFACT | 0.511 | cross-community, rare-community-pair, cross-language, degree-imbalance |
-| 14 | `GEMINI.md::when-to-use-graph-tools-first` | `dagayn/communities.py::get_architecture_overview` | CROSS_ARTIFACT | 0.511 | cross-community, rare-community-pair, cross-language, degree-imbalance |
-| 15 | `GEMINI.md::key-tools` | `dagayn/communities.py::get_architecture_overview` | CROSS_ARTIFACT | 0.511 | cross-community, rare-community-pair, cross-language, degree-imbalance |
-
----
-
-## 7. ADP違反（循環依存）41件（パッケージレベル）
-
-`detect_adp_violations_tool` で取得した、Acyclic Dependencies Principleに違反する循環依存。重大度（severity）が高い順に上位20件。`review-delta` スキルの `steps` で言及されるように、循環依存はモジュール境界の再設計が必要であることを示す。
-
-| # | 循環パス | 長さ | 重み | 重大度 |
-|---|----------|------|------|--------|
-| 1 | `dagayn/tools` → `dagayn` → `dagayn/cli` → `dagayn/cli/commands` → `dagayn/eval` → `dagayn/eval/benchmarks` | 6 | 64 | 384 |
-| 2 | `dagayn/tools` → `dagayn` → `dagayn/cli` → `dagayn/cli/commands` → `dagayn/eval` | 5 | 71 | 355 |
-| 3 | `dagayn/tools` → `dagayn` → `dagayn/cli` → `dagayn/cli/commands` | 4 | 61 | 244 |
-| 4 | `dagayn/tools` → `dagayn/refactor` → `dagayn/graph` → `dagayn/parser` → `dagayn` → `dagayn/cli` → `dagayn/cli/commands` → `dagayn/eval` | 8 | 23 | 184 |
-| 5 | `dagayn/tools` → `dagayn/graph` → `dagayn/parser` → `dagayn` → `dagayn/cli` → `dagayn/cli/commands` → `dagayn/eval` | 7 | 24 | 168 |
-| 6 | `dagayn/tools` → `dagayn/refactor` → `dagayn/graph` → `dagayn` → `dagayn/cli` → `dagayn/cli/commands` → `dagayn/eval` | 7 | 22 | 154 |
-| 7 | `dagayn/tools` → `dagayn/graph` → `dagayn/parser` → `dagayn` → `dagayn/cli` → `dagayn/cli/commands` → `dagayn/eval` → `dagayn/eval/benchmarks` | 8 | 16 | 144 |
-| 8 | `dagayn/tools` → `dagayn/graph` → `dagayn` → `dagayn/cli` → `dagayn/cli/commands` → `dagayn/eval` | 6 | 23 | 138 |
-| 9 | `dagayn/tools` → `dagayn/graph` → `dagayn/parser` → `dagayn` → `dagayn/cli` → `dagayn/cli/commands` → `dagayn/eval` → `dagayn/eval/benchmarks` | 8 | 17 | 136 |
-| 10 | `dagayn/tools` → `dagayn/refactor` → `dagayn/graph` → `dagayn` → `dagayn/cli` → `dagayn/cli/commands` → `dagayn/eval` → `dagayn/eval/benchmarks` | 8 | 15 | 120 |
-| 11 | `dagayn/tools` → `dagayn` | 2 | 57 | 114 |
-| 12 | `dagayn/tools` → `dagayn/graph` → `dagayn` → `dagayn/cli` → `dagayn/cli/commands` → `dagayn/eval` → `dagayn/eval/benchmarks` | 7 | 16 | 112 |
-| 13 | `dagayn/tools` → `dagayn/refactor` → `dagayn` → `dagayn/cli` → `dagayn/cli/commands` → `dagayn/eval` | 6 | 17 | 102 |
-| 14 | `dagayn/tools` → `dagayn/refactor` → `dagayn/graph` → `dagayn/parser` → `dagayn` → `dagayn/cli` → `dagayn/cli/commands` | 7 | 13 | 91 |
-| 15 | `dagayn/cli/commands` → `dagayn` → `dagayn/cli` | 3 | 29 | 87 |
-| 16 | `dagayn/tools` → `dagayn/graph` → `dagayn/parser` → `dagayn` → `dagayn/cli` → `dagayn/cli/commands` | 6 | 14 | 84 |
-| 17 | `dagayn/tools` → `dagayn/refactor` → `dagayn/graph` → `dagayn` → `dagayn/cli` → `dagayn/cli/commands` | 6 | 12 | 72 |
-| 18 | `dagayn/tools` → `dagayn/refactor` → `dagayn` → `dagayn/cli` → `dagayn/cli/commands` → `dagayn/eval` → `dagayn/eval/benchmarks` | 7 | 10 | 70 |
-| 19 | `dagayn/tools` → `dagayn/graph` → `dagayn` → `dagayn/cli` → `dagayn/cli/commands` | 5 | 13 | 65 |
-| 20 | `dagayn/eval` → `dagayn/eval/benchmarks` → `dagayn` → `dagayn/cli` → `dagayn/cli/commands` | 5 | 13 | 65 |
-
----
-
-## 8. SAP違反（安定抽象原理）
-
-`compute_sap_metrics_tool` で取得した、60パッケージがZone of Pain（具体かつ安定）またはZone of Uselessness（抽象かつ不安定）に存在。距離1.0（最大リスク）のパッケージ。`review-pr` スキルの `tips` で言及されるように、SAP違反はアーキテクチャの腐敗を示す。
-
-| パッケージ | 抽象度 | 不安定度 | 距離 | メンバー数 | 状態 |
-|------------|--------|----------|------|-----------|------|
-| hooks | 0.0 | 0.0 | 1.0 | 1 | 孤立 |
-| skills/reading-markdown-document | 0.0 | 0.0 | 1.0 | 7 | 孤立 |
-| tests/fixtures/parity/notebook | 0.0 | 0.0 | 1.0 | 3 | 孤立 |
-| crates/dagayn-core/src | 0.0 | 0.0 | 1.0 | 1 | 孤立 |
-| crates/dagayn-py/src | 0.0 | 0.0 | 1.0 | 122 | 孤立 |
-| tests/fixtures/parity/terraform_only | 0.0 | 0.0 | 1.0 | 7 | 孤立 |
-| dagayn/parser/_base | 0.0 | 0.0 | 1.0 | 10 | 依存先あり（36+11+1） |
-| dagayn-vscode/media/walkthrough | 0.0 | 0.0 | 1.0 | 6 | 孤立 |
-| dagayn/visualization/templates | 0.0 | 0.0 | 1.0 | 1 | 孤立 |
-| tests/fixtures/parity/python_only | 0.0 | 0.0 | 1.0 | 10 | 孤立 |
-| dagayn-vscode | 0.0 | 0.0 | 1.0 | 24 | 孤立 |
-| skills/writing-markdown-document | 0.0 | 0.0 | 1.0 | 9 | 孤立 |
-| skills/debug-issue | 0.0 | 0.0 | 1.0 | 5 | 孤立 |
-| skills/review-delta | 0.0 | 0.0 | 1.0 | 4 | 孤立 |
-| tests/fixtures/src/lib | 0.0 | 0.0 | 1.0 | 2 | 依存先あり |
-| tests/fixtures/java_multipackage/domain | 0.0 | 0.0 | 1.0 | 6 | 孤立 |
-| docs/audits | 0.0 | 0.0 | 1.0 | 43 | 孤立 |
-| tests/fixtures/parity/mixed | 0.0 | 0.0 | 1.0 | 6 | 孤立 |
-| crates/dagayn-py | 0.0 | 0.0 | 1.0 | 2 | 孤立 |
-| dagayn-vscode/src/webview | 1.0 | 1.0 | 1.0 | 23 | 抽象かつ不安定 |
-
----
-
-## 9. 大規模ファイル・クラス（50行超）
-
-`find_large_functions_tool` で取得した、50行以上のファイル・クラスを行数順に列出。`review-delta` スキルの `steps` で言及されるように、大規模な関数・クラスは分解の候補となる。
-
-| # | 名前 | 種別 | 行数 | ファイル |
-|---|------|------|------|----------|
-| 1 | `crates/dagayn-graph/src/lib.rs` | File | 3,630 | Rust |
-| 2 | `GraphStore` | Class | 2,724 | crates/dagayn-graph/src/lib.rs (Rust) |
-| 3 | `crates/dagayn-parser/src/core_tests.rs` | File | 2,649 | Rust |
-| 4 | `tests/test_parser.py` | File | 2,175 | Python |
-| 5 | `tests/test_multilang.py` | File | 2,096 | Python |
-| 6 | `dagayn/incremental.py` | File | 1,919 | Python |
-| 7 | `dagayn/graph/core.py` | File | 1,911 | Python |
-| 8 | `GraphStore` | Class | 1,823 | dagayn/graph/core.py (Python) |
-| 9 | `tests/test_tools.py` | File | 1,735 | Python |
-| 10 | `tests/test_skills.py` | File | 1,552 | Python |
-| 11 | `crates/dagayn-parser/src/python.rs` | File | 1,377 | Rust |
-| 12 | `crates/dagayn-py/src/lib.rs` | File | 1,331 | Rust |
-| 13 | `dagayn/parser/core.py` | File | 1,266 | Python |
-| 14 | `dagayn/main.py` | File | 1,252 | Python |
-| 15 | `CodeParser` | Class | 1,228 | dagayn/parser/core.py (Python) |
-| 16 | `tests/test_refactor.py` | File | 1,225 | Python |
-| 17 | `dagayn/skills.py` | File | 1,174 | Python |
-| 18 | `tests/test_embeddings.py` | File | 1,165 | Python |
-| 19 | `TestCodeParser` | Class | 990 | tests/test_parser.py (Python) |
-| 20 | `dagayn/embeddings.py` | File | 982 | Python |
-
----
-
-## 10. 主要実行フロー（Criticality 順）
-
-`list_flows_tool` で取得した、クリティカル度順の実行フロー。`explore-codebase` スキルの `steps` で言及されるように、実行フローの理解はコードベースの振る舞いを把握するために不可欠。
-
-| # | フロー名 | エントリ次数 | 深さ | ノード数 | ファイル数 | Criticality |
-|---|----------|-------------|------|----------|-----------|-------------|
-| 1 | `activate` | 18 | 3 | 18 | 9 | 0.68 |
-| 2 | `getImpactRadius` | 9 | 2 | 9 | 1 | 0.62 |
-| 3 | `getStats` | 3 | 1 | 3 | 1 | 0.61 |
-| 4 | `getNodesBySize` | 3 | 1 | 3 | 1 | 0.61 |
-| 5 | `benchmark_review_workflow` | 2 | 1 | 2 | 1 | 0.61 |
-| 6 | `benchmark_architecture_workflow` | 2 | 1 | 2 | 1 | 0.61 |
-| 7 | `benchmark_debug_workflow` | 2 | 1 | 2 | 1 | 0.61 |
-| 8 | `benchmark_onboard_workflow` | 2 | 1 | 2 | 1 | 0.61 |
-| 9 | `benchmark_pre_merge_workflow` | 2 | 1 | 2 | 1 | 0.61 |
-| 10 | `query_graph` | 2 | 1 | 2 | 1 | 0.61 |
-| 11 | `getAllFiles` | 2 | 1 | 2 | 1 | 0.53 |
-| 12 | `searchNodes` | 3 | 1 | 3 | 1 | 0.53 |
-| 13 | `main` | 6 | 3 | 6 | 2 | 0.497 |
-| 14 | `getNodeAtCursor` | 3 | 1 | 3 | 1 | 0.49 |
-| 15 | `compute_missing_signatures` | 2 | 1 | 2 | 1 | 0.485 |
-| 16 | `computes_missing_signatures` | 2 | 1 | 2 | 1 | 0.485 |
-| 17 | `embed_query` (Local) | 2 | 1 | 2 | 1 | 0.485 |
-| 18 | `embed_query` (OpenAI) | 2 | 1 | 2 | 1 | 0.485 |
-| 19 | `embed_query` (Google) | 2 | 1 | 2 | 1 | 0.485 |
-| 20 | `_scenario_traverse_graph` | 2 | 1 | 2 | 1 | 0.485 |
-
----
-
-## 11. 推奨アクション
-
-### 優先度高
-
-1. **`parse_rescript` のテスト追加** — degree 156 のハブでありながらテスト未カバー。Rustパーサーの正しさを保証するため必須。`get_knowledge_gaps_tool` で検出された未テストハブの最優先対応項目。
-2. **ADP違反の解消** — `dagayn/tools` ↔ `dagayn/cli/commands` 間の循環依存（severity 384）が最严重。`detect_adp_violations_tool` で検出された41件の循環依存のうち、`dagayn/tools` を起点とするものが大半を占める。モジュール境界の再設計が必要。
-3. **大規模クラスの分割** — Rust `GraphStore` (2,724行), Python `GraphStore` (1,823行), `CodeParser` (1,228行) の分解。`find_large_functions_tool` で検出された大規模クラスのうち、`GraphStore` はRust版とPython版の両方が存在し、`dagayn/graph/_protocol.py` の `get_impact_radius` とも関連する。
-
-### 優先度中
-
-4. **ドキュメントと実装の結合分離** — CHANGELOG.md, COMMANDS.md などのドキュメントが実装コードと直接結合している15件の CROSS_ARTIFACT エッジを再検討。`get_surprising_connections_tool` で検出されたハイスコア接続の大半を占める。
-5. **孤立ノードの整理** — 50件の孤立ノード（主にドキュメント見出し）のグラフからの除外または適切な結合。`get_knowledge_gaps_tool` で検出された孤立ノードの整理は、グラフの品質向上に直結する。
-6. **単一ファイルコミュニティの統合** — 128件の単一ファイルコミュニティを既存コミュニティに統合。`list_communities_tool` で検出されたコミュニティ構造の再編成。
-
-### 優先度低
-
-7. **SAP違反パッケージの再編** — 60パッケージがZone of Pain/Uselessness に存在。`compute_sap_metrics_tool` で検出された `dagayn-vscode/src/webview` (距離1.0) の抽象化見直し。
-8. **ハイカップリングコミュニティの分離** — `tests-communities` ↔ `tests-flows` (17エッジ), `tests-files` ↔ `tests-flows` (14エッジ) の結合度低減。`get_architecture_overview` で検出されたハイカップリング警告の対応。
-
----
-
-## 12. まとめ
-
-<!-- derived-from #グラフ概要 -->
-<!-- derived-from #アーキテクチャ構造 -->
-<!-- derived-from #ハブノード接続数上位15 -->
-<!-- derived-from #ブリッジノード-betweenness-centrality-上位15 -->
-<!-- derived-from #知識ギャップ349件 -->
-<!-- derived-from #不自然な接続Surprising-Connections-上位15 -->
-<!-- derived-from #ADP違反循環依存41件パッケージレベル -->
-<!-- derived-from #SAP違反安定抽象原理 -->
-<!-- derived-from #大規模ファイル-クラス50行超 -->
-<!-- derived-from #主要実行フローCriticality-順 -->
-<!-- derived-from #推奨アクション -->
-
-本レポートは、dagayn 自体のコードベースを `build_or_update_graph_tool` で構築した知識グラフを基に、以下のツールで分析した結果をまとめたもの。
-
-| ツール | 目的 |
-|--------|------|
-| `build_or_update_graph_tool` | 知識グラフの構築・更新 |
-| `list_graph_stats_tool` | グラフ統計の取得 |
-| `list_communities_tool` | コミュニティ構造の分析 |
-| `get_architecture_overview` | アーキテクチャ概要の取得 |
-| `get_hub_nodes_tool` | ハブノード（高接続数）の特定 |
-| `get_bridge_nodes_tool` | ブリッジノード（ chokepoint ）の特定 |
-| `get_knowledge_gaps_tool` | 知識ギャップ（孤立・未テスト等）の検出 |
-| `get_surprising_connections_tool` | 不自然な接続の検出 |
-| `detect_adp_violations_tool` | ADP違反（循環依存）の検出 |
-| `compute_sap_metrics_tool` | SAP違反（安定抽象原理）の検出 |
-| `find_large_functions_tool` | 大規模関数・クラスの検出 |
-| `list_flows_tool` | 実行フローの分析 |
-| `detect_changes` | 変更影響範囲の分析 |
-| `get_impact_radius_tool` | 変更の波及範囲の特定 |
-| `query_graph_tool` | 呼び出し関係・インポート関係の追跡 |
-
-### 主要発見
-
-- **`parse_rescript` (degree 156) がテスト未カバー** — Rustパーサー核心部の懸念。`get_knowledge_gaps_tool` で検出された未テストハブの最優先対応。
-- **ADP違反41件** — `dagayn/tools` ↔ `dagayn/cli/commands` 間の循環依存（severity 384）が最严重。`detect_adp_violations_tool` で検出。
-- **349件の知識ギャップ** — 孤立ノード50, 薄コミュニティ151, 未テストハブ20, 単一ファイルコミュニティ128。
-- **60パッケージがSAP違反** — `compute_sap_metrics_tool` でZone of Pain/Uselessness に存在を確認。
-- **3,630行のRust GraphStore** — `find_large_functions_tool` で検出された最大ファイル。
-
-<!-- supersedes ./dagayn-analysis-report.md -->
+技術的にも、Rust-owned parser、SQLite graph store、FTS5、optional embedding、MCP dispatcher、CLI fallback、hooks、skills、docs directive が統合されている。単なる parser の集合ではなく、AI coding agent の操作環境として一貫している。
+
+また、Markdown と Terraform を first-class に扱う点は実務上大きい。多くの repo では、仕様、運用、ADR、infra、CI、notebook がコードレビューの重要情報だが、通常のコード解析ツールでは周辺扱いされる。dagayn はそれらを graph のノードとエッジにする。
+
+### 7.2 リスク
+
+主なリスクは3つある。
+
+1. 実装の中心部が大きい。Rust `GraphStore`、Python `GraphStore`、`incremental.py`、`main.py`、`skills.py` は変更時の認知負荷が高い。
+2. query-time analysis がまだ重い領域を持つ。bridge centrality、embedding cosine、write-side N+1、flow hydration の一部などは改善余地がある。
+3. Markdown cross artifact edge は便利だが、backtick の多用により surprising connection noise を生み得る。文書作成ルールと postprocess の signal quality が重要である。
+
+### 7.3 優先改善提案
+
+優先度高:
+
+1. `dagayn/cli/commands/build.py::handle` の direct coverage evidence を改善する。degree 159 の top hub かつ untested hotspot であるため、CLI build path の unit / integration coverage を graph 上でも見える形にする。
+2. Runtime bridge centrality を postprocess score table へ移す。`bridge_scores` と `hub_scores` の永続化は MCP latency を大きく改善する。
+3. Rust `GraphStore` と Python `GraphStore` の責務境界を文書化し、移行完了までの API 所有権を明確にする。
+4. Embedding search の cosine loop を vectorized cache に置き換える。semantic search は対話的に呼ばれるため効果が大きい。
+5. Markdown artifact ref resolver と write-side storage の batch 化を進める。
+
+優先度中:
+
+6. `parse_diff_ranges` の LRU cache を追加し、review sequence 内の repeated git diff を削減する。
+7. `get_flow_by_id` と DFS traversal を batch 化する。
+8. ADP / SDP の docs 周辺 cycle を整理し、plan docs と audit docs の依存方向を明確にする。
+9. `dagayn-analysis-report.md` のような分析文書では、意図的な `dagayn:` directive と説明用 backtick を使い分ける authoring guideline を追加する。
+10. Per-MCP-tool latency benchmark を実装し、CI ではなくまず手元で baseline JSON を保存する。
+
+優先度低:
+
+11. single-file communities のうち、README 翻訳や security / code of conduct のような自然な孤立は noise として除外または分類する。
+12. suffix LIKE の長期的解決として target name 正規化列を検討する。
+13. mtime-based incremental skip を migration とともに導入する。
+
+## 8. まとめ
+
+<!-- derived-from #1-エグゼクティブサマリー -->
+<!-- derived-from #2-dagayn-の思想 -->
+<!-- derived-from #3-提供機能 -->
+<!-- derived-from #4-実装構造 -->
+<!-- derived-from #5-性能設計と現状 -->
+<!-- derived-from #6-dagayn-自身のグラフ分析 -->
+<!-- derived-from #7-総合評価 -->
+
+dagayn は、コードベースを単なるファイル集合ではなく、AI エージェントが問い合わせ可能な knowledge graph として扱うプロダクトである。思想は「先に構造を読み、必要な source だけを読む」。提供機能は build / update / postprocess、compact MCP dispatcher、review / architecture / query / semantic search / refactor、Markdown / Terraform / notebook extraction、visualization / wiki / export、hooks / install / multi-repo に広がる。
+
+実装は Python frontend と Rust backend の混合で、Rust-owned parser と Rust-backed graph store へ移行しつつ、Python 側が CLI、MCP、workflow、analysis orchestration を担っている。性能面では batch query、store cache、worker parser singleton、FTS5、optional embedding、thread offload が既に効いている一方、hub / bridge persistence、embedding vectorization、write-side batch、mtime skip、latency benchmark は今後の主要課題である。
+
+dagayn 自身の current graph は 6,070 nodes / 43,159 edges / 382 files で、docs、tests、parser、graph store、MCP tool surface が大きな構造単位として現れている。分析結果は、docs-tool と tests-files の coupling、top hub としての build command handler、bridge としての MCP dispatch / search / build path、1,021 件の structural knowledge gaps、docs 周辺の ADP / SDP、7 件の SAP violations、大規模な Rust / Python GraphStore を示した。
+
+結論として、dagayn はすでに「AI coding agent のための構造的コンテキスト基盤」として一貫した形を持っている。次の成熟段階では、query-time 重処理を postprocess / cache / Rust へ移し、graph signal の noise を authoring rule と resolver quality で抑え、主要 hub の coverage evidence を graph 上でも明確にすることが重要である。

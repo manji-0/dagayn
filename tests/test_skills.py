@@ -589,7 +589,7 @@ class TestGenerateHooksConfig:
         inner = entry["hooks"][0]
         assert inner["type"] == "command"
         assert "update" in inner["command"]
-        assert 0 < inner["timeout"] <= 600
+        assert inner["timeout"] == 300
 
     def test_has_session_start(self):
         config = generate_hooks_config(Path("/repo"))
@@ -599,7 +599,7 @@ class TestGenerateHooksConfig:
         inner = entry["hooks"][0]
         assert inner["type"] == "command"
         assert "status" in inner["command"]
-        assert 0 < inner["timeout"] <= 600
+        assert inner["timeout"] == 10
 
     def test_does_not_emit_invalid_pre_commit_hook(self):
         config = generate_hooks_config(Path("/repo"))

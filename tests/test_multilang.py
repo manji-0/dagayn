@@ -764,6 +764,14 @@ class TestMarkdownParsing:
         assert by_name["overview"].extra["display_name"] == "Overview"
         assert by_name["usage-1"].extra["heading_level"] == 2
 
+    def test_finds_doc_body_nodes_under_sections(self):
+        bodies = [n for n in self.nodes if n.kind == "DocBody"]
+        assert bodies
+        body = bodies[0]
+        assert body.extra["markdown_kind"] == "body"
+        assert body.extra["parent_section"].endswith("::overview")
+        assert body.line_start <= body.line_end
+
     def test_finds_nested_contains_edges(self):
         contains = [e for e in self.edges if e.kind == "CONTAINS"]
         pairs = {(e.source, e.target) for e in contains}
@@ -771,6 +779,11 @@ class TestMarkdownParsing:
         assert (file_path, f"{file_path}::overview") in pairs
         assert (f"{file_path}::overview", f"{file_path}::usage") in pairs
         assert (f"{file_path}::overview", f"{file_path}::usage-1") in pairs
+        assert any(
+            source == f"{file_path}::overview"
+            and target.startswith(f"{file_path}::overview--body-")
+            for source, target in pairs
+        )
 
     def test_finds_directive_dependency_edges(self):
         depends = [e for e in self.edges if e.kind == "DEPENDS_ON"]

@@ -110,13 +110,19 @@ larger batches can make llama-server's embedding endpoint stall on some hosts.
 
 The local preset embeds graph metadata: symbol name, qualified name, file path,
 display name, signature, params, return type, kind, parent, and language.
+Markdown `DocSection`/`DocBody` nodes also include a bounded section body so
+fuzzy documentation search can match prose that does not appear in headings.
+Documentation bodies are repeated in the embedding input by default
+(`DAGAYN_DOC_EMBEDDING_BODY_WEIGHT=2`) so prose has more influence than path
+and heading metadata for fuzzy documentation queries.
 
 Set `DAGAYN_EMBEDDING_TEXT_MODE=metadata` or `body` to override that behavior
 for any provider or preset. The source span is capped by
 `DAGAYN_EMBEDDING_SOURCE_CHARS` and defaults to 2048 characters. Body mode can
 improve conceptual searches where the query terms appear only in implementation
-text, at the cost of larger embedding inputs and more frequent re-embedding
-when function bodies change.
+text or Markdown section bodies, at the cost of larger embedding inputs and
+more frequent re-embedding when function bodies or documentation sections
+change.
 
 Leave a dagayn-started server running for reuse:
 
@@ -161,6 +167,26 @@ and it was about 7x slower to embed. The local preset surface therefore keeps
 only `low`. The last query ("incremental graph construction" → `full_build`) is
 a miss for all modes because the target shares little lexical or semantic
 surface with the query.
+
+### Documentation fuzzy search
+
+Measured on the dagayn documentation corpus (`README.md` plus `docs/`, excluding
+audit/plan notes) after adding `DocBody` paragraph chunks. Query set: 19 complex
+natural-language documentation questions whose full text does not appear in the
+target body. Relevance is graded: each query has a primary target and optional
+related sections.
+
+| Mode | mean MRR | Precision@1 | Precision@5 | Precision@20 | nDCG@5 | nDCG@20 | avg query latency |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| FTS5 only | 0.4146 | 0.3158 | 0.4737 | **0.8421** | 0.4361 | **0.7344** | 8.8 ms |
+| Qwen3-Embedding-0.6B Q8 `low` | **0.5449** | **0.4737** | **0.5789** | **0.8421** | **0.4424** | 0.7220 | 501.2 ms |
+| Qwen3-Embedding-0.6B Q8 `low` with documentation query prefix | 0.2545 | 0.1579 | 0.3684 | 0.6316 | 0.1551 | 0.2970 | 494.6 ms |
+
+The raw local embedding query improves early ranking on this harder prose
+retrieval set and ties FTS5 at Precision@20. FTS5 still has slightly higher
+nDCG@20, so broad graded recall remains competitive. The generic
+documentation-query prefix did not help; it added noise for this model and
+corpus.
 
 ## Troubleshooting
 

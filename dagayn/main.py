@@ -100,6 +100,18 @@ _default_keep_local_embedding_server: bool = False
 _default_local_embedding_timeout: int = 300
 _default_local_embedding_request_timeout: int = 60
 _default_local_embedding_batch_size: int = 1
+_DEFAULT_MCP_TOOL_NAMES: frozenset[str] = frozenset(
+    {
+        "get_minimal_context_tool",
+        "review_tool",
+        "flow_tool",
+        "architecture_analysis_tool",
+        "refactor_tool",
+        "query_graph_tool",
+        "semantic_search_nodes_tool",
+    }
+)
+_ALL_TOOL_SENTINELS: frozenset[str] = frozenset({"*", "all", "full"})
 
 
 def _resolve_repo_root(repo_root: Optional[str]) -> Optional[str]:
@@ -915,33 +927,44 @@ def _parse_tool_allow_list(raw: str) -> set[str]:
 
 
 def _resolve_tool_allow_list(tools: str | None = None) -> set[str] | None:
-    """Resolve exact tool filtering from CLI/env args."""
+    """Resolve tool filtering from CLI/env args.
+
+    ``None`` means expose every registered tool.  When no CLI/env value is
+    supplied, return the compact default public surface instead of the full
+    maintenance/debugging surface.
+    """
     import os
 
     if tools is not None:
-        return _parse_tool_allow_list(tools) or None
+        parsed = _parse_tool_allow_list(tools)
+        if parsed & _ALL_TOOL_SENTINELS:
+            return None
+        return parsed or None
 
     env_tools = os.environ.get("CRG_TOOLS")
     if env_tools is not None:
-        return _parse_tool_allow_list(env_tools) or None
+        parsed = _parse_tool_allow_list(env_tools)
+        if parsed & _ALL_TOOL_SENTINELS:
+            return None
+        return parsed or None
 
-    return None
+    return set(_DEFAULT_MCP_TOOL_NAMES)
 
 
 def _apply_tool_filter(tools: str | None = None) -> None:
-    """Remove tools not listed in the allow-list.
+    """Remove tools outside the resolved public MCP surface.
 
-    Accepts a comma-separated string of tool names to keep. Every registered
-    MCP tool outside the resolved allow-list is removed via
+    Accepts a comma-separated string of tool names to keep. Every registered MCP
+    tool outside the resolved allow-list is removed via
     ``FastMCP.remove_tool()``.
 
-    The allow-list can be supplied in these ways (first match wins):
+    The tool surface can be supplied in these ways (first match wins):
 
     1. ``tools`` argument (from ``serve --tools ...``).
     2. ``CRG_TOOLS`` environment variable.
+    3. Compact default public surface.
 
-    When no exact allow-list is supplied, all registered public tools remain
-    exposed.
+    Pass ``all``, ``full``, or ``*`` to expose every registered public tool.
 
     Example::
 
@@ -950,6 +973,9 @@ def _apply_tool_filter(tools: str | None = None) -> None:
 
         # via env var
         CRG_TOOLS=query_graph_tool,semantic_search_nodes_tool
+
+        # expose all advanced/maintenance tools
+        dagayn serve --tools all
     """
 
     allowed = _resolve_tool_allow_list(tools=tools)
@@ -991,8 +1017,9 @@ def main(
     Args:
         repo_root: Default repository root for all tool calls.
         tools: Comma-separated list of tool names to expose.
-            Falls back to ``CRG_TOOLS`` env var. When omitted, all public tools
-            are exposed.
+            Falls back to ``CRG_TOOLS`` env var. When omitted, only the compact
+            default workflow tools are exposed. Use ``all`` to expose every
+            registered public tool.
         embedding_provider: Default embedding provider for MCP search when a
             client omits the provider argument.
         embedding_model: Default embedding model for MCP search when a client

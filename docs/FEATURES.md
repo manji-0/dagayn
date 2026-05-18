@@ -30,7 +30,7 @@
 <!-- derived-from ./ARCHITECTURE.md#parsing-model -->
 
 - commit-pinned Terraform grammar support fetched from the fork at build/test/runtime
-- Markdown heading, reference, and directive extraction
+- Markdown heading, body, reference, and directive extraction
 - stronger mixed-monorepo testing across docs, app code, and infra
 - updated CI stack using `ruff` and `ty`
 

@@ -39,6 +39,16 @@ SPLIT_REVIEW_FLOW_TOOL_NAMES = {
     "get_flow_tool",
 }
 
+DEFAULT_MCP_TOOL_NAMES = {
+    "get_minimal_context_tool",
+    "review_tool",
+    "flow_tool",
+    "architecture_analysis_tool",
+    "refactor_tool",
+    "query_graph_tool",
+    "semantic_search_nodes_tool",
+}
+
 
 def _tool_names() -> set[str]:
     import asyncio
@@ -461,8 +471,9 @@ class TestLongRunningToolsAreAsync:
 class TestApplyToolFilter:
     """Tests for _apply_tool_filter (``serve --tools`` / ``CRG_TOOLS``).
 
-    The filter removes MCP tools not present in the allow-list.
-    Without an exact allow-list, every registered public tool stays exposed.
+    The filter removes MCP tools outside the resolved public surface.
+    Without an explicit allow-list, only the compact default workflow tools
+    stay exposed.
     """
 
     @pytest.fixture(autouse=True)
@@ -481,12 +492,11 @@ class TestApplyToolFilter:
         """Ensure tool filter env vars are not set from the outer environment."""
         monkeypatch.delenv("CRG_TOOLS", raising=False)
 
-    def test_no_filter_keeps_all_registered_tools(self):
-        """When no exact allow-list is set, all public tools remain exposed."""
-        before = _tool_names()
+    def test_no_filter_keeps_default_workflow_tools(self):
+        """When no allow-list is set, only default workflow tools stay exposed."""
         crg_main._apply_tool_filter(None)
         after = _tool_names()
-        assert after == before
+        assert after == DEFAULT_MCP_TOOL_NAMES
 
     def test_architecture_dispatcher_replaces_split_public_tools(self):
         registered = _tool_names()
@@ -505,6 +515,21 @@ class TestApplyToolFilter:
         crg_main._apply_tool_filter(keep)
         remaining = _tool_names()
         assert remaining == {"query_graph_tool", "semantic_search_nodes_tool"}
+
+    def test_all_sentinel_via_argument_keeps_all_registered_tools(self):
+        """The ``all`` sentinel preserves the full advanced tool surface."""
+        before = _tool_names()
+        crg_main._apply_tool_filter("all")
+        after = _tool_names()
+        assert after == before
+
+    def test_all_sentinel_via_env_var_keeps_all_registered_tools(self, monkeypatch):
+        """The ``CRG_TOOLS=all`` sentinel preserves all registered tools."""
+        before = _tool_names()
+        monkeypatch.setenv("CRG_TOOLS", "all")
+        crg_main._apply_tool_filter(None)
+        after = _tool_names()
+        assert after == before
 
     def test_filter_via_env_var(self, monkeypatch):
         """The ``CRG_TOOLS`` env var works as fallback."""

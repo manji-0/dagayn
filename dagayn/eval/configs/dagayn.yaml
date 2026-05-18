@@ -59,3 +59,166 @@ search_queries:
   - query: "incremental graph construction"
     expected: "dagayn/incremental.py::full_build"
     label: "conceptual"
+
+doc_fuzzy_search_include_paths:
+  - "README.md"
+  - "docs/"
+doc_fuzzy_search_exclude_paths:
+  - "docs/audits/"
+  - "docs/plans/"
+doc_fuzzy_search_query_variants:
+  - name: "doc_query"
+    prefix: "Represent this documentation retrieval query for finding the most relevant dagayn documentation section: "
+
+doc_fuzzy_search_queries:
+  - query: "find docs by meaning instead of exact symbol names"
+    expected: "docs/LOCAL-EMBEDDINGS.md::search-quality"
+    label: "semantic_docs"
+    relevant:
+      - target: "README.md::semantic-search-and-embeddings"
+        grade: 2
+      - target: "README.md::search-quality"
+        grade: 2
+
+  - query: "validate the localhost model endpoint before letting the build depend on it"
+    expected: "docs/LOCAL-EMBEDDINGS.md::manual-check"
+    label: "local_embedding_server_docs"
+    relevant:
+      - target: "docs/LOCAL-EMBEDDINGS.md::local-embeddings"
+        grade: 2
+      - target: "docs/LOCAL-EMBEDDINGS.md::build-and-update"
+        grade: 2
+
+  - query: "stop rereading the whole repository every turn by keeping structural memory nearby"
+    expected: "README.md::what-dagayn-does"
+    label: "repo_memory_purpose"
+    relevant:
+      - target: "README.md::how-the-graph-is-used"
+        grade: 2
+
+  - query: "trace infrastructure dependencies when a module delegates work into another folder"
+    expected: "README.md::cross-module-analysis"
+    label: "terraform_module_boundary"
+    relevant:
+      - target: "README.md::terraform-support"
+        grade: 2
+
+  - query: "include environment-specific variable assignments in the same dependency picture as infrastructure code"
+    expected: "README.md::tfvars-files"
+    label: "terraform_values_flow"
+    relevant:
+      - target: "README.md::terraform-support"
+        grade: 2
+
+  - query: "make prose design constraints machine-readable instead of relying on an explanatory paragraph"
+    expected: "README.md::directive-comments"
+    label: "markdown_dependency_directives"
+    relevant:
+      - target: "docs/MARKDOWN-AUTHORING.md::markdown-authoring"
+        grade: 2
+      - target: "README.md::markdown-support"
+        grade: 1
+
+  - query: "decide whether a backticked code mention should become a durable review obligation"
+    expected: "docs/MARKDOWN-AUTHORING.md::markdown-authoring"
+    label: "markdown_obligation_vs_evidence"
+    relevant:
+      - target: "README.md::directive-comments"
+        grade: 2
+      - target: "README.md::markdown-support"
+        grade: 1
+
+  - query: "preview editor integration changes before installing generated agent configuration files"
+    expected: "docs/USAGE.md::register-mcp-integration"
+    label: "install_preview"
+    relevant:
+      - target: "README.md::ai-platform-integration"
+        grade: 2
+      - target: "docs/TROUBLESHOOTING.md::dagayn-install-did-not-touch-my-editor"
+        grade: 2
+
+  - query: "throw away stale storage and reconstruct the repository model from scratch"
+    expected: "docs/USAGE.md::build-and-refresh-the-graph"
+    label: "clean_rebuild"
+    relevant:
+      - target: "docs/COMMANDS.md::core-graph-lifecycle"
+        grade: 2
+
+  - query: "the native extension cannot be imported after installing from a source checkout"
+    expected: "docs/TROUBLESHOOTING.md::dagayn_core-is-missing"
+    label: "rust_extension_missing"
+    relevant:
+      - target: "docs/USAGE.md::use-the-rust-backend"
+        grade: 2
+
+  - query: "serve only the everyday agent tools by default but allow an operator to expose everything"
+    expected: "docs/COMMANDS.md::mcp-tool-surface"
+    label: "compact_tool_surface"
+    relevant:
+      - target: "docs/USAGE.md::start-the-mcp-server"
+        grade: 2
+      - target: "docs/COMMANDS.md::mcp-tools"
+        grade: 2
+
+  - query: "keep semantic recall active for MCP clients through a local sidecar model"
+    expected: "docs/COMMANDS.md::mcp-tool-surface"
+    label: "mcp_local_semantic_recall"
+    relevant:
+      - target: "README.md::semantic-search-and-embeddings"
+        grade: 2
+      - target: "docs/LOCAL-EMBEDDINGS.md::local-embeddings"
+        grade: 2
+      - target: "docs/COMMANDS.md::mcp-tools"
+        grade: 2
+
+  - query: "start review from the changed graph context and drill down only when the evidence warrants it"
+    expected: "docs/USAGE.md::review-changes"
+    label: "review_entrypoint"
+    relevant:
+      - target: "docs/COMMANDS.md::analysis-and-review"
+        grade: 2
+
+  - query: "produce architecture handoff artifacts such as diagrams or exchange formats"
+    expected: "docs/USAGE.md::visualize-or-export-the-graph"
+    label: "graph_export_formats"
+    relevant:
+      - target: "README.md::reporting-and-export-outputs"
+        grade: 2
+      - target: "docs/COMMANDS.md::analysis-and-review"
+        grade: 1
+
+  - query: "cached vectors should be recomputed after changing the embedding vendor or model identity"
+    expected: "README.md::running-embedding"
+    label: "embedding_cache_invalidation"
+    relevant:
+      - target: "docs/LOCAL-EMBEDDINGS.md::build-and-update"
+        grade: 2
+      - target: "docs/COMMANDS.md::local-embedding-refresh"
+        grade: 2
+
+  - query: "avoid sending repository text over the network while still using semantic matching"
+    expected: "README.md::privacy-and-cloud-egress"
+    label: "offline_semantic_privacy"
+    relevant:
+      - target: "docs/LOCAL-EMBEDDINGS.md::local-embeddings"
+        grade: 2
+      - target: "README.md::choosing-an-install-mode"
+        grade: 1
+
+  - query: "after moving the checkout, stored paths no longer line up with the current directory"
+    expected: "docs/TROUBLESHOOTING.md::the-graph-is-empty-or-stale"
+    label: "moved_repo_stale_graph"
+    relevant:
+      - target: "docs/USAGE.md::build-and-refresh-the-graph"
+        grade: 2
+
+  - query: "type analysis reports missing dependencies locally even though automation accepts the run"
+    expected: "docs/TROUBLESHOOTING.md::type-checking-fails-locally-but-not-in-ci"
+    label: "local_typecheck_mismatch"
+
+  - query: "which computed indexes are kept after parsing besides raw symbols and relationships"
+    expected: "docs/SCHEMA.md::derived-structures"
+    label: "postprocess_materialized_indexes"
+    relevant:
+      - target: "docs/SCHEMA.md::metadata"
+        grade: 1

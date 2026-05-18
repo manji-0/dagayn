@@ -14,6 +14,8 @@ Core node kinds include:
 - `Type`
 - `Test`
 - `DocSection` — Markdown heading (`#`, `##`, …). Distinguished from `Class` to reduce search noise when querying for code symbols.
+- `DocBody` — Markdown prose/list/table/code blocks attached to the nearest
+  `DocSection`, used for finer-grained documentation search and embeddings.
 
 Nodes store file path, qualified name, language, line range, and an `extra` payload for format-specific metadata.
 

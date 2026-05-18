@@ -144,6 +144,76 @@ class TestNodeToText:
         assert "retry_budget_exhausted" not in metadata_text
         assert "retry_budget_exhausted" in body_text
 
+    def test_metadata_mode_includes_full_markdown_doc_section(self, tmp_path):
+        source = tmp_path / "guide.md"
+        source.write_text(
+            "# Guide\n"
+            "\n"
+            "## Retry Budget\n"
+            "Use backoff and jitter after transient upstream failures.\n"
+            "\n"
+            "### Details\n"
+            "Keep retries bounded so dependencies are not overwhelmed.\n"
+            "\n"
+            "## Secret Handling\n"
+            "Store credentials in a secret manager.\n",
+            encoding="utf-8",
+        )
+        node = self._make_node(
+            kind="DocSection",
+            name="retry-budget",
+            qualified_name="guide.md::retry-budget",
+            file_path="guide.md",
+            line_start=3,
+            line_end=3,
+            language="markdown",
+            extra={"display_name": "Retry Budget"},
+        )
+
+        metadata_text = _node_to_text(node, source_root=tmp_path, text_mode="metadata")
+        body_text = _node_to_text(node, source_root=tmp_path, text_mode="body")
+
+        assert "transient upstream failures" in metadata_text
+        assert "transient upstream failures" in body_text
+        assert "dependencies are not overwhelmed" in metadata_text
+        assert "dependencies are not overwhelmed" in body_text
+        assert "Secret Handling" not in metadata_text
+        assert "Secret Handling" not in body_text
+
+    def test_metadata_mode_includes_markdown_doc_body_span(self, tmp_path):
+        source = tmp_path / "guide.md"
+        source.write_text(
+            "# Guide\n"
+            "\n"
+            "## Retry Budget\n"
+            "Use backoff and jitter after transient upstream failures.\n"
+            "Keep retries bounded so dependencies are not overwhelmed.\n"
+            "\n"
+            "## Secret Handling\n"
+            "Store credentials in a secret manager.\n",
+            encoding="utf-8",
+        )
+        node = self._make_node(
+            kind="DocBody",
+            name="retry-budget--body-1",
+            qualified_name="guide.md::retry-budget--body-1",
+            file_path="guide.md",
+            line_start=4,
+            line_end=5,
+            language="markdown",
+            extra={
+                "display_name": "Use backoff and jitter after transient upstream failures.",
+                "parent_section": "guide.md::retry-budget",
+            },
+        )
+
+        metadata_text = _node_to_text(node, source_root=tmp_path, text_mode="metadata")
+
+        assert "transient upstream failures" in metadata_text
+        assert "dependencies are not overwhelmed" in metadata_text
+        assert "Secret Handling" not in metadata_text
+        assert metadata_text.count("transient upstream failures") >= 2
+
     def test_file_node_no_kind(self):
         node = self._make_node(kind="File", name="file.py")
         text = _node_to_text(node)

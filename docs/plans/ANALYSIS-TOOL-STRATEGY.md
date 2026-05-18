@@ -160,17 +160,18 @@ neighborhood rather than a specific relationship.
 
 ## MCP tool surface plan
 
-Dagayn v3 exposes every public MCP main tool by default. Tool-choice overhead
-is controlled by dispatcher schemas and skill guidance rather than named server
-profiles. Keep explicit `--tools` / `CRG_TOOLS` support for deployments that
-need an exact allow-list, but do not add profile presets back into the public
-serve API.
+Dagayn v3 exposes the Tier 1 workflow tools by default. Tool-choice overhead is
+controlled by a compact public surface plus dispatcher schemas, rather than
+named server profiles. Keep explicit `--tools` / `CRG_TOOLS` support for
+deployments that need an exact allow-list, and accept `all`, `full`, or `*` as
+an escape hatch for advanced/maintenance sessions.
 
-The public surface should stay centered on workflow dispatchers:
+The default public surface should stay centered on workflow dispatchers:
 `review_tool`, `flow_tool`, `architecture_analysis_tool`, `refactor_tool`,
-`query_graph_tool`, `semantic_search_nodes_tool`, and graph lifecycle tools.
-Metric-specific implementation functions can remain internal subtools when
-they are better represented as `mode` branches.
+`query_graph_tool`, `semantic_search_nodes_tool`, and `get_minimal_context_tool`.
+Metric-specific and maintenance implementation functions can remain registered
+for explicit advanced allow-lists or CLI access without appearing in ordinary
+MCP tool discovery.
 
 ## Selection rules for new analyses
 
@@ -203,8 +204,9 @@ Remove `dagayn serve --tool-profile default|review|architecture|refactor|full`
 and profile environment variables. The existing `--tools` flag remains an exact
 allow-list.
 
-Status: implemented for v3. `dagayn serve` now exposes all public MCP main
-tools by default, and dispatcher tools replace profile-based specialization.
+Status: implemented for v3. `dagayn serve` now exposes the Tier 1 workflow
+tools by default, `--tools all` preserves the full advanced surface, and
+dispatcher tools replace profile-based specialization.
 
 ### Phase 3: enrich change analysis
 
@@ -242,6 +244,6 @@ existing Tier 1 surfaces.
 
 Dagayn should provide more analysis by composing existing graph signals into
 fewer workflow tools, not by exposing every metric as a separate first-choice
-tool. The public serve surface can expose all main tools because dispatcher
-schemas and skills keep the default path clear, the drill-down path rich, and
-every result accountable for why the next mode is worth calling.
+tool. The public serve surface should default to the Tier 1 tools, while
+advanced/maintenance tools stay reachable through explicit allow-lists and the
+CLI.

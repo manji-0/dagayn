@@ -1572,6 +1572,66 @@ class TestBuildPostprocess:
         assert os.environ["CRG_OPENAI_BATCH_SIZE"] == "2048"
         assert os.environ["DAGAYN_EMBEDDING_TEXT_MODE"] == "body"
 
+    def test_embed_graph_passes_repo_root_to_embedding_store(self, monkeypatch, tmp_path):
+        from dagayn.tools import docs as docs_module
+
+        root = tmp_path / "repo"
+        root.mkdir()
+        captured: dict[str, object] = {}
+
+        class DummyStore:
+            def close(self):
+                captured["store_closed"] = True
+
+        class DummyEmbeddingStore:
+            def __init__(
+                self,
+                db_path,
+                provider=None,
+                model=None,
+                source_root=None,
+            ):
+                captured["db_path"] = db_path
+                captured["provider"] = provider
+                captured["model"] = model
+                captured["source_root"] = source_root
+                self.available = True
+                self.last_orphans_removed = 0
+                self.text_mode = "metadata"
+
+            def count(self):
+                return 1
+
+            def checkpoint_writes(self, *, truncate=False):
+                captured["checkpoint_truncate"] = truncate
+
+            def close(self):
+                captured["embedding_closed"] = True
+
+        def fake_get_store(repo_root, *, cached=True):
+            captured["cached"] = cached
+            return DummyStore(), root
+
+        monkeypatch.setattr(docs_module, "_get_store", fake_get_store)
+        monkeypatch.setattr(docs_module, "get_db_path", lambda repo_root: root / ".dagayn/graph.db")
+        monkeypatch.setattr(docs_module, "EmbeddingStore", DummyEmbeddingStore)
+        monkeypatch.setattr(docs_module, "embed_all_nodes", lambda *_args, **_kwargs: 1)
+
+        result = docs_module.embed_graph(
+            repo_root=str(root),
+            provider="openai",
+            model="qwen3-embedding-0.6b-gguf-q8_0",
+        )
+
+        assert result["status"] == "ok"
+        assert captured["source_root"] == root
+        assert captured["cached"] is False
+        assert captured["provider"] == "openai"
+        assert captured["model"] == "qwen3-embedding-0.6b-gguf-q8_0"
+        assert captured["checkpoint_truncate"] is True
+        assert captured["embedding_closed"] is True
+        assert captured["store_closed"] is True
+
 
 class TestComputeSummaries:
     """Tests for _compute_summaries: pins the contents of the three

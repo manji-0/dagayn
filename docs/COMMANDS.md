@@ -43,6 +43,14 @@ regardless of any ambient `CRG_OPENAI_BATCH_SIZE`.
 - `dagayn wiki`
 - `dagayn eval`
 
+`dagayn eval --benchmark doc_fuzzy_search` compares FTS and deterministic
+embedding retrieval for fuzzy natural-language queries against Markdown
+documentation sections and bodies. Configure queries with
+`doc_fuzzy_search_queries` in an eval YAML file; `relevant` entries provide
+graded alternate targets, `doc_fuzzy_search_include_paths` /
+`doc_fuzzy_search_exclude_paths` constrain the documentation corpus, and
+`doc_fuzzy_search_query_variants` compares embedding query prefixes.
+
 `dagayn tool <mcp-tool-name>` invokes the same underlying implementation as an
 MCP tool and prints JSON. This gives agents and scripts a CLI path to run a
 single tool directly, including when a running MCP server was started with a
@@ -77,7 +85,9 @@ Codex skills, and writes global Codex hooks in `~/.codex/hooks.json` with the
 required `~/.codex/config.toml` feature flag. Claude hooks are written to
 `~/.claude/settings.json`. Git hooks installed by `dagayn install` refresh
 cheaply with `dagayn update --skip-flows` before commit-time checks and run a
-full `dagayn update` after a commit. `--no-hooks` skips the hook files.
+full `dagayn update` after a commit. Generated AI-tool update hooks use a
+300-second timeout to tolerate large documentation or mixed-language refreshes.
+`--no-hooks` skips the hook files.
 
 ### Multi-repo management
 
@@ -92,19 +102,19 @@ full `dagayn update` after a commit. `--no-hooks` skips the hook files.
 <!-- derived-from ./refactor-tool-suggest-spec.md -->
 <!-- derived-from ./plans/ANALYSIS-TOOL-STRATEGY.md#tool-tiers -->
 
-The MCP server exposes tools for:
+The compact default MCP surface exposes tools for:
 
-- graph build and post-processing
 - minimal context retrieval
 - impact radius and review context
 - graph queries and traversal
-- embeddings and semantic search
+- semantic search
 - flows and communities
 - architectural hotspot analysis
-- change detection
-- refactor previews and apply flows
-- wiki generation and wiki page lookup
-- multi-repo registry and cross-repo search
+- refactor previews and suggestions
+
+Advanced and maintenance tools for graph build/post-processing, embeddings,
+wiki generation, refactor application, and cross-repo search remain available
+when explicitly requested with `--tools`.
 
 When the server is launched with `dagayn serve --local-embedding low`,
 search-oriented MCP tools default to the managed OpenAI-compatible local
@@ -112,17 +122,15 @@ embedding endpoint. This makes `semantic_search_nodes`, `traverse_graph`, and
 `cross_repo_search` run hybrid FTS + embedding retrieval unless the client
 explicitly passes another provider or model.
 
-Representative tool names include:
+Default tool names are:
 
-- `build_or_update_graph`
-- `get_minimal_context`
+- `get_minimal_context_tool`
 - `review_tool`
-- `query_graph`
 - `flow_tool`
-- `architecture_analysis`
+- `architecture_analysis_tool`
 - `refactor_tool`
-- `generate_wiki`
-- `cross_repo_search`
+- `query_graph_tool`
+- `semantic_search_nodes_tool`
 
 `query_graph` includes documentation-aware bridge patterns in addition to
 ordinary code relationships. Use `docs_for` to find specifications, runbooks,
@@ -135,22 +143,24 @@ contract section through `implemented_by` / `implements_contract`
 
 <!-- derived-from ./plans/ANALYSIS-TOOL-STRATEGY.md#mcp-tool-surface-plan -->
 
-`dagayn serve` exposes every public MCP main tool by default. Dagayn v3 removed
+`dagayn serve` exposes a compact workflow surface by default. Dagayn v3 removed
 named tool profiles; specialized analysis now lives behind dispatcher tools
 such as `review_tool`, `flow_tool`, and `architecture_analysis_tool`.
 
 ```bash
 dagayn serve
 dagayn serve --tools query_graph_tool,semantic_search_nodes_tool
+dagayn serve --tools all
 dagayn tool architecture_analysis_tool --arg mode='"overview"'
 dagayn serve --local-embedding low
 dagayn serve --remote-embedding openai
 ```
 
-`--tools` is an exact comma-separated allow-list for deployments that need to
-hide some public tools. The same exact allow-list can be supplied with
-`CRG_TOOLS`. Tool filtering is applied when `dagayn serve` starts; a running MCP
-server does not reload a broader allow-list dynamically. Use
+`--tools` is an exact comma-separated allow-list for deployments that need a
+different public surface. The same allow-list can be supplied with `CRG_TOOLS`;
+use `all`, `full`, or `*` to expose every registered advanced/maintenance tool.
+Tool filtering is applied when `dagayn serve` starts; a running MCP server does
+not reload a broader allow-list dynamically. Use
 `dagayn tool <tool-name>` for ad-hoc shell access without restarting the
 agent's MCP server.
 

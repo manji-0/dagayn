@@ -56,7 +56,7 @@ Useful flags:
 
 Claude instruction injection writes to `~/.claude/CLAUDE.md`; Codex and OpenCode write global `AGENTS.md` files under `~/.codex/` and `~/.config/opencode/`; repo-local rule files such as `QODER.md` are still written in the workspace when their platforms are selected.
 
-When Codex is selected, `dagayn install` also writes global hooks to `~/.codex/hooks.json` and enables `[features].hooks` in `~/.codex/config.toml`. Claude hooks are written to global `~/.claude/settings.json`. The hooks mirror the graph refresh flow: `dagayn update --skip-flows` after edits or before commit-time checks, graph status at session start, and a full `dagayn update` from the installed git `post-commit` hook.
+When Codex is selected, `dagayn install` also writes global hooks to `~/.codex/hooks.json` and enables `[features].hooks` in `~/.codex/config.toml`. Claude hooks are written to global `~/.claude/settings.json`. The hooks mirror the graph refresh flow: `dagayn update --skip-flows` after edits or before commit-time checks, graph status at session start, and a full `dagayn update` from the installed git `post-commit` hook. The generated update hook allows up to 300 seconds so large documentation or mixed-language changes can refresh without the host tool killing the hook at 30 seconds.
 
 ## Build and refresh the graph
 
@@ -110,16 +110,21 @@ In MCP clients, start with `get_minimal_context_tool`, then choose
 dagayn serve
 ```
 
-By default the server runs over stdio and exposes every public MCP main tool.
-Use `--tools` only when you need an exact comma-separated allow-list:
+By default the server runs over stdio and exposes only the compact workflow
+surface: `get_minimal_context_tool`, `review_tool`, `flow_tool`,
+`architecture_analysis_tool`, `refactor_tool`, `query_graph_tool`, and
+`semantic_search_nodes_tool`. Use `--tools` when you need an exact
+comma-separated allow-list:
 
 ```bash
 dagayn serve --tools query_graph_tool,semantic_search_nodes_tool
+dagayn serve --tools all
 ```
 
-The same exact allow-list can be supplied with `CRG_TOOLS`. Use the HTTP flags
-if you explicitly need local HTTP transport. Dagayn v3 removed named MCP tool
-profiles; dispatcher tools keep the public surface small enough for ordinary
+The same allow-list can be supplied with `CRG_TOOLS`; `all`, `full`, and `*`
+restore the full advanced/maintenance tool surface. Use the HTTP flags if you
+explicitly need local HTTP transport. Dagayn v3 removed named MCP tool
+profiles; dispatcher tools keep the default surface small enough for ordinary
 agent use while preserving drill-down access through `mode` arguments.
 
 In dagayn 3.0, v2 split architecture MCP/CLI tools were removed. Use

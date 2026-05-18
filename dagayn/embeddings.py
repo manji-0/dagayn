@@ -14,6 +14,7 @@ import functools
 import hashlib
 import logging
 import os
+import re
 import sqlite3
 import struct
 import sys
@@ -40,7 +41,10 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_SLOW_EMBED_BATCH_SECONDS = 10.0
 _DEFAULT_SOURCE_CHARS = 2048
+_DEFAULT_DOC_BODY_WEIGHT = 2
 _EMBEDDING_TEXT_MODES = {"metadata", "body"}
+_MARKDOWN_HEADING_RE = re.compile(r"^(#{1,6})\s+")
+_DOC_BODY_KINDS = {"DocSection", "DocBody"}
 
 # ---------------------------------------------------------------------------
 # Provider Interface and Implementations
@@ -812,6 +816,17 @@ def _embedding_source_chars() -> int:
         return _DEFAULT_SOURCE_CHARS
 
 
+def _doc_embedding_body_weight() -> int:
+    raw = os.environ.get("DAGAYN_DOC_EMBEDDING_BODY_WEIGHT")
+    if raw is None:
+        return _DEFAULT_DOC_BODY_WEIGHT
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        logger.warning("Invalid DAGAYN_DOC_EMBEDDING_BODY_WEIGHT=%r; using default", raw)
+        return _DEFAULT_DOC_BODY_WEIGHT
+
+
 def _read_node_source_excerpt(
     node: GraphNode,
     *,
@@ -837,6 +852,20 @@ def _read_node_source_excerpt(
     line_end = node.line_end or line_start
     start = max(int(line_start) - 1, 0)
     end = min(max(int(line_end), int(line_start)), len(lines))
+
+    if node.kind == "DocSection":
+        level = None
+        if start < len(lines):
+            match = _MARKDOWN_HEADING_RE.match(lines[start])
+            if match:
+                level = len(match.group(1))
+        end = len(lines)
+        for idx in range(start + 1, len(lines)):
+            match = _MARKDOWN_HEADING_RE.match(lines[idx])
+            if match and (level is None or len(match.group(1)) <= level):
+                end = idx
+                break
+
     return "\n".join(lines[start:end])[:limit]
 
 
@@ -863,10 +892,15 @@ def _node_to_text(
         parts.append(f"returns {node.return_type}")
     if node.language:
         parts.append(node.language)
-    if _embedding_text_mode(text_mode) == "body":
+    include_source = _embedding_text_mode(text_mode) == "body" or node.kind in _DOC_BODY_KINDS
+    if include_source:
         source_excerpt = _read_node_source_excerpt(node, source_root=source_root)
         if source_excerpt:
-            parts.append(source_excerpt)
+            repetitions = _doc_embedding_body_weight() if node.kind in _DOC_BODY_KINDS else 1
+            if repetitions > 1:
+                per_repetition = max(1, _embedding_source_chars() // repetitions)
+                source_excerpt = source_excerpt[:per_repetition]
+            parts.extend([source_excerpt] * repetitions)
     return " ".join(parts)
 
 
@@ -941,6 +975,14 @@ class EmbeddingStore:
 
     def close(self) -> None:
         self._conn.close()
+
+    def checkpoint_writes(self, *, truncate: bool = False) -> None:
+        """Checkpoint pending WAL pages after embedding writes."""
+        mode = "TRUNCATE" if truncate else "PASSIVE"
+        try:
+            self._conn.execute(f"PRAGMA wal_checkpoint({mode})")
+        except sqlite3.Error:
+            logger.debug("Could not checkpoint embedding writes", exc_info=True)
 
     def embed_nodes(
         self,
@@ -1054,6 +1096,8 @@ class EmbeddingStore:
                 done = min(i + api_batch, total)
                 elapsed = time.monotonic() - start_time
                 _draw_embed_progress(done, total, elapsed, end=(done >= total))
+
+        self.checkpoint_writes()
 
         return embedded
 

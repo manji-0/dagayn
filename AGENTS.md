@@ -33,10 +33,12 @@ dagayn serve
 
 - `get_minimal_context` for quick orientation
 - `review_tool(mode="changes")` or `review_tool(mode="context")` for review work
-- `query_graph`, `traverse_graph`, and `flow_tool(mode="list")` for exploration
+- `query_graph`, `semantic_search_nodes_tool`, and `flow_tool(mode="list")` for exploration
 - `architecture_analysis_tool(mode="overview")` and its drill-down modes for
   evidence-backed architecture analysis
 - `refactor_tool` for rename previews, dead-code analysis, and refactor suggestions
+- `traverse_graph` and maintenance tools are available through explicit
+  `--tools` allow-lists or `dagayn tool`, not the default MCP surface
 
 ## How to judge dagayn analysis
 

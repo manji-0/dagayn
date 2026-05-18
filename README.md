@@ -97,8 +97,9 @@ Variable value files (`.tfvars`) are parsed as Terraform. Their top-level attrib
 | Element | Qualified-name pattern | Graph kind |
 |---|---|---|
 | Document | file path | File |
-| `# Heading` … `###### Heading` | `file::slug` | Class |
-| Setext H1 / H2 (underline style) | `file::slug` | Class |
+| `# Heading` … `###### Heading` | `file::slug` | DocSection |
+| Setext H1 / H2 (underline style) | `file::slug` | DocSection |
+| Paragraph/list/table/code body under a heading | `file::slug--body-N` | DocBody |
 
 Heading slugs follow the GitHub Markdown convention: lowercase, spaces and hyphens collapsed to `-`, non-alphanumeric characters removed. Duplicate headings within a file get a numeric suffix (`slug-1`, `slug-2`, …).
 
@@ -339,21 +340,40 @@ Embeddings are stored in the `embeddings` table inside `.dagayn/graph.db`. Switc
 
 ### Search quality
 
-Measured on the dagayn codebase itself (6,197 graph nodes, 5,811 embedded
-non-file nodes, 12 queries spanning exact function names, PascalCase class
-names, and conceptual natural-language queries). Local embeddings use the
-`low` preset, which embeds graph metadata.
+Measured on the dagayn codebase itself (7,998 graph nodes, 7,612 embedded
+non-file nodes) with the local `low` preset. The code-search benchmark uses 12
+queries spanning exact function names, PascalCase class names, and conceptual
+natural-language queries.
 
-| Mode | text embedded | build time | mean MRR | Precision@1 | Precision@5 | avg query latency |
+#### Code search benchmark
+
+| Mode | Retrieval path | mean MRR | Precision@1 | Precision@5 | Precision@20 | avg query latency |
 |---|---|---:|---:|---:|---:|---:|
-| FTS5 only | n/a | n/a | 0.7417 | 0.6667 | 0.9167 | 1.0 ms |
-| Qwen3-Embedding-0.6B Q8 (local, `low`) | metadata | 133.2 s | **0.7222** | 0.5833 | 0.9167 | 413.2 ms |
+| FTS5 only | lexical | 0.5439 | 0.4167 | 0.6667 | 0.9167 | 0.6 ms |
+| Qwen3-Embedding-0.6B Q8 `low` | embedding only | **0.7361** | **0.6667** | 0.8333 | 0.8333 | 503.4 ms |
+| Hybrid search | FTS5 + embedding RRF | 0.6458 | 0.5000 | **0.9167** | **0.9167** | 505.5 ms |
 
-FTS5 is already strong on exact-name and PascalCase queries. On this small
-suite, the previous 4B `high` experiment did not beat `low` and was about 7x
-slower to embed, so the local preset surface now keeps only `low`. The hybrid
-mode combines FTS and embeddings automatically. See `docs/LOCAL-EMBEDDINGS.md`
-for the per-query breakdown.
+Embedding-only is strongest on mean MRR for this mixed query set, while hybrid
+search keeps FTS exact-name recall and has the best Precision@5/20. On the
+previous larger-model experiment, the 4B `high` preset did not beat `low` and
+was about 7x slower to embed, so the local preset surface keeps only `low`.
+
+#### Documentation search benchmark
+
+The documentation benchmark uses 19 fuzzy natural-language questions against
+`README.md` plus `docs/`, excluding audit/plan notes. Targets use graded
+relevance across `DocSection` and `DocBody` nodes.
+
+| Mode | Retrieval path | mean MRR | Precision@1 | Precision@5 | Precision@20 | nDCG@5 | nDCG@20 | avg query latency |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| FTS5 only | lexical docs | 0.4145 | 0.3158 | 0.4737 | 0.8421 | 0.4361 | 0.7342 | 8.5 ms |
+| Qwen3-Embedding-0.6B Q8 `low` | embedding only | 0.5449 | 0.4737 | 0.5789 | 0.8421 | 0.4424 | 0.7220 | 479.5 ms |
+| Hybrid search | corpus-filtered FTS5 + embedding RRF | **0.6671** | **0.5263** | **0.7895** | **0.8947** | **0.7512** | **0.9629** | 488.2 ms |
+
+Hybrid search works best for documentation because FTS anchors explicit terms
+while `DocBody` embeddings recover paraphrases that do not appear directly in
+headings or metadata. See `docs/LOCAL-EMBEDDINGS.md` for local setup and more
+embedding details.
 
 ### Privacy and cloud egress
 

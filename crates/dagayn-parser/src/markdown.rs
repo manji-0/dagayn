@@ -17,6 +17,8 @@ static MARKDOWN_SYMBOL_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$").unwrap());
 static MARKDOWN_TITLE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"\s+(?:"[^"]*"|'[^']*')\s*$"#).unwrap());
+static MARKDOWN_REFERENCE_DEF_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^\[[^\]]+\]:").unwrap());
 const LINE_CURSOR_SCAN_THRESHOLD: usize = 4;
 
 #[derive(Clone, Debug)]
@@ -193,6 +195,8 @@ pub(super) fn parse_markdown_with_parser(
         stack.push((heading.level, section_qname));
     }
 
+    extract_markdown_doc_bodies(file_path, &text, &headings, &mut nodes, &mut edges);
+
     let line_context = MarkdownLineContext::new(file_path, &headings);
     if tree_facts.parsed {
         extract_markdown_directives(&line_context, &tree_facts.directives, &mut edges);
@@ -205,6 +209,127 @@ pub(super) fn parse_markdown_with_parser(
     extract_markdown_dagayn_directives(&line_context, &text, &mut edges);
     extract_markdown_code_spans(&line_context, &text, &mut edges);
     (nodes, dedupe_edges(edges))
+}
+
+fn extract_markdown_doc_bodies(
+    file_path: &str,
+    text: &str,
+    headings: &[Heading],
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let context = MarkdownLineContext::new(file_path, headings);
+    let heading_lines: HashMap<i64, ()> =
+        headings.iter().map(|heading| (heading.line, ())).collect();
+    let mut counters: HashMap<String, i64> = HashMap::new();
+    let mut block_start: Option<i64> = None;
+    let mut block_lines: Vec<String> = Vec::new();
+
+    for (idx, line) in text.lines().enumerate() {
+        let line_no = idx as i64 + 1;
+        let trimmed = line.trim();
+        let skip = trimmed.is_empty()
+            || heading_lines.contains_key(&line_no)
+            || is_markdown_non_body_line(trimmed);
+        if skip {
+            flush_markdown_doc_body(
+                file_path,
+                &context,
+                &mut counters,
+                nodes,
+                edges,
+                &mut block_start,
+                &mut block_lines,
+                line_no - 1,
+            );
+            continue;
+        }
+        if block_start.is_none() {
+            block_start = Some(line_no);
+            block_lines.clear();
+        }
+        block_lines.push(line.to_string());
+    }
+
+    let final_line = text.lines().count() as i64;
+    flush_markdown_doc_body(
+        file_path,
+        &context,
+        &mut counters,
+        nodes,
+        edges,
+        &mut block_start,
+        &mut block_lines,
+        final_line,
+    );
+}
+
+fn is_markdown_non_body_line(trimmed: &str) -> bool {
+    (trimmed.starts_with("<!--") && trimmed.ends_with("-->"))
+        || MARKDOWN_REFERENCE_DEF_RE.is_match(trimmed)
+}
+
+fn flush_markdown_doc_body(
+    file_path: &str,
+    context: &MarkdownLineContext<'_>,
+    counters: &mut HashMap<String, i64>,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+    block_start: &mut Option<i64>,
+    block_lines: &mut Vec<String>,
+    block_end: i64,
+) {
+    let Some(start_line) = block_start.take() else {
+        return;
+    };
+    if block_lines.is_empty() {
+        return;
+    }
+    let Some(parent_section) = context.section_for_line(start_line) else {
+        block_lines.clear();
+        return;
+    };
+    let parent_slug = parent_section.rsplit("::").next().unwrap_or("document");
+    let counter = counters.entry(parent_section.clone()).or_insert(0);
+    *counter += 1;
+    let name = format!("{parent_slug}--body-{counter}");
+    let qualified_name = format!("{file_path}::{name}");
+    let display_name = block_lines
+        .iter()
+        .map(|line| line.trim())
+        .find(|line| !line.is_empty())
+        .unwrap_or("")
+        .chars()
+        .take(96)
+        .collect::<String>();
+
+    nodes.push(ParsedNode {
+        kind: "DocBody".to_string(),
+        name: name.clone(),
+        file_path: file_path.to_string(),
+        line_start: start_line,
+        line_end: block_end.max(start_line),
+        language: "markdown".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: json!({
+            "markdown_kind": "body",
+            "display_name": display_name,
+            "parent_section": parent_section,
+        }),
+    });
+    edges.push(ParsedEdge {
+        kind: "CONTAINS".to_string(),
+        source: context.source_for_line(start_line),
+        target: qualified_name,
+        file_path: file_path.to_string(),
+        line: start_line,
+        extra: json!({}),
+    });
+    block_lines.clear();
 }
 
 fn collect_markdown_tree_facts(

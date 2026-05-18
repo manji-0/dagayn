@@ -22,6 +22,9 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+_UPDATE_HOOK_TIMEOUT_SECONDS = 300
+_STATUS_HOOK_TIMEOUT_SECONDS = 10
+
 # --- Multi-platform MCP install ---
 
 
@@ -703,7 +706,7 @@ def generate_hooks_config(
                                 ' --repo "$repo"'
                                 " || true"
                             ),
-                            "timeout": 30,
+                            "timeout": _UPDATE_HOOK_TIMEOUT_SECONDS,
                         },
                     ],
                 },
@@ -719,7 +722,7 @@ def generate_hooks_config(
                                 ' && dagayn status --repo "$repo"'
                                 " || echo 'Not a git repo, skipping'"
                             ),
-                            "timeout": 10,
+                            "timeout": _STATUS_HOOK_TIMEOUT_SECONDS,
                         },
                     ],
                 },
@@ -1071,9 +1074,10 @@ ambiguous, or lacks the exact source text needed for the task.
 
 ### Tool surface
 
-`dagayn serve` exposes every public MCP main tool by default. Use
-`dagayn serve --tools ...` only when a deployment needs an exact allow-list;
-the same allow-list can be supplied with `CRG_TOOLS`.
+`dagayn serve` exposes the compact workflow tool surface by default. Use
+`dagayn serve --tools ...` when a deployment needs an exact allow-list; the same
+allow-list can be supplied with `CRG_TOOLS`. Use `all`, `full`, or `*` to expose
+advanced/maintenance tools.
 
 ### Default workflow tools
 
@@ -1081,6 +1085,7 @@ the same allow-list can be supplied with `CRG_TOOLS`.
 | ------ | ---------- |
 | `get_minimal_context_tool` | Start here: graph freshness, risk, communities, next tools |
 | `review_tool` | Primary change review and review drill-down dispatcher |
+| `flow_tool` | Execution-flow lists and step-by-step flow paths |
 | `architecture_analysis_tool` | Primary architecture review and drill-down dispatcher |
 | `refactor_tool` | Planning renames, finding dead code, and evidence-ranked refactor suggestions |
 | `query_graph_tool` | Tracing callers, callees, imports, tests, dependencies |
@@ -1092,7 +1097,6 @@ the same allow-list can be supplied with `CRG_TOOLS`.
 | ------ | ---------- |
 | `review_tool(mode="impact")` | Need a wider or deeper blast-radius view |
 | `review_tool(mode="affected_flows")` | Need full affected execution-path details |
-| `flow_tool(mode=...)` | Need flow lists or step-by-step flow paths |
 | `architecture_analysis_tool(mode=...)` | Architecture drill-downs for boundaries and metrics |
 
 ### How to judge analysis output

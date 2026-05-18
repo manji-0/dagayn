@@ -47,9 +47,10 @@ def embed_graph(
     Returns:
         Number of nodes embedded and total embedding count.
     """
-    store, root = _get_store(repo_root)
+    store, root = _get_store(repo_root, cached=False)
     db_path = get_db_path(root)
-    emb_store = EmbeddingStore(db_path, provider=provider, model=model)
+    emb_store = EmbeddingStore(db_path, provider=provider, model=model, source_root=root)
+    store_closed = False
     try:
         if not emb_store.available:
             if provider in ("openai", "google", "minimax"):
@@ -70,6 +71,10 @@ def embed_graph(
 
         newly_embedded = embed_all_nodes(store, emb_store, show_progress=show_progress)
         orphans_removed = emb_store.last_orphans_removed
+        if newly_embedded or orphans_removed:
+            store.close()
+            store_closed = True
+            emb_store.checkpoint_writes(truncate=True)
         total = emb_store.count()
 
         return {
@@ -87,7 +92,8 @@ def embed_graph(
         }
     finally:
         emb_store.close()
-        store.close()
+        if not store_closed:
+            store.close()
 
 
 # ---------------------------------------------------------------------------

@@ -120,6 +120,7 @@ def generate_full_report(results_dir: str | Path) -> str:
         "impact_accuracy",
         "flow_completeness",
         "search_quality",
+        "doc_fuzzy_search",
         "build_performance",
     ]
 
