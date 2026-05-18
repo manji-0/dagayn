@@ -346,6 +346,15 @@ class GraphStore:
 
     def _bulk_insert_nodes(self, nodes: list[NodeInfo], fhash: str, mtime_ns: int = 0) -> None:
         """Bulk-insert nodes via executemany. Caller must have cleared the file first."""
+        self._bulk_insert_nodes_with_meta(
+            [(n, fhash, mtime_ns) for n in nodes],
+        )
+
+    def _bulk_insert_nodes_with_meta(
+        self,
+        nodes: list[tuple[NodeInfo, str, int]],
+    ) -> None:
+        """Bulk-insert nodes with per-node file hash and mtime metadata."""
         if not nodes:
             return
         now = time.time()
@@ -390,7 +399,7 @@ class GraphStore:
                     json.dumps(n.extra) if n.extra else "{}",
                     now,
                 )
-                for n in nodes
+                for n, fhash, mtime_ns in nodes
             ],
         )
 
@@ -475,17 +484,26 @@ class GraphStore:
         Each tuple is ``(file_path, nodes, edges, fhash, mtime_ns)``.
         Pass ``mtime_ns=0`` when not available.
         """
+        if self._conn.in_transaction:
+            logger.warning("Rolling back uncommitted transaction before BEGIN IMMEDIATE")
+            self._conn.rollback()
         self._conn.execute("BEGIN IMMEDIATE")
         try:
+            file_paths: list[str] = []
+            all_nodes: list[tuple[NodeInfo, str, int]] = []
+            all_edges: list[EdgeInfo] = []
             for item in batch:
                 if len(item) == 4:
                     file_path, nodes, edges, fhash = item
                     mtime_ns = 0
                 else:
                     file_path, nodes, edges, fhash, mtime_ns = item
-                self.remove_file_data(file_path)
-                self._bulk_insert_nodes(nodes, fhash, mtime_ns)
-                self._bulk_insert_edges(edges)
+                file_paths.append(file_path)
+                all_nodes.extend((node, fhash, mtime_ns) for node in nodes)
+                all_edges.extend(edges)
+            self.remove_files_data(file_paths)
+            self._bulk_insert_nodes_with_meta(all_nodes)
+            self._bulk_insert_edges(all_edges)
             self._conn.commit()
         except BaseException:
             self._conn.rollback()

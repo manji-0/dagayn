@@ -139,6 +139,58 @@ class TestGraphStore:
         assert len(self.store.get_nodes_by_file("/test/a.py")) == 1
         assert len(self.store.get_nodes_by_file("/test/b.py")) == 2
 
+    def test_store_file_batch_removes_files_once_and_bulk_inserts(self, monkeypatch):
+        batch = [
+            ("/test/a.py", [self._make_file_node("/test/a.py")], [], "hash-a", 11),
+            (
+                "/test/b.py",
+                [self._make_file_node("/test/b.py"), self._make_func_node(path="/test/b.py")],
+                [
+                    EdgeInfo(
+                        kind="CONTAINS",
+                        source="/test/b.py",
+                        target="/test/b.py::my_func",
+                        file_path="/test/b.py",
+                    )
+                ],
+                "hash-b",
+                22,
+            ),
+        ]
+        removed: list[list[str]] = []
+        inserted_node_counts: list[int] = []
+        inserted_edge_counts: list[int] = []
+        original_remove = self.store.remove_files_data
+        original_nodes = self.store._bulk_insert_nodes_with_meta
+        original_edges = self.store._bulk_insert_edges
+
+        def counting_remove(file_paths):
+            removed.append(list(file_paths))
+            return original_remove(file_paths)
+
+        def counting_nodes(nodes):
+            inserted_node_counts.append(len(nodes))
+            return original_nodes(nodes)
+
+        def counting_edges(edges):
+            inserted_edge_counts.append(len(edges))
+            return original_edges(edges)
+
+        monkeypatch.setattr(self.store, "remove_files_data", counting_remove)
+        monkeypatch.setattr(self.store, "_bulk_insert_nodes_with_meta", counting_nodes)
+        monkeypatch.setattr(self.store, "_bulk_insert_edges", counting_edges)
+
+        self.store.store_file_batch(batch)
+
+        assert removed == [["/test/a.py", "/test/b.py"]]
+        assert inserted_node_counts == [3]
+        assert inserted_edge_counts == [1]
+        assert self.store.get_node("/test/a.py").file_hash == "hash-a"
+        assert self.store.get_node("/test/a.py").extra == {}
+        assert self.store.get_node("/test/b.py").file_hash == "hash-b"
+        assert self.store.get_node("/test/b.py").line_start == 1
+        assert len(self.store.get_edges_by_source("/test/b.py")) == 1
+
     def test_remove_files_data_deletes_multiple_files_in_batch(self):
         self.store.store_file_batch(
             [

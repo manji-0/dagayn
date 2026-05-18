@@ -220,6 +220,11 @@ def _scenario_dfs(store: Any, config: dict) -> dict:
 
 def _seed_remove_store(db_path: Path, file_count: int) -> GraphStore:
     store = GraphStore(db_path)
+    store.store_file_batch(_make_file_batch(file_count))
+    return store
+
+
+def _make_file_batch(file_count: int) -> list[tuple[str, list[NodeInfo], list[EdgeInfo], str, int]]:
     batch = []
     for idx in range(file_count):
         path = f"src/file_{idx}.py"
@@ -231,8 +236,24 @@ def _seed_remove_store(db_path: Path, file_count: int) -> GraphStore:
             EdgeInfo("CONTAINS", path, f"{path}::func_{idx}", path, 1),
         ]
         batch.append((path, nodes, edges, f"hash-{idx}", 0))
-    store.store_file_batch(batch)
-    return store
+    return batch
+
+
+def _legacy_store_file_batch(
+    store: GraphStore,
+    batch: list[tuple[str, list[NodeInfo], list[EdgeInfo], str, int]],
+) -> None:
+    store._conn.execute("BEGIN IMMEDIATE")
+    try:
+        for file_path, nodes, edges, fhash, mtime_ns in batch:
+            store.remove_file_data(file_path)
+            store._bulk_insert_nodes(nodes, fhash, mtime_ns)
+            store._bulk_insert_edges(edges)
+        store._conn.commit()
+    except BaseException:
+        store._conn.rollback()
+        raise
+    store._invalidate_cache()
 
 
 def _scenario_batch_remove(config: dict) -> dict:
@@ -256,6 +277,30 @@ def _scenario_batch_remove(config: dict) -> dict:
         "after_ms": round(batch_ms, 3),
         "speedup": _speedup(legacy_ms, batch_ms),
         "file_count": file_count,
+    }
+
+
+def _scenario_store_file_batch(config: dict) -> dict:
+    file_count = int(config.get("effect_store_files", 100))
+    batch = _make_file_batch(file_count)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+        legacy_store = GraphStore(tmp / "legacy_store_batch.db")
+        batch_store = GraphStore(tmp / "store_batch.db")
+        try:
+            legacy_ms, _ = _measure_ms(lambda: _legacy_store_file_batch(legacy_store, batch))
+            batch_ms, _ = _measure_ms(lambda: batch_store.store_file_batch(batch))
+        finally:
+            legacy_store.close()
+            batch_store.close()
+    return {
+        "scenario": "store_file_batch_bulk_replace",
+        "before_ms": round(legacy_ms, 3),
+        "after_ms": round(batch_ms, 3),
+        "speedup": _speedup(legacy_ms, batch_ms),
+        "file_count": file_count,
+        "node_count": file_count * 2,
+        "edge_count": file_count,
     }
 
 
@@ -288,6 +333,7 @@ def run(repo_path: Path, store: Any, config: dict) -> list[dict]:
         lambda: _scenario_centrality(store, config),
         lambda: _scenario_dfs(store, config),
         lambda: _scenario_batch_remove(config),
+        lambda: _scenario_store_file_batch(config),
         lambda: _scenario_mcp_latency(repo_path, store, config),
     ]
     for scenario in scenarios:
