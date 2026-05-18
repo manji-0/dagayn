@@ -26,6 +26,16 @@ Graph data is stored in SQLite. Nodes and edges carry file identity, qualified n
 
 In dagayn-oriented workflows, registered paths are expected to be relative to the repository root. That keeps graph output stable across symlinked temp paths and portable across machines.
 
+<!-- derived-from #storage-model -->
+
+## GraphStore ownership boundary
+
+The Python `GraphStore` remains the compatibility and orchestration boundary for CLI, MCP tools, tests, and Python-only analysis helpers. It owns the stable SQLite schema, path normalization, transaction semantics, cache invalidation, and the public read/write methods that higher layers call.
+
+The Rust graph backend owns hot-path storage and analysis implementations as they become available through PyO3 bindings. Python code may call Rust methods when the bound method exists, but it should preserve the Python `GraphStore` API as the migration contract. New callers should depend on `GraphStore` methods rather than importing Rust bindings directly.
+
+During the migration, duplicated behavior is allowed only as an adapter layer: Python keeps the canonical user-facing API and fallback semantics, while Rust implementations are treated as accelerated implementations behind that API. When a Rust path becomes the only supported implementation, the matching Python docs and tests should be updated in the same change.
+
 ## Post-processing
 
 Optional post-processing layers add:
@@ -34,6 +44,7 @@ Optional post-processing layers add:
 - execution flows
 - search indexes (FTS5 virtual table `nodes_fts`, always available after `build`)
 - embedding store (`.dagayn/embeddings.db`, populated by `embed_graph_tool` or `--local-embedding`)
+- persisted centrality tables (`hub_scores`, `bridge_scores`) used by architecture analysis after post-processing
 
 ## Hybrid search
 
