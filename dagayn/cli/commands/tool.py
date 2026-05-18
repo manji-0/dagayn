@@ -5,8 +5,11 @@ from __future__ import annotations
 import argparse
 import inspect
 import json
+import os
 import sys
+import time
 from collections.abc import Callable
+from contextlib import contextmanager, nullcontext
 from importlib import import_module
 from typing import Any
 
@@ -42,6 +45,11 @@ TOOL_ALIASES["refactor"] = "refactor_tool"
 TOOL_ALIASES["architecture_analysis"] = "architecture_analysis_tool"
 TOOL_ALIASES["review"] = "review_tool"
 TOOL_ALIASES["flow"] = "flow_tool"
+
+_LOCAL_EMBEDDING_AWARE_TOOLS = {
+    "semantic_search_nodes_tool",
+    "traverse_graph_tool",
+}
 
 
 def register_command(sub: argparse._SubParsersAction) -> argparse.ArgumentParser:
@@ -145,6 +153,69 @@ def _inject_repo_arg(func: Callable[..., Any], kwargs: dict[str, Any], repo: str
         kwargs["repo_root"] = repo
 
 
+@contextmanager
+def _maybe_local_embedding_server(tool_name: str, kwargs: dict[str, Any]):
+    """Ensure persisted localhost embeddings are queryable for CLI tool calls."""
+    canonical = _canonical_tool_name(tool_name)
+    if canonical not in _LOCAL_EMBEDDING_AWARE_TOOLS:
+        with nullcontext():
+            yield
+        return
+
+    provider = kwargs.get("provider")
+    if provider not in (None, "openai"):
+        with nullcontext():
+            yield
+        return
+
+    from .serve import _infer_persisted_local_embedding
+
+    inferred = _infer_persisted_local_embedding(kwargs.get("repo_root"))
+    if inferred is None:
+        with nullcontext():
+            yield
+        return
+
+    model = kwargs.get("model")
+    if model is not None and model != inferred.model:
+        with nullcontext():
+            yield
+        return
+
+    from ...local_embeddings import local_embedding_server
+
+    old_env = {
+        key: os.environ.get(key)
+        for key in (
+            "CRG_OPENAI_API_KEY",
+            "CRG_OPENAI_BASE_URL",
+            "CRG_OPENAI_MODEL",
+        )
+    }
+    try:
+        with local_embedding_server(inferred.level, port=inferred.port) as server:
+            os.environ["CRG_OPENAI_API_KEY"] = "dagayn-local"
+            os.environ["CRG_OPENAI_BASE_URL"] = server.base_url
+            os.environ["CRG_OPENAI_MODEL"] = server.preset.model
+            yield
+    except RuntimeError as exc:
+        print(f"dagayn tool: local embedding server unavailable: {exc}", file=sys.stderr)
+        try:
+            from ...search import _emb_failure_cache
+
+            provider_name = f"openai:{inferred.model}@{inferred.base_url}"
+            _emb_failure_cache[provider_name] = (time.monotonic(), str(exc))
+        except Exception:  # noqa: BLE001  # nosec B110
+            pass
+        yield
+    finally:
+        for key, value in old_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
 def handle(args: argparse.Namespace) -> None:
     """Run the selected tool and print its result."""
     if args.list:
@@ -160,11 +231,12 @@ def handle(args: argparse.Namespace) -> None:
         func = _load_tool(args.tool_name)
         kwargs = _tool_kwargs(args)
         _inject_repo_arg(func, kwargs, args.repo)
-        result = func(**kwargs)
-        if inspect.isawaitable(result):
-            import asyncio
+        with _maybe_local_embedding_server(args.tool_name, kwargs):
+            result = func(**kwargs)
+            if inspect.isawaitable(result):
+                import asyncio
 
-            result = asyncio.run(result)
+                result = asyncio.run(result)
     except (KeyError, TypeError, ValueError) as exc:
         print(f"dagayn tool: {exc}", file=sys.stderr)
         sys.exit(2)

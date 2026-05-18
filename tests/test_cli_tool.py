@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+from types import SimpleNamespace
 
 import pytest
 
@@ -82,6 +84,131 @@ def test_handle_runs_tool_and_injects_repo_root(monkeypatch, capsys):
 
     assert calls == [{"repo_root": "/tmp/repo", "top_n": 3}]
     assert json.loads(capsys.readouterr().out)["summary"] == "done"
+
+
+def test_handle_starts_persisted_local_embedding_for_semantic_tool(monkeypatch, capsys):
+    calls: list[dict] = []
+    server_calls: list[dict] = []
+
+    def fake_tool(*, repo_root=None):
+        calls.append(
+            {
+                "repo_root": repo_root,
+                "api_key": os.environ.get("CRG_OPENAI_API_KEY"),
+                "base_url": os.environ.get("CRG_OPENAI_BASE_URL"),
+                "model": os.environ.get("CRG_OPENAI_MODEL"),
+            }
+        )
+        return {"status": "ok", "summary": "done"}
+
+    class FakeServer:
+        base_url = "http://127.0.0.1:19090/v1"
+        preset = SimpleNamespace(model="qwen3-embedding-4b-gguf-q4_k_m")
+
+    class FakeContext:
+        def __enter__(self):
+            return FakeServer()
+
+        def __exit__(self, *_args):
+            return None
+
+    def fake_server(level, **kwargs):
+        server_calls.append({"level": level, **kwargs})
+        return FakeContext()
+
+    monkeypatch.setattr(tool, "_load_tool", lambda name: fake_tool)
+    monkeypatch.setattr(
+        "dagayn.cli.commands.serve._infer_persisted_local_embedding",
+        lambda repo_root: SimpleNamespace(
+            level="high",
+            model="qwen3-embedding-4b-gguf-q4_k_m",
+            base_url="http://127.0.0.1:19090/v1",
+            port=19090,
+        ),
+    )
+    monkeypatch.setattr("dagayn.local_embeddings.local_embedding_server", fake_server)
+    monkeypatch.delenv("CRG_OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("CRG_OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("CRG_OPENAI_MODEL", raising=False)
+
+    args = _parser().parse_args(
+        ["tool", "semantic_search_nodes_tool", "--repo", "/tmp/repo"]
+    )
+    tool.handle(args)
+
+    assert server_calls == [{"level": "high", "port": 19090}]
+    assert calls == [
+        {
+            "repo_root": "/tmp/repo",
+            "api_key": "dagayn-local",
+            "base_url": "http://127.0.0.1:19090/v1",
+            "model": "qwen3-embedding-4b-gguf-q4_k_m",
+        }
+    ]
+    assert json.loads(capsys.readouterr().out)["status"] == "ok"
+    assert os.environ.get("CRG_OPENAI_API_KEY") is None
+
+
+def test_handle_skips_local_embedding_for_explicit_cloud_provider(monkeypatch):
+    calls: list[dict] = []
+
+    def fake_tool(**kwargs):
+        calls.append(kwargs)
+        return {"status": "ok"}
+
+    monkeypatch.setattr(tool, "_load_tool", lambda name: fake_tool)
+    monkeypatch.setattr(
+        "dagayn.cli.commands.serve._infer_persisted_local_embedding",
+        lambda repo_root: (_ for _ in ()).throw(
+            AssertionError("should not inspect persisted local embeddings")
+        ),
+    )
+
+    args = _parser().parse_args(
+        [
+            "tool",
+            "semantic_search_nodes_tool",
+            "--arg",
+            'provider="google"',
+        ]
+    )
+    tool.handle(args)
+
+    assert calls == [{"provider": "google"}]
+
+
+def test_handle_caches_local_embedding_start_failure(monkeypatch, capsys):
+    from dagayn.search import _emb_failure_cache
+
+    calls: list[dict] = []
+    provider_name = "openai:qwen3-embedding-4b-gguf-q4_k_m@http://127.0.0.1:19090/v1"
+
+    def fake_tool(**kwargs):
+        calls.append(kwargs)
+        return {"status": "ok"}
+
+    monkeypatch.setattr(tool, "_load_tool", lambda name: fake_tool)
+    monkeypatch.setattr(
+        "dagayn.cli.commands.serve._infer_persisted_local_embedding",
+        lambda repo_root: SimpleNamespace(
+            level="high",
+            model="qwen3-embedding-4b-gguf-q4_k_m",
+            base_url="http://127.0.0.1:19090/v1",
+            port=19090,
+        ),
+    )
+    monkeypatch.setattr(
+        "dagayn.local_embeddings.local_embedding_server",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("missing binary")),
+    )
+    _emb_failure_cache.clear()
+
+    args = _parser().parse_args(["tool", "semantic_search_nodes_tool"])
+    tool.handle(args)
+
+    assert calls == [{}]
+    assert provider_name in _emb_failure_cache
+    assert "missing binary" in capsys.readouterr().err
 
 
 def test_tool_registry_uses_architecture_dispatcher_only():
