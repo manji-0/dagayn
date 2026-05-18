@@ -376,6 +376,56 @@ class TestEmbeddingStore:
             assert store.count() == 0
             store.close()
 
+    def test_search_reuses_numpy_matrix_cache(self, tmp_path, monkeypatch):
+        import dagayn.embeddings as emb
+
+        if not emb._NUMPY_AVAILABLE:
+            pytest.skip("numpy fast path is optional")
+
+        db = tmp_path / "embeddings.db"
+
+        class FakeProvider:
+            name = "fake"
+            preferred_batch_size = 1
+
+            def embed(self, texts):
+                return [[1.0, 0.0] for _ in texts]
+
+            def embed_query(self, text):
+                return [1.0, 0.0]
+
+            @property
+            def dimension(self):
+                return 2
+
+        with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
+            store = EmbeddingStore(db)
+            store._conn.executemany(
+                """INSERT INTO embeddings (qualified_name, vector, text_hash, provider)
+                   VALUES (?, ?, ?, ?)""",
+                [
+                    ("file.py::best", _encode_vector([1.0, 0.0]), "h1", "fake"),
+                    ("file.py::other", _encode_vector([0.0, 1.0]), "h2", "fake"),
+                ],
+            )
+            store._conn.commit()
+
+            emb._np_vec_cache.clear()
+            load_calls = 0
+            original_load = emb._load_vec_matrix
+
+            def counting_load(*args, **kwargs):
+                nonlocal load_calls
+                load_calls += 1
+                return original_load(*args, **kwargs)
+
+            monkeypatch.setattr(emb, "_load_vec_matrix", counting_load)
+
+            assert store.search("query", limit=1)[0][0] == "file.py::best"
+            assert store.search("query", limit=1)[0][0] == "file.py::best"
+            assert load_calls == 1
+            store.close()
+
 
 class TestLocalEmbeddingProviderModelName:
     """Tests for configurable model name on LocalEmbeddingProvider."""
