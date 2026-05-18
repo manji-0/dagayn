@@ -137,3 +137,35 @@ def test_handle_runs_full_build_without_postprocess(tmp_path, monkeypatch, capsy
         }
     ]
     assert "Full build: 3 files, 5 nodes, 7 edges (postprocess=none)" in capsys.readouterr().out
+
+
+def test_handle_prints_build_postprocess_result_without_rerunning(tmp_path, monkeypatch, capsys):
+    from dagayn import postprocessing
+    from dagayn.tools import build as build_tools
+
+    def fake_build_or_update_graph(**_kwargs):
+        return {
+            "files_parsed": 3,
+            "total_nodes": 5,
+            "total_edges": 7,
+            "errors": [],
+            "fts_indexed": 11,
+            "flows_detected": 2,
+            "communities_detected": 4,
+        }
+
+    def fail_run_post_processing(_store):
+        raise AssertionError("CLI should not re-run post-processing")
+
+    monkeypatch.setattr(build_tools, "build_or_update_graph", fake_build_or_update_graph)
+    monkeypatch.setattr(postprocessing, "run_post_processing", fail_run_post_processing)
+
+    args = _parser().parse_args(["build", "--repo", str(tmp_path)])
+
+    handle(args)
+
+    out = capsys.readouterr().out
+    assert "Full build: 3 files, 5 nodes, 7 edges (postprocess=full)" in out
+    assert "FTS indexed: 11 nodes" in out
+    assert "Flows: 2" in out
+    assert "Communities: 4" in out

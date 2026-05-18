@@ -7,12 +7,8 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from ._shared import _add_local_embedding_args
-
-if TYPE_CHECKING:
-    from ...graph import GraphStore
 
 
 def _remove_existing_graph_database(db_path: Path) -> list[Path]:
@@ -263,19 +259,16 @@ def register_commands(sub: argparse._SubParsersAction) -> dict:
     }
 
 
-def _cli_post_process(store: "GraphStore") -> None:
-    """Run post-build pipeline and print a summary line for each step."""
-    from ...postprocessing import run_post_processing
-
-    pp = run_post_processing(store)
-    if pp.get("signatures_computed"):
-        print(f"Signatures: {pp['signatures_computed']} nodes")
-    if pp.get("fts_indexed"):
-        print(f"FTS indexed: {pp['fts_indexed']} nodes")
-    if pp.get("flows_detected") is not None:
-        print(f"Flows: {pp['flows_detected']}")
-    if pp.get("communities_detected") is not None:
-        print(f"Communities: {pp['communities_detected']}")
+def _print_postprocess_summary(result: dict) -> None:
+    """Print postprocess counts already returned by the build tool."""
+    if result.get("signatures_computed"):
+        print(f"Signatures: {result['signatures_computed']} nodes")
+    if result.get("fts_indexed"):
+        print(f"FTS indexed: {result['fts_indexed']} nodes")
+    if result.get("flows_detected") is not None:
+        print(f"Flows: {result['flows_detected']}")
+    if result.get("communities_detected") is not None:
+        print(f"Communities: {result['communities_detected']}")
 
 
 def handle(args: argparse.Namespace) -> None:
@@ -372,8 +365,8 @@ def handle(args: argparse.Namespace) -> None:
             if result.get("errors"):
                 print(f"Errors: {len(result['errors'])}")
             _print_local_embedding_summary(result)
-            if pp != "none" and hasattr(store, "_conn"):
-                _cli_post_process(store)
+            if pp != "none":
+                _print_postprocess_summary(result)
 
         elif args.command == "update":
             pp = (
@@ -413,8 +406,8 @@ def handle(args: argparse.Namespace) -> None:
                 f" (postprocess={pp})"
             )
             _print_local_embedding_summary(result)
-            if pp != "none" and result.get("files_updated", 0) > 0 and hasattr(store, "_conn"):
-                _cli_post_process(store)
+            if pp != "none" and result.get("files_updated", 0) > 0:
+                _print_postprocess_summary(result)
 
         elif args.command == "status":
             stats = store.get_stats()
