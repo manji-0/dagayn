@@ -665,6 +665,68 @@ def find_large_functions(
 # -------------------------------------------------------------------
 
 
+def _estimate_traversal_entry_tokens(entry: dict) -> int:
+    return (
+        len(entry["qualified_name"]) + len(entry["file"]) + len(entry["name"]) + 30
+    ) // 4
+
+
+def _traverse_dfs_lazy(
+    store: Any,
+    start_qn: str,
+    depth: int,
+    token_budget: int,
+    make_entry: Any,
+) -> tuple[dict[str, int], list[dict], bool]:
+    """Depth-first traversal that hydrates only nodes it actually visits."""
+    visited: dict[str, int] = {}
+    traversal: list[dict] = []
+    approx_tokens = 0
+    budget_exceeded = False
+    node_cache: dict[str, Any | None] = {}
+    neighbor_cache: dict[str, list[str]] = {}
+    stack: list[tuple[str, int]] = [(start_qn, 0)]
+
+    def _get_node(qn: str) -> Any | None:
+        if qn not in node_cache:
+            node_cache[qn] = store.get_nodes_by_qualified_names([qn]).get(qn)
+        return node_cache[qn]
+
+    def _get_neighbors(qn: str) -> list[str]:
+        if qn not in neighbor_cache:
+            outgoing, incoming = store.get_edges_by_endpoints([qn])
+            neighbors = [edge.target_qualified for edge in outgoing.get(qn, [])]
+            neighbors.extend(edge.source_qualified for edge in incoming.get(qn, []))
+            neighbor_cache[qn] = neighbors
+        return neighbor_cache[qn]
+
+    while stack and not budget_exceeded:
+        current_qn, cur_depth = stack.pop()
+        if current_qn in visited or cur_depth > depth:
+            continue
+
+        node = _get_node(current_qn)
+        if not node:
+            visited[current_qn] = cur_depth
+            continue
+
+        visited[current_qn] = cur_depth
+        entry = make_entry(node, cur_depth)
+        approx_tokens += _estimate_traversal_entry_tokens(entry)
+        if approx_tokens > token_budget:
+            budget_exceeded = True
+            break
+        traversal.append(entry)
+
+        if cur_depth + 1 > depth:
+            continue
+        neighbors = [nb for nb in _get_neighbors(current_qn) if nb not in visited]
+        for nb in reversed(neighbors):
+            stack.append((nb, cur_depth + 1))
+
+    return visited, traversal, budget_exceeded
+
+
 def traverse_graph_func(
     query: str,
     mode: str = "bfs",
@@ -729,38 +791,13 @@ def traverse_graph_func(
             }
 
         if mode == "dfs":
-            # Pre-fetch the entire local subgraph in 3 SQL queries
-            # (CTE + nodes batch + edges batch) instead of 2 queries per
-            # visited node.  DFS order is preserved via the in-memory adj.
-            nodes_map, adj = store.get_local_subgraph(start_qn, depth)
-            stack: list[tuple[str, int]] = [(start_qn, 0)]
-            while stack and not budget_exceeded:
-                current_qn, cur_depth = stack.pop()
-                if current_qn in visited or cur_depth > depth:
-                    continue
-
-                node = nodes_map.get(current_qn)
-                if not node:
-                    visited[current_qn] = cur_depth
-                    continue
-
-                visited[current_qn] = cur_depth
-                entry = _make_entry(node, cur_depth)
-                approx_tokens += (
-                    len(entry["qualified_name"]) + len(entry["file"]) + len(entry["name"]) + 30
-                ) // 4
-                if approx_tokens > token_budget:
-                    budget_exceeded = True
-                    break
-                traversal.append(entry)
-
-                if cur_depth + 1 > depth:
-                    continue
-                neighbors = [nb for nb in adj.get(current_qn, []) if nb not in visited]
-                # Reverse-push so the first neighbour is popped next,
-                # giving stable left-to-right depth-first order.
-                for nb in reversed(neighbors):
-                    stack.append((nb, cur_depth + 1))
+            visited, traversal, budget_exceeded = _traverse_dfs_lazy(
+                store,
+                start_qn,
+                depth,
+                token_budget,
+                _make_entry,
+            )
         else:
             # BFS — process the entire current frontier in one batched
             # node + edge fetch per layer, instead of issuing 3 SQL
@@ -792,9 +829,7 @@ def traverse_graph_func(
                         continue
 
                     entry = _make_entry(node, cur_depth)
-                    approx_tokens += (
-                        len(entry["qualified_name"]) + len(entry["file"]) + len(entry["name"]) + 30
-                    ) // 4
+                    approx_tokens += _estimate_traversal_entry_tokens(entry)
                     if approx_tokens > token_budget:
                         budget_exceeded = True
                         break

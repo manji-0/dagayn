@@ -13,17 +13,12 @@ import tempfile
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any
 
 from dagayn.graph import GraphStore
 from dagayn.parser import EdgeInfo, NodeInfo
 
 logger = logging.getLogger(__name__)
-
-
-class _LegacyDfsResult(NamedTuple):
-    nodes: list[str]
-    sql_call_count: int
 
 
 def _measure_ms(fn: Callable[[], Any], repeat: int = 1) -> tuple[float, Any]:
@@ -124,31 +119,6 @@ def _scenario_centrality(store: Any, config: dict) -> dict:
     }
 
 
-def _legacy_dfs(store: Any, start_qn: str, max_depth: int) -> _LegacyDfsResult:
-    visited: set[str] = set()
-    order: list[str] = []
-    stack: list[tuple[str, int]] = [(start_qn, 0)]
-    sql_call_count = 0
-    while stack:
-        qn, depth = stack.pop()
-        if qn in visited or depth > max_depth:
-            continue
-        sql_call_count += 1
-        if store.get_node(qn) is None:
-            continue
-        visited.add(qn)
-        order.append(qn)
-        if depth + 1 > max_depth:
-            continue
-        sql_call_count += 2
-        neighbors = [edge.target_qualified for edge in store.get_edges_by_source(qn)]
-        neighbors.extend(edge.source_qualified for edge in store.get_edges_by_target(qn))
-        for neighbor in reversed(neighbors):
-            if neighbor not in visited:
-                stack.append((neighbor, depth + 1))
-    return _LegacyDfsResult(order, sql_call_count)
-
-
 def _highest_degree_non_file_qn(store: Any) -> tuple[str | None, int]:
     non_file_qns = {node.qualified_name for node in store.get_all_nodes(exclude_files=True)}
     degree: dict[str, int] = {}
@@ -163,30 +133,88 @@ def _highest_degree_non_file_qn(store: Any) -> tuple[str | None, int]:
     return target, count
 
 
+def _bench_entry(node: Any, cur_depth: int) -> dict:
+    return {
+        "name": node.name,
+        "qualified_name": node.qualified_name,
+        "kind": node.kind,
+        "file": node.file_path,
+        "depth": cur_depth,
+    }
+
+
+def _eager_local_subgraph_dfs(
+    store: Any,
+    start_qn: str,
+    max_depth: int,
+    token_budget: int,
+) -> tuple[dict[str, Any], list[dict], bool]:
+    from dagayn.tools.query import _estimate_traversal_entry_tokens
+
+    nodes_map, adj = store.get_local_subgraph(start_qn, max_depth)
+    visited: dict[str, Any] = {}
+    traversal: list[dict] = []
+    approx_tokens = 0
+    budget_exceeded = False
+    stack: list[tuple[str, int]] = [(start_qn, 0)]
+    while stack and not budget_exceeded:
+        current_qn, cur_depth = stack.pop()
+        if current_qn in visited or cur_depth > max_depth:
+            continue
+        node = nodes_map.get(current_qn)
+        if not node:
+            visited[current_qn] = cur_depth
+            continue
+        visited[current_qn] = cur_depth
+        entry = _bench_entry(node, cur_depth)
+        approx_tokens += _estimate_traversal_entry_tokens(entry)
+        if approx_tokens > token_budget:
+            budget_exceeded = True
+            break
+        traversal.append(entry)
+        if cur_depth + 1 > max_depth:
+            continue
+        for neighbor in reversed(adj.get(current_qn, [])):
+            if neighbor not in visited:
+                stack.append((neighbor, cur_depth + 1))
+    metadata = {"prefetched_nodes": len(nodes_map)}
+    return metadata, traversal, budget_exceeded
+
+
 def _scenario_dfs(store: Any, config: dict) -> dict:
     depth = int(config.get("effect_dfs_depth", 3))
+    token_budget = int(config.get("effect_dfs_token_budget", 2000))
     target, degree = _highest_degree_non_file_qn(store)
     if not target:
         return {
-            "scenario": "dfs_local_subgraph_batch",
+            "scenario": "dfs_lazy_fetch",
             "status": "skipped",
             "reason": "no non-file nodes",
         }
 
-    legacy_ms, legacy = _measure_ms(lambda: _legacy_dfs(store, target, depth))
-    batched_ms, batched = _measure_ms(lambda: store.get_local_subgraph(target, depth))
-    nodes_map, _adj = batched
+    from dagayn.tools.query import _traverse_dfs_lazy
+
+    eager_ms, eager = _measure_ms(
+        lambda: _eager_local_subgraph_dfs(store, target, depth, token_budget)
+    )
+    lazy_ms, lazy = _measure_ms(
+        lambda: _traverse_dfs_lazy(store, target, depth, token_budget, _bench_entry)
+    )
+    eager_meta, eager_traversal, eager_truncated = eager
+    _lazy_visited, lazy_traversal, lazy_truncated = lazy
     return {
-        "scenario": "dfs_local_subgraph_batch",
-        "before_ms": round(legacy_ms, 3),
-        "after_ms": round(batched_ms, 3),
-        "speedup": _speedup(legacy_ms, batched_ms),
-        "legacy_nodes": len(legacy.nodes),
-        "batched_nodes": len(nodes_map),
-        "legacy_sql_call_count": legacy.sql_call_count,
-        "batched_sql_call_count": 3,
+        "scenario": "dfs_lazy_fetch",
+        "before_ms": round(eager_ms, 3),
+        "after_ms": round(lazy_ms, 3),
+        "speedup": _speedup(eager_ms, lazy_ms),
+        "before_prefetched_nodes": eager_meta["prefetched_nodes"],
+        "before_returned_nodes": len(eager_traversal),
+        "after_returned_nodes": len(lazy_traversal),
+        "before_truncated": eager_truncated,
+        "after_truncated": lazy_truncated,
         "start_degree": degree,
         "depth": depth,
+        "token_budget": token_budget,
     }
 
 

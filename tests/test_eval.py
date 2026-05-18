@@ -396,7 +396,7 @@ def test_runner_with_mock_repo():
         scenarios = {row["scenario"] for row in effect_results}
         assert "parse_diff_ranges_cache" in scenarios
         assert "bridge_centrality_persisted_read" in scenarios
-        assert "dfs_local_subgraph_batch" in scenarios
+        assert "dfs_lazy_fetch" in scenarios
         assert "remove_files_data_batch" in scenarios
         assert any(scenario.startswith("mcp_latency:") for scenario in scenarios)
         assert all(

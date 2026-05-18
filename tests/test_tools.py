@@ -836,7 +836,7 @@ class TestFlowTools:
         assert result["status"] == "ok"
         assert len(result["flow"]["steps"]) >= 2
 
-    def test_traverse_graph_dfs_uses_local_subgraph(self, monkeypatch):
+    def test_traverse_graph_dfs_fetches_lazily(self, monkeypatch):
         from dagayn.tools import query as query_module
 
         monkeypatch.setattr(
@@ -853,26 +853,30 @@ class TestFlowTools:
         )
         self.store.close = lambda: None
 
-        calls = []
-        original_get_local_subgraph = self.store.get_local_subgraph
+        endpoint_calls = []
+        original_get_edges_by_endpoints = self.store.get_edges_by_endpoints
 
-        def counting_get_local_subgraph(start_qn, max_depth):
-            calls.append((start_qn, max_depth))
-            return original_get_local_subgraph(start_qn, max_depth)
+        def counting_get_edges_by_endpoints(qualified_names):
+            endpoint_calls.append(tuple(qualified_names))
+            return original_get_edges_by_endpoints(qualified_names)
 
-        monkeypatch.setattr(self.store, "get_local_subgraph", counting_get_local_subgraph)
+        monkeypatch.setattr(
+            self.store,
+            "get_local_subgraph",
+            lambda *args: (_ for _ in ()).throw(
+                AssertionError("DFS should not pre-hydrate the full local subgraph")
+            ),
+        )
         monkeypatch.setattr(
             self.store,
             "get_edges_by_endpoints",
-            lambda qualified_names: (_ for _ in ()).throw(
-                AssertionError("DFS should use the pre-hydrated local subgraph")
-            ),
+            counting_get_edges_by_endpoints,
         )
 
         result = query_module.traverse_graph_func(query="handle_request", mode="dfs", depth=2)
 
         assert result["status"] == "ok"
-        assert calls == [(f"{self.root / 'app.py'}::handle_request", 2)]
+        assert endpoint_calls
         assert result["nodes_visited"] >= 1
 
     def test_get_flow_by_name(self):
