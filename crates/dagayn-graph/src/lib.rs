@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -9,7 +9,7 @@ use serde_json::value::RawValue;
 use serde_json::{json, Value};
 use thiserror::Error;
 
-const LATEST_VERSION: i64 = 13;
+const LATEST_VERSION: i64 = 14;
 const MAX_INSERT_PARAMS: usize = 30_000;
 const NODE_INSERT_PARAM_COUNT: usize = 16;
 const EDGE_INSERT_PARAM_COUNT: usize = 9;
@@ -121,6 +121,28 @@ CREATE TABLE IF NOT EXISTS metadata (
     value TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS hub_scores (
+    qualified_name TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    in_degree INTEGER NOT NULL,
+    out_degree INTEGER NOT NULL,
+    total_degree INTEGER NOT NULL,
+    community_id INTEGER,
+    computed_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS bridge_scores (
+    qualified_name TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    betweenness REAL NOT NULL,
+    community_id INTEGER,
+    computed_at REAL NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_nodes_file ON nodes(file_path);
 CREATE INDEX IF NOT EXISTS idx_nodes_kind ON nodes(kind);
 CREATE INDEX IF NOT EXISTS idx_nodes_qualified ON nodes(qualified_name);
@@ -131,6 +153,35 @@ CREATE INDEX IF NOT EXISTS idx_edges_kind ON edges(kind);
 CREATE INDEX IF NOT EXISTS idx_edges_target_kind ON edges(target_qualified, kind);
 CREATE INDEX IF NOT EXISTS idx_edges_source_kind ON edges(source_qualified, kind);
 CREATE INDEX IF NOT EXISTS idx_edges_file ON edges(file_path);
+CREATE INDEX IF NOT EXISTS idx_hub_scores_total_degree ON hub_scores(total_degree DESC);
+CREATE INDEX IF NOT EXISTS idx_bridge_scores_betweenness ON bridge_scores(betweenness DESC);
+"#;
+
+const CENTRALITY_SCORE_SCHEMA_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS hub_scores (
+    qualified_name TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    in_degree INTEGER NOT NULL,
+    out_degree INTEGER NOT NULL,
+    total_degree INTEGER NOT NULL,
+    community_id INTEGER,
+    computed_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS bridge_scores (
+    qualified_name TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    betweenness REAL NOT NULL,
+    community_id INTEGER,
+    computed_at REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_hub_scores_total_degree ON hub_scores(total_degree DESC);
+CREATE INDEX IF NOT EXISTS idx_bridge_scores_betweenness ON bridge_scores(betweenness DESC);
 "#;
 
 #[derive(Debug, Error)]
@@ -1399,6 +1450,109 @@ impl GraphStore {
         let rows = stmt.query_map([], edge_from_row)?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(Into::into)
+    }
+
+    pub fn persist_centrality_scores(&mut self) -> Result<HashMap<String, i64>> {
+        self.conn.execute_batch(CENTRALITY_SCORE_SCHEMA_SQL)?;
+        let now = now_seconds()?;
+        let nodes = self.get_all_nodes_filtered(true)?;
+        let edges = self.get_all_edges()?;
+
+        let mut node_by_qn = HashMap::<String, GraphNode>::new();
+        for node in nodes {
+            node_by_qn.insert(node.qualified_name.clone(), node);
+        }
+
+        let mut in_degree = HashMap::<String, i64>::new();
+        let mut out_degree = HashMap::<String, i64>::new();
+        let mut adjacency = HashMap::<String, Vec<String>>::new();
+        let mut graph_nodes = HashSet::<String>::new();
+        for edge in &edges {
+            *out_degree.entry(edge.source_qualified.clone()).or_insert(0) += 1;
+            *in_degree.entry(edge.target_qualified.clone()).or_insert(0) += 1;
+            adjacency
+                .entry(edge.source_qualified.clone())
+                .or_default()
+                .push(edge.target_qualified.clone());
+            graph_nodes.insert(edge.source_qualified.clone());
+            graph_nodes.insert(edge.target_qualified.clone());
+        }
+
+        let mut hubs = Vec::new();
+        for node in node_by_qn.values() {
+            let ind = *in_degree.get(&node.qualified_name).unwrap_or(&0);
+            let outd = *out_degree.get(&node.qualified_name).unwrap_or(&0);
+            let total = ind + outd;
+            if total > 0 {
+                hubs.push((
+                    node.qualified_name.clone(),
+                    sanitize_name(&node.name),
+                    node.kind.clone(),
+                    node.file_path.clone(),
+                    ind,
+                    outd,
+                    total,
+                    self.get_node_community_id(node.id)?,
+                    now,
+                ));
+            }
+        }
+        hubs.sort_by(|a, b| b.6.cmp(&a.6).then_with(|| a.0.cmp(&b.0)));
+
+        let bridge_scores = betweenness_centrality(&graph_nodes, &adjacency);
+        let mut bridges = Vec::new();
+        for (qualified_name, score) in bridge_scores {
+            if score <= 0.0 {
+                continue;
+            }
+            if let Some(node) = node_by_qn.get(&qualified_name) {
+                bridges.push((
+                    node.qualified_name.clone(),
+                    sanitize_name(&node.name),
+                    node.kind.clone(),
+                    node.file_path.clone(),
+                    (score * 1_000_000.0).round() / 1_000_000.0,
+                    self.get_node_community_id(node.id)?,
+                    now,
+                ));
+            }
+        }
+        bridges.sort_by(|a, b| b.4.total_cmp(&a.4).then_with(|| a.0.cmp(&b.0)));
+
+        let tx = self.conn.transaction()?;
+        tx.execute("DELETE FROM hub_scores", [])?;
+        tx.execute("DELETE FROM bridge_scores", [])?;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT INTO hub_scores \
+                 (qualified_name, name, kind, file_path, in_degree, out_degree, total_degree, \
+                  community_id, computed_at) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            )?;
+            for hub in &hubs {
+                stmt.execute(params![
+                    &hub.0, &hub.1, &hub.2, &hub.3, hub.4, hub.5, hub.6, hub.7, hub.8
+                ])?;
+            }
+        }
+        {
+            let mut stmt = tx.prepare(
+                "INSERT INTO bridge_scores \
+                 (qualified_name, name, kind, file_path, betweenness, community_id, computed_at) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?)",
+            )?;
+            for bridge in &bridges {
+                stmt.execute(params![
+                    &bridge.0, &bridge.1, &bridge.2, &bridge.3, bridge.4, bridge.5, bridge.6
+                ])?;
+            }
+        }
+        tx.commit()?;
+
+        Ok(HashMap::from([
+            ("hub_scores_persisted".to_string(), hubs.len() as i64),
+            ("bridge_scores_persisted".to_string(), bridges.len() as i64),
+        ]))
     }
 
     pub fn get_stats(&self) -> Result<GraphStats> {
@@ -2852,6 +3006,7 @@ impl GraphStore {
                 11 => self.migrate_v11()?,
                 12 => self.migrate_v12()?,
                 13 => self.migrate_v13()?,
+                14 => self.migrate_v14()?,
                 _ => {}
             }
             self.set_metadata("schema_version", &version.to_string())?;
@@ -3058,6 +3213,11 @@ impl GraphStore {
         Ok(())
     }
 
+    fn migrate_v14(&self) -> Result<()> {
+        self.conn.execute_batch(CENTRALITY_SCORE_SCHEMA_SQL)?;
+        Ok(())
+    }
+
     fn get_edges_by_endpoint(&self, column: &str, qualified_name: &str) -> Result<Vec<GraphEdge>> {
         let mut seen = std::collections::HashSet::<i64>::new();
         let mut edges = Vec::new();
@@ -3158,6 +3318,8 @@ fn remove_file_data_tx(tx: &Transaction<'_>, file_path: &str) -> Result<()> {
 }
 
 fn remove_files_data_tx(tx: &Transaction<'_>, file_paths: &[String]) -> Result<()> {
+    tx.execute("DELETE FROM hub_scores", [])?;
+    tx.execute("DELETE FROM bridge_scores", [])?;
     for chunk in file_paths.chunks(450) {
         if chunk.is_empty() {
             continue;
@@ -3176,6 +3338,103 @@ fn remove_files_data_tx(tx: &Transaction<'_>, file_paths: &[String]) -> Result<(
         tx.execute(&nodes_sql, rusqlite::params_from_iter(chunk))?;
     }
     Ok(())
+}
+
+fn betweenness_centrality(
+    graph_nodes: &HashSet<String>,
+    adjacency: &HashMap<String, Vec<String>>,
+) -> HashMap<String, f64> {
+    let mut nodes = graph_nodes.iter().cloned().collect::<Vec<_>>();
+    nodes.sort();
+    let node_count = nodes.len();
+    if node_count == 0 {
+        return HashMap::new();
+    }
+    let sources = if node_count > 5000 {
+        nodes.iter().take(500).cloned().collect::<Vec<_>>()
+    } else {
+        nodes.clone()
+    };
+    let scale = if node_count > 5000 {
+        node_count as f64 / sources.len() as f64
+    } else {
+        1.0
+    };
+
+    let mut centrality = nodes
+        .iter()
+        .map(|node| (node.clone(), 0.0_f64))
+        .collect::<HashMap<_, _>>();
+
+    for source in sources {
+        let mut stack = Vec::<String>::new();
+        let mut predecessors = nodes
+            .iter()
+            .map(|node| (node.clone(), Vec::<String>::new()))
+            .collect::<HashMap<_, _>>();
+        let mut sigma = nodes
+            .iter()
+            .map(|node| (node.clone(), 0.0_f64))
+            .collect::<HashMap<_, _>>();
+        let mut distance = nodes
+            .iter()
+            .map(|node| (node.clone(), -1_i64))
+            .collect::<HashMap<_, _>>();
+        sigma.insert(source.clone(), 1.0);
+        distance.insert(source.clone(), 0);
+
+        let mut queue = VecDeque::from([source.clone()]);
+        while let Some(vertex) = queue.pop_front() {
+            stack.push(vertex.clone());
+            let vertex_distance = *distance.get(&vertex).unwrap_or(&-1);
+            let vertex_sigma = *sigma.get(&vertex).unwrap_or(&0.0);
+            for successor in adjacency.get(&vertex).into_iter().flatten() {
+                if !distance.contains_key(successor) {
+                    continue;
+                }
+                if *distance.get(successor).unwrap_or(&-1) < 0 {
+                    queue.push_back(successor.clone());
+                    distance.insert(successor.clone(), vertex_distance + 1);
+                }
+                if *distance.get(successor).unwrap_or(&-1) == vertex_distance + 1 {
+                    *sigma.entry(successor.clone()).or_insert(0.0) += vertex_sigma;
+                    predecessors
+                        .entry(successor.clone())
+                        .or_default()
+                        .push(vertex.clone());
+                }
+            }
+        }
+
+        let mut dependency = nodes
+            .iter()
+            .map(|node| (node.clone(), 0.0_f64))
+            .collect::<HashMap<_, _>>();
+        while let Some(w) = stack.pop() {
+            let sigma_w = *sigma.get(&w).unwrap_or(&0.0);
+            if sigma_w != 0.0 {
+                for v in predecessors.get(&w).into_iter().flatten() {
+                    let sigma_v = *sigma.get(v).unwrap_or(&0.0);
+                    let delta_w = *dependency.get(&w).unwrap_or(&0.0);
+                    *dependency.entry(v.clone()).or_insert(0.0) +=
+                        (sigma_v / sigma_w) * (1.0 + delta_w);
+                }
+            }
+            if w != source {
+                *centrality.entry(w.clone()).or_insert(0.0) +=
+                    *dependency.get(&w).unwrap_or(&0.0) * scale;
+            }
+        }
+    }
+
+    if node_count > 2 {
+        let norm = 1.0 / ((node_count as f64 - 1.0) * (node_count as f64 - 2.0));
+        for value in centrality.values_mut() {
+            *value *= norm;
+        }
+    }
+
+    centrality
 }
 
 fn extra_json(value: &Value) -> Result<String> {

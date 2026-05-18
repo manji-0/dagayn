@@ -16,7 +16,32 @@ fn creates_current_schema() {
     let store = GraphStore::open(&path).expect("open graph store");
     assert_eq!(store.schema_version().unwrap(), LATEST_VERSION);
     assert!(table_exists(&store.conn, "nodes_fts").unwrap());
+    assert!(table_exists(&store.conn, "hub_scores").unwrap());
+    assert!(table_exists(&store.conn, "bridge_scores").unwrap());
     assert!(has_column(&store.conn, "edges", "confidence_tier").unwrap());
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn migrate_v14_creates_centrality_tables_for_existing_db() {
+    let path = temp_db("migrate-v14");
+    {
+        let conn = rusqlite::Connection::open(&path).expect("open sqlite db");
+        conn.execute_batch(SCHEMA_SQL).unwrap();
+        conn.execute("DROP TABLE hub_scores", []).unwrap();
+        conn.execute("DROP TABLE bridge_scores", []).unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO metadata (key, value) VALUES ('schema_version', '13')",
+            [],
+        )
+        .unwrap();
+    }
+
+    let store = GraphStore::open(&path).expect("open graph store");
+
+    assert_eq!(store.schema_version().unwrap(), LATEST_VERSION);
+    assert!(table_exists(&store.conn, "hub_scores").unwrap());
+    assert!(table_exists(&store.conn, "bridge_scores").unwrap());
     let _ = std::fs::remove_file(path);
 }
 
@@ -59,6 +84,80 @@ fn atomically_replaces_file_data() {
         .store_file_nodes_edges("app.py", &[], &[], "hash2", 0)
         .unwrap();
     assert!(store.get_all_files().unwrap().is_empty());
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn remove_files_data_tx_clears_stale_centrality_scores() {
+    let path = temp_db("remove-centrality");
+    let mut store = GraphStore::open(&path).expect("open graph store");
+    let file = NodeInput {
+        kind: "File".to_string(),
+        name: "app.py".to_string(),
+        file_path: "app.py".to_string(),
+        line_start: 1,
+        line_end: 1,
+        language: "python".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: Value::Object(Default::default()),
+    };
+    let caller = NodeInput {
+        kind: "Function".to_string(),
+        name: "caller".to_string(),
+        file_path: "app.py".to_string(),
+        line_start: 2,
+        line_end: 3,
+        language: "python".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: Value::Object(Default::default()),
+    };
+    let callee = NodeInput {
+        kind: "Function".to_string(),
+        name: "callee".to_string(),
+        file_path: "app.py".to_string(),
+        line_start: 5,
+        line_end: 6,
+        language: "python".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: Value::Object(Default::default()),
+    };
+    let edge = EdgeInput {
+        kind: "CALLS".to_string(),
+        source: "app.py::caller".to_string(),
+        target: "app.py::callee".to_string(),
+        file_path: "app.py".to_string(),
+        line: 3,
+        extra: Value::Object(Default::default()),
+    };
+    store
+        .store_file_nodes_edges("app.py", &[file, caller, callee], &[edge], "hash", 0)
+        .unwrap();
+    store.persist_centrality_scores().unwrap();
+
+    store.remove_files_data(&["app.py".to_string()]).unwrap();
+
+    let hub_count: i64 = store
+        .conn
+        .query_row("SELECT COUNT(*) FROM hub_scores", [], |row| row.get(0))
+        .unwrap();
+    let bridge_count: i64 = store
+        .conn
+        .query_row("SELECT COUNT(*) FROM bridge_scores", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(hub_count, 0);
+    assert_eq!(bridge_count, 0);
     let _ = std::fs::remove_file(path);
 }
 

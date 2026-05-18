@@ -184,6 +184,10 @@ def persist_centrality_scores(store: GraphStore) -> dict[str, int]:
     the values during post-processing keeps MCP calls on the read path unless a
     graph write invalidates the score tables.
     """
+    rust_persist = getattr(store, "persist_centrality_scores", None)
+    if callable(rust_persist) and not hasattr(store, "_conn"):
+        return {key: int(value) for key, value in dict(rust_persist()).items()}
+
     _ensure_centrality_score_tables(store)
     snapshot = build_graph_snapshot(store)
     hubs = find_hub_nodes(store, top_n=10**9, snapshot=snapshot, use_persisted=False)

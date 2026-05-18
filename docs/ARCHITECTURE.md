@@ -36,6 +36,8 @@ The Rust graph backend owns hot-path storage and analysis implementations as the
 
 During the migration, duplicated behavior is allowed only as an adapter layer: Python keeps the canonical user-facing API and fallback semantics, while Rust implementations are treated as accelerated implementations behind that API. When a Rust path becomes the only supported implementation, the matching Python docs and tests should be updated in the same change.
 
+Current Rust-owned GraphStore responsibilities include batch file storage, Rust-owned parse/store paths, flow and community JSON persistence, Markdown artifact reference resolution, and persisted centrality score computation for `hub_scores` / `bridge_scores`. Python keeps fallback implementations for source checkouts or environments without `dagayn._core`.
+
 ## Post-processing
 
 Optional post-processing layers add:

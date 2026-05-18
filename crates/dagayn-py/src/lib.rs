@@ -473,6 +473,10 @@ impl PyGraphStore {
         self.with_store_mut(|store| store.resolve_markdown_artifact_refs())
     }
 
+    fn persist_centrality_scores(&self) -> PyResult<std::collections::HashMap<String, i64>> {
+        self.with_store_mut(|store| store.persist_centrality_scores())
+    }
+
     fn compute_summaries(&self) -> PyResult<()> {
         self.with_store_mut(|store| store.compute_summaries())
     }

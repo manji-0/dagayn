@@ -17,7 +17,7 @@ from dagayn.incremental import (
     full_build,
     incremental_update,
 )
-from dagayn.parser import CodeParser
+from dagayn.parser import CodeParser, EdgeInfo, NodeInfo
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 from parity_export import export_db  # noqa: E402
@@ -136,6 +136,37 @@ def test_rust_backend_incremental_touch_updates_mtime_without_reparse(
         assert result["total_edges"] == 0
         assert result["errors"] == []
         assert store.get_file_meta_map()["api.md"][1] == new_mtime_ns
+    finally:
+        store.close()
+
+
+def test_rust_graph_store_persists_centrality_scores(tmp_path):
+    try:
+        from dagayn._core import GraphStore as RustGraphStore
+    except ImportError as exc:
+        pytest.skip(f"Rust extension is not available: {exc}")
+
+    from dagayn.analysis import persist_centrality_scores
+
+    db_path = tmp_path / "graph.db"
+    store = RustGraphStore(db_path)
+    try:
+        nodes = [
+            NodeInfo("File", "a.py", "a.py", 1, 1, "python"),
+            NodeInfo("Function", "entry", "a.py", 1, 3, "python"),
+            NodeInfo("Function", "middle", "a.py", 4, 6, "python"),
+            NodeInfo("Function", "leaf", "a.py", 7, 9, "python"),
+        ]
+        edges = [
+            EdgeInfo("CALLS", "a.py::entry", "a.py::middle", "a.py", 2),
+            EdgeInfo("CALLS", "a.py::middle", "a.py::leaf", "a.py", 5),
+        ]
+        store.store_file_nodes_edges("a.py", nodes, edges)
+
+        result = persist_centrality_scores(store)
+
+        assert result["hub_scores_persisted"] == 3
+        assert result["bridge_scores_persisted"] == 1
     finally:
         store.close()
 
