@@ -378,6 +378,31 @@ def test_runner_with_mock_repo():
         assert all(row["benchmark"] == "mcp_latency" for row in latency_results)
         assert all(row["status"] in {"baseline", "error"} for row in latency_results)
 
+        # Run recent-change effect measurements with small local inputs.
+        from dagayn.eval.benchmarks import recent_changes_effects
+
+        effect_results = recent_changes_effects.run(
+            repo_path,
+            store,
+            {
+                **config,
+                "latency_repeat": 1,
+                "effect_repeat": 1,
+                "centrality_repeat": 1,
+                "effect_dfs_depth": 2,
+                "effect_remove_files": 5,
+            },
+        )
+        scenarios = {row["scenario"] for row in effect_results}
+        assert "parse_diff_ranges_cache" in scenarios
+        assert "bridge_centrality_persisted_read" in scenarios
+        assert "dfs_local_subgraph_batch" in scenarios
+        assert "remove_files_data_batch" in scenarios
+        assert any(scenario.startswith("mcp_latency:") for scenario in scenarios)
+        assert all(
+            row["benchmark"] == "recent_changes_effects" for row in effect_results
+        )
+
         store.close()
 
 
