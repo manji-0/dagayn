@@ -6,6 +6,8 @@ from __future__ import annotations
 import dataclasses
 import logging
 import math
+import sqlite3
+import time
 from collections import Counter, defaultdict
 from pathlib import PurePosixPath
 from typing import Any
@@ -61,12 +63,18 @@ def find_hub_nodes(
     top_n: int = 10,
     *,
     snapshot: GraphSnapshot | None = None,
+    use_persisted: bool = True,
 ) -> list[dict]:
     """Find the most connected nodes (highest in+out degree), excluding File nodes.
 
     Returns list of dicts with: name, qualified_name, kind, file,
     in_degree, out_degree, total_degree, community_id
     """
+    if use_persisted and snapshot is None:
+        persisted = _load_persisted_hub_scores(store, top_n=top_n)
+        if persisted:
+            return persisted
+
     if snapshot is None:
         snapshot = build_graph_snapshot(store)
     in_degree = snapshot.in_degree
@@ -107,6 +115,7 @@ def find_bridge_nodes(
     top_n: int = 10,
     *,
     snapshot: GraphSnapshot | None = None,
+    use_persisted: bool = True,
 ) -> list[dict]:
     """Find nodes with highest betweenness centrality.
 
@@ -117,6 +126,11 @@ def find_bridge_nodes(
     Returns list of dicts with: name, qualified_name, kind, file,
     betweenness, community_id
     """
+    if use_persisted and snapshot is None:
+        persisted = _load_persisted_bridge_scores(store, top_n=top_n)
+        if persisted:
+            return persisted
+
     import networkx as nx
 
     # Build the graph — use cached version if available
@@ -161,6 +175,143 @@ def find_bridge_nodes(
         reverse=True,
     )
     return results[:top_n]
+
+
+def persist_centrality_scores(store: GraphStore) -> dict[str, int]:
+    """Compute and persist hub / bridge scores for query-time analysis.
+
+    Bridge centrality is the expensive part of architecture analysis. Persisting
+    the values during post-processing keeps MCP calls on the read path unless a
+    graph write invalidates the score tables.
+    """
+    _ensure_centrality_score_tables(store)
+    snapshot = build_graph_snapshot(store)
+    hubs = find_hub_nodes(store, top_n=10**9, snapshot=snapshot, use_persisted=False)
+    bridges = find_bridge_nodes(store, top_n=10**9, snapshot=snapshot, use_persisted=False)
+    now = time.time()
+    with store._conn:
+        store._conn.execute("DELETE FROM hub_scores")
+        store._conn.execute("DELETE FROM bridge_scores")
+        store._conn.executemany(
+            "INSERT INTO hub_scores "
+            "(qualified_name, name, kind, file_path, in_degree, out_degree, total_degree, "
+            "community_id, computed_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    h["qualified_name"],
+                    h["name"],
+                    h["kind"],
+                    h["file"],
+                    int(h["in_degree"]),
+                    int(h["out_degree"]),
+                    int(h["total_degree"]),
+                    h.get("community_id"),
+                    now,
+                )
+                for h in hubs
+            ],
+        )
+        store._conn.executemany(
+            "INSERT INTO bridge_scores "
+            "(qualified_name, name, kind, file_path, betweenness, community_id, computed_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    b["qualified_name"],
+                    b["name"],
+                    b["kind"],
+                    b["file"],
+                    float(b["betweenness"]),
+                    b.get("community_id"),
+                    now,
+                )
+                for b in bridges
+            ],
+        )
+    return {"hub_scores_persisted": len(hubs), "bridge_scores_persisted": len(bridges)}
+
+
+def _ensure_centrality_score_tables(store: GraphStore) -> None:
+    store._conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS hub_scores (
+            qualified_name TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            in_degree INTEGER NOT NULL,
+            out_degree INTEGER NOT NULL,
+            total_degree INTEGER NOT NULL,
+            community_id INTEGER,
+            computed_at REAL NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS bridge_scores (
+            qualified_name TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            betweenness REAL NOT NULL,
+            community_id INTEGER,
+            computed_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_hub_scores_total_degree
+            ON hub_scores(total_degree DESC);
+        CREATE INDEX IF NOT EXISTS idx_bridge_scores_betweenness
+            ON bridge_scores(betweenness DESC);
+        """
+    )
+
+
+def _load_persisted_hub_scores(store: GraphStore, top_n: int) -> list[dict]:
+    try:
+        _ensure_centrality_score_tables(store)
+        rows = store._conn.execute(
+            "SELECT name, qualified_name, kind, file_path, in_degree, out_degree, "
+            "total_degree, community_id "
+            "FROM hub_scores ORDER BY total_degree DESC, qualified_name LIMIT ?",
+            (top_n,),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return []
+    return [
+        {
+            "name": row["name"],
+            "qualified_name": row["qualified_name"],
+            "kind": row["kind"],
+            "file": row["file_path"],
+            "in_degree": row["in_degree"],
+            "out_degree": row["out_degree"],
+            "total_degree": row["total_degree"],
+            "community_id": row["community_id"],
+            "score_source": "persisted",
+        }
+        for row in rows
+    ]
+
+
+def _load_persisted_bridge_scores(store: GraphStore, top_n: int) -> list[dict]:
+    try:
+        _ensure_centrality_score_tables(store)
+        rows = store._conn.execute(
+            "SELECT name, qualified_name, kind, file_path, betweenness, community_id "
+            "FROM bridge_scores ORDER BY betweenness DESC, qualified_name LIMIT ?",
+            (top_n,),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return []
+    return [
+        {
+            "name": row["name"],
+            "qualified_name": row["qualified_name"],
+            "kind": row["kind"],
+            "file": row["file_path"],
+            "betweenness": row["betweenness"],
+            "community_id": row["community_id"],
+            "score_source": "persisted",
+        }
+        for row in rows
+    ]
 
 
 def find_knowledge_gaps(

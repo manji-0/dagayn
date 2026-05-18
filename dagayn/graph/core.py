@@ -75,6 +75,28 @@ CREATE TABLE IF NOT EXISTS metadata (
     value TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS hub_scores (
+    qualified_name TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    in_degree INTEGER NOT NULL,
+    out_degree INTEGER NOT NULL,
+    total_degree INTEGER NOT NULL,
+    community_id INTEGER,
+    computed_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS bridge_scores (
+    qualified_name TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    betweenness REAL NOT NULL,
+    community_id INTEGER,
+    computed_at REAL NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_nodes_file ON nodes(file_path);
 CREATE INDEX IF NOT EXISTS idx_nodes_kind ON nodes(kind);
 CREATE INDEX IF NOT EXISTS idx_nodes_qualified ON nodes(qualified_name);
@@ -84,6 +106,8 @@ CREATE INDEX IF NOT EXISTS idx_edges_kind ON edges(kind);
 CREATE INDEX IF NOT EXISTS idx_edges_target_kind ON edges(target_qualified, kind);
 CREATE INDEX IF NOT EXISTS idx_edges_source_kind ON edges(source_qualified, kind);
 CREATE INDEX IF NOT EXISTS idx_edges_file ON edges(file_path);
+CREATE INDEX IF NOT EXISTS idx_hub_scores_total_degree ON hub_scores(total_degree DESC);
+CREATE INDEX IF NOT EXISTS idx_bridge_scores_betweenness ON bridge_scores(betweenness DESC);
 """
 
 
@@ -150,6 +174,8 @@ class GraphStore:
         """Invalidate the cached NetworkX graph after write operations."""
         with self._cache_lock:
             self._nxg_cache = None
+        self._conn.execute("DELETE FROM hub_scores")
+        self._conn.execute("DELETE FROM bridge_scores")
 
     def close(self) -> None:
         if self._leases > 0:
@@ -253,6 +279,7 @@ class GraphStore:
                 now,
             ),
         ).fetchone()
+        self._invalidate_cache()
         return row["id"]
 
     def upsert_edge(self, edge: EdgeInfo) -> int:
@@ -277,6 +304,7 @@ class GraphStore:
                 " updated_at=? WHERE id=?",
                 (edge.line, extra, confidence, confidence_tier, now, existing["id"]),
             )
+            self._invalidate_cache()
             return existing["id"]
 
         cursor = self._conn.execute(
@@ -296,6 +324,7 @@ class GraphStore:
                 now,
             ),
         )
+        self._invalidate_cache()
         return cursor.lastrowid or 0
 
     def remove_file_data(self, file_path: str) -> None:

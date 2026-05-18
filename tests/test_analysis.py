@@ -177,6 +177,41 @@ class TestFindBridgeNodes:
         assert find_bridge_nodes(store) == []
         assert calls == [{"k": 500, "normalized": True, "seed": 0}]
 
+    def test_persisted_bridge_scores_skip_runtime_centrality(self, store, monkeypatch):
+        import networkx as nx
+
+        from dagayn.analysis import find_bridge_nodes, persist_centrality_scores
+
+        persisted = persist_centrality_scores(store)
+        assert persisted["bridge_scores_persisted"] > 0
+
+        def fail_runtime_centrality(*args, **kwargs):
+            raise AssertionError("betweenness centrality should be read from bridge_scores")
+
+        monkeypatch.setattr(nx, "betweenness_centrality", fail_runtime_centrality)
+
+        result = find_bridge_nodes(store, top_n=1)
+
+        assert len(result) == 1
+        assert result[0]["score_source"] == "persisted"
+
+    def test_persisted_hub_scores_skip_runtime_snapshot(self, store, monkeypatch):
+        from dagayn import analysis
+        from dagayn.analysis import find_hub_nodes, persist_centrality_scores
+
+        persisted = persist_centrality_scores(store)
+        assert persisted["hub_scores_persisted"] > 0
+
+        def fail_runtime_snapshot(*args, **kwargs):
+            raise AssertionError("hub scores should be read from hub_scores")
+
+        monkeypatch.setattr(analysis, "build_graph_snapshot", fail_runtime_snapshot)
+
+        result = find_hub_nodes(store, top_n=1)
+
+        assert len(result) == 1
+        assert result[0]["score_source"] == "persisted"
+
 
 class TestFindKnowledgeGaps:
     def test_returns_dict_with_expected_keys(self, store):

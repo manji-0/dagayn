@@ -7,6 +7,7 @@ post-processing steps must run to populate derived tables:
 2. Rebuild FTS5 search index
 3. Trace execution flows
 4. Detect code communities
+5. Persist hub / bridge centrality scores
 
 This module extracts that pipeline so every entry point — MCP tool, CLI
 commands, and watch mode — produces identical results.
@@ -44,6 +45,7 @@ def run_post_processing(store: GraphStore) -> dict[str, Any]:
     _resolve_markdown_artifact_refs(store, result, warnings)
     _trace_flows(store, result, warnings)
     _detect_communities(store, result, warnings)
+    _persist_centrality_scores(store, result, warnings)
 
     if warnings:
         result["warnings"] = warnings
@@ -290,3 +292,19 @@ def _detect_communities(
     except (sqlite3.OperationalError, ImportError) as e:
         logger.warning("Community detection failed: %s", e)
         warnings.append(f"Community detection failed: {type(e).__name__}: {e}")
+
+
+def _persist_centrality_scores(
+    store: GraphStore,
+    result: dict[str, Any],
+    warnings: list[str],
+) -> None:
+    """Persist query-time hub / bridge scores after graph post-processing."""
+    try:
+        from .analysis import persist_centrality_scores
+
+        counts = persist_centrality_scores(store)
+        result.update(counts)
+    except (sqlite3.OperationalError, ImportError, RuntimeError) as e:
+        logger.warning("Centrality score persistence failed: %s", e)
+        warnings.append(f"Centrality score persistence failed: {type(e).__name__}: {e}")
