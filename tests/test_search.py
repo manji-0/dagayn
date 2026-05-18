@@ -3,10 +3,13 @@
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
+from dagayn.embeddings import _encode_vector
 from dagayn.graph import GraphStore
 from dagayn.parser import NodeInfo
 from dagayn.search import (
+    _emb_failure_cache,
     _extract_identifiers,
     _intent_boost,
     _qualified_name_matches,
@@ -453,6 +456,81 @@ class TestHybridSearch:
         assert hs["mode"] == "fts_only"
         assert hs["embedding_health"]["status"] == "missing_provider_env"
         assert hs["embedding_health"]["provider_counts"] == {"openai:qwen3@localhost": 1}
+
+    def test_auto_resolves_single_localhost_openai_provider(self, monkeypatch):
+        rebuild_fts_index(self.store)
+        monkeypatch.delenv("CRG_OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("CRG_OPENAI_BASE_URL", raising=False)
+        monkeypatch.delenv("CRG_OPENAI_MODEL", raising=False)
+        provider_name = "openai:qwen@http://127.0.0.1:18080/v1"
+        node = self.store.get_node("auth.py::authenticate")
+        assert node is not None
+        self.store._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS embeddings (
+                qualified_name TEXT PRIMARY KEY,
+                vector BLOB NOT NULL,
+                text_hash TEXT NOT NULL,
+                provider TEXT NOT NULL DEFAULT 'unknown'
+            )
+            """
+        )
+        self.store._conn.execute(
+            "INSERT OR REPLACE INTO embeddings VALUES (?, ?, ?, ?)",
+            (
+                "auth.py::authenticate",
+                _encode_vector([1.0, 0.0]),
+                "hash",
+                provider_name,
+            ),
+        )
+        self.store._conn.commit()
+
+        with patch(
+            "dagayn.embeddings.OpenAIEmbeddingProvider._call_api",
+            return_value=[[1.0, 0.0]],
+        ):
+            hs = hybrid_search(self.store, "token validation")
+
+        assert hs["mode"] == "hybrid"
+        assert hs["embedding_health"]["status"] == "available"
+        assert hs["embedding_health"]["resolved_provider"] == provider_name
+        assert hs["embedding_health"]["auto_resolved_provider"] == provider_name
+        assert any(r["qualified_name"] == "auth.py::authenticate" for r in hs["results"])
+
+    def test_embedding_search_failure_is_cached_briefly(self, monkeypatch):
+        rebuild_fts_index(self.store)
+        monkeypatch.delenv("CRG_OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("CRG_OPENAI_BASE_URL", raising=False)
+        monkeypatch.delenv("CRG_OPENAI_MODEL", raising=False)
+        provider_name = "openai:qwen@http://127.0.0.1:18080/v1"
+        self.store._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS embeddings (
+                qualified_name TEXT PRIMARY KEY,
+                vector BLOB NOT NULL,
+                text_hash TEXT NOT NULL,
+                provider TEXT NOT NULL DEFAULT 'unknown'
+            )
+            """
+        )
+        self.store._conn.execute(
+            "INSERT OR REPLACE INTO embeddings VALUES (?, ?, ?, ?)",
+            ("auth.py::authenticate", _encode_vector([1.0, 0.0]), "hash", provider_name),
+        )
+        self.store._conn.commit()
+        _emb_failure_cache.clear()
+
+        with patch(
+            "dagayn.embeddings.OpenAIEmbeddingProvider._call_api",
+            side_effect=ConnectionError("server down"),
+        ) as call_api:
+            first = hybrid_search(self.store, "token validation")
+            second = hybrid_search(self.store, "token validation again")
+
+        assert first["embedding_health"]["status"] == "search_failed"
+        assert second["embedding_health"]["status"] == "search_failed_recent"
+        assert call_api.call_count == 1
 
     def test_mode_keyword_fallback(self):
         """Mode is 'keyword_fallback' when FTS table is absent."""

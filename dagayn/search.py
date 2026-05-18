@@ -12,6 +12,7 @@ import logging
 import re
 import sqlite3
 import threading
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -24,18 +25,24 @@ logger = logging.getLogger(__name__)
 
 # Process-level EmbeddingStore cache — mirrors the GraphStore cache in tools/_common.
 # Key: (db_path, provider, model).  Invalidated when the database file mtime changes.
-_emb_cache: dict[tuple[Path, str | None, str | None], tuple["EmbeddingStore", float]] = {}
+_emb_cache: dict[
+    tuple[Path, str | None, str | None, str | None],
+    tuple["EmbeddingStore", float],
+] = {}
 _emb_lock = threading.Lock()
+_emb_failure_cache: dict[str, tuple[float, str]] = {}
+_EMBEDDING_FAILURE_TTL_SECONDS = 30.0
 
 
 def _get_cached_emb_store(
     db_path: Path,
     provider: str | None,
     model: str | None,
+    provider_name_hint: str | None = None,
 ) -> "EmbeddingStore | None":
     """Return a pinned EmbeddingStore, creating or replacing it when the DB mtime changes."""
     try:
-        from .embeddings import EmbeddingStore
+        from .embeddings import EmbeddingStore, provider_from_persisted_name
     except ImportError:
         return None
 
@@ -44,7 +51,13 @@ def _get_cached_emb_store(
     except FileNotFoundError:
         return None
 
-    key = (db_path, provider, model)
+    provider_instance = (
+        provider_from_persisted_name(provider_name_hint)
+        if provider is None and model is None and provider_name_hint
+        else None
+    )
+    key_hint = provider_instance.name if provider_instance else None
+    key = (db_path, provider, model, key_hint)
     with _emb_lock:
         entry = _emb_cache.get(key)
         if entry is not None:
@@ -57,7 +70,12 @@ def _get_cached_emb_store(
                 pass
             del _emb_cache[key]
 
-        emb_store = EmbeddingStore(db_path, provider=provider, model=model)
+        emb_store = EmbeddingStore(
+            db_path,
+            provider=provider,
+            model=model,
+            provider_instance=provider_instance,
+        )
         _emb_cache[key] = (emb_store, mtime)
     return emb_store
 
@@ -533,6 +551,10 @@ def _embedding_provider_counts(db_path: Path) -> dict[str, int]:
     return {str(provider): int(count) for provider, count in rows}
 
 
+def _single_provider_name(provider_counts: dict[str, int]) -> str | None:
+    return next(iter(provider_counts)) if len(provider_counts) == 1 else None
+
+
 def _embedding_search_with_health(
     store: GraphStore,
     query: str,
@@ -547,12 +569,23 @@ def _embedding_search_with_health(
         "requested_provider": provider,
         "requested_model": model,
         "resolved_provider": None,
+        "auto_resolved_provider": None,
         "matching_vector_count": 0,
         "provider_counts": provider_counts,
     }
+    provider_name_hint = (
+        _single_provider_name(provider_counts)
+        if provider is None and model is None
+        else None
+    )
 
     try:
-        emb_store = _get_cached_emb_store(store.db_path, provider, model)
+        emb_store = _get_cached_emb_store(
+            store.db_path,
+            provider,
+            model,
+            provider_name_hint=provider_name_hint,
+        )
         if emb_store is None or not emb_store.available or emb_store.provider is None:
             health["status"] = "provider_unavailable"
             return [], health
@@ -560,10 +593,18 @@ def _embedding_search_with_health(
         provider_name = emb_store.provider.name
         matching_count = emb_store.count_provider()
         health["resolved_provider"] = provider_name
+        if provider_name_hint == provider_name:
+            health["auto_resolved_provider"] = provider_name
         health["matching_vector_count"] = matching_count
 
         if matching_count == 0:
             health["status"] = "provider_mismatch" if provider_counts else "missing_vectors"
+            return [], health
+
+        failed_at, failure = _emb_failure_cache.get(provider_name, (0.0, ""))
+        if failed_at and time.monotonic() - failed_at < _EMBEDDING_FAILURE_TTL_SECONDS:
+            health["status"] = "search_failed_recent"
+            health["error"] = failure
             return [], health
 
         results = emb_store.search(query, limit=limit)
@@ -574,6 +615,7 @@ def _embedding_search_with_health(
             if node:
                 id_scores.append((node.id, score))
         health["status"] = "available"
+        _emb_failure_cache.pop(provider_name, None)
         return id_scores, health
     except ValueError as e:
         message = str(e)
@@ -588,6 +630,9 @@ def _embedding_search_with_health(
     except Exception as e:
         health["status"] = "search_failed"
         health["error"] = str(e)
+        provider_name = health.get("resolved_provider")
+        if isinstance(provider_name, str) and provider_name:
+            _emb_failure_cache[provider_name] = (time.monotonic(), str(e))
         logger.warning("Embedding search failed: %s", e)
         return [], health
 

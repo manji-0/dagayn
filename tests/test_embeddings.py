@@ -19,6 +19,7 @@ from dagayn.embeddings import (
     _is_localhost_url,
     _node_to_text,
     get_provider,
+    provider_from_persisted_name,
 )
 from dagayn.graph import GraphNode
 
@@ -554,6 +555,30 @@ class TestEmbeddingStoreModelPassthrough:
         with patch("dagayn.embeddings.get_provider", return_value=None) as mock_gp:
             EmbeddingStore(db, provider="local", model="custom/model").close()
             mock_gp.assert_called_once_with("local", model="custom/model")
+
+    def test_provider_instance_skips_get_provider(self, tmp_path):
+        db = tmp_path / "embeddings.db"
+        provider = MagicMock()
+        provider.name = "fake"
+        with patch("dagayn.embeddings.get_provider", return_value=None) as mock_gp:
+            store = EmbeddingStore(db, provider_instance=provider)
+            assert store.provider is provider
+            mock_gp.assert_not_called()
+            store.close()
+
+
+class TestPersistedProviderResolution:
+    def test_recreates_localhost_openai_provider(self):
+        name = "openai:qwen@http://127.0.0.1:18080/v1"
+        provider = provider_from_persisted_name(name)
+        assert provider is not None
+        assert provider.name == name
+
+    def test_refuses_non_localhost_openai_provider(self):
+        assert provider_from_persisted_name("openai:qwen@https://api.example.com/v1") is None
+
+    def test_refuses_non_openai_provider(self):
+        assert provider_from_persisted_name("local:all-MiniLM-L6-v2") is None
 
 
 class TestMiniMaxEmbeddingProvider:

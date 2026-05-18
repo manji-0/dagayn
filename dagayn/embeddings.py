@@ -322,6 +322,35 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         self._host_key = self._make_host_key(self._base_url)
 
     @classmethod
+    def from_persisted_name(
+        cls,
+        provider_name: str,
+        *,
+        api_key: str = "dagayn-local",
+    ) -> "OpenAIEmbeddingProvider | None":
+        """Recreate a localhost OpenAI-compatible provider from a DB identity.
+
+        Persisted provider names include the model and endpoint identity, for
+        example ``openai:qwen@http://127.0.0.1:18080/v1``.  This helper only
+        accepts localhost endpoints so search can reuse local embeddings
+        without requiring CRG_OPENAI_* env vars, while never guessing cloud
+        credentials or silently sending code off-machine.
+        """
+        prefix = "openai:"
+        if not provider_name.startswith(prefix):
+            return None
+        try:
+            model, base_url = provider_name[len(prefix) :].rsplit("@", 1)
+        except ValueError:
+            return None
+        if not model or not base_url or not _is_localhost_url(base_url):
+            return None
+        provider = cls(api_key=api_key, base_url=base_url, model=model)
+        if provider.name != provider_name:
+            return None
+        return provider
+
+    @classmethod
     def _make_host_key(cls, base_url: str) -> str:
         """Normalize the identity key used in ``provider.name``.
 
@@ -683,6 +712,11 @@ def get_provider(
         return None
 
 
+def provider_from_persisted_name(provider_name: str) -> EmbeddingProvider | None:
+    """Return a safe provider reconstructed from a persisted DB identity."""
+    return OpenAIEmbeddingProvider.from_persisted_name(provider_name)
+
+
 def _check_available() -> bool:
     """Check whether local embedding support is available."""
     try:
@@ -804,8 +838,9 @@ class EmbeddingStore:
         db_path: str | Path,
         provider: str | None = None,
         model: str | None = None,
+        provider_instance: EmbeddingProvider | None = None,
     ) -> None:
-        self.provider = get_provider(provider, model=model)
+        self.provider = provider_instance or get_provider(provider, model=model)
         self.available = self.provider is not None
         self.db_path = Path(db_path)
         self._conn = sqlite3.connect(
