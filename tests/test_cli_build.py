@@ -5,6 +5,7 @@ import argparse
 from dagayn.cli.commands.build import (
     _print_local_embedding_summary,
     _remove_existing_graph_database,
+    handle,
     register_commands,
 )
 
@@ -96,3 +97,40 @@ def test_print_local_embedding_summary_includes_orphan_count(capsys):
     )
 
     assert "1 new, 2 orphan removed, 9 total" in capsys.readouterr().out
+
+
+def test_handle_runs_full_build_without_postprocess(tmp_path, monkeypatch, capsys):
+    from dagayn.tools import build as build_tools
+
+    calls = []
+
+    def fake_build_or_update_graph(**kwargs):
+        calls.append(kwargs)
+        return {
+            "files_parsed": 3,
+            "total_nodes": 5,
+            "total_edges": 7,
+            "errors": [],
+        }
+
+    monkeypatch.setattr(build_tools, "build_or_update_graph", fake_build_or_update_graph)
+
+    args = _parser().parse_args(["build", "--repo", str(tmp_path), "--skip-postprocess"])
+
+    handle(args)
+
+    assert calls == [
+        {
+            "full_rebuild": True,
+            "repo_root": str(tmp_path),
+            "postprocess": "none",
+            "local_embedding": "none",
+            "local_embedding_port": 18080,
+            "local_embedding_bin": "llama-server",
+            "keep_local_embedding_server": False,
+            "local_embedding_timeout": 300,
+            "local_embedding_request_timeout": 60,
+            "local_embedding_batch_size": 1,
+        }
+    ]
+    assert "Full build: 3 files, 5 nodes, 7 edges (postprocess=none)" in capsys.readouterr().out
