@@ -200,6 +200,8 @@ dagayn serve
 - Qwen Code
 - Kiro
 - Qoder
+- Pi
+- Hermes Agent
 
 `--platform <name>` से किसी एक platform तक सीमित कर सकते हैं।
 

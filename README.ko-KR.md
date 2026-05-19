@@ -200,6 +200,8 @@ dagayn serve
 - Qwen Code
 - Kiro
 - Qoder
+- Pi
+- Hermes Agent
 
 `--platform <name>`으로 특정 플랫폼만 설치할 수 있습니다.
 

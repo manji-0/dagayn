@@ -89,6 +89,13 @@ full `dagayn update` after a commit. Generated AI-tool update hooks use a
 300-second timeout to tolerate large documentation or mixed-language refreshes.
 `--no-hooks` skips the hook files.
 
+`dagayn install --platform pi` writes `.pi/mcp.json`, installs skills under
+`~/.pi/agent/skills/`, and writes pi-yaml-hooks-compatible hooks under
+`~/.pi/agent/hook/`. Install `pi-yaml-hooks` in Pi to activate those hooks.
+`dagayn install --platform hermes` writes `~/.hermes/config.yaml` under
+`mcp_servers`, installs skills under `~/.hermes/skills/`, and adds shell hooks
+to the same config's `hooks:` block.
+
 ### Multi-repo management
 
 - `dagayn register`

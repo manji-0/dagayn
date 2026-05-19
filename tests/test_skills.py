@@ -8,6 +8,8 @@ import tomllib
 from pathlib import Path
 from unittest.mock import patch
 
+import yaml
+
 import dagayn.skills as _skills_module
 from dagayn.skills import (
     _CLAUDE_MD_SECTION_HEADING,
@@ -23,7 +25,9 @@ from dagayn.skills import (
     _opencode_plugin_content,
     _resolve_source_skills_dir,
     generate_cursor_hooks_config,
+    generate_hermes_hooks_config,
     generate_hooks_config,
+    generate_pi_hooks_config,
     generate_skills,
     inject_claude_md,
     inject_platform_instructions,
@@ -32,9 +36,13 @@ from dagayn.skills import (
     install_cursor_hooks,
     install_git_hook,
     install_global_skills,
+    install_hermes_hooks,
+    install_hermes_skills,
     install_hooks,
     install_opencode_plugin,
     install_opencode_skills,
+    install_pi_hooks,
+    install_pi_skills,
     install_platform_configs,
     install_qoder_skills,
     normalize_platform_target,
@@ -465,6 +473,22 @@ class TestInstallTreeSkills:
             result = install_opencode_skills()
 
         assert result == tmp_path / ".config" / "opencode" / "skills"
+        assert (result / "writing-markdown-document" / "SKILL.md").is_file()
+        assert (result / "reading-markdown-document" / "SKILL.md").is_file()
+
+    def test_installs_pi_skill_tree(self, tmp_path):
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            result = install_pi_skills()
+
+        assert result == tmp_path / ".pi" / "agent" / "skills"
+        assert (result / "writing-markdown-document" / "SKILL.md").is_file()
+        assert (result / "reading-markdown-document" / "SKILL.md").is_file()
+
+    def test_installs_hermes_skill_tree(self, tmp_path):
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            result = install_hermes_skills()
+
+        assert result == tmp_path / ".hermes" / "skills"
         assert (result / "writing-markdown-document" / "SKILL.md").is_file()
         assert (result / "reading-markdown-document" / "SKILL.md").is_file()
 
@@ -963,6 +987,90 @@ class TestInstallCodexHooks:
         ]
         assert len(dagayn_hooks) == 1
         assert "--local-embedding low" in dagayn_hooks[0]["hooks"][0]["command"]
+
+    def test_generate_hermes_hooks_config(self, tmp_path):
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            config = generate_hermes_hooks_config()
+
+        assert "post_tool_call" in config
+        assert config["post_tool_call"][0]["matcher"] == "terminal|write_file|patch"
+        assert str(tmp_path / ".hermes" / "agent-hooks") in config["post_tool_call"][0]["command"]
+        assert "on_session_start" in config
+
+    def test_install_hermes_hooks_merges_existing_config(self, tmp_path):
+        hermes_dir = tmp_path / ".hermes"
+        hermes_dir.mkdir()
+        (hermes_dir / "config.yaml").write_text(
+            "model:\n  default: local\nhooks:\n  post_tool_call:\n    - command: other.sh\n",
+            encoding="utf-8",
+        )
+
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            hooks_path = install_hermes_hooks(extra_update_args=["--local-embedding", "low"])
+
+        assert hooks_path == hermes_dir / "config.yaml"
+        data = yaml.safe_load(hooks_path.read_text())
+        assert data["model"]["default"] == "local"
+        commands = [entry["command"] for entry in data["hooks"]["post_tool_call"]]
+        assert "other.sh" in commands
+        assert any("dagayn-update.sh" in command for command in commands)
+        script = hermes_dir / "agent-hooks" / "dagayn-update.sh"
+        assert script.exists()
+        assert os.access(script, os.X_OK)
+        assert "--local-embedding low" in script.read_text()
+
+    def test_reinstall_hermes_hooks_deduplicates_dagayn_entries(self, tmp_path):
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            hooks_path = install_hermes_hooks()
+            install_hermes_hooks()
+
+        data = yaml.safe_load(hooks_path.read_text())
+        commands = [entry["command"] for entry in data["hooks"]["post_tool_call"]]
+        assert len([command for command in commands if "dagayn-update.sh" in command]) == 1
+
+    def test_generate_pi_hooks_config(self, tmp_path):
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            hooks = generate_pi_hooks_config()
+
+        assert hooks[0]["event"] == "file.changed"
+        assert str(tmp_path / ".pi" / "agent" / "hook") in hooks[0]["actions"][0]["bash"]
+        assert hooks[1]["event"] == "session.created"
+
+    def test_install_pi_hooks_merges_existing_config(self, tmp_path):
+        hook_dir = tmp_path / ".pi" / "agent" / "hook"
+        hook_dir.mkdir(parents=True)
+        (hook_dir / "hooks.yaml").write_text(
+            "hooks:\n  - event: session.idle\n    actions:\n      - notify: idle\n",
+            encoding="utf-8",
+        )
+
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            hooks_path = install_pi_hooks(extra_update_args=["--remote-embedding", "google"])
+
+        assert hooks_path == hook_dir / "hooks.yaml"
+        data = yaml.safe_load(hooks_path.read_text())
+        assert any(entry["event"] == "session.idle" for entry in data["hooks"])
+        assert any(entry["event"] == "file.changed" for entry in data["hooks"])
+        script = hook_dir / "dagayn-update.sh"
+        assert script.exists()
+        assert os.access(script, os.X_OK)
+        assert "--remote-embedding google" in script.read_text()
+
+    def test_reinstall_pi_hooks_deduplicates_dagayn_entries(self, tmp_path):
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            hooks_path = install_pi_hooks()
+            install_pi_hooks()
+
+        data = yaml.safe_load(hooks_path.read_text())
+        update_entries = [
+            entry
+            for entry in data["hooks"]
+            if any(
+                isinstance(action, dict) and "dagayn-update.sh" in action.get("bash", "")
+                for action in entry.get("actions", [])
+            )
+        ]
+        assert len(update_entries) == 1
 
 
 class TestInjectClaudeMd:
@@ -1703,6 +1811,69 @@ class TestInstallPlatformConfigs:
             configured = install_platform_configs(tmp_path, target="qcoder")
         assert "Qoder" in configured
         assert qoder_config.exists()
+
+    def test_install_pi_config(self, tmp_path):
+        configured = install_platform_configs(tmp_path, target="pi")
+        assert "Pi" in configured
+        config_path = tmp_path / ".pi" / "mcp.json"
+        data = json.loads(config_path.read_text())
+        entry = data["mcpServers"]["dagayn"]
+        assert entry["transport"] == "stdio"
+        assert entry["lifecycle"] == "lazy"
+        assert "type" not in entry
+
+    def test_install_hermes_config(self, tmp_path):
+        hermes_config = tmp_path / ".hermes" / "config.yaml"
+        with patch.dict(
+            PLATFORMS,
+            {
+                "hermes": {
+                    **PLATFORMS["hermes"],
+                    "config_path": lambda root: hermes_config,
+                    "detect": lambda: True,
+                },
+            },
+        ):
+            configured = install_platform_configs(tmp_path, target="hermes")
+        assert "Hermes Agent" in configured
+        data = yaml.safe_load(hermes_config.read_text())
+        entry = data["mcp_servers"]["dagayn"]
+        assert entry["args"][-1] == "serve"
+        assert "type" not in entry
+
+    def test_install_hermes_preserves_existing_servers(self, tmp_path):
+        hermes_config = tmp_path / ".hermes" / "config.yaml"
+        hermes_config.parent.mkdir(parents=True)
+        hermes_config.write_text(
+            "model:\n  default: local\nmcp_servers:\n  other:\n    command: other\n",
+            encoding="utf-8",
+        )
+        with patch.dict(
+            PLATFORMS,
+            {
+                "hermes": {
+                    **PLATFORMS["hermes"],
+                    "config_path": lambda root: hermes_config,
+                    "detect": lambda: True,
+                },
+            },
+        ):
+            install_platform_configs(tmp_path, target="hermes")
+        data = yaml.safe_load(hermes_config.read_text())
+        assert data["model"]["default"] == "local"
+        assert data["mcp_servers"]["other"]["command"] == "other"
+        assert "dagayn" in data["mcp_servers"]
+
+    def test_install_all_includes_workspace_pi(self, tmp_path):
+        (tmp_path / ".pi").mkdir()
+        with patch.dict(
+            PLATFORMS,
+            {key: {**plat, "detect": lambda: False} for key, plat in PLATFORMS.items()},
+            clear=True,
+        ):
+            configured = install_platform_configs(tmp_path, target="all")
+        assert configured == ["Pi"]
+        assert (tmp_path / ".pi" / "mcp.json").exists()
 
 
 class TestNormalizePlatformTarget:

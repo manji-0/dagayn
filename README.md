@@ -272,6 +272,8 @@ same control.
 - Qwen Code
 - Kiro
 - Qoder
+- Pi
+- Hermes Agent
 
 You can limit installation to a single platform with `--platform <name>`.
 For Codex, install also creates global `~/.codex/hooks.json` and enables

@@ -19,6 +19,8 @@ _PLATFORM_CHOICES = [
     "kiro",
     "qoder",
     "qcoder",
+    "pi",
+    "hermes",
     "all",
 ]
 

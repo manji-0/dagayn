@@ -253,9 +253,13 @@ def handle(args: argparse.Namespace) -> None:
         install_cursor_hooks,
         install_git_hook,
         install_global_skills,
+        install_hermes_hooks,
+        install_hermes_skills,
         install_hooks,
         install_opencode_plugin,
         install_opencode_skills,
+        install_pi_hooks,
+        install_pi_skills,
         install_qoder_skills,
     )
 
@@ -298,6 +302,26 @@ def handle(args: argparse.Namespace) -> None:
                 print(f"Installed OpenCode skills to {opencode_skills_dir}")
             except OSError as e:
                 print(f"Skipped OpenCode skills install ({e})", file=sys.stderr)
+        if target == "pi" or (target == "all" and "Pi" in configured_platforms):
+            try:
+                pi_skills_dir = install_pi_skills(
+                    embedding_mode=mode,
+                    embedding_preset=preset,
+                    embedding_provider=provider,
+                )
+                print(f"Installed Pi skills to {pi_skills_dir}")
+            except OSError as e:
+                print(f"Skipped Pi skills install ({e})", file=sys.stderr)
+        if target == "hermes" or (target == "all" and "Hermes Agent" in configured_platforms):
+            try:
+                hermes_skills_dir = install_hermes_skills(
+                    embedding_mode=mode,
+                    embedding_preset=preset,
+                    embedding_provider=provider,
+                )
+                print(f"Installed Hermes Agent skills to {hermes_skills_dir}")
+            except OSError as e:
+                print(f"Skipped Hermes Agent skills install ({e})", file=sys.stderr)
 
     # Confirm before writing instruction files (#173). --yes skips the
     # prompt; --no-instructions skips the whole block.
@@ -349,6 +373,23 @@ def handle(args: argparse.Namespace) -> None:
             print(f"Installed Codex hooks in {hooks_path}")
         except OSError as e:
             print(f"Skipped Codex hooks install ({e})", file=sys.stderr)
+
+    if not skip_hooks and (target == "pi" or (target == "all" and "Pi" in set(configured))):
+        try:
+            hooks_path = install_pi_hooks(extra_update_args=extra_hook_update_args or None)
+            print(f"Installed Pi hooks in {hooks_path}")
+            print("Pi hooks require the pi-yaml-hooks extension: pi install npm:pi-yaml-hooks")
+        except OSError as e:
+            print(f"Skipped Pi hooks install ({e})", file=sys.stderr)
+
+    if not skip_hooks and (
+        target == "hermes" or (target == "all" and "Hermes Agent" in set(configured))
+    ):
+        try:
+            hooks_path = install_hermes_hooks(extra_update_args=extra_hook_update_args or None)
+            print(f"Installed Hermes Agent hooks in {hooks_path}")
+        except OSError as e:
+            print(f"Skipped Hermes Agent hooks install ({e})", file=sys.stderr)
 
     if not skip_hooks and target in ("claude", "qoder", "all"):
         platforms_to_install = [target] if target != "all" else ["claude", "qoder"]

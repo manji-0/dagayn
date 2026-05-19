@@ -200,6 +200,8 @@ dagayn serve
 - Qwen Code
 - Kiro
 - Qoder
+- Pi
+- Hermes Agent
 
 可使用 `--platform <name>` 限制仅安装特定平台。
 

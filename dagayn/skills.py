@@ -20,6 +20,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 logger = logging.getLogger(__name__)
 
 _UPDATE_HOOK_TIMEOUT_SECONDS = 300
@@ -123,6 +125,22 @@ PLATFORMS: dict[str, dict[str, Any]] = {
         "detect": lambda: True,
         "format": "object",
         "needs_type": True,
+    },
+    "pi": {
+        "name": "Pi",
+        "config_path": lambda root: root / ".pi" / "mcp.json",
+        "key": "mcpServers",
+        "detect": lambda: (Path.home() / ".pi").exists(),
+        "format": "object",
+        "needs_type": False,
+    },
+    "hermes": {
+        "name": "Hermes Agent",
+        "config_path": lambda root: Path.home() / ".hermes" / "config.yaml",
+        "key": "mcp_servers",
+        "detect": lambda: (Path.home() / ".hermes").exists(),
+        "format": "yaml",
+        "needs_type": False,
     },
 }
 
@@ -238,6 +256,9 @@ def _build_server_entry(
         entry["type"] = "stdio"
     if key == "opencode":
         entry["env"] = []
+    if key == "pi":
+        entry["transport"] = "stdio"
+        entry["lifecycle"] = "lazy"
     return entry
 
 
@@ -294,6 +315,95 @@ def _merge_toml_mcp_server(
     return True
 
 
+def _merge_yaml_mcp_server(
+    config_path: Path,
+    servers_key: str,
+    server_name: str,
+    server_entry: dict[str, Any],
+    dry_run: bool = False,
+) -> bool:
+    """Upsert an MCP server entry in a YAML mapping."""
+    existing: dict[str, Any] = {}
+    if config_path.exists():
+        try:
+            loaded = yaml.safe_load(config_path.read_text(encoding="utf-8", errors="replace"))
+            if isinstance(loaded, dict):
+                existing = loaded
+            elif loaded is not None:
+                logger.warning("Invalid YAML shape in %s, will overwrite.", config_path)
+        except (yaml.YAMLError, OSError):
+            logger.warning("Invalid YAML in %s, will overwrite.", config_path)
+
+    servers = existing.get(servers_key, {})
+    if not isinstance(servers, dict):
+        servers = {}
+
+    current = servers.get(server_name, {})
+    if not isinstance(current, dict):
+        current = {}
+    updated_entry = {**current, **server_entry}
+    if updated_entry == current:
+        return False
+
+    servers[server_name] = updated_entry
+    existing[servers_key] = servers
+
+    if dry_run:
+        return True
+
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(yaml.safe_dump(existing, sort_keys=False), encoding="utf-8")
+    return True
+
+
+def _merge_hermes_hook_entries(
+    existing_hooks: dict[str, Any],
+    hooks_config: dict[str, Any],
+) -> dict[str, Any]:
+    """Merge Hermes hook config, replacing dagayn-managed commands."""
+    merged_hooks = dict(existing_hooks)
+    for hook_name, hook_entries in hooks_config.items():
+        if not isinstance(hook_entries, list):
+            continue
+        existing_entries = merged_hooks.get(hook_name, [])
+        if not isinstance(existing_entries, list):
+            existing_entries = []
+        kept_entries = [
+            entry
+            for entry in existing_entries
+            if not (
+                isinstance(entry, dict)
+                and "dagayn-" in str(entry.get("command", ""))
+                and str(entry.get("command", "")).endswith(".sh")
+            )
+        ]
+        merged_hooks[hook_name] = kept_entries + hook_entries
+    return merged_hooks
+
+
+def _merge_pi_hook_entries(
+    existing_hooks: list[Any],
+    hooks_config: list[dict[str, Any]],
+) -> list[Any]:
+    """Merge pi-yaml-hooks entries, replacing dagayn-managed bash actions."""
+    kept_entries = []
+    for entry in existing_hooks:
+        if not isinstance(entry, dict):
+            kept_entries.append(entry)
+            continue
+        actions = entry.get("actions", [])
+        if not isinstance(actions, list):
+            kept_entries.append(entry)
+            continue
+        if any(
+            isinstance(action, dict) and "dagayn-" in str(action.get("bash", ""))
+            for action in actions
+        ):
+            continue
+        kept_entries.append(entry)
+    return kept_entries + hooks_config
+
+
 def install_platform_configs(
     repo_root: Path,
     target: str = "all",
@@ -320,6 +430,8 @@ def install_platform_configs(
         # Workspace-level Kiro detection
         if "kiro" not in platforms_to_install and (repo_root / ".kiro").is_dir():
             platforms_to_install["kiro"] = PLATFORMS["kiro"]
+        if "pi" not in platforms_to_install and (repo_root / ".pi").is_dir():
+            platforms_to_install["pi"] = PLATFORMS["pi"]
     else:
         if target not in PLATFORMS:
             logger.error("Unknown platform: %s", target)
@@ -336,6 +448,25 @@ def install_platform_configs(
         if plat["format"] == "toml":
             changed = _merge_toml_mcp_server(
                 config_path,
+                "dagayn",
+                server_entry,
+                dry_run=dry_run,
+            )
+            if not changed:
+                print(f"  {plat['name']}: already configured in {config_path}")
+                configured.append(plat["name"])
+                continue
+            if dry_run:
+                print(f"  [dry-run] {plat['name']}: would write {config_path}")
+            else:
+                print(f"  {plat['name']}: configured {config_path}")
+            configured.append(plat["name"])
+            continue
+
+        if plat["format"] == "yaml":
+            changed = _merge_yaml_mcp_server(
+                config_path,
+                server_key,
                 "dagayn",
                 server_entry,
                 dry_run=dry_run,
@@ -674,6 +805,175 @@ def install_opencode_skills(
         embedding_preset=embedding_preset,
         embedding_provider=embedding_provider,
     )
+
+
+def install_pi_skills(
+    *,
+    embedding_mode: str | None = None,
+    embedding_preset: str | None = None,
+    embedding_provider: str | None = None,
+) -> Path:
+    """Install dagayn skills into Pi's global user skills directory."""
+    return _install_skill_tree(
+        Path.home() / ".pi" / "agent" / "skills",
+        embedding_mode=embedding_mode,
+        embedding_preset=embedding_preset,
+        embedding_provider=embedding_provider,
+    )
+
+
+def install_hermes_skills(
+    *,
+    embedding_mode: str | None = None,
+    embedding_preset: str | None = None,
+    embedding_provider: str | None = None,
+) -> Path:
+    """Install dagayn skills into Hermes Agent's global user skills directory."""
+    return _install_skill_tree(
+        Path.home() / ".hermes" / "skills",
+        embedding_mode=embedding_mode,
+        embedding_preset=embedding_preset,
+        embedding_provider=embedding_provider,
+    )
+
+
+def _dagayn_hook_scripts(extra_update_args: list[str] | None = None) -> dict[str, str]:
+    """Return shell scripts shared by hook integrations that expect JSON stdout."""
+    update_args = ""
+    if extra_update_args:
+        update_args = " " + " ".join(shlex.quote(arg) for arg in extra_update_args)
+    return {
+        "dagayn-update.sh": f"""#!/usr/bin/env bash
+# dagayn: auto-update graph after agent file/tool activity
+set -u
+cat >/dev/null || true
+repo="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [ -n "$repo" ]; then
+  dagayn update --skip-flows{update_args} --repo "$repo" >/dev/null 2>&1 || true
+fi
+printf '{{}}\\n'
+""",
+        "dagayn-status.sh": """#!/usr/bin/env bash
+# dagayn: validate graph availability at session start
+set -u
+cat >/dev/null || true
+repo="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [ -n "$repo" ]; then
+  dagayn status --repo "$repo" >/dev/null 2>&1 || true
+fi
+printf '{}\\n'
+""",
+    }
+
+
+def _write_hook_scripts(hooks_dir: Path, scripts: dict[str, str]) -> None:
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+    for filename, content in scripts.items():
+        script_path = hooks_dir / filename
+        script_path.write_text(content, encoding="utf-8")
+        script_path.chmod(stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
+
+
+def generate_hermes_hooks_config() -> dict[str, Any]:
+    """Generate Hermes Agent shell hook entries for dagayn refreshes."""
+    hooks_dir = str(Path.home() / ".hermes" / "agent-hooks")
+    return {
+        "post_tool_call": [
+            {
+                "matcher": "terminal|write_file|patch",
+                "command": f"{hooks_dir}/dagayn-update.sh",
+                "timeout": _UPDATE_HOOK_TIMEOUT_SECONDS,
+            }
+        ],
+        "on_session_start": [
+            {
+                "command": f"{hooks_dir}/dagayn-status.sh",
+                "timeout": _STATUS_HOOK_TIMEOUT_SECONDS,
+            }
+        ],
+    }
+
+
+def install_hermes_hooks(
+    extra_update_args: list[str] | None = None,
+) -> Path:
+    """Install Hermes Agent shell hooks in ``~/.hermes/config.yaml``."""
+    hermes_dir = Path.home() / ".hermes"
+    config_path = hermes_dir / "config.yaml"
+    existing: dict[str, Any] = {}
+    if config_path.exists():
+        try:
+            loaded = yaml.safe_load(config_path.read_text(encoding="utf-8", errors="replace"))
+            if isinstance(loaded, dict):
+                existing = loaded
+            elif loaded is not None:
+                logger.warning("Invalid YAML shape in %s, will overwrite.", config_path)
+        except (yaml.YAMLError, OSError) as exc:
+            logger.warning("Could not read existing %s: %s", config_path, exc)
+    if config_path.exists():
+        backup_path = hermes_dir / "config.yaml.bak"
+        shutil.copy2(config_path, backup_path)
+        logger.info("Backed up existing Hermes config to %s", backup_path)
+
+    _write_hook_scripts(hermes_dir / "agent-hooks", _dagayn_hook_scripts(extra_update_args))
+    existing_hooks = existing.get("hooks", {})
+    if not isinstance(existing_hooks, dict):
+        existing_hooks = {}
+    existing["hooks"] = _merge_hermes_hook_entries(existing_hooks, generate_hermes_hooks_config())
+
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(yaml.safe_dump(existing, sort_keys=False), encoding="utf-8")
+    return config_path
+
+
+def generate_pi_hooks_config() -> list[dict[str, Any]]:
+    """Generate pi-yaml-hooks entries for dagayn refreshes."""
+    hooks_dir = str(Path.home() / ".pi" / "agent" / "hook")
+    return [
+        {
+            "event": "file.changed",
+            "actions": [{"bash": f"{hooks_dir}/dagayn-update.sh"}],
+        },
+        {
+            "event": "session.created",
+            "actions": [{"bash": f"{hooks_dir}/dagayn-status.sh"}],
+        },
+    ]
+
+
+def install_pi_hooks(
+    extra_update_args: list[str] | None = None,
+) -> Path:
+    """Install pi-yaml-hooks config and scripts for dagayn refreshes.
+
+    Pi loads this only when the ``pi-yaml-hooks`` extension is installed.
+    """
+    hook_dir = Path.home() / ".pi" / "agent" / "hook"
+    hooks_path = hook_dir / "hooks.yaml"
+    existing: dict[str, Any] = {}
+    if hooks_path.exists():
+        try:
+            loaded = yaml.safe_load(hooks_path.read_text(encoding="utf-8", errors="replace"))
+            if isinstance(loaded, dict):
+                existing = loaded
+            elif loaded is not None:
+                logger.warning("Invalid YAML shape in %s, will overwrite.", hooks_path)
+        except (yaml.YAMLError, OSError) as exc:
+            logger.warning("Could not read existing %s: %s", hooks_path, exc)
+    if hooks_path.exists():
+        backup_path = hook_dir / "hooks.yaml.bak"
+        shutil.copy2(hooks_path, backup_path)
+        logger.info("Backed up existing Pi hooks to %s", backup_path)
+
+    _write_hook_scripts(hook_dir, _dagayn_hook_scripts(extra_update_args))
+    existing_hooks = existing.get("hooks", [])
+    if not isinstance(existing_hooks, list):
+        existing_hooks = []
+    existing["hooks"] = _merge_pi_hook_entries(existing_hooks, generate_pi_hooks_config())
+
+    hooks_path.parent.mkdir(parents=True, exist_ok=True)
+    hooks_path.write_text(yaml.safe_dump(existing, sort_keys=False), encoding="utf-8")
+    return hooks_path
 
 
 def generate_hooks_config(
