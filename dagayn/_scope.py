@@ -4,15 +4,39 @@ from __future__ import annotations
 
 from collections import defaultdict
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
-    from .graph import GraphStore
+    from .graph import GraphNode, GraphStore
+
+ArtifactScope = Literal["code", "docs", "all"]
+
+_DOC_FILE_SUFFIXES = frozenset({".md", ".markdown", ".mdown", ".mkdn"})
 
 
 def file_to_package(file_path: str) -> str:
     parent = Path(file_path).parent.as_posix()
     return "<root>" if parent == "." else parent
+
+
+def is_documentation_node(node: "GraphNode") -> bool:
+    """Return whether a node belongs to documentation rather than code."""
+    language = (node.language or "").lower()
+    if language == "markdown":
+        return True
+    return Path(node.file_path).suffix.lower() in _DOC_FILE_SUFFIXES
+
+
+def node_matches_artifact_scope(node: "GraphNode", artifact_scope: ArtifactScope) -> bool:
+    """Return whether a node should participate in artifact-scoped analysis."""
+    if artifact_scope == "all":
+        return True
+    is_docs = is_documentation_node(node)
+    if artifact_scope == "docs":
+        return is_docs
+    if artifact_scope == "code":
+        return not is_docs
+    raise ValueError(f"unsupported artifact_scope: {artifact_scope!r}")
 
 
 def node_file_to_scope_key(file_path: str, scope_kind: str) -> str | None:
@@ -32,6 +56,7 @@ def node_file_to_scope_key(file_path: str, scope_kind: str) -> str | None:
 def build_node_scope_maps(
     store: "GraphStore",
     scope_kind: str,
+    artifact_scope: ArtifactScope = "all",
 ) -> tuple[dict[str, str], dict[str, str]]:
     """Return (qualified_to_scope, name_to_scope).
 
@@ -39,11 +64,15 @@ def build_node_scope_maps(
     name_to_scope maps node.name → scope_key only when exactly one unique
     scope contains a node with that name (ambiguous names are excluded).
     Used as a two-stage fallback: try qualified_name first, then bare name.
+    ``artifact_scope`` can restrict the map to code nodes, Markdown
+    documentation nodes, or the legacy mixed graph.
     """
     qualified_to_scope: dict[str, str] = {}
     name_scopes: dict[str, set[str]] = defaultdict(set)
 
     for node in store.get_all_nodes(exclude_files=False):
+        if not node_matches_artifact_scope(node, artifact_scope):
+            continue
         sk = node_file_to_scope_key(node.file_path, scope_kind)
         if sk is None:
             continue

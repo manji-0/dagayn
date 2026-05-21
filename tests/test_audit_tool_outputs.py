@@ -21,7 +21,7 @@ def test_detect_sdp_violations_truncates(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         "dagayn.tools.architecture_tools.find_sdp_violations",
-        lambda store, granularity, min_delta: [
+        lambda store, granularity, artifact_scope, min_delta: [
             {"source": "a", "target": "b", "instability_gap": 0.9},
             {"source": "c", "target": "d", "instability_gap": 0.8},
         ],

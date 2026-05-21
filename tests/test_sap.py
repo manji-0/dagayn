@@ -9,14 +9,20 @@ from dagayn.parser import EdgeInfo, NodeInfo
 from dagayn.sap import compute_sap_metrics, find_sap_violations
 
 
-def _node(kind: str, name: str, file_path: str, extra: dict | None = None) -> NodeInfo:
+def _node(
+    kind: str,
+    name: str,
+    file_path: str,
+    extra: dict | None = None,
+    language: str = "java",
+) -> NodeInfo:
     return NodeInfo(
         kind=kind,
         name=name,
         file_path=file_path,
         line_start=1,
         line_end=10,
-        language="java",
+        language=language,
         parent_name=None,
         params=None,
         return_type=None,
@@ -298,6 +304,41 @@ def test_find_sap_violations_excludes_no_eligible_types(tmp_path):
     assert scripts["distance"] == 1.0
     assert "no-eligible-types" in scripts.get("notes", [])
     assert all(v["scope_key"] != "scripts" for v in find_sap_violations(s))
+
+
+def test_default_code_scope_ignores_markdown_dependency_counts(single_concrete_stable_store):
+    s = single_concrete_stable_store
+    s.upsert_node(_node("File", "docs/spec.md", "docs/spec.md", language="markdown"))
+    s.upsert_edge(_edge("DEPENDS_ON", "docs/spec.md", "src/a.java"))
+    s.commit()
+
+    code_metrics = compute_sap_metrics(s, scope_kind="package")
+    all_metrics = compute_sap_metrics(s, scope_kind="package", artifact_scope="all")
+
+    code_src = next(m for m in code_metrics if m["scope_key"] == "src")
+    all_src = next(m for m in all_metrics if m["scope_key"] == "src")
+
+    assert code_src["ca"] == 1
+    assert all_src["ca"] == 2
+
+
+def test_docs_scope_reports_documentation_only_sap_metrics(tmp_path):
+    s = GraphStore(tmp_path / "docs_sap.db")
+    s.upsert_node(_node("File", "src/a.java", "src/a.java"))
+    s.upsert_node(_node("Class", "A", "src/a.java", extra={"type_role": "class"}))
+    s.upsert_node(_node("File", "docs/a.md", "docs/a.md", language="markdown"))
+    s.upsert_node(_node("File", "guides/b.md", "guides/b.md", language="markdown"))
+    s.upsert_edge(_edge("IMPORTS_FROM", "src/a.java", "docs/a.md"))
+    s.upsert_edge(_edge("DEPENDS_ON", "docs/a.md", "guides/b.md"))
+    s.commit()
+
+    metrics = compute_sap_metrics(s, scope_kind="package", artifact_scope="docs")
+    by_scope = {m["scope_key"]: m for m in metrics}
+
+    assert set(by_scope) == {"docs", "guides"}
+    assert by_scope["docs"]["ce"] == 1
+    assert by_scope["guides"]["ca"] == 1
+    assert all("no-eligible-types" in m.get("notes", []) for m in metrics)
 
 
 def test_file_scope_kind(tmp_path):

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, Optional
 
+from .._scope import ArtifactScope
 from ..sap import compute_sap_metrics, find_sap_violations
 from ._common import _get_store, apply_output_budget, make_response
 
@@ -28,6 +29,7 @@ def compute_sap_metrics_func(
     scope_kind: Literal["file", "package", "directory"] = "package",
     unit_filter: Optional[list[str]] = None,
     top_n: int = 30,
+    artifact_scope: ArtifactScope = "code",
 ) -> dict[str, Any]:
     """Compute SAP abstractness, instability, and distance metrics per scope.
 
@@ -49,20 +51,24 @@ def compute_sap_metrics_func(
         unit_filter: Optional list of scope_key prefix strings to restrict
             output to matching scopes.
         top_n: Return the top N entries by distance. Default: 30.
+        artifact_scope: "code" (default), "docs", or "all".
     """
     store, _root = _get_store(repo_root)
     metrics = compute_sap_metrics(
         store,
         scope_kind=scope_kind,
         unit_filter=unit_filter,
+        artifact_scope=artifact_scope,
     )
     return make_response(
         "ok",
-        f"Computed SAP metrics for {len(metrics)} {scope_kind}(s)."
+        f"Computed SAP metrics for {len(metrics)} {scope_kind}(s) "
+        f"(artifact_scope={artifact_scope})."
         f" Showing top {min(top_n, len(metrics))} by distance.",
         metrics=metrics[:top_n],
         total=len(metrics),
         scope_kind=scope_kind,
+        artifact_scope=artifact_scope,
         next_tool_suggestions=[
             'architecture_analysis_tool mode="sap_violations" -- find far-from-sequence scopes',
             'architecture_analysis_tool mode="sdp_metrics" -- check raw instability',
@@ -76,6 +82,7 @@ def detect_sap_violations_func(
     scope_kind: Literal["file", "package", "directory"] = "package",
     min_distance: float = 0.5,
     top_n: int = 30,
+    artifact_scope: ArtifactScope = "code",
 ) -> dict[str, Any]:
     """Detect scopes that violate the Stable Abstractions Principle.
 
@@ -91,11 +98,13 @@ def detect_sap_violations_func(
         scope_kind: "package" (default), "file", or "directory".
         min_distance: Minimum D value to flag (exclusive). Default: 0.5.
         top_n: Return the top N violations by distance. Default: 30.
+        artifact_scope: "code" (default), "docs", or "all".
     """
     store, _root = _get_store(repo_root)
     raw_violations = find_sap_violations(
         store,
         scope_kind=scope_kind,
+        artifact_scope=artifact_scope,
         min_distance=min_distance,
     )
     violations = [
@@ -111,13 +120,15 @@ def detect_sap_violations_func(
     truncated = total > top_n
     payload = make_response(
         "ok",
-        f"Found {total} SAP violation(s) at {scope_kind} level (min_distance={min_distance})."
+        f"Found {total} SAP violation(s) at {scope_kind} level "
+        f"(artifact_scope={artifact_scope}, min_distance={min_distance})."
         + (f" Showing top {top_n} by distance." if truncated else ""),
         violations=violations[:top_n],
         count=total,
         total=total,
         truncated=truncated,
         scope_kind=scope_kind,
+        artifact_scope=artifact_scope,
         min_distance=min_distance,
         next_tool_suggestions=[
             'architecture_analysis_tool mode="sap_metrics" -- see full A/I/D scores',

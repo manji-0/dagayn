@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .._scope import ArtifactScope
 from ..communities import get_architecture_overview, get_communities
 from ..graph import node_to_dict
 from ..hints import generate_hints, get_session
@@ -15,6 +16,7 @@ def _architecture_health_summary(
     overview: dict[str, Any],
     *,
     top_n: int,
+    artifact_scope: ArtifactScope,
 ) -> dict[str, Any]:
     """Compose specialized architecture signals into one bounded report."""
     example_limit = min(max(top_n, 1), 5)
@@ -33,9 +35,21 @@ def _architecture_health_summary(
         bridges = find_bridge_nodes(store, top_n=example_limit)
         gaps = find_knowledge_gaps(store, top_n=example_limit)
         surprises = find_surprising_connections(store, top_n=example_limit)
-        adp = find_adp_violations(store, granularity="package")[:example_limit]
-        sdp = find_sdp_violations(store, granularity="package")[:example_limit]
-        sap = find_sap_violations(store, scope_kind="package")[:example_limit]
+        adp = find_adp_violations(
+            store,
+            granularity="package",
+            artifact_scope=artifact_scope,
+        )[:example_limit]
+        sdp = find_sdp_violations(
+            store,
+            granularity="package",
+            artifact_scope=artifact_scope,
+        )[:example_limit]
+        sap = find_sap_violations(
+            store,
+            scope_kind="package",
+            artifact_scope=artifact_scope,
+        )[:example_limit]
     except Exception as exc:  # pragma: no cover - defensive for backend parity drift
         return {
             "status": "partial",
@@ -51,9 +65,21 @@ def _architecture_health_summary(
                     "tool": "architecture_analysis_tool",
                     "mode": "surprising_connections",
                 },
-                "adp": {"tool": "architecture_analysis_tool", "mode": "adp_violations"},
-                "sdp": {"tool": "architecture_analysis_tool", "mode": "sdp_violations"},
-                "sap": {"tool": "architecture_analysis_tool", "mode": "sap_violations"},
+                "adp": {
+                    "tool": "architecture_analysis_tool",
+                    "mode": "adp_violations",
+                    "artifact_scope": artifact_scope,
+                },
+                "sdp": {
+                    "tool": "architecture_analysis_tool",
+                    "mode": "sdp_violations",
+                    "artifact_scope": artifact_scope,
+                },
+                "sap": {
+                    "tool": "architecture_analysis_tool",
+                    "mode": "sap_violations",
+                    "artifact_scope": artifact_scope,
+                },
             },
         }
 
@@ -89,6 +115,7 @@ def _architecture_health_summary(
         "status": "ok",
         "scoring_policy": {
             "version": "architecture-health-v1",
+            "artifact_scope": artifact_scope,
             "signals": [
                 "community_coupling",
                 "hub_nodes",
@@ -144,9 +171,21 @@ def _architecture_health_summary(
                 "tool": "architecture_analysis_tool",
                 "mode": "surprising_connections",
             },
-            "adp": {"tool": "architecture_analysis_tool", "mode": "adp_violations"},
-            "sdp": {"tool": "architecture_analysis_tool", "mode": "sdp_violations"},
-            "sap": {"tool": "architecture_analysis_tool", "mode": "sap_violations"},
+            "adp": {
+                "tool": "architecture_analysis_tool",
+                "mode": "adp_violations",
+                "artifact_scope": artifact_scope,
+            },
+            "sdp": {
+                "tool": "architecture_analysis_tool",
+                "mode": "sdp_violations",
+                "artifact_scope": artifact_scope,
+            },
+            "sap": {
+                "tool": "architecture_analysis_tool",
+                "mode": "sap_violations",
+                "artifact_scope": artifact_scope,
+            },
         },
     }
 
@@ -304,6 +343,7 @@ def get_architecture_overview_func(
     repo_root: str | None = None,
     detail_level: str = "standard",
     top_n: int = 20,
+    artifact_scope: ArtifactScope = "code",
 ) -> dict[str, Any]:
     """Generate an architecture overview based on community structure.
 
@@ -320,6 +360,8 @@ def get_architecture_overview_func(
         repo_root: Repository root path. Auto-detected if omitted.
         detail_level: Output verbosity: "minimal", "standard" (default), "verbose".
         top_n: Max coupling pairs in standard mode (default 20).
+        artifact_scope: Scope for ADP/SDP/SAP health signals: "code" (default),
+            "docs", or "all".
 
     Returns:
         Architecture overview with communities, cross_community_coupling, and warnings.
@@ -339,12 +381,14 @@ def get_architecture_overview_func(
                 f"{n_coupling} coupled pairs{shown_note}, "
                 f"{n_warnings} warning(s)"
             ),
+            "artifact_scope": artifact_scope,
             **overview,
         }
         result["architecture_health"] = _architecture_health_summary(
             store,
             overview,
             top_n=top_n,
+            artifact_scope=artifact_scope,
         )
         apply_output_budget(
             result,

@@ -13,7 +13,7 @@ def test_detect_sap_violations_uses_compact_envelope(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         "dagayn.tools.sap_tools.find_sap_violations",
-        lambda store, scope_kind, min_distance: [
+        lambda store, scope_kind, artifact_scope, min_distance: [
             {
                 "scope_key": "pkg.alpha",
                 "display_name": "pkg.alpha",
@@ -34,6 +34,7 @@ def test_detect_sap_violations_uses_compact_envelope(monkeypatch) -> None:
     result = detect_sap_violations_func(scope_kind="package", min_distance=0.5, top_n=1)
 
     assert result["status"] == "ok"
+    assert result["artifact_scope"] == "code"
     assert result["count"] == 2
     assert result["total"] == 2
     assert result["truncated"] is True

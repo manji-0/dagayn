@@ -136,6 +136,12 @@ def register_commands(sub: argparse._SubParsersAction) -> dict:
         help="Aggregation level: 'package' (directory) or 'file' (default: package)",
     )
     adp_cmd.add_argument(
+        "--artifact-scope",
+        choices=["code", "docs", "all"],
+        default="code",
+        help="Analyze code, docs, or the legacy mixed graph (default: code)",
+    )
+    adp_cmd.add_argument(
         "--min-cycle-size", type=int, default=2, help="Minimum cycle length (default: 2)"
     )
     adp_cmd.add_argument(
@@ -160,6 +166,12 @@ def register_commands(sub: argparse._SubParsersAction) -> dict:
         help="Aggregation level: 'package' (directory) or 'file' (default: package)",
     )
     sdp_metrics_cmd.add_argument(
+        "--artifact-scope",
+        choices=["code", "docs", "all"],
+        default="code",
+        help="Analyze code, docs, or the legacy mixed graph (default: code)",
+    )
+    sdp_metrics_cmd.add_argument(
         "--top-n", type=int, default=30, help="Number of entries to return (default: 30)"
     )
     sdp_metrics_cmd.add_argument(
@@ -179,6 +191,12 @@ def register_commands(sub: argparse._SubParsersAction) -> dict:
         choices=["package", "file"],
         default="package",
         help="Aggregation level: 'package' (directory) or 'file' (default: package)",
+    )
+    detect_sdp_cmd.add_argument(
+        "--artifact-scope",
+        choices=["code", "docs", "all"],
+        default="code",
+        help="Analyze code, docs, or the legacy mixed graph (default: code)",
     )
     detect_sdp_cmd.add_argument(
         "--min-delta",
@@ -210,6 +228,12 @@ def register_commands(sub: argparse._SubParsersAction) -> dict:
         help="Comma-separated scope_key prefixes to restrict output",
     )
     sap_metrics_cmd.add_argument(
+        "--artifact-scope",
+        choices=["code", "docs", "all"],
+        default="code",
+        help="Analyze code, docs, or the legacy mixed graph (default: code)",
+    )
+    sap_metrics_cmd.add_argument(
         "--top-n", type=int, default=30, help="Number of entries to return (default: 30)"
     )
     sap_metrics_cmd.add_argument(
@@ -229,6 +253,12 @@ def register_commands(sub: argparse._SubParsersAction) -> dict:
         choices=["package", "file", "directory"],
         default="package",
         help="Aggregation level (default: package)",
+    )
+    detect_sap_cmd.add_argument(
+        "--artifact-scope",
+        choices=["code", "docs", "all"],
+        default="code",
+        help="Analyze code, docs, or the legacy mixed graph (default: code)",
     )
     detect_sap_cmd.add_argument(
         "--min-distance",
@@ -516,6 +546,7 @@ def handle(args: argparse.Namespace) -> None:
             violations = find_adp_violations(
                 store,
                 granularity=args.granularity,
+                artifact_scope=args.artifact_scope,
                 min_cycle_size=args.min_cycle_size,
                 max_cycle_length=args.max_cycle_length,
             )
@@ -523,29 +554,57 @@ def handle(args: argparse.Namespace) -> None:
                 if not violations:
                     print("No ADP violations found.")
                 else:
-                    print(f"ADP violations ({len(violations)} cycles):")
+                    print(
+                        f"ADP violations ({len(violations)} cycles, "
+                        f"artifact_scope={args.artifact_scope}):"
+                    )
                     for v in violations:
                         nodes = " -> ".join(v["nodes"]) + f" -> {v['nodes'][0]}"
                         print(f"  [{v['length']}-cycle, severity={v['severity']}] {nodes}")
             else:
-                print(json.dumps({"violations": violations, "count": len(violations)}, indent=2))
+                print(
+                    json.dumps(
+                        {
+                            "violations": violations,
+                            "count": len(violations),
+                            "artifact_scope": args.artifact_scope,
+                        },
+                        indent=2,
+                    )
+                )
 
         elif args.command == "sdp-metrics":
             from ...architecture import compute_sdp_metrics
 
-            metrics = compute_sdp_metrics(store, granularity=args.granularity)
+            metrics = compute_sdp_metrics(
+                store,
+                granularity=args.granularity,
+                artifact_scope=args.artifact_scope,
+            )
             top = metrics[: args.top_n]
             if args.format == "text":
                 if not top:
                     print("No dependency data found.")
                 else:
-                    print(f"SDP instability ({args.granularity}-level, top {len(top)}):")
+                    print(
+                        f"SDP instability ({args.granularity}-level, "
+                        f"artifact_scope={args.artifact_scope}, top {len(top)}):"
+                    )
                     for m in top:
                         print(
                             f"  {m['name']:<50} I={m['instability']:.4f}  Ca={m['ca']} Ce={m['ce']}"
                         )
             else:
-                print(json.dumps({"metrics": top, "total": len(metrics)}, indent=2))
+                print(
+                    json.dumps(
+                        {
+                            "metrics": top,
+                            "total": len(metrics),
+                            "artifact_scope": args.artifact_scope,
+                        },
+                        indent=2,
+                    )
+                )
 
         elif args.command == "detect-sdp":
             from ...architecture import find_sdp_violations
@@ -553,13 +612,17 @@ def handle(args: argparse.Namespace) -> None:
             violations = find_sdp_violations(
                 store,
                 granularity=args.granularity,
+                artifact_scope=args.artifact_scope,
                 min_delta=args.min_delta,
             )
             if args.format == "text":
                 if not violations:
                     print("No SDP violations found.")
                 else:
-                    print(f"SDP violations ({len(violations)}):")
+                    print(
+                        f"SDP violations ({len(violations)}, "
+                        f"artifact_scope={args.artifact_scope}):"
+                    )
                     for v in violations:
                         print(
                             f"  {v['source']:<40} -> {v['target']:<40}"
@@ -568,7 +631,16 @@ def handle(args: argparse.Namespace) -> None:
                             f", I_tgt={v['target_instability']:.4f})"
                         )
             else:
-                print(json.dumps({"violations": violations, "count": len(violations)}, indent=2))
+                print(
+                    json.dumps(
+                        {
+                            "violations": violations,
+                            "count": len(violations),
+                            "artifact_scope": args.artifact_scope,
+                        },
+                        indent=2,
+                    )
+                )
 
         elif args.command == "sap-metrics":
             from ...sap import compute_sap_metrics
@@ -580,13 +652,17 @@ def handle(args: argparse.Namespace) -> None:
                 store,
                 scope_kind=args.scope_kind,
                 unit_filter=unit_filter,
+                artifact_scope=args.artifact_scope,
             )
             top = metrics[: args.top_n]
             if args.format == "text":
                 if not top:
                     print("No scope data found.")
                 else:
-                    print(f"SAP metrics ({args.scope_kind}-level, top {len(top)}):")
+                    print(
+                        f"SAP metrics ({args.scope_kind}-level, "
+                        f"artifact_scope={args.artifact_scope}, top {len(top)}):"
+                    )
                     for m in top:
                         print(
                             f"  {m['scope_key']:<50}"
@@ -595,7 +671,16 @@ def handle(args: argparse.Namespace) -> None:
                             f"  D={m['distance']:.4f}"
                         )
             else:
-                print(json.dumps({"metrics": top, "total": len(metrics)}, indent=2))
+                print(
+                    json.dumps(
+                        {
+                            "metrics": top,
+                            "total": len(metrics),
+                            "artifact_scope": args.artifact_scope,
+                        },
+                        indent=2,
+                    )
+                )
 
         elif args.command == "detect-sap":
             from ...sap import find_sap_violations
@@ -603,13 +688,17 @@ def handle(args: argparse.Namespace) -> None:
             violations = find_sap_violations(
                 store,
                 scope_kind=args.scope_kind,
+                artifact_scope=args.artifact_scope,
                 min_distance=args.min_distance,
             )
             if args.format == "text":
                 if not violations:
                     print("No SAP violations found.")
                 else:
-                    print(f"SAP violations ({len(violations)}):")
+                    print(
+                        f"SAP violations ({len(violations)}, "
+                        f"artifact_scope={args.artifact_scope}):"
+                    )
                     for v in violations:
                         print(
                             f"  {v['scope_key']:<50}"
@@ -618,7 +707,16 @@ def handle(args: argparse.Namespace) -> None:
                             f", I={v['instability']:.4f})"
                         )
             else:
-                print(json.dumps({"violations": violations, "count": len(violations)}, indent=2))
+                print(
+                    json.dumps(
+                        {
+                            "violations": violations,
+                            "count": len(violations),
+                            "artifact_scope": args.artifact_scope,
+                        },
+                        indent=2,
+                    )
+                )
 
     finally:
         store.close()

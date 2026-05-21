@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
+from .._scope import ArtifactScope
 from ..hints import generate_hints, get_session
 from .analysis_tools import (
     get_bridge_nodes_func,
@@ -82,6 +83,7 @@ def architecture_analysis_func(
     min_delta: float = 0.1,
     min_distance: float = 0.5,
     repo_root: str | None = None,
+    artifact_scope: ArtifactScope = "code",
 ) -> dict[str, Any]:
     """Run architecture analysis by dispatching to the requested internal mode."""
     if mode == "overview":
@@ -90,6 +92,7 @@ def architecture_analysis_func(
                 repo_root=repo_root,
                 detail_level=detail_level,
                 top_n=top_n,
+                artifact_scope=artifact_scope,
             ),
             mode=mode,
             called_subtool="get_architecture_overview_func",
@@ -150,6 +153,7 @@ def architecture_analysis_func(
             detect_adp_violations_func(
                 repo_root=repo_root,
                 granularity=granularity,
+                artifact_scope=artifact_scope,
                 min_cycle_size=min_cycle_size,
                 max_cycle_length=max_cycle_length,
                 top_n=top_n,
@@ -162,6 +166,7 @@ def architecture_analysis_func(
             compute_sdp_metrics_func(
                 repo_root=repo_root,
                 granularity=granularity,
+                artifact_scope=artifact_scope,
                 top_n=top_n,
             ),
             mode=mode,
@@ -172,6 +177,7 @@ def architecture_analysis_func(
             detect_sdp_violations_func(
                 repo_root=repo_root,
                 granularity=granularity,
+                artifact_scope=artifact_scope,
                 min_delta=min_delta,
                 top_n=top_n,
             ),
@@ -184,6 +190,7 @@ def architecture_analysis_func(
                 repo_root=repo_root,
                 scope_kind=scope_kind,
                 unit_filter=unit_filter,
+                artifact_scope=artifact_scope,
                 top_n=top_n,
             ),
             mode=mode,
@@ -194,6 +201,7 @@ def architecture_analysis_func(
             detect_sap_violations_func(
                 repo_root=repo_root,
                 scope_kind=scope_kind,
+                artifact_scope=artifact_scope,
                 min_distance=min_distance,
                 top_n=top_n,
             ),

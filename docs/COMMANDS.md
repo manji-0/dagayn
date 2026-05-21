@@ -71,8 +71,8 @@ Graphviz / DOT is not a built-in export target. Jupyter / Databricks notebooks a
 
 `dagayn wiki` writes Markdown pages under `.dagayn/wiki/` from detected graph
 communities. Each community page includes members, execution flows,
-cross-community dependencies, and package-level ADP/SDP/SAP architecture
-metrics filtered to the scopes represented by that community.
+cross-community dependencies, and code-scoped package-level ADP/SDP/SAP
+architecture metrics filtered to the scopes represented by that community.
 
 ### Integration and serving
 
@@ -159,6 +159,7 @@ dagayn serve
 dagayn serve --tools query_graph_tool,semantic_search_nodes_tool
 dagayn serve --tools all
 dagayn tool architecture_analysis_tool --arg mode='"overview"'
+dagayn tool architecture_analysis_tool --arg mode='"adp_violations"' --arg artifact_scope='"docs"'
 dagayn serve --local-embedding low
 dagayn serve --remote-embedding openai
 ```
@@ -196,6 +197,11 @@ with `mode="overview"` and `detail_level="minimal"`. Output includes
 `architecture_health`, which composes community coupling, hubs, bridges,
 knowledge gaps, surprising connections, and ADP/SDP/SAP signals into a bounded
 health summary with drill-down mode hints.
+
+ADP/SDP/SAP modes default to `artifact_scope="code"` so Markdown dependencies
+and code dependencies are not mixed in design-principle metrics. Pass
+`artifact_scope="docs"` to inspect documentation dependency cycles or stability,
+or `artifact_scope="all"` for the legacy mixed projection.
 
 Migration note for dagayn 3.0: v2 split architecture MCP/CLI tools such as
 `get_architecture_overview_tool`, `list_communities_tool`,

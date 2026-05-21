@@ -131,6 +131,8 @@ In dagayn 3.0, v2 split architecture MCP/CLI tools were removed. Use
 `architecture_analysis_tool(mode=...)`, for example
 `architecture_analysis_tool(mode="overview")` or
 `architecture_analysis_tool(mode="sdp_violations")`.
+ADP/SDP/SAP modes use `artifact_scope="code"` by default; pass
+`artifact_scope="docs"` when reviewing Markdown dependency structure.
 
 ## Visualize or export the graph
 

@@ -14,6 +14,7 @@ Reference formulas
   I = Ce / (Ca + Ce)   (0 if Ca + Ce = 0)
   D = |A + I - 1|
 
+Default artifact scope: code (Markdown documentation nodes are excluded)
 Default edges: IMPORTS_FROM + DEPENDS_ON + INHERITS + IMPLEMENTS (fixed)
 INHERITS/IMPLEMENTS targets are resolved first by qualified name, then by
 bare name when exactly one in-repo node has that name (stdlib names drop out
@@ -26,7 +27,7 @@ import logging
 from collections import defaultdict
 from typing import Iterable, Literal, Optional
 
-from ._scope import build_node_scope_maps
+from ._scope import ArtifactScope, build_node_scope_maps
 from .graph import GraphStore
 
 logger = logging.getLogger(__name__)
@@ -48,6 +49,7 @@ def compute_sap_metrics(
     store: GraphStore,
     scope_kind: Literal["file", "package", "directory"] = "package",
     unit_filter: Optional[Iterable[str]] = None,
+    artifact_scope: ArtifactScope = "code",
 ) -> list[dict]:
     """Compute SAP metrics for each scope.
 
@@ -63,10 +65,16 @@ def compute_sap_metrics(
             or "directory" (synonym for package in this implementation).
         unit_filter: Optional sequence of scope_key prefix strings to
             restrict output to matching scopes.
+        artifact_scope: "code" (default), "docs", or "all". The default keeps
+            Markdown documentation dependencies out of code SAP counts.
     """
     filter_prefixes = list(unit_filter) if unit_filter else None
 
-    qualified_to_scope, name_to_scope = build_node_scope_maps(store, scope_kind)
+    qualified_to_scope, name_to_scope = build_node_scope_maps(
+        store,
+        scope_kind,
+        artifact_scope=artifact_scope,
+    )
 
     scope_na: dict[str, int] = defaultdict(int)
     scope_nt: dict[str, int] = defaultdict(int)
@@ -161,6 +169,7 @@ def find_sap_violations(
     store: GraphStore,
     scope_kind: Literal["file", "package", "directory"] = "package",
     min_distance: float = 0.5,
+    artifact_scope: ArtifactScope = "code",
 ) -> list[dict]:
     """Find scopes whose distance from the main sequence exceeds min_distance.
 
@@ -168,10 +177,12 @@ def find_sap_violations(
         store: GraphStore instance.
         scope_kind: Aggregation granularity.
         min_distance: Minimum D value to flag (exclusive). Default: 0.5.
+        artifact_scope: "code" (default), "docs", or "all".
     """
     metrics = compute_sap_metrics(
         store,
         scope_kind=scope_kind,
+        artifact_scope=artifact_scope,
     )
     violations = [
         m for m in metrics if m["distance"] > min_distance and m["ca"] + m["ce"] > 0 and m["nt"] > 0

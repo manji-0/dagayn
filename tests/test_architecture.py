@@ -8,14 +8,14 @@ from dagayn.graph import GraphStore
 from dagayn.parser import EdgeInfo, NodeInfo
 
 
-def _node(kind: str, name: str, file_path: str) -> NodeInfo:
+def _node(kind: str, name: str, file_path: str, language: str = "python") -> NodeInfo:
     return NodeInfo(
         kind=kind,
         name=name,
         file_path=file_path,
         line_start=1,
         line_end=10,
-        language="python",
+        language=language,
         parent_name=None,
         params=None,
         return_type=None,
@@ -199,6 +199,35 @@ class TestProjectDependencyGraph:
         g = _project_dependency_graph(s, granularity="file")
         assert g.has_edge("a.py", "b.py")
 
+    def test_default_code_scope_excludes_markdown_dependencies(self, tmp_path):
+        from dagayn.architecture import _project_dependency_graph
+
+        s = GraphStore(tmp_path / "docs.db")
+        s.upsert_node(_node("File", "docs/a.md", "docs/a.md", language="markdown"))
+        s.upsert_node(_node("File", "docs/b.md", "docs/b.md", language="markdown"))
+        s.upsert_edge(_edge("DEPENDS_ON", "docs/a.md", "docs/b.md"))
+        s.upsert_edge(_edge("DEPENDS_ON", "docs/b.md", "docs/a.md"))
+        s.commit()
+
+        g = _project_dependency_graph(s, granularity="file")
+        assert g.number_of_edges() == 0
+
+        docs_g = _project_dependency_graph(s, granularity="file", artifact_scope="docs")
+        assert docs_g.has_edge("docs/a.md", "docs/b.md")
+        assert docs_g.has_edge("docs/b.md", "docs/a.md")
+
+    def test_all_scope_preserves_legacy_mixed_dependencies(self, tmp_path):
+        from dagayn.architecture import _project_dependency_graph
+
+        s = GraphStore(tmp_path / "mixed.db")
+        s.upsert_node(_node("File", "src/a.py", "src/a.py"))
+        s.upsert_node(_node("File", "docs/spec.md", "docs/spec.md", language="markdown"))
+        s.upsert_edge(_edge("DEPENDS_ON", "src/a.py", "docs/spec.md"))
+        s.commit()
+
+        g = _project_dependency_graph(s, granularity="package", artifact_scope="all")
+        assert g.has_edge("src", "docs")
+
 
 # ---------------------------------------------------------------------------
 # find_adp_violations
@@ -295,6 +324,21 @@ class TestFindAdpViolations:
 
         assert find_adp_violations(empty_store) == []
 
+    def test_docs_scope_finds_markdown_cycles(self, tmp_path):
+        from dagayn.architecture import find_adp_violations
+
+        s = GraphStore(tmp_path / "docs_adp.db")
+        s.upsert_node(_node("File", "docs/a.md", "docs/a.md", language="markdown"))
+        s.upsert_node(_node("File", "docs/b.md", "docs/b.md", language="markdown"))
+        s.upsert_edge(_edge("DEPENDS_ON", "docs/a.md", "docs/b.md"))
+        s.upsert_edge(_edge("DEPENDS_ON", "docs/b.md", "docs/a.md"))
+        s.commit()
+
+        assert find_adp_violations(s, granularity="file") == []
+        violations = find_adp_violations(s, granularity="file", artifact_scope="docs")
+        assert len(violations) == 1
+        assert set(violations[0]["nodes"]) == {"docs/a.md", "docs/b.md"}
+
 
 # ---------------------------------------------------------------------------
 # compute_sdp_metrics
@@ -365,6 +409,26 @@ class TestComputeSdpMetrics:
         assert "core" in names
         assert "utils" in names
         assert "web" in names
+
+    def test_artifact_scope_separates_code_and_docs_metrics(self, tmp_path):
+        from dagayn.architecture import compute_sdp_metrics
+
+        s = GraphStore(tmp_path / "scoped_sdp.db")
+        s.upsert_node(_node("File", "src/a.py", "src/a.py"))
+        s.upsert_node(_node("File", "lib/b.py", "lib/b.py"))
+        s.upsert_node(_node("File", "docs/a.md", "docs/a.md", language="markdown"))
+        s.upsert_node(_node("File", "guides/b.md", "guides/b.md", language="markdown"))
+        s.upsert_edge(_edge("IMPORTS_FROM", "src/a.py", "lib/b.py"))
+        s.upsert_edge(_edge("DEPENDS_ON", "docs/a.md", "guides/b.md"))
+        s.commit()
+
+        code_names = {r["name"] for r in compute_sdp_metrics(s, granularity="package")}
+        docs_names = {
+            r["name"]
+            for r in compute_sdp_metrics(s, granularity="package", artifact_scope="docs")
+        }
+        assert code_names == {"src", "lib"}
+        assert docs_names == {"docs", "guides"}
 
 
 # ---------------------------------------------------------------------------

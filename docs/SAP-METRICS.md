@@ -35,6 +35,13 @@ Alternative scope kinds:
 
 The chosen scope key must remain **repo-root-relative** so results stay stable across machines and temporary paths.
 
+SAP runs with `artifact_scope="code"` by default. Markdown documentation nodes
+and Markdown-authored dependency directives are excluded from code SAP counts so
+documentation structure does not change code Ca/Ce/instability values. Use
+`artifact_scope="docs"` to inspect documentation-only dependencies, or
+`artifact_scope="all"` when intentionally comparing against the legacy mixed
+graph.
+
 Language-specific package resolution:
 
 - **Python** — nearest importable package root, else parent directory
@@ -84,6 +91,12 @@ Language mapping:
 - `IMPLEMENTS` — interface/protocol/trait conformance
 
 `CALLS` and `REFERENCES` are excluded because they produce noise in dynamic languages (e.g., calling `len()`) and do not cleanly signal cross-boundary coupling.
+
+Artifact scope is applied before dependency projection. In the default `code`
+scope, a Markdown `DEPENDS_ON` edge to a source file is ignored because the
+documentation endpoint is outside the analysis scope. In `docs` scope, only
+Markdown documentation nodes participate. In `all` scope, code and documentation
+are projected together for compatibility with older mixed-graph reports.
 
 ### Type-name fallback resolution
 
@@ -148,7 +161,7 @@ An early design (`docs/plans/SAP-METRICS.md`) included `CALLS` and `REFERENCES` 
 - `CALLS` in dynamic languages (Python `len()`, JavaScript prototype calls) produces cross-package noise that inflates `Ce` without representing real coupling.
 - `REFERENCES` in Terraform and Markdown is a structural artifact of how those formats express dependency, not a coupling signal between logical packages.
 
-The shipped implementation uses only `IMPORTS_FROM`, `DEPENDS_ON`, `INHERITS`, and `IMPLEMENTS`. Callers can filter to a subset by passing `include_edge_kinds` to `compute_sap_metrics`.
+The shipped implementation uses only `IMPORTS_FROM`, `DEPENDS_ON`, `INHERITS`, and `IMPLEMENTS`. Callers choose code, documentation, or legacy mixed-graph analysis with `artifact_scope`.
 
 ### `INHERITS` vs `IMPLEMENTS` split
 

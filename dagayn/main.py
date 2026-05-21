@@ -536,6 +536,7 @@ def architecture_analysis_tool(
     min_delta: float = 0.1,
     min_distance: float = 0.5,
     repo_root: Optional[str] = None,
+    artifact_scope: Literal["code", "docs", "all"] = "code",
 ) -> dict:
     """Run architecture analysis through a single mode-based dispatcher."""
     return _tool("architecture_analysis_func")(
@@ -550,6 +551,7 @@ def architecture_analysis_tool(
         granularity=granularity,
         scope_kind=scope_kind,
         unit_filter=unit_filter,
+        artifact_scope=artifact_scope,
         min_cycle_size=min_cycle_size,
         max_cycle_length=max_cycle_length,
         min_delta=min_delta,

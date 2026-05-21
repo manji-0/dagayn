@@ -14,10 +14,10 @@
 
 # dagayn 総合分析レポート
 
-> 作成日: 2026-05-18
+> 作成日: 2026-05-21
 > 対象リポジトリ: `/Users/manji0/src/dagayn`
-> 対象バージョン: `pyproject.toml` 上の `dagayn` 3.2.0
-> グラフ根拠: `list_graph_stats_tool` / `architecture_analysis_tool` / `flow_tool` / `query_graph_tool` / `review_tool` / `dagayn tool find_large_functions_tool`
+> 対象バージョン: `pyproject.toml` 上の `dagayn` 4.0.2
+> グラフ根拠: `list_graph_stats_tool` / `architecture_analysis_tool` / `flow_tool` / `review_tool` / `dagayn tool find_large_functions_tool` / `uv tool install --editable`
 
 この文書は、dagayn の思想、提供機能、実装構造、性能上の設計と課題、そして dagayn 自身を dagayn で分析した結果を1つにまとめた総合レポートである。単なる機能一覧ではなく、なぜその設計になっているのか、どのコード・ドキュメント・グラフ指標が根拠になっているのか、今後どこを改善すべきかまでを一貫して説明する。
 
@@ -29,18 +29,17 @@ dagayn は「DAG is All You Need」を掲げる、コードレビューと影響
 
 この fork は upstream の `code-review-graph` から派生しているが、現行ドキュメントでは upstream prose を canonical とは扱わない。dagayn 自体の特長は、Terraform と Markdown を first-class に扱うこと、Rust バックエンドへ移行していること、MCP 3.0 の小さな dispatcher surface を採用していること、Codex / Claude / OpenCode などのエージェント設定を自動化すること、そして mixed-language monorepo を主対象にしていることである。
 
-2026-05-18 の full rebuild 後の自己分析では、グラフは 6,070 ノード、43,159 エッジ、382 ファイル、29 言語、5,688 embedding を持つ。ノード種別は `Function` 2,770、`Test` 1,705、`DocSection` 767、`Class` 446、`File` 382。エッジ種別は `CALLS` 27,213、`TESTED_BY` 6,284、`CONTAINS` 5,745、`IMPORTS_FROM` 1,766、`CROSS_ARTIFACT` 1,802、`DEPENDS_ON` 166、`REFERENCES` 138、`INHERITS` 41、`IMPLEMENTS` 4 である。
+2026-05-21 の incremental refresh 後の自己分析では、グラフは 8,114 ノード、47,431 エッジ、388 ファイル、29 言語、7,726 embedding を持つ。ノード種別は `Function` 2,908、`Test` 1,766、`DocBody` 1,823、`DocSection` 773、`Class` 456、`File` 388。エッジ種別は `CALLS` 28,849、`CONTAINS` 7,796、`TESTED_BY` 6,725、`IMPORTS_FROM` 1,867、`CROSS_ARTIFACT` 1,840、`DEPENDS_ON` 168、`REFERENCES` 139、`INHERITS` 43、`IMPLEMENTS` 4 である。
 
 アーキテクチャ分析の主な発見は次の通りである。
 
-- コミュニティは全体で 342、サイズ3以上は 261。最大は `docs-tool` 436 ノード、次に `tests-detect` 274 ノード、`tests-files` 239 ノード。
-- `architecture_analysis_tool(mode="overview")` は 2 件の high coupling warning を返した。最大は `docs-tool` と `tests-files` の 17 エッジ結合で、次は `tests-files` と `tests-detect` の 12 エッジ結合。出力は top 10 coupling のうち 1 件のみ保持され、`truncated=true` だった。
-- ハブ上位は `dagayn/cli/commands/build.py::handle` degree 159、`tests/test_flows.py::TestFlows._add_func` degree 158、`crates/dagayn-graph/src/tests.rs::stores_flows_and_reads_flow_inputs` degree 147。
-- ブリッジ上位は `tests/test_main.py::TestLongRunningToolsAreAsync.test_regression_guard_does_not_depend_on_fastmcp_internals` betweenness 0.015101、`tests/test_integration_v2.py::TestV2Integration.test_full_pipeline` 0.011609、`dagayn/main.py::_tool` 0.005960。
-- 知識ギャップは raw count 1,021。内訳は isolated nodes 686、thin communities 146、untested hotspots 74、single-file communities 115。未テスト hotspot の p95 degree 閾値は 37。
-- ADP 違反は package granularity で 8 件。最大 severity は `docs/audits -> <root> -> docs -> docs/plans` の 168。
-- SDP 違反は 2 件。`docs -> <root>` が instability delta 0.1714、`docs/plans -> docs/audits` が 0.1667。
-- SAP 違反は 7 件。最大 distance 1.0 は `dagayn-vscode/src/webview`、`dagayn/parser/_base`、`dagayn-vscode/test`。
+- コミュニティは全体で 369。最大は `docs-tool` 896 ノード、次に `tests-nodes` 337、`tests-detect` 313、`tests-files` 260、`docs-returns` 260。
+- `architecture_analysis_tool(mode="overview", detail_level="minimal")` は 2 件の high coupling warning を返した。最大表示は `tests-detect` と `tests-nodes` の 12 エッジ結合で、もう1件は `docs-tool` と `tests-nodes` の 11 エッジ結合。出力は coupling 5 件中 1 件のみ保持され、`truncated=true` だった。
+- ハブ上位は `dagayn/cli/commands/build.py::handle` degree 161、`tests/test_flows.py::TestFlows._add_func` degree 158、`crates/dagayn-graph/src/tests.rs::stores_flows_and_reads_flow_inputs` degree 147。
+- ブリッジ上位は `tests/test_main.py::TestLongRunningToolsAreAsync.test_regression_guard_does_not_depend_on_fastmcp_internals` betweenness 0.009462、`tests/test_integration_v2.py::TestV2Integration.test_full_pipeline` 0.005896、`dagayn/search.py::hybrid_search` 0.002908。
+- 知識ギャップは raw count 2,637。内訳は isolated nodes 2,284、thin communities 163、untested hotspots 75、single-file communities 115。未テスト hotspot の p95 degree 閾値は 37。
+- ADP / SDP / SAP は `artifact_scope="code"` を既定にして再計算された。code scope の ADP 違反は 1 件、SDP 違反は 0 件、SAP 違反は 7 件である。
+- docs scope では ADP 違反が 3 件、SDP 違反が 1 件残る。これはコード設計の問題ではなく、Markdown dependency directive による文書構造の signal として扱うべきである。
 
 ## 2. dagayn の思想
 
@@ -131,7 +130,7 @@ dagayn v3 は MCP の公開面を小さく保つ。デフォルトで露出す�
 
 `architecture_analysis_tool` は dagayn の構造分析 dispatcher である。mode は `overview`、`communities`、`community`、`hubs`、`bridges`、`knowledge_gaps`、`surprising_connections`、`adp_violations`、`sdp_metrics`、`sdp_violations`、`sap_metrics`、`sap_violations` を持つ。
 
-`overview` は `architecture_health` を含む。今回の出力では、signals は `community_coupling`、`hub_nodes`、`bridge_nodes`、`knowledge_gaps`、`surprising_connections`、`adp`、`sdp`、`sap`。reason codes は `high_cross_community_coupling`、`hub_nodes`、`bridge_nodes`、`knowledge_gaps`、`surprising_connections`、`adp_violations`、`sdp_violations`、`sap_violations` だった。
+`overview` は `architecture_health` を含む。今回の出力では、signals は `community_coupling`、`hub_nodes`、`bridge_nodes`、`knowledge_gaps`、`surprising_connections`、`adp`、`sdp`、`sap`。reason codes は `high_cross_community_coupling`、`hub_nodes`、`bridge_nodes`、`knowledge_gaps`、`surprising_connections`、`adp_violations`、`sap_violations` だった。ADP/SDP/SAP は既定で `artifact_scope="code"` になり、Markdown dependency は docs scope に分離される。
 
 各分析は数量と閾値を返す。たとえば `knowledge_gaps` は p95 degree 37 を untested hotspot 閾値として使い、test nodes、test-like file paths、Markdown documentation sections を除外する。このように、結果の根拠と限界が response に含まれる。
 
@@ -156,7 +155,7 @@ rerank には kind boost、context-file boost、intent rerank、test deboost が
 
 `dagayn visualize` は HTML、GraphML、Mermaid C4、SVG、Cypher、Obsidian export を出力する。HTML mode は auto / full / community / file。Jupyter / Databricks notebook は input であり report output ではない。Graphviz / DOT は built-in export target ではない。
 
-`dagayn wiki` は `.dagayn/wiki/` に community-based Markdown wiki を生成する。各 community page は members、execution flows、cross-community dependencies、package-level ADP / SDP / SAP metrics を含む。
+`dagayn wiki` は `.dagayn/wiki/` に community-based Markdown wiki を生成する。各 community page は members、execution flows、cross-community dependencies、code-scoped package-level ADP / SDP / SAP metrics を含む。
 
 Markdown は単に可視化対象ではなく、graph extraction 対象である。heading、relative link、reference-style link、HTML dependency directive、`dagayn:` documentation directive、backtick symbol が graph edge になる。
 
@@ -372,62 +371,64 @@ embedding 側の性能は、現行実装では2段階に分かれる。`dagayn/s
 
 ### 6.1 グラフ統計
 
-`list_graph_stats_tool` の 2026-05-18 出力は以下である。
+`list_graph_stats_tool` の 2026-05-21 出力は以下である。
 
 | 指標 | 値 |
 |---|---:|
-| total nodes | 6,070 |
-| total edges | 43,159 |
-| files | 382 |
+| total nodes | 8,114 |
+| total edges | 47,431 |
+| files | 388 |
 | languages | 29 |
-| embeddings | 5,688 |
-| last updated | 2026-05-18T01:05:04 |
+| embeddings | 7,726 |
+| last updated | 2026-05-21T20:15:50 |
 
 ノード種別:
 
 | kind | count |
 |---|---:|
-| Function | 2,770 |
-| Test | 1,705 |
-| DocSection | 767 |
-| Class | 446 |
-| File | 382 |
+| Function | 2,908 |
+| Test | 1,766 |
+| DocBody | 1,823 |
+| DocSection | 773 |
+| Class | 456 |
+| File | 388 |
 
 エッジ種別:
 
 | kind | count |
 |---|---:|
-| CALLS | 27,213 |
-| TESTED_BY | 6,284 |
-| CONTAINS | 5,745 |
-| CROSS_ARTIFACT | 1,802 |
-| IMPORTS_FROM | 1,766 |
-| DEPENDS_ON | 166 |
-| REFERENCES | 138 |
-| INHERITS | 41 |
+| CALLS | 28,849 |
+| CONTAINS | 7,796 |
+| TESTED_BY | 6,725 |
+| IMPORTS_FROM | 1,867 |
+| CROSS_ARTIFACT | 1,840 |
+| DEPENDS_ON | 168 |
+| REFERENCES | 139 |
+| INHERITS | 43 |
 | IMPLEMENTS | 4 |
 
-この構成から、dagayn 自身のグラフはコード呼び出しとテスト関係が大きな割合を占めつつ、Markdown / cross artifact edge もかなり多いことが分かる。特に `CROSS_ARTIFACT` 1,802 は、この repo がドキュメントと実装の対応を積極的に graph 化していることを示す。
+この構成から、dagayn 自身のグラフはコード呼び出しとテスト関係が大きな割合を占めつつ、Markdown / cross artifact edge もかなり多いことが分かる。`CROSS_ARTIFACT` 1,840 は、この repo がドキュメントと実装の対応を積極的に graph 化していることを示す。一方で ADP/SDP/SAP は code scope と docs scope を分けて読む必要がある。
 
 ### 6.2 コミュニティ構造
 
-`architecture_analysis_tool(mode="overview", detail_level="standard")` は 342 communities、top 10 coupled pairs、2 warnings を返した。最大 warning は `docs-tool` から `tests-files` への 17 edges coupling、次は `tests-files` から `tests-detect` への 12 edges coupling である。出力は `truncated=true` で、communities は 342 件中 1 件、cross-community coupling は 10 件中 1 件だけ保持されていた。
+`architecture_analysis_tool(mode="overview", detail_level="minimal")` は 369 communities、5 coupled pairs shown、2 warnings を返した。最大表示された coupling は `tests-detect` から `tests-nodes` への 12 edges coupling で、もう1つの warning は `docs-tool` から `tests-nodes` への 11 edges coupling である。出力は `truncated=true` で、communities は 369 件中 1 件、cross-community coupling は 5 件中 1 件だけ保持されていた。
 
-`architecture_analysis_tool(mode="communities", min_size=3)` では 261 communities が返った。上位は次の通りである。
+SQLite の communities table を size 降順に見ると上位は次の通りである。
 
 | community | size | cohesion |
 |---|---:|---:|
-| docs-tool | 436 | 0.4959 |
-| tests-detect | 274 | 0.6467 |
-| tests-files | 239 | 0.5204 |
-| tests-install | 234 | 0.5528 |
-| tests-method | 153 | 0.4155 |
-| tests-fts | 148 | 0.6317 |
-| src-file | 137 | 0.5176 |
-| src-py | 111 | 0.6659 |
-| tests-provider | 109 | 0.6033 |
-| tests-flows | 99 | 0.2247 |
-| graph-nodes | 95 | 0.8916 |
+| docs-tool | 896 | 0.6560 |
+| tests-nodes | 337 | 0.6259 |
+| tests-detect | 313 | 0.6610 |
+| tests-files | 260 | 0.5266 |
+| docs-returns | 260 | 0.5633 |
+| tests-install | 257 | 0.5463 |
+| docs-confidence | 250 | 0.5260 |
+| graph-nodes | 189 | 0.7938 |
+| src-file | 142 | 0.5142 |
+| src-py | 112 | 0.6682 |
+| tests-provider | 104 | 0.6068 |
+| tests-flows | 102 | 0.2227 |
 
 最大 community が `docs-tool` であることは、この repo の特徴をよく表している。dagayn は tool surface と agent workflow をドキュメントとして厚く持ち、それらが code / tests と `CROSS_ARTIFACT` で結びつく。
 
@@ -437,18 +438,18 @@ embedding 側の性能は、現行実装では2段階に分かれる。`dagayn/s
 
 | rank | qualified name | kind | in | out | total |
 |---:|---|---|---:|---:|---:|
-| 1 | `dagayn/cli/commands/build.py::handle` | Function | 1 | 158 | 159 |
+| 1 | `dagayn/cli/commands/build.py::handle` | Function | 3 | 158 | 161 |
 | 2 | `tests/test_flows.py::TestFlows._add_func` | Function | 78 | 80 | 158 |
 | 3 | `crates/dagayn-graph/src/tests.rs::stores_flows_and_reads_flow_inputs` | Function | 1 | 146 | 147 |
-| 4 | `dagayn/incremental.py::incremental_update` | Function | 18 | 108 | 126 |
-| 5 | `dagayn/refactor/dead_code.py::find_dead_code` | Function | 4 | 114 | 118 |
-| 6 | `tests/test_integration_v2.py::TestV2Integration.test_full_pipeline` | Test | 56 | 55 | 111 |
-| 7 | `dagayn/search.py::hybrid_search` | Function | 40 | 69 | 109 |
-| 8 | `crates/dagayn-graph/src/lib.rs::GraphStore` | Class | 2 | 102 | 104 |
-| 9 | `dagayn/sap.py::compute_sap_metrics` | Function | 34 | 68 | 102 |
-| 10 | `crates/dagayn-parser/src/core.rs::RustOwnedParser.parse_file_in_repo` | Function | 4 | 96 | 100 |
+| 4 | `dagayn/incremental.py::incremental_update` | Function | 17 | 108 | 125 |
+| 5 | `dagayn/refactor/dead_code.py::find_dead_code` | Function | 4 | 115 | 119 |
+| 6 | `dagayn/search.py::hybrid_search` | Function | 45 | 73 | 118 |
+| 7 | `docs/RUST-CORE-MIGRATION-WIP.md::phase-1-rust-graph-engine` | DocSection | 1 | 113 | 114 |
+| 8 | `tests/test_integration_v2.py::TestV2Integration.test_full_pipeline` | Test | 56 | 55 | 111 |
+| 9 | `dagayn/sap.py::compute_sap_metrics` | Function | 37 | 71 | 108 |
+| 10 | `dagayn/skills.py::install_platform_configs` | Function | 33 | 74 | 107 |
 
-ハブは変更時の blast radius が大きい。特に `build.py::handle`、`incremental_update`、Rust `GraphStore`、`hybrid_search` は product behavior の中心なので、変更時には `review_tool(mode="impact")` と関連テストの確認が必要である。
+ハブは変更時の blast radius が大きい。特に `build.py::handle`、`incremental_update`、`hybrid_search`、`compute_sap_metrics`、`install_platform_configs` は product behavior の中心なので、変更時には `review_tool(mode="impact")` と関連テストの確認が必要である。
 
 ### 6.4 ブリッジノード
 
@@ -456,46 +457,46 @@ embedding 側の性能は、現行実装では2段階に分かれる。`dagayn/s
 
 | rank | qualified name | kind | betweenness |
 |---:|---|---|---:|
-| 1 | `tests/test_main.py::TestLongRunningToolsAreAsync.test_regression_guard_does_not_depend_on_fastmcp_internals` | Test | 0.015101 |
-| 2 | `tests/test_integration_v2.py::TestV2Integration.test_full_pipeline` | Test | 0.011609 |
-| 3 | `dagayn/main.py::_tool` | Function | 0.005960 |
-| 4 | `dagayn/search.py::hybrid_search` | Function | 0.004360 |
-| 5 | `dagayn/incremental.py::full_build` | Function | 0.003343 |
-| 6 | `dagayn-vscode/test/sqlite.test.ts::describe:SqliteReader@L248` | Test | 0.003279 |
-| 7 | `dagayn/sap.py::compute_sap_metrics` | Function | 0.003160 |
-| 8 | `tests/test_daemon.py::TestWatchDaemon.test_status_from_state_reports_alive` | Test | 0.003089 |
-| 9 | `tests/test_parser.py::TestBridgeExpansion._bridges` | Function | 0.003046 |
-| 10 | `dagayn/daemon.py::WatchDaemon` | Class | 0.002989 |
+| 1 | `tests/test_main.py::TestLongRunningToolsAreAsync.test_regression_guard_does_not_depend_on_fastmcp_internals` | Test | 0.009462 |
+| 2 | `tests/test_integration_v2.py::TestV2Integration.test_full_pipeline` | Test | 0.005896 |
+| 3 | `dagayn/search.py::hybrid_search` | Function | 0.002908 |
+| 4 | `dagayn-vscode/test/sqlite.test.ts::it:isValid() returns false after close()@L509` | Test | 0.002477 |
+| 5 | `dagayn/sap.py::compute_sap_metrics` | Function | 0.002349 |
+| 6 | `dagayn-vscode/test/sqlite.test.ts::describe:SqliteReader@L248` | Test | 0.002256 |
+| 7 | `dagayn/main.py::_tool` | Function | 0.002022 |
+| 8 | `tests/test_cli_serve.py::test_serve_infers_local_embedding_from_existing_graph` | Test | 0.001952 |
+| 9 | `tests/test_daemon.py::TestWatchDaemon.test_status_from_state_reports_alive` | Test | 0.001941 |
+| 10 | `dagayn/daemon.py::WatchDaemon` | Class | 0.001891 |
 
-上位に test が多いのは、この repo の test graph が複数領域を横断しているためである。production code では `_tool`、`hybrid_search`、`full_build`、`compute_sap_metrics`、`WatchDaemon` が chokepoint として見える。
+上位に test が多いのは、この repo の test graph が複数領域を横断しているためである。production code では `hybrid_search`、`compute_sap_metrics`、`_tool`、`WatchDaemon` が chokepoint として見える。
 
 ### 6.5 知識ギャップ
 
-`architecture_analysis_tool(mode="knowledge_gaps", top_n=10)` は raw total 1,021、`truncated=true` を返した。
+`architecture_analysis_tool(mode="knowledge_gaps", top_n=10)` は raw total 2,637、`truncated=true` を返した。
 
 | category | raw count | returned | threshold / note |
 |---|---:|---:|---|
-| isolated_nodes | 686 | 10 | degree <= 1 |
-| thin_communities | 146 | 10 | size < 3 |
-| untested_hotspots | 74 | 10 | non-file degree p95 >= 37 |
+| isolated_nodes | 2,284 | 10 | degree <= 1 |
+| thin_communities | 163 | 10 | size < 3 |
+| untested_hotspots | 75 | 10 | non-file degree p95 >= 37 |
 | single_file_communities | 115 | 10 | size >= 3 and one file |
 
-degree distribution は candidate positive degree count 2,120、p95 degree 37。untested hotspot からは test nodes、test-like file paths、Markdown sections が除外される。
+Degree distribution は candidate positive degree count 2,234、p95 degree 37。untested hotspot からは test nodes、test-like file paths、Markdown sections が除外される。single-file communities では README、LICENSE、SECURITY、CODE_OF_CONDUCT のような自然な standalone document も noise として分類される。
 
 上位 untested hotspot は次の通りである。
 
 | qualified name | degree | evidence |
 |---|---:|---|
-| `dagayn/cli/commands/build.py::handle` | 159 | p95 以上かつ direct `TESTED_BY` edge なし |
-| `dagayn/refactor/dead_code.py::find_dead_code` | 118 | p95 以上かつ direct `TESTED_BY` edge なし |
-| `crates/dagayn-graph/src/lib.rs::GraphStore` | 104 | p95 以上かつ direct `TESTED_BY` edge なし |
+| `dagayn/refactor/dead_code.py::find_dead_code` | 119 | p95 以上かつ direct `TESTED_BY` edge なし |
+| `crates/dagayn-graph/src/lib.rs::GraphStore` | 106 | p95 以上かつ direct `TESTED_BY` edge なし |
 | `crates/dagayn-parser/src/core.rs::RustOwnedParser.parse_file_in_repo` | 100 | p95 以上かつ direct `TESTED_BY` edge なし |
 | `dagayn/tools/query.py::query_graph` | 95 | p95 以上かつ direct `TESTED_BY` edge なし |
 | `crates/dagayn-graph/src/lib.rs::GraphStore.analyze_changes_json` | 92 | p95 以上かつ direct `TESTED_BY` edge なし |
-| `dagayn/graph/core.py::GraphStore` | 87 | p95 以上かつ direct `TESTED_BY` edge なし |
+| `dagayn/graph/core.py::GraphStore` | 89 | p95 以上かつ direct `TESTED_BY` edge なし |
 | `diagrams/generate_diagrams.py::TC` | 84 | p95 以上かつ direct `TESTED_BY` edge なし |
 | `dagayn/exports.py::export_obsidian_vault` | 83 | p95 以上かつ direct `TESTED_BY` edge なし |
 | `crates/dagayn-graph/src/lib.rs::GraphStore.get_edges_by_endpoints` | 82 | p95 以上かつ direct `TESTED_BY` edge なし |
+| `crates/dagayn-graph/src/lib.rs::betweenness_centrality` | 82 | p95 以上かつ direct `TESTED_BY` edge なし |
 
 これは「テストが存在しない」と断定するものではない。graph 上の direct `TESTED_BY` edge がない、という構造的な signal である。Rust 側は Rust unit tests や Python parity tests が間接的に守っている可能性があるため、改善時には direct / transitive / heuristic coverage の見直しが必要である。
 
@@ -507,94 +508,84 @@ degree distribution は candidate positive degree count 2,120、p95 degree 37。
 
 | source | target | edge | score | reasons |
 |---|---|---|---:|---|
-| `CHANGELOG.md::performance` | `dagayn/refactor/dead_code.py::find_dead_code` | CROSS_ARTIFACT | 0.557 | cross-community, rare-community-pair, cross-language, degree-imbalance |
+| `dagayn-analysis-report.md::64-ブリッジノード` | `dagayn/sap.py::compute_sap_metrics` | CROSS_ARTIFACT | 0.557 | cross-community, rare-community-pair, cross-language, degree-imbalance |
 | `docs/refactoring-priority-report.md::hotspots-and-chokepoints` | `dagayn/sap.py::compute_sap_metrics` | CROSS_ARTIFACT | 0.557 | cross-community, rare-community-pair, cross-language, degree-imbalance |
-| `docs/refactoring-priority-report.md::hotspots-and-chokepoints` | `dagayn/embeddings.py::get_provider` | CROSS_ARTIFACT | 0.554 | cross-community, rare-community-pair, cross-language, degree-imbalance |
-| `docs/refactoring-priority-report.md::hotspots-and-chokepoints` | `dagayn/postprocessing.py::run_post_processing` | CROSS_ARTIFACT | 0.552 | cross-community, rare-community-pair, cross-language, degree-imbalance |
-| `docs/audits/dagayn-usability-scorecard.md::phase-1-coverage-evidence` | `tests/test_tools.py::TestGetMinimalContext` | CROSS_ARTIFACT | 0.551 | cross-community, rare-community-pair, cross-language, degree-imbalance |
+| `docs/refactoring-priority-report.md::hotspots-and-chokepoints` | `dagayn/embeddings.py::get_provider` | CROSS_ARTIFACT | 0.553 | cross-community, rare-community-pair, cross-language, degree-imbalance |
+| `docs/audits/mcp-tool-heuristic-review-2026-05-05.md::low-interface-count-is-high-but-mostly-purposeful` | `dagayn/communities.py::get_architecture_overview` | CROSS_ARTIFACT | 0.552 | cross-community, rare-community-pair, cross-language, degree-imbalance |
+| `CHANGELOG.md::235--2026-04-30` | `CHANGELOG.md::performance` | CONTAINS | 0.551 | cross-community, rare-community-pair, peripheral-to-hub, degree-imbalance |
 
 ここで重要なのは、surprising connection の多くが Markdown から code / test symbol への `CROSS_ARTIFACT` である点である。これはドキュメントと実装が結びついているという利点でもあり、cross-community noise の源泉でもある。Markdown レポートを書くときは、読みやすさのための backtick と、graph に残したい code obligation を意識的に分ける必要がある。
 
 ### 6.7 ADP / SDP / SAP
 
-ADP violations は package granularity で 8 件、top 5 表示のため `truncated=true`。
+ADP / SDP / SAP は 2026-05-21 時点で `artifact_scope` を持つ。既定は `code` で、Markdown dependency directive は code architecture から除外される。従来の mixed graph を確認したい場合は `artifact_scope="all"`、文書構造だけを確認したい場合は `artifact_scope="docs"` を使う。
+
+Code scope の ADP violations は package granularity で 1 件、`truncated=false`。
 
 | cycle | length | weight | severity |
 |---|---:|---:|---:|
-| `docs/audits -> <root> -> docs -> docs/plans` | 4 | 42 | 168 |
-| `<root> -> docs/plans -> docs` | 3 | 22 | 66 |
-| `<root> -> docs` | 2 | 32 | 64 |
-| `docs/audits -> docs -> <root> -> docs/plans` | 4 | 14 | 56 |
-| `docs/audits -> docs -> docs/plans` | 3 | 18 | 54 |
+| `dagayn/visualization -> dagayn` | 2 | 3 | 6 |
 
-SDP violations は 2 件、`truncated=false`。
+Code scope の SDP violations は 0 件、`truncated=false`。以前の `docs -> <root>` のような SDP warning は code design signal ではなく docs scope に分離された。
 
-| source | target | source instability | target instability | delta |
-|---|---|---:|---:|---:|
-| docs | `<root>` | 0.4 | 0.5714 | 0.1714 |
-| docs/plans | docs/audits | 0.5 | 0.6667 | 0.1667 |
+Docs scope の ADP / SDP は次の通りである。
 
-SAP violations は 7 件、`min_distance=0.5`、`truncated=false`。
+| scope | finding | count / delta |
+|---|---|---:|
+| docs ADP | `<root> -> docs/plans -> docs` | severity 66 |
+| docs ADP | `<root> -> docs` | severity 64 |
+| docs ADP | `docs -> docs/plans` | severity 52 |
+| docs SDP | `docs -> <root>` | delta 0.2 |
+
+SAP violations は code scope で 7 件、`min_distance=0.5`、`truncated=false`。
 
 | scope | distance | zone |
 |---|---:|---|
-| `dagayn-vscode/src/webview` | 1.0 | uselessness |
-| `dagayn/parser/_base` | 1.0 | pain |
 | `dagayn-vscode/test` | 1.0 | uselessness |
-| `dagayn/graph` | 0.8889 | pain |
-| `dagayn/parser` | 0.75 | pain |
-| `dagayn` | 0.6667 | pain |
+| `dagayn/parser/_base` | 1.0 | pain |
+| `dagayn-vscode/src/webview` | 1.0 | uselessness |
+| `dagayn/graph` | 0.9 | pain |
+| `dagayn/parser` | 0.8 | pain |
 | `dagayn-vscode/src/views` | 0.6667 | pain |
+| `dagayn` | 0.6667 | pain |
 
-今回の ADP / SDP の主な問題は docs 周辺であり、旧レポート時点のような `dagayn/tools` と `dagayn/cli/commands` の巨大循環ではない。これは graph とツール実装の進化により、以前の評価をそのまま使えないことを示している。分析レポートは必ず current graph に基づいて更新すべきである。
+今回の変更により、ADP / SDP / SAP の解釈は明確になった。code scope の値はコード設計の signal として扱い、docs scope の値は Markdown 文書間の依存構造の signal として別枠で扱う。mixed graph は traceability の確認には有用だが、設計原則メトリクスの既定値にはしない。
 
 ### 6.8 実行フロー
 
-`flow_tool(mode="list", sort_by="criticality", limit=20)` の上位は次の通り。
+`flow_tool(mode="list", detail_level="minimal", limit=10)` の上位は次の通り。
 
 | rank | flow | criticality | node count |
 |---:|---|---:|---:|
 | 1 | activate | 0.665 | 20 |
-| 2 | benchmark_review_workflow | 0.61 | 2 |
-| 3 | benchmark_architecture_workflow | 0.61 | 2 |
-| 4 | benchmark_debug_workflow | 0.61 | 2 |
-| 5 | benchmark_onboard_workflow | 0.61 | 2 |
-| 6 | benchmark_pre_merge_workflow | 0.61 | 2 |
-| 7 | query_graph | 0.61 | 4 |
-| 8 | main | 0.4967 | 6 |
-| 9 | compute_missing_signatures | 0.485 | 2 |
-| 10 | computes_missing_signatures | 0.485 | 2 |
-| 15 | search_nodes | 0.47 | 5 |
-| 20 | resolve_javascript_call_target | 0.44 | 29 |
+| 2 | embed | 0.61 | 2 |
+| 3 | embed_query | 0.61 | 2 |
+| 4 | benchmark_review_workflow | 0.61 | 2 |
+| 5 | benchmark_architecture_workflow | 0.61 | 2 |
+| 6 | benchmark_debug_workflow | 0.61 | 2 |
+| 7 | benchmark_onboard_workflow | 0.61 | 2 |
+| 8 | benchmark_pre_merge_workflow | 0.61 | 2 |
+| 9 | query_graph | 0.61 | 4 |
+| 10 | main | 0.4967 | 6 |
 
-`activate` は VS Code extension 側の activation flow と見られ、最も criticality が高い。MCP / CLI では `query_graph`、`main`、`search_nodes` が目立つ。変更レビュー時には affected flows がここに乗るかどうかが重要である。
+`activate` は VS Code extension 側の activation flow と見られ、最も criticality が高い。MCP / CLI では `query_graph` と `main` が目立つ。変更レビュー時には affected flows がここに乗るかどうかが重要である。
 
 ### 6.9 大規模ファイル・クラス
 
-`dagayn tool find_large_functions_tool --arg min_lines=200 --arg limit=20` は 20 件を返した。
+`dagayn tool find_large_functions_tool --arg min_lines=80 --arg limit=10` は 10 件を返した。
 
 | rank | node | kind | lines |
 |---:|---|---|---:|
-| 1 | `crates/dagayn-graph/src/lib.rs` | File | 3,836 |
-| 2 | `crates/dagayn-graph/src/lib.rs::GraphStore` | Class | 2,827 |
-| 3 | `crates/dagayn-parser/src/core_tests.rs` | File | 2,610 |
-| 4 | `tests/test_skills.py` | File | 2,258 |
-| 5 | `tests/test_parser.py` | File | 2,227 |
-| 6 | `tests/test_tools.py` | File | 2,119 |
-| 7 | `dagayn/graph/core.py` | File | 1,970 |
-| 8 | `dagayn/incremental.py` | File | 1,885 |
-| 9 | `dagayn/graph/core.py::GraphStore` | Class | 1,875 |
-| 10 | `tests/test_multilang.py` | File | 1,806 |
-| 11 | `tests/test_refactor.py` | File | 1,646 |
-| 12 | `dagayn/skills.py` | File | 1,633 |
-| 13 | `crates/dagayn-parser/src/python.rs` | File | 1,402 |
-| 14 | `tests/test_embeddings.py` | File | 1,387 |
-| 15 | `crates/dagayn-py/src/lib.rs` | File | 1,342 |
-| 16 | `dagayn/embeddings.py` | File | 1,155 |
-| 17 | `dagayn/main.py` | File | 1,067 |
-| 18 | `tests/test_parser.py::TestCodeParser` | Class | 989 |
-| 19 | `dagayn/communities.py` | File | 944 |
-| 20 | `tests/test_daemon.py` | File | 943 |
+| 1 | `crates/dagayn-graph/src/lib.rs` | File | 4,095 |
+| 2 | `crates/dagayn-graph/src/lib.rs::GraphStore` | Class | 2,936 |
+| 3 | `crates/dagayn-parser/src/core_tests.rs` | File | 2,627 |
+| 4 | `tests/test_skills.py` | File | 2,429 |
+| 5 | `tests/test_tools.py` | File | 2,250 |
+| 6 | `tests/test_parser.py` | File | 2,227 |
+| 7 | `dagayn/graph/core.py` | File | 2,062 |
+| 8 | `dagayn/graph/core.py::GraphStore` | Class | 1,936 |
+| 9 | `dagayn/skills.py` | File | 1,936 |
+| 10 | `dagayn/incremental.py` | File | 1,905 |
 
 最大の構造課題は Rust `GraphStore` と Python `GraphStore` の二重の大きさである。Rust 移行途中のためある程度は避けられないが、責務境界、query APIs、migration、analysis JSON surface を分ける余地がある。テストファイルも大きいが、これは多言語 fixture と parity coverage の厚さを反映している。
 
@@ -622,7 +613,7 @@ dagayn の最大の強みは、エージェントが実際に使う workflow を
 
 優先度高:
 
-1. `dagayn/cli/commands/build.py::handle` の direct coverage evidence を改善する。degree 159 の top hub かつ untested hotspot であるため、CLI build path の unit / integration coverage を graph 上でも見える形にする。
+1. `dagayn/cli/commands/build.py::handle` の direct coverage evidence を改善する。degree 161 の top hub であるため、CLI build path の unit / integration coverage を graph 上でも見える形にする。
 2. Runtime bridge centrality を postprocess score table へ移す。`bridge_scores` と `hub_scores` の永続化は MCP latency を大きく改善する。
 3. Rust `GraphStore` と Python `GraphStore` の責務境界を文書化し、移行完了までの API 所有権を明確にする。
 4. Embedding search の cosine loop を vectorized cache に置き換える。semantic search は対話的に呼ばれるため効果が大きい。
@@ -632,7 +623,7 @@ dagayn の最大の強みは、エージェントが実際に使う workflow を
 
 6. `parse_diff_ranges` の LRU cache を追加し、review sequence 内の repeated git diff を削減する。
 7. `get_flow_by_id` と DFS traversal を batch 化する。
-8. ADP / SDP の docs 周辺 cycle を整理し、plan docs と audit docs の依存方向を明確にする。
+8. docs scope の ADP / SDP cycle を整理し、plan docs と root docs の依存方向を明確にする。code scope の ADP / SDP とは別枠で扱う。
 9. `dagayn-analysis-report.md` のような分析文書では、意図的な `dagayn:` directive と説明用 backtick を使い分ける authoring guideline を追加する。
 10. Per-MCP-tool latency benchmark を実装し、CI ではなくまず手元で baseline JSON を保存する。
 
@@ -656,6 +647,6 @@ dagayn は、コードベースを単なるファイル集合ではなく、AI �
 
 実装は Python frontend と Rust backend の混合で、Rust-owned parser と Rust-backed graph store へ移行しつつ、Python 側が CLI、MCP、workflow、analysis orchestration を担っている。性能面では batch query、store cache、worker parser singleton、FTS5、optional embedding、thread offload が既に効いている一方、hub / bridge persistence、embedding vectorization、write-side batch、mtime skip、latency benchmark は今後の主要課題である。
 
-dagayn 自身の current graph は 6,070 nodes / 43,159 edges / 382 files で、docs、tests、parser、graph store、MCP tool surface が大きな構造単位として現れている。分析結果は、docs-tool と tests-files の coupling、top hub としての build command handler、bridge としての MCP dispatch / search / build path、1,021 件の structural knowledge gaps、docs 周辺の ADP / SDP、7 件の SAP violations、大規模な Rust / Python GraphStore を示した。
+dagayn 自身の current graph は 8,114 nodes / 47,431 edges / 388 files で、docs、tests、parser、graph store、MCP tool surface が大きな構造単位として現れている。分析結果は、tests-detect と tests-nodes の coupling、top hub としての build command handler、bridge としての search / SAP / MCP dispatch path、2,637 件の structural knowledge gaps、code scope では ADP 1 件・SDP 0 件、docs scope では ADP 3 件・SDP 1 件、7 件の SAP violations、大規模な Rust / Python GraphStore を示した。
 
-結論として、dagayn はすでに「AI coding agent のための構造的コンテキスト基盤」として一貫した形を持っている。次の成熟段階では、query-time 重処理を postprocess / cache / Rust へ移し、graph signal の noise を authoring rule と resolver quality で抑え、主要 hub の coverage evidence を graph 上でも明確にすることが重要である。
+結論として、dagayn はすでに「AI coding agent のための構造的コンテキスト基盤」として一貫した形を持っている。次の成熟段階では、query-time 重処理を postprocess / cache / Rust へ移し、graph signal の noise を authoring rule と resolver quality と artifact-scoped metrics で抑え、主要 hub の coverage evidence を graph 上でも明確にすることが重要である。

@@ -1,4 +1,4 @@
-"""Package design principle analysis: ADP (Acyclic Dependencies) and SDP (Stable Dependencies)."""
+"""Artifact-scoped package design principle analysis: ADP and SDP."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import Literal
 
 import networkx as nx
 
-from ._scope import build_node_scope_maps
+from ._scope import ArtifactScope, build_node_scope_maps
 from .graph import GraphStore
 
 logger = logging.getLogger(__name__)
@@ -18,10 +18,15 @@ _DEPENDENCY_EDGE_KINDS = frozenset({"IMPORTS_FROM", "DEPENDS_ON", "INHERITS", "I
 def _project_dependency_graph(
     store: GraphStore,
     granularity: Literal["file", "package"] = "package",
+    artifact_scope: ArtifactScope = "code",
 ) -> nx.DiGraph:
     """Build a directed dependency graph from dependency edges.
 
     Edges included: IMPORTS_FROM, DEPENDS_ON, INHERITS, IMPLEMENTS.
+    By default, Markdown documentation nodes are excluded so code architecture
+    metrics are not skewed by documentation dependency directives. Pass
+    artifact_scope="docs" for documentation-only dependencies, or "all" for
+    the legacy mixed graph.
     Both endpoints are resolved to scope keys; nodes that cannot be resolved
     (e.g. stdlib types) are silently skipped. INHERITS/IMPLEMENTS targets are
     resolved first by qualified name, then by bare name when exactly one
@@ -32,7 +37,11 @@ def _project_dependency_graph(
     """
     g: nx.DiGraph = nx.DiGraph()
 
-    qualified_to_scope, name_to_scope = build_node_scope_maps(store, granularity)
+    qualified_to_scope, name_to_scope = build_node_scope_maps(
+        store,
+        granularity,
+        artifact_scope=artifact_scope,
+    )
 
     for e in store.get_all_edges():
         if e.kind not in _DEPENDENCY_EDGE_KINDS:
@@ -59,16 +68,22 @@ def find_adp_violations(
     granularity: Literal["file", "package"] = "package",
     min_cycle_size: int = 2,
     max_cycle_length: int = 10,
+    artifact_scope: ArtifactScope = "code",
 ) -> list[dict]:
     """Find cyclic dependencies (ADP violations).
 
-    Uses nx.simple_cycles on the dependency subgraph (IMPORTS_FROM,
-    DEPENDS_ON). Each result includes the nodes in the cycle, its length,
-    total edge weight, and a severity score (length × edge_weight).
+    Uses nx.simple_cycles on the artifact-scoped dependency subgraph
+    (IMPORTS_FROM, DEPENDS_ON, INHERITS, IMPLEMENTS). Each result includes the
+    nodes in the cycle, its length, total edge weight, and a severity score
+    (length × edge_weight).
 
     Returns list of dicts sorted by severity descending.
     """
-    g = _project_dependency_graph(store, granularity=granularity)
+    g = _project_dependency_graph(
+        store,
+        granularity=granularity,
+        artifact_scope=artifact_scope,
+    )
 
     if g.number_of_nodes() == 0:
         return []
@@ -101,6 +116,7 @@ def find_adp_violations(
 def compute_sdp_metrics(
     store: GraphStore,
     granularity: Literal["file", "package"] = "package",
+    artifact_scope: ArtifactScope = "code",
 ) -> list[dict]:
     """Compute SDP instability metrics for each module/package.
 
@@ -111,9 +127,15 @@ def compute_sdp_metrics(
     - I = 1: maximally unstable (nothing depends on it, it depends on many things)
     Isolated nodes (Ca + Ce = 0) are assigned I = 0.
 
-    Returns list of dicts sorted by instability descending.
+    ``artifact_scope`` keeps code and Markdown documentation dependencies from
+    contributing to each other's Ca/Ce counts. Returns list of dicts sorted by
+    instability descending.
     """
-    g = _project_dependency_graph(store, granularity=granularity)
+    g = _project_dependency_graph(
+        store,
+        granularity=granularity,
+        artifact_scope=artifact_scope,
+    )
 
     if g.number_of_nodes() == 0:
         return []
@@ -141,6 +163,7 @@ def find_sdp_violations(
     store: GraphStore,
     granularity: Literal["file", "package"] = "package",
     min_delta: float = 0.1,
+    artifact_scope: ArtifactScope = "code",
 ) -> list[dict]:
     """Find SDP violations: dependencies pointing toward instability.
 
@@ -149,7 +172,11 @@ def find_sdp_violations(
 
     Returns list of dicts sorted by delta descending.
     """
-    g = _project_dependency_graph(store, granularity=granularity)
+    g = _project_dependency_graph(
+        store,
+        granularity=granularity,
+        artifact_scope=artifact_scope,
+    )
 
     if g.number_of_nodes() == 0:
         return []
