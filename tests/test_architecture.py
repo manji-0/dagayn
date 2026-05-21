@@ -424,8 +424,7 @@ class TestComputeSdpMetrics:
 
         code_names = {r["name"] for r in compute_sdp_metrics(s, granularity="package")}
         docs_names = {
-            r["name"]
-            for r in compute_sdp_metrics(s, granularity="package", artifact_scope="docs")
+            r["name"] for r in compute_sdp_metrics(s, granularity="package", artifact_scope="docs")
         }
         assert code_names == {"src", "lib"}
         assert docs_names == {"docs", "guides"}

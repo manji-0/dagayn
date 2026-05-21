@@ -620,8 +620,7 @@ def handle(args: argparse.Namespace) -> None:
                     print("No SDP violations found.")
                 else:
                     print(
-                        f"SDP violations ({len(violations)}, "
-                        f"artifact_scope={args.artifact_scope}):"
+                        f"SDP violations ({len(violations)}, artifact_scope={args.artifact_scope}):"
                     )
                     for v in violations:
                         print(
@@ -696,8 +695,7 @@ def handle(args: argparse.Namespace) -> None:
                     print("No SAP violations found.")
                 else:
                     print(
-                        f"SAP violations ({len(violations)}, "
-                        f"artifact_scope={args.artifact_scope}):"
+                        f"SAP violations ({len(violations)}, artifact_scope={args.artifact_scope}):"
                     )
                     for v in violations:
                         print(
