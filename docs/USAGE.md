@@ -92,7 +92,7 @@ to the removed Python parser implementation.
 ## Review changes
 
 <!-- constrained-by ./ARCHITECTURE.md#pipeline-overview -->
-<!-- derived-from ./plans/ANALYSIS-TOOL-STRATEGY.md#phase-1-document-the-default-path -->
+<!-- Plan context: ./plans/ANALYSIS-TOOL-STRATEGY.md#phase-1-document-the-default-path; not a graph dependency because usage docs are canonical. -->
 
 ```bash
 dagayn detect-changes --base HEAD~1
@@ -104,7 +104,7 @@ In MCP clients, start with `get_minimal_context_tool`, then choose
 
 ## Start the MCP server
 
-<!-- derived-from ./plans/ANALYSIS-TOOL-STRATEGY.md#mcp-tool-surface-plan -->
+<!-- Plan context: ./plans/ANALYSIS-TOOL-STRATEGY.md#mcp-tool-surface-plan; not a graph dependency because usage docs are canonical. -->
 
 ```bash
 dagayn serve

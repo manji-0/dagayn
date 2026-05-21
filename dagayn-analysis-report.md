@@ -9,7 +9,7 @@
 <!-- derived-from ./docs/RUST-CORE-MIGRATION-WIP.md -->
 <!-- derived-from ./docs/LOCAL-EMBEDDINGS.md -->
 <!-- derived-from ./docs/DAEMON-CONFIG.md -->
-<!-- derived-from ./docs/plans/ANALYSIS-TOOL-STRATEGY.md -->
+<!-- Informed by ./docs/plans/ANALYSIS-TOOL-STRATEGY.md; not a graph dependency because this report treats stable docs as canonical. -->
 <!-- derived-from ./skills/writing-markdown-document/SKILL.md -->
 
 # dagayn 総合分析レポート
@@ -29,7 +29,7 @@ dagayn は「DAG is All You Need」を掲げる、コードレビューと影響
 
 この fork は upstream の `code-review-graph` から派生しているが、現行ドキュメントでは upstream prose を canonical とは扱わない。dagayn 自体の特長は、Terraform と Markdown を first-class に扱うこと、Rust バックエンドへ移行していること、MCP 3.0 の小さな dispatcher surface を採用していること、Codex / Claude / OpenCode などのエージェント設定を自動化すること、そして mixed-language monorepo を主対象にしていることである。
 
-2026-05-21 の incremental refresh 後の自己分析では、グラフは 8,114 ノード、47,431 エッジ、388 ファイル、29 言語、7,726 embedding を持つ。ノード種別は `Function` 2,908、`Test` 1,766、`DocBody` 1,823、`DocSection` 773、`Class` 456、`File` 388。エッジ種別は `CALLS` 28,849、`CONTAINS` 7,796、`TESTED_BY` 6,725、`IMPORTS_FROM` 1,867、`CROSS_ARTIFACT` 1,840、`DEPENDS_ON` 168、`REFERENCES` 139、`INHERITS` 43、`IMPLEMENTS` 4 である。
+2026-05-21 の refresh 後の自己分析では、グラフは 8,117 ノード、47,415 エッジ、388 ファイル、29 言語、7,729 embedding を持つ。ノード種別は `Function` 2,908、`Test` 1,766、`DocBody` 1,826、`DocSection` 773、`Class` 456、`File` 388。エッジ種別は `CALLS` 28,849、`CONTAINS` 7,799、`TESTED_BY` 6,725、`IMPORTS_FROM` 1,857、`CROSS_ARTIFACT` 1,839、`DEPENDS_ON` 160、`REFERENCES` 139、`INHERITS` 43、`IMPLEMENTS` 4 である。
 
 アーキテクチャ分析の主な発見は次の通りである。
 
@@ -39,7 +39,7 @@ dagayn は「DAG is All You Need」を掲げる、コードレビューと影響
 - ブリッジ上位は `tests/test_main.py::TestLongRunningToolsAreAsync.test_regression_guard_does_not_depend_on_fastmcp_internals` betweenness 0.009462、`tests/test_integration_v2.py::TestV2Integration.test_full_pipeline` 0.005896、`dagayn/search.py::hybrid_search` 0.002908。
 - 知識ギャップは raw count 2,637。内訳は isolated nodes 2,284、thin communities 163、untested hotspots 75、single-file communities 115。未テスト hotspot の p95 degree 閾値は 37。
 - ADP / SDP / SAP は `artifact_scope="code"` を既定にして再計算された。code scope の ADP 違反は 1 件、SDP 違反は 0 件、SAP 違反は 7 件である。
-- docs scope では ADP 違反が 3 件、SDP 違反が 1 件残る。これはコード設計の問題ではなく、Markdown dependency directive による文書構造の signal として扱うべきである。
+- docs scope の ADP / SDP は、stable docs から plan docs / root guidance へ戻る依存を整理した後、ADP 0 件、SDP 0 件になった。以前の ADP 3 件 / SDP 1 件はコード設計の問題ではなく、Markdown dependency direction の signal だった。
 
 ## 2. dagayn の思想
 
@@ -341,19 +341,15 @@ embedding 側の性能は、現行実装では2段階に分かれる。`dagayn/s
 
 ### 5.4 残る性能課題
 
-未実装または partial の項目も明確である。
+未実装または partial の項目は、直近の改善によりかなり絞られている。
 
-- `get_flow_by_id` 単体呼び出しは path step ごとに `get_node_by_id` を呼ぶ。
-- hub / bridge scores は runtime calculation が残る。特に bridge は NetworkX betweenness を query time に走らせる。
-- write side は `upsert_node` / `upsert_edge` の per-row INSERT + SELECT、`store_file_batch` 未使用、communities / flows の insert loops が残る。
-- Markdown artifact ref resolver は edge ごとに SELECT + UPDATE / DELETE している。
-- embedding search は numpy 利用時の matrix cache + BLAS fast path を持つが、numpy 非導入環境では pure-Python cosine loop に fallback する。
-- `embed_nodes` は node ごとに embedding SELECT / INSERT している。
-- suffix LIKE は index が効きにくい。
-- incremental update は mtime が変わっていないファイルでも bytes read + sha256 を行う。
-- DFS traversal は BFS と違い size-1 batch のまま。
-- `parse_diff_ranges` は複数 tool call で同じ `git diff` を繰り返し得る。
+- write side にはまだ `upsert_node` / `upsert_edge` の細かい row 単位処理が残る。Rust-backed `store_file_batch`、flow / community batch、Markdown artifact ref resolver の batch 化は進んだが、古い Python fallback と一部の補助 path は継続して見る必要がある。
+- `embed_nodes` は node ごとの既存 embedding 確認と INSERT を持ち、生成側の batch 化余地が残る。
+- DFS traversal は BFS と違い、frontier batch ではなく size-1 lookup が残る箇所を持つ。
 - provider `embed_query` 結果は `_embed_query_cached` で LRU cache されるが、remote provider ごとの latency baseline と cache hit rate はまだ継続測定が必要である。
+- per-MCP-tool latency benchmark は手元の baseline 取得まで実装済みだが、CI regression gate と reference graph ごとの閾値管理は未整備である。
+
+一方で、`get_flow_by_id` の step hydration、hub / bridge score persistence、embedding search の numpy matrix cache、`parse_diff_ranges` の LRU cache、`edges.target_name` による suffix lookup 改善、`mtime_ns` による incremental skip は実装済みである。したがって次の性能改善は、残った write-side / traversal / embedding generation の hot path を、測定 baseline とセットで詰める段階に入っている。
 
 これらは性能上の TODO であると同時に、設計の方向性を示している。dagayn は query-time の全表 scan や Python loop を段階的に postprocess / Rust / cache / batch へ移す途中にある。
 
@@ -363,7 +359,7 @@ embedding 側の性能は、現行実装では2段階に分かれる。`dagayn/s
 
 `dagayn profile` は `pyinstrument` により CPU profiler output を `.dagayn/profiles/profile_<subcommand>_<timestamp>.html` に書く。
 
-未整備のものとして、per-MCP-tool wall-clock latency benchmark と CI regression gates が残る。WIP plan の初期 target は、`semantic_search_nodes` p95 < 500 ms、`detect_changes` < 300 ms、`get_impact_radius` < 100 ms、`get_review_context` < 200 ms、hub / bridge post-Fix B < 50 ms、depth 3 traversal < 150 ms である。ただしこれは hard acceptance criteria ではなく、測定後に調整される calibration target とされている。
+per-MCP-tool wall-clock latency benchmark は `dagayn/eval/benchmarks/mcp_latency.py` と `recent_changes_effects` scenario に組み込まれており、まず手元で baseline JSON / CSV を保存する段階まで進んでいる。残るのは CI regression gate、reference graph ごとの閾値管理、remote provider を含む測定条件の分離である。WIP plan の初期 target は、`semantic_search_nodes` p95 < 500 ms、`detect_changes` < 300 ms、`get_impact_radius` < 100 ms、`get_review_context` < 200 ms、hub / bridge post-Fix B < 50 ms、depth 3 traversal < 150 ms だが、これは hard acceptance criteria ではなく、測定後に調整される calibration target として扱う。
 
 ## 6. dagayn 自身のグラフ分析
 
@@ -375,12 +371,12 @@ embedding 側の性能は、現行実装では2段階に分かれる。`dagayn/s
 
 | 指標 | 値 |
 |---|---:|
-| total nodes | 8,114 |
-| total edges | 47,431 |
+| total nodes | 8,117 |
+| total edges | 47,415 |
 | files | 388 |
 | languages | 29 |
-| embeddings | 7,726 |
-| last updated | 2026-05-21T20:15:50 |
+| embeddings | 7,729 |
+| last updated | 2026-05-21T21:02:51 |
 
 ノード種別:
 
@@ -388,7 +384,7 @@ embedding 側の性能は、現行実装では2段階に分かれる。`dagayn/s
 |---|---:|
 | Function | 2,908 |
 | Test | 1,766 |
-| DocBody | 1,823 |
+| DocBody | 1,826 |
 | DocSection | 773 |
 | Class | 456 |
 | File | 388 |
@@ -398,16 +394,16 @@ embedding 側の性能は、現行実装では2段階に分かれる。`dagayn/s
 | kind | count |
 |---|---:|
 | CALLS | 28,849 |
-| CONTAINS | 7,796 |
+| CONTAINS | 7,799 |
 | TESTED_BY | 6,725 |
-| IMPORTS_FROM | 1,867 |
-| CROSS_ARTIFACT | 1,840 |
-| DEPENDS_ON | 168 |
+| IMPORTS_FROM | 1,857 |
+| CROSS_ARTIFACT | 1,839 |
+| DEPENDS_ON | 160 |
 | REFERENCES | 139 |
 | INHERITS | 43 |
 | IMPLEMENTS | 4 |
 
-この構成から、dagayn 自身のグラフはコード呼び出しとテスト関係が大きな割合を占めつつ、Markdown / cross artifact edge もかなり多いことが分かる。`CROSS_ARTIFACT` 1,840 は、この repo がドキュメントと実装の対応を積極的に graph 化していることを示す。一方で ADP/SDP/SAP は code scope と docs scope を分けて読む必要がある。
+この構成から、dagayn 自身のグラフはコード呼び出しとテスト関係が大きな割合を占めつつ、Markdown / cross artifact edge もかなり多いことが分かる。`CROSS_ARTIFACT` 1,839 は、この repo がドキュメントと実装の対応を積極的に graph 化していることを示す。一方で ADP/SDP/SAP は code scope と docs scope を分けて読む必要がある。
 
 ### 6.2 コミュニティ構造
 
@@ -606,7 +602,7 @@ dagayn の最大の強みは、エージェントが実際に使う workflow を
 主なリスクは3つある。
 
 1. 実装の中心部が大きい。Rust `GraphStore`、Python `GraphStore`、`incremental.py`、`main.py`、`skills.py` は変更時の認知負荷が高い。
-2. query-time analysis がまだ重い領域を持つ。bridge centrality、embedding cosine、write-side N+1、flow hydration の一部などは改善余地がある。
+2. query-time analysis の重い領域は postprocess / cache / batch へ移りつつあるが、write-side の細かい row 処理、DFS traversal、embedding generation、latency gate はまだ改善余地がある。
 3. Markdown cross artifact edge は便利だが、backtick の多用により surprising connection noise を生み得る。文書作成ルールと postprocess の signal quality が重要である。
 
 ### 7.3 優先改善提案
@@ -614,24 +610,24 @@ dagayn の最大の強みは、エージェントが実際に使う workflow を
 優先度高:
 
 1. `dagayn/cli/commands/build.py::handle` の direct coverage evidence を改善する。degree 161 の top hub であるため、CLI build path の unit / integration coverage を graph 上でも見える形にする。
-2. Runtime bridge centrality を postprocess score table へ移す。`bridge_scores` と `hub_scores` の永続化は MCP latency を大きく改善する。
-3. Rust `GraphStore` と Python `GraphStore` の責務境界を文書化し、移行完了までの API 所有権を明確にする。
-4. Embedding search の cosine loop を vectorized cache に置き換える。semantic search は対話的に呼ばれるため効果が大きい。
-5. Markdown artifact ref resolver と write-side storage の batch 化を進める。
+2. 残る write-side storage path を測定し、Python fallback の row 単位処理を batch / Rust path へ寄せる。既に shipped した Markdown artifact ref resolver、flow / community persistence、centrality persistence とは別に、補助 path の取りこぼしを潰す。
+3. `embed_nodes` の既存 embedding 確認と write を batch 化する。search 側の vectorized cache は実装済みなので、次は生成側の N+1 を減らす。
+4. DFS traversal の size-1 lookup を BFS と同様の frontier batch へ寄せる。`traverse_graph` の interactive latency に効く可能性がある。
+5. Per-MCP-tool latency benchmark の baseline を reference graph ごとに保存し、CI gate 化の前に regression 判断の閾値を固める。
 
 優先度中:
 
-6. `parse_diff_ranges` の LRU cache を追加し、review sequence 内の repeated git diff を削減する。
-7. `get_flow_by_id` と DFS traversal を batch 化する。
-8. docs scope の ADP / SDP cycle を整理し、plan docs と root docs の依存方向を明確にする。code scope の ADP / SDP とは別枠で扱う。
+6. `dagayn/cli/commands/build.py::handle` 以外の high-degree CLI / MCP entrypoint について、direct coverage evidence の見え方を改善する。
+7. Rust `GraphStore` と Python `GraphStore` の責務境界を、移行済み API と fallback API に分けて継続的に棚卸しする。
+8. docs scope の ADP / SDP cycle は整理済みなので、plan docs と root docs の依存方向が再び逆流しないよう authoring guideline と review 観点に残す。
 9. `dagayn-analysis-report.md` のような分析文書では、意図的な `dagayn:` directive と説明用 backtick を使い分ける authoring guideline を追加する。
-10. Per-MCP-tool latency benchmark を実装し、CI ではなくまず手元で baseline JSON を保存する。
+10. per-MCP-tool latency benchmark の結果を current repo / synthetic repo / remote provider の条件別に比較できるようにする。
 
 優先度低:
 
 11. single-file communities のうち、README 翻訳や security / code of conduct のような自然な孤立は noise として除外または分類する。
-12. suffix LIKE の長期的解決として target name 正規化列を検討する。
-13. mtime-based incremental skip を migration とともに導入する。
+12. single-file community noise の分類結果を report / tool output でより説明しやすくする。
+13. CI latency regression gate を導入する前に、手元 baseline のばらつきと許容幅を記録する。
 
 ## 8. まとめ
 
@@ -645,8 +641,8 @@ dagayn の最大の強みは、エージェントが実際に使う workflow を
 
 dagayn は、コードベースを単なるファイル集合ではなく、AI エージェントが問い合わせ可能な knowledge graph として扱うプロダクトである。思想は「先に構造を読み、必要な source だけを読む」。提供機能は build / update / postprocess、compact MCP dispatcher、review / architecture / query / semantic search / refactor、Markdown / Terraform / notebook extraction、visualization / wiki / export、hooks / install / multi-repo に広がる。
 
-実装は Python frontend と Rust backend の混合で、Rust-owned parser と Rust-backed graph store へ移行しつつ、Python 側が CLI、MCP、workflow、analysis orchestration を担っている。性能面では batch query、store cache、worker parser singleton、FTS5、optional embedding、thread offload が既に効いている一方、hub / bridge persistence、embedding vectorization、write-side batch、mtime skip、latency benchmark は今後の主要課題である。
+実装は Python frontend と Rust backend の混合で、Rust-owned parser と Rust-backed graph store へ移行しつつ、Python 側が CLI、MCP、workflow、analysis orchestration を担っている。性能面では batch query、store cache、worker parser singleton、FTS5、optional embedding、thread offload、hub / bridge persistence、embedding vectorization、mtime skip、`parse_diff_ranges` cache、local latency benchmark が既に効いている。今後の主要課題は、残る write-side batch、DFS traversal、embedding generation、latency regression gate、そして docs scope 依存方向の再発防止である。
 
-dagayn 自身の current graph は 8,114 nodes / 47,431 edges / 388 files で、docs、tests、parser、graph store、MCP tool surface が大きな構造単位として現れている。分析結果は、tests-detect と tests-nodes の coupling、top hub としての build command handler、bridge としての search / SAP / MCP dispatch path、2,637 件の structural knowledge gaps、code scope では ADP 1 件・SDP 0 件、docs scope では ADP 3 件・SDP 1 件、7 件の SAP violations、大規模な Rust / Python GraphStore を示した。
+dagayn 自身の current graph は 8,117 nodes / 47,415 edges / 388 files で、docs、tests、parser、graph store、MCP tool surface が大きな構造単位として現れている。分析結果は、tests-detect と tests-nodes の coupling、top hub としての build command handler、bridge としての search / SAP / MCP dispatch path、2,637 件の structural knowledge gaps、code scope では ADP 1 件・SDP 0 件、docs scope では ADP 0 件・SDP 0 件、7 件の SAP violations、大規模な Rust / Python GraphStore を示した。
 
 結論として、dagayn はすでに「AI coding agent のための構造的コンテキスト基盤」として一貫した形を持っている。次の成熟段階では、query-time 重処理を postprocess / cache / Rust へ移し、graph signal の noise を authoring rule と resolver quality と artifact-scoped metrics で抑え、主要 hub の coverage evidence を graph 上でも明確にすることが重要である。

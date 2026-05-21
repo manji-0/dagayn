@@ -107,7 +107,7 @@ to the same config's `hooks:` block.
 
 <!-- constrained-by ./ARCHITECTURE.md#query-surfaces -->
 <!-- derived-from ./refactor-tool-suggest-spec.md -->
-<!-- derived-from ./plans/ANALYSIS-TOOL-STRATEGY.md#tool-tiers -->
+<!-- Plan context: ./plans/ANALYSIS-TOOL-STRATEGY.md#tool-tiers; not a graph dependency because stable command docs are canonical. -->
 
 The compact default MCP surface exposes tools for:
 
@@ -148,7 +148,7 @@ contract section through `implemented_by` / `implements_contract`
 
 ### MCP tool surface
 
-<!-- derived-from ./plans/ANALYSIS-TOOL-STRATEGY.md#mcp-tool-surface-plan -->
+<!-- Plan context: ./plans/ANALYSIS-TOOL-STRATEGY.md#mcp-tool-surface-plan; not a graph dependency because stable command docs are canonical. -->
 
 `dagayn serve` exposes a compact workflow surface by default. Dagayn v3 removed
 named tool profiles; specialized analysis now lives behind dispatcher tools

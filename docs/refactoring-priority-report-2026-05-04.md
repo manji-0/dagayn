@@ -1,6 +1,6 @@
 # Dagayn Refactoring Priority Report, 2026-05-04
 
-<!-- constrained-by ../AGENTS.md#how-agents-should-work-with-this-repo -->
+<!-- Method context: ../AGENTS.md#how-agents-should-work-with-this-repo; not a graph dependency because AGENTS.md is root-level agent guidance. -->
 <!-- derived-from ./refactoring-priority-report.md -->
 
 Generated from dagayn graph tools on 2026-05-04. Graph snapshot:

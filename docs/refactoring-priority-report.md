@@ -1,6 +1,6 @@
 # Dagayn Refactoring Priority Report
 
-<!-- constrained-by ../AGENTS.md#how-agents-should-work-with-this-repo -->
+<!-- Method context: ../AGENTS.md#how-agents-should-work-with-this-repo; not a graph dependency because AGENTS.md is root-level agent guidance. -->
 <!-- derived-from ./USECASE-COHESION-REFACTOR.md#setting-priorities-from-the-readings -->
 
 Generated from the dagayn graph on 2026-05-04. The graph snapshot contained

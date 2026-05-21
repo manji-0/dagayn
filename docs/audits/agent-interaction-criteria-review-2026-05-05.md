@@ -2,7 +2,7 @@
 
 <!-- derived-from ./mcp-tool-heuristic-review-2026-05-05.md -->
 <!-- constrained-by ../COMMANDS.md#mcp-tools -->
-<!-- constrained-by ../../AGENTS.md#how-agents-should-work-with-this-repo -->
+<!-- Method context: ../../AGENTS.md#how-agents-should-work-with-this-repo; not a graph dependency because AGENTS.md is root-level agent guidance. -->
 
 ## Scope
 

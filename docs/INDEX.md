@@ -39,5 +39,5 @@ This directory documents the fork as `dagayn`.
 
 ## Plan notes
 
-- [plans/README.md](./plans/README.md) — plan-note index
-- [plans/TREESITTER-TERRAFORM-INTEGRATION.md](./plans/TREESITTER-TERRAFORM-INTEGRATION.md) — Terraform grammar integration design note
+- `docs/plans/README.md` — plan-note index
+- `docs/plans/TREESITTER-TERRAFORM-INTEGRATION.md` — Terraform grammar integration design note
