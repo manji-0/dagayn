@@ -10,7 +10,7 @@
 
 対象: dagayn 4.0.2 / branch `main` / local commit `47ae2fd`
 
-根拠: `get_minimal_context_tool`, `list_graph_stats_tool`, `architecture_analysis_tool`, `flow_tool`, `refactor_tool`, `query_graph_tool`, `find_large_functions_tool`, targeted source inspection.
+根拠: `get_minimal_context_tool`, `list_graph_stats_tool`, `architecture_analysis_tool`, `flow_tool`, `refactor_tool`, `query_graph_tool`, `find_large_functions_tool`, targeted source inspection。
 
 ## 1. 要約
 
@@ -20,22 +20,22 @@ dagayn は、AI coding agent が repo 全体を読み直す代わりに、先に
 
 最新 graph では docs scope の ADP / SDP は 0 件になった。残る code scope の ADP は `dagayn` と `dagayn/visualization` の軽い 2-cycle 1 件のみで、severity は 6。したがって、今すぐ大規模な architecture cleanup を狙うより、parser / graph store / high-degree tool functions の直接テスト証拠、責務分割、metric noise の制御を優先した方がよい。
 
-## 2. Graph Snapshot
+## 2. グラフスナップショット
 
 `list_graph_stats_tool` の最新値:
 
-| Metric | Value |
+| 指標 | 値 |
 |---|---:|
-| nodes | 8,022 |
-| edges | 47,133 |
-| files | 388 |
-| languages | 29 |
-| embeddings | 7,634 |
-| last updated | 2026-05-22T00:05:56 |
+| ノード数 | 8,022 |
+| エッジ数 | 47,133 |
+| ファイル数 | 388 |
+| 言語数 | 29 |
+| embedding 数 | 7,634 |
+| 最終更新 | 2026-05-22T00:05:56 |
 
-Node kinds:
+ノード種別:
 
-| Kind | Count |
+| 種別 | 件数 |
 |---|---:|
 | Function | 2,908 |
 | Test | 1,766 |
@@ -44,9 +44,9 @@ Node kinds:
 | Class | 456 |
 | File | 388 |
 
-Edge kinds:
+エッジ種別:
 
-| Kind | Count |
+| 種別 | 件数 |
 |---|---:|
 | CALLS | 28,849 |
 | CONTAINS | 7,704 |
@@ -58,13 +58,13 @@ Edge kinds:
 | INHERITS | 43 |
 | IMPLEMENTS | 4 |
 
-Interpretation: production behavior is primarily represented by call and test edges, but Markdown remains a major graph participant. Any architecture result must continue to separate code scope and docs scope.
+解釈: production behavior は主に call edge と test edge で表現されているが、Markdown も依然として graph の主要な構成要素である。architecture result を読むときは、今後も code scope と docs scope を分ける必要がある。
 
-## 3. Current Shape
+## 3. 現在の構造
 
-Top communities by stored size:
+保存サイズ順の上位 community:
 
-| Rank | Community | Size | Cohesion |
+| 順位 | Community | サイズ | 凝集度 |
 |---:|---|---:|---:|
 | 1 | docs-tool | 852 | 0.6730 |
 | 2 | tests-detect | 291 | 0.6727 |
@@ -77,40 +77,40 @@ Top communities by stored size:
 | 9 | src-file | 140 | 0.5152 |
 | 10 | tests-provider | 114 | 0.6079 |
 
-`architecture_analysis_tool(mode="overview")` returned 369 communities, 5 coupled pairs shown, 0 warnings, and `truncated=true`. The displayed coupling example is `docs-tool -> tests-files` with 9 edges, mostly `CROSS_ARTIFACT`.
+`architecture_analysis_tool(mode="overview")` は community 369 件を返し、coupled pair は 5 件表示、warning は 0 件、`truncated=true` だった。表示された coupling example は `docs-tool -> tests-files` で、edge は 9 件、その大半は `CROSS_ARTIFACT` だった。
 
-The biggest structural fact is not a failing dependency rule. It is the sheer size and centrality of a few implementation surfaces:
+最も大きな構造上の事実は、依存ルール違反ではない。少数の実装面が非常に大きく、中心性も高いことである。
 
-| Unit | Signal |
+| 単位 | シグナル |
 |---|---|
-| `crates/dagayn-graph/src/lib.rs` | 4,095-line file; Rust GraphStore class is 2,936 lines |
-| `dagayn/graph/core.py` | 2,062-line file; Python GraphStore class is 1,936 lines |
-| `dagayn/cli/commands/build.py::handle` | top hub, degree 161 |
-| `dagayn/refactor/dead_code.py::find_dead_code` | degree 121, high branch pressure |
-| `dagayn/tools/query.py::query_graph` | degree 96, dispatcher complexity |
-| `dagayn/incremental.py::incremental_update` | degree 125, large workflow coordinator |
+| `crates/dagayn-graph/src/lib.rs` | 4,095 行の file。Rust GraphStore class は 2,936 行 |
+| `dagayn/graph/core.py` | 2,062 行の file。Python GraphStore class は 1,936 行 |
+| `dagayn/cli/commands/build.py::handle` | top hub、degree 161 |
+| `dagayn/refactor/dead_code.py::find_dead_code` | degree 121、branch pressure が高い |
+| `dagayn/tools/query.py::query_graph` | degree 96、dispatcher complexity |
+| `dagayn/incremental.py::incremental_update` | degree 125、大きな workflow coordinator |
 
-## 4. Architecture Signals
+## 4. アーキテクチャシグナル
 
-ADP / SDP / SAP are now useful only when read with scope:
+ADP / SDP / SAP は、scope と一緒に読む場合にだけ有用である。
 
-| Scope | Result |
+| Scope | 結果 |
 |---|---|
-| code ADP | 1 violation: `dagayn <-> dagayn/visualization`, severity 6 |
-| code SDP | 0 violations at `min_delta=0.1` |
-| docs ADP | 0 violations |
-| docs SDP | 0 violations |
-| code SAP | 7 violations at `min_distance=0.5` |
+| code ADP | violation 1 件: `dagayn <-> dagayn/visualization`, severity 6 |
+| code SDP | `min_delta=0.1` で violation 0 件 |
+| docs ADP | violation 0 件 |
+| docs SDP | violation 0 件 |
+| code SAP | `min_distance=0.5` で violation 7 件 |
 
-The ADP result is small. The visualization cycle is real, but its edge weight is low enough that it is not the best next project.
+ADP result は小さい。visualization cycle は実在するが、edge weight は低く、次の project として最適ではない。
 
-The SAP result is more interesting, but also noisier. Violations include `dagayn/parser/_base`, `dagayn/graph`, `dagayn/parser`, and `dagayn`, which are plausible design signals, but also `dagayn-vscode/test` and `dagayn-vscode/src/webview`, where abstractness/instability may not mean the same thing as in the Python/Rust core. The next SAP improvement should probably improve scope filtering and explanation before driving large refactors from it.
+SAP result はより興味深いが、noise も多い。violation には、plausible design signal と言える `dagayn/parser/_base`、`dagayn/graph`、`dagayn/parser`、`dagayn` が含まれる。一方で、`dagayn-vscode/test` や `dagayn-vscode/src/webview` も含まれており、ここでは abstractness/instability が Python/Rust core と同じ意味を持つとは限らない。次の SAP 改善では、大きな refactor を導く前に scope filtering と explanation を改善するのがよい。
 
-## 5. Hubs And Bridges
+## 5. ハブとブリッジ
 
-Top hubs:
+上位 hub:
 
-| Rank | Node | Degree |
+| 順位 | ノード | Degree |
 |---:|---|---:|
 | 1 | `dagayn/cli/commands/build.py::handle` | 161 |
 | 2 | `tests/test_flows.py::TestFlows._add_func` | 158 |
@@ -123,9 +123,9 @@ Top hubs:
 | 9 | `dagayn/sap.py::compute_sap_metrics` | 107 |
 | 10 | `dagayn/skills.py::install_platform_configs` | 107 |
 
-Top bridges:
+上位 bridge:
 
-| Rank | Node | Betweenness |
+| 順位 | ノード | 媒介中心性 |
 |---:|---|---:|
 | 1 | `tests/test_main.py::TestLongRunningToolsAreAsync.test_regression_guard_does_not_depend_on_fastmcp_internals` | 0.009445 |
 | 2 | `tests/test_integration_v2.py::TestV2Integration.test_full_pipeline` | 0.007415 |
@@ -138,24 +138,24 @@ Top bridges:
 | 9 | `tests/test_cli_serve.py::test_serve_infers_local_embedding_from_existing_graph` | 0.002102 |
 | 10 | `tests/test_daemon.py::TestWatchDaemon.test_status_from_state_reports_alive` | 0.002053 |
 
-Bridge centrality is now read from persisted scores when available, so these values are useful as leads rather than query-time performance problems. A lot of bridge signal still lands on tests. That is not automatically bad: integration tests genuinely connect many subsystems. It does mean bridge rankings should not be read as "production chokepoints only" unless filtered.
+bridge centrality は、利用できる場合は永続化済み score から読まれるようになっている。そのため、これらの値は query-time performance problem ではなく、有力な手がかりとして使える。bridge signal の多くはまだ tests に集中している。これは自動的に悪いわけではない。integration test は実際に多くの subsystem を接続する。ただし filter しない限り、bridge ranking を「production chokepoint だけ」と読んではいけない。
 
-## 6. Knowledge Gaps
+## 6. ナレッジギャップ
 
-`architecture_analysis_tool(mode="knowledge_gaps")` returned 2,609 raw gaps and `truncated=true`.
+`architecture_analysis_tool(mode="knowledge_gaps")` は raw gap 2,609 件を返し、`truncated=true` だった。
 
-Raw counts:
+raw count:
 
-| Category | Raw Count |
+| カテゴリ | raw count |
 |---|---:|
 | isolated nodes | 2,220 |
 | thin communities | 88 |
 | untested hotspots | 75 |
 | single-file communities | 226 |
 
-Thresholds:
+threshold:
 
-| Threshold | Value |
+| threshold | 値 |
 |---|---:|
 | isolated max degree | 1 |
 | thin community min size | 3 |
@@ -164,23 +164,23 @@ Thresholds:
 | untested hotspot min degree | 37 |
 | positive-degree candidate count | 2,234 |
 
-Top untested-hotspot evidence is the most actionable part of this section. The graph reports no direct `TESTED_BY` edge for these high-degree code nodes:
+top untested-hotspot evidence は、この section で最も actionable な部分である。graph は、次の high-degree code node に direct `TESTED_BY` edge がないと報告している。
 
-| Node | Degree | Evidence |
+| ノード | Degree | 根拠 |
 |---|---:|---|
-| `dagayn/refactor/dead_code.py::find_dead_code` | 121 | p95+ degree, no direct `TESTED_BY` edge |
-| `crates/dagayn-graph/src/lib.rs::GraphStore` | 106 | p95+ degree, no direct `TESTED_BY` edge |
-| `crates/dagayn-parser/src/core.rs::RustOwnedParser.parse_file_in_repo` | 103 | p95+ degree, no direct `TESTED_BY` edge |
-| `dagayn/tools/query.py::query_graph` | 96 | p95+ degree, no direct `TESTED_BY` edge |
-| `crates/dagayn-graph/src/lib.rs::GraphStore.analyze_changes_json` | 92 | p95+ degree, no direct `TESTED_BY` edge |
+| `dagayn/refactor/dead_code.py::find_dead_code` | 121 | p95+ degree、direct `TESTED_BY` edge なし |
+| `crates/dagayn-graph/src/lib.rs::GraphStore` | 106 | p95+ degree、direct `TESTED_BY` edge なし |
+| `crates/dagayn-parser/src/core.rs::RustOwnedParser.parse_file_in_repo` | 103 | p95+ degree、direct `TESTED_BY` edge なし |
+| `dagayn/tools/query.py::query_graph` | 96 | p95+ degree、direct `TESTED_BY` edge なし |
+| `crates/dagayn-graph/src/lib.rs::GraphStore.analyze_changes_json` | 92 | p95+ degree、direct `TESTED_BY` edge なし |
 
-This is evidence about graph-visible direct coverage, not proof that behavior is untested. For example, `query_graph_tool(pattern="tests_for")` finds heuristic tests for `find_dead_code` and `query_graph`; it finds direct high-confidence tests for `dagayn/cli/commands/build.py::handle`; it finds zero tests for `parse_file_in_repo` and `analyze_changes_json`.
+これは graph-visible な direct coverage に関する根拠であり、behavior が未テストであることの証明ではない。たとえば `query_graph_tool(pattern="tests_for")` は `find_dead_code` と `query_graph` に heuristic tests を見つける。`dagayn/cli/commands/build.py::handle` には direct high-confidence tests を見つける。一方で、`parse_file_in_repo` と `analyze_changes_json` には test を 0 件と返す。
 
-## 7. Flow Signals
+## 7. フローシグナル
 
-Top flows by criticality:
+criticality 順の上位 flow:
 
-| Rank | Flow | Criticality | Nodes |
+| 順位 | Flow | Criticality | ノード数 |
 |---:|---|---:|---:|
 | 1 | activate | 0.6650 | 20 |
 | 2 | embed | 0.6100 | 2 |
@@ -193,170 +193,170 @@ Top flows by criticality:
 | 9 | query_graph | 0.6100 | 4 |
 | 10 | main | 0.4967 | 6 |
 
-The flow list supports the same priority pattern as hubs and bridges: activation, embeddings, query graph, MCP dispatch, and benchmark paths are the interactive surfaces users feel first.
+flow list も hubs and bridges と同じ priority pattern を支持している。activation、embeddings、query graph、MCP dispatch、benchmark path は、user が最初に体感する interactive surface である。
 
-## 8. What Is Already Done
+## 8. すでに完了していること
 
-These should not be treated as fresh improvement candidates unless a regression appears:
+regression が現れない限り、これらを新しい improvement candidate として扱うべきではない。
 
-- hub / bridge score persistence through `hub_scores` and `bridge_scores`
+- `hub_scores` と `bridge_scores` による hub / bridge score persistence
 - Rust-backed Markdown artifact reference resolution
 - `parse_diff_ranges` LRU cache
-- normalized `edges.target_name` and index-backed lookup
-- `mtime_ns` incremental skip and migration support
-- embedding search matrix cache and BLAS fast path when numpy is available
+- normalized `edges.target_name` と index-backed lookup
+- `mtime_ns` incremental skip と migration support
+- numpy が利用可能な場合の embedding search matrix cache と BLAS fast path
 - process-level `EmbeddingStore` cache
 - local per-MCP-tool latency benchmark machinery
 - docs-scope ADP / SDP cleanup
 
-The remaining performance work is therefore narrower: batch embedding generation writes, reduce remaining row-level write fallback paths, batch DFS traversal where it still uses size-1 lookups, and turn latency baselines into an actionable gate.
+したがって、残る performance work はより狭い。embedding generation writes の batch 化、残っている row-level write fallback path の削減、まだ size-1 lookup を使っている DFS traversal の batch 化、latency baseline を actionable gate に変えることである。
 
-## 9. Improvement Proposals
+## 9. 改善提案
 
-### Priority 1: Give Rust parser core direct graph-visible tests
+### 優先度 1: Rust parser core に graph-visible な direct test を追加する
 
-Target: `crates/dagayn-parser/src/core.rs::RustOwnedParser.parse_file_in_repo`
+対象: `crates/dagayn-parser/src/core.rs::RustOwnedParser.parse_file_in_repo`
 
-Evidence:
+根拠:
 
-- degree 103, above p95 hotspot threshold 37
-- `query_graph_tool(pattern="tests_for")` returned 0 direct/heuristic tests
-- refactor suggestions flag it as a large function with many collaborators
-- parser behavior is product-critical across all supported languages
+- degree 103 で、p95 hotspot threshold 37 を上回る
+- `query_graph_tool(pattern="tests_for")` が direct/heuristic tests を 0 件と返した
+- refactor suggestions が、多くの collaborator を持つ large function として flag している
+- parser behavior は、対応している全言語にまたがって product-critical である
 
-Recommended first step: add or adjust Rust tests so graph extraction creates direct `TESTED_BY` evidence for `parse_file_in_repo`, then split one responsibility only if the tests make the behavior boundary clear.
+推奨する最初の一手: graph extraction が `parse_file_in_repo` に対する direct `TESTED_BY` evidence を作れるように Rust tests を追加または調整する。そのうえで、tests によって behavior boundary が明確になった場合だけ、責務を 1 つ分割する。
 
-Acceptance:
+受け入れ条件:
 
-- focused Rust parser tests pass
-- `tests_for` no longer returns 0 for the target
-- graph stats do not show new parser-side ADP/SDP regressions
+- focused Rust parser tests が通る
+- `tests_for` が対象に対して 0 を返さなくなる
+- graph stats に新しい parser-side ADP/SDP regression が出ない
 
-### Priority 2: Make Rust GraphStore API ownership smaller and more test-visible
+### 優先度 2: Rust GraphStore API の所有範囲を小さくし、test-visible にする
 
-Targets:
+対象:
 
 - `crates/dagayn-graph/src/lib.rs::GraphStore`
 - `crates/dagayn-graph/src/lib.rs::GraphStore.analyze_changes_json`
 
-Evidence:
+根拠:
 
-- Rust GraphStore class is 2,936 lines
-- `analyze_changes_json` degree 92, above p95 threshold
-- direct `tests_for` returned 0 for `analyze_changes_json`
-- refactor suggestion split pressure for Rust GraphStore is 65.72
+- Rust GraphStore class は 2,936 行
+- `analyze_changes_json` は degree 92 で、p95 threshold を上回る
+- direct `tests_for` は `analyze_changes_json` に 0 を返した
+- Rust GraphStore の refactor suggestion split pressure は 65.72
 
-Recommended first step: do not split the whole class in one move. Start by carving out one internally cohesive area, such as analysis JSON assembly or flow/community read serialization, behind a private module while keeping the PyO3-facing method names stable.
+推奨する最初の一手: class 全体を一度に分割しない。PyO3-facing method name を安定させたまま、analysis JSON assembly や flow/community read serialization のような内部的に凝集した領域を 1 つ private module に切り出す。
 
-Acceptance:
+受け入れ条件:
 
-- parity tests still pass
-- Python and Rust graph stores expose the same caller-facing behavior
-- the extracted module has focused tests or graph-visible coverage evidence
+- parity tests が引き続き通る
+- Python と Rust の graph store が、caller-facing behavior として同じものを公開する
+- 抽出した module に focused tests または graph-visible coverage evidence がある
 
-### Priority 3: Decompose `find_dead_code`
+### 優先度 3: `find_dead_code` を分解する
 
-Target: `dagayn/refactor/dead_code.py::find_dead_code`
+対象: `dagayn/refactor/dead_code.py::find_dead_code`
 
-Evidence:
+根拠:
 
 - degree 121
 - line count 281
 - branch count 83
-- graph reports no direct `TESTED_BY` edge, while `tests_for` finds heuristic tests in `tests/test_refactor.py`
+- graph は direct `TESTED_BY` edge がないと報告する一方、`tests_for` は `tests/test_refactor.py` に heuristic tests を見つける
 
-Why this is a good next implementation: it is important, but smaller and safer than GraphStore. It also has an existing test neighborhood, so extraction can be done without inventing a new harness.
+これが次の実装として適している理由: 重要だが、GraphStore より小さく安全である。既存の test neighborhood もあるため、新しい harness を発明せずに抽出できる。
 
-Recommended split:
+推奨する分割:
 
 - candidate collection
 - dynamic/public API exclusions
 - call/reference resolution
 - result explanation and confidence
 
-Acceptance:
+受け入れ条件:
 
-- existing `tests/test_refactor.py` passes
-- direct test evidence improves if practical
-- output JSON remains compatible
+- 既存の `tests/test_refactor.py` が通る
+- 現実的であれば direct test evidence が改善する
+- output JSON の互換性が維持される
 
-### Priority 4: Split `query_graph` dispatcher paths
+### 優先度 4: `query_graph` dispatcher path を分割する
 
-Target: `dagayn/tools/query.py::query_graph`
+対象: `dagayn/tools/query.py::query_graph`
 
-Evidence:
+根拠:
 
 - degree 96
 - line count 244
 - branch count 66
-- multiple existing tests in `tests/test_tools.py`
+- `tests/test_tools.py` に複数の既存 test がある
 
-Recommended first step: extract pattern handlers for `docs_for`, `implementations_of`, `tests_for`, caller/callee/import patterns, and file summary into private helpers. Keep the public tool response schema unchanged.
+推奨する最初の一手: `docs_for`、`implementations_of`、`tests_for`、caller/callee/import pattern、file summary の pattern handler を private helper に抽出する。public tool response schema は変更しない。
 
-Acceptance:
+受け入れ条件:
 
-- `tests/test_tools.py` focused query tests pass
-- `query_graph_tool` output remains stable for common patterns
-- helper boundaries make future docs/code artifact behavior easier to test
+- `tests/test_tools.py` の focused query tests が通る
+- common pattern に対する `query_graph_tool` output が安定したままである
+- helper boundary により、今後の docs/code artifact behavior を test しやすくなる
 
-### Priority 5: Split CLI build orchestration after preserving behavior
+### 優先度 5: behavior を維持したうえで CLI build orchestration を分割する
 
-Target: `dagayn/cli/commands/build.py::handle`
+対象: `dagayn/cli/commands/build.py::handle`
 
-Evidence:
+根拠:
 
 - top hub degree 161
 - line count 419
 - branch count 68
-- direct high-confidence tests already exist
+- direct high-confidence tests がすでに存在する
 
-This is high impact but not the first move because direct coverage evidence exists. The safe path is to extract option normalization, build/update selection, postprocess/embed handling, and output rendering separately while leaving command behavior unchanged.
+これは high impact だが、direct coverage evidence が存在するため最初の一手ではない。安全な進め方は、command behavior を変えずに、option normalization、build/update selection、postprocess/embed handling、output rendering を個別に抽出することである。
 
-### Priority 6: Improve SAP signal filtering
+### 優先度 6: SAP signal filtering を改善する
 
-Targets: SAP metric/reporting code, not necessarily product architecture.
+対象: SAP metric/reporting code。必ずしも product architecture そのものではない。
 
-Evidence:
+根拠:
 
-- code SAP returns 7 violations
-- some top SAP entries are tests, fixtures, no-eligible-type packages, or VS Code UI/test scopes
-- `dagayn/parser/_base`, `dagayn/graph`, and `dagayn/parser` look more actionable than `dagayn-vscode/test`
+- code SAP は 7 violations を返す
+- 一部の top SAP entry は tests、fixtures、no-eligible-type packages、または VS Code UI/test scopes である
+- `dagayn/parser/_base`、`dagayn/graph`、`dagayn/parser` は `dagayn-vscode/test` より actionable に見える
 
-Recommended first step: add explicit scope filters or explanation buckets for tests, fixtures, isolated packages, and no-eligible-type packages. The goal is not to hide data; it is to keep SAP from recommending refactors where the metric is not semantically meaningful.
+推奨する最初の一手: tests、fixtures、isolated packages、no-eligible-type packages に対する明示的な scope filter または explanation bucket を追加する。目的は data を隠すことではない。metric が意味論的に有効ではない場所で SAP が refactor を勧めないようにすることである。
 
-### Priority 7: Turn latency baseline into a regression story
+### 優先度 7: latency baseline を regression story に変える
 
-Target: `dagayn/eval/benchmarks/mcp_latency.py` and `recent_changes_effects`.
+対象: `dagayn/eval/benchmarks/mcp_latency.py` と `recent_changes_effects`。
 
-Evidence:
+根拠:
 
-- local benchmark machinery exists
-- there is not yet a committed reference baseline and tolerance policy
+- local benchmark machinery は存在する
+- committed reference baseline と tolerance policy はまだ存在しない
 
-Recommended first step: save local baseline JSON for the current repo, then compare repeated runs to establish variance before CI gating. Gate only after p50/p95 variance is known.
+推奨する最初の一手: 現在の repo に対する local baseline JSON を保存し、CI gating の前に repeated runs を比較して variance を把握する。gate は p50/p95 variance が分かってからにする。
 
-## 10. Non-Priorities
+## 10. 優先しないこと
 
-These are not good next tasks unless a specific bug appears:
+具体的な bug が出ない限り、これらは次の task として適していない。
 
-- Reworking docs-scope ADP/SDP: current count is 0/0.
-- Moving bridge centrality to persisted scores: already implemented.
-- Replacing embedding search cosine loop with vectorized cache: already implemented for numpy.
-- Adding `parse_diff_ranges` cache: already implemented.
-- Adding `target_name` column for suffix lookup: already implemented.
-- Adding `mtime_ns` incremental skip: already implemented.
+- docs-scope ADP/SDP の作り直し: 現在の count は 0/0。
+- bridge centrality の persisted scores 化: 実装済み。
+- embedding search cosine loop の vectorized cache 置換: numpy 向けには実装済み。
+- `parse_diff_ranges` cache の追加: 実装済み。
+- suffix lookup 用の `target_name` column 追加: 実装済み。
+- `mtime_ns` incremental skip の追加: 実装済み。
 
-## 11. Recommended Next Move
+## 11. 推奨される次の一手
 
-If the goal is the highest product value with the least thrash, start with Priority 3: decompose `dagayn/refactor/dead_code.py::find_dead_code`.
+最小の混乱で最大の product value を狙うなら、優先度 3、つまり `dagayn/refactor/dead_code.py::find_dead_code` の分解から始める。
 
-Reason: it is a true high-degree production function, graph-visible as a hotspot, already surrounded by tests, and small enough to improve in one controlled change. It will also exercise the refactor-suggestion surface itself, which is one of dagayn's core agent-facing workflows.
+理由: これは本物の high-degree production function であり、graph-visible な hotspot であり、すでに tests に囲まれており、1 つの controlled change で改善できる程度に小さい。また、dagayn の core agent-facing workflow の 1 つである refactor-suggestion surface 自体も exercise できる。
 
-If the goal is to reduce hidden core risk instead, start with Priority 1: direct graph-visible tests for `parse_file_in_repo`. That is more foundational, but the Rust parser boundary is a little sharper-edged and deserves a test-first pass.
+hidden core risk を減らすことが目的なら、優先度 1、つまり `parse_file_in_repo` に対する direct graph-visible tests から始める。こちらの方がより foundational だが、Rust parser boundary は少し扱いが難しいため、test-first pass が必要である。
 
-## 12. Verification Notes
+## 12. 検証メモ
 
-Key commands used:
+使用した主なコマンド:
 
 ```bash
 dagayn tool list_graph_stats_tool --format json
@@ -372,10 +372,10 @@ dagayn tool refactor_tool --arg mode='"suggest"' --arg limit=20 --format json
 dagayn tool find_large_functions_tool --arg min_lines=80 --arg limit=15 --format json
 ```
 
-Important truncation states:
+重要な truncation state:
 
-- architecture overview: `truncated=true`; communities kept 1 of 368, coupling kept 1 of 5.
-- knowledge gaps: `truncated=true`; raw gap count 2,609, returned examples 10 per category.
-- refactor suggestions: 766 total, first 20 shown; counts are split 134, document 49, remove 583.
+- architecture overview: `truncated=true`; communities は 368 件中 1 件、coupling は 5 件中 1 件を保持。
+- knowledge gaps: `truncated=true`; raw gap count は 2,609、各カテゴリの returned examples は 10 件。
+- refactor suggestions: 合計 766 件、最初の 20 件を表示。内訳は split 134、document 49、remove 583。
 
-The conclusions above treat graph output as ranked evidence, not as automatic approval to refactor.
+上記の結論は graph output を ranked evidence として扱っており、refactor の自動承認としては扱っていない。
