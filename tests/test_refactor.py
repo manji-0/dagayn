@@ -470,6 +470,137 @@ class TestFindDeadCode:
         dead_names = {d["name"] for d in dead}
         assert "AppConfig" not in dead_names
 
+    def test_find_dead_code_excludes_python_protocol_classes(self):
+        """Typing Protocol definitions are contracts, not dead-code candidates."""
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Class",
+                name="UserStoreProtocol",
+                file_path="/repo/services/_protocol.py",
+                line_start=5,
+                line_end=20,
+                language="python",
+            )
+        )
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Class",
+                name="OrphanHelper",
+                file_path="/repo/services/helpers.py",
+                line_start=5,
+                line_end=20,
+                language="python",
+            )
+        )
+        self.store.commit()
+
+        dead_qnames = {d["qualified_name"] for d in find_dead_code(self.store)}
+
+        assert "/repo/services/_protocol.py::UserStoreProtocol" not in dead_qnames
+        assert "/repo/services/helpers.py::OrphanHelper" in dead_qnames
+
+    def test_find_dead_code_excludes_contract_and_abstract_roles_across_languages(self):
+        """Interface/trait/abstract roles are structural contracts, not dead code."""
+        cases = [
+            NodeInfo(
+                kind="Class",
+                name="UserStoreProtocol",
+                file_path="/repo/services/_protocol.py",
+                line_start=5,
+                line_end=20,
+                language="python",
+                extra={"is_contract": True, "type_role": "interface"},
+            ),
+            NodeInfo(
+                kind="Class",
+                name="ExecError",
+                file_path="/repo/src/backend/cli.ts",
+                line_start=5,
+                line_end=20,
+                language="typescript",
+                extra={"is_contract": True, "is_abstract": True, "type_role": "interface"},
+            ),
+            NodeInfo(
+                kind="Class",
+                name="Repository",
+                file_path="/repo/src/lib.rs",
+                line_start=5,
+                line_end=20,
+                language="rust",
+                extra={"is_contract": True, "type_role": "trait"},
+            ),
+            NodeInfo(
+                kind="Class",
+                name="IPool",
+                file_path="/repo/contracts/IPool.sol",
+                line_start=5,
+                line_end=20,
+                language="solidity",
+                extra={"is_contract": True, "is_abstract": True, "type_role": "interface"},
+            ),
+            NodeInfo(
+                kind="Class",
+                name="BaseEvent",
+                file_path="/repo/src/events.jl",
+                line_start=5,
+                line_end=20,
+                language="julia",
+                extra={"is_abstract": True, "type_role": "abstract_type"},
+            ),
+            NodeInfo(
+                kind="Class",
+                name="ConcreteWorker",
+                file_path="/repo/src/worker.py",
+                line_start=5,
+                line_end=20,
+                language="python",
+                extra={"type_role": "class"},
+            ),
+        ]
+        for node in cases:
+            self.store.upsert_node(node)
+        self.store.commit()
+
+        dead_qnames = {d["qualified_name"] for d in find_dead_code(self.store)}
+
+        assert "/repo/services/_protocol.py::UserStoreProtocol" not in dead_qnames
+        assert "/repo/src/backend/cli.ts::ExecError" not in dead_qnames
+        assert "/repo/src/lib.rs::Repository" not in dead_qnames
+        assert "/repo/contracts/IPool.sol::IPool" not in dead_qnames
+        assert "/repo/src/events.jl::BaseEvent" not in dead_qnames
+        assert "/repo/src/worker.py::ConcreteWorker" in dead_qnames
+
+    def test_find_dead_code_excludes_implementation_role_across_languages(self):
+        """Implementation container roles are structural helpers, not dead code."""
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Class",
+                name="Default",
+                file_path="/repo/src/core.rs",
+                line_start=5,
+                line_end=20,
+                language="rust",
+                extra={"type_role": "implementation"},
+            )
+        )
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Class",
+                name="UnusedConcrete",
+                file_path="/repo/src/concrete.rs",
+                line_start=5,
+                line_end=20,
+                language="rust",
+                extra={"type_role": "class"},
+            )
+        )
+        self.store.commit()
+
+        dead_qnames = {d["qualified_name"] for d in find_dead_code(self.store)}
+
+        assert "/repo/src/core.rs::Default" not in dead_qnames
+        assert "/repo/src/concrete.rs::UnusedConcrete" in dead_qnames
+
     def test_find_dead_code_excludes_agent_tool(self):
         """Functions with @agent.tool decorator are not dead code."""
         self.store.upsert_node(

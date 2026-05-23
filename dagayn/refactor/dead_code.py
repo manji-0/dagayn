@@ -47,6 +47,9 @@ def _is_test_file(file_path: str) -> bool:
 
 
 _MIN_PKG_SEGMENT_LEN = 4
+_STRUCTURAL_CLASS_ROLES = frozenset(
+    {"interface", "trait", "abstract_class", "abstract_type", "implementation"}
+)
 
 
 @functools.lru_cache(maxsize=4096)
@@ -117,6 +120,22 @@ def _is_plausible_caller(
     return False
 
 
+def _is_structural_type_node(node: Any) -> bool:
+    if node.kind != "Class":
+        return False
+    extra = node.extra if isinstance(node.extra, dict) else {}
+    role = extra.get("type_role")
+    if role in _STRUCTURAL_CLASS_ROLES:
+        return True
+    if extra.get("is_contract") or extra.get("is_abstract"):
+        return True
+    if node.language == "python":
+        file_path = node.file_path.replace("\\", "/")
+        if node.name.endswith("Protocol") or file_path.endswith("/_protocol.py"):
+            return True
+    return False
+
+
 def _survives_dead_code_node_filters(
     node: Any,
     type_ref_names: set[str],
@@ -140,7 +159,7 @@ def _survives_dead_code_node_filters(
         return False
     if node.kind == "Class" and _has_framework_decorator(node):
         return False
-    if node.kind == "Class" and node.extra.get("type_role") == "implementation":
+    if _is_structural_type_node(node):
         return False
 
     check_qn = (
