@@ -39,6 +39,11 @@ def test_detect_sap_violations_uses_compact_envelope(monkeypatch) -> None:
     assert result["total"] == 2
     assert result["truncated"] is True
     assert "Showing top 1 by distance." in result["summary"]
+    assert "suppresses test and fixture scopes" in result["summary"]
+    assert result["excluded_scope_categories"] == ["test-scope", "fixture-scope"]
+    assert result["exclusion_reason"] == (
+        "test and fixture scopes are retained in sap_metrics notes but omitted from sap_violations"
+    )
     assert result["violations"] == [
         {
             "scope_key": "pkg.alpha",

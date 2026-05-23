@@ -143,6 +143,13 @@ A SAP result row includes:
 - `distance`
 - `top_incoming_dependencies`
 - `top_outgoing_dependencies`
+- optional `notes` such as `no-eligible-types`, `isolated`, `test-scope`, and `fixture-scope`
+
+`architecture_analysis_tool(mode="sap_violations")` and
+`detect_sap_violations_func()` suppress `test-scope` and `fixture-scope`
+entries from the violation list. Those scopes still appear in
+`compute_sap_metrics` so callers can inspect raw measurements without turning
+harness structure into product-architecture alerts.
 
 ## Known open questions
 

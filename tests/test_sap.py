@@ -371,3 +371,44 @@ def test_isolated_scopes_not_flagged_as_violations(tmp_path):
     assert any(m["scope_key"] == "alone" for m in metrics)
     assert any(m["scope_key"] == "ghost" for m in metrics)
     assert all(m["ca"] + m["ce"] == 0 for m in metrics)
+
+
+def test_compute_sap_metrics_marks_test_and_fixture_scopes(tmp_path):
+    s = GraphStore(tmp_path / "scope_notes.db")
+    s.upsert_node(_node("File", "src/app.java", "src/app.java"))
+    s.upsert_node(_node("Class", "App", "src/app.java", extra={"type_role": "class"}))
+    s.upsert_node(_node("File", "tests/spec.java", "tests/spec.java"))
+    s.upsert_node(_node("Class", "Spec", "tests/spec.java", extra={"type_role": "class"}))
+    s.upsert_node(_node("File", "tests/fixtures/fake.java", "tests/fixtures/fake.java"))
+    s.upsert_node(
+        _node("Class", "FakeFixture", "tests/fixtures/fake.java", extra={"type_role": "class"})
+    )
+    s.upsert_edge(_edge("IMPORTS_FROM", "src/app.java", "tests/spec.java"))
+    s.upsert_edge(_edge("IMPORTS_FROM", "src/app.java", "tests/fixtures/fake.java"))
+    s.commit()
+
+    metrics = compute_sap_metrics(s, scope_kind="package")
+    by_scope = {m["scope_key"]: m for m in metrics}
+
+    assert "test-scope" in by_scope["tests"].get("notes", [])
+    assert "fixture-scope" in by_scope["tests/fixtures"].get("notes", [])
+
+
+def test_find_sap_violations_excludes_test_and_fixture_scopes(tmp_path):
+    s = GraphStore(tmp_path / "scope_filter.db")
+    s.upsert_node(_node("File", "src/app.java", "src/app.java"))
+    s.upsert_node(_node("Class", "App", "src/app.java", extra={"type_role": "class"}))
+    s.upsert_node(_node("File", "tests/spec.java", "tests/spec.java"))
+    s.upsert_node(_node("Class", "Spec", "tests/spec.java", extra={"type_role": "class"}))
+    s.upsert_node(_node("File", "tests/fixtures/fake.java", "tests/fixtures/fake.java"))
+    s.upsert_node(
+        _node("Class", "FakeFixture", "tests/fixtures/fake.java", extra={"type_role": "class"})
+    )
+    s.upsert_edge(_edge("IMPORTS_FROM", "src/app.java", "tests/spec.java"))
+    s.upsert_edge(_edge("IMPORTS_FROM", "src/app.java", "tests/fixtures/fake.java"))
+    s.commit()
+
+    violations = find_sap_violations(s, min_distance=0.5)
+
+    assert all(v["scope_key"] != "tests" for v in violations)
+    assert all(v["scope_key"] != "tests/fixtures" for v in violations)

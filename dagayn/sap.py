@@ -45,6 +45,18 @@ _ABSTRACT_ROLES: frozenset[str] = frozenset(
 )
 
 
+def _scope_analysis_notes(scope_key: str) -> list[str]:
+    """Return non-metric notes describing scope categories that add SAP noise."""
+    notes: list[str] = []
+    normalized = scope_key.replace("\\", "/")
+    parts = [part for part in normalized.split("/") if part]
+    if parts and parts[0] in {"tests", "test", "__tests__"}:
+        notes.append("test-scope")
+    if "fixtures" in parts:
+        notes.append("fixture-scope")
+    return notes
+
+
 def compute_sap_metrics(
     store: GraphStore,
     scope_kind: Literal["file", "package", "directory"] = "package",
@@ -58,6 +70,9 @@ def compute_sap_metrics(
     abstractness, instability, distance, member_count,
     top_incoming_dependencies, top_outgoing_dependencies.
     Scopes with no eligible types or zero couplings include a ``notes`` key.
+    Test and fixture scopes are retained in the metrics output but annotated so
+    downstream tools can suppress low-signal SAP violations without hiding raw
+    measurements.
 
     Args:
         store: GraphStore instance.
@@ -127,7 +142,7 @@ def compute_sap_metrics(
         incoming = {s: dep_graph[s][sk] for s in dep_graph if sk in dep_graph[s]}
         ca = len(incoming)
 
-        notes: list[str] = []
+        notes: list[str] = _scope_analysis_notes(sk)
         abstractness = na / nt if nt > 0 else 0.0
         if nt == 0:
             notes.append("no-eligible-types")
@@ -178,6 +193,11 @@ def find_sap_violations(
         scope_kind: Aggregation granularity.
         min_distance: Minimum D value to flag (exclusive). Default: 0.5.
         artifact_scope: "code" (default), "docs", or "all".
+
+    Test and fixture scopes are excluded from the violation list because their
+    A/I/D positions are usually harness noise rather than actionable product
+    architecture signals. They remain visible in ``compute_sap_metrics`` via
+    ``notes``.
     """
     metrics = compute_sap_metrics(
         store,
@@ -185,7 +205,13 @@ def find_sap_violations(
         artifact_scope=artifact_scope,
     )
     violations = [
-        m for m in metrics if m["distance"] > min_distance and m["ca"] + m["ce"] > 0 and m["nt"] > 0
+        m
+        for m in metrics
+        if m["distance"] > min_distance
+        and m["ca"] + m["ce"] > 0
+        and m["nt"] > 0
+        and "test-scope" not in m.get("notes", [])
+        and "fixture-scope" not in m.get("notes", [])
     ]
     violations.sort(key=lambda x: x["distance"], reverse=True)
     return violations

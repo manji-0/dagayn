@@ -6,6 +6,27 @@ from dagayn import main as crg_main
 from dagayn.tools import architecture_analysis
 
 
+def test_architecture_analysis_sap_violations_preserves_exclusion_explanation(monkeypatch) -> None:
+    monkeypatch.setattr(
+        architecture_analysis,
+        "detect_sap_violations_func",
+        lambda **kwargs: {
+            "status": "ok",
+            "summary": "Found 1 SAP violation. sap_violations suppresses test and fixture scopes; inspect sap_metrics notes for raw values.",
+            "excluded_scope_categories": ["test-scope", "fixture-scope"],
+            "exclusion_reason": "test and fixture scopes are retained in sap_metrics notes but omitted from sap_violations",
+        },
+    )
+
+    result = architecture_analysis.architecture_analysis_func(mode="sap_violations")
+
+    assert result["status"] == "ok"
+    assert result["mode"] == "sap_violations"
+    assert result["called_subtool"] == "detect_sap_violations_func"
+    assert result["excluded_scope_categories"] == ["test-scope", "fixture-scope"]
+    assert "suppresses test and fixture scopes" in result["summary"]
+
+
 def test_architecture_analysis_wrapper_exposes_typed_dispatch_args() -> None:
     params = inspect.signature(crg_main.architecture_analysis_tool).parameters
 

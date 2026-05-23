@@ -118,10 +118,15 @@ def detect_sap_violations_func(
     ]
     total = len(violations)
     truncated = total > top_n
+    excluded_scope_categories = ["test-scope", "fixture-scope"]
+    exclusion_reason = (
+        "test and fixture scopes are retained in sap_metrics notes but omitted from sap_violations"
+    )
     payload = make_response(
         "ok",
         f"Found {total} SAP violation(s) at {scope_kind} level "
         f"(artifact_scope={artifact_scope}, min_distance={min_distance})."
+        + " sap_violations suppresses test and fixture scopes; inspect sap_metrics notes for raw values."
         + (f" Showing top {top_n} by distance." if truncated else ""),
         violations=violations[:top_n],
         count=total,
@@ -130,6 +135,8 @@ def detect_sap_violations_func(
         scope_kind=scope_kind,
         artifact_scope=artifact_scope,
         min_distance=min_distance,
+        excluded_scope_categories=excluded_scope_categories,
+        exclusion_reason=exclusion_reason,
         next_tool_suggestions=[
             'architecture_analysis_tool mode="sap_metrics" -- see full A/I/D scores',
             'architecture_analysis_tool mode="adp_violations" -- check cyclic dependencies',
