@@ -140,6 +140,8 @@ def _survives_dead_code_node_filters(
         return False
     if node.kind == "Class" and _has_framework_decorator(node):
         return False
+    if node.kind == "Class" and node.extra.get("type_role") == "implementation":
+        return False
 
     check_qn = (
         node.qualified_name

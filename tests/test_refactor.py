@@ -667,6 +667,23 @@ class TestFindDeadCode:
         dead_qnames = {d["qualified_name"] for d in dead}
         assert "/repo/README.md::getting-started" not in dead_qnames
 
+    def test_find_dead_code_excludes_rust_impl_blocks(self):
+        """Rust impl blocks are implementation containers, not removal candidates."""
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Class",
+                name="Default",
+                file_path="/repo/src/lib.rs",
+                line_start=120,
+                line_end=180,
+                language="rust",
+                extra={"type_role": "implementation"},
+            )
+        )
+        self.store.commit()
+        dead_qnames = {d["qualified_name"] for d in find_dead_code(self.store)}
+        assert "/repo/src/lib.rs::Default" not in dead_qnames
+
     def test_find_dead_code_excludes_rust_cfg_test_functions(self):
         """Rust functions under a tests module are test helpers, not dead code."""
         self.store.upsert_node(
