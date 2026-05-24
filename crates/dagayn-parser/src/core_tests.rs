@@ -2298,6 +2298,31 @@ interface Shape {
   id: string;
 }
 
+type UserPayload = {
+  id: string;
+  name: string;
+};
+
+enum UserStatus {
+  active,
+  disabled,
+}
+
+@Entity()
+class UserModel {
+  id!: string;
+  name!: string;
+}
+
+class CardProps {
+  title!: string;
+  count?: number;
+}
+
+class UpdateUserDto {
+  id!: string;
+}
+
 class Service extends Base {
   run(input: string): void {
     helper(input);
@@ -2329,7 +2354,46 @@ describe('Service', () => {
         })
         .collect::<Vec<_>>();
     assert!(node_names.contains(&("Class", "Shape", None)));
+    assert!(node_names.contains(&("Class", "UserPayload", None)));
+    assert!(node_names.contains(&("Class", "UserStatus", None)));
+    assert!(node_names.contains(&("Class", "UserModel", None)));
+    assert!(node_names.contains(&("Class", "CardProps", None)));
+    assert!(node_names.contains(&("Class", "UpdateUserDto", None)));
     assert!(node_names.contains(&("Class", "Service", None)));
+    assert!(nodes.iter().any(|node| {
+        node.kind == "Class"
+            && node.name == "Shape"
+            && node.extra["type_role"] == "interface"
+            && node.extra["is_contract"] == true
+    }));
+    for name in [
+        "UserPayload",
+        "UserStatus",
+        "UserModel",
+        "CardProps",
+        "UpdateUserDto",
+    ] {
+        assert!(nodes.iter().any(|node| {
+            node.kind == "Class"
+                && node.name == name
+                && node.extra["container_role"] == "data_container"
+                && node.extra["value_semantics"] == true
+        }));
+    }
+    assert!(nodes.iter().any(|node| {
+        node.kind == "Class"
+            && node.name == "UserPayload"
+            && node.extra["type_role"] == "type_alias"
+    }));
+    assert!(nodes.iter().any(|node| {
+        node.kind == "Class" && node.name == "UserStatus" && node.extra["type_role"] == "enum"
+    }));
+    assert!(nodes.iter().any(|node| {
+        node.kind == "Class"
+            && node.name == "Service"
+            && node.extra["type_role"] == "class"
+            && node.extra.get("container_role").is_none()
+    }));
     assert!(node_names
         .iter()
         .any(|(_, name, parent)| *name == "run" && *parent == Some("Service")));

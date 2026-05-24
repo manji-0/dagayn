@@ -654,6 +654,45 @@ class TestFindDeadCode:
             ),
             NodeInfo(
                 kind="Class",
+                name="UserPayload",
+                file_path="/repo/src/types.ts",
+                line_start=5,
+                line_end=12,
+                language="typescript",
+                extra={
+                    "type_role": "type_alias",
+                    "container_role": "data_container",
+                    "value_semantics": True,
+                },
+            ),
+            NodeInfo(
+                kind="Class",
+                name="UserStatus",
+                file_path="/repo/src/types.ts",
+                line_start=14,
+                line_end=20,
+                language="typescript",
+                extra={
+                    "type_role": "enum",
+                    "container_role": "data_container",
+                    "value_semantics": True,
+                },
+            ),
+            NodeInfo(
+                kind="Class",
+                name="UpdateUserDto",
+                file_path="/repo/src/update-user.dto.ts",
+                line_start=5,
+                line_end=20,
+                language="typescript",
+                extra={
+                    "type_role": "class",
+                    "container_role": "data_container",
+                    "value_semantics": True,
+                },
+            ),
+            NodeInfo(
+                kind="Class",
                 name="UnusedConcrete",
                 file_path="/repo/src/concrete.rs",
                 line_start=5,
@@ -674,6 +713,9 @@ class TestFindDeadCode:
         assert "/repo/src/Models/UserDto.cs::UserDto" not in dead_by_qn
         assert "/repo/src/main/kotlin/User.kt::KotlinUser" not in dead_by_qn
         assert "/repo/src/main/scala/User.scala::ScalaUser" not in dead_by_qn
+        assert "/repo/src/types.ts::UserPayload" not in dead_by_qn
+        assert "/repo/src/types.ts::UserStatus" not in dead_by_qn
+        assert "/repo/src/update-user.dto.ts::UpdateUserDto" not in dead_by_qn
         assert dead_by_qn["/repo/src/concrete.rs::UnusedConcrete"]["confidence"] == "medium"
 
     def test_find_dead_code_excludes_implementation_role_across_languages(self):

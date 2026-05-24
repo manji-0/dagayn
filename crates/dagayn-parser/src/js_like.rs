@@ -104,7 +104,11 @@ fn javascript_walk_children(
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         match child.kind() {
-            "class_declaration" | "class" | "interface_declaration" => {
+            "class_declaration"
+            | "class"
+            | "interface_declaration"
+            | "type_alias_declaration"
+            | "enum_declaration" => {
                 if let Some(name) = javascript_named_child(
                     child,
                     context.source,
@@ -123,7 +127,7 @@ fn javascript_walk_children(
                         return_type: None,
                         modifiers: None,
                         is_test: false,
-                        extra: javascript_class_extra(child.kind()),
+                        extra: javascript_class_extra(child, context.source),
                     });
                     edges.push(ParsedEdge {
                         kind: "CONTAINS".to_string(),
@@ -608,12 +612,111 @@ fn javascript_emit_reference_if_known(
     });
 }
 
-fn javascript_class_extra(kind: &str) -> Value {
-    if kind == "interface_declaration" {
-        json!({"type_role": "interface", "is_abstract": true, "is_contract": true})
-    } else {
-        json!({"type_role": "class"})
+fn javascript_class_extra(node: tree_sitter::Node<'_>, source: &[u8]) -> Value {
+    let type_role = match node.kind() {
+        "interface_declaration" => "interface",
+        "type_alias_declaration" => "type_alias",
+        "enum_declaration" => "enum",
+        _ => "class",
+    };
+    let mut extra = json!({"type_role": type_role});
+    if let Some(map) = extra.as_object_mut() {
+        if type_role == "interface" {
+            map.insert("is_abstract".to_string(), json!(true));
+            map.insert("is_contract".to_string(), json!(true));
+        }
+        if javascript_is_type_only_container(type_role)
+            || javascript_is_data_model_class(node, source)
+        {
+            map.insert("container_role".to_string(), json!("data_container"));
+            map.insert("value_semantics".to_string(), json!(true));
+        }
     }
+    extra
+}
+
+fn javascript_is_type_only_container(type_role: &str) -> bool {
+    matches!(type_role, "type_alias" | "enum")
+}
+
+fn javascript_is_data_model_class(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+    if !matches!(node.kind(), "class_declaration" | "class") {
+        return false;
+    }
+    if javascript_has_data_model_decorator(node, source) {
+        return true;
+    }
+    let Some(name) = javascript_named_child(node, source, &["identifier", "type_identifier"])
+    else {
+        return false;
+    };
+    if javascript_is_data_model_name(&name) {
+        return true;
+    }
+    javascript_is_property_only_class(node)
+}
+
+fn javascript_has_data_model_decorator(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+    let text = node_text(node, source);
+    [
+        "@Entity",
+        "@ObjectType",
+        "@InputType",
+        "@ArgsType",
+        "@Schema",
+        "@model",
+        "@Table",
+    ]
+    .iter()
+    .any(|decorator| text.contains(decorator))
+}
+
+fn javascript_is_data_model_name(name: &str) -> bool {
+    [
+        "Dto", "DTO", "Data", "Payload", "Props", "State", "Model", "Entity", "Record", "Schema",
+        "Input", "Output",
+    ]
+    .iter()
+    .any(|suffix| name.ends_with(suffix))
+}
+
+fn javascript_is_property_only_class(node: tree_sitter::Node<'_>) -> bool {
+    let mut has_data_field = false;
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        match child.kind() {
+            "method_definition" => return false,
+            "public_field_definition" | "field_definition" | "property_signature" => {
+                has_data_field = true;
+            }
+            _ => {
+                if !javascript_class_child_is_property_only(child, &mut has_data_field) {
+                    return false;
+                }
+            }
+        }
+    }
+    has_data_field
+}
+
+fn javascript_class_child_is_property_only(
+    node: tree_sitter::Node<'_>,
+    has_data_field: &mut bool,
+) -> bool {
+    match node.kind() {
+        "method_definition" => return false,
+        "public_field_definition" | "field_definition" | "property_signature" => {
+            *has_data_field = true;
+        }
+        _ => {}
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if !javascript_class_child_is_property_only(child, has_data_field) {
+            return false;
+        }
+    }
+    true
 }
 
 fn emit_javascript_inheritance_edges(
