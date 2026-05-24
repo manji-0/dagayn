@@ -20,8 +20,8 @@ from ..stability_policy import (
 from ._common import (
     _get_store,
     apply_output_budget,
-    guidance_actions_to_hints,
     graph_answerability_summary,
+    guidance_actions_to_hints,
     make_guidance_item,
     missingness_from_answerability,
 )
@@ -577,7 +577,9 @@ def _documentation_update_candidates(
                         "claim_effect": "candidate is reachable but not an authored contract edge",
                     }
                 ],
-                "documentation_action": "Read this section before deciding whether docs need updates.",
+                "documentation_action": (
+                    "Read this section before deciding whether docs need updates."
+                ),
                 "directive_hint": "<!-- discusses-artifact <code-symbol> -->",
             }
         )
@@ -856,7 +858,9 @@ def _review_guidance_items(
                 ]
                 if actionable_gap_count
                 else [],
-                action="review_tool mode=\"context\" -- inspect changed nodes and run focused tests",
+                action=(
+                    "review_tool mode=\"context\" -- inspect changed nodes and run focused tests"
+                ),
                 reason_codes=["test_gaps"] if actionable_gap_count else ["recommended_tests"],
                 counts={
                     "actionable_test_gap_count": actionable_gap_count,
@@ -923,7 +927,8 @@ def _review_guidance_items(
                     }
                 ],
                 action=(
-                    "architecture_analysis_tool mode=\"overview\" -- inspect stable component policy"
+                    "architecture_analysis_tool mode=\"overview\" -- inspect stable "
+                    "component policy"
                 ),
                 reason_codes=["stable_component_contract_gap"],
                 counts={"stable_contract_warning_count": len(warn_contracts)},
@@ -974,7 +979,9 @@ def _review_guidance_items(
                     {
                         "reason_code": "current_graph_not_baseline_delta",
                         "severity": "low",
-                        "claim_effect": "violation is scoped to current graph, not a new-introduced proof",
+                        "claim_effect": (
+                            "violation is scoped to current graph, not a new-introduced proof"
+                        ),
                     }
                 ],
                 action="architecture_analysis_tool mode=\"overview\" -- inspect scoped risks",

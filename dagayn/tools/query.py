@@ -338,7 +338,9 @@ def query_graph(
                     {
                         "reason_code": "target_not_found_in_graph",
                         "severity": "medium",
-                        "claim_effect": "absence is graph-limited, not proof the symbol does not exist",
+                        "claim_effect": (
+                            "absence is graph-limited, not proof the symbol does not exist"
+                        ),
                     },
                 ],
             }

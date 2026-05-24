@@ -17,8 +17,8 @@ from ..stability_policy import component_stability_profiles, scope_key_for_file
 from ._common import (
     _get_store,
     _validate_repo_root,
-    guidance_actions_to_hints,
     graph_answerability_summary,
+    guidance_actions_to_hints,
     make_guidance_item,
     missingness_from_answerability,
 )
@@ -64,7 +64,11 @@ def _apply_stability_policy_to_suggestions(
     return suggestions
 
 
-def _refactor_guidance(suggestions: list[dict[str, Any]], *, limit: int = 3) -> list[dict[str, Any]]:
+def _refactor_guidance(
+    suggestions: list[dict[str, Any]],
+    *,
+    limit: int = 3,
+) -> list[dict[str, Any]]:
     guidance: list[dict[str, Any]] = []
     for suggestion in suggestions[:limit]:
         work_pack = suggestion.get("work_pack", {})

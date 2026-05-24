@@ -12,8 +12,8 @@ from ..stability_policy import component_stability_profiles, stability_policy_su
 from ._common import (
     _get_store,
     apply_output_budget,
-    guidance_actions_to_hints,
     graph_answerability_summary,
+    guidance_actions_to_hints,
     make_guidance_item,
     missingness_from_answerability,
 )
@@ -157,7 +157,10 @@ def _architecture_health_summary(
                         "claim_effect": "ADP/SDP/SAP signals need source-level review",
                     }
                 ],
-                action="architecture_analysis_tool mode=\"sdp_violations\" -- drill into metric leads",
+                action=(
+                    "architecture_analysis_tool mode=\"sdp_violations\" -- "
+                    "drill into metric leads"
+                ),
                 reason_codes=["adp_violations", "sdp_violations", "sap_violations"],
                 counts={
                     "adp_violations": len(adp),

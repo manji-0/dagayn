@@ -460,7 +460,15 @@ def guidance_actions_to_hints(guidance: list[dict[str, Any]], *, limit: int = 3)
 def graph_answerability_summary(store: Any, stats: Any | None = None) -> dict[str, Any]:
     """Summarize whether the current graph can support calibrated claims."""
     if stats is None:
-        stats = store.get_stats()
+        try:
+            stats = store.get_stats()
+        except AttributeError:
+            return {
+                "status": "unknown",
+                "score": 0.0,
+                "reason_codes": ["missing_graph_stats"],
+                "parse": [0, 0, False],
+            }
     conn = getattr(store, "_conn", None)
     if conn is None:
         return {
