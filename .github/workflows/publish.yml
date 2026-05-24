@@ -10,35 +10,74 @@ permissions:
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
-            args: --release --sdist --out dist
-          - os: macos-latest
-            args: --release --out dist
+            platform: linux-amd64
+            python-version: "3.12"
+            args: --release --sdist --out dist -i python
+          - os: ubuntu-latest
+            platform: linux-amd64
+            python-version: "3.13"
+            args: --release --out dist -i python
+          - os: ubuntu-latest
+            platform: linux-amd64
+            python-version: "3.14"
+            args: --release --out dist -i python
+          - os: macos-14
+            platform: macos-arm64
+            python-version: "3.12"
+            args: --release --out dist -i python
+          - os: macos-14
+            platform: macos-arm64
+            python-version: "3.13"
+            args: --release --out dist -i python
+          - os: macos-14
+            platform: macos-arm64
+            python-version: "3.14"
+            args: --release --out dist -i python
     runs-on: ${{ matrix.os }}
+    name: ${{ matrix.platform }} py${{ matrix.python-version }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
           enable-cache: true
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        # Keep this aligned with prebuilt-wheels.yml: the macOS-14 runner can
+        # ship a stale cargo shim that dtolnay/rust-toolchain does not replace.
+        shell: bash
+        run: |
+          rm -rf "${HOME}/.cargo" "${HOME}/.rustup"
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --default-toolchain stable --profile minimal
+          echo "${HOME}/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Verify Rust toolchain
+        shell: bash
+        run: |
+          export PATH="${HOME}/.cargo/bin:$PATH"
+          cargo --version
+          rustc --version
 
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
 
-      - name: Build source distribution and Linux wheel
-        run: uvx maturin build ${{ matrix.args }}
+      - name: Build source distribution and wheel
+        shell: bash
+        run: |
+          export PATH="${HOME}/.cargo/bin:$PATH"
+          uvx maturin build ${{ matrix.args }}
 
       - name: Upload dist artifact
         uses: actions/upload-artifact@v4
         with:
-          name: dist-${{ matrix.os }}
+          name: dist-${{ matrix.platform }}-py${{ matrix.python-version }}
           path: dist/*
 
   publish:
