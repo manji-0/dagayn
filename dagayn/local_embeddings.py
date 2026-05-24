@@ -287,6 +287,47 @@ def _server_command(
     return command
 
 
+def _local_embedding_lock_path(port: int) -> Path:
+    return Path.home() / ".dagayn" / f"local-embedding-{port}.lock"
+
+
+def _acquire_local_embedding_port_lock(port: int):
+    """Serialize managed local embedding server startup for one localhost port."""
+    lock_path = _local_embedding_lock_path(port)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_file = lock_path.open("a+", encoding="utf-8")
+    try:
+        try:
+            import fcntl
+
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        except (ImportError, OSError):
+            lock_file.close()
+            return None
+        lock_file.seek(0)
+        lock_file.truncate()
+        lock_file.write(f"{os.getpid()}\n")
+        lock_file.flush()
+        return lock_file
+    except Exception:
+        lock_file.close()
+        raise
+
+
+def _release_local_embedding_port_lock(lock_file) -> None:
+    if lock_file is None:
+        return
+    try:
+        try:
+            import fcntl
+
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+        except (ImportError, OSError):
+            pass
+    finally:
+        lock_file.close()
+
+
 @contextmanager
 def local_embedding_server(
     level: str,
@@ -315,42 +356,57 @@ def local_embedding_server(
             f"Port {port} is already serving something, but it is not a compatible "
             f"embedding endpoint for preset '{preset.level}': {probe.detail}"
         )
-    if probe.status == "not_ready":
-        deadline = time.monotonic() + startup_timeout
-        while time.monotonic() < deadline:
-            probe = _probe_embedding_server(base_url, preset.model, preset.dimension)
-            if probe.status == "ready":
-                yield LocalEmbeddingServer(
-                    preset=preset,
-                    base_url=base_url,
-                    command=[],
-                    started=False,
-                )
-                return
-            if probe.status == "incompatible":
-                raise RuntimeError(
-                    f"Port {port} is already serving something, but it is not a compatible "
-                    f"embedding endpoint for preset '{preset.level}': {probe.detail}"
-                )
-            if probe.status == "unreachable":
-                break
-            time.sleep(0.5)
-        if probe.status == "not_ready":
-            raise RuntimeError(
-                f"Timed out waiting for existing local embedding server on port {port}."
-            )
-
-    resolved_binary = _resolve_binary(binary, preset)
-    command = _server_command(preset, resolved_binary, port)
-    proc = subprocess.Popen(  # noqa: S603
-        command,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    deadline = time.monotonic() + startup_timeout
+    port_lock = _acquire_local_embedding_port_lock(port)
+    proc: subprocess.Popen[bytes] | None = None
     ready = False
     try:
+        probe = _probe_embedding_server(base_url, preset.model, preset.dimension)
+        if probe.status == "ready":
+            _release_local_embedding_port_lock(port_lock)
+            port_lock = None
+            yield LocalEmbeddingServer(preset=preset, base_url=base_url, command=[], started=False)
+            return
+        if probe.status == "incompatible":
+            raise RuntimeError(
+                f"Port {port} is already serving something, but it is not a compatible "
+                f"embedding endpoint for preset '{preset.level}': {probe.detail}"
+            )
+        if probe.status == "not_ready":
+            deadline = time.monotonic() + startup_timeout
+            while time.monotonic() < deadline:
+                probe = _probe_embedding_server(base_url, preset.model, preset.dimension)
+                if probe.status == "ready":
+                    _release_local_embedding_port_lock(port_lock)
+                    port_lock = None
+                    yield LocalEmbeddingServer(
+                        preset=preset,
+                        base_url=base_url,
+                        command=[],
+                        started=False,
+                    )
+                    return
+                if probe.status == "incompatible":
+                    raise RuntimeError(
+                        f"Port {port} is already serving something, but it is not a compatible "
+                        f"embedding endpoint for preset '{preset.level}': {probe.detail}"
+                    )
+                if probe.status == "unreachable":
+                    break
+                time.sleep(0.5)
+            if probe.status == "not_ready":
+                raise RuntimeError(
+                    f"Timed out waiting for existing local embedding server on port {port}."
+                )
+
+        resolved_binary = _resolve_binary(binary, preset)
+        command = _server_command(preset, resolved_binary, port)
+        proc = subprocess.Popen(  # noqa: S603
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        deadline = time.monotonic() + startup_timeout
         while time.monotonic() < deadline:
             if proc.poll() is not None:
                 raise RuntimeError(
@@ -360,6 +416,9 @@ def local_embedding_server(
             probe = _probe_embedding_server(base_url, preset.model, preset.dimension)
             if probe.status == "ready":
                 ready = True
+                if keep_running:
+                    _release_local_embedding_port_lock(port_lock)
+                    port_lock = None
                 yield LocalEmbeddingServer(
                     preset=preset,
                     base_url=base_url,
@@ -379,10 +438,11 @@ def local_embedding_server(
             f"Command: {shlex.join(command)}"
         )
     finally:
-        if (not keep_running or not ready) and proc.poll() is None:
+        if proc is not None and (not keep_running or not ready) and proc.poll() is None:
             proc.terminate()
             try:
                 proc.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 proc.kill()
                 proc.wait(timeout=10)
+        _release_local_embedding_port_lock(port_lock)

@@ -95,7 +95,9 @@ required `~/.codex/config.toml` feature flag. Claude hooks are written to
 `~/.claude/settings.json`. Git hooks installed by `dagayn install` refresh
 cheaply with `dagayn update --skip-flows` before commit-time checks and run a
 full `dagayn update` after a commit. Generated AI-tool update hooks use a
-300-second timeout to tolerate large documentation or mixed-language refreshes.
+300-second timeout to tolerate large documentation or mixed-language refreshes,
+mark hook-triggered runs with `DAGAYN_HOOK_UPDATE=1`, skip overlapping hook
+updates, and avoid re-running local embeddings when no files changed.
 `--no-hooks` skips the hook files.
 
 `dagayn install --platform pi` writes `.pi/mcp.json`, installs skills under

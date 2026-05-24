@@ -91,7 +91,9 @@ dagayn update --local-embedding low
 
 If no compatible server is already listening on `127.0.0.1:18080`, dagayn
 starts `llama-server` for the duration of the command. By default, dagayn stops
-that subprocess when embedding finishes.
+that subprocess when embedding finishes. Managed starts are serialized per port
+with a lock under `~/.dagayn/`, so concurrent dagayn processes do not launch
+multiple `llama-server` subprocesses for the same localhost port.
 
 Useful options:
 

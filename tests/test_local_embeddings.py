@@ -213,8 +213,27 @@ def test_local_embedding_server_starts_and_stops_llama_server(monkeypatch):
     assert fake_proc.killed is False
 
 
-def test_local_embedding_server_keep_running_leaves_process(monkeypatch):
+def test_local_embedding_server_rechecks_after_port_lock(monkeypatch):
     probes = iter([_ProbeResult("unreachable"), _ProbeResult("ready")])
+    popen_calls = []
+
+    monkeypatch.setattr(
+        "dagayn.local_embeddings._probe_embedding_server",
+        lambda base_url, model, expected_dimension: next(probes),
+    )
+    monkeypatch.setattr(
+        "dagayn.local_embeddings.subprocess.Popen", lambda *a, **k: popen_calls.append(a)
+    )
+
+    with local_embedding_server("low", runtime="llama", port=19091) as server:
+        assert server.started is False
+        assert server.command == []
+
+    assert popen_calls == []
+
+
+def test_local_embedding_server_keep_running_leaves_process(monkeypatch):
+    probes = iter([_ProbeResult("unreachable"), _ProbeResult("unreachable"), _ProbeResult("ready")])
     fake_proc = FakeProcess()
 
     monkeypatch.setattr(

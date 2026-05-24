@@ -1001,7 +1001,7 @@ def generate_hooks_config(
                             "type": "command",
                             "command": (
                                 f"{repo_expr}"
-                                f" && dagayn update --skip-flows"
+                                f" && DAGAYN_HOOK_UPDATE=1 dagayn update --skip-flows"
                                 f"{update_args}"
                                 ' --repo "$repo"'
                                 " || true"

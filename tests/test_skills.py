@@ -966,6 +966,7 @@ class TestInstallCodexHooks:
 
         data = json.loads(hooks_path.read_text())
         command = data["hooks"]["PostToolUse"][0]["hooks"][0]["command"]
+        assert "DAGAYN_HOOK_UPDATE=1" in command
         assert "--local-embedding low" in command
 
     def test_reinstall_updates_codex_hooks_when_extra_args_change(self, tmp_path):

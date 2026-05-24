@@ -8,6 +8,7 @@ import sqlite3
 import sys
 import threading
 import time
+from pathlib import Path
 from typing import Any
 
 from ..incremental import full_build, incremental_update
@@ -17,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 _LOCAL_EMBEDDING_DISABLED = {None, "", "none"}
 _LOCAL_EMBEDDING_ENV_LOCK = threading.Lock()
+_HOOK_UPDATE_ENV = "DAGAYN_HOOK_UPDATE"
 
 
 def _can_run_minimal_postprocess(store: Any) -> bool:
@@ -85,6 +87,54 @@ def _postprocess_store(store: Any, root: Any, postprocess: str):
 
 def _local_embedding_requested(local_embedding: str | None) -> bool:
     return (local_embedding or "").strip().lower() not in _LOCAL_EMBEDDING_DISABLED
+
+
+def _hook_update_requested() -> bool:
+    return os.environ.get(_HOOK_UPDATE_ENV, "").strip().lower() in {"1", "true", "yes"}
+
+
+def _acquire_hook_update_lock(root: Path, enabled: bool):
+    """Skip overlapping hook-triggered update runs for the same repository."""
+    if not enabled:
+        return None, True
+
+    lock_dir = root / ".dagayn"
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = lock_dir / "hook-update.lock"
+    lock_file = lock_path.open("a+", encoding="utf-8")
+    try:
+        try:
+            import fcntl
+
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            lock_file.close()
+            return None, False
+        except (ImportError, OSError):
+            lock_file.close()
+            return None, True
+        lock_file.seek(0)
+        lock_file.truncate()
+        lock_file.write(f"{os.getpid()}\n")
+        lock_file.flush()
+        return lock_file, True
+    except Exception:
+        lock_file.close()
+        raise
+
+
+def _release_hook_update_lock(lock_file: Any) -> None:
+    if lock_file is None:
+        return
+    try:
+        try:
+            import fcntl
+
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+        except (ImportError, OSError):
+            pass
+    finally:
+        lock_file.close()
 
 
 def _run_local_embedding(
@@ -592,6 +642,21 @@ def build_or_update_graph(
     # cache so we don't hold a stale connection open across mutations.
     _evict_store_cache()
     store, root = _get_store(repo_root, cached=False, use_backend_default=True)
+    hook_update = _hook_update_requested() and not full_rebuild
+    hook_lock, lock_acquired = _acquire_hook_update_lock(Path(root), hook_update)
+    if not lock_acquired:
+        store.close()
+        return {
+            "status": "ok",
+            "build_type": "incremental",
+            "files_updated": 0,
+            "total_nodes": 0,
+            "total_edges": 0,
+            "postprocess_level": postprocess,
+            "skipped": True,
+            "skip_reason": "hook_update_already_running",
+            "summary": "Skipped: another hook-triggered dagayn update is already running.",
+        }
     try:
         if full_rebuild:
             result = full_build(root, store, recurse_submodules)
@@ -616,16 +681,21 @@ def build_or_update_graph(
                     **result,
                 }
                 if _local_embedding_requested(local_embedding):
-                    build_result["local_embedding"] = _run_local_embedding(
-                        root,
-                        local_embedding=local_embedding or "none",
-                        local_embedding_port=local_embedding_port,
-                        local_embedding_bin=local_embedding_bin,
-                        keep_local_embedding_server=keep_local_embedding_server,
-                        local_embedding_timeout=local_embedding_timeout,
-                        local_embedding_request_timeout=local_embedding_request_timeout,
-                        local_embedding_batch_size=local_embedding_batch_size,
-                    )
+                    if hook_update:
+                        build_result["local_embedding_skipped"] = {
+                            "reason": "hook_update_no_changes",
+                        }
+                    else:
+                        build_result["local_embedding"] = _run_local_embedding(
+                            root,
+                            local_embedding=local_embedding or "none",
+                            local_embedding_port=local_embedding_port,
+                            local_embedding_bin=local_embedding_bin,
+                            keep_local_embedding_server=keep_local_embedding_server,
+                            local_embedding_timeout=local_embedding_timeout,
+                            local_embedding_request_timeout=local_embedding_request_timeout,
+                            local_embedding_batch_size=local_embedding_batch_size,
+                        )
                 return build_result
             build_result = {
                 "status": "ok",
@@ -768,6 +838,7 @@ def build_or_update_graph(
             )
         return build_result
     finally:
+        _release_hook_update_lock(hook_lock)
         store.close()
 
 
