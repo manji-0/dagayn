@@ -428,6 +428,35 @@ def _documentation_update_candidates(
 
     stability_profiles = stability_profiles or {}
     candidates: list[dict[str, Any]] = []
+
+    def _doc_evidence_type(role: str | None, confidence_tier: Any) -> str:
+        if role in _CONTRACT_DOC_ROLES:
+            return "authored"
+        tier = str(confidence_tier or "").upper()
+        if tier in {"EXTRACTED", "HIGH"}:
+            return "extracted"
+        return "heuristic_reachable"
+
+    def _doc_missingness(role: str | None, confidence_tier: Any) -> list[dict[str, Any]]:
+        missing: list[dict[str, Any]] = []
+        tier = str(confidence_tier or "").upper()
+        if role not in _CONTRACT_DOC_ROLES:
+            missing.append(
+                {
+                    "reason_code": "not_contract_documentation_edge",
+                    "severity": "low",
+                    "claim_effect": "candidate may be explanatory rather than contract-bearing",
+                }
+            )
+        if tier in {"LOW", "UNKNOWN", ""}:
+            missing.append(
+                {
+                    "reason_code": "low_confidence_documentation_edge",
+                    "severity": "medium",
+                    "claim_effect": "read the section before treating it as authored evidence",
+                }
+            )
+        return missing
     source_qns = [
         qn
         for qn in (func.get("qualified_name") for func in changed_functions)
@@ -466,6 +495,16 @@ def _documentation_update_candidates(
                     "confidence_tier": edge.confidence_tier,
                     "score": round(score, 4),
                     "evidence_level": "cross_artifact",
+                    "evidence_type": _doc_evidence_type(role, edge.confidence_tier),
+                    "missingness": _doc_missingness(role, edge.confidence_tier),
+                    "documentation_action": (
+                        "Read this section and update the contract directive if behavior changed."
+                    ),
+                    "directive_hint": (
+                        "<!-- implemented-by <code-symbol> -->"
+                        if role == "implemented_by"
+                        else "<!-- discusses-artifact <code-symbol> -->"
+                    ),
                     "scope_key": scope_key,
                     "stable_contract": role in _CONTRACT_DOC_ROLES,
                 }
@@ -496,6 +535,16 @@ def _documentation_update_candidates(
                     "confidence_tier": edge.confidence_tier,
                     "score": round(score, 4),
                     "evidence_level": "cross_artifact",
+                    "evidence_type": _doc_evidence_type(role, edge.confidence_tier),
+                    "missingness": _doc_missingness(role, edge.confidence_tier),
+                    "documentation_action": (
+                        "Read this section and update the contract directive if behavior changed."
+                    ),
+                    "directive_hint": (
+                        "<!-- implements-contract <doc-section> -->"
+                        if role == "implements_contract"
+                        else "<!-- explained-by <doc-section> -->"
+                    ),
                     "scope_key": scope_key,
                     "stable_contract": role in _CONTRACT_DOC_ROLES,
                 }
@@ -520,6 +569,16 @@ def _documentation_update_candidates(
                 "reason": "markdown node reached from changed code/doc graph",
                 "score": 0.25,
                 "evidence_level": "heuristic_reachable",
+                "evidence_type": "heuristic_reachable",
+                "missingness": [
+                    {
+                        "reason_code": "heuristic_documentation_reachability",
+                        "severity": "medium",
+                        "claim_effect": "candidate is reachable but not an authored contract edge",
+                    }
+                ],
+                "documentation_action": "Read this section before deciding whether docs need updates.",
+                "directive_hint": "<!-- discusses-artifact <code-symbol> -->",
             }
         )
 
@@ -813,11 +872,7 @@ def _review_guidance_items(
                 claim="Documentation or contract evidence is connected to this change.",
                 evidence=[
                     {
-                        "type": (
-                            "authored"
-                            if item.get("evidence_level") == "cross_artifact"
-                            else "computed"
-                        ),
+                        "type": item.get("evidence_type", "computed"),
                         "file": item.get("file"),
                         "section": item.get("section"),
                         "relationship_role": item.get("relationship_role"),
@@ -826,16 +881,12 @@ def _review_guidance_items(
                     }
                     for item in docs[:5]
                 ],
-                confidence="high" if top_doc.get("evidence_level") == "cross_artifact" else "low",
+                confidence="high" if top_doc.get("evidence_type") == "authored" else "low",
                 missingness=[
-                    {
-                        "reason_code": "heuristic_documentation_candidate",
-                        "severity": "medium",
-                        "claim_effect": "candidate came from reachability rather than authored edge",
-                    }
-                ]
-                if any(item.get("evidence_level") == "heuristic_reachable" for item in docs)
-                else [],
+                    missing
+                    for item in docs
+                    for missing in item.get("missingness", [])
+                ][:5],
                 action="query_graph_tool pattern=\"docs_for\" -- inspect linked contract docs",
                 reason_codes=["documentation_update_candidates"],
                 counts={"documentation_candidate_count": len(docs)},

@@ -86,11 +86,16 @@ def _cross_artifact_role(edge: Any) -> str | None:
 
 def _documentation_result(edge: Any, *, endpoint: str, inverse_label: str | None = None) -> dict:
     role = _cross_artifact_role(edge)
+    confidence_tier = str(edge.confidence_tier or "").upper()
+    evidence_type = "authored"
+    if role in {"discussed_by", "discusses_artifact", "describes_symbol"}:
+        evidence_type = "extracted" if confidence_tier in {"EXTRACTED", "HIGH"} else "evaluated"
     result = {
         "source": edge.source_qualified,
         "target": edge.target_qualified,
         "matched_endpoint": endpoint,
         "relationship_role": role,
+        "evidence_type": evidence_type,
         "file": edge.file_path,
         "line": edge.line,
         "confidence": edge.confidence,
