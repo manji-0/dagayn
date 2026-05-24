@@ -37,6 +37,14 @@ Provide findings grouped by risk level (high/medium/low) with:
 - Base risk claims on changed-node count, blast radius, affected flows, test
   coverage, `analysis_summary.reason_codes`, and public API/dependency
   direction changes.
+- Treat `concern_separation` and `function_concern_pressure` as refactoring
+  prioritization evidence, not correctness evidence. Read role, threshold,
+  reason codes, purity-likelihood evidence, missingness, and suggested action
+  before deciding whether to mention it. Boundary/coordinator functions may
+  legitimately have side effects.
+- Do not report a function concern profile as a bug by itself. For a review
+  finding, confirm exact source behavior, contract impact, missing tests, or a
+  concrete maintainability risk. Otherwise frame it as a follow-up refactor lead.
 - Treat `CROSS_ARTIFACT` documentation roles as authored evidence, not duplicate
   inverse facts. `implemented_by` and `implements_contract` answer the same
   contract question from opposite authoring sites; cite the stored role and the

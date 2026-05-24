@@ -2,6 +2,7 @@
 
 <!-- constrained-by ./docs/USAGE.md -->
 <!-- constrained-by ./docs/COMMANDS.md -->
+<!-- constrained-by ./docs/LOCAL-EMBEDDINGS.md -->
 
 This repository ships `dagayn`, a fork of `code-review-graph` with extra emphasis on Terraform, Markdown, and mixed-language monorepos.
 
@@ -28,6 +29,21 @@ dagayn status
 dagayn detect-changes --base HEAD~1
 dagayn serve
 ```
+
+## Embedding and rebuild discipline
+
+- Do not run embedding-enabled full rebuilds as a routine verification step.
+- Treat `dagayn build --force-full-build --local-embedding low` as an explicit
+  embedding-quality or end-to-end maintenance operation, not a normal parser,
+  flow, or documentation-edge check.
+- For ordinary implementation verification, prefer focused tests, `dagayn tool`
+  queries, `dagayn update`, or `dagayn build --local-embedding none` when a clean
+  graph parser/postprocess check is truly necessary.
+- If new files must be included in the graph for verification, stage or otherwise
+  make them visible first, then run the smallest graph refresh that proves the
+  claim. Do not compensate for untracked files by starting an embedding rebuild.
+- Before any command likely to refresh local embeddings for many nodes, state the
+  reason and get explicit confirmation from the user.
 
 ## Useful MCP flows
 

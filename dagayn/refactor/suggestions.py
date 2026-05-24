@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from ..graph import GraphStore, _sanitize_name
+from . import concerns
 from .dead_code import find_dead_code
 
 logger = logging.getLogger(__name__)
@@ -52,6 +53,7 @@ _MOVE_MEDIUM_CONFIDENCE_CALLERS = 4
 _MOVE_HIGH_CONFIDENCE_CALLERS = 8
 _DOCUMENT_MIN_LINES = 60
 _LOW_COMMENT_RATIO = 0.01
+_FUNCTION_CONCERN_SPLIT_SCORE = 0.65
 
 
 def _load_source_lines(store: GraphStore, file_path: str) -> list[str]:
@@ -397,60 +399,12 @@ def _is_public_api_node(node: Any, store: GraphStore, source_cache: dict[str, li
     return _is_external_api_candidate(record, lines)
 
 
-def _branch_count(source_lines: list[str]) -> int:
-    branch_tokens = (
-        " if ",
-        " elif ",
-        " else ",
-        " for ",
-        " while ",
-        " match ",
-        " case ",
-        " switch ",
-        " catch ",
-        " except ",
-        "&&",
-        "||",
-        "?",
-    )
-    count = 0
-    for line in source_lines:
-        stripped = f" {line.strip()} "
-        if not stripped:
-            continue
-        count += sum(1 for token in branch_tokens if token in stripped)
-    return count
-
-
-def _comment_line_count(source_lines: list[str]) -> int:
-    count = 0
-    in_block = False
-    for line in source_lines:
-        stripped = line.strip()
-        if not stripped:
-            continue
-        if in_block:
-            count += 1
-            if "*/" in stripped:
-                in_block = False
-            continue
-        if stripped.startswith(("#", "//", "///", "//!")):
-            count += 1
-            continue
-        if stripped.startswith(('"""', "'''")):
-            count += 1
-            continue
-        if stripped.startswith("/*"):
-            count += 1
-            in_block = "*/" not in stripped
-    return count
-
-
 def _split_metrics(
     kind: str,
     length: int,
     branches: int,
     outgoing_calls: int,
+    concern_profile: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Return split evidence when a code unit crosses kind-specific thresholds.
 
@@ -463,9 +417,22 @@ def _split_metrics(
         length_ratio = length / _FUNCTION_SPLIT_MIN_LINES
         branch_ratio = branches / _FUNCTION_SPLIT_MIN_BRANCHES
         call_ratio = outgoing_calls / _FUNCTION_SPLIT_MIN_OUTGOING_CALLS
-        secondary_ratio = max(branch_ratio, call_ratio)
+        concern_profile = concern_profile or {}
+        concern_score = float(concern_profile.get("score", 0.0) or 0.0)
+        concern_ratio = concern_score / _FUNCTION_CONCERN_SPLIT_SCORE
+        secondary_ratio = max(branch_ratio, call_ratio, concern_ratio)
         if length_ratio < 1 or secondary_ratio < 1:
             return None
+        reason_codes = ["large_function"]
+        if branch_ratio >= 1:
+            reason_codes.append("branch_heavy")
+        if call_ratio >= 1:
+            reason_codes.append("many_collaborators")
+        if concern_ratio >= 1:
+            reason_codes.append("function_concern_pressure")
+            for reason in concern_profile.get("reason_codes", []):
+                if reason not in reason_codes:
+                    reason_codes.append(str(reason))
         return {
             "line_count": length,
             "branch_count": branches,
@@ -473,11 +440,10 @@ def _split_metrics(
             "line_threshold": _FUNCTION_SPLIT_MIN_LINES,
             "branch_threshold": _FUNCTION_SPLIT_MIN_BRANCHES,
             "outgoing_call_threshold": _FUNCTION_SPLIT_MIN_OUTGOING_CALLS,
+            "concern_score_threshold": _FUNCTION_CONCERN_SPLIT_SCORE,
             "split_pressure": round(length_ratio + secondary_ratio, 2),
-            "reason_codes": [
-                "large_function",
-                "branch_heavy" if branch_ratio >= call_ratio else "many_collaborators",
-            ],
+            "reason_codes": reason_codes,
+            "concern_separation": concern_profile,
         }
 
     if kind == "Class":
@@ -513,10 +479,16 @@ def _move_confidence(caller_count: int) -> str:
     return "low"
 
 
-def _structural_suggestions(store: GraphStore, excluded_qns: set[str]) -> list[dict[str, Any]]:
+def _structural_suggestions(
+    store: GraphStore,
+    excluded_qns: set[str],
+    *,
+    node_community: dict[str, int] | None = None,
+) -> list[dict[str, Any]]:
     nodes = store.get_nodes_by_kind(["Function", "Class"])
     qns = [node.qualified_name for node in nodes]
     outgoing_by_qn, _ = store.get_edges_by_endpoints(qns)
+    node_community = node_community or {}
     source_cache: dict[str, list[str]] = {}
     suggestions: list[dict[str, Any]] = []
 
@@ -535,14 +507,27 @@ def _structural_suggestions(store: GraphStore, excluded_qns: set[str]) -> list[d
 
         span = _source_span(lines, node.line_start, node.line_end)
         length = node.line_end - node.line_start + 1
-        outgoing_calls = sum(
-            1 for edge in outgoing_by_qn.get(node.qualified_name, []) if edge.kind == "CALLS"
-        )
-        branches = _branch_count(span)
-        comments = _comment_line_count(span)
+        outgoing_edges = outgoing_by_qn.get(node.qualified_name, [])
+        outgoing_calls = sum(1 for edge in outgoing_edges if edge.kind == "CALLS")
+        branches = concerns.branch_count(span)
+        comments = concerns.comment_line_count(span)
         comment_ratio = comments / max(length, 1)
         is_public_api = _is_external_api_candidate(record, lines)
-        split_evidence = _split_metrics(node.kind, length, branches, outgoing_calls)
+        concern_profile = concerns.function_concern_profile(
+            node,
+            span,
+            outgoing_edges,
+            node_community=node_community,
+            branch_count_value=branches,
+            comment_line_count_value=comments,
+        )
+        split_evidence = _split_metrics(
+            node.kind,
+            length,
+            branches,
+            outgoing_calls,
+            concern_profile,
+        )
         is_complex = split_evidence is not None
 
         if is_complex:
@@ -552,8 +537,8 @@ def _structural_suggestions(store: GraphStore, excluded_qns: set[str]) -> list[d
                     "description": f"Split large {node.kind.lower()} '{_sanitize_name(node.name)}'",
                     "symbols": [_sanitize_name(node.qualified_name)],
                     "rationale": (
-                        "The code unit is large and has additional complexity signals, "
-                        "so extraction or decomposition may reduce maintenance risk."
+                        "The code unit is large and has complexity or concern-separation "
+                        "pressure, so extraction or decomposition may reduce maintenance risk."
                     ),
                     "priority": "medium",
                     "confidence": "medium",
@@ -629,9 +614,9 @@ def suggest_refactorings(store: GraphStore) -> list[dict[str, Any]]:
     suggestions: list[dict[str, Any]] = []
 
     community_rows = store.get_communities_list()
+    node_community: dict[str, int] = {}
 
     if community_rows:
-        node_community: dict[str, int] = {}
         members_by_id = store.get_all_community_member_qns()
         for crow in community_rows:
             cid = crow["id"]
@@ -767,7 +752,7 @@ def suggest_refactorings(store: GraphStore) -> list[dict[str, Any]]:
             }
         )
 
-    suggestions.extend(_structural_suggestions(store, dead_qns))
+    suggestions.extend(_structural_suggestions(store, dead_qns, node_community=node_community))
     suggestions = [_attach_execution_plan(suggestion) for suggestion in suggestions]
     suggestions.sort(key=_suggestion_sort_key)
     logger.info("suggest_refactorings: produced %d suggestions", len(suggestions))

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from dagayn.communities import store_communities
 from dagayn.graph import GraphStore
+from dagayn.graph.types import GraphEdge
 from dagayn.parser import CodeParser, EdgeInfo, NodeInfo
 from dagayn.refactor import (
     REFACTOR_EXPIRY_SECONDS,
@@ -17,6 +18,154 @@ from dagayn.refactor import (
     rename_preview,
     suggest_refactorings,
 )
+from dagayn.refactor.concerns import (
+    _callee_scope,
+    _function_role,
+    _parameter_names,
+    _side_effect_reason_codes,
+    branch_count,
+    comment_line_count,
+    function_concern_profile,
+)
+
+
+class TestFunctionConcernProfile:
+    """Tests for function concern-separation evidence."""
+
+    def test_lightweight_source_counters(self):
+        assert branch_count(
+            [
+                "if enabled:",
+                "    for item in items:",
+                "        value = a && b",
+                "return value",
+            ]
+        ) == 3
+        assert comment_line_count(
+            [
+                "# module note",
+                "value = 1",
+                "/* block start",
+                "block body",
+                "*/",
+                '"""docstring"""',
+            ]
+        ) == 5
+
+    def test_context_and_role_helpers(self):
+        assert _parameter_names(
+            "(self, user_id: str, include_history=False, mut payload, flags)"
+        ) == ["user_id", "include_history", "payload", "flags"]
+        assert _callee_scope("src/orders/service.py::save_order") == "src/orders"
+        assert _callee_scope("<dynamic:save_order>") is None
+        assert set(
+            _side_effect_reason_codes(
+                [
+                    "raw = open('/tmp/orders.json').read()",
+                    "logger.info(raw)",
+                    "requests.post('https://example.test/orders')",
+                    "db.execute('select 1')",
+                ],
+                [],
+            )
+        ) == {
+            "filesystem_io",
+            "database_io",
+            "network_io",
+            "logging_or_console",
+        }
+        assert (
+            _function_role(
+                name="normalize_order",
+                file_path="src/domain/orders.py",
+                branch_count_value=1,
+                outgoing_call_count=1,
+                side_effect_count=0,
+                context_pressure=0.1,
+            )
+            == "transformer"
+        )
+        assert (
+            _function_role(
+                name="handle_order",
+                file_path="src/commands/orders.py",
+                branch_count_value=3,
+                outgoing_call_count=3,
+                side_effect_count=2,
+                context_pressure=0.4,
+            )
+            == "boundary"
+        )
+
+    def test_profile_scores_mixed_concerns_as_refactoring_lead(self):
+        lines = [
+            (
+                "def handle_order(user_id, payload, include_history, skip_cache, "
+                "should_notify, dry_run, request_id, logger):"
+            ),
+            "    config = os.environ.get('ORDER_CONFIG')",
+            "    logger.info(config)",
+            "    raw = open('/tmp/orders.json').read()",
+            "    response = requests.post('https://example.test/orders', json=payload)",
+            "    db.execute('INSERT INTO orders VALUES (?)', [user_id])",
+            "    service_a()",
+            "    service_b()",
+            "    service_c()",
+        ]
+        lines.extend(f"    value_{idx} = {idx}" for idx in range(1, 65))
+        node = NodeInfo(
+            kind="Function",
+            name="handle_order",
+            file_path="src/commands/orders.py",
+            line_start=1,
+            line_end=len(lines),
+            language="python",
+            params=(
+                "user_id, payload, include_history, skip_cache, should_notify, "
+                "dry_run, request_id, logger"
+            ),
+        )
+        edges = [
+            GraphEdge(
+                id=idx,
+                kind="CALLS",
+                source_qualified="src/commands/orders.py::handle_order",
+                target_qualified=target,
+                file_path="src/commands/orders.py",
+                line=idx + 5,
+                extra={},
+            )
+            for idx, target in enumerate(
+                [
+                    "src/accounting/service_a.py::service_a",
+                    "src/notifications/service_b.py::service_b",
+                    "src/orders/service_c.py::service_c",
+                ],
+                start=1,
+            )
+        ]
+        node_community = {
+            "src/accounting/service_a.py::service_a": 1,
+            "src/notifications/service_b.py::service_b": 2,
+            "src/orders/service_c.py::service_c": 3,
+        }
+
+        profile = function_concern_profile(
+            node,
+            lines,
+            edges,
+            node_community=node_community,
+        )
+
+        assert profile["role"] == "boundary"
+        assert profile["score"] >= profile["evidence"]["split_score_threshold"]
+        assert profile["confidence"] == "medium"
+        assert "many_callee_communities" in profile["reason_codes"]
+        assert "side_effect_pressure" in profile["reason_codes"]
+        assert "implicit_context" in profile["reason_codes"]
+        assert profile["evidence"]["purity_likelihood"] == 0.0
+        assert profile["missingness"] == []
+        assert "Extract one cohesive" in profile["action"]
 
 
 class TestRenamePreview:
@@ -1419,6 +1568,117 @@ class TestSuggestRefactorings:
         splits = [s for s in suggest_refactorings(self.store) if s["type"] == "split"]
 
         assert not any(s["symbols"] == [f"{module}::long_but_linear"] for s in splits)
+
+    def test_split_suggestions_include_function_concern_pressure(self, tmp_path):
+        """Long functions with mixed concerns can use concern pressure as a split signal."""
+        module = tmp_path / "commands" / "orders.py"
+        module.parent.mkdir(parents=True)
+        params = (
+            "user_id, payload, include_history, skip_cache, should_notify, "
+            "dry_run, request_id, logger"
+        )
+        lines = [f"def handle_order({params}):"]
+        lines.extend(
+            [
+                "    config = os.environ.get('ORDER_CONFIG')",
+                "    logger.info(config)",
+                "    raw = open('/tmp/orders.json').read()",
+                "    response = requests.post('https://example.test/orders', json=payload)",
+                "    db.execute('INSERT INTO orders VALUES (?)', [user_id])",
+                "    service_a()",
+                "    service_b()",
+                "    service_c()",
+                "    service_d()",
+                "    service_e()",
+                "    service_f()",
+            ]
+        )
+        lines.extend(f"    value_{idx} = {idx}" for idx in range(1, 65))
+        module.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="handle_order",
+                file_path=str(module),
+                line_start=1,
+                line_end=len(lines),
+                language="python",
+                params=params,
+            )
+        )
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="caller",
+                file_path=str(module),
+                line_start=len(lines) + 1,
+                line_end=len(lines) + 2,
+                language="python",
+            )
+        )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CALLS",
+                source=f"{module}::caller",
+                target=f"{module}::handle_order",
+                file_path=str(module),
+                line=len(lines) + 1,
+            )
+        )
+        target_qns = []
+        for idx, service in enumerate("abcdef", start=1):
+            target_file = tmp_path / f"service_{service}.py"
+            target_file.write_text(
+                f"def service_{service}():\n    return {idx}\n",
+                encoding="utf-8",
+            )
+            target_qn = f"{target_file}::service_{service}"
+            target_qns.append(target_qn)
+            self.store.upsert_node(
+                NodeInfo(
+                    kind="Function",
+                    name=f"service_{service}",
+                    file_path=str(target_file),
+                    line_start=1,
+                    line_end=2,
+                    language="python",
+                )
+            )
+            self.store.upsert_edge(
+                EdgeInfo(
+                    kind="CALLS",
+                    source=f"{module}::handle_order",
+                    target=target_qn,
+                    file_path=str(module),
+                    line=idx + 5,
+                )
+            )
+        self.store.commit()
+        store_communities(
+            self.store,
+            [
+                {"name": f"service-{idx}", "size": 1, "members": [target_qn]}
+                for idx, target_qn in enumerate(target_qns, start=1)
+            ],
+        )
+
+        suggestions = suggest_refactorings(self.store)
+        split = next(
+            s
+            for s in suggestions
+            if s["type"] == "split" and s["symbols"] == [f"{module}::handle_order"]
+        )
+
+        concern = split["evidence"]["concern_separation"]
+        assert "function_concern_pressure" in split["reason_codes"]
+        assert concern["score"] >= concern["evidence"]["split_score_threshold"]
+        assert concern["role"] in {"boundary", "coordinator"}
+        assert "side_effect_mixed_with_decision_logic" not in concern["reason_codes"]
+        assert "implicit_context" in concern["reason_codes"]
+        assert concern["evidence"]["purity_likelihood"] < 1.0
+        assert concern["evidence"]["callee_community_count"] >= 3
+        assert "Extract one cohesive" in concern["action"]
 
 
 class TestApplyRefactor:

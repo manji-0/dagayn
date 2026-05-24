@@ -29,9 +29,12 @@ the selected embedding mode so agents can avoid stale or wasteful search advice.
    `search_mode="hybrid"` means embeddings and FTS were merged. `fts_only`
    is still valid, but semantic recall is lower.
 3. If embeddings are missing or stale, build them through the graph tools:
-   - Full local refresh: `build_or_update_graph_tool(full_rebuild=True, local_embedding="low")`
    - Incremental local refresh: `build_or_update_graph_tool(local_embedding="low")`
    - Dedicated embedding pass: `embed_graph_tool`
+   - Full local refresh: `build_or_update_graph_tool(full_rebuild=True, local_embedding="low")` only when explicitly doing embedding-quality or end-to-end maintenance work.
+   Before any embedding-enabled full rebuild, state the reason and get explicit
+   confirmation from the user; do not use it for parser, flow, documentation, or
+   ordinary implementation verification.
 4. For CLI fallback:
    ```bash
    dagayn build --local-embedding low
@@ -60,3 +63,6 @@ the selected embedding mode so agents can avoid stale or wasteful search advice.
   unfamiliar domain terms, and cross-language search.
 - Do one before/after query to prove search quality changed. Do not rebuild the
   graph repeatedly without a changed file set or a failed verification.
+- Never use an embedding-enabled full rebuild to compensate for untracked files
+  not appearing in graph queries. Stage or otherwise expose the files first,
+  then run the smallest non-embedding graph refresh that proves the claim.

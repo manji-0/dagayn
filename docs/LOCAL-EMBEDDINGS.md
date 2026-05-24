@@ -89,6 +89,14 @@ Run an incremental update and refresh missing or stale embeddings:
 dagayn update --local-embedding low
 ```
 
+Do not use embedding-enabled full rebuilds as routine parser, flow,
+documentation-edge, or review verification. For those checks, run the graph
+refresh without local embeddings, for example `dagayn update --local-embedding
+none` or the equivalent `build_or_update_graph_tool(local_embedding="none")`.
+Reserve `dagayn build --force-full-build --local-embedding low` for explicit
+embedding-quality or end-to-end maintenance work after stating why the embedding
+refresh itself is required.
+
 If no compatible server is already listening on `127.0.0.1:18080`, dagayn
 starts `llama-server` for the duration of the command. By default, dagayn stops
 that subprocess when embedding finishes. Managed starts are serialized per port

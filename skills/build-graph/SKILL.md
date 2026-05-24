@@ -22,12 +22,13 @@ the selected embedding mode so graph builds refresh the right retrieval indexes.
    - If the graph exists, proceed with an incremental update.
 
 2. **Build the graph** by calling the `build_or_update_graph_tool` MCP tool:
-   - For first-time setup: `build_or_update_graph_tool(full_rebuild=True)`
-   - For updates: `build_or_update_graph_tool()` (incremental by default)
-   - Do not pass `local_embedding` just to match the installed mode. When the
-     MCP server was started with `--local-embedding low`, the tool inherits
-     that preset. Pass `local_embedding="none"` only for a deliberate FTS-only
-     refresh, or pass an explicit preset only when overriding the server default.
+   - For first-time graph setup: `build_or_update_graph_tool(full_rebuild=True, local_embedding="none")`
+   - For routine updates: `build_or_update_graph_tool(local_embedding="none")`
+   - Do not run embedding-enabled full rebuilds as a routine verification step.
+     When the MCP server was started with `--local-embedding low`, omitting
+     `local_embedding` may inherit that preset and trigger a large embedding
+     refresh. Pass `local_embedding="low"` only when the task explicitly requires
+     embedding quality or hybrid-search freshness, and state that reason first.
 
 3. **Verify** by calling `list_graph_stats_tool` again and report the results:
    - Number of files parsed
@@ -66,6 +67,9 @@ dagayn tool run_postprocess_tool --arg fts=true
 
 - Use incremental `build_or_update_graph_tool()` unless the graph is empty,
   branch state changed heavily, or new files are missing from graph queries.
+- For parser, flow, documentation-edge, or review verification, keep
+  `local_embedding="none"` so hooks and local embedding refresh do not turn a
+  graph check into an expensive embedding rebuild.
 - Use `postprocess="minimal"` while iterating; run full postprocess only when
   flow/community freshness matters.
 - Report node, edge, file, language, and error counts instead of reading the

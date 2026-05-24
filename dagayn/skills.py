@@ -587,8 +587,11 @@ def _embedding_context_lines(
             f"Installed with local embeddings (`--mode local --preset {preset}`).",
             "",
             "- MCP search defaults to hybrid retrieval when matching embeddings exist.",
-            "- `build_or_update_graph_tool()` inherits the server local embedding preset; "
-            'use `local_embedding="none"` only for a deliberate FTS-only refresh.',
+            "- Routine graph refreshes for parser, flow, documentation, or review "
+            'verification should pass `local_embedding="none"` so they do not '
+            "inherit the server preset and trigger a large embedding refresh.",
+            "- Use embedding-enabled full rebuilds only for explicit embedding-quality "
+            "or end-to-end maintenance work after stating the reason.",
             "- Exact identifier lookup can still rely on FTS; use semantic search for "
             "fuzzy concepts, domain terms, cross-language search, or unfamiliar code.",
         ]

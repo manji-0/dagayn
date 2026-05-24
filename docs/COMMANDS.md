@@ -240,7 +240,10 @@ test artifacts, dynamic dispatch, and generated entry points before changing
 source. Suggestions include `execution_plan` with minimum safe steps, required
 tests, rollback guidance, and defer conditions. Suggestion payloads also include
 `work_pack` so agents can pick a first commit scope, success criteria, and
-verification commands without inventing a separate planning tool.
+verification commands without inventing a separate planning tool. Split
+suggestions for functions may also include a `concern_separation` profile that
+reports role-aware single-responsibility pressure, side-effect evidence,
+purity likelihood, context clarity, missingness, and a first extraction action.
 
 `architecture_analysis_tool(mode="knowledge_gaps", top_n=20)` returns bounded
 structural weakness categories with explicit thresholds and raw counts.

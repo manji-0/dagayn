@@ -43,6 +43,31 @@ Use the knowledge graph to plan and execute refactoring with confidence.
 - Prefer suggestions with explicit counts, thresholds, callers, communities, and
   reason codes; narrow truncated output with `top_n` or follow-up graph queries.
 
+### Function Concern Separation Profiles
+
+When a split suggestion contains `evidence.concern_separation`, treat it as a
+role-aware refactoring profile, not a verdict that the function is bad.
+
+- Read `role` first. Boundary functions, CLI handlers, adapters, coordinators,
+  and test helpers may legitimately combine IO and orchestration.
+- Read `score` against `split_score_threshold`. A score over the threshold means
+  concern pressure can justify reviewing a large function for extraction; it
+  does not prove that extraction is safe or required.
+- Use `reason_codes` to identify the suspected pressure: callee community spread,
+  callee scope spread, branch pressure, side-effect pressure, implicit context,
+  or low context clarity.
+- Use `evidence.purity_likelihood` only as side-effect evidence. It is not a
+  proof of functional purity.
+- Check `missingness` before acting. Low source, call, community, or unresolved
+  call evidence lowers confidence and should trigger a source read or graph
+  follow-up before recommending an edit.
+- Use `action` as the first investigation step. Prefer extracting one cohesive
+  decision, transformation, or context object before moving IO or changing public
+  signatures.
+- Do not turn this profile into a standalone review finding. Cite exact source
+  behavior or a failing test when claiming a bug; cite the profile only as
+  refactoring prioritization evidence.
+
 ## CLI Fallback
 
 Use MCP tools first. If the current MCP server profile does not expose a

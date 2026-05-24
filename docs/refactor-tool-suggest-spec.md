@@ -54,12 +54,15 @@ Move suggestions are advisory because community assignment can shift as the grap
 
 ### Split
 
-`split` suggestions identify oversized code units whose length and interaction shape indicate that extraction or decomposition may reduce maintenance risk.
+`split` suggestions identify oversized code units whose length, interaction
+shape, and role-aware concern pressure indicate that extraction or decomposition
+may reduce maintenance risk.
 
 Default split suggestions must require:
 
 - a function or class above its kind-specific size threshold;
-- at least one additional complexity signal for functions, such as branch-heavy source or many outgoing call edges;
+- at least one additional complexity signal for functions, such as branch-heavy
+  source, many outgoing call edges, or high function-level concern pressure;
 - either branch-heavy source or very high absolute size for classes, where class-level call edges are often sparse;
 - non-test code.
 
@@ -68,14 +71,21 @@ function/class distribution, not around a universal style preference:
 
 | Kind | Size gate | Secondary gate | Rationale |
 | --- | --- | --- | --- |
-| Function | `line_count >= 60` | `branch_count >= 12` or `outgoing_call_count >= 22` | Roughly p95 for function length and p95-ish for branch/collaborator pressure in this repo. |
+| Function | `line_count >= 60` | `branch_count >= 12`, `outgoing_call_count >= 22`, or `concern_separation.score >= 0.65` | Roughly p95 for function length plus branch/collaborator pressure or role-aware concern separation pressure. |
 | Class | `line_count >= 120` | `branch_count >= 20` | Classes tend to have sparse class-level call edges, so branch density is the main secondary signal. |
 | Class | `line_count >= 250` | none | Very large containers are worth reviewing even when branch extraction is low or parser edges sit on methods. |
 
 Split evidence includes `line_count`, `branch_count`, `outgoing_call_count`,
-threshold values, `reason_codes`, and `split_pressure`. `split_pressure` is a
-dimensionless score built from threshold ratios; it is for ranking and review
-triage, not a proof that code must be split.
+threshold values, `reason_codes`, `split_pressure`, and for functions a
+`concern_separation` profile. The concern profile includes role, score,
+confidence, reason codes, purity-likelihood evidence, context-pressure evidence,
+missingness, and a suggested first action. It is a refactoring lead, not a proof
+that the function violates single responsibility or must be pure.
+
+Function concern pressure is role-aware. CLI handlers, adapters, and boundary
+functions may legitimately perform IO. They are flagged only when IO,
+collaborator spread, branch pressure, or implicit context are mixed enough to
+make the function harder to reason about.
 
 Split suggestions are advisory and should not propose a target shape automatically.
 

@@ -177,14 +177,16 @@ class TestGenerateSkills:
         review_pr = (skills_dir / "review-pr.md").read_text()
 
         assert "--mode local --preset low" in semantic
-        assert "build_or_update_graph_tool()" in semantic
+        assert "build_or_update_graph_tool(local_embedding=\"low\")" in semantic
         assert 'local_embedding="none"' in semantic
+        assert "embedding-enabled full rebuild" in semantic
         assert "mode-neutral" not in semantic
         assert "--mode local --preset low" in debug
         assert "--mode local --preset low" in build
-        assert "--local-embedding low" in build
-        assert "inherits" in build
+        assert 'local_embedding="none"' in build
+        assert "trigger a large embedding refresh" in build
         assert "--mode local --preset low" in writing
+        assert 'local_embedding="none"' in writing
         assert "exact symbol match" in writing
         assert "Ignore semantic near-matches" in writing
         assert "--mode local --preset low" in review_pr
@@ -232,6 +234,20 @@ class TestGenerateSkills:
             assert "detect_changes_tool" not in content
             assert "get_review_context_tool" not in content
             assert "get_impact_radius_tool" not in content
+
+    def test_refactor_skills_explain_function_concern_profiles(self, tmp_path):
+        skills_dir = generate_skills(tmp_path)
+        refactor = (skills_dir / "refactor-safely.md").read_text()
+        review = (skills_dir / "review-changes.md").read_text()
+
+        assert "Function Concern Separation Profiles" in refactor
+        assert "evidence.concern_separation" in refactor
+        assert "role-aware refactoring profile" in refactor
+        assert "purity_likelihood" in refactor
+        assert "missingness" in refactor
+        assert "function_concern_pressure" in review
+        assert "not correctness evidence" in review
+        assert "Do not report a function concern profile as a bug by itself" in review
 
     def test_generated_skills_use_current_mcp_tool_names(self, tmp_path):
         """Packaged skills should match the 3.0 MCP dispatcher interface."""
@@ -499,7 +515,8 @@ class TestInstallTreeSkills:
         target = result / "semantic-search" / "SKILL.md"
         content = target.read_text()
         assert "--mode local --preset low" in content
-        assert "build_or_update_graph_tool()" in content
+        assert "build_or_update_graph_tool(local_embedding=\"low\")" in content
+        assert "explicitly doing embedding-quality" in content
 
     def test_tree_skill_install_is_idempotent(self, tmp_path):
         with patch("dagayn.skills.Path.home", return_value=tmp_path):
