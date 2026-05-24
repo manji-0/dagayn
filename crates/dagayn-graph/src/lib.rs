@@ -671,6 +671,20 @@ impl GraphStore {
                     re_resolved += 1;
                 }
             } else {
+                let is_implicit_code_span = extra
+                    .as_object()
+                    .map(|obj| {
+                        obj.get("evidence_kind").and_then(Value::as_str)
+                            == Some("markdown_code_span")
+                            && obj.get("evidence_source").and_then(Value::as_str)
+                                == Some("code_span")
+                    })
+                    .unwrap_or(false);
+                if is_implicit_code_span {
+                    tx.execute("DELETE FROM edges WHERE id = ?", params![edge_id])?;
+                    demoted += 1;
+                    continue;
+                }
                 let unresolved_target = format!("<unresolved:{sym}>");
                 if current_target == unresolved_target
                     && !raw_extra.contains("unresolved_target_name")

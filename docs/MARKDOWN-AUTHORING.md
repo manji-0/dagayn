@@ -6,7 +6,8 @@
 Dagayn reads Markdown as graph input. Headings become `DocSection` nodes, prose
 blocks become `DocBody` nodes under the nearest section, relative links become
 document references, dependency comments become `DEPENDS_ON` edges, and
-symbol-shaped backtick spans can become `CROSS_ARTIFACT` edges.
+symbol-shaped backtick spans can become `CROSS_ARTIFACT` edges when they resolve
+uniquely to a non-Markdown symbol.
 
 Use dependency comments only when one section or document has a real ongoing
 constraint on another:

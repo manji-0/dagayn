@@ -2047,6 +2047,37 @@ class TestGetMinimalContext:
         assert result["graph_health"]["status"] in {"ok", "degraded", "empty"}
         assert "answerability" in result["graph_health"]
 
+    def test_graph_health_excludes_unresolved_markdown_code_span_candidates(self):
+        from dagayn.tools.context import get_minimal_context
+
+        self.store = GraphStore(str(self.root / ".dagayn" / "graph.db"))
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CROSS_ARTIFACT",
+                source="docs/spec.md::section",
+                target="<unresolved:OrdinaryConcept>",
+                file_path="docs/spec.md",
+                line=5,
+                extra={
+                    "relationship_role": "describes_symbol",
+                    "bridge_kind": "documentation",
+                    "evidence_kind": "markdown_code_span",
+                    "evidence_source": "code_span",
+                    "original_symbol_name": "OrdinaryConcept",
+                },
+            )
+        )
+        self.store.commit()
+        self.store.close()
+
+        result = get_minimal_context(
+            task="explore codebase",
+            repo_root=str(self.root),
+        )
+
+        assert result["graph_health"]["answerability"][3] == 0
+        assert "unresolved_edges" not in result["graph_health"]
+
     def test_output_is_compact(self):
         import json
 

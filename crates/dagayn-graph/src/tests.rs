@@ -566,6 +566,54 @@ fn resolves_markdown_artifact_refs() {
 }
 
 #[test]
+fn prunes_unresolved_markdown_code_span_refs() {
+    let path = temp_db("markdown-code-span-prune");
+    let mut store = GraphStore::open(&path).expect("open graph store");
+    let edge = EdgeInput {
+        kind: "CROSS_ARTIFACT".to_string(),
+        source: "docs/spec.md::section".to_string(),
+        target: "<unresolved:OrdinaryConcept>".to_string(),
+        file_path: "docs/spec.md".to_string(),
+        line: 5,
+        extra: json!({
+            "relationship_role": "describes_symbol",
+            "bridge_kind": "documentation",
+            "evidence_kind": "markdown_code_span",
+            "evidence_source": "code_span",
+            "target_language": "unknown",
+            "confidence": 0.2,
+            "confidence_tier": "LOW",
+            "original_symbol_name": "OrdinaryConcept",
+        }),
+    };
+
+    store
+        .store_file_batch(&[(
+            "docs/spec.md".to_string(),
+            vec![],
+            vec![edge],
+            "hash".to_string(),
+            0,
+        )])
+        .unwrap();
+
+    assert_eq!(
+        store.resolve_markdown_artifact_refs().unwrap(),
+        (0, 1, 0, 0)
+    );
+    let count: i64 = store
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM edges WHERE kind = 'CROSS_ARTIFACT'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 0);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
 fn computes_summary_tables() {
     let path = temp_db("summaries");
     let mut store = GraphStore::open(&path).expect("open graph store");

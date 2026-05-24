@@ -69,17 +69,17 @@ def _resolve_markdown_artifact_refs(
 
     - Unique non-markdown match → ``target_qualified`` = the node's
       ``qualified_name``; confidence promoted to HIGH (0.8).
-    - Zero or 2+ matches → ``target_qualified`` = ``<unresolved:{sym}>``;
-      confidence stays LOW (0.2).  The edge is **kept** so a future run
-      can resolve it once the symbol situation changes.
-
-    Edges are never deleted here; they persist until the source MD file is
-    re-parsed (which replaces them).  This makes the resolver idempotent:
-    running it twice in a row produces the same DB state.
+    - Zero or 2+ matches from implicit Markdown code spans → delete the
+      low-confidence candidate.  Code spans often contain ordinary vocabulary
+      and should not appear as real graph data unless they resolve uniquely.
+    - Zero or 2+ matches from explicit documentation directives → keep or
+      demote to ``<unresolved:{sym}>`` because the author intentionally
+      declared a dependency.
 
     Result keys:
       ``markdown_artifact_refs_resolved``   — transitions unresolved→resolved
-      ``markdown_artifact_refs_dropped``    — transitions resolved→unresolved (demoted)
+      ``markdown_artifact_refs_dropped``    — unresolved implicit candidates deleted
+                                             or explicit refs demoted
       ``markdown_artifact_refs_re_resolved`` — resolved but to a different qname
       ``markdown_artifact_refs_still_unresolved`` — unchanged unresolved count
     """
@@ -156,12 +156,17 @@ def _resolve_markdown_artifact_refs(
                     (mr["qualified_name"], mr["language"] or "unknown")
                 )
 
-        # Compute desired state; only UPDATE rows where the state actually changes
+        # Compute desired state; only UPDATE/DELETE rows where the state actually changes
         to_update: list[tuple] = []  # (new_target, new_extra_json, confidence, tier, edge_id)
+        to_delete: list[tuple[int]] = []
 
         for edge_id, current_target, sym, extra in edge_data:
             matches = matches_by_sym.get(sym, [])
             unresolved_target = f"<unresolved:{sym}>"
+            is_implicit_code_span = (
+                extra.get("evidence_kind") == "markdown_code_span"
+                and extra.get("evidence_source") == "code_span"
+            )
 
             if len(matches) == 1:
                 qname, lang = matches[0]
@@ -177,6 +182,10 @@ def _resolve_markdown_artifact_refs(
                 else:
                     re_resolved += 1
             else:
+                if is_implicit_code_span:
+                    to_delete.append((edge_id,))
+                    demoted += 1
+                    continue
                 if current_target == unresolved_target:
                     still_unresolved += 1
                     continue  # already correct — no-op
@@ -194,6 +203,8 @@ def _resolve_markdown_artifact_refs(
                 "WHERE id=?",
                 to_update,
             )
+        if to_delete:
+            store._conn.executemany("DELETE FROM edges WHERE id=?", to_delete)
 
         store.commit()
         result["markdown_artifact_refs_resolved"] = resolved

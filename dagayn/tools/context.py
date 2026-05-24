@@ -227,12 +227,29 @@ def _graph_answerability(store: Any, stats: Any) -> dict[str, Any]:
     community_count = _count("SELECT COUNT(*) FROM communities")
     test_edge_count = int(stats.edges_by_kind.get("TESTED_BY", 0))
     cross_artifact_count = int(stats.edges_by_kind.get("CROSS_ARTIFACT", 0))
+    unresolved_markdown_code_span_count = _count(
+        "SELECT COUNT(*) FROM edges "
+        "WHERE kind = 'CROSS_ARTIFACT' "
+        "AND target_qualified LIKE '<unresolved:%' "
+        "AND extra LIKE '%markdown_code_span%' "
+        "AND extra LIKE '%code_span%'"
+    )
     unresolved_cross_artifact_count = _count(
         "SELECT COUNT(*) FROM edges "
         "WHERE kind = 'CROSS_ARTIFACT' AND target_qualified LIKE '<unresolved:%'"
     )
+    reportable_cross_artifact_count = max(
+        0,
+        cross_artifact_count - unresolved_markdown_code_span_count,
+    )
+    reportable_unresolved_cross_artifact_count = max(
+        0,
+        unresolved_cross_artifact_count - unresolved_markdown_code_span_count,
+    )
     unresolved_ratio = (
-        unresolved_cross_artifact_count / cross_artifact_count if cross_artifact_count else 0.0
+        reportable_unresolved_cross_artifact_count / reportable_cross_artifact_count
+        if reportable_cross_artifact_count
+        else 0.0
     )
 
     reason_codes: list[str] = []
@@ -266,12 +283,12 @@ def _graph_answerability(store: Any, stats: Any) -> dict[str, Any]:
             flow_count,
             community_count,
             test_edge_count,
-            cross_artifact_count,
+            reportable_cross_artifact_count,
             round(unresolved_ratio, 4),
         ],
     }
-    if unresolved_cross_artifact_count:
-        health["unresolved_edges"] = unresolved_cross_artifact_count
+    if reportable_unresolved_cross_artifact_count:
+        health["unresolved_edges"] = reportable_unresolved_cross_artifact_count
     return health
 
 

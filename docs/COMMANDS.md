@@ -203,7 +203,10 @@ next small set of MCP tools. It also returns `workflow`,
 step without requiring users to know tool names. It includes compact
 `graph_health` answerability metadata. `parse` is `[files, languages,
 has_last_updated]`; `answerability` is `[flows, communities, test_edges,
-cross_artifact_edges, unresolved_cross_artifact_ratio]`.
+reportable_cross_artifact_edges, unresolved_cross_artifact_ratio]`. Unresolved
+Markdown code-span candidates are excluded from these answerability counts
+because post-processing treats them as prose vocabulary unless they resolve
+uniquely to a non-Markdown symbol.
 
 `architecture_analysis_tool` is the primary architecture-analysis surface. Start
 with `mode="overview"` and `detail_level="minimal"`. Output includes

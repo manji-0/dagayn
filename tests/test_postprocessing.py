@@ -359,6 +359,23 @@ class TestMarkdownArtifactResolver:
             },
         )
 
+    def _directive_edge(self, sym: str, line: int = 5) -> EdgeInfo:
+        edge = self._unresolved_edge(sym, line=line)
+        return EdgeInfo(
+            kind=edge.kind,
+            source=edge.source,
+            target=edge.target,
+            file_path=edge.file_path,
+            line=edge.line,
+            extra={
+                **edge.extra,
+                "relationship_role": "implemented_by",
+                "evidence_kind": "markdown_directive",
+                "evidence_source": "dagayn_directive",
+                "dagayn_directive_kind": "implemented-by",
+            },
+        )
+
     def test_resolves_unique_match_to_high(self):
         self.store.upsert_node(
             NodeInfo(
@@ -389,8 +406,8 @@ class TestMarkdownArtifactResolver:
         assert extra["target_language"] == "python"
         assert extra["confidence"] == 0.8
 
-    def test_keeps_ambiguous_as_unresolved(self):
-        """Ambiguous matches keep the edge as <unresolved:> instead of deleting it."""
+    def test_prunes_ambiguous_code_span_candidate(self):
+        """Ambiguous Markdown code spans are dropped instead of persisted as data."""
         for fp in ("/repo/a.py", "/repo/b.py"):
             self.store.upsert_node(
                 NodeInfo(
@@ -409,16 +426,32 @@ class TestMarkdownArtifactResolver:
         _resolve_markdown_artifact_refs(self.store, result, [])
 
         assert result["markdown_artifact_refs_resolved"] == 0
-        assert result["markdown_artifact_refs_dropped"] == 0  # not deleted, just stays
-        assert result["markdown_artifact_refs_still_unresolved"] == 1
+        assert result["markdown_artifact_refs_dropped"] == 1
+        assert result["markdown_artifact_refs_still_unresolved"] == 0
         count = self.store._conn.execute(
             "SELECT COUNT(*) FROM edges WHERE kind='CROSS_ARTIFACT'"
         ).fetchone()[0]
-        assert count == 1  # edge preserved for future re-evaluation
+        assert count == 0
 
-    def test_keeps_unmatched_as_unresolved(self):
-        """No-match symbols keep the edge as <unresolved:> instead of deleting it."""
+    def test_prunes_unmatched_code_span_candidate(self):
+        """No-match Markdown code spans are dropped instead of persisted as data."""
         self.store.upsert_edge(self._unresolved_edge("NonexistentSymbolXYZ"))
+        self.store.commit()
+
+        result: dict = {}
+        _resolve_markdown_artifact_refs(self.store, result, [])
+
+        assert result["markdown_artifact_refs_resolved"] == 0
+        assert result["markdown_artifact_refs_dropped"] == 1
+        assert result["markdown_artifact_refs_still_unresolved"] == 0
+        count = self.store._conn.execute(
+            "SELECT COUNT(*) FROM edges WHERE kind='CROSS_ARTIFACT'"
+        ).fetchone()[0]
+        assert count == 0
+
+    def test_keeps_unmatched_explicit_directive_as_unresolved(self):
+        """Explicit dagayn directives are author-declared references, not prose candidates."""
+        self.store.upsert_edge(self._directive_edge("NonexistentSymbolXYZ"))
         self.store.commit()
 
         result: dict = {}
@@ -450,7 +483,8 @@ class TestMarkdownArtifactResolver:
         result: dict = {}
         _resolve_markdown_artifact_refs(self.store, result, [])
 
-        assert result["markdown_artifact_refs_still_unresolved"] == 1
+        assert result["markdown_artifact_refs_still_unresolved"] == 0
+        assert result["markdown_artifact_refs_dropped"] == 1
         assert result["markdown_artifact_refs_resolved"] == 0
 
     def test_idempotent_second_run_no_ops(self):

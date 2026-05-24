@@ -41,9 +41,9 @@
 > - `_extract_markdown_code_spans` (`dagayn/parser/languages/markdown.py`) scans inline backtick spans, filters by identifier-shape regex, emits `CROSS_ARTIFACT` edges with `relationship_role=describes_symbol`, `bridge_kind=documentation`, `evidence_kind=markdown_code_span`
 > - Source = the deepest enclosing Markdown section (or File node when no section precedes the span)
 > - Parser phase emits unresolved candidates (`target=<unresolved:{name}>`, `confidence_tier=LOW`, `extra.original_symbol_name=<raw symbol>`)
-> - `_resolve_markdown_artifact_refs` (`dagayn/postprocessing.py`) runs on every postprocess call (full build and incremental alike) and is **idempotent**: for each CROSS_ARTIFACT edge carrying `original_symbol_name`, it consults the current nodes table and updates the target to the unique qualified_name (confidence HIGH 0.8) or reverts to `<unresolved:{name}>` (confidence LOW 0.2). Edges are **never deleted** — they persist so that symbol changes in incrementally-updated Python files are reflected on the next postprocess run without re-parsing the Markdown source.
+> - `_resolve_markdown_artifact_refs` (`dagayn/postprocessing.py`) runs on every postprocess call (full build and incremental alike). For each Markdown code-span CROSS_ARTIFACT edge carrying `original_symbol_name`, it consults the current nodes table and keeps the edge only when it resolves to a unique non-Markdown qualified name (confidence HIGH 0.8). Unmatched or ambiguous code-span candidates are deleted so general prose vocabulary does not enter graph data or analysis summaries as unresolved references.
 > - 4 parser tests + 7 resolver tests (`TestMarkdownArtifactResolver` in `tests/test_postprocessing.py`) + 6 idempotence integration tests (`tests/test_cross_artifact_idempotence.py`)
-> - **Limitation:** fenced code blocks not processed (too noisy for v1); low-intent code → doc inference remains deferred unless explicit directives are present
+> - **Limitation:** fenced code blocks not processed (too noisy for v1); low-intent code → doc inference is persisted only when it resolves uniquely, otherwise use explicit directives for durable dependencies
 >
 > ### Bridge family 3 — explicit documentation directives
 >

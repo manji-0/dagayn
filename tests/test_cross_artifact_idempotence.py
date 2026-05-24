@@ -1,8 +1,8 @@
-"""Integration tests for the idempotent CROSS_ARTIFACT resolver.
+"""Integration tests for Markdown CROSS_ARTIFACT resolution.
 
-Each test exercises a state transition — resolved→demoted, unresolved→resolved,
-ambiguous→unique, etc. — to confirm that the resolver converges to the correct
-state without needing a Markdown re-parse.
+Each test exercises a state transition for resolved references and verifies
+that unresolved implicit Markdown code-span candidates do not persist as graph
+data.
 """
 
 from __future__ import annotations
@@ -42,6 +42,24 @@ def _ca_edge(sym: str, target: str | None = None, line: int = 5) -> EdgeInfo:
     )
 
 
+def _directive_edge(sym: str, target: str | None = None, line: int = 5) -> EdgeInfo:
+    edge = _ca_edge(sym, target=target, line=line)
+    return EdgeInfo(
+        kind=edge.kind,
+        source=edge.source,
+        target=edge.target,
+        file_path=edge.file_path,
+        line=edge.line,
+        extra={
+            **edge.extra,
+            "relationship_role": "implemented_by",
+            "evidence_kind": "markdown_directive",
+            "evidence_source": "dagayn_directive",
+            "dagayn_directive_kind": "implemented-by",
+        },
+    )
+
+
 def _py_node(name: str, fp: str) -> NodeInfo:
     return NodeInfo(
         kind="Function", name=name, file_path=fp, line_start=1, line_end=5, language="python"
@@ -49,7 +67,7 @@ def _py_node(name: str, fp: str) -> NodeInfo:
 
 
 class TestResolveToDemote:
-    """Resolved edge becomes demoted when its target symbol is removed."""
+    """Resolved code-span edge is pruned when its target symbol is removed."""
 
     def setup_method(self):
         self.store, self.tmp = _make_store()
@@ -90,17 +108,16 @@ class TestResolveToDemote:
 
         result2: dict = {}
         _resolve_markdown_artifact_refs(self.store, result2, [])
-        assert result2["markdown_artifact_refs_dropped"] == 1  # demoted
+        assert result2["markdown_artifact_refs_dropped"] == 1
 
-        row = self.store._conn.execute(
-            "SELECT target_qualified, confidence_tier FROM edges WHERE kind='CROSS_ARTIFACT'"
-        ).fetchone()
-        assert row["target_qualified"] == "<unresolved:compute_foo>"
-        assert row["confidence_tier"] == "LOW"
+        count = self.store._conn.execute(
+            "SELECT COUNT(*) FROM edges WHERE kind='CROSS_ARTIFACT'"
+        ).fetchone()[0]
+        assert count == 0
 
 
 class TestUnresolvedToResolved:
-    """Unresolved edge resolves once the symbol appears."""
+    """Unresolved implicit candidates are pruned if they cannot resolve immediately."""
 
     def setup_method(self):
         self.store, self.tmp = _make_store()
@@ -109,32 +126,24 @@ class TestUnresolvedToResolved:
         self.store.close()
         Path(self.tmp.name).unlink(missing_ok=True)
 
-    def test_unresolved_resolves_when_symbol_added(self):
+    def test_unresolved_code_span_is_pruned(self):
         self.store.upsert_edge(_ca_edge("new_bar"))
         self.store.commit()
 
         result1: dict = {}
         _resolve_markdown_artifact_refs(self.store, result1, [])
         assert result1["markdown_artifact_refs_resolved"] == 0
-        assert result1["markdown_artifact_refs_still_unresolved"] == 1
+        assert result1["markdown_artifact_refs_still_unresolved"] == 0
+        assert result1["markdown_artifact_refs_dropped"] == 1
 
-        # Simulate adding the symbol via incremental update
-        self.store.upsert_node(_py_node("new_bar", "/repo/bar.py"))
-        self.store.commit()
-
-        result2: dict = {}
-        _resolve_markdown_artifact_refs(self.store, result2, [])
-        assert result2["markdown_artifact_refs_resolved"] == 1
-
-        row = self.store._conn.execute(
-            "SELECT target_qualified, confidence_tier FROM edges WHERE kind='CROSS_ARTIFACT'"
-        ).fetchone()
-        assert row["target_qualified"] == "/repo/bar.py::new_bar"
-        assert row["confidence_tier"] == "HIGH"
+        count = self.store._conn.execute(
+            "SELECT COUNT(*) FROM edges WHERE kind='CROSS_ARTIFACT'"
+        ).fetchone()[0]
+        assert count == 0
 
 
 class TestAmbiguousToUnique:
-    """Ambiguous (2-match) symbol resolves once one duplicate is removed."""
+    """Ambiguous implicit candidates are pruned instead of waiting for uniqueness."""
 
     def setup_method(self):
         self.store, self.tmp = _make_store()
@@ -143,7 +152,7 @@ class TestAmbiguousToUnique:
         self.store.close()
         Path(self.tmp.name).unlink(missing_ok=True)
 
-    def test_ambiguous_resolves_after_dedup(self):
+    def test_ambiguous_code_span_is_pruned(self):
         self.store.upsert_node(_py_node("Quux", "/repo/a.py"))
         self.store.upsert_node(_py_node("Quux", "/repo/b.py"))
         self.store.upsert_edge(_ca_edge("Quux"))
@@ -152,24 +161,17 @@ class TestAmbiguousToUnique:
         result1: dict = {}
         _resolve_markdown_artifact_refs(self.store, result1, [])
         assert result1["markdown_artifact_refs_resolved"] == 0
-        assert result1["markdown_artifact_refs_still_unresolved"] == 1
+        assert result1["markdown_artifact_refs_still_unresolved"] == 0
+        assert result1["markdown_artifact_refs_dropped"] == 1
 
-        # Remove one duplicate
-        self.store._conn.execute("DELETE FROM nodes WHERE name='Quux' AND file_path='/repo/b.py'")
-        self.store.commit()
-
-        result2: dict = {}
-        _resolve_markdown_artifact_refs(self.store, result2, [])
-        assert result2["markdown_artifact_refs_resolved"] == 1
-
-        row = self.store._conn.execute(
-            "SELECT target_qualified FROM edges WHERE kind='CROSS_ARTIFACT'"
-        ).fetchone()
-        assert row["target_qualified"] == "/repo/a.py::Quux"
+        count = self.store._conn.execute(
+            "SELECT COUNT(*) FROM edges WHERE kind='CROSS_ARTIFACT'"
+        ).fetchone()[0]
+        assert count == 0
 
 
 class TestUniqueToAmbiguous:
-    """Resolved symbol becomes unresolved (demoted) when a duplicate is added."""
+    """Resolved code-span edge is pruned when a duplicate makes it ambiguous."""
 
     def setup_method(self):
         self.store, self.tmp = _make_store()
@@ -195,11 +197,10 @@ class TestUniqueToAmbiguous:
         _resolve_markdown_artifact_refs(self.store, result2, [])
         assert result2["markdown_artifact_refs_dropped"] == 1
 
-        row = self.store._conn.execute(
-            "SELECT target_qualified, confidence_tier FROM edges WHERE kind='CROSS_ARTIFACT'"
-        ).fetchone()
-        assert row["target_qualified"] == "<unresolved:Zap>"
-        assert row["confidence_tier"] == "LOW"
+        count = self.store._conn.execute(
+            "SELECT COUNT(*) FROM edges WHERE kind='CROSS_ARTIFACT'"
+        ).fetchone()[0]
+        assert count == 0
 
 
 class TestIdempotence:
@@ -227,13 +228,28 @@ class TestIdempotence:
         assert result2["markdown_artifact_refs_dropped"] == 0
         assert result2["markdown_artifact_refs_re_resolved"] == 0
 
-    def test_double_run_unresolved_no_changes(self):
+    def test_double_run_unresolved_code_span_stays_pruned(self):
         self.store.upsert_edge(_ca_edge("missing_sym"))
         self.store.commit()
 
         result1: dict = {}
         _resolve_markdown_artifact_refs(self.store, result1, [])
+        assert result1["markdown_artifact_refs_still_unresolved"] == 0
+        assert result1["markdown_artifact_refs_dropped"] == 1
+
+        result2: dict = {}
+        _resolve_markdown_artifact_refs(self.store, result2, [])
+        assert result2["markdown_artifact_refs_still_unresolved"] == 0
+        assert result2["markdown_artifact_refs_resolved"] == 0
+
+    def test_explicit_directive_unresolved_no_changes(self):
+        self.store.upsert_edge(_directive_edge("missing_sym"))
+        self.store.commit()
+
+        result1: dict = {}
+        _resolve_markdown_artifact_refs(self.store, result1, [])
         assert result1["markdown_artifact_refs_still_unresolved"] == 1
+        assert result1["markdown_artifact_refs_dropped"] == 0
 
         result2: dict = {}
         _resolve_markdown_artifact_refs(self.store, result2, [])
