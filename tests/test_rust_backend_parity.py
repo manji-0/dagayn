@@ -171,6 +171,39 @@ def test_rust_graph_store_persists_centrality_scores(tmp_path):
         store.close()
 
 
+def test_rust_graph_store_generates_suggested_questions(tmp_path):
+    try:
+        from dagayn._core import GraphStore as RustGraphStore
+    except ImportError as exc:
+        pytest.skip(f"Rust extension is not available: {exc}")
+
+    from dagayn.analysis import generate_suggested_questions, persist_centrality_scores
+
+    db_path = tmp_path / "graph.db"
+    store = RustGraphStore(db_path)
+    try:
+        nodes = [
+            NodeInfo("File", "a.py", "a.py", 1, 1, "python"),
+            NodeInfo("Function", "entry", "a.py", 1, 3, "python"),
+            NodeInfo("Function", "middle", "a.py", 4, 6, "python"),
+            NodeInfo("Function", "leaf", "a.py", 7, 9, "python"),
+        ]
+        edges = [
+            EdgeInfo("CALLS", "a.py::entry", "a.py::middle", "a.py", 2),
+            EdgeInfo("CALLS", "a.py::middle", "a.py::leaf", "a.py", 5),
+        ]
+        store.store_file_nodes_edges("a.py", nodes, edges)
+        persist_centrality_scores(store)
+
+        questions = generate_suggested_questions(store)
+
+        assert questions
+        assert questions[0]["category"] == "bridge_node"
+        assert questions[0]["priority"] == "high"
+    finally:
+        store.close()
+
+
 def test_rust_backend_routes_databricks_py_exports(tmp_path, monkeypatch):
     """Databricks .py exports stay in the Rust-owned backend path."""
     try:

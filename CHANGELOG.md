@@ -8,6 +8,13 @@ All notable changes to `dagayn` are documented here.
 
 - Ship numpy as a standard dependency so embedding search uses the vectorized
   cosine-similarity path in default installs.
+- Prefer persisted hub and bridge centrality scores even when callers pass a
+  graph snapshot, avoiding runtime betweenness centrality during suggested
+  question generation.
+- Sample large-graph Rust centrality sources by stable hash instead of sorted
+  prefix so approximate bridge scoring does not miss connected regions.
+- Generate suggested architecture questions as a native Rust analysis unit when
+  using the Rust graph store, avoiding Python snapshot materialization.
 
 ### Fixes
 

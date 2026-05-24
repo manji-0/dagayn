@@ -1555,6 +1555,294 @@ impl GraphStore {
         ]))
     }
 
+    pub fn generate_suggested_questions_json(&self) -> Result<String> {
+        let nodes = self.get_question_nodes()?;
+        let edges = self.get_question_edges()?;
+        let community_map = self.get_all_node_community_ids()?;
+        let mut tested_sources = HashSet::<String>::new();
+        let mut degree = HashMap::<String, i64>::new();
+        for edge in &edges {
+            *degree.entry(edge.source_qualified.clone()).or_insert(0) += 1;
+            *degree.entry(edge.target_qualified.clone()).or_insert(0) += 1;
+            if edge.kind == "TESTED_BY" {
+                tested_sources.insert(edge.source_qualified.clone());
+            }
+        }
+        let mut questions = Vec::<Value>::new();
+
+        for bridge in self.get_persisted_bridge_rows(3)? {
+            questions.push(json!({
+                "category": "bridge_node",
+                "question": format!(
+                    "'{}' is a critical connector between multiple code regions. Is it adequately tested and documented?",
+                    bridge.name
+                ),
+                "target": bridge.qualified_name,
+                "priority": "high",
+            }));
+        }
+
+        for hub in self.get_persisted_hub_rows(3)? {
+            if tested_sources.contains(&hub.qualified_name) {
+                continue;
+            }
+            questions.push(json!({
+                "category": "hub_risk",
+                "question": format!(
+                    "Hub node '{}' has {} connections but no direct test coverage. Should it be tested?",
+                    hub.name, hub.total_degree
+                ),
+                "target": hub.qualified_name,
+                "priority": "high",
+            }));
+        }
+
+        for surprise in
+            self.find_surprising_connection_questions(3, &nodes, &edges, &community_map, &degree)
+        {
+            questions.push(surprise);
+        }
+
+        let gaps =
+            self.find_question_gap_inputs(&nodes, &community_map, &degree, &tested_sources)?;
+        for community in gaps.thin_communities.into_iter().take(2) {
+            questions.push(json!({
+                "category": "thin_community",
+                "question": format!(
+                    "Community '{}' has only {} member(s). Should it be merged with a neighbor?",
+                    community.name, community.size
+                ),
+                "target": format!("community:{}", community.id),
+                "priority": "low",
+            }));
+        }
+        for hotspot in gaps.untested_hotspots.into_iter().take(2) {
+            questions.push(json!({
+                "category": "untested_hotspot",
+                "question": format!(
+                    "'{}' has {} connections but no test coverage. Is this a risk?",
+                    hotspot.name, hotspot.degree
+                ),
+                "target": hotspot.qualified_name,
+                "priority": "medium",
+            }));
+        }
+
+        serde_json::to_string(&questions).map_err(Into::into)
+    }
+
+    fn get_all_node_community_ids(&self) -> Result<HashMap<String, i64>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT qualified_name, community_id FROM nodes WHERE community_id IS NOT NULL",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })?;
+        rows.collect::<std::result::Result<HashMap<_, _>, _>>()
+            .map_err(Into::into)
+    }
+
+    fn get_question_nodes(&self) -> Result<Vec<QuestionNode>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT kind, name, qualified_name, file_path, language, is_test \
+             FROM nodes WHERE kind != 'File'",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(QuestionNode {
+                kind: row.get(0)?,
+                name: row.get(1)?,
+                qualified_name: row.get(2)?,
+                file_path: row.get(3)?,
+                language: row.get::<_, Option<String>>(4)?.unwrap_or_default(),
+                is_test: row.get::<_, i64>(5)? != 0,
+            })
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    fn get_question_edges(&self) -> Result<Vec<QuestionEdge>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT kind, source_qualified, target_qualified FROM edges")?;
+        let rows = stmt.query_map([], |row| {
+            Ok(QuestionEdge {
+                kind: row.get(0)?,
+                source_qualified: row.get(1)?,
+                target_qualified: row.get(2)?,
+            })
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    fn get_persisted_bridge_rows(&self, limit: i64) -> Result<Vec<PersistedBridgeRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT name, qualified_name FROM bridge_scores \
+             ORDER BY betweenness DESC, qualified_name LIMIT ?",
+        )?;
+        let rows = stmt.query_map([limit], |row| {
+            Ok(PersistedBridgeRow {
+                name: row.get(0)?,
+                qualified_name: row.get(1)?,
+            })
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    fn get_persisted_hub_rows(&self, limit: i64) -> Result<Vec<PersistedHubRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT name, qualified_name, total_degree FROM hub_scores \
+             ORDER BY total_degree DESC, qualified_name LIMIT ?",
+        )?;
+        let rows = stmt.query_map([limit], |row| {
+            Ok(PersistedHubRow {
+                name: row.get(0)?,
+                qualified_name: row.get(1)?,
+                total_degree: row.get(2)?,
+            })
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    fn find_surprising_connection_questions(
+        &self,
+        limit: usize,
+        nodes: &[QuestionNode],
+        edges: &[QuestionEdge],
+        community_map: &HashMap<String, i64>,
+        degree: &HashMap<String, i64>,
+    ) -> Vec<Value> {
+        let node_map = nodes
+            .iter()
+            .map(|node| (node.qualified_name.clone(), node))
+            .collect::<HashMap<_, _>>();
+
+        let mut scored = Vec::<SurprisingQuestionInput>::new();
+        for edge in edges {
+            let Some(source) = node_map.get(&edge.source_qualified) else {
+                continue;
+            };
+            let Some(target) = node_map.get(&edge.target_qualified) else {
+                continue;
+            };
+            let Some(source_community) = community_map.get(&edge.source_qualified).copied() else {
+                continue;
+            };
+            let Some(target_community) = community_map.get(&edge.target_qualified).copied() else {
+                continue;
+            };
+            if source_community == target_community {
+                continue;
+            }
+            let source_degree = *degree.get(&edge.source_qualified).unwrap_or(&0);
+            let target_degree = *degree.get(&edge.target_qualified).unwrap_or(&0);
+            scored.push(SurprisingQuestionInput {
+                source_name: sanitize_name(&source.name),
+                source_qualified: edge.source_qualified.clone(),
+                target_name: sanitize_name(&target.name),
+                source_community,
+                target_community,
+                score: source_degree + target_degree,
+            });
+        }
+        scored.sort_by(|left, right| {
+            right
+                .score
+                .cmp(&left.score)
+                .then_with(|| left.source_qualified.cmp(&right.source_qualified))
+        });
+
+        scored
+            .into_iter()
+            .take(limit)
+            .map(|item| {
+                json!({
+                    "category": "surprising_connection",
+                    "question": format!(
+                        "'{}' (community {}) calls '{}' (community {}). Is this coupling intentional?",
+                        item.source_name,
+                        item.source_community,
+                        item.target_name,
+                        item.target_community
+                    ),
+                    "target": item.source_qualified,
+                    "priority": "medium",
+                })
+            })
+            .collect()
+    }
+
+    fn find_question_gap_inputs(
+        &self,
+        nodes: &[QuestionNode],
+        community_map: &HashMap<String, i64>,
+        degree: &HashMap<String, i64>,
+        tested_sources: &HashSet<String>,
+    ) -> Result<QuestionGaps> {
+        let mut positive_degrees = nodes
+            .iter()
+            .filter(|node| !is_analysis_excluded_from_test_gap(node))
+            .filter_map(|node| {
+                let value = *degree.get(&node.qualified_name).unwrap_or(&0);
+                (value > 0).then_some(value)
+            })
+            .collect::<Vec<_>>();
+        positive_degrees.sort_unstable();
+        let degree_p95 = nearest_rank_percentile(&positive_degrees, 0.95);
+        let hotspot_min_degree = 5.max(degree_p95);
+
+        let mut community_sizes = HashMap::<i64, i64>::new();
+        for node in nodes {
+            if let Some(community_id) = community_map.get(&node.qualified_name) {
+                *community_sizes.entry(*community_id).or_insert(0) += 1;
+            }
+        }
+
+        let mut thin_communities = Vec::new();
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, name FROM communities ORDER BY id")?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?;
+        for row in rows {
+            let (id, name) = row?;
+            let size = *community_sizes.get(&id).unwrap_or(&0);
+            if size < 3 {
+                thin_communities.push(QuestionCommunity { id, name, size });
+            }
+        }
+
+        let mut untested_hotspots = Vec::new();
+        for node in nodes {
+            let node_degree = *degree.get(&node.qualified_name).unwrap_or(&0);
+            if node_degree >= hotspot_min_degree
+                && !tested_sources.contains(&node.qualified_name)
+                && !is_analysis_excluded_from_test_gap(&node)
+            {
+                untested_hotspots.push(QuestionHotspot {
+                    name: sanitize_name(&node.name),
+                    qualified_name: node.qualified_name.clone(),
+                    degree: node_degree,
+                });
+            }
+        }
+        untested_hotspots.sort_by(|left, right| {
+            right
+                .degree
+                .cmp(&left.degree)
+                .then_with(|| left.qualified_name.cmp(&right.qualified_name))
+        });
+
+        Ok(QuestionGaps {
+            thin_communities,
+            untested_hotspots,
+        })
+    }
+
     pub fn get_stats(&self) -> Result<GraphStats> {
         let total_nodes = self
             .conn
@@ -3353,7 +3641,7 @@ fn betweenness_centrality(
         return HashMap::new();
     }
     let sources = if node_count > 5000 {
-        nodes.iter().take(500).cloned().collect::<Vec<_>>()
+        deterministic_centrality_sample(&nodes, 500)
     } else {
         nodes.clone()
     };
@@ -3437,6 +3725,116 @@ fn betweenness_centrality(
     }
 
     centrality
+}
+
+fn deterministic_centrality_sample(nodes: &[String], sample_size: usize) -> Vec<String> {
+    let mut ranked = nodes
+        .iter()
+        .map(|node| (stable_fnv1a64(node.as_bytes()), node.clone()))
+        .collect::<Vec<_>>();
+    ranked.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)));
+    ranked
+        .into_iter()
+        .take(sample_size.min(nodes.len()))
+        .map(|(_, node)| node)
+        .collect()
+}
+
+fn stable_fnv1a64(bytes: &[u8]) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
+
+struct PersistedBridgeRow {
+    name: String,
+    qualified_name: String,
+}
+
+struct PersistedHubRow {
+    name: String,
+    qualified_name: String,
+    total_degree: i64,
+}
+
+struct SurprisingQuestionInput {
+    source_name: String,
+    source_qualified: String,
+    target_name: String,
+    source_community: i64,
+    target_community: i64,
+    score: i64,
+}
+
+struct QuestionCommunity {
+    id: i64,
+    name: String,
+    size: i64,
+}
+
+struct QuestionHotspot {
+    name: String,
+    qualified_name: String,
+    degree: i64,
+}
+
+struct QuestionGaps {
+    thin_communities: Vec<QuestionCommunity>,
+    untested_hotspots: Vec<QuestionHotspot>,
+}
+
+struct QuestionNode {
+    kind: String,
+    name: String,
+    qualified_name: String,
+    file_path: String,
+    language: String,
+    is_test: bool,
+}
+
+struct QuestionEdge {
+    kind: String,
+    source_qualified: String,
+    target_qualified: String,
+}
+
+fn nearest_rank_percentile(values: &[i64], percentile: f64) -> i64 {
+    if values.is_empty() {
+        return 0;
+    }
+    let rank = (percentile * values.len() as f64).ceil() as usize;
+    let index = rank.saturating_sub(1).min(values.len() - 1);
+    values[index]
+}
+
+fn is_analysis_excluded_from_test_gap(node: &QuestionNode) -> bool {
+    if node.is_test || node.kind == "Test" || node.language == "markdown" {
+        return true;
+    }
+    let normalized = node.file_path.replace('\\', "/");
+    let name = normalized
+        .rsplit('/')
+        .next()
+        .unwrap_or(normalized.as_str())
+        .to_lowercase();
+    let parts = normalized
+        .split('/')
+        .map(|part| part.to_lowercase())
+        .collect::<HashSet<_>>();
+    parts.contains("tests")
+        || parts.contains("test")
+        || parts.contains("__tests__")
+        || name.starts_with("test_")
+        || matches!(name.as_str(), "test.rs" | "tests.rs")
+        || name.ends_with("_test.py")
+        || name.ends_with("_tests.py")
+        || name.ends_with("_test.rs")
+        || name.ends_with("_tests.rs")
+        || name.contains(".test.")
+        || name.contains(".spec.")
 }
 
 fn extra_json(value: &Value) -> Result<String> {

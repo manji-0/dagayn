@@ -162,6 +162,129 @@ fn remove_files_data_tx_clears_stale_centrality_scores() {
 }
 
 #[test]
+fn deterministic_centrality_sample_is_not_sorted_prefix() {
+    let nodes = (0..6000)
+        .map(|idx| format!("node_{idx:04}"))
+        .collect::<Vec<_>>();
+
+    let sample = deterministic_centrality_sample(&nodes, 500);
+
+    assert_eq!(sample.len(), 500);
+    assert_ne!(sample, nodes[..500]);
+    assert!(sample.iter().all(|node| nodes.contains(node)));
+}
+
+#[test]
+fn approximate_betweenness_samples_connected_regions() {
+    let graph_nodes = (0..6000)
+        .map(|idx| format!("node_{idx:04}"))
+        .collect::<std::collections::HashSet<_>>();
+    let mut adjacency = std::collections::HashMap::<String, Vec<String>>::new();
+    for idx in 500..5999 {
+        adjacency
+            .entry(format!("node_{idx:04}"))
+            .or_default()
+            .push(format!("node_{:04}", idx + 1));
+    }
+
+    let scores = betweenness_centrality(&graph_nodes, &adjacency);
+
+    assert!(scores.values().any(|score| *score > 0.0));
+}
+
+#[test]
+fn generates_suggested_questions_json_from_native_analysis_unit() {
+    let path = temp_db("suggested-questions");
+    let mut store = GraphStore::open(&path).expect("open graph store");
+    let file = NodeInput {
+        kind: "File".to_string(),
+        name: "app.py".to_string(),
+        file_path: "app.py".to_string(),
+        line_start: 1,
+        line_end: 10,
+        language: "python".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: Value::Object(Default::default()),
+    };
+    let entry = NodeInput {
+        kind: "Function".to_string(),
+        name: "entry".to_string(),
+        file_path: "app.py".to_string(),
+        line_start: 1,
+        line_end: 3,
+        language: "python".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: Value::Object(Default::default()),
+    };
+    let middle = NodeInput {
+        kind: "Function".to_string(),
+        name: "middle".to_string(),
+        file_path: "app.py".to_string(),
+        line_start: 4,
+        line_end: 6,
+        language: "python".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: Value::Object(Default::default()),
+    };
+    let leaf = NodeInput {
+        kind: "Function".to_string(),
+        name: "leaf".to_string(),
+        file_path: "app.py".to_string(),
+        line_start: 7,
+        line_end: 9,
+        language: "python".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: Value::Object(Default::default()),
+    };
+    let edges = [
+        EdgeInput {
+            kind: "CALLS".to_string(),
+            source: "app.py::entry".to_string(),
+            target: "app.py::middle".to_string(),
+            file_path: "app.py".to_string(),
+            line: 2,
+            extra: Value::Object(Default::default()),
+        },
+        EdgeInput {
+            kind: "CALLS".to_string(),
+            source: "app.py::middle".to_string(),
+            target: "app.py::leaf".to_string(),
+            file_path: "app.py".to_string(),
+            line: 5,
+            extra: Value::Object(Default::default()),
+        },
+    ];
+    store
+        .store_file_nodes_edges("app.py", &[file, entry, middle, leaf], &edges, "hash", 0)
+        .unwrap();
+    store.persist_centrality_scores().unwrap();
+
+    let questions: Vec<Value> =
+        serde_json::from_str(&store.generate_suggested_questions_json().unwrap()).unwrap();
+
+    assert!(!questions.is_empty());
+    assert_eq!(questions[0]["category"], "bridge_node");
+    assert_eq!(questions[0]["priority"], "high");
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
 fn stores_file_batch_in_one_transaction() {
     let path = temp_db("batch");
     let mut store = GraphStore::open(&path).expect("open graph store");

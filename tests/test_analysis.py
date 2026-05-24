@@ -180,17 +180,18 @@ class TestFindBridgeNodes:
     def test_persisted_bridge_scores_skip_runtime_centrality(self, store, monkeypatch):
         import networkx as nx
 
-        from dagayn.analysis import find_bridge_nodes, persist_centrality_scores
+        from dagayn.analysis import build_graph_snapshot, find_bridge_nodes, persist_centrality_scores
 
         persisted = persist_centrality_scores(store)
         assert persisted["bridge_scores_persisted"] > 0
+        snapshot = build_graph_snapshot(store)
 
         def fail_runtime_centrality(*args, **kwargs):
             raise AssertionError("betweenness centrality should be read from bridge_scores")
 
         monkeypatch.setattr(nx, "betweenness_centrality", fail_runtime_centrality)
 
-        result = find_bridge_nodes(store, top_n=1)
+        result = find_bridge_nodes(store, top_n=1, snapshot=snapshot)
 
         assert len(result) == 1
         assert result[0]["score_source"] == "persisted"
@@ -207,7 +208,7 @@ class TestFindBridgeNodes:
 
         monkeypatch.setattr(analysis, "build_graph_snapshot", fail_runtime_snapshot)
 
-        result = find_hub_nodes(store, top_n=1)
+        result = find_hub_nodes(store, top_n=1, snapshot=object())
 
         assert len(result) == 1
         assert result[0]["score_source"] == "persisted"

@@ -4,6 +4,7 @@ surprise scoring, suggested questions."""
 from __future__ import annotations
 
 import dataclasses
+import json
 import logging
 import math
 import sqlite3
@@ -70,7 +71,7 @@ def find_hub_nodes(
     Returns list of dicts with: name, qualified_name, kind, file,
     in_degree, out_degree, total_degree, community_id
     """
-    if use_persisted and snapshot is None:
+    if use_persisted:
         persisted = _load_persisted_hub_scores(store, top_n=top_n)
         if persisted:
             return persisted
@@ -126,7 +127,7 @@ def find_bridge_nodes(
     Returns list of dicts with: name, qualified_name, kind, file,
     betweenness, community_id
     """
-    if use_persisted and snapshot is None:
+    if use_persisted:
         persisted = _load_persisted_bridge_scores(store, top_n=top_n)
         if persisted:
             return persisted
@@ -702,6 +703,10 @@ def generate_suggested_questions(
     - hub_risk: Does hub node X have adequate test coverage?
     - surprising: Why does A call B across community boundary?
     """
+    native_questions = _generate_suggested_questions_native(store)
+    if native_questions is not None:
+        return native_questions
+
     questions = []
     snapshot = build_graph_snapshot(store)
 
@@ -791,3 +796,21 @@ def generate_suggested_questions(
         )
 
     return questions
+
+
+def _generate_suggested_questions_native(store: GraphStore) -> list[dict] | None:
+    native_generate = getattr(store, "generate_suggested_questions_json", None)
+    if not callable(native_generate):
+        return None
+    try:
+        raw = native_generate()
+        decoded = json.loads(raw)
+    except Exception:  # noqa: BLE001  # native acceleration must be optional
+        logger.debug(
+            "Native suggested-question generation failed; falling back to Python",
+            exc_info=True,
+        )
+        return None
+    if not isinstance(decoded, list):
+        return None
+    return decoded

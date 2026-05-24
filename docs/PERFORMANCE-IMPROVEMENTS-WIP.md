@@ -177,7 +177,7 @@ _store_lock = threading.Lock()
 
 **Resolved open question:** The MCP server runs an asyncio event loop (single-threaded for I/O dispatch); `_store_lock` is present but harmless.
 
-### 2.4 Fix direction B — persist hub and bridge scores
+### 2.4 Fix B — persist hub and bridge scores ✅ Shipped
 
 For `find_bridge_nodes` and `find_hub_nodes` the real fix is to remove the runtime calculation entirely and read pre-computed values from storage, as already done for Leiden community detection.
 
@@ -199,11 +199,15 @@ CREATE TABLE IF NOT EXISTS bridge_scores (
 );
 ```
 
-`dagayn/postprocessing.py` (or a new `postprocessing/centrality.py`) runs `find_hub_nodes` and `find_bridge_nodes` once during the postprocess phase and writes results to these tables. The MCP tools then read from the tables instead of recomputing.
+`dagayn/postprocessing.py` runs `persist_centrality_scores` during post-processing and writes results to these tables. The MCP tools read from the tables instead of recomputing, including callers that pass a prebuilt `GraphSnapshot`.
+
+`generate_suggested_questions` also uses a Rust-owned analysis unit when called
+with the Rust graph store. The native path returns the final question list as
+JSON instead of materializing a full Python `GraphSnapshot`.
 
 Invalidation: postprocess is re-run on `dagayn build` and `dagayn update --post`. The `computed_at` column allows the tool to warn if scores are stale relative to the graph's last modification time.
 
-**Relation to Rust migration:** `RUST-CORE-MIGRATION-WIP.md` targets postprocessing as Phase 2 of the migration. Pre-computing hub/bridge scores in Python first, then porting the computation to Rust in Phase 2, is the path of least resistance.
+**Relation to Rust migration:** `RUST-CORE-MIGRATION-WIP.md` targets postprocessing as Phase 2 of the migration. Rust centrality persistence is available through the native graph backend; large-graph approximation samples sources by stable hash so it does not overfit to sorted-name prefixes.
 
 ### 2.5 Relation to the watch daemon
 
