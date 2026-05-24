@@ -8,7 +8,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from ._common import _get_store, compact_response
+from ._common import _get_store, compact_response, graph_answerability_summary
 
 logger = logging.getLogger(__name__)
 
@@ -210,86 +210,12 @@ def _names_from_items(items: list[dict[str, Any]], *, limit: int) -> list[str]:
 
 def _graph_answerability(store: Any, stats: Any) -> dict[str, Any]:
     """Summarize whether the graph can answer review/exploration questions."""
-    conn = getattr(store, "_conn", None)
-    if conn is None:
-        return {
-            "status": "unknown",
-            "score": 0.0,
-            "issues": ["no_sqlite_connection"],
-            "parse": [stats.files_count, len(stats.languages), bool(stats.last_updated)],
-        }
-
-    def _count(sql: str, params: tuple[Any, ...] = ()) -> int:
-        row = conn.execute(sql, params).fetchone()
-        return int(row[0] if row else 0)
-
-    flow_count = _count("SELECT COUNT(*) FROM flows")
-    community_count = _count("SELECT COUNT(*) FROM communities")
-    test_edge_count = int(stats.edges_by_kind.get("TESTED_BY", 0))
-    cross_artifact_count = int(stats.edges_by_kind.get("CROSS_ARTIFACT", 0))
-    unresolved_markdown_code_span_count = _count(
-        "SELECT COUNT(*) FROM edges "
-        "WHERE kind = 'CROSS_ARTIFACT' "
-        "AND target_qualified LIKE '<unresolved:%' "
-        "AND extra LIKE '%markdown_code_span%' "
-        "AND extra LIKE '%code_span%'"
-    )
-    unresolved_cross_artifact_count = _count(
-        "SELECT COUNT(*) FROM edges "
-        "WHERE kind = 'CROSS_ARTIFACT' AND target_qualified LIKE '<unresolved:%'"
-    )
-    reportable_cross_artifact_count = max(
-        0,
-        cross_artifact_count - unresolved_markdown_code_span_count,
-    )
-    reportable_unresolved_cross_artifact_count = max(
-        0,
-        unresolved_cross_artifact_count - unresolved_markdown_code_span_count,
-    )
-    unresolved_ratio = (
-        reportable_unresolved_cross_artifact_count / reportable_cross_artifact_count
-        if reportable_cross_artifact_count
-        else 0.0
-    )
-
-    reason_codes: list[str] = []
-    score = 1.0
-    if stats.total_nodes == 0 or stats.files_count == 0:
-        reason_codes.append("empty_graph")
-        score = 0.0
-    if flow_count == 0:
-        reason_codes.append("no_flows")
-        score -= 0.15
-    if community_count == 0:
-        reason_codes.append("no_communities")
-        score -= 0.15
-    if test_edge_count == 0:
-        reason_codes.append("no_test_edges")
-        score -= 0.1
-    if cross_artifact_count and unresolved_ratio > 0.35:
-        reason_codes.append("many_unresolved_cross_artifact_edges")
-        score -= 0.15
-    if not stats.last_updated:
-        reason_codes.append("missing_last_updated")
-        score -= 0.1
-
-    score = max(0.0, round(score, 4))
-    status = "ok" if score >= 0.75 else "degraded" if score > 0 else "empty"
-    health = {
-        "status": status,
-        "score": score,
-        "parse": [stats.files_count, len(stats.languages), bool(stats.last_updated)],
-        "answerability": [
-            flow_count,
-            community_count,
-            test_edge_count,
-            reportable_cross_artifact_count,
-            round(unresolved_ratio, 4),
-        ],
-    }
-    if reportable_unresolved_cross_artifact_count:
-        health["unresolved_edges"] = reportable_unresolved_cross_artifact_count
-    return health
+    summary = graph_answerability_summary(store, stats)
+    # get_minimal_context has a strict compactness budget; detailed counts are
+    # available from list_graph_stats_tool and from non-minimal dispatcher calls.
+    summary.pop("counts", None)
+    summary.pop("reason_codes", None)
+    return summary
 
 
 def _task_mentions(task: str, keywords: tuple[str, ...]) -> bool:

@@ -14,7 +14,12 @@ from ..flows import get_affected_flows as _get_affected_flows
 from ..graph import edge_to_dict, node_to_dict
 from ..hints import generate_hints, get_session
 from ..incremental import get_changed_files, get_staged_and_unstaged
-from ._common import _get_store, apply_output_budget
+from ._common import (
+    _get_store,
+    apply_output_budget,
+    graph_answerability_summary,
+    missingness_from_answerability,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -963,6 +968,8 @@ def get_review_context(
     """
     store, root = _get_store(repo_root)
     try:
+        answerability = graph_answerability_summary(store)
+        missingness = missingness_from_answerability(answerability)
         # Get impact radius first
         if changed_files is None:
             changed_files = get_changed_files(root, base)
@@ -1018,6 +1025,8 @@ def get_review_context(
                 "impacted_file_count": len(impact["impacted_files"]),
                 "key_entities": key_entities,
                 "test_gaps": test_gap_count,
+                "answerability": answerability,
+                "missingness": missingness,
                 "next_tool_suggestions": [
                     'review_tool mode="changes"',
                     'review_tool mode="affected_flows"',
@@ -1078,6 +1087,8 @@ def get_review_context(
             "status": "ok",
             "summary": "\n".join(summary_parts),
             "context": context,
+            "answerability": answerability,
+            "missingness": missingness,
         }
     finally:
         store.close()
@@ -1189,6 +1200,8 @@ def get_affected_flows_func(
     """
     store, root = _get_store(repo_root)
     try:
+        answerability = graph_answerability_summary(store)
+        missingness = missingness_from_answerability(answerability)
         if changed_files is None:
             changed_files = get_changed_files(root, base)
             if not changed_files:
@@ -1213,6 +1226,8 @@ def get_affected_flows_func(
             "changed_files": changed_files,
             "affected_flows": result["affected_flows"],
             "total": total,
+            "answerability": answerability,
+            "missingness": missingness,
         }
         out["_hints"] = generate_hints("get_affected_flows", out, get_session())
         return out
@@ -1260,6 +1275,8 @@ def detect_changes_func(
     """
     store, root = _get_store(repo_root)
     try:
+        answerability = graph_answerability_summary(store)
+        missingness = missingness_from_answerability(answerability)
         # Detect changed files if not provided.
         if changed_files is None:
             changed_files = get_changed_files(root, base)
@@ -1275,6 +1292,8 @@ def detect_changes_func(
                 "affected_flows": [],
                 "test_gaps": [],
                 "review_priorities": [],
+                "answerability": answerability,
+                "missingness": missingness,
             }
 
         # Convert to absolute paths for graph lookup.
@@ -1357,6 +1376,8 @@ def detect_changes_func(
                 },
                 "review_priorities": top_priorities,
                 "next_drill_downs": analysis_summary["next_drill_downs"],
+                "answerability": answerability,
+                "missingness": missingness,
             }
         else:
             result = {
@@ -1364,6 +1385,8 @@ def detect_changes_func(
                 "changed_files": changed_files,
                 **analysis,
                 "analysis_summary": analysis_summary,
+                "answerability": answerability,
+                "missingness": missingness,
             }
             apply_output_budget(
                 result,

@@ -13,7 +13,12 @@ from ..refactor import (
     rename_preview,
     suggest_refactorings,
 )
-from ._common import _get_store, _validate_repo_root
+from ._common import (
+    _get_store,
+    _validate_repo_root,
+    graph_answerability_summary,
+    missingness_from_answerability,
+)
 
 # ---------------------------------------------------------------------------
 # Tool 17: refactor_tool  [REFACTOR]
@@ -59,6 +64,8 @@ def refactor_func(
 
     store, root = _get_store(repo_root)
     try:
+        answerability = graph_answerability_summary(store)
+        missingness = missingness_from_answerability(answerability)
         if mode == "rename":
             if not old_name or not new_name:
                 return {
@@ -80,6 +87,8 @@ def refactor_func(
                     f"'{preview['refactor_id']}') to apply."
                 ),
                 **preview,
+                "answerability": answerability,
+                "missingness": missingness,
                 "next_tool_suggestions": [
                     f"apply_refactor_tool(refactor_id='{preview['refactor_id']}', dry_run=True)"
                     " -- preview unified diff before writing files",
@@ -104,6 +113,15 @@ def refactor_func(
                 "caveats": [
                     "Dead-code results are graph-backed candidates; verify dynamic dispatch, "
                     "plugin registration, reflection, and generated entry points before deleting."
+                ],
+                "answerability": answerability,
+                "missingness": [
+                    *missingness,
+                    {
+                        "reason_code": "absence_evidence_requires_manual_verification",
+                        "severity": "medium",
+                        "claim_effect": "dead-code claims do not cover dynamic runtime references",
+                    },
                 ],
             }
             result["_hints"] = generate_hints("refactor", result, get_session())
@@ -133,6 +151,8 @@ def refactor_func(
                 "total": total,
                 "truncated": truncated,
                 "counts_by_type": counts_by_type,
+                "answerability": answerability,
+                "missingness": missingness,
             }
             result["_hints"] = generate_hints("refactor", result, get_session())
             return result

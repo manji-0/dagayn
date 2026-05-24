@@ -457,6 +457,126 @@ def guidance_actions_to_hints(guidance: list[dict[str, Any]], *, limit: int = 3)
     return {"next_steps": next_steps, "related": [], "warnings": warnings}
 
 
+def graph_answerability_summary(store: Any, stats: Any | None = None) -> dict[str, Any]:
+    """Summarize whether the current graph can support calibrated claims."""
+    if stats is None:
+        stats = store.get_stats()
+    conn = getattr(store, "_conn", None)
+    if conn is None:
+        return {
+            "status": "unknown",
+            "score": 0.0,
+            "reason_codes": ["no_sqlite_connection"],
+            "parse": [stats.files_count, len(stats.languages), bool(stats.last_updated)],
+        }
+
+    def _count(sql: str, params: tuple[Any, ...] = ()) -> int:
+        row = conn.execute(sql, params).fetchone()
+        return int(row[0] if row else 0)
+
+    flow_count = _count("SELECT COUNT(*) FROM flows")
+    community_count = _count("SELECT COUNT(*) FROM communities")
+    test_edge_count = int(stats.edges_by_kind.get("TESTED_BY", 0))
+    cross_artifact_count = int(stats.edges_by_kind.get("CROSS_ARTIFACT", 0))
+    unresolved_markdown_code_span_count = _count(
+        "SELECT COUNT(*) FROM edges "
+        "WHERE kind = 'CROSS_ARTIFACT' "
+        "AND target_qualified LIKE '<unresolved:%' "
+        "AND extra LIKE '%markdown_code_span%' "
+        "AND extra LIKE '%code_span%'"
+    )
+    unresolved_cross_artifact_count = _count(
+        "SELECT COUNT(*) FROM edges "
+        "WHERE kind = 'CROSS_ARTIFACT' AND target_qualified LIKE '<unresolved:%'"
+    )
+    reportable_cross_artifact_count = max(
+        0,
+        cross_artifact_count - unresolved_markdown_code_span_count,
+    )
+    reportable_unresolved_cross_artifact_count = max(
+        0,
+        unresolved_cross_artifact_count - unresolved_markdown_code_span_count,
+    )
+    unresolved_ratio = (
+        reportable_unresolved_cross_artifact_count / reportable_cross_artifact_count
+        if reportable_cross_artifact_count
+        else 0.0
+    )
+
+    reason_codes: list[str] = []
+    score = 1.0
+    if stats.total_nodes == 0 or stats.files_count == 0:
+        reason_codes.append("empty_graph")
+        score = 0.0
+    if flow_count == 0:
+        reason_codes.append("missing_flows")
+        score -= 0.15
+    if community_count == 0:
+        reason_codes.append("missing_communities")
+        score -= 0.15
+    if test_edge_count == 0:
+        reason_codes.append("missing_test_edges")
+        score -= 0.1
+    if cross_artifact_count and unresolved_ratio > 0.35:
+        reason_codes.append("many_unresolved_cross_artifact_edges")
+        score -= 0.15
+    if not stats.last_updated:
+        reason_codes.append("missing_last_updated")
+        score -= 0.1
+
+    score = max(0.0, round(score, 4))
+    status = "ok" if score >= 0.75 else "degraded" if score > 0 else "empty"
+    health = {
+        "status": status,
+        "score": score,
+        "reason_codes": reason_codes,
+        "parse": [stats.files_count, len(stats.languages), bool(stats.last_updated)],
+        "answerability": [
+            flow_count,
+            community_count,
+            test_edge_count,
+            reportable_cross_artifact_count,
+            round(unresolved_ratio, 4),
+        ],
+        "counts": {
+            "flows": flow_count,
+            "communities": community_count,
+            "test_edges": test_edge_count,
+            "reportable_cross_artifact_edges": reportable_cross_artifact_count,
+            "reportable_unresolved_cross_artifact_edges": (
+                reportable_unresolved_cross_artifact_count
+            ),
+        },
+    }
+    if reportable_unresolved_cross_artifact_count:
+        health["unresolved_edges"] = reportable_unresolved_cross_artifact_count
+    return health
+
+
+def missingness_from_answerability(answerability: dict[str, Any]) -> list[dict[str, Any]]:
+    """Convert answerability reason codes into response-level missingness items."""
+    severity_by_code = {
+        "empty_graph": "high",
+        "missing_flows": "medium",
+        "missing_communities": "medium",
+        "missing_test_edges": "medium",
+        "many_unresolved_cross_artifact_edges": "medium",
+        "missing_last_updated": "low",
+        "no_sqlite_connection": "high",
+    }
+    items: list[dict[str, Any]] = []
+    for code in answerability.get("reason_codes", []):
+        severity = severity_by_code.get(str(code), "low")
+        items.append(
+            {
+                "reason_code": str(code),
+                "severity": severity,
+                "claim_effect": "claims should be treated as graph-limited until this is resolved",
+            }
+        )
+    return items
+
+
 def make_response(
     status: str,
     summary: str,

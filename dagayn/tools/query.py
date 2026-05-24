@@ -12,7 +12,14 @@ from ..graph import _sanitize_name, edge_to_dict, node_to_dict
 from ..hints import generate_hints, get_session
 from ..incremental import get_changed_files, get_db_path, get_staged_and_unstaged
 from ..search import hybrid_search
-from ._common import _BUILTIN_CALL_NAMES, _get_store, apply_output_budget, make_response
+from ._common import (
+    _BUILTIN_CALL_NAMES,
+    _get_store,
+    apply_output_budget,
+    graph_answerability_summary,
+    make_response,
+    missingness_from_answerability,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -228,6 +235,8 @@ def query_graph(
     """
     store, root = _get_store(repo_root)
     try:
+        answerability = graph_answerability_summary(store)
+        missingness = missingness_from_answerability(answerability)
         if pattern not in _QUERY_PATTERNS:
             return {
                 "status": "error",
@@ -251,6 +260,8 @@ def query_graph(
                 "summary": (f"'{target}' is a common builtin — callers_of skipped to avoid noise."),
                 "results": [],
                 "edges": [],
+                "answerability": answerability,
+                "missingness": missingness,
             }
 
         # Resolve target - try as-is, then as absolute path, then search
@@ -269,12 +280,30 @@ def query_graph(
                     "status": "ambiguous",
                     "summary": (f"Multiple matches for '{target}'. Please use a qualified name."),
                     "candidates": [node_to_dict(c) for c in candidates],
+                    "answerability": answerability,
+                    "missingness": [
+                        *missingness,
+                        {
+                            "reason_code": "ambiguous_target",
+                            "severity": "medium",
+                            "claim_effect": "relationship query was not run for a unique node",
+                        },
+                    ],
                 }
 
         if not node and pattern != "file_summary":
             return {
                 "status": "not_found",
-                "summary": f"No node found matching '{target}'.",
+                "summary": f"No node found matching '{target}' in the current graph.",
+                "answerability": answerability,
+                "missingness": [
+                    *missingness,
+                    {
+                        "reason_code": "target_not_found_in_graph",
+                        "severity": "medium",
+                        "claim_effect": "absence is graph-limited, not proof the symbol does not exist",
+                    },
+                ],
             }
 
         qn = node.qualified_name if node else target
@@ -437,6 +466,10 @@ def query_graph(
                 "description": _QUERY_PATTERNS[pattern],
                 "summary": summary,
                 "result_count": len(results),
+                "confidence": "medium" if results else "low",
+                "zero_result_reason": None if results else "not_found_in_current_graph",
+                "answerability": answerability,
+                "missingness": missingness,
                 "results": minimal_results,
             }
 
@@ -446,6 +479,11 @@ def query_graph(
             "target": target,
             "description": _QUERY_PATTERNS[pattern],
             "summary": summary,
+            "result_count": len(results),
+            "confidence": "medium" if results else "low",
+            "zero_result_reason": None if results else "not_found_in_current_graph",
+            "answerability": answerability,
+            "missingness": missingness,
             "results": results,
             "edges": edges_out,
         }
@@ -488,6 +526,8 @@ def semantic_search_nodes(
     """
     store, root = _get_store(repo_root)
     try:
+        answerability = graph_answerability_summary(store)
+        missingness = missingness_from_answerability(answerability)
         hs = hybrid_search(
             store,
             query,
@@ -500,10 +540,24 @@ def semantic_search_nodes(
         results = hs["results"]
         search_mode = hs["mode"]
         embedding_health = hs.get("embedding_health", {})
+        if embedding_health and not embedding_health.get("available", True):
+            missingness.append(
+                {
+                    "reason_code": "missing_embeddings",
+                    "severity": "medium",
+                    "claim_effect": "semantic ranking may be keyword-only",
+                }
+            )
 
         summary = f"Found {len(results)} node(s) matching '{query}'" + (
             f" (kind={kind})" if kind else ""
         )
+        exact_matches = [
+            r
+            for r in results
+            if query in {str(r.get("name", "")), str(r.get("qualified_name", ""))}
+        ]
+        ambiguity = "multiple_exact_matches" if len(exact_matches) > 1 else None
 
         if detail_level == "minimal":
             minimal_results = [
@@ -515,6 +569,13 @@ def semantic_search_nodes(
                 "query": query,
                 "search_mode": search_mode,
                 "embedding_health": embedding_health,
+                "answerability": answerability,
+                "missingness": missingness,
+                "exactness": {
+                    "exact_match_count": len(exact_matches),
+                    "ambiguity": ambiguity,
+                    "source_arm": search_mode,
+                },
                 "summary": summary,
                 "results": minimal_results,
             }
@@ -524,6 +585,13 @@ def semantic_search_nodes(
             "query": query,
             "search_mode": search_mode,
             "embedding_health": embedding_health,
+            "answerability": answerability,
+            "missingness": missingness,
+            "exactness": {
+                "exact_match_count": len(exact_matches),
+                "ambiguity": ambiguity,
+                "source_arm": search_mode,
+            },
             "summary": summary,
             "results": results,
         }

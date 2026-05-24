@@ -7,7 +7,12 @@ from typing import Any
 
 from ..flows import get_flow_by_id, get_flows
 from ..hints import generate_hints, get_session
-from ._common import _get_store, apply_output_budget
+from ._common import (
+    _get_store,
+    apply_output_budget,
+    graph_answerability_summary,
+    missingness_from_answerability,
+)
 
 # ---------------------------------------------------------------------------
 # Tool 10: list_flows  [EXPLORE]
@@ -42,6 +47,7 @@ def list_flows(
     """
     store, root = _get_store(repo_root)
     try:
+        answerability = graph_answerability_summary(store)
         fetch_limit = limit if not kind else limit * 10  # fetch more when filtering
         flows = get_flows(store, sort_by=sort_by, limit=fetch_limit)
 
@@ -71,6 +77,15 @@ def list_flows(
             "status": "ok",
             "summary": f"Found {len(flows)} execution flow(s)",
             "flows": flows,
+            "answerability": answerability,
+            "missingness": [
+                *missingness_from_answerability(answerability),
+                {
+                    "reason_code": "flow_criticality_is_ranking_signal",
+                    "severity": "low",
+                    "claim_effect": "flow ranking is not a coverage guarantee",
+                },
+            ],
         }
         result["_hints"] = generate_hints("list_flows", result, get_session())
         return result
@@ -109,6 +124,7 @@ def get_flow(
     """
     store, root = _get_store(repo_root)
     try:
+        answerability = graph_answerability_summary(store)
         flow: dict | None = None
 
         if flow_id is not None:
@@ -158,6 +174,15 @@ def get_flow(
                 f"criticality {flow['criticality']:.4f}"
             ),
             "flow": flow,
+            "answerability": answerability,
+            "missingness": [
+                *missingness_from_answerability(answerability),
+                {
+                    "reason_code": "source_inclusion_explicit",
+                    "severity": "low",
+                    "claim_effect": f"source snippets included: {bool(include_source)}",
+                },
+            ],
         }
         if include_source:
             apply_output_budget(result["flow"], budget_tokens=8000, list_priorities=["steps"])

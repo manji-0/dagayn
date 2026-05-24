@@ -8,7 +8,12 @@ from .._scope import ArtifactScope
 from ..communities import get_architecture_overview, get_communities
 from ..graph import node_to_dict
 from ..hints import generate_hints, get_session
-from ._common import _get_store, apply_output_budget
+from ._common import (
+    _get_store,
+    apply_output_budget,
+    graph_answerability_summary,
+    missingness_from_answerability,
+)
 
 
 def _architecture_health_summary(
@@ -368,6 +373,7 @@ def get_architecture_overview_func(
     """
     store, root = _get_store(repo_root)
     try:
+        answerability = graph_answerability_summary(store)
         overview = get_architecture_overview(store, detail_level=detail_level, top_n=top_n)
         n_communities = len(overview["communities"])
         n_coupling = len(overview["cross_community_coupling"])
@@ -390,6 +396,8 @@ def get_architecture_overview_func(
             top_n=top_n,
             artifact_scope=artifact_scope,
         )
+        result["answerability"] = answerability
+        result["missingness"] = missingness_from_answerability(answerability)
         apply_output_budget(
             result,
             budget_tokens=4000,
