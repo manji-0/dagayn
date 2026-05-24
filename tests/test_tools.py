@@ -2042,6 +2042,8 @@ class TestGetMinimalContext:
         assert result["status"] == "ok"
         assert "summary" in result
         assert "next_tool_suggestions" in result
+        assert result["graph_health"]["status"] in {"ok", "degraded", "empty"}
+        assert "answerability" in result["graph_health"]
 
     def test_output_is_compact(self):
         import json

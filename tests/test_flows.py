@@ -614,3 +614,38 @@ class TestFlows:
             "WHERE f.id IS NULL"
         ).fetchall()
         assert len(orphans) == 0, f"found {len(orphans)} orphaned memberships"
+
+    def test_incremental_trace_flows_deletes_snapshots_before_flows(self):
+        """Affected flow snapshots must be removed before their parent flows."""
+        conn = self.store._conn
+        conn.execute("PRAGMA foreign_keys = ON")
+
+        self._add_func("handler", path="routes.py")
+        self._add_func("service", path="services.py")
+        self._add_call("routes.py::handler", "services.py::service", "routes.py")
+
+        flows = trace_flows(self.store)
+        store_flows(self.store, flows)
+        stored = [flow for flow in get_flows(self.store) if flow["name"] == "handler"]
+        assert len(stored) == 1
+        flow_id = stored[0]["id"]
+
+        conn.execute(
+            """INSERT INTO flow_snapshots
+               (flow_id, name, entry_point, critical_path, criticality, node_count, file_count)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                flow_id,
+                "handler",
+                "routes.py::handler",
+                "[]",
+                0.1,
+                2,
+                2,
+            ),
+        )
+
+        count = incremental_trace_flows(self.store, ["routes.py"])
+        assert count >= 1
+        violations = conn.execute("PRAGMA foreign_key_check").fetchall()
+        assert len(violations) == 0

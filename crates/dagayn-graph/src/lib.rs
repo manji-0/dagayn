@@ -2392,10 +2392,12 @@ impl GraphStore {
 
         let tx = self.conn.transaction()?;
         {
+            let mut delete_snapshot = tx.prepare("DELETE FROM flow_snapshots WHERE flow_id = ?")?;
             let mut delete_membership =
                 tx.prepare("DELETE FROM flow_memberships WHERE flow_id = ?")?;
             let mut delete_flow = tx.prepare("DELETE FROM flows WHERE id = ?")?;
             for flow_id in flow_ids {
+                delete_snapshot.execute([flow_id])?;
                 delete_membership.execute([flow_id])?;
                 delete_flow.execute([flow_id])?;
             }

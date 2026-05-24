@@ -16,6 +16,7 @@ exploration, code review, feature work, and refactoring to completion.
 | Code review | The first review result separates facts, heuristics, and uncertain leads. | `detect_changes` returns `signal_quality` and ranked actionable test gaps. |
 | Feature addition | A natural-language task routes to extension-point discovery before editing. | English and Japanese feature tasks route to semantic search, graph query, and change review. |
 | Refactoring | Suggestions include an executable strategy, not only a candidate list. | `refactor_tool(mode="suggest")` returns `execution_plan` for every suggestion. |
+| Guidance quality | Ranked guidance can be regression-tested. | `guidance_precision` evaluates precision@k for tests, docs, and refactor candidates. |
 
 ## Phase 1: coverage evidence
 
@@ -48,10 +49,18 @@ Verification gates:
 It also returns `test_gap_ranking` so production gaps are not mixed with
 documentation or test-artifact noise.
 
+Stable-component contracts now apply the Clean Architecture stability definition
+from SDP/SAP metrics: components with low instability or high afferent coupling
+are expected to have higher direct test density and explicit documentation
+links. `detect_changes` exposes those checks in `stability_contracts`, while
+recommended tests and documentation candidates include scores, evidence levels,
+and stability context.
+
 Verification gate:
 
 - `tests/test_changes.py::TestChanges::test_detect_changes_tool_with_changes`
 - `tests/test_changes.py::TestChanges::test_classify_test_gap_buckets_docs_and_tests`
+- `tests/test_changes.py::TestChanges::test_detect_changes_scores_stable_component_tests_and_docs`
 
 ## Phase 3: workflow entry
 
@@ -64,6 +73,7 @@ adds a structured workflow explanation:
 - `recommended_action`
 - `why`
 - `confidence`
+- `graph_health`
 
 English and Japanese tasks are covered for review, debugging, exploration,
 feature addition, and refactoring. Refactor intent takes precedence over the
@@ -89,6 +99,8 @@ Each refactor suggestion now includes `execution_plan` with:
 - defer conditions
 
 The plan is type-specific for split, move, remove, and document suggestions.
+Each suggestion also includes `work_pack` with the owner scope, first commit,
+verification commands, and success criteria.
 
 Verification gate:
 
@@ -101,6 +113,10 @@ Verification gate:
 <!-- derived-from #phase-3-workflow-entry -->
 <!-- derived-from #phase-4-refactor-execution-plans -->
 
+`guidance_precision` adds a precision@k gate for the ranked outputs that agents
+act on most directly: recommended tests, documentation update candidates, and
+refactor suggestions.
+
 The usability work is complete when the focused test suite passes and
 `detect_changes` shows the changed implementation files with low or explained
 risk.
@@ -112,9 +128,11 @@ uv run pytest tests/test_tools.py::TestTools::test_query_graph_tests_for_uses_he
   tests/test_tools.py::TestGetMinimalContext \
   tests/test_changes.py::TestChanges::test_analyze_changes_uses_heuristic_test_coverage \
   tests/test_changes.py::TestChanges::test_detect_changes_tool_with_changes \
+  tests/test_changes.py::TestChanges::test_detect_changes_scores_stable_component_tests_and_docs \
   tests/test_changes.py::TestChanges::test_classify_test_gap_buckets_docs_and_tests \
+  tests/test_eval.py::test_precision_at_k \
   tests/test_refactor.py::TestSuggestRefactorings::test_suggestion_structure
-uv run ruff check dagayn/coverage.py dagayn/changes.py dagayn/tools/query.py dagayn/tools/review.py dagayn/tools/context.py dagayn/refactor/suggestions.py tests/test_tools.py tests/test_changes.py tests/test_refactor.py
+uv run ruff check dagayn/coverage.py dagayn/changes.py dagayn/tools/query.py dagayn/tools/review.py dagayn/tools/context.py dagayn/refactor/suggestions.py dagayn/eval/scorer.py dagayn/eval/benchmarks/guidance_precision.py tests/test_tools.py tests/test_changes.py tests/test_refactor.py tests/test_eval.py
 dagayn build
 dagayn detect-changes --base HEAD
 ```

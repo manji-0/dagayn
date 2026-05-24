@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import logging
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from .._scope import node_file_to_scope_key
 from ..changes import analyze_changes, parse_diff_ranges, parse_git_diff_ranges  # noqa: F401
-from ..coverage import infer_tests_for_node
+from ..coverage import infer_tests_for_node, is_test_file_path
 from ..flows import get_affected_flows as _get_affected_flows
 from ..graph import edge_to_dict, node_to_dict
 from ..hints import generate_hints, get_session
@@ -15,6 +17,38 @@ from ..incremental import get_changed_files, get_staged_and_unstaged
 from ._common import _get_store, apply_output_budget
 
 logger = logging.getLogger(__name__)
+
+_STABLE_INSTABILITY_MAX = 0.35
+_SHOULD_BE_STABLE_CA_MIN = 3
+_STABLE_TEST_DENSITY_TARGET = 0.8
+_STABLE_DOC_DENSITY_TARGET = 0.5
+
+_ARTIFACT_TO_DOC_ROLES = {
+    "implements_contract",
+    "explained_by",
+    "has_runbook",
+    "problem_described_by",
+    "discussed_by",
+}
+_DOC_TO_ARTIFACT_ROLES = {
+    "implemented_by",
+    "describes_symbol",
+    "discusses_artifact",
+    "raises_issue_for",
+}
+_CONTRACT_DOC_ROLES = {
+    "implements_contract",
+    "implemented_by",
+    "has_runbook",
+    "explained_by",
+}
+_LOW_SIGNAL_DOC_FILES = {
+    "AGENTS.md",
+    "CHANGELOG.md",
+    "CLAUDE.md",
+    "GEMINI.md",
+    "QODER.md",
+}
 
 
 def _relative_qualified_name(qualified_name: str, root: Path) -> str:
@@ -39,6 +73,21 @@ def _risk_level(score: float) -> str:
 
 def _is_markdown_path(path: str) -> bool:
     return path.lower().endswith((".md", ".markdown", ".mdx"))
+
+
+def _is_low_signal_doc_path(path: str) -> bool:
+    return Path(path.replace("\\", "/")).name in _LOW_SIGNAL_DOC_FILES
+
+
+def _scope_key_for_file(file_path: str | None) -> str | None:
+    if not file_path:
+        return None
+    return node_file_to_scope_key(file_path, "package")
+
+
+def _scope_key_for_record(record: dict[str, Any]) -> str | None:
+    file_path = record.get("file_path") or record.get("file")
+    return _scope_key_for_file(str(file_path)) if file_path else None
 
 
 def _changed_scope_keys(changed_files: list[str]) -> set[str]:
@@ -66,6 +115,57 @@ def _dedupe_dicts_by_key(items: list[dict[str, Any]], key: str, limit: int) -> l
         if len(out) >= limit:
             break
     return out
+
+
+def _confidence_weight(confidence: Any, confidence_tier: Any) -> float:
+    try:
+        value = float(confidence)
+    except (TypeError, ValueError):
+        value = 0.0
+    tier = str(confidence_tier or "").upper()
+    tier_weight = {
+        "EXTRACTED": 1.0,
+        "HIGH": 0.9,
+        "MEDIUM": 0.65,
+        "LOW": 0.35,
+    }.get(tier, 0.5)
+    return max(value, tier_weight)
+
+
+def _doc_role_weight(role: str | None) -> float:
+    if role in {"implements_contract", "implemented_by"}:
+        return 0.95
+    if role == "has_runbook":
+        return 0.85
+    if role in {"explained_by", "describes_symbol"}:
+        return 0.75
+    if role in {"problem_described_by", "raises_issue_for"}:
+        return 0.65
+    if role in {"discussed_by", "discusses_artifact"}:
+        return 0.45
+    return 0.25
+
+
+def _cross_artifact_role(edge: Any) -> str | None:
+    if getattr(edge, "kind", None) != "CROSS_ARTIFACT":
+        return None
+    extra = getattr(edge, "extra", None)
+    if not isinstance(extra, dict):
+        return None
+    role = extra.get("relationship_role")
+    return role if isinstance(role, str) else None
+
+
+def _is_production_code_node(node: Any) -> bool:
+    file_path = str(getattr(node, "file_path", ""))
+    language = str(getattr(node, "language", ""))
+    if getattr(node, "kind", None) not in {"Function", "Class"}:
+        return False
+    if getattr(node, "is_test", False) or is_test_file_path(file_path):
+        return False
+    if language == "markdown" or _is_markdown_path(file_path):
+        return False
+    return True
 
 
 def _classify_test_gap(gap: dict[str, Any]) -> str:
@@ -96,17 +196,142 @@ def _rank_test_gaps(test_gaps: list[dict[str, Any]], *, limit: int = 5) -> dict[
     }
 
 
+def _component_stability_profiles(store: Any) -> dict[str, dict[str, Any]]:
+    """Return package-level stability expectations from Clean Architecture metrics."""
+    try:
+        from ..architecture import compute_sdp_metrics
+        from ..sap import compute_sap_metrics
+
+        sdp_metrics = compute_sdp_metrics(store, granularity="package", artifact_scope="code")
+        sap_metrics = compute_sap_metrics(store, scope_kind="package", artifact_scope="code")
+    except Exception:  # pragma: no cover - defensive for backend parity drift
+        return {}
+
+    profiles: dict[str, dict[str, Any]] = {}
+    for metric in sdp_metrics:
+        scope_key = str(metric.get("name", ""))
+        if not scope_key:
+            continue
+        ca = int(metric.get("ca", 0) or 0)
+        ce = int(metric.get("ce", 0) or 0)
+        instability = float(metric.get("instability", 0.0) or 0.0)
+        reason_codes: list[str] = []
+        if ca + ce > 0 and instability <= _STABLE_INSTABILITY_MAX:
+            reason_codes.append("observed_stable_component")
+        if ca >= _SHOULD_BE_STABLE_CA_MIN or (ca >= 2 and ca > ce):
+            reason_codes.append("high_afferent_coupling_should_be_stable")
+        profiles[scope_key] = {
+            "scope_key": scope_key,
+            "ca": ca,
+            "ce": ce,
+            "instability": round(instability, 4),
+            "stable": "observed_stable_component" in reason_codes,
+            "should_be_stable": "high_afferent_coupling_should_be_stable" in reason_codes,
+            "reason_codes": reason_codes,
+            "expected_test_density": (
+                _STABLE_TEST_DENSITY_TARGET if reason_codes else 0.5
+            ),
+            "expected_doc_density": (
+                _STABLE_DOC_DENSITY_TARGET if reason_codes else 0.25
+            ),
+        }
+
+    for metric in sap_metrics:
+        scope_key = str(metric.get("scope_key", ""))
+        if not scope_key:
+            continue
+        profile = profiles.setdefault(
+            scope_key,
+            {
+                "scope_key": scope_key,
+                "ca": int(metric.get("ca", 0) or 0),
+                "ce": int(metric.get("ce", 0) or 0),
+                "instability": float(metric.get("instability", 0.0) or 0.0),
+                "stable": False,
+                "should_be_stable": False,
+                "reason_codes": [],
+                "expected_test_density": 0.5,
+                "expected_doc_density": 0.25,
+            },
+        )
+        profile["abstractness"] = metric.get("abstractness")
+        profile["sap_distance"] = metric.get("distance")
+        profile["sap_notes"] = metric.get("notes", [])
+        distance = float(metric.get("distance", 0.0) or 0.0)
+        instability = float(profile.get("instability", 0.0) or 0.0)
+        if distance >= 0.5 and instability <= _STABLE_INSTABILITY_MAX:
+            profile["reason_codes"].append("stable_concrete_pressure")
+            profile["should_be_stable"] = True
+            profile["expected_test_density"] = _STABLE_TEST_DENSITY_TARGET
+            profile["expected_doc_density"] = _STABLE_DOC_DENSITY_TARGET
+
+    return profiles
+
+
+def _component_density_by_scope(store: Any, scopes: set[str]) -> dict[str, dict[str, Any]]:
+    """Measure direct test and documentation density for changed scopes."""
+    if not scopes:
+        return {}
+
+    scope_nodes: dict[str, list[Any]] = defaultdict(list)
+    test_node_counts: dict[str, int] = defaultdict(int)
+    for node in store.get_all_nodes(exclude_files=True):
+        scope_key = _scope_key_for_file(str(getattr(node, "file_path", "")))
+        if scope_key not in scopes:
+            continue
+        if _is_production_code_node(node):
+            scope_nodes[scope_key].append(node)
+        elif getattr(node, "is_test", False) or getattr(node, "kind", "") == "Test":
+            test_node_counts[scope_key] += 1
+
+    qns = [node.qualified_name for nodes in scope_nodes.values() for node in nodes]
+    outgoing_by_qn, incoming_by_qn = store.get_edges_by_endpoints(qns)
+    densities: dict[str, dict[str, Any]] = {}
+    for scope_key, nodes in scope_nodes.items():
+        tested = 0
+        documented = 0
+        for node in nodes:
+            outgoing = outgoing_by_qn.get(node.qualified_name, [])
+            incoming = incoming_by_qn.get(node.qualified_name, [])
+            if any(edge.kind == "TESTED_BY" for edge in outgoing):
+                tested += 1
+            has_doc = any(
+                _cross_artifact_role(edge) in _ARTIFACT_TO_DOC_ROLES for edge in outgoing
+            ) or any(_cross_artifact_role(edge) in _DOC_TO_ARTIFACT_ROLES for edge in incoming)
+            if has_doc:
+                documented += 1
+
+        prod_count = len(nodes)
+        densities[scope_key] = {
+            "production_node_count": prod_count,
+            "test_node_count": test_node_counts.get(scope_key, 0),
+            "tested_node_count": tested,
+            "documented_node_count": documented,
+            "direct_test_density": round(tested / prod_count, 4) if prod_count else 0.0,
+            "documentation_density": round(documented / prod_count, 4) if prod_count else 0.0,
+        }
+    return densities
+
+
 def _review_signal_quality(
     reason_codes: list[str],
     docs: list[dict[str, Any]],
     test_gaps: list[dict[str, Any]],
+    stability_contracts: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     uncertain = []
-    if docs:
+    if any(doc.get("evidence_level") == "heuristic_reachable" for doc in docs):
         uncertain.append("documentation candidates are graph-reachable markdown nodes")
     if test_gaps:
         uncertain.append(
             "test gaps use direct TESTED_BY edges plus medium-confidence naming/source heuristics"
+        )
+    if stability_contracts:
+        uncertain.append(
+            (
+                "stable-component density compares current graph evidence to "
+                "package-level SDP/SAP thresholds"
+            )
         )
     return {
         "graph_facts": [
@@ -120,12 +345,13 @@ def _review_signal_quality(
                 "changed_hotspot",
                 "impacted_hotspot",
                 "architecture_violation_in_changed_scope",
+                "stable_component_contract_gap",
             }
         ],
         "heuristics": [
             code
             for code in reason_codes
-            if code in {"test_gaps", "documentation_update_candidates"}
+            if code in {"test_gaps", "documentation_update_candidates", "stable_density_gap"}
         ],
         "uncertain": uncertain,
     }
@@ -137,14 +363,19 @@ def _recommend_tests(
     affected_flows: list[dict[str, Any]],
     *,
     limit: int = 10,
+    stability_profiles: dict[str, dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Recommend tests that directly or indirectly cover changed code."""
     recommendations: list[dict[str, Any]] = []
+    stability_profiles = stability_profiles or {}
 
     for func in changed_functions:
         qualified_name = func.get("qualified_name")
         if not isinstance(qualified_name, str) or not qualified_name:
             continue
+        scope_key = _scope_key_for_record(func)
+        profile = stability_profiles.get(scope_key or "", {})
+        stability_bonus = 0.1 if profile.get("stable") or profile.get("should_be_stable") else 0.0
         try:
             tests = store.get_transitive_tests(qualified_name)
         except Exception:  # pragma: no cover - defensive for backend parity drift
@@ -164,6 +395,20 @@ def _recommend_tests(
                         else "direct coverage of changed code"
                     ),
                     "source": qualified_name,
+                    "scope_key": scope_key,
+                    "score": round(
+                        min(
+                            1.0,
+                            (0.82 if test.get("indirect") else 0.95) + stability_bonus,
+                        ),
+                        4,
+                    ),
+                    "evidence_level": "graph_indirect" if test.get("indirect") else "graph_direct",
+                    "stability": {
+                        "stable": bool(profile.get("stable")),
+                        "should_be_stable": bool(profile.get("should_be_stable")),
+                        "instability": profile.get("instability"),
+                    },
                 }
             )
         if tests:
@@ -187,6 +432,21 @@ def _recommend_tests(
                     "source": qualified_name,
                     "confidence": test.get("confidence"),
                     "evidence": test.get("evidence", []),
+                    "scope_key": scope_key,
+                    "score": round(
+                        min(
+                            1.0,
+                            (0.75 if test.get("confidence") == "high" else 0.65)
+                            + stability_bonus,
+                        ),
+                        4,
+                    ),
+                    "evidence_level": "heuristic",
+                    "stability": {
+                        "stable": bool(profile.get("stable")),
+                        "should_be_stable": bool(profile.get("should_be_stable")),
+                        "instability": profile.get("instability"),
+                    },
                 }
             )
 
@@ -203,40 +463,237 @@ def _recommend_tests(
                 "file": None,
                 "reason": "affected test flow",
                 "source": "affected_flows",
+                "score": 0.55,
+                "evidence_level": "flow",
             }
         )
 
+    recommendations.sort(
+        key=lambda item: (
+            -float(item.get("score", 0.0) or 0.0),
+            str(item.get("qualified_name", "")),
+        )
+    )
     return _dedupe_dicts_by_key(recommendations, "qualified_name", limit)
 
 
 def _documentation_update_candidates(
+    store: Any,
     impact: dict[str, Any],
+    changed_functions: list[dict[str, Any]],
     changed_files: list[str],
     *,
     limit: int = 10,
+    stability_profiles: dict[str, dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     changed_set = {str(path) for path in changed_files}
     code_changed = any(not _is_markdown_path(path) for path in changed_files)
     if not code_changed:
         return []
 
+    stability_profiles = stability_profiles or {}
     candidates: list[dict[str, Any]] = []
+    source_qns = [
+        qn
+        for qn in (func.get("qualified_name") for func in changed_functions)
+        if isinstance(qn, str) and qn
+    ]
+    source_by_qn = {
+        str(func.get("qualified_name")): func
+        for func in changed_functions
+        if isinstance(func.get("qualified_name"), str)
+    }
+    outgoing_by_qn, incoming_by_qn = store.get_edges_by_endpoints(source_qns)
+    doc_qns: set[str] = set()
+    for qn in source_qns:
+        source_record = source_by_qn.get(qn, {})
+        scope_key = _scope_key_for_record(source_record)
+        profile = stability_profiles.get(scope_key or "", {})
+        stability_bonus = 0.08 if profile.get("stable") or profile.get("should_be_stable") else 0.0
+        for edge in outgoing_by_qn.get(qn, []):
+            role = _cross_artifact_role(edge)
+            if role not in _ARTIFACT_TO_DOC_ROLES:
+                continue
+            if _is_low_signal_doc_path(edge.file_path) and role not in _CONTRACT_DOC_ROLES:
+                continue
+            doc_qn = edge.target_qualified
+            doc_qns.add(doc_qn)
+            score = min(1.0, _doc_role_weight(role) + stability_bonus)
+            candidates.append(
+                {
+                    "file": edge.file_path,
+                    "section": doc_qn.rsplit("::", 1)[-1],
+                    "qualified_name": doc_qn,
+                    "reason": "documentation edge from changed code",
+                    "source": qn,
+                    "relationship_role": role,
+                    "confidence": edge.confidence,
+                    "confidence_tier": edge.confidence_tier,
+                    "score": round(score, 4),
+                    "evidence_level": "cross_artifact",
+                    "scope_key": scope_key,
+                    "stable_contract": role in _CONTRACT_DOC_ROLES,
+                }
+            )
+        for edge in incoming_by_qn.get(qn, []):
+            role = _cross_artifact_role(edge)
+            if role not in _DOC_TO_ARTIFACT_ROLES:
+                continue
+            if _is_low_signal_doc_path(edge.file_path) and role not in _CONTRACT_DOC_ROLES:
+                continue
+            doc_qn = edge.source_qualified
+            doc_qns.add(doc_qn)
+            score = min(
+                1.0,
+                _doc_role_weight(role)
+                + 0.08 * _confidence_weight(edge.confidence, edge.confidence_tier)
+                + stability_bonus,
+            )
+            candidates.append(
+                {
+                    "file": edge.file_path,
+                    "section": doc_qn.rsplit("::", 1)[-1],
+                    "qualified_name": doc_qn,
+                    "reason": "documentation edge to changed code",
+                    "source": qn,
+                    "relationship_role": role,
+                    "confidence": edge.confidence,
+                    "confidence_tier": edge.confidence_tier,
+                    "score": round(score, 4),
+                    "evidence_level": "cross_artifact",
+                    "scope_key": scope_key,
+                    "stable_contract": role in _CONTRACT_DOC_ROLES,
+                }
+            )
+
     for node in impact.get("impacted_nodes", []):
         file_path = getattr(node, "file_path", "")
         if not isinstance(file_path, str) or not _is_markdown_path(file_path):
             continue
+        if _is_low_signal_doc_path(file_path):
+            continue
         if file_path in changed_set:
+            continue
+        qn = getattr(node, "qualified_name", None)
+        if isinstance(qn, str) and qn in doc_qns:
             continue
         candidates.append(
             {
                 "file": file_path,
                 "section": getattr(node, "name", None),
-                "qualified_name": getattr(node, "qualified_name", None),
+                "qualified_name": qn,
                 "reason": "markdown node reached from changed code/doc graph",
+                "score": 0.25,
+                "evidence_level": "heuristic_reachable",
             }
         )
 
+    candidates.sort(
+        key=lambda item: (
+            -float(item.get("score", 0.0) or 0.0),
+            str(item.get("qualified_name", "")),
+        )
+    )
     return _dedupe_dicts_by_key(candidates, "qualified_name", limit)
+
+
+def _stability_contracts(
+    changed_functions: list[dict[str, Any]],
+    recommended_tests: list[dict[str, Any]],
+    docs: list[dict[str, Any]],
+    test_gaps: list[dict[str, Any]],
+    stability_profiles: dict[str, dict[str, Any]],
+    component_density: dict[str, dict[str, Any]],
+    *,
+    limit: int = 10,
+) -> list[dict[str, Any]]:
+    tests_by_source: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for item in recommended_tests:
+        source = item.get("source")
+        if isinstance(source, str):
+            tests_by_source[source].append(item)
+
+    docs_by_source: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for item in docs:
+        source = item.get("source")
+        if isinstance(source, str):
+            docs_by_source[source].append(item)
+
+    gap_qns = {str(gap.get("qualified_name")) for gap in test_gaps if gap.get("qualified_name")}
+    changed_by_scope: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for func in changed_functions:
+        if func.get("kind") not in {"Function", "Class"}:
+            continue
+        file_path = str(func.get("file_path") or func.get("file") or "")
+        if func.get("is_test") or is_test_file_path(file_path) or _is_markdown_path(file_path):
+            continue
+        scope_key = _scope_key_for_record(func)
+        if scope_key:
+            changed_by_scope[scope_key].append(func)
+
+    contracts: list[dict[str, Any]] = []
+    for scope_key, funcs in changed_by_scope.items():
+        profile = stability_profiles.get(scope_key)
+        if not profile:
+            continue
+        if not profile.get("stable") and not profile.get("should_be_stable"):
+            continue
+        density = component_density.get(scope_key, {})
+        changed_qns = [
+            str(func.get("qualified_name"))
+            for func in funcs
+            if isinstance(func.get("qualified_name"), str)
+        ]
+        changed_with_tests = [qn for qn in changed_qns if tests_by_source.get(qn)]
+        changed_with_docs = [qn for qn in changed_qns if docs_by_source.get(qn)]
+        missing_tests = [qn for qn in changed_qns if qn not in changed_with_tests and qn in gap_qns]
+        missing_docs = [qn for qn in changed_qns if qn not in changed_with_docs]
+
+        observed_test_density = float(density.get("direct_test_density", 0.0) or 0.0)
+        observed_doc_density = float(density.get("documentation_density", 0.0) or 0.0)
+        expected_test_density = float(profile.get("expected_test_density", 0.5) or 0.5)
+        expected_doc_density = float(profile.get("expected_doc_density", 0.25) or 0.25)
+        reason_codes = list(profile.get("reason_codes", []))
+        if observed_test_density < expected_test_density:
+            reason_codes.append("stable_component_low_test_density")
+        if observed_doc_density < expected_doc_density or missing_docs:
+            reason_codes.append("stable_component_missing_documentation")
+
+        status = (
+            "warn"
+            if any(code.startswith("stable_component_") for code in reason_codes)
+            else "ok"
+        )
+        contracts.append(
+            {
+                "scope_key": scope_key,
+                "status": status,
+                "instability": profile.get("instability"),
+                "ca": profile.get("ca"),
+                "ce": profile.get("ce"),
+                "stable": profile.get("stable"),
+                "should_be_stable": profile.get("should_be_stable"),
+                "expected_test_density": expected_test_density,
+                "observed_direct_test_density": observed_test_density,
+                "expected_doc_density": expected_doc_density,
+                "observed_documentation_density": observed_doc_density,
+                "changed_production_node_count": len(changed_qns),
+                "changed_nodes_with_recommended_tests": len(changed_with_tests),
+                "changed_nodes_with_docs": len(changed_with_docs),
+                "missing_changed_tests": missing_tests[:5],
+                "missing_changed_docs": missing_docs[:5],
+                "reason_codes": reason_codes,
+            }
+        )
+
+    contracts.sort(
+        key=lambda item: (
+            0 if item.get("status") == "warn" else 1,
+            float(item.get("instability", 1.0) or 1.0),
+            str(item.get("scope_key", "")),
+        )
+    )
+    return contracts[:limit]
 
 
 def _hotspot_proximity(
@@ -334,6 +791,13 @@ def _architecture_delta_summary(
 
     return {
         "mode": "current_graph_changed_scope",
+        "baseline_comparison": {
+            "available": False,
+            "reason": (
+                "review currently compares changed scopes against the current graph; "
+                "a separate base graph is not materialized for every review call."
+            ),
+        },
         "changed_scopes": sorted(scopes),
         "related_violations": {
             "adp": related_adp,
@@ -364,11 +828,37 @@ def _change_analysis_summary(
     changed_functions = list(analysis.get("changed_functions", []))
     risk = _risk_level(risk_score)
 
-    docs = _documentation_update_candidates(impact, changed_files)
+    stability_profiles = _component_stability_profiles(store)
+    changed_scopes = {
+        scope_key
+        for scope_key in (_scope_key_for_record(func) for func in changed_functions)
+        if scope_key
+    }
+    component_density = _component_density_by_scope(store, changed_scopes)
+    recommended_tests = _recommend_tests(
+        store,
+        changed_functions,
+        affected_flows,
+        stability_profiles=stability_profiles,
+    )
+    docs = _documentation_update_candidates(
+        store,
+        impact,
+        changed_functions,
+        changed_files,
+        stability_profiles=stability_profiles,
+    )
     hotspots = _hotspot_proximity(store, impact)
     architecture_delta = _architecture_delta_summary(store, changed_files)
-    recommended_tests = _recommend_tests(store, changed_functions, affected_flows)
     test_gap_ranking = _rank_test_gaps(test_gaps)
+    stability_contracts = _stability_contracts(
+        changed_functions,
+        recommended_tests,
+        docs,
+        test_gaps,
+        stability_profiles,
+        component_density,
+    )
 
     reason_codes: list[str] = []
     if risk == "high":
@@ -393,6 +883,13 @@ def _change_analysis_summary(
         reason_codes.append("impacted_hotspot")
     if any(architecture_delta["counts"].values()):
         reason_codes.append("architecture_violation_in_changed_scope")
+    if any(contract.get("status") == "warn" for contract in stability_contracts):
+        reason_codes.append("stable_component_contract_gap")
+    if any(
+        "stable_component_low_test_density" in contract.get("reason_codes", [])
+        for contract in stability_contracts
+    ):
+        reason_codes.append("stable_density_gap")
 
     affected_flow_rankings = [
         {
@@ -419,7 +916,13 @@ def _change_analysis_summary(
         "affected_flow_rankings": affected_flow_rankings,
         "documentation_update_candidates": docs,
         "test_gap_ranking": test_gap_ranking,
-        "signal_quality": _review_signal_quality(reason_codes, docs, test_gaps),
+        "stability_contracts": stability_contracts,
+        "signal_quality": _review_signal_quality(
+            reason_codes,
+            docs,
+            test_gaps,
+            stability_contracts,
+        ),
         "hotspot_proximity": hotspots,
         "architecture_delta": architecture_delta,
         "next_drill_downs": {
@@ -850,6 +1353,17 @@ def detect_changes_func(
                 "documentation_update_candidates": analysis_summary[
                     "documentation_update_candidates"
                 ][:5],
+                "stability_contracts": analysis_summary["stability_contracts"][:5],
+                "architecture_delta": {
+                    "mode": analysis_summary["architecture_delta"]["mode"],
+                    "changed_scopes": analysis_summary["architecture_delta"][
+                        "changed_scopes"
+                    ],
+                    "counts": analysis_summary["architecture_delta"]["counts"],
+                    "baseline_comparison": analysis_summary["architecture_delta"][
+                        "baseline_comparison"
+                    ],
+                },
                 "review_priorities": top_priorities,
                 "next_drill_downs": analysis_summary["next_drill_downs"],
             }
@@ -867,6 +1381,7 @@ def detect_changes_func(
                     "analysis_summary.recommended_tests",
                     "analysis_summary.affected_flow_rankings",
                     "analysis_summary.documentation_update_candidates",
+                    "analysis_summary.stability_contracts",
                     "review_priorities",
                     "affected_flows",
                     "test_gaps",

@@ -343,8 +343,49 @@ def _execution_plan_for_suggestion(suggestion: dict[str, Any]) -> dict[str, Any]
     }
 
 
+def _work_pack_for_suggestion(
+    suggestion: dict[str, Any],
+    execution_plan: dict[str, Any],
+) -> dict[str, Any]:
+    affected_files = [str(path) for path in suggestion.get("affected_files", [])]
+    evidence = suggestion.get("evidence", {})
+    split_pressure = (
+        float(evidence.get("split_pressure", 0.0))
+        if isinstance(evidence, dict)
+        else 0.0
+    )
+    stype = str(suggestion.get("type", "unknown"))
+    estimated_size = "small"
+    if len(affected_files) > 1 or split_pressure >= 10 or stype == "split":
+        estimated_size = "medium"
+    if split_pressure >= 25 or (stype == "split" and len(affected_files) > 2):
+        estimated_size = "large"
+
+    primary_file = affected_files[0] if affected_files else None
+    owner_scope = Path(primary_file).parent.as_posix() if primary_file else None
+    required_tests = list(execution_plan.get("required_tests", []))
+    return {
+        "owner_scope": owner_scope,
+        "primary_file": primary_file,
+        "estimated_size": estimated_size,
+        "first_commit": execution_plan.get("minimum_steps", ["Inspect evidence first."])[0],
+        "verification_commands": required_tests,
+        "success_criteria": [
+            (
+                "Public behavior and call signatures are unchanged unless the suggestion "
+                "explicitly says otherwise."
+            ),
+            "Focused tests pass for the affected file or package.",
+            "review_tool(mode=\"changes\") does not show unexpected blast-radius growth.",
+        ],
+        "risk_controls": execution_plan.get("safety_checks", []),
+    }
+
+
 def _attach_execution_plan(suggestion: dict[str, Any]) -> dict[str, Any]:
-    return {**suggestion, "execution_plan": _execution_plan_for_suggestion(suggestion)}
+    execution_plan = _execution_plan_for_suggestion(suggestion)
+    enriched = {**suggestion, "execution_plan": execution_plan}
+    return {**enriched, "work_pack": _work_pack_for_suggestion(enriched, execution_plan)}
 
 
 def _is_public_api_node(node: Any, store: GraphStore, source_cache: dict[str, list[str]]) -> bool:

@@ -25,6 +25,7 @@ except ImportError:
     write_csv = None  # type: ignore[assignment]
 from dagayn.eval.scorer import (
     compute_mrr,
+    compute_precision_at_k,
     compute_precision_recall,
     compute_token_efficiency,
 )
@@ -83,6 +84,26 @@ def test_precision_recall_no_overlap():
     assert result["precision"] == 0.0
     assert result["recall"] == 0.0
     assert result["f1"] == 0.0
+
+
+def test_precision_at_k():
+    result = compute_precision_at_k(["a", "b", "c"], {"b", "z"}, k=2)
+    assert result["precision_at_k"] == 0.5
+    assert result["hits"] == 1
+    assert result["k"] == 2
+
+
+def test_register_command_lists_guidance_precision():
+    import argparse
+
+    from dagayn.cli.commands.eval_cmd import register_command
+
+    parser = argparse.ArgumentParser()
+    sub = parser.add_subparsers(dest="command")
+    eval_parser = register_command(sub)
+
+    help_text = eval_parser.format_help()
+    assert "guidance_precision" in help_text
 
 
 def test_generate_markdown_report():
@@ -407,6 +428,12 @@ def test_runner_with_mock_repo():
         assert "store_file_batch_bulk_replace" in scenarios
         assert any(scenario.startswith("mcp_latency:") for scenario in scenarios)
         assert all(row["benchmark"] == "recent_changes_effects" for row in effect_results)
+
+        from dagayn.eval.benchmarks import guidance_precision
+
+        guidance_results = guidance_precision.run(repo_path, store, config)
+        assert guidance_results[0]["benchmark"] == "guidance_precision"
+        assert "precision_at_k" in guidance_results[0]
 
         store.close()
 

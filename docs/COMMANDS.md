@@ -51,6 +51,11 @@ graded alternate targets, `doc_fuzzy_search_include_paths` /
 `doc_fuzzy_search_exclude_paths` constrain the documentation corpus, and
 `doc_fuzzy_search_query_variants` compares embedding query prefixes.
 
+`dagayn eval --benchmark guidance_precision` measures precision@k for
+review-guidance outputs such as recommended tests, documentation update
+candidates, and refactor suggestions. Configure cases with
+`guidance_precision_cases` in an eval YAML file.
+
 `dagayn tool <mcp-tool-name>` invokes the same underlying implementation as an
 MCP tool and prints JSON. This gives agents and scripts a CLI path to run a
 single tool directly, including when a running MCP server was started with a
@@ -184,13 +189,20 @@ configured.
 `review_tool(mode="changes")` is the primary change-analysis surface. Standard output
 includes `analysis_summary` with risk level, reason codes, recommended tests,
 affected-flow rankings, documentation update candidates, hotspot proximity, and
-architecture risks in changed scopes.
+architecture risks in changed scopes. Recommended tests and documentation
+candidates include scores and evidence levels. Stable or should-be-stable
+components, identified from package-level SDP/SAP metrics, also produce
+`stability_contracts` so reviewers can see whether highly depended-on code has
+enough test and documentation density.
 
 `get_minimal_context_tool` routes common English and Japanese task descriptions
 for review, debugging, exploration, feature addition, and refactoring to the
 next small set of MCP tools. It also returns `workflow`,
 `recommended_action`, `why`, and `confidence` so clients can show the next
-step without requiring users to know tool names.
+step without requiring users to know tool names. It includes compact
+`graph_health` answerability metadata. `parse` is `[files, languages,
+has_last_updated]`; `answerability` is `[flows, communities, test_edges,
+cross_artifact_edges, unresolved_cross_artifact_ratio]`.
 
 `architecture_analysis_tool` is the primary architecture-analysis surface. Start
 with `mode="overview"` and `detail_level="minimal"`. Output includes
@@ -217,7 +229,9 @@ Review and execution-flow drill-downs are also dispatcher-based in v3. Use
 document candidates. Treat them as evidence-ranked leads; verify public APIs,
 test artifacts, dynamic dispatch, and generated entry points before changing
 source. Suggestions include `execution_plan` with minimum safe steps, required
-tests, rollback guidance, and defer conditions.
+tests, rollback guidance, and defer conditions. Suggestion payloads also include
+`work_pack` so agents can pick a first commit scope, success criteria, and
+verification commands without inventing a separate planning tool.
 
 `architecture_analysis_tool(mode="knowledge_gaps", top_n=20)` returns bounded
 structural weakness categories with explicit thresholds and raw counts.

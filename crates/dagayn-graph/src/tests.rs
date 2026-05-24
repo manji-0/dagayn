@@ -830,6 +830,19 @@ fn stores_flows_and_reads_flow_inputs() {
     assert_eq!(analysis["changed_functions"].as_array().unwrap().len(), 2);
     assert_eq!(analysis["affected_flows"].as_array().unwrap().len(), 1);
     assert_eq!(analysis["test_gaps"].as_array().unwrap().len(), 1);
+    store
+        .conn
+        .pragma_update(None, "foreign_keys", "ON")
+        .unwrap();
+    store
+        .conn
+        .execute(
+            "INSERT INTO flow_snapshots \
+             (flow_id, name, entry_point, critical_path, criticality, node_count, file_count) \
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
+            params![flow_id, "entry", "app.py::entry", "[]", 0.25, 2, 1],
+        )
+        .unwrap();
     let deleted_entry_points = store
         .delete_affected_flows(&["app.py".to_string()])
         .unwrap();
@@ -838,6 +851,15 @@ fn stores_flows_and_reads_flow_inputs() {
         store
             .conn
             .query_row("SELECT COUNT(*) FROM flows", [], |row| row.get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        store
+            .conn
+            .query_row("SELECT COUNT(*) FROM flow_snapshots", [], |row| {
+                row.get::<_, i64>(0)
+            })
             .unwrap(),
         0
     );

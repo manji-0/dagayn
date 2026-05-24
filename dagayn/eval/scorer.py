@@ -83,3 +83,31 @@ def compute_precision_recall(predicted: set, actual: set) -> dict:
         "recall": round(recall, 4),
         "f1": round(f1, 4),
     }
+
+
+def compute_precision_at_k(predicted: list[str], actual: set[str], k: int = 5) -> dict:
+    """Compute precision@k for ranked guidance outputs.
+
+    Args:
+        predicted: Ranked identifiers returned by a tool.
+        actual: Ground-truth relevant identifiers.
+        k: Cutoff rank. Values less than 1 are treated as 1.
+
+    Returns:
+        Dict with precision_at_k, hits, k, returned, and relevant.
+    """
+    cutoff = max(1, int(k))
+    returned = [item for item in predicted[:cutoff] if item]
+    if not returned and not actual:
+        precision = 1.0
+        hits = 0
+    else:
+        hits = len(set(returned) & actual)
+        precision = hits / cutoff
+    return {
+        "precision_at_k": round(precision, 4),
+        "hits": hits,
+        "k": cutoff,
+        "returned": len(returned),
+        "relevant": len(actual),
+    }
