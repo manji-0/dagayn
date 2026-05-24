@@ -948,7 +948,7 @@ class TestOpenAIEmbeddingProvider:
         p = OpenAIEmbeddingProvider(
             api_key="k",
             base_url="http://localhost:3000/v1",
-            model="mlx-embedding",
+            model="local-embedding",
             max_length=2048,
         )
         with patch(
@@ -958,15 +958,15 @@ class TestOpenAIEmbeddingProvider:
             p.embed_query("x")
         payload = json.loads(mock_urlopen.call_args[0][0].data.decode("utf-8"))
         assert payload["max_length"] == 2048
-        assert p.name == "openai:mlx-embedding@http://localhost:3000/v1#max_length=2048"
+        assert p.name == "openai:local-embedding@http://localhost:3000/v1#max_length=2048"
 
     def test_from_persisted_name_restores_local_max_length_suffix(self):
         p = OpenAIEmbeddingProvider.from_persisted_name(
-            "openai:mlx-embedding@http://127.0.0.1:3000/v1#max_length=2048"
+            "openai:local-embedding@http://127.0.0.1:3000/v1#max_length=2048"
         )
 
         assert p is not None
-        assert p.name == "openai:mlx-embedding@http://127.0.0.1:3000/v1#max_length=2048"
+        assert p.name == "openai:local-embedding@http://127.0.0.1:3000/v1#max_length=2048"
 
     def test_base_url_trailing_slash_stripped(self):
         p = OpenAIEmbeddingProvider(

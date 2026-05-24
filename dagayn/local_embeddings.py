@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import os
-import platform
 import shlex
 import shutil
 import subprocess
@@ -24,7 +23,7 @@ from typing import Literal, cast
 from urllib.parse import urlparse
 
 LocalEmbeddingLevel = Literal["low"]
-LocalEmbeddingRuntime = Literal["llama", "mlx"]
+LocalEmbeddingRuntime = Literal["llama"]
 EmbeddingTextMode = Literal["metadata", "body"]
 
 DEFAULT_LOCAL_EMBEDDING_PORT = 18080
@@ -32,7 +31,6 @@ DEFAULT_LOCAL_EMBEDDING_BIN = "auto"
 DEFAULT_LOCAL_EMBEDDING_TIMEOUT = 300
 _DEFAULT_LOCAL_EMBEDDING_BINARIES: dict[LocalEmbeddingRuntime, str] = {
     "llama": "llama-server",
-    "mlx": "mlx-openai-server",
 }
 
 
@@ -109,16 +107,6 @@ LOCAL_EMBEDDING_PRESETS: dict[
             cache_type_k="f16",
             cache_type_v="f16",
         ),
-        "mlx": LocalEmbeddingPreset(
-            level="low",
-            runtime="mlx",
-            repo_id="mlx-community/Qwen3-Embedding-0.6B-mxfp8",
-            quant="mxfp8",
-            model="mlx-community/Qwen3-Embedding-0.6B-mxfp8",
-            dimension=1024,
-            text_mode="metadata",
-            request_max_length=2048,
-        ),
     },
 }
 
@@ -127,12 +115,9 @@ def _default_local_embedding_runtime() -> LocalEmbeddingRuntime:
     configured = os.environ.get("DAGAYN_LOCAL_EMBEDDING_RUNTIME")
     if configured:
         normalized = configured.strip().lower()
-        if normalized in ("llama", "mlx"):
+        if normalized == "llama":
             return cast(LocalEmbeddingRuntime, normalized)
-        raise ValueError("DAGAYN_LOCAL_EMBEDDING_RUNTIME must be one of: llama, mlx.")
-    machine = platform.machine().lower()
-    if platform.system() == "Darwin" and machine in {"arm64", "aarch64"}:
-        return "mlx"
+        raise ValueError("DAGAYN_LOCAL_EMBEDDING_RUNTIME must be: llama.")
     return "llama"
 
 
@@ -262,11 +247,6 @@ def _resolve_binary(binary: str, preset: LocalEmbeddingPreset) -> str:
     candidate = Path(requested).expanduser()
     if candidate.exists():
         return str(candidate)
-    if preset.runtime == "mlx":
-        raise RuntimeError(
-            f"Could not find '{requested}'. Install mlx-openai-server or pass "
-            "--local-embedding-bin /path/to/mlx-openai-server. See docs/LOCAL-EMBEDDINGS.md."
-        )
     raise RuntimeError(
         f"Could not find '{requested}'. Install llama.cpp or pass "
         "--local-embedding-bin /path/to/llama-server. See docs/LOCAL-EMBEDDINGS.md."
@@ -278,21 +258,6 @@ def _server_command(
     binary: str,
     port: int,
 ) -> list[str]:
-    if preset.runtime == "mlx":
-        return [
-            binary,
-            "launch",
-            "--model-type",
-            "embeddings",
-            "--model-path",
-            preset.repo_id,
-            "--host",
-            "127.0.0.1",
-            "--port",
-            str(port),
-            "--served-model-name",
-            preset.model,
-        ]
     command = [
         binary,
         "-hf",

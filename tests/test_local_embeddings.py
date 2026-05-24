@@ -52,25 +52,30 @@ def test_local_embedding_llama_preset_is_stable():
     assert low.default_binary == "llama-server"
 
 
-def test_local_embedding_mlx_preset_is_default_on_apple_silicon(monkeypatch):
+def test_local_embedding_llama_preset_is_default_on_apple_silicon(monkeypatch):
     monkeypatch.delenv("DAGAYN_LOCAL_EMBEDDING_RUNTIME", raising=False)
-    monkeypatch.setattr("dagayn.local_embeddings.platform.system", lambda: "Darwin")
-    monkeypatch.setattr("dagayn.local_embeddings.platform.machine", lambda: "arm64")
 
     low = get_local_embedding_preset("low")
 
-    assert low.runtime == "mlx"
-    assert low.repo_id == "mlx-community/Qwen3-Embedding-0.6B-mxfp8"
-    assert low.quant == "mxfp8"
-    assert low.model == "mlx-community/Qwen3-Embedding-0.6B-mxfp8"
+    assert low.runtime == "llama"
+    assert low.repo_id == "Qwen/Qwen3-Embedding-0.6B-GGUF"
+    assert low.quant == "Q8_0"
+    assert low.model == "qwen3-embedding-0.6b-gguf-q8_0"
     assert low.dimension == 1024
-    assert low.request_max_length == 2048
-    assert low.default_binary == "mlx-openai-server"
+    assert low.request_max_length is None
+    assert low.default_binary == "llama-server"
 
 
 def test_local_embedding_rejects_removed_high_preset():
     with pytest.raises(ValueError, match="Expected one of: none, low"):
         get_local_embedding_preset("high")
+
+
+def test_local_embedding_rejects_removed_runtime(monkeypatch):
+    monkeypatch.setenv("DAGAYN_LOCAL_EMBEDDING_RUNTIME", "mlx")
+
+    with pytest.raises(ValueError, match="DAGAYN_LOCAL_EMBEDDING_RUNTIME must be: llama"):
+        get_local_embedding_preset("low")
 
 
 def test_local_embedding_base_url_uses_openai_v1_path():
@@ -86,18 +91,6 @@ def test_infer_local_embedding_provider_from_persisted_name():
     assert inferred.level == "low"
     assert inferred.runtime == "llama"
     assert inferred.model == "qwen3-embedding-0.6b-gguf-q8_0"
-    assert inferred.port == 19090
-
-
-def test_infer_local_embedding_provider_from_mlx_persisted_name():
-    inferred = infer_local_embedding_provider(
-        "openai:mlx-community/Qwen3-Embedding-0.6B-mxfp8@http://127.0.0.1:19090/v1"
-    )
-
-    assert inferred is not None
-    assert inferred.level == "low"
-    assert inferred.runtime == "mlx"
-    assert inferred.model == "mlx-community/Qwen3-Embedding-0.6B-mxfp8"
     assert inferred.port == 19090
 
 
@@ -211,44 +204,6 @@ def test_local_embedding_server_starts_and_stops_llama_server(monkeypatch):
         assert "8192" in server.command
         assert "--alias" in server.command
         assert "qwen3-embedding-0.6b-gguf-q8_0" in server.command
-
-    assert commands
-    assert commands[0][1]["stdin"] is subprocess.DEVNULL
-    assert commands[0][1]["stdout"] is subprocess.DEVNULL
-    assert commands[0][1]["stderr"] is subprocess.DEVNULL
-    assert fake_proc.terminated is True
-    assert fake_proc.killed is False
-
-
-def test_local_embedding_server_starts_mlx_server(monkeypatch):
-    probes = iter([_ProbeResult("unreachable"), _ProbeResult("unreachable"), _ProbeResult("ready")])
-    fake_proc = FakeProcess()
-    commands = []
-
-    monkeypatch.setattr(
-        "dagayn.local_embeddings._probe_embedding_server",
-        lambda base_url, model, expected_dimension: next(probes),
-    )
-    monkeypatch.setattr("dagayn.local_embeddings.shutil.which", lambda binary: f"/bin/{binary}")
-
-    def fake_popen(command, **kwargs):
-        commands.append((command, kwargs))
-        return fake_proc
-
-    monkeypatch.setattr("dagayn.local_embeddings.subprocess.Popen", fake_popen)
-
-    with local_embedding_server("low", runtime="mlx", port=19090, startup_timeout=1) as server:
-        assert server.started is True
-        assert server.command[:6] == [
-            "/bin/mlx-openai-server",
-            "launch",
-            "--model-type",
-            "embeddings",
-            "--model-path",
-            "mlx-community/Qwen3-Embedding-0.6B-mxfp8",
-        ]
-        assert "--served-model-name" in server.command
-        assert "mlx-community/Qwen3-Embedding-0.6B-mxfp8" in server.command
 
     assert commands
     assert commands[0][1]["stdin"] is subprocess.DEVNULL

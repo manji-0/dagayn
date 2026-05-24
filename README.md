@@ -189,7 +189,7 @@ existing graph database before rebuilding from scratch.
 # 1. FTS only — no embeddings, fastest, no model download.
 dagayn install --mode fts
 
-# 2. Local — managed Qwen3 sidecar (MLX on macOS Apple Silicon, GGUF elsewhere).
+# 2. Local — managed Qwen3 llama.cpp GGUF sidecar.
 dagayn install --mode local --preset low    # Qwen3-Embedding-0.6B (~1 GB)
 
 # 3. Remote — OpenAI-compatible / Google / MiniMax cloud embeddings.
@@ -306,7 +306,7 @@ The graph is stored locally under `.dagayn/` by default. No external database is
 
 <!-- derived-from ./docs/ARCHITECTURE.md#hybrid-search -->
 
-`semantic_search_nodes` runs FTS5 BM25 and vector cosine similarity **in parallel**, then merges both ranked lists via Reciprocal Rank Fusion (RRF). When embeddings are not yet present only the FTS5 arm contributes; when both are available you get hybrid results automatically — no per-search configuration change required. `dagayn serve --local-embedding low` makes MCP search default to the matching local OpenAI-compatible sidecar (MLX on macOS Apple Silicon, llama.cpp GGUF elsewhere), and `dagayn serve --remote-embedding {openai,google,minimax}` makes MCP search default to that remote provider. The FTS index includes generated identifier tokens (so `LocalEmbeddingProvider` also matches `local embedding provider`) plus bounded source/document text such as docstrings and Markdown section bodies.
+`semantic_search_nodes` runs FTS5 BM25 and vector cosine similarity **in parallel**, then merges both ranked lists via Reciprocal Rank Fusion (RRF). When embeddings are not yet present only the FTS5 arm contributes; when both are available you get hybrid results automatically — no per-search configuration change required. `dagayn serve --local-embedding low` makes MCP search default to the local llama.cpp GGUF OpenAI-compatible sidecar, and `dagayn serve --remote-embedding {openai,google,minimax}` makes MCP search default to that remote provider. The FTS index includes generated identifier tokens (so `LocalEmbeddingProvider` also matches `local embedding provider`) plus bounded source/document text such as docstrings and Markdown section bodies.
 
 A `search_mode` field in the response reports which arms contributed: `"hybrid"` (both), `"fts_only"`, `"embedding_only"`, or `"keyword_fallback"` (LIKE substring, triggered only when the FTS5 index does not exist). Search results are further ranked by a query-aware kind boost (PascalCase → classes, snake_case → functions) and an optional context-file boost for nodes in files you are currently editing.
 

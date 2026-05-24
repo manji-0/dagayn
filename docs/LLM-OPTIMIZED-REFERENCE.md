@@ -88,8 +88,7 @@ Embeddings are additive: with embeddings built, `semantic_search_nodes` merges B
 For local Qwen embeddings during graph refresh, use `dagayn build --local-embedding low`
 or `dagayn update --local-embedding low`. dagayn reuses a compatible local
 OpenAI-compatible embedding server on localhost or starts one as a subprocess
-for the command; macOS Apple Silicon defaults to MLX and other platforms
-default to llama.cpp GGUF.
+for the command; the managed preset starts llama.cpp GGUF via `llama-server`.
 </section>
 
 <section name="languages">

@@ -48,8 +48,8 @@ the selected embedding mode so agents can avoid stale or wasteful search advice.
   embeddings just to find a precise identifier.
 - Use local `low` for reusable developer environments when embeddings are
   useful; use FTS-only when startup time or memory is tight.
-- If local embedding startup fails, check the local server binary (`auto`,
-  `mlx-openai-server`, or `llama-server`), port, and timeout before changing
+- If local embedding startup fails, check the local server binary (`auto` or
+  `llama-server`), port, and timeout before changing
   graph data.
 - If provider imports are unavailable, keep going with FTS and report the
   reduced recall instead of blocking unrelated work.

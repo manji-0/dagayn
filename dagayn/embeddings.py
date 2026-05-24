@@ -417,9 +417,9 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         # only forward the param when the user explicitly pinned one.
         if self._dimension is not None:
             body["dimensions"] = self._dimension
-        # Some local OpenAI-compatible embedding servers, notably
-        # mlx-openai-server, accept max_length as an extra request field. Keep
-        # this opt-in so strict cloud APIs never see a non-standard parameter.
+        # Some local OpenAI-compatible embedding servers accept max_length as
+        # an extra request field. Keep this opt-in so strict cloud APIs never
+        # see a non-standard parameter.
         if self._max_length is not None:
             body["max_length"] = self._max_length
 

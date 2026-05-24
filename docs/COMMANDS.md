@@ -21,8 +21,7 @@ running the normal full parse. `--force` is accepted as a shorter alias.
 <!-- derived-from ./LOCAL-EMBEDDINGS.md -->
 
 `dagayn build` and `dagayn update` can also generate local Qwen embeddings
-after the graph refresh. The `low` preset uses MLX on macOS Apple Silicon and
-llama.cpp GGUF elsewhere:
+after the graph refresh. The `low` preset uses the llama.cpp GGUF runtime:
 
 ```bash
 dagayn build --local-embedding low
@@ -35,7 +34,7 @@ server startup timeout and each embedding request timeout are separate knobs:
 `--local-embedding-request-timeout` controls a single `/v1/embeddings` call.
 Local embedding requests use `--local-embedding-batch-size 1` by default,
 regardless of any ambient `CRG_OPENAI_BATCH_SIZE`. `--local-embedding-bin auto`
-selects the preset default server binary for the current platform.
+selects `llama-server`.
 
 ### Analysis and review
 

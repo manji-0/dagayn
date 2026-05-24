@@ -13,27 +13,16 @@ MiniMax cloud APIs) — see the README's "Choosing an install mode" section.
 
 | Preset | Runtime | Default platform | Model | Quantization | Dimension |
 | --- | --- | --- | --- | --- | --- |
-| `low` | `mlx-openai-server` | macOS Apple Silicon | `mlx-community/Qwen3-Embedding-0.6B-mxfp8` | MXFP8 | 1024 |
-| `low` | `llama-server` | Linux, Windows, macOS Intel | `Qwen/Qwen3-Embedding-0.6B-GGUF` | `Q8_0` | 1024 |
+| `low` | `llama-server` | all platforms | `Qwen/Qwen3-Embedding-0.6B-GGUF` | `Q8_0` | 1024 |
 
 The Qwen3 Embedding series is published as `0.6B`, `4B`, and `8B` embedding
-models. The local preset uses the 0.6B 8-bit variant. On macOS Apple Silicon,
-dagayn defaults to the MLX conversion; other platforms default to the GGUF
-runtime. Set `DAGAYN_LOCAL_EMBEDDING_RUNTIME=llama` or
-`DAGAYN_LOCAL_EMBEDDING_RUNTIME=mlx` to force a runtime.
+models. The local preset uses the 0.6B 8-bit GGUF variant through
+`llama-server`. `DAGAYN_LOCAL_EMBEDDING_RUNTIME=llama` is accepted for
+explicit configuration; other runtime values are rejected.
 
 ## Setup
 
-On macOS Apple Silicon, install `mlx-openai-server` so the
-`mlx-openai-server` command is available on `PATH`:
-
-```bash
-uv tool install mlx-openai-server
-mlx-openai-server --help
-```
-
-On other platforms, install `llama.cpp` so `llama-server` is available on
-`PATH`:
+Install `llama.cpp` so `llama-server` is available on `PATH`:
 
 ```bash
 brew install llama.cpp
@@ -57,26 +46,6 @@ cmake --build build -j --target llama-server
 
 You can start the server yourself before running dagayn. dagayn will reuse a
 compatible server already listening on the configured port.
-
-For the macOS Apple Silicon MLX runtime:
-
-```bash
-mlx-openai-server launch \
-  --model-type embeddings \
-  --model-path mlx-community/Qwen3-Embedding-0.6B-mxfp8 \
-  --host 127.0.0.1 \
-  --port 18080 \
-  --served-model-name mlx-community/Qwen3-Embedding-0.6B-mxfp8
-```
-
-Then verify the OpenAI-compatible endpoint:
-
-```bash
-curl http://127.0.0.1:18080/v1/embeddings \
-  -H 'Content-Type: application/json' \
-  -H 'Authorization: Bearer dagayn-local' \
-  -d '{"model":"mlx-community/Qwen3-Embedding-0.6B-mxfp8","input":["dagayn local embedding test"]}'
-```
 
 For the llama.cpp GGUF runtime:
 
@@ -121,8 +90,8 @@ dagayn update --local-embedding low
 ```
 
 If no compatible server is already listening on `127.0.0.1:18080`, dagayn
-starts the platform default local server for the duration of the command. By
-default, dagayn stops that subprocess when embedding finishes.
+starts `llama-server` for the duration of the command. By default, dagayn stops
+that subprocess when embedding finishes.
 
 Useful options:
 
@@ -136,9 +105,8 @@ dagayn build \
   --local-embedding-batch-size 1
 ```
 
-`--local-embedding-bin auto` resolves to `mlx-openai-server` on macOS Apple
-Silicon and `llama-server` elsewhere. Pass an explicit executable name or path
-to override it.
+`--local-embedding-bin auto` resolves to `llama-server`. Pass an explicit
+executable name or path to override it.
 
 `--local-embedding-timeout` only controls server readiness. If an individual
 embedding batch stalls after the server is ready,
@@ -151,24 +119,7 @@ The batch size is also pinned for local embeddings. `dagayn build
 `CRG_OPENAI_BATCH_SIZE` set for another provider. Raise it only after measuring;
 larger batches can make local embedding endpoints stall on some hosts.
 
-For the MLX runtime, `mlx-openai-server` currently exposes most throughput and
-KV-cache flags only for language or multimodal generation, not for `embeddings`.
-dagayn therefore leaves the MLX server command minimal and tunes the embedding
-request instead: the managed MLX preset sends `max_length=2048` to avoid the
-server's 512-token embedding default truncating longer dagayn metadata or
-documentation-body inputs. The max-length setting is part of the persisted
-OpenAI-compatible provider identity, so changing it triggers a clean re-embed
-rather than mixing vectors produced with different truncation limits.
-
-The MLX preset uses the `mxfp8` conversion rather than the older generic
-`8bit` MLX repository. `mxfp8` is an 8-bit MLX floating-point quantization mode,
-which is the closer match to the llama.cpp `Q8_0` GGUF preset when we want the
-two runtimes to have comparable precision. If you need to produce a local copy
-yourself, use the `mlx-embeddings` conversion tool with `--quantize --q-mode
-mxfp8`; dagayn's managed preset points at the published
-`mlx-community/Qwen3-Embedding-0.6B-mxfp8` model directly.
-
-For the llama.cpp runtime, dagayn starts `llama-server` with Flash Attention
+Dagayn starts `llama-server` with Flash Attention
 enabled and keeps both KV cache tensors at `f16`. Flash Attention improves
 prompt/embedding throughput on supported backends without changing the model
 weights. The KV cache type is intentionally not quantized by the preset:
@@ -203,9 +154,8 @@ dagayn build --local-embedding low --keep-local-embedding-server
 
 ## Search quality
 
-The measurements below were taken with the llama.cpp GGUF runtime before the
-macOS Apple Silicon default moved to MLX. They remain a baseline for the `low`
-preset, but MLX-specific timings should be re-measured on Apple Silicon.
+The measurements below were taken with the llama.cpp GGUF runtime. They remain
+the baseline for the `low` preset.
 
 Measured on the dagayn codebase (6,197 graph nodes, 5,811 embedded non-file
 nodes). Query set: 5 exact function names, 3 PascalCase class names, 4
@@ -267,13 +217,11 @@ corpus.
 
 <!-- derived-from #manual-check -->
 
-- `Could not find 'mlx-openai-server'`: install `mlx-openai-server` or pass
-  `--local-embedding-bin /path/to/mlx-openai-server`.
 - `Could not find 'llama-server'`: install `llama.cpp` or pass
   `--local-embedding-bin /path/to/llama-server`.
 - Port already in use: either stop the process on that port or use
   `--local-embedding-port`.
-- Timeout while starting: the first run may download the MLX or GGUF model from
+- Timeout while starting: the first run may download the GGUF model from
   Hugging Face; increase `--local-embedding-timeout` or run the local server
   manually to watch progress.
 - Incompatible endpoint: dagayn found something on the port, but it did not
@@ -285,7 +233,3 @@ References:
   <https://qwen.readthedocs.io/en/latest/run_locally/llama.cpp.html>
 - Qwen3-Embedding-0.6B-GGUF:
   <https://huggingface.co/Qwen/Qwen3-Embedding-0.6B-GGUF>
-- MLX Qwen3-Embedding-0.6B-mxfp8:
-  <https://huggingface.co/mlx-community/Qwen3-Embedding-0.6B-mxfp8>
-- mlx-openai-server:
-  <https://pypi.org/project/mlx-openai-server/>
