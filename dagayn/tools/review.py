@@ -17,7 +17,9 @@ from ..incremental import get_changed_files, get_staged_and_unstaged
 from ._common import (
     _get_store,
     apply_output_budget,
+    guidance_actions_to_hints,
     graph_answerability_summary,
+    make_guidance_item,
     missingness_from_answerability,
 )
 
@@ -814,6 +816,226 @@ def _architecture_delta_summary(
     }
 
 
+def _review_guidance_items(
+    *,
+    risk: str,
+    risk_score: float,
+    reason_codes: list[str],
+    recommended_tests: list[dict[str, Any]],
+    docs: list[dict[str, Any]],
+    test_gap_ranking: dict[str, Any],
+    stability_contracts: list[dict[str, Any]],
+    affected_flow_rankings: list[dict[str, Any]],
+    hotspots: dict[str, Any],
+    architecture_delta: dict[str, Any],
+    signal_quality: dict[str, Any],
+) -> list[dict[str, Any]]:
+    guidance: list[dict[str, Any]] = []
+    actionable_gap_count = int(test_gap_ranking.get("counts", {}).get("actionable", 0) or 0)
+    if actionable_gap_count or recommended_tests:
+        guidance.append(
+            make_guidance_item(
+                claim=(
+                    f"{actionable_gap_count} production change(s) need focused test attention."
+                    if actionable_gap_count
+                    else "Graph-linked tests are available for the changed code."
+                ),
+                evidence=[
+                    {
+                        "type": (
+                            "computed"
+                            if item.get("evidence_level", "").startswith("graph")
+                            else "evaluated"
+                        ),
+                        "source": item.get("source"),
+                        "target": item.get("qualified_name"),
+                        "score": item.get("score"),
+                        "evidence_level": item.get("evidence_level"),
+                    }
+                    for item in recommended_tests[:5]
+                ],
+                confidence="medium" if actionable_gap_count else "high",
+                missingness=[
+                    {
+                        "reason_code": "heuristic_test_gap_detection",
+                        "severity": "low",
+                        "claim_effect": "test recommendations may miss naming-only coverage",
+                    }
+                ]
+                if actionable_gap_count
+                else [],
+                action="review_tool mode=\"context\" -- inspect changed nodes and run focused tests",
+                reason_codes=["test_gaps"] if actionable_gap_count else ["recommended_tests"],
+                counts={
+                    "actionable_test_gap_count": actionable_gap_count,
+                    "recommended_test_count": len(recommended_tests),
+                },
+            )
+        )
+
+    if docs:
+        top_doc = docs[0]
+        guidance.append(
+            make_guidance_item(
+                claim="Documentation or contract evidence is connected to this change.",
+                evidence=[
+                    {
+                        "type": (
+                            "authored"
+                            if item.get("evidence_level") == "cross_artifact"
+                            else "computed"
+                        ),
+                        "file": item.get("file"),
+                        "section": item.get("section"),
+                        "relationship_role": item.get("relationship_role"),
+                        "evidence_level": item.get("evidence_level"),
+                        "score": item.get("score"),
+                    }
+                    for item in docs[:5]
+                ],
+                confidence="high" if top_doc.get("evidence_level") == "cross_artifact" else "low",
+                missingness=[
+                    {
+                        "reason_code": "heuristic_documentation_candidate",
+                        "severity": "medium",
+                        "claim_effect": "candidate came from reachability rather than authored edge",
+                    }
+                ]
+                if any(item.get("evidence_level") == "heuristic_reachable" for item in docs)
+                else [],
+                action="query_graph_tool pattern=\"docs_for\" -- inspect linked contract docs",
+                reason_codes=["documentation_update_candidates"],
+                counts={"documentation_candidate_count": len(docs)},
+            )
+        )
+
+    warn_contracts = [item for item in stability_contracts if item.get("status") == "warn"]
+    if warn_contracts:
+        guidance.append(
+            make_guidance_item(
+                claim="A stable or should-be-stable component has a quality-policy gap.",
+                evidence=[
+                    {
+                        "type": "computed",
+                        "scope_key": item.get("scope_key"),
+                        "instability": item.get("instability"),
+                        "expected_test_density": item.get("expected_test_density"),
+                        "observed_direct_test_density": item.get(
+                            "observed_direct_test_density"
+                        ),
+                        "expected_doc_density": item.get("expected_doc_density"),
+                        "observed_documentation_density": item.get(
+                            "observed_documentation_density"
+                        ),
+                    }
+                    for item in warn_contracts[:3]
+                ],
+                confidence="medium",
+                missingness=[
+                    {
+                        "reason_code": "stability_policy_uses_current_graph",
+                        "severity": "low",
+                        "claim_effect": "policy is calibrated by current SDP/SAP graph metrics",
+                    }
+                ],
+                action=(
+                    "architecture_analysis_tool mode=\"overview\" -- inspect stable component policy"
+                ),
+                reason_codes=["stable_component_contract_gap"],
+                counts={"stable_contract_warning_count": len(warn_contracts)},
+            )
+        )
+
+    if affected_flow_rankings:
+        guidance.append(
+            make_guidance_item(
+                claim="Changed code intersects ranked execution flows.",
+                evidence=[
+                    {
+                        "type": "computed",
+                        "name": flow.get("name"),
+                        "criticality": flow.get("criticality"),
+                        "node_count": flow.get("node_count"),
+                        "file_count": flow.get("file_count"),
+                    }
+                    for flow in affected_flow_rankings[:3]
+                ],
+                confidence="medium",
+                missingness=[
+                    {
+                        "reason_code": "flow_rank_is_not_coverage",
+                        "severity": "low",
+                        "claim_effect": "criticality ranks review leads, not sufficient coverage",
+                    }
+                ],
+                action="review_tool mode=\"affected_flows\" -- inspect affected flow paths",
+                reason_codes=["affected_flows"],
+                counts={"affected_flow_count": len(affected_flow_rankings)},
+            )
+        )
+
+    architecture_counts = architecture_delta.get("counts", {})
+    if any(architecture_counts.values()):
+        guidance.append(
+            make_guidance_item(
+                claim="Current architecture violations touch changed scopes.",
+                evidence={
+                    "type": "computed",
+                    "changed_scopes": architecture_delta.get("changed_scopes", []),
+                    "counts": architecture_counts,
+                    "baseline_comparison": architecture_delta.get("baseline_comparison"),
+                },
+                confidence="medium",
+                missingness=[
+                    {
+                        "reason_code": "current_graph_not_baseline_delta",
+                        "severity": "low",
+                        "claim_effect": "violation is scoped to current graph, not a new-introduced proof",
+                    }
+                ],
+                action="architecture_analysis_tool mode=\"overview\" -- inspect scoped risks",
+                reason_codes=["architecture_violation_in_changed_scope"],
+                counts=dict(architecture_counts),
+            )
+        )
+
+    hotspot_count = sum(
+        len(hotspots.get(key, []))
+        for key in ("changed_hubs", "changed_bridges", "impacted_hubs", "impacted_bridges")
+    )
+    if hotspot_count:
+        guidance.append(
+            make_guidance_item(
+                claim="The change is near graph hub or bridge nodes.",
+                evidence={
+                    "type": "computed",
+                    "method": hotspots.get("method"),
+                    "changed_hubs": hotspots.get("changed_hubs", []),
+                    "changed_bridges": hotspots.get("changed_bridges", []),
+                    "impacted_hubs": hotspots.get("impacted_hubs", []),
+                    "impacted_bridges": hotspots.get("impacted_bridges", []),
+                },
+                confidence="medium",
+                action="review_tool mode=\"impact\" -- inspect blast radius around hotspots",
+                reason_codes=["changed_hotspot", "impacted_hotspot"],
+                counts={"hotspot_match_count": hotspot_count},
+            )
+        )
+
+    if risk in {"medium", "high"} and not guidance:
+        guidance.append(
+            make_guidance_item(
+                claim=f"Change risk is {risk} by graph impact score.",
+                evidence={"type": "computed", "metric": "risk_score", "value": risk_score},
+                confidence="medium",
+                action="review_tool mode=\"context\" -- inspect changed nodes before merging",
+                reason_codes=reason_codes,
+                counts={"graph_fact_count": len(signal_quality.get("graph_facts", []))},
+            )
+        )
+    return guidance
+
+
 def _change_analysis_summary(
     store: Any,
     analysis: dict[str, Any],
@@ -903,6 +1125,26 @@ def _change_analysis_summary(
         )[:10]
     ]
 
+    signal_quality = _review_signal_quality(
+        reason_codes,
+        docs,
+        test_gaps,
+        stability_contracts,
+    )
+    guidance = _review_guidance_items(
+        risk=risk,
+        risk_score=risk_score,
+        reason_codes=reason_codes,
+        recommended_tests=recommended_tests,
+        docs=docs,
+        test_gap_ranking=test_gap_ranking,
+        stability_contracts=stability_contracts,
+        affected_flow_rankings=affected_flow_rankings,
+        hotspots=hotspots,
+        architecture_delta=architecture_delta,
+        signal_quality=signal_quality,
+    )
+
     return {
         "risk_level": risk,
         "risk_score": risk_score,
@@ -915,12 +1157,8 @@ def _change_analysis_summary(
         "documentation_update_candidates": docs,
         "test_gap_ranking": test_gap_ranking,
         "stability_contracts": stability_contracts,
-        "signal_quality": _review_signal_quality(
-            reason_codes,
-            docs,
-            test_gaps,
-            stability_contracts,
-        ),
+        "signal_quality": signal_quality,
+        "guidance": guidance,
         "hotspot_proximity": hotspots,
         "architecture_delta": architecture_delta,
         "next_drill_downs": {
@@ -1366,6 +1604,7 @@ def detect_changes_func(
                     "documentation_update_candidates"
                 ][:5],
                 "stability_contracts": analysis_summary["stability_contracts"][:5],
+                "guidance": analysis_summary["guidance"][:3],
                 "architecture_delta": {
                     "mode": analysis_summary["architecture_delta"]["mode"],
                     "changed_scopes": analysis_summary["architecture_delta"]["changed_scopes"],
@@ -1396,13 +1635,16 @@ def detect_changes_func(
                     "analysis_summary.affected_flow_rankings",
                     "analysis_summary.documentation_update_candidates",
                     "analysis_summary.stability_contracts",
+                    "analysis_summary.guidance",
                     "review_priorities",
                     "affected_flows",
                     "test_gaps",
                     "changed_functions",
                 ],
             )
-        result["_hints"] = generate_hints("detect_changes", result, get_session())
+        result["_hints"] = guidance_actions_to_hints(analysis_summary["guidance"])
+        if not result["_hints"]["next_steps"]:
+            result["_hints"] = generate_hints("detect_changes", result, get_session())
         return result
     except Exception as exc:
         return {"status": "error", "error": str(exc)}

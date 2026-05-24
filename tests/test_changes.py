@@ -585,6 +585,16 @@ class TestChanges:
             assert "next_drill_downs" in summary
             assert "test_gap_ranking" in summary
             assert "signal_quality" in summary
+            assert summary["guidance"]
+            assert set(summary["guidance"][0]) >= {
+                "claim",
+                "evidence",
+                "confidence",
+                "missingness",
+                "action",
+                "reason_codes",
+                "counts",
+            }
 
     def test_detect_changes_scores_stable_component_tests_and_docs(self):
         """Stable packages should surface stronger test and documentation signals."""
@@ -663,6 +673,11 @@ class TestChanges:
         assert summary["recommended_tests"][0]["stability"]["stable"] is True
         assert summary["documentation_update_candidates"][0]["qualified_name"] == doc_qn
         assert summary["documentation_update_candidates"][0]["stable_contract"] is True
+        assert any(
+            item["reason_codes"] == ["documentation_update_candidates"]
+            and item["evidence"][0]["type"] == "authored"
+            for item in summary["guidance"]
+        )
         contract = summary["stability_contracts"][0]
         assert contract["scope_key"].endswith("core")
         assert contract["stable"] is True
