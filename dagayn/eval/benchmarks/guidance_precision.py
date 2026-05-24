@@ -19,6 +19,34 @@ def _ids_from_items(items: list[dict[str, Any]], *keys: str) -> list[str]:
     return ids
 
 
+_GUIDANCE_FIELDS = {
+    "claim",
+    "evidence",
+    "confidence",
+    "missingness",
+    "action",
+    "reason_codes",
+    "counts",
+}
+
+
+def _guidance_ids(items: list[dict[str, Any]]) -> list[str]:
+    ids: list[str] = []
+    for item in items:
+        ids.extend(str(code) for code in item.get("reason_codes", []) if code)
+        claim = item.get("claim")
+        if isinstance(claim, str) and claim:
+            ids.append(claim)
+    return ids
+
+
+def _field_coverage(items: list[dict[str, Any]]) -> float:
+    if not items:
+        return 0.0
+    covered = sum(1 for item in items if _GUIDANCE_FIELDS.issubset(item.keys()))
+    return covered / len(items)
+
+
 def _review_predictions(repo_path: Path, case: dict[str, Any]) -> dict[str, list[str]]:
     from dagayn.tools.review import detect_changes_func
 
@@ -40,6 +68,29 @@ def _review_predictions(repo_path: Path, case: dict[str, Any]) -> dict[str, list
             "qualified_name",
             "file",
         ),
+        "guidance_items": _guidance_ids(list(summary.get("guidance", []))),
+        "stable_contract_warnings": _ids_from_items(
+            [
+                item
+                for item in list(summary.get("stability_contracts", []))
+                if item.get("status") == "warn"
+            ],
+            "scope_key",
+        ),
+        "architecture_leads": [
+            key
+            for key, value in dict(
+                summary.get("architecture_delta", {}).get("counts", {})
+            ).items()
+            if value
+        ],
+        "answerability_warnings": _ids_from_items(
+            list(result.get("missingness", [])) if isinstance(result, dict) else [],
+            "reason_code",
+        ),
+        "_guidance_field_coverage": [
+            str(_field_coverage(list(summary.get("guidance", []))))
+        ],
     }
 
 
@@ -67,8 +118,11 @@ def run(repo_path: Path, store: Any, config: dict) -> list[dict]:
 
     ``guidance_precision_cases`` is a list of cases with ``kind`` set to
     ``recommended_tests``, ``documentation_update_candidates``, or
-    ``refactor_suggestions``. Each case supplies ``expected`` identifiers and
-    optional ``k``. Review cases also supply ``changed_files``.
+    ``refactor_suggestions``. It also accepts calibrated guidance kinds:
+    ``guidance_items``, ``stable_contract_warnings``, ``architecture_leads``,
+    ``answerability_warnings``, and ``guidance_field_coverage``. Each case
+    supplies ``expected`` identifiers and optional ``k``. Review cases also
+    supply ``changed_files``.
     """
     del store  # tool calls open their own short-lived store connections
     cases = list(config.get("guidance_precision_cases", []))
@@ -92,20 +146,37 @@ def run(repo_path: Path, store: Any, config: dict) -> list[dict]:
         kind = str(case.get("kind", "recommended_tests"))
         k = int(case.get("k", 5))
         expected = {str(item) for item in case.get("expected", [])}
-        if kind in {"recommended_tests", "documentation_update_candidates"}:
+        if kind in {
+            "recommended_tests",
+            "documentation_update_candidates",
+            "guidance_items",
+            "stable_contract_warnings",
+            "architecture_leads",
+            "answerability_warnings",
+        }:
             review_cache.setdefault(idx, _review_predictions(repo_path, case))
             predicted = review_cache[idx].get(kind, [])
+        elif kind == "guidance_field_coverage":
+            review_cache.setdefault(idx, _review_predictions(repo_path, case))
+            predicted = review_cache[idx].get("_guidance_field_coverage", [])
         elif kind == "refactor_suggestions":
             predicted = _refactor_predictions(repo_path, case)
         else:
             predicted = []
 
         score = compute_precision_at_k(predicted, expected, k=k)
+        field_coverage = None
+        if kind == "guidance_field_coverage" and predicted:
+            try:
+                field_coverage = float(predicted[0])
+            except ValueError:
+                field_coverage = None
         rows.append(
             {
                 "benchmark": "guidance_precision",
                 "case": str(case.get("name", f"case_{idx + 1}")),
                 "kind": kind,
+                "field_coverage": field_coverage,
                 **score,
             }
         )
