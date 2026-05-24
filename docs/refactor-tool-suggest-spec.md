@@ -23,6 +23,7 @@ Default remove suggestions must:
   `reference_count == 0`, and for classes `subclass_count == 0`;
 - exclude test-only code when source context shows it lives under a language test module;
 - exclude documentation section nodes from default code suggestions;
+- exclude data/value container type definitions identified by parser metadata;
 - preserve the graph evidence used to make the decision;
 - downgrade public API candidates instead of presenting them as ordinary internal dead code.
 

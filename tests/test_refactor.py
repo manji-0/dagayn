@@ -570,9 +570,9 @@ class TestFindDeadCode:
         assert "/repo/src/events.jl::BaseEvent" not in dead_qnames
         assert "/repo/src/worker.py::ConcreteWorker" in dead_qnames
 
-    def test_find_dead_code_marks_rust_value_types_low_confidence(self):
-        """Rust struct/enum candidates stay visible but get lower-confidence ranking."""
-        self.store.upsert_node(
+    def test_find_dead_code_excludes_value_containers(self):
+        """Value/data containers are data model assets, not dead-code candidates."""
+        cases = [
             NodeInfo(
                 kind="Class",
                 name="Payload",
@@ -580,10 +580,13 @@ class TestFindDeadCode:
                 line_start=5,
                 line_end=20,
                 language="rust",
-                extra={"type_role": "struct", "derive_traits": ["Serialize", "Deserialize"]},
-            )
-        )
-        self.store.upsert_node(
+                extra={
+                    "type_role": "struct",
+                    "container_role": "data_container",
+                    "value_semantics": True,
+                    "derive_traits": ["Serialize", "Deserialize"],
+                },
+            ),
             NodeInfo(
                 kind="Class",
                 name="Status",
@@ -591,10 +594,64 @@ class TestFindDeadCode:
                 line_start=22,
                 line_end=30,
                 language="rust",
-                extra={"type_role": "enum"},
-            )
-        )
-        self.store.upsert_node(
+                extra={
+                    "type_role": "enum",
+                    "container_role": "data_container",
+                    "value_semantics": True,
+                },
+            ),
+            NodeInfo(
+                kind="Class",
+                name="UserRecord",
+                file_path="/repo/src/main/java/com/example/UserRecord.java",
+                line_start=5,
+                line_end=20,
+                language="java",
+                extra={
+                    "type_role": "record",
+                    "container_role": "data_container",
+                    "value_semantics": True,
+                },
+            ),
+            NodeInfo(
+                kind="Class",
+                name="UserDto",
+                file_path="/repo/src/Models/UserDto.cs",
+                line_start=5,
+                line_end=20,
+                language="csharp",
+                extra={
+                    "type_role": "struct",
+                    "container_role": "data_container",
+                    "value_semantics": True,
+                },
+            ),
+            NodeInfo(
+                kind="Class",
+                name="KotlinUser",
+                file_path="/repo/src/main/kotlin/User.kt",
+                line_start=5,
+                line_end=20,
+                language="kotlin",
+                extra={
+                    "type_role": "record",
+                    "container_role": "data_container",
+                    "value_semantics": True,
+                },
+            ),
+            NodeInfo(
+                kind="Class",
+                name="ScalaUser",
+                file_path="/repo/src/main/scala/User.scala",
+                line_start=5,
+                line_end=20,
+                language="scala",
+                extra={
+                    "type_role": "record",
+                    "container_role": "data_container",
+                    "value_semantics": True,
+                },
+            ),
             NodeInfo(
                 kind="Class",
                 name="UnusedConcrete",
@@ -603,14 +660,20 @@ class TestFindDeadCode:
                 line_end=20,
                 language="rust",
                 extra={"type_role": "class"},
-            )
-        )
+            ),
+        ]
+        for node in cases:
+            self.store.upsert_node(node)
         self.store.commit()
 
         dead_by_qn = {d["qualified_name"]: d for d in find_dead_code(self.store)}
 
-        assert dead_by_qn["/repo/src/types.rs::Payload"]["confidence"] == "low"
-        assert dead_by_qn["/repo/src/types.rs::Status"]["confidence"] == "low"
+        assert "/repo/src/types.rs::Payload" not in dead_by_qn
+        assert "/repo/src/types.rs::Status" not in dead_by_qn
+        assert "/repo/src/main/java/com/example/UserRecord.java::UserRecord" not in dead_by_qn
+        assert "/repo/src/Models/UserDto.cs::UserDto" not in dead_by_qn
+        assert "/repo/src/main/kotlin/User.kt::KotlinUser" not in dead_by_qn
+        assert "/repo/src/main/scala/User.scala::ScalaUser" not in dead_by_qn
         assert dead_by_qn["/repo/src/concrete.rs::UnusedConcrete"]["confidence"] == "medium"
 
     def test_find_dead_code_excludes_implementation_role_across_languages(self):

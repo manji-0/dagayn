@@ -50,7 +50,7 @@ _MIN_PKG_SEGMENT_LEN = 4
 _STRUCTURAL_CLASS_ROLES = frozenset(
     {"interface", "trait", "abstract_class", "abstract_type", "implementation"}
 )
-_VALUE_CONTAINER_CLASS_ROLES = frozenset({"struct", "enum"})
+_VALUE_CONTAINER_CLASS_ROLES = frozenset({"struct", "enum", "record"})
 _VALUE_CONTAINER_DERIVE_TRAITS = frozenset({"Serialize", "Deserialize"})
 
 
@@ -138,17 +138,32 @@ def _is_structural_type_node(node: Any) -> bool:
     return False
 
 
-def _dead_code_confidence(node: Any) -> str:
-    extra = node.extra if isinstance(node.extra, dict) else {}
+def _has_value_container_metadata(extra: dict[str, Any]) -> bool:
+    if extra.get("container_role") == "data_container":
+        return True
+    if extra.get("value_semantics") is True:
+        return True
     role = extra.get("type_role")
     if role in _VALUE_CONTAINER_CLASS_ROLES:
-        return "low"
+        return True
     derive_traits = extra.get("derive_traits")
-    if isinstance(derive_traits, (list, tuple, set)) and any(
+    return isinstance(derive_traits, (list, tuple, set)) and any(
         trait in _VALUE_CONTAINER_DERIVE_TRAITS for trait in derive_traits
-    ):
+    )
+
+
+def _dead_code_confidence(node: Any) -> str:
+    extra = node.extra if isinstance(node.extra, dict) else {}
+    if _has_value_container_metadata(extra):
         return "low"
     return "medium"
+
+
+def _is_value_container_type_node(node: Any) -> bool:
+    if node.kind != "Class":
+        return False
+    extra = node.extra if isinstance(node.extra, dict) else {}
+    return _has_value_container_metadata(extra)
 
 
 def _survives_dead_code_node_filters(
@@ -175,6 +190,8 @@ def _survives_dead_code_node_filters(
     if node.kind == "Class" and _has_framework_decorator(node):
         return False
     if _is_structural_type_node(node):
+        return False
+    if _is_value_container_type_node(node):
         return False
 
     check_qn = (

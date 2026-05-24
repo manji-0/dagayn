@@ -184,6 +184,7 @@ fn scala_emit_type(
     let (type_role, is_abstract, is_contract) = match node.kind() {
         "trait_definition" => ("trait", true, true),
         "enum_definition" => ("enum", false, false),
+        _ if scala_is_case_class(node, source) => ("record", false, false),
         _ => ("class", false, false),
     };
     let mut extra = json!({"type_role": type_role});
@@ -193,6 +194,10 @@ fn scala_emit_type(
         }
         if is_contract {
             map.insert("is_contract".to_string(), json!(true));
+        }
+        if scala_is_value_container(type_role) {
+            map.insert("container_role".to_string(), json!("data_container"));
+            map.insert("value_semantics".to_string(), json!(true));
         }
     }
     let qualified = qualify(file_path, name, enclosing_class);
@@ -236,6 +241,18 @@ fn scala_emit_type(
             });
         }
     }
+}
+
+fn scala_is_value_container(type_role: &str) -> bool {
+    matches!(type_role, "record" | "enum")
+}
+
+fn scala_is_case_class(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+    let mut cursor = node.walk();
+    let is_case = node
+        .children(&mut cursor)
+        .any(|child| node_text(child, source).trim() == "case");
+    is_case
 }
 
 fn scala_emit_function(

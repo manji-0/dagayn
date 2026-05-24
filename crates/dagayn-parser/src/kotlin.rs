@@ -62,7 +62,15 @@ fn kotlin_walk_children(
             }
             "class_declaration" => {
                 if let Some(name) = kotlin_direct_child_text(child, source, &["type_identifier"]) {
-                    kotlin_emit_type(child, file_path, &name, enclosing_class, nodes, edges);
+                    kotlin_emit_type(
+                        child,
+                        source,
+                        file_path,
+                        &name,
+                        enclosing_class,
+                        nodes,
+                        edges,
+                    );
                     kotlin_walk_children(child, source, file_path, Some(&name), None, nodes, edges);
                     continue;
                 }
@@ -125,6 +133,7 @@ fn kotlin_emit_import(
 
 fn kotlin_emit_type(
     node: tree_sitter::Node<'_>,
+    source: &[u8],
     file_path: &str,
     name: &str,
     enclosing_class: Option<&str>,
@@ -132,6 +141,7 @@ fn kotlin_emit_type(
     edges: &mut Vec<ParsedEdge>,
 ) {
     let qualified = qualify(file_path, name, enclosing_class);
+    let extra = kotlin_type_extra(node, source);
     nodes.push(ParsedNode {
         kind: "Class".to_string(),
         name: name.to_string(),
@@ -144,7 +154,7 @@ fn kotlin_emit_type(
         return_type: None,
         modifiers: None,
         is_test: false,
-        extra: json!({"type_role": "class"}),
+        extra,
     });
     edges.push(ParsedEdge {
         kind: "CONTAINS".to_string(),
@@ -165,6 +175,30 @@ fn kotlin_emit_type(
             "syntax_source": "class_declaration",
         }),
     });
+}
+
+fn kotlin_type_extra(node: tree_sitter::Node<'_>, source: &[u8]) -> serde_json::Value {
+    let type_role = if kotlin_is_data_class(node, source) {
+        "record"
+    } else {
+        "class"
+    };
+    let mut extra = json!({"type_role": type_role});
+    if let Some(map) = extra.as_object_mut() {
+        if type_role == "record" {
+            map.insert("container_role".to_string(), json!("data_container"));
+            map.insert("value_semantics".to_string(), json!(true));
+        }
+    }
+    extra
+}
+
+fn kotlin_is_data_class(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+    let mut cursor = node.walk();
+    let is_data = node
+        .children(&mut cursor)
+        .any(|child| node_text(child, source).trim() == "data");
+    is_data
 }
 
 fn kotlin_emit_function(

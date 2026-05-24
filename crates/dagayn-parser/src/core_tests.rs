@@ -288,9 +288,14 @@ func runCommand(path string) {
 }
 "#;
     let (nodes, edges) = parse_go("main.go", source);
-    assert!(nodes
-        .iter()
-        .any(|node| { node.kind == "Class" && node.name == "Repo" && node.language == "go" }));
+    assert!(nodes.iter().any(|node| {
+        node.kind == "Class"
+            && node.name == "Repo"
+            && node.language == "go"
+            && node.extra["type_role"] == "struct"
+            && node.extra["container_role"] == "data_container"
+            && node.extra["value_semantics"] == true
+    }));
     assert!(nodes.iter().any(|node| {
         node.kind == "Function"
             && node.name == "Save"
@@ -344,12 +349,14 @@ fn parses_java_types_imports_calls_and_bridges() {
 import static com.example.util.Helper.MAX;
 import java.util.Map;
 
+public record UserRecord(String id) {}
+
 public interface Repository {
-  void save(User user);
+  void save(UserRecord user);
 }
 
 abstract class BaseRepo implements Repository {
-  public void save(User user) {
+  public void save(UserRecord user) {
     Runtime.getRuntime().exec("./bin/dagayn");
     Runtime.getRuntime().exec(command());
     System.loadLibrary("dagayn");
@@ -357,7 +364,7 @@ abstract class BaseRepo implements Repository {
 }
 
 class CachedRepo extends BaseRepo {
-  public void save(User user) {
+  public void save(UserRecord user) {
     super.save(user);
   }
 }
@@ -373,6 +380,13 @@ class CachedRepo extends BaseRepo {
             && node.name == "Repository"
             && node.extra["type_role"] == "interface"
             && node.extra["is_contract"] == true
+    }));
+    assert!(nodes.iter().any(|node| {
+        node.kind == "Class"
+            && node.name == "UserRecord"
+            && node.extra["type_role"] == "record"
+            && node.extra["container_role"] == "data_container"
+            && node.extra["value_semantics"] == true
     }));
     assert!(nodes.iter().any(|node| {
         node.kind == "Class"
@@ -407,7 +421,7 @@ class CachedRepo extends BaseRepo {
     assert!(edges.iter().any(|edge| {
         edge.kind == "CROSS_ARTIFACT"
             && edge.target
-                == "<dynamic:Runtime.getRuntime().exec@src/main/java/com/example/app/App.java:13>"
+                == "<dynamic:Runtime.getRuntime().exec@src/main/java/com/example/app/App.java:15>"
             && edge.extra["confidence_tier"] == "LOW"
     }));
     assert!(edges.iter().any(|edge| {
@@ -497,6 +511,11 @@ fn parses_csharp_types_imports_and_bridges() {
 using System.Diagnostics;
 using System.Reflection;
 
+struct User
+{
+    public string Path;
+}
+
 interface IRepository
 {
     User FindById(int id);
@@ -529,6 +548,13 @@ class BridgeSamples : IRepository
         node.kind == "Class" && node.name == "BridgeSamples" && node.extra["type_role"] == "class"
     }));
     assert!(nodes.iter().any(|node| {
+        node.kind == "Class"
+            && node.name == "User"
+            && node.extra["type_role"] == "struct"
+            && node.extra["container_role"] == "data_container"
+            && node.extra["value_semantics"] == true
+    }));
+    assert!(nodes.iter().any(|node| {
         node.kind == "Function"
             && node.name == "User"
             && node.parent_name.as_deref() == Some("BridgeSamples")
@@ -552,7 +578,7 @@ class BridgeSamples : IRepository
     }));
     assert!(edges.iter().any(|edge| {
         edge.kind == "CROSS_ARTIFACT"
-            && edge.target == "<dynamic:File.ReadAllText@sample.cs:21>"
+            && edge.target == "<dynamic:File.ReadAllText@sample.cs:26>"
             && edge.extra["confidence_tier"] == "LOW"
     }));
     assert!(edges.iter().any(|edge| {
@@ -653,7 +679,7 @@ interface UserRepository {
     fun save(user: User)
 }
 
-class User(val id: Int)
+data class User(val id: Int)
 
 class InMemoryRepo : UserRepository {
     fun save(user: User) {
@@ -676,6 +702,13 @@ fun createUser(repo: UserRepository) {
     let (nodes, edges) = parse_kotlin("sample.kt", source);
     assert!(nodes.iter().any(|node| {
         node.kind == "Class" && node.name == "UserRepository" && node.extra["type_role"] == "class"
+    }));
+    assert!(nodes.iter().any(|node| {
+        node.kind == "Class"
+            && node.name == "User"
+            && node.extra["type_role"] == "record"
+            && node.extra["container_role"] == "data_container"
+            && node.extra["value_semantics"] == true
     }));
     assert!(nodes.iter().any(|node| {
         node.kind == "Function"
@@ -724,7 +757,7 @@ import java.nio.file.Files
 trait Repository[T]:
   def save(entity: T): Unit
 
-case class User(id: Int)
+final case class User(id: Int)
 
 class InMemoryRepo extends Repository[User] with Serializable:
   private val users = mutable.HashMap[Int, User]()
@@ -746,6 +779,13 @@ object BridgeSamples:
             && node.name == "Repository"
             && node.extra["type_role"] == "trait"
             && node.extra["is_contract"] == true
+    }));
+    assert!(nodes.iter().any(|node| {
+        node.kind == "Class"
+            && node.name == "User"
+            && node.extra["type_role"] == "record"
+            && node.extra["container_role"] == "data_container"
+            && node.extra["value_semantics"] == true
     }));
     assert!(nodes.iter().any(|node| {
         node.kind == "Function"
@@ -911,6 +951,13 @@ Dog createDog(String name) {
             && node.name == "Animal"
             && node.extra["type_role"] == "abstract_class"
             && node.extra["is_abstract"] == true
+    }));
+    assert!(nodes.iter().any(|node| {
+        node.kind == "Class"
+            && node.name == "PetType"
+            && node.extra["type_role"] == "enum"
+            && node.extra["container_role"] == "data_container"
+            && node.extra["value_semantics"] == true
     }));
     assert!(nodes.iter().any(|node| {
         node.kind == "Class" && node.name == "SwimmingMixin" && node.extra["type_role"] == "mixin"
@@ -1868,9 +1915,13 @@ func loadLib() {
 "#;
     let (nodes, edges) = parse_swift("App.swift", source);
 
-    assert!(nodes
-        .iter()
-        .any(|node| node.kind == "Class" && node.name == "User"));
+    assert!(nodes.iter().any(|node| {
+        node.kind == "Class"
+            && node.name == "User"
+            && node.extra["type_role"] == "struct"
+            && node.extra["container_role"] == "data_container"
+            && node.extra["value_semantics"] == true
+    }));
     assert!(nodes
         .iter()
         .any(|node| node.kind == "Function" && node.name == "save"));
@@ -2141,11 +2192,17 @@ fn helper() {}
         node.kind == "Class"
             && node.name == "Foo"
             && node.extra["type_role"] == "struct"
+            && node.extra["container_role"] == "data_container"
+            && node.extra["value_semantics"] == true
             && node.modifiers.as_deref() == Some("pub")
             && node.extra["derive_traits"] == serde_json::json!(["Serialize", "Deserialize"])
     }));
     assert!(nodes.iter().any(|node| {
-        node.kind == "Class" && node.name == "Mode" && node.extra["type_role"] == "enum"
+        node.kind == "Class"
+            && node.name == "Mode"
+            && node.extra["type_role"] == "enum"
+            && node.extra["container_role"] == "data_container"
+            && node.extra["value_semantics"] == true
     }));
     assert!(node_names.contains(&("Function", "new", Some("Foo"))));
     assert!(node_names.contains(&("Function", "load", Some("Foo"))));

@@ -80,7 +80,10 @@ fn java_walk_children(
                     edges,
                 );
             }
-            "class_declaration" | "interface_declaration" | "enum_declaration" => {
+            "class_declaration"
+            | "interface_declaration"
+            | "enum_declaration"
+            | "record_declaration" => {
                 if let Some(name) = java_type_name(child, context.source) {
                     java_emit_type(
                         child,
@@ -241,6 +244,10 @@ fn java_emit_type(
         if is_contract {
             map.insert("is_contract".to_string(), json!(true));
         }
+        if java_is_value_container(type_role) {
+            map.insert("container_role".to_string(), json!("data_container"));
+            map.insert("value_semantics".to_string(), json!(true));
+        }
     }
     let qualified = qualify(file_path, name, enclosing_class);
     nodes.push(ParsedNode {
@@ -297,6 +304,9 @@ fn java_type_role(node: tree_sitter::Node<'_>, source: &[u8]) -> (&'static str, 
     if node.kind() == "enum_declaration" {
         return ("enum", false, false);
     }
+    if node.kind() == "record_declaration" {
+        return ("record", false, false);
+    }
     let is_abstract = java_direct_child_text(node, source, &["modifiers"])
         .is_some_and(|mods| mods.split_whitespace().any(|part| part == "abstract"));
     if is_abstract {
@@ -304,6 +314,10 @@ fn java_type_role(node: tree_sitter::Node<'_>, source: &[u8]) -> (&'static str, 
     } else {
         ("class", false, false)
     }
+}
+
+fn java_is_value_container(type_role: &str) -> bool {
+    matches!(type_role, "record" | "enum")
 }
 
 fn java_bases(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<(String, &'static str)> {

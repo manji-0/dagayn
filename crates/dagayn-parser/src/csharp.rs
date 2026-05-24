@@ -169,6 +169,10 @@ fn csharp_emit_type(
         if is_contract {
             map.insert("is_contract".to_string(), json!(true));
         }
+        if csharp_is_value_container(type_role) {
+            map.insert("container_role".to_string(), json!("data_container"));
+            map.insert("value_semantics".to_string(), json!(true));
+        }
     }
     nodes.push(ParsedNode {
         kind: "Class".to_string(),
@@ -213,6 +217,10 @@ fn csharp_type_role(node: tree_sitter::Node<'_>, source: &[u8]) -> (&'static str
             }
         }
     }
+}
+
+fn csharp_is_value_container(type_role: &str) -> bool {
+    matches!(type_role, "struct" | "enum")
 }
 
 fn csharp_emit_function(

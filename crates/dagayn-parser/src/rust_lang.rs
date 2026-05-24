@@ -257,7 +257,14 @@ fn rust_type_role(kind: &str) -> &'static str {
 }
 
 fn rust_type_extra(node: tree_sitter::Node<'_>, source: &[u8]) -> serde_json::Value {
-    let mut extra = json!({"type_role": rust_type_role(node.kind())});
+    let type_role = rust_type_role(node.kind());
+    let mut extra = json!({"type_role": type_role});
+    if let Some(map) = extra.as_object_mut() {
+        if rust_is_value_container(type_role, node, source) {
+            map.insert("container_role".to_string(), json!("data_container"));
+            map.insert("value_semantics".to_string(), json!(true));
+        }
+    }
     if let Some(derive_traits) = rust_derive_traits(node, source) {
         extra["derive_traits"] = json!(derive_traits);
     }
@@ -279,6 +286,18 @@ fn rust_node_with_leading_attributes(
     }
     attrs.reverse();
     attrs.into_iter().chain(std::iter::once(node))
+}
+
+fn rust_is_value_container(type_role: &str, node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+    matches!(type_role, "struct" | "enum") || rust_derives_value_semantics(node, source)
+}
+
+fn rust_derives_value_semantics(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+    rust_derive_traits(node, source).is_some_and(|traits| {
+        traits
+            .iter()
+            .any(|name| matches!(name.as_str(), "Serialize" | "Deserialize"))
+    })
 }
 
 fn rust_type_modifiers(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {

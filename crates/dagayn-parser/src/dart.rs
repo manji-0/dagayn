@@ -134,9 +134,13 @@ fn dart_emit_type(
         _ => ("class", false),
     };
     let mut extra = json!({"type_role": type_role});
-    if is_abstract {
-        if let Some(map) = extra.as_object_mut() {
+    if let Some(map) = extra.as_object_mut() {
+        if is_abstract {
             map.insert("is_abstract".to_string(), json!(true));
+        }
+        if dart_is_value_container(type_role) {
+            map.insert("container_role".to_string(), json!("data_container"));
+            map.insert("value_semantics".to_string(), json!(true));
         }
     }
     let qualified = qualify(file_path, name, enclosing_class);
@@ -175,6 +179,10 @@ fn dart_emit_type(
             }),
         });
     }
+}
+
+fn dart_is_value_container(type_role: &str) -> bool {
+    matches!(type_role, "enum")
 }
 
 fn dart_emit_function(

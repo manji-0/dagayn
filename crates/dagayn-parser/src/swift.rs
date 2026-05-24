@@ -114,8 +114,14 @@ fn swift_emit_class(
             "protocol",
             json!({"is_abstract": true, "is_contract": true}),
         ),
-        "struct" => ("struct", json!({})),
-        "enum" => ("enum", json!({})),
+        "struct" => (
+            "struct",
+            json!({"container_role": "data_container", "value_semantics": true}),
+        ),
+        "enum" => (
+            "enum",
+            json!({"container_role": "data_container", "value_semantics": true}),
+        ),
         _ => ("class", json!({})),
     };
     let mut extra = json!({"type_role": type_role, "swift_kind": swift_kind});

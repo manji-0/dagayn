@@ -120,6 +120,7 @@ fn go_emit_types(
             continue;
         };
         let qualified = qualify(file_path, &name, None);
+        let extra = go_type_extra(child, source);
         nodes.push(ParsedNode {
             kind: "Class".to_string(),
             name,
@@ -132,7 +133,7 @@ fn go_emit_types(
             return_type: None,
             modifiers: None,
             is_test: false,
-            extra: json!({"type_role": "class"}),
+            extra,
         });
         edges.push(ParsedEdge {
             kind: "CONTAINS".to_string(),
@@ -143,6 +144,34 @@ fn go_emit_types(
             extra: json!({}),
         });
     }
+}
+
+fn go_type_extra(node: tree_sitter::Node<'_>, source: &[u8]) -> serde_json::Value {
+    let type_role = go_type_role(node, source);
+    let mut extra = json!({"type_role": type_role});
+    if let Some(map) = extra.as_object_mut() {
+        if type_role == "interface" {
+            map.insert("is_abstract".to_string(), json!(true));
+            map.insert("is_contract".to_string(), json!(true));
+        }
+        if type_role == "struct" {
+            map.insert("container_role".to_string(), json!("data_container"));
+            map.insert("value_semantics".to_string(), json!(true));
+        }
+    }
+    extra
+}
+
+fn go_type_role(node: tree_sitter::Node<'_>, _source: &[u8]) -> &'static str {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        match child.kind() {
+            "struct_type" => return "struct",
+            "interface_type" => return "interface",
+            _ => {}
+        }
+    }
+    "class"
 }
 
 fn go_emit_function(
