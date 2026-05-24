@@ -4,6 +4,11 @@ All notable changes to `dagayn` are documented here.
 
 ## 4.0.6 — 2026-05-24
 
+### Improvements
+
+- Ship numpy as a standard dependency so embedding search uses the vectorized
+  cosine-similarity path in default installs.
+
 ### Fixes
 
 - Keep `dagayn serve` importable on Python 3.14.0b4 by applying compatibility

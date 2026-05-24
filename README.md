@@ -314,12 +314,14 @@ A `search_mode` field in the response reports which arms contributed: `"hybrid"`
 
 | Provider | Runs where | Install extra | Required env vars |
 |---|---|---|---|
-| `local` (default) | Fully offline | `dagayn[embeddings]` | — |
+| `local` (default) | Fully offline | `dagayn[embeddings]` for sentence-transformers local models | — |
 | `openai` | Cloud or self-hosted gateway | — | `CRG_OPENAI_API_KEY`, `CRG_OPENAI_BASE_URL`, `CRG_OPENAI_MODEL` |
 | `google` | Google Cloud | `dagayn[google-embeddings]` | `GOOGLE_API_KEY` |
 | `minimax` | MiniMax Cloud | — | `MINIMAX_API_KEY` |
 
 The `openai` provider speaks the standard `/v1/embeddings` schema, so it works with real OpenAI, Azure OpenAI, LiteLLM, vLLM, LocalAI, Ollama (in OpenAI mode), and similar gateways. When `CRG_OPENAI_BASE_URL` points to localhost the cloud egress warning is suppressed automatically.
+
+Vector search uses numpy by default for the cosine-similarity matrix path; the `embeddings` extra is only needed for the built-in sentence-transformers provider.
 
 ### Installing the local provider
 

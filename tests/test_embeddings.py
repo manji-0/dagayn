@@ -519,8 +519,7 @@ class TestEmbeddingStore:
     def test_search_reuses_numpy_matrix_cache(self, tmp_path, monkeypatch):
         import dagayn.embeddings as emb
 
-        if not emb._NUMPY_AVAILABLE:
-            pytest.skip("numpy fast path is optional")
+        assert emb._NUMPY_AVAILABLE
 
         db = tmp_path / "embeddings.db"
 

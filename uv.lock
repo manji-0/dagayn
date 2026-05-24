@@ -520,6 +520,7 @@ dependencies = [
     { name = "igraph" },
     { name = "mcp" },
     { name = "networkx" },
+    { name = "numpy" },
     { name = "watchdog" },
 ]
 
@@ -528,7 +529,6 @@ all = [
     { name = "igraph" },
     { name = "jedi" },
     { name = "matplotlib" },
-    { name = "numpy" },
     { name = "ollama" },
     { name = "pyyaml" },
     { name = "sentence-transformers" },
@@ -544,7 +544,6 @@ dev = [
     { name = "ruff" },
 ]
 embeddings = [
-    { name = "numpy" },
     { name = "sentence-transformers" },
 ]
 enrichment = [
@@ -582,7 +581,7 @@ requires-dist = [
     { name = "matplotlib", marker = "extra == 'eval'", specifier = ">=3.7.0" },
     { name = "mcp", specifier = ">=1.0.0,<2" },
     { name = "networkx", specifier = ">=3.2,<4" },
-    { name = "numpy", marker = "extra == 'embeddings'", specifier = ">=1.26,<3" },
+    { name = "numpy", specifier = ">=1.26,<3" },
     { name = "ollama", marker = "extra == 'wiki'", specifier = ">=0.1.0" },
     { name = "pyinstrument", marker = "extra == 'dev'", specifier = ">=4.6,<6" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0,<9" },
