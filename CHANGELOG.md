@@ -2,6 +2,14 @@
 
 All notable changes to `dagayn` are documented here.
 
+## 4.0.6 — 2026-05-24
+
+### Fixes
+
+- Keep `dagayn serve` importable on Python 3.14.0b4 by applying compatibility
+  shims before importing FastMCP dependencies that still reference older
+  CPython typing and `collections.abc` surfaces.
+
 ## 4.0.5 — 2026-05-24
 
 ### Fixes

@@ -9,7 +9,9 @@ stdio event loop stays responsive during long-running operations.
 from __future__ import annotations
 
 import asyncio
+import collections.abc
 import inspect
+import typing
 
 import pytest
 
@@ -89,6 +91,38 @@ class TestResolveRepoRoot:
     def test_client_arg_used_when_no_flag(self):
         crg_main._default_repo_root = None
         assert crg_main._resolve_repo_root("/explicit") == "/explicit"
+
+
+class TestPython314Compatibility:
+    def test_eval_type_compat_drops_prefer_fwd_module(self, monkeypatch):
+        calls: list[dict] = []
+
+        def fake_eval_type(value, globalns, localns, type_params=()):
+            calls.append(
+                {
+                    "value": value,
+                    "globalns": globalns,
+                    "localns": localns,
+                    "type_params": type_params,
+                }
+            )
+            return "resolved"
+
+        monkeypatch.setattr(typing, "_eval_type", fake_eval_type, raising=False)
+
+        crg_main._patch_typing_eval_type_for_python314_beta()
+
+        assert typing._eval_type("T", {}, {}, prefer_fwd_module=True) == "resolved"
+        assert calls == [{"value": "T", "globalns": {}, "localns": {}, "type_params": ()}]
+
+    def test_bytestring_compat_restores_removed_collections_abc_name(self, monkeypatch):
+        monkeypatch.delattr(collections.abc, "ByteString", raising=False)
+
+        crg_main._patch_collections_abc_bytestring_for_python314()
+
+        assert hasattr(collections.abc, "ByteString")
+        assert isinstance(b"x", collections.abc.ByteString)
+        assert isinstance(bytearray(b"x"), collections.abc.ByteString)
 
 
 class TestResolveEmbeddingDefaults:

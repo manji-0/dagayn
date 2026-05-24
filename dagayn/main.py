@@ -9,8 +9,11 @@ by default).
 from __future__ import annotations
 
 import asyncio
+import collections.abc
+import inspect
 import os
 import sys
+import typing
 from importlib import import_module
 from typing import Any, Literal, Optional
 
@@ -21,6 +24,46 @@ from .prompts import (
     pre_merge_check_prompt,
     review_changes_prompt,
 )
+
+
+def _patch_typing_eval_type_for_python314_beta() -> None:
+    """Keep Pydantic/FastMCP importable on early Python 3.14 builds.
+
+    Pydantic calls the CPython-private ``typing._eval_type`` with the
+    ``prefer_fwd_module`` keyword used by later 3.14 builds.  Python 3.14.0b4
+    does not accept that keyword, which makes ``dagayn serve`` fail before the
+    MCP server can start.  Once the interpreter exposes the keyword, this shim
+    is inactive.
+    """
+    eval_type = getattr(typing, "_eval_type", None)
+    if eval_type is None:
+        return
+    try:
+        parameters = inspect.signature(eval_type).parameters
+    except (TypeError, ValueError):
+        return
+    if "prefer_fwd_module" in parameters:
+        return
+
+    def _eval_type_compat(*args: Any, **kwargs: Any) -> Any:
+        kwargs.pop("prefer_fwd_module", None)
+        return eval_type(*args, **kwargs)
+
+    typing._eval_type = _eval_type_compat  # type: ignore[attr-defined]
+
+
+def _patch_collections_abc_bytestring_for_python314() -> None:
+    """Restore the removed ``collections.abc.ByteString`` for old deps."""
+    if hasattr(collections.abc, "ByteString"):
+        return
+
+    class ByteString(collections.abc.Sequence):
+        pass
+
+    ByteString.register(bytes)
+    ByteString.register(bytearray)
+    ByteString.register(memoryview)
+    collections.abc.ByteString = ByteString  # type: ignore[attr-defined]
 
 
 class _FallbackComponent:
@@ -78,6 +121,9 @@ class _FallbackFastMCP:
             "to run the MCP server."
         ) from _FASTMCP_IMPORT_ERROR
 
+
+_patch_typing_eval_type_for_python314_beta()
+_patch_collections_abc_bytestring_for_python314()
 
 try:
     from fastmcp import FastMCP as _ImportedFastMCP
