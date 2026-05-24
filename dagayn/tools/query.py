@@ -106,6 +106,38 @@ def _documentation_result(edge: Any, *, endpoint: str, inverse_label: str | None
     return result
 
 
+def _result_evidence_type(result: dict[str, Any]) -> str:
+    if result.get("evidence_type"):
+        return str(result["evidence_type"])
+    kind = str(result.get("kind", ""))
+    file_path = str(result.get("file_path") or result.get("file") or "")
+    if kind.startswith("Doc") or file_path.lower().endswith((".md", ".markdown", ".mdx")):
+        return "authored"
+    return "extracted"
+
+
+def _exactness_action(query: str, exact_count: int, result_count: int) -> dict[str, Any]:
+    if exact_count == 1:
+        return {
+            "tool": "query_graph_tool",
+            "suggestion": "inspect callers_of/callees_of for the exact qualified match",
+        }
+    if exact_count > 1:
+        return {
+            "tool": "semantic_search_nodes_tool",
+            "suggestion": f"choose one qualified name before querying relationships for '{query}'",
+        }
+    if result_count:
+        return {
+            "tool": "query_graph_tool",
+            "suggestion": "confirm the best candidate with file_summary or callers_of",
+        }
+    return {
+        "tool": "semantic_search_nodes_tool",
+        "suggestion": "broaden the query or verify the graph is up to date",
+    }
+
+
 def get_impact_radius(
     changed_files: list[str] | None = None,
     max_depth: int = 2,
@@ -464,6 +496,8 @@ def query_graph(
                 }
                 for r in results[:5]
             ]
+            for item in minimal_results:
+                item["evidence_type"] = _result_evidence_type(item)
             return {
                 "status": "ok",
                 "pattern": pattern,
@@ -473,6 +507,7 @@ def query_graph(
                 "result_count": len(results),
                 "confidence": "medium" if results else "low",
                 "zero_result_reason": None if results else "not_found_in_current_graph",
+                "next_action": _exactness_action(target, 1 if node else 0, len(results)),
                 "answerability": answerability,
                 "missingness": missingness,
                 "results": minimal_results,
@@ -487,6 +522,7 @@ def query_graph(
             "result_count": len(results),
             "confidence": "medium" if results else "low",
             "zero_result_reason": None if results else "not_found_in_current_graph",
+            "next_action": _exactness_action(target, 1 if node else 0, len(results)),
             "answerability": answerability,
             "missingness": missingness,
             "results": results,
@@ -563,10 +599,14 @@ def semantic_search_nodes(
             if query in {str(r.get("name", "")), str(r.get("qualified_name", ""))}
         ]
         ambiguity = "multiple_exact_matches" if len(exact_matches) > 1 else None
+        next_action = _exactness_action(query, len(exact_matches), len(results))
 
         if detail_level == "minimal":
             minimal_results = [
-                {k: r[k] for k in ("name", "kind", "file_path", "score") if k in r}
+                {
+                    **{k: r[k] for k in ("name", "kind", "file_path", "score") if k in r},
+                    "evidence_type": _result_evidence_type(r),
+                }
                 for r in results[:5]
             ]
             return {
@@ -580,6 +620,7 @@ def semantic_search_nodes(
                     "exact_match_count": len(exact_matches),
                     "ambiguity": ambiguity,
                     "source_arm": search_mode,
+                    "next_action": next_action,
                 },
                 "summary": summary,
                 "results": minimal_results,
@@ -596,6 +637,7 @@ def semantic_search_nodes(
                 "exact_match_count": len(exact_matches),
                 "ambiguity": ambiguity,
                 "source_arm": search_mode,
+                "next_action": next_action,
             },
             "summary": summary,
             "results": results,
