@@ -2,6 +2,15 @@
 
 All notable changes to `dagayn` are documented here.
 
+## 4.0.5 — 2026-05-24
+
+### Fixes
+
+- Revert the managed local embedding runtime to a single `llama-server`
+  implementation and remove the slow `mlx-openai-server` path.
+- Update local embedding documentation and tests so the `low` preset consistently
+  uses the llama.cpp GGUF model on every platform.
+
 ## 3.2.0 — 2026-05-17
 
 ### Features
