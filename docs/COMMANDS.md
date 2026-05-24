@@ -57,8 +57,9 @@ graded alternate targets, `doc_fuzzy_search_include_paths` /
 
 `dagayn eval --benchmark guidance_precision` measures precision@k for
 review-guidance outputs such as recommended tests, documentation update
-candidates, and refactor suggestions. Configure cases with
-`guidance_precision_cases` in an eval YAML file.
+candidates, refactor suggestions, calibrated `guidance` items, stable-contract
+warnings, architecture leads, answerability warnings, and guidance field
+coverage. Configure cases with `guidance_precision_cases` in an eval YAML file.
 
 `dagayn tool <mcp-tool-name>` invokes the same underlying implementation as an
 MCP tool and prints JSON. This gives agents and scripts a CLI path to run a
@@ -192,14 +193,19 @@ uses that remote provider unless the client explicitly passes a different
 default only when exactly one provider's required environment variables are
 configured.
 
-`review_tool(mode="changes")` is the primary change-analysis surface. Standard output
-includes `analysis_summary` with risk level, reason codes, recommended tests,
-affected-flow rankings, documentation update candidates, hotspot proximity, and
-architecture risks in changed scopes. Recommended tests and documentation
-candidates include scores and evidence levels. Stable or should-be-stable
-components, identified from package-level SDP/SAP metrics, also produce
-`stability_contracts` so reviewers can see whether highly depended-on code has
-enough test and documentation density.
+`review_tool(mode="changes")` is the primary change-analysis surface. Standard
+output includes `analysis_summary` with risk level, reason codes, recommended
+tests, affected-flow rankings, documentation update candidates, hotspot
+proximity, and architecture risks in changed scopes. It also includes
+`analysis_summary.guidance`, a bounded list of calibrated items. Each guidance
+item has `claim`, `evidence`, `confidence`, `missingness`, `action`,
+`reason_codes`, and `counts`; `_hints.next_steps` is derived from those actions
+when guidance is available. Recommended tests and documentation candidates keep
+their existing sections for compatibility, but now expose evidence type
+distinctions such as `authored`, `extracted`, and `heuristic_reachable`. Stable
+or should-be-stable components, identified from package-level SDP/SAP metrics,
+also produce `stability_contracts` so reviewers can see whether highly
+depended-on code has enough test and documentation density.
 
 `get_minimal_context_tool` routes common English and Japanese task descriptions
 for review, debugging, exploration, feature addition, and refactoring to the
@@ -213,11 +219,22 @@ Markdown code-span candidates are excluded from these answerability counts
 because post-processing treats them as prose vocabulary unless they resolve
 uniquely to a non-Markdown symbol.
 
+Most dispatcher responses now include `answerability` and `missingness` blocks.
+`answerability.status` and `score` describe how much graph evidence is
+available; `reason_codes` call out partial graphs, missing flows, missing
+communities, missing test edges, unresolved cross-artifact edges, missing
+embeddings, and truncation-sensitive output. A zero-result response should be
+read as "not found in the current graph" unless the surrounding source review
+confirms absence.
+
 `architecture_analysis_tool` is the primary architecture-analysis surface. Start
 with `mode="overview"` and `detail_level="minimal"`. Output includes
 `architecture_health`, which composes community coupling, hubs, bridges,
 knowledge gaps, surprising connections, and ADP/SDP/SAP signals into a bounded
-health summary with drill-down mode hints.
+health summary with drill-down mode hints. These warnings are review leads, not
+verdicts. The overview reports formulas, thresholds, `artifact_scope`, guidance
+items, and `stable_component_policy` so review, architecture, and refactor
+surfaces use the same stability expectations.
 
 ADP/SDP/SAP modes default to `artifact_scope="code"` so Markdown dependencies
 and code dependencies are not mixed in design-principle metrics. Pass
@@ -240,10 +257,17 @@ test artifacts, dynamic dispatch, and generated entry points before changing
 source. Suggestions include `execution_plan` with minimum safe steps, required
 tests, rollback guidance, and defer conditions. Suggestion payloads also include
 `work_pack` so agents can pick a first commit scope, success criteria, and
-verification commands without inventing a separate planning tool. Split
+verification commands without inventing a separate planning tool. Work packs
+include `blast_radius`, `required_tests`, `documentation_obligations`,
+`safe_first_commit`, `rollback_path`, and `defer_conditions`. Split
 suggestions for functions may also include a `concern_separation` profile that
 reports role-aware single-responsibility pressure, side-effect evidence,
 purity likelihood, context clarity, missingness, and a first extraction action.
+
+`semantic_search_nodes_tool` and `query_graph_tool` report result counts,
+exactness or ambiguity, evidence type, zero-result reason, and a `next_action`
+lead. Mixed docs/code hits are labelled so a Markdown body hit is not confused
+with a code symbol hit.
 
 `architecture_analysis_tool(mode="knowledge_gaps", top_n=20)` returns bounded
 structural weakness categories with explicit thresholds and raw counts.

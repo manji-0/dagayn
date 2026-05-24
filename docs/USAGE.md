@@ -103,6 +103,11 @@ dagayn detect-changes --base HEAD~1
 In MCP clients, start with `get_minimal_context_tool`, then choose
 `review_tool`, `architecture_analysis_tool`, `refactor_tool`, or
 `query_graph_tool`. Follow response hints to drill-down modes only when needed.
+For change review, prefer `review_tool(mode="changes", detail_level="minimal")`
+first. Its `guidance` list gives the next test, doc, architecture, or flow
+action in the shared `claim` / `evidence` / `confidence` / `missingness` /
+`action` shape. Use `detail_level="standard"` when you need the full raw
+sections behind those recommendations.
 
 ## Start the MCP server
 
@@ -135,6 +140,18 @@ In dagayn 3.0, v2 split architecture MCP/CLI tools were removed. Use
 `architecture_analysis_tool(mode="sdp_violations")`.
 ADP/SDP/SAP modes use `artifact_scope="code"` by default; pass
 `artifact_scope="docs"` when reviewing Markdown dependency structure.
+Architecture and flow outputs are calibrated leads: `architecture_health`
+reports formulas, thresholds, and stable-component policy; `flow_tool` reports
+whether source snippets were included and reminds clients that criticality is a
+ranking signal, not a coverage guarantee.
+
+### Migrating response consumers
+
+Existing fields such as `summary`, `_hints`, `next_tool_suggestions`,
+`recommended_tests`, `documentation_update_candidates`, `stability_contracts`,
+and `work_pack` remain available. New consumers should read `guidance`,
+`answerability`, and `missingness` first, then fall back to the older raw
+sections only when a drill-down needs more detail.
 
 ## Visualize or export the graph
 

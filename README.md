@@ -245,6 +245,15 @@ dagayn serve --tools query_graph_tool,semantic_search_nodes_tool
 hide some public tools. Persistent server configs can use `CRG_TOOLS` for the
 same control.
 
+Tool responses use a calibrated guidance contract. Compatibility fields such as
+`status`, `summary`, `_hints`, and `next_tool_suggestions` remain, while review,
+architecture, flow, refactor, search, and query responses can also include
+`guidance`, `answerability`, and `missingness`. Guidance items carry `claim`,
+`evidence`, `confidence`, `missingness`, `action`, `reason_codes`, and `counts`
+so agents can treat graph output as evidence-ranked leads rather than verdicts.
+Use `detail_level="minimal"` for the top recommendations and
+`detail_level="standard"` for the full supporting sections.
+
 ## Reporting and export outputs
 
 `dagayn visualize` is the current report/export surface for graph artifacts.
