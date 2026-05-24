@@ -20,6 +20,9 @@ from ..incremental import (
 
 logger = logging.getLogger(__name__)
 
+GUIDANCE_CONFIDENCE_VALUES = {"high", "medium", "low", "unknown"}
+GUIDANCE_EVIDENCE_TYPES = {"extracted", "authored", "computed", "evaluated"}
+
 
 def _error_response(
     message: str,
@@ -379,6 +382,81 @@ def _hints_from_next_tool_suggestions(
     }
 
 
+def make_guidance_item(
+    *,
+    claim: str,
+    action: str,
+    evidence: list[dict[str, Any]] | dict[str, Any] | None = None,
+    confidence: str = "unknown",
+    missingness: list[dict[str, Any]] | dict[str, Any] | None = None,
+    reason_codes: list[str] | None = None,
+    counts: dict[str, Any] | None = None,
+    **extra: Any,
+) -> dict[str, Any]:
+    """Build the shared guidance item shape used by workflow tools."""
+    confidence_value = confidence if confidence in GUIDANCE_CONFIDENCE_VALUES else "unknown"
+
+    if evidence is None:
+        evidence_items: list[dict[str, Any]] = []
+    elif isinstance(evidence, Mapping):
+        evidence_items = [dict(evidence)]
+    else:
+        evidence_items = [dict(item) for item in evidence]
+
+    normalized_evidence: list[dict[str, Any]] = []
+    for item in evidence_items:
+        evidence_type = str(item.get("type", "computed"))
+        if evidence_type not in GUIDANCE_EVIDENCE_TYPES:
+            evidence_type = "computed"
+        normalized_evidence.append({**item, "type": evidence_type})
+
+    if missingness is None:
+        missing_items: list[dict[str, Any]] = []
+    elif isinstance(missingness, Mapping):
+        missing_items = [dict(missingness)]
+    else:
+        missing_items = [dict(item) for item in missingness]
+
+    item: dict[str, Any] = {
+        "claim": claim,
+        "evidence": normalized_evidence,
+        "confidence": confidence_value,
+        "missingness": missing_items,
+        "action": action,
+        "reason_codes": list(reason_codes or []),
+        "counts": dict(counts or {}),
+    }
+    item.update(extra)
+    return item
+
+
+def guidance_actions_to_hints(guidance: list[dict[str, Any]], *, limit: int = 3) -> dict[str, Any]:
+    """Convert guidance actions into the existing ``_hints.next_steps`` shape."""
+    next_steps: list[dict[str, str]] = []
+    warnings: list[str] = []
+    for item in guidance:
+        action = item.get("action")
+        if isinstance(action, Mapping):
+            tool = str(action.get("tool") or "manual")
+            suggestion = str(action.get("suggestion") or action.get("command") or tool)
+        else:
+            action_text = str(action or "")
+            head, _, tail = action_text.partition(" -- ")
+            tool = head.split(" ", 1)[0].split("(", 1)[0] if head else "manual"
+            suggestion = tail or action_text
+        if not suggestion:
+            continue
+        next_steps.append({"tool": tool, "suggestion": suggestion})
+        for missing in item.get("missingness", []):
+            severity = str(missing.get("severity", "info"))
+            code = missing.get("reason_code")
+            if severity in {"medium", "high"} and code:
+                warnings.append(str(code))
+        if len(next_steps) >= limit:
+            break
+    return {"next_steps": next_steps, "related": [], "warnings": warnings}
+
+
 def make_response(
     status: str,
     summary: str,
@@ -400,6 +478,16 @@ def make_response(
     if next_tool_suggestions:
         resp["next_tool_suggestions"] = next_tool_suggestions[:3]
     return resp
+
+
+def _get_path(container: dict[str, Any], path: str) -> tuple[dict[str, Any] | None, str]:
+    current: Any = container
+    parts = path.split(".")
+    for part in parts[:-1]:
+        if not isinstance(current, dict):
+            return None, parts[-1]
+        current = current.get(part)
+    return current if isinstance(current, dict) else None, parts[-1]
 
 
 def apply_output_budget(
@@ -428,16 +516,17 @@ def apply_output_budget(
     truncation: dict[str, dict[str, int]] = {}
 
     for field in reversed(list_priorities):
-        if field not in payload or not isinstance(payload[field], list):
+        parent, key = _get_path(payload, field)
+        if parent is None or key not in parent or not isinstance(parent[key], list):
             continue
-        items = payload[field]
+        items = parent[key]
         total = len(items)
         while len(items) > 1 and _est_tokens() > budget_tokens:
             items = items[: len(items) // 2]
         if len(items) == 0:
-            items = payload[field][:1]
+            items = parent[key][:1]
         if len(items) < total:
-            payload[field] = items
+            parent[key] = items
             truncation[field] = {"kept": len(items), "total": total}
             payload["truncated"] = True
         if _est_tokens() <= budget_tokens:

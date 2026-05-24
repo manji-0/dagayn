@@ -8,6 +8,8 @@ from __future__ import annotations
 from dagayn.tools._common import (
     apply_output_budget,
     compact_response,
+    guidance_actions_to_hints,
+    make_guidance_item,
     make_response,
     projection_for_detail_level,
 )
@@ -98,6 +100,56 @@ class TestApplyOutputBudget:
         payload = {"items": ["x" * 1000] * 100}
         result = apply_output_budget(payload, budget_tokens=1, list_priorities=[])
         assert "truncated" in result
+
+    def test_trims_nested_list_fields(self) -> None:
+        payload = {"analysis_summary": {"guidance": [{"blob": "x" * 100}] * 200}}
+        result = apply_output_budget(
+            payload,
+            budget_tokens=100,
+            list_priorities=["analysis_summary.guidance"],
+        )
+        assert result["truncated"] is True
+        assert "analysis_summary.guidance" in result["_truncation"]
+        assert len(result["analysis_summary"]["guidance"]) < 200
+
+
+class TestGuidanceItems:
+    def test_guidance_item_contract_snapshot(self) -> None:
+        item = make_guidance_item(
+            claim="Run focused tests before merging.",
+            evidence={"type": "computed", "metric": "test_gap_count", "value": 2},
+            confidence="high",
+            missingness={"reason_code": "missing_test_edges", "severity": "medium"},
+            action='pytest tests/test_tools.py -- run focused tool tests',
+            reason_codes=["test_gaps"],
+            counts={"test_gap_count": 2},
+        )
+        assert set(item) >= {
+            "claim",
+            "evidence",
+            "confidence",
+            "missingness",
+            "action",
+            "reason_codes",
+            "counts",
+        }
+        assert item["confidence"] == "high"
+        assert item["evidence"][0]["type"] == "computed"
+
+    def test_guidance_actions_to_hints(self) -> None:
+        hints = guidance_actions_to_hints(
+            [
+                make_guidance_item(
+                    claim="Inspect callers.",
+                    action="query_graph_tool callers_of -- inspect inbound callers",
+                    missingness={"reason_code": "ambiguous_symbol", "severity": "high"},
+                )
+            ]
+        )
+        assert hints["next_steps"] == [
+            {"tool": "query_graph_tool", "suggestion": "inspect inbound callers"}
+        ]
+        assert hints["warnings"] == ["ambiguous_symbol"]
 
 
 class TestProjectionForDetailLevel:
