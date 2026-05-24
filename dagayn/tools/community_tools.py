@@ -12,7 +12,9 @@ from ..stability_policy import component_stability_profiles, stability_policy_su
 from ._common import (
     _get_store,
     apply_output_budget,
+    guidance_actions_to_hints,
     graph_answerability_summary,
+    make_guidance_item,
     missingness_from_answerability,
 )
 
@@ -117,6 +119,54 @@ def _architecture_health_summary(
     if sap:
         reason_codes.append("sap_violations")
 
+    guidance: list[dict[str, Any]] = []
+    if hubs:
+        guidance.append(
+            make_guidance_item(
+                claim="Hub nodes are review leads because many edges meet there.",
+                evidence={"type": "computed", "metric": "degree", "examples": hubs[:3]},
+                confidence="medium",
+                missingness=[
+                    {
+                        "reason_code": "hub_score_is_degree_rank",
+                        "severity": "low",
+                        "claim_effect": "high degree is a lead, not proof of bad design",
+                    }
+                ],
+                action="architecture_analysis_tool mode=\"hubs\" -- inspect high-degree nodes",
+                reason_codes=["hub_nodes"],
+                counts={"hub_nodes": len(hubs)},
+            )
+        )
+    if adp or sdp or sap:
+        guidance.append(
+            make_guidance_item(
+                claim="Architecture metric violations should be reviewed as ranked leads.",
+                evidence={
+                    "type": "computed",
+                    "adp_violations": len(adp),
+                    "sdp_violations": len(sdp),
+                    "sap_violations": len(sap),
+                    "artifact_scope": artifact_scope,
+                },
+                confidence="medium",
+                missingness=[
+                    {
+                        "reason_code": "metric_warning_not_verdict",
+                        "severity": "low",
+                        "claim_effect": "ADP/SDP/SAP signals need source-level review",
+                    }
+                ],
+                action="architecture_analysis_tool mode=\"sdp_violations\" -- drill into metric leads",
+                reason_codes=["adp_violations", "sdp_violations", "sap_violations"],
+                counts={
+                    "adp_violations": len(adp),
+                    "sdp_violations": len(sdp),
+                    "sap_violations": len(sap),
+                },
+            )
+        )
+
     return {
         "status": "ok",
         "scoring_policy": {
@@ -133,6 +183,15 @@ def _architecture_health_summary(
                 "sap",
             ],
             "bounded_top_n": example_limit,
+            "formulas": {
+                "adp": "cycles in package dependency graph",
+                "sdp": "dependencies should point toward lower instability",
+                "sap": "distance from main sequence D=|A+I-1|",
+            },
+            "thresholds": {
+                "sap_violation_distance_min": 0.5,
+                "artifact_scope_default": "code",
+            },
         },
         "counts": {
             "communities": len(overview.get("communities", [])),
@@ -147,6 +206,7 @@ def _architecture_health_summary(
             "sap_violations": len(sap),
         },
         "reason_codes": reason_codes,
+        "guidance": guidance,
         "top_examples": {
             "hub_nodes": hubs,
             "bridge_nodes": bridges,
@@ -414,7 +474,11 @@ def get_architecture_overview_func(
                 "cross_community_edges",
             ],
         )
-        result["_hints"] = generate_hints("get_architecture_overview", result, get_session())
+        result["_hints"] = guidance_actions_to_hints(
+            result.get("architecture_health", {}).get("guidance", [])
+        )
+        if not result["_hints"]["next_steps"]:
+            result["_hints"] = generate_hints("get_architecture_overview", result, get_session())
         return result
     except Exception as exc:
         return {"status": "error", "error": str(exc)}

@@ -77,6 +77,13 @@ def list_flows(
             "status": "ok",
             "summary": f"Found {len(flows)} execution flow(s)",
             "flows": flows,
+            "flow_coverage": {
+                "source": "stored_flow_extraction",
+                "returned_flow_count": len(flows),
+                "limit": limit,
+                "kind_filter": kind,
+                "coverage_guarantee": False,
+            },
             "answerability": answerability,
             "missingness": [
                 *missingness_from_answerability(answerability),
@@ -174,6 +181,12 @@ def get_flow(
                 f"criticality {flow['criticality']:.4f}"
             ),
             "flow": flow,
+            "flow_coverage": {
+                "source_included": bool(include_source),
+                "step_count": len(flow.get("steps", [])),
+                "truncated": bool(flow.get("truncated", False)),
+                "coverage_guarantee": False,
+            },
             "answerability": answerability,
             "missingness": [
                 *missingness_from_answerability(answerability),
