@@ -1,13 +1,15 @@
-"""Local embedding server orchestration for Qwen GGUF presets.
+"""Local embedding server orchestration for Qwen local presets.
 
-This module intentionally treats ``llama-server`` as an external executable.
-dagayn owns preset selection, readiness checks, and subprocess lifecycle; it
-does not import or wrap llama.cpp internals.
+This module intentionally treats model servers as external executables. dagayn
+owns preset selection, readiness checks, and subprocess lifecycle; it does not
+import or wrap llama.cpp or MLX server internals.
 """
 
 from __future__ import annotations
 
 import json
+import os
+import platform
 import shlex
 import shutil
 import subprocess
@@ -22,11 +24,16 @@ from typing import Literal
 from urllib.parse import urlparse
 
 LocalEmbeddingLevel = Literal["low"]
+LocalEmbeddingRuntime = Literal["llama", "mlx"]
 EmbeddingTextMode = Literal["metadata", "body"]
 
 DEFAULT_LOCAL_EMBEDDING_PORT = 18080
-DEFAULT_LOCAL_EMBEDDING_BIN = "llama-server"
+DEFAULT_LOCAL_EMBEDDING_BIN = "auto"
 DEFAULT_LOCAL_EMBEDDING_TIMEOUT = 300
+_DEFAULT_LOCAL_EMBEDDING_BINARIES: dict[LocalEmbeddingRuntime, str] = {
+    "llama": "llama-server",
+    "mlx": "mlx-openai-server",
+}
 
 
 @dataclass(frozen=True)
@@ -34,16 +41,26 @@ class LocalEmbeddingPreset:
     """Configuration for a local Qwen embedding model."""
 
     level: LocalEmbeddingLevel
+    runtime: LocalEmbeddingRuntime
     repo_id: str
-    quant: str
+    quant: str | None
     model: str
     dimension: int
     text_mode: EmbeddingTextMode = "metadata"
-    ubatch: int = 8192
+    batch: int | None = None
+    ubatch: int | None = None
+    flash_attention: bool = False
+    cache_type_k: str | None = None
+    cache_type_v: str | None = None
+    request_max_length: int | None = None
 
     @property
     def hf_selector(self) -> str:
-        return f"{self.repo_id}:{self.quant}"
+        return f"{self.repo_id}:{self.quant}" if self.quant else self.repo_id
+
+    @property
+    def default_binary(self) -> str:
+        return _DEFAULT_LOCAL_EMBEDDING_BINARIES[self.runtime]
 
 
 @dataclass(frozen=True)
@@ -61,6 +78,7 @@ class PersistedLocalEmbeddingProvider:
     """Local embedding preset inferred from a persisted provider identity."""
 
     level: LocalEmbeddingLevel
+    runtime: LocalEmbeddingRuntime
     model: str
     base_url: str
     port: int
@@ -72,27 +90,76 @@ class _ProbeResult:
     detail: str = ""
 
 
-LOCAL_EMBEDDING_PRESETS: dict[LocalEmbeddingLevel, LocalEmbeddingPreset] = {
-    "low": LocalEmbeddingPreset(
-        level="low",
-        repo_id="Qwen/Qwen3-Embedding-0.6B-GGUF",
-        quant="Q8_0",
-        model="qwen3-embedding-0.6b-gguf-q8_0",
-        dimension=1024,
-        text_mode="metadata",
-    ),
+LOCAL_EMBEDDING_PRESETS: dict[
+    LocalEmbeddingLevel,
+    dict[LocalEmbeddingRuntime, LocalEmbeddingPreset],
+] = {
+    "low": {
+        "llama": LocalEmbeddingPreset(
+            level="low",
+            runtime="llama",
+            repo_id="Qwen/Qwen3-Embedding-0.6B-GGUF",
+            quant="Q8_0",
+            model="qwen3-embedding-0.6b-gguf-q8_0",
+            dimension=1024,
+            text_mode="metadata",
+            batch=8192,
+            ubatch=8192,
+            flash_attention=True,
+            cache_type_k="f16",
+            cache_type_v="f16",
+        ),
+        "mlx": LocalEmbeddingPreset(
+            level="low",
+            runtime="mlx",
+            repo_id="mlx-community/Qwen3-Embedding-0.6B-mxfp8",
+            quant="mxfp8",
+            model="mlx-community/Qwen3-Embedding-0.6B-mxfp8",
+            dimension=1024,
+            text_mode="metadata",
+            request_max_length=2048,
+        ),
+    },
 }
 
 
-def get_local_embedding_preset(level: str) -> LocalEmbeddingPreset:
+def _default_local_embedding_runtime() -> LocalEmbeddingRuntime:
+    configured = os.environ.get("DAGAYN_LOCAL_EMBEDDING_RUNTIME")
+    if configured:
+        normalized = configured.strip().lower()
+        if normalized in ("llama", "mlx"):
+            return normalized  # type: ignore[return-value]
+        raise ValueError(
+            "DAGAYN_LOCAL_EMBEDDING_RUNTIME must be one of: llama, mlx."
+        )
+    machine = platform.machine().lower()
+    if platform.system() == "Darwin" and machine in {"arm64", "aarch64"}:
+        return "mlx"
+    return "llama"
+
+
+def get_local_embedding_preset(
+    level: str,
+    *,
+    runtime: str | None = None,
+) -> LocalEmbeddingPreset:
     """Resolve a user-facing local embedding preset name."""
     normalized = level.strip().lower()
     if normalized == "0.8b":
         normalized = "low"
-    if normalized == "low":
-        return LOCAL_EMBEDDING_PRESETS["low"]
     choices = ", ".join(["none", *LOCAL_EMBEDDING_PRESETS])
-    raise ValueError(f"Unknown local embedding preset '{level}'. Expected one of: {choices}.")
+    if normalized not in LOCAL_EMBEDDING_PRESETS:
+        raise ValueError(f"Unknown local embedding preset '{level}'. Expected one of: {choices}.")
+
+    selected_runtime = (runtime or _default_local_embedding_runtime()).strip().lower()
+    presets = LOCAL_EMBEDDING_PRESETS[normalized]  # type: ignore[index]
+    if selected_runtime not in presets:
+        runtime_choices = ", ".join(sorted(presets))
+        raise ValueError(
+            f"Unknown local embedding runtime '{selected_runtime}' for preset "
+            f"'{normalized}'. Expected one of: {runtime_choices}."
+        )
+    return presets[selected_runtime]  # type: ignore[index]
 
 
 def local_embedding_base_url(port: int) -> str:
@@ -127,14 +194,16 @@ def infer_local_embedding_provider(
     if port is None:
         return None
 
-    for level, preset in LOCAL_EMBEDDING_PRESETS.items():
-        if preset.model == model:
-            return PersistedLocalEmbeddingProvider(
-                level=level,
-                model=model,
-                base_url=base_url,
-                port=port,
-            )
+    for level, runtime_presets in LOCAL_EMBEDDING_PRESETS.items():
+        for runtime, preset in runtime_presets.items():
+            if preset.model == model:
+                return PersistedLocalEmbeddingProvider(
+                    level=level,
+                    runtime=runtime,
+                    model=model,
+                    base_url=base_url,
+                    port=port,
+                )
     return None
 
 
@@ -186,15 +255,21 @@ def _probe_embedding_server(
     return _ProbeResult("incompatible", "response did not contain an embedding vector")
 
 
-def _resolve_binary(binary: str) -> str:
-    resolved = shutil.which(binary)
+def _resolve_binary(binary: str, preset: LocalEmbeddingPreset) -> str:
+    requested = preset.default_binary if binary in ("", "auto") else binary
+    resolved = shutil.which(requested)
     if resolved:
         return resolved
-    candidate = Path(binary).expanduser()
+    candidate = Path(requested).expanduser()
     if candidate.exists():
         return str(candidate)
+    if preset.runtime == "mlx":
+        raise RuntimeError(
+            f"Could not find '{requested}'. Install mlx-openai-server or pass "
+            "--local-embedding-bin /path/to/mlx-openai-server. See docs/LOCAL-EMBEDDINGS.md."
+        )
     raise RuntimeError(
-        f"Could not find '{binary}'. Install llama.cpp or pass "
+        f"Could not find '{requested}'. Install llama.cpp or pass "
         "--local-embedding-bin /path/to/llama-server. See docs/LOCAL-EMBEDDINGS.md."
     )
 
@@ -204,15 +279,40 @@ def _server_command(
     binary: str,
     port: int,
 ) -> list[str]:
-    return [
+    if preset.runtime == "mlx":
+        return [
+            binary,
+            "launch",
+            "--model-type",
+            "embeddings",
+            "--model-path",
+            preset.repo_id,
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+            "--served-model-name",
+            preset.model,
+        ]
+    command = [
         binary,
         "-hf",
         preset.hf_selector,
         "--embedding",
         "--pooling",
         "last",
-        "-ub",
-        str(preset.ubatch),
+    ]
+    if preset.flash_attention:
+        command.append("--flash-attn")
+    if preset.cache_type_k is not None:
+        command += ["--cache-type-k", preset.cache_type_k]
+    if preset.cache_type_v is not None:
+        command += ["--cache-type-v", preset.cache_type_v]
+    if preset.batch is not None:
+        command += ["-b", str(preset.batch)]
+    if preset.ubatch is not None:
+        command += ["-ub", str(preset.ubatch)]
+    command += [
         "--host",
         "127.0.0.1",
         "--port",
@@ -220,12 +320,14 @@ def _server_command(
         "--alias",
         preset.model,
     ]
+    return command
 
 
 @contextmanager
 def local_embedding_server(
     level: str,
     *,
+    runtime: str | None = None,
     port: int = DEFAULT_LOCAL_EMBEDDING_PORT,
     binary: str = DEFAULT_LOCAL_EMBEDDING_BIN,
     keep_running: bool = False,
@@ -234,10 +336,11 @@ def local_embedding_server(
     """Ensure a Qwen local embedding server is ready for one build/update run.
 
     If a compatible server is already listening on *port*, it is reused and
-    never terminated by dagayn. Otherwise dagayn starts ``llama-server`` and,
-    unless *keep_running* is true, stops it when the context exits.
+    never terminated by dagayn. Otherwise dagayn starts the selected local
+    model server and, unless *keep_running* is true, stops it when the context
+    exits.
     """
-    preset = get_local_embedding_preset(level)
+    preset = get_local_embedding_preset(level, runtime=runtime)
     base_url = local_embedding_base_url(port)
     probe = _probe_embedding_server(base_url, preset.model, preset.dimension)
     if probe.status == "ready":
@@ -273,7 +376,7 @@ def local_embedding_server(
                 f"Timed out waiting for existing local embedding server on port {port}."
             )
 
-    resolved_binary = _resolve_binary(binary)
+    resolved_binary = _resolve_binary(binary, preset)
     command = _server_command(preset, resolved_binary, port)
     proc = subprocess.Popen(  # noqa: S603
         command,
@@ -287,7 +390,7 @@ def local_embedding_server(
         while time.monotonic() < deadline:
             if proc.poll() is not None:
                 raise RuntimeError(
-                    "llama-server exited before the embedding endpoint became ready "
+                    "Local embedding server exited before the endpoint became ready "
                     f"(exit code {proc.returncode}). Command: {shlex.join(command)}"
                 )
             probe = _probe_embedding_server(base_url, preset.model, preset.dimension)
@@ -302,12 +405,13 @@ def local_embedding_server(
                 return
             if probe.status == "incompatible":
                 raise RuntimeError(
-                    "llama-server responded, but not as a compatible embedding endpoint: "
+                    "Local embedding server responded, but not as a compatible "
+                    "embedding endpoint: "
                     f"{probe.detail}. Command: {shlex.join(command)}"
                 )
             time.sleep(0.5)
         raise RuntimeError(
-            "Timed out waiting for llama-server to expose /v1/embeddings. "
+            "Timed out waiting for local embedding server to expose /v1/embeddings. "
             f"Command: {shlex.join(command)}"
         )
     finally:

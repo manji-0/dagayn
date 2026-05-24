@@ -9,6 +9,7 @@ from pathlib import Path
 from ._shared import (
     _PLATFORM_CHOICES,
     _REMOTE_ENV_VARS,
+    DEFAULT_LOCAL_EMBEDDING_BIN,
     _add_local_embedding_args,
     _confirm_yes_no,
     _resolve_install_mode,
@@ -65,7 +66,7 @@ def register_commands(sub: argparse._SubParsersAction) -> dict:
             default=None,
             help=(
                 "Embedding strategy: fts (no embeddings), local (managed "
-                "llama-server sidecar), or remote (cloud API).  Omit to "
+                "local embedding sidecar), or remote (cloud API).  Omit to "
                 "choose interactively on a TTY."
             ),
         )
@@ -192,7 +193,7 @@ def handle(args: argparse.Namespace) -> None:
         le_timeout = getattr(args, "local_embedding_timeout", None)
         if le_port is not None and le_port != 18080:
             extra_serve_args += ["--local-embedding-port", str(le_port)]
-        if le_bin is not None and le_bin != "llama-server":
+        if le_bin is not None and le_bin != DEFAULT_LOCAL_EMBEDDING_BIN:
             extra_serve_args += ["--local-embedding-bin", le_bin]
         if le_timeout is not None and le_timeout != 300:
             extra_serve_args += ["--local-embedding-timeout", str(le_timeout)]

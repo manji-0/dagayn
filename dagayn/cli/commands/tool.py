@@ -189,14 +189,23 @@ def _maybe_local_embedding_server(tool_name: str, kwargs: dict[str, Any]):
         for key in (
             "CRG_OPENAI_API_KEY",
             "CRG_OPENAI_BASE_URL",
+            "CRG_OPENAI_MAX_LENGTH",
             "CRG_OPENAI_MODEL",
         )
     }
     try:
-        with local_embedding_server(inferred.level, port=inferred.port) as server:
+        with local_embedding_server(
+            inferred.level,
+            runtime=inferred.runtime,
+            port=inferred.port,
+        ) as server:
             os.environ["CRG_OPENAI_API_KEY"] = "dagayn-local"
             os.environ["CRG_OPENAI_BASE_URL"] = server.base_url
             os.environ["CRG_OPENAI_MODEL"] = server.preset.model
+            if server.preset.request_max_length is None:
+                os.environ.pop("CRG_OPENAI_MAX_LENGTH", None)
+            else:
+                os.environ["CRG_OPENAI_MAX_LENGTH"] = str(server.preset.request_max_length)
             yield
     except RuntimeError as exc:
         print(f"dagayn tool: local embedding server unavailable: {exc}", file=sys.stderr)

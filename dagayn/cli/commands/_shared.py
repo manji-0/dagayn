@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import sys
 
+from ...local_embeddings import DEFAULT_LOCAL_EMBEDDING_BIN
+
 _PLATFORM_CHOICES = [
     "codex",
     "claude",
@@ -31,18 +33,18 @@ def _add_local_embedding_args(cmd: argparse.ArgumentParser) -> None:
         "--local-embedding",
         choices=["none", "low"],
         default="none",
-        help="Use the local Qwen 0.6B GGUF embedding server (default: none)",
+        help="Use the local Qwen 0.6B embedding server (default: none)",
     )
     cmd.add_argument(
         "--local-embedding-port",
         type=int,
         default=18080,
-        help="Local llama-server port (default: 18080)",
+        help="Local embedding server port (default: 18080)",
     )
     cmd.add_argument(
         "--local-embedding-bin",
-        default="llama-server",
-        help="llama-server executable name or path (default: llama-server)",
+        default=DEFAULT_LOCAL_EMBEDDING_BIN,
+        help="Local embedding server executable name/path, or 'auto' (default: auto)",
     )
     cmd.add_argument(
         "--keep-local-embedding-server",
@@ -53,7 +55,7 @@ def _add_local_embedding_args(cmd: argparse.ArgumentParser) -> None:
         "--local-embedding-timeout",
         type=int,
         default=300,
-        help="Seconds to wait for llama-server readiness (default: 300)",
+        help="Seconds to wait for local embedding server readiness (default: 300)",
     )
     cmd.add_argument(
         "--local-embedding-request-timeout",
@@ -126,7 +128,7 @@ def _prompt_install_mode() -> tuple[str, str | None, str | None]:
     """
     print("Which embedding mode would you like?")
     print("  1) fts    — FTS only (no embeddings, fastest, no model download)")
-    print("  2) local  — Managed llama.cpp sidecar with Qwen3 GGUF")
+    print("  2) local  — Managed local sidecar with Qwen3")
     print("  3) remote — OpenAI-compatible / Google / MiniMax cloud embeddings")
     choice = _read_choice(
         "Choose [1-3]: ",

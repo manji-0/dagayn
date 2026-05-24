@@ -44,7 +44,11 @@ def test_serve_local_embedding_sets_search_default_to_openai(monkeypatch):
         base_url = "http://127.0.0.1:18080/v1"
         started = False
         command: list[str] = []
-        preset = SimpleNamespace(model="qwen3-embedding-0.6b-gguf-q8_0", text_mode="metadata")
+        preset = SimpleNamespace(
+            model="qwen3-embedding-0.6b-gguf-q8_0",
+            text_mode="metadata",
+            request_max_length=None,
+        )
 
     class FakeContext:
         def __enter__(self):
@@ -68,13 +72,14 @@ def test_serve_local_embedding_sets_search_default_to_openai(monkeypatch):
     assert calls[0]["embedding_model"] == "qwen3-embedding-0.6b-gguf-q8_0"
     assert calls[0]["local_embedding"] == "low"
     assert calls[0]["local_embedding_port"] == 18080
-    assert calls[0]["local_embedding_bin"] == "llama-server"
+    assert calls[0]["local_embedding_bin"] == "auto"
     assert calls[0]["keep_local_embedding_server"] is False
     assert calls[0]["local_embedding_timeout"] == 300
     assert calls[0]["local_embedding_request_timeout"] == 60
     assert calls[0]["local_embedding_batch_size"] == 1
     assert os.environ["CRG_OPENAI_MODEL"] == "qwen3-embedding-0.6b-gguf-q8_0"
     assert os.environ["DAGAYN_EMBEDDING_TEXT_MODE"] == "metadata"
+    assert os.environ.get("CRG_OPENAI_MAX_LENGTH") is None
 
 
 def test_serve_remote_embedding_sets_search_default(monkeypatch):
@@ -126,7 +131,11 @@ def test_serve_infers_local_embedding_from_existing_graph(monkeypatch, tmp_path)
         base_url = "http://127.0.0.1:19090/v1"
         started = True
         command: list[str] = []
-        preset = SimpleNamespace(model="qwen3-embedding-0.6b-gguf-q8_0", text_mode="metadata")
+        preset = SimpleNamespace(
+            model="qwen3-embedding-0.6b-gguf-q8_0",
+            text_mode="metadata",
+            request_max_length=None,
+        )
 
     class FakeContext:
         def __enter__(self):
@@ -149,8 +158,9 @@ def test_serve_infers_local_embedding_from_existing_graph(monkeypatch, tmp_path)
     assert server_calls == [
         {
             "level": "low",
+            "runtime": "llama",
             "port": 19090,
-            "binary": "llama-server",
+            "binary": "auto",
             "keep_running": False,
             "startup_timeout": 300,
         }

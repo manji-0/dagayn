@@ -36,13 +36,36 @@ class FakeProcess:
         return self.returncode
 
 
-def test_local_embedding_presets_are_stable():
-    low = get_local_embedding_preset("low")
+def test_local_embedding_llama_preset_is_stable():
+    low = get_local_embedding_preset("low", runtime="llama")
 
+    assert low.runtime == "llama"
     assert low.hf_selector == "Qwen/Qwen3-Embedding-0.6B-GGUF:Q8_0"
     assert low.model == "qwen3-embedding-0.6b-gguf-q8_0"
     assert low.dimension == 1024
     assert low.text_mode == "metadata"
+    assert low.batch == 8192
+    assert low.ubatch == 8192
+    assert low.flash_attention is True
+    assert low.cache_type_k == "f16"
+    assert low.cache_type_v == "f16"
+    assert low.default_binary == "llama-server"
+
+
+def test_local_embedding_mlx_preset_is_default_on_apple_silicon(monkeypatch):
+    monkeypatch.delenv("DAGAYN_LOCAL_EMBEDDING_RUNTIME", raising=False)
+    monkeypatch.setattr("dagayn.local_embeddings.platform.system", lambda: "Darwin")
+    monkeypatch.setattr("dagayn.local_embeddings.platform.machine", lambda: "arm64")
+
+    low = get_local_embedding_preset("low")
+
+    assert low.runtime == "mlx"
+    assert low.repo_id == "mlx-community/Qwen3-Embedding-0.6B-mxfp8"
+    assert low.quant == "mxfp8"
+    assert low.model == "mlx-community/Qwen3-Embedding-0.6B-mxfp8"
+    assert low.dimension == 1024
+    assert low.request_max_length == 2048
+    assert low.default_binary == "mlx-openai-server"
 
 
 def test_local_embedding_rejects_removed_high_preset():
@@ -61,7 +84,20 @@ def test_infer_local_embedding_provider_from_persisted_name():
 
     assert inferred is not None
     assert inferred.level == "low"
+    assert inferred.runtime == "llama"
     assert inferred.model == "qwen3-embedding-0.6b-gguf-q8_0"
+    assert inferred.port == 19090
+
+
+def test_infer_local_embedding_provider_from_mlx_persisted_name():
+    inferred = infer_local_embedding_provider(
+        "openai:mlx-community/Qwen3-Embedding-0.6B-mxfp8@http://127.0.0.1:19090/v1"
+    )
+
+    assert inferred is not None
+    assert inferred.level == "low"
+    assert inferred.runtime == "mlx"
+    assert inferred.model == "mlx-community/Qwen3-Embedding-0.6B-mxfp8"
     assert inferred.port == 19090
 
 
@@ -131,7 +167,7 @@ def test_local_embedding_server_reuses_ready_endpoint(monkeypatch):
         "dagayn.local_embeddings.subprocess.Popen", lambda *a, **k: popen_calls.append(a)
     )
 
-    with local_embedding_server("low", port=18080) as server:
+    with local_embedding_server("low", runtime="llama", port=18080) as server:
         assert server.started is False
         assert server.base_url == "http://127.0.0.1:18080/v1"
         assert server.command == []
@@ -156,7 +192,7 @@ def test_local_embedding_server_starts_and_stops_llama_server(monkeypatch):
 
     monkeypatch.setattr("dagayn.local_embeddings.subprocess.Popen", fake_popen)
 
-    with local_embedding_server("low", port=19090, startup_timeout=1) as server:
+    with local_embedding_server("low", runtime="llama", port=19090, startup_timeout=1) as server:
         assert server.started is True
         assert server.command[:3] == [
             "/bin/llama-server",
@@ -166,8 +202,53 @@ def test_local_embedding_server_starts_and_stops_llama_server(monkeypatch):
         assert "--embedding" in server.command
         assert "--pooling" in server.command
         assert "last" in server.command
+        assert "--flash-attn" in server.command
+        assert "--cache-type-k" in server.command
+        assert "f16" in server.command
+        assert "--cache-type-v" in server.command
+        assert "-b" in server.command
+        assert "-ub" in server.command
+        assert "8192" in server.command
         assert "--alias" in server.command
         assert "qwen3-embedding-0.6b-gguf-q8_0" in server.command
+
+    assert commands
+    assert commands[0][1]["stdin"] is subprocess.DEVNULL
+    assert commands[0][1]["stdout"] is subprocess.DEVNULL
+    assert commands[0][1]["stderr"] is subprocess.DEVNULL
+    assert fake_proc.terminated is True
+    assert fake_proc.killed is False
+
+
+def test_local_embedding_server_starts_mlx_server(monkeypatch):
+    probes = iter([_ProbeResult("unreachable"), _ProbeResult("unreachable"), _ProbeResult("ready")])
+    fake_proc = FakeProcess()
+    commands = []
+
+    monkeypatch.setattr(
+        "dagayn.local_embeddings._probe_embedding_server",
+        lambda base_url, model, expected_dimension: next(probes),
+    )
+    monkeypatch.setattr("dagayn.local_embeddings.shutil.which", lambda binary: f"/bin/{binary}")
+
+    def fake_popen(command, **kwargs):
+        commands.append((command, kwargs))
+        return fake_proc
+
+    monkeypatch.setattr("dagayn.local_embeddings.subprocess.Popen", fake_popen)
+
+    with local_embedding_server("low", runtime="mlx", port=19090, startup_timeout=1) as server:
+        assert server.started is True
+        assert server.command[:6] == [
+            "/bin/mlx-openai-server",
+            "launch",
+            "--model-type",
+            "embeddings",
+            "--model-path",
+            "mlx-community/Qwen3-Embedding-0.6B-mxfp8",
+        ]
+        assert "--served-model-name" in server.command
+        assert "mlx-community/Qwen3-Embedding-0.6B-mxfp8" in server.command
 
     assert commands
     assert commands[0][1]["stdin"] is subprocess.DEVNULL
@@ -188,7 +269,7 @@ def test_local_embedding_server_keep_running_leaves_process(monkeypatch):
     monkeypatch.setattr("dagayn.local_embeddings.shutil.which", lambda binary: f"/bin/{binary}")
     monkeypatch.setattr("dagayn.local_embeddings.subprocess.Popen", lambda *a, **k: fake_proc)
 
-    with local_embedding_server("low", keep_running=True, startup_timeout=1):
+    with local_embedding_server("low", runtime="llama", keep_running=True, startup_timeout=1):
         pass
 
     assert fake_proc.terminated is False
@@ -201,5 +282,5 @@ def test_local_embedding_server_rejects_incompatible_existing_port(monkeypatch):
     )
 
     with pytest.raises(RuntimeError, match="not a compatible embedding endpoint"):
-        with local_embedding_server("low"):
+        with local_embedding_server("low", runtime="llama"):
             pass

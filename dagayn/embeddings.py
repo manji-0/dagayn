@@ -318,6 +318,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         dimension: int | None = None,
         timeout: int = 120,
         batch_size: int | None = None,
+        max_length: int | None = None,
     ) -> None:
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
@@ -325,6 +326,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         self._dimension = dimension
         self._timeout = timeout
         self._batch_size = batch_size or self._DEFAULT_BATCH_SIZE
+        self._max_length = max_length
         self._host_key = self._make_host_key(self._base_url)
 
     @classmethod
@@ -349,9 +351,16 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
             model, base_url = provider_name[len(prefix) :].rsplit("@", 1)
         except ValueError:
             return None
+        max_length = None
+        if "#max_length=" in base_url:
+            base_url, raw_max_length = base_url.rsplit("#max_length=", 1)
+            try:
+                max_length = int(raw_max_length)
+            except ValueError:
+                return None
         if not model or not base_url or not _is_localhost_url(base_url):
             return None
-        provider = cls(api_key=api_key, base_url=base_url, model=model)
+        provider = cls(api_key=api_key, base_url=base_url, model=model, max_length=max_length)
         if provider.name != provider_name:
             return None
         return provider
@@ -408,6 +417,11 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         # only forward the param when the user explicitly pinned one.
         if self._dimension is not None:
             body["dimensions"] = self._dimension
+        # Some local OpenAI-compatible embedding servers, notably
+        # mlx-openai-server, accept max_length as an extra request field. Keep
+        # this opt-in so strict cloud APIs never see a non-standard parameter.
+        if self._max_length is not None:
+            body["max_length"] = self._max_length
 
         payload = _json.dumps(body).encode("utf-8")
         req = urllib.request.Request(
@@ -583,7 +597,8 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         # and re-using cached embeddings across them silently corrupts
         # semantic ranking. Including the host partitions the embeddings
         # table so switching CRG_OPENAI_BASE_URL triggers a safe re-embed.
-        return f"openai:{self._model}@{self._host_key}"
+        suffix = f"#max_length={self._max_length}" if self._max_length is not None else ""
+        return f"openai:{self._model}@{self._host_key}{suffix}"
 
 
 CLOUD_PROVIDERS = {"google", "minimax", "openai"}
@@ -675,6 +690,8 @@ def get_provider(
         batch_size = int(batch_env) if batch_env else None
         timeout_env = os.environ.get("CRG_OPENAI_TIMEOUT")
         timeout = int(timeout_env) if timeout_env else 120
+        max_length_env = os.environ.get("CRG_OPENAI_MAX_LENGTH")
+        max_length = int(max_length_env) if max_length_env else None
         if not _is_localhost_url(base_url):
             _warn_cloud_egress("openai")
         return OpenAIEmbeddingProvider(
@@ -684,6 +701,7 @@ def get_provider(
             dimension=dimension,
             batch_size=batch_size,
             timeout=timeout,
+            max_length=max_length,
         )
 
     if provider == "minimax":

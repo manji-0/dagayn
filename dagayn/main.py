@@ -95,7 +95,7 @@ _default_embedding_provider: str | None = None
 _default_embedding_model: str | None = None
 _default_local_embedding: str | None = None
 _default_local_embedding_port: int = 18080
-_default_local_embedding_bin: str = "llama-server"
+_default_local_embedding_bin: str = "auto"
 _default_keep_local_embedding_server: bool = False
 _default_local_embedding_timeout: int = 300
 _default_local_embedding_request_timeout: int = 60
@@ -196,7 +196,7 @@ async def build_or_update_graph_tool(
     recurse_submodules: Optional[bool] = None,
     local_embedding: Optional[str] = None,
     local_embedding_port: int = 18080,
-    local_embedding_bin: str = "llama-server",
+    local_embedding_bin: str = "auto",
     keep_local_embedding_server: bool = False,
     local_embedding_timeout: int = 300,
     local_embedding_request_timeout: int = 60,
@@ -224,12 +224,12 @@ async def build_or_update_graph_tool(
         recurse_submodules: If True, include files from git submodules.
             When None (default), falls back to CRG_RECURSE_SUBMODULES env var.
         local_embedding: Optional local Qwen embedding preset: "low".
-        local_embedding_port: localhost port for the managed llama-server.
-        local_embedding_bin: llama-server executable name or path.
+        local_embedding_port: localhost port for the managed local embedding server.
+        local_embedding_bin: executable name/path, or "auto" for the preset default.
         keep_local_embedding_server: Leave a dagayn-started server running.
-        local_embedding_timeout: Seconds to wait for llama-server readiness.
+        local_embedding_timeout: Seconds to wait for local embedding server readiness.
         local_embedding_request_timeout: Seconds to wait for each embedding
-            HTTP request after llama-server is ready.
+            HTTP request after the local embedding server is ready.
         local_embedding_batch_size: Texts to send in each local embedding
             HTTP request.
     """
@@ -996,7 +996,7 @@ def main(
     embedding_model: str | None = None,
     local_embedding: str | None = None,
     local_embedding_port: int = 18080,
-    local_embedding_bin: str = "llama-server",
+    local_embedding_bin: str = "auto",
     keep_local_embedding_server: bool = False,
     local_embedding_timeout: int = 300,
     local_embedding_request_timeout: int = 60,

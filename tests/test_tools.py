@@ -1531,6 +1531,7 @@ class TestBuildPostprocess:
                     model="qwen3-embedding-0.6b-gguf-q8_0",
                     dimension=1024,
                     text_mode="metadata",
+                    request_max_length=None,
                 ),
                 started=False,
                 command=[],
@@ -1540,6 +1541,7 @@ class TestBuildPostprocess:
             assert os.environ["CRG_OPENAI_TIMEOUT"] == "17"
             assert os.environ["CRG_OPENAI_BATCH_SIZE"] == "8"
             assert os.environ["DAGAYN_EMBEDDING_TEXT_MODE"] == "metadata"
+            assert os.environ.get("CRG_OPENAI_MAX_LENGTH") is None
             return {
                 "status": "ok",
                 "newly_embedded": 1,

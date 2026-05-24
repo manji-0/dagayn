@@ -8,6 +8,7 @@ import logging
 import sys
 from pathlib import Path
 
+from ...local_embeddings import DEFAULT_LOCAL_EMBEDDING_BIN
 from ._shared import _add_local_embedding_args
 
 
@@ -374,7 +375,11 @@ def handle(args: argparse.Namespace) -> None:
                 postprocess=pp,
                 local_embedding=getattr(args, "local_embedding", "none"),
                 local_embedding_port=getattr(args, "local_embedding_port", 18080),
-                local_embedding_bin=getattr(args, "local_embedding_bin", "llama-server"),
+                local_embedding_bin=getattr(
+                    args,
+                    "local_embedding_bin",
+                    DEFAULT_LOCAL_EMBEDDING_BIN,
+                ),
                 keep_local_embedding_server=getattr(
                     args,
                     "keep_local_embedding_server",
@@ -413,7 +418,11 @@ def handle(args: argparse.Namespace) -> None:
                 postprocess=pp,
                 local_embedding=getattr(args, "local_embedding", "none"),
                 local_embedding_port=getattr(args, "local_embedding_port", 18080),
-                local_embedding_bin=getattr(args, "local_embedding_bin", "llama-server"),
+                local_embedding_bin=getattr(
+                    args,
+                    "local_embedding_bin",
+                    DEFAULT_LOCAL_EMBEDDING_BIN,
+                ),
                 keep_local_embedding_server=getattr(
                     args,
                     "keep_local_embedding_server",

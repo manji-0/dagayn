@@ -96,6 +96,7 @@ def test_handle_starts_persisted_local_embedding_for_semantic_tool(monkeypatch, 
                 "repo_root": repo_root,
                 "api_key": os.environ.get("CRG_OPENAI_API_KEY"),
                 "base_url": os.environ.get("CRG_OPENAI_BASE_URL"),
+                "max_length": os.environ.get("CRG_OPENAI_MAX_LENGTH"),
                 "model": os.environ.get("CRG_OPENAI_MODEL"),
             }
         )
@@ -103,7 +104,10 @@ def test_handle_starts_persisted_local_embedding_for_semantic_tool(monkeypatch, 
 
     class FakeServer:
         base_url = "http://127.0.0.1:19090/v1"
-        preset = SimpleNamespace(model="qwen3-embedding-0.6b-gguf-q8_0")
+        preset = SimpleNamespace(
+            model="mlx-community/Qwen3-Embedding-0.6B-mxfp8",
+            request_max_length=2048,
+        )
 
     class FakeContext:
         def __enter__(self):
@@ -121,6 +125,7 @@ def test_handle_starts_persisted_local_embedding_for_semantic_tool(monkeypatch, 
         "dagayn.cli.commands.serve._infer_persisted_local_embedding",
         lambda repo_root: SimpleNamespace(
             level="low",
+            runtime="llama",
             model="qwen3-embedding-0.6b-gguf-q8_0",
             base_url="http://127.0.0.1:19090/v1",
             port=19090,
@@ -134,13 +139,14 @@ def test_handle_starts_persisted_local_embedding_for_semantic_tool(monkeypatch, 
     args = _parser().parse_args(["tool", "semantic_search_nodes_tool", "--repo", "/tmp/repo"])
     tool.handle(args)
 
-    assert server_calls == [{"level": "low", "port": 19090}]
+    assert server_calls == [{"level": "low", "runtime": "llama", "port": 19090}]
     assert calls == [
         {
             "repo_root": "/tmp/repo",
             "api_key": "dagayn-local",
             "base_url": "http://127.0.0.1:19090/v1",
-            "model": "qwen3-embedding-0.6b-gguf-q8_0",
+            "max_length": "2048",
+            "model": "mlx-community/Qwen3-Embedding-0.6B-mxfp8",
         }
     ]
     assert json.loads(capsys.readouterr().out)["status"] == "ok"
@@ -190,6 +196,7 @@ def test_handle_caches_local_embedding_start_failure(monkeypatch, capsys):
         "dagayn.cli.commands.serve._infer_persisted_local_embedding",
         lambda repo_root: SimpleNamespace(
             level="low",
+            runtime="llama",
             model="qwen3-embedding-0.6b-gguf-q8_0",
             base_url="http://127.0.0.1:19090/v1",
             port=19090,

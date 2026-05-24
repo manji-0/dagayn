@@ -98,7 +98,7 @@ def _run_local_embedding(
     local_embedding_request_timeout: int,
     local_embedding_batch_size: int,
 ) -> dict[str, Any]:
-    """Run graph embedding through a managed local llama-server process."""
+    """Run graph embedding through a managed local embedding server process."""
     from dagayn.local_embeddings import local_embedding_server
     from dagayn.tools.docs import embed_graph
 
@@ -114,6 +114,7 @@ def _run_local_embedding(
             "CRG_OPENAI_BASE_URL",
             "CRG_OPENAI_BATCH_SIZE",
             "CRG_OPENAI_DIMENSION",
+            "CRG_OPENAI_MAX_LENGTH",
             "CRG_OPENAI_TIMEOUT",
             "DAGAYN_EMBEDDING_TEXT_MODE",
         )
@@ -126,6 +127,12 @@ def _run_local_embedding(
                 os.environ["CRG_OPENAI_TIMEOUT"] = str(local_embedding_request_timeout)
                 os.environ["DAGAYN_EMBEDDING_TEXT_MODE"] = server.preset.text_mode
                 os.environ.pop("CRG_OPENAI_DIMENSION", None)
+                if server.preset.request_max_length is None:
+                    os.environ.pop("CRG_OPENAI_MAX_LENGTH", None)
+                else:
+                    os.environ["CRG_OPENAI_MAX_LENGTH"] = str(
+                        server.preset.request_max_length
+                    )
                 result = embed_graph(
                     repo_root=str(root),
                     provider="openai",
@@ -545,7 +552,7 @@ def build_or_update_graph(
     recurse_submodules: bool | None = None,
     local_embedding: str | None = None,
     local_embedding_port: int = 18080,
-    local_embedding_bin: str = "llama-server",
+    local_embedding_bin: str = "auto",
     keep_local_embedding_server: bool = False,
     local_embedding_timeout: int = 300,
     local_embedding_request_timeout: int = 60,
@@ -568,12 +575,13 @@ def build_or_update_graph(
             environment variable. Default: disabled.
         local_embedding: Optional local Qwen embedding preset: ``"low"``.
             ``None`` / ``"none"`` skips embeddings.
-        local_embedding_port: localhost port for the OpenAI-compatible
-            llama-server endpoint.
-        local_embedding_bin: ``llama-server`` executable name or path.
+        local_embedding_port: localhost port for the OpenAI-compatible local
+            embedding endpoint.
+        local_embedding_bin: executable name/path, or ``"auto"`` for the
+            preset default.
         keep_local_embedding_server: Leave a dagayn-started server running
             after embedding completes.
-        local_embedding_timeout: Seconds to wait for llama-server readiness.
+        local_embedding_timeout: Seconds to wait for local embedding server readiness.
         local_embedding_request_timeout: Seconds to wait for each embedding
             HTTP request once the server is ready.
         local_embedding_batch_size: Texts to send in each local embedding

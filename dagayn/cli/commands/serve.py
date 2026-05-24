@@ -107,6 +107,7 @@ def handle(args: argparse.Namespace, serve_parser: argparse.ArgumentParser) -> N
 
     remote_embedding = args.remote_embedding if args.remote_embedding != "none" else None
     effective_local_embedding_port = args.local_embedding_port
+    effective_local_embedding_runtime = None
 
     def _run(
         *,
@@ -154,6 +155,7 @@ def handle(args: argparse.Namespace, serve_parser: argparse.ArgumentParser) -> N
         inferred_local_embedding = _infer_persisted_local_embedding(args.repo)
         if inferred_local_embedding is not None:
             local_embedding = inferred_local_embedding.level
+            effective_local_embedding_runtime = inferred_local_embedding.runtime
             effective_local_embedding_port = inferred_local_embedding.port
 
     if local_embedding and local_embedding != "none":
@@ -161,6 +163,7 @@ def handle(args: argparse.Namespace, serve_parser: argparse.ArgumentParser) -> N
 
         with local_embedding_server(
             local_embedding,
+            runtime=effective_local_embedding_runtime,
             port=effective_local_embedding_port,
             binary=args.local_embedding_bin,
             keep_running=args.keep_local_embedding_server,
@@ -172,6 +175,10 @@ def handle(args: argparse.Namespace, serve_parser: argparse.ArgumentParser) -> N
             os.environ["CRG_OPENAI_BATCH_SIZE"] = str(args.local_embedding_batch_size)
             os.environ["CRG_OPENAI_TIMEOUT"] = str(args.local_embedding_request_timeout)
             os.environ["DAGAYN_EMBEDDING_TEXT_MODE"] = server.preset.text_mode
+            if server.preset.request_max_length is None:
+                os.environ.pop("CRG_OPENAI_MAX_LENGTH", None)
+            else:
+                os.environ["CRG_OPENAI_MAX_LENGTH"] = str(server.preset.request_max_length)
             _run(
                 embedding_provider="openai",
                 embedding_model=server.preset.model,

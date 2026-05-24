@@ -944,6 +944,30 @@ class TestOpenAIEmbeddingProvider:
         payload = json.loads(mock_urlopen.call_args[0][0].data.decode("utf-8"))
         assert payload["dimensions"] == 256
 
+    def test_explicit_max_length_forwarded_and_partitions_provider_identity(self):
+        p = OpenAIEmbeddingProvider(
+            api_key="k",
+            base_url="http://localhost:3000/v1",
+            model="mlx-embedding",
+            max_length=2048,
+        )
+        with patch(
+            "urllib.request.urlopen",
+            return_value=_make_openai_response([[0.1] * 1024]),
+        ) as mock_urlopen:
+            p.embed_query("x")
+        payload = json.loads(mock_urlopen.call_args[0][0].data.decode("utf-8"))
+        assert payload["max_length"] == 2048
+        assert p.name == "openai:mlx-embedding@http://localhost:3000/v1#max_length=2048"
+
+    def test_from_persisted_name_restores_local_max_length_suffix(self):
+        p = OpenAIEmbeddingProvider.from_persisted_name(
+            "openai:mlx-embedding@http://127.0.0.1:3000/v1#max_length=2048"
+        )
+
+        assert p is not None
+        assert p.name == "openai:mlx-embedding@http://127.0.0.1:3000/v1#max_length=2048"
+
     def test_base_url_trailing_slash_stripped(self):
         p = OpenAIEmbeddingProvider(
             api_key="k",
@@ -1568,6 +1592,12 @@ class TestGetProviderOpenAI:
         with patch.dict("os.environ", env, clear=True):
             p = get_provider("openai")
         assert p._dimension == 256
+
+    def test_max_length_env_forwarded(self):
+        env = {**self._MIN_ENV, "CRG_OPENAI_MAX_LENGTH": "2048"}
+        with patch.dict("os.environ", env, clear=True):
+            p = get_provider("openai")
+        assert p.name == "openai:text-embedding-3-small@http://127.0.0.1:3000/v1#max_length=2048"
 
     def test_localhost_suppresses_egress_warning(self, capsys):
         with patch.dict("os.environ", self._MIN_ENV, clear=True):
