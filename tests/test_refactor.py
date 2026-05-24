@@ -570,6 +570,49 @@ class TestFindDeadCode:
         assert "/repo/src/events.jl::BaseEvent" not in dead_qnames
         assert "/repo/src/worker.py::ConcreteWorker" in dead_qnames
 
+    def test_find_dead_code_marks_rust_value_types_low_confidence(self):
+        """Rust struct/enum candidates stay visible but get lower-confidence ranking."""
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Class",
+                name="Payload",
+                file_path="/repo/src/types.rs",
+                line_start=5,
+                line_end=20,
+                language="rust",
+                extra={"type_role": "struct", "derive_traits": ["Serialize", "Deserialize"]},
+            )
+        )
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Class",
+                name="Status",
+                file_path="/repo/src/types.rs",
+                line_start=22,
+                line_end=30,
+                language="rust",
+                extra={"type_role": "enum"},
+            )
+        )
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Class",
+                name="UnusedConcrete",
+                file_path="/repo/src/concrete.rs",
+                line_start=5,
+                line_end=20,
+                language="rust",
+                extra={"type_role": "class"},
+            )
+        )
+        self.store.commit()
+
+        dead_by_qn = {d["qualified_name"]: d for d in find_dead_code(self.store)}
+
+        assert dead_by_qn["/repo/src/types.rs::Payload"]["confidence"] == "low"
+        assert dead_by_qn["/repo/src/types.rs::Status"]["confidence"] == "low"
+        assert dead_by_qn["/repo/src/concrete.rs::UnusedConcrete"]["confidence"] == "medium"
+
     def test_find_dead_code_excludes_implementation_role_across_languages(self):
         """Implementation container roles are structural helpers, not dead code."""
         self.store.upsert_node(

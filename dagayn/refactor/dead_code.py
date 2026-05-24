@@ -50,6 +50,8 @@ _MIN_PKG_SEGMENT_LEN = 4
 _STRUCTURAL_CLASS_ROLES = frozenset(
     {"interface", "trait", "abstract_class", "abstract_type", "implementation"}
 )
+_VALUE_CONTAINER_CLASS_ROLES = frozenset({"struct", "enum"})
+_VALUE_CONTAINER_DERIVE_TRAITS = frozenset({"Serialize", "Deserialize"})
 
 
 @functools.lru_cache(maxsize=4096)
@@ -134,6 +136,19 @@ def _is_structural_type_node(node: Any) -> bool:
         if node.name.endswith("Protocol") or file_path.endswith("/_protocol.py"):
             return True
     return False
+
+
+def _dead_code_confidence(node: Any) -> str:
+    extra = node.extra if isinstance(node.extra, dict) else {}
+    role = extra.get("type_role")
+    if role in _VALUE_CONTAINER_CLASS_ROLES:
+        return "low"
+    derive_traits = extra.get("derive_traits")
+    if isinstance(derive_traits, (list, tuple, set)) and any(
+        trait in _VALUE_CONTAINER_DERIVE_TRAITS for trait in derive_traits
+    ):
+        return "low"
+    return "medium"
 
 
 def _survives_dead_code_node_filters(
@@ -228,7 +243,7 @@ def _dead_code_record(
         "file": node.file_path,
         "line": node.line_start,
         "language": node.language,
-        "confidence": "medium",
+        "confidence": _dead_code_confidence(node),
         "reason_codes": reason_codes,
         "evidence": {
             "caller_count": caller_count,

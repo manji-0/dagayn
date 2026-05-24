@@ -2099,8 +2099,13 @@ fn parses_rust_items_imports_and_calls() {
     let source = br#"pub use dagayn_graph::{GraphStore};
 use std::fs;
 
-struct Foo {
+#[derive(Serialize, Deserialize)]
+pub struct Foo {
     value: i32,
+}
+
+pub enum Mode {
+    Fast,
 }
 
 impl Foo {
@@ -2131,6 +2136,17 @@ fn helper() {}
         .collect::<Vec<_>>();
     assert!(node_names.contains(&("File", "src/lib.rs", None)));
     assert!(node_names.contains(&("Class", "Foo", None)));
+    assert!(node_names.contains(&("Class", "Mode", None)));
+    assert!(nodes.iter().any(|node| {
+        node.kind == "Class"
+            && node.name == "Foo"
+            && node.extra["type_role"] == "struct"
+            && node.modifiers.as_deref() == Some("pub")
+            && node.extra["derive_traits"] == serde_json::json!(["Serialize", "Deserialize"])
+    }));
+    assert!(nodes.iter().any(|node| {
+        node.kind == "Class" && node.name == "Mode" && node.extra["type_role"] == "enum"
+    }));
     assert!(node_names.contains(&("Function", "new", Some("Foo"))));
     assert!(node_names.contains(&("Function", "load", Some("Foo"))));
     assert!(node_names.contains(&("Function", "helper", None)));

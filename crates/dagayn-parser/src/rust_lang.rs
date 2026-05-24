@@ -71,9 +71,9 @@ fn rust_walk_children(
                         parent_name: enclosing_class.map(str::to_string),
                         params: None,
                         return_type: None,
-                        modifiers: None,
+                        modifiers: rust_type_modifiers(child, context.source),
                         is_test: false,
-                        extra: json!({"type_role": rust_type_role(child.kind())}),
+                        extra: rust_type_extra(child, context.source),
                     });
                     edges.push(ParsedEdge {
                         kind: "CONTAINS".to_string(),
@@ -251,7 +251,95 @@ fn rust_type_role(kind: &str) -> &'static str {
     match kind {
         "enum_item" => "enum",
         "impl_item" => "implementation",
+        "struct_item" => "struct",
         _ => "class",
+    }
+}
+
+fn rust_type_extra(node: tree_sitter::Node<'_>, source: &[u8]) -> serde_json::Value {
+    let mut extra = json!({"type_role": rust_type_role(node.kind())});
+    if let Some(derive_traits) = rust_derive_traits(node, source) {
+        extra["derive_traits"] = json!(derive_traits);
+    }
+    extra
+}
+
+fn rust_node_with_leading_attributes(
+    node: tree_sitter::Node<'_>,
+) -> impl Iterator<Item = tree_sitter::Node<'_>> {
+    let mut attrs = Vec::new();
+    let mut current = node.prev_sibling();
+    while let Some(sibling) = current {
+        if matches!(sibling.kind(), "attribute_item" | "inner_attribute_item") {
+            attrs.push(sibling);
+            current = sibling.prev_sibling();
+            continue;
+        }
+        break;
+    }
+    attrs.reverse();
+    attrs.into_iter().chain(std::iter::once(node))
+}
+
+fn rust_type_modifiers(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut modifiers = Vec::new();
+    if rust_has_pub_visibility(node, source) {
+        modifiers.push("pub");
+    }
+    if modifiers.is_empty() {
+        None
+    } else {
+        Some(modifiers.join(" "))
+    }
+}
+
+fn rust_has_pub_visibility(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+    for candidate in rust_node_with_leading_attributes(node) {
+        let mut cursor = candidate.walk();
+        for child in candidate.children(&mut cursor) {
+            if child.kind() == "visibility_modifier" {
+                let text = node_text(child, source);
+                if text.starts_with("pub") {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+fn rust_derive_traits(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<Vec<String>> {
+    let mut traits = Vec::new();
+    for candidate in rust_node_with_leading_attributes(node) {
+        let texts = if matches!(candidate.kind(), "attribute_item" | "inner_attribute_item") {
+            vec![node_text(candidate, source)]
+        } else {
+            let mut cursor = candidate.walk();
+            candidate
+                .children(&mut cursor)
+                .filter(|child| matches!(child.kind(), "attribute_item" | "inner_attribute_item"))
+                .map(|child| node_text(child, source))
+                .collect::<Vec<_>>()
+        };
+        for text in texts {
+            let Some(args) = text.strip_prefix("#[derive(") else {
+                continue;
+            };
+            let Some(args) = args.strip_suffix(")]") else {
+                continue;
+            };
+            for trait_name in args.split(',') {
+                let trimmed = trait_name.trim();
+                if !trimmed.is_empty() {
+                    traits.push(trimmed.to_string());
+                }
+            }
+        }
+    }
+    if traits.is_empty() {
+        None
+    } else {
+        Some(traits)
     }
 }
 

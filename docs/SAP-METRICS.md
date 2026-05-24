@@ -58,6 +58,7 @@ Each relevant node exposes:
 - `extra.type_role`
 - `extra.is_abstract`
 - `extra.is_contract`
+- language-specific metadata such as Rust `extra.derive_traits` and visibility in `modifiers`
 
 Normalized `type_role` values:
 
