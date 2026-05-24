@@ -13,12 +13,53 @@ from ..refactor import (
     rename_preview,
     suggest_refactorings,
 )
+from ..stability_policy import component_stability_profiles, scope_key_for_file
 from ._common import (
     _get_store,
     _validate_repo_root,
     graph_answerability_summary,
     missingness_from_answerability,
 )
+
+
+def _apply_stability_policy_to_suggestions(
+    suggestions: list[dict[str, Any]],
+    profiles: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    for suggestion in suggestions:
+        affected_files = [str(path) for path in suggestion.get("affected_files", [])]
+        stable_profiles = [
+            profiles[scope_key]
+            for scope_key in (scope_key_for_file(path) for path in affected_files)
+            if scope_key and profiles.get(scope_key, {}).get("stable")
+            or scope_key and profiles.get(scope_key, {}).get("should_be_stable")
+        ]
+        if not stable_profiles:
+            continue
+        suggestion["stability_policy"] = {
+            "status": "stable_component_guard",
+            "profiles": [
+                {
+                    "scope_key": profile.get("scope_key"),
+                    "instability": profile.get("instability"),
+                    "reason_codes": profile.get("reason_codes", []),
+                    "thresholds": profile.get("thresholds", {}),
+                }
+                for profile in stable_profiles[:3]
+            ],
+        }
+        work_pack = suggestion.setdefault("work_pack", {})
+        defer = work_pack.setdefault("defer_conditions", [])
+        defer.append("The affected component is stable or should be stable by shared policy.")
+        execution_plan = suggestion.setdefault("execution_plan", {})
+        plan_defer = execution_plan.setdefault("defer_if", [])
+        plan_defer.append("Stable component policy requires contract and test evidence first.")
+        if suggestion.get("type") in {"remove", "move", "split"}:
+            suggestion["confidence"] = "low" if suggestion.get("confidence") != "high" else "medium"
+            reason_codes = suggestion.setdefault("reason_codes", [])
+            if "stable_component_guard" not in reason_codes:
+                reason_codes.append("stable_component_guard")
+    return suggestions
 
 # ---------------------------------------------------------------------------
 # Tool 17: refactor_tool  [REFACTOR]
@@ -129,6 +170,10 @@ def refactor_func(
 
         else:  # suggest
             suggestions = suggest_refactorings(store)
+            suggestions = _apply_stability_policy_to_suggestions(
+                suggestions,
+                component_stability_profiles(store),
+            )
             total = len(suggestions)
             truncated = total > limit
             counts_by_type: dict[str, int] = {}

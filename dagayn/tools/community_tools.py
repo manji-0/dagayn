@@ -8,6 +8,7 @@ from .._scope import ArtifactScope
 from ..communities import get_architecture_overview, get_communities
 from ..graph import node_to_dict
 from ..hints import generate_hints, get_session
+from ..stability_policy import component_stability_profiles, stability_policy_summary
 from ._common import (
     _get_store,
     apply_output_budget,
@@ -395,6 +396,10 @@ def get_architecture_overview_func(
             overview,
             top_n=top_n,
             artifact_scope=artifact_scope,
+        )
+        result["stable_component_policy"] = stability_policy_summary(
+            component_stability_profiles(store),
+            limit=min(max(top_n, 1), 5),
         )
         result["answerability"] = answerability
         result["missingness"] = missingness_from_answerability(answerability)

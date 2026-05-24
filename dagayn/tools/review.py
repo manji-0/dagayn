@@ -7,13 +7,16 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from .._scope import node_file_to_scope_key
 from ..changes import analyze_changes, parse_diff_ranges, parse_git_diff_ranges  # noqa: F401
 from ..coverage import infer_tests_for_node, is_test_file_path
 from ..flows import get_affected_flows as _get_affected_flows
 from ..graph import edge_to_dict, node_to_dict
 from ..hints import generate_hints, get_session
 from ..incremental import get_changed_files, get_staged_and_unstaged
+from ..stability_policy import (
+    component_stability_profiles,
+    scope_key_for_file,
+)
 from ._common import (
     _get_store,
     apply_output_budget,
@@ -24,11 +27,6 @@ from ._common import (
 )
 
 logger = logging.getLogger(__name__)
-
-_STABLE_INSTABILITY_MAX = 0.35
-_SHOULD_BE_STABLE_CA_MIN = 3
-_STABLE_TEST_DENSITY_TARGET = 0.8
-_STABLE_DOC_DENSITY_TARGET = 0.5
 
 _ARTIFACT_TO_DOC_ROLES = {
     "implements_contract",
@@ -87,9 +85,7 @@ def _is_low_signal_doc_path(path: str) -> bool:
 
 
 def _scope_key_for_file(file_path: str | None) -> str | None:
-    if not file_path:
-        return None
-    return node_file_to_scope_key(file_path, "package")
+    return scope_key_for_file(file_path)
 
 
 def _scope_key_for_record(record: dict[str, Any]) -> str | None:
@@ -205,70 +201,7 @@ def _rank_test_gaps(test_gaps: list[dict[str, Any]], *, limit: int = 5) -> dict[
 
 def _component_stability_profiles(store: Any) -> dict[str, dict[str, Any]]:
     """Return package-level stability expectations from Clean Architecture metrics."""
-    try:
-        from ..architecture import compute_sdp_metrics
-        from ..sap import compute_sap_metrics
-
-        sdp_metrics = compute_sdp_metrics(store, granularity="package", artifact_scope="code")
-        sap_metrics = compute_sap_metrics(store, scope_kind="package", artifact_scope="code")
-    except Exception:  # pragma: no cover - defensive for backend parity drift
-        return {}
-
-    profiles: dict[str, dict[str, Any]] = {}
-    for metric in sdp_metrics:
-        scope_key = str(metric.get("name", ""))
-        if not scope_key:
-            continue
-        ca = int(metric.get("ca", 0) or 0)
-        ce = int(metric.get("ce", 0) or 0)
-        instability = float(metric.get("instability", 0.0) or 0.0)
-        reason_codes: list[str] = []
-        if ca + ce > 0 and instability <= _STABLE_INSTABILITY_MAX:
-            reason_codes.append("observed_stable_component")
-        if ca >= _SHOULD_BE_STABLE_CA_MIN or (ca >= 2 and ca > ce):
-            reason_codes.append("high_afferent_coupling_should_be_stable")
-        profiles[scope_key] = {
-            "scope_key": scope_key,
-            "ca": ca,
-            "ce": ce,
-            "instability": round(instability, 4),
-            "stable": "observed_stable_component" in reason_codes,
-            "should_be_stable": "high_afferent_coupling_should_be_stable" in reason_codes,
-            "reason_codes": reason_codes,
-            "expected_test_density": (_STABLE_TEST_DENSITY_TARGET if reason_codes else 0.5),
-            "expected_doc_density": (_STABLE_DOC_DENSITY_TARGET if reason_codes else 0.25),
-        }
-
-    for metric in sap_metrics:
-        scope_key = str(metric.get("scope_key", ""))
-        if not scope_key:
-            continue
-        profile = profiles.setdefault(
-            scope_key,
-            {
-                "scope_key": scope_key,
-                "ca": int(metric.get("ca", 0) or 0),
-                "ce": int(metric.get("ce", 0) or 0),
-                "instability": float(metric.get("instability", 0.0) or 0.0),
-                "stable": False,
-                "should_be_stable": False,
-                "reason_codes": [],
-                "expected_test_density": 0.5,
-                "expected_doc_density": 0.25,
-            },
-        )
-        profile["abstractness"] = metric.get("abstractness")
-        profile["sap_distance"] = metric.get("distance")
-        profile["sap_notes"] = metric.get("notes", [])
-        distance = float(metric.get("distance", 0.0) or 0.0)
-        instability = float(profile.get("instability", 0.0) or 0.0)
-        if distance >= 0.5 and instability <= _STABLE_INSTABILITY_MAX:
-            profile["reason_codes"].append("stable_concrete_pressure")
-            profile["should_be_stable"] = True
-            profile["expected_test_density"] = _STABLE_TEST_DENSITY_TARGET
-            profile["expected_doc_density"] = _STABLE_DOC_DENSITY_TARGET
-
-    return profiles
+    return component_stability_profiles(store)
 
 
 def _component_density_by_scope(store: Any, scopes: set[str]) -> dict[str, dict[str, Any]]:
