@@ -15,6 +15,9 @@
 Use `dagayn build --force-full-build` when you need a clean graph rebuild from
 scratch. It removes the existing `graph.db` plus SQLite sidecar files before
 running the normal full parse. `--force` is accepted as a shorter alias.
+`dagayn status` prints graph totals and embedding coverage for the same
+database, including the current state (`complete`, `partial`, `stale`, `empty`,
+or `not_indexed`) and provider-level vector counts.
 
 ### Local embedding refresh
 

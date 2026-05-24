@@ -46,6 +46,106 @@ _EMBEDDING_TEXT_MODES = {"metadata", "body"}
 _MARKDOWN_HEADING_RE = re.compile(r"^(#{1,6})\s+")
 _DOC_BODY_KINDS = {"DocSection", "DocBody"}
 
+
+def get_embedding_status(db_path: str | Path) -> dict[str, Any]:
+    """Return read-only embedding coverage for a graph database."""
+    path = Path(db_path)
+    try:
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    except sqlite3.Error as exc:
+        return {
+            "status": "unavailable",
+            "total_embeddings": 0,
+            "provider_counts": {},
+            "error": str(exc),
+        }
+
+    try:
+        conn.row_factory = sqlite3.Row
+        tables = {
+            str(row["name"])
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type IN ('table', 'view')"
+            ).fetchall()
+        }
+        if "embeddings" not in tables:
+            return {
+                "status": "not_indexed",
+                "total_embeddings": 0,
+                "provider_counts": {},
+            }
+
+        total_embeddings = int(
+            conn.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0]
+        )
+        provider_counts = {
+            str(row["provider"]): int(row["count"])
+            for row in conn.execute(
+                "SELECT provider, COUNT(*) AS count FROM embeddings GROUP BY provider"
+            ).fetchall()
+        }
+        status: dict[str, Any] = {
+            "status": "empty" if total_embeddings == 0 else "unknown",
+            "total_embeddings": total_embeddings,
+            "provider_counts": provider_counts,
+        }
+
+        if "nodes" not in tables:
+            return status
+
+        embeddable_nodes = int(
+            conn.execute("SELECT COUNT(*) FROM nodes WHERE kind != 'File'").fetchone()[0]
+        )
+        missing_embeddings = int(
+            conn.execute(
+                """
+                SELECT COUNT(*)
+                FROM nodes n
+                LEFT JOIN embeddings e ON e.qualified_name = n.qualified_name
+                WHERE n.kind != 'File' AND e.qualified_name IS NULL
+                """
+            ).fetchone()[0]
+        )
+        orphan_embeddings = int(
+            conn.execute(
+                """
+                SELECT COUNT(*)
+                FROM embeddings e
+                LEFT JOIN nodes n ON n.qualified_name = e.qualified_name
+                WHERE n.qualified_name IS NULL
+                """
+            ).fetchone()[0]
+        )
+
+        if total_embeddings == 0:
+            state = "empty"
+        elif orphan_embeddings:
+            state = "stale"
+        elif missing_embeddings:
+            state = "partial"
+        else:
+            state = "complete"
+
+        status.update(
+            {
+                "status": state,
+                "embeddable_nodes": embeddable_nodes,
+                "indexed_embeddings": total_embeddings - orphan_embeddings,
+                "missing_embeddings": missing_embeddings,
+                "orphan_embeddings": orphan_embeddings,
+            }
+        )
+        return status
+    except sqlite3.Error as exc:
+        return {
+            "status": "unavailable",
+            "total_embeddings": 0,
+            "provider_counts": {},
+            "error": str(exc),
+        }
+    finally:
+        conn.close()
+
 # ---------------------------------------------------------------------------
 # Provider Interface and Implementations
 # ---------------------------------------------------------------------------

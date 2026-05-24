@@ -72,6 +72,8 @@ dagayn status
 Use `build` the first time, `update` for change-driven refreshes, and `watch` during active development.
 Use `dagayn build --force-full-build` (or `--force`) to delete the existing
 graph database and SQLite sidecar files before running a clean full parse.
+`dagayn status` also reports embedding coverage from the current graph database,
+including provider counts, missing embeddable nodes, and orphaned embedding rows.
 
 ## Use the Rust backend
 

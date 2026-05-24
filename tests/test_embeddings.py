@@ -2,11 +2,13 @@
 
 import json
 import os
+import sqlite3
 import time
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from dagayn.cli.commands.build import _print_embedding_status
 from dagayn.embeddings import (
     LOCAL_DEFAULT_MODEL,
     EmbeddingStore,
@@ -18,6 +20,7 @@ from dagayn.embeddings import (
     _encode_vector,
     _is_localhost_url,
     _node_to_text,
+    get_embedding_status,
     get_provider,
     provider_from_persisted_name,
 )
@@ -42,6 +45,109 @@ class TestVectorEncoding:
         vec = [1.0, 2.0, 3.0]
         blob = _encode_vector(vec)
         assert len(blob) == 12  # 3 floats * 4 bytes each
+
+
+class TestEmbeddingStatus:
+    def _make_db(self, db_path, *, with_embeddings=True):
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "CREATE TABLE nodes (kind TEXT NOT NULL, qualified_name TEXT NOT NULL UNIQUE)"
+        )
+        if with_embeddings:
+            conn.execute(
+                "CREATE TABLE embeddings ("
+                "qualified_name TEXT PRIMARY KEY, "
+                "vector BLOB NOT NULL, "
+                "text_hash TEXT NOT NULL, "
+                "provider TEXT NOT NULL DEFAULT 'unknown')"
+            )
+        return conn
+
+    def test_not_indexed_when_embedding_table_missing(self, tmp_path):
+        db_path = tmp_path / "graph.db"
+        conn = self._make_db(db_path, with_embeddings=False)
+        conn.close()
+
+        assert get_embedding_status(db_path) == {
+            "status": "not_indexed",
+            "total_embeddings": 0,
+            "provider_counts": {},
+        }
+
+    def test_reports_complete_provider_coverage(self, tmp_path):
+        db_path = tmp_path / "graph.db"
+        conn = self._make_db(db_path)
+        conn.executemany(
+            "INSERT INTO nodes (kind, qualified_name) VALUES (?, ?)",
+            [("File", "app.py"), ("Function", "app.py::main")],
+        )
+        conn.execute(
+            "INSERT INTO embeddings (qualified_name, vector, text_hash, provider) "
+            "VALUES (?, ?, ?, ?)",
+            ("app.py::main", _encode_vector([1.0, 0.0]), "hash", "local:test"),
+        )
+        conn.commit()
+        conn.close()
+
+        assert get_embedding_status(db_path) == {
+            "status": "complete",
+            "total_embeddings": 1,
+            "provider_counts": {"local:test": 1},
+            "embeddable_nodes": 1,
+            "indexed_embeddings": 1,
+            "missing_embeddings": 0,
+            "orphan_embeddings": 0,
+        }
+
+    def test_reports_partial_and_stale_coverage(self, tmp_path):
+        db_path = tmp_path / "graph.db"
+        conn = self._make_db(db_path)
+        conn.executemany(
+            "INSERT INTO nodes (kind, qualified_name) VALUES (?, ?)",
+            [("Function", "app.py::main"), ("Class", "app.py::Widget")],
+        )
+        conn.executemany(
+            "INSERT INTO embeddings (qualified_name, vector, text_hash, provider) "
+            "VALUES (?, ?, ?, ?)",
+            [
+                ("app.py::main", _encode_vector([1.0, 0.0]), "hash", "local:test"),
+                ("old.py::gone", _encode_vector([0.0, 1.0]), "hash", "openai:test"),
+            ],
+        )
+        conn.commit()
+        conn.close()
+
+        status = get_embedding_status(db_path)
+
+        assert status["status"] == "stale"
+        assert status["total_embeddings"] == 2
+        assert status["provider_counts"] == {"local:test": 1, "openai:test": 1}
+        assert status["embeddable_nodes"] == 2
+        assert status["indexed_embeddings"] == 1
+        assert status["missing_embeddings"] == 1
+        assert status["orphan_embeddings"] == 1
+
+    def test_cli_status_prints_embedding_state(self, tmp_path, capsys):
+        db_path = tmp_path / "graph.db"
+        conn = self._make_db(db_path)
+        conn.executemany(
+            "INSERT INTO nodes (kind, qualified_name) VALUES (?, ?)",
+            [("Function", "app.py::main"), ("Function", "app.py::helper")],
+        )
+        conn.execute(
+            "INSERT INTO embeddings (qualified_name, vector, text_hash, provider) "
+            "VALUES (?, ?, ?, ?)",
+            ("app.py::main", _encode_vector([1.0, 0.0]), "hash", "local:test"),
+        )
+        conn.commit()
+        conn.close()
+
+        _print_embedding_status(db_path)
+
+        out = capsys.readouterr().out
+        assert "Embeddings: partial (1 vectors, 1 provider(s))" in out
+        assert "Coverage: 1/2 embeddable nodes (1 missing)" in out
+        assert "Provider: local:test (1)" in out
 
 
 class TestCosineSimilarity:

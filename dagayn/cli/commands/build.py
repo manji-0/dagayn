@@ -45,6 +45,36 @@ def _print_local_embedding_summary(result: dict) -> None:
     )
 
 
+def _print_embedding_status(db_path: Path) -> None:
+    from ...embeddings import get_embedding_status
+
+    status = get_embedding_status(db_path)
+    state = status.get("status", "unknown")
+    total = int(status.get("total_embeddings") or 0)
+    providers = status.get("provider_counts") or {}
+    if state == "not_indexed":
+        print("Embeddings: not indexed")
+        return
+    if state == "unavailable":
+        message = status.get("error") or "unavailable"
+        print(f"Embeddings: unavailable ({message})")
+        return
+
+    provider_count = len(providers)
+    print(f"Embeddings: {state} ({total} vectors, {provider_count} provider(s))")
+
+    embeddable = status.get("embeddable_nodes")
+    indexed = status.get("indexed_embeddings", total)
+    missing = status.get("missing_embeddings")
+    orphan = status.get("orphan_embeddings")
+    if embeddable is not None and missing is not None and orphan is not None:
+        print(f"  Coverage: {indexed}/{embeddable} embeddable nodes ({missing} missing)")
+        if orphan:
+            print(f"  Orphans: {orphan}")
+    for provider, count in sorted(providers.items()):
+        print(f"  Provider: {provider} ({count})")
+
+
 def register_commands(sub: argparse._SubParsersAction) -> dict:
     """Register build/update/postprocess/watch/status/visualize subcommands."""
 
@@ -455,6 +485,7 @@ def handle(args: argparse.Namespace) -> None:
             print(f"Files: {stats.files_count}")
             print(f"Languages: {', '.join(stats.languages)}")
             print(f"Last updated: {stats.last_updated or 'never'}")
+            _print_embedding_status(db_path)
             # Show branch info and warn if stale
             stored_branch = store.get_metadata("git_branch")
             stored_sha = store.get_metadata("git_head_sha")
