@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "dagayn"
-version = "4.0.3"
+version = "4.0.4"
 description = "Fork of code-review-graph with first-class Terraform support powered by treesitter-tf"
 readme = "README.md"
 license = "MIT"
@@ -82,6 +82,7 @@ dev = [
 manifest-path = "crates/dagayn-py/Cargo.toml"
 module-name = "dagayn._core"
 python-source = "."
+features = ["extension-module"]
 include = [
     { path = "README.md", format = "sdist" },
     { path = "LICENSE", format = "sdist" },

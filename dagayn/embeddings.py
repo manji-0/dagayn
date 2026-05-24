@@ -25,10 +25,10 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 if TYPE_CHECKING:
-    import numpy as np  # ty: ignore[unresolved-import]
+    import numpy as np
 else:
     try:
-        import numpy as np  # ty: ignore[unresolved-import]
+        import numpy as np
 
         _NUMPY_AVAILABLE = True
     except ImportError:
@@ -88,7 +88,7 @@ class LocalEmbeddingProvider(EmbeddingProvider):
     def _get_model(self):
         if self._model is None:
             try:
-                import sentence_transformers  # ty: ignore[unresolved-import]
+                import sentence_transformers
 
                 self._model = sentence_transformers.SentenceTransformer(
                     self._model_name,
@@ -122,7 +122,7 @@ class LocalEmbeddingProvider(EmbeddingProvider):
 class GoogleEmbeddingProvider(EmbeddingProvider):
     def __init__(self, api_key: str, model: str = "gemini-embedding-001") -> None:
         try:
-            from google import genai  # ty: ignore[unresolved-import]
+            from google import genai
 
             self._client = genai.Client(api_key=api_key)
             self.model = model
@@ -744,7 +744,7 @@ def provider_from_persisted_name(provider_name: str) -> EmbeddingProvider | None
 def _check_available() -> bool:
     """Check whether local embedding support is available."""
     try:
-        import sentence_transformers  # noqa: F401  # ty: ignore[unresolved-import]
+        import sentence_transformers  # noqa: F401
 
         return True
     except ImportError:

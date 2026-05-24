@@ -272,13 +272,16 @@ class TestSapMetrics:
 class TestSapViolations:
     def test_domain_not_flagged_as_zone_of_pain(self, java_store):
         """domain/ has D=1.0 but Ca=0, Ce=0 (isolated) — should NOT appear in
-        violations. Isolated scopes cannot violate SAP because they have no
-        dependencies."""
+        violations. The Java fixture itself is also under tests/fixtures, so
+        find_sap_violations suppresses its raw far-from-sequence readings."""
         violations = find_sap_violations(java_store, min_distance=0.4)
         flagged = {v["scope_key"] for v in violations}
         assert _scope("domain") not in flagged
-        # impl should be flagged (D=0.5, Ce=1)
-        assert _scope("impl") in flagged
+        assert _scope("impl") not in flagged
+
+        metrics = {m["scope_key"]: m for m in compute_sap_metrics(java_store)}
+        assert metrics[_scope("impl")]["distance"] == 0.5
+        assert "fixture-scope" in metrics[_scope("impl")].get("notes", [])
 
     def test_api_not_flagged_as_violation(self, java_store):
         """api/ has D=0.0, should not appear in violations."""

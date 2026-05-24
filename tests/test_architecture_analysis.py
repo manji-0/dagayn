@@ -12,9 +12,15 @@ def test_architecture_analysis_sap_violations_preserves_exclusion_explanation(mo
         "detect_sap_violations_func",
         lambda **kwargs: {
             "status": "ok",
-            "summary": "Found 1 SAP violation. sap_violations suppresses test and fixture scopes; inspect sap_metrics notes for raw values.",
+            "summary": (
+                "Found 1 SAP violation. sap_violations suppresses test and fixture "
+                "scopes; inspect sap_metrics notes for raw values."
+            ),
             "excluded_scope_categories": ["test-scope", "fixture-scope"],
-            "exclusion_reason": "test and fixture scopes are retained in sap_metrics notes but omitted from sap_violations",
+            "exclusion_reason": (
+                "test and fixture scopes are retained in sap_metrics notes but "
+                "omitted from sap_violations"
+            ),
         },
     )
 

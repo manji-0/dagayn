@@ -126,7 +126,8 @@ def detect_sap_violations_func(
         "ok",
         f"Found {total} SAP violation(s) at {scope_kind} level "
         f"(artifact_scope={artifact_scope}, min_distance={min_distance})."
-        + " sap_violations suppresses test and fixture scopes; inspect sap_metrics notes for raw values."
+        + " sap_violations suppresses test and fixture scopes; inspect "
+        "sap_metrics notes for raw values."
         + (f" Showing top {top_n} by distance." if truncated else ""),
         violations=violations[:top_n],
         count=total,

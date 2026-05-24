@@ -8,11 +8,15 @@ build = "build.rs"
 
 [lib]
 name = "_core"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+extension-module = ["pyo3/extension-module"]
 
 [dependencies]
 dagayn-core = { path = "../dagayn-core" }
-pyo3 = { workspace = true, features = ["extension-module"] }
+pyo3.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 

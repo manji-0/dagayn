@@ -228,12 +228,8 @@ def _component_stability_profiles(store: Any) -> dict[str, dict[str, Any]]:
             "stable": "observed_stable_component" in reason_codes,
             "should_be_stable": "high_afferent_coupling_should_be_stable" in reason_codes,
             "reason_codes": reason_codes,
-            "expected_test_density": (
-                _STABLE_TEST_DENSITY_TARGET if reason_codes else 0.5
-            ),
-            "expected_doc_density": (
-                _STABLE_DOC_DENSITY_TARGET if reason_codes else 0.25
-            ),
+            "expected_test_density": (_STABLE_TEST_DENSITY_TARGET if reason_codes else 0.5),
+            "expected_doc_density": (_STABLE_DOC_DENSITY_TARGET if reason_codes else 0.25),
         }
 
     for metric in sap_metrics:
@@ -436,8 +432,7 @@ def _recommend_tests(
                     "score": round(
                         min(
                             1.0,
-                            (0.75 if test.get("confidence") == "high" else 0.65)
-                            + stability_bonus,
+                            (0.75 if test.get("confidence") == "high" else 0.65) + stability_bonus,
                         ),
                         4,
                     ),
@@ -660,9 +655,7 @@ def _stability_contracts(
             reason_codes.append("stable_component_missing_documentation")
 
         status = (
-            "warn"
-            if any(code.startswith("stable_component_") for code in reason_codes)
-            else "ok"
+            "warn" if any(code.startswith("stable_component_") for code in reason_codes) else "ok"
         )
         contracts.append(
             {
@@ -1356,9 +1349,7 @@ def detect_changes_func(
                 "stability_contracts": analysis_summary["stability_contracts"][:5],
                 "architecture_delta": {
                     "mode": analysis_summary["architecture_delta"]["mode"],
-                    "changed_scopes": analysis_summary["architecture_delta"][
-                        "changed_scopes"
-                    ],
+                    "changed_scopes": analysis_summary["architecture_delta"]["changed_scopes"],
                     "counts": analysis_summary["architecture_delta"]["counts"],
                     "baseline_comparison": analysis_summary["architecture_delta"][
                         "baseline_comparison"

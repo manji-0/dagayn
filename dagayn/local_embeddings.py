@@ -20,7 +20,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 from urllib.parse import urlparse
 
 LocalEmbeddingLevel = Literal["low"]
@@ -128,10 +128,8 @@ def _default_local_embedding_runtime() -> LocalEmbeddingRuntime:
     if configured:
         normalized = configured.strip().lower()
         if normalized in ("llama", "mlx"):
-            return normalized  # type: ignore[return-value]
-        raise ValueError(
-            "DAGAYN_LOCAL_EMBEDDING_RUNTIME must be one of: llama, mlx."
-        )
+            return cast(LocalEmbeddingRuntime, normalized)
+        raise ValueError("DAGAYN_LOCAL_EMBEDDING_RUNTIME must be one of: llama, mlx.")
     machine = platform.machine().lower()
     if platform.system() == "Darwin" and machine in {"arm64", "aarch64"}:
         return "mlx"
@@ -152,14 +150,15 @@ def get_local_embedding_preset(
         raise ValueError(f"Unknown local embedding preset '{level}'. Expected one of: {choices}.")
 
     selected_runtime = (runtime or _default_local_embedding_runtime()).strip().lower()
-    presets = LOCAL_EMBEDDING_PRESETS[normalized]  # type: ignore[index]
+    selected_level = cast(LocalEmbeddingLevel, normalized)
+    presets = LOCAL_EMBEDDING_PRESETS[selected_level]
     if selected_runtime not in presets:
         runtime_choices = ", ".join(sorted(presets))
         raise ValueError(
             f"Unknown local embedding runtime '{selected_runtime}' for preset "
             f"'{normalized}'. Expected one of: {runtime_choices}."
         )
-    return presets[selected_runtime]  # type: ignore[index]
+    return presets[cast(LocalEmbeddingRuntime, selected_runtime)]
 
 
 def local_embedding_base_url(port: int) -> str:

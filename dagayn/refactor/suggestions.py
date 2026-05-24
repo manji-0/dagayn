@@ -350,9 +350,7 @@ def _work_pack_for_suggestion(
     affected_files = [str(path) for path in suggestion.get("affected_files", [])]
     evidence = suggestion.get("evidence", {})
     split_pressure = (
-        float(evidence.get("split_pressure", 0.0))
-        if isinstance(evidence, dict)
-        else 0.0
+        float(evidence.get("split_pressure", 0.0)) if isinstance(evidence, dict) else 0.0
     )
     stype = str(suggestion.get("type", "unknown"))
     estimated_size = "small"
@@ -376,7 +374,7 @@ def _work_pack_for_suggestion(
                 "explicitly says otherwise."
             ),
             "Focused tests pass for the affected file or package.",
-            "review_tool(mode=\"changes\") does not show unexpected blast-radius growth.",
+            'review_tool(mode="changes") does not show unexpected blast-radius growth.',
         ],
         "risk_controls": execution_plan.get("safety_checks", []),
     }

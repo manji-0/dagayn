@@ -130,9 +130,7 @@ def _run_local_embedding(
                 if server.preset.request_max_length is None:
                     os.environ.pop("CRG_OPENAI_MAX_LENGTH", None)
                 else:
-                    os.environ["CRG_OPENAI_MAX_LENGTH"] = str(
-                        server.preset.request_max_length
-                    )
+                    os.environ["CRG_OPENAI_MAX_LENGTH"] = str(server.preset.request_max_length)
                 result = embed_graph(
                     repo_root=str(root),
                     provider="openai",
