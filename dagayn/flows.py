@@ -537,6 +537,10 @@ def incremental_trace_flows(
                 chunk = id_list[i : i + _batch_size]
                 placeholders = ",".join("?" * len(chunk))
                 conn.execute(  # nosec B608
+                    f"DELETE FROM flow_snapshots WHERE flow_id IN ({placeholders})",
+                    chunk,
+                )
+                conn.execute(  # nosec B608
                     f"DELETE FROM flow_memberships WHERE flow_id IN ({placeholders})",
                     chunk,
                 )

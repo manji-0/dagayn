@@ -122,6 +122,14 @@ def refactor_func(
                 "summary": f"Generated {total} refactoring suggestion(s)."
                 + (f" Showing first {limit}." if truncated else ""),
                 "suggestions": suggestions[:limit],
+                "work_packs": [
+                    {
+                        "symbols": suggestion.get("symbols", []),
+                        "type": suggestion.get("type"),
+                        **suggestion.get("work_pack", {}),
+                    }
+                    for suggestion in suggestions[: min(limit, 5)]
+                ],
                 "total": total,
                 "truncated": truncated,
                 "counts_by_type": counts_by_type,

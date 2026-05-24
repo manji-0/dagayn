@@ -775,6 +775,9 @@ class TestSuggestRefactorings:
             assert "execution_plan" in s
             assert "minimum_steps" in s["execution_plan"]
             assert "required_tests" in s["execution_plan"]
+            assert "work_pack" in s
+            assert "estimated_size" in s["work_pack"]
+            assert "success_criteria" in s["work_pack"]
             assert s["type"] in ("move", "remove", "split", "document")
 
     def test_remove_suggestions_prioritize_executable_code(self):

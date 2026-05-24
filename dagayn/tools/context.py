@@ -208,6 +208,73 @@ def _names_from_items(items: list[dict[str, Any]], *, limit: int) -> list[str]:
     return names
 
 
+def _graph_answerability(store: Any, stats: Any) -> dict[str, Any]:
+    """Summarize whether the graph can answer review/exploration questions."""
+    conn = getattr(store, "_conn", None)
+    if conn is None:
+        return {
+            "status": "unknown",
+            "score": 0.0,
+            "issues": ["no_sqlite_connection"],
+            "parse": [stats.files_count, len(stats.languages), bool(stats.last_updated)],
+        }
+
+    def _count(sql: str, params: tuple[Any, ...] = ()) -> int:
+        row = conn.execute(sql, params).fetchone()
+        return int(row[0] if row else 0)
+
+    flow_count = _count("SELECT COUNT(*) FROM flows")
+    community_count = _count("SELECT COUNT(*) FROM communities")
+    test_edge_count = int(stats.edges_by_kind.get("TESTED_BY", 0))
+    cross_artifact_count = int(stats.edges_by_kind.get("CROSS_ARTIFACT", 0))
+    unresolved_cross_artifact_count = _count(
+        "SELECT COUNT(*) FROM edges "
+        "WHERE kind = 'CROSS_ARTIFACT' AND target_qualified LIKE '<unresolved:%'"
+    )
+    unresolved_ratio = (
+        unresolved_cross_artifact_count / cross_artifact_count if cross_artifact_count else 0.0
+    )
+
+    reason_codes: list[str] = []
+    score = 1.0
+    if stats.total_nodes == 0 or stats.files_count == 0:
+        reason_codes.append("empty_graph")
+        score = 0.0
+    if flow_count == 0:
+        reason_codes.append("no_flows")
+        score -= 0.15
+    if community_count == 0:
+        reason_codes.append("no_communities")
+        score -= 0.15
+    if test_edge_count == 0:
+        reason_codes.append("no_test_edges")
+        score -= 0.1
+    if cross_artifact_count and unresolved_ratio > 0.35:
+        reason_codes.append("many_unresolved_cross_artifact_edges")
+        score -= 0.15
+    if not stats.last_updated:
+        reason_codes.append("missing_last_updated")
+        score -= 0.1
+
+    score = max(0.0, round(score, 4))
+    status = "ok" if score >= 0.75 else "degraded" if score > 0 else "empty"
+    health = {
+        "status": status,
+        "score": score,
+        "parse": [stats.files_count, len(stats.languages), bool(stats.last_updated)],
+        "answerability": [
+            flow_count,
+            community_count,
+            test_edge_count,
+            cross_artifact_count,
+            round(unresolved_ratio, 4),
+        ],
+    }
+    if unresolved_cross_artifact_count:
+        health["unresolved_edges"] = unresolved_cross_artifact_count
+    return health
+
+
 def _task_mentions(task: str, keywords: tuple[str, ...]) -> bool:
     """Return whether *task* contains any workflow keyword."""
     task_folded = task.casefold()
@@ -269,6 +336,7 @@ def get_minimal_context(
     try:
         # 1. Quick stats
         stats = store.get_stats()
+        graph_health = _graph_answerability(store, stats)
 
         # 2. Risk from changed files
         risk = "unknown"
@@ -376,6 +444,7 @@ def get_minimal_context(
         response["recommended_action"] = guidance["recommended_action"]
         response["why"] = guidance["why"]
         response["confidence"] = guidance["confidence"]
+        response["graph_health"] = graph_health
         return response
     finally:
         store.close()

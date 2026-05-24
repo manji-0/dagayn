@@ -516,6 +516,29 @@ class TestChanges:
         assert _classify_test_gap({"file": "tests/test_tools.py"}) == "test_artifact"
         assert _classify_test_gap({"file": "dagayn/tools/review.py"}) == "actionable"
 
+    def test_stability_helper_weights_and_node_filters(self):
+        """Stable-component helper scoring stays deterministic and code-only."""
+        from dagayn.tools.review import (
+            _confidence_weight,
+            _doc_role_weight,
+            _is_low_signal_doc_path,
+            _is_production_code_node,
+            _scope_key_for_file,
+        )
+
+        self._add_func("handler", path="app.py", line_start=1, line_end=5)
+        self._add_func("test_handler", path="tests/test_app.py", is_test=True)
+        prod_node = self.store.get_node("app.py::handler")
+        test_node = self.store.get_node("tests/test_app.py::test_handler")
+
+        assert _scope_key_for_file("dagayn/tools/review.py") == "dagayn/tools"
+        assert _confidence_weight(0.2, "HIGH") == 0.9
+        assert _doc_role_weight("implemented_by") > _doc_role_weight("discusses_artifact")
+        assert _is_production_code_node(prod_node) is True
+        assert _is_production_code_node(test_node) is False
+        assert _is_low_signal_doc_path("AGENTS.md") is True
+        assert _is_low_signal_doc_path("docs/COMMANDS.md") is False
+
     def test_detect_changes_tool_with_changes(self):
         """detect_changes_func returns full analysis for changed files."""
         from dagayn.tools import detect_changes_func
@@ -562,6 +585,88 @@ class TestChanges:
             assert "next_drill_downs" in summary
             assert "test_gap_ranking" in summary
             assert "signal_quality" in summary
+
+    def test_detect_changes_scores_stable_component_tests_and_docs(self):
+        """Stable packages should surface stronger test and documentation signals."""
+        from dagayn.tools import detect_changes_func
+
+        root = Path("/fake/repo")
+        service = root / "core" / "service.py"
+        client = root / "clients" / "client.py"
+        test_file = root / "tests" / "test_service.py"
+        doc_file = root / "docs" / "service.md"
+        service_qn = f"{service}::stable_api"
+        client_qn = f"{client}::use_service"
+        test_qn = f"{test_file}::test_stable_api"
+        doc_qn = f"{doc_file}::stable-api-contract"
+
+        self._add_func("stable_api", path=str(service), line_start=1, line_end=10)
+        self._add_func("use_service", path=str(client), line_start=1, line_end=10)
+        self._add_func(
+            "test_stable_api",
+            path=str(test_file),
+            is_test=True,
+            line_start=1,
+            line_end=10,
+        )
+        self.store.upsert_node(
+            NodeInfo(
+                kind="DocSection",
+                name="stable-api-contract",
+                file_path=str(doc_file),
+                line_start=1,
+                line_end=4,
+                language="markdown",
+            )
+        )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="IMPORTS_FROM",
+                source=client_qn,
+                target=service_qn,
+                file_path=str(client),
+                line=1,
+            )
+        )
+        self._add_tested_by(service_qn, test_qn, path=str(test_file))
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CROSS_ARTIFACT",
+                source=doc_qn,
+                target=service_qn,
+                file_path=str(doc_file),
+                line=2,
+                extra={
+                    "relationship_role": "implemented_by",
+                    "bridge_kind": "documentation",
+                },
+            )
+        )
+        self.store.commit()
+
+        with (
+            patch("dagayn.tools.review._get_store") as mock_get_store,
+            patch("dagayn.tools.review.get_changed_files", return_value=["core/service.py"]),
+            patch(
+                "dagayn.tools.review.parse_diff_ranges",
+                return_value={str(service): [(1, 10)]},
+            ),
+        ):
+            mock_get_store.return_value = (self.store, root)
+            self.store.close = lambda: None
+
+            result = detect_changes_func(base="HEAD~1", repo_root=str(root))
+
+        summary = result["analysis_summary"]
+        assert summary["recommended_tests"][0]["qualified_name"] == test_qn
+        assert summary["recommended_tests"][0]["score"] >= 0.95
+        assert summary["recommended_tests"][0]["stability"]["stable"] is True
+        assert summary["documentation_update_candidates"][0]["qualified_name"] == doc_qn
+        assert summary["documentation_update_candidates"][0]["stable_contract"] is True
+        contract = summary["stability_contracts"][0]
+        assert contract["scope_key"].endswith("core")
+        assert contract["stable"] is True
+        assert contract["status"] == "ok"
 
     def test_detect_changes_tool_trims_changed_functions(self):
         """detect_changes_func should budget changed_functions for large PRs."""
