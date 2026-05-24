@@ -36,6 +36,11 @@ dependencies = [
 ]
 
 [project.urls]
+Homepage = "https://github.com/manji-0/dagayn"
+Repository = "https://github.com/manji-0/dagayn"
+Issues = "https://github.com/manji-0/dagayn/issues"
+Changelog = "https://github.com/manji-0/dagayn/blob/main/CHANGELOG.md"
+PyPI = "https://pypi.org/project/dagayn/"
 Upstream = "https://github.com/tirth8205/code-review-graph"
 
 [project.scripts]
