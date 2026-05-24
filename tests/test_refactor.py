@@ -1205,6 +1205,12 @@ class TestSuggestRefactorings:
             assert "required_tests" in s["execution_plan"]
             assert "work_pack" in s
             assert "estimated_size" in s["work_pack"]
+            assert "blast_radius" in s["work_pack"]
+            assert "required_tests" in s["work_pack"]
+            assert "documentation_obligations" in s["work_pack"]
+            assert "safe_first_commit" in s["work_pack"]
+            assert "rollback_path" in s["work_pack"]
+            assert "defer_conditions" in s["work_pack"]
             assert "success_criteria" in s["work_pack"]
             assert s["type"] in ("move", "remove", "split", "document")
 

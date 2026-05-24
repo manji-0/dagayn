@@ -364,10 +364,31 @@ def _work_pack_for_suggestion(
     primary_file = affected_files[0] if affected_files else None
     owner_scope = Path(primary_file).parent.as_posix() if primary_file else None
     required_tests = list(execution_plan.get("required_tests", []))
+    blast_radius = {
+        "affected_file_count": len(affected_files),
+        "affected_files": affected_files[:5],
+        "symbol_count": len(suggestion.get("symbols", [])),
+        "estimated_risk": suggestion.get("estimated_risk", "medium"),
+    }
+    documentation_obligations = []
+    if stype in {"move", "remove", "split"}:
+        documentation_obligations.append(
+            "Check docs_for/implementations_of for authored contracts before editing."
+        )
+    if stype == "document":
+        documentation_obligations.append(
+            "Prefer contract, invariant, and edge-case documentation over line commentary."
+        )
     return {
         "owner_scope": owner_scope,
         "primary_file": primary_file,
         "estimated_size": estimated_size,
+        "blast_radius": blast_radius,
+        "required_tests": required_tests,
+        "documentation_obligations": documentation_obligations,
+        "safe_first_commit": execution_plan.get("minimum_steps", ["Inspect evidence first."])[0],
+        "rollback_path": execution_plan.get("rollback"),
+        "defer_conditions": list(execution_plan.get("defer_if", [])),
         "first_commit": execution_plan.get("minimum_steps", ["Inspect evidence first."])[0],
         "verification_commands": required_tests,
         "success_criteria": [

@@ -17,7 +17,9 @@ from ..stability_policy import component_stability_profiles, scope_key_for_file
 from ._common import (
     _get_store,
     _validate_repo_root,
+    guidance_actions_to_hints,
     graph_answerability_summary,
+    make_guidance_item,
     missingness_from_answerability,
 )
 
@@ -60,6 +62,62 @@ def _apply_stability_policy_to_suggestions(
             if "stable_component_guard" not in reason_codes:
                 reason_codes.append("stable_component_guard")
     return suggestions
+
+
+def _refactor_guidance(suggestions: list[dict[str, Any]], *, limit: int = 3) -> list[dict[str, Any]]:
+    guidance: list[dict[str, Any]] = []
+    for suggestion in suggestions[:limit]:
+        work_pack = suggestion.get("work_pack", {})
+        evidence = suggestion.get("evidence", {})
+        evidence_type = "computed" if evidence else "evaluated"
+        missingness = []
+        if suggestion.get("type") in {"remove", "move"}:
+            missingness.append(
+                {
+                    "reason_code": "dynamic_dispatch_not_proven_absent",
+                    "severity": "medium",
+                    "claim_effect": "verify runtime registration, generated code, and public APIs",
+                }
+            )
+        for condition in work_pack.get("defer_conditions", [])[:3]:
+            missingness.append(
+                {
+                    "reason_code": "defer_condition",
+                    "severity": "medium",
+                    "claim_effect": str(condition),
+                }
+            )
+        guidance.append(
+            make_guidance_item(
+                claim=str(suggestion.get("description", "Review refactor suggestion.")),
+                evidence={
+                    "type": evidence_type,
+                    "suggestion_type": suggestion.get("type"),
+                    "symbols": suggestion.get("symbols", []),
+                    "reason_codes": suggestion.get("reason_codes", []),
+                    "raw": evidence,
+                },
+                confidence=str(suggestion.get("confidence", "unknown")),
+                missingness=missingness,
+                action=(
+                    "refactor_tool mode=\"suggest\" -- inspect work_pack, then run the "
+                    "verification commands before editing"
+                ),
+                reason_codes=list(suggestion.get("reason_codes", [])),
+                counts=work_pack.get("blast_radius", {}),
+                work_pack={
+                    key: work_pack.get(key)
+                    for key in (
+                        "safe_first_commit",
+                        "required_tests",
+                        "documentation_obligations",
+                        "rollback_path",
+                        "defer_conditions",
+                    )
+                },
+            )
+        )
+    return guidance
 
 # ---------------------------------------------------------------------------
 # Tool 17: refactor_tool  [REFACTOR]
@@ -193,13 +251,16 @@ def refactor_func(
                     }
                     for suggestion in suggestions[: min(limit, 5)]
                 ],
+                "guidance": _refactor_guidance(suggestions[:limit]),
                 "total": total,
                 "truncated": truncated,
                 "counts_by_type": counts_by_type,
                 "answerability": answerability,
                 "missingness": missingness,
             }
-            result["_hints"] = generate_hints("refactor", result, get_session())
+            result["_hints"] = guidance_actions_to_hints(result["guidance"])
+            if not result["_hints"]["next_steps"]:
+                result["_hints"] = generate_hints("refactor", result, get_session())
             return result
 
     except Exception as exc:
