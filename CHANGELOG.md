@@ -2,6 +2,13 @@
 
 All notable changes to `dagayn` are documented here.
 
+## 4.1.1 — 2026-05-25
+
+### Fixes
+
+- Restore strict CI compatibility for ruff, ty, and Rust clippy after the
+  interface remediation release.
+
 ## 4.1.0 — 2026-05-25
 
 ### Improvements
