@@ -26,7 +26,7 @@ from dagayn.refactor.concerns import (
     comment_line_count,
     function_concern_profile,
 )
-from dagayn.refactor.dead_code import find_dead_code
+from dagayn.refactor.dead_code import _source_line, find_dead_code
 
 
 class TestFunctionConcernProfile:
@@ -302,6 +302,15 @@ class TestRenamePreview:
 
 class TestFindDeadCode:
     """Tests for find_dead_code."""
+
+    def test_source_line_bounds(self):
+        """Source lookup returns stripped lines and treats invalid locations as missing."""
+        lines = ["def kept():", "    return 1"]
+        assert _source_line(lines, 1) == "def kept():"
+        assert _source_line(lines, 2) == "return 1"
+        assert _source_line(lines, 0) == ""
+        assert _source_line(lines, 3) == ""
+        assert _source_line(lines, None) == ""
 
     def setup_method(self):
         self.tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)

@@ -2,6 +2,14 @@
 
 All notable changes to `dagayn` are documented here.
 
+## 4.1.4 — 2026-05-25
+
+### Fixes
+
+- Calibrate `refactor_tool(mode="dead_code")` confidence so public APIs,
+  ambiguous symbol names, and candidates without readable source are reported
+  as lower-confidence review leads instead of ordinary deletion candidates.
+
 ## 4.1.3 — 2026-05-25
 
 ### Fixes
