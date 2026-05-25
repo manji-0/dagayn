@@ -283,6 +283,52 @@ fn helpers_make_qualified_hash_time_and_question_rows_have_stable_contracts() {
     assert_eq!(question_edge.kind, "CALLS");
     assert_eq!(question_edge.source_qualified, "app.py::entry");
     assert_eq!(question_edge.target_qualified, "app.py::middle");
+
+    assert_eq!(nearest_rank_percentile(&[], 0.95), 0);
+    assert_eq!(nearest_rank_percentile(&[1, 5, 10, 20], 0.0), 1);
+    assert_eq!(nearest_rank_percentile(&[1, 5, 10, 20], 0.5), 5);
+    assert_eq!(nearest_rank_percentile(&[1, 5, 10, 20], 0.95), 20);
+    assert_eq!(nearest_rank_percentile(&[1, 5, 10, 20], 1.0), 20);
+
+    assert!(is_analysis_excluded_from_test_gap(&QuestionNode {
+        kind: "Function".to_string(),
+        name: "unit".to_string(),
+        qualified_name: "tests/test_app.py::unit".to_string(),
+        file_path: "tests/test_app.py".to_string(),
+        language: "python".to_string(),
+        is_test: false,
+    }));
+    assert!(is_analysis_excluded_from_test_gap(&QuestionNode {
+        kind: "Function".to_string(),
+        name: "unit".to_string(),
+        qualified_name: "src/service.spec.ts::unit".to_string(),
+        file_path: "src/service.spec.ts".to_string(),
+        language: "typescript".to_string(),
+        is_test: false,
+    }));
+    assert!(is_analysis_excluded_from_test_gap(&QuestionNode {
+        kind: "Section".to_string(),
+        name: "usage".to_string(),
+        qualified_name: "README.md::usage".to_string(),
+        file_path: "README.md".to_string(),
+        language: "markdown".to_string(),
+        is_test: false,
+    }));
+    assert!(!is_analysis_excluded_from_test_gap(&QuestionNode {
+        kind: "Function".to_string(),
+        name: "run".to_string(),
+        qualified_name: "src/service.py::run".to_string(),
+        file_path: "src/service.py".to_string(),
+        language: "python".to_string(),
+        is_test: false,
+    }));
+
+    assert_eq!(extra_json(&Value::Null).unwrap(), "{}");
+    assert_eq!(extra_json(&json!({})).unwrap(), "{}");
+    assert_eq!(
+        extra_json(&json!({"confidence": 0.8, "confidence_tier": "HIGH"})).unwrap(),
+        r#"{"confidence":0.8,"confidence_tier":"HIGH"}"#
+    );
 }
 
 #[test]
@@ -1492,6 +1538,91 @@ fn store_flows_json_replaces_existing_flows_from_serialized_input() {
     assert_eq!(flows_json.len(), 1);
     assert_eq!(flows_json[0]["name"], "entry");
     assert_eq!(flows_json[0]["criticality"], json!(0.75));
+    let membership_count: i64 = store
+        .conn
+        .query_row("SELECT COUNT(*) FROM flow_memberships", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(membership_count, 2);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn flow_helpers_store_and_read_flow_rows_with_sanitized_json() {
+    let path = temp_db("flow-helper-rows");
+    let mut store = GraphStore::open(&path).expect("open graph store");
+    let entry = NodeInput {
+        kind: "Function".to_string(),
+        name: "entry<script>".to_string(),
+        file_path: "app.py".to_string(),
+        line_start: 1,
+        line_end: 5,
+        language: "python".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: Value::Object(Default::default()),
+    };
+    let callee = NodeInput {
+        kind: "Function".to_string(),
+        name: "callee".to_string(),
+        file_path: "app.py".to_string(),
+        line_start: 7,
+        line_end: 10,
+        language: "python".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: Value::Object(Default::default()),
+    };
+    store
+        .store_file_batch(&[(
+            "app.py".to_string(),
+            vec![entry, callee],
+            vec![],
+            "hash".to_string(),
+            0,
+        )])
+        .unwrap();
+    let entry_id = store.get_node("app.py::entry<script>").unwrap().unwrap().id;
+    let callee_id = store.get_node("app.py::callee").unwrap().unwrap().id;
+    {
+        let tx = store.conn.transaction().unwrap();
+        store_flows_tx(
+            &tx,
+            &[FlowInput {
+                name: "entry<script>".to_string(),
+                entry_point_id: entry_id,
+                depth: 1,
+                node_count: 2,
+                file_count: 1,
+                criticality: 0.4,
+                path: vec![entry_id, callee_id],
+            }],
+        )
+        .unwrap();
+        tx.commit().unwrap();
+    }
+
+    let flow_json = store
+        .conn
+        .query_row("SELECT * FROM flows", [], flow_json_from_row)
+        .unwrap();
+    assert_eq!(flow_json["name"], "entry<script>");
+    assert_eq!(flow_json["path"], json!([entry_id, callee_id]));
+
+    let flow_value = store
+        .conn
+        .query_row("SELECT * FROM flows", [], flow_value_from_row)
+        .unwrap();
+    assert_eq!(flow_value.path_ids, vec![entry_id, callee_id]);
+    assert_eq!(flow_value.value["criticality"], json!(0.4));
+
     let membership_count: i64 = store
         .conn
         .query_row("SELECT COUNT(*) FROM flow_memberships", [], |row| {
