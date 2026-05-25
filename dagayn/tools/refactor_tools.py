@@ -34,8 +34,10 @@ def _apply_stability_policy_to_suggestions(
         stable_profiles = [
             profiles[scope_key]
             for scope_key in (scope_key_for_file(path) for path in affected_files)
-            if scope_key and profiles.get(scope_key, {}).get("stable")
-            or scope_key and profiles.get(scope_key, {}).get("should_be_stable")
+            if scope_key
+            and profiles.get(scope_key, {}).get("stable")
+            or scope_key
+            and profiles.get(scope_key, {}).get("should_be_stable")
         ]
         if not stable_profiles:
             continue
@@ -105,7 +107,7 @@ def _refactor_guidance(
                 confidence=str(suggestion.get("confidence", "unknown")),
                 missingness=missingness,
                 action=(
-                    "refactor_tool mode=\"suggest\" -- inspect work_pack, then run the "
+                    'refactor_tool mode="suggest" -- inspect work_pack, then run the '
                     "verification commands before editing"
                 ),
                 reason_codes=list(suggestion.get("reason_codes", [])),
@@ -123,6 +125,7 @@ def _refactor_guidance(
             )
         )
     return guidance
+
 
 # ---------------------------------------------------------------------------
 # Tool 17: refactor_tool  [REFACTOR]

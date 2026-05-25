@@ -877,7 +877,7 @@ def _review_guidance_items(
                 if actionable_gap_count
                 else [],
                 action=(
-                    "review_tool mode=\"context\" -- inspect changed nodes and run focused tests"
+                    'review_tool mode="context" -- inspect changed nodes and run focused tests'
                 ),
                 reason_codes=["test_gaps"] if actionable_gap_count else ["recommended_tests"],
                 counts={
@@ -904,12 +904,10 @@ def _review_guidance_items(
                     for item in docs[:5]
                 ],
                 confidence="high" if top_doc.get("evidence_type") == "authored" else "low",
-                missingness=[
-                    missing
-                    for item in docs
-                    for missing in item.get("missingness", [])
-                ][:5],
-                action="query_graph_tool pattern=\"docs_for\" -- inspect linked contract docs",
+                missingness=[missing for item in docs for missing in item.get("missingness", [])][
+                    :5
+                ],
+                action='query_graph_tool pattern="docs_for" -- inspect linked contract docs',
                 reason_codes=["documentation_update_candidates"],
                 counts={"documentation_candidate_count": len(docs)},
             )
@@ -926,9 +924,7 @@ def _review_guidance_items(
                         "scope_key": item.get("scope_key"),
                         "instability": item.get("instability"),
                         "expected_test_density": item.get("expected_test_density"),
-                        "observed_direct_test_density": item.get(
-                            "observed_direct_test_density"
-                        ),
+                        "observed_direct_test_density": item.get("observed_direct_test_density"),
                         "expected_doc_density": item.get("expected_doc_density"),
                         "observed_documentation_density": item.get(
                             "observed_documentation_density"
@@ -945,8 +941,7 @@ def _review_guidance_items(
                     }
                 ],
                 action=(
-                    "architecture_analysis_tool mode=\"overview\" -- inspect stable "
-                    "component policy"
+                    'architecture_analysis_tool mode="overview" -- inspect stable component policy'
                 ),
                 reason_codes=["stable_component_contract_gap"],
                 counts={"stable_contract_warning_count": len(warn_contracts)},
@@ -975,7 +970,7 @@ def _review_guidance_items(
                         "claim_effect": "criticality ranks review leads, not sufficient coverage",
                     }
                 ],
-                action="review_tool mode=\"affected_flows\" -- inspect affected flow paths",
+                action='review_tool mode="affected_flows" -- inspect affected flow paths',
                 reason_codes=["affected_flows"],
                 counts={"affected_flow_count": len(affected_flow_rankings)},
             )
@@ -1002,7 +997,7 @@ def _review_guidance_items(
                         ),
                     }
                 ],
-                action="architecture_analysis_tool mode=\"overview\" -- inspect scoped risks",
+                action='architecture_analysis_tool mode="overview" -- inspect scoped risks',
                 reason_codes=["architecture_violation_in_changed_scope"],
                 counts=dict(architecture_counts),
             )
@@ -1025,7 +1020,7 @@ def _review_guidance_items(
                     "impacted_bridges": hotspots.get("impacted_bridges", []),
                 },
                 confidence="medium",
-                action="review_tool mode=\"impact\" -- inspect blast radius around hotspots",
+                action='review_tool mode="impact" -- inspect blast radius around hotspots',
                 reason_codes=["changed_hotspot", "impacted_hotspot"],
                 counts={"hotspot_match_count": hotspot_count},
             )
@@ -1037,7 +1032,7 @@ def _review_guidance_items(
                 claim=f"Change risk is {risk} by graph impact score.",
                 evidence={"type": "computed", "metric": "risk_score", "value": risk_score},
                 confidence="medium",
-                action="review_tool mode=\"context\" -- inspect changed nodes before merging",
+                action='review_tool mode="context" -- inspect changed nodes before merging',
                 reason_codes=reason_codes,
                 counts={"graph_fact_count": len(signal_quality.get("graph_facts", []))},
             )

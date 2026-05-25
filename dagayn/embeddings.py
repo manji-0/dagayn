@@ -75,9 +75,7 @@ def get_embedding_status(db_path: str | Path) -> dict[str, Any]:
                 "provider_counts": {},
             }
 
-        total_embeddings = int(
-            conn.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0]
-        )
+        total_embeddings = int(conn.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0])
         provider_counts = {
             str(row["provider"]): int(row["count"])
             for row in conn.execute(
@@ -145,6 +143,7 @@ def get_embedding_status(db_path: str | Path) -> dict[str, Any]:
         }
     finally:
         conn.close()
+
 
 # ---------------------------------------------------------------------------
 # Provider Interface and Implementations

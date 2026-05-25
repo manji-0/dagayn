@@ -450,8 +450,7 @@ class TestTools:
         assert result["zero_result_reason"] == "target_not_found_in_graph"
         assert result["next_action"]["tool"] == "semantic_search_nodes_tool"
         assert any(
-            item["reason_code"] == "target_not_found_in_graph"
-            for item in result["missingness"]
+            item["reason_code"] == "target_not_found_in_graph" for item in result["missingness"]
         )
         assert "answerability" in result
 
@@ -527,9 +526,7 @@ class TestTools:
         assert result["result_count"] == 0
         assert result["zero_result_reason"] == "not_found_in_current_graph"
         assert result["next_action"]["tool"] == "semantic_search_nodes_tool"
-        assert {
-            item["reason_code"] for item in result["missingness"]
-        } >= {"missing_embeddings"}
+        assert {item["reason_code"] for item in result["missingness"]} >= {"missing_embeddings"}
         assert result["exactness"]["next_action"]["tool"] == "semantic_search_nodes_tool"
 
     def test_query_graph_implementations_of_reads_both_authored_directions(self, monkeypatch):
@@ -1658,9 +1655,7 @@ class TestBuildPostprocess:
         run.assert_called_once()
         assert run.call_args.kwargs["local_embedding"] == "low"
 
-    def test_hook_update_skips_local_embedding_when_incremental_has_no_changes(
-        self, monkeypatch
-    ):
+    def test_hook_update_skips_local_embedding_when_incremental_has_no_changes(self, monkeypatch):
         from unittest.mock import patch
 
         from dagayn.tools.build import build_or_update_graph

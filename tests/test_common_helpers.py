@@ -182,7 +182,7 @@ class TestGuidanceItems:
             evidence={"type": "computed", "metric": "test_gap_count", "value": 2},
             confidence="high",
             missingness={"reason_code": "missing_test_edges", "severity": "medium"},
-            action='pytest tests/test_tools.py -- run focused tool tests',
+            action="pytest tests/test_tools.py -- run focused tool tests",
             reason_codes=["test_gaps"],
             counts={"test_gap_count": 2},
         )

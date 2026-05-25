@@ -694,18 +694,27 @@ class TestChanges:
             _doc_missingness,
         )
 
-        assert _directive_hint_for_role(
-            "implements_contract",
-            direction="artifact_to_doc",
-        ) == "# dagayn: implements <doc-section>"
-        assert _directive_hint_for_role(
-            "implemented_by",
-            direction="doc_to_artifact",
-        ) == "<!-- dagayn: implemented-by <code-symbol> -->"
-        assert _directive_hint_for_role(
-            None,
-            direction="doc_to_artifact",
-        ) == "<!-- dagayn: discusses-artifact <code-symbol> -->"
+        assert (
+            _directive_hint_for_role(
+                "implements_contract",
+                direction="artifact_to_doc",
+            )
+            == "# dagayn: implements <doc-section>"
+        )
+        assert (
+            _directive_hint_for_role(
+                "implemented_by",
+                direction="doc_to_artifact",
+            )
+            == "<!-- dagayn: implemented-by <code-symbol> -->"
+        )
+        assert (
+            _directive_hint_for_role(
+                None,
+                direction="doc_to_artifact",
+            )
+            == "<!-- dagayn: discusses-artifact <code-symbol> -->"
+        )
         assert _doc_evidence_type("implemented_by", "LOW") == "authored"
         assert _doc_evidence_type("describes_symbol", "HIGH") == "extracted"
         assert _doc_evidence_type(None, "UNKNOWN") == "heuristic_reachable"

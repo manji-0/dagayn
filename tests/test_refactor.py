@@ -33,24 +33,30 @@ class TestFunctionConcernProfile:
     """Tests for function concern-separation evidence."""
 
     def test_lightweight_source_counters(self):
-        assert branch_count(
-            [
-                "if enabled:",
-                "    for item in items:",
-                "        value = a && b",
-                "return value",
-            ]
-        ) == 3
-        assert comment_line_count(
-            [
-                "# module note",
-                "value = 1",
-                "/* block start",
-                "block body",
-                "*/",
-                '"""docstring"""',
-            ]
-        ) == 5
+        assert (
+            branch_count(
+                [
+                    "if enabled:",
+                    "    for item in items:",
+                    "        value = a && b",
+                    "return value",
+                ]
+            )
+            == 3
+        )
+        assert (
+            comment_line_count(
+                [
+                    "# module note",
+                    "value = 1",
+                    "/* block start",
+                    "block body",
+                    "*/",
+                    '"""docstring"""',
+                ]
+            )
+            == 5
+        )
 
     def test_context_and_role_helpers(self):
         assert _parameter_names(

@@ -79,18 +79,14 @@ def _review_predictions(repo_path: Path, case: dict[str, Any]) -> dict[str, list
         ),
         "architecture_leads": [
             key
-            for key, value in dict(
-                summary.get("architecture_delta", {}).get("counts", {})
-            ).items()
+            for key, value in dict(summary.get("architecture_delta", {}).get("counts", {})).items()
             if value
         ],
         "answerability_warnings": _ids_from_items(
             list(result.get("missingness", [])) if isinstance(result, dict) else [],
             "reason_code",
         ),
-        "_guidance_field_coverage": [
-            str(_field_coverage(list(summary.get("guidance", []))))
-        ],
+        "_guidance_field_coverage": [str(_field_coverage(list(summary.get("guidance", []))))],
     }
 
 

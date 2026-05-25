@@ -229,8 +229,7 @@ def _side_effect_reason_codes(
     reasons: list[str] = []
     for reason, patterns in _SIDE_EFFECT_PATTERNS:
         if any(
-            pattern.lower() in haystack or pattern.lower() in target_text
-            for pattern in patterns
+            pattern.lower() in haystack or pattern.lower() in target_text for pattern in patterns
         ):
             reasons.append(reason)
     return reasons

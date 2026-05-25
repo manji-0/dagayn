@@ -177,7 +177,7 @@ class TestGenerateSkills:
         review_pr = (skills_dir / "review-pr.md").read_text()
 
         assert "--mode local --preset low" in semantic
-        assert "build_or_update_graph_tool(local_embedding=\"low\")" in semantic
+        assert 'build_or_update_graph_tool(local_embedding="low")' in semantic
         assert 'local_embedding="none"' in semantic
         assert "embedding-enabled full rebuild" in semantic
         assert "mode-neutral" not in semantic
@@ -515,7 +515,7 @@ class TestInstallTreeSkills:
         target = result / "semantic-search" / "SKILL.md"
         content = target.read_text()
         assert "--mode local --preset low" in content
-        assert "build_or_update_graph_tool(local_embedding=\"low\")" in content
+        assert 'build_or_update_graph_tool(local_embedding="low")' in content
         assert "explicitly doing embedding-quality" in content
 
     def test_tree_skill_install_is_idempotent(self, tmp_path):

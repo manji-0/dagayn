@@ -50,9 +50,7 @@ class TestVectorEncoding:
 class TestEmbeddingStatus:
     def _make_db(self, db_path, *, with_embeddings=True):
         conn = sqlite3.connect(db_path)
-        conn.execute(
-            "CREATE TABLE nodes (kind TEXT NOT NULL, qualified_name TEXT NOT NULL UNIQUE)"
-        )
+        conn.execute("CREATE TABLE nodes (kind TEXT NOT NULL, qualified_name TEXT NOT NULL UNIQUE)")
         if with_embeddings:
             conn.execute(
                 "CREATE TABLE embeddings ("

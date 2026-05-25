@@ -133,7 +133,7 @@ def _architecture_health_summary(
                         "claim_effect": "high degree is a lead, not proof of bad design",
                     }
                 ],
-                action="architecture_analysis_tool mode=\"hubs\" -- inspect high-degree nodes",
+                action='architecture_analysis_tool mode="hubs" -- inspect high-degree nodes',
                 reason_codes=["hub_nodes"],
                 counts={"hub_nodes": len(hubs)},
             )
@@ -158,8 +158,7 @@ def _architecture_health_summary(
                     }
                 ],
                 action=(
-                    "architecture_analysis_tool mode=\"sdp_violations\" -- "
-                    "drill into metric leads"
+                    'architecture_analysis_tool mode="sdp_violations" -- drill into metric leads'
                 ),
                 reason_codes=["adp_violations", "sdp_violations", "sap_violations"],
                 counts={
@@ -487,9 +486,7 @@ def get_architecture_overview_func(
         )
         architecture_health = result.get("architecture_health")
         guidance = (
-            architecture_health.get("guidance", [])
-            if isinstance(architecture_health, dict)
-            else []
+            architecture_health.get("guidance", []) if isinstance(architecture_health, dict) else []
         )
         result["_hints"] = guidance_actions_to_hints(guidance)
         if not result["_hints"]["next_steps"]:
