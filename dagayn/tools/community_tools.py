@@ -485,9 +485,13 @@ def get_architecture_overview_func(
                 "cross_community_edges",
             ],
         )
-        result["_hints"] = guidance_actions_to_hints(
-            result.get("architecture_health", {}).get("guidance", [])
+        architecture_health = result.get("architecture_health")
+        guidance = (
+            architecture_health.get("guidance", [])
+            if isinstance(architecture_health, dict)
+            else []
         )
+        result["_hints"] = guidance_actions_to_hints(guidance)
         if not result["_hints"]["next_steps"]:
             result["_hints"] = generate_hints("get_architecture_overview", result, get_session())
         return result

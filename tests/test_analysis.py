@@ -180,7 +180,11 @@ class TestFindBridgeNodes:
     def test_persisted_bridge_scores_skip_runtime_centrality(self, store, monkeypatch):
         import networkx as nx
 
-        from dagayn.analysis import build_graph_snapshot, find_bridge_nodes, persist_centrality_scores
+        from dagayn.analysis import (
+            build_graph_snapshot,
+            find_bridge_nodes,
+            persist_centrality_scores,
+        )
 
         persisted = persist_centrality_scores(store)
         assert persisted["bridge_scores_persisted"] > 0

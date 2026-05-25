@@ -1655,9 +1655,11 @@ def detect_changes_func(
                     "changed_functions",
                 ],
             )
-        result["_hints"] = guidance_actions_to_hints(analysis_summary["guidance"])
-        if not result["_hints"]["next_steps"]:
-            result["_hints"] = generate_hints("detect_changes", result, get_session())
+        guidance = analysis_summary.get("guidance", [])
+        hints = guidance_actions_to_hints(guidance if isinstance(guidance, list) else [])
+        if not hints["next_steps"]:
+            hints = generate_hints("detect_changes", result, get_session())
+        result["_hints"] = hints
         return result
     except Exception as exc:
         return {"status": "error", "error": str(exc)}

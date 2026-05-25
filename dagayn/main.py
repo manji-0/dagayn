@@ -49,7 +49,7 @@ def _patch_typing_eval_type_for_python314_beta() -> None:
         kwargs.pop("prefer_fwd_module", None)
         return eval_type(*args, **kwargs)
 
-    typing._eval_type = _eval_type_compat  # type: ignore[attr-defined]
+    setattr(typing, "_eval_type", _eval_type_compat)
 
 
 def _patch_collections_abc_bytestring_for_python314() -> None:

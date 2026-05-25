@@ -1835,7 +1835,7 @@ impl GraphStore {
             let node_degree = *degree.get(&node.qualified_name).unwrap_or(&0);
             if node_degree >= hotspot_min_degree
                 && !tested_sources.contains(&node.qualified_name)
-                && !is_analysis_excluded_from_test_gap(&node)
+                && !is_analysis_excluded_from_test_gap(node)
             {
                 untested_hotspots.push(QuestionHotspot {
                     name: sanitize_name(&node.name),
