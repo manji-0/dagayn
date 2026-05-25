@@ -2,6 +2,13 @@
 
 All notable changes to `dagayn` are documented here.
 
+## 4.1.2 — 2026-05-25
+
+### Fixes
+
+- Apply repository-wide ruff formatting so main CI passes after the 4.1.x
+  remediation releases.
+
 ## 4.1.1 — 2026-05-25
 
 ### Fixes
