@@ -387,6 +387,19 @@ class TestTools:
                 },
             )
         )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CROSS_ARTIFACT",
+                source="/repo/docs/auth.md::login-contract",
+                target="/repo/auth.py::AuthService.login",
+                file_path="/repo/docs/auth.md",
+                line=12,
+                extra={
+                    "relationship_role": "describes_symbol",
+                    "bridge_kind": "documentation",
+                },
+            )
+        )
         self.store.commit()
         monkeypatch.setattr(
             query_module,
@@ -399,18 +412,20 @@ class TestTools:
             pattern="docs_for",
             target="/repo/auth.py::AuthService.login",
             repo_root="/repo",
+            detail_level="minimal",
         )
 
         assert result["status"] == "ok"
         roles = {item["relationship_role"] for item in result["results"]}
-        assert {"implemented_by", "explained_by"} <= roles
+        assert {"implemented_by", "explained_by", "describes_symbol"} <= roles
         inverse_labels = {item["inverse_label"] for item in result["results"]}
-        assert {"implements_contract", "explains"} <= inverse_labels
+        assert {"implements_contract", "explains", "described_by"} <= inverse_labels
         evidence_by_role = {
             item["relationship_role"]: item["evidence_type"] for item in result["results"]
         }
         assert evidence_by_role["implemented_by"] == "authored"
         assert evidence_by_role["explained_by"] == "extracted"
+        assert evidence_by_role["describes_symbol"] == "extracted"
 
     def test_query_graph_standard_results_are_budgeted(self, monkeypatch):
         from dagayn.tools import query as query_module

@@ -503,6 +503,7 @@ def query_graph(
                         "matched_endpoint",
                         "relationship_role",
                         "inverse_label",
+                        "evidence_type",
                         "file",
                     )
                     if k in r
