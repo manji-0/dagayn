@@ -5,6 +5,7 @@ from __future__ import annotations
 import functools
 import logging
 import re
+from pathlib import Path
 from typing import Any, Optional
 
 from ..flows import _has_framework_decorator, _matches_entry_name
@@ -65,6 +66,78 @@ def _path_segments(file_path: str) -> tuple[str, ...]:
 
 
 _TYPE_IDENT_RE = re.compile(r"[A-Z][A-Za-z0-9_]*")
+
+
+def _load_source_lines(store: GraphStore, file_path: str) -> list[str]:
+    try:
+        path = store.resolve_file_path(file_path)
+    except (AttributeError, TypeError):
+        path = Path(file_path)
+    try:
+        return path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return []
+
+
+def _source_line(lines: list[str], line_number: int | None) -> str:
+    if line_number is None or line_number <= 0 or line_number > len(lines):
+        return ""
+    return lines[line_number - 1].strip()
+
+
+def _is_source_public_api_candidate(node: Any, lines: list[str]) -> bool:
+    line = _source_line(lines, node.line_start)
+    if not line:
+        return False
+    public_markers = (
+        "pub ",
+        "pub(",
+        "public ",
+        "export ",
+        "export default ",
+        "export async ",
+        "export function ",
+        "export class ",
+        "export interface ",
+        "export const ",
+        "export let ",
+        "export var ",
+    )
+    if line.startswith(public_markers):
+        return True
+    if node.language in {"typescript", "tsx", "javascript", "vue", "svelte"}:
+        return " export " in f" {line} " or line.startswith("exports.")
+    return False
+
+
+def _is_bridge_export_candidate(node: Any, lines: list[str]) -> bool:
+    if node.language != "rust":
+        return False
+    line_number = node.line_start
+    if not isinstance(line_number, int) or line_number <= 0 or not lines:
+        return False
+
+    target_idx = min(line_number - 1, len(lines) - 1)
+    for idx in range(target_idx, -1, -1):
+        line = lines[idx]
+        if not line.lstrip().startswith("impl "):
+            continue
+        window = "\n".join(lines[max(0, idx - 5) : idx + 1])
+        if "#[pymethods]" not in window:
+            continue
+        depth = 0
+        for scoped_line in lines[idx : target_idx + 1]:
+            depth += scoped_line.count("{")
+            depth -= scoped_line.count("}")
+        if depth > 0:
+            return True
+    return False
+
+
+def _is_public_api_candidate(node: Any, lines: list[str]) -> bool:
+    return _is_source_public_api_candidate(node, lines) or _is_bridge_export_candidate(
+        node, lines
+    )
 
 
 def _collect_type_referenced_names(store: GraphStore) -> set[str]:
@@ -152,9 +225,17 @@ def _has_value_container_metadata(extra: dict[str, Any]) -> bool:
     )
 
 
-def _dead_code_confidence(node: Any) -> str:
+def _dead_code_confidence(
+    node: Any,
+    *,
+    public_api_candidate: bool,
+    name_definition_count: int,
+    source_available: bool,
+) -> str:
     extra = node.extra if isinstance(node.extra, dict) else {}
-    if _has_value_container_metadata(extra):
+    if public_api_candidate or _has_value_container_metadata(extra):
+        return "low"
+    if name_definition_count > 1 or not source_available:
         return "low"
     return "medium"
 
@@ -240,6 +321,9 @@ def _dead_code_record(
     importer_count: int,
     reference_count: int,
     subclass_count: int,
+    public_api_candidate: bool,
+    name_definition_count: int,
+    source_available: bool,
 ) -> dict[str, Any]:
     reason_codes = []
     if caller_count == 0:
@@ -252,6 +336,22 @@ def _dead_code_record(
         reason_codes.append("no_references")
     if node.kind == "Class" and subclass_count == 0:
         reason_codes.append("no_subclasses")
+    if public_api_candidate:
+        reason_codes.append("public_api_candidate")
+    if name_definition_count > 1:
+        reason_codes.append("ambiguous_symbol_name")
+    if not source_available:
+        reason_codes.append("source_unavailable")
+
+    caveats = [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, "
+        "and dynamic imports."
+    ]
+    if public_api_candidate:
+        caveats.append(
+            "Public API symbols may be consumed outside the indexed graph; verify "
+            "downstream users before deleting."
+        )
 
     return {
         "name": _sanitize_name(node.name),
@@ -260,7 +360,13 @@ def _dead_code_record(
         "file": node.file_path,
         "line": node.line_start,
         "language": node.language,
-        "confidence": _dead_code_confidence(node),
+        "confidence": _dead_code_confidence(
+            node,
+            public_api_candidate=public_api_candidate,
+            name_definition_count=name_definition_count,
+            source_available=source_available,
+        ),
+        "public_api_candidate": public_api_candidate,
         "reason_codes": reason_codes,
         "evidence": {
             "caller_count": caller_count,
@@ -268,12 +374,42 @@ def _dead_code_record(
             "importer_count": importer_count,
             "reference_count": reference_count,
             "subclass_count": subclass_count,
+            "name_definition_count": name_definition_count,
+            "source_available": source_available,
         },
-        "caveats": [
-            "Static analysis can miss runtime dispatch, plugin registration, reflection, "
-            "and dynamic imports."
-        ],
+        "caveats": caveats,
     }
+
+
+def _has_callers_via_base_method(
+    conn: Any,
+    node: Any,
+    class_bases: dict[str, list[str]],
+) -> bool:
+    if node.kind != "Function" or not node.parent_name:
+        return False
+
+    method_suffix = "." + node.name
+    if not node.qualified_name.endswith(method_suffix):
+        return False
+
+    class_qn = node.qualified_name[: -len(method_suffix)]
+    for base_name in class_bases.get(class_qn, []):
+        rows = conn.execute(
+            "SELECT n.qualified_name FROM nodes n "
+            "WHERE n.parent_name = ? AND n.name = ? "
+            "AND n.kind IN ('Function', 'Test')",
+            (base_name, node.name),
+        ).fetchall()
+        for (base_method_qn,) in rows:
+            if conn.execute(
+                "SELECT 1 FROM edges "
+                "WHERE target_qualified = ? AND kind = 'CALLS' "
+                "LIMIT 1",
+                (base_method_qn,),
+            ).fetchone():
+                return True
+    return False
 
 
 def find_dead_code(
@@ -310,6 +446,7 @@ def find_dead_code(
     )
 
     type_ref_names = _collect_type_referenced_names(store)
+    source_cache: dict[str, list[str]] = {}
 
     class_bases: dict[str, list[str]] = {}
     class_inherits_targets: dict[str, list[str]] = {}
@@ -520,30 +657,15 @@ def find_dead_code(
         subclass_count = sum(1 for e in incoming if e.kind == "INHERITS")
 
         if not (has_callers or has_test_refs or has_importers or has_references or has_subclasses):
-            if node.kind == "Function" and node.parent_name and not has_callers:
-                method_suffix = "." + node.name
-                if node.qualified_name.endswith(method_suffix):
-                    class_qn = node.qualified_name[: -len(method_suffix)]
-                    for base_name in class_bases.get(class_qn, []):
-                        rows = conn.execute(
-                            "SELECT n.qualified_name FROM nodes n "
-                            "WHERE n.parent_name = ? AND n.name = ? "
-                            "AND n.kind IN ('Function', 'Test')",
-                            (base_name, node.name),
-                        ).fetchall()
-                        for (base_method_qn,) in rows:
-                            if conn.execute(
-                                "SELECT 1 FROM edges "
-                                "WHERE target_qualified = ? AND kind = 'CALLS' "
-                                "LIMIT 1",
-                                (base_method_qn,),
-                            ).fetchone():
-                                has_callers = True
-                                break
-                        if has_callers:
-                            break
+            if not has_callers and _has_callers_via_base_method(conn, node, class_bases):
+                has_callers = True
 
             if not has_callers:
+                lines = source_cache.setdefault(
+                    node.file_path, _load_source_lines(store, node.file_path)
+                )
+                source_available = bool(lines)
+                public_api_candidate = _is_public_api_candidate(node, lines)
                 dead.append(
                     _dead_code_record(
                         node,
@@ -552,6 +674,9 @@ def find_dead_code(
                         importer_count=importer_count,
                         reference_count=reference_count,
                         subclass_count=subclass_count,
+                        public_api_candidate=public_api_candidate,
+                        name_definition_count=name_counts.get(node.name, 0),
+                        source_available=source_available,
                     )
                 )
 

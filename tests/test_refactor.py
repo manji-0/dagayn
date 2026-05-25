@@ -871,7 +871,9 @@ class TestFindDeadCode:
         assert "/repo/src/types.ts::UserPayload" not in dead_by_qn
         assert "/repo/src/types.ts::UserStatus" not in dead_by_qn
         assert "/repo/src/update-user.dto.ts::UpdateUserDto" not in dead_by_qn
-        assert dead_by_qn["/repo/src/concrete.rs::UnusedConcrete"]["confidence"] == "medium"
+        unused_concrete = dead_by_qn["/repo/src/concrete.rs::UnusedConcrete"]
+        assert unused_concrete["confidence"] == "low"
+        assert "source_unavailable" in unused_concrete["reason_codes"]
 
     def test_find_dead_code_excludes_implementation_role_across_languages(self):
         """Implementation container roles are structural helpers, not dead code."""
@@ -976,6 +978,54 @@ class TestFindDeadCode:
         dead = find_dead_code(self.store)
         dead_names = {d["name"] for d in dead}
         assert "BaseConnector" not in dead_names
+
+    def test_find_dead_code_excludes_override_when_base_method_is_called(self):
+        """Overrides are live when callers target the inherited base method."""
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="sync",
+                file_path="/repo/connectors.py",
+                line_start=20,
+                line_end=30,
+                language="python",
+                parent_name="BaseConnector",
+            )
+        )
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="sync",
+                file_path="/repo/connectors.py",
+                line_start=60,
+                line_end=70,
+                language="python",
+                parent_name="GarminConnector",
+            )
+        )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="INHERITS",
+                source="/repo/connectors.py::GarminConnector",
+                target="BaseConnector",
+                file_path="/repo/connectors.py",
+                line=50,
+            )
+        )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CALLS",
+                source="/repo/app.py::run_sync",
+                target="/repo/connectors.py::BaseConnector.sync",
+                file_path="/repo/app.py",
+                line=10,
+            )
+        )
+        self.store.commit()
+
+        dead = find_dead_code(self.store)
+        dead_qnames = {d["qualified_name"] for d in dead}
+        assert "/repo/connectors.py::GarminConnector.sync" not in dead_qnames
 
     def test_find_dead_code_bare_name_not_tricked_by_unrelated_caller(self):
         """Bare-name CALLS from unrelated files don't save a dead function
@@ -1140,10 +1190,63 @@ class TestFindDeadCode:
         """Dead-code output includes enough evidence for review decisions."""
         dead = find_dead_code(self.store)
         orphan = next(d for d in dead if d["name"] == "dead_func")
-        assert orphan["confidence"] == "medium"
+        assert orphan["confidence"] == "low"
         assert "no_callers" in orphan["reason_codes"]
+        assert "source_unavailable" in orphan["reason_codes"]
         assert orphan["evidence"]["caller_count"] == 0
+        assert orphan["evidence"]["source_available"] is False
+        assert orphan["evidence"]["name_definition_count"] == 1
         assert orphan["caveats"]
+
+    def test_find_dead_code_downgrades_public_api_candidates(self, tmp_path):
+        """Exported symbols are dead-code leads, not deletion-grade evidence."""
+        api_file = tmp_path / "src" / "lib.rs"
+        api_file.parent.mkdir(parents=True)
+        api_file.write_text("pub fn exported_api() {}\n", encoding="utf-8")
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="exported_api",
+                file_path=str(api_file),
+                line_start=1,
+                line_end=1,
+                language="rust",
+            )
+        )
+        self.store.commit()
+
+        dead = find_dead_code(self.store)
+        exported = next(d for d in dead if d["name"] == "exported_api")
+        assert exported["confidence"] == "low"
+        assert exported["public_api_candidate"] is True
+        assert "public_api_candidate" in exported["reason_codes"]
+        assert exported["evidence"]["source_available"] is True
+        assert any("downstream users" in caveat for caveat in exported["caveats"])
+
+    def test_find_dead_code_downgrades_ambiguous_symbol_names(self, tmp_path):
+        """Repeated names reduce confidence because bare-name edges are lossy."""
+        first = tmp_path / "src" / "one.py"
+        second = tmp_path / "src" / "two.py"
+        first.parent.mkdir(parents=True)
+        first.write_text("def duplicate():\n    return 1\n", encoding="utf-8")
+        second.write_text("def duplicate():\n    return 2\n", encoding="utf-8")
+        for file_path in (first, second):
+            self.store.upsert_node(
+                NodeInfo(
+                    kind="Function",
+                    name="duplicate",
+                    file_path=str(file_path),
+                    line_start=1,
+                    line_end=2,
+                    language="python",
+                )
+            )
+        self.store.commit()
+
+        dead = [d for d in find_dead_code(self.store) if d["name"] == "duplicate"]
+        assert {d["confidence"] for d in dead} == {"low"}
+        assert {d["evidence"]["name_definition_count"] for d in dead} == {2}
+        assert all("ambiguous_symbol_name" in d["reason_codes"] for d in dead)
 
 
 class TestSuggestRefactorings:

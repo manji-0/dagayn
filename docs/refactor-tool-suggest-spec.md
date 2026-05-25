@@ -26,8 +26,15 @@ Default remove suggestions must:
 - exclude data/value container type definitions identified by parser metadata;
 - preserve the graph evidence used to make the decision;
 - downgrade public API candidates instead of presenting them as ordinary internal dead code.
+- downgrade candidates when source text is unavailable or the symbol name is
+  ambiguous across multiple definitions, and expose those factors as
+  `source_available`, `name_definition_count`, and reason codes.
 
 Public API candidates include exported declarations, public class or method declarations, and methods exported through bridge frameworks. These are not safe default deletion candidates because they may be consumed across package boundaries or by downstream users outside the current graph.
+
+Dead-code result records should expose `name_definition_count`,
+`source_available`, and `public_api_candidate` so callers can explain why a
+symbol is a review lead rather than deletion-grade evidence.
 
 ### Move
 

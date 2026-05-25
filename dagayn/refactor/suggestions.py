@@ -734,11 +734,14 @@ def suggest_refactorings(store: GraphStore) -> list[dict[str, Any]]:
         if _is_test_artifact(d, lines):
             continue
         if _is_external_api_candidate(d, lines):
+            reason_codes = list(d.get("reason_codes", []))
+            if "public_api_candidate" not in reason_codes:
+                reason_codes.append("public_api_candidate")
             d = {
                 **d,
                 "confidence": "low",
                 "public_api_candidate": True,
-                "reason_codes": [*d.get("reason_codes", []), "public_api_candidate"],
+                "reason_codes": reason_codes,
             }
         category = _dead_code_category(d)
         kind_name = str(d.get("kind", "")).lower()
