@@ -686,6 +686,23 @@ class TestChanges:
         assert contract["stable"] is True
         assert contract["status"] == "ok"
 
+    def test_directive_hint_for_role_uses_dagayn_directives(self):
+        """Documentation candidate hints should use supported dagayn directive syntax."""
+        from dagayn.tools.review import _directive_hint_for_role
+
+        assert _directive_hint_for_role(
+            "implements_contract",
+            direction="artifact_to_doc",
+        ) == "# dagayn: implements <doc-section>"
+        assert _directive_hint_for_role(
+            "implemented_by",
+            direction="doc_to_artifact",
+        ) == "<!-- dagayn: implemented-by <code-symbol> -->"
+        assert _directive_hint_for_role(
+            None,
+            direction="doc_to_artifact",
+        ) == "<!-- dagayn: discusses-artifact <code-symbol> -->"
+
     def test_detect_changes_tool_trims_changed_functions(self):
         """detect_changes_func should budget changed_functions for large PRs."""
         from dagayn.tools import detect_changes_func

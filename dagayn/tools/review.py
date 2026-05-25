@@ -412,6 +412,54 @@ def _recommend_tests(
     return _dedupe_dicts_by_key(recommendations, "qualified_name", limit)
 
 
+def _doc_evidence_type(role: str | None, confidence_tier: Any) -> str:
+    if role in _CONTRACT_DOC_ROLES:
+        return "authored"
+    tier = str(confidence_tier or "").upper()
+    if tier in {"EXTRACTED", "HIGH"}:
+        return "extracted"
+    return "heuristic_reachable"
+
+
+def _doc_missingness(role: str | None, confidence_tier: Any) -> list[dict[str, Any]]:
+    missing: list[dict[str, Any]] = []
+    tier = str(confidence_tier or "").upper()
+    if role not in _CONTRACT_DOC_ROLES:
+        missing.append(
+            {
+                "reason_code": "not_contract_documentation_edge",
+                "severity": "low",
+                "claim_effect": "candidate may be explanatory rather than contract-bearing",
+            }
+        )
+    if tier in {"LOW", "UNKNOWN", ""}:
+        missing.append(
+            {
+                "reason_code": "low_confidence_documentation_edge",
+                "severity": "medium",
+                "claim_effect": "read the section before treating it as authored evidence",
+            }
+        )
+    return missing
+
+
+def _directive_hint_for_role(role: str | None, *, direction: str) -> str:
+    if direction == "artifact_to_doc":
+        return {
+            "implements_contract": "# dagayn: implements <doc-section>",
+            "explained_by": "# dagayn: explained-by <doc-section>",
+            "has_runbook": "# dagayn: has-runbook <doc-section>",
+            "problem_described_by": "# dagayn: problem-described-by <doc-section>",
+            "discussed_by": "# dagayn: discussed-by <doc-section>",
+        }.get(str(role), "# dagayn: discussed-by <doc-section>")
+    return {
+        "implemented_by": "<!-- dagayn: implemented-by <code-symbol> -->",
+        "describes_symbol": "<!-- dagayn: describes-symbol <code-symbol> -->",
+        "discusses_artifact": "<!-- dagayn: discusses-artifact <code-symbol> -->",
+        "raises_issue_for": "<!-- dagayn: raises-issue-for <code-symbol> -->",
+    }.get(str(role), "<!-- dagayn: discusses-artifact <code-symbol> -->")
+
+
 def _documentation_update_candidates(
     store: Any,
     impact: dict[str, Any],
@@ -428,51 +476,6 @@ def _documentation_update_candidates(
 
     stability_profiles = stability_profiles or {}
     candidates: list[dict[str, Any]] = []
-
-    def _doc_evidence_type(role: str | None, confidence_tier: Any) -> str:
-        if role in _CONTRACT_DOC_ROLES:
-            return "authored"
-        tier = str(confidence_tier or "").upper()
-        if tier in {"EXTRACTED", "HIGH"}:
-            return "extracted"
-        return "heuristic_reachable"
-
-    def _doc_missingness(role: str | None, confidence_tier: Any) -> list[dict[str, Any]]:
-        missing: list[dict[str, Any]] = []
-        tier = str(confidence_tier or "").upper()
-        if role not in _CONTRACT_DOC_ROLES:
-            missing.append(
-                {
-                    "reason_code": "not_contract_documentation_edge",
-                    "severity": "low",
-                    "claim_effect": "candidate may be explanatory rather than contract-bearing",
-                }
-            )
-        if tier in {"LOW", "UNKNOWN", ""}:
-            missing.append(
-                {
-                    "reason_code": "low_confidence_documentation_edge",
-                    "severity": "medium",
-                    "claim_effect": "read the section before treating it as authored evidence",
-                }
-            )
-        return missing
-
-    def _directive_hint_for_role(role: str | None, *, direction: str) -> str:
-        if direction == "artifact_to_doc":
-            return {
-                "implements_contract": "# dagayn: implements <doc-section>",
-                "explained_by": "# dagayn: explained-by <doc-section>",
-                "has_runbook": "# dagayn: has-runbook <doc-section>",
-                "problem_described_by": "# dagayn: problem-described-by <doc-section>",
-                "discussed_by": "# dagayn: discussed-by <doc-section>",
-            }.get(str(role), "# dagayn: discussed-by <doc-section>")
-        return {
-            "implemented_by": "<!-- dagayn: implemented-by <code-symbol> -->",
-            "describes_symbol": "<!-- dagayn: describes-symbol <code-symbol> -->",
-            "discusses_artifact": "<!-- dagayn: discusses-artifact <code-symbol> -->",
-            "raises_issue_for": "<!-- dagayn: raises-issue-for <code-symbol> -->",
-        }.get(str(role), "<!-- dagayn: discusses-artifact <code-symbol> -->")
 
     source_qns = [
         qn
@@ -595,7 +598,7 @@ def _documentation_update_candidates(
                 "documentation_action": (
                     "Read this section before deciding whether docs need updates."
                 ),
-                "directive_hint": "<!-- discusses-artifact <code-symbol> -->",
+                "directive_hint": _directive_hint_for_role(None, direction="doc_to_artifact"),
             }
         )
 
