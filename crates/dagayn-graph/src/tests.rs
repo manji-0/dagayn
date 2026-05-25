@@ -193,6 +193,99 @@ fn approximate_betweenness_samples_connected_regions() {
 }
 
 #[test]
+fn helpers_make_qualified_hash_time_and_question_rows_have_stable_contracts() {
+    let now = now_seconds().expect("system clock should produce unix timestamp");
+    assert!(now > 0.0);
+    assert_eq!(
+        make_qualified_parts("File", "ignored", "src/lib.rs", Some("Parent")),
+        "src/lib.rs"
+    );
+    assert_eq!(
+        make_qualified_parts("Function", "run", "src/lib.rs", Some("Runner")),
+        "src/lib.rs::Runner.run"
+    );
+    assert_eq!(
+        make_qualified_parts("Function", "run", "src/lib.rs", None),
+        "src/lib.rs::run"
+    );
+    assert_eq!(stable_fnv1a64(b""), 0xcbf2_9ce4_8422_2325);
+    assert_eq!(stable_fnv1a64(b"dagayn"), stable_fnv1a64(b"dagayn"));
+    assert_ne!(stable_fnv1a64(b"dagayn"), stable_fnv1a64(b"Dagayn"));
+
+    let bridge = PersistedBridgeRow {
+        name: "middle".to_string(),
+        qualified_name: "app.py::middle".to_string(),
+    };
+    let hub = PersistedHubRow {
+        name: "entry".to_string(),
+        qualified_name: "app.py::entry".to_string(),
+        total_degree: 3,
+    };
+    assert_eq!(bridge.name, "middle");
+    assert_eq!(bridge.qualified_name, "app.py::middle");
+    assert_eq!(hub.name, "entry");
+    assert_eq!(hub.qualified_name, "app.py::entry");
+    assert_eq!(hub.total_degree, 3);
+
+    let surprise = SurprisingQuestionInput {
+        source_name: "entry".to_string(),
+        source_qualified: "app.py::entry".to_string(),
+        target_name: "leaf".to_string(),
+        source_community: 1,
+        target_community: 2,
+        score: 4,
+    };
+    let thin_community = QuestionCommunity {
+        id: 2,
+        name: "leaf-community".to_string(),
+        size: 1,
+    };
+    let hotspot = QuestionHotspot {
+        name: "middle".to_string(),
+        qualified_name: "app.py::middle".to_string(),
+        degree: 5,
+    };
+    let gaps = QuestionGaps {
+        thin_communities: vec![thin_community],
+        untested_hotspots: vec![hotspot],
+    };
+    let question_node = QuestionNode {
+        kind: "Function".to_string(),
+        name: "middle".to_string(),
+        qualified_name: "app.py::middle".to_string(),
+        file_path: "app.py".to_string(),
+        language: "python".to_string(),
+        is_test: false,
+    };
+    let question_edge = QuestionEdge {
+        kind: "CALLS".to_string(),
+        source_qualified: "app.py::entry".to_string(),
+        target_qualified: "app.py::middle".to_string(),
+    };
+    assert_eq!(surprise.source_name, "entry");
+    assert_eq!(surprise.source_qualified, "app.py::entry");
+    assert_eq!(surprise.target_name, "leaf");
+    assert_eq!(surprise.source_community, 1);
+    assert_eq!(surprise.target_community, 2);
+    assert_eq!(surprise.score, 4);
+    assert_eq!(gaps.thin_communities[0].id, 2);
+    assert_eq!(gaps.thin_communities[0].name, "leaf-community");
+    assert_eq!(gaps.thin_communities[0].size, 1);
+    assert_eq!(gaps.untested_hotspots[0].name, "middle");
+    assert_eq!(gaps.untested_hotspots[0].qualified_name, "app.py::middle");
+    assert_eq!(gaps.untested_hotspots[0].degree, 5);
+    assert_eq!(question_node.kind, "Function");
+    assert_eq!(question_node.name, "middle");
+    assert_eq!(question_node.qualified_name, "app.py::middle");
+    assert_eq!(question_node.file_path, "app.py");
+    assert_eq!(question_node.language, "python");
+    assert!(!question_node.is_test);
+    assert_eq!(question_edge.kind, "CALLS");
+    assert_eq!(question_edge.source_qualified, "app.py::entry");
+    assert_eq!(question_edge.target_qualified, "app.py::middle");
+}
+
+#[test]
 fn generates_suggested_questions_json_from_native_analysis_unit() {
     let path = temp_db("suggested-questions");
     let mut store = GraphStore::open(&path).expect("open graph store");
@@ -1320,6 +1413,92 @@ fn stores_flows_and_reads_flow_inputs() {
         store.get_node_kind_by_id(entry_id).unwrap().as_deref(),
         Some("Function")
     );
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn store_flows_json_replaces_existing_flows_from_serialized_input() {
+    let path = temp_db("flows-json");
+    let mut store = GraphStore::open(&path).expect("open graph store");
+    let entry = NodeInput {
+        kind: "Function".to_string(),
+        name: "entry".to_string(),
+        file_path: "app.py".to_string(),
+        line_start: 1,
+        line_end: 5,
+        language: "python".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: Value::Object(Default::default()),
+    };
+    let callee = NodeInput {
+        kind: "Function".to_string(),
+        name: "callee".to_string(),
+        file_path: "app.py".to_string(),
+        line_start: 7,
+        line_end: 10,
+        language: "python".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: Value::Object(Default::default()),
+    };
+    store
+        .store_file_batch(&[(
+            "app.py".to_string(),
+            vec![entry, callee],
+            vec![],
+            "hash".to_string(),
+            0,
+        )])
+        .unwrap();
+    let entry_id = store.get_node("app.py::entry").unwrap().unwrap().id;
+    let callee_id = store.get_node("app.py::callee").unwrap().unwrap().id;
+    store
+        .store_flows(&[FlowInput {
+            name: "old".to_string(),
+            entry_point_id: callee_id,
+            depth: 0,
+            node_count: 1,
+            file_count: 1,
+            criticality: 0.1,
+            path: vec![callee_id],
+        }])
+        .unwrap();
+
+    let replacement = vec![FlowInput {
+        name: "entry".to_string(),
+        entry_point_id: entry_id,
+        depth: 1,
+        node_count: 2,
+        file_count: 1,
+        criticality: 0.75,
+        path: vec![entry_id, callee_id],
+    }];
+    assert_eq!(
+        store
+            .store_flows_json(&serde_json::to_string(&replacement).unwrap())
+            .unwrap(),
+        1
+    );
+
+    let flows_json: Vec<Value> =
+        serde_json::from_str(&store.get_flows_json("criticality", 10).unwrap()).unwrap();
+    assert_eq!(flows_json.len(), 1);
+    assert_eq!(flows_json[0]["name"], "entry");
+    assert_eq!(flows_json[0]["criticality"], json!(0.75));
+    let membership_count: i64 = store
+        .conn
+        .query_row("SELECT COUNT(*) FROM flow_memberships", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(membership_count, 2);
     let _ = std::fs::remove_file(path);
 }
 
