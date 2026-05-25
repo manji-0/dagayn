@@ -58,7 +58,9 @@ retrieval setup.
      by authoring site: Markdown `implemented-by` means the doc owns the
      contract; code `implements` means the implementation declares conformance;
      `explained-by`, `has-runbook`, and `problem-described-by` mean linked docs
-     may be stale after code changes. Do not expect duplicate inverse edges.
+     may be stale after code changes. Check each result's `evidence_type`
+     (`authored`, `extracted`, or `heuristic_reachable`) before treating it as
+     contract evidence. Do not expect duplicate inverse edges.
 
 8. **Generate structured review output**:
 
@@ -103,6 +105,9 @@ retrieval setup.
 - Cite `CROSS_ARTIFACT` documentation roles and query patterns when they drive a
   finding: `docs_for` for code→docs context, `implementations_of` for
   doc→implementation context.
+- For empty or not-found graph results, report `zero_result_reason`,
+  `next_action`, `answerability`, and `missingness` instead of concluding the
+  symbol or relationship is absent.
 
 ## Efficiency Rules
 

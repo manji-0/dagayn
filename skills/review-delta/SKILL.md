@@ -51,7 +51,8 @@ Perform a focused, token-efficient code review of only the changed code and its 
      needs review or an update. Use the stored role (`implemented_by`,
      `implements_contract`, `explained_by`, `has_runbook`,
      `problem_described_by`, `discusses_artifact`, `raises_issue_for`) as the
-     reason, and avoid assuming duplicate inverse edges exist.
+     reason, check `evidence_type` (`authored`, `extracted`, or
+     `heuristic_reachable`), and avoid assuming duplicate inverse edges exist.
    - Flag any untested changed functions
 
 7. **Report findings** in a structured format:
@@ -84,6 +85,9 @@ Perform a focused, token-efficient code review of only the changed code and its 
   dependency direction, test gap, or changed public surface.
 - Treat missing tests as a lead until `tests_for` and source-level behavior are
   checked.
+- Treat zero-result graph queries as graph-limited leads. Read
+  `zero_result_reason`, `next_action`, `answerability`, and `missingness` before
+  claiming absence.
 - If a graph result is truncated, narrow it before making a final review claim.
 
 ## CLI Fallback

@@ -152,6 +152,9 @@ Existing fields such as `summary`, `_hints`, `next_tool_suggestions`,
 and `work_pack` remain available. New consumers should read `guidance`,
 `answerability`, and `missingness` first, then fall back to the older raw
 sections only when a drill-down needs more detail.
+Dispatcher error paths and graph-limited not-found paths still carry
+`answerability` and `missingness`, computed for the requested `repo_root` when
+one is supplied.
 
 Before:
 
@@ -185,6 +188,13 @@ result = query_graph_tool(pattern="callers_of", target="handler")
 if result.get("zero_result_reason"):
     follow(result["next_action"])
 ```
+
+`query_graph_tool` keeps the same zero-result contract for both empty
+relationship results and missing targets. Missing targets return
+`status="not_found"`, `result_count=0`, `results=[]`,
+`zero_result_reason="target_not_found_in_graph"`, `next_action`, and
+`answerability` / `missingness`; do not treat that as proof the symbol cannot
+exist outside the current graph.
 
 ## Visualize or export the graph
 

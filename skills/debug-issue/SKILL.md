@@ -44,9 +44,16 @@ the selected embedding mode so bug searches balance semantic recall with speed.
 - Recent changes are the most common source of new issues.
 - When the symptom starts from a log line, CLI command, or UI action, use `rg`
   once to map that literal string to a graph node, then return to graph tools.
-- Treat `dagayn:` documentation directives as authored evidence. Code comments
-  such as `# dagayn: explained-by docs/runbook.md#Failure Mode` can point to
-  runbooks or problem statements that are more useful than another caller hop.
+- Treat `dagayn:` documentation directives as typed traceability evidence. Code
+  comments such as `# dagayn: explained-by docs/runbook.md#Failure Mode` can
+  point to runbooks or problem statements that are more useful than another
+  caller hop.
+- For documentation bridge query results, check `evidence_type`: `authored`
+  contract links are stronger than `extracted` explanatory links, while
+  `heuristic_reachable` links require source confirmation.
+- If `query_graph_tool` returns no result or `status="not_found"`, read
+  `zero_result_reason`, `next_action`, `answerability`, and `missingness`
+  before ruling out a path.
 - Do not infer root cause from graph centrality alone; require an observed
   failing path, changed behavior, or source-level defect.
 

@@ -10,12 +10,16 @@ This repository ships `dagayn`, a fork of `code-review-graph` with extra emphasi
 
 - use `dagayn` in all user-facing commands
 - build or update the graph before asking graph-backed questions
-- start broad tasks with `get_minimal_context` so the agent sees graph freshness,
-  risk, and suggested next tools before spending tokens elsewhere
+- start broad tasks with `get_minimal_context_tool` so the agent sees graph
+  freshness, risk, and suggested next tools before spending tokens elsewhere
 - treat graph paths as repo-root-relative where the fork expects registered file trees
 - use targeted graph tools before reading broad file sets
 - treat graph analysis as evidence-ranked leads: cite thresholds, counts,
-  reason codes, and truncation state when drawing conclusions
+  reason codes, truncation state, `answerability`, and `missingness` when
+  drawing conclusions
+- treat `query_graph_tool` zero-result and not-found responses as graph-limited:
+  read `zero_result_reason`, `next_action`, and missingness before concluding
+  absence
 - fall back to `rg`/file reads when graph output is stale, ambiguous, truncated,
   or lacks exact source text
 - keep docs aligned with fork behavior, not upstream prose
@@ -47,9 +51,9 @@ dagayn serve
 
 ## Useful MCP flows
 
-- `get_minimal_context` for quick orientation
+- `get_minimal_context_tool` for quick orientation
 - `review_tool(mode="changes")` or `review_tool(mode="context")` for review work
-- `query_graph`, `semantic_search_nodes_tool`, and `flow_tool(mode="list")` for exploration
+- `query_graph_tool`, `semantic_search_nodes_tool`, and `flow_tool(mode="list")` for exploration
 - `architecture_analysis_tool(mode="overview")` and its drill-down modes for
   evidence-backed architecture analysis
 - `refactor_tool` for rename previews, dead-code analysis, and refactor suggestions

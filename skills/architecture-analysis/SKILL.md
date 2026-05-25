@@ -33,7 +33,9 @@ question points to a signal.
    from code/Terraform nodes and
    `query_graph_tool(pattern="implementations_of", target="<doc.md>::<section-slug>", detail_level="minimal")`
    from Markdown contract sections. Treat `CROSS_ARTIFACT` documentation roles
-   as authored traceability evidence, not automatic architectural coupling.
+   as typed traceability evidence, not automatic architectural coupling; read
+   `evidence_type` and `missingness` before treating a doc edge as contract
+   evidence.
 
 ### Evidence Rules
 
@@ -47,7 +49,10 @@ question points to a signal.
 - When citing Markdown ↔ code relationships, name the stored role
   (`implemented_by`, `implements_contract`, `explained_by`, `has_runbook`,
   `problem_described_by`, `discusses_artifact`, or `raises_issue_for`) and
-  whether it came from Markdown or code.
+  whether it came from Markdown or code. Include `evidence_type` when it affects
+  the strength of the claim.
+- For zero-result graph queries, include `zero_result_reason` and `next_action`
+  rather than treating the result as proof of no relationship.
 
 ## CLI Fallback
 

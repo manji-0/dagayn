@@ -45,10 +45,14 @@ Provide findings grouped by risk level (high/medium/low) with:
 - Do not report a function concern profile as a bug by itself. For a review
   finding, confirm exact source behavior, contract impact, missing tests, or a
   concrete maintainability risk. Otherwise frame it as a follow-up refactor lead.
-- Treat `CROSS_ARTIFACT` documentation roles as authored evidence, not duplicate
-  inverse facts. `implemented_by` and `implements_contract` answer the same
-  contract question from opposite authoring sites; cite the stored role and the
-  query pattern (`docs_for` or `implementations_of`) used.
+- Treat `CROSS_ARTIFACT` documentation roles as typed evidence, not duplicate
+  inverse facts. Check each result's `evidence_type`: `implemented_by` and
+  `implements_contract` are authored contract evidence; explanatory roles such
+  as `describes_symbol` are usually `extracted`; unresolved or low-confidence
+  candidates are `heuristic_reachable` and should stay tentative. Cite the
+  stored role and the query pattern (`docs_for` or `implementations_of`) used.
+- For zero-result or not-found graph queries, read `zero_result_reason`,
+  `next_action`, `answerability`, and `missingness` before claiming absence.
 - Report `truncated`, `total`, or approximation metadata when a tool response is
   incomplete.
 - Read exact source before reporting a behavioral bug; graph structure alone is

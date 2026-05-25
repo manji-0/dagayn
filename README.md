@@ -253,6 +253,12 @@ architecture, flow, refactor, search, and query responses can also include
 so agents can treat graph output as evidence-ranked leads rather than verdicts.
 Use `detail_level="minimal"` for the top recommendations and
 `detail_level="standard"` for the full supporting sections.
+`query_graph_tool` zero-result and not-found responses include
+`zero_result_reason`, `next_action`, `result_count`, `results`,
+`answerability`, and `missingness`; treat absence as graph-limited until source
+or tests confirm it. Documentation bridge results label evidence as `authored`,
+`extracted`, or `heuristic_reachable` so Markdown traceability is not confused
+with a verified contract.
 
 ## Reporting and export outputs
 

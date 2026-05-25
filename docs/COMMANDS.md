@@ -170,7 +170,7 @@ Default tool names are:
 - `query_graph_tool`
 - `semantic_search_nodes_tool`
 
-`query_graph` includes documentation-aware bridge patterns in addition to
+`query_graph_tool` includes documentation-aware bridge patterns in addition to
 ordinary code relationships. Use `docs_for` to find specifications, runbooks,
 issue notes, and explanations linked to a code, Terraform, or artifact node.
 Use `implementations_of` to find code or Terraform nodes linked to a Markdown
@@ -238,13 +238,14 @@ Markdown code-span candidates are excluded from these answerability counts
 because post-processing treats them as prose vocabulary unless they resolve
 uniquely to a non-Markdown symbol.
 
-Most dispatcher responses now include `answerability` and `missingness` blocks.
-`answerability.status` and `score` describe how much graph evidence is
-available; `reason_codes` call out partial graphs, missing flows, missing
-communities, missing test edges, unresolved cross-artifact edges, missing
-embeddings, and truncation-sensitive output. A zero-result response should be
-read as "not found in the current graph" unless the surrounding source review
-confirms absence.
+Most dispatcher responses now include `answerability` and `missingness` blocks,
+including error and not-found paths. `answerability.status` and `score` describe
+how much graph evidence is available for the requested `repo_root`;
+`reason_codes` call out partial graphs, missing flows, missing communities,
+missing test edges, unresolved cross-artifact edges, missing embeddings, and
+truncation-sensitive output. A zero-result response should be read as "not
+found in the current graph" unless the surrounding source review confirms
+absence.
 
 `architecture_analysis_tool` is the primary architecture-analysis surface. Start
 with `mode="overview"` and `detail_level="minimal"`. Output includes
@@ -287,6 +288,10 @@ purity likelihood, context clarity, missingness, and a first extraction action.
 exactness or ambiguity, evidence type, zero-result reason, and a `next_action`
 lead. Mixed docs/code hits are labelled so a Markdown body hit is not confused
 with a code symbol hit.
+For `query_graph_tool`, missing targets use the same consumer contract as empty
+relationship results: `status="not_found"`, `result_count=0`, `results=[]`,
+`zero_result_reason="target_not_found_in_graph"`, `next_action`,
+`answerability`, and `missingness`.
 
 `architecture_analysis_tool(mode="knowledge_gaps", top_n=20)` returns bounded
 structural weakness categories with explicit thresholds and raw counts.

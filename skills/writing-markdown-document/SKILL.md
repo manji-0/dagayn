@@ -92,8 +92,9 @@ Target rules:
 - Code-authored line comments are currently extracted from Python `#` comments and Terraform `#` / `//` comments. Put the directive inside the implementation node or directly above the following function/resource/block; the parser attaches it to the nearest enclosing node or a following node within 3 lines.
 
 Verification rules:
-- Starting from a Markdown contract section, run `query_graph_tool(pattern="implementations_of", target="<doc.md>::<section-slug>", detail_level="minimal")` and check both doc-authored `implemented_by` and code-authored `implements_contract` edges.
-- Starting from a code point, run `query_graph_tool(pattern="docs_for", target="<path::symbol>", detail_level="minimal")` to find specs, explanations, runbooks, and issue notes linked by authored or inverse documentation roles.
+- Starting from a Markdown contract section, run `query_graph_tool(pattern="implementations_of", target="<doc.md>::<section-slug>", detail_level="minimal")` and check both doc-authored `implemented_by` and code-authored `implements_contract` edges. Treat those as `authored` contract evidence.
+- Starting from a code point, run `query_graph_tool(pattern="docs_for", target="<path::symbol>", detail_level="minimal")` to find specs, explanations, runbooks, and issue notes linked by documentation roles. Check each result's `evidence_type`: explanatory roles are usually `extracted`, and unresolved/low-confidence links are `heuristic_reachable`.
+- If a verification query returns zero results or `status="not_found"`, keep its `zero_result_reason`, `next_action`, and `missingness` in the draft notes instead of assuming the target or relationship cannot exist.
 - Do not author both directions for the same fact unless there are genuinely two separate assertions. Query tools expose inverse labels; duplicate inverse edges become stale during incremental updates.
 
 ## Stage 1 — Outline & sort sections

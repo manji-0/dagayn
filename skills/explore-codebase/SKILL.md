@@ -48,7 +48,12 @@ the selected embedding mode so exploration chooses the right search strategy.
   code point; Python/Terraform comments such as
   `# dagayn: implements docs/spec.md#Section` point from code to a Markdown
   section. Query tools expose inverse labels, so do not assume both directions
-  are stored.
+  are stored. Read `evidence_type` (`authored`, `extracted`, or
+  `heuristic_reachable`) and `missingness` before treating a traceability edge
+  as contract evidence.
+- For empty or not-found relationship queries, use `zero_result_reason` and
+  `next_action` to decide the next lookup; absence is limited to the current
+  graph.
 - For tiny literal lookups, one `rg` is fine after minimal context; switch back
   to graph tools once you have a file, function, or class name.
 - Treat graph output as evidence: cite counts, thresholds, reason codes, and
