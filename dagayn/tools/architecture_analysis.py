@@ -62,7 +62,7 @@ def _with_dispatch_metadata(
     return payload
 
 
-def _error(message: str, *, mode: str) -> dict[str, Any]:
+def _error(message: str, *, mode: str, repo_root: str | None) -> dict[str, Any]:
     return attach_answerability(
         {
             "status": "error",
@@ -70,7 +70,8 @@ def _error(message: str, *, mode: str) -> dict[str, Any]:
             "error": message,
             "mode": mode,
             "called_subtool": None,
-        }
+        },
+        repo_root,
     )
 
 
@@ -123,6 +124,7 @@ def architecture_analysis_func(
             return _error(
                 'mode="community" requires community_id or community_name.',
                 mode=mode,
+                repo_root=repo_root,
             )
         return _with_dispatch_metadata(
             get_community_func(
@@ -228,4 +230,8 @@ def architecture_analysis_func(
             called_subtool="detect_sap_violations_func",
             repo_root=repo_root,
         )
-    return _error(f"Unknown architecture analysis mode: {mode!r}.", mode=str(mode))
+    return _error(
+        f"Unknown architecture analysis mode: {mode!r}.",
+        mode=str(mode),
+        repo_root=repo_root,
+    )

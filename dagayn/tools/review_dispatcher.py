@@ -30,7 +30,7 @@ def _with_dispatch_metadata(
     return payload
 
 
-def _error(message: str, *, mode: str) -> dict[str, Any]:
+def _error(message: str, *, mode: str, repo_root: str | None) -> dict[str, Any]:
     return attach_answerability(
         {
             "status": "error",
@@ -38,7 +38,8 @@ def _error(message: str, *, mode: str) -> dict[str, Any]:
             "error": message,
             "mode": mode,
             "called_subtool": None,
-        }
+        },
+        repo_root,
     )
 
 
@@ -108,4 +109,4 @@ def review_func(
             called_subtool="get_impact_radius",
             repo_root=repo_root,
         )
-    return _error(f"Unknown review mode: {mode!r}.", mode=str(mode))
+    return _error(f"Unknown review mode: {mode!r}.", mode=str(mode), repo_root=repo_root)

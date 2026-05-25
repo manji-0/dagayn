@@ -343,6 +343,10 @@ def query_graph(
             return {
                 "status": "not_found",
                 "summary": f"No node found matching '{target}' in the current graph.",
+                "result_count": 0,
+                "results": [],
+                "zero_result_reason": "target_not_found_in_graph",
+                "next_action": _exactness_action(target, 0, 0),
                 "answerability": answerability,
                 "missingness": [
                     *missingness,

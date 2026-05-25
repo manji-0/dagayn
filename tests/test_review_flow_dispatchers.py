@@ -187,6 +187,38 @@ def test_flow_get_requires_selector() -> None:
     assert "answerability" in result
 
 
+def test_dispatcher_error_paths_use_requested_repo_root(monkeypatch) -> None:
+    calls: list[tuple[str, str | None]] = []
+
+    def fake_attach(name):
+        def _inner(payload: dict, repo_root: str | None = None) -> dict:
+            calls.append((name, repo_root))
+            payload["answerability"] = {"status": "ok", "repo_root": repo_root}
+            return payload
+
+        return _inner
+
+    monkeypatch.setattr(review_dispatcher, "attach_answerability", fake_attach("review"))
+    monkeypatch.setattr(flow_dispatcher, "attach_answerability", fake_attach("flow"))
+    monkeypatch.setattr(
+        architecture_analysis,
+        "attach_answerability",
+        fake_attach("architecture"),
+    )
+
+    review = review_dispatcher.review_func(mode="unknown", repo_root="/repo")  # type: ignore[arg-type]
+    flow = flow_dispatcher.flow_func(mode="get", repo_root="/repo")
+    architecture = architecture_analysis.architecture_analysis_func(
+        mode="community",
+        repo_root="/repo",
+    )
+
+    assert review["answerability"]["repo_root"] == "/repo"
+    assert flow["answerability"]["repo_root"] == "/repo"
+    assert architecture["answerability"]["repo_root"] == "/repo"
+    assert calls == [("review", "/repo"), ("flow", "/repo"), ("architecture", "/repo")]
+
+
 def test_architecture_dispatcher_preserves_guidance_hints(monkeypatch) -> None:
     expected_hints = {
         "next_steps": [{"tool": "architecture_analysis_tool", "suggestion": "from guidance"}]

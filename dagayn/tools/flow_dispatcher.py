@@ -29,7 +29,7 @@ def _with_dispatch_metadata(
     return payload
 
 
-def _error(message: str, *, mode: str) -> dict[str, Any]:
+def _error(message: str, *, mode: str, repo_root: str | None) -> dict[str, Any]:
     return attach_answerability(
         {
             "status": "error",
@@ -37,7 +37,8 @@ def _error(message: str, *, mode: str) -> dict[str, Any]:
             "error": message,
             "mode": mode,
             "called_subtool": None,
-        }
+        },
+        repo_root,
     )
 
 
@@ -68,7 +69,11 @@ def flow_func(
         )
     if mode == "get":
         if flow_id is None and not flow_name:
-            return _error('mode="get" requires flow_id or flow_name.', mode=mode)
+            return _error(
+                'mode="get" requires flow_id or flow_name.',
+                mode=mode,
+                repo_root=repo_root,
+            )
         return _with_dispatch_metadata(
             get_flow(
                 flow_id=flow_id,
@@ -80,4 +85,4 @@ def flow_func(
             called_subtool="get_flow",
             repo_root=repo_root,
         )
-    return _error(f"Unknown flow mode: {mode!r}.", mode=str(mode))
+    return _error(f"Unknown flow mode: {mode!r}.", mode=str(mode), repo_root=repo_root)

@@ -427,6 +427,34 @@ class TestTools:
         assert evidence_by_role["explained_by"] == "extracted"
         assert evidence_by_role["describes_symbol"] == "extracted"
 
+    def test_query_graph_target_not_found_keeps_zero_result_contract(self, monkeypatch):
+        from dagayn.tools import query as query_module
+
+        monkeypatch.setattr(
+            query_module,
+            "_get_store",
+            lambda repo_root: (self.store, Path("/repo")),
+        )
+        self.store.close = lambda: None
+
+        result = query_module.query_graph(
+            pattern="callers_of",
+            target="definitely_missing_symbol_for_docs_example",
+            repo_root="/repo",
+            detail_level="minimal",
+        )
+
+        assert result["status"] == "not_found"
+        assert result["result_count"] == 0
+        assert result["results"] == []
+        assert result["zero_result_reason"] == "target_not_found_in_graph"
+        assert result["next_action"]["tool"] == "semantic_search_nodes_tool"
+        assert any(
+            item["reason_code"] == "target_not_found_in_graph"
+            for item in result["missingness"]
+        )
+        assert "answerability" in result
+
     def test_query_graph_standard_results_are_budgeted(self, monkeypatch):
         from dagayn.tools import query as query_module
 
