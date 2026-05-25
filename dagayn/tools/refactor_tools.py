@@ -17,6 +17,7 @@ from ..stability_policy import component_stability_profiles, scope_key_for_file
 from ._common import (
     _get_store,
     _validate_repo_root,
+    attach_answerability,
     graph_answerability_summary,
     guidance_actions_to_hints,
     make_guidance_item,
@@ -160,10 +161,15 @@ def refactor_func(
     """
     valid_modes = {"rename", "dead_code", "suggest"}
     if mode not in valid_modes:
-        return {
-            "status": "error",
-            "error": (f"Invalid mode '{mode}'. Must be one of: {', '.join(sorted(valid_modes))}"),
-        }
+        return attach_answerability(
+            {
+                "status": "error",
+                "error": (
+                    f"Invalid mode '{mode}'. Must be one of: {', '.join(sorted(valid_modes))}"
+                ),
+            },
+            repo_root,
+        )
 
     store, root = _get_store(repo_root)
     try:
@@ -174,12 +180,25 @@ def refactor_func(
                 return {
                     "status": "error",
                     "error": ("rename mode requires both old_name and new_name."),
+                    "answerability": answerability,
+                    "missingness": missingness,
                 }
             preview = rename_preview(store, old_name, new_name)
             if preview is None:
                 return {
                     "status": "not_found",
-                    "summary": f"No node found matching '{old_name}'.",
+                    "summary": f"No node found matching '{old_name}' in the current graph.",
+                    "answerability": answerability,
+                    "missingness": [
+                        *missingness,
+                        {
+                            "reason_code": "rename_target_not_found_in_graph",
+                            "severity": "medium",
+                            "claim_effect": (
+                                "absence is graph-limited, not proof the symbol does not exist"
+                            ),
+                        },
+                    ],
                 }
             result: dict[str, Any] = {
                 "status": "ok",

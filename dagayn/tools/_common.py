@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sqlite3
 import threading
 from collections.abc import Mapping
 from pathlib import Path
@@ -462,7 +463,7 @@ def graph_answerability_summary(store: Any, stats: Any | None = None) -> dict[st
     if stats is None:
         try:
             stats = store.get_stats()
-        except AttributeError:
+        except (AttributeError, sqlite3.Error):
             return {
                 "status": "unknown",
                 "score": 0.0,
@@ -478,12 +479,21 @@ def graph_answerability_summary(store: Any, stats: Any | None = None) -> dict[st
             "parse": [stats.files_count, len(stats.languages), bool(stats.last_updated)],
         }
 
-    def _count(sql: str, params: tuple[Any, ...] = ()) -> int:
-        row = conn.execute(sql, params).fetchone()
+    query_failures: list[str] = []
+
+    def _count(sql: str, params: tuple[Any, ...] = (), *, failure_code: str) -> int:
+        try:
+            row = conn.execute(sql, params).fetchone()
+        except sqlite3.Error:
+            query_failures.append(failure_code)
+            return 0
         return int(row[0] if row else 0)
 
-    flow_count = _count("SELECT COUNT(*) FROM flows")
-    community_count = _count("SELECT COUNT(*) FROM communities")
+    flow_count = _count("SELECT COUNT(*) FROM flows", failure_code="missing_flows_table")
+    community_count = _count(
+        "SELECT COUNT(*) FROM communities",
+        failure_code="missing_communities_table",
+    )
     test_edge_count = int(stats.edges_by_kind.get("TESTED_BY", 0))
     cross_artifact_count = int(stats.edges_by_kind.get("CROSS_ARTIFACT", 0))
     unresolved_markdown_code_span_count = _count(
@@ -491,11 +501,13 @@ def graph_answerability_summary(store: Any, stats: Any | None = None) -> dict[st
         "WHERE kind = 'CROSS_ARTIFACT' "
         "AND target_qualified LIKE '<unresolved:%' "
         "AND extra LIKE '%markdown_code_span%' "
-        "AND extra LIKE '%code_span%'"
+        "AND extra LIKE '%code_span%'",
+        failure_code="missing_cross_artifact_edge_metadata",
     )
     unresolved_cross_artifact_count = _count(
         "SELECT COUNT(*) FROM edges "
-        "WHERE kind = 'CROSS_ARTIFACT' AND target_qualified LIKE '<unresolved:%'"
+        "WHERE kind = 'CROSS_ARTIFACT' AND target_qualified LIKE '<unresolved:%'",
+        failure_code="missing_cross_artifact_edges",
     )
     reportable_cross_artifact_count = max(
         0,
@@ -513,6 +525,9 @@ def graph_answerability_summary(store: Any, stats: Any | None = None) -> dict[st
 
     reason_codes: list[str] = []
     score = 1.0
+    if query_failures:
+        reason_codes.extend(dict.fromkeys(query_failures))
+        score -= 0.2
     if stats.total_nodes == 0 or stats.files_count == 0:
         reason_codes.append("empty_graph")
         score = 0.0
@@ -561,6 +576,39 @@ def graph_answerability_summary(store: Any, stats: Any | None = None) -> dict[st
     return health
 
 
+def attach_answerability(
+    payload: dict[str, Any],
+    repo_root: str | None = None,
+) -> dict[str, Any]:
+    """Ensure a tool response carries answerability and missingness metadata."""
+    if "answerability" in payload and "missingness" in payload:
+        return payload
+
+    try:
+        store, _root = _get_store(repo_root)
+    except Exception:
+        answerability = {
+            "status": "unknown",
+            "score": 0.0,
+            "reason_codes": ["answerability_unavailable"],
+            "parse": [0, 0, False],
+        }
+        if "answerability" not in payload:
+            payload["answerability"] = answerability
+        payload.setdefault("missingness", missingness_from_answerability(answerability))
+        return payload
+
+    try:
+        answerability = graph_answerability_summary(store)
+    finally:
+        store.close()
+
+    if "answerability" not in payload:
+        payload["answerability"] = answerability
+    payload.setdefault("missingness", missingness_from_answerability(payload["answerability"]))
+    return payload
+
+
 def missingness_from_answerability(answerability: dict[str, Any]) -> list[dict[str, Any]]:
     """Convert answerability reason codes into response-level missingness items."""
     severity_by_code = {
@@ -571,6 +619,12 @@ def missingness_from_answerability(answerability: dict[str, Any]) -> list[dict[s
         "many_unresolved_cross_artifact_edges": "medium",
         "missing_last_updated": "low",
         "no_sqlite_connection": "high",
+        "missing_graph_stats": "medium",
+        "missing_flows_table": "medium",
+        "missing_communities_table": "medium",
+        "missing_cross_artifact_edge_metadata": "medium",
+        "missing_cross_artifact_edges": "medium",
+        "answerability_unavailable": "medium",
     }
     items: list[dict[str, Any]] = []
     for code in answerability.get("reason_codes", []):
@@ -651,6 +705,7 @@ def apply_output_budget(
         total = len(items)
         while len(items) > 1 and _est_tokens() > budget_tokens:
             items = items[: len(items) // 2]
+            parent[key] = items
         if len(items) == 0:
             items = parent[key][:1]
         if len(items) < total:

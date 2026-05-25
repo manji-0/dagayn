@@ -153,6 +153,39 @@ and `work_pack` remain available. New consumers should read `guidance`,
 `answerability`, and `missingness` first, then fall back to the older raw
 sections only when a drill-down needs more detail.
 
+Before:
+
+```python
+result = review_tool(mode="changes", detail_level="minimal")
+for test in result.get("recommended_tests", []):
+    run(test["qualified_name"])
+```
+
+After:
+
+```python
+result = review_tool(mode="changes", detail_level="minimal")
+for item in result.get("guidance", []):
+    if item["confidence"] != "unknown":
+        follow(item["action"], evidence=item["evidence"])
+```
+
+Before:
+
+```python
+result = query_graph_tool(pattern="callers_of", target="handler")
+if not result["results"]:
+    conclude_absent()
+```
+
+After:
+
+```python
+result = query_graph_tool(pattern="callers_of", target="handler")
+if result.get("zero_result_reason"):
+    follow(result["next_action"])
+```
+
 ## Visualize or export the graph
 
 <!-- constrained-by ./ARCHITECTURE.md#post-processing -->

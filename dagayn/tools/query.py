@@ -87,9 +87,12 @@ def _cross_artifact_role(edge: Any) -> str | None:
 def _documentation_result(edge: Any, *, endpoint: str, inverse_label: str | None = None) -> dict:
     role = _cross_artifact_role(edge)
     confidence_tier = str(edge.confidence_tier or "").upper()
-    evidence_type = "authored"
-    if role in {"discussed_by", "discusses_artifact", "describes_symbol"}:
-        evidence_type = "extracted" if confidence_tier in {"EXTRACTED", "HIGH"} else "evaluated"
+    evidence_type = "authored" if role in {"implements_contract", "implemented_by"} else "extracted"
+    if role not in {"implements_contract", "implemented_by"} and confidence_tier not in {
+        "EXTRACTED",
+        "HIGH",
+    }:
+        evidence_type = "heuristic_reachable"
     result = {
         "source": edge.source_qualified,
         "target": edge.target_qualified,
@@ -163,6 +166,8 @@ def get_impact_radius(
     """
     store, root = _get_store(repo_root)
     try:
+        answerability = graph_answerability_summary(store)
+        missingness = missingness_from_answerability(answerability)
         if changed_files is None:
             changed_files = get_changed_files(root, base)
             if not changed_files:
@@ -177,6 +182,8 @@ def get_impact_radius(
                 "impacted_files": [],
                 "truncated": False,
                 "total_impacted": 0,
+                "answerability": answerability,
+                "missingness": missingness,
             }
 
         # Convert to absolute paths for graph lookup
@@ -217,6 +224,8 @@ def get_impact_radius(
                 "impacted_file_count": len(result["impacted_files"]),
                 "key_entities": key_entities,
                 "truncated": truncated,
+                "answerability": answerability,
+                "missingness": missingness,
             }
 
         payload = {
@@ -229,6 +238,8 @@ def get_impact_radius(
             "edges": edge_dicts,
             "truncated": truncated,
             "total_impacted": total_impacted,
+            "answerability": answerability,
+            "missingness": missingness,
         }
         apply_output_budget(
             payload,
@@ -515,7 +526,7 @@ def query_graph(
                 "results": minimal_results,
             }
 
-        return {
+        payload = {
             "status": "ok",
             "pattern": pattern,
             "target": target,
@@ -530,6 +541,8 @@ def query_graph(
             "results": results,
             "edges": edges_out,
         }
+        apply_output_budget(payload, budget_tokens=8000, list_priorities=["results", "edges"])
+        return payload
     finally:
         store.close()
 

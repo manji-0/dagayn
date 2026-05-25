@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 from .._scope import ArtifactScope
 from ..hints import generate_hints, get_session
+from ._common import attach_answerability
 from .analysis_tools import (
     get_bridge_nodes_func,
     get_hub_nodes_func,
@@ -45,6 +46,7 @@ def _with_dispatch_metadata(
     *,
     mode: str,
     called_subtool: str,
+    repo_root: str | None,
 ) -> dict[str, Any]:
     """Add dispatcher metadata without mutating the subtool response."""
     payload = dict(result)
@@ -52,18 +54,24 @@ def _with_dispatch_metadata(
     payload.setdefault("summary", f"Architecture analysis mode {mode!r} completed.")
     payload["mode"] = mode
     payload["called_subtool"] = called_subtool
-    payload["_hints"] = generate_hints("architecture_analysis", payload, get_session())
+    attach_answerability(payload, repo_root)
+    payload.setdefault(
+        "_hints",
+        generate_hints("architecture_analysis", payload, get_session()),
+    )
     return payload
 
 
 def _error(message: str, *, mode: str) -> dict[str, Any]:
-    return {
-        "status": "error",
-        "summary": message,
-        "error": message,
-        "mode": mode,
-        "called_subtool": None,
-    }
+    return attach_answerability(
+        {
+            "status": "error",
+            "summary": message,
+            "error": message,
+            "mode": mode,
+            "called_subtool": None,
+        }
+    )
 
 
 def architecture_analysis_func(
@@ -96,6 +104,7 @@ def architecture_analysis_func(
             ),
             mode=mode,
             called_subtool="get_architecture_overview_func",
+            repo_root=repo_root,
         )
     if mode == "communities":
         return _with_dispatch_metadata(
@@ -107,6 +116,7 @@ def architecture_analysis_func(
             ),
             mode=mode,
             called_subtool="list_communities_func",
+            repo_root=repo_root,
         )
     if mode == "community":
         if community_id is None and not community_name:
@@ -123,30 +133,35 @@ def architecture_analysis_func(
             ),
             mode=mode,
             called_subtool="get_community_func",
+            repo_root=repo_root,
         )
     if mode == "hubs":
         return _with_dispatch_metadata(
             get_hub_nodes_func(repo_root=repo_root, top_n=top_n),
             mode=mode,
             called_subtool="get_hub_nodes_func",
+            repo_root=repo_root,
         )
     if mode == "bridges":
         return _with_dispatch_metadata(
             get_bridge_nodes_func(repo_root=repo_root, top_n=top_n),
             mode=mode,
             called_subtool="get_bridge_nodes_func",
+            repo_root=repo_root,
         )
     if mode == "knowledge_gaps":
         return _with_dispatch_metadata(
             get_knowledge_gaps_func(repo_root=repo_root, top_n=top_n),
             mode=mode,
             called_subtool="get_knowledge_gaps_func",
+            repo_root=repo_root,
         )
     if mode == "surprising_connections":
         return _with_dispatch_metadata(
             get_surprising_connections_func(repo_root=repo_root, top_n=top_n),
             mode=mode,
             called_subtool="get_surprising_connections_func",
+            repo_root=repo_root,
         )
     if mode == "adp_violations":
         return _with_dispatch_metadata(
@@ -160,6 +175,7 @@ def architecture_analysis_func(
             ),
             mode=mode,
             called_subtool="detect_adp_violations_func",
+            repo_root=repo_root,
         )
     if mode == "sdp_metrics":
         return _with_dispatch_metadata(
@@ -171,6 +187,7 @@ def architecture_analysis_func(
             ),
             mode=mode,
             called_subtool="compute_sdp_metrics_func",
+            repo_root=repo_root,
         )
     if mode == "sdp_violations":
         return _with_dispatch_metadata(
@@ -183,6 +200,7 @@ def architecture_analysis_func(
             ),
             mode=mode,
             called_subtool="detect_sdp_violations_func",
+            repo_root=repo_root,
         )
     if mode == "sap_metrics":
         return _with_dispatch_metadata(
@@ -195,6 +213,7 @@ def architecture_analysis_func(
             ),
             mode=mode,
             called_subtool="compute_sap_metrics_func",
+            repo_root=repo_root,
         )
     if mode == "sap_violations":
         return _with_dispatch_metadata(
@@ -207,5 +226,6 @@ def architecture_analysis_func(
             ),
             mode=mode,
             called_subtool="detect_sap_violations_func",
+            repo_root=repo_root,
         )
     return _error(f"Unknown architecture analysis mode: {mode!r}.", mode=str(mode))

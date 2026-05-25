@@ -5,12 +5,18 @@ Cover make_response, apply_output_budget, and projection_for_detail_level.
 
 from __future__ import annotations
 
+import sqlite3
+from types import SimpleNamespace
+
 from dagayn.tools._common import (
     apply_output_budget,
+    attach_answerability,
     compact_response,
+    graph_answerability_summary,
     guidance_actions_to_hints,
     make_guidance_item,
     make_response,
+    missingness_from_answerability,
     projection_for_detail_level,
 )
 
@@ -111,6 +117,62 @@ class TestApplyOutputBudget:
         assert result["truncated"] is True
         assert "analysis_summary.guidance" in result["_truncation"]
         assert len(result["analysis_summary"]["guidance"]) < 200
+
+    def test_updates_payload_while_estimating_trim_size(self) -> None:
+        payload = {"items": ["x" * 100] * 8}
+        result = apply_output_budget(payload, budget_tokens=120, list_priorities=["items"])
+        assert result["_truncation"]["items"]["kept"] > 1
+
+
+class TestAnswerability:
+    def test_sqlite_errors_degrade_instead_of_raising(self) -> None:
+        class BrokenConn:
+            def execute(self, *_args, **_kwargs):
+                raise sqlite3.OperationalError("no such table")
+
+        store = SimpleNamespace(_conn=BrokenConn())
+        stats = SimpleNamespace(
+            total_nodes=3,
+            files_count=1,
+            languages=["python"],
+            last_updated="2026-05-25T00:00:00",
+            edges_by_kind={"TESTED_BY": 0, "CROSS_ARTIFACT": 2},
+        )
+
+        answerability = graph_answerability_summary(store, stats)
+        assert answerability["status"] == "degraded"
+        assert "missing_flows_table" in answerability["reason_codes"]
+        assert "missing_communities_table" in answerability["reason_codes"]
+        missingness = missingness_from_answerability(answerability)
+        assert {item["reason_code"] for item in missingness} >= {
+            "missing_flows_table",
+            "missing_communities_table",
+        }
+
+    def test_attach_answerability_preserves_existing_missingness(self, monkeypatch) -> None:
+        class Store:
+            def get_stats(self):
+                return SimpleNamespace(
+                    total_nodes=1,
+                    files_count=1,
+                    languages=["python"],
+                    last_updated="2026-05-25T00:00:00",
+                    edges_by_kind={},
+                )
+
+            _conn = None
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr("dagayn.tools._common._get_store", lambda _repo: (Store(), None))
+        payload = {"status": "ok", "summary": "x", "missingness": []}
+
+        result = attach_answerability(payload, "/repo")
+
+        assert result is payload
+        assert result["answerability"]["reason_codes"] == ["no_sqlite_connection"]
+        assert result["missingness"] == []
 
 
 class TestGuidanceItems:

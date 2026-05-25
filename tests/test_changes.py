@@ -673,6 +673,9 @@ class TestChanges:
         assert summary["recommended_tests"][0]["stability"]["stable"] is True
         assert summary["documentation_update_candidates"][0]["qualified_name"] == doc_qn
         assert summary["documentation_update_candidates"][0]["stable_contract"] is True
+        assert summary["documentation_update_candidates"][0]["directive_hint"] == (
+            "<!-- dagayn: implemented-by <code-symbol> -->"
+        )
         assert any(
             item["reason_codes"] == ["documentation_update_candidates"]
             and item["evidence"][0]["type"] == "authored"

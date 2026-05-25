@@ -1214,6 +1214,30 @@ class TestSuggestRefactorings:
             assert "success_criteria" in s["work_pack"]
             assert s["type"] in ("move", "remove", "split", "document")
 
+    def test_refactor_tool_suggest_returns_guidance_contract(self, monkeypatch):
+        """The public refactor dispatcher exposes guidance item fields."""
+        from dagayn.tools import refactor_tools
+
+        monkeypatch.setattr(
+            refactor_tools,
+            "_get_store",
+            lambda repo_root: (self.store, Path("/repo")),
+        )
+        self.store.close = lambda: None
+
+        result = refactor_tools.refactor_func(mode="suggest", repo_root="/repo", limit=1)
+
+        assert result["guidance"]
+        assert set(result["guidance"][0]) >= {
+            "claim",
+            "evidence",
+            "confidence",
+            "missingness",
+            "action",
+            "reason_codes",
+            "counts",
+        }
+
     def test_remove_suggestions_prioritize_executable_code(self):
         """Executable dead-code suggestions rank ahead of docs and fixtures."""
         self.store.upsert_node(

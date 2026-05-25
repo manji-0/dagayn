@@ -148,6 +148,15 @@ def get_flow(
             return {
                 "status": "not_found",
                 "summary": "No flow found matching the given criteria.",
+                "answerability": answerability,
+                "missingness": [
+                    *missingness_from_answerability(answerability),
+                    {
+                        "reason_code": "flow_not_found_in_current_graph",
+                        "severity": "medium",
+                        "claim_effect": "absence is graph-limited, not proof the flow cannot exist",
+                    },
+                ],
             }
 
         _source_max_chars = 2000

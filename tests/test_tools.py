@@ -406,6 +406,85 @@ class TestTools:
         assert {"implemented_by", "explained_by"} <= roles
         inverse_labels = {item["inverse_label"] for item in result["results"]}
         assert {"implements_contract", "explains"} <= inverse_labels
+        evidence_by_role = {
+            item["relationship_role"]: item["evidence_type"] for item in result["results"]
+        }
+        assert evidence_by_role["implemented_by"] == "authored"
+        assert evidence_by_role["explained_by"] == "extracted"
+
+    def test_query_graph_standard_results_are_budgeted(self, monkeypatch):
+        from dagayn.tools import query as query_module
+
+        target_qn = "/repo/auth.py::AuthService.login"
+        for idx in range(180):
+            name = f"caller_{idx}_{'x' * 80}"
+            source_qn = f"/repo/callers.py::{name}"
+            self.store.upsert_node(
+                NodeInfo(
+                    kind="Function",
+                    name=name,
+                    file_path="/repo/callers.py",
+                    line_start=idx + 1,
+                    line_end=idx + 1,
+                    language="python",
+                )
+            )
+            self.store.upsert_edge(
+                EdgeInfo(
+                    kind="CALLS",
+                    source=source_qn,
+                    target=target_qn,
+                    file_path="/repo/callers.py",
+                    line=idx + 1,
+                )
+            )
+        self.store.commit()
+        monkeypatch.setattr(
+            query_module,
+            "_get_store",
+            lambda repo_root: (self.store, Path("/repo")),
+        )
+        self.store.close = lambda: None
+
+        result = query_module.query_graph(
+            pattern="callers_of",
+            target=target_qn,
+            repo_root="/repo",
+        )
+
+        assert result["result_count"] >= 180
+        assert result["truncated"] is True
+        assert "results" in result["_truncation"] or "edges" in result["_truncation"]
+
+    def test_semantic_search_missing_embeddings_adds_missingness(self, monkeypatch):
+        from dagayn.tools import query as query_module
+
+        class Store:
+            def close(self):
+                pass
+
+        monkeypatch.setattr(query_module, "_get_store", lambda repo_root: (Store(), Path("/repo")))
+        monkeypatch.setattr(
+            query_module,
+            "graph_answerability_summary",
+            lambda _store: {"status": "ok", "score": 1.0, "reason_codes": []},
+        )
+        monkeypatch.setattr(
+            query_module,
+            "hybrid_search",
+            lambda *_args, **_kwargs: {
+                "results": [],
+                "mode": "fts_only",
+                "embedding_health": {"available": False},
+            },
+        )
+
+        result = query_module.semantic_search_nodes("missing", repo_root="/repo")
+
+        assert {
+            item["reason_code"] for item in result["missingness"]
+        } >= {"missing_embeddings"}
+        assert result["exactness"]["next_action"]["tool"] == "semantic_search_nodes_tool"
 
     def test_query_graph_implementations_of_reads_both_authored_directions(self, monkeypatch):
         from dagayn.tools import query as query_module
@@ -1254,6 +1333,16 @@ class TestCommunityTools:
         assert "architecture_health" in result
         assert "counts" in result["architecture_health"]
         assert "drill_downs" in result["architecture_health"]
+        if result["architecture_health"]["guidance"]:
+            assert set(result["architecture_health"]["guidance"][0]) >= {
+                "claim",
+                "evidence",
+                "confidence",
+                "missingness",
+                "action",
+                "reason_codes",
+                "counts",
+            }
 
     def test_get_architecture_overview_summary_format(self):
         result = get_architecture_overview_func(repo_root=str(self.root))

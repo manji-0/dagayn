@@ -3,7 +3,7 @@ from __future__ import annotations
 import inspect
 
 from dagayn import main as crg_main
-from dagayn.tools import flow_dispatcher, review_dispatcher
+from dagayn.tools import architecture_analysis, flow_dispatcher, review_dispatcher
 
 
 def test_review_wrapper_exposes_typed_dispatch_args() -> None:
@@ -84,6 +84,7 @@ def test_review_routes_every_mode(monkeypatch) -> None:
         assert result["status"] == "ok"
         assert result["mode"] == mode
         assert result["called_subtool"] == subtool
+        assert "answerability" in result
         called_name, kwargs = calls.pop(0)
         assert called_name == subtool
         assert kwargs["repo_root"] == "/repo"
@@ -93,6 +94,21 @@ def test_review_routes_every_mode(monkeypatch) -> None:
             assert kwargs["base"] == "main"
         for key, value in expected.items():
             assert kwargs[key] == value
+
+
+def test_review_dispatcher_preserves_guidance_hints(monkeypatch) -> None:
+    expected_hints = {"next_steps": [{"tool": "review_tool", "suggestion": "from guidance"}]}
+
+    monkeypatch.setattr(
+        review_dispatcher,
+        "detect_changes_func",
+        lambda **_kwargs: {"status": "ok", "summary": "changes", "_hints": expected_hints},
+    )
+
+    result = review_dispatcher.review_func(mode="changes", repo_root="/repo")
+
+    assert result["_hints"] == expected_hints
+    assert "answerability" in result
 
 
 def test_review_context_defaults_to_source_when_unspecified(monkeypatch) -> None:
@@ -139,6 +155,8 @@ def test_flow_routes_modes(monkeypatch) -> None:
 
     assert list_result["called_subtool"] == "list_flows"
     assert get_result["called_subtool"] == "get_flow"
+    assert "answerability" in list_result
+    assert "answerability" in get_result
     assert calls[0] == (
         "list_flows",
         {
@@ -166,3 +184,20 @@ def test_flow_get_requires_selector() -> None:
     assert result["status"] == "error"
     assert result["mode"] == "get"
     assert "flow_id or flow_name" in result["summary"]
+    assert "answerability" in result
+
+
+def test_architecture_dispatcher_preserves_guidance_hints(monkeypatch) -> None:
+    expected_hints = {
+        "next_steps": [{"tool": "architecture_analysis_tool", "suggestion": "from guidance"}]
+    }
+    monkeypatch.setattr(
+        architecture_analysis,
+        "get_architecture_overview_func",
+        lambda **_kwargs: {"status": "ok", "summary": "overview", "_hints": expected_hints},
+    )
+
+    result = architecture_analysis.architecture_analysis_func(mode="overview", repo_root="/repo")
+
+    assert result["_hints"] == expected_hints
+    assert "answerability" in result

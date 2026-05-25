@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from ..hints import generate_hints, get_session
+from ._common import attach_answerability
 from .flows_tools import get_flow, list_flows
 
 FlowMode = Literal["list", "get"]
@@ -15,6 +16,7 @@ def _with_dispatch_metadata(
     *,
     mode: str,
     called_subtool: str,
+    repo_root: str | None,
 ) -> dict[str, Any]:
     """Add dispatcher metadata without mutating the subtool response."""
     payload = dict(result)
@@ -22,18 +24,21 @@ def _with_dispatch_metadata(
     payload.setdefault("summary", f"Flow mode {mode!r} completed.")
     payload["mode"] = mode
     payload["called_subtool"] = called_subtool
-    payload["_hints"] = generate_hints("flow", payload, get_session())
+    attach_answerability(payload, repo_root)
+    payload.setdefault("_hints", generate_hints("flow", payload, get_session()))
     return payload
 
 
 def _error(message: str, *, mode: str) -> dict[str, Any]:
-    return {
-        "status": "error",
-        "summary": message,
-        "error": message,
-        "mode": mode,
-        "called_subtool": None,
-    }
+    return attach_answerability(
+        {
+            "status": "error",
+            "summary": message,
+            "error": message,
+            "mode": mode,
+            "called_subtool": None,
+        }
+    )
 
 
 def flow_func(
@@ -59,6 +64,7 @@ def flow_func(
             ),
             mode=mode,
             called_subtool="list_flows",
+            repo_root=repo_root,
         )
     if mode == "get":
         if flow_id is None and not flow_name:
@@ -72,5 +78,6 @@ def flow_func(
             ),
             mode=mode,
             called_subtool="get_flow",
+            repo_root=repo_root,
         )
     return _error(f"Unknown flow mode: {mode!r}.", mode=str(mode))

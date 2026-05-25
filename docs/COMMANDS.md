@@ -61,6 +61,25 @@ candidates, refactor suggestions, calibrated `guidance` items, stable-contract
 warnings, architecture leads, answerability warnings, and guidance field
 coverage. Configure cases with `guidance_precision_cases` in an eval YAML file.
 
+```yaml
+guidance_precision_cases:
+  - name: review-guidance-contract
+    kind: guidance_items
+    changed_files: ["dagayn/tools/review.py"]
+    expected: ["test_gaps", "documentation_update_candidates"]
+    k: 3
+  - name: answerability-warning
+    kind: answerability_warnings
+    changed_files: ["dagayn/tools/query.py"]
+    expected: ["missing_test_edges"]
+    k: 5
+  - name: field-coverage
+    kind: guidance_field_coverage
+    changed_files: ["dagayn/tools/review.py"]
+    expected: ["1.0"]
+    k: 1
+```
+
 `dagayn tool <mcp-tool-name>` invokes the same underlying implementation as an
 MCP tool and prints JSON. This gives agents and scripts a CLI path to run a
 single tool directly, including when a running MCP server was started with a

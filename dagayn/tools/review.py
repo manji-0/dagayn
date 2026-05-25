@@ -457,6 +457,23 @@ def _documentation_update_candidates(
                 }
             )
         return missing
+
+    def _directive_hint_for_role(role: str | None, *, direction: str) -> str:
+        if direction == "artifact_to_doc":
+            return {
+                "implements_contract": "# dagayn: implements <doc-section>",
+                "explained_by": "# dagayn: explained-by <doc-section>",
+                "has_runbook": "# dagayn: has-runbook <doc-section>",
+                "problem_described_by": "# dagayn: problem-described-by <doc-section>",
+                "discussed_by": "# dagayn: discussed-by <doc-section>",
+            }.get(str(role), "# dagayn: discussed-by <doc-section>")
+        return {
+            "implemented_by": "<!-- dagayn: implemented-by <code-symbol> -->",
+            "describes_symbol": "<!-- dagayn: describes-symbol <code-symbol> -->",
+            "discusses_artifact": "<!-- dagayn: discusses-artifact <code-symbol> -->",
+            "raises_issue_for": "<!-- dagayn: raises-issue-for <code-symbol> -->",
+        }.get(str(role), "<!-- dagayn: discusses-artifact <code-symbol> -->")
+
     source_qns = [
         qn
         for qn in (func.get("qualified_name") for func in changed_functions)
@@ -500,10 +517,9 @@ def _documentation_update_candidates(
                     "documentation_action": (
                         "Read this section and update the contract directive if behavior changed."
                     ),
-                    "directive_hint": (
-                        "<!-- implemented-by <code-symbol> -->"
-                        if role == "implemented_by"
-                        else "<!-- discusses-artifact <code-symbol> -->"
+                    "directive_hint": _directive_hint_for_role(
+                        role,
+                        direction="artifact_to_doc",
                     ),
                     "scope_key": scope_key,
                     "stable_contract": role in _CONTRACT_DOC_ROLES,
@@ -540,10 +556,9 @@ def _documentation_update_candidates(
                     "documentation_action": (
                         "Read this section and update the contract directive if behavior changed."
                     ),
-                    "directive_hint": (
-                        "<!-- implements-contract <doc-section> -->"
-                        if role == "implements_contract"
-                        else "<!-- explained-by <doc-section> -->"
+                    "directive_hint": _directive_hint_for_role(
+                        role,
+                        direction="doc_to_artifact",
                     ),
                     "scope_key": scope_key,
                     "stable_contract": role in _CONTRACT_DOC_ROLES,
@@ -1210,6 +1225,8 @@ def get_review_context(
                 "status": "ok",
                 "summary": "No changes detected. Nothing to review.",
                 "context": {},
+                "answerability": answerability,
+                "missingness": missingness,
             }
 
         abs_files = [str(root / f) for f in changed_files]
@@ -1442,6 +1459,8 @@ def get_affected_flows_func(
                 "summary": "No changed files detected.",
                 "affected_flows": [],
                 "total": 0,
+                "answerability": answerability,
+                "missingness": missingness,
             }
 
         # Convert to absolute paths for graph lookup
