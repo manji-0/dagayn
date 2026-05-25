@@ -155,9 +155,9 @@ fn rust_walk_children(
                         &call_name,
                     ) {
                         edges.push(edge);
-        }
-    }
-}
+                    }
+                }
+            }
 
             "arguments" => {
                 rust_emit_argument_references(
@@ -551,8 +551,8 @@ fn decode_rust_string_literal(node: tree_sitter::Node<'_>, source: &[u8]) -> Str
 
 #[cfg(test)]
 mod tests {
-    use super::parse_rust_with_parser;
     use super::super::new_rust_parser;
+    use super::parse_rust_with_parser;
 
     #[test]
     fn test_parse_rust_with_parser_emits_tested_by_for_cfg_test() {
@@ -574,6 +574,22 @@ fn test_production() {
             edge.kind == "TESTED_BY"
                 && edge.source == "src/lib.rs::production"
                 && edge.target == "src/lib.rs::test_production"
+        }));
+    }
+
+    #[test]
+    fn test_parse_rust_with_parser_marks_attribute_tests_without_name_prefix() {
+        let source = br#"
+#[test]
+fn helpers_have_stable_contracts() {
+    assert_eq!(1, 1);
+}
+"#;
+        let mut parser = new_rust_parser().expect("rust grammar should load");
+        let (nodes, _edges) = parse_rust_with_parser("src/tests.rs", source, Some(&mut parser));
+
+        assert!(nodes.iter().any(|node| {
+            node.kind == "Test" && node.name == "helpers_have_stable_contracts" && node.is_test
         }));
     }
 }

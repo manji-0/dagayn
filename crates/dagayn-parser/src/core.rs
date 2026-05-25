@@ -720,6 +720,14 @@ fn has_rust_test_attribute(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
         {
             return true;
         }
+        let mut cursor = candidate.walk();
+        if candidate
+            .children(&mut cursor)
+            .filter(|child| matches!(child.kind(), "attribute_item" | "inner_attribute_item"))
+            .any(|child| node_text(child, source).contains("test"))
+        {
+            return true;
+        }
     }
     false
 }

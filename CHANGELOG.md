@@ -2,6 +2,13 @@
 
 All notable changes to `dagayn` are documented here.
 
+## 4.1.3 — 2026-05-25
+
+### Fixes
+
+- Classify Rust `#[test]` functions as `Test` nodes even when their names do
+  not start with `test`, reducing false-positive graph quality test gaps.
+
 ## 4.1.2 — 2026-05-25
 
 ### Fixes
