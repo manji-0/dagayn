@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from typing import Optional
 
+from ._mixin_protocol import GraphStoreMixinProtocol
 from .types import GraphEdge, GraphNode
 
 
-class GraphStoreAccessMixin:
+class GraphStoreAccessMixin(GraphStoreMixinProtocol):
     def get_node(self, qualified_name: str) -> Optional[GraphNode]:
         normalized = self._normalize_qualified_key(qualified_name)
         keys = [qualified_name, normalized] if normalized != qualified_name else [qualified_name]

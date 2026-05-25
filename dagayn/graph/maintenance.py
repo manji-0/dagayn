@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import sqlite3
 
+from ._mixin_protocol import GraphStoreMixinProtocol
 
-class GraphStoreMaintenanceMixin:
+
+class GraphStoreMaintenanceMixin(GraphStoreMixinProtocol):
     def get_files_matching(self, pattern: str) -> list[str]:
         """Return distinct ``file_path`` values matching a LIKE suffix."""
         rows = self._conn.execute(

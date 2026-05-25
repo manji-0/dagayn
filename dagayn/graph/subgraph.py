@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from ._mixin_protocol import GraphStoreMixinProtocol
 from .types import GraphEdge, GraphNode
 
 
-class GraphStoreSubgraphMixin:
+class GraphStoreSubgraphMixin(GraphStoreMixinProtocol):
     def get_outgoing_targets(
         self,
         source_qns: list[str],

@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from ._mixin_protocol import GraphStoreMixinProtocol
 from ._sql import BFS_ENGINE, MAX_IMPACT_DEPTH, MAX_IMPACT_NODES
 from .types import GraphEdge
 
 
-class GraphStoreImpactMixin:
+class GraphStoreImpactMixin(GraphStoreMixinProtocol):
     def get_impact_radius(
         self,
         changed_files: list[str],

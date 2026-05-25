@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from typing import Optional
 
+from ._mixin_protocol import GraphStoreMixinProtocol
 from .types import GraphNode
 
 
-class GraphStoreTopologyMixin:
+class GraphStoreTopologyMixin(GraphStoreMixinProtocol):
     def get_node_by_id(self, node_id: int) -> Optional[GraphNode]:
         """Fetch a single node by its integer primary key."""
         row = self._conn.execute("SELECT * FROM nodes WHERE id = ?", (node_id,)).fetchone()

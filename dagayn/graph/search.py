@@ -4,12 +4,13 @@ import logging
 import re
 import sqlite3
 
+from ._mixin_protocol import GraphStoreMixinProtocol
 from .types import GraphEdge, GraphNode
 
 logger = logging.getLogger(__name__)
 
 
-class GraphStoreSearchMixin:
+class GraphStoreSearchMixin(GraphStoreMixinProtocol):
     def search_edges_by_target_name(self, name: str, kind: str = "CALLS") -> list[GraphEdge]:
         """Search for edges where target_qualified matches an unqualified name.
 

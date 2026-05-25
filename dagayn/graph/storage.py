@@ -4,13 +4,14 @@ import json
 import time
 from typing import TYPE_CHECKING
 
+from ._mixin_protocol import GraphStoreMixinProtocol
 from ._sql import _edge_target_name
 
 if TYPE_CHECKING:
     from ..parser._base.types import EdgeInfo, NodeInfo
 
 
-class GraphStoreStorageMixin:
+class GraphStoreStorageMixin(GraphStoreMixinProtocol):
     def upsert_node(self, node: NodeInfo, file_hash: str = "", mtime_ns: int = 0) -> int:
         """Insert or update a node. Returns the node ID."""
         now = time.time()

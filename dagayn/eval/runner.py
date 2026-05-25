@@ -17,7 +17,7 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-BENCHMARK_REGISTRY = {
+BENCHMARK_REGISTRY = {  # nosec B105 - benchmark names, not credentials
     "token_efficiency": "dagayn.eval.benchmarks.token_efficiency",
     "impact_accuracy": "dagayn.eval.benchmarks.impact_accuracy",
     "flow_completeness": "dagayn.eval.benchmarks.flow_completeness",

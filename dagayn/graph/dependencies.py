@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import logging
 
+from ._mixin_protocol import GraphStoreMixinProtocol
 from ._sql import _edge_target_name
 
 logger = logging.getLogger(__name__)
 
 
-class GraphStoreDependencyMixin:
+class GraphStoreDependencyMixin(GraphStoreMixinProtocol):
     def get_direct_dependents(self, file_paths: list[str]) -> list[str]:
         """Return files that directly depend on any of *file_paths*."""
         if not file_paths:

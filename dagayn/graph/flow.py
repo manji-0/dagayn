@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from ._mixin_protocol import GraphStoreMixinProtocol
 from .types import FlowAdjacency, GraphNode
 
 
-class GraphStoreFlowMixin:
+class GraphStoreFlowMixin(GraphStoreMixinProtocol):
     def count_flow_memberships(self, node_id: int) -> int:
         """Return the number of flows a node participates in."""
         row = self._conn.execute(

@@ -5,6 +5,7 @@ import logging
 import time
 from typing import TYPE_CHECKING
 
+from ._mixin_protocol import GraphStoreMixinProtocol
 from ._sql import _edge_target_name
 
 if TYPE_CHECKING:
@@ -13,7 +14,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class GraphStoreStorageBatchMixin:
+class GraphStoreStorageBatchMixin(GraphStoreMixinProtocol):
     def _bulk_insert_nodes(self, nodes: list[NodeInfo], fhash: str, mtime_ns: int = 0) -> None:
         """Bulk-insert nodes via executemany. Caller must have cleared the file first."""
         self._bulk_insert_nodes_with_meta(

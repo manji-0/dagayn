@@ -3,12 +3,13 @@ from __future__ import annotations
 import logging
 import sqlite3
 
+from ._mixin_protocol import GraphStoreMixinProtocol
 from .types import GraphNode
 
 logger = logging.getLogger(__name__)
 
 
-class GraphStoreCommunityMixin:
+class GraphStoreCommunityMixin(GraphStoreMixinProtocol):
     def get_community_ids_by_node_ids(
         self,
         node_ids: list[int],

@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from ._mixin_protocol import GraphStoreMixinProtocol
 from .types import GraphNode, GraphStats
 
 
-class GraphStoreAnalysisMixin:
+class GraphStoreAnalysisMixin(GraphStoreMixinProtocol):
     def get_subgraph(self, qualified_names: list[str]) -> dict[str, Any]:
         """Extract a subgraph containing the specified nodes and their connecting edges."""
         qn_set = set(qualified_names)

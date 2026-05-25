@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from typing import Optional
 
+from ._mixin_protocol import GraphStoreMixinProtocol
 
-class GraphStoreStorageMetadataMixin:
+
+class GraphStoreStorageMetadataMixin(GraphStoreMixinProtocol):
     def set_metadata(self, key: str, value: str) -> None:
         self._conn.execute(
             "INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)", (key, value)
