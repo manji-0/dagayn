@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import importlib
 import logging
 import subprocess
 from datetime import date
@@ -14,34 +15,20 @@ try:
 except ImportError:
     yaml: Any | None = None
 
-from dagayn.eval.benchmarks import (
-    build_performance,
-    doc_fuzzy_search,
-    embedding_text_modes,
-    flow_completeness,
-    guidance_precision,
-    impact_accuracy,
-    mcp_latency,
-    nplusone_count,
-    recent_changes_effects,
-    search_quality,
-    token_efficiency,
-)
-
 logger = logging.getLogger(__name__)
 
 BENCHMARK_REGISTRY = {
-    "token_efficiency": token_efficiency.run,
-    "impact_accuracy": impact_accuracy.run,
-    "flow_completeness": flow_completeness.run,
-    "guidance_precision": guidance_precision.run,
-    "search_quality": search_quality.run,
-    "build_performance": build_performance.run,
-    "doc_fuzzy_search": doc_fuzzy_search.run,
-    "embedding_text_modes": embedding_text_modes.run,
-    "nplusone_count": nplusone_count.run,
-    "mcp_latency": mcp_latency.run,
-    "recent_changes_effects": recent_changes_effects.run,
+    "token_efficiency": "dagayn.eval.benchmarks.token_efficiency",
+    "impact_accuracy": "dagayn.eval.benchmarks.impact_accuracy",
+    "flow_completeness": "dagayn.eval.benchmarks.flow_completeness",
+    "guidance_precision": "dagayn.eval.benchmarks.guidance_precision",
+    "search_quality": "dagayn.eval.benchmarks.search_quality",
+    "build_performance": "dagayn.eval.benchmarks.build_performance",
+    "doc_fuzzy_search": "dagayn.eval.benchmarks.doc_fuzzy_search",
+    "embedding_text_modes": "dagayn.eval.benchmarks.embedding_text_modes",
+    "nplusone_count": "dagayn.eval.benchmarks.nplusone_count",
+    "mcp_latency": "dagayn.eval.benchmarks.mcp_latency",
+    "recent_changes_effects": "dagayn.eval.benchmarks.recent_changes_effects",
 }
 
 CONFIGS_DIR = Path(__file__).parent / "configs"
@@ -116,6 +103,11 @@ def write_csv(results: list[dict], path: Path) -> None:
         writer.writerows(results)
 
 
+def _load_benchmark_run(bench_name: str):
+    module = importlib.import_module(BENCHMARK_REGISTRY[bench_name])
+    return module.run
+
+
 def run_eval(
     repos: list[str] | None = None,
     benchmarks: list[str] | None = None,
@@ -165,7 +157,7 @@ def run_eval(
 
             logger.info("  Running %s...", bench_name)
             try:
-                bench_fn = BENCHMARK_REGISTRY[bench_name]
+                bench_fn = _load_benchmark_run(bench_name)
                 results = bench_fn(repo_path, store, config)
 
                 key = f"{name}_{bench_name}"

@@ -7,6 +7,7 @@ baseline capture, not CI pass/fail gating.
 
 from __future__ import annotations
 
+import importlib
 import logging
 import subprocess
 import tempfile
@@ -305,7 +306,7 @@ def _scenario_store_file_batch(config: dict) -> dict:
 
 
 def _scenario_mcp_latency(repo_path: Path, store: Any, config: dict) -> list[dict]:
-    from dagayn.eval.benchmarks import mcp_latency
+    mcp_latency = importlib.import_module("dagayn.eval.benchmarks.mcp_latency")
 
     rows = mcp_latency.run(
         repo_path,

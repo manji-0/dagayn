@@ -4,7 +4,7 @@ use serde_json::json;
 
 use super::types::{ParsedEdge, ParsedNode};
 use super::util::{is_test_file, line_count, node_text};
-use super::{is_test_function, qualify, resolve_rust_call_targets};
+use super::{add_tested_by_edges, is_test_function, qualify, resolve_rust_call_targets};
 
 pub(super) fn parse_rust_with_parser(
     file_path: &str,
@@ -39,7 +39,8 @@ pub(super) fn parse_rust_with_parser(
                 defined_names: &defined_names,
             };
             rust_walk_children(root, &context, None, None, &mut nodes, &mut edges);
-            let edges = resolve_rust_call_targets(&nodes, edges, file_path);
+            let mut edges = resolve_rust_call_targets(&nodes, edges, file_path);
+            add_tested_by_edges(&nodes, &mut edges);
             return (nodes, edges);
         }
     }
@@ -154,9 +155,10 @@ fn rust_walk_children(
                         &call_name,
                     ) {
                         edges.push(edge);
-                    }
-                }
-            }
+        }
+    }
+}
+
             "arguments" => {
                 rust_emit_argument_references(
                     child,
@@ -545,4 +547,33 @@ fn decode_rust_string_literal(node: tree_sitter::Node<'_>, source: &[u8]) -> Str
         .trim_matches('"')
         .trim_matches('`')
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_rust_with_parser;
+    use super::super::new_rust_parser;
+
+    #[test]
+    fn test_parse_rust_with_parser_emits_tested_by_for_cfg_test() {
+        let source = br#"
+fn production() {}
+
+#[test]
+fn test_production() {
+    production();
+}
+"#;
+        let mut parser = new_rust_parser().expect("rust grammar should load");
+        let (nodes, edges) = parse_rust_with_parser("src/lib.rs", source, Some(&mut parser));
+
+        assert!(nodes
+            .iter()
+            .any(|node| node.kind == "Test" && node.name == "test_production" && node.is_test));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "TESTED_BY"
+                && edge.source == "src/lib.rs::production"
+                && edge.target == "src/lib.rs::test_production"
+        }));
+    }
 }

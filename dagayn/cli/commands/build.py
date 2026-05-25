@@ -554,7 +554,9 @@ def handle(args: argparse.Namespace) -> None:
                 export_svg(store, out)
                 print(f"SVG exported: {out}")
             else:
-                from ...visualization import generate_html
+                from importlib import import_module
+
+                generate_html = import_module("dagayn.visualization.render").generate_html
 
                 html_path = data_dir / "graph.html"
                 vis_mode = getattr(args, "mode", "auto") or "auto"

@@ -3,15 +3,20 @@
 from __future__ import annotations
 
 import html
+import importlib
 import logging
 import re
 from collections import Counter, defaultdict
 from pathlib import Path
 
 from .graph import GraphStore, _sanitize_name
-from .visualization import export_graph_data
 
 logger = logging.getLogger(__name__)
+
+
+def _export_graph_data(store: GraphStore) -> dict:
+    visualization_data = importlib.import_module("dagayn.visualization.data")
+    return visualization_data.export_graph_data(store)
 
 
 # -------------------------------------------------------------------
@@ -24,7 +29,7 @@ def export_graphml(store: GraphStore, output_path: Path) -> Path:
 
     Returns the path to the written file.
     """
-    data = export_graph_data(store)
+    data = _export_graph_data(store)
     nodes = data["nodes"]
     edges = data["edges"]
 
@@ -79,7 +84,7 @@ def export_neo4j_cypher(store: GraphStore, output_path: Path) -> Path:
 
     Returns the path to the written file.
     """
-    data = export_graph_data(store)
+    data = _export_graph_data(store)
     nodes = data["nodes"]
     edges = data["edges"]
 
@@ -157,7 +162,7 @@ def export_obsidian_vault(store: GraphStore, output_dir: Path) -> Path:
 
     Returns the output directory path.
     """
-    data = export_graph_data(store)
+    data = _export_graph_data(store)
     nodes = data["nodes"]
     edges = data["edges"]
     communities = data.get("communities", [])
@@ -297,7 +302,7 @@ def export_mermaid_c4(store: GraphStore, output_path: Path) -> Path:
     symbol-level relationships into cross-file component relations.
     Returns the path to the written file.
     """
-    data = export_graph_data(store)
+    data = _export_graph_data(store)
     nodes = data["nodes"]
     edges = data["edges"]
 
@@ -425,7 +430,7 @@ def export_svg(store: GraphStore, output_path: Path) -> Path:
 
     import networkx as nx
 
-    data = export_graph_data(store)
+    data = _export_graph_data(store)
     nodes_data = data["nodes"]
     edges_data = data["edges"]
 

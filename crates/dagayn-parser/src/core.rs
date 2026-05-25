@@ -696,11 +696,27 @@ fn is_test_function(
         || has_rust_test_attribute(node, source)
 }
 
+fn rust_node_with_leading_attributes(
+    node: tree_sitter::Node<'_>,
+) -> impl Iterator<Item = tree_sitter::Node<'_>> {
+    let mut attrs = Vec::new();
+    let mut current = node.prev_sibling();
+    while let Some(sibling) = current {
+        if matches!(sibling.kind(), "attribute_item" | "inner_attribute_item") {
+            attrs.push(sibling);
+            current = sibling.prev_sibling();
+            continue;
+        }
+        break;
+    }
+    attrs.reverse();
+    attrs.into_iter().chain(std::iter::once(node))
+}
+
 fn has_rust_test_attribute(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if matches!(child.kind(), "attribute_item" | "inner_attribute_item")
-            && node_text(child, source).contains("test")
+    for candidate in rust_node_with_leading_attributes(node) {
+        if matches!(candidate.kind(), "attribute_item" | "inner_attribute_item")
+            && node_text(candidate, source).contains("test")
         {
             return true;
         }
@@ -801,6 +817,48 @@ pub fn rust_parser_owns_path(file_path: &str) -> bool {
 
 pub fn rust_parser_owns_source(file_path: &str, source: &[u8]) -> bool {
     rust_owned_path_kind_for_source(file_path, source) != RustOwnedPathKind::Unsupported
+}
+
+#[cfg(test)]
+mod parser_core_tests {
+    use super::{
+        has_rust_test_attribute, new_rust_parser, rust_node_with_leading_attributes,
+        RustOwnedParser,
+    };
+    use std::path::Path;
+
+    #[test]
+    fn test_parse_file_in_repo_dispatches_markdown_by_path() {
+        let mut parser = RustOwnedParser::new();
+        let (nodes, edges) = parser.parse_file_in_repo(
+            Some(Path::new("/repo")),
+            "docs/design.md",
+            b"# Design\n\nBody\n",
+        );
+
+        assert!(nodes
+            .iter()
+            .any(|node| node.kind == "DocSection" && node.name == "design"));
+        assert!(edges.iter().any(|edge| edge.kind == "CONTAINS"));
+    }
+
+    #[test]
+    fn test_has_rust_test_attribute_reads_leading_attribute_sibling() {
+        let source = b"#[test]\nfn test_example() {}\n";
+        let mut parser = new_rust_parser().expect("rust grammar should load");
+        let tree = parser.parse(source, None).expect("source should parse");
+        let root = tree.root_node();
+        let mut cursor = root.walk();
+        let function = root
+            .named_children(&mut cursor)
+            .find(|node| node.kind() == "function_item")
+            .expect("function item should exist");
+        let candidates = rust_node_with_leading_attributes(function).collect::<Vec<_>>();
+
+        assert_eq!(candidates[0].kind(), "attribute_item");
+        assert_eq!(candidates[1].kind(), "function_item");
+        assert!(has_rust_test_attribute(function, source));
+    }
 }
 
 #[cfg(test)]

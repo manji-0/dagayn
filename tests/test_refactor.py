@@ -14,7 +14,6 @@ from dagayn.refactor import (
     _pending_refactors,
     _refactor_lock,
     apply_refactor,
-    find_dead_code,
     rename_preview,
     suggest_refactorings,
 )
@@ -27,6 +26,7 @@ from dagayn.refactor.concerns import (
     comment_line_count,
     function_concern_profile,
 )
+from dagayn.refactor.dead_code import find_dead_code
 
 
 class TestFunctionConcernProfile:

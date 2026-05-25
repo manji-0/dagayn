@@ -18,6 +18,7 @@ from dagayn.tools import (
     list_communities_func,
     list_flows,
 )
+from dagayn.tools.query import query_graph
 
 
 class TestTools:
@@ -284,7 +285,7 @@ class TestTools:
         self.store.close = lambda: None
         monkeypatch.setattr(self.store, "get_node", wrapped_get_node)
 
-        result = query_module.query_graph(
+        result = query_graph(
             pattern="callers_of",
             target="/repo/auth.py::AuthService.login",
             repo_root="/repo",
