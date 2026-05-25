@@ -688,7 +688,11 @@ class TestChanges:
 
     def test_directive_hint_for_role_uses_dagayn_directives(self):
         """Documentation candidate hints should use supported dagayn directive syntax."""
-        from dagayn.tools.review import _directive_hint_for_role
+        from dagayn.tools.review import (
+            _directive_hint_for_role,
+            _doc_evidence_type,
+            _doc_missingness,
+        )
 
         assert _directive_hint_for_role(
             "implements_contract",
@@ -702,6 +706,22 @@ class TestChanges:
             None,
             direction="doc_to_artifact",
         ) == "<!-- dagayn: discusses-artifact <code-symbol> -->"
+        assert _doc_evidence_type("implemented_by", "LOW") == "authored"
+        assert _doc_evidence_type("describes_symbol", "HIGH") == "extracted"
+        assert _doc_evidence_type(None, "UNKNOWN") == "heuristic_reachable"
+        assert _doc_missingness("implemented_by", "HIGH") == []
+        assert _doc_missingness("describes_symbol", "LOW") == [
+            {
+                "reason_code": "not_contract_documentation_edge",
+                "severity": "low",
+                "claim_effect": "candidate may be explanatory rather than contract-bearing",
+            },
+            {
+                "reason_code": "low_confidence_documentation_edge",
+                "severity": "medium",
+                "claim_effect": "read the section before treating it as authored evidence",
+            },
+        ]
 
     def test_detect_changes_tool_trims_changed_functions(self):
         """detect_changes_func should budget changed_functions for large PRs."""
