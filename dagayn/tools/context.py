@@ -264,6 +264,7 @@ def get_minimal_context(
     changed_files: list[str] | None = None,
     repo_root: str | None = None,
     base: str = "HEAD~1",
+    detail_level: str = "minimal",
 ) -> dict[str, Any]:
     """Return minimum context an agent needs to start any task (~100 tokens).
 
@@ -276,7 +277,10 @@ def get_minimal_context(
         changed_files: Explicit changed files. Auto-detected from git if None.
         repo_root: Repository root path. Auto-detected if None.
         base: Git ref for diff comparison.
+        detail_level: Accepted for CLI/MCP interface consistency. This tool is
+              intentionally compact, so all detail levels share the same shape.
     """
+    _ = detail_level
     # Use a dedicated GraphStore connection for this tool to avoid sharing a
     # cached sqlite handle across concurrent MCP calls.
     store, root = _get_store(repo_root, cached=False)

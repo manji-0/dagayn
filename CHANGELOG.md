@@ -2,6 +2,24 @@
 
 All notable changes to `dagayn` are documented here.
 
+## 4.1.0 — 2026-05-25
+
+### Improvements
+
+- Align the MCP and CLI fallback tool surface around public `*_tool` names,
+  bounded `top_n` output, and shared `detail_level` arguments.
+- Make fallback responses easier to act on by adding result counts, confidence,
+  zero-result reasons, and next-action hints where they were missing.
+- Keep installed Codex skills and MCP interface guidance in sync with the
+  remediated tool contracts.
+
+### Fixes
+
+- Preserve calibrated documentation evidence types in minimal outputs.
+- Normalize zero-result and dispatcher error contracts across graph query,
+  flow, review, architecture, semantic search, and refactor tools.
+- Keep `dagayn.__version__` aligned with the released package version.
+
 ## 4.0.6 — 2026-05-24
 
 ### Improvements

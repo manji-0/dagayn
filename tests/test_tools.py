@@ -2212,6 +2212,7 @@ class TestGetMinimalContext:
         result = get_minimal_context(
             task="explore codebase",
             repo_root=str(self.root),
+            detail_level="minimal",
         )
         assert result["status"] == "ok"
         assert "summary" in result
