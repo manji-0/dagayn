@@ -269,6 +269,7 @@ def list_communities_func(
     sort_by: str = "size",
     min_size: int = 0,
     detail_level: str = "standard",
+    limit: int | None = None,
 ) -> dict[str, Any]:
     """List detected code communities in the codebase.
 
@@ -284,6 +285,7 @@ def list_communities_func(
         detail_level: "standard" (default) returns full community data;
                       "minimal" returns only name, size, and cohesion
                       per community.
+        limit: Optional maximum number of communities to return.
 
     Returns:
         List of communities with size and cohesion scores.
@@ -309,10 +311,16 @@ def list_communities_func(
             ]
         else:
             communities = get_communities(store, sort_by=sort_by, min_size=min_size)
+        total = len(communities)
+        visible_communities = communities[:limit] if limit is not None else communities
+        truncated = limit is not None and total > limit
         result: dict[str, object] = {
             "status": "ok",
-            "summary": f"Found {len(communities)} communities",
-            "communities": communities,
+            "summary": f"Found {total} communities"
+            + (f". Showing first {limit}." if truncated else ""),
+            "communities": visible_communities,
+            "total": total,
+            "truncated": truncated,
         }
         apply_output_budget(result, budget_tokens=4000, list_priorities=["communities"])
         result["_hints"] = generate_hints("list_communities", result, get_session())

@@ -136,6 +136,8 @@ def refactor_func(
     kind: str | None = None,
     file_pattern: str | None = None,
     limit: int = 50,
+    top_n: int | None = None,
+    detail_level: str = "standard",
     repo_root: str | None = None,
 ) -> dict[str, Any]:
     """Unified refactoring entry point.
@@ -154,11 +156,18 @@ def refactor_func(
         kind: (dead_code mode) Optional node kind filter.
         file_pattern: (dead_code mode) Optional file path substring filter.
         limit: (dead_code, suggest) Maximum results to return. Default: 50.
+        top_n: (dead_code, suggest) Alias for limit used by other dispatcher tools.
+        detail_level: Accepted for CLI/MCP consistency; refactor payloads are
+            already bounded by limit/top_n.
         repo_root: Repository root path. Auto-detected if omitted.
 
     Returns:
         Mode-specific results dict.
     """
+    if top_n is not None:
+        limit = top_n
+    _ = detail_level
+
     valid_modes = {"rename", "dead_code", "suggest"}
     if mode not in valid_modes:
         return attach_answerability(

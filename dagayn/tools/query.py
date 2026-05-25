@@ -613,6 +613,9 @@ def semantic_search_nodes(
         summary = f"Found {len(results)} node(s) matching '{query}'" + (
             f" (kind={kind})" if kind else ""
         )
+        result_count = len(results)
+        confidence = "medium" if results else "low"
+        zero_result_reason = None if results else "not_found_in_current_graph"
         exact_matches = [
             r
             for r in results
@@ -636,6 +639,10 @@ def semantic_search_nodes(
                 "embedding_health": embedding_health,
                 "answerability": answerability,
                 "missingness": missingness,
+                "result_count": result_count,
+                "confidence": confidence,
+                "zero_result_reason": zero_result_reason,
+                "next_action": next_action,
                 "exactness": {
                     "exact_match_count": len(exact_matches),
                     "ambiguity": ambiguity,
@@ -653,6 +660,10 @@ def semantic_search_nodes(
             "embedding_health": embedding_health,
             "answerability": answerability,
             "missingness": missingness,
+            "result_count": result_count,
+            "confidence": confidence,
+            "zero_result_reason": zero_result_reason,
+            "next_action": next_action,
             "exactness": {
                 "exact_match_count": len(exact_matches),
                 "ambiguity": ambiguity,

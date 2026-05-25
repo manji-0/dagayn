@@ -524,6 +524,9 @@ class TestTools:
 
         result = query_module.semantic_search_nodes("missing", repo_root="/repo")
 
+        assert result["result_count"] == 0
+        assert result["zero_result_reason"] == "not_found_in_current_graph"
+        assert result["next_action"]["tool"] == "semantic_search_nodes_tool"
         assert {
             item["reason_code"] for item in result["missingness"]
         } >= {"missing_embeddings"}
@@ -1287,6 +1290,14 @@ class TestCommunityTools:
         assert result["status"] == "ok"
         # No community should be that large in our test data
         assert len(result["communities"]) == 0
+
+    def test_list_communities_limit_bounds_cli_output(self):
+        result = list_communities_func(repo_root=str(self.root), limit=1)
+
+        assert result["status"] == "ok"
+        assert len(result["communities"]) <= 1
+        assert "total" in result
+        assert "truncated" in result
 
     def test_list_communities_minimal_skips_full_member_expansion(self, monkeypatch):
         from dagayn.tools import community_tools

@@ -71,7 +71,10 @@ def test_architecture_analysis_routes_every_mode(monkeypatch) -> None:
             "get_architecture_overview_func",
             {"detail_level": "verbose", "top_n": 7, "artifact_scope": "docs"},
         ),
-        "communities": ("list_communities_func", {"sort_by": "cohesion", "min_size": 2}),
+        "communities": (
+            "list_communities_func",
+            {"sort_by": "cohesion", "min_size": 2, "limit": 7},
+        ),
         "community": ("get_community_func", {"community_name": "auth", "include_members": True}),
         "hubs": ("get_hub_nodes_func", {"top_n": 7}),
         "bridges": ("get_bridge_nodes_func", {"top_n": 7}),

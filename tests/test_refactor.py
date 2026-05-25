@@ -1225,9 +1225,15 @@ class TestSuggestRefactorings:
         )
         self.store.close = lambda: None
 
-        result = refactor_tools.refactor_func(mode="suggest", repo_root="/repo", limit=1)
+        result = refactor_tools.refactor_func(
+            mode="suggest",
+            repo_root="/repo",
+            top_n=1,
+            detail_level="minimal",
+        )
 
         assert result["guidance"]
+        assert len(result["suggestions"]) == 1
         assert set(result["guidance"][0]) >= {
             "claim",
             "evidence",

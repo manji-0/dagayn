@@ -114,6 +114,7 @@ def architecture_analysis_func(
                 sort_by=sort_by,
                 min_size=min_size,
                 detail_level=detail_level,
+                limit=top_n,
             ),
             mode=mode,
             called_subtool="list_communities_func",
