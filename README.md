@@ -359,18 +359,19 @@ Embeddings are stored in the `embeddings` table inside `.dagayn/graph.db`. Switc
 
 ### Search quality
 
-Measured on the dagayn codebase itself (7,998 graph nodes, 7,612 embedded
+Measured on the dagayn codebase itself (8,339 graph nodes, 7,947 embedded
 non-file nodes) with the local `low` preset. The code-search benchmark uses 12
 queries spanning exact function names, PascalCase class names, and conceptual
-natural-language queries.
+natural-language queries. Latency reflects a query-only run against the existing
+`.dagayn/graph.db`; embedding build time is not included.
 
 #### Code search benchmark
 
 | Mode | Retrieval path | mean MRR | Precision@1 | Precision@5 | Precision@20 | avg query latency |
 |---|---|---:|---:|---:|---:|---:|
-| FTS5 only | lexical | 0.5439 | 0.4167 | 0.6667 | 0.9167 | 0.6 ms |
-| Qwen3-Embedding-0.6B Q8 `low` | embedding only | **0.7361** | **0.6667** | 0.8333 | 0.8333 | 503.4 ms |
-| Hybrid search | FTS5 + embedding RRF | 0.6458 | 0.5000 | **0.9167** | **0.9167** | 505.5 ms |
+| FTS5 only | lexical | 0.5741 | 0.5000 | 0.6667 | 0.8333 | 0.6 ms |
+| Qwen3-Embedding-0.6B Q8 `low` | embedding only | **0.7153** | **0.6667** | 0.8333 | 0.8333 | 29.6 ms |
+| Hybrid search | FTS5 + embedding RRF | 0.6806 | 0.5833 | **0.9167** | **0.9167** | 9.9 ms |
 
 Embedding-only is strongest on mean MRR for this mixed query set, while hybrid
 search keeps FTS exact-name recall and has the best Precision@5/20. On the
@@ -385,9 +386,9 @@ relevance across `DocSection` and `DocBody` nodes.
 
 | Mode | Retrieval path | mean MRR | Precision@1 | Precision@5 | Precision@20 | nDCG@5 | nDCG@20 | avg query latency |
 |---|---|---:|---:|---:|---:|---:|---:|---:|
-| FTS5 only | lexical docs | 0.4145 | 0.3158 | 0.4737 | 0.8421 | 0.4361 | 0.7342 | 8.5 ms |
-| Qwen3-Embedding-0.6B Q8 `low` | embedding only | 0.5449 | 0.4737 | 0.5789 | 0.8421 | 0.4424 | 0.7220 | 479.5 ms |
-| Hybrid search | corpus-filtered FTS5 + embedding RRF | **0.6671** | **0.5263** | **0.7895** | **0.8947** | **0.7512** | **0.9629** | 488.2 ms |
+| FTS5 only | lexical docs | 0.4367 | 0.3158 | 0.5789 | 0.8947 | 0.3375 | 0.4239 | 8.8 ms |
+| Qwen3-Embedding-0.6B Q8 `low` | embedding only | 0.5017 | 0.3684 | 0.5789 | 0.7895 | 0.3457 | 0.4360 | 35.8 ms |
+| Hybrid search | corpus-filtered FTS5 + embedding RRF | **0.6546** | **0.5263** | **0.7895** | **0.9474** | **0.4848** | **0.5820** | 23.6 ms |
 
 Hybrid search works best for documentation because FTS anchors explicit terms
 while `DocBody` embeddings recover paraphrases that do not appear directly in
