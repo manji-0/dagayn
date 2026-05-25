@@ -66,18 +66,22 @@ _EXPLORE_TASK_KEYWORDS = (
     "オンボーディング",
 )
 
-_REVIEW_TOOL_SUGGESTIONS = ["review_tool", "flow_tool", "query_graph"]
-_DEBUG_TOOL_SUGGESTIONS = ["semantic_search_nodes", "query_graph", "flow_tool"]
-_FEATURE_TOOL_SUGGESTIONS = ["semantic_search_nodes", "query_graph", "review_tool"]
-_REFACTOR_TOOL_SUGGESTIONS = ["refactor", "find_large_functions", "architecture_analysis_tool"]
+_REVIEW_TOOL_SUGGESTIONS = ["review_tool", "flow_tool", "query_graph_tool"]
+_DEBUG_TOOL_SUGGESTIONS = ["semantic_search_nodes_tool", "query_graph_tool", "flow_tool"]
+_FEATURE_TOOL_SUGGESTIONS = ["semantic_search_nodes_tool", "query_graph_tool", "review_tool"]
+_REFACTOR_TOOL_SUGGESTIONS = [
+    "refactor_tool",
+    "find_large_functions_tool",
+    "architecture_analysis_tool",
+]
 _EXPLORE_TOOL_SUGGESTIONS = [
     "architecture_analysis_tool",
     "flow_tool",
-    "query_graph",
+    "query_graph_tool",
 ]
 _DEFAULT_TOOL_SUGGESTIONS = [
     "review_tool",
-    "semantic_search_nodes",
+    "semantic_search_nodes_tool",
     "architecture_analysis_tool",
 ]
 _WORKFLOW_GUIDANCE: dict[str, dict[str, str]] = {

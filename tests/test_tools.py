@@ -2267,7 +2267,7 @@ class TestGetMinimalContext:
             task="debug login bug",
             repo_root=str(self.root),
         )
-        assert "semantic_search_nodes" in result["next_tool_suggestions"]
+        assert "semantic_search_nodes_tool" in result["next_tool_suggestions"]
 
     def test_task_routing_refactor(self):
         from dagayn.tools.context import get_minimal_context
@@ -2276,16 +2276,16 @@ class TestGetMinimalContext:
             task="refactor auth module",
             repo_root=str(self.root),
         )
-        assert "refactor" in result["next_tool_suggestions"]
+        assert "refactor_tool" in result["next_tool_suggestions"]
 
     @pytest.mark.parametrize(
         ("task", "expected_tool"),
         [
             ("コード探索をしたい", "architecture_analysis_tool"),
             ("コードレビューをしたい", "review_tool"),
-            ("新規機能追加をしたい", "query_graph"),
-            ("リファクタリングをしたい", "refactor"),
-            ("リファクタリングでヘルパーを追加したい", "refactor"),
+            ("新規機能追加をしたい", "query_graph_tool"),
+            ("リファクタリングをしたい", "refactor_tool"),
+            ("リファクタリングでヘルパーを追加したい", "refactor_tool"),
         ],
     )
     def test_task_routing_japanese_workflows(self, task, expected_tool):

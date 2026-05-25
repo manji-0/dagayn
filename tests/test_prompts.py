@@ -89,7 +89,7 @@ class TestDebugIssuePrompt:
 
     def test_mentions_search(self):
         result = debug_issue_prompt(description="test issue")
-        assert "semantic_search_nodes" in result[0]["content"]
+        assert "semantic_search_nodes_tool" in result[0]["content"]
 
     def test_mentions_get_minimal_context(self):
         result = debug_issue_prompt()
@@ -111,7 +111,7 @@ class TestOnboardDeveloperPrompt:
 
     def test_mentions_stats(self):
         result = onboard_developer_prompt()
-        assert "list_graph_stats" in result[0]["content"]
+        assert "list_graph_stats_tool" in result[0]["content"]
 
     def test_mentions_architecture(self):
         result = onboard_developer_prompt()

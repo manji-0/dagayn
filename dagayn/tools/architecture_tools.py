@@ -53,7 +53,7 @@ def detect_adp_violations_func(
         artifact_scope=artifact_scope,
         next_tool_suggestions=[
             'review_tool mode="impact" -- check blast radius of a cyclic module',
-            "query_graph imports_of -- trace what a module imports",
+            "query_graph_tool imports_of -- trace what a module imports",
             'architecture_analysis_tool mode="sdp_violations" -- check stability direction',
         ],
     )

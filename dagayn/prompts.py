@@ -1,7 +1,7 @@
 """MCP prompt templates for Dagayn.
 
 Provides 5 pre-built prompt workflows, all enforcing token-efficient
-detail_level="minimal" first patterns with get_minimal_context entry point.
+detail_level="minimal" first patterns with get_minimal_context_tool entry point.
 
 1. review_changes   - pre-commit review using review_tool
 2. architecture_map - architecture docs using communities, flows, Mermaid
@@ -15,13 +15,13 @@ from __future__ import annotations
 _TOKEN_EFFICIENCY_PREAMBLE = (  # nosec B105 — prompt template, not a password
     """\
 ## Rules for Token-Efficient Graph Usage
-1. ALWAYS call `get_minimal_context` first with a task description.
+1. ALWAYS call `get_minimal_context_tool` first with a task description.
 2. Use `detail_level="minimal"` on all tool calls unless the minimal output \
 is insufficient.
 3. Only escalate to `detail_level="standard"` or `"verbose"` for the specific \
 entities that need deeper inspection.
 4. Never request more than 3 tool calls per turn unless absolutely necessary.
-5. Prefer targeted queries (query_graph with a specific symbol) over broad \
+5. Prefer targeted queries (query_graph_tool with a specific symbol) over broad \
 architecture_analysis drill-downs.
 6. When reviewing changes: review_tool(mode="changes", detail_level="minimal") → only \
 expand on high-risk items.
@@ -41,7 +41,7 @@ def review_changes_prompt(base: str = "HEAD~1") -> list[dict]:
             "content": (
                 f"{_TOKEN_EFFICIENCY_PREAMBLE}\n"
                 f"## Review Workflow\n"
-                f'1. Call `get_minimal_context(task="review changes against '
+                f'1. Call `get_minimal_context_tool(task="review changes against '
                 f'{base}")` to get risk overview.\n'
                 f'2. If risk is "low": call '
                 f'`review_tool(mode="changes", detail_level="minimal")` → report summary '
@@ -50,7 +50,7 @@ def review_changes_prompt(base: str = "HEAD~1") -> list[dict]:
                 f'   a. Call `review_tool(mode="changes", detail_level="standard")` for '
                 f"full change list.\n"
                 f"   b. For each high-risk function, call "
-                f'`query_graph(pattern="callers_of", target=<func>, '
+                f'`query_graph_tool(pattern="callers_of", target=<func>, '
                 f'detail_level="minimal")`.\n'
                 f'   c. Call `review_tool(mode="affected_flows", detail_level="minimal")` '
                 f"only if >3 changed functions.\n"
@@ -71,7 +71,7 @@ def architecture_map_prompt() -> list[dict]:
             "content": (
                 f"{_TOKEN_EFFICIENCY_PREAMBLE}\n"
                 "## Architecture Mapping Workflow\n"
-                '1. Call `get_minimal_context(task="map architecture")`.\n'
+                '1. Call `get_minimal_context_tool(task="map architecture")`.\n'
                 '2. Call `architecture_analysis_tool(mode="overview", '
                 'detail_level="minimal")` for community coupling summary.\n'
                 '3. Call `flow_tool(mode="list", detail_level="minimal")` for critical '
@@ -99,12 +99,12 @@ def debug_issue_prompt(description: str = "") -> list[dict]:
             "content": (
                 f"{_TOKEN_EFFICIENCY_PREAMBLE}\n"
                 "## Debug Workflow\n"
-                f'1. Call `get_minimal_context(task="debug: '
+                f'1. Call `get_minimal_context_tool(task="debug: '
                 f'{desc_part}")`.\n'
-                "2. Call `semantic_search_nodes(query=<keywords from "
+                "2. Call `semantic_search_nodes_tool(query=<keywords from "
                 'description>, detail_level="minimal", limit=5)`.\n'
                 "3. For the top 1-2 results, call "
-                '`query_graph(pattern="callers_of", target=<name>, '
+                '`query_graph_tool(pattern="callers_of", target=<name>, '
                 'detail_level="minimal")`.\n'
                 "4. If the issue involves execution flow: call "
                 '`flow_tool(mode="get", flow_name=<relevant flow>)` for the single most '
@@ -124,8 +124,8 @@ def onboard_developer_prompt() -> list[dict]:
             "content": (
                 f"{_TOKEN_EFFICIENCY_PREAMBLE}\n"
                 "## Onboarding Workflow\n"
-                '1. Call `get_minimal_context(task="onboard developer")`.\n'
-                "2. Call `list_graph_stats()` for technology overview.\n"
+                '1. Call `get_minimal_context_tool(task="onboard developer")`.\n'
+                "2. Call `list_graph_stats_tool()` for technology overview.\n"
                 '3. Call `architecture_analysis_tool(mode="overview", '
                 'detail_level="minimal")` for the 30-second mental model.\n'
                 '4. Call `architecture_analysis_tool(mode="communities", '
@@ -152,18 +152,18 @@ def pre_merge_check_prompt(base: str = "HEAD~1") -> list[dict]:
             "content": (
                 f"{_TOKEN_EFFICIENCY_PREAMBLE}\n"
                 "## Pre-Merge Check Workflow\n"
-                '1. Call `get_minimal_context(task="pre-merge check")`.\n'
+                '1. Call `get_minimal_context_tool(task="pre-merge check")`.\n'
                 '2. Call `review_tool(mode="changes", detail_level="minimal")` for risk '
                 "score and test gaps.\n"
                 "3. If risk > 0.4: call "
                 '`review_tool(mode="affected_flows", detail_level="minimal")`.\n'
                 "4. If test_gap_count > 0: call "
-                '`query_graph(pattern="tests_for", '
+                '`query_graph_tool(pattern="tests_for", '
                 'target=<each untested function>, detail_level="minimal")` '
                 "for up to 3 functions.\n"
-                '5. Call `refactor(mode="dead_code", '
+                '5. Call `refactor_tool(mode="dead_code", '
                 'detail_level="minimal")` to check for newly dead code.\n'
-                '6. Only call `find_large_functions` or `review_tool(mode="impact")` '
+                '6. Only call `find_large_functions_tool` or `review_tool(mode="impact")` '
                 "if risk > 0.7.\n"
                 "7. Output: GO/NO-GO recommendation with 1-sentence "
                 "justification + list of required follow-ups."

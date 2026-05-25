@@ -37,7 +37,7 @@ def get_hub_nodes_func(
         count=len(hubs),
         next_tool_suggestions=[
             'review_tool mode="impact" -- check blast radius of a hub',
-            "query_graph callers_of -- see what calls a hub",
+            "query_graph_tool callers_of -- see what calls a hub",
             'architecture_analysis_tool mode="bridges" -- find architectural chokepoints',
         ],
     )
@@ -158,7 +158,7 @@ def get_surprising_connections_func(
         count=len(surprises),
         next_tool_suggestions=[
             'architecture_analysis_tool mode="overview" -- community structure',
-            "query_graph callers_of -- trace the coupling",
+            "query_graph_tool callers_of -- trace the coupling",
             'architecture_analysis_tool mode="bridges" -- find chokepoints',
         ],
     )

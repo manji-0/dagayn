@@ -997,7 +997,7 @@ def traverse_graph_func(
             traversal=traversal,
             truncated=budget_exceeded,
             next_tool_suggestions=[
-                "query_graph callers_of -- focused relationship query",
+                "query_graph_tool callers_of -- focused relationship query",
                 'review_tool mode="impact" -- blast radius analysis',
             ],
         )

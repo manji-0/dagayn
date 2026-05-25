@@ -25,14 +25,18 @@ _INTENT_TOOLS: dict[str, set[str]] = {
     },
     "debugging": {
         "query_graph",
+        "query_graph_tool",
         "flow",
         "flow_tool",
         "get_flow",
         "semantic_search_nodes",
+        "semantic_search_nodes_tool",
     },
     "refactoring": {
         "refactor",
+        "refactor_tool",
         "find_dead_code",
+        "find_large_functions_tool",
         "suggest_refactorings",
     },
     "exploring": {
@@ -77,7 +81,7 @@ _WORKFLOW: dict[str, list[dict[str, str]]] = {
     ],
     "get_flow": [
         {
-            "tool": "query_graph",
+            "tool": "query_graph_tool",
             "suggestion": "Inspect callers/callees of a step in this flow",
         },
         {
@@ -119,7 +123,7 @@ _WORKFLOW: dict[str, list[dict[str, str]]] = {
     ],
     "get_community": [
         {
-            "tool": "query_graph",
+            "tool": "query_graph_tool",
             "suggestion": "Explore callers/callees of community members",
         },
         {
@@ -137,7 +141,7 @@ _WORKFLOW: dict[str, list[dict[str, str]]] = {
             "suggestion": 'Drill into communities with mode="communities" or mode="community"',
         },
         {
-            "tool": "query_graph",
+            "tool": "query_graph_tool",
             "suggestion": "Trace callers/callees between coupled communities (pattern=callers_of)",
         },
         {
@@ -155,7 +159,7 @@ _WORKFLOW: dict[str, list[dict[str, str]]] = {
             "suggestion": 'Use the public dispatcher with mode="overview"',
         },
         {
-            "tool": "query_graph",
+            "tool": "query_graph_tool",
             "suggestion": "Trace callers/callees between coupled communities (pattern=callers_of)",
         },
         {
@@ -195,13 +199,13 @@ _WORKFLOW: dict[str, list[dict[str, str]]] = {
             "suggestion": 'Expand blast radius with mode="impact"',
         },
         {
-            "tool": "refactor",
+            "tool": "refactor_tool",
             "suggestion": "Look for refactoring opportunities in changed code",
         },
     ],
     "refactor": [
         {
-            "tool": "query_graph",
+            "tool": "query_graph_tool",
             "suggestion": "Verify call sites before applying a rename",
         },
         {
@@ -209,13 +213,13 @@ _WORKFLOW: dict[str, list[dict[str, str]]] = {
             "suggestion": "Check risk of the refactored code",
         },
         {
-            "tool": "semantic_search_nodes",
+            "tool": "semantic_search_nodes_tool",
             "suggestion": "Find related symbols to also rename",
         },
     ],
     "semantic_search_nodes": [
         {
-            "tool": "query_graph",
+            "tool": "query_graph_tool",
             "suggestion": "Inspect callers/callees of a search result",
         },
         {

@@ -44,11 +44,11 @@ class TestMakeResponse:
         r = make_response(
             "ok",
             "done",
-            next_tool_suggestions=["query_graph callers_of -- inspect inbound callers"],
+            next_tool_suggestions=["query_graph_tool callers_of -- inspect inbound callers"],
         )
         assert r["_hints"]["next_steps"] == [
             {
-                "tool": "query_graph",
+                "tool": "query_graph_tool",
                 "suggestion": "inspect inbound callers",
             }
         ]
