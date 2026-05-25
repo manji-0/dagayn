@@ -285,6 +285,278 @@ fn generates_suggested_questions_json_from_native_analysis_unit() {
 }
 
 #[test]
+fn analysis_question_rows_read_nodes_edges_communities_and_persisted_scores() {
+    let path = temp_db("question-rows");
+    let mut store = GraphStore::open(&path).expect("open graph store");
+    let file = NodeInput {
+        kind: "File".to_string(),
+        name: "app.py".to_string(),
+        file_path: "app.py".to_string(),
+        line_start: 1,
+        line_end: 20,
+        language: "python".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: Value::Object(Default::default()),
+    };
+    let entry = NodeInput {
+        kind: "Function".to_string(),
+        name: "entry".to_string(),
+        file_path: "app.py".to_string(),
+        line_start: 2,
+        line_end: 5,
+        language: "python".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: Value::Object(Default::default()),
+    };
+    let middle = NodeInput {
+        kind: "Function".to_string(),
+        name: "middle".to_string(),
+        file_path: "app.py".to_string(),
+        line_start: 7,
+        line_end: 11,
+        language: "python".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: Value::Object(Default::default()),
+    };
+    let leaf = NodeInput {
+        kind: "Function".to_string(),
+        name: "leaf".to_string(),
+        file_path: "app.py".to_string(),
+        line_start: 13,
+        line_end: 16,
+        language: "python".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: Value::Object(Default::default()),
+    };
+    let test_leaf = NodeInput {
+        kind: "Test".to_string(),
+        name: "test_leaf".to_string(),
+        file_path: "test_app.py".to_string(),
+        line_start: 1,
+        line_end: 4,
+        language: "python".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: true,
+        extra: Value::Object(Default::default()),
+    };
+    let consumer = NodeInput {
+        kind: "Function".to_string(),
+        name: "run".to_string(),
+        file_path: "consumer.py".to_string(),
+        line_start: 1,
+        line_end: 4,
+        language: "python".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: Value::Object(Default::default()),
+    };
+    let edges = [
+        EdgeInput {
+            kind: "CALLS".to_string(),
+            source: "app.py::entry".to_string(),
+            target: "app.py::middle".to_string(),
+            file_path: "app.py".to_string(),
+            line: 3,
+            extra: Value::Object(Default::default()),
+        },
+        EdgeInput {
+            kind: "CALLS".to_string(),
+            source: "app.py::middle".to_string(),
+            target: "app.py::leaf".to_string(),
+            file_path: "app.py".to_string(),
+            line: 8,
+            extra: Value::Object(Default::default()),
+        },
+        EdgeInput {
+            kind: "TESTED_BY".to_string(),
+            source: "app.py::leaf".to_string(),
+            target: "test_app.py::test_leaf".to_string(),
+            file_path: "test_app.py".to_string(),
+            line: 2,
+            extra: Value::Object(Default::default()),
+        },
+        EdgeInput {
+            kind: "CALLS".to_string(),
+            source: "consumer.py::run".to_string(),
+            target: "app.py::entry".to_string(),
+            file_path: "consumer.py".to_string(),
+            line: 2,
+            extra: Value::Object(Default::default()),
+        },
+    ];
+    store
+        .store_file_batch(&[(
+            "app.py".to_string(),
+            vec![file, entry, middle, leaf, test_leaf, consumer],
+            edges.to_vec(),
+            "hash".to_string(),
+            0,
+        )])
+        .unwrap();
+    store
+        .conn
+        .execute(
+            "INSERT INTO communities (name, level, cohesion, size, dominant_language) \
+             VALUES ('app-community', 0, 0.9, 3, 'python')",
+            [],
+        )
+        .unwrap();
+    store
+        .conn
+        .execute(
+            "INSERT INTO communities (name, level, cohesion, size, dominant_language) \
+             VALUES ('leaf-community', 0, 1.0, 1, 'python')",
+            [],
+        )
+        .unwrap();
+    let community_id: i64 = store
+        .conn
+        .query_row(
+            "SELECT id FROM communities WHERE name = 'app-community'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    store
+        .conn
+        .execute(
+            "UPDATE nodes SET community_id = ? WHERE qualified_name IN \
+             ('app.py::entry', 'app.py::middle')",
+            [community_id],
+        )
+        .unwrap();
+    let leaf_community_id: i64 = store
+        .conn
+        .query_row(
+            "SELECT id FROM communities WHERE name = 'leaf-community'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    store
+        .conn
+        .execute(
+            "UPDATE nodes SET community_id = ? WHERE qualified_name = 'app.py::leaf'",
+            [leaf_community_id],
+        )
+        .unwrap();
+    store.persist_centrality_scores().unwrap();
+
+    let community_ids = store.get_all_node_community_ids().unwrap();
+    assert_eq!(community_ids["app.py::entry"], community_id);
+    assert_eq!(community_ids["app.py::middle"], community_id);
+    assert_eq!(community_ids["app.py::leaf"], leaf_community_id);
+    let members_by_community = store
+        .get_community_member_qns_by_ids(&[community_id, leaf_community_id])
+        .unwrap();
+    assert_eq!(
+        members_by_community[&community_id],
+        vec!["app.py::entry".to_string(), "app.py::middle".to_string()]
+    );
+    assert_eq!(
+        members_by_community[&leaf_community_id],
+        vec!["app.py::leaf".to_string()]
+    );
+    assert_eq!(
+        store.get_test_targets_for_source("app.py::leaf").unwrap(),
+        vec!["test_app.py::test_leaf".to_string()]
+    );
+    assert_eq!(
+        store
+            .get_direct_dependents(&["app.py".to_string()])
+            .unwrap(),
+        vec!["consumer.py".to_string()]
+    );
+
+    let question_nodes = store.get_question_nodes().unwrap();
+    let question_node_names = question_nodes
+        .iter()
+        .map(|node| node.qualified_name.as_str())
+        .collect::<HashSet<_>>();
+    assert!(question_node_names.contains("app.py::entry"));
+    assert!(question_node_names.contains("app.py::middle"));
+    assert!(question_node_names.contains("app.py::leaf"));
+    assert!(question_node_names.contains("test_app.py::test_leaf"));
+    assert!(question_nodes
+        .iter()
+        .any(|node| { node.qualified_name == "test_app.py::test_leaf" && node.is_test }));
+    assert!(!question_node_names.contains("app.py"));
+
+    let question_edges = store.get_question_edges().unwrap();
+    assert_eq!(question_edges.len(), 4);
+    assert!(question_edges.iter().any(|edge| {
+        edge.kind == "CALLS"
+            && edge.source_qualified == "app.py::entry"
+            && edge.target_qualified == "app.py::middle"
+    }));
+    assert!(question_edges.iter().any(|edge| {
+        edge.kind == "TESTED_BY"
+            && edge.source_qualified == "app.py::leaf"
+            && edge.target_qualified == "test_app.py::test_leaf"
+    }));
+    let mut degree = HashMap::<String, i64>::new();
+    for edge in &question_edges {
+        *degree.entry(edge.source_qualified.clone()).or_insert(0) += 1;
+        *degree.entry(edge.target_qualified.clone()).or_insert(0) += 1;
+    }
+    let surprising = store.find_surprising_connection_questions(
+        5,
+        &question_nodes,
+        &question_edges,
+        &community_ids,
+        &degree,
+    );
+    assert!(surprising.iter().any(|item| {
+        item["category"] == "surprising_connection" && item["target"] == "app.py::middle"
+    }));
+    let question_gaps = store
+        .find_question_gap_inputs(
+            &question_nodes,
+            &community_ids,
+            &degree,
+            &HashSet::from(["app.py::leaf".to_string()]),
+        )
+        .unwrap();
+    assert!(question_gaps
+        .thin_communities
+        .iter()
+        .any(|community| { community.id == leaf_community_id && community.size == 1 }));
+    assert!(question_gaps.untested_hotspots.is_empty());
+
+    let bridge_rows = store.get_persisted_bridge_rows(5).unwrap();
+    assert!(bridge_rows
+        .iter()
+        .any(|row| { row.name == "middle" && row.qualified_name == "app.py::middle" }));
+    let hub_rows = store.get_persisted_hub_rows(5).unwrap();
+    assert!(hub_rows.iter().any(|row| {
+        row.name == "middle" && row.qualified_name == "app.py::middle" && row.total_degree == 2
+    }));
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
 fn stores_file_batch_in_one_transaction() {
     let path = temp_db("batch");
     let mut store = GraphStore::open(&path).expect("open graph store");

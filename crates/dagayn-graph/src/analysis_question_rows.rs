@@ -1,0 +1,80 @@
+use crate::helpers::*;
+use crate::*;
+
+impl GraphStore {
+    pub(crate) fn get_all_node_community_ids(&self) -> Result<HashMap<String, i64>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT qualified_name, community_id FROM nodes WHERE community_id IS NOT NULL",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })?;
+        rows.collect::<std::result::Result<HashMap<_, _>, _>>()
+            .map_err(Into::into)
+    }
+
+    pub(crate) fn get_question_nodes(&self) -> Result<Vec<QuestionNode>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT kind, name, qualified_name, file_path, language, is_test \
+             FROM nodes WHERE kind != 'File'",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(QuestionNode {
+                kind: row.get(0)?,
+                name: row.get(1)?,
+                qualified_name: row.get(2)?,
+                file_path: row.get(3)?,
+                language: row.get::<_, Option<String>>(4)?.unwrap_or_default(),
+                is_test: row.get::<_, i64>(5)? != 0,
+            })
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    pub(crate) fn get_question_edges(&self) -> Result<Vec<QuestionEdge>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT kind, source_qualified, target_qualified FROM edges")?;
+        let rows = stmt.query_map([], |row| {
+            Ok(QuestionEdge {
+                kind: row.get(0)?,
+                source_qualified: row.get(1)?,
+                target_qualified: row.get(2)?,
+            })
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    pub(crate) fn get_persisted_bridge_rows(&self, limit: i64) -> Result<Vec<PersistedBridgeRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT name, qualified_name FROM bridge_scores \
+             ORDER BY betweenness DESC, qualified_name LIMIT ?",
+        )?;
+        let rows = stmt.query_map([limit], |row| {
+            Ok(PersistedBridgeRow {
+                name: row.get(0)?,
+                qualified_name: row.get(1)?,
+            })
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    pub(crate) fn get_persisted_hub_rows(&self, limit: i64) -> Result<Vec<PersistedHubRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT name, qualified_name, total_degree FROM hub_scores \
+             ORDER BY total_degree DESC, qualified_name LIMIT ?",
+        )?;
+        let rows = stmt.query_map([limit], |row| {
+            Ok(PersistedHubRow {
+                name: row.get(0)?,
+                qualified_name: row.get(1)?,
+                total_degree: row.get(2)?,
+            })
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+}
