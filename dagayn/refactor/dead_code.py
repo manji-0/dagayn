@@ -135,9 +135,7 @@ def _is_bridge_export_candidate(node: Any, lines: list[str]) -> bool:
 
 
 def _is_public_api_candidate(node: Any, lines: list[str]) -> bool:
-    return _is_source_public_api_candidate(node, lines) or _is_bridge_export_candidate(
-        node, lines
-    )
+    return _is_source_public_api_candidate(node, lines) or _is_bridge_export_candidate(node, lines)
 
 
 def _collect_type_referenced_names(store: GraphStore) -> set[str]:
@@ -403,9 +401,7 @@ def _has_callers_via_base_method(
         ).fetchall()
         for (base_method_qn,) in rows:
             if conn.execute(
-                "SELECT 1 FROM edges "
-                "WHERE target_qualified = ? AND kind = 'CALLS' "
-                "LIMIT 1",
+                "SELECT 1 FROM edges WHERE target_qualified = ? AND kind = 'CALLS' LIMIT 1",
                 (base_method_qn,),
             ).fetchone():
                 return True
