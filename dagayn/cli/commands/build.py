@@ -137,25 +137,14 @@ def register_commands(sub: argparse._SubParsersAction) -> dict:
     # visualize
     vis_cmd = sub.add_parser(
         "visualize",
-        help="Generate graph reports (HTML, GraphML, Mermaid C4, Cypher, Obsidian, SVG)",
+        help="Export graph artifacts (GraphML, Mermaid C4, Cypher, Obsidian, SVG)",
     )
     vis_cmd.add_argument("--repo", default=None, help="Repository root (auto-detected)")
     vis_cmd.add_argument(
-        "--mode",
-        choices=["auto", "full", "community", "file"],
-        default="auto",
-        help="Rendering mode: auto (default), full, community, or file",
-    )
-    vis_cmd.add_argument(
-        "--serve",
-        action="store_true",
-        help="Start a local HTTP server to view the visualization (localhost:8765)",
-    )
-    vis_cmd.add_argument(
         "--format",
-        choices=["html", "graphml", "mermaid-c4", "cypher", "obsidian", "svg"],
-        default="html",
-        help="Export format: html, graphml, mermaid-c4, cypher, obsidian, or svg (default: html)",
+        choices=["graphml", "mermaid-c4", "cypher", "obsidian", "svg"],
+        required=True,
+        help="Export format: graphml, mermaid-c4, cypher, obsidian, or svg",
     )
 
     # detect-adp
@@ -521,7 +510,7 @@ def handle(args: argparse.Namespace) -> None:
             from ...incremental import get_data_dir
 
             data_dir = get_data_dir(repo_root)
-            fmt = getattr(args, "format", "html") or "html"
+            fmt = args.format
 
             if fmt == "graphml":
                 from ...exports import export_graphml
@@ -553,34 +542,6 @@ def handle(args: argparse.Namespace) -> None:
                 out = data_dir / "graph.svg"
                 export_svg(store, out)
                 print(f"SVG exported: {out}")
-            else:
-                from importlib import import_module
-
-                generate_html = import_module("dagayn.visualization.render").generate_html
-
-                html_path = data_dir / "graph.html"
-                vis_mode = getattr(args, "mode", "auto") or "auto"
-                generate_html(store, html_path, mode=vis_mode)
-                print(f"Visualization ({vis_mode}): {html_path}")
-                if getattr(args, "serve", False):
-                    import functools
-                    import http.server
-
-                    serve_dir = html_path.parent
-                    port = 8765
-                    handler = functools.partial(
-                        http.server.SimpleHTTPRequestHandler,
-                        directory=str(serve_dir),
-                    )
-                    print(f"Serving at http://localhost:{port}/graph.html")
-                    print("Press Ctrl+C to stop.")
-                    with http.server.HTTPServer(("localhost", port), handler) as httpd:
-                        try:
-                            httpd.serve_forever()
-                        except KeyboardInterrupt:
-                            print("\nServer stopped.")
-                else:
-                    print("Open in browser to explore.")
 
         elif args.command == "detect-adp":
             from ...architecture import find_adp_violations

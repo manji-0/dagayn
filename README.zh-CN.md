@@ -169,20 +169,17 @@ dagayn build
 dagayn update
 dagayn watch
 dagayn detect-changes --base HEAD~1
-dagayn visualize --serve
+dagayn visualize --format graphml
 dagayn serve
 ```
 
-## 报告 / 导出输出
+## 导出输出
 
-`dagayn visualize` 是当前图谱报告 / 导出的主要命令面。
+`dagayn visualize` 用于导出静态图谱产物。
 
-- 默认输出是 `.dagayn/graph.html` 里的交互式 HTML 报告
-- HTML 渲染支持 `--mode auto|full|community|file`
-- `--format` 支持 `html`、`graphml`、`mermaid-c4`、`svg`、`cypher`、`obsidian`
+- `--format` 是必需的，支持 `graphml`、`mermaid-c4`、`svg`、`cypher`、`obsidian`
 - `mermaid-c4` 会输出 Mermaid `C4Component` 代码，并将文件折叠为组件、将跨文件依赖聚合为关系
 - `svg` 导出依赖 matplotlib；需要时安装 eval extra：`pip install "dagayn[eval] @ git+https://github.com/manji-0/dagayn.git"`
-- 这个 fork 不内置 Graphviz / DOT 导出
 - Jupyter / Databricks 笔记本是图谱输入，不是报告输出格式
 
 ## AI 平台集成

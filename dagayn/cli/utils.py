@@ -59,7 +59,7 @@ def _print_banner() -> None:
     {g}update{r}      Incremental update {d}(changed files only){r}
     {g}watch{r}       Auto-update on file changes
     {g}status{r}      Show graph statistics
-    {g}visualize{r}   Generate graph reports and exports
+    {g}visualize{r}   Export graph artifacts
     {g}wiki{r}        Generate markdown wiki from communities
     {g}detect-changes{r} Analyze change impact {d}(risk-scored review){r}
     {g}detect-adp{r}    Detect cyclic dependencies {d}(ADP violations){r}

@@ -169,20 +169,17 @@ dagayn build
 dagayn update
 dagayn watch
 dagayn detect-changes --base HEAD~1
-dagayn visualize --serve
+dagayn visualize --format graphml
 dagayn serve
 ```
 
-## Report / export outputs
+## Export outputs
 
-`dagayn visualize` graph artifacts के लिए current report/export surface है।
+`dagayn visualize` static graph artifacts export करता है।
 
-- default output `.dagayn/graph.html` में interactive HTML report है
-- HTML rendering `--mode auto|full|community|file` को support करता है
-- `--format` में `html`, `graphml`, `mermaid-c4`, `svg`, `cypher`, `obsidian` supported हैं
+- `--format` required है और `graphml`, `mermaid-c4`, `svg`, `cypher`, `obsidian` supported हैं
 - `mermaid-c4` Mermaid `C4Component` code emit करता है, जहाँ files components और cross-file dependencies relations बनती हैं
 - `svg` export matplotlib use करता है; ज़रूरत हो तो eval extra install करें: `pip install "dagayn[eval] @ git+https://github.com/manji-0/dagayn.git"`
-- इस fork में Graphviz / DOT built-in export target नहीं है
 - Jupyter / Databricks notebooks report outputs नहीं, graph inputs हैं
 
 ## AI platform integration

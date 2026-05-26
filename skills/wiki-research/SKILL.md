@@ -1,6 +1,6 @@
 ---
 name: wiki-research
-description: Generate and inspect dagayn graph wiki pages, architecture reports, and visualization exports for repository-level research.
+description: Generate and inspect dagayn graph wiki pages, architecture reports, and static graph exports for repository-level research.
 argument-hint: "[topic]"
 ---
 
@@ -22,10 +22,10 @@ wiki, visual report, or export for humans to read.
    ```bash
    dagayn tool get_wiki_page_tool --arg page='"overview"'
    ```
-5. For external visualization/export, use the CLI surface:
+5. For external graph exports, use the CLI surface:
    ```bash
-   dagayn visualize --mode auto --format html
-   dagayn visualize --mode community --format mermaid-c4
+   dagayn visualize --format graphml
+   dagayn visualize --format mermaid-c4
    ```
 
 ## Evidence Rules
@@ -34,7 +34,7 @@ wiki, visual report, or export for humans to read.
   `query_graph_tool`, `review_tool(mode="impact")`, or source reads.
 - Cite counts, communities, reason codes, and truncation flags from the tool
   output when making repository-level claims.
-- Do not run full visualization exports when a minimal architecture overview
+- Do not run broad graph exports when a minimal architecture overview
   answers the question.
 
 ## Efficiency Rules

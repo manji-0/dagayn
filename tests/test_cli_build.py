@@ -56,6 +56,44 @@ def test_build_parser_accepts_force_full_build_options():
     assert alias_args.force_full_build is True
 
 
+def test_visualize_parser_rejects_removed_serve_flag():
+    try:
+        _parser().parse_args(["visualize", "--serve"])
+    except SystemExit as exc:
+        assert exc.code == 2
+    else:  # pragma: no cover - argparse should exit
+        raise AssertionError("--serve should not be accepted by visualize")
+
+
+def test_visualize_parser_requires_explicit_non_html_export_format():
+    parser = _parser()
+    args = parser.parse_args(["visualize", "--format", "svg"])
+
+    assert args.format == "svg"
+    for argv in (
+        ["visualize"],
+        ["visualize", "--mode", "community"],
+        ["visualize", "--format", "html"],
+        ["visualize", "--format", "dot"],
+    ):
+        try:
+            parser.parse_args(argv)
+        except SystemExit as exc:
+            assert exc.code == 2
+        else:  # pragma: no cover - argparse should exit
+            raise AssertionError(f"{argv!r} should not be accepted by visualize")
+
+
+def test_visualize_parser_does_not_offer_graphviz_dot_format():
+    parser = _parser()
+    try:
+        parser.parse_args(["visualize", "--format", "dot"])
+    except SystemExit as exc:
+        assert exc.code == 2
+    else:  # pragma: no cover - argparse should exit
+        raise AssertionError("Graphviz/DOT export should not be accepted")
+
+
 def test_remove_existing_graph_database_removes_sqlite_sidecars(tmp_path):
     db_path = tmp_path / "graph.db"
     paths = [db_path] + [

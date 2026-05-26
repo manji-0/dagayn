@@ -128,20 +128,6 @@ def test_export_graph_data(store_with_data):
     json.dumps(data)  # must be serializable
 
 
-def test_generate_html(store_with_data, tmp_path):
-    from dagayn.visualization import generate_html
-
-    output_path = tmp_path / "graph.html"
-    generate_html(store_with_data, output_path)
-    assert output_path.exists()
-    content = output_path.read_text()
-    assert "d3js.org" in content or "d3.v7" in content
-    assert "auth.py" in content
-    assert "AuthService" in content
-    assert "<!DOCTYPE html>" in content
-    assert "</html>" in content
-
-
 def test_cpp_include_resolution(tmp_path):
     """IMPORTS_FROM edges with bare C++ include paths should resolve to File nodes
     stored under absolute paths — previously these were dropped, leaving the
@@ -205,17 +191,6 @@ def test_cpp_include_resolution(tmp_path):
     )
 
 
-def test_generate_html_overwrites(store_with_data, tmp_path):
-    from dagayn.visualization import generate_html
-
-    output_path = tmp_path / "graph.html"
-    output_path.write_text("old content")
-    generate_html(store_with_data, output_path)
-    content = output_path.read_text()
-    assert "old content" not in content
-    assert "<!DOCTYPE html>" in content
-
-
 def test_export_includes_flows(store_with_data):
     """Export data should include a 'flows' key (list, possibly empty)."""
     from dagayn.visualization import export_graph_data
@@ -232,25 +207,6 @@ def test_export_includes_communities(store_with_data):
     data = export_graph_data(store_with_data)
     assert "communities" in data
     assert isinstance(data["communities"], list)
-
-
-def test_generate_html_includes_interactive_features(store_with_data, tmp_path):
-    """Generated HTML should include new interactive features."""
-    from dagayn.visualization import generate_html
-
-    output_path = tmp_path / "graph.html"
-    generate_html(store_with_data, output_path)
-    content = output_path.read_text()
-    # Detail panel
-    assert "detail-panel" in content
-    # Community coloring button
-    assert "btn-community" in content
-    # Flow dropdown
-    assert "flow-select" in content
-    # Filter panel
-    assert "filter-panel" in content
-    # Search results dropdown
-    assert "search-results" in content
 
 
 # ---------------------------------------------------------------------------
@@ -448,72 +404,6 @@ def test_file_mode_aggregation(large_store, tmp_path):
         assert e["kind"] == "DEPENDS_ON"
     # Mode should be set
     assert agg["mode"] == "file"
-
-
-def test_auto_mode_switches_at_threshold(large_store, tmp_path):
-    """Auto mode should switch to community when nodes exceed threshold."""
-    from dagayn.visualization import generate_html
-
-    output_path = tmp_path / "auto_low.html"
-    # Threshold higher than node count -> should use full template
-    generate_html(large_store, output_path, mode="auto", max_full_nodes=100000)
-    content = output_path.read_text()
-    # Full template has btn-community and flow-select
-    assert "btn-community" in content
-    assert "flow-select" in content
-
-    output_path2 = tmp_path / "auto_high.html"
-    # Threshold of 1 -> should switch to community mode
-    generate_html(large_store, output_path2, mode="auto", max_full_nodes=1)
-    content2 = output_path2.read_text()
-    # Aggregated template has btn-back and community_details
-    assert "btn-back" in content2
-    assert "community_details" in content2
-
-
-def test_community_mode_html_generation(large_store, tmp_path):
-    """Community mode generates valid HTML with aggregated data."""
-    from dagayn.visualization import generate_html
-
-    output_path = tmp_path / "community.html"
-    generate_html(large_store, output_path, mode="community")
-    content = output_path.read_text()
-    assert "<!DOCTYPE html>" in content
-    assert "</html>" in content
-    assert "btn-back" in content
-    assert "community_details" in content
-    assert "drillIntoCommunity" in content
-
-
-def test_file_mode_html_generation(large_store, tmp_path):
-    """File mode generates valid HTML with file-level data."""
-    from dagayn.visualization import generate_html
-
-    output_path = tmp_path / "file.html"
-    generate_html(large_store, output_path, mode="file")
-    content = output_path.read_text()
-    assert "<!DOCTYPE html>" in content
-    assert "</html>" in content
-    assert "DEPENDS_ON" in content
-
-
-def test_full_mode_backward_compatible(store_with_data, tmp_path):
-    """Full mode should produce identical output to the original 2-arg call."""
-    from dagayn.visualization import generate_html
-
-    # Original 2-arg call (backward compat)
-    output1 = tmp_path / "compat.html"
-    generate_html(store_with_data, output1)
-    content1 = output1.read_text()
-    assert "btn-community" in content1
-    assert "flow-select" in content1
-
-    # Explicit full mode
-    output2 = tmp_path / "full.html"
-    generate_html(store_with_data, output2, mode="full")
-    content2 = output2.read_text()
-    assert "btn-community" in content2
-    assert "flow-select" in content2
 
 
 def test_community_detail_data_complete(large_store):

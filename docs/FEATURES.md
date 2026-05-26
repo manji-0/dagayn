@@ -15,7 +15,7 @@
 - review context generation and change-impact analysis
 - communities, flows, hub nodes, bridge nodes, and knowledge-gap analysis
 - refactor previews and dead-code inspection
-- wiki generation and graph reports/exports (interactive HTML, GraphML, Mermaid C4, SVG, Cypher, Obsidian)
+- wiki generation and static graph exports (GraphML, Mermaid C4, SVG, Cypher, Obsidian)
 
 ## Languages and formats the fork emphasizes
 

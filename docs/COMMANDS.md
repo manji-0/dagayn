@@ -97,12 +97,13 @@ running MCP server. A long-lived MCP process keeps the implementation it loaded
 at startup; after editing or upgrading dagayn, restart `dagayn serve` before
 treating MCP output as the same truth source as `dagayn tool`.
 
-`dagayn visualize` is the main report/export command. It generates:
+`dagayn visualize` is the static graph export command. It requires `--format`
+and generates:
 
-- interactive HTML output in `auto`, `full`, `community`, or `file` mode
 - GraphML, Mermaid C4, SVG, Neo4j Cypher, or Obsidian exports via `--format`
 
-Graphviz / DOT is not a built-in export target. Jupyter / Databricks notebooks are supported as graph inputs rather than report output formats.
+Jupyter / Databricks notebooks are supported as graph inputs rather than report
+output formats.
 
 `dagayn wiki` writes Markdown pages under `.dagayn/wiki/` from detected graph
 communities. Each community page includes members, execution flows,

@@ -62,9 +62,7 @@ bounded composed summary of coupling, hubs, bridges, knowledge gaps, surprising
 connections, and ADP/SDP/SAP signals. v2 split architecture tools were removed;
 use `architecture_analysis_tool(mode=...)` for drill-downs.
 
-`dagayn visualize` is the report/export surface. It supports HTML output with `--mode auto|full|community|file`, plus `graphml`, `mermaid-c4`, `svg`, `cypher`, and `obsidian` via `--format`.
-
-Graphviz / DOT is not a built-in export target in this fork.
+`dagayn visualize` is the static graph export surface. It requires `--format` and supports `graphml`, `mermaid-c4`, `svg`, `cypher`, and `obsidian`.
 </section>
 
 <section name="legal">

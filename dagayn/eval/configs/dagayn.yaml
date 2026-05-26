@@ -179,7 +179,7 @@ doc_fuzzy_search_queries:
         grade: 2
 
   - query: "produce architecture handoff artifacts such as diagrams or exchange formats"
-    expected: "docs/USAGE.md::visualize-or-export-the-graph"
+    expected: "docs/USAGE.md::export-the-graph"
     label: "graph_export_formats"
     relevant:
       - target: "README.md::reporting-and-export-outputs"

@@ -201,13 +201,11 @@ relationship results and missing targets. Missing targets return
 `answerability` / `missingness`; do not treat that as proof the symbol cannot
 exist outside the current graph.
 
-## Visualize or export the graph
+## Export the graph
 
 <!-- constrained-by ./ARCHITECTURE.md#post-processing -->
 
 ```bash
-dagayn visualize --serve
-dagayn visualize --mode community
 dagayn visualize --format graphml
 dagayn visualize --format mermaid-c4
 dagayn visualize --format svg
@@ -217,11 +215,9 @@ dagayn visualize --format obsidian
 
 Notes:
 
-- default output is `.dagayn/graph.html`
-- HTML modes are `auto`, `full`, `community`, and `file`
-- built-in export formats are `html`, `graphml`, `mermaid-c4`, `svg`, `cypher`, and `obsidian`
+- `--format` is required
+- built-in export formats are `graphml`, `mermaid-c4`, `svg`, `cypher`, and `obsidian`
 - `mermaid-c4` emits Mermaid `C4Component` code using files as components
-- Graphviz / DOT is not a built-in export target
 - Jupyter / Databricks notebooks are graph inputs, not report outputs
 - `svg` export requires matplotlib, available via `dagayn[eval]`
 

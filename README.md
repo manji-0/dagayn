@@ -35,7 +35,7 @@ See [NOTICE](NOTICE) for upstream attribution and original author information.
 - MCP server for AI coding tools
 - graph queries for impact radius, review context, communities, flows, and refactors
 - multi-repo registry and daemon workflows
-- interactive visualization plus GraphML, Mermaid C4, SVG, Cypher, and Obsidian exports
+- GraphML, Mermaid C4, SVG, Cypher, and Obsidian graph exports
 
 ## Supported languages and file types
 
@@ -223,7 +223,7 @@ dagayn build
 dagayn update
 dagayn watch
 dagayn detect-changes --base HEAD~1
-dagayn visualize --serve
+dagayn visualize --format graphml
 dagayn serve
 ```
 
@@ -262,14 +262,11 @@ with a verified contract.
 
 ## Reporting and export outputs
 
-`dagayn visualize` is the current report/export surface for graph artifacts.
+`dagayn visualize` exports static graph artifacts.
 
-- default output is an interactive HTML report at `.dagayn/graph.html`
-- HTML rendering supports `--mode auto|full|community|file`
-- `--format` supports `html`, `graphml`, `mermaid-c4`, `svg`, `cypher`, and `obsidian`
+- `--format` is required and supports `graphml`, `mermaid-c4`, `svg`, `cypher`, and `obsidian`
 - `mermaid-c4` emits Mermaid `C4Component` code with files collapsed into components and cross-file relations
 - `svg` export uses matplotlib, so install the eval extra when you need it: `pip install "dagayn[eval]"`
-- Graphviz/DOT is not a built-in export target in this fork
 - Jupyter / Databricks notebooks are parsed as graph inputs, not emitted as report formats
 
 ## AI platform integration

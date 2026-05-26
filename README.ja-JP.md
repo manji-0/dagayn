@@ -169,20 +169,17 @@ dagayn build
 dagayn update
 dagayn watch
 dagayn detect-changes --base HEAD~1
-dagayn visualize --serve
+dagayn visualize --format graphml
 dagayn serve
 ```
 
-## レポート / エクスポート出力
+## エクスポート出力
 
-`dagayn visualize` が現行のグラフ用レポート / エクスポート面です。
+`dagayn visualize` は静的なグラフ成果物を出力します。
 
-- 既定出力は `.dagayn/graph.html` のインタラクティブ HTML レポート
-- HTML 表示は `--mode auto|full|community|file` をサポート
-- `--format` は `html`, `graphml`, `mermaid-c4`, `svg`, `cypher`, `obsidian` をサポート
+- `--format` は必須で、`graphml`, `mermaid-c4`, `svg`, `cypher`, `obsidian` をサポート
 - `mermaid-c4` は Mermaid の `C4Component` コードを出力し、ファイルをコンポーネント、クロスファイル依存を関係として集約します
 - `svg` は matplotlib を使うため、必要なら eval extra を入れます: `pip install "dagayn[eval] @ git+https://github.com/manji-0/dagayn.git"`
-- この fork に Graphviz / DOT の組み込み出力はありません
 - Jupyter / Databricks ノートブックはレポート出力形式ではなく、グラフ入力として扱います
 
 ## AI プラットフォーム連携

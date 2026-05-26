@@ -1,15 +1,4 @@
-"""Interactive D3.js graph visualization public API.
-
-Exports graph data to JSON and generates a self-contained HTML file with
-a force-directed D3.js visualization. Dark theme, zoomable, draggable,
-with collapsible file clusters, tooltips, legend, and stats bar.
-
-Supports multiple rendering modes for large graphs:
-- ``full``  — render every node (default, current behavior)
-- ``community`` — aggregate by community; double-click to drill down
-- ``file``  — aggregate by file; each file is a node
-- ``auto``  — choose community mode when node count exceeds threshold
-"""
+"""Graph export data helpers used by static export formats."""
 
 from __future__ import annotations
 
@@ -19,7 +8,6 @@ _LAZY_EXPORTS = {
     "_aggregate_community": (".aggregate", "_aggregate_community"),
     "_aggregate_file": (".aggregate", "_aggregate_file"),
     "export_graph_data": (".data", "export_graph_data"),
-    "generate_html": (".render", "generate_html"),
 }
 
 
@@ -38,5 +26,4 @@ __all__ = [
     "_aggregate_community",
     "_aggregate_file",
     "export_graph_data",
-    "generate_html",
 ]
