@@ -91,6 +91,12 @@ dagayn tool flow_tool --arg mode='"list"' --arg detail_level='"minimal"'
 dagayn tool architecture_analysis_tool --arg mode='"knowledge_gaps"' --arg top_n=10 --format summary
 ```
 
+Tool responses include compact `_runtime` metadata (`version`, `pid`,
+`python`, and `package_root`) so agents can compare a direct CLI run with a
+running MCP server. A long-lived MCP process keeps the implementation it loaded
+at startup; after editing or upgrading dagayn, restart `dagayn serve` before
+treating MCP output as the same truth source as `dagayn tool`.
+
 `dagayn visualize` is the main report/export command. It generates:
 
 - interactive HTML output in `auto`, `full`, `community`, or `file` mode
@@ -297,7 +303,20 @@ relationship results: `status="not_found"`, `result_count=0`, `results=[]`,
 structural weakness categories with explicit thresholds and raw counts.
 Untested-hotspot candidates are ranked against the repository's observed
 production-node degree distribution rather than a fixed language-specific size
-rule.
+rule; scoped runs still use each scoped code node's full graph degree for this
+hotspot ranking so documentation and test relationships can contribute to
+impact without being returned as code findings. In `artifact_scope="code"`,
+structural modes exclude test-like nodes by default and report low-signal
+findings separately under
+`classified_noise_counts` / `classified_noise_examples`, including public API
+candidates, conventional entry points, Rust `#[cfg(test)]` nodes,
+implementation-block containers, and small single-file clusters. Single-file
+community findings include `internal_edges`, `external_edges`,
+`external_degree`, `cohesion`, and `external_edge_ratio`; large one-file
+communities with enough external graph connectivity are classified as
+`integrated_single_file_component` noise instead of being returned as knowledge
+gaps. The returned category order favors review value: `untested_hotspots`,
+`single_file_communities`, `isolated_nodes`, then `thin_communities`.
 
 ## MCP prompts
 

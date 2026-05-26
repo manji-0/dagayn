@@ -76,10 +76,22 @@ def test_architecture_analysis_routes_every_mode(monkeypatch) -> None:
             {"sort_by": "cohesion", "min_size": 2, "limit": 7},
         ),
         "community": ("get_community_func", {"community_name": "auth", "include_members": True}),
-        "hubs": ("get_hub_nodes_func", {"top_n": 7}),
-        "bridges": ("get_bridge_nodes_func", {"top_n": 7}),
-        "knowledge_gaps": ("get_knowledge_gaps_func", {"top_n": 7}),
-        "surprising_connections": ("get_surprising_connections_func", {"top_n": 7}),
+        "hubs": (
+            "get_hub_nodes_func",
+            {"top_n": 7, "artifact_scope": "docs", "include_tests": True},
+        ),
+        "bridges": (
+            "get_bridge_nodes_func",
+            {"top_n": 7, "artifact_scope": "docs", "include_tests": True},
+        ),
+        "knowledge_gaps": (
+            "get_knowledge_gaps_func",
+            {"top_n": 7, "artifact_scope": "docs", "include_tests": True},
+        ),
+        "surprising_connections": (
+            "get_surprising_connections_func",
+            {"top_n": 7, "artifact_scope": "docs", "include_tests": True},
+        ),
         "adp_violations": (
             "detect_adp_violations_func",
             {
@@ -144,6 +156,38 @@ def test_architecture_analysis_routes_every_mode(monkeypatch) -> None:
         assert kwargs["repo_root"] == "/repo"
         for key, value in expected.items():
             assert kwargs[key] == value
+
+
+def test_architecture_analysis_code_scope_excludes_tests_from_structural_modes(
+    monkeypatch,
+) -> None:
+    calls: list[tuple[str, dict]] = []
+
+    def fake(name):
+        def _inner(**kwargs):
+            calls.append((name, kwargs))
+            return {"status": "ok", "summary": name}
+
+        return _inner
+
+    for subtool in (
+        "get_hub_nodes_func",
+        "get_bridge_nodes_func",
+        "get_knowledge_gaps_func",
+        "get_surprising_connections_func",
+    ):
+        monkeypatch.setattr(architecture_analysis, subtool, fake(subtool))
+
+    for mode in ("hubs", "bridges", "knowledge_gaps", "surprising_connections"):
+        architecture_analysis.architecture_analysis_func(
+            mode=mode,  # type: ignore[arg-type]
+            repo_root="/repo",
+            artifact_scope="code",
+        )
+
+    assert calls
+    assert all(kwargs["artifact_scope"] == "code" for _name, kwargs in calls)
+    assert all(kwargs["include_tests"] is False for _name, kwargs in calls)
 
 
 def test_architecture_analysis_community_requires_selector() -> None:

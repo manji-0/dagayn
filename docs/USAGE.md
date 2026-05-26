@@ -144,6 +144,11 @@ Architecture and flow outputs are calibrated leads: `architecture_health`
 reports formulas, thresholds, and stable-component policy; `flow_tool` reports
 whether source snippets were included and reminds clients that criticality is a
 ranking signal, not a coverage guarantee.
+Tool responses also include `_runtime` metadata (`version`, `pid`, `python`,
+and `package_root`) so you can spot when a long-lived MCP server is still
+serving an older dagayn process than a direct `dagayn tool ...` CLI check.
+Restart `dagayn serve` after local edits or upgrades before comparing MCP and
+CLI results as the same implementation.
 
 ### Migrating response consumers
 

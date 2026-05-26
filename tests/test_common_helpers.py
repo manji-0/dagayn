@@ -18,6 +18,7 @@ from dagayn.tools._common import (
     make_response,
     missingness_from_answerability,
     projection_for_detail_level,
+    tool_runtime_summary,
 )
 
 
@@ -173,6 +174,16 @@ class TestAnswerability:
         assert result is payload
         assert result["answerability"]["reason_codes"] == ["no_sqlite_connection"]
         assert result["missingness"] == []
+        assert result["_runtime"]["package"] == "dagayn"
+        assert result["_runtime"]["package_root"]
+
+    def test_tool_runtime_summary_identifies_process_and_package(self) -> None:
+        runtime = tool_runtime_summary()
+
+        assert runtime["package"] == "dagayn"
+        assert isinstance(runtime["pid"], int)
+        assert runtime["python"]
+        assert runtime["package_root"].endswith("dagayn")
 
 
 class TestGuidanceItems:

@@ -84,6 +84,15 @@ fn rust_walk_children(
                         line: child.start_position().row as i64 + 1,
                         extra: json!({}),
                     });
+                    rust_emit_type_references(
+                        child,
+                        context.source,
+                        context.file_path,
+                        &qualify(context.file_path, &name, enclosing_class),
+                        context.defined_names,
+                        Some(&name),
+                        edges,
+                    );
                     rust_walk_children(child, context, Some(&name), None, nodes, edges);
                     continue;
                 }
@@ -118,6 +127,15 @@ fn rust_walk_children(
                         line: child.start_position().row as i64 + 1,
                         extra: json!({}),
                     });
+                    rust_emit_type_references(
+                        child,
+                        context.source,
+                        context.file_path,
+                        &qualify(context.file_path, &name, enclosing_class),
+                        context.defined_names,
+                        Some(&name),
+                        edges,
+                    );
                     rust_walk_children(child, context, enclosing_class, Some(&name), nodes, edges);
                     continue;
                 }
@@ -436,6 +454,72 @@ fn rust_emit_argument_references(
     }
 }
 
+fn rust_emit_type_references(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    file_path: &str,
+    source_qualified: &str,
+    defined_names: &HashSet<String>,
+    skip_name: Option<&str>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let mut emitted = HashSet::new();
+    rust_collect_type_references(
+        node,
+        source,
+        file_path,
+        source_qualified,
+        defined_names,
+        skip_name,
+        edges,
+        &mut emitted,
+    );
+}
+
+fn rust_collect_type_references(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    file_path: &str,
+    source_qualified: &str,
+    defined_names: &HashSet<String>,
+    skip_name: Option<&str>,
+    edges: &mut Vec<ParsedEdge>,
+    emitted: &mut HashSet<String>,
+) {
+    if node.kind() == "type_identifier" {
+        let name = node_text(node, source);
+        if skip_name != Some(name.as_str())
+            && defined_names.contains(&name)
+            && emitted.insert(name.clone())
+        {
+            edges.push(ParsedEdge {
+                kind: "REFERENCES".to_string(),
+                source: source_qualified.to_string(),
+                target: qualify(file_path, &name, None),
+                file_path: file_path.to_string(),
+                line: node.start_position().row as i64 + 1,
+                extra: json!({
+                    "relationship_role": "type_reference",
+                    "evidence_kind": "rust_type_identifier"
+                }),
+            });
+        }
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        rust_collect_type_references(
+            child,
+            source,
+            file_path,
+            source_qualified,
+            defined_names,
+            skip_name,
+            edges,
+            emitted,
+        );
+    }
+}
+
 fn rust_should_skip_value_reference(name: &str) -> bool {
     matches!(
         name,
@@ -590,6 +674,36 @@ fn helpers_have_stable_contracts() {
 
         assert!(nodes.iter().any(|node| {
             node.kind == "Test" && node.name == "helpers_have_stable_contracts" && node.is_test
+        }));
+    }
+
+    #[test]
+    fn test_parse_rust_with_parser_emits_type_reference_edges() {
+        let source = br#"
+struct User {
+    manager: Option<Box<User>>,
+}
+
+struct Repository {}
+
+fn create_user(repo: Repository) -> User {
+    User { manager: None }
+}
+"#;
+        let mut parser = new_rust_parser().expect("rust grammar should load");
+        let (_nodes, edges) = parse_rust_with_parser("src/lib.rs", source, Some(&mut parser));
+
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "REFERENCES"
+                && edge.source == "src/lib.rs::create_user"
+                && edge.target == "src/lib.rs::Repository"
+                && edge.extra["relationship_role"] == "type_reference"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "REFERENCES"
+                && edge.source == "src/lib.rs::create_user"
+                && edge.target == "src/lib.rs::User"
+                && edge.extra["evidence_kind"] == "rust_type_identifier"
         }));
     }
 }

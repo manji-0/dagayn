@@ -28,6 +28,7 @@ def _architecture_health_summary(
 ) -> dict[str, Any]:
     """Compose specialized architecture signals into one bounded report."""
     example_limit = min(max(top_n, 1), 5)
+    include_tests = artifact_scope != "code"
 
     try:
         from ..analysis import (
@@ -39,10 +40,30 @@ def _architecture_health_summary(
         from ..architecture import find_adp_violations, find_sdp_violations
         from ..sap import find_sap_violations
 
-        hubs = find_hub_nodes(store, top_n=example_limit)
-        bridges = find_bridge_nodes(store, top_n=example_limit)
-        gaps = find_knowledge_gaps(store, top_n=example_limit)
-        surprises = find_surprising_connections(store, top_n=example_limit)
+        hubs = find_hub_nodes(
+            store,
+            top_n=example_limit,
+            artifact_scope=artifact_scope,
+            include_tests=include_tests,
+        )
+        bridges = find_bridge_nodes(
+            store,
+            top_n=example_limit,
+            artifact_scope=artifact_scope,
+            include_tests=include_tests,
+        )
+        gaps = find_knowledge_gaps(
+            store,
+            top_n=example_limit,
+            artifact_scope=artifact_scope,
+            include_tests=include_tests,
+        )
+        surprises = find_surprising_connections(
+            store,
+            top_n=example_limit,
+            artifact_scope=artifact_scope,
+            include_tests=include_tests,
+        )
         adp = find_adp_violations(
             store,
             granularity="package",
@@ -92,10 +113,10 @@ def _architecture_health_summary(
         }
 
     gap_keys = (
-        "isolated_nodes",
-        "thin_communities",
         "untested_hotspots",
         "single_file_communities",
+        "isolated_nodes",
+        "thin_communities",
     )
     gap_meta = gaps.get("_meta", {})
     raw_gap_counts = gap_meta.get("raw_counts", {})
@@ -193,6 +214,7 @@ def _architecture_health_summary(
             "thresholds": {
                 "sap_violation_distance_min": 0.5,
                 "artifact_scope_default": "code",
+                "code_scope_includes_tests": False,
             },
         },
         "counts": {

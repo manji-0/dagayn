@@ -6,8 +6,11 @@ import json
 import logging
 import os
 import sqlite3
+import sys
 import threading
 from collections.abc import Mapping
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as pkg_version
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +35,29 @@ def _error_response(
 ) -> dict[str, Any]:
     """Build a standardised error response dict."""
     return {"status": status, "error": message, "summary": message, **extra}
+
+
+def tool_runtime_summary() -> dict[str, Any]:
+    """Return compact runtime identity for comparing CLI and MCP responses."""
+    try:
+        version = pkg_version("dagayn")
+    except PackageNotFoundError:
+        version = "dev"
+    module_file = Path(__file__).resolve()
+    package_root = module_file.parents[1]
+    return {
+        "package": "dagayn",
+        "version": version,
+        "pid": os.getpid(),
+        "python": sys.executable,
+        "package_root": str(package_root),
+    }
+
+
+def attach_runtime_metadata(payload: dict[str, Any]) -> dict[str, Any]:
+    """Attach runtime identity without overriding explicit tool metadata."""
+    payload.setdefault("_runtime", tool_runtime_summary())
+    return payload
 
 
 # Common JS/TS builtin method names filtered from callers_of results.
@@ -581,6 +607,7 @@ def attach_answerability(
     repo_root: str | None = None,
 ) -> dict[str, Any]:
     """Ensure a tool response carries answerability and missingness metadata."""
+    attach_runtime_metadata(payload)
     if "answerability" in payload and "missingness" in payload:
         return payload
 

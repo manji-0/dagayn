@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from .._scope import ArtifactScope
 from ..analysis import (
     find_bridge_nodes,
     find_hub_nodes,
@@ -17,6 +18,8 @@ from ._common import _get_store, apply_output_budget, make_response
 def get_hub_nodes_func(
     repo_root: Optional[str] = None,
     top_n: int = 10,
+    artifact_scope: ArtifactScope = "all",
+    include_tests: bool = True,
 ) -> dict[str, Any]:
     """Find the most connected nodes in the codebase graph.
 
@@ -29,12 +32,19 @@ def get_hub_nodes_func(
         top_n: Number of top hubs to return (default 10).
     """
     store, _root = _get_store(repo_root)
-    hubs = find_hub_nodes(store, top_n=top_n)
+    hubs = find_hub_nodes(
+        store,
+        top_n=top_n,
+        artifact_scope=artifact_scope,
+        include_tests=include_tests,
+    )
     return make_response(
         "ok",
         f"Found {len(hubs)} hub node(s) with highest connectivity.",
         hub_nodes=hubs,
         count=len(hubs),
+        artifact_scope=artifact_scope,
+        include_tests=include_tests,
         next_tool_suggestions=[
             'review_tool mode="impact" -- check blast radius of a hub',
             "query_graph_tool callers_of -- see what calls a hub",
@@ -46,6 +56,8 @@ def get_hub_nodes_func(
 def get_bridge_nodes_func(
     repo_root: Optional[str] = None,
     top_n: int = 10,
+    artifact_scope: ArtifactScope = "all",
+    include_tests: bool = True,
 ) -> dict[str, Any]:
     """Find architectural chokepoints via betweenness centrality.
 
@@ -58,12 +70,19 @@ def get_bridge_nodes_func(
         top_n: Number of top bridges to return (default 10).
     """
     store, _root = _get_store(repo_root)
-    bridges = find_bridge_nodes(store, top_n=top_n)
+    bridges = find_bridge_nodes(
+        store,
+        top_n=top_n,
+        artifact_scope=artifact_scope,
+        include_tests=include_tests,
+    )
     return make_response(
         "ok",
         f"Found {len(bridges)} bridge node(s) (high betweenness centrality).",
         bridge_nodes=bridges,
         count=len(bridges),
+        artifact_scope=artifact_scope,
+        include_tests=include_tests,
         next_tool_suggestions=[
             'architecture_analysis_tool mode="hubs" -- find most connected nodes',
             'review_tool mode="impact" -- check blast radius',
@@ -75,6 +94,8 @@ def get_bridge_nodes_func(
 def get_knowledge_gaps_func(
     repo_root: Optional[str] = None,
     top_n: int = 20,
+    artifact_scope: ArtifactScope = "all",
+    include_tests: bool = True,
 ) -> dict[str, Any]:
     """Identify structural weaknesses in the codebase.
 
@@ -87,12 +108,17 @@ def get_knowledge_gaps_func(
         top_n: Maximum items to return per gap category.
     """
     store, _root = _get_store(repo_root)
-    gaps = find_knowledge_gaps(store, top_n=top_n)
+    gaps = find_knowledge_gaps(
+        store,
+        top_n=top_n,
+        artifact_scope=artifact_scope,
+        include_tests=include_tests,
+    )
     category_keys = (
-        "isolated_nodes",
-        "thin_communities",
         "untested_hotspots",
         "single_file_communities",
+        "isolated_nodes",
+        "thin_communities",
     )
     meta = gaps.get("_meta", {})
     raw_counts = meta.get("raw_counts", {})
@@ -106,6 +132,9 @@ def get_knowledge_gaps_func(
         raw_gap_counts={key: int(raw_counts.get(key, len(gaps[key]))) for key in category_keys},
         thresholds=meta.get("thresholds", {}),
         degree_distribution=meta.get("degree_distribution", {}),
+        artifact_scope=artifact_scope,
+        include_tests=include_tests,
+        scoped_counts=meta.get("scoped_counts", {}),
         truncated=bool(meta.get("truncated", False)),
         next_tool_suggestions=[
             "refactor dead_code -- find unused symbols",
@@ -139,6 +168,8 @@ def get_knowledge_gaps_func(
 def get_surprising_connections_func(
     repo_root: Optional[str] = None,
     top_n: int = 15,
+    artifact_scope: ArtifactScope = "all",
+    include_tests: bool = True,
 ) -> dict[str, Any]:
     """Find unexpected architectural coupling in the codebase.
 
@@ -150,12 +181,19 @@ def get_surprising_connections_func(
         top_n: Number of top surprises to return (default 15).
     """
     store, _root = _get_store(repo_root)
-    surprises = find_surprising_connections(store, top_n=top_n)
+    surprises = find_surprising_connections(
+        store,
+        top_n=top_n,
+        artifact_scope=artifact_scope,
+        include_tests=include_tests,
+    )
     return make_response(
         "ok",
         f"Found {len(surprises)} surprising connection(s).",
         surprising_connections=surprises,
         count=len(surprises),
+        artifact_scope=artifact_scope,
+        include_tests=include_tests,
         next_tool_suggestions=[
             'architecture_analysis_tool mode="overview" -- community structure',
             "query_graph_tool callers_of -- trace the coupling",

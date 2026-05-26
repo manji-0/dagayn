@@ -95,6 +95,7 @@ def architecture_analysis_func(
     artifact_scope: ArtifactScope = "code",
 ) -> dict[str, Any]:
     """Run architecture analysis by dispatching to the requested internal mode."""
+    include_tests = artifact_scope != "code"
     if mode == "overview":
         return _with_dispatch_metadata(
             get_architecture_overview_func(
@@ -140,28 +141,48 @@ def architecture_analysis_func(
         )
     if mode == "hubs":
         return _with_dispatch_metadata(
-            get_hub_nodes_func(repo_root=repo_root, top_n=top_n),
+            get_hub_nodes_func(
+                repo_root=repo_root,
+                top_n=top_n,
+                artifact_scope=artifact_scope,
+                include_tests=include_tests,
+            ),
             mode=mode,
             called_subtool="get_hub_nodes_func",
             repo_root=repo_root,
         )
     if mode == "bridges":
         return _with_dispatch_metadata(
-            get_bridge_nodes_func(repo_root=repo_root, top_n=top_n),
+            get_bridge_nodes_func(
+                repo_root=repo_root,
+                top_n=top_n,
+                artifact_scope=artifact_scope,
+                include_tests=include_tests,
+            ),
             mode=mode,
             called_subtool="get_bridge_nodes_func",
             repo_root=repo_root,
         )
     if mode == "knowledge_gaps":
         return _with_dispatch_metadata(
-            get_knowledge_gaps_func(repo_root=repo_root, top_n=top_n),
+            get_knowledge_gaps_func(
+                repo_root=repo_root,
+                top_n=top_n,
+                artifact_scope=artifact_scope,
+                include_tests=include_tests,
+            ),
             mode=mode,
             called_subtool="get_knowledge_gaps_func",
             repo_root=repo_root,
         )
     if mode == "surprising_connections":
         return _with_dispatch_metadata(
-            get_surprising_connections_func(repo_root=repo_root, top_n=top_n),
+            get_surprising_connections_func(
+                repo_root=repo_root,
+                top_n=top_n,
+                artifact_scope=artifact_scope,
+                include_tests=include_tests,
+            ),
             mode=mode,
             called_subtool="get_surprising_connections_func",
             repo_root=repo_root,

@@ -7,12 +7,15 @@ import dataclasses
 import json
 import logging
 import math
+import re
 import sqlite3
 import time
 from collections import Counter, defaultdict
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Any
 
+from ._scope import ArtifactScope, node_matches_artifact_scope
+from .flows import _has_framework_decorator, _matches_entry_name
 from .graph import GraphEdge, GraphNode, GraphStore, _sanitize_name
 
 logger = logging.getLogger(__name__)
@@ -34,6 +37,17 @@ class GraphSnapshot:
     in_degree: Counter[str]
     out_degree: Counter[str]
     tested_sources: set[str]
+
+
+@dataclasses.dataclass(frozen=True)
+class CommunityEdgeMetrics:
+    """Edge-shape metrics for deciding whether a community finding is useful."""
+
+    internal_edges: int
+    external_edges: int
+    external_degree: int
+    cohesion: float
+    external_edge_ratio: float
 
 
 def build_graph_snapshot(store: GraphStore) -> GraphSnapshot:
@@ -65,22 +79,25 @@ def find_hub_nodes(
     *,
     snapshot: GraphSnapshot | None = None,
     use_persisted: bool = True,
+    artifact_scope: ArtifactScope = "all",
+    include_tests: bool = True,
 ) -> list[dict]:
     """Find the most connected nodes (highest in+out degree), excluding File nodes.
 
     Returns list of dicts with: name, qualified_name, kind, file,
     in_degree, out_degree, total_degree, community_id
     """
-    if use_persisted:
+    if use_persisted and artifact_scope == "all" and include_tests:
         persisted = _load_persisted_hub_scores(store, top_n=top_n)
         if persisted:
             return persisted
 
     if snapshot is None:
         snapshot = build_graph_snapshot(store)
-    in_degree = snapshot.in_degree
-    out_degree = snapshot.out_degree
-    nodes = snapshot.nodes
+    nodes, scoped_edges = _scoped_nodes_and_edges(
+        snapshot, artifact_scope=artifact_scope, include_tests=include_tests
+    )
+    in_degree, out_degree = _degree_counters(scoped_edges)
     community_map = snapshot.community_map
 
     scored = []
@@ -117,6 +134,8 @@ def find_bridge_nodes(
     *,
     snapshot: GraphSnapshot | None = None,
     use_persisted: bool = True,
+    artifact_scope: ArtifactScope = "all",
+    include_tests: bool = True,
 ) -> list[dict]:
     """Find nodes with highest betweenness centrality.
 
@@ -127,16 +146,25 @@ def find_bridge_nodes(
     Returns list of dicts with: name, qualified_name, kind, file,
     betweenness, community_id
     """
-    if use_persisted:
+    if use_persisted and artifact_scope == "all" and include_tests:
         persisted = _load_persisted_bridge_scores(store, top_n=top_n)
         if persisted:
             return persisted
 
+    if snapshot is None:
+        snapshot = build_graph_snapshot(store)
+    nodes, scoped_edges = _scoped_nodes_and_edges(
+        snapshot, artifact_scope=artifact_scope, include_tests=include_tests
+    )
+    node_map = {n.qualified_name: n for n in nodes}
+
+    # Build a scoped graph so documentation and test fixtures do not dominate
+    # production architecture bridge rankings.
     import networkx as nx
 
-    # Build the graph — use cached version if available
-    nxg = store._build_networkx_graph()
-
+    nxg = nx.DiGraph()
+    nxg.add_nodes_from(node_map)
+    nxg.add_edges_from((e.source_qualified, e.target_qualified) for e in scoped_edges)
     # Compute betweenness centrality (approximate for large graphs)
     n_nodes = nxg.number_of_nodes()
     if n_nodes > 5000:
@@ -148,10 +176,7 @@ def find_bridge_nodes(
     else:
         return []
 
-    if snapshot is None:
-        snapshot = build_graph_snapshot(store)
     community_map = snapshot.community_map
-    node_map = {n.qualified_name: n for n in snapshot.nodes}
 
     results = []
     for qn, score in bc.items():
@@ -191,8 +216,12 @@ def persist_centrality_scores(store: GraphStore) -> dict[str, int]:
 
     _ensure_centrality_score_tables(store)
     snapshot = build_graph_snapshot(store)
-    hubs = find_hub_nodes(store, top_n=10**9, snapshot=snapshot, use_persisted=False)
-    bridges = find_bridge_nodes(store, top_n=10**9, snapshot=snapshot, use_persisted=False)
+    hubs = find_hub_nodes(
+        store, top_n=10**9, snapshot=snapshot, use_persisted=False, artifact_scope="all"
+    )
+    bridges = find_bridge_nodes(
+        store, top_n=10**9, snapshot=snapshot, use_persisted=False, artifact_scope="all"
+    )
     now = time.time()
     with store._conn:
         store._conn.execute("DELETE FROM hub_scores")
@@ -324,6 +353,8 @@ def find_knowledge_gaps(
     top_n: int = 20,
     *,
     snapshot: GraphSnapshot | None = None,
+    artifact_scope: ArtifactScope = "all",
+    include_tests: bool = True,
 ) -> dict[str, Any]:
     """Identify structural weaknesses in the codebase graph.
 
@@ -338,74 +369,107 @@ def find_knowledge_gaps(
     """
     if snapshot is None:
         snapshot = build_graph_snapshot(store)
-    nodes = snapshot.nodes
+    nodes, scoped_edges = _scoped_nodes_and_edges(
+        snapshot, artifact_scope=artifact_scope, include_tests=include_tests
+    )
     community_map = snapshot.community_map
 
     # Build degree map from snapshot's pre-computed counters.
+    in_degree, out_degree = _degree_counters(scoped_edges)
     degree: Counter[str] = Counter()
+    for qn, c in in_degree.items():
+        degree[qn] += c
+    for qn, c in out_degree.items():
+        degree[qn] += c
+    full_degree: Counter[str] = Counter()
     for qn, c in snapshot.in_degree.items():
-        degree[qn] += c
+        full_degree[qn] += c
     for qn, c in snapshot.out_degree.items():
-        degree[qn] += c
-    tested_nodes = snapshot.tested_sources
+        full_degree[qn] += c
+    scoped_qns = {n.qualified_name for n in nodes}
+    tested_nodes = {qn for qn in snapshot.tested_sources if qn in scoped_qns}
     positive_degrees = sorted(
-        degree.get(n.qualified_name, 0)
+        full_degree.get(n.qualified_name, 0)
         for n in nodes
-        if not _is_analysis_excluded_from_test_gap(n) and degree.get(n.qualified_name, 0) > 0
+        if not _is_analysis_excluded_from_test_gap(n)
+        and full_degree.get(n.qualified_name, 0) > 0
     )
+    source_cache: dict[str, list[str]] = {}
     degree_p95 = _nearest_rank_percentile(positive_degrees, 0.95)
     hotspot_min_degree = max(5, degree_p95)
     top_n = max(1, top_n)
+    noise_example_limit = min(top_n, 10)
     category_keys = (
-        "isolated_nodes",
-        "thin_communities",
         "untested_hotspots",
         "single_file_communities",
+        "isolated_nodes",
+        "thin_communities",
     )
 
     # 1. Isolated nodes (degree <= 1, not File)
     isolated = []
+    low_signal_isolated = []
     for n in nodes:
         d = degree.get(n.qualified_name, 0)
         if d <= 1:
-            isolated.append(
-                {
-                    "name": _sanitize_name(n.name),
-                    "qualified_name": n.qualified_name,
-                    "kind": n.kind,
-                    "file": n.file_path,
-                    "degree": d,
-                }
-            )
+            item = {
+                "name": _sanitize_name(n.name),
+                "qualified_name": n.qualified_name,
+                "kind": n.kind,
+                "file": n.file_path,
+                "degree": d,
+            }
+            low_signal_reason = _low_signal_isolated_reason(store, n, source_cache)
+            if low_signal_reason:
+                low_signal_isolated.append({**item, "classification": low_signal_reason})
+            else:
+                isolated.append(item)
 
     # 2. Build community sizes and file maps from node data
     comm_sizes: Counter[int] = Counter()
     comm_files: dict[int, set[str]] = defaultdict(set)
+    qn_to_community: dict[str, int] = {}
     for n in nodes:
         cid = community_map.get(n.qualified_name)
         if cid is not None:
             comm_sizes[cid] += 1
             comm_files[cid].add(n.file_path)
+            qn_to_community[n.qualified_name] = cid
+    community_edge_metrics = _community_edge_metrics(comm_sizes, qn_to_community, scoped_edges)
 
     # Thin communities (< 3 members)
     communities = store.get_communities_list()
     thin = []
+    small_single_file_thin = []
     for c in communities:
         cid = int(c["id"])
+        if cid not in comm_sizes:
+            continue
         size = comm_sizes.get(cid, 0)
         if size < 3:
-            thin.append(
-                {
-                    "community_id": cid,
-                    "name": str(c["name"]),
-                    "size": size,
-                }
-            )
+            item = {
+                "community_id": cid,
+                "name": str(c["name"]),
+                "size": size,
+            }
+            if len(comm_files.get(cid, set())) == 1:
+                file_path = next(iter(comm_files[cid]))
+                metrics = _community_metrics_payload(community_edge_metrics.get(cid))
+                small_single_file_thin.append(
+                    {
+                        **item,
+                        "file": file_path,
+                        **metrics,
+                        "classification": "small_single_file_cluster",
+                    }
+                )
+            else:
+                thin.append(item)
 
     # 3. Untested hotspots (p95 production-candidate degree, no TESTED_BY)
     untested_hotspots = []
     for n in nodes:
-        d = degree.get(n.qualified_name, 0)
+        d = full_degree.get(n.qualified_name, 0)
         if (
             d >= hotspot_min_degree
             and n.qualified_name not in tested_nodes
@@ -433,35 +497,55 @@ def find_knowledge_gaps(
     # 4. Single-file communities
     single_file = []
     natural_single_file = []
+    small_single_file = []
+    integrated_single_file = []
     for c in communities:
         cid = int(c["id"])
+        if cid not in comm_sizes:
+            continue
         files = comm_files.get(cid, set())
         size = comm_sizes.get(cid, 0)
         if len(files) == 1 and size >= 3:
             file_path = next(iter(files))
+            metrics = _community_metrics_payload(community_edge_metrics.get(cid))
             item = {
                 "community_id": cid,
                 "name": str(c["name"]),
                 "size": size,
                 "file": file_path,
+                **metrics,
             }
             natural_reason = _natural_single_file_community_reason(file_path)
             if natural_reason:
                 natural_single_file.append({**item, "classification": natural_reason})
+            elif size < 10:
+                small_single_file.append({**item, "classification": "small_single_file_cluster"})
+            elif _is_integrated_single_file_community(size, community_edge_metrics.get(cid)):
+                integrated_single_file.append(
+                    {**item, "classification": "integrated_single_file_component"}
+                )
             else:
-                single_file.append(item)
+                single_file.append(
+                    {
+                        **item,
+                        "evidence": (
+                            "community members are concentrated in one file and have limited "
+                            "external graph connectivity"
+                        ),
+                    }
+                )
 
     raw_counts = {
-        "isolated_nodes": len(isolated),
-        "thin_communities": len(thin),
         "untested_hotspots": len(untested_hotspots),
         "single_file_communities": len(single_file),
+        "isolated_nodes": len(isolated),
+        "thin_communities": len(thin),
     }
     returned = {
-        "isolated_nodes": isolated[:top_n],
-        "thin_communities": thin[:top_n],
         "untested_hotspots": untested_hotspots[:top_n],
         "single_file_communities": single_file[:top_n],
+        "isolated_nodes": isolated[:top_n],
+        "thin_communities": thin[:top_n],
     }
     returned_counts = {key: len(returned[key]) for key in category_keys}
     return {
@@ -478,11 +562,24 @@ def find_knowledge_gaps(
                 "candidate_positive_degree_count": len(positive_degrees),
                 "p95_degree": degree_p95,
             },
+            "artifact_scope": artifact_scope,
+            "include_tests": include_tests,
+            "scoped_counts": {
+                "nodes": len(nodes),
+                "edges": len(scoped_edges),
+            },
             "top_n": top_n,
             "raw_counts": raw_counts,
             "returned_counts": returned_counts,
             "truncated": any(raw_counts[key] > returned_counts[key] for key in category_keys),
             "exclusions": {
+                "isolated_nodes": [
+                    "public API candidates, conventional entry points, test-only nodes, "
+                    "and implementation-block containers",
+                ],
+                "thin_communities": [
+                    "single-file clusters with fewer than 3 members",
+                ],
                 "untested_hotspots": [
                     "test nodes and test-like file paths",
                     "markdown documentation sections",
@@ -490,16 +587,93 @@ def find_knowledge_gaps(
                 "single_file_communities": [
                     "natural standalone repo documents such as README, LICENSE, "
                     "SECURITY, CODE_OF_CONDUCT",
+                    "single-file clusters with fewer than 10 members",
+                    "single-file communities with enough external graph connectivity "
+                    "to look like integrated components",
                 ],
             },
             "classified_noise_counts": {
+                "low_signal_isolated_nodes": len(low_signal_isolated),
+                "small_single_file_thin_communities": len(small_single_file_thin),
                 "natural_single_file_communities": len(natural_single_file),
+                "small_single_file_communities": len(small_single_file),
+                "integrated_single_file_communities": len(integrated_single_file),
             },
             "classified_noise_examples": {
-                "natural_single_file_communities": natural_single_file[:top_n],
+                "low_signal_isolated_nodes": low_signal_isolated[:noise_example_limit],
+                "small_single_file_thin_communities": small_single_file_thin[
+                    :noise_example_limit
+                ],
+                "natural_single_file_communities": natural_single_file[:noise_example_limit],
+                "small_single_file_communities": small_single_file[:noise_example_limit],
+                "integrated_single_file_communities": integrated_single_file[
+                    :noise_example_limit
+                ],
             },
         },
     }
+
+
+def _community_edge_metrics(
+    comm_sizes: Counter[int],
+    qn_to_community: dict[str, int],
+    edges: list[GraphEdge],
+) -> dict[int, CommunityEdgeMetrics]:
+    """Compute internal/external community edge shape for scoped graph edges."""
+    internal: Counter[int] = Counter()
+    external: Counter[int] = Counter()
+    external_neighbors: dict[int, set[str]] = defaultdict(set)
+    for edge in edges:
+        source_cid = qn_to_community.get(edge.source_qualified)
+        target_cid = qn_to_community.get(edge.target_qualified)
+        if source_cid is None and target_cid is None:
+            continue
+        if source_cid is not None and source_cid == target_cid:
+            internal[source_cid] += 1
+            continue
+        if source_cid is not None:
+            external[source_cid] += 1
+            external_neighbors[source_cid].add(edge.target_qualified)
+        if target_cid is not None:
+            external[target_cid] += 1
+            external_neighbors[target_cid].add(edge.source_qualified)
+
+    metrics: dict[int, CommunityEdgeMetrics] = {}
+    for cid, size in comm_sizes.items():
+        internal_edges = internal.get(cid, 0)
+        external_edges = external.get(cid, 0)
+        max_internal_edges = max(1, size * (size - 1))
+        edge_total = internal_edges + external_edges
+        metrics[cid] = CommunityEdgeMetrics(
+            internal_edges=internal_edges,
+            external_edges=external_edges,
+            external_degree=len(external_neighbors.get(cid, set())),
+            cohesion=round(min(1.0, internal_edges / max_internal_edges), 4),
+            external_edge_ratio=round(external_edges / edge_total, 4) if edge_total else 0.0,
+        )
+    return metrics
+
+
+def _community_metrics_payload(metrics: CommunityEdgeMetrics | None) -> dict[str, Any]:
+    if metrics is None:
+        return {
+            "internal_edges": 0,
+            "external_edges": 0,
+            "external_degree": 0,
+            "cohesion": 0.0,
+            "external_edge_ratio": 0.0,
+        }
+    return dataclasses.asdict(metrics)
+
+
+def _is_integrated_single_file_community(
+    size: int, metrics: CommunityEdgeMetrics | None
+) -> bool:
+    """Classify large one-file communities that are visibly connected elsewhere."""
+    if metrics is None:
+        return False
+    min_external_degree = max(3, math.ceil(size * 0.2))
+    return metrics.external_degree >= min_external_degree and metrics.external_edge_ratio >= 0.25
 
 
 def _nearest_rank_percentile(values: list[int], percentile: float) -> int:
@@ -530,6 +704,92 @@ def _is_analysis_excluded_from_test_gap(node: GraphNode) -> bool:
         or ".test." in name
         or ".spec." in name
     )
+
+
+def _load_source_lines_for_node(
+    store: GraphStore, file_path: str, source_cache: dict[str, list[str]]
+) -> list[str]:
+    """Read source lines once per file for source-level signal classification."""
+    if file_path in source_cache:
+        return source_cache[file_path]
+    try:
+        path = store.resolve_file_path(file_path)
+    except (AttributeError, TypeError):
+        path = Path(file_path)
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        lines = []
+    source_cache[file_path] = lines
+    return lines
+
+
+def _source_line(lines: list[str], line_number: int | None) -> str:
+    if line_number is None or line_number <= 0 or line_number > len(lines):
+        return ""
+    return lines[line_number - 1].strip()
+
+
+_RUST_PUBLIC_ITEM_RE = re.compile(r"^pub(\([^)]*\))?\s+(fn|struct|enum|trait|type|const|static)\b")
+_JS_PUBLIC_ITEM_MARKERS = (
+    "export ",
+    "export default ",
+    "export async ",
+    "export function ",
+    "export class ",
+    "export interface ",
+    "export const ",
+    "export let ",
+    "export var ",
+)
+
+
+def _low_signal_isolated_reason(
+    store: GraphStore, node: GraphNode, source_cache: dict[str, list[str]]
+) -> str | None:
+    """Classify isolated nodes that are expected to have few internal graph edges."""
+    if _matches_entry_name(node) or _has_framework_decorator(node):
+        return "entry_point"
+    lines = _load_source_lines_for_node(store, node.file_path, source_cache)
+    line = _source_line(lines, node.line_start)
+    if not line:
+        return None
+    if _is_rust_cfg_test_candidate(node, lines):
+        return "test_candidate"
+    if node.language == "rust" and node.kind == "Class" and line.startswith("impl "):
+        return "implementation_block"
+    if node.language == "rust" and _RUST_PUBLIC_ITEM_RE.match(line):
+        return "public_api_candidate"
+    if node.language in {"typescript", "tsx", "javascript", "vue", "svelte"}:
+        if line.startswith(_JS_PUBLIC_ITEM_MARKERS) or " export " in f" {line} ":
+            return "public_api_candidate"
+    if line.startswith(("public ", "export ")):
+        return "public_api_candidate"
+    return None
+
+
+def _is_rust_cfg_test_candidate(node: GraphNode, lines: list[str]) -> bool:
+    """Return whether a Rust node sits under a local #[cfg(test)] tests module."""
+    if node.language != "rust":
+        return False
+    line_number = node.line_start
+    if not isinstance(line_number, int) or line_number <= 0:
+        return False
+    target_idx = min(line_number - 1, len(lines) - 1)
+    for idx in range(target_idx, -1, -1):
+        line = lines[idx]
+        if "mod tests" not in line:
+            continue
+        window = "\n".join(lines[max(0, idx - 3) : idx + 1])
+        if "#[cfg(test)]" not in window:
+            continue
+        depth = 0
+        for scoped_line in lines[idx : target_idx + 1]:
+            depth += scoped_line.count("{")
+            depth -= scoped_line.count("}")
+        if depth > 0:
+            return True
+    return False
 
 
 def _natural_single_file_community_reason(file_path: str) -> str | None:
@@ -572,6 +832,8 @@ def find_surprising_connections(
     top_n: int = 15,
     *,
     snapshot: GraphSnapshot | None = None,
+    artifact_scope: ArtifactScope = "all",
+    include_tests: bool = True,
 ) -> list[dict]:
     """Find edges with high surprise scores.
 
@@ -584,15 +846,18 @@ def find_surprising_connections(
     """
     if snapshot is None:
         snapshot = build_graph_snapshot(store)
-    edges = snapshot.edges
+    nodes, edges = _scoped_nodes_and_edges(
+        snapshot, artifact_scope=artifact_scope, include_tests=include_tests
+    )
     community_map = snapshot.community_map
-    node_map = {n.qualified_name: n for n in snapshot.nodes}
+    node_map = {n.qualified_name: n for n in nodes}
 
     # Build degree map from snapshot's pre-computed counters.
+    in_degree, out_degree = _degree_counters(edges)
     degree: Counter[str] = Counter()
-    for qn, c in snapshot.in_degree.items():
+    for qn, c in in_degree.items():
         degree[qn] += c
-    for qn, c in snapshot.out_degree.items():
+    for qn, c in out_degree.items():
         degree[qn] += c
 
     # Median degree for peripheral detection
@@ -613,6 +878,8 @@ def find_surprising_connections(
 
     scored_edges = []
     for e in edges:
+        if e.kind == "CONTAINS":
+            continue
         src = node_map.get(e.source_qualified)
         tgt = node_map.get(e.target_qualified)
         if not src or not tgt:
@@ -622,6 +889,7 @@ def find_surprising_connections(
 
         score = 0.0
         reasons = []
+        boundary_signal = False
 
         # Cross-community (+0.3)
         src_cid = community_map.get(e.source_qualified)
@@ -629,6 +897,7 @@ def find_surprising_connections(
         if src_cid is not None and tgt_cid is not None and src_cid != tgt_cid:
             score += 0.3
             reasons.append("cross-community")
+            boundary_signal = True
             pair_key = (min(src_cid, tgt_cid), max(src_cid, tgt_cid), e.kind)
             rarity_bonus = min(0.05, round(0.05 / pair_counts[pair_key], 3))
             score += rarity_bonus
@@ -641,6 +910,7 @@ def find_surprising_connections(
         if src_lang and tgt_lang and src_lang != tgt_lang:
             score += 0.2
             reasons.append("cross-language")
+            boundary_signal = True
 
         # Peripheral-to-hub (+0.2)
         src_deg = degree.get(e.source_qualified, 0)
@@ -663,13 +933,15 @@ def find_surprising_connections(
         if src.is_test != tgt.is_test and e.kind == "CALLS":
             score += 0.15
             reasons.append("cross-test-boundary")
+            boundary_signal = True
 
         # Non-standard edge kind (+0.15)
         if e.kind == "CALLS" and src.kind == "Type":
             score += 0.15
             reasons.append("unusual-edge-kind")
+            boundary_signal = True
 
-        if score > 0:
+        if score > 0 and boundary_signal:
             scored_edges.append(
                 {
                     "source": _sanitize_name(src.name),
@@ -689,6 +961,38 @@ def find_surprising_connections(
         reverse=True,
     )
     return scored_edges[:top_n]
+
+
+def _scoped_nodes_and_edges(
+    snapshot: GraphSnapshot,
+    *,
+    artifact_scope: ArtifactScope,
+    include_tests: bool,
+) -> tuple[list[GraphNode], list[GraphEdge]]:
+    """Return nodes and internal edges that belong to the requested analysis scope."""
+    nodes = [
+        n
+        for n in snapshot.nodes
+        if node_matches_artifact_scope(n, artifact_scope)
+        and (include_tests or not _is_analysis_excluded_from_test_gap(n))
+    ]
+    scoped_qns = {n.qualified_name for n in nodes}
+    edges = [
+        e
+        for e in snapshot.edges
+        if e.source_qualified in scoped_qns and e.target_qualified in scoped_qns
+    ]
+    return nodes, edges
+
+
+def _degree_counters(edges: list[GraphEdge]) -> tuple[Counter[str], Counter[str]]:
+    """Build in/out degree counters for a scoped edge set."""
+    in_degree: Counter[str] = Counter()
+    out_degree: Counter[str] = Counter()
+    for e in edges:
+        out_degree[e.source_qualified] += 1
+        in_degree[e.target_qualified] += 1
+    return in_degree, out_degree
 
 
 def generate_suggested_questions(
