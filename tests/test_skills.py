@@ -146,7 +146,13 @@ class TestGenerateSkills:
         assert "embed_graph_tool" in semantic
         assert 'search_mode="hybrid"' in semantic
         assert "generate_wiki_tool" in wiki
-        assert "dagayn visualize" in wiki
+        assert "dagayn visualize --format graphml" in wiki
+        assert "dagayn visualize --format mermaid-c4" in wiki
+        assert "dagayn visualize --format svg" in wiki
+        assert "dagayn visualize --format cypher" in wiki
+        assert "dagayn visualize --format obsidian" in wiki
+        assert "--serve" not in wiki
+        assert "interactive HTML graph mode" in wiki
         assert "cross_repo_search_tool" in cross_repo
         assert "dagayn daemon" in cross_repo
 

@@ -2,6 +2,14 @@
 
 All notable changes to `dagayn` are documented here.
 
+## 4.2.1 — 2026-05-27
+
+### Fixes
+
+- Update the `wiki-research` skill for the simplified static `dagayn visualize`
+  export surface and explicitly avoid the removed interactive HTML/webserver
+  workflow.
+
 ## 4.2.0 — 2026-05-27
 
 ### Changes

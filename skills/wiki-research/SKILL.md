@@ -1,13 +1,13 @@
 ---
 name: wiki-research
-description: Generate and inspect dagayn graph wiki pages, architecture reports, and static graph exports for repository-level research.
+description: Generate and inspect dagayn graph wiki pages, architecture reports, and static graph export files for repository-level research.
 argument-hint: "[topic]"
 ---
 
 # Wiki Research
 
 Use this when the user asks for a repo overview, architecture brief, generated
-wiki, visual report, or export for humans to read.
+wiki, or static export file for humans to read.
 
 ## Workflow
 
@@ -22,11 +22,17 @@ wiki, visual report, or export for humans to read.
    ```bash
    dagayn tool get_wiki_page_tool --arg page='"overview"'
    ```
-5. For external graph exports, use the CLI surface:
+5. For external graph exports, use the static CLI export surface. Pick the
+   smallest format that matches the downstream tool:
    ```bash
    dagayn visualize --format graphml
    dagayn visualize --format mermaid-c4
+   dagayn visualize --format svg
+   dagayn visualize --format cypher
+   dagayn visualize --format obsidian
    ```
+   Do not start or suggest a visualization webserver; `dagayn visualize` no
+   longer has an interactive HTML graph mode.
 
 ## Evidence Rules
 
