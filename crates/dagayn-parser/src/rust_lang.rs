@@ -464,39 +464,41 @@ fn rust_emit_type_references(
     edges: &mut Vec<ParsedEdge>,
 ) {
     let mut emitted = HashSet::new();
-    rust_collect_type_references(
-        node,
+    let context = RustTypeReferenceContext {
         source,
         file_path,
         source_qualified,
         defined_names,
         skip_name,
-        edges,
-        &mut emitted,
-    );
+    };
+    rust_collect_type_references(node, edges, &mut emitted, &context);
+}
+
+struct RustTypeReferenceContext<'a> {
+    source: &'a [u8],
+    file_path: &'a str,
+    source_qualified: &'a str,
+    defined_names: &'a HashSet<String>,
+    skip_name: Option<&'a str>,
 }
 
 fn rust_collect_type_references(
     node: tree_sitter::Node<'_>,
-    source: &[u8],
-    file_path: &str,
-    source_qualified: &str,
-    defined_names: &HashSet<String>,
-    skip_name: Option<&str>,
     edges: &mut Vec<ParsedEdge>,
     emitted: &mut HashSet<String>,
+    context: &RustTypeReferenceContext<'_>,
 ) {
     if node.kind() == "type_identifier" {
-        let name = node_text(node, source);
-        if skip_name != Some(name.as_str())
-            && defined_names.contains(&name)
+        let name = node_text(node, context.source);
+        if context.skip_name != Some(name.as_str())
+            && context.defined_names.contains(&name)
             && emitted.insert(name.clone())
         {
             edges.push(ParsedEdge {
                 kind: "REFERENCES".to_string(),
-                source: source_qualified.to_string(),
-                target: qualify(file_path, &name, None),
-                file_path: file_path.to_string(),
+                source: context.source_qualified.to_string(),
+                target: qualify(context.file_path, &name, None),
+                file_path: context.file_path.to_string(),
                 line: node.start_position().row as i64 + 1,
                 extra: json!({
                     "relationship_role": "type_reference",
@@ -507,16 +509,7 @@ fn rust_collect_type_references(
     }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        rust_collect_type_references(
-            child,
-            source,
-            file_path,
-            source_qualified,
-            defined_names,
-            skip_name,
-            edges,
-            emitted,
-        );
+        rust_collect_type_references(child, edges, emitted, context);
     }
 }
 
