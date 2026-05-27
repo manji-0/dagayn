@@ -391,8 +391,7 @@ def find_knowledge_gaps(
     positive_degrees = sorted(
         full_degree.get(n.qualified_name, 0)
         for n in nodes
-        if not _is_analysis_excluded_from_test_gap(n)
-        and full_degree.get(n.qualified_name, 0) > 0
+        if not _is_analysis_excluded_from_test_gap(n) and full_degree.get(n.qualified_name, 0) > 0
     )
     source_cache: dict[str, list[str]] = {}
     degree_p95 = _nearest_rank_percentile(positive_degrees, 0.95)
@@ -601,14 +600,10 @@ def find_knowledge_gaps(
             },
             "classified_noise_examples": {
                 "low_signal_isolated_nodes": low_signal_isolated[:noise_example_limit],
-                "small_single_file_thin_communities": small_single_file_thin[
-                    :noise_example_limit
-                ],
+                "small_single_file_thin_communities": small_single_file_thin[:noise_example_limit],
                 "natural_single_file_communities": natural_single_file[:noise_example_limit],
                 "small_single_file_communities": small_single_file[:noise_example_limit],
-                "integrated_single_file_communities": integrated_single_file[
-                    :noise_example_limit
-                ],
+                "integrated_single_file_communities": integrated_single_file[:noise_example_limit],
             },
         },
     }
@@ -666,9 +661,7 @@ def _community_metrics_payload(metrics: CommunityEdgeMetrics | None) -> dict[str
     return dataclasses.asdict(metrics)
 
 
-def _is_integrated_single_file_community(
-    size: int, metrics: CommunityEdgeMetrics | None
-) -> bool:
+def _is_integrated_single_file_community(size: int, metrics: CommunityEdgeMetrics | None) -> bool:
     """Classify large one-file communities that are visibly connected elsewhere."""
     if metrics is None:
         return False
