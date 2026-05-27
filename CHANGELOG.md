@@ -2,6 +2,29 @@
 
 All notable changes to `dagayn` are documented here.
 
+## 4.2.0 — 2026-05-27
+
+### Changes
+
+- Remove the interactive HTML graph visualization from `dagayn visualize`.
+  Static exports now require an explicit `--format` value: `graphml`,
+  `mermaid-c4`, `svg`, `cypher`, or `obsidian`.
+- Remove `dagayn visualize --serve` and the local webserver path.
+
+### Improvements
+
+- Reduce architecture-analysis noise by separating code/docs/test scopes,
+  classifying low-signal knowledge-gap findings, and adding edge-shape metrics
+  for single-file communities.
+- Add compact `_runtime` metadata to tool responses so agents can distinguish
+  long-lived MCP processes from direct CLI runs.
+- Add Rust parser type-reference edges for local type identifiers to reduce
+  false isolated-node leads.
+
+### Fixes
+
+- Keep the Rust parser clippy-clean after the new type-reference traversal.
+
 ## 4.1.4 — 2026-05-25
 
 ### Fixes
