@@ -22,6 +22,7 @@ from dagayn.incremental import (
     collect_all_files,
     full_build,
     get_all_tracked_files,
+    get_changed_file_sources,
     get_changed_files,
     incremental_update,
 )
@@ -90,6 +91,21 @@ def test_get_changed_files_real_git_includes_untracked_with_tracked(
     changed = get_changed_files(git_repo, base="HEAD")
     assert "hello.py" in changed
     assert "new_file.py" in changed
+
+
+def test_get_changed_file_sources_real_git_separates_committed_from_worktree(
+    git_repo: Path,
+) -> None:
+    """Committed base diffs are distinct from local worktree and untracked files."""
+    (git_repo / "hello.py").write_text("def greet():\n    return 'hi now'\n")
+    (git_repo / "new_file.py").write_text("def fresh():\n    return 'new'\n")
+
+    sources = get_changed_file_sources(git_repo, base="HEAD")
+
+    assert sources["base_diff"] == []
+    assert "hello.py" in sources["unstaged"]
+    assert sources["untracked"] == ["new_file.py"]
+    assert set(sources["files"]) == {"hello.py", "new_file.py"}
 
 
 # ------------------------------------------------------------------

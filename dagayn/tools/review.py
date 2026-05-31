@@ -12,7 +12,7 @@ from ..coverage import infer_tests_for_node, is_test_file_path
 from ..flows import get_affected_flows as _get_affected_flows
 from ..graph import edge_to_dict, node_to_dict
 from ..hints import generate_hints, get_session
-from ..incremental import get_changed_files, get_staged_and_unstaged
+from ..incremental import get_changed_file_sources, get_staged_and_unstaged
 from ..stability_policy import (
     component_stability_profiles,
     scope_key_for_file,
@@ -1213,10 +1213,15 @@ def get_review_context(
         answerability = graph_answerability_summary(store)
         missingness = missingness_from_answerability(answerability)
         # Get impact radius first
+        change_file_sources: dict[str, list[str]]
         if changed_files is None:
-            changed_files = get_changed_files(root, base)
+            change_file_sources = get_changed_file_sources(root, base)
+            changed_files = change_file_sources["files"]
             if not changed_files:
                 changed_files = get_staged_and_unstaged(root)
+                change_file_sources = {"files": changed_files, "worktree": changed_files}
+        else:
+            change_file_sources = {"files": changed_files, "explicit": changed_files}
 
         if not changed_files:
             return {
@@ -1266,6 +1271,7 @@ def get_review_context(
                 "summary": "\n".join(summary_parts),
                 "risk": risk,
                 "changed_file_count": len(changed_files),
+                "change_file_sources": change_file_sources,
                 "impacted_file_count": len(impact["impacted_files"]),
                 "key_entities": key_entities,
                 "test_gaps": test_gap_count,
@@ -1281,6 +1287,7 @@ def get_review_context(
         # Build review context
         context: dict[str, Any] = {
             "changed_files": changed_files,
+            "change_file_sources": change_file_sources,
             "impacted_files": impact["impacted_files"],
             "graph": {
                 "changed_nodes": [node_to_dict(n) for n in impact["changed_nodes"]],
@@ -1446,10 +1453,15 @@ def get_affected_flows_func(
     try:
         answerability = graph_answerability_summary(store)
         missingness = missingness_from_answerability(answerability)
+        change_file_sources: dict[str, list[str]]
         if changed_files is None:
-            changed_files = get_changed_files(root, base)
+            change_file_sources = get_changed_file_sources(root, base)
+            changed_files = change_file_sources["files"]
             if not changed_files:
                 changed_files = get_staged_and_unstaged(root)
+                change_file_sources = {"files": changed_files, "worktree": changed_files}
+        else:
+            change_file_sources = {"files": changed_files, "explicit": changed_files}
 
         if not changed_files:
             return {
@@ -1470,6 +1482,7 @@ def get_affected_flows_func(
             "status": "ok",
             "summary": (f"{total} flow(s) affected by changes in {len(changed_files)} file(s)"),
             "changed_files": changed_files,
+            "change_file_sources": change_file_sources,
             "affected_flows": result["affected_flows"],
             "total": total,
             "answerability": answerability,
@@ -1524,10 +1537,15 @@ def detect_changes_func(
         answerability = graph_answerability_summary(store)
         missingness = missingness_from_answerability(answerability)
         # Detect changed files if not provided.
+        change_file_sources: dict[str, list[str]]
         if changed_files is None:
-            changed_files = get_changed_files(root, base)
+            change_file_sources = get_changed_file_sources(root, base)
+            changed_files = change_file_sources["files"]
             if not changed_files:
                 changed_files = get_staged_and_unstaged(root)
+                change_file_sources = {"files": changed_files, "worktree": changed_files}
+        else:
+            change_file_sources = {"files": changed_files, "explicit": changed_files}
 
         if not changed_files:
             return {
@@ -1600,6 +1618,7 @@ def detect_changes_func(
                 "risk_level": analysis_summary["risk_level"],
                 "reason_codes": analysis_summary["reason_codes"],
                 "changed_file_count": len(changed_files),
+                "change_file_sources": change_file_sources,
                 "changed_node_count": analysis_summary["changed_node_count"],
                 "impacted_node_count": analysis_summary["impacted_node_count"],
                 "impacted_file_count": analysis_summary["impacted_file_count"],
@@ -1630,6 +1649,7 @@ def detect_changes_func(
             result = {
                 "status": "ok",
                 "changed_files": changed_files,
+                "change_file_sources": change_file_sources,
                 **analysis,
                 "analysis_summary": analysis_summary,
                 "answerability": answerability,

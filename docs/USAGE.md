@@ -102,7 +102,9 @@ dagayn detect-changes --base HEAD~1
 
 Change review includes tracked diffs, staged changes, unstaged changes, and
 untracked files. Untracked files are treated as whole-file changes because Git
-does not provide line-level hunks for files it is not tracking yet.
+does not provide line-level hunks for files it is not tracking yet. Inspect
+`change_file_sources` when you need to distinguish base-ref changes from local
+worktree, staged, unstaged, or untracked changes.
 
 In MCP clients, start with `get_minimal_context_tool`, then choose
 `review_tool`, `architecture_analysis_tool`, `refactor_tool`, or

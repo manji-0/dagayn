@@ -36,12 +36,14 @@ def handle(args: argparse.Namespace) -> None:
 
     try:
         from ...changes import analyze_changes
-        from ...incremental import get_changed_files, get_staged_and_unstaged
+        from ...incremental import get_changed_file_sources, get_staged_and_unstaged
 
         base = args.base
-        changed = get_changed_files(repo_root, base)
+        change_file_sources = get_changed_file_sources(repo_root, base)
+        changed = change_file_sources["files"]
         if not changed:
             changed = get_staged_and_unstaged(repo_root)
+            change_file_sources = {"files": changed, "worktree": changed}
 
         if not changed:
             print("No changes detected.")
@@ -52,6 +54,7 @@ def handle(args: argparse.Namespace) -> None:
                 repo_root=str(repo_root),
                 base=base,
             )
+            result["change_file_sources"] = change_file_sources
             if args.brief:
                 print(result.get("summary", "No summary available."))
             else:

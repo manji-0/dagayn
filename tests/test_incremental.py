@@ -18,6 +18,7 @@ from dagayn.incremental import (
     find_repo_root,
     full_build,
     get_all_tracked_files,
+    get_changed_file_sources,
     get_changed_files,
     get_db_path,
     get_staged_and_unstaged,
@@ -415,16 +416,45 @@ class TestGitOperations:
         assert call_args[1].get("timeout") == 30
 
     @patch("dagayn.incremental.subprocess.run")
+    def test_get_changed_file_sources_distinguishes_base_and_worktree(self, mock_run, tmp_path):
+        mock_run.side_effect = [
+            MagicMock(returncode=0, stdout="src/committed.py\nsrc/both.py\n"),
+            MagicMock(
+                returncode=0,
+                stdout="M  src/staged.py\n M src/unstaged.py\nMM src/both.py\n?? src/new.py\n",
+            ),
+        ]
+
+        result = get_changed_file_sources(tmp_path, base="HEAD~1")
+
+        assert result["files"] == [
+            "src/committed.py",
+            "src/both.py",
+            "src/staged.py",
+            "src/unstaged.py",
+            "src/new.py",
+        ]
+        assert result["base_diff"] == ["src/committed.py", "src/both.py"]
+        assert result["worktree"] == [
+            "src/staged.py",
+            "src/both.py",
+            "src/unstaged.py",
+            "src/new.py",
+        ]
+        assert result["staged"] == ["src/staged.py", "src/both.py"]
+        assert result["unstaged"] == ["src/unstaged.py", "src/both.py"]
+        assert result["untracked"] == ["src/new.py"]
+
+    @patch("dagayn.incremental.subprocess.run")
     def test_get_changed_files_fallback(self, mock_run, tmp_path):
-        # First call fails, second succeeds, then working-tree status is merged.
+        # First call fails, then working-tree status is still merged.
         mock_run.side_effect = [
             MagicMock(returncode=1, stdout=""),
-            MagicMock(returncode=0, stdout="staged.py\n"),
-            MagicMock(returncode=0, stdout="?? new.py\n"),
+            MagicMock(returncode=0, stdout="A  staged.py\n?? new.py\n"),
         ]
         result = get_changed_files(tmp_path)
         assert result == ["staged.py", "new.py"]
-        assert mock_run.call_count == 3
+        assert mock_run.call_count == 2
 
     @patch("dagayn.incremental.subprocess.run")
     def test_get_changed_files_timeout(self, mock_run, tmp_path):
@@ -556,11 +586,18 @@ class TestIncrementalUpdate:
         store = GraphStore(db_path)
         try:
             with patch(
-                "dagayn.incremental.get_changed_files",
-                return_value=["tracked.py", "new_mod.py"],
+                "dagayn.incremental.get_changed_file_sources",
+                return_value={
+                    "files": ["tracked.py", "new_mod.py"],
+                    "base_diff": ["tracked.py"],
+                    "worktree": ["new_mod.py"],
+                    "untracked": ["new_mod.py"],
+                },
             ):
                 result = incremental_update(tmp_path, store)
             assert "new_mod.py" in result["changed_files"]
+            assert result["change_file_sources"]["base_diff"] == ["tracked.py"]
+            assert result["change_file_sources"]["untracked"] == ["new_mod.py"]
             assert result["files_updated"] >= 1
             assert store.get_nodes_by_file(str(py_file))
         finally:

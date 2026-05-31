@@ -514,31 +514,102 @@ def get_changed_files(repo_root: Path, base: str = "HEAD~1") -> list[str]:
     """
     if detect_vcs(repo_root) == "svn":
         return _get_svn_changed_files(repo_root, base if _SAFE_SVN_REV.match(base) else None)
-    # Git path
+    return get_changed_file_sources(repo_root, base).get("files", [])
+
+
+def get_changed_file_sources(repo_root: Path, base: str = "HEAD~1") -> dict[str, list[str]]:
+    """Get changed files grouped by origin.
+
+    ``base_diff`` contains files changed between *base* and the current
+    revision. ``worktree`` contains local staged, unstaged, and untracked
+    changes. The combined ``files`` list preserves first-seen order.
+    """
+    if detect_vcs(repo_root) == "svn":
+        files = _get_svn_changed_files(repo_root, base if _SAFE_SVN_REV.match(base) else None)
+        return {
+            "files": files,
+            "base_diff": [],
+            "worktree": files,
+            "staged": [],
+            "unstaged": files,
+            "untracked": [],
+        }
+
     if not _SAFE_GIT_REF.match(base):
         logger.warning("Invalid git ref rejected: %s", base)
-        return []
+        return {
+            "files": [],
+            "base_diff": [],
+            "worktree": [],
+            "staged": [],
+            "unstaged": [],
+            "untracked": [],
+        }
+
+    base_diff = _get_git_diff_files(repo_root, base)
+    worktree_sources = _get_git_worktree_change_sources(repo_root)
+    worktree = worktree_sources["worktree"]
+    return {
+        "files": _dedupe_preserve_order(base_diff + worktree),
+        "base_diff": base_diff,
+        **worktree_sources,
+    }
+
+
+def _get_git_diff_files(repo_root: Path, base: str) -> list[str]:
     try:
         result = subprocess.run(
-            ["git", "diff", "--name-only", base, "--"],
+            ["git", "diff", "--name-only", base, "HEAD", "--"],
             capture_output=True,
             text=True,
             cwd=str(repo_root),
             timeout=_GIT_TIMEOUT,
         )
         if result.returncode != 0:
-            # Fallback: try diff against empty tree (initial commit)
-            result = subprocess.run(
-                ["git", "diff", "--name-only", "--cached"],
-                capture_output=True,
-                text=True,
-                cwd=str(repo_root),
-                timeout=_GIT_TIMEOUT,
-            )
-        files = [f.strip() for f in result.stdout.splitlines() if f.strip()]
-        return _dedupe_preserve_order(files + get_staged_and_unstaged(repo_root))
+            logger.warning("git diff failed (rc=%d): %s", result.returncode, result.stderr[:200])
+            return []
+        return [f.strip() for f in result.stdout.splitlines() if f.strip()]
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return []
+
+
+def _get_git_worktree_change_sources(repo_root: Path) -> dict[str, list[str]]:
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=all"],
+            capture_output=True,
+            text=True,
+            cwd=str(repo_root),
+            timeout=_GIT_TIMEOUT,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return {"worktree": [], "staged": [], "unstaged": [], "untracked": []}
+
+    staged: list[str] = []
+    unstaged: list[str] = []
+    untracked: list[str] = []
+    for line in result.stdout.splitlines():
+        if len(line) <= 3:
+            continue
+        x_status = line[0]
+        y_status = line[1]
+        entry = line[3:].strip()
+        if " -> " in entry:
+            entry = entry.split(" -> ", 1)[1]
+        if x_status == "?" and y_status == "?":
+            untracked.append(entry)
+            continue
+        if x_status != " ":
+            staged.append(entry)
+        if y_status != " ":
+            unstaged.append(entry)
+
+    return {
+        "worktree": _dedupe_preserve_order(staged + unstaged + untracked),
+        "staged": _dedupe_preserve_order(staged),
+        "unstaged": _dedupe_preserve_order(unstaged),
+        "untracked": _dedupe_preserve_order(untracked),
+    }
 
 
 def _dedupe_preserve_order(paths: list[str]) -> list[str]:
@@ -613,25 +684,7 @@ def get_staged_and_unstaged(repo_root: Path) -> list[str]:
     """Get all modified files (staged + unstaged + untracked)."""
     if detect_vcs(repo_root) == "svn":
         return _get_svn_changed_files(repo_root)
-    try:
-        result = subprocess.run(
-            ["git", "status", "--porcelain", "--untracked-files=all"],
-            capture_output=True,
-            text=True,
-            cwd=str(repo_root),
-            timeout=_GIT_TIMEOUT,
-        )
-        files = []
-        for line in result.stdout.splitlines():
-            if len(line) > 3:
-                entry = line[3:].strip()
-                # Handle renamed files: "R  old -> new"
-                if " -> " in entry:
-                    entry = entry.split(" -> ", 1)[1]
-                files.append(entry)
-        return files
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return []
+    return _get_git_worktree_change_sources(repo_root)["worktree"]
 
 
 def get_all_tracked_files(
@@ -1505,8 +1558,12 @@ def incremental_update(
     ignore_patterns = _load_ignore_patterns(repo_root)
 
     # Determine changed files
+    change_file_sources: dict[str, list[str]]
     if changed_files is None:
-        changed_files = get_changed_files(repo_root, base)
+        change_file_sources = get_changed_file_sources(repo_root, base)
+        changed_files = change_file_sources["files"]
+    else:
+        change_file_sources = {"files": changed_files, "explicit": changed_files}
 
     if not changed_files:
         return {
@@ -1514,6 +1571,7 @@ def incremental_update(
             "total_nodes": 0,
             "total_edges": 0,
             "changed_files": [],
+            "change_file_sources": change_file_sources,
             "dependent_files": [],
         }
 
@@ -1652,6 +1710,7 @@ def incremental_update(
             "total_nodes": total_nodes,
             "total_edges": total_edges,
             "changed_files": list(changed_files),
+            "change_file_sources": change_file_sources,
             "dependent_files": list(dependent_files),
             "errors": errors,
         }
@@ -1756,6 +1815,7 @@ def incremental_update(
         "total_nodes": total_nodes,
         "total_edges": total_edges,
         "changed_files": list(changed_files),
+        "change_file_sources": change_file_sources,
         "dependent_files": list(dependent_files),
         "errors": errors,
     }

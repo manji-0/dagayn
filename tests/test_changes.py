@@ -505,10 +505,13 @@ class TestChanges:
         from dagayn.tools import detect_changes_func
 
         # Patch _get_store to use our test store,
-        # and get_changed_files/get_staged_and_unstaged to return empty.
+        # and get_changed_file_sources/get_staged_and_unstaged to return empty.
         with (
             patch("dagayn.tools.review._get_store") as mock_get_store,
-            patch("dagayn.tools.review.get_changed_files", return_value=[]),
+            patch(
+                "dagayn.tools.review.get_changed_file_sources",
+                return_value={"files": [], "base_diff": [], "worktree": []},
+            ),
             patch("dagayn.tools.review.get_staged_and_unstaged", return_value=[]),
         ):
             mock_get_store.return_value = (self.store, Path("/fake/repo"))
@@ -573,7 +576,16 @@ class TestChanges:
 
         with (
             patch("dagayn.tools.review._get_store") as mock_get_store,
-            patch("dagayn.tools.review.get_changed_files", return_value=["app.py"]),
+            patch(
+                "dagayn.tools.review.get_changed_file_sources",
+                return_value={
+                    "files": ["app.py"],
+                    "base_diff": [],
+                    "worktree": ["app.py"],
+                    "unstaged": ["app.py"],
+                    "untracked": [],
+                },
+            ),
             patch(
                 "dagayn.tools.review.parse_git_diff_ranges",
                 return_value={"app.py": [(1, 10)]},
@@ -588,6 +600,7 @@ class TestChanges:
             assert "risk_score" in result
             assert "test_gaps" in result
             assert "review_priorities" in result
+            assert result["change_file_sources"]["worktree"] == ["app.py"]
             assert "analysis_summary" in result
             summary = result["analysis_summary"]
             assert summary["risk_level"] in {"low", "medium", "high"}
@@ -670,7 +683,14 @@ class TestChanges:
 
         with (
             patch("dagayn.tools.review._get_store") as mock_get_store,
-            patch("dagayn.tools.review.get_changed_files", return_value=["core/service.py"]),
+            patch(
+                "dagayn.tools.review.get_changed_file_sources",
+                return_value={
+                    "files": ["core/service.py"],
+                    "base_diff": ["core/service.py"],
+                    "worktree": [],
+                },
+            ),
             patch(
                 "dagayn.tools.review.parse_diff_ranges",
                 return_value={str(service): [(1, 10)]},
@@ -754,7 +774,10 @@ class TestChanges:
 
         with (
             patch("dagayn.tools.review._get_store") as mock_get_store,
-            patch("dagayn.tools.review.get_changed_files", return_value=["app.py"]),
+            patch(
+                "dagayn.tools.review.get_changed_file_sources",
+                return_value={"files": ["app.py"], "base_diff": ["app.py"], "worktree": []},
+            ),
             patch("dagayn.tools.review.parse_diff_ranges", return_value={}),
             patch(
                 "dagayn.tools.review.analyze_changes",

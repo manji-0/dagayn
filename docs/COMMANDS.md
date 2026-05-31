@@ -17,7 +17,9 @@ scratch. It removes the existing `graph.db` plus SQLite sidecar files before
 running the normal full parse. `--force` is accepted as a shorter alias.
 `dagayn update` detects tracked diffs, staged changes, unstaged changes, and
 untracked files together, so new files do not need to be staged before an
-incremental graph refresh can parse them.
+incremental graph refresh can parse them. Incremental results include
+`change_file_sources` so base-ref diffs remain distinguishable from local
+worktree changes.
 `dagayn status` prints graph totals and embedding coverage for the same
 database, including the current state (`complete`, `partial`, `stale`, `empty`,
 or `not_indexed`) and provider-level vector counts.
@@ -53,7 +55,9 @@ selects `llama-server`.
 `dagayn detect-changes` uses the same combined change detection as
 `dagayn update`: tracked diffs plus staged, unstaged, and untracked working-tree
 files. Untracked files are reviewed as whole-file changes because Git has no
-line hunks for files it does not yet track.
+line hunks for files it does not yet track. Standard and minimal tool responses
+include `change_file_sources.base_diff`, `worktree`, `staged`, `unstaged`, and
+`untracked` buckets alongside the compatibility `changed_files` list.
 
 `dagayn eval --benchmark doc_fuzzy_search` compares FTS and deterministic
 embedding retrieval for fuzzy natural-language queries against Markdown
