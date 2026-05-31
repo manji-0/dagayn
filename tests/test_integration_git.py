@@ -80,6 +80,18 @@ def test_get_changed_files_real_git(git_repo: Path) -> None:
     assert "hello.py" in changed
 
 
+def test_get_changed_files_real_git_includes_untracked_with_tracked(
+    git_repo: Path,
+) -> None:
+    """Mixed tracked and untracked worktree changes are returned together."""
+    (git_repo / "hello.py").write_text("def greet():\n    return 'hi now'\n")
+    (git_repo / "new_file.py").write_text("def fresh():\n    return 'new'\n")
+
+    changed = get_changed_files(git_repo, base="HEAD")
+    assert "hello.py" in changed
+    assert "new_file.py" in changed
+
+
 # ------------------------------------------------------------------
 # 2. parse_git_diff_ranges with a real git repo
 # ------------------------------------------------------------------

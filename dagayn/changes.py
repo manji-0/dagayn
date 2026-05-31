@@ -369,6 +369,12 @@ def analyze_changes(
     # Map changes to nodes.
     if changed_ranges:
         changed_nodes = map_changes_to_nodes(store, changed_ranges)
+        ranged_files = set(changed_ranges)
+        files_without_ranges = [fp for fp in changed_files if fp not in ranged_files]
+        if files_without_ranges:
+            nodes_by_file = _get_nodes_for_files_boundary_aware(store, files_without_ranges)
+            for fp in files_without_ranges:
+                changed_nodes.extend(nodes_by_file.get(fp, []))
     else:
         # Fallback: all nodes in changed files.
         changed_nodes = []

@@ -15,6 +15,9 @@
 Use `dagayn build --force-full-build` when you need a clean graph rebuild from
 scratch. It removes the existing `graph.db` plus SQLite sidecar files before
 running the normal full parse. `--force` is accepted as a shorter alias.
+`dagayn update` detects tracked diffs, staged changes, unstaged changes, and
+untracked files together, so new files do not need to be staged before an
+incremental graph refresh can parse them.
 `dagayn status` prints graph totals and embedding coverage for the same
 database, including the current state (`complete`, `partial`, `stale`, `empty`,
 or `not_indexed`) and provider-level vector counts.
@@ -46,6 +49,11 @@ selects `llama-server`.
 - `dagayn visualize`
 - `dagayn wiki`
 - `dagayn eval`
+
+`dagayn detect-changes` uses the same combined change detection as
+`dagayn update`: tracked diffs plus staged, unstaged, and untracked working-tree
+files. Untracked files are reviewed as whole-file changes because Git has no
+line hunks for files it does not yet track.
 
 `dagayn eval --benchmark doc_fuzzy_search` compares FTS and deterministic
 embedding retrieval for fuzzy natural-language queries against Markdown

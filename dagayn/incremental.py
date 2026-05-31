@@ -505,7 +505,7 @@ def _store_vcs_metadata(repo_root: Path, store: "GraphStore") -> None:
 
 
 def get_changed_files(repo_root: Path, base: str = "HEAD~1") -> list[str]:
-    """Get list of changed files via git diff or svn status.
+    """Get list of changed files via git diff plus working-tree status.
 
     For SVN working copies the *base* parameter is ignored; modified/added/
     deleted files are detected from ``svn status``.  Pass an SVN revision
@@ -536,9 +536,21 @@ def get_changed_files(repo_root: Path, base: str = "HEAD~1") -> list[str]:
                 timeout=_GIT_TIMEOUT,
             )
         files = [f.strip() for f in result.stdout.splitlines() if f.strip()]
-        return files
+        return _dedupe_preserve_order(files + get_staged_and_unstaged(repo_root))
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return []
+
+
+def _dedupe_preserve_order(paths: list[str]) -> list[str]:
+    """Return unique paths while preserving first-seen order."""
+    seen: set[str] = set()
+    result: list[str] = []
+    for path in paths:
+        if path in seen:
+            continue
+        seen.add(path)
+        result.append(path)
+    return result
 
 
 def _get_svn_changed_files(repo_root: Path, rev_range: str | None = None) -> list[str]:
@@ -603,7 +615,7 @@ def get_staged_and_unstaged(repo_root: Path) -> list[str]:
         return _get_svn_changed_files(repo_root)
     try:
         result = subprocess.run(
-            ["git", "status", "--porcelain"],
+            ["git", "status", "--porcelain", "--untracked-files=all"],
             capture_output=True,
             text=True,
             cwd=str(repo_root),

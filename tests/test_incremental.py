@@ -403,27 +403,28 @@ class TestIsBinary:
 class TestGitOperations:
     @patch("dagayn.incremental.subprocess.run")
     def test_get_changed_files(self, mock_run, tmp_path):
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout="src/a.py\nsrc/b.py\n",
-        )
+        mock_run.side_effect = [
+            MagicMock(returncode=0, stdout="src/a.py\nsrc/b.py\n"),
+            MagicMock(returncode=0, stdout=" M src/b.py\n?? src/c.py\n"),
+        ]
         result = get_changed_files(tmp_path)
-        assert result == ["src/a.py", "src/b.py"]
-        mock_run.assert_called_once()
+        assert result == ["src/a.py", "src/b.py", "src/c.py"]
+        assert mock_run.call_count == 2
         call_args = mock_run.call_args
         assert "git" in call_args[0][0]
         assert call_args[1].get("timeout") == 30
 
     @patch("dagayn.incremental.subprocess.run")
     def test_get_changed_files_fallback(self, mock_run, tmp_path):
-        # First call fails, second succeeds
+        # First call fails, second succeeds, then working-tree status is merged.
         mock_run.side_effect = [
             MagicMock(returncode=1, stdout=""),
             MagicMock(returncode=0, stdout="staged.py\n"),
+            MagicMock(returncode=0, stdout="?? new.py\n"),
         ]
         result = get_changed_files(tmp_path)
-        assert result == ["staged.py"]
-        assert mock_run.call_count == 2
+        assert result == ["staged.py", "new.py"]
+        assert mock_run.call_count == 3
 
     @patch("dagayn.incremental.subprocess.run")
     def test_get_changed_files_timeout(self, mock_run, tmp_path):
@@ -443,6 +444,7 @@ class TestGitOperations:
         assert "new_name.py" in result
         # old.py should NOT be in results (renamed away)
         assert "old.py" not in result
+        assert "--untracked-files=all" in mock_run.call_args[0][0]
 
     @patch("dagayn.incremental.subprocess.run")
     def test_get_all_tracked_files(self, mock_run, tmp_path):
@@ -543,6 +545,24 @@ class TestIncrementalUpdate:
             result = incremental_update(tmp_path, store, changed_files=["mod.py"])
             assert result["files_updated"] >= 1
             assert result["total_nodes"] > 0
+        finally:
+            store.close()
+
+    def test_incremental_auto_detects_untracked_with_tracked_changes(self, tmp_path):
+        py_file = tmp_path / "new_mod.py"
+        py_file.write_text("def greet():\n    return 'hi'\n")
+
+        db_path = tmp_path / "test.db"
+        store = GraphStore(db_path)
+        try:
+            with patch(
+                "dagayn.incremental.get_changed_files",
+                return_value=["tracked.py", "new_mod.py"],
+            ):
+                result = incremental_update(tmp_path, store)
+            assert "new_mod.py" in result["changed_files"]
+            assert result["files_updated"] >= 1
+            assert store.get_nodes_by_file(str(py_file))
         finally:
             store.close()
 

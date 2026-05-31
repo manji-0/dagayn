@@ -382,6 +382,20 @@ class TestChanges:
         assert "test_gaps" in result
         assert "review_priorities" in result
 
+    def test_analyze_changes_includes_files_without_diff_ranges(self):
+        """Untracked files without git diff hunks are treated as whole-file changes."""
+        self._add_func("tracked_func", path="/repo/tracked.py", line_start=5, line_end=8)
+        self._add_func("untracked_func", path="/repo/untracked.py", line_start=1, line_end=3)
+
+        result = analyze_changes(
+            self.store,
+            changed_files=["/repo/tracked.py", "/repo/untracked.py"],
+            changed_ranges={"/repo/tracked.py": [(5, 8)]},
+        )
+
+        names = {f["name"] for f in result["changed_functions"]}
+        assert names == {"tracked_func", "untracked_func"}
+
     def test_analyze_changes_risk_score_range(self):
         """Overall risk score is between 0 and 1."""
         self._add_func("func_a", path="app.py", line_start=1, line_end=10)
