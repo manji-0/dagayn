@@ -1619,6 +1619,7 @@ def detect_changes_func(
                 "reason_codes": analysis_summary["reason_codes"],
                 "changed_file_count": len(changed_files),
                 "change_file_sources": change_file_sources,
+                "change_entity_summary": analysis.get("change_entity_summary", {}),
                 "changed_node_count": analysis_summary["changed_node_count"],
                 "impacted_node_count": analysis_summary["impacted_node_count"],
                 "impacted_file_count": analysis_summary["impacted_file_count"],

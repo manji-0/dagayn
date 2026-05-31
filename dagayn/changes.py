@@ -12,13 +12,15 @@ import logging
 import os
 import re
 import subprocess
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .constants import SECURITY_KEYWORDS as _SECURITY_KEYWORDS
 from .coverage import has_coverage_evidence
 from .flows import get_affected_flows
-from .graph import GraphEdge, GraphNode, GraphStore, _sanitize_name, node_to_dict
+from .graph import GraphEdge, GraphNode, GraphStore, _sanitize_name, edge_to_dict, node_to_dict
+from .parser import CodeParser
+from .parser._base.types import EdgeInfo, NodeInfo
 
 logger = logging.getLogger(__name__)
 
@@ -247,6 +249,95 @@ def _get_nodes_for_files_boundary_aware(
     return {file_path: store.get_nodes_by_file(file_path) for file_path in file_paths}
 
 
+def _git_show_file(repo_root: str, base: str, rel_path: str) -> bytes | None:
+    if not _SAFE_GIT_REF.match(base):
+        return None
+    try:
+        result = subprocess.run(
+            ["git", "show", f"{base}:{rel_path}"],
+            capture_output=True,
+            cwd=repo_root,
+            timeout=_GIT_TIMEOUT,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout
+
+
+def _repo_relative_path(file_path: str, repo_root: str | None) -> str:
+    if repo_root is None:
+        return file_path
+    path = Path(file_path)
+    if path.is_absolute():
+        try:
+            return path.relative_to(Path(repo_root).resolve()).as_posix()
+        except ValueError:
+            return path.name
+    return PurePosixPath(file_path).as_posix()
+
+
+def _node_qn(node: NodeInfo) -> str:
+    if node.kind == "File":
+        return node.file_path
+    if node.parent_name:
+        return f"{node.file_path}::{node.parent_name}.{node.name}"
+    return f"{node.file_path}::{node.name}"
+
+
+def _edge_info_signature(edge: EdgeInfo) -> tuple[str, str, str, str]:
+    return (edge.kind, edge.source, edge.target, edge.file_path)
+
+
+def _edge_signature(edge: GraphEdge) -> tuple[str, str, str, str]:
+    return (edge.kind, edge.source_qualified, edge.target_qualified, edge.file_path)
+
+
+def _base_entity_sets(
+    repo_root: str | None,
+    base: str,
+    changed_nodes: list[GraphNode],
+) -> tuple[set[str], set[tuple[str, str, str, str]]]:
+    """Parse base-ref file contents and return node/edge identity sets."""
+    if repo_root is None:
+        return set(), set()
+
+    parser = CodeParser()
+    base_node_qns: set[str] = set()
+    base_edge_signatures: set[tuple[str, str, str, str]] = set()
+    display_paths_by_rel: dict[str, str] = {}
+    for node in changed_nodes:
+        rel_path = _repo_relative_path(node.file_path, repo_root)
+        display_paths_by_rel.setdefault(rel_path, node.file_path)
+
+    for rel_path, display_path in display_paths_by_rel.items():
+        source = _git_show_file(repo_root, base, rel_path)
+        if source is None:
+            continue
+        try:
+            nodes, edges = parser.parse_bytes(Path(display_path), source)
+        except RuntimeError as exc:
+            logger.debug("Could not parse base file %s at %s: %s", rel_path, base, exc)
+            continue
+        base_node_qns.update(_node_qn(node) for node in nodes)
+        base_edge_signatures.update(_edge_info_signature(edge) for edge in edges)
+
+    return base_node_qns, base_edge_signatures
+
+
+def _dedupe_edges(edges: list[GraphEdge]) -> list[GraphEdge]:
+    seen: set[tuple[str, str, str, str]] = set()
+    result: list[GraphEdge] = []
+    for edge in edges:
+        signature = _edge_signature(edge)
+        if signature in seen:
+            continue
+        seen.add(signature)
+        result.append(edge)
+    return result
+
+
 # ---------------------------------------------------------------------------
 # 3. compute_risk_score
 # ---------------------------------------------------------------------------
@@ -396,6 +487,12 @@ def analyze_changes(
     )
     node_cid_map = store.get_community_ids_by_node_ids(func_ids)
     outbound_map, inbound_map = store.get_edges_by_endpoints(func_qns)
+    relevant_edges = _dedupe_edges(
+        [edge for edges in outbound_map.values() for edge in edges]
+        + [edge for edges in inbound_map.values() for edge in edges]
+    )
+    base_node_qns, base_edge_signatures = _base_entity_sets(repo_root, base, changed_funcs)
+    has_base_snapshot = repo_root is not None
 
     # Caller communities: collect every CALLS source seen across all nodes
     # and resolve in a single batch.
@@ -424,6 +521,13 @@ def analyze_changes(
             {
                 **node_to_dict(node),
                 "risk_score": risk,
+                "change_status": (
+                    "existing"
+                    if node.qualified_name in base_node_qns
+                    else "added"
+                    if has_base_snapshot
+                    else "unknown"
+                ),
             }
         )
 
@@ -453,9 +557,40 @@ def analyze_changes(
                     "language": node.language,
                     "line_start": node.line_start,
                     "line_end": node.line_end,
+                    "change_status": (
+                        "existing"
+                        if node.qualified_name in base_node_qns
+                        else "added"
+                        if has_base_snapshot
+                        else "unknown"
+                    ),
                     "coverage_confidence": "none",
                 }
             )
+
+    changed_edges = [
+        {
+            **edge_to_dict(edge),
+            "change_status": (
+                "existing"
+                if _edge_signature(edge) in base_edge_signatures
+                else "added"
+                if has_base_snapshot
+                else "unknown"
+            ),
+        }
+        for edge in relevant_edges
+    ]
+    node_status_counts = {
+        "existing": sum(1 for node in node_risks if node["change_status"] == "existing"),
+        "added": sum(1 for node in node_risks if node["change_status"] == "added"),
+        "unknown": sum(1 for node in node_risks if node["change_status"] == "unknown"),
+    }
+    edge_status_counts = {
+        "existing": sum(1 for edge in changed_edges if edge["change_status"] == "existing"),
+        "added": sum(1 for edge in changed_edges if edge["change_status"] == "added"),
+        "unknown": sum(1 for edge in changed_edges if edge["change_status"] == "unknown"),
+    }
 
     # Review priorities: top 10 by risk score.
     review_priorities = sorted(node_risks, key=lambda x: x["risk_score"], reverse=True)[:10]
@@ -464,6 +599,10 @@ def analyze_changes(
     summary_parts = [
         f"Analyzed {len(changed_files)} changed file(s):",
         f"  - {len(changed_funcs)} changed function(s)/class(es)",
+        f"    - nodes: {node_status_counts['existing']} existing, "
+        f"{node_status_counts['added']} added",
+        f"    - edges: {edge_status_counts['existing']} existing, "
+        f"{edge_status_counts['added']} added",
         f"  - {affected['total']} affected flow(s)",
         f"  - {len(test_gaps)} test gap(s)",
         f"  - Overall risk score: {overall_risk:.2f}",
@@ -476,6 +615,12 @@ def analyze_changes(
         "summary": "\n".join(summary_parts),
         "risk_score": overall_risk,
         "changed_functions": node_risks,
+        "changed_edges": changed_edges,
+        "change_entity_summary": {
+            "nodes": node_status_counts,
+            "edges": edge_status_counts,
+            "base": base if has_base_snapshot else None,
+        },
         "affected_flows": affected["affected_flows"],
         "test_gaps": test_gaps,
         "review_priorities": review_priorities,

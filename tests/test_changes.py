@@ -396,6 +396,48 @@ class TestChanges:
         names = {f["name"] for f in result["changed_functions"]}
         assert names == {"tracked_func", "untracked_func"}
 
+    def test_analyze_changes_marks_added_and_existing_entities(self):
+        """Changed nodes and relevant edges expose base-vs-current status."""
+        self._add_func("existing_func", path="app.py", line_start=1, line_end=5)
+        self._add_func("new_func", path="app.py", line_start=8, line_end=12)
+        self._add_func("helper", path="helper.py", line_start=1, line_end=5)
+        self._add_call("app.py::existing_func", "helper.py::helper", "app.py")
+        self._add_call("app.py::new_func", "helper.py::helper", "app.py")
+
+        with patch(
+            "dagayn.changes._base_entity_sets",
+            return_value=(
+                {"app.py::existing_func"},
+                {("CALLS", "app.py::existing_func", "helper.py::helper", "app.py")},
+            ),
+        ):
+            result = analyze_changes(
+                self.store,
+                changed_files=["app.py"],
+                changed_ranges={"app.py": [(1, 12)]},
+                repo_root="/repo",
+                base="HEAD",
+            )
+
+        node_status = {f["name"]: f["change_status"] for f in result["changed_functions"]}
+        edge_status = {
+            (e["source"], e["target"]): e["change_status"] for e in result["changed_edges"]
+        }
+        assert node_status["existing_func"] == "existing"
+        assert node_status["new_func"] == "added"
+        assert edge_status[("app.py::existing_func", "helper.py::helper")] == "existing"
+        assert edge_status[("app.py::new_func", "helper.py::helper")] == "added"
+        assert result["change_entity_summary"]["nodes"] == {
+            "existing": 1,
+            "added": 1,
+            "unknown": 0,
+        }
+        assert result["change_entity_summary"]["edges"] == {
+            "existing": 1,
+            "added": 1,
+            "unknown": 0,
+        }
+
     def test_analyze_changes_risk_score_range(self):
         """Overall risk score is between 0 and 1."""
         self._add_func("func_a", path="app.py", line_start=1, line_end=10)

@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from dagayn.changes import parse_git_diff_ranges
+from dagayn.changes import analyze_changes, parse_git_diff_ranges
 from dagayn.graph import GraphStore
 from dagayn.incremental import (
     collect_all_files,
@@ -122,6 +122,39 @@ def test_parse_git_diff_ranges_real_git(git_repo: Path) -> None:
     for start, end in ranges["hello.py"]:
         assert start >= 1
         assert end >= start
+
+
+def test_analyze_changes_real_git_marks_added_and_existing_nodes(git_repo: Path) -> None:
+    """Base-ref parsing distinguishes existing functions from added functions."""
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        db_path = f.name
+
+    try:
+        store = GraphStore(db_path)
+        (git_repo / "hello.py").write_text(
+            "def greet():\n"
+            "    return 'hello now'\n\n"
+            "def farewell():\n"
+            "    return 'goodbye'\n"
+        )
+        full_build(git_repo, store)
+
+        result = analyze_changes(
+            store,
+            changed_files=["hello.py"],
+            changed_ranges=parse_git_diff_ranges(str(git_repo), base="HEAD~1"),
+            repo_root=str(git_repo),
+            base="HEAD~1",
+        )
+
+        statuses = {node["name"]: node["change_status"] for node in result["changed_functions"]}
+        assert statuses["greet"] == "existing"
+        assert statuses["farewell"] == "added"
+        assert result["change_entity_summary"]["nodes"]["existing"] >= 1
+        assert result["change_entity_summary"]["nodes"]["added"] >= 1
+        store.close()
+    finally:
+        Path(db_path).unlink(missing_ok=True)
 
 
 # ------------------------------------------------------------------

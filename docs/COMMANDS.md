@@ -58,6 +58,9 @@ files. Untracked files are reviewed as whole-file changes because Git has no
 line hunks for files it does not yet track. Standard and minimal tool responses
 include `change_file_sources.base_diff`, `worktree`, `staged`, `unstaged`, and
 `untracked` buckets alongside the compatibility `changed_files` list.
+Change analysis also annotates changed nodes and relevant edges with
+`change_status` (`existing`, `added`, or `unknown`) and summarizes those counts
+in `change_entity_summary`, making before/after risk changes easier to read.
 
 `dagayn eval --benchmark doc_fuzzy_search` compares FTS and deterministic
 embedding retrieval for fuzzy natural-language queries against Markdown
