@@ -2,6 +2,17 @@
 
 All notable changes to `dagayn` are documented here.
 
+## 4.2.2 — 2026-05-31
+
+### Improvements
+
+- Include unstaged, staged, and untracked files in change review and
+  incremental graph update detection.
+- Add `change_file_sources` buckets so base-ref changes remain distinguishable
+  from local worktree, staged, unstaged, and untracked files.
+- Annotate changed nodes and relevant edges with `change_status` and summarize
+  existing vs added graph entities in `change_entity_summary`.
+
 ## 4.2.1 — 2026-05-27
 
 ### Fixes
