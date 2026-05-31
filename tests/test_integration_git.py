@@ -132,10 +132,7 @@ def test_analyze_changes_real_git_marks_added_and_existing_nodes(git_repo: Path)
     try:
         store = GraphStore(db_path)
         (git_repo / "hello.py").write_text(
-            "def greet():\n"
-            "    return 'hello now'\n\n"
-            "def farewell():\n"
-            "    return 'goodbye'\n"
+            "def greet():\n    return 'hello now'\n\ndef farewell():\n    return 'goodbye'\n"
         )
         full_build(git_repo, store)
 
