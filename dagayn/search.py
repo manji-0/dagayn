@@ -16,6 +16,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
+from .fts_tokenize import segment_japanese_fts_text
 from .graph import GraphStore, _sanitize_name
 
 if TYPE_CHECKING:
@@ -166,6 +167,7 @@ def _fts_rows(conn: Any, repo_root: Path | None) -> list[tuple]:
             )
             if part
         )
+        doc_text = segment_japanese_fts_text(doc_text)
         out.append(
             (
                 row["node_rowid"],

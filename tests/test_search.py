@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from dagayn import fts_tokenize
 from dagayn.embeddings import _encode_vector
 from dagayn.graph import GraphStore
 from dagayn.parser import NodeInfo
@@ -177,6 +178,40 @@ class TestHybridSearch:
         results = hybrid_search(self.store, "reciprocal rank fusion")["results"]
         assert results
         assert results[0]["qualified_name"] == "docs/design.md::search-quality"
+
+    def test_fts_search_segments_japanese_markdown_body(self, tmp_path):
+        """Japanese body text is segmented for FTS while embedded English stays searchable."""
+        docs = tmp_path / "docs"
+        docs.mkdir()
+        (docs / "design.md").write_text(
+            "# 日本語検索\n\n"
+            "GraphStoreで自然言語検索を行う。\n\n"
+            "# Other\n\n"
+            "Unrelated text.\n",
+            encoding="utf-8",
+        )
+        self.store.set_metadata("repo_root", str(tmp_path))
+        self.store.upsert_node(
+            NodeInfo(
+                kind="DocSection",
+                name="japanese-search",
+                file_path="docs/design.md",
+                line_start=1,
+                line_end=1,
+                language="markdown",
+                extra={"display_name": "日本語検索"},
+            ),
+            file_hash="abc123",
+        )
+        self.store.commit()
+        rebuild_fts_index(self.store)
+
+        segmented = fts_tokenize.segment_japanese_fts_text("GraphStoreで自然言語検索")
+        assert "GraphStore" in segmented
+
+        results = hybrid_search(self.store, "GraphStore 自然言語検索")["results"]
+        assert results
+        assert results[0]["qualified_name"] == "docs/design.md::japanese-search"
 
     # --- Kind boosting ---
 

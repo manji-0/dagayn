@@ -837,6 +837,65 @@ fn rebuilds_fts_index() {
 }
 
 #[test]
+fn rebuilds_fts_index_segments_japanese_source() {
+    let path = temp_db("fts-japanese");
+    let source_root = {
+        let mut root = std::env::temp_dir();
+        root.push(format!(
+            "dagayn-rust-fts-japanese-src-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    };
+    std::fs::write(
+        source_root.join("design.md"),
+        "# 日本語検索\n\nGraphStoreで自然言語検索を行う。\n",
+    )
+    .unwrap();
+
+    let mut store = GraphStore::open(&path).expect("open graph store");
+    store
+        .set_metadata("repo_root", source_root.to_string_lossy().as_ref())
+        .unwrap();
+    let doc = NodeInput {
+        kind: "DocSection".to_string(),
+        name: "japanese-search".to_string(),
+        file_path: "design.md".to_string(),
+        line_start: 1,
+        line_end: 1,
+        language: "markdown".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: json!({"display_name": "日本語検索"}),
+    };
+
+    store
+        .store_file_nodes_edges("design.md", &[doc], &[], "hash", 0)
+        .unwrap();
+
+    assert_eq!(store.rebuild_fts_index().unwrap(), 1);
+    let doc_text: String = store
+        .conn
+        .query_row(
+            "SELECT doc_text FROM nodes_fts WHERE name = 'japanese-search'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(doc_text.contains("GraphStore"));
+    assert!(doc_text.contains("自然"));
+    assert!(doc_text.contains("言語"));
+
+    let _ = std::fs::remove_file(path);
+    let _ = std::fs::remove_dir_all(source_root);
+}
+
+#[test]
 fn computes_missing_signatures() {
     let path = temp_db("signatures");
     let mut store = GraphStore::open(&path).expect("open graph store");

@@ -83,6 +83,7 @@ impl GraphStore {
                     .filter(|part| !part.is_empty())
                     .collect::<Vec<_>>()
                     .join(" ");
+                let doc_text = segment_japanese_fts_text(&doc_text);
                 insert.execute(params![
                     rowid,
                     name,

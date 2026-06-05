@@ -4,6 +4,8 @@ import logging
 import re
 import sqlite3
 
+from dagayn.fts_tokenize import segment_japanese_fts_text
+
 from ._mixin_protocol import GraphStoreMixinProtocol
 from .types import GraphEdge, GraphNode
 
@@ -67,13 +69,14 @@ class GraphStoreSearchMixin(GraphStoreMixinProtocol):
 
         Returns [] when the FTS index is unavailable.
         """
-        segments = [seg for seg in re.split(r"[./:\s]+", query) if seg]
+        fts_query = segment_japanese_fts_text(query)
+        segments = [seg for seg in re.split(r"[./:\s]+", fts_query) if seg]
         quoted_segments = ['"' + seg.replace('"', '""') + '"' for seg in segments]
         if len(quoted_segments) > 1:
             safe_query = " AND ".join(quoted_segments)
             fallback_query = " OR ".join(quoted_segments)
         else:
-            safe_query = '"' + query.replace('"', '""') + '"'
+            safe_query = '"' + fts_query.replace('"', '""') + '"'
             fallback_query = safe_query
         sql = (
             "SELECT rowid, bm25(nodes_fts, 8.0, 6.0, 3.0, 4.0, 5.0, 1.0) AS score "
