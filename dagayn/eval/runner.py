@@ -26,6 +26,7 @@ BENCHMARK_REGISTRY = {  # nosec B105 - benchmark names, not credentials
     "build_performance": "dagayn.eval.benchmarks.build_performance",
     "doc_fuzzy_search": "dagayn.eval.benchmarks.doc_fuzzy_search",
     "embedding_text_modes": "dagayn.eval.benchmarks.embedding_text_modes",
+    "embedding_materials": "dagayn.eval.benchmarks.embedding_materials",
     "nplusone_count": "dagayn.eval.benchmarks.nplusone_count",
     "mcp_latency": "dagayn.eval.benchmarks.mcp_latency",
     "recent_changes_effects": "dagayn.eval.benchmarks.recent_changes_effects",

@@ -521,6 +521,7 @@ dependencies = [
     { name = "mcp" },
     { name = "networkx" },
     { name = "numpy" },
+    { name = "sentence-transformers" },
     { name = "watchdog" },
 ]
 
@@ -531,7 +532,6 @@ all = [
     { name = "matplotlib" },
     { name = "ollama" },
     { name = "pyyaml" },
-    { name = "sentence-transformers" },
 ]
 communities = [
     { name = "igraph" },
@@ -542,9 +542,6 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "ruff" },
-]
-embeddings = [
-    { name = "sentence-transformers" },
 ]
 enrichment = [
     { name = "jedi" },
@@ -569,7 +566,6 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "dagayn", extras = ["communities"], marker = "extra == 'all'" },
-    { name = "dagayn", extras = ["embeddings"], marker = "extra == 'all'" },
     { name = "dagayn", extras = ["enrichment"], marker = "extra == 'all'" },
     { name = "dagayn", extras = ["eval"], marker = "extra == 'all'" },
     { name = "dagayn", extras = ["wiki"], marker = "extra == 'all'" },
@@ -589,7 +585,7 @@ requires-dist = [
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0,<8" },
     { name = "pyyaml", marker = "extra == 'eval'", specifier = ">=6.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.3.0,<1" },
-    { name = "sentence-transformers", marker = "extra == 'embeddings'", specifier = ">=3.0.0,<4" },
+    { name = "sentence-transformers", specifier = ">=3.0.0,<4" },
     { name = "watchdog", specifier = ">=4.0.0,<6" },
 ]
 provides-extras = ["embeddings", "google-embeddings", "communities", "eval", "wiki", "all", "enrichment", "dev"]

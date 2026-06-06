@@ -198,7 +198,7 @@ class TestNodeToText:
 
     def test_basic_function(self):
         node = self._make_node()
-        text = _node_to_text(node)
+        text = _node_to_text(node, text_mode="metadata")
         assert "my_func" in text
         assert "file.py::my_func" in text
         assert "function" in text
@@ -221,16 +221,43 @@ class TestNodeToText:
 
     def test_with_params_and_return_type(self):
         node = self._make_node(params="(x: int, y: str)", return_type="bool")
-        text = _node_to_text(node)
+        text = _node_to_text(node, text_mode="metadata")
         assert "(x: int, y: str)" in text
         assert "returns bool" in text
 
     def test_includes_signature(self):
         node = self._make_node(signature="def fetch_user(session: Session, user_id: int) -> User")
-        text = _node_to_text(node)
+        text = _node_to_text(node, text_mode="metadata")
         assert "Session" in text
         assert "user_id" in text
         assert "-> User" in text
+
+    def test_material_mode_uses_name_and_adjacent_comment_sentences(self, tmp_path):
+        source = tmp_path / "service.py"
+        source.write_text(
+            "# Retry transient failures.\n"
+            "# Keep retries bounded.\n"
+            "def handle_failure(retry_budget):\n"
+            "    return retry_budget > 0\n",
+            encoding="utf-8",
+        )
+        node = self._make_node(
+            name="handle_failure",
+            qualified_name="service.py::handle_failure",
+            file_path="service.py",
+            line_start=3,
+            line_end=4,
+            params="(retry_budget)",
+            signature="def handle_failure(retry_budget)",
+        )
+
+        text = _node_to_text(node, source_root=tmp_path, text_mode="material")
+
+        assert "service.py::handle_failure" in text
+        assert "Retry transient failures" in text
+        assert "Keep retries bounded" in text
+        assert "def handle_failure" not in text
+        assert "(retry_budget)" not in text
 
     def test_body_mode_includes_source_excerpt(self, tmp_path):
         source = tmp_path / "service.py"

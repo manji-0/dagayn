@@ -34,6 +34,7 @@ dependencies = [
     "watchdog>=4.0.0,<6",
     "igraph>=1.0.0",
     "numpy>=1.26,<3",
+    "sentence-transformers>=3.0.0,<4",
 ]
 
 [project.urls]
@@ -49,9 +50,7 @@ dagayn = "dagayn.cli:main"
 dagayn-daemon = "dagayn.daemon_cli:main"
 
 [project.optional-dependencies]
-embeddings = [
-    "sentence-transformers>=3.0.0,<4",
-]
+embeddings = []
 google-embeddings = [
     "google-generativeai>=0.8.0,<1",
 ]
@@ -66,7 +65,6 @@ wiki = [
     "ollama>=0.1.0",
 ]
 all = [
-    "dagayn[embeddings]",
     "dagayn[communities]",
     "dagayn[enrichment]",
     "dagayn[eval]",

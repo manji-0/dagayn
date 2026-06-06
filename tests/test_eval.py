@@ -500,6 +500,72 @@ def test_embedding_text_modes_benchmark_compares_body_mode(tmp_path):
     store.close()
 
 
+def test_embedding_materials_benchmark_reports_negative_scores(tmp_path):
+    from dagayn.eval.benchmarks import embedding_materials
+    from dagayn.graph import GraphStore
+    from dagayn.parser import NodeInfo
+
+    repo_path = tmp_path / "repo"
+    repo_path.mkdir()
+    (repo_path / "service.py").write_text(
+        "# Retry transient failures with a bounded budget.\n"
+        "def handle_failure(retry_budget):\n"
+        "    return retry_budget > 0\n",
+        encoding="utf-8",
+    )
+    (repo_path / ".dagayn").mkdir()
+
+    store = GraphStore(repo_path / ".dagayn" / "graph.db")
+    store.set_metadata("repo_root", str(repo_path))
+    store.upsert_node(
+        NodeInfo(
+            kind="Function",
+            name="handle_failure",
+            file_path="service.py",
+            line_start=2,
+            line_end=3,
+            language="python",
+            params="(retry_budget)",
+        )
+    )
+    store.commit()
+
+    rows = embedding_materials.run(
+        repo_path,
+        store,
+        {
+            "name": "material_fixture",
+            "search_queries": [
+                {
+                    "query": "retry budget",
+                    "expected": "service.py::handle_failure",
+                    "label": "positive_fixture",
+                }
+            ],
+            "embedding_material_negative_queries": [
+                {
+                    "query": "watercolor paper texture",
+                    "label": "negative_fixture",
+                }
+            ],
+            "embedding_material_strategies": [
+                "doc=section|code=predicate|comment=sentence|join=split"
+            ],
+        },
+    )
+
+    negative_rows = [row for row in rows if row["query_type"] == "negative"]
+    aggregate_negative = [
+        row for row in rows if row["query"] == "__aggregate__" and row["label"] == "aggregate_negative"
+    ]
+
+    assert negative_rows
+    assert aggregate_negative
+    assert "top_score" in negative_rows[0]
+    assert "mean_top_score" in aggregate_negative[0]
+    store.close()
+
+
 # --- Token benchmark tests ---
 
 

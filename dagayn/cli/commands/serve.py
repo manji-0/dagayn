@@ -9,6 +9,24 @@ from pathlib import Path
 from ._shared import _add_local_embedding_args
 
 _REMOTE_EMBEDDING_CHOICES = ["none", "openai", "google", "minimax"]
+_LOCAL_BGE_MODEL = "BAAI/bge-m3"
+_LOCAL_MATERIAL_TEXT_MODE = "material"
+
+
+def _local_embedding_requested(local_embedding: str | None) -> bool:
+    return (local_embedding or "").strip().lower() not in {"", "none"}
+
+
+def _resolve_local_embedding_mode(
+    local_embedding: str | None,
+    local_embedding_mode: str | None,
+) -> str:
+    if local_embedding_mode:
+        return local_embedding_mode
+    normalized = (local_embedding or "").strip().lower()
+    if normalized in {"low", "llama-qwen3", "qwen3", "qwen"}:
+        return "llama-qwen3"
+    return "bge-m3"
 
 
 def _embedding_provider_counts(db_path: Path) -> dict[str, int]:
@@ -102,7 +120,7 @@ def handle(args: argparse.Namespace, serve_parser: argparse.ArgumentParser) -> N
         serve_parser.error("--port requires --http")
     if args.host is not None and not args.http:
         serve_parser.error("--host requires --http")
-    if args.local_embedding != "none" and args.remote_embedding != "none":
+    if _local_embedding_requested(args.local_embedding) and args.remote_embedding != "none":
         serve_parser.error("--local-embedding and --remote-embedding are mutually exclusive")
 
     remote_embedding = args.remote_embedding if args.remote_embedding != "none" else None
@@ -151,18 +169,30 @@ def handle(args: argparse.Namespace, serve_parser: argparse.ArgumentParser) -> N
 
     inferred_local_embedding = None
     local_embedding = args.local_embedding
-    if (not local_embedding or local_embedding == "none") and remote_embedding is None:
+    local_embedding_mode = args.local_embedding_mode
+    if not _local_embedding_requested(local_embedding) and remote_embedding is None:
         inferred_local_embedding = _infer_persisted_local_embedding(args.repo)
         if inferred_local_embedding is not None:
             local_embedding = inferred_local_embedding.level
+            local_embedding_mode = "llama-qwen3"
             effective_local_embedding_runtime = inferred_local_embedding.runtime
             effective_local_embedding_port = inferred_local_embedding.port
 
-    if local_embedding and local_embedding != "none":
+    if _local_embedding_requested(local_embedding):
+        mode = _resolve_local_embedding_mode(local_embedding, local_embedding_mode)
+        if mode == "bge-m3":
+            os.environ["DAGAYN_EMBEDDING_TEXT_MODE"] = _LOCAL_MATERIAL_TEXT_MODE
+            _run(
+                embedding_provider="local",
+                embedding_model=_LOCAL_BGE_MODEL,
+                local_embedding_default="bge-m3",
+            )
+            return
+
         from ...local_embeddings import local_embedding_server
 
         with local_embedding_server(
-            local_embedding,
+            "low",
             runtime=effective_local_embedding_runtime,
             port=effective_local_embedding_port,
             binary=args.local_embedding_bin,

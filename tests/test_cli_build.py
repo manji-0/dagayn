@@ -39,12 +39,29 @@ def test_build_parser_accepts_local_embedding_options():
 
     assert args.command == "build"
     assert args.local_embedding == "low"
+    assert args.local_embedding_mode is None
     assert args.local_embedding_port == 19090
     assert args.local_embedding_bin == "/tmp/llama-server"
     assert args.keep_local_embedding_server is True
     assert args.local_embedding_timeout == 12
     assert args.local_embedding_request_timeout == 17
     assert args.local_embedding_batch_size == 8
+
+
+def test_build_parser_accepts_bge_local_embedding_default():
+    args = _parser().parse_args(["build", "--local-embedding"])
+
+    assert args.command == "build"
+    assert args.local_embedding == "bge-m3"
+    assert args.local_embedding_mode is None
+
+
+def test_build_parser_accepts_llama_qwen3_mode_override():
+    args = _parser().parse_args(["build", "--local-embedding", "--mode", "llama-qwen3"])
+
+    assert args.command == "build"
+    assert args.local_embedding == "bge-m3"
+    assert args.local_embedding_mode == "llama-qwen3"
 
 
 def test_build_parser_accepts_force_full_build_options():
@@ -113,6 +130,7 @@ def test_update_parser_accepts_local_embedding_options():
 
     assert args.command == "update"
     assert args.local_embedding == "low"
+    assert args.local_embedding_mode is None
     assert args.local_embedding_port == 18080
     assert args.local_embedding_bin == "auto"
     assert args.keep_local_embedding_server is False
@@ -127,6 +145,7 @@ def test_print_local_embedding_summary_includes_orphan_count(capsys):
             "local_embedding": {
                 "preset": "low",
                 "text_mode": "metadata",
+                "mode": "llama-qwen3",
                 "server_started": False,
                 "newly_embedded": 1,
                 "orphans_removed": 2,
@@ -138,6 +157,24 @@ def test_print_local_embedding_summary_includes_orphan_count(capsys):
     out = capsys.readouterr().out
     assert "Local embeddings (low/metadata, reused server)" in out
     assert "1 new, 2 orphan removed, 9 total" in out
+
+
+def test_print_local_embedding_summary_for_in_process_bge(capsys):
+    _print_local_embedding_summary(
+        {
+            "local_embedding": {
+                "preset": "bge-m3",
+                "text_mode": "material",
+                "mode": "bge-m3",
+                "newly_embedded": 1,
+                "orphans_removed": 0,
+                "total_embeddings": 9,
+            }
+        }
+    )
+
+    out = capsys.readouterr().out
+    assert "Local embeddings (bge-m3/material, in-process)" in out
 
 
 def test_handle_runs_full_build_without_postprocess(tmp_path, monkeypatch, capsys):
@@ -166,6 +203,7 @@ def test_handle_runs_full_build_without_postprocess(tmp_path, monkeypatch, capsy
             "repo_root": str(tmp_path),
             "postprocess": "none",
             "local_embedding": "none",
+            "local_embedding_mode": None,
             "local_embedding_port": 18080,
             "local_embedding_bin": "auto",
             "keep_local_embedding_server": False,

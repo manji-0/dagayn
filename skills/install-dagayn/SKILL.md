@@ -17,17 +17,18 @@ hooks, instruction injection, or embedding mode selection.
    dagayn tool --list
    ```
 2. Prefer the smallest platform target that matches the request:
-   - Codex global only: `dagayn install --platform codex --mode local --preset low --no-instructions -y`
-   - All detected tools: `dagayn install --platform all --mode local --preset low -y`
-   - No embeddings: `dagayn install --platform <platform> --mode fts -y`
+   - Codex global only: `dagayn install --platform codex --mode local-embedding --no-instructions -y`
+   - All detected tools: `dagayn install --platform all --mode local-embedding -y`
+   - Managed Qwen sidecar: `dagayn install --platform <platform> --mode local-embedding-llama --preset low -y`
+   - No embeddings: `dagayn install --platform <platform> --mode fts-only -y`
 3. Use `--dry-run` before changing instruction files or when the user cares
    about repo-local files:
    ```bash
-   dagayn install --platform codex --mode local --preset low --no-instructions --dry-run
+   dagayn install --platform codex --mode local-embedding --no-instructions --dry-run
    ```
 4. Verify the result:
    - Codex MCP config: `~/.codex/config.toml` should contain `dagayn serve`.
-   - Local embeddings: the serve args should include `--local-embedding low`.
+   - Local embeddings: the serve args should include `--local-embedding`.
    - Codex hooks: `~/.codex/hooks.json` should run `dagayn update --skip-flows`.
    - Skills: `~/.codex/skills/<skill>/SKILL.md` should exist for packaged skills.
    - Markdown/code traceability guidance: installed writing/review/explore

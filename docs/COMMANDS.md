@@ -28,11 +28,20 @@ or `not_indexed`) and provider-level vector counts.
 
 <!-- derived-from ./LOCAL-EMBEDDINGS.md -->
 
-`dagayn build` and `dagayn update` can also generate local Qwen embeddings
-after the graph refresh. The `low` preset uses the llama.cpp GGUF runtime:
+`dagayn build` and `dagayn update` can also generate local embeddings after the
+graph refresh. Passing `--local-embedding` without a value runs the recommended
+`BAAI/bge-m3` model in-process with the measured `material` text mode:
 
 ```bash
-dagayn build --local-embedding low
+dagayn build --local-embedding
+dagayn update --local-embedding
+```
+
+To use the managed llama.cpp sidecar with Qwen3-Embedding-0.6B, pass the mode
+explicitly. The legacy `low` value remains an alias for this behavior:
+
+```bash
+dagayn build --local-embedding --mode llama-qwen3
 dagayn update --local-embedding low
 ```
 
@@ -40,7 +49,7 @@ Use `--local-embedding none` to keep the default graph-only behavior. The
 server startup timeout and each embedding request timeout are separate knobs:
 `--local-embedding-timeout` controls readiness, while
 `--local-embedding-request-timeout` controls a single `/v1/embeddings` call.
-Local embedding requests use `--local-embedding-batch-size 1` by default,
+Qwen sidecar requests use `--local-embedding-batch-size 1` by default,
 regardless of any ambient `CRG_OPENAI_BATCH_SIZE`. `--local-embedding-bin auto`
 selects `llama-server`.
 
@@ -69,6 +78,15 @@ documentation sections and bodies. Configure queries with
 graded alternate targets, `doc_fuzzy_search_include_paths` /
 `doc_fuzzy_search_exclude_paths` constrain the documentation corpus, and
 `doc_fuzzy_search_query_variants` compares embedding query prefixes.
+
+`dagayn eval --benchmark embedding_materials` compares deterministic embedding
+quality across generated material strategies before changing embedding models.
+It varies Markdown section/paragraph/sentence granularity, code symbol text,
+mechanical predicate text, adjacent comments, and split-vs-combined
+symbol/comment materials. Configure unrelated calibration queries with
+`embedding_material_negative_queries`; their rows report `top_score` and
+`mean_top_5_score` so overconfident matches are visible even when no target is
+expected.
 
 `dagayn eval --benchmark guidance_precision` measures precision@k for
 review-guidance outputs such as recommended tests, documentation update
@@ -142,6 +160,15 @@ mark hook-triggered runs with `DAGAYN_HOOK_UPDATE=1`, skip overlapping hook
 updates, and avoid re-running local embeddings when no files changed.
 `--no-hooks` skips the hook files.
 
+Install embedding modes are baked into the generated MCP serve command:
+`dagayn install --mode local-embedding` writes
+`dagayn serve --local-embedding` for in-process `BAAI/bge-m3`;
+`dagayn install --mode local-embedding-llama --preset low` writes
+`dagayn serve --local-embedding --mode llama-qwen3` for the managed Qwen
+sidecar; `--mode remote-embedding --provider <provider>` writes the
+corresponding remote provider flag. Legacy mode names such as `fts`, `local`,
+`llama-qwen3`, and `remote` remain accepted as aliases.
+
 `dagayn install --platform pi` writes `.pi/mcp.json`, installs skills under
 `~/.pi/agent/skills/`, and writes pi-yaml-hooks-compatible hooks under
 `~/.pi/agent/hook/`. Install `pi-yaml-hooks` in Pi to activate those hooks.
@@ -176,11 +203,12 @@ Advanced and maintenance tools for graph build/post-processing, embeddings,
 wiki generation, refactor application, and cross-repo search remain available
 when explicitly requested with `--tools`.
 
-When the server is launched with `dagayn serve --local-embedding low`,
-search-oriented MCP tools default to the managed OpenAI-compatible local
-embedding endpoint. This makes `semantic_search_nodes`, `traverse_graph`, and
-`cross_repo_search` run hybrid FTS + embedding retrieval unless the client
-explicitly passes another provider or model.
+When the server is launched with `dagayn serve --local-embedding`,
+search-oriented MCP tools default to in-process `BAAI/bge-m3` embeddings. Use
+`dagayn serve --local-embedding --mode llama-qwen3` for the managed
+OpenAI-compatible Qwen endpoint. Either path makes `semantic_search_nodes`,
+`traverse_graph`, and `cross_repo_search` run hybrid FTS + embedding retrieval
+unless the client explicitly passes another provider or model.
 
 Default tool names are:
 
@@ -213,7 +241,8 @@ dagayn serve --tools query_graph_tool,semantic_search_nodes_tool
 dagayn serve --tools all
 dagayn tool architecture_analysis_tool --arg mode='"overview"'
 dagayn tool architecture_analysis_tool --arg mode='"adp_violations"' --arg artifact_scope='"docs"'
-dagayn serve --local-embedding low
+dagayn serve --local-embedding
+dagayn serve --local-embedding --mode llama-qwen3
 dagayn serve --remote-embedding openai
 ```
 
@@ -225,9 +254,9 @@ not reload a broader allow-list dynamically. Use
 `dagayn tool <tool-name>` for ad-hoc shell access without restarting the
 agent's MCP server.
 
-When `dagayn serve --local-embedding low` starts a managed local
+When `dagayn serve --local-embedding --mode llama-qwen3` starts a managed local
 embedding sidecar, MCP `semantic_search_nodes_tool` automatically searches with
-the matching OpenAI-compatible provider and Qwen model. When
+the matching OpenAI-compatible provider, Qwen model, and `material` text mode. When
 `--remote-embedding {openai,google,minimax}` is set, MCP search automatically
 uses that remote provider unless the client explicitly passes a different
 `provider`. If no `--remote-embedding` flag is supplied, `serve` infers a remote

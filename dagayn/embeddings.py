@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 _DEFAULT_SLOW_EMBED_BATCH_SECONDS = 10.0
 _DEFAULT_SOURCE_CHARS = 2048
 _DEFAULT_DOC_BODY_WEIGHT = 2
-_EMBEDDING_TEXT_MODES = {"metadata", "body"}
+_EMBEDDING_TEXT_MODES = {"metadata", "body", "material"}
 _MARKDOWN_HEADING_RE = re.compile(r"^(#{1,6})\s+")
 _DOC_BODY_KINDS = {"DocSection", "DocBody"}
 
@@ -176,7 +176,7 @@ class EmbeddingProvider(ABC):
         return 64
 
 
-LOCAL_DEFAULT_MODEL = "all-MiniLM-L6-v2"
+LOCAL_DEFAULT_MODEL = "BAAI/bge-m3"
 
 
 class LocalEmbeddingProvider(EmbeddingProvider):
@@ -196,7 +196,8 @@ class LocalEmbeddingProvider(EmbeddingProvider):
                 )
             except ImportError:
                 raise ImportError(
-                    'sentence-transformers not installed. Run: pip install "dagayn[embeddings] @ git+https://github.com/manji-0/dagayn.git"'
+                    "sentence-transformers not installed. It is part of dagayn's "
+                    "standard dependencies; reinstall or repair the dagayn environment."
                 )
         return self._model
 
@@ -761,7 +762,7 @@ def get_provider(
                   unless ``CRG_ACCEPT_CLOUD_EMBEDDINGS=1`` is set. See: #174
         model: Model name/path to use. For local provider this is any
                sentence-transformers compatible model. Falls back to
-               CRG_EMBEDDING_MODEL env var, then to all-MiniLM-L6-v2.
+               CRG_EMBEDDING_MODEL env var, then to BAAI/bge-m3.
                For Google provider this is a Gemini model ID.
                For OpenAI provider this overrides CRG_OPENAI_MODEL.
     """
@@ -914,7 +915,7 @@ def _load_vec_matrix(conn: sqlite3.Connection, provider_name: str) -> tuple[Any,
 
 
 def _embedding_text_mode(text_mode: str | None = None) -> str:
-    mode = (text_mode or os.environ.get("DAGAYN_EMBEDDING_TEXT_MODE") or "metadata").lower()
+    mode = (text_mode or os.environ.get("DAGAYN_EMBEDDING_TEXT_MODE") or "material").lower()
     if mode not in _EMBEDDING_TEXT_MODES:
         raise ValueError(
             "DAGAYN_EMBEDDING_TEXT_MODE must be one of: " + ", ".join(sorted(_EMBEDDING_TEXT_MODES))
@@ -986,6 +987,99 @@ def _read_node_source_excerpt(
     return "\n".join(lines[start:end])[:limit]
 
 
+def _material_base_text(node: GraphNode) -> str:
+    parts = [node.name, node.qualified_name, str(node.file_path).replace("/", " ")]
+    display_name = node.extra.get("display_name") if isinstance(node.extra, dict) else None
+    if display_name:
+        parts.append(str(display_name))
+    if node.parent_name:
+        parts.append(f"in {node.parent_name}")
+    if node.language:
+        parts.append(node.language)
+    return " ".join(part for part in parts if part)
+
+
+def _looks_like_comment_line(stripped: str) -> bool:
+    return stripped.startswith(("#", "//", "///", "/*", "*", "--", '"""', "'''"))
+
+
+def _clean_comment_line(stripped: str) -> str:
+    cleaned = stripped
+    for prefix in ("///", "//", "#", "/*", "*/", "*", "--", '"""', "'''"):
+        if cleaned.startswith(prefix):
+            cleaned = cleaned[len(prefix) :]
+    return cleaned.strip(" */'\"")
+
+
+def _comment_sentences_for_node(
+    node: GraphNode,
+    *,
+    source_root: Path | None = None,
+    max_chars: int | None = None,
+) -> list[str]:
+    limit = _embedding_source_chars() if max_chars is None else max(0, max_chars)
+    if limit <= 0:
+        return []
+
+    file_path = Path(node.file_path)
+    if not file_path.is_absolute():
+        if source_root is None:
+            return []
+        file_path = source_root / file_path
+    try:
+        lines = file_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+
+    line_start = node.line_start or 1
+    line_end = node.line_end or line_start
+    start = max(int(line_start) - 1, 0)
+    end = min(max(int(line_end), int(line_start)), len(lines))
+    comments: list[str] = []
+
+    idx = start - 1
+    while idx >= 0:
+        stripped = lines[idx].strip()
+        if not stripped:
+            idx -= 1
+            continue
+        if _looks_like_comment_line(stripped):
+            comments.insert(0, _clean_comment_line(stripped))
+            idx -= 1
+            continue
+        break
+
+    for line in lines[start:end]:
+        stripped = line.strip()
+        if _looks_like_comment_line(stripped):
+            comments.append(_clean_comment_line(stripped))
+
+    text = "\n".join(comment for comment in comments if comment).strip()[:limit]
+    if not text:
+        return []
+    return [part.strip() for part in re.split(r"(?<=[.!?。！？])\s+|\n+", text) if part.strip()]
+
+
+def _node_to_material_text(
+    node: GraphNode,
+    *,
+    source_root: Path | None = None,
+) -> str:
+    """Convert a node to the measured default embedding material."""
+    base = _material_base_text(node)
+    if node.kind in _DOC_BODY_KINDS:
+        source_excerpt = _read_node_source_excerpt(node, source_root=source_root)
+        return f"{base} {source_excerpt}" if source_excerpt else base
+
+    if node.kind in {"Function", "Method", "Class"}:
+        comments = _comment_sentences_for_node(node, source_root=source_root)
+        if comments:
+            return " ".join([base, *(f"{base} {comment}" for comment in comments)])
+        return base
+
+    return base
+
+
 def _node_to_text(
     node: GraphNode,
     *,
@@ -993,6 +1087,10 @@ def _node_to_text(
     text_mode: str | None = None,
 ) -> str:
     """Convert a node to a searchable text representation."""
+    mode = _embedding_text_mode(text_mode)
+    if mode == "material":
+        return _node_to_material_text(node, source_root=source_root)
+
     parts = [node.name, node.qualified_name, str(node.file_path).replace("/", " ")]
     display_name = node.extra.get("display_name") if isinstance(node.extra, dict) else None
     if display_name:
@@ -1009,7 +1107,7 @@ def _node_to_text(
         parts.append(f"returns {node.return_type}")
     if node.language:
         parts.append(node.language)
-    include_source = _embedding_text_mode(text_mode) == "body" or node.kind in _DOC_BODY_KINDS
+    include_source = mode == "body" or node.kind in _DOC_BODY_KINDS
     if include_source:
         source_excerpt = _read_node_source_excerpt(node, source_root=source_root)
         if source_excerpt:

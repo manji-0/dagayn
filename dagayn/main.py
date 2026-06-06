@@ -179,7 +179,7 @@ def _resolve_repo_root(repo_root: Optional[str]) -> Optional[str]:
 def _infer_remote_embedding_provider_from_env() -> str | None:
     """Infer a remote embedding provider from the current server environment.
 
-    ``dagayn install --mode remote`` asks users to launch the MCP server from
+    ``dagayn install --mode remote-embedding`` asks users to launch the MCP server from
     an environment that contains exactly one remote provider's credentials.
     When that is true, make MCP search use that provider automatically.  If
     multiple remote providers are configured, stay unset so clients can choose
@@ -269,13 +269,14 @@ async def build_or_update_graph_tool(
                      or "none" (skip all post-processing). Use "minimal" for faster builds.
         recurse_submodules: If True, include files from git submodules.
             When None (default), falls back to CRG_RECURSE_SUBMODULES env var.
-        local_embedding: Optional local Qwen embedding preset: "low".
-        local_embedding_port: localhost port for the managed local embedding server.
+        local_embedding: Optional local embedding request. "bge-m3" runs
+            in-process; "low" / "llama-qwen3" runs the managed Qwen sidecar.
+        local_embedding_port: localhost port for the managed Qwen embedding server.
         local_embedding_bin: executable name/path, or "auto" for the preset default.
         keep_local_embedding_server: Leave a dagayn-started server running.
-        local_embedding_timeout: Seconds to wait for local embedding server readiness.
+        local_embedding_timeout: Seconds to wait for Qwen embedding server readiness.
         local_embedding_request_timeout: Seconds to wait for each embedding
-            HTTP request after the local embedding server is ready.
+            HTTP request after the Qwen embedding server is ready.
         local_embedding_batch_size: Texts to send in each local embedding
             HTTP request.
     """
@@ -411,8 +412,9 @@ def semantic_search_nodes_tool(
     """Search for code entities by name, keyword, or semantic similarity.
 
     Uses vector embeddings for semantic search when available (run embed_graph_tool
-    first, with a provider of your choice: "local" needs sentence-transformers,
-    "openai" / "google" / "minimax" need their respective env vars). Falls back
+    first, with a provider of your choice: "local" uses bundled
+    sentence-transformers support, while "openai" / "google" / "minimax" need
+    their respective env vars). Falls back
     to FTS5 / keyword matching when no matching embeddings exist for the given
     provider.
 
@@ -447,9 +449,9 @@ async def embed_graph_tool(
 ) -> dict:
     """Compute vector embeddings for all graph nodes to enable semantic search.
 
-    Requires: pip install "dagayn[embeddings] @ git+https://github.com/manji-0/dagayn.git"
-    (local provider only; cloud providers use stdlib urllib).
-    Default provider: local. Default model: all-MiniLM-L6-v2.
+    The local provider uses the standard sentence-transformers dependency;
+    cloud providers use stdlib urllib.
+    Default provider: local. Default model: BAAI/bge-m3.
     Override provider via `provider` param, model via `model` param or
     CRG_EMBEDDING_MODEL / CRG_OPENAI_MODEL env vars.
     Changing the model or provider re-embeds all nodes automatically.
@@ -1072,7 +1074,7 @@ def main(
             client omits the provider argument.
         embedding_model: Default embedding model for MCP search when a client
             omits the model argument.
-        local_embedding: Default local embedding preset for build/update when
+        local_embedding: Default local embedding request for build/update when
             a client omits the ``local_embedding`` argument.
         transport: ``"stdio"`` (default) or ``"streamable-http"`` for local HTTP.
         host: Bind address when using HTTP (required for HTTP; set by CLI).

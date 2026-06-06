@@ -579,28 +579,44 @@ def _embedding_context_lines(
     embedding_provider: str | None = None,
 ) -> list[str]:
     """Return install-specific search guidance for generated skills."""
-    if embedding_mode == "local":
-        preset = embedding_preset or "low"
+    if embedding_mode == "local-embedding":
         return [
             "## Installed Search Mode",
             "",
-            f"Installed with local embeddings (`--mode local --preset {preset}`).",
+            "Installed with local embeddings (`--mode local-embedding`): in-process BGE-M3.",
             "",
             "- MCP search defaults to hybrid retrieval when matching embeddings exist.",
             "- Routine graph refreshes for parser, flow, documentation, or review "
             'verification should pass `local_embedding="none"` so they do not '
-            "inherit the server preset and trigger a large embedding refresh.",
+            "inherit the server embedding mode and trigger a large embedding refresh.",
             "- Use embedding-enabled full rebuilds only for explicit embedding-quality "
             "or end-to-end maintenance work after stating the reason.",
             "- Exact identifier lookup can still rely on FTS; use semantic search for "
             "fuzzy concepts, domain terms, cross-language search, or unfamiliar code.",
         ]
-    if embedding_mode == "remote":
+    if embedding_mode == "local-embedding-llama":
+        preset = embedding_preset or "low"
+        return [
+            "## Installed Search Mode",
+            "",
+            "Installed with managed Qwen3 embeddings "
+            f"(`--mode local-embedding-llama --preset {preset}`).",
+            "",
+            "- MCP search defaults to hybrid retrieval when matching embeddings exist.",
+            "- Routine graph refreshes for parser, flow, documentation, or review "
+            'verification should pass `local_embedding="none"` so they do not '
+            "inherit the server sidecar mode and trigger a large embedding refresh.",
+            "- Use embedding-enabled full rebuilds only for explicit embedding-quality "
+            "or end-to-end maintenance work after stating the reason.",
+            "- Exact identifier lookup can still rely on FTS; use semantic search for "
+            "fuzzy concepts, domain terms, cross-language search, or unfamiliar code.",
+        ]
+    if embedding_mode == "remote-embedding":
         provider = embedding_provider or "openai"
         return [
             "## Installed Search Mode",
             "",
-            f"Installed with remote embeddings (`--mode remote --provider {provider}`).",
+            f"Installed with remote embeddings (`--mode remote-embedding --provider {provider}`).",
             "",
             "- MCP search defaults to the configured provider when matching embeddings exist.",
             "- `build_or_update_graph_tool()` refreshes graph and FTS data; run "
@@ -609,11 +625,11 @@ def _embedding_context_lines(
             "- Use FTS for exact lookup and reserve remote embedding calls for fuzzy, "
             "cross-repo, or conceptual searches.",
         ]
-    if embedding_mode == "fts":
+    if embedding_mode == "fts-only":
         return [
             "## Installed Search Mode",
             "",
-            "Installed in FTS-only mode (`--mode fts`).",
+            "Installed in FTS-only mode (`--mode fts-only`).",
             "",
             "- Treat `semantic_search_nodes_tool` as keyword/FTS search, not vector "
             "semantic search.",
@@ -677,12 +693,14 @@ def generate_skills(
     Args:
         repo_root: Repository root directory.
         skills_dir: Custom skills directory. Defaults to repo_root/.claude/skills.
-        embedding_mode: Optional install mode (``fts``, ``local``, or ``remote``)
-            used to render search guidance in skills that opt in.
-        embedding_preset: Local embedding preset when ``embedding_mode`` is
-            ``local``.
-        embedding_provider: Remote embedding provider when ``embedding_mode`` is
-            ``remote``.
+        embedding_mode: Optional install mode (``fts-only``,
+            ``local-embedding``, ``local-embedding-llama``, or
+            ``remote-embedding``) used to render search guidance in skills that
+            opt in.
+        embedding_preset: Local sidecar preset when ``embedding_mode`` is
+            ``local-embedding-llama``.
+        embedding_provider: Remote embedding provider when ``embedding_mode``
+            is ``remote-embedding``.
 
     Returns:
         Path to the skills directory.
@@ -1783,12 +1801,14 @@ def install_qoder_skills(
 
     Args:
         repo_root: Repository root directory (where the skills/ folder is located).
-        embedding_mode: Optional install mode (``fts``, ``local``, or ``remote``)
-            used to render search guidance in skills that opt in.
-        embedding_preset: Local embedding preset when ``embedding_mode`` is
-            ``local``.
-        embedding_provider: Remote embedding provider when ``embedding_mode`` is
-            ``remote``.
+        embedding_mode: Optional install mode (``fts-only``,
+            ``local-embedding``, ``local-embedding-llama``, or
+            ``remote-embedding``) used to render search guidance in skills that
+            opt in.
+        embedding_preset: Local sidecar preset when ``embedding_mode`` is
+            ``local-embedding-llama``.
+        embedding_provider: Remote embedding provider when ``embedding_mode``
+            is ``remote-embedding``.
 
     Returns:
         Path to the Qoder skills directory, or None if installation failed.

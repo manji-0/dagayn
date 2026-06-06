@@ -57,42 +57,55 @@ def register_commands(sub: argparse._SubParsersAction) -> dict:
             default="all",
             help="Target platform for MCP config (default: all detected)",
         )
-        # Embedding mode selection.  Omit to choose interactively on a TTY,
-        # fail-fast under -y or a non-TTY stdin.  The legacy
-        # --local-embedding flag still works as a shortcut for --mode local.
+        # Embedding mode selection. Omit to choose interactively on a TTY,
+        # fail-fast under -y or a non-TTY stdin. Legacy mode names and
+        # --local-embedding low still work as aliases.
         p.add_argument(
             "--mode",
-            choices=["fts", "local", "remote"],
+            choices=[
+                "fts-only",
+                "local-embedding",
+                "local-embedding-llama",
+                "remote-embedding",
+                "fts",
+                "local",
+                "llama-qwen3",
+                "remote",
+            ],
             default=None,
             help=(
-                "Embedding strategy: fts (no embeddings), local (managed "
-                "local embedding sidecar), or remote (cloud API).  Omit to "
-                "choose interactively on a TTY."
+                "Embedding strategy: fts-only, local-embedding (in-process "
+                "BGE-M3), local-embedding-llama (managed Qwen sidecar), or "
+                "remote-embedding. Legacy fts/local/llama-qwen3/remote names "
+                "are accepted as aliases."
             ),
         )
         p.add_argument(
             "--preset",
             choices=["low"],
             default=None,
-            help="Preset for --mode local: low (Qwen3-Embedding-0.6B, ~1 GB).",
+            help=(
+                "Preset for --mode local-embedding-llama: low "
+                "(Qwen3-Embedding-0.6B, ~1 GB)."
+            ),
         )
         p.add_argument(
             "--provider",
             choices=["openai", "google", "minimax"],
             default=None,
             help=(
-                "Provider for --mode remote: openai (OpenAI-compatible), "
+                "Provider for --mode remote-embedding: openai (OpenAI-compatible), "
                 "google (Gemini), or minimax (embo-01)."
             ),
         )
 
     install_cmd = sub.add_parser("install", help="Register MCP server with AI coding platforms")
     _add_common(install_cmd)
-    _add_local_embedding_args(install_cmd)
+    _add_local_embedding_args(install_cmd, include_mode_alias=False)
 
     init_cmd = sub.add_parser("init", help="Alias for install")
     _add_common(init_cmd)
-    _add_local_embedding_args(init_cmd)
+    _add_local_embedding_args(init_cmd, include_mode_alias=False)
 
     return {"install": install_cmd, "init": init_cmd}
 
@@ -184,10 +197,12 @@ def handle(args: argparse.Namespace) -> None:
         )
 
     extra_serve_args: list[str] = []
-    if mode == "local":
-        # _resolve_install_mode guarantees preset is set when mode == "local".
+    if mode == "local-embedding":
+        extra_serve_args += ["--local-embedding"]
+    elif mode == "local-embedding-llama":
+        # _resolve_install_mode guarantees preset is set when mode == "local-embedding-llama".
         assert preset is not None
-        extra_serve_args += ["--local-embedding", preset]
+        extra_serve_args += ["--local-embedding", "--mode", "llama-qwen3"]
         le_port = getattr(args, "local_embedding_port", None)
         le_bin = getattr(args, "local_embedding_bin", None)
         le_timeout = getattr(args, "local_embedding_timeout", None)
@@ -197,8 +212,8 @@ def handle(args: argparse.Namespace) -> None:
             extra_serve_args += ["--local-embedding-bin", le_bin]
         if le_timeout is not None and le_timeout != 300:
             extra_serve_args += ["--local-embedding-timeout", str(le_timeout)]
-    elif mode == "remote":
-        # _resolve_install_mode guarantees provider is set when mode == "remote".
+    elif mode == "remote-embedding":
+        # _resolve_install_mode guarantees provider is set when mode == "remote-embedding".
         assert provider is not None
         extra_serve_args += ["--remote-embedding", provider]
     extra_hook_update_args = list(extra_serve_args)

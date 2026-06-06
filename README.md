@@ -172,7 +172,7 @@ dagayn build
 dagayn status
 ```
 
-`install` auto-detects supported AI coding platforms and writes MCP configuration where appropriate.  Run without arguments on a TTY to be prompted for one of three embedding modes (see below); under `-y` or a non-TTY stdin the mode must be passed explicitly.
+`install` auto-detects supported AI coding platforms and writes MCP configuration where appropriate.  Run without arguments on a TTY to be prompted for an embedding mode (see below); under `-y` or a non-TTY stdin the mode must be passed explicitly.
 
 `build` creates the initial graph.
 
@@ -183,22 +183,25 @@ existing graph database before rebuilding from scratch.
 
 ### Choosing an install mode
 
-`dagayn install` supports three embedding strategies as first-class options:
+`dagayn install` supports these embedding strategies as first-class options:
 
 ```bash
 # 1. FTS only — no embeddings, fastest, no model download.
-dagayn install --mode fts
+dagayn install --mode fts-only
 
-# 2. Local — managed Qwen3 llama.cpp GGUF sidecar.
-dagayn install --mode local --preset low    # Qwen3-Embedding-0.6B (~1 GB)
+# 2. Local — in-process BGE-M3, no model server required.
+dagayn install --mode local-embedding
 
-# 3. Remote — OpenAI-compatible / Google / MiniMax cloud embeddings.
-dagayn install --mode remote --provider openai
-dagayn install --mode remote --provider google
-dagayn install --mode remote --provider minimax
+# 3. Managed Qwen3 llama.cpp GGUF sidecar.
+dagayn install --mode local-embedding-llama --preset low    # Qwen3-Embedding-0.6B (~1 GB)
+
+# 4. Remote — OpenAI-compatible / Google / MiniMax cloud embeddings.
+dagayn install --mode remote-embedding --provider openai
+dagayn install --mode remote-embedding --provider google
+dagayn install --mode remote-embedding --provider minimax
 ```
 
-For `--mode remote`, set the provider's environment variables in the shell that launches your AI coding tool (e.g. `CRG_OPENAI_API_KEY`, `CRG_OPENAI_BASE_URL`, `CRG_OPENAI_MODEL` for `openai`); the MCP server inherits those at launch time and the generated `dagayn serve --remote-embedding <provider>` entry makes MCP search use that provider automatically.  The exact env-var list is printed at install time.  The legacy `--local-embedding low` flag still works as a shortcut for `--mode local --preset low`.
+For `--mode remote-embedding`, set the provider's environment variables in the shell that launches your AI coding tool (e.g. `CRG_OPENAI_API_KEY`, `CRG_OPENAI_BASE_URL`, `CRG_OPENAI_MODEL` for `openai`); the MCP server inherits those at launch time and the generated `dagayn serve --remote-embedding <provider>` entry makes MCP search use that provider automatically.  The exact env-var list is printed at install time.  Legacy install shortcuts such as `--mode fts`, `--mode local`, `--mode local --preset low`, `--mode llama-qwen3`, `--mode remote`, and `--local-embedding low` still work as aliases for the new explicit mode names.
 
 ### Rust backend
 
@@ -318,28 +321,24 @@ The graph is stored locally under `.dagayn/` by default. No external database is
 
 <!-- derived-from ./docs/ARCHITECTURE.md#hybrid-search -->
 
-`semantic_search_nodes` runs FTS5 BM25 and vector cosine similarity **in parallel**, then merges both ranked lists via Reciprocal Rank Fusion (RRF). When embeddings are not yet present only the FTS5 arm contributes; when both are available you get hybrid results automatically — no per-search configuration change required. `dagayn serve --local-embedding low` makes MCP search default to the local llama.cpp GGUF OpenAI-compatible sidecar, and `dagayn serve --remote-embedding {openai,google,minimax}` makes MCP search default to that remote provider. The FTS index includes generated identifier tokens (so `LocalEmbeddingProvider` also matches `local embedding provider`) plus bounded source/document text such as docstrings and Markdown section bodies. Japanese source/document text is pre-segmented before insertion, using an optional MeCab-compatible tokenizer when installed and an ASCII-preserving fallback otherwise, so English words inside Japanese text stay searchable.
+`semantic_search_nodes` runs FTS5 BM25 and vector cosine similarity **in parallel**, then merges both ranked lists via Reciprocal Rank Fusion (RRF). When embeddings are not yet present only the FTS5 arm contributes; when both are available you get hybrid results automatically — no per-search configuration change required. `dagayn serve --local-embedding` makes MCP search default to in-process `BAAI/bge-m3`; `dagayn serve --local-embedding --mode llama-qwen3` or `dagayn serve --local-embedding low` keeps the managed llama.cpp GGUF OpenAI-compatible sidecar. `dagayn serve --remote-embedding {openai,google,minimax}` makes MCP search default to that remote provider. The default local sentence-transformers model is `BAAI/bge-m3`. The default embedding material uses Markdown section/body text and code symbol names with adjacent comment sentences; legacy `metadata` and full `body` modes remain available through `DAGAYN_EMBEDDING_TEXT_MODE`. The FTS index includes generated identifier tokens (so `LocalEmbeddingProvider` also matches `local embedding provider`) plus bounded source/document text such as docstrings and Markdown section bodies. Japanese source/document text is pre-segmented before insertion, using an optional MeCab-compatible tokenizer when installed and an ASCII-preserving fallback otherwise, so English words inside Japanese text stay searchable.
 
 A `search_mode` field in the response reports which arms contributed: `"hybrid"` (both), `"fts_only"`, `"embedding_only"`, or `"keyword_fallback"` (LIKE substring, triggered only when the FTS5 index does not exist). Search results are further ranked by a query-aware kind boost (PascalCase → classes, snake_case → functions) and an optional context-file boost for nodes in files you are currently editing.
 
 ### Providers
 
-| Provider | Runs where | Install extra | Required env vars |
+| Provider | Runs where | Extra install | Required env vars |
 |---|---|---|---|
-| `local` (default) | Fully offline | `dagayn[embeddings]` for sentence-transformers local models | — |
+| `local` (default) | Fully offline | included in standard dependencies | — |
 | `openai` | Cloud or self-hosted gateway | — | `CRG_OPENAI_API_KEY`, `CRG_OPENAI_BASE_URL`, `CRG_OPENAI_MODEL` |
 | `google` | Google Cloud | `dagayn[google-embeddings]` | `GOOGLE_API_KEY` |
 | `minimax` | MiniMax Cloud | — | `MINIMAX_API_KEY` |
 
 The `openai` provider speaks the standard `/v1/embeddings` schema, so it works with real OpenAI, Azure OpenAI, LiteLLM, vLLM, LocalAI, Ollama (in OpenAI mode), and similar gateways. When `CRG_OPENAI_BASE_URL` points to localhost the cloud egress warning is suppressed automatically.
 
-Vector search uses numpy by default for the cosine-similarity matrix path; the `embeddings` extra is only needed for the built-in sentence-transformers provider.
-
-### Installing the local provider
-
-```bash
-pip install "dagayn[embeddings]"
-```
+Vector search uses numpy by default for the cosine-similarity matrix path. The
+built-in sentence-transformers provider is included in the standard dependency
+set so `dagayn serve --local-embedding` can run BGE-M3 without an extra install.
 
 ### Running embedding
 
@@ -347,6 +346,7 @@ Call `embed_graph_tool` via MCP (or let your AI agent call it after `build_or_up
 
 ```
 embed_graph_tool(provider="local")
+embed_graph_tool(provider="local", model="BAAI/bge-m3")
 embed_graph_tool(provider="openai")   # reads CRG_OPENAI_* from env
 embed_graph_tool(provider="google")   # reads GOOGLE_API_KEY from env
 embed_graph_tool(provider="minimax")  # reads MINIMAX_API_KEY from env
@@ -356,41 +356,26 @@ Embeddings are stored in the `embeddings` table inside `.dagayn/graph.db`. Switc
 
 ### Search quality
 
-Measured on the dagayn codebase itself (8,339 graph nodes, 7,947 embedded
-non-file nodes) with the local `low` preset. The code-search benchmark uses 12
-queries spanning exact function names, PascalCase class names, and conceptual
-natural-language queries. Latency reflects a query-only run against the existing
-`.dagayn/graph.db`; embedding build time is not included.
+Measured on the dagayn codebase itself with the best measured material strategy
+(`doc=section|code=name|comment=sentence|join=combined`), 11,741 embedded
+materials pointing at 8,236 graph references, 31 positive queries, and 5
+unrelated negative calibration queries. `negative top score` is lower-is-better:
+it shows how strongly an unrelated query still matches some repository node.
 
-#### Code search benchmark
+| Local model | positive MRR | Precision@5 | negative top score | embedding throughput |
+|---|---:|---:|---:|---:|
+| `BAAI/bge-m3` | **0.5639** | **0.6774** | **0.4157** | 87.8 nodes/s |
+| `intfloat/multilingual-e5-base` | 0.5317 | 0.6452 | 0.8127 | **302.1 nodes/s** |
+| `nomic-ai/nomic-embed-text-v1.5` | 0.5215 | 0.5806 | 0.5202 | 136.6 nodes/s |
+| `mixedbread-ai/mxbai-embed-large-v1` | 0.4604 | 0.4516 | 0.4700 | 85.4 nodes/s |
+| Qwen3-Embedding-0.6B Q8 `low` | 0.4301 | 0.5484 | 0.5261 | 55.4 nodes/s |
+| `jinaai/jina-embeddings-v2-base-code` | 0.3604 | 0.4516 | 0.4753 | 171.8 nodes/s |
 
-| Mode | Retrieval path | mean MRR | Precision@1 | Precision@5 | Precision@20 | avg query latency |
-|---|---|---:|---:|---:|---:|---:|
-| FTS5 only | lexical | 0.5741 | 0.5000 | 0.6667 | 0.8333 | 0.6 ms |
-| Qwen3-Embedding-0.6B Q8 `low` | embedding only | **0.7153** | **0.6667** | 0.8333 | 0.8333 | 29.6 ms |
-| Hybrid search | FTS5 + embedding RRF | 0.6806 | 0.5833 | **0.9167** | **0.9167** | 9.9 ms |
-
-Embedding-only is strongest on mean MRR for this mixed query set, while hybrid
-search keeps FTS exact-name recall and has the best Precision@5/20. On the
-previous larger-model experiment, the 4B `high` preset did not beat `low` and
-was about 7x slower to embed, so the local preset surface keeps only `low`.
-
-#### Documentation search benchmark
-
-The documentation benchmark uses 19 fuzzy natural-language questions against
-`README.md` plus `docs/`, excluding audit/plan notes. Targets use graded
-relevance across `DocSection` and `DocBody` nodes.
-
-| Mode | Retrieval path | mean MRR | Precision@1 | Precision@5 | Precision@20 | nDCG@5 | nDCG@20 | avg query latency |
-|---|---|---:|---:|---:|---:|---:|---:|---:|
-| FTS5 only | lexical docs | 0.4367 | 0.3158 | 0.5789 | 0.8947 | 0.3375 | 0.4239 | 8.8 ms |
-| Qwen3-Embedding-0.6B Q8 `low` | embedding only | 0.5017 | 0.3684 | 0.5789 | 0.7895 | 0.3457 | 0.4360 | 35.8 ms |
-| Hybrid search | corpus-filtered FTS5 + embedding RRF | **0.6546** | **0.5263** | **0.7895** | **0.9474** | **0.4848** | **0.5820** | 23.6 ms |
-
-Hybrid search works best for documentation because FTS anchors explicit terms
-while `DocBody` embeddings recover paraphrases that do not appear directly in
-headings or metadata. See `docs/LOCAL-EMBEDDINGS.md` for local setup and more
-embedding details.
+`BAAI/bge-m3` is the default local sentence-transformers model because it had
+the best positive ranking and the lowest unrelated-query top score in this
+measurement. The managed `low` preset remains Qwen3 GGUF for fully managed
+llama.cpp sidecar installs. See `docs/LOCAL-EMBEDDINGS.md` for local setup and
+more embedding details.
 
 ### Privacy and cloud egress
 

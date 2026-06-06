@@ -25,9 +25,9 @@ the selected embedding mode so graph builds refresh the right retrieval indexes.
    - For first-time graph setup: `build_or_update_graph_tool(full_rebuild=True, local_embedding="none")`
    - For routine updates: `build_or_update_graph_tool(local_embedding="none")`
    - Do not run embedding-enabled full rebuilds as a routine verification step.
-     When the MCP server was started with `--local-embedding low`, omitting
-     `local_embedding` may inherit that preset and trigger a large embedding
-     refresh. Pass `local_embedding="low"` only when the task explicitly requires
+     When the MCP server was started with `--local-embedding`, omitting
+     `local_embedding` may inherit that mode and trigger a large embedding
+     refresh. Pass `local_embedding="bge-m3"` only when the task explicitly requires
      embedding quality or hybrid-search freshness, and state that reason first.
 
 3. **Verify** by calling `list_graph_stats_tool` again and report the results:

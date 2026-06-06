@@ -32,13 +32,16 @@ def _print_local_embedding_summary(result: dict) -> None:
     emb = result.get("local_embedding")
     if not emb:
         return
-    started = "started" if emb.get("server_started") else "reused"
+    if emb.get("mode") == "bge-m3":
+        runtime = "in-process"
+    else:
+        runtime = "started server" if emb.get("server_started") else "reused server"
     preset = emb.get("preset")
     text_mode = emb.get("text_mode")
     preset_label = f"{preset}/{text_mode}" if text_mode else preset
     print(
         "Local embeddings "
-        f"({preset_label}, {started} server): "
+        f"({preset_label}, {runtime}): "
         f"{emb.get('newly_embedded', 0)} new, "
         f"{emb.get('orphans_removed', 0)} orphan removed, "
         f"{emb.get('total_embeddings', 0)} total"
@@ -393,6 +396,7 @@ def handle(args: argparse.Namespace) -> None:
                 repo_root=str(repo_root),
                 postprocess=pp,
                 local_embedding=getattr(args, "local_embedding", "none"),
+                local_embedding_mode=getattr(args, "local_embedding_mode", None),
                 local_embedding_port=getattr(args, "local_embedding_port", 18080),
                 local_embedding_bin=getattr(
                     args,
@@ -436,6 +440,7 @@ def handle(args: argparse.Namespace) -> None:
                 base=args.base,
                 postprocess=pp,
                 local_embedding=getattr(args, "local_embedding", "none"),
+                local_embedding_mode=getattr(args, "local_embedding_mode", None),
                 local_embedding_port=getattr(args, "local_embedding_port", 18080),
                 local_embedding_bin=getattr(
                     args,

@@ -46,7 +46,7 @@ def test_serve_local_embedding_sets_search_default_to_openai(monkeypatch):
         command: list[str] = []
         preset = SimpleNamespace(
             model="qwen3-embedding-0.6b-gguf-q8_0",
-            text_mode="metadata",
+            text_mode="material",
             request_max_length=None,
         )
 
@@ -78,8 +78,28 @@ def test_serve_local_embedding_sets_search_default_to_openai(monkeypatch):
     assert calls[0]["local_embedding_request_timeout"] == 60
     assert calls[0]["local_embedding_batch_size"] == 1
     assert os.environ["CRG_OPENAI_MODEL"] == "qwen3-embedding-0.6b-gguf-q8_0"
-    assert os.environ["DAGAYN_EMBEDDING_TEXT_MODE"] == "metadata"
+    assert os.environ["DAGAYN_EMBEDDING_TEXT_MODE"] == "material"
     assert os.environ.get("CRG_OPENAI_MAX_LENGTH") is None
+
+
+def test_serve_bare_local_embedding_uses_in_process_bge(monkeypatch):
+    calls: list[dict] = []
+
+    monkeypatch.setattr("dagayn.main.main", lambda **kwargs: calls.append(kwargs))
+
+    def fail_server(*_args, **_kwargs):
+        raise AssertionError("BGE mode should not start a local embedding server")
+
+    monkeypatch.setattr("dagayn.local_embeddings.local_embedding_server", fail_server)
+
+    parser = _parser()
+    args = parser.parse_args(["serve", "--local-embedding"])
+    handle(args, parser)
+
+    assert calls[0]["embedding_provider"] == "local"
+    assert calls[0]["embedding_model"] == "BAAI/bge-m3"
+    assert calls[0]["local_embedding"] == "bge-m3"
+    assert os.environ["DAGAYN_EMBEDDING_TEXT_MODE"] == "material"
 
 
 def test_serve_remote_embedding_sets_search_default(monkeypatch):
@@ -133,7 +153,7 @@ def test_serve_infers_local_embedding_from_existing_graph(monkeypatch, tmp_path)
         command: list[str] = []
         preset = SimpleNamespace(
             model="qwen3-embedding-0.6b-gguf-q8_0",
-            text_mode="metadata",
+            text_mode="material",
             request_max_length=None,
         )
 
@@ -169,4 +189,4 @@ def test_serve_infers_local_embedding_from_existing_graph(monkeypatch, tmp_path)
     assert calls[0]["embedding_model"] == "qwen3-embedding-0.6b-gguf-q8_0"
     assert calls[0]["local_embedding"] == "low"
     assert calls[0]["local_embedding_port"] == 19090
-    assert os.environ["DAGAYN_EMBEDDING_TEXT_MODE"] == "metadata"
+    assert os.environ["DAGAYN_EMBEDDING_TEXT_MODE"] == "material"

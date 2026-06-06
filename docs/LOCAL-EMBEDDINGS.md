@@ -2,14 +2,25 @@
 
 <!-- constrained-by ./COMMANDS.md -->
 
-This document describes the **`--mode local`** install path: dagayn generates
-semantic-search embeddings locally during `build` and `update` by starting
-an OpenAI-compatible local model server as a subprocess and talking to its
-`/v1/embeddings` endpoint.  The other two install modes are `--mode fts`
-(no embeddings, fastest) and `--mode remote` (OpenAI-compatible / Google /
-MiniMax cloud APIs) — see the README's "Choosing an install mode" section.
+This document describes dagayn's local embedding paths. A bare
+`--local-embedding` on `build`, `update`, or `serve` uses the measured default:
+in-process sentence-transformers with `BAAI/bge-m3` and the `material` text
+mode. The `--mode local-embedding` install path writes MCP configs that serve
+BGE-M3 with the same in-process path. Use `--mode local-embedding-llama` or the
+legacy `--local-embedding low` request for the managed Qwen3 llama.cpp sidecar.
+The other install modes are `--mode fts-only` (no embeddings, fastest) and
+`--mode remote-embedding` (OpenAI-compatible / Google / MiniMax cloud APIs) —
+see the README's "Choosing an install mode" section.
 
-## Presets
+## Local modes
+
+| Request | Runtime | Model | Dimension |
+| --- | --- | --- | --- |
+| `--local-embedding` | in-process sentence-transformers | `BAAI/bge-m3` | 1024 |
+| `--local-embedding --mode llama-qwen3` | `llama-server` sidecar | `Qwen/Qwen3-Embedding-0.6B-GGUF:Q8_0` | 1024 |
+| `--local-embedding low` | `llama-server` sidecar | `Qwen/Qwen3-Embedding-0.6B-GGUF:Q8_0` | 1024 |
+
+## Qwen Sidecar Presets
 
 | Preset | Runtime | Default platform | Model | Quantization | Dimension |
 | --- | --- | --- | --- | --- | --- |
@@ -20,7 +31,7 @@ models. The local preset uses the 0.6B 8-bit GGUF variant through
 `llama-server`. `DAGAYN_LOCAL_EMBEDDING_RUNTIME=llama` is accepted for
 explicit configuration; other runtime values are rejected.
 
-## Setup
+## Qwen Sidecar Setup
 
 Install `llama.cpp` so `llama-server` is available on `PATH`:
 
@@ -40,9 +51,9 @@ cmake --build build -j --target llama-server
 ./build/bin/llama-server --version
 ```
 
-## Manual Check
+## Qwen Manual Check
 
-<!-- derived-from #presets -->
+<!-- derived-from #qwen-sidecar-presets -->
 
 You can start the server yourself before running dagayn. dagayn will reuse a
 compatible server already listening on the configured port.
@@ -77,15 +88,23 @@ curl http://127.0.0.1:18080/v1/embeddings \
 
 <!-- derived-from #setup -->
 
-Run a full build with local embeddings:
+Run a full build with the default in-process BGE-M3 local embeddings:
 
 ```bash
-dagayn build --local-embedding low
+dagayn build --local-embedding
 ```
 
-Run an incremental update and refresh missing or stale embeddings:
+Run an incremental update and refresh missing or stale BGE-M3 embeddings:
 
 ```bash
+dagayn update --local-embedding
+```
+
+Use the managed Qwen3 llama.cpp sidecar explicitly when you want the legacy
+OpenAI-compatible server behavior:
+
+```bash
+dagayn build --local-embedding --mode llama-qwen3
 dagayn update --local-embedding low
 ```
 
@@ -93,21 +112,21 @@ Do not use embedding-enabled full rebuilds as routine parser, flow,
 documentation-edge, or review verification. For those checks, run the graph
 refresh without local embeddings, for example `dagayn update --local-embedding
 none` or the equivalent `build_or_update_graph_tool(local_embedding="none")`.
-Reserve `dagayn build --force-full-build --local-embedding low` for explicit
+Reserve `dagayn build --force-full-build --local-embedding` for explicit
 embedding-quality or end-to-end maintenance work after stating why the embedding
 refresh itself is required.
 
-If no compatible server is already listening on `127.0.0.1:18080`, dagayn
+For Qwen sidecar mode, if no compatible server is already listening on `127.0.0.1:18080`, dagayn
 starts `llama-server` for the duration of the command. By default, dagayn stops
 that subprocess when embedding finishes. Managed starts are serialized per port
 with a lock under `~/.dagayn/`, so concurrent dagayn processes do not launch
 multiple `llama-server` subprocesses for the same localhost port.
 
-Useful options:
+Useful Qwen sidecar options:
 
 ```bash
 dagayn build \
-  --local-embedding low \
+  --local-embedding --mode llama-qwen3 \
   --local-embedding-port 18080 \
   --local-embedding-bin auto \
   --local-embedding-timeout 300 \
@@ -118,14 +137,14 @@ dagayn build \
 `--local-embedding-bin auto` resolves to `llama-server`. Pass an explicit
 executable name or path to override it.
 
-`--local-embedding-timeout` only controls server readiness. If an individual
+`--local-embedding-timeout` only controls Qwen sidecar server readiness. If an individual
 embedding batch stalls after the server is ready,
 `--local-embedding-request-timeout` bounds that HTTP request. Successful
 batches are saved as they complete, so rerunning the command resumes from the
 remaining stale or missing embeddings.
 
-The batch size is also pinned for local embeddings. `dagayn build
---local-embedding low` defaults to 1 text per request even if the shell has
+The Qwen sidecar batch size is also pinned. `dagayn build
+--local-embedding --mode llama-qwen3` defaults to 1 text per request even if the shell has
 `CRG_OPENAI_BATCH_SIZE` set for another provider. Raise it only after measuring;
 larger batches can make local embedding endpoints stall on some hosts.
 
@@ -140,16 +159,16 @@ quality default. The logical and physical llama.cpp batch limits are both set to
 8192 (`-b 8192 -ub 8192`) so long embedding inputs are processed in larger
 chunks when memory allows.
 
-The local preset embeds graph metadata: symbol name, qualified name, file path,
-display name, signature, params, return type, kind, parent, and language.
-Markdown `DocSection`/`DocBody` nodes also include a bounded section body so
-fuzzy documentation search can match prose that does not appear in headings.
-Documentation bodies are repeated in the embedding input by default
-(`DAGAYN_DOC_EMBEDDING_BODY_WEIGHT=2`) so prose has more influence than path
-and heading metadata for fuzzy documentation queries.
+The default embedding material is `material`, chosen from local measurements on
+mixed code and documentation queries. Markdown `DocSection`/`DocBody` nodes
+embed the bounded section or paragraph body. Code classes/functions/methods
+embed symbol name, qualified name, file path, parent, language, and adjacent or
+owned comment sentences; signatures and implementation bodies are left out by
+default because the measured material benchmark favored symbol-name material
+plus comments over signature-heavy or body-heavy inputs.
 
-Set `DAGAYN_EMBEDDING_TEXT_MODE=metadata` or `body` to override that behavior
-for any provider or preset. The source span is capped by
+Set `DAGAYN_EMBEDDING_TEXT_MODE=metadata`, `material`, or `body` to override
+that behavior for any provider or preset. The source span is capped by
 `DAGAYN_EMBEDDING_SOURCE_CHARS` and defaults to 2048 characters. Body mode can
 improve conceptual searches where the query terms appear only in implementation
 text or Markdown section bodies, at the cost of larger embedding inputs and
@@ -159,69 +178,29 @@ change.
 Leave a dagayn-started server running for reuse:
 
 ```bash
-dagayn build --local-embedding low --keep-local-embedding-server
+dagayn build --local-embedding --mode llama-qwen3 --keep-local-embedding-server
 ```
 
 ## Search quality
 
-The measurements below were taken with the llama.cpp GGUF runtime. They remain
-the baseline for the `low` preset.
+The measurements below use the best measured material strategy
+(`doc=section|code=name|comment=sentence|join=combined`) on the dagayn codebase:
+11,741 embedded materials, 8,236 graph references, 31 positive queries, and 5
+unrelated negative calibration queries. `negative top score` is lower-is-better.
 
-Measured on the dagayn codebase (6,197 graph nodes, 5,811 embedded non-file
-nodes). Query set: 5 exact function names, 3 PascalCase class names, 4
-conceptual natural-language queries. The local `low` preset embeds graph
-metadata.
+| Local model | positive MRR | Precision@5 | negative top score | embedding throughput |
+|---|---:|---:|---:|---:|
+| `BAAI/bge-m3` | **0.5639** | **0.6774** | **0.4157** | 87.8 nodes/s |
+| `intfloat/multilingual-e5-base` | 0.5317 | 0.6452 | 0.8127 | **302.1 nodes/s** |
+| `nomic-ai/nomic-embed-text-v1.5` | 0.5215 | 0.5806 | 0.5202 | 136.6 nodes/s |
+| `mixedbread-ai/mxbai-embed-large-v1` | 0.4604 | 0.4516 | 0.4700 | 85.4 nodes/s |
+| Qwen3-Embedding-0.6B Q8 `low` | 0.4301 | 0.5484 | 0.5261 | 55.4 nodes/s |
+| `jinaai/jina-embeddings-v2-base-code` | 0.3604 | 0.4516 | 0.4753 | 171.8 nodes/s |
 
-### Aggregate
-
-| Mode | text embedded | build time | mean MRR | Precision@1 | Precision@5 | avg query latency |
-|---|---|---:|---:|---:|---:|---:|
-| FTS5 only | n/a | n/a | 0.7417 | 0.6667 | 0.9167 | 1.0 ms |
-| Qwen3-Embedding-0.6B Q8 `low` (hybrid) | metadata | 133.2 s | **0.7222** | 0.5833 | 0.9167 | 413.2 ms |
-
-### Per-query breakdown
-
-| Query | Label | FTS rank | Qwen3-0.6B `low` rank |
-|---|---|---|---|
-| `hybrid_search` | exact_name | 5 | 2 |
-| `rebuild_fts_index` | exact_name | 5 | 3 |
-| `rrf_merge` | exact_name | 1 | 1 |
-| `full_build` | exact_name | 2 | 3 |
-| `detect_query_kind_boost` | exact_name | 1 | 1 |
-| `GraphStore` | pascal_case_class | 1 | 2 |
-| `EmbeddingProvider` | pascal_case_class | 1 | 1 |
-| `LocalEmbeddingProvider` | pascal_case_class | 1 | 1 |
-| "reciprocal rank fusion" | conceptual | **1** | **1** |
-| "sentence transformers local model" | conceptual | **1** | **1** |
-| "kind boost detection query" | conceptual | 1 | 1 |
-| "incremental graph construction" | conceptual | — | — |
-
-FTS5 is strong on exact and PascalCase queries. The previous 4B `high`
-experiment did not beat `low` on this query set despite embedding source bodies,
-and it was about 7x slower to embed. The local preset surface therefore keeps
-only `low`. The last query ("incremental graph construction" → `full_build`) is
-a miss for all modes because the target shares little lexical or semantic
-surface with the query.
-
-### Documentation fuzzy search
-
-Measured on the dagayn documentation corpus (`README.md` plus `docs/`, excluding
-audit/plan notes) after adding `DocBody` paragraph chunks. Query set: 19 complex
-natural-language documentation questions whose full text does not appear in the
-target body. Relevance is graded: each query has a primary target and optional
-related sections.
-
-| Mode | mean MRR | Precision@1 | Precision@5 | Precision@20 | nDCG@5 | nDCG@20 | avg query latency |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| FTS5 only | 0.4146 | 0.3158 | 0.4737 | **0.8421** | 0.4361 | **0.7344** | 8.8 ms |
-| Qwen3-Embedding-0.6B Q8 `low` | **0.5449** | **0.4737** | **0.5789** | **0.8421** | **0.4424** | 0.7220 | 501.2 ms |
-| Qwen3-Embedding-0.6B Q8 `low` with documentation query prefix | 0.2545 | 0.1579 | 0.3684 | 0.6316 | 0.1551 | 0.2970 | 494.6 ms |
-
-The raw local embedding query improves early ranking on this harder prose
-retrieval set and ties FTS5 at Precision@20. FTS5 still has slightly higher
-nDCG@20, so broad graded recall remains competitive. The generic
-documentation-query prefix did not help; it added noise for this model and
-corpus.
+`BAAI/bge-m3` is the default for `embed_graph_tool(provider="local")`, the
+sentence-transformers local provider, and bare `--local-embedding` on
+`build`, `update`, and `serve`. The managed `low` preset remains Qwen3 GGUF
+because it provides a no-Python-model-server path through `llama-server`.
 
 ## Troubleshooting
 

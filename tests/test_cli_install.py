@@ -33,40 +33,69 @@ def _ns(**overrides) -> argparse.Namespace:
 
 
 class TestResolveInstallMode:
-    def test_explicit_fts(self):
-        assert _resolve_install_mode(_ns(mode="fts")) == ("fts", None, None)
+    def test_explicit_fts_only(self):
+        assert _resolve_install_mode(_ns(mode="fts-only")) == ("fts-only", None, None)
 
-    def test_explicit_local_with_preset(self):
+    def test_legacy_explicit_local_with_preset_maps_to_llama(self):
         ns = _ns(mode="local", preset="low")
-        assert _resolve_install_mode(ns) == ("local", "low", None)
+        assert _resolve_install_mode(ns) == ("local-embedding-llama", "low", None)
 
-    def test_explicit_local_defaults_to_low(self):
-        assert _resolve_install_mode(_ns(mode="local")) == ("local", "low", None)
+    def test_explicit_local_embedding_defaults_to_bge(self):
+        assert _resolve_install_mode(_ns(mode="local-embedding")) == (
+            "local-embedding",
+            None,
+            None,
+        )
 
-    def test_explicit_local_rejects_removed_high_preset(self):
-        with pytest.raises(SystemExit, match="only supports --preset low"):
-            _resolve_install_mode(_ns(mode="local", preset="high"))
+    def test_explicit_local_embedding_rejects_preset(self):
+        with pytest.raises(SystemExit, match="does not accept --preset"):
+            _resolve_install_mode(_ns(mode="local-embedding", preset="low"))
+
+    def test_explicit_local_embedding_llama_defaults_to_low(self):
+        assert _resolve_install_mode(_ns(mode="local-embedding-llama")) == (
+            "local-embedding-llama",
+            "low",
+            None,
+        )
 
     def test_explicit_remote_with_provider(self):
-        ns = _ns(mode="remote", provider="openai")
-        assert _resolve_install_mode(ns) == ("remote", None, "openai")
+        ns = _ns(mode="remote-embedding", provider="openai")
+        assert _resolve_install_mode(ns) == ("remote-embedding", None, "openai")
 
     def test_explicit_remote_requires_provider(self):
-        with pytest.raises(SystemExit, match="--mode remote requires --provider"):
-            _resolve_install_mode(_ns(mode="remote"))
+        with pytest.raises(SystemExit, match="--mode remote-embedding requires --provider"):
+            _resolve_install_mode(_ns(mode="remote-embedding"))
 
     def test_legacy_local_embedding_low(self):
         ns = _ns(local_embedding="low")
-        assert _resolve_install_mode(ns) == ("local", "low", None)
+        assert _resolve_install_mode(ns) == ("local-embedding-llama", "low", None)
+
+    def test_legacy_local_embedding_bare_bge(self):
+        ns = _ns(local_embedding="bge-m3")
+        assert _resolve_install_mode(ns) == ("local-embedding", None, None)
 
     def test_legacy_local_embedding_rejects_removed_high(self):
-        with pytest.raises(SystemExit, match="only supports low"):
+        with pytest.raises(SystemExit, match="only supports bge-m3, low, or llama-qwen3"):
             _resolve_install_mode(_ns(local_embedding="high"))
 
     def test_explicit_mode_overrides_legacy(self):
-        # --mode fts wins over --local-embedding low.
-        ns = _ns(mode="fts", local_embedding="low")
-        assert _resolve_install_mode(ns) == ("fts", None, None)
+        # --mode fts-only wins over --local-embedding low.
+        ns = _ns(mode="fts-only", local_embedding="low")
+        assert _resolve_install_mode(ns) == ("fts-only", None, None)
+
+    def test_legacy_mode_aliases_are_accepted(self):
+        assert _resolve_install_mode(_ns(mode="fts")) == ("fts-only", None, None)
+        assert _resolve_install_mode(_ns(mode="local")) == ("local-embedding", None, None)
+        assert _resolve_install_mode(_ns(mode="llama-qwen3")) == (
+            "local-embedding-llama",
+            "low",
+            None,
+        )
+        assert _resolve_install_mode(_ns(mode="remote", provider="google")) == (
+            "remote-embedding",
+            None,
+            "google",
+        )
 
     def test_fail_fast_with_yes(self):
         with pytest.raises(SystemExit, match="--mode is required"):
@@ -83,9 +112,9 @@ class TestResolveInstallMode:
         monkeypatch.setattr("sys.stdin.isatty", lambda: True)
         monkeypatch.setattr(
             "dagayn.cli.commands._shared._prompt_install_mode",
-            lambda: ("fts", None, None),
+            lambda: ("fts-only", None, None),
         )
-        assert _resolve_install_mode(_ns()) == ("fts", None, None)
+        assert _resolve_install_mode(_ns()) == ("fts-only", None, None)
 
 
 # ---------------------------------------------------------------------------
@@ -102,27 +131,31 @@ def _scripted_input(monkeypatch, answers: list[str]) -> None:
 class TestPromptInstallMode:
     def test_picks_fts(self, monkeypatch):
         _scripted_input(monkeypatch, ["1"])
-        assert _prompt_install_mode() == ("fts", None, None)
+        assert _prompt_install_mode() == ("fts-only", None, None)
 
-    def test_picks_local_low(self, monkeypatch):
+    def test_picks_local_embedding(self, monkeypatch):
         _scripted_input(monkeypatch, ["2"])
-        assert _prompt_install_mode() == ("local", "low", None)
+        assert _prompt_install_mode() == ("local-embedding", None, None)
+
+    def test_picks_local_embedding_llama(self, monkeypatch):
+        _scripted_input(monkeypatch, ["3"])
+        assert _prompt_install_mode() == ("local-embedding-llama", "low", None)
 
     def test_picks_remote_openai(self, monkeypatch):
-        _scripted_input(monkeypatch, ["3", "1"])
-        assert _prompt_install_mode() == ("remote", None, "openai")
+        _scripted_input(monkeypatch, ["4", "1"])
+        assert _prompt_install_mode() == ("remote-embedding", None, "openai")
 
     def test_picks_remote_google(self, monkeypatch):
-        _scripted_input(monkeypatch, ["3", "2"])
-        assert _prompt_install_mode() == ("remote", None, "google")
+        _scripted_input(monkeypatch, ["4", "2"])
+        assert _prompt_install_mode() == ("remote-embedding", None, "google")
 
     def test_picks_remote_minimax(self, monkeypatch):
-        _scripted_input(monkeypatch, ["3", "3"])
-        assert _prompt_install_mode() == ("remote", None, "minimax")
+        _scripted_input(monkeypatch, ["4", "3"])
+        assert _prompt_install_mode() == ("remote-embedding", None, "minimax")
 
     def test_invalid_choice_reprompts(self, monkeypatch, capsys):
         _scripted_input(monkeypatch, ["x", "9", "1"])
-        assert _prompt_install_mode() == ("fts", None, None)
+        assert _prompt_install_mode() == ("fts-only", None, None)
         out = capsys.readouterr().out
         # Two rejection messages before the valid pick succeeds.
         assert out.count("Please enter one of:") == 2
@@ -162,6 +195,72 @@ class TestRemoteEnvVars:
 
 
 class TestInstallHandleRemoteMode:
+    def test_local_mode_bakes_bge_into_serve_args(self, tmp_path, monkeypatch):
+        calls: list[dict] = []
+
+        monkeypatch.setattr(
+            "dagayn.skills.install_platform_configs",
+            lambda repo_root, **kwargs: (
+                calls.append({"repo_root": repo_root, **kwargs}) or ["codex"]
+            ),
+        )
+        monkeypatch.setattr("dagayn.skills.normalize_platform_target", lambda target: target)
+        monkeypatch.setattr(
+            "dagayn.cli.commands.init._instruction_files_to_modify",
+            lambda *_args, **_kwargs: [],
+        )
+
+        handle(
+            argparse.Namespace(
+                repo=str(tmp_path),
+                dry_run=True,
+                platform="codex",
+                yes=True,
+                no_instructions=True,
+                mode="local-embedding",
+                preset=None,
+                provider=None,
+                local_embedding="none",
+            )
+        )
+
+        assert calls[0]["extra_serve_args"] == ["--local-embedding"]
+
+    def test_llama_qwen3_mode_bakes_sidecar_into_serve_args(self, tmp_path, monkeypatch):
+        calls: list[dict] = []
+
+        monkeypatch.setattr(
+            "dagayn.skills.install_platform_configs",
+            lambda repo_root, **kwargs: (
+                calls.append({"repo_root": repo_root, **kwargs}) or ["codex"]
+            ),
+        )
+        monkeypatch.setattr("dagayn.skills.normalize_platform_target", lambda target: target)
+        monkeypatch.setattr(
+            "dagayn.cli.commands.init._instruction_files_to_modify",
+            lambda *_args, **_kwargs: [],
+        )
+
+        handle(
+            argparse.Namespace(
+                repo=str(tmp_path),
+                dry_run=True,
+                platform="codex",
+                yes=True,
+                no_instructions=True,
+                mode="local-embedding-llama",
+                preset=None,
+                provider=None,
+                local_embedding="none",
+            )
+        )
+
+        assert calls[0]["extra_serve_args"] == [
+            "--local-embedding",
+            "--mode",
+            "llama-qwen3",
+        ]
+
     def test_remote_mode_bakes_provider_into_serve_args(self, tmp_path, monkeypatch):
         calls: list[dict] = []
 
@@ -184,7 +283,7 @@ class TestInstallHandleRemoteMode:
                 platform="codex",
                 yes=True,
                 no_instructions=True,
-                mode="remote",
+                mode="remote-embedding",
                 preset=None,
                 provider="google",
                 local_embedding="none",

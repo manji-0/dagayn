@@ -29,16 +29,16 @@ the selected embedding mode so agents can avoid stale or wasteful search advice.
    `search_mode="hybrid"` means embeddings and FTS were merged. `fts_only`
    is still valid, but semantic recall is lower.
 3. If embeddings are missing or stale, build them through the graph tools:
-   - Incremental local refresh: `build_or_update_graph_tool(local_embedding="low")`
+   - Incremental local refresh: `build_or_update_graph_tool(local_embedding="bge-m3")`
    - Dedicated embedding pass: `embed_graph_tool`
-   - Full local refresh: `build_or_update_graph_tool(full_rebuild=True, local_embedding="low")` only when explicitly doing embedding-quality or end-to-end maintenance work.
+   - Full local refresh: `build_or_update_graph_tool(full_rebuild=True, local_embedding="bge-m3")` only when explicitly doing embedding-quality or end-to-end maintenance work.
    Before any embedding-enabled full rebuild, state the reason and get explicit
    confirmation from the user; do not use it for parser, flow, documentation, or
    ordinary implementation verification.
 4. For CLI fallback:
    ```bash
-   dagayn build --local-embedding low
-   dagayn update --local-embedding low
+   dagayn build --local-embedding
+   dagayn update --local-embedding
    dagayn tool embed_graph_tool
    ```
 5. Re-run the same `semantic_search_nodes_tool` query and compare result count,
@@ -49,11 +49,10 @@ the selected embedding mode so agents can avoid stale or wasteful search advice.
 
 - `fts_only` is acceptable for exact symbol/name lookup; do not rebuild
   embeddings just to find a precise identifier.
-- Use local `low` for reusable developer environments when embeddings are
+- Use local BGE-M3 for reusable developer environments when embeddings are
   useful; use FTS-only when startup time or memory is tight.
-- If local embedding startup fails, check the local server binary (`auto` or
-  `llama-server`), port, and timeout before changing
-  graph data.
+- If Qwen sidecar startup fails, check the local server binary (`auto` or
+  `llama-server`), port, and timeout before changing graph data.
 - If provider imports are unavailable, keep going with FTS and report the
   reduced recall instead of blocking unrelated work.
 

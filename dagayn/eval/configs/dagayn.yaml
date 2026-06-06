@@ -222,3 +222,19 @@ doc_fuzzy_search_queries:
     relevant:
       - target: "docs/SCHEMA.md::metadata"
         grade: 1
+
+embedding_material_negative_queries:
+  - query: "best sourdough starter feeding schedule for a humid kitchen"
+    label: "negative_unrelated_cooking"
+
+  - query: "compare commuter rail ticket prices between two coastal cities"
+    label: "negative_unrelated_travel"
+
+  - query: "recommended watercolor paper for loose floral painting practice"
+    label: "negative_unrelated_art"
+
+  - query: "how to tune a seven string guitar for modern metal riffs"
+    label: "negative_unrelated_music"
+
+  - query: "symptoms of low tire pressure on a winter morning"
+    label: "negative_unrelated_vehicle"

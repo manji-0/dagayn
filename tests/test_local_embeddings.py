@@ -43,7 +43,7 @@ def test_local_embedding_llama_preset_is_stable():
     assert low.hf_selector == "Qwen/Qwen3-Embedding-0.6B-GGUF:Q8_0"
     assert low.model == "qwen3-embedding-0.6b-gguf-q8_0"
     assert low.dimension == 1024
-    assert low.text_mode == "metadata"
+    assert low.text_mode == "material"
     assert low.batch == 8192
     assert low.ubatch == 8192
     assert low.flash_attention is True
@@ -243,7 +243,13 @@ def test_local_embedding_server_keep_running_leaves_process(monkeypatch):
     monkeypatch.setattr("dagayn.local_embeddings.shutil.which", lambda binary: f"/bin/{binary}")
     monkeypatch.setattr("dagayn.local_embeddings.subprocess.Popen", lambda *a, **k: fake_proc)
 
-    with local_embedding_server("low", runtime="llama", keep_running=True, startup_timeout=1):
+    with local_embedding_server(
+        "low",
+        runtime="llama",
+        port=19092,
+        keep_running=True,
+        startup_timeout=1,
+    ):
         pass
 
     assert fake_proc.terminated is False

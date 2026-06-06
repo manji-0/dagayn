@@ -24,7 +24,7 @@ from urllib.parse import urlparse
 
 LocalEmbeddingLevel = Literal["low"]
 LocalEmbeddingRuntime = Literal["llama"]
-EmbeddingTextMode = Literal["metadata", "body"]
+EmbeddingTextMode = Literal["metadata", "body", "material"]
 
 DEFAULT_LOCAL_EMBEDDING_PORT = 18080
 DEFAULT_LOCAL_EMBEDDING_BIN = "auto"
@@ -100,7 +100,7 @@ LOCAL_EMBEDDING_PRESETS: dict[
             quant="Q8_0",
             model="qwen3-embedding-0.6b-gguf-q8_0",
             dimension=1024,
-            text_mode="metadata",
+            text_mode="material",
             batch=8192,
             ubatch=8192,
             flash_attention=True,

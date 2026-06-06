@@ -1588,6 +1588,7 @@ class TestBuildPostprocess:
         run.assert_called_once()
         kwargs = run.call_args.kwargs
         assert kwargs["local_embedding"] == "low"
+        assert kwargs["local_embedding_mode"] is None
         assert kwargs["local_embedding_port"] == 19090
         assert kwargs["local_embedding_bin"] == "/tmp/llama-server"
         assert kwargs["keep_local_embedding_server"] is True
@@ -1655,6 +1656,7 @@ class TestBuildPostprocess:
         assert result["local_embedding"] == embed_result
         run.assert_called_once()
         assert run.call_args.kwargs["local_embedding"] == "low"
+        assert run.call_args.kwargs["local_embedding_mode"] is None
 
     def test_hook_update_skips_local_embedding_when_incremental_has_no_changes(self, monkeypatch):
         from unittest.mock import patch
@@ -1698,7 +1700,7 @@ class TestBuildPostprocess:
                     level="low",
                     model="qwen3-embedding-0.6b-gguf-q8_0",
                     dimension=1024,
-                    text_mode="metadata",
+                    text_mode="material",
                     request_max_length=None,
                 ),
                 started=False,
@@ -1708,7 +1710,7 @@ class TestBuildPostprocess:
         def fake_embed_graph(**_kwargs):
             assert os.environ["CRG_OPENAI_TIMEOUT"] == "17"
             assert os.environ["CRG_OPENAI_BATCH_SIZE"] == "8"
-            assert os.environ["DAGAYN_EMBEDDING_TEXT_MODE"] == "metadata"
+            assert os.environ["DAGAYN_EMBEDDING_TEXT_MODE"] == "material"
             assert os.environ.get("CRG_OPENAI_MAX_LENGTH") is None
             return {
                 "status": "ok",
@@ -1737,9 +1739,44 @@ class TestBuildPostprocess:
 
         assert result["newly_embedded"] == 1
         assert result["orphans_removed"] == 2
-        assert result["text_mode"] == "metadata"
+        assert result["text_mode"] == "material"
         assert os.environ["CRG_OPENAI_TIMEOUT"] == "999"
         assert os.environ["CRG_OPENAI_BATCH_SIZE"] == "2048"
+        assert os.environ["DAGAYN_EMBEDDING_TEXT_MODE"] == "body"
+
+    def test_run_local_embedding_defaults_to_in_process_bge(self, monkeypatch):
+        from unittest.mock import patch
+
+        from dagayn.tools.build import _run_local_embedding
+
+        def fake_embed_graph(**kwargs):
+            assert kwargs["provider"] == "local"
+            assert kwargs["model"] == "BAAI/bge-m3"
+            assert os.environ["DAGAYN_EMBEDDING_TEXT_MODE"] == "material"
+            return {
+                "status": "ok",
+                "newly_embedded": 4,
+                "orphans_removed": 1,
+                "total_embeddings": 10,
+            }
+
+        monkeypatch.setenv("DAGAYN_EMBEDDING_TEXT_MODE", "body")
+        with patch("dagayn.tools.docs.embed_graph", side_effect=fake_embed_graph):
+            result = _run_local_embedding(
+                self.root,
+                local_embedding="bge-m3",
+                local_embedding_port=18080,
+                local_embedding_bin="llama-server",
+                keep_local_embedding_server=False,
+                local_embedding_timeout=300,
+                local_embedding_request_timeout=17,
+                local_embedding_batch_size=8,
+            )
+
+        assert result["mode"] == "bge-m3"
+        assert result["model"] == "BAAI/bge-m3"
+        assert result["newly_embedded"] == 4
+        assert result["orphans_removed"] == 1
         assert os.environ["DAGAYN_EMBEDDING_TEXT_MODE"] == "body"
 
     def test_embed_graph_passes_repo_root_to_embedding_store(self, monkeypatch, tmp_path):

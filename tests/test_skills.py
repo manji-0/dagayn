@@ -173,8 +173,7 @@ class TestGenerateSkills:
     def test_generate_skills_renders_local_embedding_context(self, tmp_path):
         skills_dir = generate_skills(
             tmp_path,
-            embedding_mode="local",
-            embedding_preset="low",
+            embedding_mode="local-embedding",
         )
         semantic = (skills_dir / "semantic-search.md").read_text()
         debug = (skills_dir / "debug-issue.md").read_text()
@@ -182,23 +181,37 @@ class TestGenerateSkills:
         writing = (skills_dir / "writing-markdown-document.md").read_text()
         review_pr = (skills_dir / "review-pr.md").read_text()
 
-        assert "--mode local --preset low" in semantic
-        assert 'build_or_update_graph_tool(local_embedding="low")' in semantic
+        assert "--mode local-embedding" in semantic
+        assert "BGE-M3" in semantic
         assert 'local_embedding="none"' in semantic
         assert "embedding-enabled full rebuild" in semantic
         assert "mode-neutral" not in semantic
-        assert "--mode local --preset low" in debug
-        assert "--mode local --preset low" in build
+        assert "--mode local-embedding" in debug
+        assert "--mode local-embedding" in build
         assert 'local_embedding="none"' in build
         assert "trigger a large embedding refresh" in build
-        assert "--mode local --preset low" in writing
+        assert "--mode local-embedding" in writing
         assert 'local_embedding="none"' in writing
         assert "exact symbol match" in writing
         assert "Ignore semantic near-matches" in writing
-        assert "--mode local --preset low" in review_pr
+        assert "--mode local-embedding" in review_pr
+
+    def test_generate_skills_renders_local_embedding_llama_context(self, tmp_path):
+        skills_dir = generate_skills(
+            tmp_path,
+            embedding_mode="local-embedding-llama",
+            embedding_preset="low",
+        )
+        semantic = (skills_dir / "semantic-search.md").read_text()
+        build = (skills_dir / "build-graph.md").read_text()
+
+        assert "--mode local-embedding-llama --preset low" in semantic
+        assert "managed Qwen3" in semantic
+        assert 'local_embedding="none"' in build
+        assert "server sidecar mode" in build
 
     def test_generate_skills_renders_fts_context(self, tmp_path):
-        skills_dir = generate_skills(tmp_path, embedding_mode="fts")
+        skills_dir = generate_skills(tmp_path, embedding_mode="fts-only")
         semantic = (skills_dir / "semantic-search.md").read_text()
         cross_repo = (skills_dir / "cross-repo-workflows.md").read_text()
         build = (skills_dir / "build-graph.md").read_text()
@@ -212,17 +225,17 @@ class TestGenerateSkills:
     def test_generate_skills_renders_remote_context(self, tmp_path):
         skills_dir = generate_skills(
             tmp_path,
-            embedding_mode="remote",
+            embedding_mode="remote-embedding",
             embedding_provider="openai",
         )
         semantic = (skills_dir / "semantic-search.md").read_text()
         cross_repo = (skills_dir / "cross-repo-workflows.md").read_text()
         review_pr = (skills_dir / "review-pr.md").read_text()
 
-        assert "--mode remote --provider openai" in semantic
+        assert "--mode remote-embedding --provider openai" in semantic
         assert 'embed_graph_tool(provider="openai")' in semantic
         assert "remote embedding calls" in cross_repo
-        assert "--mode remote --provider openai" in review_pr
+        assert "--mode remote-embedding --provider openai" in review_pr
 
     def test_review_skills_use_composed_analysis_outputs(self, tmp_path):
         """Generated review skills should point agents at composed Tier 1 output."""
@@ -412,10 +425,11 @@ class TestInstallGlobalSkills:
 
     def test_renders_embedding_context(self, tmp_path):
         with patch("dagayn.skills.Path.home", return_value=tmp_path):
-            install_global_skills(embedding_mode="local", embedding_preset="low")
+            install_global_skills(embedding_mode="local-embedding")
         target = tmp_path / ".claude" / "skills" / "semantic-search.md"
         content = target.read_text()
-        assert "--mode local --preset low" in content
+        assert "--mode local-embedding" in content
+        assert "BGE-M3" in content
         assert "mode-neutral" not in content
 
     def test_idempotent(self, tmp_path):
@@ -457,7 +471,7 @@ class TestInstallGlobalSkills:
             skills=False,
             hooks=False,
             install_all=False,
-            mode="fts",
+            mode="fts-only",
             preset=None,
             provider=None,
         )
@@ -516,12 +530,12 @@ class TestInstallTreeSkills:
 
     def test_tree_skill_install_renders_embedding_context(self, tmp_path):
         with patch("dagayn.skills.Path.home", return_value=tmp_path):
-            result = install_codex_skills(embedding_mode="local", embedding_preset="low")
+            result = install_codex_skills(embedding_mode="local-embedding")
 
         target = result / "semantic-search" / "SKILL.md"
         content = target.read_text()
-        assert "--mode local --preset low" in content
-        assert 'build_or_update_graph_tool(local_embedding="low")' in content
+        assert "--mode local-embedding" in content
+        assert "BGE-M3" in content
         assert "explicitly doing embedding-quality" in content
 
     def test_tree_skill_install_is_idempotent(self, tmp_path):
@@ -583,13 +597,13 @@ class TestInstallQoderSkills:
 
         result = install_qoder_skills(
             tmp_path,
-            embedding_mode="remote",
+            embedding_mode="remote-embedding",
             embedding_provider="google",
         )
 
         assert result is not None
         content = (result / "semantic-search" / "SKILL.md").read_text()
-        assert "--mode remote --provider google" in content
+        assert "--mode remote-embedding --provider google" in content
         assert 'embed_graph_tool(provider="google")' in content
 
     def test_reinstall_updates_existing_qoder_skill_content(self, tmp_path):
