@@ -184,10 +184,7 @@ class TestHybridSearch:
         docs = tmp_path / "docs"
         docs.mkdir()
         (docs / "design.md").write_text(
-            "# 日本語検索\n\n"
-            "GraphStoreで自然言語検索を行う。\n\n"
-            "# Other\n\n"
-            "Unrelated text.\n",
+            "# 日本語検索\n\nGraphStoreで自然言語検索を行う。\n\n# Other\n\nUnrelated text.\n",
             encoding="utf-8",
         )
         self.store.set_metadata("repo_root", str(tmp_path))

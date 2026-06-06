@@ -84,10 +84,7 @@ def register_commands(sub: argparse._SubParsersAction) -> dict:
             "--preset",
             choices=["low"],
             default=None,
-            help=(
-                "Preset for --mode local-embedding-llama: low "
-                "(Qwen3-Embedding-0.6B, ~1 GB)."
-            ),
+            help=("Preset for --mode local-embedding-llama: low (Qwen3-Embedding-0.6B, ~1 GB)."),
         )
         p.add_argument(
             "--provider",

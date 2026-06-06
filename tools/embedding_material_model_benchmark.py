@@ -201,9 +201,7 @@ def _model_rows(
         "material_ms": round(material_ms, 3),
         "embed_ms": round(embed_ms, 3),
         "query_ms": round(query_latency_total, 3),
-        "nodes_per_second": round(len(materials) / (embed_ms / 1000.0), 3)
-        if embed_ms > 0
-        else 0.0,
+        "nodes_per_second": round(len(materials) / (embed_ms / 1000.0), 3) if embed_ms > 0 else 0.0,
     }
     for aggregate in _aggregate(rows, model_spec):
         if aggregate["label"] in {"aggregate_positive", "aggregate_negative"}:

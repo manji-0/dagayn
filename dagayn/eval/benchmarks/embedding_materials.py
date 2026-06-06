@@ -483,8 +483,7 @@ def _dcg_at(ranked: list[tuple[str, float]], relevance: dict[str, int], k: int) 
 def _ndcg_at(ranked: list[tuple[str, float]], relevance: dict[str, int], k: int) -> float:
     ideal_grades = sorted((grade for grade in relevance.values() if grade > 0), reverse=True)
     ideal = sum(
-        (2**grade - 1) / math.log2(rank + 1)
-        for rank, grade in enumerate(ideal_grades[:k], 1)
+        (2**grade - 1) / math.log2(rank + 1) for rank, grade in enumerate(ideal_grades[:k], 1)
     )
     if ideal == 0.0:
         return 0.0
@@ -537,9 +536,7 @@ def _metric_row(
     rank, best_grade = _rank_relevant(ranked, relevance)
     top_score = ranked[0][1] if ranked else 0.0
     mean_top_5_score = (
-        sum(score for _qualified_name, score in ranked[:5]) / min(len(ranked), 5)
-        if ranked
-        else 0.0
+        sum(score for _qualified_name, score in ranked[:5]) / min(len(ranked), 5) if ranked else 0.0
     )
     query_type = "positive" if relevance else "negative"
     return {

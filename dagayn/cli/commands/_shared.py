@@ -228,9 +228,7 @@ def _resolve_install_mode(args: argparse.Namespace) -> tuple[str, str | None, st
                 raise SystemExit("--mode local-embedding-llama only supports --preset low")
             return mode, preset or "low", provider
         if mode == "remote-embedding" and not provider:
-            raise SystemExit(
-                "--mode remote-embedding requires --provider {openai,google,minimax}"
-            )
+            raise SystemExit("--mode remote-embedding requires --provider {openai,google,minimax}")
         return mode, preset, provider
 
     if legacy_le in ("bge-m3", "local"):
