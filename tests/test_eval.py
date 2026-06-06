@@ -556,7 +556,9 @@ def test_embedding_materials_benchmark_reports_negative_scores(tmp_path):
 
     negative_rows = [row for row in rows if row["query_type"] == "negative"]
     aggregate_negative = [
-        row for row in rows if row["query"] == "__aggregate__" and row["label"] == "aggregate_negative"
+        row
+        for row in rows
+        if row["query"] == "__aggregate__" and row["label"] == "aggregate_negative"
     ]
 
     assert negative_rows

@@ -75,7 +75,9 @@ def _aggregate(rows: list[dict[str, Any]], model_spec: str) -> list[dict[str, An
                 "benchmark": "embedding_material_model",
                 "model": model_spec,
                 "label": label,
-                "query_type": label_rows[0]["query_type"] if not label.startswith("aggregate") else "",
+                "query_type": (
+                    label_rows[0]["query_type"] if not label.startswith("aggregate") else ""
+                ),
                 "mean_mrr": round(
                     sum(float(row["reciprocal_rank"]) for row in label_rows) / count,
                     4,
@@ -220,7 +222,10 @@ def main() -> None:
     parser.add_argument("--strategy", default=DEFAULT_STRATEGY)
     parser.add_argument("--model", action="append", dest="models")
     parser.add_argument("--output", default="evaluate/results/local_embedding_model_benchmark.csv")
-    parser.add_argument("--summary-output", default="evaluate/results/local_embedding_model_summary.csv")
+    parser.add_argument(
+        "--summary-output",
+        default="evaluate/results/local_embedding_model_summary.csv",
+    )
     parser.add_argument("--limit", type=int, default=20)
     parser.add_argument("--max-chars", type=int, default=4096)
     parser.add_argument("--openai-batch-size", type=int, default=16)

@@ -5,14 +5,15 @@ from __future__ import annotations
 import importlib
 import re
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 _JAPANESE_CHAR_RE = re.compile(r"[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff]")
 _FALLBACK_CHUNK_RE = re.compile(
     r"[A-Za-z0-9_]+|[\u3040-\u309f]+|[\u30a0-\u30ff]+|[\u3400-\u9fff\uf900-\ufaff]+"
 )
 
-_wakati: Callable[[str], str] | None | bool = None
+_WAKATI_MISSING = object()
+_wakati: Callable[[str], str] | object | None = None
 
 
 def contains_japanese(text: str) -> bool:
@@ -24,7 +25,7 @@ def _load_wakati() -> Callable[[str], str] | None:
     """Load an optional Japanese tokenizer without making it a hard dependency."""
     global _wakati
     if _wakati is not None:
-        return None if _wakati is False else _wakati
+        return None if _wakati is _WAKATI_MISSING else cast(Callable[[str], str], _wakati)
 
     for module_name, factory in (
         ("fugashi", _fugashi_wakati),
@@ -33,12 +34,14 @@ def _load_wakati() -> Callable[[str], str] | None:
     ):
         try:
             module = importlib.import_module(module_name)
-            _wakati = factory(module)
-            return _wakati
-        except Exception:  # noqa: BLE001  # optional dependency probing
-            continue
+            loaded = factory(module)
+        except Exception:  # noqa: BLE001  # nosec B110 - optional dependency probing
+            pass
+        else:
+            _wakati = loaded
+            return loaded
 
-    _wakati = False
+    _wakati = _WAKATI_MISSING
     return None
 
 

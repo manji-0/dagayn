@@ -21,10 +21,13 @@ from typing import Any
 
 from dagayn.embeddings import EmbeddingProvider
 
+np: Any
 try:
-    import numpy as np
+    import numpy as _np
 except ImportError:  # pragma: no cover - exercised only without numpy installed
-    np = None  # type: ignore[assignment]
+    np = None
+else:
+    np = _np
 
 _TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _IDENT_BOUNDARY_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
@@ -203,7 +206,7 @@ def _predicate_text(node: Any) -> str:
     parts = [_signature_text(node), f"{kind} {words}"]
     if params:
         parts.append(f"{kind} {words} uses inputs " + ", ".join(params))
-        parts.append(f"given " + " and ".join(params) + f", {words}")
+        parts.append("given " + " and ".join(params) + f", {words}")
     return " ".join(parts)
 
 
@@ -258,7 +261,13 @@ def _comment_texts(repo_path: Path, node: Any, granularity: str) -> list[str]:
     return [whole]
 
 
-def _doc_materials(repo_path: Path, node: Any, strategy: _Strategy, *, max_chars: int) -> list[_Material]:
+def _doc_materials(
+    repo_path: Path,
+    node: Any,
+    strategy: _Strategy,
+    *,
+    max_chars: int,
+) -> list[_Material]:
     text = _doc_section_text(repo_path, node, max_chars=max_chars)
     if not text:
         text = _base_node_text(node)
@@ -350,7 +359,11 @@ def _strategies(config: dict[str, Any]) -> list[_Strategy]:
         "paragraph",
         "sentence",
     ]
-    code_symbols = config.get("embedding_material_code_symbols") or ["name", "signature", "predicate"]
+    code_symbols = config.get("embedding_material_code_symbols") or [
+        "name",
+        "signature",
+        "predicate",
+    ]
     comment_granularities = config.get("embedding_material_comment_granularities") or [
         "none",
         "whole",
@@ -469,7 +482,10 @@ def _dcg_at(ranked: list[tuple[str, float]], relevance: dict[str, int], k: int) 
 
 def _ndcg_at(ranked: list[tuple[str, float]], relevance: dict[str, int], k: int) -> float:
     ideal_grades = sorted((grade for grade in relevance.values() if grade > 0), reverse=True)
-    ideal = sum((2**grade - 1) / math.log2(rank + 1) for rank, grade in enumerate(ideal_grades[:k], 1))
+    ideal = sum(
+        (2**grade - 1) / math.log2(rank + 1)
+        for rank, grade in enumerate(ideal_grades[:k], 1)
+    )
     if ideal == 0.0:
         return 0.0
     return _dcg_at(ranked, relevance, k) / ideal
