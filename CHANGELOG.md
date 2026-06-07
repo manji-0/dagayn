@@ -2,6 +2,15 @@
 
 All notable changes to `dagayn` are documented here.
 
+## 4.2.3 — 2026-06-08
+
+### Improvements
+
+- Clarify installed skill guidance so agents consistently use semantic search
+  for start-node discovery, relationship queries for specific graph evidence,
+  workflow dispatchers for review/architecture/refactor decisions, and raw
+  graph traversal only for bounded neighborhood follow-ups.
+
 ## 4.2.2 — 2026-05-31
 
 ### Improvements
