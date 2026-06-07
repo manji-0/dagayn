@@ -16,14 +16,18 @@ Use the knowledge graph to plan and execute refactoring with confidence.
 3. Use `refactor_tool` with mode="dead_code" only when the suggested remove
    candidates need a deeper dead-code drill-down.
 4. For renames, use `refactor_tool` with mode="rename" to preview all affected locations.
-5. Use `apply_refactor_tool` with `dry_run=True` first, then apply with the
+5. Use `query_graph_tool` for specific callers, callees, tests, docs, imports,
+   or children before considering a raw neighborhood traversal. Use
+   `traverse_graph_tool` only when the refactor candidate has a known start node
+   and the question is broader than one relationship pattern.
+6. Use `apply_refactor_tool` with `dry_run=True` first, then apply with the
    refactor_id only after the diff is acceptable.
-6. Before renaming, moving, or deleting public code, follow documentation bridge
+7. Before renaming, moving, or deleting public code, follow documentation bridge
    edges when present: `query_graph_tool(pattern="docs_for", target="<path::symbol>", detail_level="minimal")`
    for specs/runbooks/issue notes attached to code, and
    `query_graph_tool(pattern="implementations_of", target="<doc.md>::<section-slug>", detail_level="minimal")`
    when the refactor starts from a Markdown contract section.
-7. After changes, run `review_tool(mode="changes")` and inspect `analysis_summary` to verify
+8. After changes, run `review_tool(mode="changes")` and inspect `analysis_summary` to verify
    impact, recommended tests, affected flows, and architecture risks.
 
 ### Safety Checks

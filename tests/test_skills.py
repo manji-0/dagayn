@@ -170,6 +170,21 @@ class TestGenerateSkills:
         assert "<!-- dagayn skill embedding context -->" in semantic
         assert "<!-- /dagayn skill embedding context -->" in semantic
 
+    def test_exploration_skills_encode_search_to_traversal_ladder(self, tmp_path):
+        """Agents should learn search -> relationship query -> bounded traversal."""
+        skills_dir = generate_skills(tmp_path)
+        explore = (skills_dir / "explore-codebase.md").read_text()
+        semantic = (skills_dir / "semantic-search.md").read_text()
+        debug = (skills_dir / "debug-issue.md").read_text()
+
+        assert "## Decision Model" in explore
+        assert "Unknown entity, fuzzy concept" in explore
+        assert "Known entity plus a specific relationship" in explore
+        assert "Neighborhood exploration: use `traverse_graph_tool` only after" in explore
+        assert "Treat semantic search as start-node discovery, not final proof" in semantic
+        assert "Hand off the best hit to graph tools" in semantic
+        assert "Prefer relationship queries over raw traversal" in debug
+
     def test_generate_skills_renders_local_embedding_context(self, tmp_path):
         skills_dir = generate_skills(
             tmp_path,

@@ -20,26 +20,32 @@ the selected embedding mode so bug searches balance semantic recall with speed.
    risk, and suggested next tools.
 2. Use `semantic_search_nodes_tool` to find code related to the issue.
 3. Use `query_graph_tool` with `callers_of` and `callees_of` to trace call chains.
-4. Use `flow_tool(mode="list", detail_level="minimal")` or
+4. Use `traverse_graph_tool` only after selecting a concrete suspected node and
+   only when a bounded neighborhood is more useful than a specific caller,
+   callee, import, test, or documentation relationship.
+5. Use `flow_tool(mode="list", detail_level="minimal")` or
    `review_tool(mode="affected_flows")` to identify candidate flow names before
    calling `flow_tool(mode="get")`.
-5. If the suspected code point has documentation bridges, use
+6. If the suspected code point has documentation bridges, use
    `query_graph_tool(pattern="docs_for", target="<path::symbol>", detail_level="minimal")`
    to pull in linked specs, runbooks, explanations, and issue notes. If the bug
    report starts from a Markdown contract section, use
    `query_graph_tool(pattern="implementations_of", target="<doc.md>::<section-slug>", detail_level="minimal")`
    to find the implementation nodes linked by `implemented_by` /
    `implements_contract`.
-6. Run `review_tool(mode="changes")` to check if recent changes caused the issue. Read
+7. Run `review_tool(mode="changes")` to check if recent changes caused the issue. Read
    `analysis_summary` for risk reasons, affected-flow rankings, hotspot
    proximity, and recommended tests.
-7. Use `review_tool(mode="impact")` on suspected files only when `analysis_summary` or
+8. Use `review_tool(mode="impact")` on suspected files only when `analysis_summary` or
    the call trace leaves the blast radius unclear.
-8. Read source directly once graph evidence identifies the likely failing path.
+9. Read source directly once graph evidence identifies the likely failing path.
 
 ### Tips
 
 - Check both callers and callees to understand the full context.
+- Prefer relationship queries over raw traversal when the question names a
+  relationship. Raw traversal is for "what else is nearby?" after the likely
+  node is known.
 - Look at affected flows to find the entry point that triggers the bug.
 - Recent changes are the most common source of new issues.
 - When the symptom starts from a log line, CLI command, or UI action, use `rg`

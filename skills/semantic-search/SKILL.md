@@ -18,6 +18,8 @@ the selected embedding mode so agents can avoid stale or wasteful search advice.
 
 ## Workflow
 
+<!-- derived-from ../../docs/ARCHITECTURE.md#hybrid-search -->
+
 1. Start with graph freshness:
    ```bash
    dagayn tool list_graph_stats_tool
@@ -38,20 +40,31 @@ the selected embedding mode so agents can avoid stale or wasteful search advice.
      routes to narrative embeddings when they are available.
    - Use per-result `source` to explain why a hit ranked: `fts`, `embedding`,
      `both`, or `keyword`.
-3. If embeddings are missing or stale, build them through the graph tools:
+3. Hand off the best hit to graph tools:
+   - If exactly one result matches the intended `name` or `qualified_name`, use
+     that `qualified_name` for `query_graph_tool`.
+   - If several fuzzy hits look plausible, inspect the top 3 with
+     `query_graph_tool(pattern="file_summary")` or a relationship query before
+     drawing conclusions.
+   - If the user wants callers, callees, tests, docs, imports, or children, use
+     `query_graph_tool`; use `traverse_graph_tool` only for a bounded
+     neighborhood after the start node is clear.
+   - If the search result has a `next_action`, follow it before widening the
+     query.
+4. If embeddings are missing or stale, build them through the graph tools:
    - Incremental local refresh: `build_or_update_graph_tool(local_embedding="bge-m3")`
    - Dedicated embedding pass: `embed_graph_tool`
    - Full local refresh: `build_or_update_graph_tool(full_rebuild=True, local_embedding="bge-m3")` only when explicitly doing embedding-quality or end-to-end maintenance work.
    Before any embedding-enabled full rebuild, state the reason and get explicit
    confirmation from the user; do not use it for parser, flow, documentation, or
    ordinary implementation verification.
-4. For CLI fallback:
+5. For CLI fallback:
    ```bash
    dagayn build --local-embedding
    dagayn update --local-embedding
    dagayn tool embed_graph_tool
    ```
-5. Re-run the same `semantic_search_nodes_tool` query and compare result count,
+6. Re-run the same `semantic_search_nodes_tool` query and compare result count,
    `search_mode`, `rerank_intent`, and whether high-value hits now have
    `source="embedding"` or `source="both"`.
 
@@ -76,6 +89,9 @@ the selected embedding mode so agents can avoid stale or wasteful search advice.
 - Use FTS-only results for exact names; use material embeddings for fuzzy
   purpose concepts; use narrative embeddings/process-pattern intent for queries
   about behavior such as calls, reads, writes, loops, returns, or merges.
+- Treat semantic search as start-node discovery, not final proof. Confirm
+  behavior, relationships, or coverage with `query_graph_tool`, `flow_tool`,
+  `review_tool`, or source reads.
 - Do one before/after query to prove search quality changed. Do not rebuild the
   graph repeatedly without a changed file set or a failed verification.
 - Never use an embedding-enabled full rebuild to compensate for untracked files

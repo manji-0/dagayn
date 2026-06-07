@@ -28,7 +28,10 @@ question points to a signal.
    - `sap_metrics` / `sap_violations`: abstraction/stability balance
 4. Use `query_graph_tool` or source reads only after the metric output identifies a
    concrete node, edge, community, package, or file to verify.
-5. For architecture questions that cross documentation/code boundaries, use
+5. Use `traverse_graph_tool` only as a bounded neighborhood drill-down after a
+   concrete hub, bridge, surprising edge, or violating scope is chosen. Prefer
+   `query_graph_tool` when the follow-up is a specific relationship.
+6. For architecture questions that cross documentation/code boundaries, use
    `query_graph_tool(pattern="docs_for", target="<path::symbol>", detail_level="minimal")`
    from code/Terraform nodes and
    `query_graph_tool(pattern="implementations_of", target="<doc.md>::<section-slug>", detail_level="minimal")`
@@ -44,6 +47,8 @@ question points to a signal.
   metadata when making claims.
 - Prefer `detail_level="minimal"` and small `top_n` values first. Increase only
   when the result is too narrow to answer the question.
+- Keep the path from broad to narrow: overview first, metric mode second,
+  relationship query or source read third.
 - Verify source behavior before turning graph structure into a correctness or
   refactor recommendation.
 - When citing Markdown ↔ code relationships, name the stored role
