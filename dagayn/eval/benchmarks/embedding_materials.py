@@ -483,8 +483,7 @@ def _dcg_at(ranked: list[tuple[str, float]], relevance: dict[str, int], k: int) 
 def _ndcg_at(ranked: list[tuple[str, float]], relevance: dict[str, int], k: int) -> float:
     ideal_grades = sorted((grade for grade in relevance.values() if grade > 0), reverse=True)
     ideal = sum(
-        (2**grade - 1) / math.log2(rank + 1)
-        for rank, grade in enumerate(ideal_grades[:k], 1)
+        (2**grade - 1) / math.log2(rank + 1) for rank, grade in enumerate(ideal_grades[:k], 1)
     )
     if ideal == 0.0:
         return 0.0

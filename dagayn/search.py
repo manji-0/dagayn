@@ -679,9 +679,7 @@ def _single_provider_name(
         if len(matches) == 1:
             return matches[0]
         legacy = [
-            provider_name
-            for provider_name in provider_counts
-            if "#text=" not in provider_name
+            provider_name for provider_name in provider_counts if "#text=" not in provider_name
         ]
         return legacy[0] if len(legacy) == 1 and len(provider_counts) == 1 else None
     return next(iter(provider_counts)) if len(provider_counts) == 1 else None

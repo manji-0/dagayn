@@ -1337,8 +1337,7 @@ def _io_phrases_from_source(source_excerpt: str) -> list[str]:
     if any(token in lowered for token in ("write_text", "std::fs::write", "insert ", "update ")):
         phrases.append("writes data")
     if any(
-        token in lowered
-        for token in (".execute(", "query_row", "sqlite", "select ", "insert ")
+        token in lowered for token in (".execute(", "query_row", "sqlite", "select ", "insert ")
     ):
         phrases.append("uses sqlite database queries")
     if any(token in lowered for token in ("embed(", "embed_query", "embedding")):
@@ -1356,51 +1355,35 @@ def _graph_fact_sentences(graph_facts: dict[str, list[str]] | None) -> list[str]
     called = graph_facts.get("CALLS", [])
     if called:
         call_names = [f"`{_display_qualified_name(name)}`" for name in called]
-        sentences.append(
-            f"The graph says it calls {_limited_join(call_names)}."
-        )
+        sentences.append(f"The graph says it calls {_limited_join(call_names)}.")
     imports = graph_facts.get("IMPORTS_FROM", [])
     if imports:
         import_names = [f"`{_display_qualified_name(name)}`" for name in imports]
-        sentences.append(
-            f"The graph says it imports from {_limited_join(import_names)}."
-        )
+        sentences.append(f"The graph says it imports from {_limited_join(import_names)}.")
     refs = graph_facts.get("REFERENCES", [])
     if refs:
         ref_names = [f"`{_display_qualified_name(name)}`" for name in refs]
-        sentences.append(
-            f"The graph says it references {_limited_join(ref_names)}."
-        )
+        sentences.append(f"The graph says it references {_limited_join(ref_names)}.")
     deps = graph_facts.get("DEPENDS_ON", [])
     if deps:
         dep_names = [f"`{_display_qualified_name(name)}`" for name in deps]
-        sentences.append(
-            f"The graph says it depends on {_limited_join(dep_names)}."
-        )
+        sentences.append(f"The graph says it depends on {_limited_join(dep_names)}.")
     inherited = graph_facts.get("INHERITS", [])
     if inherited:
         inherited_names = [f"`{_display_qualified_name(name)}`" for name in inherited]
-        sentences.append(
-            f"The graph says it inherits from {_limited_join(inherited_names)}."
-        )
+        sentences.append(f"The graph says it inherits from {_limited_join(inherited_names)}.")
     implemented = graph_facts.get("IMPLEMENTS", [])
     if implemented:
         implemented_names = [f"`{_display_qualified_name(name)}`" for name in implemented]
-        sentences.append(
-            f"The graph says it implements {_limited_join(implemented_names)}."
-        )
+        sentences.append(f"The graph says it implements {_limited_join(implemented_names)}.")
     tested_by = graph_facts.get("TESTED_BY", [])
     if tested_by:
         test_names = [f"`{_display_qualified_name(name)}`" for name in tested_by]
-        sentences.append(
-            f"The graph says it is tested by {_limited_join(test_names)}."
-        )
+        sentences.append(f"The graph says it is tested by {_limited_join(test_names)}.")
     callers = graph_facts.get("called_by", [])
     if callers:
         caller_names = [f"`{_display_qualified_name(name)}`" for name in callers]
-        sentences.append(
-            f"The graph says it is called by {_limited_join(caller_names)}."
-        )
+        sentences.append(f"The graph says it is called by {_limited_join(caller_names)}.")
     return sentences
 
 

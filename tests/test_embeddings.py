@@ -342,8 +342,7 @@ class TestNodeToText:
     def test_narrative_mode_includes_graph_facts(self, tmp_path):
         source = tmp_path / "service.py"
         source.write_text(
-            "def handle_failure(retry_budget):\n"
-            "    return retry_budget <= 0\n",
+            "def handle_failure(retry_budget):\n    return retry_budget <= 0\n",
             encoding="utf-8",
         )
         node = self._make_node(
