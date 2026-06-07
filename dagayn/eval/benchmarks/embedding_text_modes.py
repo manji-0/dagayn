@@ -102,7 +102,8 @@ def run(repo_path: Path, store, config: dict[str, Any]) -> list[dict[str, Any]]:
                     label = sq.get("label", "")
                     started = time.perf_counter()
                     raw_limit = int(config.get("embedding_text_mode_search_limit") or 100)
-                    search_results = emb_store.search(query, limit=raw_limit if allowed_kinds else 20)
+                    limit = raw_limit if allowed_kinds else 20
+                    search_results = emb_store.search(query, limit=limit)
                     if allowed_kinds:
                         search_results = [
                             (qualified_name, score)
