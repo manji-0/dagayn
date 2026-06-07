@@ -364,11 +364,21 @@ cover exact/name and purpose-style lookup; structural queries cover purpose and
 process-pattern prose where the search target is usually a function's static
 behavior.
 
-| Hybrid strategy | Query set | MRR | Hit@5 | Hit@20 |
+| Search mode | Query set | MRR | Hit@5 | Hit@20 |
 |---|---|---:|---:|---:|
 | `material` text | standard (12) | **0.7292** | **11/12** | **12/12** |
+| `narrative` text | standard (12) | 0.7202 | 11/12 | 12/12 |
+| `material` text | structural (8) | 0.2881 | 3/8 | 6/8 |
 | `narrative` text | structural (8) | **0.5875** | **7/8** | **7/8** |
-| intent-routed (`material` purpose, `narrative` process-pattern) | all (20) | **0.6725** | **18/20** | **19/20** |
+| `material` text | all (20) | 0.5528 | 14/20 | 18/20 |
+| `narrative` text | all (20) | 0.6671 | **18/20** | **19/20** |
+| intent-routed (`material` for purpose, `narrative` for process-pattern) | all (20) | **0.6725** | **18/20** | **19/20** |
+
+The main gain is on structural/process-pattern prose: `narrative` raises MRR
+from 0.2881 to 0.5875 (+0.2994, about 2.0x) and Hit@5 from 3/8 to 7/8 over
+`material`. Across all 20 benchmark queries, intent routing improves over
+`material` from 0.5528 to 0.6725 MRR (+0.1197, about +21.7%) while keeping the
+standard exact/name-heavy query set at the same 11/12 Hit@5 and 12/12 Hit@20.
 
 Earlier local model comparison used the best measured material strategy
 (`doc=section|code=name|comment=sentence|join=combined`) on the dagayn codebase:
