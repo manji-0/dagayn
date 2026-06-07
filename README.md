@@ -358,48 +358,21 @@ Embeddings are stored in the `embeddings` table inside `.dagayn/graph.db`. Switc
 
 ### Search quality
 
-The current intent-routed hybrid benchmark uses the real local BGE-M3 provider
-with both `material` and `narrative` embedding rows available. Standard queries
-cover exact/name and purpose-style lookup; structural queries cover purpose and
-process-pattern prose where the search target is usually a function's static
-behavior.
+The current search benchmark has 20 queries: 12 standard queries for exact/name
+and purpose-style lookup, plus 8 structural queries for purpose and
+process-pattern prose over function behavior.
 
 | Search mode | Query set | MRR | Hit@5 | Hit@20 |
 |---|---|---:|---:|---:|
-| `material` text | standard (12) | **0.7292** | **11/12** | **12/12** |
-| `narrative` text | standard (12) | 0.7202 | 11/12 | 12/12 |
-| `material` text | structural (8) | 0.2881 | 3/8 | 6/8 |
-| `narrative` text | structural (8) | **0.5875** | **7/8** | **7/8** |
 | `material` text | all (20) | 0.5528 | 14/20 | 18/20 |
-| `narrative` text | all (20) | 0.6671 | **18/20** | **19/20** |
-| intent-routed (`material` for purpose, `narrative` for process-pattern) | all (20) | **0.6725** | **18/20** | **19/20** |
+| `narrative` text | all (20) | 0.6671 | 18/20 | 19/20 |
+| intent-routed | all (20) | **0.6725** | **18/20** | **19/20** |
 
-The main gain is on structural/process-pattern prose: `narrative` raises MRR
-from 0.2881 to 0.5875 (+0.2994, about 2.0x) and Hit@5 from 3/8 to 7/8 over
-`material`. Across all 20 benchmark queries, intent routing improves over
-`material` from 0.5528 to 0.6725 MRR (+0.1197, about +21.7%) while keeping the
-standard exact/name-heavy query set at the same 11/12 Hit@5 and 12/12 Hit@20.
-
-Earlier local model comparison used the best measured material strategy
-(`doc=section|code=name|comment=sentence|join=combined`) on the dagayn codebase:
-11,741 embedded materials, 8,236 graph references, 31 positive queries, and 5
-unrelated negative calibration queries. `negative top score` is lower-is-better:
-it shows how strongly an unrelated query still matches some repository node.
-
-| Local model | positive MRR | Precision@5 | negative top score | embedding throughput |
-|---|---:|---:|---:|---:|
-| `BAAI/bge-m3` | **0.5639** | **0.6774** | **0.4157** | 87.8 nodes/s |
-| `intfloat/multilingual-e5-base` | 0.5317 | 0.6452 | 0.8127 | **302.1 nodes/s** |
-| `nomic-ai/nomic-embed-text-v1.5` | 0.5215 | 0.5806 | 0.5202 | 136.6 nodes/s |
-| `mixedbread-ai/mxbai-embed-large-v1` | 0.4604 | 0.4516 | 0.4700 | 85.4 nodes/s |
-| Qwen3-Embedding-0.6B Q8 `low` | 0.4301 | 0.5484 | 0.5261 | 55.4 nodes/s |
-| `jinaai/jina-embeddings-v2-base-code` | 0.3604 | 0.4516 | 0.4753 | 171.8 nodes/s |
-
-`BAAI/bge-m3` is the default local sentence-transformers model because it had
-the best positive ranking and the lowest unrelated-query top score in this
-measurement. The managed `low` preset remains Qwen3 GGUF for fully managed
-llama.cpp sidecar installs. See `docs/LOCAL-EMBEDDINGS.md` for local setup and
-more embedding details.
+On the 8 structural queries, `narrative` improves over `material` from 0.2881
+to 0.5875 MRR and from 3/8 to 7/8 Hit@5. See
+[`docs/LOCAL-EMBEDDINGS.md#search-quality`](docs/LOCAL-EMBEDDINGS.md#search-quality)
+for the detailed benchmark tables, search-mode notes, and local model
+comparison.
 
 ### Privacy and cloud egress
 

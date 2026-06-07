@@ -199,7 +199,30 @@ dagayn build --local-embedding --mode llama-qwen3 --keep-local-embedding-server
 
 ## Search quality
 
-The measurements below use the best measured material strategy
+The current hybrid search benchmark uses the real local BGE-M3 provider with
+both `material` and `narrative` embedding rows available. It has two query
+sets:
+
+- `standard`: 12 exact/name and purpose-style queries.
+- `structural`: 8 purpose and process-pattern prose queries where the target is
+  usually a function's static behavior.
+
+| Search mode | Query set | MRR | Hit@5 | Hit@20 |
+|---|---|---:|---:|---:|
+| `material` text | standard (12) | **0.7292** | **11/12** | **12/12** |
+| `narrative` text | standard (12) | 0.7202 | 11/12 | 12/12 |
+| `material` text | structural (8) | 0.2881 | 3/8 | 6/8 |
+| `narrative` text | structural (8) | **0.5875** | **7/8** | **7/8** |
+| `material` text | all (20) | 0.5528 | 14/20 | 18/20 |
+| `narrative` text | all (20) | 0.6671 | **18/20** | **19/20** |
+| intent-routed (`material` for purpose, `narrative` for process-pattern) | all (20) | **0.6725** | **18/20** | **19/20** |
+
+The main gain is on structural/process-pattern prose: `narrative` raises MRR
+from 0.2881 to 0.5875 (+0.2994, about 2.0x) and Hit@5 from 3/8 to 7/8 over
+`material`. Across all 20 benchmark queries, intent routing improves over
+`material` from 0.5528 to 0.6725 MRR (+0.1197, about +21.7%).
+
+The older local model comparison below uses the best measured material strategy
 (`doc=section|code=name|comment=sentence|join=combined`) on the dagayn codebase:
 11,741 embedded materials, 8,236 graph references, 31 positive queries, and 5
 unrelated negative calibration queries. `negative top score` is lower-is-better.
