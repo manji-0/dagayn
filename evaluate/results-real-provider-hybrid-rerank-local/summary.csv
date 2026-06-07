@@ -1,5 +1,0 @@
-mode,set,mrr,hit5,n,hit20,avg_ms,p95_ms,build_ms
-material,standard,0.7292,11,12,12,43.578,68.43,367392.267
-material,structural,0.2881,3,8,6,41.956,49.87,367392.267
-narrative,standard,0.7202,11,12,12,3.408,2.897,299693.416
-narrative,structural,0.5875,7,8,7,4.533,8.317,299693.416

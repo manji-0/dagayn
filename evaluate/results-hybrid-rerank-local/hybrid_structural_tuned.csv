@@ -1,9 +1,0 @@
-set,label,query,expected,mode,rerank_intent,rank,reciprocal_rank,hit_at_5,hit_at_20,latency_ms,top1
-structural_tuned,process_merge_ranked_results,function that uses reciprocal rank fusion to merge ranked search results,dagayn/search.py::rrf_merge,fts_only,process_pattern,0,0,0,0,4.707,README.md::semantic-search-and-embeddings
-structural_tuned,process_read_bounded_source,function that reads bounded source span for embedding text,dagayn/embeddings.py::_read_node_source_excerpt,fts_only,process_pattern,2,0.5,1,1,11.455,docs/LOCAL-EMBEDDINGS.md::build-and-update--body-16
-structural_tuned,process_narrative_renderer,function that converts a graph node into deterministic natural language static code facts,dagayn/embeddings.py::_node_to_narrative_text,fts_only,process_pattern,16,0.0625,0,1,12.948,docs/audits/dagayn-usability-scorecard.md::phase-1-coverage-evidence--body-1
-structural_tuned,process_temporary_embedding_store,function that creates temporary embedding store and searches configured queries,dagayn/eval/benchmarks/embedding_text_modes.py::run,fts_only,process_pattern,4,0.25,1,1,11.664,dagayn/main.py::cross_repo_search_tool
-structural_tuned,pattern_tested_by_graph_fact,function tested by node to text embedding tests,dagayn/embeddings.py::_node_to_text,fts_only,purpose,0,0,0,0,5.112,docs/SCHEMA.md
-structural_tuned,purpose_result_ranking,code responsible for semantic search result ranking,dagayn/search.py::hybrid_search,fts_only,purpose,0,0,0,0,5.475,README.md::semantic-search-and-embeddings
-structural_tuned,purpose_local_embeddings,code responsible for local sentence transformer embeddings,dagayn/embeddings.py::LocalEmbeddingProvider,fts_only,purpose,0,0,0,0,4.52,README.md::semantic-search-and-embeddings
-structural_tuned,purpose_embedding_material,code responsible for graph node embedding text material,dagayn/embeddings.py::_node_to_text,fts_only,purpose,0,0,0,0,4.798,README.md::semantic-search-and-embeddings
