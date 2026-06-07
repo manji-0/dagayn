@@ -27,7 +27,17 @@ the selected embedding mode so agents can avoid stale or wasteful search advice.
    dagayn tool semantic_search_nodes_tool --arg query='"auth handler"' --arg detail_level='"minimal"'
    ```
    `search_mode="hybrid"` means embeddings and FTS were merged. `fts_only`
-   is still valid, but semantic recall is lower.
+   is still valid, but semantic recall is lower. `embedding_only` means the
+   vector path ran while FTS was unavailable, and `keyword_fallback` means the
+   FTS index was absent and only LIKE matching ran.
+   - For exact symbol/name lookup, trust exact `name` / `qualified_name` hits
+     even when `search_mode` is `fts_only`.
+   - For fuzzy purpose searches, prefer high-ranked hits with `source="both"`
+     or `source="embedding"`.
+   - For process-pattern prose, check `rerank_intent="process_pattern"`; this
+     routes to narrative embeddings when they are available.
+   - Use per-result `source` to explain why a hit ranked: `fts`, `embedding`,
+     `both`, or `keyword`.
 3. If embeddings are missing or stale, build them through the graph tools:
    - Incremental local refresh: `build_or_update_graph_tool(local_embedding="bge-m3")`
    - Dedicated embedding pass: `embed_graph_tool`
@@ -42,13 +52,18 @@ the selected embedding mode so agents can avoid stale or wasteful search advice.
    dagayn tool embed_graph_tool
    ```
 5. Re-run the same `semantic_search_nodes_tool` query and compare result count,
-   `search_mode`, and whether high-value hits now have `source="embedding"` or
-   `source="both"`.
+   `search_mode`, `rerank_intent`, and whether high-value hits now have
+   `source="embedding"` or `source="both"`.
 
 ## Troubleshooting
 
 - `fts_only` is acceptable for exact symbol/name lookup; do not rebuild
   embeddings just to find a precise identifier.
+- `keyword_fallback` means the FTS index is absent; refresh graph/FTS before
+  drawing conclusions about search quality.
+- `provider_mismatch` or `missing_vectors` in embedding health means the query
+  did not find matching vectors for the selected provider/text mode. Refresh
+  embeddings only when the task actually needs fuzzy recall.
 - Use local BGE-M3 for reusable developer environments when embeddings are
   useful; use FTS-only when startup time or memory is tight.
 - If Qwen sidecar startup fails, check the local server binary (`auto` or
@@ -58,8 +73,9 @@ the selected embedding mode so agents can avoid stale or wasteful search advice.
 
 ## Efficiency Rules
 
-- Use FTS-only results for exact names; use embeddings for fuzzy concepts,
-  unfamiliar domain terms, and cross-language search.
+- Use FTS-only results for exact names; use material embeddings for fuzzy
+  purpose concepts; use narrative embeddings/process-pattern intent for queries
+  about behavior such as calls, reads, writes, loops, returns, or merges.
 - Do one before/after query to prove search quality changed. Do not rebuild the
   graph repeatedly without a changed file set or a failed verification.
 - Never use an embedding-enabled full rebuild to compensate for untracked files

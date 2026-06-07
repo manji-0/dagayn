@@ -185,6 +185,8 @@ class TestGenerateSkills:
         assert "BGE-M3" in semantic
         assert 'local_embedding="none"' in semantic
         assert "embedding-enabled full rebuild" in semantic
+        assert "`search_mode`, `rerank_intent`, and per-result `source`" in semantic
+        assert "Process-pattern prose should use narrative embeddings" in semantic
         assert "mode-neutral" not in semantic
         assert "--mode local-embedding" in debug
         assert "--mode local-embedding" in build
@@ -207,6 +209,7 @@ class TestGenerateSkills:
 
         assert "--mode local-embedding-llama --preset low" in semantic
         assert "managed Qwen3" in semantic
+        assert "`search_mode`, `rerank_intent`, and per-result `source`" in semantic
         assert 'local_embedding="none"' in build
         assert "server sidecar mode" in build
 
@@ -218,6 +221,7 @@ class TestGenerateSkills:
 
         assert "FTS-only mode" in semantic
         assert "Do not rebuild embeddings" in semantic
+        assert "`keyword_fallback` means the FTS index is absent" in semantic
         assert "keyword/FTS search" in cross_repo
         assert "FTS-only mode" in build
         assert "Do not rebuild embeddings" in build
@@ -233,6 +237,7 @@ class TestGenerateSkills:
         review_pr = (skills_dir / "review-pr.md").read_text()
 
         assert "--mode remote-embedding --provider openai" in semantic
+        assert "`search_mode`, `rerank_intent`, and per-result `source`" in semantic
         assert 'embed_graph_tool(provider="openai")' in semantic
         assert "remote embedding calls" in cross_repo
         assert "--mode remote-embedding --provider openai" in review_pr
