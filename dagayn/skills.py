@@ -586,13 +586,16 @@ def _embedding_context_lines(
             "Installed with local embeddings (`--mode local-embedding`): in-process BGE-M3.",
             "",
             "- MCP search defaults to hybrid retrieval when matching embeddings exist.",
+            "- Read `search_mode`, `rerank_intent`, and per-result `source` before "
+            "judging search quality.",
             "- Routine graph refreshes for parser, flow, documentation, or review "
             'verification should pass `local_embedding="none"` so they do not '
             "inherit the server embedding mode and trigger a large embedding refresh.",
             "- Use embedding-enabled full rebuilds only for explicit embedding-quality "
             "or end-to-end maintenance work after stating the reason.",
             "- Exact identifier lookup can still rely on FTS; use semantic search for "
-            "fuzzy concepts, domain terms, cross-language search, or unfamiliar code.",
+            "fuzzy concepts, domain terms, cross-language search, or unfamiliar code. "
+            "Process-pattern prose should use narrative embeddings when available.",
         ]
     if embedding_mode == "local-embedding-llama":
         preset = embedding_preset or "low"
@@ -603,13 +606,16 @@ def _embedding_context_lines(
             f"(`--mode local-embedding-llama --preset {preset}`).",
             "",
             "- MCP search defaults to hybrid retrieval when matching embeddings exist.",
+            "- Read `search_mode`, `rerank_intent`, and per-result `source` before "
+            "judging search quality.",
             "- Routine graph refreshes for parser, flow, documentation, or review "
             'verification should pass `local_embedding="none"` so they do not '
             "inherit the server sidecar mode and trigger a large embedding refresh.",
             "- Use embedding-enabled full rebuilds only for explicit embedding-quality "
             "or end-to-end maintenance work after stating the reason.",
             "- Exact identifier lookup can still rely on FTS; use semantic search for "
-            "fuzzy concepts, domain terms, cross-language search, or unfamiliar code.",
+            "fuzzy concepts, domain terms, cross-language search, or unfamiliar code. "
+            "Process-pattern prose should use narrative embeddings when available.",
         ]
     if embedding_mode == "remote-embedding":
         provider = embedding_provider or "openai"
@@ -619,6 +625,8 @@ def _embedding_context_lines(
             f"Installed with remote embeddings (`--mode remote-embedding --provider {provider}`).",
             "",
             "- MCP search defaults to the configured provider when matching embeddings exist.",
+            "- Read `search_mode`, `rerank_intent`, and per-result `source` before "
+            "judging search quality.",
             "- `build_or_update_graph_tool()` refreshes graph and FTS data; run "
             f'`embed_graph_tool(provider="{provider}")` after graph refresh when hybrid '
             "search is required.",
@@ -633,6 +641,8 @@ def _embedding_context_lines(
             "",
             "- Treat `semantic_search_nodes_tool` as keyword/FTS search, not vector "
             "semantic search.",
+            "- `search_mode` should normally be `fts_only`; `keyword_fallback` means "
+            "the FTS index is absent and should be refreshed before quality claims.",
             "- Prefer exact symbols, file names, graph relationships, and one targeted "
             "`rg` for literals.",
             "- Do not rebuild embeddings unless the user explicitly changes install mode.",

@@ -896,6 +896,76 @@ fn rebuilds_fts_index_segments_japanese_source() {
 }
 
 #[test]
+fn rebuilds_fts_index_includes_structured_code_reference_text() {
+    let path = temp_db("fts-structured-code-reference");
+    let source_root = {
+        let mut root = std::env::temp_dir();
+        root.push(format!(
+            "dagayn-rust-fts-structured-src-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    };
+    std::fs::write(
+        source_root.join("service.py"),
+        "def handle_failure(retry_budget):\n    retry_budget_exhausted = retry_budget <= 0\n    return retry_budget_exhausted\n",
+    )
+    .unwrap();
+
+    let mut store = GraphStore::open(&path).expect("open graph store");
+    store
+        .set_metadata("repo_root", source_root.to_string_lossy().as_ref())
+        .unwrap();
+    let node = NodeInput {
+        kind: "Function".to_string(),
+        name: "handle_failure".to_string(),
+        file_path: "service.py".to_string(),
+        line_start: 1,
+        line_end: 3,
+        language: "python".to_string(),
+        parent_name: None,
+        params: Some("(retry_budget)".to_string()),
+        return_type: Some("bool".to_string()),
+        modifiers: None,
+        is_test: false,
+        extra: json!({"display_name": "Retry failure handler"}),
+    };
+
+    store
+        .store_file_nodes_edges("service.py", &[node], &[], "hash", 0)
+        .unwrap();
+    store
+        .conn
+        .execute(
+            "UPDATE nodes SET signature = ? WHERE qualified_name = ?",
+            params![
+                "def handle_failure(retry_budget) -> bool",
+                "service.py::handle_failure"
+            ],
+        )
+        .unwrap();
+
+    assert_eq!(store.rebuild_fts_index().unwrap(), 1);
+    let doc_text: String = store
+        .conn
+        .query_row(
+            "SELECT doc_text FROM nodes_fts WHERE name = 'handle_failure'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(doc_text.contains("kind: Function"));
+    assert!(doc_text.contains("qualified: service.py::handle_failure"));
+    assert!(doc_text.contains("signature: def handle_failure"));
+    assert!(doc_text.contains("retry_budget_exhausted"));
+
+    let _ = std::fs::remove_file(path);
+    let _ = std::fs::remove_dir_all(source_root);
+}
+
+#[test]
 fn computes_missing_signatures() {
     let path = temp_db("signatures");
     let mut store = GraphStore::open(&path).expect("open graph store");

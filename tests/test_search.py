@@ -11,9 +11,11 @@ from dagayn.graph import GraphStore
 from dagayn.parser import NodeInfo
 from dagayn.search import (
     _emb_failure_cache,
+    _embedding_text_mode_for_intent,
     _extract_identifiers,
     _intent_boost,
     _qualified_name_matches,
+    _query_rerank_intent,
     _query_tokens,
     detect_query_kind_boost,
     hybrid_search,
@@ -525,6 +527,7 @@ class TestHybridSearch:
             hs = hybrid_search(self.store, "token validation")
 
         assert hs["mode"] == "hybrid"
+        assert hs["rerank_intent"] == "purpose"
         assert hs["embedding_health"]["status"] == "available"
         assert hs["embedding_health"]["resolved_provider"] == provider_name
         assert hs["embedding_health"]["auto_resolved_provider"] == provider_name
@@ -881,6 +884,25 @@ class TestTestDeboost:
 
 
 class TestIntentReranking:
+    def test_query_rerank_intent_distinguishes_exact_purpose_and_process(self):
+        assert _query_rerank_intent("get_users", _query_tokens("get_users")) == "exact"
+        assert (
+            _query_rerank_intent(
+                "function that reads bounded source span",
+                _query_tokens("function that reads bounded source span"),
+            )
+            == "process_pattern"
+        )
+        assert (
+            _query_rerank_intent(
+                "code responsible for token validation",
+                _query_tokens("code responsible for token validation"),
+            )
+            == "purpose"
+        )
+        assert _embedding_text_mode_for_intent("purpose") == "material"
+        assert _embedding_text_mode_for_intent("process_pattern") == "narrative"
+
     def test_code_intent_prefers_code_over_markdown(self):
         tokens = _query_tokens("find the implementation that combines ranked search results")
         function = SimpleNamespace(
@@ -918,3 +940,186 @@ class TestIntentReranking:
         assert _intent_boost(tokens, doc, None, None, hybrid_mode=True) > _intent_boost(
             tokens, function, None, None, hybrid_mode=True
         )
+
+    def test_process_pattern_intent_prefers_embedding_code_hit(self):
+        tokens = _query_tokens("function that reads source and returns ranked results")
+        function = SimpleNamespace(
+            kind="Function",
+            name="read_and_rank",
+            file_path="dagayn/search.py",
+            is_test=False,
+        )
+        doc = SimpleNamespace(
+            kind="DocSection",
+            name="search-results",
+            file_path="docs/ARCHITECTURE.md",
+            is_test=False,
+        )
+
+        assert _intent_boost(
+            tokens,
+            function,
+            fts_rank=12,
+            emb_rank=2,
+            hybrid_mode=True,
+            rerank_intent="process_pattern",
+        ) > _intent_boost(
+            tokens,
+            doc,
+            fts_rank=1,
+            emb_rank=2,
+            hybrid_mode=True,
+            rerank_intent="process_pattern",
+        )
+
+    def test_purpose_intent_prefers_both_arm_code_hit(self):
+        tokens = _query_tokens("code responsible for token validation")
+        both_arm = SimpleNamespace(
+            kind="Function",
+            name="authenticate",
+            file_path="auth.py",
+            is_test=False,
+        )
+        embedding_only = SimpleNamespace(
+            kind="Function",
+            name="validate",
+            file_path="auth.py",
+            is_test=False,
+        )
+
+        assert _intent_boost(
+            tokens,
+            both_arm,
+            fts_rank=4,
+            emb_rank=3,
+            hybrid_mode=True,
+            rerank_intent="purpose",
+        ) > _intent_boost(
+            tokens,
+            embedding_only,
+            fts_rank=None,
+            emb_rank=1,
+            hybrid_mode=True,
+            rerank_intent="purpose",
+        )
+
+    def test_hybrid_process_pattern_rerank_promotes_embedding_code_hit(self):
+        tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        store = GraphStore(tmp.name)
+        try:
+            function = NodeInfo(
+                kind="Function",
+                name="merge_ranked_results",
+                file_path="search.py",
+                line_start=1,
+                line_end=10,
+                language="python",
+            )
+            doc = NodeInfo(
+                kind="DocSection",
+                name="ranked-search-results",
+                file_path="README.md",
+                line_start=1,
+                line_end=3,
+                language="markdown",
+                extra={"display_name": "ranked search results"},
+            )
+            function_id = store.upsert_node(function, file_hash="rerank")
+            doc_id = store.upsert_node(doc, file_hash="rerank")
+            store._conn.commit()
+            rebuild_fts_index(store)
+
+            with patch(
+                "dagayn.search._embedding_search_with_health",
+                return_value=(
+                    [(function_id, 0.99), (doc_id, 0.8)],
+                    {"status": "available", "resolved_provider": "test"},
+                ),
+            ) as embedding_search:
+                result = hybrid_search(
+                    store,
+                    "function that merges ranked search results",
+                    limit=5,
+                )
+
+            assert result["mode"] == "hybrid"
+            assert result["rerank_intent"] == "process_pattern"
+            assert embedding_search.call_args.kwargs["text_mode"] == "narrative"
+            assert result["results"][0]["qualified_name"] == "search.py::merge_ranked_results"
+        finally:
+            store.close()
+            Path(tmp.name).unlink(missing_ok=True)
+
+    def test_hybrid_process_pattern_uses_narrative_embedding_partition(self):
+        tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        store = GraphStore(tmp.name)
+
+        class FakeProvider:
+            name = "fake"
+            preferred_batch_size = 1
+
+            def embed(self, texts):
+                return [[1.0, 0.0] for _ in texts]
+
+            def embed_query(self, text):
+                return [1.0, 0.0]
+
+            @property
+            def dimension(self):
+                return 2
+
+        try:
+            node = NodeInfo(
+                kind="Function",
+                name="read_source_span",
+                file_path="search.py",
+                line_start=1,
+                line_end=10,
+                language="python",
+            )
+            store.upsert_node(node, file_hash="rerank")
+            store._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS embeddings (
+                    qualified_name TEXT NOT NULL,
+                    vector BLOB NOT NULL,
+                    text_hash TEXT NOT NULL,
+                    provider TEXT NOT NULL DEFAULT 'unknown',
+                    PRIMARY KEY (qualified_name, provider)
+                )
+                """
+            )
+            store._conn.executemany(
+                "INSERT OR REPLACE INTO embeddings VALUES (?, ?, ?, ?)",
+                [
+                    (
+                        "search.py::read_source_span",
+                        _encode_vector([0.0, 1.0]),
+                        "h1",
+                        "fake#text=material",
+                    ),
+                    (
+                        "search.py::read_source_span",
+                        _encode_vector([1.0, 0.0]),
+                        "h2",
+                        "fake#text=narrative",
+                    ),
+                ],
+            )
+            store._conn.commit()
+            rebuild_fts_index(store)
+
+            with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
+                result = hybrid_search(
+                    store,
+                    "function that reads source span and returns text",
+                    limit=5,
+                )
+
+            assert result["embedding_health"]["status"] == "available"
+            assert result["embedding_health"]["requested_text_mode"] == "narrative"
+            assert result["embedding_health"]["resolved_provider_key"] == "fake#text=narrative"
+            assert result["results"][0]["qualified_name"] == "search.py::read_source_span"
+        finally:
+            store.close()
+            Path(tmp.name).unlink(missing_ok=True)

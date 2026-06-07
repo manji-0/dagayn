@@ -219,7 +219,10 @@ def main() -> None:
     parser.add_argument("--config", default="dagayn/eval/configs/dagayn.yaml")
     parser.add_argument("--strategy", default=DEFAULT_STRATEGY)
     parser.add_argument("--model", action="append", dest="models")
-    parser.add_argument("--output", default="evaluate/results/local_embedding_model_benchmark.csv")
+    parser.add_argument(
+        "--output",
+        default="evaluate/results/local_embedding_model_benchmark.csv",
+    )
     parser.add_argument(
         "--summary-output",
         default="evaluate/results/local_embedding_model_summary.csv",

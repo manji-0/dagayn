@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 # Process-level EmbeddingStore cache — mirrors the GraphStore cache in tools/_common.
 # Key: (db_path, provider, model).  Invalidated when the database file mtime changes.
 _emb_cache: dict[
-    tuple[Path, str | None, str | None, str | None],
+    tuple[Path, str | None, str | None, str | None, str | None],
     tuple["EmbeddingStore", float],
 ] = {}
 _emb_lock = threading.Lock()
@@ -40,10 +40,15 @@ def _get_cached_emb_store(
     provider: str | None,
     model: str | None,
     provider_name_hint: str | None = None,
+    text_mode: str | None = None,
 ) -> "EmbeddingStore | None":
     """Return a pinned EmbeddingStore, creating or replacing it when the DB mtime changes."""
     try:
-        from .embeddings import EmbeddingStore, provider_from_persisted_name
+        from .embeddings import (
+            EmbeddingStore,
+            embedding_provider_base_name,
+            provider_from_persisted_name,
+        )
     except ImportError:
         return None
 
@@ -57,8 +62,8 @@ def _get_cached_emb_store(
         if provider is None and model is None and provider_name_hint
         else None
     )
-    key_hint = provider_instance.name if provider_instance else None
-    key = (db_path, provider, model, key_hint)
+    key_hint = embedding_provider_base_name(provider_name_hint) if provider_name_hint else None
+    key = (db_path, provider, model, key_hint, text_mode)
     with _emb_lock:
         entry = _emb_cache.get(key)
         if entry is not None:
@@ -76,6 +81,7 @@ def _get_cached_emb_store(
             provider=provider,
             model=model,
             provider_instance=provider_instance,
+            text_mode=text_mode,
         )
         _emb_cache[key] = (emb_store, mtime)
     return emb_store
@@ -326,6 +332,59 @@ _DOC_INTENT_TERMS = frozenset(
     }
 )
 
+_PROCESS_PATTERN_TERMS = frozenset(
+    {
+        "assigns",
+        "branches",
+        "builds",
+        "calls",
+        "computes",
+        "converts",
+        "creates",
+        "deletes",
+        "detects",
+        "embedding",
+        "embeddings",
+        "embeds",
+        "fetches",
+        "filters",
+        "inserts",
+        "iterates",
+        "loads",
+        "loops",
+        "merges",
+        "opens",
+        "parses",
+        "queries",
+        "ranks",
+        "reads",
+        "rebuilds",
+        "renders",
+        "returns",
+        "searches",
+        "stores",
+        "tested",
+        "updates",
+        "uses",
+        "validates",
+        "writes",
+    }
+)
+
+_PURPOSE_QUERY_TERMS = frozenset(
+    {
+        "behavior",
+        "feature",
+        "goal",
+        "handles",
+        "logic",
+        "purpose",
+        "responsible",
+        "supports",
+        "workflow",
+    }
+)
+
 _TOKEN_RE = re.compile(r"[A-Za-z0-9_]+")
 
 
@@ -358,6 +417,28 @@ def _query_tokens(query: str) -> set[str]:
     return {t.lower() for t in _TOKEN_RE.findall(query)}
 
 
+def _query_rerank_intent(query: str, query_tokens: set[str]) -> str:
+    stripped = query.strip()
+    tokens = list(_TOKEN_RE.findall(stripped))
+    if not stripped:
+        return "empty"
+    if "." in stripped or "::" in stripped or _extract_identifiers(stripped):
+        return "exact"
+    if query_tokens & _DOC_INTENT_TERMS:
+        return "documentation"
+    if query_tokens & _PROCESS_PATTERN_TERMS:
+        return "process_pattern"
+    if len(tokens) >= 2 or query_tokens & _PURPOSE_QUERY_TERMS:
+        return "purpose"
+    return "exact"
+
+
+def _embedding_text_mode_for_intent(rerank_intent: str) -> str:
+    if rerank_intent == "process_pattern":
+        return "narrative"
+    return "material"
+
+
 def _is_markdown_node(node: Any) -> bool:
     return node.kind == "DocSection" or str(node.file_path).lower().endswith(".md")
 
@@ -377,6 +458,7 @@ def _intent_boost(
     emb_rank: int | None,
     *,
     hybrid_mode: bool,
+    rerank_intent: str | None = None,
 ) -> float:
     """Return a small reranking multiplier from query intent and arm ranks.
 
@@ -390,10 +472,12 @@ def _intent_boost(
         return 1.0
 
     boost = 1.0
+    rerank_intent = rerank_intent or "purpose"
     code_intent = bool(query_tokens & _CODE_INTENT_TERMS)
     doc_intent = bool(query_tokens & _DOC_INTENT_TERMS)
     test_intent = bool(query_tokens & {"test", "tests", "coverage", "proves"})
     markdown_node = _is_markdown_node(node)
+    code_node = node.kind in {"Function", "Class", "Type", "Test"}
 
     if fts_rank is not None and fts_rank <= 3:
         boost *= 1.25
@@ -404,10 +488,37 @@ def _intent_boost(
     if fts_rank is not None and emb_rank is not None:
         boost *= 1.15
 
+    if rerank_intent == "process_pattern":
+        if emb_rank is not None:
+            boost *= 1.55
+            if emb_rank <= 5:
+                boost *= 1.35
+            elif emb_rank <= 20:
+                boost *= 1.15
+        if code_node:
+            boost *= 1.60
+        if node.kind == "Function":
+            boost *= 1.25
+        if markdown_node:
+            boost *= 0.18
+        if bool(getattr(node, "is_test", False)) and not test_intent:
+            boost *= 0.55
+    elif rerank_intent == "purpose":
+        if fts_rank is not None and emb_rank is not None:
+            boost *= 1.40
+        elif emb_rank is not None and emb_rank <= 5:
+            boost *= 1.15
+        if code_node:
+            boost *= 1.10
+        if markdown_node and not doc_intent:
+            boost *= 0.75
+            if code_intent:
+                boost *= 0.55
+
     if code_intent and not doc_intent:
         if markdown_node:
             boost *= 0.45
-        elif node.kind in {"Function", "Class", "Type", "Test"}:
+        elif code_node:
             boost *= 1.18
 
     if doc_intent:
@@ -530,13 +641,14 @@ def _embedding_search(
     limit: int = 50,
     model: str | None = None,
     provider: str | None = None,
+    text_mode: str | None = None,
 ) -> list[tuple[int, float]]:
     """Run a vector similarity search using the embedding store.
 
     Returns list of ``(node_id, similarity_score)`` tuples.
     Gracefully returns an empty list if embeddings are not available.
     """
-    return _embedding_search_with_health(store, query, limit, model, provider)[0]
+    return _embedding_search_with_health(store, query, limit, model, provider, text_mode)[0]
 
 
 def _embedding_provider_counts(db_path: Path) -> dict[str, int]:
@@ -553,7 +665,23 @@ def _embedding_provider_counts(db_path: Path) -> dict[str, int]:
     return {str(provider): int(count) for provider, count in rows}
 
 
-def _single_provider_name(provider_counts: dict[str, int]) -> str | None:
+def _single_provider_name(
+    provider_counts: dict[str, int],
+    *,
+    text_mode: str | None = None,
+) -> str | None:
+    if text_mode:
+        matches = [
+            provider_name
+            for provider_name in provider_counts
+            if provider_name.endswith(f"#text={text_mode}")
+        ]
+        if len(matches) == 1:
+            return matches[0]
+        legacy = [
+            provider_name for provider_name in provider_counts if "#text=" not in provider_name
+        ]
+        return legacy[0] if len(legacy) == 1 and len(provider_counts) == 1 else None
     return next(iter(provider_counts)) if len(provider_counts) == 1 else None
 
 
@@ -563,6 +691,7 @@ def _embedding_search_with_health(
     limit: int = 50,
     model: str | None = None,
     provider: str | None = None,
+    text_mode: str | None = None,
 ) -> tuple[list[tuple[int, float]], dict[str, Any]]:
     """Run vector search and return health metadata for fallback diagnosis."""
     provider_counts = _embedding_provider_counts(store.db_path)
@@ -570,13 +699,17 @@ def _embedding_search_with_health(
         "status": "unknown",
         "requested_provider": provider,
         "requested_model": model,
+        "requested_text_mode": text_mode,
         "resolved_provider": None,
+        "resolved_provider_key": None,
         "auto_resolved_provider": None,
         "matching_vector_count": 0,
         "provider_counts": provider_counts,
     }
     provider_name_hint = (
-        _single_provider_name(provider_counts) if provider is None and model is None else None
+        _single_provider_name(provider_counts, text_mode=text_mode)
+        if provider is None and model is None
+        else None
     )
 
     try:
@@ -585,23 +718,35 @@ def _embedding_search_with_health(
             provider,
             model,
             provider_name_hint=provider_name_hint,
+            text_mode=text_mode,
         )
         if emb_store is None or not emb_store.available or emb_store.provider is None:
             health["status"] = "provider_unavailable"
             return [], health
 
         provider_name = emb_store.provider.name
+        provider_key = emb_store.provider_key or provider_name
         matching_count = emb_store.count_provider()
+        if (
+            matching_count == 0
+            and provider_name_hint
+            and "#text=" not in provider_name_hint
+            and provider_name_hint == provider_name
+        ):
+            emb_store.provider_key = provider_name_hint
+            provider_key = provider_name_hint
+            matching_count = emb_store.count_provider()
         health["resolved_provider"] = provider_name
-        if provider_name_hint == provider_name:
-            health["auto_resolved_provider"] = provider_name
+        health["resolved_provider_key"] = provider_key
+        if provider_name_hint in {provider_name, provider_key}:
+            health["auto_resolved_provider"] = provider_name_hint
         health["matching_vector_count"] = matching_count
 
         if matching_count == 0:
             health["status"] = "provider_mismatch" if provider_counts else "missing_vectors"
             return [], health
 
-        failed_at, failure = _emb_failure_cache.get(provider_name, (0.0, ""))
+        failed_at, failure = _emb_failure_cache.get(provider_key, (0.0, ""))
         if failed_at and time.monotonic() - failed_at < _EMBEDDING_FAILURE_TTL_SECONDS:
             health["status"] = "search_failed_recent"
             health["error"] = failure
@@ -615,7 +760,7 @@ def _embedding_search_with_health(
             if node:
                 id_scores.append((node.id, score))
         health["status"] = "available"
-        _emb_failure_cache.pop(provider_name, None)
+        _emb_failure_cache.pop(provider_key, None)
         return id_scores, health
     except ValueError as e:
         message = str(e)
@@ -631,8 +776,9 @@ def _embedding_search_with_health(
         health["status"] = "search_failed"
         health["error"] = str(e)
         provider_name = health.get("resolved_provider")
-        if isinstance(provider_name, str) and provider_name:
-            _emb_failure_cache[provider_name] = (time.monotonic(), str(e))
+        provider_key = health.get("resolved_provider_key") or provider_name
+        if isinstance(provider_key, str) and provider_key:
+            _emb_failure_cache[provider_key] = (time.monotonic(), str(e))
         logger.warning("Embedding search failed: %s", e)
         return [], health
 
@@ -684,6 +830,9 @@ def hybrid_search(
     # ------ Phase 1: Gather ranked lists ------
     fts_results: list[tuple[int, float]] = []
     emb_results: list[tuple[int, float]] = []
+    query_tokens = _query_tokens(query)
+    rerank_intent = _query_rerank_intent(query, query_tokens)
+    embedding_text_mode = _embedding_text_mode_for_intent(rerank_intent)
 
     # Try FTS5 search via protocol method
     try:
@@ -710,6 +859,7 @@ def hybrid_search(
         limit=fetch_limit,
         model=model,
         provider=provider,
+        text_mode=embedding_text_mode,
     )
 
     # ------ Phase 2: Merge via RRF or fallback ------
@@ -752,7 +902,6 @@ def hybrid_search(
     # ------ Phase 3+4: Batch-fetch nodes, apply boosting and kind filter ------
     kind_boosts = detect_query_kind_boost(query)
     context_set = set(context_files) if context_files else set()
-    query_tokens = _query_tokens(query)
     hybrid_mode = bool(fts_results and emb_results)
 
     candidate_ids = [node_id for node_id, _ in merged]
@@ -779,6 +928,7 @@ def hybrid_search(
             fts_rank_by_id.get(node_id),
             emb_rank_by_id.get(node_id),
             hybrid_mode=hybrid_mode,
+            rerank_intent=rerank_intent,
         )
         if node.is_test:
             # Tests whose names/docstrings mirror the function under test
@@ -835,4 +985,9 @@ def hybrid_search(
             }
         )
 
-    return {"mode": mode, "results": results, "embedding_health": embedding_health}
+    return {
+        "mode": mode,
+        "results": results,
+        "embedding_health": embedding_health,
+        "rerank_intent": rerank_intent,
+    }

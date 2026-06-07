@@ -1,4 +1,4 @@
-"""Compare metadata-only and source-body embedding text modes.
+"""Compare metadata-only, body, structured, and narrative embedding text modes.
 
 This benchmark deliberately uses a deterministic local token-hash provider so
 it can run in CI or on a developer laptop without contacting an embedding API.
@@ -68,13 +68,18 @@ def _matches_expected(qualified_name: str, expected: str) -> bool:
 
 
 def run(repo_path: Path, store, config: dict[str, Any]) -> list[dict[str, Any]]:
-    """Run embedding-only search quality for metadata and body text modes."""
+    """Run embedding-only search quality for configured node text modes."""
     queries = config.get("embedding_text_mode_queries") or config.get("search_queries", [])
     if not queries:
         return []
 
     results: list[dict[str, Any]] = []
-    modes = config.get("embedding_text_modes") or ["metadata", "body"]
+    modes = config.get("embedding_text_modes") or ["metadata", "body", "structured", "narrative"]
+    allowed_kinds = set(config.get("embedding_text_mode_result_kinds") or [])
+    kind_by_qualified_name: dict[str, str] = {}
+    if allowed_kinds:
+        for node in store.get_all_nodes():
+            kind_by_qualified_name[node.qualified_name] = node.kind
     for mode in modes:
         provider = _TokenHashEmbeddingProvider(
             dimension=int(config.get("embedding_text_mode_dimension", 256))
@@ -96,7 +101,15 @@ def run(repo_path: Path, store, config: dict[str, Any]) -> list[dict[str, Any]]:
                     expected = sq["expected"]
                     label = sq.get("label", "")
                     started = time.perf_counter()
-                    search_results = emb_store.search(query, limit=20)
+                    raw_limit = int(config.get("embedding_text_mode_search_limit") or 100)
+                    limit = raw_limit if allowed_kinds else 20
+                    search_results = emb_store.search(query, limit=limit)
+                    if allowed_kinds:
+                        search_results = [
+                            (qualified_name, score)
+                            for qualified_name, score in search_results
+                            if kind_by_qualified_name.get(qualified_name) in allowed_kinds
+                        ][:20]
                     latency_ms = (time.perf_counter() - started) * 1000.0
                     rank = 0
                     for idx, (qualified_name, _score) in enumerate(search_results, start=1):

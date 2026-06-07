@@ -275,6 +275,101 @@ class TestNodeToText:
         assert "retry_budget_exhausted" not in metadata_text
         assert "retry_budget_exhausted" in body_text
 
+    def test_structured_mode_labels_metadata_and_source_excerpt(self, tmp_path):
+        source = tmp_path / "service.py"
+        source.write_text(
+            "class RetryService:\n"
+            "    def handle_failure(self, retry_budget: int) -> bool:\n"
+            "        retry_budget_exhausted = retry_budget <= 0\n"
+            "        return retry_budget_exhausted\n",
+            encoding="utf-8",
+        )
+        node = self._make_node(
+            name="handle_failure",
+            qualified_name="service.py::RetryService.handle_failure",
+            file_path="service.py",
+            line_start=2,
+            line_end=4,
+            parent_name="RetryService",
+            params="(self, retry_budget: int)",
+            return_type="bool",
+            signature="def handle_failure(self, retry_budget: int) -> bool",
+        )
+
+        text = _node_to_text(node, source_root=tmp_path, text_mode="structured")
+
+        assert "kind: Function" in text
+        assert "qualified: service.py::RetryService.handle_failure" in text
+        assert "parent: RetryService" in text
+        assert "params: (self, retry_budget: int)" in text
+        assert "returns: bool" in text
+        assert "source:" in text
+        assert "retry_budget_exhausted" in text
+
+    def test_narrative_mode_describes_static_code_facts(self, tmp_path):
+        source = tmp_path / "service.py"
+        source.write_text(
+            "class RetryService:\n"
+            "    def handle_failure(self, retry_budget: int) -> bool:\n"
+            "        retry_budget_exhausted = retry_budget <= 0\n"
+            "        if retry_budget_exhausted:\n"
+            "            record_failure(retry_budget)\n"
+            "        return retry_budget_exhausted\n",
+            encoding="utf-8",
+        )
+        node = self._make_node(
+            name="handle_failure",
+            qualified_name="service.py::RetryService.handle_failure",
+            file_path="service.py",
+            line_start=2,
+            line_end=6,
+            parent_name="RetryService",
+            params="(self, retry_budget: int)",
+            return_type="bool",
+            signature="def handle_failure(self, retry_budget: int) -> bool",
+        )
+
+        text = _node_to_text(node, source_root=tmp_path, text_mode="narrative")
+
+        assert "This python function `handle_failure`" in text
+        assert "It belongs to `RetryService`" in text
+        assert "It accepts parameters (self, retry_budget: int)" in text
+        assert "It calls `record_failure`" in text
+        assert "It defines or updates `retry_budget_exhausted`" in text
+        assert "It returns values related to retry" in text
+        assert "It branches on retry" in text
+
+    def test_narrative_mode_includes_graph_facts(self, tmp_path):
+        source = tmp_path / "service.py"
+        source.write_text(
+            "def handle_failure(retry_budget):\n    return retry_budget <= 0\n",
+            encoding="utf-8",
+        )
+        node = self._make_node(
+            name="handle_failure",
+            qualified_name="service.py::handle_failure",
+            file_path="service.py",
+            line_start=1,
+            line_end=2,
+            signature="def handle_failure(retry_budget)",
+        )
+
+        text = _node_to_text(
+            node,
+            source_root=tmp_path,
+            text_mode="narrative",
+            graph_facts={
+                "CALLS": ["policy.py::record_failure"],
+                "TESTED_BY": ["tests/test_service.py::test_handle_failure"],
+                "called_by": ["api.py::submit_retry"],
+            },
+        )
+
+        assert "The graph says it calls `record_failure`" in text
+        assert "The graph says it is tested by `test_handle_failure`" in text
+        assert "The graph says it is called by `submit_retry`" in text
+        assert "Its graph relationships mention policy" in text
+
     def test_metadata_mode_includes_full_markdown_doc_section(self, tmp_path):
         source = tmp_path / "guide.md"
         source.write_text(
@@ -559,6 +654,49 @@ class TestEmbeddingStore:
             assert store.embed_nodes([node]) == 1
             assert "source_only_token" in provider.texts[0]
             store.close()
+
+    def test_embed_nodes_partitions_rows_by_text_mode(self, tmp_path):
+        db = tmp_path / "embeddings.db"
+
+        class CapturingProvider:
+            name = "capture"
+            preferred_batch_size = 1
+
+            def __init__(self):
+                self.texts = []
+
+            def embed(self, texts):
+                self.texts.extend(texts)
+                return [[float(len(self.texts))] for _ in texts]
+
+            def embed_query(self, text):
+                return [1.0]
+
+            @property
+            def dimension(self):
+                return 1
+
+        provider = CapturingProvider()
+        node = self._make_node("func_1", 1)
+        with patch("dagayn.embeddings.get_provider", return_value=provider):
+            material = EmbeddingStore(db, text_mode="material")
+            assert material.embed_nodes([node]) == 1
+            assert material.count_provider() == 1
+            material.close()
+
+            narrative = EmbeddingStore(db, text_mode="narrative")
+            assert narrative.embed_nodes([node]) == 1
+            assert narrative.count_provider() == 1
+
+            rows = narrative._conn.execute(
+                "SELECT qualified_name, provider FROM embeddings ORDER BY provider"
+            ).fetchall()
+            assert [(row["qualified_name"], row["provider"]) for row in rows] == [
+                ("file.py::func_1", "capture#text=material"),
+                ("file.py::func_1", "capture#text=narrative"),
+            ]
+            assert narrative.count() == 2
+            narrative.close()
 
     def test_embed_nodes_isolates_failed_nodes_after_batch_failure(self, tmp_path):
         db = tmp_path / "embeddings.db"

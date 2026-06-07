@@ -321,9 +321,15 @@ The graph is stored locally under `.dagayn/` by default. No external database is
 
 <!-- derived-from ./docs/ARCHITECTURE.md#hybrid-search -->
 
-`semantic_search_nodes` runs FTS5 BM25 and vector cosine similarity **in parallel**, then merges both ranked lists via Reciprocal Rank Fusion (RRF). When embeddings are not yet present only the FTS5 arm contributes; when both are available you get hybrid results automatically — no per-search configuration change required. `dagayn serve --local-embedding` makes MCP search default to in-process `BAAI/bge-m3`; `dagayn serve --local-embedding --mode llama-qwen3` or `dagayn serve --local-embedding low` keeps the managed llama.cpp GGUF OpenAI-compatible sidecar. `dagayn serve --remote-embedding {openai,google,minimax}` makes MCP search default to that remote provider. The default local sentence-transformers model is `BAAI/bge-m3`. The default embedding material uses Markdown section/body text and code symbol names with adjacent comment sentences; legacy `metadata` and full `body` modes remain available through `DAGAYN_EMBEDDING_TEXT_MODE`. The FTS index includes generated identifier tokens (so `LocalEmbeddingProvider` also matches `local embedding provider`) plus bounded source/document text such as docstrings and Markdown section bodies. Japanese source/document text is pre-segmented before insertion, using an optional MeCab-compatible tokenizer when installed and an ASCII-preserving fallback otherwise, so English words inside Japanese text stay searchable.
+`semantic_search_nodes` combines exact/name search with embedding-backed fuzzy
+search when embeddings are available, and falls back to FTS-only search when
+they are not. It reports which search path contributed through `search_mode`
+and per-result `source` fields.
 
-A `search_mode` field in the response reports which arms contributed: `"hybrid"` (both), `"fts_only"`, `"embedding_only"`, or `"keyword_fallback"` (LIKE substring, triggered only when the FTS5 index does not exist). Search results are further ranked by a query-aware kind boost (PascalCase → classes, snake_case → functions) and an optional context-file boost for nodes in files you are currently editing.
+For implementation details such as FTS indexing, RRF merge, reranking, text
+modes, and provider setup, see
+[`docs/ARCHITECTURE.md#hybrid-search`](docs/ARCHITECTURE.md#hybrid-search) and
+[`docs/LOCAL-EMBEDDINGS.md`](docs/LOCAL-EMBEDDINGS.md).
 
 ### Providers
 
@@ -352,30 +358,25 @@ embed_graph_tool(provider="google")   # reads GOOGLE_API_KEY from env
 embed_graph_tool(provider="minimax")  # reads MINIMAX_API_KEY from env
 ```
 
-Embeddings are stored in the `embeddings` table inside `.dagayn/graph.db`. Switching provider or model invalidates the cache and triggers a full re-embed on the next call.
+Embeddings are stored in the `embeddings` table inside `.dagayn/graph.db`. Switching provider, model, or `DAGAYN_EMBEDDING_TEXT_MODE` partitions the cache and triggers a re-embed for that provider/text-mode pair on the next call.
 
 ### Search quality
 
-Measured on the dagayn codebase itself with the best measured material strategy
-(`doc=section|code=name|comment=sentence|join=combined`), 11,741 embedded
-materials pointing at 8,236 graph references, 31 positive queries, and 5
-unrelated negative calibration queries. `negative top score` is lower-is-better:
-it shows how strongly an unrelated query still matches some repository node.
+The current search benchmark has 20 queries: 12 standard queries for exact/name
+and purpose-style lookup, plus 8 structural queries for purpose and
+process-pattern prose over function behavior.
 
-| Local model | positive MRR | Precision@5 | negative top score | embedding throughput |
-|---|---:|---:|---:|---:|
-| `BAAI/bge-m3` | **0.5639** | **0.6774** | **0.4157** | 87.8 nodes/s |
-| `intfloat/multilingual-e5-base` | 0.5317 | 0.6452 | 0.8127 | **302.1 nodes/s** |
-| `nomic-ai/nomic-embed-text-v1.5` | 0.5215 | 0.5806 | 0.5202 | 136.6 nodes/s |
-| `mixedbread-ai/mxbai-embed-large-v1` | 0.4604 | 0.4516 | 0.4700 | 85.4 nodes/s |
-| Qwen3-Embedding-0.6B Q8 `low` | 0.4301 | 0.5484 | 0.5261 | 55.4 nodes/s |
-| `jinaai/jina-embeddings-v2-base-code` | 0.3604 | 0.4516 | 0.4753 | 171.8 nodes/s |
+| Search mode | Query set | MRR | Hit@5 | Hit@20 |
+|---|---|---:|---:|---:|
+| `material` text | all (20) | 0.5528 | 14/20 | 18/20 |
+| `narrative` text | all (20) | 0.6671 | 18/20 | 19/20 |
+| intent-routed | all (20) | **0.6725** | **18/20** | **19/20** |
 
-`BAAI/bge-m3` is the default local sentence-transformers model because it had
-the best positive ranking and the lowest unrelated-query top score in this
-measurement. The managed `low` preset remains Qwen3 GGUF for fully managed
-llama.cpp sidecar installs. See `docs/LOCAL-EMBEDDINGS.md` for local setup and
-more embedding details.
+On the 8 structural queries, `narrative` improves over `material` from 0.2881
+to 0.5875 MRR and from 3/8 to 7/8 Hit@5. See
+[`docs/LOCAL-EMBEDDINGS.md#search-quality`](docs/LOCAL-EMBEDDINGS.md#search-quality)
+for the detailed benchmark tables, search-mode notes, and local model
+comparison.
 
 ### Privacy and cloud egress
 

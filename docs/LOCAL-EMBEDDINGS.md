@@ -167,13 +167,29 @@ owned comment sentences; signatures and implementation bodies are left out by
 default because the measured material benchmark favored symbol-name material
 plus comments over signature-heavy or body-heavy inputs.
 
-Set `DAGAYN_EMBEDDING_TEXT_MODE=metadata`, `material`, or `body` to override
-that behavior for any provider or preset. The source span is capped by
+Set `DAGAYN_EMBEDDING_TEXT_MODE=metadata`, `material`, `body`, `structured`,
+or `narrative` to override that behavior for any provider or preset. The
+`structured` mode is an experimental labeled code-reference representation that
+combines node metadata with the bounded source span. The `narrative` mode is a
+static, deterministic natural-language rendering of code-reference facts such
+as calls, assignments, returns, branches, loops, IO, search, embedding
+operations, and graph relationships such as `CALLS`, `IMPORTS_FROM`,
+`REFERENCES`, `TESTED_BY`, and callers. These modes make it easier to compare
+AST-derived, graph-derived, or source-derived explanations against the default
+material. The source span is capped by
 `DAGAYN_EMBEDDING_SOURCE_CHARS` and defaults to 2048 characters. Body mode can
 improve conceptual searches where the query terms appear only in implementation
 text or Markdown section bodies, at the cost of larger embedding inputs and
 more frequent re-embedding when function bodies or documentation sections
 change.
+
+Hybrid search routes prose query intent across these materials. Purpose-like
+queries use the `material` text because names and adjacent comments usually
+carry intent. Process-pattern queries use `narrative` text because static
+source and graph facts expose operations such as calls, reads, writes, returns,
+loops, merges, searches, and rebuilds. Persisted vectors are partitioned by
+provider plus text mode, so running `material` and `narrative` embeddings for
+the same provider keeps both rows available for routing.
 
 Leave a dagayn-started server running for reuse:
 
@@ -183,7 +199,30 @@ dagayn build --local-embedding --mode llama-qwen3 --keep-local-embedding-server
 
 ## Search quality
 
-The measurements below use the best measured material strategy
+The current hybrid search benchmark uses the real local BGE-M3 provider with
+both `material` and `narrative` embedding rows available. It has two query
+sets:
+
+- `standard`: 12 exact/name and purpose-style queries.
+- `structural`: 8 purpose and process-pattern prose queries where the target is
+  usually a function's static behavior.
+
+| Search mode | Query set | MRR | Hit@5 | Hit@20 |
+|---|---|---:|---:|---:|
+| `material` text | standard (12) | **0.7292** | **11/12** | **12/12** |
+| `narrative` text | standard (12) | 0.7202 | 11/12 | 12/12 |
+| `material` text | structural (8) | 0.2881 | 3/8 | 6/8 |
+| `narrative` text | structural (8) | **0.5875** | **7/8** | **7/8** |
+| `material` text | all (20) | 0.5528 | 14/20 | 18/20 |
+| `narrative` text | all (20) | 0.6671 | **18/20** | **19/20** |
+| intent-routed (`material` for purpose, `narrative` for process-pattern) | all (20) | **0.6725** | **18/20** | **19/20** |
+
+The main gain is on structural/process-pattern prose: `narrative` raises MRR
+from 0.2881 to 0.5875 (+0.2994, about 2.0x) and Hit@5 from 3/8 to 7/8 over
+`material`. Across all 20 benchmark queries, intent routing improves over
+`material` from 0.5528 to 0.6725 MRR (+0.1197, about +21.7%).
+
+The older local model comparison below uses the best measured material strategy
 (`doc=section|code=name|comment=sentence|join=combined`) on the dagayn codebase:
 11,741 embedded materials, 8,236 graph references, 31 positive queries, and 5
 unrelated negative calibration queries. `negative top score` is lower-is-better.
