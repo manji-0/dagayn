@@ -42,9 +42,72 @@ logger = logging.getLogger(__name__)
 _DEFAULT_SLOW_EMBED_BATCH_SECONDS = 10.0
 _DEFAULT_SOURCE_CHARS = 2048
 _DEFAULT_DOC_BODY_WEIGHT = 2
-_EMBEDDING_TEXT_MODES = {"metadata", "body", "material"}
+_EMBEDDING_TEXT_MODES = {"metadata", "body", "material", "structured", "narrative"}
 _MARKDOWN_HEADING_RE = re.compile(r"^(#{1,6})\s+")
 _DOC_BODY_KINDS = {"DocSection", "DocBody"}
+_IDENTIFIER_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_IDENT_BOUNDARY_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
+_CALL_RE = re.compile(
+    r"\b([A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)?"
+    r"(?:\.[A-Za-z_][A-Za-z0-9_]*)?)\s*!?\s*\("
+)
+_ASSIGN_RE = re.compile(
+    r"^\s*(?:let\s+|mut\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*(?::[^=]+)?=",
+    re.MULTILINE,
+)
+_RETURN_RE = re.compile(r"\breturn\b\s*([^;\n]*)")
+_BRANCH_RE = re.compile(r"\b(?:if|elif|else if|match|while)\b\s*([^{:\n]*)")
+_LOOP_RE = re.compile(r"\bfor\s+(.+?)\s+in\s+([^:{\n]+)")
+_STOP_IDENTIFIERS = {
+    "and",
+    "as",
+    "bool",
+    "break",
+    "class",
+    "continue",
+    "def",
+    "else",
+    "false",
+    "for",
+    "fn",
+    "if",
+    "in",
+    "let",
+    "match",
+    "mut",
+    "none",
+    "null",
+    "or",
+    "pub",
+    "return",
+    "self",
+    "static",
+    "str",
+    "struct",
+    "true",
+    "while",
+}
+_TERM_EXPANSIONS = {
+    "ast": "abstract syntax tree",
+    "db": "database",
+    "env": "environment",
+    "fts": "full text search",
+    "id": "identifier",
+    "ids": "identifiers",
+    "mcp": "model context protocol",
+    "rrf": "reciprocal rank fusion",
+    "sql": "sql database",
+    "sqlite": "sqlite database",
+}
+_GRAPH_FACT_EDGE_KINDS = {
+    "CALLS",
+    "IMPORTS_FROM",
+    "REFERENCES",
+    "DEPENDS_ON",
+    "INHERITS",
+    "IMPLEMENTS",
+    "TESTED_BY",
+}
 
 
 def get_embedding_status(db_path: str | Path) -> dict[str, Any]:
@@ -99,8 +162,21 @@ def get_embedding_status(db_path: str | Path) -> dict[str, Any]:
                 """
                 SELECT COUNT(*)
                 FROM nodes n
-                LEFT JOIN embeddings e ON e.qualified_name = n.qualified_name
-                WHERE n.kind != 'File' AND e.qualified_name IS NULL
+                WHERE n.kind != 'File'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM embeddings e
+                      WHERE e.qualified_name = n.qualified_name
+                  )
+                """
+            ).fetchone()[0]
+        )
+        indexed_embeddings = int(
+            conn.execute(
+                """
+                SELECT COUNT(DISTINCT e.qualified_name)
+                FROM embeddings e
+                JOIN nodes n ON n.qualified_name = e.qualified_name
+                WHERE n.kind != 'File'
                 """
             ).fetchone()[0]
         )
@@ -128,7 +204,7 @@ def get_embedding_status(db_path: str | Path) -> dict[str, Any]:
             {
                 "status": state,
                 "embeddable_nodes": embeddable_nodes,
-                "indexed_embeddings": total_embeddings - orphan_embeddings,
+                "indexed_embeddings": indexed_embeddings,
                 "missing_embeddings": missing_embeddings,
                 "orphan_embeddings": orphan_embeddings,
             }
@@ -838,7 +914,8 @@ def get_provider(
 
 def provider_from_persisted_name(provider_name: str) -> EmbeddingProvider | None:
     """Return a safe provider reconstructed from a persisted DB identity."""
-    return OpenAIEmbeddingProvider.from_persisted_name(provider_name)
+    base_name = embedding_provider_base_name(provider_name)
+    return OpenAIEmbeddingProvider.from_persisted_name(base_name)
 
 
 def _check_available() -> bool:
@@ -857,12 +934,58 @@ def _check_available() -> bool:
 
 _EMBEDDINGS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS embeddings (
-    qualified_name TEXT PRIMARY KEY,
+    qualified_name TEXT NOT NULL,
     vector BLOB NOT NULL,
     text_hash TEXT NOT NULL,
-    provider TEXT NOT NULL DEFAULT 'unknown'
+    provider TEXT NOT NULL DEFAULT 'unknown',
+    PRIMARY KEY (qualified_name, provider)
 );
 """
+
+
+def _embedding_provider_key(provider_name: str, text_mode: str) -> str:
+    """Partition persisted vectors by provider and embedding text material."""
+    if "#text=" in provider_name:
+        return provider_name
+    return f"{provider_name}#text={text_mode}"
+
+
+def embedding_provider_base_name(provider_key: str) -> str:
+    """Return provider identity without dagayn's text-mode storage suffix."""
+    return provider_key.split("#text=", 1)[0]
+
+
+def embedding_provider_text_mode(provider_key: str) -> str | None:
+    """Return the text mode encoded in a persisted provider key, if present."""
+    if "#text=" not in provider_key:
+        return None
+    return provider_key.rsplit("#text=", 1)[1] or None
+
+
+def _ensure_embeddings_schema(conn: sqlite3.Connection) -> None:
+    """Migrate legacy single-provider embedding tables to provider-partitioned rows."""
+    columns = conn.execute("PRAGMA table_info(embeddings)").fetchall()
+    if not columns:
+        conn.executescript(_EMBEDDINGS_SCHEMA)
+        return
+
+    names = {str(row[1]) for row in columns}
+    if "provider" not in names:
+        conn.execute("ALTER TABLE embeddings ADD COLUMN provider TEXT NOT NULL DEFAULT 'unknown'")
+        columns = conn.execute("PRAGMA table_info(embeddings)").fetchall()
+
+    pk_columns = [str(row[1]) for row in columns if int(row[5] or 0) > 0]
+    if pk_columns == ["qualified_name"]:
+        conn.execute("ALTER TABLE embeddings RENAME TO embeddings_legacy_single_provider")
+        conn.executescript(_EMBEDDINGS_SCHEMA)
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO embeddings (qualified_name, vector, text_hash, provider)
+            SELECT qualified_name, vector, text_hash, provider
+            FROM embeddings_legacy_single_provider
+            """
+        )
+        conn.execute("DROP TABLE embeddings_legacy_single_provider")
 
 
 def _encode_vector(vec: list[float]) -> bytes:
@@ -1080,16 +1203,298 @@ def _node_to_material_text(
     return base
 
 
+def _node_to_structured_text(
+    node: GraphNode,
+    *,
+    source_root: Path | None = None,
+) -> str:
+    """Convert a node to labeled code-reference material for search experiments."""
+    fields = [
+        ("kind", node.kind),
+        ("name", node.name),
+        ("qualified", node.qualified_name),
+        ("file", str(node.file_path).replace("/", " ")),
+    ]
+    display_name = node.extra.get("display_name") if isinstance(node.extra, dict) else None
+    if display_name:
+        fields.append(("display", str(display_name)))
+    if node.parent_name:
+        fields.append(("parent", node.parent_name))
+    if node.language:
+        fields.append(("language", node.language))
+    if node.signature:
+        fields.append(("signature", node.signature))
+    if node.params:
+        fields.append(("params", node.params))
+    if node.return_type:
+        fields.append(("returns", node.return_type))
+    parts = [f"{key}: {value}" for key, value in fields if value]
+    source_excerpt = _read_node_source_excerpt(node, source_root=source_root)
+    if source_excerpt:
+        parts.append(f"source:\n{source_excerpt}")
+    return "\n".join(parts)
+
+
+def _identifier_terms(value: str) -> list[str]:
+    terms: list[str] = []
+    seen: set[str] = set()
+    for raw in _IDENTIFIER_RE.findall(value):
+        pieces = _IDENT_BOUNDARY_RE.sub(" ", raw.replace("_", " ")).lower().split()
+        for piece in pieces:
+            if piece in _STOP_IDENTIFIERS or len(piece) < 2:
+                continue
+            for term in (piece, _TERM_EXPANSIONS.get(piece, "")):
+                if term and term not in seen:
+                    seen.add(term)
+                    terms.append(term)
+    return terms
+
+
+def _limited_join(values: list[str], *, limit: int = 8) -> str:
+    return ", ".join(values[:limit])
+
+
+def _display_qualified_name(qualified_name: str) -> str:
+    return qualified_name.rsplit("::", 1)[-1].rsplit("/", 1)[-1]
+
+
+def _append_unique(values: list[str], value: str, seen: set[str]) -> None:
+    if value and value not in seen:
+        seen.add(value)
+        values.append(value)
+
+
+def _calls_from_source(source_excerpt: str) -> list[str]:
+    calls: list[str] = []
+    seen: set[str] = set()
+    for match in _CALL_RE.finditer(source_excerpt):
+        call = match.group(1).strip(".")
+        line_start = source_excerpt.rfind("\n", 0, match.start()) + 1
+        prefix = source_excerpt[line_start : match.start()].strip()
+        if prefix.endswith(("def", "class", "fn", "pub fn")):
+            continue
+        if not call:
+            continue
+        last = call.rsplit(".", 1)[-1].rsplit("::", 1)[-1].lower()
+        if last in _STOP_IDENTIFIERS:
+            continue
+        if call not in seen:
+            seen.add(call)
+            calls.append(call)
+    return calls
+
+
+def _assigned_names_from_source(source_excerpt: str) -> list[str]:
+    names: list[str] = []
+    seen: set[str] = set()
+    for match in _ASSIGN_RE.finditer(source_excerpt):
+        name = match.group(1)
+        if name.lower() in _STOP_IDENTIFIERS or name in seen:
+            continue
+        seen.add(name)
+        names.append(name)
+    return names
+
+
+def _return_terms_from_source(source_excerpt: str) -> list[str]:
+    terms: list[str] = []
+    seen: set[str] = set()
+    for match in _RETURN_RE.finditer(source_excerpt):
+        for term in _identifier_terms(match.group(1)):
+            if term not in seen:
+                seen.add(term)
+                terms.append(term)
+    return terms
+
+
+def _branch_terms_from_source(source_excerpt: str) -> list[str]:
+    terms: list[str] = []
+    seen: set[str] = set()
+    for match in _BRANCH_RE.finditer(source_excerpt):
+        for term in _identifier_terms(match.group(1)):
+            if term not in seen:
+                seen.add(term)
+                terms.append(term)
+    return terms
+
+
+def _loop_terms_from_source(source_excerpt: str) -> list[str]:
+    terms: list[str] = []
+    seen: set[str] = set()
+    for match in _LOOP_RE.finditer(source_excerpt):
+        for term in _identifier_terms(" ".join(match.groups())):
+            if term not in seen:
+                seen.add(term)
+                terms.append(term)
+    return terms
+
+
+def _io_phrases_from_source(source_excerpt: str) -> list[str]:
+    lowered = source_excerpt.lower()
+    phrases: list[str] = []
+    if any(token in lowered for token in ("read_text", "read_to_string", "open(", "select ")):
+        phrases.append("reads data")
+    if any(token in lowered for token in ("write_text", "std::fs::write", "insert ", "update ")):
+        phrases.append("writes data")
+    if any(
+        token in lowered
+        for token in (".execute(", "query_row", "sqlite", "select ", "insert ")
+    ):
+        phrases.append("uses sqlite database queries")
+    if any(token in lowered for token in ("embed(", "embed_query", "embedding")):
+        phrases.append("uses embedding model operations")
+    if any(token in lowered for token in ("search", "fts", "match ")):
+        phrases.append("performs search or ranking")
+    return phrases
+
+
+def _graph_fact_sentences(graph_facts: dict[str, list[str]] | None) -> list[str]:
+    if not graph_facts:
+        return []
+
+    sentences: list[str] = []
+    called = graph_facts.get("CALLS", [])
+    if called:
+        call_names = [f"`{_display_qualified_name(name)}`" for name in called]
+        sentences.append(
+            f"The graph says it calls {_limited_join(call_names)}."
+        )
+    imports = graph_facts.get("IMPORTS_FROM", [])
+    if imports:
+        import_names = [f"`{_display_qualified_name(name)}`" for name in imports]
+        sentences.append(
+            f"The graph says it imports from {_limited_join(import_names)}."
+        )
+    refs = graph_facts.get("REFERENCES", [])
+    if refs:
+        ref_names = [f"`{_display_qualified_name(name)}`" for name in refs]
+        sentences.append(
+            f"The graph says it references {_limited_join(ref_names)}."
+        )
+    deps = graph_facts.get("DEPENDS_ON", [])
+    if deps:
+        dep_names = [f"`{_display_qualified_name(name)}`" for name in deps]
+        sentences.append(
+            f"The graph says it depends on {_limited_join(dep_names)}."
+        )
+    inherited = graph_facts.get("INHERITS", [])
+    if inherited:
+        inherited_names = [f"`{_display_qualified_name(name)}`" for name in inherited]
+        sentences.append(
+            f"The graph says it inherits from {_limited_join(inherited_names)}."
+        )
+    implemented = graph_facts.get("IMPLEMENTS", [])
+    if implemented:
+        implemented_names = [f"`{_display_qualified_name(name)}`" for name in implemented]
+        sentences.append(
+            f"The graph says it implements {_limited_join(implemented_names)}."
+        )
+    tested_by = graph_facts.get("TESTED_BY", [])
+    if tested_by:
+        test_names = [f"`{_display_qualified_name(name)}`" for name in tested_by]
+        sentences.append(
+            f"The graph says it is tested by {_limited_join(test_names)}."
+        )
+    callers = graph_facts.get("called_by", [])
+    if callers:
+        caller_names = [f"`{_display_qualified_name(name)}`" for name in callers]
+        sentences.append(
+            f"The graph says it is called by {_limited_join(caller_names)}."
+        )
+    return sentences
+
+
+def _graph_fact_terms(graph_facts: dict[str, list[str]] | None) -> list[str]:
+    if not graph_facts:
+        return []
+    terms: list[str] = []
+    seen: set[str] = set()
+    for values in graph_facts.values():
+        for value in values:
+            for term in _identifier_terms(value):
+                _append_unique(terms, term, seen)
+    return terms
+
+
+def _node_to_narrative_text(
+    node: GraphNode,
+    *,
+    source_root: Path | None = None,
+    graph_facts: dict[str, list[str]] | None = None,
+) -> str:
+    """Convert a node to deterministic natural-language static code facts."""
+    source_excerpt = _read_node_source_excerpt(node, source_root=source_root)
+    language = node.language or "code"
+    kind = node.kind.lower()
+    display_name = node.extra.get("display_name") if isinstance(node.extra, dict) else None
+    subject = f"`{node.name}`"
+    sentences = [
+        f"This {language} {kind} {subject} is defined in `{node.file_path}`.",
+        f"It is referenced as `{node.qualified_name}`.",
+        "It is represented as static code facts for code search and AI explanation.",
+    ]
+    if display_name:
+        sentences.append(f"It is also described as {display_name}.")
+    if node.parent_name:
+        sentences.append(f"It belongs to `{node.parent_name}`.")
+    if node.params:
+        sentences.append(f"It accepts parameters {node.params}.")
+    if node.return_type:
+        sentences.append(f"It declares return type `{node.return_type}`.")
+    if node.signature:
+        sentences.append(f"Its signature is `{node.signature}`.")
+
+    name_terms = _identifier_terms(" ".join([node.name, node.qualified_name, node.signature or ""]))
+    if name_terms:
+        sentences.append(f"Its identifiers mention {_limited_join(name_terms)}.")
+
+    sentences.extend(_graph_fact_sentences(graph_facts))
+    graph_terms = _graph_fact_terms(graph_facts)
+    if graph_terms:
+        sentences.append(f"Its graph relationships mention {_limited_join(graph_terms, limit=16)}.")
+
+    if source_excerpt:
+        calls = _calls_from_source(source_excerpt)
+        if calls:
+            sentences.append(f"It calls {_limited_join([f'`{call}`' for call in calls])}.")
+        assigned = _assigned_names_from_source(source_excerpt)
+        if assigned:
+            assigned_names = [f"`{name}`" for name in assigned]
+            sentences.append(f"It defines or updates {_limited_join(assigned_names)}.")
+        return_terms = _return_terms_from_source(source_excerpt)
+        if return_terms:
+            sentences.append(f"It returns values related to {_limited_join(return_terms)}.")
+        branch_terms = _branch_terms_from_source(source_excerpt)
+        if branch_terms:
+            sentences.append(f"It branches on {_limited_join(branch_terms)}.")
+        loop_terms = _loop_terms_from_source(source_excerpt)
+        if loop_terms:
+            sentences.append(f"It iterates over {_limited_join(loop_terms)}.")
+        io_phrases = _io_phrases_from_source(source_excerpt)
+        if io_phrases:
+            sentences.append(f"It {_limited_join(io_phrases)}.")
+        source_terms = _identifier_terms(source_excerpt)
+        if source_terms:
+            sentences.append(f"Its source mentions {_limited_join(source_terms, limit=16)}.")
+
+    return " ".join(sentences)
+
+
 def _node_to_text(
     node: GraphNode,
     *,
     source_root: Path | None = None,
     text_mode: str | None = None,
+    graph_facts: dict[str, list[str]] | None = None,
 ) -> str:
     """Convert a node to a searchable text representation."""
     mode = _embedding_text_mode(text_mode)
     if mode == "material":
         return _node_to_material_text(node, source_root=source_root)
+    if mode == "structured":
+        return _node_to_structured_text(node, source_root=source_root)
+    if mode == "narrative":
+        return _node_to_narrative_text(node, source_root=source_root, graph_facts=graph_facts)
 
     parts = [node.name, node.qualified_name, str(node.file_path).replace("/", " ")]
     display_name = node.extra.get("display_name") if isinstance(node.extra, dict) else None
@@ -1117,6 +1522,40 @@ def _node_to_text(
                 source_excerpt = source_excerpt[:per_repetition]
             parts.extend([source_excerpt] * repetitions)
     return " ".join(parts)
+
+
+def _build_graph_facts_by_qualified_name(
+    graph_store: GraphStore,
+    nodes: list[GraphNode],
+) -> dict[str, dict[str, list[str]]]:
+    qns = [node.qualified_name for node in nodes]
+    outgoing, incoming = graph_store.get_edges_by_endpoints(qns)
+    facts_by_qn: dict[str, dict[str, list[str]]] = {}
+    for qn in qns:
+        facts: dict[str, list[str]] = {}
+        seen_by_kind: dict[str, set[str]] = {}
+
+        for edge in outgoing.get(qn, []):
+            if edge.kind not in _GRAPH_FACT_EDGE_KINDS:
+                continue
+            values = facts.setdefault(edge.kind, [])
+            seen = seen_by_kind.setdefault(edge.kind, set())
+            _append_unique(values, _display_qualified_name(edge.target_qualified), seen)
+
+        callers = facts.setdefault("called_by", [])
+        seen_callers = seen_by_kind.setdefault("called_by", set())
+        for edge in incoming.get(qn, []):
+            if edge.kind == "CALLS":
+                _append_unique(
+                    callers,
+                    _display_qualified_name(edge.source_qualified),
+                    seen_callers,
+                )
+        if not callers:
+            facts.pop("called_by", None)
+        if facts:
+            facts_by_qn[qn] = facts
+    return facts_by_qn
 
 
 def _slow_embed_batch_seconds() -> float:
@@ -1156,7 +1595,13 @@ class EmbeddingStore:
         self.available = self.provider is not None
         self.db_path = Path(db_path)
         self.text_mode = _embedding_text_mode(text_mode)
+        self.provider_key = (
+            _embedding_provider_key(self.provider.name, self.text_mode)
+            if self.provider is not None
+            else None
+        )
         self.source_root = Path(source_root) if source_root is not None else None
+        self.graph_facts_by_qualified_name: dict[str, dict[str, list[str]]] = {}
         self._conn = sqlite3.connect(
             str(self.db_path),
             timeout=30,
@@ -1170,15 +1615,8 @@ class EmbeddingStore:
         self._conn.execute("PRAGMA mmap_size=134217728")  # 128 MB memory-mapped I/O
         self._conn.execute("PRAGMA temp_store=MEMORY")
         self._conn.executescript(_EMBEDDINGS_SCHEMA)
+        _ensure_embeddings_schema(self._conn)
         self.last_orphans_removed = 0
-
-        # Migration for existing DBs missing the provider column
-        try:
-            self._conn.execute("SELECT provider FROM embeddings LIMIT 1")
-        except sqlite3.OperationalError:
-            self._conn.execute(
-                "ALTER TABLE embeddings ADD COLUMN provider TEXT NOT NULL DEFAULT 'unknown'"
-            )
 
         self._conn.commit()
 
@@ -1199,6 +1637,23 @@ class EmbeddingStore:
         except sqlite3.Error:
             logger.debug("Could not checkpoint embedding writes", exc_info=True)
 
+    def _provider_key_for_lookup(self) -> str | None:
+        """Prefer mode-partitioned rows, falling back to legacy provider rows."""
+        if not self.provider:
+            return None
+        provider_name = self.provider_key or self.provider.name
+        count = self._conn.execute(
+            "SELECT COUNT(*) FROM embeddings WHERE provider = ?",
+            (provider_name,),
+        ).fetchone()[0]
+        if count or provider_name == self.provider.name:
+            return provider_name
+        legacy_count = self._conn.execute(
+            "SELECT COUNT(*) FROM embeddings WHERE provider = ?",
+            (self.provider.name,),
+        ).fetchone()[0]
+        return self.provider.name if legacy_count else provider_name
+
     def embed_nodes(
         self,
         nodes: list[GraphNode],
@@ -1210,7 +1665,7 @@ class EmbeddingStore:
             return 0
 
         # Filter to nodes that need embedding
-        provider_name = self.provider.name
+        provider_name = self.provider_key or self.provider.name
         candidate_nodes = [n for n in nodes if n.kind != "File"]
         if not candidate_nodes:
             return 0
@@ -1224,15 +1679,20 @@ class EmbeddingStore:
             placeholders = ",".join("?" for _ in chunk)
             rows = self._conn.execute(  # nosec B608
                 f"SELECT qualified_name, text_hash, provider FROM embeddings"
-                f" WHERE qualified_name IN ({placeholders})",
-                chunk,
+                f" WHERE provider = ? AND qualified_name IN ({placeholders})",
+                [provider_name, *chunk],
             ).fetchall()
             for r in rows:
                 existing_hashes[r["qualified_name"]] = (r["text_hash"], r["provider"])
 
         to_embed: list[tuple[GraphNode, str, str]] = []
         for node in candidate_nodes:
-            text = _node_to_text(node, source_root=self.source_root, text_mode=self.text_mode)
+            text = _node_to_text(
+                node,
+                source_root=self.source_root,
+                text_mode=self.text_mode,
+                graph_facts=self.graph_facts_by_qualified_name.get(node.qualified_name),
+            )
             text_hash = hashlib.sha256(text.encode()).hexdigest()
             ex = existing_hashes.get(node.qualified_name)
             if ex and ex[0] == text_hash and ex[1] == provider_name:
@@ -1381,7 +1841,9 @@ class EmbeddingStore:
         if not self.provider:
             return []
 
-        provider_name = self.provider.name
+        provider_name = self._provider_key_for_lookup()
+        if provider_name is None:
+            return []
         query_vec = _embed_query_cached(self.provider, query)
 
         if not _NUMPY_AVAILABLE:
@@ -1450,29 +1912,36 @@ class EmbeddingStore:
         if not self.provider:
             return 0
 
-        provider_name = self.provider.name
+        provider_name = self.provider_key or self.provider.name
+        provider_names = [provider_name]
+        if self.provider.name != provider_name:
+            provider_names.append(self.provider.name)
+        placeholders = ",".join("?" for _ in provider_names)
         rows = self._conn.execute(
-            "SELECT qualified_name FROM embeddings WHERE provider = ?",
-            (provider_name,),
+            f"SELECT qualified_name, provider FROM embeddings WHERE provider IN ({placeholders})",  # nosec B608
+            provider_names,
         ).fetchall()
-        orphan_names = [
-            row["qualified_name"]
+        orphan_rows = [
+            (row["qualified_name"], row["provider"])
             for row in rows
             if row["qualified_name"] not in live_qualified_names
         ]
-        if not orphan_names:
+        if not orphan_rows:
             return 0
 
         batch_size = 450
         deleted = 0
-        for i in range(0, len(orphan_names), batch_size):
-            chunk = orphan_names[i : i + batch_size]
-            placeholders = ",".join("?" for _ in chunk)
-            cursor = self._conn.execute(  # nosec B608
-                f"DELETE FROM embeddings WHERE provider = ? AND qualified_name IN ({placeholders})",
-                [provider_name, *chunk],
-            )
-            deleted += cursor.rowcount if cursor.rowcount is not None else len(chunk)
+        for provider_to_clean in provider_names:
+            names = [qn for qn, provider in orphan_rows if provider == provider_to_clean]
+            for i in range(0, len(names), batch_size):
+                chunk = names[i : i + batch_size]
+                name_placeholders = ",".join("?" for _ in chunk)
+                cursor = self._conn.execute(  # nosec B608
+                    "DELETE FROM embeddings "
+                    f"WHERE provider = ? AND qualified_name IN ({name_placeholders})",
+                    [provider_to_clean, *chunk],
+                )
+                deleted += cursor.rowcount if cursor.rowcount is not None else len(chunk)
         self._conn.commit()
         return deleted
 
@@ -1482,9 +1951,12 @@ class EmbeddingStore:
     def count_provider(self) -> int:
         if not self.provider:
             return 0
+        provider_name = self._provider_key_for_lookup()
+        if provider_name is None:
+            return 0
         return self._conn.execute(
             "SELECT COUNT(*) FROM embeddings WHERE provider = ?",
-            (self.provider.name,),
+            (provider_name,),
         ).fetchone()[0]
 
 
@@ -1525,5 +1997,13 @@ def embed_all_nodes(
         get_repo_root = getattr(graph_store, "get_repo_root", None)
         if callable(get_repo_root):
             embedding_store.source_root = get_repo_root()
+
+    if embedding_store.text_mode == "narrative":
+        embedding_store.graph_facts_by_qualified_name = _build_graph_facts_by_qualified_name(
+            graph_store,
+            all_nodes,
+        )
+    else:
+        embedding_store.graph_facts_by_qualified_name = {}
 
     return embedding_store.embed_nodes(all_nodes, show_progress=show_progress)

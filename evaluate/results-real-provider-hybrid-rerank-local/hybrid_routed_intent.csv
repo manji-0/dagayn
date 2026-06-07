@@ -1,0 +1,21 @@
+mode_text,chosen_text_mode,set,label,query,expected,search_mode,rerank_intent,rank,reciprocal_rank,hit_at_5,hit_at_20,latency_ms,top1
+routed,material,standard,pascal_case_class,EmbeddingProvider,dagayn/embeddings.py::EmbeddingProvider,hybrid,exact,1,1.0,1,1,14.606,dagayn/embeddings.py::EmbeddingProvider
+routed,material,standard,pascal_case_class,GraphStore,dagayn/graph/core.py::GraphStore,hybrid,exact,1,1.0,1,1,16.412,dagayn/graph/core.py::GraphStore.__enter__
+routed,material,standard,pascal_case_class,LocalEmbeddingProvider,dagayn/embeddings.py::LocalEmbeddingProvider,hybrid,exact,1,1.0,1,1,38.636,dagayn/embeddings.py::LocalEmbeddingProvider
+routed,material,standard,exact_name,detect_query_kind_boost,dagayn/search.py::detect_query_kind_boost,hybrid,exact,1,1.0,1,1,37.696,dagayn/search.py::detect_query_kind_boost
+routed,material,standard,exact_name,full_build,dagayn/incremental.py::full_build,hybrid,exact,3,0.3333,1,1,15.483,tests/test_multilang.py::_TempRepoBuildMixin._full_build
+routed,material,standard,exact_name,hybrid_search,dagayn/search.py::hybrid_search,hybrid,exact,1,1.0,1,1,68.43,dagayn/search.py::hybrid_search
+routed,material,standard,conceptual,incremental graph construction,dagayn/incremental.py::full_build,hybrid,purpose,6,0.1667,0,1,15.773,docs/refactoring-priority-report-2026-05-04.md::p1-split-build-and-incremental-orchestration
+routed,material,standard,conceptual,kind boost detection query,dagayn/search.py::detect_query_kind_boost,hybrid,purpose,1,1.0,1,1,16.284,dagayn/search.py::detect_query_kind_boost
+routed,material,standard,exact_name,rebuild_fts_index,dagayn/search.py::rebuild_fts_index,hybrid,exact,4,0.25,1,1,55.27,tests/test_tools.py::FakeRustStore.rebuild_fts_index
+routed,material,standard,conceptual,reciprocal rank fusion,dagayn/search.py::rrf_merge,hybrid,purpose,2,0.5,1,1,35.75,docs/ARCHITECTURE.md::hybrid-search--body-1
+routed,material,standard,exact_name,rrf_merge,dagayn/search.py::rrf_merge,hybrid,exact,1,1.0,1,1,34.995,dagayn/search.py::rrf_merge
+routed,material,standard,conceptual,sentence transformers local model,dagayn/embeddings.py::LocalEmbeddingProvider,hybrid,purpose,2,0.5,1,1,173.601,README.md::search-quality--body-3
+routed,narrative,structural,purpose_embedding_material,code responsible for graph node embedding text material,dagayn/embeddings.py::_node_to_text,hybrid,process_pattern,2,0.5,1,1,1.884,dagayn/embeddings.py::_node_to_material_text
+routed,narrative,structural,purpose_local_embeddings,code responsible for local sentence transformer embeddings,dagayn/embeddings.py::LocalEmbeddingProvider,hybrid,process_pattern,2,0.5,1,1,1.607,tests/test_local_embeddings.py::Response.__enter__
+routed,material,structural,purpose_result_ranking,code responsible for semantic search result ranking,dagayn/search.py::hybrid_search,hybrid,purpose,0,0,0,0,38.828,dagayn/main.py::semantic_search_nodes_tool
+routed,narrative,structural,pattern_tested_by_graph_fact,function tested by node to text embedding tests,dagayn/embeddings.py::_node_to_text,hybrid,process_pattern,2,0.5,1,1,2.158,tests/test_embeddings.py::TestNodeToText.test_basic_function
+routed,narrative,structural,process_narrative_renderer,function that converts a graph node into deterministic natural language static code facts,dagayn/embeddings.py::_node_to_narrative_text,hybrid,process_pattern,1,1.0,1,1,10.429,dagayn/embeddings.py::_node_to_narrative_text
+routed,narrative,structural,process_temporary_embedding_store,function that creates temporary embedding store and searches configured queries,dagayn/eval/benchmarks/embedding_text_modes.py::run,hybrid,process_pattern,5,0.2,1,1,8.204,dagayn/embeddings.py::EmbeddingStore.search
+routed,narrative,structural,process_read_bounded_source,function that reads bounded source span for embedding text,dagayn/embeddings.py::_read_node_source_excerpt,hybrid,process_pattern,1,1.0,1,1,8.317,dagayn/embeddings.py::_read_node_source_excerpt
+routed,narrative,structural,process_merge_ranked_results,function that uses reciprocal rank fusion to merge ranked search results,dagayn/search.py::rrf_merge,hybrid,process_pattern,1,1.0,1,1,1.916,dagayn/search.py::rrf_merge

@@ -1,0 +1,13 @@
+mode_text,set,label,query,expected,search_mode,rerank_intent,rank,reciprocal_rank,hit_at_5,hit_at_20,latency_ms,top1
+narrative,standard,exact_name,hybrid_search,dagayn/search.py::hybrid_search,hybrid,exact,3,0.3333,1,1,20.836,docs/ARCHITECTURE.md::hybrid-search
+narrative,standard,exact_name,rebuild_fts_index,dagayn/search.py::rebuild_fts_index,hybrid,exact,4,0.25,1,1,2.066,tests/test_tools.py::FakeRustStore.rebuild_fts_index
+narrative,standard,exact_name,rrf_merge,dagayn/search.py::rrf_merge,hybrid,exact,1,1.0,1,1,1.525,dagayn/search.py::rrf_merge
+narrative,standard,exact_name,full_build,dagayn/incremental.py::full_build,hybrid,exact,2,0.5,1,1,2.205,tests/test_multilang.py::_TempRepoBuildMixin._full_build
+narrative,standard,exact_name,detect_query_kind_boost,dagayn/search.py::detect_query_kind_boost,hybrid,exact,1,1.0,1,1,1.964,dagayn/search.py::detect_query_kind_boost
+narrative,standard,pascal_case_class,GraphStore,dagayn/graph/core.py::GraphStore,hybrid,exact,1,1.0,1,1,2.897,crates/dagayn-graph/src/lib.rs::GraphStore
+narrative,standard,pascal_case_class,EmbeddingProvider,dagayn/embeddings.py::EmbeddingProvider,hybrid,exact,1,1.0,1,1,1.493,dagayn/embeddings.py::EmbeddingProvider
+narrative,standard,pascal_case_class,LocalEmbeddingProvider,dagayn/embeddings.py::LocalEmbeddingProvider,hybrid,exact,1,1.0,1,1,1.41,dagayn/embeddings.py::LocalEmbeddingProvider
+narrative,standard,conceptual,reciprocal rank fusion,dagayn/search.py::rrf_merge,hybrid,purpose,1,1.0,1,1,1.632,dagayn/search.py::rrf_merge
+narrative,standard,conceptual,sentence transformers local model,dagayn/embeddings.py::LocalEmbeddingProvider,hybrid,purpose,2,0.5,1,1,1.587,README.md::search-quality--body-3
+narrative,standard,conceptual,kind boost detection query,dagayn/search.py::detect_query_kind_boost,hybrid,purpose,1,1.0,1,1,1.637,dagayn/search.py::detect_query_kind_boost
+narrative,standard,conceptual,incremental graph construction,dagayn/incremental.py::full_build,hybrid,purpose,17,0.0588,0,1,1.64,docs/refactoring-priority-report-2026-05-04.md::p1-split-build-and-incremental-orchestration

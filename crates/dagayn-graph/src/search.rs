@@ -78,11 +78,24 @@ impl GraphStore {
                     line_start,
                     line_end,
                 );
-                let doc_text = [display_name, source_excerpt.as_str()]
-                    .into_iter()
-                    .filter(|part| !part.is_empty())
-                    .collect::<Vec<_>>()
-                    .join(" ");
+                let structured_description = structured_code_reference_text(
+                    &kind,
+                    &name,
+                    &qualified_name,
+                    &file_path,
+                    display_name,
+                    signature.as_deref(),
+                    source_excerpt.as_str(),
+                );
+                let doc_text = [
+                    display_name,
+                    structured_description.as_str(),
+                    source_excerpt.as_str(),
+                ]
+                .into_iter()
+                .filter(|part| !part.is_empty())
+                .collect::<Vec<_>>()
+                .join(" ");
                 let doc_text = segment_japanese_fts_text(&doc_text);
                 insert.execute(params![
                     rowid,
@@ -118,4 +131,31 @@ impl GraphStore {
         tx.commit()?;
         Ok(count)
     }
+}
+
+fn structured_code_reference_text(
+    kind: &str,
+    name: &str,
+    qualified_name: &str,
+    file_path: &str,
+    display_name: &str,
+    signature: Option<&str>,
+    source_excerpt: &str,
+) -> String {
+    let mut parts = vec![
+        format!("kind: {kind}"),
+        format!("name: {name}"),
+        format!("qualified: {qualified_name}"),
+        format!("file: {}", file_path.replace('/', " ")),
+    ];
+    if !display_name.is_empty() {
+        parts.push(format!("display: {display_name}"));
+    }
+    if let Some(signature) = signature.filter(|value| !value.is_empty()) {
+        parts.push(format!("signature: {signature}"));
+    }
+    if !source_excerpt.is_empty() {
+        parts.push(format!("source:\n{source_excerpt}"));
+    }
+    parts.join("\n")
 }

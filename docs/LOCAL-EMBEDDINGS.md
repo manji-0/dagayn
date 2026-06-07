@@ -167,13 +167,29 @@ owned comment sentences; signatures and implementation bodies are left out by
 default because the measured material benchmark favored symbol-name material
 plus comments over signature-heavy or body-heavy inputs.
 
-Set `DAGAYN_EMBEDDING_TEXT_MODE=metadata`, `material`, or `body` to override
-that behavior for any provider or preset. The source span is capped by
+Set `DAGAYN_EMBEDDING_TEXT_MODE=metadata`, `material`, `body`, `structured`,
+or `narrative` to override that behavior for any provider or preset. The
+`structured` mode is an experimental labeled code-reference representation that
+combines node metadata with the bounded source span. The `narrative` mode is a
+static, deterministic natural-language rendering of code-reference facts such
+as calls, assignments, returns, branches, loops, IO, search, embedding
+operations, and graph relationships such as `CALLS`, `IMPORTS_FROM`,
+`REFERENCES`, `TESTED_BY`, and callers. These modes make it easier to compare
+AST-derived, graph-derived, or source-derived explanations against the default
+material. The source span is capped by
 `DAGAYN_EMBEDDING_SOURCE_CHARS` and defaults to 2048 characters. Body mode can
 improve conceptual searches where the query terms appear only in implementation
 text or Markdown section bodies, at the cost of larger embedding inputs and
 more frequent re-embedding when function bodies or documentation sections
 change.
+
+Hybrid search routes prose query intent across these materials. Purpose-like
+queries use the `material` text because names and adjacent comments usually
+carry intent. Process-pattern queries use `narrative` text because static
+source and graph facts expose operations such as calls, reads, writes, returns,
+loops, merges, searches, and rebuilds. Persisted vectors are partitioned by
+provider plus text mode, so running `material` and `narrative` embeddings for
+the same provider keeps both rows available for routing.
 
 Leave a dagayn-started server running for reuse:
 

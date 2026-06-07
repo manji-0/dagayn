@@ -1,0 +1,13 @@
+set,label,query,expected,mode,rerank_intent,rank,reciprocal_rank,hit_at_5,hit_at_20,latency_ms,top1
+standard_tuned,exact_name,hybrid_search,dagayn/search.py::hybrid_search,fts_only,exact,9,0.1111,0,1,6.519,docs/ARCHITECTURE.md::hybrid-search--body-5
+standard_tuned,exact_name,rebuild_fts_index,dagayn/search.py::rebuild_fts_index,fts_only,exact,4,0.25,1,1,5.04,tests/test_tools.py::FakeRustStore.rebuild_fts_index
+standard_tuned,exact_name,rrf_merge,dagayn/search.py::rrf_merge,fts_only,exact,1,1.0,1,1,4.919,dagayn/search.py::rrf_merge
+standard_tuned,exact_name,full_build,dagayn/incremental.py::full_build,fts_only,exact,2,0.5,1,1,4.9,tests/test_multilang.py::_TempRepoBuildMixin._full_build
+standard_tuned,exact_name,detect_query_kind_boost,dagayn/search.py::detect_query_kind_boost,fts_only,exact,1,1.0,1,1,4.804,dagayn/search.py::detect_query_kind_boost
+standard_tuned,pascal_case_class,GraphStore,dagayn/graph/core.py::GraphStore,fts_only,exact,1,1.0,1,1,5.514,crates/dagayn-graph/src/lib.rs::GraphStore
+standard_tuned,pascal_case_class,EmbeddingProvider,dagayn/embeddings.py::EmbeddingProvider,fts_only,exact,1,1.0,1,1,4.553,dagayn/embeddings.py::EmbeddingProvider
+standard_tuned,pascal_case_class,LocalEmbeddingProvider,dagayn/embeddings.py::LocalEmbeddingProvider,fts_only,exact,1,1.0,1,1,4.534,dagayn/embeddings.py::LocalEmbeddingProvider
+standard_tuned,conceptual,reciprocal rank fusion,dagayn/search.py::rrf_merge,fts_only,purpose,2,0.5,1,1,4.227,docs/ARCHITECTURE.md::hybrid-search--body-1
+standard_tuned,conceptual,sentence transformers local model,dagayn/embeddings.py::LocalEmbeddingProvider,fts_only,purpose,2,0.5,1,1,4.535,README.md::search-quality--body-3
+standard_tuned,conceptual,kind boost detection query,dagayn/search.py::detect_query_kind_boost,fts_only,purpose,1,1.0,1,1,4.514,dagayn/search.py::detect_query_kind_boost
+standard_tuned,conceptual,incremental graph construction,dagayn/incremental.py::full_build,fts_only,purpose,0,0,0,0,4.713,docs/refactoring-priority-report-2026-05-04.md::p1-split-build-and-incremental-orchestration--body-4

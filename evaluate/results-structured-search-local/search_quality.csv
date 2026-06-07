@@ -1,0 +1,13 @@
+repo,label,query,expected,search_mode,embedding_status,latency_ms,result_count,source_counts,rank,reciprocal_rank,hit_at_5,hit_at_20,ndcg_at_20
+dagayn-local-worktree,exact_name,hybrid_search,dagayn/search.py::hybrid_search,fts_only,missing_vectors,1.759,20,"{""doc"": 1, ""fts"": 19}",9,0.1111,0,1,0.301
+dagayn-local-worktree,exact_name,rebuild_fts_index,dagayn/search.py::rebuild_fts_index,fts_only,missing_vectors,1.283,20,"{""fts"": 20}",4,0.25,1,1,0.4307
+dagayn-local-worktree,exact_name,rrf_merge,dagayn/search.py::rrf_merge,fts_only,missing_vectors,0.637,19,"{""fts"": 19}",1,1.0,1,1,1.0
+dagayn-local-worktree,exact_name,full_build,dagayn/incremental.py::full_build,fts_only,missing_vectors,1.133,20,"{""fts"": 20}",2,0.5,1,1,0.6309
+dagayn-local-worktree,exact_name,detect_query_kind_boost,dagayn/search.py::detect_query_kind_boost,fts_only,missing_vectors,0.763,10,"{""fts"": 10}",1,1.0,1,1,1.0
+dagayn-local-worktree,pascal_case_class,GraphStore,dagayn/graph/core.py::GraphStore,fts_only,missing_vectors,1.604,20,"{""doc"": 2, ""fts"": 18}",1,1.0,1,1,1.0
+dagayn-local-worktree,pascal_case_class,EmbeddingProvider,dagayn/embeddings.py::EmbeddingProvider,fts_only,missing_vectors,0.544,20,"{""doc"": 1, ""fts"": 19}",1,1.0,1,1,1.0
+dagayn-local-worktree,pascal_case_class,LocalEmbeddingProvider,dagayn/embeddings.py::LocalEmbeddingProvider,fts_only,missing_vectors,0.549,20,"{""doc"": 1, ""fts"": 19}",1,1.0,1,1,1.0
+dagayn-local-worktree,conceptual,reciprocal rank fusion,dagayn/search.py::rrf_merge,fts_only,missing_vectors,0.395,10,"{""doc"": 3, ""fts"": 7}",2,0.5,1,1,0.6309
+dagayn-local-worktree,conceptual,sentence transformers local model,dagayn/embeddings.py::LocalEmbeddingProvider,fts_only,missing_vectors,0.581,20,"{""doc"": 6, ""fts"": 14}",2,0.5,1,1,0.6309
+dagayn-local-worktree,conceptual,kind boost detection query,dagayn/search.py::detect_query_kind_boost,fts_only,missing_vectors,0.611,14,"{""doc"": 1, ""fts"": 13}",1,1.0,1,1,1.0
+dagayn-local-worktree,conceptual,incremental graph construction,dagayn/incremental.py::full_build,fts_only,missing_vectors,0.58,11,"{""doc"": 8, ""fts"": 3}",0,0.0,0,0,0.0

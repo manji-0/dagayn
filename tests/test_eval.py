@@ -494,9 +494,13 @@ def test_embedding_text_modes_benchmark_compares_body_mode(tmp_path):
     )
     by_mode = {row["text_mode"]: row for row in rows}
 
-    assert set(by_mode) == {"metadata", "body"}
+    assert set(by_mode) == {"metadata", "body", "structured", "narrative"}
     assert by_mode["body"]["hit_at_5"] == 1
+    assert by_mode["structured"]["hit_at_5"] == 1
+    assert by_mode["narrative"]["hit_at_5"] == 1
     assert by_mode["body"]["reciprocal_rank"] >= by_mode["metadata"]["reciprocal_rank"]
+    assert by_mode["structured"]["reciprocal_rank"] >= by_mode["metadata"]["reciprocal_rank"]
+    assert by_mode["narrative"]["reciprocal_rank"] >= by_mode["metadata"]["reciprocal_rank"]
     store.close()
 
 

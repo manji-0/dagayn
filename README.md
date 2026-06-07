@@ -321,9 +321,11 @@ The graph is stored locally under `.dagayn/` by default. No external database is
 
 <!-- derived-from ./docs/ARCHITECTURE.md#hybrid-search -->
 
-`semantic_search_nodes` runs FTS5 BM25 and vector cosine similarity **in parallel**, then merges both ranked lists via Reciprocal Rank Fusion (RRF). When embeddings are not yet present only the FTS5 arm contributes; when both are available you get hybrid results automatically — no per-search configuration change required. `dagayn serve --local-embedding` makes MCP search default to in-process `BAAI/bge-m3`; `dagayn serve --local-embedding --mode llama-qwen3` or `dagayn serve --local-embedding low` keeps the managed llama.cpp GGUF OpenAI-compatible sidecar. `dagayn serve --remote-embedding {openai,google,minimax}` makes MCP search default to that remote provider. The default local sentence-transformers model is `BAAI/bge-m3`. The default embedding material uses Markdown section/body text and code symbol names with adjacent comment sentences; legacy `metadata` and full `body` modes remain available through `DAGAYN_EMBEDDING_TEXT_MODE`. The FTS index includes generated identifier tokens (so `LocalEmbeddingProvider` also matches `local embedding provider`) plus bounded source/document text such as docstrings and Markdown section bodies. Japanese source/document text is pre-segmented before insertion, using an optional MeCab-compatible tokenizer when installed and an ASCII-preserving fallback otherwise, so English words inside Japanese text stay searchable.
+`semantic_search_nodes` runs FTS5 BM25 and vector cosine similarity **in parallel**, then merges both ranked lists via Reciprocal Rank Fusion (RRF). When embeddings are not yet present only the FTS5 arm contributes; when both are available you get hybrid results automatically — no per-search configuration change required. `dagayn serve --local-embedding` makes MCP search default to in-process `BAAI/bge-m3`; `dagayn serve --local-embedding --mode llama-qwen3` or `dagayn serve --local-embedding low` keeps the managed llama.cpp GGUF OpenAI-compatible sidecar. `dagayn serve --remote-embedding {openai,google,minimax}` makes MCP search default to that remote provider. The default local sentence-transformers model is `BAAI/bge-m3`. The default embedding material uses Markdown section/body text and code symbol names with adjacent comment sentences; legacy `metadata` and full `body` modes remain available through `DAGAYN_EMBEDDING_TEXT_MODE`, alongside experimental `structured` and `narrative` modes that turn node metadata, bounded source, and static code facts into code-reference explanation text. The FTS index includes generated identifier tokens (so `LocalEmbeddingProvider` also matches `local embedding provider`) plus structured code-reference text and bounded source/document text such as docstrings and Markdown section bodies. Japanese source/document text is pre-segmented before insertion, using an optional MeCab-compatible tokenizer when installed and an ASCII-preserving fallback otherwise, so English words inside Japanese text stay searchable.
 
 A `search_mode` field in the response reports which arms contributed: `"hybrid"` (both), `"fts_only"`, `"embedding_only"`, or `"keyword_fallback"` (LIKE substring, triggered only when the FTS5 index does not exist). Search results are further ranked by a query-aware kind boost (PascalCase → classes, snake_case → functions) and an optional context-file boost for nodes in files you are currently editing.
+
+Hybrid search also reports `rerank_intent`. Exact identifier-like queries keep FTS/name matching dominant, purpose-style prose queries use the `material` embedding text, and process-pattern prose queries use the `narrative` embedding text so AST/source facts such as calls, reads, writes, returns, loops, merges, or rebuilds can drive fuzzy retrieval. Embedding rows are partitioned by provider and text mode, so the same node can keep both `material` and `narrative` vectors for intent-routed hybrid search.
 
 ### Providers
 
@@ -352,13 +354,25 @@ embed_graph_tool(provider="google")   # reads GOOGLE_API_KEY from env
 embed_graph_tool(provider="minimax")  # reads MINIMAX_API_KEY from env
 ```
 
-Embeddings are stored in the `embeddings` table inside `.dagayn/graph.db`. Switching provider or model invalidates the cache and triggers a full re-embed on the next call.
+Embeddings are stored in the `embeddings` table inside `.dagayn/graph.db`. Switching provider, model, or `DAGAYN_EMBEDDING_TEXT_MODE` partitions the cache and triggers a re-embed for that provider/text-mode pair on the next call.
 
 ### Search quality
 
-Measured on the dagayn codebase itself with the best measured material strategy
-(`doc=section|code=name|comment=sentence|join=combined`), 11,741 embedded
-materials pointing at 8,236 graph references, 31 positive queries, and 5
+The current intent-routed hybrid benchmark uses the real local BGE-M3 provider
+with both `material` and `narrative` embedding rows available. Standard queries
+cover exact/name and purpose-style lookup; structural queries cover purpose and
+process-pattern prose where the search target is usually a function's static
+behavior.
+
+| Hybrid strategy | Query set | MRR | Hit@5 | Hit@20 |
+|---|---|---:|---:|---:|
+| `material` text | standard (12) | **0.7292** | **11/12** | **12/12** |
+| `narrative` text | structural (8) | **0.5875** | **7/8** | **7/8** |
+| intent-routed (`material` purpose, `narrative` process-pattern) | all (20) | **0.6725** | **18/20** | **19/20** |
+
+Earlier local model comparison used the best measured material strategy
+(`doc=section|code=name|comment=sentence|join=combined`) on the dagayn codebase:
+11,741 embedded materials, 8,236 graph references, 31 positive queries, and 5
 unrelated negative calibration queries. `negative top score` is lower-is-better:
 it shows how strongly an unrelated query still matches some repository node.
 
