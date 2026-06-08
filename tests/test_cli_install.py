@@ -232,7 +232,7 @@ class TestInstallHandleRemoteMode:
         )
 
         assert calls[0]["extra_serve_args"] == ["--local-embedding"]
-        assert hook_calls[0]["extra_update_args"] is None
+        assert hook_calls[0]["extra_update_args"] == ["--local-embedding"]
 
     def test_llama_qwen3_mode_bakes_sidecar_into_serve_args(self, tmp_path, monkeypatch):
         calls: list[dict] = []
@@ -275,7 +275,64 @@ class TestInstallHandleRemoteMode:
             "--mode",
             "llama-qwen3",
         ]
-        assert hook_calls[0]["extra_update_args"] is None
+        assert hook_calls[0]["extra_update_args"] == [
+            "--local-embedding",
+            "--mode",
+            "llama-qwen3",
+        ]
+
+    def test_local_embedding_mode_bakes_sidecar_options_into_hooks(
+        self, tmp_path, monkeypatch
+    ):
+        calls: list[dict] = []
+        hook_calls: list[dict] = []
+
+        monkeypatch.setattr(
+            "dagayn.skills.install_platform_configs",
+            lambda repo_root, **kwargs: (
+                calls.append({"repo_root": repo_root, **kwargs}) or ["codex"]
+            ),
+        )
+        monkeypatch.setattr("dagayn.skills.normalize_platform_target", lambda target: target)
+        monkeypatch.setattr(
+            "dagayn.cli.commands.init._instruction_files_to_modify",
+            lambda *_args, **_kwargs: [],
+        )
+        monkeypatch.setattr(
+            "dagayn.skills.install_codex_hooks",
+            lambda repo_root, **kwargs: (
+                hook_calls.append({"repo_root": repo_root, **kwargs}) or tmp_path / "hooks.json"
+            ),
+        )
+
+        handle(
+            argparse.Namespace(
+                repo=str(tmp_path),
+                dry_run=False,
+                platform="codex",
+                yes=True,
+                no_instructions=True,
+                mode="local-embedding",
+                preset=None,
+                provider=None,
+                local_embedding="none",
+                local_embedding_port=19093,
+                local_embedding_bin="/opt/bin/llama-server",
+                local_embedding_timeout=420,
+            )
+        )
+
+        expected = [
+            "--local-embedding",
+            "--local-embedding-port",
+            "19093",
+            "--local-embedding-bin",
+            "/opt/bin/llama-server",
+            "--local-embedding-timeout",
+            "420",
+        ]
+        assert calls[0]["extra_serve_args"] == expected
+        assert hook_calls[0]["extra_update_args"] == expected
 
     def test_remote_mode_bakes_provider_into_serve_args(self, tmp_path, monkeypatch):
         calls: list[dict] = []

@@ -16,6 +16,27 @@ from ._shared import (
 )
 
 
+def _local_embedding_install_args(args: argparse.Namespace, mode: str) -> list[str]:
+    """Return local embedding args to bake into serve and update-hook commands."""
+    if mode == "local-embedding":
+        result = ["--local-embedding"]
+    elif mode == "local-embedding-llama":
+        result = ["--local-embedding", "--mode", "llama-qwen3"]
+    else:
+        return []
+
+    le_port = getattr(args, "local_embedding_port", None)
+    le_bin = getattr(args, "local_embedding_bin", None)
+    le_timeout = getattr(args, "local_embedding_timeout", None)
+    if le_port is not None and le_port != 18080:
+        result += ["--local-embedding-port", str(le_port)]
+    if le_bin is not None and le_bin != DEFAULT_LOCAL_EMBEDDING_BIN:
+        result += ["--local-embedding-bin", le_bin]
+    if le_timeout is not None and le_timeout != 300:
+        result += ["--local-embedding-timeout", str(le_timeout)]
+    return result
+
+
 def register_commands(sub: argparse._SubParsersAction) -> dict:
     """Register install and init subcommands. Returns {cmd_name: subparser} dict."""
 
@@ -194,28 +215,18 @@ def handle(args: argparse.Namespace) -> None:
         )
 
     extra_serve_args: list[str] = []
-    if mode == "local-embedding":
-        extra_serve_args += ["--local-embedding"]
-    elif mode == "local-embedding-llama":
+    extra_hook_update_args: list[str] = []
+    if mode in ("local-embedding", "local-embedding-llama"):
         # _resolve_install_mode guarantees preset is set when mode == "local-embedding-llama".
-        assert preset is not None
-        extra_serve_args += ["--local-embedding", "--mode", "llama-qwen3"]
-        le_port = getattr(args, "local_embedding_port", None)
-        le_bin = getattr(args, "local_embedding_bin", None)
-        le_timeout = getattr(args, "local_embedding_timeout", None)
-        if le_port is not None and le_port != 18080:
-            extra_serve_args += ["--local-embedding-port", str(le_port)]
-        if le_bin is not None and le_bin != DEFAULT_LOCAL_EMBEDDING_BIN:
-            extra_serve_args += ["--local-embedding-bin", le_bin]
-        if le_timeout is not None and le_timeout != 300:
-            extra_serve_args += ["--local-embedding-timeout", str(le_timeout)]
+        if mode == "local-embedding-llama":
+            assert preset is not None
+        local_args = _local_embedding_install_args(args, mode)
+        extra_serve_args += local_args
+        extra_hook_update_args += local_args
     elif mode == "remote-embedding":
         # _resolve_install_mode guarantees provider is set when mode == "remote-embedding".
         assert provider is not None
         extra_serve_args += ["--remote-embedding", provider]
-    # MCP search mode belongs to the long-lived serve process. Hook updates must
-    # stay graph-only so edit-time refreshes do not launch local embedding work.
-    extra_hook_update_args: list[str] = []
 
     print("Installing MCP server config...")
     configured = install_platform_configs(
