@@ -4,9 +4,13 @@
 
 This document describes dagayn's local embedding paths. A bare
 `--local-embedding` on `build`, `update`, or `serve` uses the measured default:
-in-process sentence-transformers with `BAAI/bge-m3` and the `material` text
-mode. The `--mode local-embedding` install path writes MCP configs that serve
-BGE-M3 with the same in-process path. Use `--mode local-embedding-llama` or the
+in-process sentence-transformers with `BAAI/bge-m3`, the `material` text mode,
+and CPU execution. CPU is the default because PyTorch MPS can reserve very large
+Apple GPU memory regions during BGE-M3 embedding runs. Set
+`CRG_LOCAL_EMBEDDING_DEVICE=mps` only when you explicitly want to trade memory
+headroom for GPU execution. The `--mode local-embedding` install path writes MCP
+configs that serve BGE-M3 with the same in-process path. Use
+`--mode local-embedding-llama` or the
 legacy `--local-embedding low` request for the managed Qwen3 llama.cpp sidecar.
 The other install modes are `--mode fts-only` (no embeddings, fastest) and
 `--mode remote-embedding` (OpenAI-compatible / Google / MiniMax cloud APIs) —
@@ -16,7 +20,7 @@ see the README's "Choosing an install mode" section.
 
 | Request | Runtime | Model | Dimension |
 | --- | --- | --- | --- |
-| `--local-embedding` | in-process sentence-transformers | `BAAI/bge-m3` | 1024 |
+| `--local-embedding` | in-process sentence-transformers on CPU by default | `BAAI/bge-m3` | 1024 |
 | `--local-embedding --mode llama-qwen3` | `llama-server` sidecar | `Qwen/Qwen3-Embedding-0.6B-GGUF:Q8_0` | 1024 |
 | `--local-embedding low` | `llama-server` sidecar | `Qwen/Qwen3-Embedding-0.6B-GGUF:Q8_0` | 1024 |
 

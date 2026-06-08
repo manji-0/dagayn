@@ -295,7 +295,8 @@ For Codex, install also creates global `~/.codex/hooks.json` and enables
 hooks in `~/.codex/config.toml` so the graph refreshes during Codex sessions.
 Claude hooks are written to global `~/.claude/settings.json`. Installed git
 hooks run `dagayn update --skip-flows` before commit-time checks and a full
-`dagayn update` after each commit.
+`dagayn update` after each commit. Embedding install modes only affect the MCP
+serve command; hook updates stay graph-only.
 
 Platform-specific instruction files are also installed where needed:
 

@@ -213,7 +213,9 @@ def handle(args: argparse.Namespace) -> None:
         # _resolve_install_mode guarantees provider is set when mode == "remote-embedding".
         assert provider is not None
         extra_serve_args += ["--remote-embedding", provider]
-    extra_hook_update_args = list(extra_serve_args)
+    # MCP search mode belongs to the long-lived serve process. Hook updates must
+    # stay graph-only so edit-time refreshes do not launch local embedding work.
+    extra_hook_update_args: list[str] = []
 
     print("Installing MCP server config...")
     configured = install_platform_configs(

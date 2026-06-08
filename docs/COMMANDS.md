@@ -157,7 +157,8 @@ cheaply with `dagayn update --skip-flows` before commit-time checks and run a
 full `dagayn update` after a commit. Generated AI-tool update hooks use a
 300-second timeout to tolerate large documentation or mixed-language refreshes,
 mark hook-triggered runs with `DAGAYN_HOOK_UPDATE=1`, skip overlapping hook
-updates, and avoid re-running local embeddings when no files changed.
+updates, and intentionally do not run embedding refreshes. Embedding modes are
+only baked into the MCP serve command so edit-time hooks stay lightweight.
 `--no-hooks` skips the hook files.
 
 Install embedding modes are baked into the generated MCP serve command:

@@ -841,8 +841,10 @@ class TestLocalEmbeddingProviderModelName:
     def test_default_model_name(self):
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("CRG_EMBEDDING_MODEL", None)
+            os.environ.pop("CRG_LOCAL_EMBEDDING_DEVICE", None)
             provider = LocalEmbeddingProvider()
             assert provider._model_name == LOCAL_DEFAULT_MODEL
+            assert provider._device == "cpu"
             assert provider.name == f"local:{LOCAL_DEFAULT_MODEL}"
 
     def test_explicit_model_name(self):
@@ -856,6 +858,21 @@ class TestLocalEmbeddingProviderModelName:
             provider = LocalEmbeddingProvider()
             assert provider._model_name == "BAAI/bge-small-en-v1.5"
             assert provider.name == "local:BAAI/bge-small-en-v1.5"
+
+    def test_local_device_defaults_to_cpu_when_loading_model(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("CRG_LOCAL_EMBEDDING_DEVICE", None)
+            provider = LocalEmbeddingProvider()
+            with patch("sentence_transformers.SentenceTransformer") as mock_cls:
+                provider._get_model()
+        assert mock_cls.call_args.kwargs["device"] == "cpu"
+
+    def test_local_device_can_be_overridden(self):
+        with patch.dict(os.environ, {"CRG_LOCAL_EMBEDDING_DEVICE": "mps"}):
+            provider = LocalEmbeddingProvider()
+            with patch("sentence_transformers.SentenceTransformer") as mock_cls:
+                provider._get_model()
+        assert mock_cls.call_args.kwargs["device"] == "mps"
 
 
 class TestGetProviderModel:
