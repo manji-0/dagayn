@@ -9,8 +9,6 @@ from pathlib import Path
 from ._shared import _add_local_embedding_args
 
 _REMOTE_EMBEDDING_CHOICES = ["none", "openai", "google", "minimax"]
-_LOCAL_BGE_MODEL = "BAAI/bge-m3"
-_LOCAL_MATERIAL_TEXT_MODE = "material"
 
 
 def _local_embedding_requested(local_embedding: str | None) -> bool:
@@ -174,25 +172,20 @@ def handle(args: argparse.Namespace, serve_parser: argparse.ArgumentParser) -> N
         inferred_local_embedding = _infer_persisted_local_embedding(args.repo)
         if inferred_local_embedding is not None:
             local_embedding = inferred_local_embedding.level
-            local_embedding_mode = "llama-qwen3"
+            local_embedding_mode = (
+                "bge-m3" if inferred_local_embedding.level == "bge-m3" else "llama-qwen3"
+            )
             effective_local_embedding_runtime = inferred_local_embedding.runtime
             effective_local_embedding_port = inferred_local_embedding.port
 
     if _local_embedding_requested(local_embedding):
         mode = _resolve_local_embedding_mode(local_embedding, local_embedding_mode)
-        if mode == "bge-m3":
-            os.environ["DAGAYN_EMBEDDING_TEXT_MODE"] = _LOCAL_MATERIAL_TEXT_MODE
-            _run(
-                embedding_provider="local",
-                embedding_model=_LOCAL_BGE_MODEL,
-                local_embedding_default="bge-m3",
-            )
-            return
-
         from ...local_embeddings import local_embedding_server
 
+        preset_level = "bge-m3" if mode == "bge-m3" else "low"
+
         with local_embedding_server(
-            "low",
+            preset_level,
             runtime=effective_local_embedding_runtime,
             port=effective_local_embedding_port,
             binary=args.local_embedding_bin,

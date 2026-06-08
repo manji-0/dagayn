@@ -1,4 +1,4 @@
-"""Local embedding server orchestration for Qwen local presets.
+"""Local embedding server orchestration for local GGUF embedding presets.
 
 This module intentionally treats model servers as external executables. dagayn
 owns preset selection, readiness checks, and subprocess lifecycle; it does not
@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Literal, cast
 from urllib.parse import urlparse
 
-LocalEmbeddingLevel = Literal["low"]
+LocalEmbeddingLevel = Literal["bge-m3", "low"]
 LocalEmbeddingRuntime = Literal["llama"]
 EmbeddingTextMode = Literal["metadata", "body", "material"]
 
@@ -36,7 +36,7 @@ _DEFAULT_LOCAL_EMBEDDING_BINARIES: dict[LocalEmbeddingRuntime, str] = {
 
 @dataclass(frozen=True)
 class LocalEmbeddingPreset:
-    """Configuration for a local Qwen embedding model."""
+    """Configuration for a local GGUF embedding model."""
 
     level: LocalEmbeddingLevel
     runtime: LocalEmbeddingRuntime
@@ -47,6 +47,7 @@ class LocalEmbeddingPreset:
     text_mode: EmbeddingTextMode = "metadata"
     batch: int | None = None
     ubatch: int | None = None
+    pooling: str = "last"
     flash_attention: bool = False
     cache_type_k: str | None = None
     cache_type_v: str | None = None
@@ -92,6 +93,23 @@ LOCAL_EMBEDDING_PRESETS: dict[
     LocalEmbeddingLevel,
     dict[LocalEmbeddingRuntime, LocalEmbeddingPreset],
 ] = {
+    "bge-m3": {
+        "llama": LocalEmbeddingPreset(
+            level="bge-m3",
+            runtime="llama",
+            repo_id="gpustack/bge-m3-GGUF",
+            quant="Q8_0",
+            model="bge-m3-gguf-q8_0",
+            dimension=1024,
+            text_mode="material",
+            batch=8192,
+            ubatch=8192,
+            pooling="cls",
+            flash_attention=True,
+            cache_type_k="f16",
+            cache_type_v="f16",
+        ),
+    },
     "low": {
         "llama": LocalEmbeddingPreset(
             level="low",
@@ -264,7 +282,7 @@ def _server_command(
         preset.hf_selector,
         "--embedding",
         "--pooling",
-        "last",
+        preset.pooling,
     ]
     if preset.flash_attention:
         command.append("--flash-attn")
@@ -338,7 +356,7 @@ def local_embedding_server(
     keep_running: bool = False,
     startup_timeout: int = DEFAULT_LOCAL_EMBEDDING_TIMEOUT,
 ) -> Iterator[LocalEmbeddingServer]:
-    """Ensure a Qwen local embedding server is ready for one build/update run.
+    """Ensure a local embedding server is ready for one build/update run.
 
     If a compatible server is already listening on *port*, it is reused and
     never terminated by dagayn. Otherwise dagayn starts the selected local

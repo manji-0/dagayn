@@ -19,8 +19,6 @@ logger = logging.getLogger(__name__)
 _LOCAL_EMBEDDING_DISABLED = {None, "", "none"}
 _LOCAL_EMBEDDING_BGE = "bge-m3"
 _LOCAL_EMBEDDING_LLAMA_QWEN3 = "llama-qwen3"
-_LOCAL_EMBEDDING_DEFAULT_MODEL = "BAAI/bge-m3"
-_LOCAL_EMBEDDING_DEFAULT_TEXT_MODE = "material"
 _LOCAL_EMBEDDING_ENV_LOCK = threading.Lock()
 _HOOK_UPDATE_ENV = "DAGAYN_HOOK_UPDATE"
 
@@ -153,46 +151,6 @@ def _release_hook_update_lock(lock_file: Any) -> None:
         lock_file.close()
 
 
-def _run_bge_local_embedding(root: Any) -> dict[str, Any]:
-    """Run graph embedding in-process with the recommended BGE-M3 model."""
-    from dagayn.tools.docs import embed_graph
-
-    env_key = "DAGAYN_EMBEDDING_TEXT_MODE"
-    old_text_mode = os.environ.get(env_key)
-    try:
-        os.environ[env_key] = _LOCAL_EMBEDDING_DEFAULT_TEXT_MODE
-        result = embed_graph(
-            repo_root=str(root),
-            provider="local",
-            model=_LOCAL_EMBEDDING_DEFAULT_MODEL,
-            show_progress=sys.stderr.isatty(),
-        )
-    finally:
-        if old_text_mode is None:
-            os.environ.pop(env_key, None)
-        else:
-            os.environ[env_key] = old_text_mode
-
-    if result.get("status") != "ok":
-        raise RuntimeError(result.get("error") or "Local embedding generation failed.")
-
-    return {
-        "status": "ok",
-        "preset": _LOCAL_EMBEDDING_BGE,
-        "mode": _LOCAL_EMBEDDING_BGE,
-        "model": _LOCAL_EMBEDDING_DEFAULT_MODEL,
-        "dimension": 1024,
-        "text_mode": _LOCAL_EMBEDDING_DEFAULT_TEXT_MODE,
-        "server_started": False,
-        "server_url": None,
-        "server_command": [],
-        "newly_embedded": result.get("newly_embedded", 0),
-        "orphans_removed": result.get("orphans_removed", 0),
-        "total_embeddings": result.get("total_embeddings", 0),
-        "summary": result.get("summary", ""),
-    }
-
-
 def _run_local_embedding(
     root: Any,
     *,
@@ -207,14 +165,13 @@ def _run_local_embedding(
 ) -> dict[str, Any]:
     """Run graph embedding through the selected local embedding mode."""
     mode = _resolve_local_embedding_mode(local_embedding, local_embedding_mode)
-    if mode == _LOCAL_EMBEDDING_BGE:
-        return _run_bge_local_embedding(root)
-
     from dagayn.local_embeddings import local_embedding_server
     from dagayn.tools.docs import embed_graph
 
+    preset_level = _LOCAL_EMBEDDING_BGE if mode == _LOCAL_EMBEDDING_BGE else "low"
+
     with local_embedding_server(
-        "low",
+        preset_level,
         port=local_embedding_port,
         binary=local_embedding_bin,
         keep_running=keep_local_embedding_server,
@@ -261,7 +218,7 @@ def _run_local_embedding(
     return {
         "status": "ok",
         "preset": server.preset.level,
-        "mode": _LOCAL_EMBEDDING_LLAMA_QWEN3,
+        "mode": mode,
         "model": server.preset.model,
         "dimension": server.preset.dimension,
         "text_mode": server.preset.text_mode,
@@ -685,7 +642,7 @@ def build_or_update_graph(
             (default), falls back to the CRG_RECURSE_SUBMODULES
             environment variable. Default: disabled.
         local_embedding: Optional local embedding request. ``"bge-m3"`` runs
-            in-process with BGE-M3; ``"low"`` / ``"llama-qwen3"`` runs the
+            the managed BGE-M3 sidecar; ``"low"`` / ``"llama-qwen3"`` runs the
             managed Qwen sidecar.
         local_embedding_mode: Optional explicit local embedding execution mode:
             ``"bge-m3"`` or ``"llama-qwen3"``.

@@ -85,8 +85,7 @@ Embeddings are additive: with embeddings built, `semantic_search_nodes` merges B
 
 For local embeddings during graph refresh, use `dagayn build --local-embedding`
 or `dagayn update --local-embedding`. A bare `--local-embedding` runs the
-sentence-transformers `local` provider in-process with the default
-`BAAI/bge-m3` model and the measured `material` text mode.
+managed BGE-M3 llama.cpp GGUF sidecar with the measured `material` text mode.
 
 For the managed local Qwen sidecar, use
 `dagayn build --local-embedding --mode llama-qwen3` or the legacy

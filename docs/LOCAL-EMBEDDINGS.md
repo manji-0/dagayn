@@ -4,14 +4,12 @@
 
 This document describes dagayn's local embedding paths. A bare
 `--local-embedding` on `build`, `update`, or `serve` uses the measured default:
-in-process sentence-transformers with `BAAI/bge-m3`, the `material` text mode,
-and CPU execution. CPU is the default because PyTorch MPS can reserve very large
-Apple GPU memory regions during BGE-M3 embedding runs. Set
-`CRG_LOCAL_EMBEDDING_DEVICE=mps` only when you explicitly want to trade memory
-headroom for GPU execution. The `--mode local-embedding` install path writes MCP
-configs that serve BGE-M3 with the same in-process path. Use
-`--mode local-embedding-llama` or the
-legacy `--local-embedding low` request for the managed Qwen3 llama.cpp sidecar.
+BGE-M3 as a managed llama.cpp GGUF sidecar with the `material` text mode. This
+keeps Apple Metal execution inside `llama-server` instead of PyTorch MPS, whose
+attention path can reserve very large graphics memory regions. The `--mode
+local-embedding` install path writes MCP configs that serve BGE-M3 through the
+same sidecar path. Use `--mode local-embedding-llama` or the legacy
+`--local-embedding low` request for the managed Qwen3 llama.cpp sidecar.
 The other install modes are `--mode fts-only` (no embeddings, fastest) and
 `--mode remote-embedding` (OpenAI-compatible / Google / MiniMax cloud APIs) —
 see the README's "Choosing an install mode" section.
@@ -20,9 +18,15 @@ see the README's "Choosing an install mode" section.
 
 | Request | Runtime | Model | Dimension |
 | --- | --- | --- | --- |
-| `--local-embedding` | in-process sentence-transformers on CPU by default | `BAAI/bge-m3` | 1024 |
+| `--local-embedding` | `llama-server` sidecar | `gpustack/bge-m3-GGUF:Q8_0` | 1024 |
 | `--local-embedding --mode llama-qwen3` | `llama-server` sidecar | `Qwen/Qwen3-Embedding-0.6B-GGUF:Q8_0` | 1024 |
 | `--local-embedding low` | `llama-server` sidecar | `Qwen/Qwen3-Embedding-0.6B-GGUF:Q8_0` | 1024 |
+
+## BGE-M3 Sidecar Preset
+
+| Preset | Runtime | Default platform | Model | Quantization | Dimension |
+| --- | --- | --- | --- | --- | --- |
+| `bge-m3` | `llama-server` | all platforms | `gpustack/bge-m3-GGUF` | `Q8_0` | 1024 |
 
 ## Qwen Sidecar Presets
 
@@ -92,13 +96,13 @@ curl http://127.0.0.1:18080/v1/embeddings \
 
 <!-- derived-from #setup -->
 
-Run a full build with the default in-process BGE-M3 local embeddings:
+Run a full build with the default BGE-M3 llama.cpp sidecar:
 
 ```bash
 dagayn build --local-embedding
 ```
 
-Run an incremental update and refresh missing or stale BGE-M3 embeddings:
+Run an incremental update and refresh missing or stale BGE-M3 sidecar embeddings:
 
 ```bash
 dagayn update --local-embedding
@@ -141,13 +145,13 @@ dagayn build \
 `--local-embedding-bin auto` resolves to `llama-server`. Pass an explicit
 executable name or path to override it.
 
-`--local-embedding-timeout` only controls Qwen sidecar server readiness. If an individual
+`--local-embedding-timeout` only controls sidecar server readiness. If an individual
 embedding batch stalls after the server is ready,
 `--local-embedding-request-timeout` bounds that HTTP request. Successful
 batches are saved as they complete, so rerunning the command resumes from the
 remaining stale or missing embeddings.
 
-The Qwen sidecar batch size is also pinned. `dagayn build
+The managed sidecar batch size is also pinned. `dagayn build
 --local-embedding --mode llama-qwen3` defaults to 1 text per request even if the shell has
 `CRG_OPENAI_BATCH_SIZE` set for another provider. Raise it only after measuring;
 larger batches can make local embedding endpoints stall on some hosts.
@@ -240,10 +244,19 @@ unrelated negative calibration queries. `negative top score` is lower-is-better.
 | Qwen3-Embedding-0.6B Q8 `low` | 0.4301 | 0.5484 | 0.5261 | 55.4 nodes/s |
 | `jinaai/jina-embeddings-v2-base-code` | 0.3604 | 0.4516 | 0.4753 | 171.8 nodes/s |
 
-`BAAI/bge-m3` is the default for `embed_graph_tool(provider="local")`, the
-sentence-transformers local provider, and bare `--local-embedding` on
-`build`, `update`, and `serve`. The managed `low` preset remains Qwen3 GGUF
-because it provides a no-Python-model-server path through `llama-server`.
+The managed BGE-M3 Q8 sidecar was also checked against the smaller
+`dagayn.yaml` search-quality set with 8,308 graph nodes and the `material` text
+mode. It embedded the full graph copy in 194.9 seconds (42.6 nodes/s), matched
+the existing sentence-transformers BGE-M3 ranks on this set (MRR 0.7708,
+Hit@5 11/12, Hit@20 12/12), and measured around 0.7-1.3 GiB RSS for
+`llama-server` during the run. The same run put Qwen3 Q8 at MRR 0.7014,
+Hit@5 11/12, and Hit@20 11/12.
+
+`BAAI/bge-m3` remains the default for explicit
+`embed_graph_tool(provider="local")` sentence-transformers runs. Bare
+`--local-embedding` on `build`, `update`, and `serve` uses the managed
+BGE-M3 GGUF sidecar instead. The managed `low` preset remains Qwen3 GGUF for
+legacy sidecar users.
 
 ## Troubleshooting
 

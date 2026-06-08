@@ -40,9 +40,9 @@ def _add_local_embedding_args(
         choices=["none", "bge-m3", "low", "llama-qwen3"],
         default="none",
         help=(
-            "Generate/search with local embeddings. With no value, use in-process "
-            "BAAI/bge-m3. Use 'low' or --mode llama-qwen3 for the managed Qwen3 "
-            "llama.cpp sidecar (default: none)."
+            "Generate/search with local embeddings. With no value, use the managed "
+            "BGE-M3 llama.cpp sidecar. Use 'low' or --mode llama-qwen3 for the "
+            "managed Qwen3 sidecar (default: none)."
         ),
     )
     if include_mode_alias:
@@ -52,7 +52,7 @@ def _add_local_embedding_args(
             choices=["bge-m3", "llama-qwen3"],
             default=None,
             help=(
-                "Execution mode for --local-embedding: bge-m3 in-process or "
+                "Execution mode for --local-embedding: bge-m3 managed sidecar or "
                 "llama-qwen3 managed sidecar."
             ),
         )
@@ -150,7 +150,7 @@ def _prompt_install_mode() -> tuple[str, str | None, str | None]:
     """
     print("Which embedding mode would you like?")
     print("  1) fts-only              — FTS only (no embeddings, fastest)")
-    print("  2) local-embedding       — In-process BGE-M3 local embeddings")
+    print("  2) local-embedding       — Managed BGE-M3 llama.cpp sidecar")
     print("  3) local-embedding-llama — Managed Qwen3 llama.cpp sidecar")
     print("  4) remote-embedding      — OpenAI-compatible / Google / MiniMax cloud embeddings")
     choice = _read_choice(
@@ -165,7 +165,7 @@ def _prompt_install_mode() -> tuple[str, str | None, str | None]:
     if choice == "fts-only":
         return "fts-only", None, None
     if choice == "local-embedding":
-        print("Using local embeddings: BAAI/bge-m3 in-process")
+        print("Using local embeddings: BGE-M3 llama.cpp sidecar")
         return "local-embedding", None, None
     if choice == "local-embedding-llama":
         print("Using managed Qwen3 sidecar: Qwen3-Embedding-0.6B (~1 GB)")

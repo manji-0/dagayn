@@ -74,8 +74,8 @@ def register_commands(sub: argparse._SubParsersAction) -> dict:
             ],
             default=None,
             help=(
-                "Embedding strategy: fts-only, local-embedding (in-process "
-                "BGE-M3), local-embedding-llama (managed Qwen sidecar), or "
+                "Embedding strategy: fts-only, local-embedding (managed "
+                "BGE-M3 sidecar), local-embedding-llama (managed Qwen sidecar), or "
                 "remote-embedding. Legacy fts/local/llama-qwen3/remote names "
                 "are accepted as aliases."
             ),

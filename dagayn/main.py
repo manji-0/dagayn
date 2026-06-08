@@ -270,13 +270,14 @@ async def build_or_update_graph_tool(
         recurse_submodules: If True, include files from git submodules.
             When None (default), falls back to CRG_RECURSE_SUBMODULES env var.
         local_embedding: Optional local embedding request. "bge-m3" runs
-            in-process; "low" / "llama-qwen3" runs the managed Qwen sidecar.
-        local_embedding_port: localhost port for the managed Qwen embedding server.
+            the managed BGE-M3 sidecar; "low" / "llama-qwen3" runs the
+            managed Qwen sidecar.
+        local_embedding_port: localhost port for the managed embedding server.
         local_embedding_bin: executable name/path, or "auto" for the preset default.
         keep_local_embedding_server: Leave a dagayn-started server running.
-        local_embedding_timeout: Seconds to wait for Qwen embedding server readiness.
+        local_embedding_timeout: Seconds to wait for local embedding server readiness.
         local_embedding_request_timeout: Seconds to wait for each embedding
-            HTTP request after the Qwen embedding server is ready.
+            HTTP request after the embedding server is ready.
         local_embedding_batch_size: Texts to send in each local embedding
             HTTP request.
     """

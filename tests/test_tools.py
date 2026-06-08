@@ -1744,24 +1744,47 @@ class TestBuildPostprocess:
         assert os.environ["CRG_OPENAI_BATCH_SIZE"] == "2048"
         assert os.environ["DAGAYN_EMBEDDING_TEXT_MODE"] == "body"
 
-    def test_run_local_embedding_defaults_to_in_process_bge(self, monkeypatch):
+    def test_run_local_embedding_defaults_to_bge_sidecar(self, monkeypatch):
+        from contextlib import contextmanager
+        from types import SimpleNamespace
         from unittest.mock import patch
 
         from dagayn.tools.build import _run_local_embedding
 
+        server_calls = []
+
+        @contextmanager
+        def fake_server(level, **kwargs):
+            server_calls.append({"level": level, **kwargs})
+            yield SimpleNamespace(
+                base_url="http://127.0.0.1:18080/v1",
+                preset=SimpleNamespace(
+                    level="bge-m3",
+                    model="bge-m3-gguf-q8_0",
+                    dimension=1024,
+                    text_mode="material",
+                    request_max_length=None,
+                ),
+                started=False,
+                command=[],
+            )
+
         def fake_embed_graph(**kwargs):
-            assert kwargs["provider"] == "local"
-            assert kwargs["model"] == "BAAI/bge-m3"
+            assert kwargs["provider"] == "openai"
+            assert kwargs["model"] == "bge-m3-gguf-q8_0"
             assert os.environ["DAGAYN_EMBEDDING_TEXT_MODE"] == "material"
             return {
                 "status": "ok",
                 "newly_embedded": 4,
                 "orphans_removed": 1,
                 "total_embeddings": 10,
-            }
+        }
 
         monkeypatch.setenv("DAGAYN_EMBEDDING_TEXT_MODE", "body")
-        with patch("dagayn.tools.docs.embed_graph", side_effect=fake_embed_graph):
+        with (
+            patch("dagayn.local_embeddings.local_embedding_server", fake_server),
+            patch("dagayn.tools.docs.embed_graph", side_effect=fake_embed_graph),
+        ):
             result = _run_local_embedding(
                 self.root,
                 local_embedding="bge-m3",
@@ -1773,8 +1796,9 @@ class TestBuildPostprocess:
                 local_embedding_batch_size=8,
             )
 
+        assert server_calls[0]["level"] == "bge-m3"
         assert result["mode"] == "bge-m3"
-        assert result["model"] == "BAAI/bge-m3"
+        assert result["model"] == "bge-m3-gguf-q8_0"
         assert result["newly_embedded"] == 4
         assert result["orphans_removed"] == 1
         assert os.environ["DAGAYN_EMBEDDING_TEXT_MODE"] == "body"

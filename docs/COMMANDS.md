@@ -30,7 +30,8 @@ or `not_indexed`) and provider-level vector counts.
 
 `dagayn build` and `dagayn update` can also generate local embeddings after the
 graph refresh. Passing `--local-embedding` without a value runs the recommended
-`BAAI/bge-m3` model in-process with the measured `material` text mode:
+BGE-M3 GGUF model through a managed llama.cpp sidecar with the measured
+`material` text mode:
 
 ```bash
 dagayn build --local-embedding
@@ -49,7 +50,7 @@ Use `--local-embedding none` to keep the default graph-only behavior. The
 server startup timeout and each embedding request timeout are separate knobs:
 `--local-embedding-timeout` controls readiness, while
 `--local-embedding-request-timeout` controls a single `/v1/embeddings` call.
-Qwen sidecar requests use `--local-embedding-batch-size 1` by default,
+Managed sidecar requests use `--local-embedding-batch-size 1` by default,
 regardless of any ambient `CRG_OPENAI_BATCH_SIZE`. `--local-embedding-bin auto`
 selects `llama-server`.
 
@@ -163,7 +164,7 @@ only baked into the MCP serve command so edit-time hooks stay lightweight.
 
 Install embedding modes are baked into the generated MCP serve command:
 `dagayn install --mode local-embedding` writes
-`dagayn serve --local-embedding` for in-process `BAAI/bge-m3`;
+`dagayn serve --local-embedding` for the managed BGE-M3 GGUF sidecar;
 `dagayn install --mode local-embedding-llama --preset low` writes
 `dagayn serve --local-embedding --mode llama-qwen3` for the managed Qwen
 sidecar; `--mode remote-embedding --provider <provider>` writes the
@@ -205,9 +206,9 @@ wiki generation, refactor application, and cross-repo search remain available
 when explicitly requested with `--tools`.
 
 When the server is launched with `dagayn serve --local-embedding`,
-search-oriented MCP tools default to in-process `BAAI/bge-m3` embeddings. Use
-`dagayn serve --local-embedding --mode llama-qwen3` for the managed
-OpenAI-compatible Qwen endpoint. Either path makes `semantic_search_nodes`,
+search-oriented MCP tools default to the managed OpenAI-compatible BGE-M3 GGUF
+endpoint. Use `dagayn serve --local-embedding --mode llama-qwen3` for the
+managed OpenAI-compatible Qwen endpoint. Either path makes `semantic_search_nodes`,
 `traverse_graph`, and `cross_repo_search` run hybrid FTS + embedding retrieval
 unless the client explicitly passes another provider or model.
 

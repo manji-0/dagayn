@@ -159,13 +159,14 @@ def test_print_local_embedding_summary_includes_orphan_count(capsys):
     assert "1 new, 2 orphan removed, 9 total" in out
 
 
-def test_print_local_embedding_summary_for_in_process_bge(capsys):
+def test_print_local_embedding_summary_for_bge_sidecar(capsys):
     _print_local_embedding_summary(
         {
             "local_embedding": {
                 "preset": "bge-m3",
                 "text_mode": "material",
                 "mode": "bge-m3",
+                "server_started": False,
                 "newly_embedded": 1,
                 "orphans_removed": 0,
                 "total_embeddings": 9,
@@ -174,7 +175,7 @@ def test_print_local_embedding_summary_for_in_process_bge(capsys):
     )
 
     out = capsys.readouterr().out
-    assert "Local embeddings (bge-m3/material, in-process)" in out
+    assert "Local embeddings (bge-m3/material, reused server)" in out
 
 
 def test_handle_runs_full_build_without_postprocess(tmp_path, monkeypatch, capsys):

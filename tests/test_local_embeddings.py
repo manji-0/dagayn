@@ -52,6 +52,23 @@ def test_local_embedding_llama_preset_is_stable():
     assert low.default_binary == "llama-server"
 
 
+def test_local_embedding_bge_preset_is_stable():
+    bge = get_local_embedding_preset("bge-m3", runtime="llama")
+
+    assert bge.runtime == "llama"
+    assert bge.hf_selector == "gpustack/bge-m3-GGUF:Q8_0"
+    assert bge.model == "bge-m3-gguf-q8_0"
+    assert bge.dimension == 1024
+    assert bge.text_mode == "material"
+    assert bge.batch == 8192
+    assert bge.ubatch == 8192
+    assert bge.pooling == "cls"
+    assert bge.flash_attention is True
+    assert bge.cache_type_k == "f16"
+    assert bge.cache_type_v == "f16"
+    assert bge.default_binary == "llama-server"
+
+
 def test_local_embedding_llama_preset_is_default_on_apple_silicon(monkeypatch):
     monkeypatch.delenv("DAGAYN_LOCAL_EMBEDDING_RUNTIME", raising=False)
 
@@ -67,7 +84,7 @@ def test_local_embedding_llama_preset_is_default_on_apple_silicon(monkeypatch):
 
 
 def test_local_embedding_rejects_removed_high_preset():
-    with pytest.raises(ValueError, match="Expected one of: none, low"):
+    with pytest.raises(ValueError, match="Expected one of: none, bge-m3, low"):
         get_local_embedding_preset("high")
 
 
@@ -92,6 +109,18 @@ def test_infer_local_embedding_provider_from_persisted_name():
     assert inferred.runtime == "llama"
     assert inferred.model == "qwen3-embedding-0.6b-gguf-q8_0"
     assert inferred.port == 19090
+
+
+def test_infer_bge_local_embedding_provider_from_persisted_name():
+    inferred = infer_local_embedding_provider(
+        "openai:bge-m3-gguf-q8_0@http://127.0.0.1:19093/v1"
+    )
+
+    assert inferred is not None
+    assert inferred.level == "bge-m3"
+    assert inferred.runtime == "llama"
+    assert inferred.model == "bge-m3-gguf-q8_0"
+    assert inferred.port == 19093
 
 
 def test_infer_local_embedding_provider_refuses_cloud_endpoint():
@@ -211,6 +240,33 @@ def test_local_embedding_server_starts_and_stops_llama_server(monkeypatch):
     assert commands[0][1]["stderr"] is subprocess.DEVNULL
     assert fake_proc.terminated is True
     assert fake_proc.killed is False
+
+
+def test_local_embedding_server_starts_bge_llama_server(monkeypatch):
+    probes = iter([_ProbeResult("unreachable"), _ProbeResult("unreachable"), _ProbeResult("ready")])
+    fake_proc = FakeProcess()
+
+    monkeypatch.setattr(
+        "dagayn.local_embeddings._probe_embedding_server",
+        lambda base_url, model, expected_dimension: next(probes),
+    )
+    monkeypatch.setattr("dagayn.local_embeddings.shutil.which", lambda binary: f"/bin/{binary}")
+    monkeypatch.setattr("dagayn.local_embeddings.subprocess.Popen", lambda *a, **k: fake_proc)
+
+    with local_embedding_server("bge-m3", runtime="llama", port=19093, startup_timeout=1) as server:
+        assert server.started is True
+        assert server.command[:3] == [
+            "/bin/llama-server",
+            "-hf",
+            "gpustack/bge-m3-GGUF:Q8_0",
+        ]
+        assert "--embedding" in server.command
+        assert "--pooling" in server.command
+        assert "cls" in server.command
+        assert "--alias" in server.command
+        assert "bge-m3-gguf-q8_0" in server.command
+
+    assert fake_proc.terminated is True
 
 
 def test_local_embedding_server_rechecks_after_port_lock(monkeypatch):

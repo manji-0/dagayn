@@ -82,22 +82,38 @@ def test_serve_local_embedding_sets_search_default_to_openai(monkeypatch):
     assert os.environ.get("CRG_OPENAI_MAX_LENGTH") is None
 
 
-def test_serve_bare_local_embedding_uses_in_process_bge(monkeypatch):
+def test_serve_bare_local_embedding_uses_bge_sidecar(monkeypatch):
     calls: list[dict] = []
 
+    class FakeServer:
+        base_url = "http://127.0.0.1:18080/v1"
+        started = False
+        command: list[str] = []
+        preset = SimpleNamespace(
+            model="bge-m3-gguf-q8_0",
+            text_mode="material",
+            request_max_length=None,
+        )
+
+    class FakeContext:
+        def __enter__(self):
+            return FakeServer()
+
+        def __exit__(self, *_args):
+            return None
+
     monkeypatch.setattr("dagayn.main.main", lambda **kwargs: calls.append(kwargs))
-
-    def fail_server(*_args, **_kwargs):
-        raise AssertionError("BGE mode should not start a local embedding server")
-
-    monkeypatch.setattr("dagayn.local_embeddings.local_embedding_server", fail_server)
+    monkeypatch.setattr(
+        "dagayn.local_embeddings.local_embedding_server",
+        lambda *_args, **_kwargs: FakeContext(),
+    )
 
     parser = _parser()
     args = parser.parse_args(["serve", "--local-embedding"])
     handle(args, parser)
 
-    assert calls[0]["embedding_provider"] == "local"
-    assert calls[0]["embedding_model"] == "BAAI/bge-m3"
+    assert calls[0]["embedding_provider"] == "openai"
+    assert calls[0]["embedding_model"] == "bge-m3-gguf-q8_0"
     assert calls[0]["local_embedding"] == "bge-m3"
     assert os.environ["DAGAYN_EMBEDDING_TEXT_MODE"] == "material"
 
@@ -190,3 +206,71 @@ def test_serve_infers_local_embedding_from_existing_graph(monkeypatch, tmp_path)
     assert calls[0]["local_embedding"] == "low"
     assert calls[0]["local_embedding_port"] == 19090
     assert os.environ["DAGAYN_EMBEDDING_TEXT_MODE"] == "material"
+
+
+def test_serve_infers_bge_local_embedding_from_existing_graph(monkeypatch, tmp_path):
+    calls: list[dict] = []
+    server_calls: list[dict] = []
+    repo = tmp_path / "repo"
+    db_dir = repo / ".dagayn"
+    db_dir.mkdir(parents=True)
+    db = db_dir / "graph.db"
+    conn = sqlite3.connect(db)
+    try:
+        conn.execute(
+            """
+            CREATE TABLE embeddings (
+                qualified_name TEXT PRIMARY KEY,
+                vector BLOB NOT NULL,
+                text_hash TEXT NOT NULL,
+                provider TEXT NOT NULL DEFAULT 'unknown'
+            )
+            """
+        )
+        conn.execute(
+            "INSERT INTO embeddings VALUES (?, ?, ?, ?)",
+            (
+                "dagayn/search.py::hybrid_search",
+                b"\x00\x00\x00\x00",
+                "hash",
+                "openai:bge-m3-gguf-q8_0@http://127.0.0.1:19093/v1",
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    class FakeServer:
+        base_url = "http://127.0.0.1:19093/v1"
+        started = True
+        command: list[str] = []
+        preset = SimpleNamespace(
+            model="bge-m3-gguf-q8_0",
+            text_mode="material",
+            request_max_length=None,
+        )
+
+    class FakeContext:
+        def __enter__(self):
+            return FakeServer()
+
+        def __exit__(self, *_args):
+            return None
+
+    def fake_server(level, **kwargs):
+        server_calls.append({"level": level, **kwargs})
+        return FakeContext()
+
+    monkeypatch.setattr("dagayn.local_embeddings.local_embedding_server", fake_server)
+    monkeypatch.setattr("dagayn.main.main", lambda **kwargs: calls.append(kwargs))
+
+    parser = _parser()
+    args = parser.parse_args(["serve", "--repo", str(repo)])
+    handle(args, parser)
+
+    assert server_calls[0]["level"] == "bge-m3"
+    assert server_calls[0]["port"] == 19093
+    assert calls[0]["embedding_provider"] == "openai"
+    assert calls[0]["embedding_model"] == "bge-m3-gguf-q8_0"
+    assert calls[0]["local_embedding"] == "bge-m3"
+    assert calls[0]["local_embedding_port"] == 19093

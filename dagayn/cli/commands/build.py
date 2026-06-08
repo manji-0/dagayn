@@ -32,10 +32,7 @@ def _print_local_embedding_summary(result: dict) -> None:
     emb = result.get("local_embedding")
     if not emb:
         return
-    if emb.get("mode") == "bge-m3":
-        runtime = "in-process"
-    else:
-        runtime = "started server" if emb.get("server_started") else "reused server"
+    runtime = "started server" if emb.get("server_started") else "reused server"
     preset = emb.get("preset")
     text_mode = emb.get("text_mode")
     preset_label = f"{preset}/{text_mode}" if text_mode else preset

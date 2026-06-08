@@ -189,7 +189,7 @@ existing graph database before rebuilding from scratch.
 # 1. FTS only — no embeddings, fastest, no model download.
 dagayn install --mode fts-only
 
-# 2. Local — in-process BGE-M3, no model server required.
+# 2. Local — managed BGE-M3 llama.cpp GGUF sidecar.
 dagayn install --mode local-embedding
 
 # 3. Managed Qwen3 llama.cpp GGUF sidecar.
@@ -343,9 +343,11 @@ modes, and provider setup, see
 
 The `openai` provider speaks the standard `/v1/embeddings` schema, so it works with real OpenAI, Azure OpenAI, LiteLLM, vLLM, LocalAI, Ollama (in OpenAI mode), and similar gateways. When `CRG_OPENAI_BASE_URL` points to localhost the cloud egress warning is suppressed automatically.
 
-Vector search uses numpy by default for the cosine-similarity matrix path. The
-built-in sentence-transformers provider is included in the standard dependency
-set so `dagayn serve --local-embedding` can run BGE-M3 without an extra install.
+Vector search uses numpy by default for the cosine-similarity matrix path.
+`dagayn serve --local-embedding` runs BGE-M3 through a managed llama.cpp GGUF
+sidecar so Apple Metal acceleration stays out of the Python process. The
+built-in sentence-transformers provider remains available for explicit
+`provider="local"` embedding runs.
 
 ### Running embedding
 
