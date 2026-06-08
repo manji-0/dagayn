@@ -2,6 +2,25 @@
 
 All notable changes to `dagayn` are documented here.
 
+## 4.2.4 — 2026-06-08
+
+### Improvements
+
+- Run bare BGE-M3 local embeddings through a managed `llama-server` GGUF Q8
+  sidecar instead of in-process sentence-transformers, keeping Apple Metal
+  execution outside the dagayn Python process.
+- Document the BGE-M3 Q8 sidecar benchmark, including search-quality parity
+  with sentence-transformers BGE-M3 on the smaller quality set and much lower
+  observed resident memory than the PyTorch MPS path.
+- Update GitHub workflow actions for the Node 24 runtime.
+
+### Fixes
+
+- Keep generated hook updates graph-only so MCP `serve --local-embedding`
+  settings are not reused by edit-time hook refreshes.
+- Default explicit in-process local sentence-transformers loading to CPU unless
+  `CRG_LOCAL_EMBEDDING_DEVICE` is set.
+
 ## 4.2.3 — 2026-06-08
 
 ### Improvements
