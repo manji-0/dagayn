@@ -2,6 +2,17 @@
 
 All notable changes to `dagayn` are documented here.
 
+## 4.2.5 — 2026-06-08
+
+### Fixes
+
+- Include local embedding sidecar arguments in generated AI-tool update hooks
+  when installing with `--mode local-embedding` or
+  `--mode local-embedding-llama`, so hook-triggered graph refreshes keep local
+  vectors current.
+- Preserve sidecar port, binary, and startup-timeout options consistently
+  between the MCP `serve` command and generated update hooks.
+
 ## 4.2.4 — 2026-06-08
 
 ### Improvements
