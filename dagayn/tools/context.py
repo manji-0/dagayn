@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import logging
+import os
 import sqlite3
-import subprocess
-from pathlib import Path
 from typing import Any
 
 from ._common import _get_store, compact_response, graph_answerability_summary
 
 logger = logging.getLogger(__name__)
+
+_MAX_RISK_FILES = int(os.environ.get("DAGAYN_MINIMAL_CONTEXT_MAX_RISK_FILES", "100"))
 
 _REVIEW_TASK_KEYWORDS = (
     "review",
@@ -151,32 +152,6 @@ _WORKFLOW_GUIDANCE: dict[str, dict[str, str]] = {
     },
 }
 
-
-def _has_git_changes(root: Path, base: str) -> bool:
-    """Quick check for uncommitted or diffed changes."""
-    try:
-        result = subprocess.run(
-            ["git", "diff", "--name-only", base, "--"],
-            capture_output=True,
-            text=True,
-            cwd=str(root),
-            timeout=10,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return True
-        # Also check staged/unstaged
-        result2 = subprocess.run(
-            ["git", "status", "--porcelain"],
-            capture_output=True,
-            text=True,
-            cwd=str(root),
-            timeout=10,
-        )
-        return bool(result2.stdout.strip())
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return False
-
-
 def _row_name(row: Any) -> str | None:
     """Extract a ``name`` value from a sqlite row/tuple/dict-like object."""
     if row is None:
@@ -289,46 +264,53 @@ def get_minimal_context(
         stats = store.get_stats()
         graph_health = _graph_answerability(store, stats)
 
-        # 2. Risk from changed files
+        # 2. Route the task before optional risk analysis so non-review entry
+        # points stay cheap even when the default base has a large diff.
+        workflow = _workflow_for_task(task)
+        suggestions = _suggest_tools_for_task(task)
+        guidance = _WORKFLOW_GUIDANCE[workflow]
+
+        # 3. Risk from explicitly provided changed files
         risk = "unknown"
         risk_score = 0.0
         top_affected: list[str] = []
         affected_flows: list[str] = []
         test_gap_count = 0
-        if changed_files or _has_git_changes(root, base):
+        risk_skipped_count = 0
+        files = changed_files
+        if files and len(files) > _MAX_RISK_FILES:
+            risk = "skipped"
+            risk_skipped_count = len(files)
+            files = []
+        if files:
             try:
                 from ..changes import analyze_changes
-                from ..incremental import get_changed_files as _get_changed
 
-                files = changed_files
-                if not files:
-                    files = _get_changed(root, base)
-                if files:
-                    abs_files = [str(root / f) for f in files]
-                    analysis = analyze_changes(
-                        store,
-                        abs_files,
-                        repo_root=str(root),
-                        base=base,
-                    )
-                    risk_score = analysis.get("risk_score", 0.0)
-                    risk = "high" if risk_score > 0.7 else "medium" if risk_score > 0.4 else "low"
-                    priorities = analysis.get("review_priorities", [])
-                    if not priorities:
-                        priorities = analysis.get("changed_functions", [])
-                    top_affected = _names_from_items(priorities, limit=5)
-                    affected_flows = _names_from_items(
-                        analysis.get("affected_flows", []),
-                        limit=5,
-                    )
-                    test_gap_count = len(analysis.get("test_gaps", []))
+                abs_files = [str(root / f) for f in files]
+                analysis = analyze_changes(
+                    store,
+                    abs_files,
+                    repo_root=str(root),
+                    base=base,
+                )
+                risk_score = analysis.get("risk_score", 0.0)
+                risk = "high" if risk_score > 0.7 else "medium" if risk_score > 0.4 else "low"
+                priorities = analysis.get("review_priorities", [])
+                if not priorities:
+                    priorities = analysis.get("changed_functions", [])
+                top_affected = _names_from_items(priorities, limit=5)
+                affected_flows = _names_from_items(
+                    analysis.get("affected_flows", []),
+                    limit=5,
+                )
+                test_gap_count = len(analysis.get("test_gaps", []))
             except (
                 ImportError,
                 OSError,
                 ValueError,
                 sqlite3.Error,
-                subprocess.SubprocessError,
                 AttributeError,
+                RuntimeError,
             ):
                 logger.debug("Risk analysis failed in get_minimal_context", exc_info=True)
 
@@ -367,11 +349,6 @@ def get_minimal_context(
         except (sqlite3.OperationalError, RuntimeError, ImportError, KeyError, TypeError):  # nosec B110
             logger.debug("flows table not yet populated")
 
-        # 5. Suggest next tools based on task keywords
-        workflow = _workflow_for_task(task)
-        suggestions = _suggest_tools_for_task(task)
-        guidance = _WORKFLOW_GUIDANCE[workflow]
-
         # Build summary
         summary_parts = [
             f"{stats.total_nodes} nodes, {stats.total_edges} edges"
@@ -379,6 +356,8 @@ def get_minimal_context(
         ]
         if risk != "unknown":
             summary_parts.append(f"Risk: {risk} ({risk_score:.2f}).")
+        if risk_skipped_count:
+            summary_parts.append(f"Risk analysis skipped for {risk_skipped_count} files.")
         if test_gap_count:
             summary_parts.append(f"{test_gap_count} test gaps.")
 

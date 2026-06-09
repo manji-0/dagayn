@@ -2,6 +2,14 @@
 
 All notable changes to `dagayn` are documented here.
 
+## 4.2.6 — 2026-06-09
+
+### Fixes
+
+- Keep `get_minimal_context_tool` lightweight by avoiding automatic change
+  impact analysis unless callers explicitly provide `changed_files`, preventing
+  CLI and MCP entry-point hangs in repositories with costly coverage inference.
+
 ## 4.2.5 — 2026-06-08
 
 ### Fixes

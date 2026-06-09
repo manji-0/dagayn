@@ -2376,11 +2376,8 @@ class TestGetMinimalContext:
 
     def test_uses_review_priorities_and_affected_flows(self, monkeypatch):
         import dagayn.changes as changes
-        import dagayn.incremental as incremental
         from dagayn.tools.context import get_minimal_context
 
-        monkeypatch.setattr("dagayn.tools.context._has_git_changes", lambda *_: True)
-        monkeypatch.setattr(incremental, "get_changed_files", lambda *_: ["app.py"])
         monkeypatch.setattr(
             changes,
             "analyze_changes",
@@ -2399,11 +2396,30 @@ class TestGetMinimalContext:
             },
         )
 
-        result = get_minimal_context(task="review changes", repo_root=str(self.root))
+        result = get_minimal_context(
+            task="review changes",
+            changed_files=["app.py"],
+            repo_root=str(self.root),
+        )
 
         assert result["key_entities"] == ["highest-priority", "second-priority"]
         assert result["flows_affected"] == ["login-flow", "signup-flow"]
         assert "top_flows" not in result
+
+    def test_review_task_without_changed_files_does_not_analyze_changes(self, monkeypatch):
+        import dagayn.changes as changes
+        from dagayn.tools.context import get_minimal_context
+
+        def fail_analyze_changes(*_args, **_kwargs):
+            raise AssertionError("get_minimal_context should stay cheap without changed_files")
+
+        monkeypatch.setattr(changes, "analyze_changes", fail_analyze_changes)
+
+        result = get_minimal_context(task="review changes", repo_root=str(self.root))
+
+        assert result["workflow"] == "review"
+        assert "risk" not in result
+        assert "review_tool" in result["next_tool_suggestions"]
 
     def test_reports_top_flows_separately_from_affected_flows(self):
         from dagayn.tools.context import get_minimal_context
