@@ -158,8 +158,12 @@ jobs:
           rustc --version
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
-      - name: Install pip into uv environment
-        run: uv pip install pip
+      - name: Create install-smoke virtual environment
+        shell: bash
+        run: |
+          uv venv
+          echo "${PWD}/.venv/bin" >> "$GITHUB_PATH"
+          uv pip install pip
       - name: Run install smoke test
         shell: bash
         run: |

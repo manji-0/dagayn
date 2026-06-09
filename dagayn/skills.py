@@ -583,7 +583,8 @@ def _embedding_context_lines(
         return [
             "## Installed Search Mode",
             "",
-            "Installed with local embeddings (`--mode local-embedding`): managed BGE-M3 llama.cpp sidecar.",
+            "Installed with local embeddings (`--mode local-embedding`): managed "
+            "BGE-M3 llama.cpp sidecar.",
             "",
             "- MCP search defaults to hybrid retrieval when matching embeddings exist.",
             "- Read `search_mode`, `rerank_intent`, and per-result `source` before "

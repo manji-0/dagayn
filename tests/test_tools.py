@@ -1778,7 +1778,7 @@ class TestBuildPostprocess:
                 "newly_embedded": 4,
                 "orphans_removed": 1,
                 "total_embeddings": 10,
-        }
+            }
 
         monkeypatch.setenv("DAGAYN_EMBEDDING_TEXT_MODE", "body")
         with (

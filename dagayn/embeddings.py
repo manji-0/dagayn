@@ -259,7 +259,9 @@ LOCAL_DEFAULT_DEVICE = "cpu"
 class LocalEmbeddingProvider(EmbeddingProvider):
     def __init__(self, model_name: str | None = None) -> None:
         self._model_name = model_name or os.environ.get("CRG_EMBEDDING_MODEL", LOCAL_DEFAULT_MODEL)
-        self._device = (os.environ.get("CRG_LOCAL_EMBEDDING_DEVICE") or LOCAL_DEFAULT_DEVICE).strip()
+        self._device = (
+            os.environ.get("CRG_LOCAL_EMBEDDING_DEVICE") or LOCAL_DEFAULT_DEVICE
+        ).strip()
         if not self._device:
             self._device = LOCAL_DEFAULT_DEVICE
         self._model = None  # Lazy-loaded

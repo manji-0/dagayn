@@ -281,9 +281,7 @@ class TestInstallHandleRemoteMode:
             "llama-qwen3",
         ]
 
-    def test_local_embedding_mode_bakes_sidecar_options_into_hooks(
-        self, tmp_path, monkeypatch
-    ):
+    def test_local_embedding_mode_bakes_sidecar_options_into_hooks(self, tmp_path, monkeypatch):
         calls: list[dict] = []
         hook_calls: list[dict] = []
 

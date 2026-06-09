@@ -112,9 +112,7 @@ def test_infer_local_embedding_provider_from_persisted_name():
 
 
 def test_infer_bge_local_embedding_provider_from_persisted_name():
-    inferred = infer_local_embedding_provider(
-        "openai:bge-m3-gguf-q8_0@http://127.0.0.1:19093/v1"
-    )
+    inferred = infer_local_embedding_provider("openai:bge-m3-gguf-q8_0@http://127.0.0.1:19093/v1")
 
     assert inferred is not None
     assert inferred.level == "bge-m3"

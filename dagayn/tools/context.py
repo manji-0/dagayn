@@ -152,6 +152,7 @@ _WORKFLOW_GUIDANCE: dict[str, dict[str, str]] = {
     },
 }
 
+
 def _row_name(row: Any) -> str | None:
     """Extract a ``name`` value from a sqlite row/tuple/dict-like object."""
     if row is None:
