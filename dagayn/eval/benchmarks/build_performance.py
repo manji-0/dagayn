@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import statistics
 import time
 from pathlib import Path
 
@@ -11,50 +12,69 @@ logger = logging.getLogger(__name__)
 
 def run(repo_path: Path, store, config: dict) -> list[dict]:
     """Run build performance benchmark."""
-    stats = store.get_stats()
+    del store
+    from dagayn.graph import GraphStore
+    from dagayn.incremental import full_build
 
-    # Time flow detection
-    try:
-        from dagayn.flows import store_flows, trace_flows
+    repeats = max(1, int(config.get("build_performance_repeat", 1)))
+    rows: list[dict] = []
+    timings: list[float] = []
+    repo_name = str(config["name"])
+    for idx in range(repeats):
+        db_path = repo_path / ".dagayn" / f"eval-build-performance-{idx}.db"
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        db_path.unlink(missing_ok=True)
+        build_store = GraphStore(db_path)
+        try:
+            started = time.perf_counter()
+            build_result = full_build(repo_path, build_store)
+            total_ms = (time.perf_counter() - started) * 1000.0
+            stats = build_store.get_stats()
+            timings.append(total_ms)
+            files_parsed = int(build_result.get("files_parsed", stats.files_count) or 0)
+            errors_count = len(build_result.get("errors", []) or [])
+            rows.append(
+                {
+                    "benchmark": "build_performance",
+                    "repo": repo_name,
+                    "status": "ok",
+                    "repeat_index": idx + 1,
+                    "build_total_ms": round(total_ms, 3),
+                    "files_parsed": files_parsed,
+                    "nodes": stats.total_nodes,
+                    "edges": stats.total_edges,
+                    "file_count": files_parsed,
+                    "node_count": stats.total_nodes,
+                    "edge_count": stats.total_edges,
+                    "errors_count": errors_count,
+                    "files_per_second": round(files_parsed / max(total_ms / 1000.0, 0.001), 3),
+                    "nodes_per_second": round(stats.total_nodes / max(total_ms / 1000.0, 0.001), 3),
+                }
+            )
+        except Exception as exc:
+            logger.warning("Full build timing failed: %s", exc)
+            rows.append(
+                {
+                    "benchmark": "build_performance",
+                    "repo": repo_name,
+                    "status": "error",
+                    "repeat_index": idx + 1,
+                    "error": str(exc),
+                }
+            )
+        finally:
+            build_store.close()
+            db_path.unlink(missing_ok=True)
 
-        t0 = time.perf_counter()
-        flows = trace_flows(store)
-        store_flows(store, flows)
-        flow_time = time.perf_counter() - t0
-    except Exception as exc:
-        logger.warning("Flow detection failed: %s", exc)
-        flow_time = 0.0
-
-    # Time community detection
-    try:
-        from dagayn.communities import detect_communities, store_communities
-
-        t0 = time.perf_counter()
-        comms = detect_communities(store)
-        store_communities(store, comms)
-        community_time = time.perf_counter() - t0
-    except Exception as exc:
-        logger.warning("Community detection failed: %s", exc)
-        community_time = 0.0
-
-    # Time search (average of queries)
-    search_times: list[float] = []
-    for sq in config.get("search_queries", [])[:10]:
-        t0 = time.perf_counter()
-        store.search_nodes(sq["query"], limit=20)
-        search_times.append(time.perf_counter() - t0)
-
-    avg_search_ms = round(sum(search_times) / max(len(search_times), 1) * 1000, 1)
-
-    return [
-        {
-            "repo": config["name"],
-            "file_count": stats.files_count,
-            "node_count": stats.total_nodes,
-            "edge_count": stats.total_edges,
-            "flow_detection_seconds": round(flow_time, 3),
-            "community_detection_seconds": round(community_time, 3),
-            "search_avg_ms": avg_search_ms,
-            "nodes_per_second": round(stats.total_nodes / max(flow_time, 0.001)),
-        }
-    ]
+    if len(timings) > 1:
+        rows.append(
+            {
+                "benchmark": "build_performance",
+                "repo": repo_name,
+                "status": "aggregate",
+                "repeat": repeats,
+                "median_build_total_ms": round(statistics.median(timings), 3),
+                "best_build_total_ms": round(min(timings), 3),
+            }
+        )
+    return rows

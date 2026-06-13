@@ -1,6 +1,7 @@
 name: gin
 url: https://github.com/gin-gonic/gin
 commit: HEAD
+allow_moving_ref: true
 language: go
 size_category: small
 

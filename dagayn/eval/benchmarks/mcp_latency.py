@@ -24,7 +24,8 @@ def _time_call(fn: Callable[[], Any], repeat: int) -> tuple[float, float, float]
         fn()
         timings.append((time.perf_counter() - start) * 1000.0)
     timings.sort()
-    return timings[0], timings[len(timings) // 2], timings[-1]
+    p95_index = min(len(timings) - 1, int(len(timings) * 0.95))
+    return timings[0], timings[len(timings) // 2], timings[p95_index]
 
 
 def _first_query(config: dict, default: str = "graph") -> str:
@@ -105,7 +106,7 @@ def run(repo_path: Path, store: Any, config: dict) -> list[dict]:
     results: list[dict] = []
     for name, fn in _scenarios(repo_path, store, config).items():
         try:
-            best_ms, median_ms, worst_ms = _time_call(fn, repeat)
+            best_ms, median_ms, p95_ms = _time_call(fn, repeat)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Latency scenario %s failed: %s", name, exc)
             results.append(
@@ -113,6 +114,7 @@ def run(repo_path: Path, store: Any, config: dict) -> list[dict]:
                     "benchmark": "mcp_latency",
                     "scenario": name,
                     "repeat": repeat,
+                    "transport": "direct_function_call",
                     "status": "error",
                     "error": str(exc),
                 }
@@ -123,9 +125,10 @@ def run(repo_path: Path, store: Any, config: dict) -> list[dict]:
                 "benchmark": "mcp_latency",
                 "scenario": name,
                 "repeat": repeat,
+                "transport": "direct_function_call",
                 "best_ms": round(best_ms, 3),
                 "median_ms": round(median_ms, 3),
-                "worst_ms": round(worst_ms, 3),
+                "p95_ms": round(p95_ms, 3),
                 "status": "baseline",
             }
         )

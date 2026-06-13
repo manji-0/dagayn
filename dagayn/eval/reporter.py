@@ -10,6 +10,19 @@ import csv
 from pathlib import Path
 from typing import Any
 
+from dagayn.eval.runner import BENCHMARK_REGISTRY
+
+
+def _escape_md_cell(value: Any) -> str:
+    text = str(value)
+    return (
+        text.replace("\\", "\\\\")
+        .replace("|", "\\|")
+        .replace("`", "\\`")
+        .replace("\r\n", "<br>")
+        .replace("\n", "<br>")
+    )
+
 
 def generate_markdown_report(results: list[dict[str, Any]]) -> str:
     """Generate a markdown report from benchmark results.
@@ -51,8 +64,8 @@ def generate_markdown_report(results: list[dict[str, Any]]) -> str:
 
     for r in results:
         name = r.get("benchmark", "unknown")
-        values = [str(r.get(k, "-")) for k in all_keys]
-        lines.append(f"| {name} | " + " | ".join(values) + " |")
+        values = [_escape_md_cell(r.get(k, "-")) for k in all_keys]
+        lines.append(f"| {_escape_md_cell(name)} | " + " | ".join(values) + " |")
 
     lines.append("")
 
@@ -65,7 +78,7 @@ def generate_markdown_report(results: list[dict[str, Any]]) -> str:
         lines.append("")
         for k in all_keys:
             v = r.get(k, "-")
-            lines.append(f"- **{k}**: {v}")
+            lines.append(f"- **{k}**: {_escape_md_cell(v)}")
         lines.append("")
 
     return "\n".join(lines)
@@ -84,10 +97,10 @@ def _read_csvs(results_dir: Path, prefix: str) -> list[dict[str, str]]:
 def _md_table(headers: list[str], rows: list[list[str]]) -> str:
     """Build a markdown table from headers and rows."""
     lines = []
-    lines.append("| " + " | ".join(headers) + " |")
+    lines.append("| " + " | ".join(_escape_md_cell(h) for h in headers) + " |")
     lines.append("| " + " | ".join("---" for _ in headers) + " |")
     for row in rows:
-        lines.append("| " + " | ".join(row) + " |")
+        lines.append("| " + " | ".join(_escape_md_cell(cell) for cell in row) + " |")
     return "\n".join(lines)
 
 
@@ -111,18 +124,14 @@ def generate_full_report(results_dir: str | Path) -> str:
     lines.append("## Methodology")
     lines.append("")
     lines.append("Benchmarks are run against real open-source repositories.")
-    lines.append("Token counts use a consistent `len(text) // 4` approximation.")
-    lines.append("Impact accuracy uses graph edges as ground truth.")
+    lines.append("Token counts record the active counter in `token_counter`.")
+    lines.append(
+        "Impact accuracy uses explicit oracle labels when present; "
+        "graph-derived rows are marked `status=proxy`."
+    )
     lines.append("")
 
-    benchmark_types = [
-        "token_efficiency",
-        "impact_accuracy",
-        "flow_completeness",
-        "search_quality",
-        "doc_fuzzy_search",
-        "build_performance",
-    ]
+    benchmark_types = list(BENCHMARK_REGISTRY.keys())
 
     for btype in benchmark_types:
         rows = _read_csvs(results_dir, btype)
@@ -182,11 +191,11 @@ def generate_readme_tables(results_dir: str | Path) -> str:
                 [
                     r.get("repo", "-"),
                     r.get("changed_files", "-"),
-                    r.get("naive_tokens", "-"),
-                    r.get("standard_tokens", "-"),
-                    r.get("graph_tokens", "-"),
-                    r.get("naive_to_graph_ratio", "-"),
-                    r.get("standard_to_graph_ratio", "-"),
+                    r.get("naive_changed_file_tokens", r.get("naive_tokens", "-")),
+                    r.get("diff_tokens", r.get("standard_tokens", "-")),
+                    r.get("graph_context_tokens", r.get("graph_tokens", "-")),
+                    r.get("changed_file_to_graph_ratio", r.get("naive_to_graph_ratio", "-")),
+                    r.get("diff_to_graph_ratio", r.get("standard_to_graph_ratio", "-")),
                 ]
             )
         lines.append(_md_table(headers, table_rows))
@@ -196,11 +205,12 @@ def generate_readme_tables(results_dir: str | Path) -> str:
     ia_rows = _read_csvs(results_dir, "impact_accuracy")
     fc_rows = _read_csvs(results_dir, "flow_completeness")
     sq_rows = _read_csvs(results_dir, "search_quality")
+    fts_rows = _read_csvs(results_dir, "fts_quality")
 
-    if ia_rows or fc_rows or sq_rows:
+    if ia_rows or fc_rows or sq_rows or fts_rows:
         lines.append("### Accuracy & Quality")
         lines.append("")
-        headers = ["Repo", "Impact F1", "Flow Recall", "Search MRR"]
+        headers = ["Repo", "Impact F1", "Flow Recall", "Search MRR", "FTS MRR"]
         # Build a per-repo summary
         repo_data: dict[str, dict[str, object]] = {}
         mrr_accum: dict[str, list[float]] = {}
@@ -215,17 +225,28 @@ def generate_readme_tables(results_dir: str | Path) -> str:
                 mrr_accum.setdefault(repo, []).append(float(r.get("reciprocal_rank", 0)))
             except (ValueError, TypeError):
                 pass
+        fts_accum: dict[str, list[float]] = {}
+        for r in fts_rows:
+            repo = r.get("repo", "?")
+            repo_data.setdefault(repo, {})
+            try:
+                fts_accum.setdefault(repo, []).append(float(r.get("reciprocal_rank", 0)))
+            except (ValueError, TypeError):
+                pass
 
         table_rows = []
         for repo, d in sorted(repo_data.items()):
             mrr_vals = mrr_accum.get(repo, [])
             mrr = str(round(sum(mrr_vals) / len(mrr_vals), 3)) if mrr_vals else "-"
+            fts_vals = fts_accum.get(repo, [])
+            fts = str(round(sum(fts_vals) / len(fts_vals), 3)) if fts_vals else "-"
             table_rows.append(
                 [
                     repo,
                     str(d.get("f1", "-")),
                     str(d.get("recall", "-")),
                     mrr,
+                    fts,
                 ]
             )
         lines.append(_md_table(headers, table_rows))
@@ -236,16 +257,16 @@ def generate_readme_tables(results_dir: str | Path) -> str:
     if bp_rows:
         lines.append("### Performance")
         lines.append("")
-        headers = ["Repo", "Files", "Nodes", "Flow Det. (s)", "Search (ms)"]
+        headers = ["Repo", "Files", "Nodes", "Build (ms)", "Nodes/s"]
         table_rows = []
         for r in bp_rows:
             table_rows.append(
                 [
                     r.get("repo", "-"),
-                    r.get("file_count", "-"),
-                    r.get("node_count", "-"),
-                    r.get("flow_detection_seconds", "-"),
-                    r.get("search_avg_ms", "-"),
+                    r.get("files_parsed", r.get("file_count", "-")),
+                    r.get("nodes", r.get("node_count", "-")),
+                    r.get("build_total_ms", "-"),
+                    r.get("nodes_per_second", "-"),
                 ]
             )
         lines.append(_md_table(headers, table_rows))

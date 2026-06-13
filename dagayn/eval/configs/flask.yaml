@@ -1,6 +1,7 @@
 name: flask
 url: https://github.com/pallets/flask
 commit: HEAD
+allow_moving_ref: true
 language: python
 size_category: small
 

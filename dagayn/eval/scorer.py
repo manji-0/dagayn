@@ -8,6 +8,10 @@ Provides:
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+from pathlib import PurePosixPath
+from typing import Any
+
 
 def compute_token_efficiency(raw_tokens: int, graph_tokens: int) -> dict:
     """Compute token efficiency metrics.
@@ -56,7 +60,12 @@ def compute_mrr(correct: str, results: list[str]) -> float:
     return 0.0
 
 
-def compute_precision_recall(predicted: set, actual: set) -> dict:
+def compute_precision_recall(
+    predicted: set,
+    actual: set,
+    *,
+    perfect_empty: bool = False,
+) -> dict:
     """Compute precision, recall, and F1 score.
 
     Args:
@@ -66,8 +75,10 @@ def compute_precision_recall(predicted: set, actual: set) -> dict:
     Returns:
         Dict with keys: precision, recall, f1.
     """
-    if not predicted and not actual:
+    if not predicted and not actual and perfect_empty:
         return {"precision": 1.0, "recall": 1.0, "f1": 1.0}
+    if not predicted and not actual:
+        return {"precision": None, "recall": None, "f1": None, "status": "skipped"}
 
     true_positive = len(predicted & actual)
     precision = true_positive / len(predicted) if predicted else 0.0
@@ -85,7 +96,13 @@ def compute_precision_recall(predicted: set, actual: set) -> dict:
     }
 
 
-def compute_precision_at_k(predicted: list[str], actual: set[str], k: int = 5) -> dict:
+def compute_precision_at_k(
+    predicted: list[str],
+    actual: set[str],
+    k: int = 5,
+    *,
+    perfect_empty: bool = False,
+) -> dict:
     """Compute precision@k for ranked guidance outputs.
 
     Args:
@@ -98,9 +115,18 @@ def compute_precision_at_k(predicted: list[str], actual: set[str], k: int = 5) -
     """
     cutoff = max(1, int(k))
     returned = [item for item in predicted[:cutoff] if item]
-    if not returned and not actual:
+    if not returned and not actual and perfect_empty:
         precision = 1.0
         hits = 0
+    elif not returned and not actual:
+        return {
+            "precision_at_k": None,
+            "hits": 0,
+            "k": cutoff,
+            "returned": 0,
+            "relevant": 0,
+            "status": "skipped",
+        }
     else:
         hits = len(set(returned) & actual)
         precision = hits / cutoff
@@ -111,3 +137,66 @@ def compute_precision_at_k(predicted: list[str], actual: set[str], k: int = 5) -
         "returned": len(returned),
         "relevant": len(actual),
     }
+
+
+def _aliases_from_config(config: dict[str, Any] | None) -> dict[str, set[str]]:
+    aliases: dict[str, set[str]] = {}
+    if not config:
+        return aliases
+    for item in config.get("aliases", []) or config.get("match_aliases", []) or []:
+        if not isinstance(item, dict):
+            continue
+        target = str(item.get("target") or item.get("canonical") or "")
+        values = {str(v) for v in item.get("aliases", []) if v}
+        if target and values:
+            aliases.setdefault(target, set()).update(values)
+            for value in values:
+                aliases.setdefault(value, set()).add(target)
+    return aliases
+
+
+class IdentifierMatcher:
+    """Exact qualified-name matcher with explicit aliases and opt-in basename matching."""
+
+    def __init__(
+        self,
+        aliases: dict[str, Iterable[str]] | None = None,
+        *,
+        allow_basename: bool = False,
+    ) -> None:
+        self.allow_basename = allow_basename
+        self.aliases: dict[str, set[str]] = {}
+        for target, values in (aliases or {}).items():
+            target_s = str(target)
+            self.aliases.setdefault(target_s, set()).update(str(value) for value in values)
+            for value in values:
+                self.aliases.setdefault(str(value), set()).add(target_s)
+
+    @classmethod
+    def from_config(cls, config: dict[str, Any] | None) -> "IdentifierMatcher":
+        return cls(
+            _aliases_from_config(config),
+            allow_basename=bool((config or {}).get("allow_basename_match", False)),
+        )
+
+    def _equivalents(self, value: str) -> set[str]:
+        values = {value, *self.aliases.get(value, set())}
+        if self.allow_basename:
+            values.update(
+                PurePosixPath(v.rsplit("::", 1)[0]).name + "::" + v.rsplit("::", 1)[-1]
+                for v in list(values)
+                if "::" in v
+            )
+            values.update(v.rsplit("::", 1)[-1] for v in list(values))
+        return {v.lower() for v in values if v}
+
+    def matches(self, candidate: str, expected: str) -> bool:
+        if not candidate or not expected:
+            return False
+        return bool(self._equivalents(candidate) & self._equivalents(expected))
+
+    def first_rank(self, candidates: list[str], expected: str) -> int:
+        for idx, candidate in enumerate(candidates, start=1):
+            if self.matches(candidate, expected):
+                return idx
+        return 0

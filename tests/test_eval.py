@@ -74,9 +74,10 @@ def test_precision_recall():
 
 def test_precision_recall_empty_sets():
     result = compute_precision_recall(set(), set())
-    assert result["precision"] == 1.0
-    assert result["recall"] == 1.0
-    assert result["f1"] == 1.0
+    assert result["status"] == "skipped"
+    assert result["precision"] is None
+    assert result["recall"] is None
+    assert result["f1"] is None
 
 
 def test_precision_recall_no_overlap():
@@ -287,6 +288,36 @@ def test_generate_full_report():
         assert "testrepo" in report
 
 
+def test_generate_full_report_includes_registered_benchmarks(tmp_path):
+    for benchmark in [
+        "guidance_precision",
+        "fts_quality",
+        "nplusone_count",
+        "mcp_latency",
+        "recent_changes_effects",
+    ]:
+        path = tmp_path / f"repo_{benchmark}_2026-01-01.csv"
+        with open(path, "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=["benchmark", "repo", "status"])
+            w.writeheader()
+            w.writerow({"benchmark": benchmark, "repo": "repo", "status": "ok"})
+
+    report = generate_full_report(tmp_path)
+    assert "## Guidance Precision" in report
+    assert "## Fts Quality" in report
+    assert "## Nplusone Count" in report
+    assert "## Mcp Latency" in report
+    assert "## Recent Changes Effects" in report
+
+
+def test_markdown_table_escapes_special_cells():
+    report = generate_markdown_report(
+        [{"benchmark": "search_quality", "query": "a|b", "error": "bad\n`cell`"}]
+    )
+    assert "a\\|b" in report
+    assert "bad<br>\\`cell\\`" in report
+
+
 @pytest.mark.skipif(not _HAS_YAML, reason="pyyaml not installed")
 def test_runner_with_mock_repo():
     """Create a tiny git repo with 2 Python files, run benchmarks, verify output."""
@@ -369,8 +400,9 @@ def test_runner_with_mock_repo():
 
         ia_results = impact_accuracy.run(repo_path, store, config)
         assert len(ia_results) >= 1
-        assert "precision" in ia_results[0]
-        assert "f1" in ia_results[0]
+        assert ia_results[0]["status"] == "proxy"
+        assert "graph_proxy_precision" in ia_results[0]
+        assert "graph_proxy_f1" in ia_results[0]
 
         # Run search_quality
         from dagayn.eval.benchmarks import search_quality
@@ -433,9 +465,129 @@ def test_runner_with_mock_repo():
 
         guidance_results = guidance_precision.run(repo_path, store, config)
         assert guidance_results[0]["benchmark"] == "guidance_precision"
-        assert "precision_at_k" in guidance_results[0]
+        assert guidance_results[0]["status"] == "skipped"
 
         store.close()
+
+
+@pytest.mark.skipif(not _HAS_YAML, reason="pyyaml not installed")
+def test_write_csv_heterogeneous_rows_preserves_all_columns(tmp_path):
+    path = tmp_path / "results.csv"
+    write_csv(
+        [
+            {"benchmark": "a", "repo": "r", "status": "ok", "only_a": 1},
+            {"benchmark": "b", "repo": "r", "status": "error", "error": "bad", "only_b": 2},
+        ],
+        path,
+    )
+    with open(path, newline="") as f:
+        reader = csv.DictReader(f)
+        rows = list(reader)
+    assert reader.fieldnames[:4] == ["benchmark", "repo", "status", "error"]
+    assert "only_a" in reader.fieldnames
+    assert "only_b" in reader.fieldnames
+    assert rows[0]["only_b"] == ""
+    assert rows[1]["only_a"] == ""
+
+
+def test_token_efficiency_context_failure_is_status_error(tmp_path, monkeypatch):
+    repo_path = tmp_path / "repo"
+    repo_path.mkdir()
+    subprocess.run(["git", "init"], cwd=repo_path, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=repo_path, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo_path, check=True)
+    (repo_path / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=repo_path, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "initial"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+    )
+    (repo_path / "a.py").write_text("def a():\n    return 2\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "commit", "-am", "change"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+    )
+
+    import dagayn.tools
+    from dagayn.eval.benchmarks import token_efficiency
+
+    def fail_context(**_kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(dagayn.tools, "get_review_context", fail_context)
+    rows = token_efficiency.run(
+        repo_path,
+        None,
+        {"name": "repo", "test_commits": [{"sha": "HEAD"}]},
+    )
+    assert rows[0]["status"] == "error"
+    assert "graph_context_tokens" not in rows[0]
+    assert "changed_file_to_graph_ratio" not in rows[0]
+
+
+def test_identifier_matcher_exact_alias_and_basename_opt_in():
+    from dagayn.eval.scorer import IdentifierMatcher
+
+    exact = IdentifierMatcher()
+    assert exact.matches("pkg/a.py::Service.run", "pkg/a.py::Service.run")
+    assert not exact.matches("pkg/a.py::Service.run", "other.py::Service.run")
+
+    alias = IdentifierMatcher({"pkg/a.py::Service.run": {"Service.run"}})
+    assert alias.matches("Service.run", "pkg/a.py::Service.run")
+
+    basename = IdentifierMatcher(allow_basename=True)
+    assert basename.matches("pkg/a.py::Service.run", "other.py::Service.run")
+
+
+def test_guidance_precision_no_cases_skipped():
+    from dagayn.eval.benchmarks import guidance_precision
+
+    rows = guidance_precision.run(Path("/tmp"), None, {})
+    assert rows == [
+        {
+            "benchmark": "guidance_precision",
+            "case": "no_cases",
+            "kind": "none",
+            "status": "skipped",
+        }
+    ]
+
+
+def test_build_performance_times_full_build(monkeypatch, tmp_path):
+    from dagayn.eval.benchmarks import build_performance
+
+    class FakeStats:
+        files_count = 2
+        total_nodes = 10
+        total_edges = 3
+
+    class FakeStore:
+        def __init__(self, _path):
+            pass
+
+        def get_stats(self):
+            return FakeStats()
+
+        def close(self):
+            pass
+
+    calls = []
+
+    def fake_full_build(_repo_path, _store):
+        calls.append(1)
+        return {"files_parsed": 2, "errors": []}
+
+    monkeypatch.setattr("dagayn.graph.GraphStore", FakeStore)
+    monkeypatch.setattr("dagayn.incremental.full_build", fake_full_build)
+    rows = build_performance.run(tmp_path, None, {"name": "repo"})
+    assert calls == [1]
+    assert rows[0]["status"] == "ok"
+    assert rows[0]["build_total_ms"] >= 0
+    assert "flow_detection_seconds" not in rows[0]
 
 
 def test_embedding_text_modes_benchmark_compares_body_mode(tmp_path):

@@ -1920,44 +1920,29 @@ def watch(
                 self._pending.clear()
                 self._timer = None
 
-            updated = 0
+            rels: list[str] = []
             for abs_path in paths:
-                if self._update_file(abs_path):
-                    updated += 1
+                path = Path(abs_path)
+                if not path.is_file() or path.is_symlink() or _is_binary(path):
+                    continue
+                try:
+                    rels.append(str(path.relative_to(repo_root)))
+                except ValueError:
+                    continue
+            rels = sorted(set(rels))
+            updated = 0
+            if rels:
+                try:
+                    result = incremental_update(repo_root, store, changed_files=rels)
+                    updated = int(result.get("files_updated", 0))
+                except Exception as e:
+                    logger.error("Error updating watched files %s: %s", rels, e)
 
             if updated > 0 and on_files_updated is not None:
                 try:
                     on_files_updated(store)
                 except Exception as e:
                     logger.error("Post-update callback failed: %s", e)
-
-        def _update_file(self, abs_path: str) -> bool:
-            path = Path(abs_path)
-            if not path.is_file():
-                return False
-            if path.is_symlink():
-                return False
-            if _is_binary(path):
-                return False
-            rel = str(path.relative_to(repo_root))
-            try:
-                source = path.read_bytes()
-                fhash = hashlib.sha256(source).hexdigest()
-                nodes, edges = parser.parse_bytes(path, source)
-                nodes, edges = _relativize_parsed_entities(nodes, edges, repo_root)
-                store.store_file_nodes_edges(rel, nodes, edges, fhash)
-                store.set_metadata("last_updated", time.strftime("%Y-%m-%dT%H:%M:%S"))
-                store.commit()
-                logger.info(
-                    "Updated: %s (%d nodes, %d edges)",
-                    rel,
-                    len(nodes),
-                    len(edges),
-                )
-                return True
-            except Exception as e:
-                logger.error("Error updating %s: %s", abs_path, e)
-                return False
 
     handler = GraphUpdateHandler()
     observer = Observer()

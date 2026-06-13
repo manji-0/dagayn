@@ -1,6 +1,7 @@
 name: express
 url: https://github.com/expressjs/express
 commit: HEAD
+allow_moving_ref: true
 language: javascript
 size_category: small
 

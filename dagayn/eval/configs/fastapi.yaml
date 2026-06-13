@@ -1,6 +1,7 @@
 name: fastapi
 url: https://github.com/tiangolo/fastapi
 commit: HEAD
+allow_moving_ref: true
 language: python
 size_category: medium
 

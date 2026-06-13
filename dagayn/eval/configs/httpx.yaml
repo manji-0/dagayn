@@ -1,6 +1,7 @@
 name: httpx
 url: https://github.com/encode/httpx
 commit: HEAD
+allow_moving_ref: true
 language: python
 size_category: small
 

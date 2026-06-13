@@ -37,6 +37,7 @@ _CODE_KINDS = {"Class", "Function", "Method"}
 _DOC_KINDS = {"DocSection", "DocBody"}
 _DEFAULT_LIMIT = 20
 _DEFAULT_RELEVANCE_GRADE = 3
+_DEFAULT_MAX_STRATEGIES = 8
 
 
 class _TokenHashEmbeddingProvider(EmbeddingProvider):
@@ -532,6 +533,8 @@ def _metric_row(
     material_count: int,
     ref_count: int,
     provider: str,
+    false_positive_threshold: float | None,
+    status: str,
 ) -> dict[str, Any]:
     rank, best_grade = _rank_relevant(ranked, relevance)
     top_score = ranked[0][1] if ranked else 0.0
@@ -539,6 +542,12 @@ def _metric_row(
         sum(score for _qualified_name, score in ranked[:5]) / min(len(ranked), 5) if ranked else 0.0
     )
     query_type = "positive" if relevance else "negative"
+    negative_top_score = round(top_score, 6) if query_type == "negative" else ""
+    false_positive = (
+        int(top_score >= false_positive_threshold)
+        if query_type == "negative" and false_positive_threshold is not None
+        else ""
+    )
     return {
         "benchmark": "embedding_materials",
         "repo": repo,
@@ -548,6 +557,7 @@ def _metric_row(
         "comment_granularity": strategy.comment_granularity,
         "symbol_comment": strategy.symbol_comment,
         "query_type": query_type,
+        "status": status,
         "label": label,
         "query": query,
         "expected": expected,
@@ -567,6 +577,8 @@ def _metric_row(
         "provider": provider,
         "top_result": ranked[0][0] if ranked else "",
         "top_score": round(top_score, 6),
+        "negative_top_score": negative_top_score,
+        "false_positive_at_threshold": false_positive,
         "mean_top_5_score": round(mean_top_5_score, 6),
         "mean_mrr": "",
         "precision_at_1": "",
@@ -583,7 +595,6 @@ def _metric_row(
 def _aggregate_rows(repo: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
-        grouped[(str(row["strategy"]), "aggregate_all")].append(row)
         grouped[(str(row["strategy"]), f"aggregate_{row['query_type']}")].append(row)
         grouped[(str(row["strategy"]), str(row["label"]))].append(row)
 
@@ -639,6 +650,7 @@ def _aggregate_rows(repo: str, rows: list[dict[str, Any]]) -> list[dict[str, Any
                 ),
                 "query_count": count,
                 "strategy": strategy_name,
+                "status": "aggregate",
             }
         )
     return aggregates
@@ -676,7 +688,18 @@ def run(repo_path: Path, store: Any, config: dict[str, Any]) -> list[dict[str, A
     repo_name = str(config["name"])
 
     rows: list[dict[str, Any]] = []
-    for strategy in _strategies(config):
+    strategies = _strategies(config)
+    max_strategies = int(config.get("embedding_material_max_strategies", _DEFAULT_MAX_STRATEGIES))
+    allow_exhaustive = bool(config.get("embedding_material_allow_exhaustive", False))
+    strategy_status = "ok"
+    if len(strategies) > max_strategies and not allow_exhaustive:
+        strategies = strategies[:max_strategies]
+        strategy_status = "truncated"
+    false_positive_threshold = config.get("embedding_material_false_positive_threshold")
+    if false_positive_threshold is not None:
+        false_positive_threshold = float(false_positive_threshold)
+
+    for strategy in strategies:
         index_started = time.perf_counter()
         materials = _materials_for_strategy(repo_path, nodes, strategy, max_chars=max_chars)
         vectors = provider.embed([material.text for material in materials])
@@ -711,6 +734,8 @@ def run(repo_path: Path, store: Any, config: dict[str, Any]) -> list[dict[str, A
                     material_count=len(materials),
                     ref_count=ref_count,
                     provider=provider.name,
+                    false_positive_threshold=false_positive_threshold,
+                    status=strategy_status,
                 )
             )
 

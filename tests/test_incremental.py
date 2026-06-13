@@ -23,6 +23,7 @@ from dagayn.incremental import (
     get_db_path,
     get_staged_and_unstaged,
     incremental_update,
+    watch,
 )
 from dagayn.parser import EdgeInfo, NodeInfo
 
@@ -621,6 +622,63 @@ class TestIncrementalUpdate:
             assert len(nodes) == 0
         finally:
             store.close()
+
+    def test_watch_flush_uses_batched_incremental_update(self, tmp_path, monkeypatch):
+        (tmp_path / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
+        (tmp_path / "b.py").write_text("def b():\n    return 2\n", encoding="utf-8")
+        store = GraphStore(tmp_path / "watch.db")
+        calls = []
+        callbacks = []
+        timers = []
+
+        class FakeTimer:
+            def __init__(self, _seconds, function):
+                self.function = function
+                self.cancelled = False
+                timers.append(self)
+
+            def start(self):
+                pass
+
+            def cancel(self):
+                self.cancelled = True
+
+        class FakeObserver:
+            def schedule(self, handler, _path, recursive=True):
+                self.handler = handler
+
+            def start(self):
+                event_a = MagicMock(is_directory=False, src_path=str(tmp_path / "a.py"))
+                event_b = MagicMock(is_directory=False, src_path=str(tmp_path / "b.py"))
+                self.handler.on_modified(event_a)
+                self.handler.on_modified(event_b)
+                timers[-1].function()
+
+            def stop(self):
+                pass
+
+            def join(self):
+                pass
+
+        def fake_incremental_update(repo_root, passed_store, changed_files=None):
+            calls.append((repo_root, passed_store, list(changed_files or [])))
+            return {"files_updated": len(changed_files or [])}
+
+        monkeypatch.setattr("threading.Timer", FakeTimer)
+        monkeypatch.setattr("watchdog.observers.Observer", FakeObserver)
+        monkeypatch.setattr("dagayn.incremental.incremental_update", fake_incremental_update)
+        def stop_watch(_seconds):
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr("time.sleep", stop_watch)
+
+        try:
+            watch(tmp_path, store, on_files_updated=lambda s: callbacks.append(s))
+        finally:
+            store.close()
+
+        assert calls == [(tmp_path.resolve(), store, ["a.py", "b.py"])]
+        assert callbacks == [store]
 
 
 class TestParallelParsing:

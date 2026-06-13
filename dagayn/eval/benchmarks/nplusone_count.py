@@ -155,6 +155,7 @@ _SCENARIOS: dict[str, Callable[[Any, dict], int]] = {
 def run(repo_path: Path, store: Any, config: dict) -> list[dict]:
     """Run each scenario and report SQL counts vs. baseline."""
     config = {**config, "repo_path": repo_path}
+    stats = store.get_stats()
     results: list[dict] = []
     for name, fn in _SCENARIOS.items():
         try:
@@ -168,6 +169,9 @@ def run(repo_path: Path, store: Any, config: dict) -> list[dict]:
                     "baseline": _BASELINES[name],
                     "status": "error",
                     "error": str(exc),
+                    "node_count": stats.total_nodes,
+                    "edge_count": stats.total_edges,
+                    "file_count": stats.files_count,
                 }
             )
             continue
@@ -177,6 +181,10 @@ def run(repo_path: Path, store: Any, config: dict) -> list[dict]:
                 "scenario": name,
                 "sql_count": count,
                 "baseline": baseline,
+                "node_count": stats.total_nodes,
+                "edge_count": stats.total_edges,
+                "file_count": stats.files_count,
+                "sql_per_1k_nodes": round(count / max(stats.total_nodes, 1) * 1000, 3),
                 "status": "ok" if count <= baseline else "regression",
             }
         )

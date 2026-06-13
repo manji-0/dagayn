@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from dagayn.eval.scorer import compute_precision_at_k
+from dagayn.eval.scorer import compute_precision_at_k, compute_precision_recall
 
 
 def _ids_from_items(items: list[dict[str, Any]], *keys: str) -> list[str]:
@@ -45,6 +45,14 @@ def _field_coverage(items: list[dict[str, Any]]) -> float:
         return 0.0
     covered = sum(1 for item in items if _GUIDANCE_FIELDS.issubset(item.keys()))
     return covered / len(items)
+
+
+def _review_cache_key(case: dict[str, Any]) -> tuple[tuple[str, ...], str, str]:
+    return (
+        tuple(sorted(str(path) for path in case.get("changed_files", []))),
+        str(case.get("base", "HEAD~1")),
+        str(case.get("detail_level", "standard")),
+    )
 
 
 def _review_predictions(repo_path: Path, case: dict[str, Any]) -> dict[str, list[str]]:
@@ -128,16 +136,12 @@ def run(repo_path: Path, store: Any, config: dict) -> list[dict]:
                 "benchmark": "guidance_precision",
                 "case": "no_cases",
                 "kind": "none",
-                "precision_at_k": 1.0,
-                "hits": 0,
-                "k": 5,
-                "returned": 0,
-                "relevant": 0,
+                "status": "skipped",
             }
         ]
 
     rows: list[dict] = []
-    review_cache: dict[int, dict[str, list[str]]] = {}
+    review_cache: dict[tuple[tuple[str, ...], str, str], dict[str, list[str]]] = {}
     for idx, case in enumerate(cases):
         kind = str(case.get("kind", "recommended_tests"))
         k = int(case.get("k", 5))
@@ -150,23 +154,41 @@ def run(repo_path: Path, store: Any, config: dict) -> list[dict]:
             "architecture_leads",
             "answerability_warnings",
         }:
-            review_cache.setdefault(idx, _review_predictions(repo_path, case))
-            predicted = review_cache[idx].get(kind, [])
+            cache_key = _review_cache_key(case)
+            review_cache.setdefault(cache_key, _review_predictions(repo_path, case))
+            predicted = review_cache[cache_key].get(kind, [])
         elif kind == "guidance_field_coverage":
-            review_cache.setdefault(idx, _review_predictions(repo_path, case))
-            predicted = review_cache[idx].get("_guidance_field_coverage", [])
+            cache_key = _review_cache_key(case)
+            review_cache.setdefault(cache_key, _review_predictions(repo_path, case))
+            predicted = review_cache[cache_key].get("_guidance_field_coverage", [])
         elif kind == "refactor_suggestions":
             predicted = _refactor_predictions(repo_path, case)
         else:
             predicted = []
 
-        score = compute_precision_at_k(predicted, expected, k=k)
         field_coverage = None
         if kind == "guidance_field_coverage" and predicted:
             try:
                 field_coverage = float(predicted[0])
             except ValueError:
                 field_coverage = None
+            score = {
+                "precision_at_k": None,
+                "hits": None,
+                "k": k,
+                "returned": len(predicted),
+                "relevant": len(expected),
+                "status": "ok",
+            }
+        else:
+            score = compute_precision_at_k(predicted, expected, k=k)
+        recall_f1 = {}
+        if expected:
+            recall_f1 = {
+                key: value
+                for key, value in compute_precision_recall(set(predicted), expected).items()
+                if key in {"recall", "f1"}
+            }
         rows.append(
             {
                 "benchmark": "guidance_precision",
@@ -174,6 +196,7 @@ def run(repo_path: Path, store: Any, config: dict) -> list[dict]:
                 "kind": kind,
                 "field_coverage": field_coverage,
                 **score,
+                **recall_f1,
             }
         )
     return rows

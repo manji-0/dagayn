@@ -5,10 +5,11 @@ from __future__ import annotations
 import csv
 import importlib
 import logging
-import subprocess
 from datetime import date
 from pathlib import Path
 from typing import Any
+
+from dagayn.eval.git_utils import checkout_config_ref, run_git
 
 try:
     import yaml  # type: ignore[import-untyped]
@@ -23,6 +24,7 @@ BENCHMARK_REGISTRY = {  # nosec B105 - benchmark names, not credentials
     "flow_completeness": "dagayn.eval.benchmarks.flow_completeness",
     "guidance_precision": "dagayn.eval.benchmarks.guidance_precision",
     "search_quality": "dagayn.eval.benchmarks.search_quality",
+    "fts_quality": "dagayn.eval.benchmarks.fts_quality",
     "build_performance": "dagayn.eval.benchmarks.build_performance",
     "doc_fuzzy_search": "dagayn.eval.benchmarks.doc_fuzzy_search",
     "embedding_text_modes": "dagayn.eval.benchmarks.embedding_text_modes",
@@ -70,26 +72,32 @@ def clone_or_update(config: dict, repos_dir: Path | None = None) -> Path:
     repo_path = repos_dir / config["name"]
 
     if repo_path.exists():
-        subprocess.run(
-            ["git", "fetch", "--all"],
-            cwd=str(repo_path),
-            capture_output=True,
-        )
+        run_git(["fetch", "--all", "--tags", "--prune"], cwd=repo_path)
     else:
-        subprocess.run(
-            ["git", "clone", "--depth", "50", config["url"], str(repo_path)],
-            capture_output=True,
-        )
+        run_git(["clone", config["url"], str(repo_path)])
+        run_git(["fetch", "--all", "--tags"], cwd=repo_path)
 
-    commit = config.get("commit", "HEAD")
-    if commit != "HEAD":
-        subprocess.run(
-            ["git", "checkout", commit],
-            cwd=str(repo_path),
-            capture_output=True,
-        )
-
+    checkout_config_ref(config, repo_path)
     return repo_path
+
+
+_COMMON_CSV_KEYS = [
+    "benchmark",
+    "repo",
+    "resolved_commit",
+    "commit",
+    "status",
+    "error",
+    "query",
+    "label",
+]
+
+
+def _csv_fieldnames(results: list[dict]) -> list[str]:
+    keys = {key for row in results for key in row}
+    common = [key for key in _COMMON_CSV_KEYS if key in keys]
+    rest = sorted(keys - set(common))
+    return common + rest
 
 
 def write_csv(results: list[dict], path: Path) -> None:
@@ -97,7 +105,7 @@ def write_csv(results: list[dict], path: Path) -> None:
     if not results:
         return
     path.parent.mkdir(parents=True, exist_ok=True)
-    fieldnames = list(results[0].keys())
+    fieldnames = _csv_fieldnames(results)
     with open(path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
@@ -140,7 +148,23 @@ def run_eval(
         name = config["name"]
         logger.info("Evaluating %s...", name)
 
-        repo_path = clone_or_update(config)
+        try:
+            repo_path = clone_or_update(config)
+        except Exception as e:
+            logger.error("Checkout failed for %s: %s", name, e)
+            for bench_name in benchmark_names:
+                key = f"{name}_{bench_name}"
+                all_results[key] = [
+                    {
+                        "benchmark": bench_name,
+                        "repo": name,
+                        "commit": config.get("commit", "HEAD"),
+                        "status": "error",
+                        "error": str(e),
+                    }
+                ]
+                write_csv(all_results[key], output_dir / f"{key}_{today}.csv")
+            continue
 
         # Build graph
         from dagayn.graph import GraphStore
@@ -148,27 +172,60 @@ def run_eval(
 
         db_path = get_db_path(repo_path)
         store = GraphStore(db_path)
+        try:
+            full_build(repo_path, store)
 
-        full_build(repo_path, store)
+            for bench_name in benchmark_names:
+                if bench_name not in BENCHMARK_REGISTRY:
+                    logger.warning("Unknown benchmark: %s", bench_name)
+                    continue
 
-        for bench_name in benchmark_names:
-            if bench_name not in BENCHMARK_REGISTRY:
-                logger.warning("Unknown benchmark: %s", bench_name)
-                continue
-
-            logger.info("  Running %s...", bench_name)
-            try:
-                bench_fn = _load_benchmark_run(bench_name)
-                results = bench_fn(repo_path, store, config)
-
+                logger.info("  Running %s...", bench_name)
                 key = f"{name}_{bench_name}"
-                all_results[key] = results
-                write_csv(results, output_dir / f"{key}_{today}.csv")
-                logger.info("  %s: %d result(s)", bench_name, len(results))
-            except Exception as e:
-                logger.error("  %s failed: %s", bench_name, e)
-                all_results[f"{name}_{bench_name}"] = []
-
-        store.close()
+                try:
+                    bench_fn = _load_benchmark_run(bench_name)
+                    results = bench_fn(repo_path, store, config)
+                    for row in results:
+                        row.setdefault("benchmark", bench_name)
+                        row.setdefault("repo", name)
+                        row.setdefault("commit", config.get("commit", "HEAD"))
+                        row.setdefault("resolved_commit", config.get("resolved_commit", ""))
+                        row.setdefault("status", "ok")
+                        if config.get("moving_ref"):
+                            row.setdefault("moving_ref", True)
+                            if config.get("moving_ref_warning"):
+                                row.setdefault("warning", config["moving_ref_warning"])
+                    all_results[key] = results
+                    logger.info("  %s: %d result(s)", bench_name, len(results))
+                except Exception as e:
+                    logger.error("  %s failed: %s", bench_name, e)
+                    all_results[key] = [
+                        {
+                            "benchmark": bench_name,
+                            "repo": name,
+                            "commit": config.get("commit", "HEAD"),
+                            "resolved_commit": config.get("resolved_commit", ""),
+                            "status": "error",
+                            "error": str(e),
+                        }
+                    ]
+                write_csv(all_results[key], output_dir / f"{key}_{today}.csv")
+        except Exception as e:
+            logger.error("Build failed for %s: %s", name, e)
+            for bench_name in benchmark_names:
+                key = f"{name}_{bench_name}"
+                all_results[key] = [
+                    {
+                        "benchmark": bench_name,
+                        "repo": name,
+                        "commit": config.get("commit", "HEAD"),
+                        "resolved_commit": config.get("resolved_commit", ""),
+                        "status": "error",
+                        "error": str(e),
+                    }
+                ]
+                write_csv(all_results[key], output_dir / f"{key}_{today}.csv")
+        finally:
+            store.close()
 
     return all_results

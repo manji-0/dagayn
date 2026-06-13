@@ -2,6 +2,7 @@
 
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 from dagayn.eval.benchmarks.fts_quality import _matches, run
 from dagayn.graph import GraphStore
@@ -31,6 +32,42 @@ def test_matches_expected_in_qn():
 
 def test_no_match():
     assert not _matches("dagayn/search.py::hybrid_search", "nowhere.py::nonexistent")
+
+
+def test_rebuild_fts_reads_each_source_file_once(tmp_path):
+    store = GraphStore(tmp_path / "graph.db")
+    try:
+        source = tmp_path / "multi.py"
+        source.write_text("def one():\n    pass\n\n\ndef two():\n    pass\n", encoding="utf-8")
+        store.set_metadata("repo_root", str(tmp_path))
+        for name, start, end in [("one", 1, 2), ("two", 5, 6)]:
+            store.upsert_node(
+                NodeInfo(
+                    kind="Function",
+                    name=name,
+                    file_path="multi.py",
+                    line_start=start,
+                    line_end=end,
+                    language="python",
+                )
+            )
+        store.commit()
+
+        read_count = 0
+        original_read_text = Path.read_text
+
+        def counting_read_text(self, *args, **kwargs):
+            nonlocal read_count
+            if self == source:
+                read_count += 1
+            return original_read_text(self, *args, **kwargs)
+
+        with patch.object(Path, "read_text", counting_read_text):
+            rebuild_fts_index(store)
+
+        assert read_count == 1
+    finally:
+        store.close()
 
 
 # ---------------------------------------------------------------------------

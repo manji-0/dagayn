@@ -117,16 +117,34 @@ def _identifier_search_text(*values: object) -> str:
     return " ".join(tokens)
 
 
-def _read_node_source_excerpt(repo_root: Path | None, row: Any) -> str:
-    """Read a bounded source/doc span for FTS, best-effort and side-effect free."""
-    file_path = Path(row["file_path"])
+def _resolve_node_file(repo_root: Path | None, file_path_value: str) -> Path | None:
+    file_path = Path(file_path_value)
     if not file_path.is_absolute():
         if repo_root is None:
-            return ""
+            return None
         file_path = repo_root / file_path
-    try:
-        lines = file_path.read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError:
+    return file_path
+
+
+def _read_node_source_excerpt(
+    repo_root: Path | None,
+    row: Any,
+    file_lines_cache: dict[Path, list[str] | None] | None = None,
+) -> str:
+    """Read a bounded source/doc span for FTS, best-effort and side-effect free."""
+    file_path = _resolve_node_file(repo_root, row["file_path"])
+    if file_path is None:
+        return ""
+    if file_lines_cache is not None and file_path in file_lines_cache:
+        lines = file_lines_cache[file_path]
+    else:
+        try:
+            lines = file_path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            lines = None
+        if file_lines_cache is not None:
+            file_lines_cache[file_path] = lines
+    if lines is None:
         return ""
 
     line_start = row["line_start"] or 1
@@ -156,6 +174,7 @@ def _fts_rows(conn: Any, repo_root: Path | None) -> list[tuple]:
         "signature, extra FROM nodes"
     ).fetchall()
     out = []
+    file_lines_cache: dict[Path, list[str] | None] = {}
     for row in rows:
         try:
             extra = json.loads(row["extra"] or "{}")
@@ -169,7 +188,7 @@ def _fts_rows(conn: Any, repo_root: Path | None) -> list[tuple]:
             part
             for part in (
                 str(display_name) if display_name else "",
-                _read_node_source_excerpt(repo_root, row),
+                _read_node_source_excerpt(repo_root, row, file_lines_cache),
             )
             if part
         )

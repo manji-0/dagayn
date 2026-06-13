@@ -1,6 +1,7 @@
 name: dagayn
 url: https://github.com/watarumanji/dagayn
 commit: HEAD
+allow_moving_ref: true
 language: python
 size_category: medium
 
