@@ -233,6 +233,17 @@ class TestChanges:
 
         assert result["test_gaps"] == []
 
+        direct_only = analyze_changes(
+            self.store,
+            changed_files=["dagayn/tools/context.py"],
+            changed_ranges={"dagayn/tools/context.py": [(1, 20)]},
+            include_heuristic_test_gap_evidence=False,
+        )
+
+        assert [gap["qualified_name"] for gap in direct_only["test_gaps"]] == [
+            "dagayn/tools/context.py::get_minimal_context"
+        ]
+
     def test_map_changes_to_nodes_different_files(self):
         """Maps changes across different files."""
         self._add_func("func_x", path="x.py", line_start=1, line_end=10)
@@ -492,6 +503,149 @@ class TestChanges:
             changed_ranges={"app.py": [(1, 10)]},
         )
         assert result["test_gaps"] == []
+
+    def test_get_review_context_minimal_uses_tested_by_source_as_covered_node(self):
+        """Minimal review context should treat TESTED_BY as production -> test."""
+        from dagayn.tools.review import _generate_review_guidance, get_review_context
+
+        self._add_func("core_func", path="/repo/app.py", line_start=1, line_end=10)
+        self._add_func("test_core_func", path="/repo/tests/test_app.py", is_test=True)
+        self._add_tested_by("/repo/app.py::core_func", "/repo/tests/test_app.py::test_core_func")
+        prod = self.store.get_node("/repo/app.py::core_func")
+        test = self.store.get_node("/repo/tests/test_app.py::test_core_func")
+        edge = self.store.get_edges_by_source("/repo/app.py::core_func")[0]
+        assert prod is not None
+        assert test is not None
+
+        impact = {
+            "changed_nodes": [prod],
+            "impacted_nodes": [prod, test],
+            "impacted_files": ["/repo/app.py", "/repo/tests/test_app.py"],
+            "edges": [edge],
+        }
+        self.store.get_impact_radius = lambda *_args, **_kwargs: impact
+        self.store.close = lambda: None
+
+        with patch("dagayn.tools.review._get_store", return_value=(self.store, Path("/repo"))):
+            result = get_review_context(
+                changed_files=["app.py"],
+                repo_root="/repo",
+                detail_level="minimal",
+            )
+
+        assert result["test_gaps"] == 0
+        assert "lack test coverage" not in _generate_review_guidance(impact, ["app.py"])
+
+    def test_documentation_candidates_hide_heuristic_reachable_by_default(self):
+        """Reachable Markdown is an exploratory lead unless explicitly requested."""
+        from dagayn.tools.review import _documentation_update_candidates
+
+        self._add_func("service", path="app.py", line_start=1, line_end=10)
+        self.store.upsert_node(
+            NodeInfo(
+                kind="DocSection",
+                name="service-contract",
+                file_path="docs/service.md",
+                line_start=1,
+                line_end=2,
+                language="markdown",
+            )
+        )
+        self.store.commit()
+        doc = self.store.get_node("docs/service.md::service-contract")
+        assert doc is not None
+        changed_functions = [
+            {
+                "qualified_name": "app.py::service",
+                "file_path": "app.py",
+                "kind": "Function",
+            }
+        ]
+        impact = {
+            "impacted_nodes": [doc],
+        }
+
+        default_candidates = _documentation_update_candidates(
+            self.store,
+            impact,
+            changed_functions,
+            ["app.py"],
+        )
+        verbose_candidates = _documentation_update_candidates(
+            self.store,
+            impact,
+            changed_functions,
+            ["app.py"],
+            include_heuristic_docs=True,
+        )
+
+        assert default_candidates == []
+        assert verbose_candidates[0]["evidence_type"] == "heuristic_reachable"
+
+    def test_component_density_separates_direct_heuristic_and_transitive_tests(self):
+        from dagayn.tools.review import _component_density_by_scope
+
+        self._add_func("direct_target", path="app/direct.py")
+        self._add_func("heuristic_target", path="app/heuristic.py")
+        self._add_func("transitive_target", path="app/transitive.py")
+        self._add_func("callee", path="lib/callee.py")
+        self._add_func("test_direct_target", path="tests/test_app.py", is_test=True)
+        self._add_func("test_heuristic_target", path="tests/test_app.py", is_test=True)
+        self._add_func("test_callee", path="tests/test_lib.py", is_test=True)
+        self._add_tested_by("app/direct.py::direct_target", "tests/test_app.py::test_direct_target")
+        self._add_call("app/transitive.py::transitive_target", "lib/callee.py::callee")
+        self._add_tested_by("lib/callee.py::callee", "tests/test_lib.py::test_callee")
+
+        density = _component_density_by_scope(
+            self.store,
+            {"app"},
+            include_supplemental_tests=True,
+        )["app"]
+
+        assert density["production_node_count"] == 3
+        assert density["supplemental_test_density_evaluated"] is True
+        assert density["direct_test_density"] == 0.3333
+        assert density["heuristic_test_density"] == 0.3333
+        assert density["transitive_test_density"] == 0.3333
+
+    def test_component_density_default_skips_supplemental_test_inference(self):
+        from dagayn.tools import review
+
+        self._add_func("direct_target", path="app/direct.py")
+        self._add_func("heuristic_target", path="app/heuristic.py")
+        self._add_func("test_direct_target", path="tests/test_app.py", is_test=True)
+        self._add_tested_by("app/direct.py::direct_target", "tests/test_app.py::test_direct_target")
+
+        with patch.object(review, "infer_tests_for_node") as infer_tests_for_node:
+            density = review._component_density_by_scope(self.store, {"app"})["app"]
+
+        infer_tests_for_node.assert_not_called()
+        assert density["production_node_count"] == 2
+        assert density["supplemental_test_density_evaluated"] is False
+        assert density["direct_test_density"] == 0.5
+        assert density["heuristic_test_density"] == 0.0
+        assert density["transitive_test_density"] == 0.0
+
+    def test_component_density_verbose_supplemental_tests_are_bounded(self):
+        from dagayn.tools import review
+
+        self._add_func("a_target", path="app/a.py")
+        self._add_func("b_target", path="app/b.py")
+        self._add_func("c_target", path="app/c.py")
+
+        with patch.object(review, "infer_tests_for_node", return_value=[]) as infer_tests_for_node:
+            density = review._component_density_by_scope(
+                self.store,
+                {"app"},
+                include_supplemental_tests=True,
+                supplemental_test_density_node_limit=1,
+            )["app"]
+
+        assert infer_tests_for_node.call_count == 1
+        assert density["production_node_count"] == 3
+        assert density["supplemental_test_density_evaluated"] is True
+        assert density["supplemental_test_density_sampled_node_count"] == 1
+        assert density["supplemental_test_density_truncated"] is True
 
     def test_analyze_changes_with_flows(self):
         """analyze_changes detects affected flows."""

@@ -28,13 +28,14 @@ from collections import defaultdict
 from typing import Iterable, Literal, Optional
 
 from ._scope import ArtifactScope, build_node_scope_maps
+from .dependency_profiles import (
+    DependencyProfile,
+    edge_matches_dependency_profile,
+    validate_dependency_profile,
+)
 from .graph import GraphStore
 
 logger = logging.getLogger(__name__)
-
-_SAP_EDGE_KINDS: frozenset[str] = frozenset(
-    {"IMPORTS_FROM", "DEPENDS_ON", "INHERITS", "IMPLEMENTS"}
-)
 
 _ELIGIBLE_ROLES: frozenset[str] = frozenset(
     {"class", "abstract_class", "interface", "protocol", "trait", "abstract_type", "mixin"}
@@ -62,6 +63,7 @@ def compute_sap_metrics(
     scope_kind: Literal["file", "package", "directory"] = "package",
     unit_filter: Optional[Iterable[str]] = None,
     artifact_scope: ArtifactScope = "code",
+    dependency_profile: DependencyProfile = "strict_static",
 ) -> list[dict]:
     """Compute SAP metrics for each scope.
 
@@ -72,7 +74,10 @@ def compute_sap_metrics(
     Scopes with no eligible types or zero couplings include a ``notes`` key.
     Test and fixture scopes are retained in the metrics output but annotated so
     downstream tools can suppress low-signal SAP violations without hiding raw
-    measurements.
+    measurements.  Each row also carries ``sap_applicable`` and
+    ``applicability_reason`` so default tool output can separate scopes where
+    SAP is not meaningful from scopes that are actually far from the main
+    sequence.
 
     Args:
         store: GraphStore instance.
@@ -82,7 +87,10 @@ def compute_sap_metrics(
             restrict output to matching scopes.
         artifact_scope: "code" (default), "docs", or "all". The default keeps
             Markdown documentation dependencies out of code SAP counts.
+        dependency_profile: Dependency edge profile. ``strict_static`` is the
+            default and preserves the historical edge set.
     """
+    dependency_profile = validate_dependency_profile(dependency_profile)
     filter_prefixes = list(unit_filter) if unit_filter else None
 
     qualified_to_scope, name_to_scope = build_node_scope_maps(
@@ -116,7 +124,7 @@ def compute_sap_metrics(
     all_scopes: set[str] = set(scope_member_count.keys())
 
     for edge in store.get_all_edges():
-        if edge.kind not in _SAP_EDGE_KINDS:
+        if not edge_matches_dependency_profile(edge, dependency_profile):
             continue
         src_scope = qualified_to_scope.get(edge.source_qualified)
         if src_scope is None:
@@ -153,6 +161,15 @@ def compute_sap_metrics(
             notes.append("isolated")
 
         distance = abs(abstractness + instability - 1.0)
+        if nt == 0:
+            sap_applicable = False
+            applicability_reason = "no-eligible-types"
+        elif total == 0:
+            sap_applicable = False
+            applicability_reason = "isolated"
+        else:
+            sap_applicable = True
+            applicability_reason = "applicable"
 
         top_out = sorted(outgoing.items(), key=lambda x: x[1], reverse=True)[:5]
         top_in = sorted(incoming.items(), key=lambda x: x[1], reverse=True)[:5]
@@ -168,6 +185,9 @@ def compute_sap_metrics(
             "abstractness": round(abstractness, 4),
             "instability": round(instability, 4),
             "distance": round(distance, 4),
+            "sap_applicable": sap_applicable,
+            "applicability_reason": applicability_reason,
+            "dependency_profile": dependency_profile,
             "member_count": scope_member_count.get(sk, 0),
             "top_incoming_dependencies": [{"scope": s, "count": c} for s, c in top_in],
             "top_outgoing_dependencies": [{"scope": s, "count": c} for s, c in top_out],
@@ -185,6 +205,7 @@ def find_sap_violations(
     scope_kind: Literal["file", "package", "directory"] = "package",
     min_distance: float = 0.5,
     artifact_scope: ArtifactScope = "code",
+    dependency_profile: DependencyProfile = "strict_static",
 ) -> list[dict]:
     """Find scopes whose distance from the main sequence exceeds min_distance.
 
@@ -193,23 +214,26 @@ def find_sap_violations(
         scope_kind: Aggregation granularity.
         min_distance: Minimum D value to flag (exclusive). Default: 0.5.
         artifact_scope: "code" (default), "docs", or "all".
+        dependency_profile: Dependency edge profile. ``strict_static`` is the
+            default and preserves the historical edge set.
 
     Test and fixture scopes are excluded from the violation list because their
     A/I/D positions are usually harness noise rather than actionable product
     architecture signals. They remain visible in ``compute_sap_metrics`` via
     ``notes``.
     """
+    dependency_profile = validate_dependency_profile(dependency_profile)
     metrics = compute_sap_metrics(
         store,
         scope_kind=scope_kind,
         artifact_scope=artifact_scope,
+        dependency_profile=dependency_profile,
     )
     violations = [
         m
         for m in metrics
         if m["distance"] > min_distance
-        and m["ca"] + m["ce"] > 0
-        and m["nt"] > 0
+        and m.get("sap_applicable", m["ca"] + m["ce"] > 0 and m["nt"] > 0)
         and "test-scope" not in m.get("notes", [])
         and "fixture-scope" not in m.get("notes", [])
     ]

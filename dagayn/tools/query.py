@@ -84,6 +84,22 @@ def _cross_artifact_role(edge: Any) -> str | None:
     return role if isinstance(role, str) else None
 
 
+def _is_low_confidence_unresolved_markdown_code_span(edge: Any) -> bool:
+    if getattr(edge, "kind", None) != "CROSS_ARTIFACT":
+        return False
+    extra = getattr(edge, "extra", None)
+    if not isinstance(extra, dict):
+        return False
+    role = extra.get("relationship_role")
+    target = str(getattr(edge, "target_qualified", ""))
+    tier = str(getattr(edge, "confidence_tier", "") or extra.get("confidence_tier", "")).upper()
+    return (
+        role == "describes_symbol"
+        and target.startswith("<unresolved:")
+        and tier == "LOW"
+    )
+
+
 def _documentation_result(edge: Any, *, endpoint: str, inverse_label: str | None = None) -> dict:
     role = _cross_artifact_role(edge)
     confidence_tier = str(edge.confidence_tier or "").upper()
@@ -192,7 +208,11 @@ def get_impact_radius(
 
         changed_dicts = [node_to_dict(n) for n in result["changed_nodes"]]
         impacted_dicts = [node_to_dict(n) for n in result["impacted_nodes"]]
-        edge_dicts = [edge_to_dict(e) for e in result["edges"]]
+        edge_dicts = [
+            edge_to_dict(e)
+            for e in result["edges"]
+            if not _is_low_confidence_unresolved_markdown_code_span(e)
+        ]
         truncated = result["truncated"]
         total_impacted = result["total_impacted"]
 
@@ -412,6 +432,8 @@ def query_graph(
 
         elif pattern == "docs_for":
             for e in store.get_edges_by_source(qn):
+                if _is_low_confidence_unresolved_markdown_code_span(e):
+                    continue
                 role = _cross_artifact_role(e)
                 if role in _ARTIFACT_TO_DOC_ROLES:
                     results.append(
@@ -423,6 +445,8 @@ def query_graph(
                     )
                     edges_out.append(edge_to_dict(e))
             for e in store.get_edges_by_target(qn):
+                if _is_low_confidence_unresolved_markdown_code_span(e):
+                    continue
                 role = _cross_artifact_role(e)
                 if role in _DOC_TO_ARTIFACT_ROLES:
                     results.append(
@@ -436,11 +460,15 @@ def query_graph(
 
         elif pattern == "implementations_of":
             for e in store.get_edges_by_source(qn):
+                if _is_low_confidence_unresolved_markdown_code_span(e):
+                    continue
                 role = _cross_artifact_role(e)
                 if role == "implemented_by":
                     results.append(_documentation_result(e, endpoint=e.target_qualified))
                     edges_out.append(edge_to_dict(e))
             for e in store.get_edges_by_target(qn):
+                if _is_low_confidence_unresolved_markdown_code_span(e):
+                    continue
                 role = _cross_artifact_role(e)
                 if role == "implements_contract":
                     results.append(

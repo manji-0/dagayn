@@ -1,0 +1,10 @@
+queries:
+  - id: exact-rrf-merge
+    query: rrf_merge
+    intent: exact-symbol
+  - id: prose-rrf
+    query: reciprocal rank fusion merge ranked lists
+    intent: prose-intent
+  - id: docs-markdown-evidence
+    query: markdown code spans should not become documentation obligations
+    intent: prose-intent

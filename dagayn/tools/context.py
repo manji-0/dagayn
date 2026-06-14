@@ -274,6 +274,7 @@ def get_minimal_context(
         # 3. Risk from explicitly provided changed files
         risk = "unknown"
         risk_score = 0.0
+        review_priority_score = 0.0
         top_affected: list[str] = []
         affected_flows: list[str] = []
         test_gap_count = 0
@@ -294,7 +295,11 @@ def get_minimal_context(
                     repo_root=str(root),
                     base=base,
                 )
-                risk_score = analysis.get("risk_score", 0.0)
+                review_priority_score = analysis.get(
+                    "review_priority_score",
+                    analysis.get("risk_score", 0.0),
+                )
+                risk_score = review_priority_score
                 risk = "high" if risk_score > 0.7 else "medium" if risk_score > 0.4 else "low"
                 priorities = analysis.get("review_priorities", [])
                 if not priorities:
@@ -356,7 +361,7 @@ def get_minimal_context(
             f" across {stats.files_count} files.",
         ]
         if risk != "unknown":
-            summary_parts.append(f"Risk: {risk} ({risk_score:.2f}).")
+            summary_parts.append(f"Review priority: {risk} ({review_priority_score:.2f}).")
         if risk_skipped_count:
             summary_parts.append(f"Risk analysis skipped for {risk_skipped_count} files.")
         if test_gap_count:

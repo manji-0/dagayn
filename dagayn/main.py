@@ -586,6 +586,12 @@ def architecture_analysis_tool(
     min_distance: float = 0.5,
     repo_root: Optional[str] = None,
     artifact_scope: Literal["code", "docs", "all"] = "code",
+    dependency_profile: Literal[
+        "strict_static",
+        "implementation",
+        "infra_dataflow",
+        "artifact_trace",
+    ] = "strict_static",
 ) -> dict:
     """Run architecture analysis through a single mode-based dispatcher."""
     return _tool("architecture_analysis_func")(
@@ -605,6 +611,7 @@ def architecture_analysis_tool(
         max_cycle_length=max_cycle_length,
         min_delta=min_delta,
         min_distance=min_distance,
+        dependency_profile=dependency_profile,
         repo_root=_resolve_repo_root(repo_root),
     )
 
@@ -619,7 +626,7 @@ async def review_tool(
     max_nodes: int = 50,
     max_lines_per_file: int = 200,
     repo_root: Optional[str] = None,
-    detail_level: Literal["minimal", "standard"] = "standard",
+    detail_level: Literal["minimal", "standard", "verbose"] = "standard",
 ) -> dict:
     """Run review analysis through a single mode-based dispatcher."""
     return await asyncio.to_thread(

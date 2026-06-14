@@ -148,6 +148,14 @@ In dagayn 3.0, v2 split architecture MCP/CLI tools were removed. Use
 `architecture_analysis_tool(mode="sdp_violations")`.
 ADP/SDP/SAP modes use `artifact_scope="code"` by default; pass
 `artifact_scope="docs"` when reviewing Markdown dependency structure.
+SAP metrics also mark each row with `sap_applicable` and
+`applicability_reason`; default `sap_metrics` output separates
+`no-eligible-types` and `isolated` scopes from the main metric list, while
+`detail_level="verbose"` includes those raw rows.
+Use `dependency_profile="implementation"`, `"infra_dataflow"`, or
+`"artifact_trace"` only when the analysis needs CALLS, Terraform REFERENCES, or
+high-confidence CROSS_ARTIFACT traceability; the default `strict_static` profile
+keeps design-principle metrics on static dependency edges.
 Architecture and flow outputs are calibrated leads: `architecture_health`
 reports formulas, thresholds, and stable-component policy; `flow_tool` reports
 whether source snippets were included and reminds clients that criticality is a

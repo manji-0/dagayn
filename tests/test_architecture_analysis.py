@@ -46,6 +46,7 @@ def test_architecture_analysis_wrapper_exposes_typed_dispatch_args() -> None:
         "granularity",
         "scope_kind",
         "artifact_scope",
+        "dependency_profile",
         "min_delta",
         "min_distance",
     ):
@@ -97,6 +98,7 @@ def test_architecture_analysis_routes_every_mode(monkeypatch) -> None:
             {
                 "granularity": "file",
                 "artifact_scope": "docs",
+                "dependency_profile": "artifact_trace",
                 "min_cycle_size": 3,
                 "max_cycle_length": 6,
                 "top_n": 7,
@@ -104,11 +106,22 @@ def test_architecture_analysis_routes_every_mode(monkeypatch) -> None:
         ),
         "sdp_metrics": (
             "compute_sdp_metrics_func",
-            {"granularity": "file", "artifact_scope": "docs", "top_n": 7},
+            {
+                "granularity": "file",
+                "artifact_scope": "docs",
+                "dependency_profile": "artifact_trace",
+                "top_n": 7,
+            },
         ),
         "sdp_violations": (
             "detect_sdp_violations_func",
-            {"granularity": "file", "artifact_scope": "docs", "min_delta": 0.2, "top_n": 7},
+            {
+                "granularity": "file",
+                "artifact_scope": "docs",
+                "dependency_profile": "artifact_trace",
+                "min_delta": 0.2,
+                "top_n": 7,
+            },
         ),
         "sap_metrics": (
             "compute_sap_metrics_func",
@@ -117,11 +130,19 @@ def test_architecture_analysis_routes_every_mode(monkeypatch) -> None:
                 "unit_filter": ["pkg"],
                 "artifact_scope": "docs",
                 "top_n": 7,
+                "detail_level": "verbose",
+                "dependency_profile": "artifact_trace",
             },
         ),
         "sap_violations": (
             "detect_sap_violations_func",
-            {"scope_kind": "file", "artifact_scope": "docs", "min_distance": 0.4, "top_n": 7},
+            {
+                "scope_kind": "file",
+                "artifact_scope": "docs",
+                "dependency_profile": "artifact_trace",
+                "min_distance": 0.4,
+                "top_n": 7,
+            },
         ),
     }
 
@@ -142,6 +163,7 @@ def test_architecture_analysis_routes_every_mode(monkeypatch) -> None:
             scope_kind="file",
             unit_filter=["pkg"],
             artifact_scope="docs",
+            dependency_profile="artifact_trace",
             min_cycle_size=3,
             max_cycle_length=6,
             min_delta=0.2,
@@ -156,6 +178,18 @@ def test_architecture_analysis_routes_every_mode(monkeypatch) -> None:
         assert kwargs["repo_root"] == "/repo"
         for key, value in expected.items():
             assert kwargs[key] == value
+
+
+def test_architecture_analysis_rejects_unknown_dependency_profile() -> None:
+    result = architecture_analysis.architecture_analysis_func(
+        mode="sdp_metrics",
+        dependency_profile="typo",  # type: ignore[arg-type]
+    )
+
+    assert result["status"] == "error"
+    assert "Unknown dependency_profile" in result["error"]
+    assert result["mode"] == "sdp_metrics"
+    assert result["called_subtool"] is None
 
 
 def test_architecture_analysis_code_scope_excludes_tests_from_structural_modes(

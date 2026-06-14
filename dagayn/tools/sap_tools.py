@@ -5,8 +5,9 @@ from __future__ import annotations
 from typing import Any, Literal, Optional
 
 from .._scope import ArtifactScope
+from ..dependency_profiles import DependencyProfile, validate_dependency_profile
 from ..sap import compute_sap_metrics, find_sap_violations
-from ._common import _get_store, apply_output_budget, make_response
+from ._common import _error_response, _get_store, apply_output_budget, make_response
 
 
 def _classify_sap_zone(violation: dict[str, Any]) -> str:
@@ -30,6 +31,8 @@ def compute_sap_metrics_func(
     unit_filter: Optional[list[str]] = None,
     top_n: int = 30,
     artifact_scope: ArtifactScope = "code",
+    detail_level: Literal["minimal", "standard", "verbose"] = "standard",
+    dependency_profile: DependencyProfile = "strict_static",
 ) -> dict[str, Any]:
     """Compute SAP abstractness, instability, and distance metrics per scope.
 
@@ -52,23 +55,52 @@ def compute_sap_metrics_func(
             output to matching scopes.
         top_n: Return the top N entries by distance. Default: 30.
         artifact_scope: "code" (default), "docs", or "all".
+        detail_level: ``verbose`` includes SAP-inapplicable scopes in the main
+            metrics list.  Default output keeps them in a separate
+            ``inapplicable_metrics`` bucket.
+        dependency_profile: Dependency edge profile. Default: strict_static.
     """
+    try:
+        dependency_profile = validate_dependency_profile(dependency_profile)
+    except ValueError as exc:
+        return _error_response(str(exc), dependency_profile=dependency_profile)
     store, _root = _get_store(repo_root)
-    metrics = compute_sap_metrics(
+    raw_metrics = compute_sap_metrics(
         store,
         scope_kind=scope_kind,
         unit_filter=unit_filter,
         artifact_scope=artifact_scope,
+        dependency_profile=dependency_profile,
     )
+    applicable_metrics = [m for m in raw_metrics if m.get("sap_applicable", True)]
+    inapplicable_metrics = [m for m in raw_metrics if not m.get("sap_applicable", True)]
+    visible_metrics = raw_metrics if detail_level == "verbose" else applicable_metrics
+    inapplicable_by_reason: dict[str, int] = {}
+    for metric in inapplicable_metrics:
+        reason = str(metric.get("applicability_reason") or "inapplicable")
+        inapplicable_by_reason[reason] = inapplicable_by_reason.get(reason, 0) + 1
+
     return make_response(
         "ok",
-        f"Computed SAP metrics for {len(metrics)} {scope_kind}(s) "
-        f"(artifact_scope={artifact_scope})."
-        f" Showing top {min(top_n, len(metrics))} by distance.",
-        metrics=metrics[:top_n],
-        total=len(metrics),
+        f"Computed SAP metrics for {len(raw_metrics)} {scope_kind}(s) "
+        f"(artifact_scope={artifact_scope}, dependency_profile={dependency_profile}); "
+        f"{len(applicable_metrics)} applicable "
+        f"and {len(inapplicable_metrics)} inapplicable."
+        f" Showing top {min(top_n, len(visible_metrics))} by distance.",
+        metrics=visible_metrics[:top_n],
+        inapplicable_metrics=inapplicable_metrics[:top_n],
+        total=len(raw_metrics),
+        visible_total=len(visible_metrics),
+        applicable_count=len(applicable_metrics),
+        inapplicable_count=len(inapplicable_metrics),
+        inapplicable_by_reason=inapplicable_by_reason,
+        inapplicable_visibility=(
+            "included_in_metrics" if detail_level == "verbose" else "separate_bucket"
+        ),
         scope_kind=scope_kind,
         artifact_scope=artifact_scope,
+        dependency_profile=dependency_profile,
+        detail_level=detail_level,
         next_tool_suggestions=[
             'architecture_analysis_tool mode="sap_violations" -- find far-from-sequence scopes',
             'architecture_analysis_tool mode="sdp_metrics" -- check raw instability',
@@ -83,6 +115,7 @@ def detect_sap_violations_func(
     min_distance: float = 0.5,
     top_n: int = 30,
     artifact_scope: ArtifactScope = "code",
+    dependency_profile: DependencyProfile = "strict_static",
 ) -> dict[str, Any]:
     """Detect scopes that violate the Stable Abstractions Principle.
 
@@ -99,12 +132,18 @@ def detect_sap_violations_func(
         min_distance: Minimum D value to flag (exclusive). Default: 0.5.
         top_n: Return the top N violations by distance. Default: 30.
         artifact_scope: "code" (default), "docs", or "all".
+        dependency_profile: Dependency edge profile. Default: strict_static.
     """
+    try:
+        dependency_profile = validate_dependency_profile(dependency_profile)
+    except ValueError as exc:
+        return _error_response(str(exc), dependency_profile=dependency_profile)
     store, _root = _get_store(repo_root)
     raw_violations = find_sap_violations(
         store,
         scope_kind=scope_kind,
         artifact_scope=artifact_scope,
+        dependency_profile=dependency_profile,
         min_distance=min_distance,
     )
     violations = [
@@ -125,7 +164,8 @@ def detect_sap_violations_func(
     payload = make_response(
         "ok",
         f"Found {total} SAP violation(s) at {scope_kind} level "
-        f"(artifact_scope={artifact_scope}, min_distance={min_distance})."
+        f"(artifact_scope={artifact_scope}, dependency_profile={dependency_profile}, "
+        f"min_distance={min_distance})."
         + " sap_violations suppresses test and fixture scopes; inspect "
         "sap_metrics notes for raw values."
         + (f" Showing top {top_n} by distance." if truncated else ""),
@@ -135,6 +175,7 @@ def detect_sap_violations_func(
         truncated=truncated,
         scope_kind=scope_kind,
         artifact_scope=artifact_scope,
+        dependency_profile=dependency_profile,
         min_distance=min_distance,
         excluded_scope_categories=excluded_scope_categories,
         exclusion_reason=exclusion_reason,

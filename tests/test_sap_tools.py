@@ -1,4 +1,4 @@
-from dagayn.tools.sap_tools import detect_sap_violations_func
+from dagayn.tools.sap_tools import compute_sap_metrics_func, detect_sap_violations_func
 
 
 class _DummyStore:
@@ -13,7 +13,7 @@ def test_detect_sap_violations_uses_compact_envelope(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         "dagayn.tools.sap_tools.find_sap_violations",
-        lambda store, scope_kind, artifact_scope, min_distance: [
+        lambda store, scope_kind, artifact_scope, dependency_profile, min_distance: [
             {
                 "scope_key": "pkg.alpha",
                 "display_name": "pkg.alpha",
@@ -52,3 +52,70 @@ def test_detect_sap_violations_uses_compact_envelope(monkeypatch) -> None:
             "zone": "pain",
         }
     ]
+
+
+def test_compute_sap_metrics_separates_inapplicable_by_default(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "dagayn.tools.sap_tools._get_store",
+        lambda repo_root: (_DummyStore(), None),
+    )
+    monkeypatch.setattr(
+        "dagayn.tools.sap_tools.compute_sap_metrics",
+        lambda store, scope_kind, unit_filter, artifact_scope, dependency_profile: [
+            {
+                "scope_key": "src",
+                "display_name": "src",
+                "distance": 0.8,
+                "sap_applicable": True,
+                "applicability_reason": "applicable",
+            },
+            {
+                "scope_key": "docs",
+                "display_name": "docs",
+                "distance": 1.0,
+                "sap_applicable": False,
+                "applicability_reason": "no-eligible-types",
+            },
+        ],
+    )
+
+    result = compute_sap_metrics_func(top_n=10)
+
+    assert result["metrics"] == [
+        {
+            "scope_key": "src",
+            "display_name": "src",
+            "distance": 0.8,
+            "sap_applicable": True,
+            "applicability_reason": "applicable",
+        }
+    ]
+    assert result["inapplicable_metrics"][0]["scope_key"] == "docs"
+    assert result["applicable_count"] == 1
+    assert result["inapplicable_count"] == 1
+    assert result["inapplicable_by_reason"] == {"no-eligible-types": 1}
+    assert result["inapplicable_visibility"] == "separate_bucket"
+
+
+def test_compute_sap_metrics_verbose_includes_inapplicable(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "dagayn.tools.sap_tools._get_store",
+        lambda repo_root: (_DummyStore(), None),
+    )
+    monkeypatch.setattr(
+        "dagayn.tools.sap_tools.compute_sap_metrics",
+        lambda store, scope_kind, unit_filter, artifact_scope, dependency_profile: [
+            {
+                "scope_key": "docs",
+                "display_name": "docs",
+                "distance": 1.0,
+                "sap_applicable": False,
+                "applicability_reason": "no-eligible-types",
+            },
+        ],
+    )
+
+    result = compute_sap_metrics_func(top_n=10, detail_level="verbose")
+
+    assert result["metrics"][0]["scope_key"] == "docs"
+    assert result["inapplicable_visibility"] == "included_in_metrics"

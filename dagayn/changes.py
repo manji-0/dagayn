@@ -354,7 +354,10 @@ def compute_risk_score(
     caller_community_ids: dict[str, int | None] | None = None,
     transitive_test_count: int | None = None,
 ) -> float:
-    """Compute a risk score (0.0 - 1.0) for a single node.
+    """Compute a review-priority score (0.0 - 1.0) for a single node.
+
+    The historical field name is ``risk_score``.  The value is useful for
+    ranking review attention, not as a standalone changeability metric.
 
     Scoring factors:
       - Flow participation: 0.05 per flow membership, capped at 0.25
@@ -419,6 +422,29 @@ def compute_risk_score(
     return round(min(max(score, 0.0), 1.0), 4)
 
 
+def _annotate_review_priority_semantics(result: dict[str, Any]) -> dict[str, Any]:
+    """Add explicit review-priority aliases while preserving risk_score fields."""
+    score = result.get("risk_score", 0.0)
+    result.setdefault("review_priority_score", score)
+    result.setdefault(
+        "score_semantics",
+        {
+            "risk_score": "legacy alias for review_priority_score",
+            "review_priority_score": (
+                "review triage ranking that combines flows, callers, tests, "
+                "security keywords, and community crossing; not a changeability score"
+            ),
+        },
+    )
+    for item in result.get("changed_functions", []) or []:
+        if isinstance(item, dict) and "risk_score" in item:
+            item.setdefault("review_priority_score", item["risk_score"])
+    for item in result.get("review_priorities", []) or []:
+        if isinstance(item, dict) and "risk_score" in item:
+            item.setdefault("review_priority_score", item["risk_score"])
+    return result
+
+
 # ---------------------------------------------------------------------------
 # 4. analyze_changes
 # ---------------------------------------------------------------------------
@@ -430,6 +456,8 @@ def analyze_changes(
     changed_ranges: dict[str, list[tuple[int, int]]] | None = None,
     repo_root: str | None = None,
     base: str = "HEAD~1",
+    include_heuristic_test_gap_evidence: bool = True,
+    heuristic_test_gap_node_limit: int | None = None,
 ) -> dict[str, Any]:
     """Analyze changes and produce risk-scored review guidance.
 
@@ -441,6 +469,11 @@ def analyze_changes(
             (Git or SVN).
         repo_root: Repository root (for git/svn diff).
         base: Git ref or SVN revision range to diff against.
+        include_heuristic_test_gap_evidence: Whether test gap suppression may
+            use naming/source-reference heuristics. Direct ``TESTED_BY`` edges
+            are always honored.
+        heuristic_test_gap_node_limit: Optional cap for heuristic test gap
+            checks. ``None`` preserves the historical full scan.
 
     Returns:
         Dict with ``summary``, ``risk_score``, ``changed_functions``,
@@ -451,9 +484,11 @@ def analyze_changes(
         changed_ranges = parse_diff_ranges(repo_root, base)
 
     rust_analyze = getattr(store, "analyze_changes_json", None)
-    if callable(rust_analyze):
+    if callable(rust_analyze) and include_heuristic_test_gap_evidence:
         try:
-            return json.loads(rust_analyze(changed_files, json.dumps(changed_ranges or {})))
+            return _annotate_review_priority_semantics(
+                json.loads(rust_analyze(changed_files, json.dumps(changed_ranges or {})))
+            )
         except (RuntimeError, ValueError, TypeError, json.JSONDecodeError) as exc:
             raise RuntimeError("Rust change analysis failed") from exc
 
@@ -521,6 +556,7 @@ def analyze_changes(
             {
                 **node_to_dict(node),
                 "risk_score": risk,
+                "review_priority_score": risk,
                 "change_status": (
                     "existing"
                     if node.qualified_name in base_node_qns
@@ -539,14 +575,24 @@ def analyze_changes(
 
     # Detect test gaps: reuse the inbound edges already fetched above.
     test_gaps: list[dict[str, Any]] = []
+    heuristic_gap_checks = 0
+    heuristic_gap_eligible_count = 0
     for node in changed_funcs:
         if node.is_test:
             continue
         if node.language == "markdown":
             continue
+        heuristic_gap_eligible_count += 1
         tested = outbound_map.get(node.qualified_name, [])
         has_direct_coverage = any(e.kind == "TESTED_BY" for e in tested)
-        has_heuristic_coverage = has_coverage_evidence(store, node)
+        has_heuristic_coverage = False
+        can_check_heuristic_gap = include_heuristic_test_gap_evidence and (
+            heuristic_test_gap_node_limit is None
+            or heuristic_gap_checks < heuristic_test_gap_node_limit
+        )
+        if can_check_heuristic_gap:
+            heuristic_gap_checks += 1
+            has_heuristic_coverage = has_coverage_evidence(store, node)
         if not has_direct_coverage and not has_heuristic_coverage:
             test_gaps.append(
                 {
@@ -605,15 +651,16 @@ def analyze_changes(
         f"{edge_status_counts['added']} added",
         f"  - {affected['total']} affected flow(s)",
         f"  - {len(test_gaps)} test gap(s)",
-        f"  - Overall risk score: {overall_risk:.2f}",
+        f"  - Review priority score: {overall_risk:.2f}",
     ]
     if test_gaps:
         gap_names = [g["name"] for g in test_gaps[:5]]
         summary_parts.append(f"  - Untested: {', '.join(gap_names)}")
 
-    return {
+    return _annotate_review_priority_semantics({
         "summary": "\n".join(summary_parts),
         "risk_score": overall_risk,
+        "review_priority_score": overall_risk,
         "changed_functions": node_risks,
         "changed_edges": changed_edges,
         "change_entity_summary": {
@@ -623,5 +670,16 @@ def analyze_changes(
         },
         "affected_flows": affected["affected_flows"],
         "test_gaps": test_gaps,
+        "test_gap_evidence": {
+            "direct_tested_by_edges": True,
+            "heuristic_suppression_enabled": include_heuristic_test_gap_evidence,
+            "heuristic_checked_node_count": heuristic_gap_checks,
+            "heuristic_eligible_node_count": heuristic_gap_eligible_count,
+            "heuristic_truncated": (
+                include_heuristic_test_gap_evidence
+                and heuristic_test_gap_node_limit is not None
+                and heuristic_gap_checks < heuristic_gap_eligible_count
+            ),
+        },
         "review_priorities": review_priorities,
-    }
+    })

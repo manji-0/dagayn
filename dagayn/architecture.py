@@ -8,21 +8,26 @@ from typing import Literal
 import networkx as nx
 
 from ._scope import ArtifactScope, build_node_scope_maps
+from .dependency_profiles import (
+    DependencyProfile,
+    edge_matches_dependency_profile,
+    validate_dependency_profile,
+)
 from .graph import GraphStore
 
 logger = logging.getLogger(__name__)
-
-_DEPENDENCY_EDGE_KINDS = frozenset({"IMPORTS_FROM", "DEPENDS_ON", "INHERITS", "IMPLEMENTS"})
-
 
 def _project_dependency_graph(
     store: GraphStore,
     granularity: Literal["file", "package"] = "package",
     artifact_scope: ArtifactScope = "code",
+    dependency_profile: DependencyProfile = "strict_static",
 ) -> nx.DiGraph:
     """Build a directed dependency graph from dependency edges.
 
-    Edges included: IMPORTS_FROM, DEPENDS_ON, INHERITS, IMPLEMENTS.
+    The default ``strict_static`` profile includes IMPORTS_FROM, DEPENDS_ON,
+    INHERITS, and IMPLEMENTS. Other profiles add implementation calls,
+    Terraform/dataflow references, or high-confidence artifact trace edges.
     By default, Markdown documentation nodes are excluded so code architecture
     metrics are not skewed by documentation dependency directives. Pass
     artifact_scope="docs" for documentation-only dependencies, or "all" for
@@ -35,6 +40,7 @@ def _project_dependency_graph(
     For granularity="package", nodes are aggregated by directory prefix.
     Self-loops are removed. Edge weight holds the aggregated edge count.
     """
+    dependency_profile = validate_dependency_profile(dependency_profile)
     g: nx.DiGraph = nx.DiGraph()
 
     qualified_to_scope, name_to_scope = build_node_scope_maps(
@@ -44,7 +50,7 @@ def _project_dependency_graph(
     )
 
     for e in store.get_all_edges():
-        if e.kind not in _DEPENDENCY_EDGE_KINDS:
+        if not edge_matches_dependency_profile(e, dependency_profile):
             continue
         src = qualified_to_scope.get(e.source_qualified)
         if src is None:
@@ -69,6 +75,7 @@ def find_adp_violations(
     min_cycle_size: int = 2,
     max_cycle_length: int = 10,
     artifact_scope: ArtifactScope = "code",
+    dependency_profile: DependencyProfile = "strict_static",
 ) -> list[dict]:
     """Find cyclic dependencies (ADP violations).
 
@@ -79,10 +86,12 @@ def find_adp_violations(
 
     Returns list of dicts sorted by severity descending.
     """
+    dependency_profile = validate_dependency_profile(dependency_profile)
     g = _project_dependency_graph(
         store,
         granularity=granularity,
         artifact_scope=artifact_scope,
+        dependency_profile=dependency_profile,
     )
 
     if g.number_of_nodes() == 0:
@@ -104,6 +113,7 @@ def find_adp_violations(
                     "length": len(cycle),
                     "edge_weight": edge_weight,
                     "severity": len(cycle) * edge_weight,
+                    "dependency_profile": dependency_profile,
                 }
             )
     except Exception as exc:
@@ -117,6 +127,7 @@ def compute_sdp_metrics(
     store: GraphStore,
     granularity: Literal["file", "package"] = "package",
     artifact_scope: ArtifactScope = "code",
+    dependency_profile: DependencyProfile = "strict_static",
 ) -> list[dict]:
     """Compute SDP instability metrics for each module/package.
 
@@ -131,10 +142,12 @@ def compute_sdp_metrics(
     contributing to each other's Ca/Ce counts. Returns list of dicts sorted by
     instability descending.
     """
+    dependency_profile = validate_dependency_profile(dependency_profile)
     g = _project_dependency_graph(
         store,
         granularity=granularity,
         artifact_scope=artifact_scope,
+        dependency_profile=dependency_profile,
     )
 
     if g.number_of_nodes() == 0:
@@ -152,6 +165,7 @@ def compute_sdp_metrics(
                 "ca": ca,
                 "ce": ce,
                 "instability": round(instability, 4),
+                "dependency_profile": dependency_profile,
             }
         )
 
@@ -164,6 +178,7 @@ def find_sdp_violations(
     granularity: Literal["file", "package"] = "package",
     min_delta: float = 0.1,
     artifact_scope: ArtifactScope = "code",
+    dependency_profile: DependencyProfile = "strict_static",
 ) -> list[dict]:
     """Find SDP violations: dependencies pointing toward instability.
 
@@ -172,10 +187,12 @@ def find_sdp_violations(
 
     Returns list of dicts sorted by delta descending.
     """
+    dependency_profile = validate_dependency_profile(dependency_profile)
     g = _project_dependency_graph(
         store,
         granularity=granularity,
         artifact_scope=artifact_scope,
+        dependency_profile=dependency_profile,
     )
 
     if g.number_of_nodes() == 0:
@@ -201,6 +218,7 @@ def find_sdp_violations(
                     "source_instability": round(i_src, 4),
                     "target_instability": round(i_tgt, 4),
                     "delta": round(delta, 4),
+                    "dependency_profile": dependency_profile,
                 }
             )
 

@@ -29,6 +29,21 @@ def _edge(kind: str, source: str, target: str) -> EdgeInfo:
     return EdgeInfo(kind=kind, source=source, target=target, file_path="src/a.py", line=1, extra={})
 
 
+def _cross_edge(source: str, target: str, *, tier: str = "HIGH") -> EdgeInfo:
+    return EdgeInfo(
+        kind="CROSS_ARTIFACT",
+        source=source,
+        target=target,
+        file_path=source.split("::", 1)[0],
+        line=1,
+        extra={
+            "relationship_role": "implemented_by",
+            "bridge_kind": "documentation",
+            "confidence_tier": tier,
+        },
+    )
+
+
 @pytest.fixture
 def empty_store(tmp_path):
     s = GraphStore(tmp_path / "empty.db")
@@ -289,8 +304,19 @@ class TestFindAdpViolations:
             assert "length" in v
             assert "edge_weight" in v
             assert "severity" in v
+            assert v["dependency_profile"] == "strict_static"
             assert isinstance(v["nodes"], list)
             assert v["length"] == len(v["nodes"])
+
+    def test_unknown_dependency_profile_is_rejected(self, two_cycle_store):
+        from dagayn.architecture import compute_sdp_metrics
+
+        with pytest.raises(ValueError, match="Unknown dependency_profile"):
+            compute_sdp_metrics(
+                two_cycle_store,
+                granularity="file",
+                dependency_profile="typo",  # type: ignore[arg-type]
+            )
 
     def test_severity_equals_length_times_edge_weight(self, two_cycle_store):
         from dagayn.architecture import find_adp_violations
@@ -338,6 +364,26 @@ class TestFindAdpViolations:
         violations = find_adp_violations(s, granularity="file", artifact_scope="docs")
         assert len(violations) == 1
         assert set(violations[0]["nodes"]) == {"docs/a.md", "docs/b.md"}
+
+    def test_dependency_profile_artifact_trace_adds_high_confidence_cross_artifact(self, tmp_path):
+        from dagayn.architecture import find_adp_violations
+
+        s = GraphStore(tmp_path / "artifact_trace_adp.db")
+        s.upsert_node(_node("File", "docs/a.md", "docs/a.md", language="markdown"))
+        s.upsert_node(_node("File", "src/a.py", "src/a.py"))
+        s.upsert_edge(_cross_edge("docs/a.md", "src/a.py"))
+        s.upsert_edge(_edge("DEPENDS_ON", "src/a.py", "docs/a.md"))
+        s.commit()
+
+        assert find_adp_violations(s, granularity="file", artifact_scope="all") == []
+        violations = find_adp_violations(
+            s,
+            granularity="file",
+            artifact_scope="all",
+            dependency_profile="artifact_trace",
+        )
+        assert len(violations) == 1
+        assert violations[0]["dependency_profile"] == "artifact_trace"
 
 
 # ---------------------------------------------------------------------------
@@ -394,6 +440,7 @@ class TestComputeSdpMetrics:
             assert "ca" in item
             assert "ce" in item
             assert "instability" in item
+            assert item["dependency_profile"] == "strict_static"
             assert 0.0 <= item["instability"] <= 1.0
 
     def test_empty_store_returns_empty(self, empty_store):
@@ -428,6 +475,40 @@ class TestComputeSdpMetrics:
         }
         assert code_names == {"src", "lib"}
         assert docs_names == {"docs", "guides"}
+
+    def test_dependency_profiles_change_sdp_edge_sets(self, tmp_path):
+        from dagayn.architecture import compute_sdp_metrics
+
+        s = GraphStore(tmp_path / "profiles_sdp.db")
+        for f in ("app/a.py", "svc/b.py", "infra/main.tf", "infra/vars.tf"):
+            language = "terraform" if f.endswith(".tf") else "python"
+            s.upsert_node(_node("File", f, f, language=language))
+        s.upsert_edge(_edge("CALLS", "app/a.py", "svc/b.py"))
+        s.upsert_edge(_edge("REFERENCES", "infra/main.tf", "infra/vars.tf"))
+        s.commit()
+
+        assert compute_sdp_metrics(s, granularity="package") == []
+        implementation = {
+            row["name"]: row
+            for row in compute_sdp_metrics(
+                s,
+                granularity="package",
+                dependency_profile="implementation",
+            )
+        }
+        infra = {
+            row["name"]: row
+            for row in compute_sdp_metrics(
+                s,
+                granularity="file",
+                dependency_profile="infra_dataflow",
+            )
+        }
+
+        assert implementation["app"]["ce"] == 1
+        assert implementation["svc"]["ca"] == 1
+        assert infra["infra/main.tf"]["ce"] == 1
+        assert infra["infra/vars.tf"]["ca"] == 1
 
 
 # ---------------------------------------------------------------------------

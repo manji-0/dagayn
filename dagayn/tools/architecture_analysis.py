@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from .._scope import ArtifactScope
+from ..dependency_profiles import DependencyProfile, validate_dependency_profile
 from ..hints import generate_hints, get_session
 from ._common import attach_answerability
 from .analysis_tools import (
@@ -93,9 +94,22 @@ def architecture_analysis_func(
     min_distance: float = 0.5,
     repo_root: str | None = None,
     artifact_scope: ArtifactScope = "code",
+    dependency_profile: DependencyProfile = "strict_static",
 ) -> dict[str, Any]:
     """Run architecture analysis by dispatching to the requested internal mode."""
     include_tests = artifact_scope != "code"
+    profile_modes = {
+        "adp_violations",
+        "sdp_metrics",
+        "sdp_violations",
+        "sap_metrics",
+        "sap_violations",
+    }
+    if mode in profile_modes:
+        try:
+            dependency_profile = validate_dependency_profile(dependency_profile)
+        except ValueError as exc:
+            return _error(str(exc), mode=mode, repo_root=repo_root)
     if mode == "overview":
         return _with_dispatch_metadata(
             get_architecture_overview_func(
@@ -193,6 +207,7 @@ def architecture_analysis_func(
                 repo_root=repo_root,
                 granularity=granularity,
                 artifact_scope=artifact_scope,
+                dependency_profile=dependency_profile,
                 min_cycle_size=min_cycle_size,
                 max_cycle_length=max_cycle_length,
                 top_n=top_n,
@@ -207,6 +222,7 @@ def architecture_analysis_func(
                 repo_root=repo_root,
                 granularity=granularity,
                 artifact_scope=artifact_scope,
+                dependency_profile=dependency_profile,
                 top_n=top_n,
             ),
             mode=mode,
@@ -219,6 +235,7 @@ def architecture_analysis_func(
                 repo_root=repo_root,
                 granularity=granularity,
                 artifact_scope=artifact_scope,
+                dependency_profile=dependency_profile,
                 min_delta=min_delta,
                 top_n=top_n,
             ),
@@ -234,6 +251,8 @@ def architecture_analysis_func(
                 unit_filter=unit_filter,
                 artifact_scope=artifact_scope,
                 top_n=top_n,
+                detail_level=detail_level,
+                dependency_profile=dependency_profile,
             ),
             mode=mode,
             called_subtool="compute_sap_metrics_func",
@@ -245,6 +264,7 @@ def architecture_analysis_func(
                 repo_root=repo_root,
                 scope_kind=scope_kind,
                 artifact_scope=artifact_scope,
+                dependency_profile=dependency_profile,
                 min_distance=min_distance,
                 top_n=top_n,
             ),

@@ -151,6 +151,8 @@ def test_no_eligible_types_note(tmp_path):
     util = next((m for m in metrics if m["scope_key"] == "util"), None)
     assert util is not None
     assert "no-eligible-types" in util.get("notes", [])
+    assert util["sap_applicable"] is False
+    assert util["applicability_reason"] == "no-eligible-types"
     assert util["abstractness"] == 0.0
 
 
@@ -164,6 +166,8 @@ def test_isolated_note(tmp_path):
     entry = next((m for m in metrics if m["scope_key"] == "alone"), None)
     assert entry is not None
     assert "isolated" in entry.get("notes", [])
+    assert entry["sap_applicable"] is False
+    assert entry["applicability_reason"] == "isolated"
 
 
 def test_inherits_target_name_fallback(tmp_path):
@@ -240,6 +244,8 @@ def test_output_fields_complete(balanced_store):
         "abstractness",
         "instability",
         "distance",
+        "sap_applicable",
+        "applicability_reason",
         "member_count",
         "top_incoming_dependencies",
         "top_outgoing_dependencies",
@@ -412,3 +418,34 @@ def test_find_sap_violations_excludes_test_and_fixture_scopes(tmp_path):
 
     assert all(v["scope_key"] != "tests" for v in violations)
     assert all(v["scope_key"] != "tests/fixtures" for v in violations)
+
+
+def test_dependency_profile_implementation_adds_calls_to_sap_counts(tmp_path):
+    s = GraphStore(tmp_path / "sap_profile.db")
+    s.upsert_node(_node("File", "app/a.py", "app/a.py", language="python"))
+    s.upsert_node(_node("Class", "App", "app/a.py", extra={"type_role": "class"}))
+    s.upsert_node(_node("File", "svc/b.py", "svc/b.py", language="python"))
+    s.upsert_node(_node("Class", "Svc", "svc/b.py", extra={"type_role": "class"}))
+    s.upsert_edge(_edge("CALLS", "app/a.py::App", "svc/b.py::Svc"))
+    s.commit()
+
+    strict = {row["scope_key"]: row for row in compute_sap_metrics(s, scope_kind="package")}
+    assert strict["app"]["ce"] == 0
+    assert strict["svc"]["ca"] == 0
+    assert strict["app"]["sap_applicable"] is False
+    assert strict["app"]["applicability_reason"] == "isolated"
+    assert strict["app"]["dependency_profile"] == "strict_static"
+
+    metrics = {
+        row["scope_key"]: row
+        for row in compute_sap_metrics(
+            s,
+            scope_kind="package",
+            dependency_profile="implementation",
+        )
+    }
+    assert metrics["app"]["ce"] == 1
+    assert metrics["app"]["instability"] == 1.0
+    assert metrics["app"]["sap_applicable"] is True
+    assert metrics["svc"]["ca"] == 1
+    assert metrics["svc"]["instability"] == 0.0

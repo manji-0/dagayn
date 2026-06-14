@@ -58,6 +58,11 @@ def component_stability_profiles(store: Any) -> dict[str, dict[str, Any]]:
             "expected_test_density": (
                 STABLE_TEST_DENSITY_TARGET if reason_codes else DEFAULT_TEST_DENSITY_TARGET
             ),
+            "test_density_metric": "direct_test_density",
+            "supplemental_test_density_metrics": [
+                "heuristic_test_density",
+                "transitive_test_density",
+            ],
             "expected_doc_density": (
                 STABLE_DOC_DENSITY_TARGET if reason_codes else DEFAULT_DOC_DENSITY_TARGET
             ),
@@ -79,12 +84,21 @@ def component_stability_profiles(store: Any) -> dict[str, dict[str, Any]]:
                 "reason_codes": [],
                 "thresholds": thresholds,
                 "expected_test_density": DEFAULT_TEST_DENSITY_TARGET,
+                "test_density_metric": "direct_test_density",
+                "supplemental_test_density_metrics": [
+                    "heuristic_test_density",
+                    "transitive_test_density",
+                ],
                 "expected_doc_density": DEFAULT_DOC_DENSITY_TARGET,
             },
         )
         profile["abstractness"] = metric.get("abstractness")
         profile["sap_distance"] = metric.get("distance")
         profile["sap_notes"] = metric.get("notes", [])
+        profile["sap_applicable"] = metric.get("sap_applicable", True)
+        profile["sap_applicability_reason"] = metric.get("applicability_reason", "applicable")
+        if not profile["sap_applicable"]:
+            continue
         distance = float(metric.get("distance", 0.0) or 0.0)
         instability = float(profile.get("instability", 0.0) or 0.0)
         if distance >= 0.5 and instability <= STABLE_INSTABILITY_MAX:

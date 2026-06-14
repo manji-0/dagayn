@@ -128,6 +128,10 @@ If `Nt = 0`, report `A = 0.0` and mark the scope as having no eligible types.
 
 If `Ca + Ce = 0`, report `I = 0.0` and mark the scope as isolated.
 
+Scopes with no eligible types or no dependency coupling are SAP-inapplicable:
+their raw `D` value is still available for inspection, but it is not a
+main-sequence quality signal.
+
 ## Output contract
 
 A SAP result row includes:
@@ -142,15 +146,26 @@ A SAP result row includes:
 - `abstractness`
 - `instability`
 - `distance`
+- `sap_applicable`
+- `applicability_reason`
 - `top_incoming_dependencies`
 - `top_outgoing_dependencies`
 - optional `notes` such as `no-eligible-types`, `isolated`, `test-scope`, and `fixture-scope`
 
+`architecture_analysis_tool(mode="sap_metrics")` separates SAP-inapplicable
+scopes into `inapplicable_metrics` by default so raw `no-eligible-types` or
+`isolated` rows do not sort above actionable architecture signals. Pass
+`detail_level="verbose"` to include those rows in the main `metrics` list.
+Rows include `dependency_profile`; the default `strict_static` profile preserves
+the historical SAP edge set. Use `implementation`, `infra_dataflow`, or
+`artifact_trace` only when the question is explicitly about call dependencies,
+Terraform/dataflow references, or high-confidence code/docs/infra traceability.
+
 `architecture_analysis_tool(mode="sap_violations")` and
 `detect_sap_violations_func()` suppress `test-scope` and `fixture-scope`
-entries from the violation list. Those scopes still appear in
-`compute_sap_metrics` so callers can inspect raw measurements without turning
-harness structure into product-architecture alerts.
+entries, and SAP-inapplicable rows, from the violation list. Those scopes still
+appear in `compute_sap_metrics` so callers can inspect raw measurements without
+turning harness structure into product-architecture alerts.
 
 ## Known open questions
 

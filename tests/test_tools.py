@@ -428,6 +428,101 @@ class TestTools:
         assert evidence_by_role["explained_by"] == "extracted"
         assert evidence_by_role["describes_symbol"] == "extracted"
 
+    def test_query_graph_doc_queries_hide_unresolved_low_confidence_code_spans(self, monkeypatch):
+        from dagayn.tools import query as query_module
+
+        self.store.upsert_node(
+            NodeInfo(
+                kind="DocSection",
+                name="login",
+                file_path="/repo/docs/auth.md",
+                line_start=1,
+                line_end=20,
+                language="markdown",
+            )
+        )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CROSS_ARTIFACT",
+                source="/repo/docs/auth.md::login",
+                target="<unresolved:login>",
+                file_path="/repo/docs/auth.md",
+                line=4,
+                extra={
+                    "relationship_role": "describes_symbol",
+                    "bridge_kind": "documentation",
+                    "evidence_kind": "markdown_code_span",
+                    "evidence_source": "code_span",
+                    "confidence_tier": "LOW",
+                },
+            )
+        )
+        self.store.commit()
+        monkeypatch.setattr(
+            query_module,
+            "_get_store",
+            lambda repo_root: (self.store, Path("/repo")),
+        )
+        self.store.close = lambda: None
+
+        result = query_module.query_graph(
+            pattern="implementations_of",
+            target="/repo/docs/auth.md::login",
+            repo_root="/repo",
+            detail_level="minimal",
+        )
+
+        assert result["status"] == "ok"
+        assert result["result_count"] == 0
+        assert result["results"] == []
+
+    def test_impact_radius_hides_unresolved_low_confidence_code_span_edges(self, monkeypatch):
+        from dagayn.tools import query as query_module
+
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CROSS_ARTIFACT",
+                source="/repo/auth.py::AuthService.login",
+                target="<unresolved:login>",
+                file_path="/repo/docs/auth.md",
+                line=4,
+                extra={
+                    "relationship_role": "describes_symbol",
+                    "bridge_kind": "documentation",
+                    "evidence_kind": "markdown_code_span",
+                    "evidence_source": "code_span",
+                    "confidence_tier": "LOW",
+                },
+            )
+        )
+        self.store.commit()
+        node = self.store.get_node("/repo/auth.py::AuthService.login")
+        edge = self.store.get_edges_by_source("/repo/auth.py::AuthService.login")[-1]
+        assert node is not None
+
+        self.store.get_impact_radius = lambda *_args, **_kwargs: {
+            "changed_nodes": [node],
+            "impacted_nodes": [node],
+            "impacted_files": ["/repo/auth.py"],
+            "edges": [edge],
+            "truncated": False,
+            "total_impacted": 1,
+        }
+        monkeypatch.setattr(
+            query_module,
+            "_get_store",
+            lambda repo_root: (self.store, Path("/repo")),
+        )
+        self.store.close = lambda: None
+
+        result = query_module.get_impact_radius(
+            changed_files=["auth.py"],
+            repo_root="/repo",
+        )
+
+        assert result["status"] == "ok"
+        assert result["edges"] == []
+
     def test_query_graph_target_not_found_keeps_zero_result_contract(self, monkeypatch):
         from dagayn.tools import query as query_module
 
@@ -2528,3 +2623,29 @@ class TestImpactRadiusBudgeting:
         assert result["status"] == "ok"
         assert result["truncated"] is True
         assert len(result["edges"]) < 400 or len(result["impacted_nodes"]) < 200
+
+
+class TestReviewDispatcher:
+    def test_review_context_accepts_verbose_detail_level(self, monkeypatch):
+        from dagayn.tools import review_dispatcher
+
+        observed: dict[str, str] = {}
+
+        def fake_get_review_context(**kwargs):
+            observed["detail_level"] = kwargs["detail_level"]
+            return {"status": "ok", "summary": "context"}
+
+        monkeypatch.setattr(
+            review_dispatcher,
+            "get_review_context",
+            fake_get_review_context,
+        )
+
+        result = review_dispatcher.review_func(
+            mode="context",
+            changed_files=["app.py"],
+            detail_level="verbose",
+        )
+
+        assert result["status"] == "ok"
+        assert observed["detail_level"] == "verbose"

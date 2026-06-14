@@ -301,12 +301,25 @@ proximity, and architecture risks in changed scopes. It also includes
 `analysis_summary.guidance`, a bounded list of calibrated items. Each guidance
 item has `claim`, `evidence`, `confidence`, `missingness`, `action`,
 `reason_codes`, and `counts`; `_hints.next_steps` is derived from those actions
-when guidance is available. Recommended tests and documentation candidates keep
-their existing sections for compatibility, but now expose evidence type
-distinctions such as `authored`, `extracted`, and `heuristic_reachable`. Stable
+when guidance is available. `risk_score` remains as a compatibility alias for
+`review_priority_score`: it ranks review attention from flow participation,
+callers, test evidence, security keywords, and community crossing, and is not a
+standalone changeability score. Recommended tests and documentation candidates
+keep their existing sections for compatibility, but now expose evidence type
+distinctions such as `authored`, `extracted`, and `heuristic_reachable`.
+Default guidance uses authored/extracted documentation evidence;
+heuristic-reachable Markdown and unresolved low-confidence Markdown code-span
+candidates are exploratory leads rather than quality-policy signals. Stable
 or should-be-stable components, identified from package-level SDP/SAP metrics,
 also produce `stability_contracts` so reviewers can see whether highly
-depended-on code has enough test and documentation density.
+depended-on code has enough test and documentation density. Stable-component
+policy gates on `direct_test_density`; `heuristic_test_density` and
+`transitive_test_density` are supplemental signals so naming/source leads and
+call-chain reachability do not inflate the main density metric. Standard review
+output does not run the heavier heuristic/transitive density scan; use
+`detail_level="verbose"` when those exploratory coverage leads are needed.
+Verbose supplemental density is bounded and reports whether the scope was
+sampled/truncated.
 
 `get_minimal_context_tool` routes common English and Japanese task descriptions
 for review, debugging, exploration, feature addition, and refactoring to the
@@ -342,6 +355,20 @@ ADP/SDP/SAP modes default to `artifact_scope="code"` so Markdown dependencies
 and code dependencies are not mixed in design-principle metrics. Pass
 `artifact_scope="docs"` to inspect documentation dependency cycles or stability,
 or `artifact_scope="all"` for the legacy mixed projection.
+They also accept `dependency_profile`: `strict_static` preserves the historical
+`IMPORTS_FROM` / `DEPENDS_ON` / `INHERITS` / `IMPLEMENTS` edge set,
+`implementation` adds `CALLS`, `infra_dataflow` adds Terraform-style
+`REFERENCES`, and `artifact_trace` adds high-confidence `CROSS_ARTIFACT` edges.
+Unknown profile names are rejected instead of falling back silently.
+`sap_metrics` separates SAP-inapplicable scopes (`no-eligible-types` and
+`isolated`) into `inapplicable_metrics` by default; use
+`detail_level="verbose"` for raw metric inspection.
+
+The minimal search-ranking scaffold lives in `eval/search_queries.yaml`,
+`eval/search_judgments.yaml`, and `eval/run_search_eval.py`. It reports MRR@10,
+NDCG@10, Recall@20, exact-symbol success@5, prose-intent success@10,
+doc-vs-code confusion rate, and test crowding rate. Follow-up work should add
+larger judgment sets before changing ranking weights.
 
 Migration note for dagayn 3.0: v2 split architecture MCP/CLI tools such as
 `get_architecture_overview_tool`, `list_communities_tool`,

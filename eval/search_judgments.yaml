@@ -1,0 +1,17 @@
+judgments:
+  exact-rrf-merge:
+    relevant:
+      - target: dagayn/search.py::rrf_merge
+        grade: 3
+  prose-rrf:
+    relevant:
+      - target: dagayn/search.py::rrf_merge
+        grade: 3
+      - target: docs/ARCHITECTURE.md::hybrid-search
+        grade: 2
+  docs-markdown-evidence:
+    relevant:
+      - target: docs/CROSS-ARTIFACT-EDGES-WIP.md
+        grade: 2
+      - target: docs/COMMANDS.md
+        grade: 1

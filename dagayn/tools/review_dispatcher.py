@@ -51,7 +51,7 @@ def review_func(
     max_depth: int = 2,
     max_nodes: int = 50,
     max_lines_per_file: int = 200,
-    detail_level: Literal["minimal", "standard"] = "standard",
+    detail_level: Literal["minimal", "standard", "verbose"] = "standard",
     repo_root: str | None = None,
 ) -> dict[str, Any]:
     """Run review analysis by dispatching to the requested internal mode."""

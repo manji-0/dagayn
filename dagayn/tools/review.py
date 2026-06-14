@@ -54,6 +54,7 @@ _LOW_SIGNAL_DOC_FILES = {
     "GEMINI.md",
     "QODER.md",
 }
+_SUPPLEMENTAL_TEST_DENSITY_NODE_LIMIT = 10
 
 
 def _relative_qualified_name(qualified_name: str, root: Path) -> str:
@@ -159,6 +160,22 @@ def _cross_artifact_role(edge: Any) -> str | None:
     return role if isinstance(role, str) else None
 
 
+def _is_low_confidence_unresolved_markdown_code_span(edge: Any) -> bool:
+    if getattr(edge, "kind", None) != "CROSS_ARTIFACT":
+        return False
+    extra = getattr(edge, "extra", None)
+    if not isinstance(extra, dict):
+        return False
+    role = extra.get("relationship_role")
+    target = str(getattr(edge, "target_qualified", ""))
+    tier = str(getattr(edge, "confidence_tier", "") or extra.get("confidence_tier", "")).upper()
+    return (
+        role == "describes_symbol"
+        and target.startswith("<unresolved:")
+        and tier == "LOW"
+    )
+
+
 def _is_production_code_node(node: Any) -> bool:
     file_path = str(getattr(node, "file_path", ""))
     language = str(getattr(node, "language", ""))
@@ -204,8 +221,14 @@ def _component_stability_profiles(store: Any) -> dict[str, dict[str, Any]]:
     return component_stability_profiles(store)
 
 
-def _component_density_by_scope(store: Any, scopes: set[str]) -> dict[str, dict[str, Any]]:
-    """Measure direct test and documentation density for changed scopes."""
+def _component_density_by_scope(
+    store: Any,
+    scopes: set[str],
+    *,
+    include_supplemental_tests: bool = False,
+    supplemental_test_density_node_limit: int = _SUPPLEMENTAL_TEST_DENSITY_NODE_LIMIT,
+) -> dict[str, dict[str, Any]]:
+    """Measure direct test and evidence-tiered documentation density for changed scopes."""
     if not scopes:
         return {}
 
@@ -224,27 +247,103 @@ def _component_density_by_scope(store: Any, scopes: set[str]) -> dict[str, dict[
     outgoing_by_qn, incoming_by_qn = store.get_edges_by_endpoints(qns)
     densities: dict[str, dict[str, Any]] = {}
     for scope_key, nodes in scope_nodes.items():
+        nodes = sorted(nodes, key=lambda node: node.qualified_name)
+        supplemental_nodes = nodes
+        if include_supplemental_tests and supplemental_test_density_node_limit > 0:
+            supplemental_nodes = nodes[:supplemental_test_density_node_limit]
+        supplemental_qns = {node.qualified_name for node in supplemental_nodes}
         tested = 0
-        documented = 0
+        heuristic_tested = 0
+        transitive_tested = 0
+        authored_documented = 0
+        extracted_documented = 0
+        heuristic_documented = 0
         for node in nodes:
             outgoing = outgoing_by_qn.get(node.qualified_name, [])
             incoming = incoming_by_qn.get(node.qualified_name, [])
             if any(edge.kind == "TESTED_BY" for edge in outgoing):
                 tested += 1
-            has_doc = any(
-                _cross_artifact_role(edge) in _ARTIFACT_TO_DOC_ROLES for edge in outgoing
-            ) or any(_cross_artifact_role(edge) in _DOC_TO_ARTIFACT_ROLES for edge in incoming)
-            if has_doc:
-                documented += 1
+            if include_supplemental_tests and node.qualified_name in supplemental_qns:
+                try:
+                    inferred_tests = infer_tests_for_node(
+                        store,
+                        node,
+                        limit=1,
+                        minimum_confidence="medium",
+                    )
+                except Exception:  # pragma: no cover - defensive for backend parity drift
+                    inferred_tests = []
+                if any(test.get("coverage_source") == "heuristic" for test in inferred_tests):
+                    heuristic_tested += 1
+                try:
+                    transitive_tests = store.get_transitive_tests(node.qualified_name)
+                except Exception:  # pragma: no cover - defensive for backend parity drift
+                    transitive_tests = []
+                if any(test.get("indirect") for test in transitive_tests):
+                    transitive_tested += 1
+            evidence_types: set[str] = set()
+            for edge in outgoing:
+                if _is_low_confidence_unresolved_markdown_code_span(edge):
+                    continue
+                role = _cross_artifact_role(edge)
+                if role in _ARTIFACT_TO_DOC_ROLES:
+                    evidence_types.add(_doc_evidence_type(role, edge.confidence_tier))
+            for edge in incoming:
+                if _is_low_confidence_unresolved_markdown_code_span(edge):
+                    continue
+                role = _cross_artifact_role(edge)
+                if role in _DOC_TO_ARTIFACT_ROLES:
+                    evidence_types.add(_doc_evidence_type(role, edge.confidence_tier))
+            if "authored" in evidence_types:
+                authored_documented += 1
+            if "extracted" in evidence_types:
+                extracted_documented += 1
+            if "heuristic_reachable" in evidence_types:
+                heuristic_documented += 1
 
         prod_count = len(nodes)
+        supplemental_sample_count = len(supplemental_nodes) if include_supplemental_tests else 0
+        supplemental_denominator = (
+            supplemental_sample_count if include_supplemental_tests else prod_count
+        )
+        supplemental_truncated = (
+            include_supplemental_tests and supplemental_sample_count < prod_count
+        )
+        documented = authored_documented + extracted_documented
         densities[scope_key] = {
             "production_node_count": prod_count,
             "test_node_count": test_node_counts.get(scope_key, 0),
             "tested_node_count": tested,
+            "heuristic_tested_node_count": heuristic_tested,
+            "transitive_tested_node_count": transitive_tested,
+            "supplemental_test_density_evaluated": include_supplemental_tests,
+            "supplemental_test_density_sampled_node_count": supplemental_sample_count,
+            "supplemental_test_density_truncated": supplemental_truncated,
             "documented_node_count": documented,
+            "authored_documented_node_count": authored_documented,
+            "extracted_documented_node_count": extracted_documented,
+            "heuristic_documented_node_count": heuristic_documented,
             "direct_test_density": round(tested / prod_count, 4) if prod_count else 0.0,
+            "heuristic_test_density": (
+                round(heuristic_tested / supplemental_denominator, 4)
+                if supplemental_denominator
+                else 0.0
+            ),
+            "transitive_test_density": (
+                round(transitive_tested / supplemental_denominator, 4)
+                if supplemental_denominator
+                else 0.0
+            ),
             "documentation_density": round(documented / prod_count, 4) if prod_count else 0.0,
+            "authored_documentation_density": (
+                round(authored_documented / prod_count, 4) if prod_count else 0.0
+            ),
+            "extracted_documentation_density": (
+                round(extracted_documented / prod_count, 4) if prod_count else 0.0
+            ),
+            "heuristic_documentation_density": (
+                round(heuristic_documented / prod_count, 4) if prod_count else 0.0
+            ),
         }
     return densities
 
@@ -468,6 +567,7 @@ def _documentation_update_candidates(
     *,
     limit: int = 10,
     stability_profiles: dict[str, dict[str, Any]] | None = None,
+    include_heuristic_docs: bool = False,
 ) -> list[dict[str, Any]]:
     changed_set = {str(path) for path in changed_files}
     code_changed = any(not _is_markdown_path(path) for path in changed_files)
@@ -495,6 +595,8 @@ def _documentation_update_candidates(
         profile = stability_profiles.get(scope_key or "", {})
         stability_bonus = 0.08 if profile.get("stable") or profile.get("should_be_stable") else 0.0
         for edge in outgoing_by_qn.get(qn, []):
+            if _is_low_confidence_unresolved_markdown_code_span(edge):
+                continue
             role = _cross_artifact_role(edge)
             if role not in _ARTIFACT_TO_DOC_ROLES:
                 continue
@@ -529,6 +631,8 @@ def _documentation_update_candidates(
                 }
             )
         for edge in incoming_by_qn.get(qn, []):
+            if _is_low_confidence_unresolved_markdown_code_span(edge):
+                continue
             role = _cross_artifact_role(edge)
             if role not in _DOC_TO_ARTIFACT_ROLES:
                 continue
@@ -567,6 +671,15 @@ def _documentation_update_candidates(
                     "stable_contract": role in _CONTRACT_DOC_ROLES,
                 }
             )
+
+    if not include_heuristic_docs:
+        candidates.sort(
+            key=lambda item: (
+                -float(item.get("score", 0.0) or 0.0),
+                str(item.get("qualified_name", "")),
+            )
+        )
+        return _dedupe_dicts_by_key(candidates, "qualified_name", limit)
 
     for node in impact.get("impacted_nodes", []):
         file_path = getattr(node, "file_path", "")
@@ -664,6 +777,12 @@ def _stability_contracts(
         missing_docs = [qn for qn in changed_qns if qn not in changed_with_docs]
 
         observed_test_density = float(density.get("direct_test_density", 0.0) or 0.0)
+        observed_heuristic_test_density = float(
+            density.get("heuristic_test_density", 0.0) or 0.0
+        )
+        observed_transitive_test_density = float(
+            density.get("transitive_test_density", 0.0) or 0.0
+        )
         observed_doc_density = float(density.get("documentation_density", 0.0) or 0.0)
         expected_test_density = float(profile.get("expected_test_density", 0.5) or 0.5)
         expected_doc_density = float(profile.get("expected_doc_density", 0.25) or 0.25)
@@ -687,6 +806,8 @@ def _stability_contracts(
                 "should_be_stable": profile.get("should_be_stable"),
                 "expected_test_density": expected_test_density,
                 "observed_direct_test_density": observed_test_density,
+                "observed_heuristic_test_density": observed_heuristic_test_density,
+                "observed_transitive_test_density": observed_transitive_test_density,
                 "expected_doc_density": expected_doc_density,
                 "observed_documentation_density": observed_doc_density,
                 "changed_production_node_count": len(changed_qns),
@@ -925,6 +1046,12 @@ def _review_guidance_items(
                         "instability": item.get("instability"),
                         "expected_test_density": item.get("expected_test_density"),
                         "observed_direct_test_density": item.get("observed_direct_test_density"),
+                        "observed_heuristic_test_density": item.get(
+                            "observed_heuristic_test_density"
+                        ),
+                        "observed_transitive_test_density": item.get(
+                            "observed_transitive_test_density"
+                        ),
                         "expected_doc_density": item.get("expected_doc_density"),
                         "observed_documentation_density": item.get(
                             "observed_documentation_density"
@@ -1029,8 +1156,13 @@ def _review_guidance_items(
     if risk in {"medium", "high"} and not guidance:
         guidance.append(
             make_guidance_item(
-                claim=f"Change risk is {risk} by graph impact score.",
-                evidence={"type": "computed", "metric": "risk_score", "value": risk_score},
+                claim=f"Review priority is {risk} by graph impact score.",
+                evidence={
+                    "type": "computed",
+                    "metric": "review_priority_score",
+                    "legacy_metric": "risk_score",
+                    "value": risk_score,
+                },
                 confidence="medium",
                 action='review_tool mode="context" -- inspect changed nodes before merging',
                 reason_codes=reason_codes,
@@ -1045,6 +1177,8 @@ def _change_analysis_summary(
     analysis: dict[str, Any],
     impact: dict[str, Any],
     changed_files: list[str],
+    *,
+    detail_level: str = "standard",
 ) -> dict[str, Any]:
     risk_score = float(analysis.get("risk_score", 0.0) or 0.0)
     affected_flows = list(analysis.get("affected_flows", []))
@@ -1058,7 +1192,11 @@ def _change_analysis_summary(
         for scope_key in (_scope_key_for_record(func) for func in changed_functions)
         if scope_key
     }
-    component_density = _component_density_by_scope(store, changed_scopes)
+    component_density = _component_density_by_scope(
+        store,
+        changed_scopes,
+        include_supplemental_tests=detail_level == "verbose",
+    )
     recommended_tests = _recommend_tests(
         store,
         changed_functions,
@@ -1071,6 +1209,7 @@ def _change_analysis_summary(
         changed_functions,
         changed_files,
         stability_profiles=stability_profiles,
+        include_heuristic_docs=detail_level == "verbose",
     )
     hotspots = _hotspot_proximity(store, impact)
     architecture_delta = _architecture_delta_summary(store, changed_files)
@@ -1152,6 +1291,13 @@ def _change_analysis_summary(
     return {
         "risk_level": risk,
         "risk_score": risk_score,
+        "review_priority_score": risk_score,
+        "score_semantics": {
+            "risk_score": "legacy alias for review_priority_score",
+            "review_priority_score": (
+                "review triage ranking, not a standalone changeability metric"
+            ),
+        },
         "changed_node_count": len(impact.get("changed_nodes", [])),
         "impacted_node_count": len(impact.get("impacted_nodes", [])),
         "impacted_file_count": len(impact.get("impacted_files", [])),
@@ -1254,7 +1400,7 @@ def get_review_context(
                 n for n in impact["changed_nodes"] if n.kind == "Function" and not n.is_test
             ]
             test_edges = [e for e in impact["edges"] if e.kind == "TESTED_BY"]
-            tested_qualified = {e.target_qualified for e in test_edges}
+            tested_qualified = {e.source_qualified for e in test_edges}
             test_gap_count = sum(
                 1 for f in changed_funcs if f.qualified_name not in tested_qualified
             )
@@ -1292,7 +1438,11 @@ def get_review_context(
             "graph": {
                 "changed_nodes": [node_to_dict(n) for n in impact["changed_nodes"]],
                 "impacted_nodes": [node_to_dict(n) for n in impact["impacted_nodes"]],
-                "edges": [edge_to_dict(e) for e in impact["edges"]],
+                "edges": [
+                    edge_to_dict(e)
+                    for e in impact["edges"]
+                    if not _is_low_confidence_unresolved_markdown_code_span(e)
+                ],
             },
         }
 
@@ -1384,7 +1534,7 @@ def _generate_review_guidance(impact: dict, changed_files: list[str]) -> str:
     # Check for test coverage
     changed_funcs = [n for n in impact["changed_nodes"] if n.kind == "Function"]
     test_edges = [e for e in impact["edges"] if e.kind == "TESTED_BY"]
-    tested_funcs = {e.target_qualified for e in test_edges}
+    tested_funcs = {e.source_qualified for e in test_edges}
 
     untested = [f for f in changed_funcs if f.qualified_name not in tested_funcs and not f.is_test]
     if untested:
@@ -1577,6 +1727,8 @@ def detect_changes_func(
             changed_ranges=abs_ranges if abs_ranges else None,
             repo_root=str(root),
             base=base,
+            include_heuristic_test_gap_evidence=detail_level == "verbose",
+            heuristic_test_gap_node_limit=_SUPPLEMENTAL_TEST_DENSITY_NODE_LIMIT,
         )
 
         impact = store.get_impact_radius(abs_files, max_depth=max_depth)
@@ -1585,6 +1737,7 @@ def detect_changes_func(
             analysis,
             impact,
             changed_files,
+            detail_level=detail_level,
         )
 
         # Optionally include source snippets for changed functions.
@@ -1615,6 +1768,14 @@ def detect_changes_func(
                 "status": "ok",
                 "summary": analysis.get("summary", ""),
                 "risk_score": analysis.get("risk_score", 0.0),
+                "review_priority_score": analysis.get(
+                    "review_priority_score",
+                    analysis.get("risk_score", 0.0),
+                ),
+                "score_semantics": analysis.get(
+                    "score_semantics",
+                    analysis_summary.get("score_semantics", {}),
+                ),
                 "risk_level": analysis_summary["risk_level"],
                 "reason_codes": analysis_summary["reason_codes"],
                 "changed_file_count": len(changed_files),
