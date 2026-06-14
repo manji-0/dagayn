@@ -863,16 +863,18 @@ class TestLocalEmbeddingProviderModelName:
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("CRG_LOCAL_EMBEDDING_DEVICE", None)
             provider = LocalEmbeddingProvider()
-            with patch("sentence_transformers.SentenceTransformer") as mock_cls:
+            fake_module = MagicMock()
+            with patch.dict("sys.modules", {"sentence_transformers": fake_module}):
                 provider._get_model()
-        assert mock_cls.call_args.kwargs["device"] == "cpu"
+        assert fake_module.SentenceTransformer.call_args.kwargs["device"] == "cpu"
 
     def test_local_device_can_be_overridden(self):
         with patch.dict(os.environ, {"CRG_LOCAL_EMBEDDING_DEVICE": "mps"}):
             provider = LocalEmbeddingProvider()
-            with patch("sentence_transformers.SentenceTransformer") as mock_cls:
+            fake_module = MagicMock()
+            with patch.dict("sys.modules", {"sentence_transformers": fake_module}):
                 provider._get_model()
-        assert mock_cls.call_args.kwargs["device"] == "mps"
+        assert fake_module.SentenceTransformer.call_args.kwargs["device"] == "mps"
 
 
 class TestGetProviderModel:
