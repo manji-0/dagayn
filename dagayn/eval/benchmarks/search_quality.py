@@ -92,11 +92,7 @@ def run(repo_path: Path, store, config: dict) -> list[dict]:
         for name in ranked_names[:20]:
             gains.append(
                 max(
-                    (
-                        grade
-                        for target, grade in relevant.items()
-                        if matcher.matches(name, target)
-                    ),
+                    (grade for target, grade in relevant.items() if matcher.matches(name, target)),
                     default=0,
                 )
             )

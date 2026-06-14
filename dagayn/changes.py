@@ -657,29 +657,31 @@ def analyze_changes(
         gap_names = [g["name"] for g in test_gaps[:5]]
         summary_parts.append(f"  - Untested: {', '.join(gap_names)}")
 
-    return _annotate_review_priority_semantics({
-        "summary": "\n".join(summary_parts),
-        "risk_score": overall_risk,
-        "review_priority_score": overall_risk,
-        "changed_functions": node_risks,
-        "changed_edges": changed_edges,
-        "change_entity_summary": {
-            "nodes": node_status_counts,
-            "edges": edge_status_counts,
-            "base": base if has_base_snapshot else None,
-        },
-        "affected_flows": affected["affected_flows"],
-        "test_gaps": test_gaps,
-        "test_gap_evidence": {
-            "direct_tested_by_edges": True,
-            "heuristic_suppression_enabled": include_heuristic_test_gap_evidence,
-            "heuristic_checked_node_count": heuristic_gap_checks,
-            "heuristic_eligible_node_count": heuristic_gap_eligible_count,
-            "heuristic_truncated": (
-                include_heuristic_test_gap_evidence
-                and heuristic_test_gap_node_limit is not None
-                and heuristic_gap_checks < heuristic_gap_eligible_count
-            ),
-        },
-        "review_priorities": review_priorities,
-    })
+    return _annotate_review_priority_semantics(
+        {
+            "summary": "\n".join(summary_parts),
+            "risk_score": overall_risk,
+            "review_priority_score": overall_risk,
+            "changed_functions": node_risks,
+            "changed_edges": changed_edges,
+            "change_entity_summary": {
+                "nodes": node_status_counts,
+                "edges": edge_status_counts,
+                "base": base if has_base_snapshot else None,
+            },
+            "affected_flows": affected["affected_flows"],
+            "test_gaps": test_gaps,
+            "test_gap_evidence": {
+                "direct_tested_by_edges": True,
+                "heuristic_suppression_enabled": include_heuristic_test_gap_evidence,
+                "heuristic_checked_node_count": heuristic_gap_checks,
+                "heuristic_eligible_node_count": heuristic_gap_eligible_count,
+                "heuristic_truncated": (
+                    include_heuristic_test_gap_evidence
+                    and heuristic_test_gap_node_limit is not None
+                    and heuristic_gap_checks < heuristic_gap_eligible_count
+                ),
+            },
+            "review_priorities": review_priorities,
+        }
+    )

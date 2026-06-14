@@ -8,7 +8,7 @@ Provides:
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from pathlib import PurePosixPath
 from typing import Any
 
@@ -160,7 +160,7 @@ class IdentifierMatcher:
 
     def __init__(
         self,
-        aliases: dict[str, Iterable[str]] | None = None,
+        aliases: Mapping[str, Iterable[str]] | None = None,
         *,
         allow_basename: bool = False,
     ) -> None:

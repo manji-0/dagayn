@@ -42,8 +42,6 @@ def test_component_stability_profiles_reason_codes_and_density_policy(monkeypatc
         "heuristic_test_density",
         "transitive_test_density",
     ]
-    assert profiles["service"]["reason_codes"] == [
-        "high_afferent_coupling_should_be_stable"
-    ]
+    assert profiles["service"]["reason_codes"] == ["high_afferent_coupling_should_be_stable"]
     assert "stable_concrete_pressure" not in profiles["scripts"]["reason_codes"]
     assert profiles["scripts"]["sap_applicable"] is False

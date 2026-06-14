@@ -667,6 +667,7 @@ class TestIncrementalUpdate:
         monkeypatch.setattr("threading.Timer", FakeTimer)
         monkeypatch.setattr("watchdog.observers.Observer", FakeObserver)
         monkeypatch.setattr("dagayn.incremental.incremental_update", fake_incremental_update)
+
         def stop_watch(_seconds):
             raise KeyboardInterrupt
 

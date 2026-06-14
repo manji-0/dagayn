@@ -15,7 +15,9 @@ import logging
 import math
 import sqlite3
 import time
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any, cast
 
 from dagayn.eval.scorer import IdentifierMatcher
 
@@ -34,12 +36,13 @@ def _matches(qualified_name: str, expected: str) -> bool:
 
 
 def _result_qn(result: object) -> str:
-    if isinstance(result, dict):
-        return str(result.get("qualified_name", ""))
+    if isinstance(result, Mapping):
+        row = cast(Mapping[str, object], result)
+        return str(row.get("qualified_name", ""))
     return str(getattr(result, "qualified_name", ""))
 
 
-def _relevance(sq: dict, expected: str) -> dict[str, int]:
+def _relevance(sq: dict[str, Any], expected: str) -> dict[str, int]:
     relevant = {expected: 1} if expected else {}
     for item in sq.get("relevant") or []:
         if isinstance(item, dict):
@@ -65,7 +68,7 @@ def _ndcg(ranked: list[str], relevant: dict[str, int], matcher: IdentifierMatche
     return round(dcg / idcg, 4) if idcg else 0.0
 
 
-def run(repo_path: Path, store, config: dict) -> list[dict]:
+def run(repo_path: Path, store, config: dict[str, Any]) -> list[dict[str, Any]]:
     """Run FTS-only search quality benchmark.
 
     Args:

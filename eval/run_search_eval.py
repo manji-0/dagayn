@@ -89,8 +89,7 @@ def run_eval(repo_root: Path, queries_path: Path, judgments_path: Path) -> dict[
                     "doc_vs_code_confusion": int(
                         bool(relevant)
                         and any(
-                            target.endswith((".md", ".markdown", ".mdx"))
-                            for target in relevant
+                            target.endswith((".md", ".markdown", ".mdx")) for target in relevant
                         )
                         and any(not _is_doc(result) for result in results[:5])
                     ),
@@ -108,8 +107,7 @@ def run_eval(repo_root: Path, queries_path: Path, judgments_path: Path) -> dict[
     summary = {
         "query_count": count,
         "mrr_at_10": round(
-            sum(row["reciprocal_rank"] if 0 < row["rank"] <= 10 else 0.0 for row in rows)
-            / count,
+            sum(row["reciprocal_rank"] if 0 < row["rank"] <= 10 else 0.0 for row in rows) / count,
             4,
         )
         if count

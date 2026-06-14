@@ -93,11 +93,7 @@ def _is_low_confidence_unresolved_markdown_code_span(edge: Any) -> bool:
     role = extra.get("relationship_role")
     target = str(getattr(edge, "target_qualified", ""))
     tier = str(getattr(edge, "confidence_tier", "") or extra.get("confidence_tier", "")).upper()
-    return (
-        role == "describes_symbol"
-        and target.startswith("<unresolved:")
-        and tier == "LOW"
-    )
+    return role == "describes_symbol" and target.startswith("<unresolved:") and tier == "LOW"
 
 
 def _documentation_result(edge: Any, *, endpoint: str, inverse_label: str | None = None) -> dict:

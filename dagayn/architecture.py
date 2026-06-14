@@ -17,6 +17,7 @@ from .graph import GraphStore
 
 logger = logging.getLogger(__name__)
 
+
 def _project_dependency_graph(
     store: GraphStore,
     granularity: Literal["file", "package"] = "package",

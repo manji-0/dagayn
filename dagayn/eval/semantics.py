@@ -4,15 +4,13 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
-try:
-    from enum import StrEnum
-except ImportError:  # pragma: no cover - Python < 3.11 compatibility
 
-    class StrEnum(str, Enum):
-        """Small fallback with the same string behavior as enum.StrEnum."""
+def _enum_value(value: StrEnum) -> str:
+    """Return the string value of a StrEnum in a type-checker-friendly way."""
+    return str(value)
 
 
 class MetricFamily(StrEnum):
@@ -471,7 +469,7 @@ def _unique_value(specs: list[MetricSpec], attr: str) -> str | bool | None:
         return None
     value = values.pop()
     if isinstance(value, StrEnum):
-        return value.value
+        return _enum_value(value)
     return value
 
 

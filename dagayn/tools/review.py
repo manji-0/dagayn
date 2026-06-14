@@ -169,11 +169,7 @@ def _is_low_confidence_unresolved_markdown_code_span(edge: Any) -> bool:
     role = extra.get("relationship_role")
     target = str(getattr(edge, "target_qualified", ""))
     tier = str(getattr(edge, "confidence_tier", "") or extra.get("confidence_tier", "")).upper()
-    return (
-        role == "describes_symbol"
-        and target.startswith("<unresolved:")
-        and tier == "LOW"
-    )
+    return role == "describes_symbol" and target.startswith("<unresolved:") and tier == "LOW"
 
 
 def _is_production_code_node(node: Any) -> bool:
@@ -777,12 +773,8 @@ def _stability_contracts(
         missing_docs = [qn for qn in changed_qns if qn not in changed_with_docs]
 
         observed_test_density = float(density.get("direct_test_density", 0.0) or 0.0)
-        observed_heuristic_test_density = float(
-            density.get("heuristic_test_density", 0.0) or 0.0
-        )
-        observed_transitive_test_density = float(
-            density.get("transitive_test_density", 0.0) or 0.0
-        )
+        observed_heuristic_test_density = float(density.get("heuristic_test_density", 0.0) or 0.0)
+        observed_transitive_test_density = float(density.get("transitive_test_density", 0.0) or 0.0)
         observed_doc_density = float(density.get("documentation_density", 0.0) or 0.0)
         expected_test_density = float(profile.get("expected_test_density", 0.5) or 0.5)
         expected_doc_density = float(profile.get("expected_doc_density", 0.25) or 0.25)
