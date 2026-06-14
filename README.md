@@ -399,6 +399,8 @@ To stay fully offline, use the `local` provider. No API key or network access is
 - `docs/FEATURES.md` — what the fork emphasizes and where it differs
 - `docs/ARCHITECTURE.md` — parser, storage, and post-processing pipeline
 - `docs/SCHEMA.md` — node, edge, and metadata model
+- `docs/EVALUATION-SEMANTICS.md` — metric roles, profile summaries, gates,
+  costs, and semantic report outputs
 - `docs/TROUBLESHOOTING.md` — practical fixes
 - `docs/LLM-OPTIMIZED-REFERENCE.md` — machine-oriented reference sections
 

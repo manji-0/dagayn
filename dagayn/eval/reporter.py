@@ -7,10 +7,18 @@ suitable for inclusion in documentation or CI output.
 from __future__ import annotations
 
 import csv
+import json
 from pathlib import Path
 from typing import Any
 
+from dagayn.eval.aggregate import (
+    PROFILES,
+    profile_summaries_as_dicts,
+    summarize_all_profiles,
+    summarize_profile,
+)
 from dagayn.eval.runner import BENCHMARK_REGISTRY
+from dagayn.eval.semantics import decorate_rows, metric_specs_as_dicts
 
 
 def _escape_md_cell(value: Any) -> str:
@@ -94,6 +102,14 @@ def _read_csvs(results_dir: Path, prefix: str) -> list[dict[str, str]]:
     return rows
 
 
+def _read_all_csvs(results_dir: Path) -> list[dict[str, str]]:
+    """Read all benchmark CSV files from the results directory."""
+    rows: list[dict[str, str]] = []
+    for benchmark in BENCHMARK_REGISTRY:
+        rows.extend(_read_csvs(results_dir, benchmark))
+    return decorate_rows(rows)  # type: ignore[return-value]
+
+
 def _md_table(headers: list[str], rows: list[list[str]]) -> str:
     """Build a markdown table from headers and rows."""
     lines = []
@@ -104,7 +120,42 @@ def _md_table(headers: list[str], rows: list[list[str]]) -> str:
     return "\n".join(lines)
 
 
-def generate_full_report(results_dir: str | Path) -> str:
+def _format_score(value: float | None) -> str:
+    if value is None:
+        return "-"
+    return f"{value:.4f}".rstrip("0").rstrip(".")
+
+
+def _reports_dir_for(results_dir: Path, reports_dir: str | Path | None) -> Path:
+    if reports_dir is not None:
+        return Path(reports_dir)
+    if results_dir.name == "results":
+        return results_dir.parent / "reports"
+    return results_dir / "reports"
+
+
+def _write_semantic_json(
+    summaries: list[Any],
+    reports_dir: Path,
+) -> None:
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    (reports_dir / "profile_summary.json").write_text(
+        json.dumps(profile_summaries_as_dicts(summaries), indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    (reports_dir / "metric_semantics.json").write_text(
+        json.dumps(metric_specs_as_dicts(), indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+
+
+def generate_full_report(
+    results_dir: str | Path,
+    *,
+    profile: str = "all",
+    semantic_report: bool = True,
+    reports_dir: str | Path | None = None,
+) -> str:
     """Generate a full markdown evaluation report from CSV result files.
 
     Reads all CSV files in *results_dir*, groups them by benchmark type,
@@ -118,6 +169,18 @@ def generate_full_report(results_dir: str | Path) -> str:
         Markdown string with the full report.
     """
     results_dir = Path(results_dir)
+    if profile != "all" and profile not in PROFILES:
+        raise ValueError(f"Unknown evaluation profile: {profile}")
+
+    all_rows = _read_all_csvs(results_dir)
+    summaries = (
+        summarize_all_profiles(all_rows)
+        if profile == "all"
+        else [summarize_profile(all_rows, profile)]
+    )
+    if semantic_report:
+        _write_semantic_json(summaries, _reports_dir_for(results_dir, reports_dir))
+
     lines: list[str] = []
     lines.append("# Evaluation Report")
     lines.append("")
@@ -130,6 +193,86 @@ def generate_full_report(results_dir: str | Path) -> str:
         "graph-derived rows are marked `status=proxy`."
     )
     lines.append("")
+
+    if semantic_report:
+        lines.append("## Evaluation Semantics")
+        lines.append("")
+        lines.append("This report separates:")
+        lines.append("- capability scores")
+        lines.append("- efficiency/cost metrics")
+        lines.append("- gates")
+        lines.append("- diagnostics")
+        lines.append("- proxy/synthetic metrics")
+        lines.append("")
+        lines.append(
+            "Proxy metrics and synthetic representation experiments are excluded from "
+            "headline capability scores unless a profile explicitly includes them."
+        )
+        lines.append("")
+
+        lines.append("## Profile Summary")
+        lines.append("")
+        profile_rows = []
+        for summary in summaries:
+            gates = "; ".join(f"{key}={value}" for key, value in sorted(summary.gates.items()))
+            notes = "; ".join(summary.notes)
+            profile_rows.append(
+                [
+                    summary.profile,
+                    summary.status,
+                    _format_score(summary.capability_score),
+                    _format_score(summary.efficiency_score),
+                    gates or "-",
+                    notes or "-",
+                ]
+            )
+        lines.append(
+            _md_table(
+                [
+                    "Profile",
+                    "Status",
+                    "Capability Score",
+                    "Efficiency Score",
+                    "Gates",
+                    "Notes",
+                ],
+                profile_rows,
+            )
+        )
+        lines.append("")
+
+        lines.append("## Metric Semantics")
+        lines.append("")
+        spec_rows = []
+        for spec in metric_specs_as_dicts():
+            spec_rows.append(
+                [
+                    str(spec["benchmark"]),
+                    str(spec["metric"]),
+                    str(spec["family"]),
+                    str(spec["role"]),
+                    str(spec["oracle_type"]),
+                    str(spec["construct"]),
+                    str(spec["direction"]),
+                    "yes" if spec["valid_for_headline"] else "no",
+                ]
+            )
+        lines.append(
+            _md_table(
+                [
+                    "Benchmark",
+                    "Metric",
+                    "Family",
+                    "Role",
+                    "Oracle",
+                    "Construct",
+                    "Direction",
+                    "Headline?",
+                ],
+                spec_rows,
+            )
+        )
+        lines.append("")
 
     benchmark_types = list(BENCHMARK_REGISTRY.keys())
 
@@ -147,7 +290,7 @@ def generate_full_report(results_dir: str | Path) -> str:
         lines.append(_md_table(headers, table_rows))
         lines.append("")
 
-    if len(lines) <= 6:
+    if not all_rows:
         lines.append("No benchmark results found.")
         lines.append("")
 
@@ -157,10 +300,11 @@ def generate_full_report(results_dir: str | Path) -> str:
 def generate_readme_tables(results_dir: str | Path) -> str:
     """Generate concise README-ready tables from CSV result files.
 
-    Produces three tables:
-    - Table A: Token Efficiency
-    - Table B: Accuracy & Quality
-    - Table C: Performance
+    Produces concise profile-oriented tables:
+    - Search Capability
+    - Review Capability
+    - Operability
+    - Diagnostics
 
     Args:
         results_dir: Directory containing CSV result files.
@@ -171,10 +315,10 @@ def generate_readme_tables(results_dir: str | Path) -> str:
     results_dir = Path(results_dir)
     lines: list[str] = []
 
-    # Table A: Token Efficiency
+    # Operability: costs and budgets, not correctness.
     te_rows = _read_csvs(results_dir, "token_efficiency")
     if te_rows:
-        lines.append("### Token Efficiency")
+        lines.append("### Operability")
         lines.append("")
         headers = [
             "Repo",
@@ -201,23 +345,18 @@ def generate_readme_tables(results_dir: str | Path) -> str:
         lines.append(_md_table(headers, table_rows))
         lines.append("")
 
-    # Table B: Accuracy & Quality
+    # Capability and diagnostic slices should not imply one global score.
     ia_rows = _read_csvs(results_dir, "impact_accuracy")
     fc_rows = _read_csvs(results_dir, "flow_completeness")
     sq_rows = _read_csvs(results_dir, "search_quality")
     fts_rows = _read_csvs(results_dir, "fts_quality")
 
-    if ia_rows or fc_rows or sq_rows or fts_rows:
-        lines.append("### Accuracy & Quality")
+    if sq_rows or fts_rows:
+        lines.append("### Search Capability")
         lines.append("")
-        headers = ["Repo", "Impact F1", "Flow Recall", "Search MRR", "FTS MRR"]
-        # Build a per-repo summary
+        headers = ["Repo", "Search MRR", "FTS MRR"]
         repo_data: dict[str, dict[str, object]] = {}
         mrr_accum: dict[str, list[float]] = {}
-        for r in ia_rows:
-            repo_data.setdefault(r.get("repo", "?"), {})["f1"] = r.get("f1", "-")
-        for r in fc_rows:
-            repo_data.setdefault(r.get("repo", "?"), {})["recall"] = r.get("recall", "-")
         for r in sq_rows:
             repo = r.get("repo", "?")
             repo_data.setdefault(repo, {})
@@ -233,29 +372,37 @@ def generate_readme_tables(results_dir: str | Path) -> str:
                 fts_accum.setdefault(repo, []).append(float(r.get("reciprocal_rank", 0)))
             except (ValueError, TypeError):
                 pass
-
         table_rows = []
-        for repo, d in sorted(repo_data.items()):
+        for repo in sorted(repo_data):
             mrr_vals = mrr_accum.get(repo, [])
             mrr = str(round(sum(mrr_vals) / len(mrr_vals), 3)) if mrr_vals else "-"
             fts_vals = fts_accum.get(repo, [])
             fts = str(round(sum(fts_vals) / len(fts_vals), 3)) if fts_vals else "-"
-            table_rows.append(
-                [
-                    repo,
-                    str(d.get("f1", "-")),
-                    str(d.get("recall", "-")),
-                    mrr,
-                    fts,
-                ]
-            )
+            table_rows.append([repo, mrr, fts])
         lines.append(_md_table(headers, table_rows))
         lines.append("")
 
-    # Table C: Performance
+    if ia_rows or fc_rows:
+        lines.append("### Review Capability")
+        lines.append("")
+        headers = ["Repo", "Impact F1", "Flow Recall"]
+        repo_data: dict[str, dict[str, object]] = {}
+        for r in ia_rows:
+            if r.get("status") == "proxy":
+                continue
+            repo_data.setdefault(r.get("repo", "?"), {})["f1"] = r.get("f1", "-")
+        for r in fc_rows:
+            repo_data.setdefault(r.get("repo", "?"), {})["recall"] = r.get("recall", "-")
+        table_rows = []
+        for repo, d in sorted(repo_data.items()):
+            table_rows.append([repo, str(d.get("f1", "-")), str(d.get("recall", "-"))])
+        lines.append(_md_table(headers, table_rows))
+        lines.append("")
+
+    # Diagnostics: useful operational detail, not headline capability.
     bp_rows = _read_csvs(results_dir, "build_performance")
     if bp_rows:
-        lines.append("### Performance")
+        lines.append("### Diagnostics")
         lines.append("")
         headers = ["Repo", "Files", "Nodes", "Build (ms)", "Nodes/s"]
         table_rows = []

@@ -22,6 +22,24 @@ def register_command(sub: argparse._SubParsersAction) -> argparse.ArgumentParser
         "--all", action="store_true", dest="run_all", help="Run all benchmarks"
     )
     eval_parser.add_argument("--report", action="store_true", help="Generate report from results")
+    eval_parser.add_argument(
+        "--profile",
+        choices=["search", "review", "architecture", "operability", "regression", "all"],
+        default="all",
+        help="Profile summary to include when generating a report",
+    )
+    eval_parser.add_argument(
+        "--semantic-report",
+        action="store_true",
+        default=True,
+        help="Include semantic profile and metric sections in reports",
+    )
+    eval_parser.add_argument(
+        "--no-semantic-report",
+        action="store_false",
+        dest="semantic_report",
+        help="Generate the older simple report without semantic sections",
+    )
     eval_parser.add_argument("--output-dir", default=None, help="Output directory for results")
     return eval_parser
 
@@ -33,8 +51,13 @@ def handle(args: argparse.Namespace) -> None:
 
     if getattr(args, "report", False):
         output_dir = Path(getattr(args, "output_dir", None) or "evaluate/results")
-        report = generate_full_report(output_dir)
         report_path = Path("evaluate/reports/summary.md")
+        report = generate_full_report(
+            output_dir,
+            profile=getattr(args, "profile", "all"),
+            semantic_report=getattr(args, "semantic_report", True),
+            reports_dir=report_path.parent,
+        )
         report_path.parent.mkdir(parents=True, exist_ok=True)
         report_path.write_text(report, encoding="utf-8")
         print(f"Report written to {report_path}")

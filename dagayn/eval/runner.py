@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from dagayn.eval.git_utils import checkout_config_ref, run_git
+from dagayn.eval.semantics import decorate_rows
 
 try:
     import yaml  # type: ignore[import-untyped]
@@ -104,6 +105,7 @@ def write_csv(results: list[dict], path: Path) -> None:
     """Write benchmark results to a CSV file."""
     if not results:
         return
+    results = decorate_rows(results)
     path.parent.mkdir(parents=True, exist_ok=True)
     fieldnames = _csv_fieldnames(results)
     with open(path, "w", newline="") as f:

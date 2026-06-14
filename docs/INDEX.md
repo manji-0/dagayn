@@ -5,6 +5,7 @@
 <!-- constrained-by ./ARCHITECTURE.md -->
 <!-- constrained-by ./SCHEMA.md -->
 <!-- constrained-by ./FEATURES.md -->
+<!-- constrained-by ./EVALUATION-SEMANTICS.md -->
 
 This directory documents the fork as `dagayn`.
 
@@ -16,6 +17,8 @@ This directory documents the fork as `dagayn`.
 - [ARCHITECTURE.md](./ARCHITECTURE.md) — parser, storage, and post-processing pipeline
 - [SCHEMA.md](./SCHEMA.md) — graph entities, tables, and stored metadata
 - [MARKDOWN-AUTHORING.md](./MARKDOWN-AUTHORING.md) — graph-aware Markdown dependency and directive guidance
+- [EVALUATION-SEMANTICS.md](./EVALUATION-SEMANTICS.md) — metric roles,
+  profile summaries, gates, costs, proxy metrics, and semantic report outputs
 
 ## Operation
 

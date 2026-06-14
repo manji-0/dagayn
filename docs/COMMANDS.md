@@ -62,6 +62,8 @@ selects `llama-server`.
 - `dagayn wiki`
 - `dagayn eval`
 
+<!-- derived-from ./EVALUATION-SEMANTICS.md -->
+
 `dagayn detect-changes` uses the same combined change detection as
 `dagayn update`: tracked diffs plus staged, unstaged, and untracked working-tree
 files. Untracked files are reviewed as whole-file changes because Git has no
@@ -112,6 +114,32 @@ guidance_precision_cases:
     changed_files: ["dagayn/tools/review.py"]
     expected: ["1.0"]
     k: 1
+```
+
+`dagayn eval --report` generates a semantic evaluation report by default. The
+report separates capability scores, efficiency/cost metrics, gates,
+diagnostics, and proxy/synthetic metrics instead of producing one misleading
+global score. Use `--profile` to focus the profile summary:
+
+```bash
+dagayn eval --report
+dagayn eval --report --profile search
+dagayn eval --report --profile review
+dagayn eval --report --profile operability
+```
+
+Available profile values are `search`, `review`, `architecture`,
+`operability`, `regression`, and `all`. The default is `all`.
+
+Semantic reports also write machine-readable outputs:
+
+- `evaluate/reports/profile_summary.json`
+- `evaluate/reports/metric_semantics.json`
+
+Pass `--no-semantic-report` to keep the older simple report shape:
+
+```bash
+dagayn eval --report --no-semantic-report
 ```
 
 `dagayn tool <mcp-tool-name>` invokes the same underlying implementation as an

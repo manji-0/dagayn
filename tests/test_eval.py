@@ -241,7 +241,7 @@ def test_generate_readme_tables():
             )
 
         tables = generate_readme_tables(results_dir)
-        assert "### Token Efficiency" in tables
+        assert "### Operability" in tables
         assert "myrepo" in tables
         assert "1000" in tables
 
