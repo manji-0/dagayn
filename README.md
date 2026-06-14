@@ -337,7 +337,7 @@ modes, and provider setup, see
 
 | Provider | Runs where | Extra install | Required env vars |
 |---|---|---|---|
-| `local` (default) | Fully offline | included in standard dependencies | — |
+| `local` (default) | Fully offline sentence-transformers provider | `dagayn[embeddings]` | — |
 | `openai` | Cloud or self-hosted gateway | — | `CRG_OPENAI_API_KEY`, `CRG_OPENAI_BASE_URL`, `CRG_OPENAI_MODEL` |
 | `google` | Google Cloud | `dagayn[google-embeddings]` | `GOOGLE_API_KEY` |
 | `minimax` | MiniMax Cloud | — | `MINIMAX_API_KEY` |

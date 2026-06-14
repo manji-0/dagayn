@@ -124,11 +124,7 @@ jobs:
           DAGAYN_BACKEND: rust
         run: uv run pytest tests/test_rust_backend_parity.py -q
       - name: Smoke-test uvx source install path
-        run: >
-          uvx --refresh --from .
-          --index https://download.pytorch.org/whl/cpu
-          --index-strategy unsafe-best-match
-          dagayn --help
+        run: uvx --refresh --from . dagayn --help
 
   install-smoke:
     runs-on: macos-latest

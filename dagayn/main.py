@@ -450,8 +450,8 @@ async def embed_graph_tool(
 ) -> dict:
     """Compute vector embeddings for all graph nodes to enable semantic search.
 
-    The local provider uses the standard sentence-transformers dependency;
-    cloud providers use stdlib urllib.
+    The local provider requires the optional dagayn[embeddings] extra;
+    cloud and OpenAI-compatible providers use stdlib urllib.
     Default provider: local. Default model: BAAI/bge-m3.
     Override provider via `provider` param, model via `model` param or
     CRG_EMBEDDING_MODEL / CRG_OPENAI_MODEL env vars.

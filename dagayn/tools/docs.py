@@ -23,7 +23,7 @@ def embed_graph(
 ) -> dict[str, Any]:
     """Compute vector embeddings for all graph nodes to enable semantic search.
 
-    The local provider uses the standard sentence-transformers dependency;
+    The local provider requires the optional ``dagayn[embeddings]`` extra;
     cloud providers like ``openai`` / ``google`` / ``minimax`` use stdlib
     ``urllib``.
     Default model: BAAI/bge-m3. Override via ``model`` param or
@@ -63,8 +63,8 @@ def embed_graph(
             else:
                 err = (
                     "The local embedding provider needs sentence-transformers, "
-                    "which is part of dagayn's standard dependencies. "
-                    "Reinstall or repair the dagayn environment, "
+                    "which is installed by the dagayn[embeddings] extra. "
+                    "Install that extra, "
                     "or switch provider to 'openai' / 'google' / 'minimax'."
                 )
             return {"status": "error", "error": err}

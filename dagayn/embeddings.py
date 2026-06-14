@@ -279,8 +279,9 @@ class LocalEmbeddingProvider(EmbeddingProvider):
                 )
             except ImportError:
                 raise ImportError(
-                    "sentence-transformers not installed. It is part of dagayn's "
-                    "standard dependencies; reinstall or repair the dagayn environment."
+                    "sentence-transformers is not installed. Install dagayn[embeddings] "
+                    "to use provider='local', or switch to an OpenAI-compatible, "
+                    "Google, or Minimax embedding provider."
                 )
         return self._model
 
