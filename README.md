@@ -333,11 +333,11 @@ modes, and provider setup, see
 [`docs/ARCHITECTURE.md#hybrid-search`](docs/ARCHITECTURE.md#hybrid-search) and
 [`docs/LOCAL-EMBEDDINGS.md`](docs/LOCAL-EMBEDDINGS.md).
 
-### Providers
+### Embedding modes and providers
 
-| Provider | Runs where | Extra install | Required env vars |
+| Mode/provider | Runs where | Extra install | Required env vars |
 |---|---|---|---|
-| `local` (default) | Fully offline sentence-transformers provider | `dagayn[embeddings]` | — |
+| `--local-embedding` | Managed localhost llama-server GGUF sidecar | — | — |
 | `openai` | Cloud or self-hosted gateway | — | `CRG_OPENAI_API_KEY`, `CRG_OPENAI_BASE_URL`, `CRG_OPENAI_MODEL` |
 | `google` | Google Cloud | `dagayn[google-embeddings]` | `GOOGLE_API_KEY` |
 | `minimax` | MiniMax Cloud | — | `MINIMAX_API_KEY` |
@@ -346,17 +346,17 @@ The `openai` provider speaks the standard `/v1/embeddings` schema, so it works w
 
 Vector search uses numpy by default for the cosine-similarity matrix path.
 `dagayn serve --local-embedding` runs BGE-M3 through a managed llama.cpp GGUF
-sidecar so Apple Metal acceleration stays out of the Python process. The
-built-in sentence-transformers provider remains available for explicit
-`provider="local"` embedding runs.
+sidecar so acceleration stays out of the Python process. The older
+sentence-transformers/PyTorch `provider="local"` mode has been removed; local
+embedding now means the managed llama-server sidecar or another localhost
+OpenAI-compatible endpoint.
 
 ### Running embedding
 
-Call `embed_graph_tool` via MCP (or let your AI agent call it after `build_or_update_graph_tool`). Pass `provider` and optionally `model` to override the defaults.
+Call `embed_graph_tool` via MCP (or let your AI agent call it after `build_or_update_graph_tool`). For fully local embeddings, prefer `dagayn build --local-embedding`, `dagayn update --local-embedding`, or `dagayn serve --local-embedding`; these manage llama-server and then use the OpenAI-compatible localhost endpoint internally. Pass `provider` and optionally `model` only when using an already configured provider.
 
 ```
-embed_graph_tool(provider="local")
-embed_graph_tool(provider="local", model="BAAI/bge-m3")
+dagayn build --local-embedding
 embed_graph_tool(provider="openai")   # reads CRG_OPENAI_* from env
 embed_graph_tool(provider="google")   # reads GOOGLE_API_KEY from env
 embed_graph_tool(provider="minimax")  # reads MINIMAX_API_KEY from env
@@ -390,7 +390,8 @@ Before sending any data to a cloud provider, `dagayn` prints a warning to stderr
 export CRG_ACCEPT_CLOUD_EMBEDDINGS=1
 ```
 
-To stay fully offline, use the `local` provider. No API key or network access is required.
+To stay fully offline, use `--local-embedding` so dagayn manages a localhost
+llama-server endpoint. No Python ML stack or PyTorch dependency is required.
 
 ## Documentation map
 

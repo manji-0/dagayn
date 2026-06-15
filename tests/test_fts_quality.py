@@ -27,7 +27,7 @@ def test_matches_no_namespace():
 
 
 def test_matches_expected_in_qn():
-    assert _matches("dagayn/embeddings.py::LocalEmbeddingProvider", "LocalEmbeddingProvider")
+    assert _matches("dagayn/embeddings.py::OpenAIEmbeddingProvider", "OpenAIEmbeddingProvider")
 
 
 def test_no_match():
@@ -139,7 +139,7 @@ class _FtsFixture:
             ),
             NodeInfo(
                 kind="Class",
-                name="LocalEmbeddingProvider",
+                name="OpenAIEmbeddingProvider",
                 file_path="dagayn/embeddings.py",
                 line_start=65,
                 line_end=130,

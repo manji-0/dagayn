@@ -135,7 +135,7 @@ class TestHybridSearch:
         self.store.upsert_node(
             NodeInfo(
                 kind="Class",
-                name="LocalEmbeddingProvider",
+                name="OpenAIEmbeddingProvider",
                 file_path="embeddings.py",
                 line_start=1,
                 line_end=10,
@@ -146,9 +146,9 @@ class TestHybridSearch:
         self.store.commit()
         rebuild_fts_index(self.store)
 
-        results = hybrid_search(self.store, "local embedding provider")["results"]
+        results = hybrid_search(self.store, "open ai embedding provider")["results"]
         assert results
-        assert results[0]["name"] == "LocalEmbeddingProvider"
+        assert results[0]["name"] == "OpenAIEmbeddingProvider"
 
     def test_fts_search_indexes_markdown_section_body(self, tmp_path):
         """Markdown section body text is searchable, not just the heading slug."""

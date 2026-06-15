@@ -10,9 +10,7 @@ import pytest
 
 from dagayn.cli.commands.build import _print_embedding_status
 from dagayn.embeddings import (
-    LOCAL_DEFAULT_MODEL,
     EmbeddingStore,
-    LocalEmbeddingProvider,
     MiniMaxEmbeddingProvider,
     OpenAIEmbeddingProvider,
     _cosine_similarity,
@@ -835,62 +833,29 @@ class TestEmbeddingStore:
             store.close()
 
 
-class TestLocalEmbeddingProviderModelName:
-    """Tests for configurable model name on LocalEmbeddingProvider."""
-
-    def test_default_model_name(self):
-        with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("CRG_EMBEDDING_MODEL", None)
-            os.environ.pop("CRG_LOCAL_EMBEDDING_DEVICE", None)
-            provider = LocalEmbeddingProvider()
-            assert provider._model_name == LOCAL_DEFAULT_MODEL
-            assert provider._device == "cpu"
-            assert provider.name == f"local:{LOCAL_DEFAULT_MODEL}"
-
-    def test_explicit_model_name(self):
-        with patch.dict(os.environ, {"CRG_EMBEDDING_MODEL": "should-be-ignored"}):
-            provider = LocalEmbeddingProvider(model_name="custom/model")
-            assert provider._model_name == "custom/model"
-            assert provider.name == "local:custom/model"
-
-    def test_env_var_fallback(self):
-        with patch.dict(os.environ, {"CRG_EMBEDDING_MODEL": "BAAI/bge-small-en-v1.5"}):
-            provider = LocalEmbeddingProvider()
-            assert provider._model_name == "BAAI/bge-small-en-v1.5"
-            assert provider.name == "local:BAAI/bge-small-en-v1.5"
-
-    def test_local_device_defaults_to_cpu_when_loading_model(self):
-        with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("CRG_LOCAL_EMBEDDING_DEVICE", None)
-            provider = LocalEmbeddingProvider()
-            fake_module = MagicMock()
-            with patch.dict("sys.modules", {"sentence_transformers": fake_module}):
-                provider._get_model()
-        assert fake_module.SentenceTransformer.call_args.kwargs["device"] == "cpu"
-
-    def test_local_device_can_be_overridden(self):
-        with patch.dict(os.environ, {"CRG_LOCAL_EMBEDDING_DEVICE": "mps"}):
-            provider = LocalEmbeddingProvider()
-            fake_module = MagicMock()
-            with patch.dict("sys.modules", {"sentence_transformers": fake_module}):
-                provider._get_model()
-        assert fake_module.SentenceTransformer.call_args.kwargs["device"] == "mps"
-
-
 class TestGetProviderModel:
     """Tests for model parameter in get_provider()."""
 
-    @patch("dagayn.embeddings.LocalEmbeddingProvider")
-    def test_local_passes_model(self, mock_cls):
-        mock_cls.return_value = MagicMock()
-        get_provider(provider=None, model="custom/model")
-        mock_cls.assert_called_once_with(model_name="custom/model")
+    def test_default_returns_none_without_openai_compatible_env(self):
+        with patch.dict(os.environ, {}, clear=True):
+            assert get_provider(provider=None, model="custom/model") is None
 
-    @patch("dagayn.embeddings.LocalEmbeddingProvider")
-    def test_local_default_passes_none(self, mock_cls):
-        mock_cls.return_value = MagicMock()
-        get_provider(provider=None, model=None)
-        mock_cls.assert_called_once_with(model_name=None)
+    def test_default_uses_openai_compatible_env_when_configured(self):
+        env = {
+            "CRG_OPENAI_API_KEY": "dagayn-local",
+            "CRG_OPENAI_BASE_URL": "http://127.0.0.1:18080/v1",
+            "CRG_OPENAI_MODEL": "bge-m3-gguf-q8_0",
+        }
+        with patch.dict(os.environ, env, clear=True):
+            provider = get_provider(provider=None)
+
+        assert isinstance(provider, OpenAIEmbeddingProvider)
+        assert provider.name == "openai:bge-m3-gguf-q8_0@http://127.0.0.1:18080/v1"
+
+    def test_removed_local_provider_returns_none(self, caplog):
+        with patch.dict(os.environ, {}, clear=True):
+            assert get_provider(provider="local", model="BAAI/bge-m3") is None
+        assert "sentence-transformers embeddings were removed" in caplog.text
 
 
 class TestCloudProviderWarning:
@@ -944,12 +909,9 @@ class TestCloudProviderWarning:
         assert captured.err == ""
         assert captured.out == ""
 
-    def test_local_provider_never_warns(self, capsys):
-        """Local (offline) provider must not trigger the cloud warning."""
-        with patch(
-            "dagayn.embeddings.LocalEmbeddingProvider",
-        ) as mock_cls:
-            mock_cls.return_value = MagicMock()
+    def test_no_provider_never_warns(self, capsys):
+        """No configured provider must not trigger the cloud warning."""
+        with patch.dict(os.environ, {}, clear=True):
             get_provider(provider=None)
         captured = capsys.readouterr()
         assert "cloud" not in captured.err.lower()
@@ -967,8 +929,8 @@ class TestEmbeddingStoreModelPassthrough:
     def test_provider_and_model_forwarded(self, tmp_path):
         db = tmp_path / "embeddings.db"
         with patch("dagayn.embeddings.get_provider", return_value=None) as mock_gp:
-            EmbeddingStore(db, provider="local", model="custom/model").close()
-            mock_gp.assert_called_once_with("local", model="custom/model")
+            EmbeddingStore(db, provider="openai", model="custom/model").close()
+            mock_gp.assert_called_once_with("openai", model="custom/model")
 
     def test_provider_instance_skips_get_provider(self, tmp_path):
         db = tmp_path / "embeddings.db"

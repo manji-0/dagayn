@@ -49,9 +49,6 @@ dagayn = "dagayn.cli:main"
 dagayn-daemon = "dagayn.daemon_cli:main"
 
 [project.optional-dependencies]
-embeddings = [
-    "sentence-transformers>=3.0.0,<4",
-]
 google-embeddings = [
     "google-generativeai>=0.8.0,<1",
 ]

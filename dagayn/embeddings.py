@@ -1,11 +1,11 @@
 """Vector embedding support for semantic code search.
 
 Supports multiple providers:
-1. Local (sentence-transformers) - Private, fast, offline.
+1. OpenAI-compatible - Any endpoint speaking OpenAI /v1/embeddings (local
+   llama-server sidecars, real OpenAI, Azure OpenAI, self-hosted gateways like
+   new-api / LiteLLM / vLLM / LocalAI / Ollama).
 2. Google Gemini - High-quality, cloud-based. Requires explicit opt-in.
 3. MiniMax (embo-01) - High-quality 1536-dim cloud embeddings. Requires MINIMAX_API_KEY.
-4. OpenAI-compatible - Any endpoint speaking OpenAI /v1/embeddings (real OpenAI,
-   Azure OpenAI, self-hosted gateways like new-api / LiteLLM / vLLM / LocalAI / Ollama).
 """
 
 from __future__ import annotations
@@ -250,57 +250,6 @@ class EmbeddingProvider(ABC):
     def preferred_batch_size(self) -> int:
         """Number of texts to send per API call. Override in concrete providers."""
         return 64
-
-
-LOCAL_DEFAULT_MODEL = "BAAI/bge-m3"
-LOCAL_DEFAULT_DEVICE = "cpu"
-
-
-class LocalEmbeddingProvider(EmbeddingProvider):
-    def __init__(self, model_name: str | None = None) -> None:
-        self._model_name = model_name or os.environ.get("CRG_EMBEDDING_MODEL", LOCAL_DEFAULT_MODEL)
-        self._device = (
-            os.environ.get("CRG_LOCAL_EMBEDDING_DEVICE") or LOCAL_DEFAULT_DEVICE
-        ).strip()
-        if not self._device:
-            self._device = LOCAL_DEFAULT_DEVICE
-        self._model = None  # Lazy-loaded
-
-    def _get_model(self):
-        if self._model is None:
-            try:
-                import sentence_transformers
-
-                self._model = sentence_transformers.SentenceTransformer(
-                    self._model_name,
-                    device=self._device,
-                    trust_remote_code=True,
-                    model_kwargs={"trust_remote_code": True},
-                )
-            except ImportError:
-                raise ImportError(
-                    "sentence-transformers is not installed. Install dagayn[embeddings] "
-                    "to use provider='local', or switch to an OpenAI-compatible, "
-                    "Google, or Minimax embedding provider."
-                )
-        return self._model
-
-    def embed(self, texts: list[str]) -> list[list[float]]:
-        model = self._get_model()
-        vectors = model.encode(texts, show_progress_bar=False)
-        return [v.tolist() for v in vectors]
-
-    def embed_query(self, text: str) -> list[float]:
-        return self.embed([text])[0]
-
-    @property
-    def dimension(self) -> int:
-        model = self._get_model()
-        return model.get_sentence_embedding_dimension()
-
-    @property
-    def name(self) -> str:
-        return f"local:{self._model_name}"
 
 
 class GoogleEmbeddingProvider(EmbeddingProvider):
@@ -822,8 +771,9 @@ def _warn_cloud_egress(provider_name: str) -> None:
         "selected.\n"
         "    To skip this warning in future runs, set "
         "CRG_ACCEPT_CLOUD_EMBEDDINGS=1 in your environment.\n"
-        "    To stay fully offline, use the default 'local' provider instead "
-        "(no API key needed).\n",
+        "    To stay fully offline, use dagayn's managed local embedding "
+        "sidecar (`--local-embedding`) or another localhost "
+        "OpenAI-compatible endpoint.\n",
         file=sys.stderr,
     )
 
@@ -835,8 +785,10 @@ def get_provider(
     """Get an embedding provider by name.
 
     Args:
-        provider: Provider name. One of "local", "google", "minimax", "openai",
-                  or None for local.
+        provider: Provider name. One of "google", "minimax", "openai", or
+                  None. ``None`` auto-selects OpenAI-compatible embeddings only
+                  when CRG_OPENAI_API_KEY, CRG_OPENAI_BASE_URL, and
+                  CRG_OPENAI_MODEL are all configured.
                   Google requires GOOGLE_API_KEY env var and explicit opt-in.
                   MiniMax requires MINIMAX_API_KEY env var and explicit opt-in.
                   OpenAI requires CRG_OPENAI_API_KEY + CRG_OPENAI_BASE_URL +
@@ -844,13 +796,28 @@ def get_provider(
                   warning is skipped when the base URL points to localhost.
                   Cloud providers emit a one-time stderr warning before use
                   unless ``CRG_ACCEPT_CLOUD_EMBEDDINGS=1`` is set. See: #174
-        model: Model name/path to use. For local provider this is any
-               sentence-transformers compatible model. Falls back to
-               CRG_EMBEDDING_MODEL env var, then to BAAI/bge-m3.
-               For Google provider this is a Gemini model ID.
+        model: Model name/path to use. For Google provider this is a Gemini model ID.
                For OpenAI provider this overrides CRG_OPENAI_MODEL.
     """
-    if provider == "openai":
+    normalized_provider = provider.strip().lower() if provider else None
+    if normalized_provider == "local":
+        logger.warning(
+            "provider='local' sentence-transformers embeddings were removed; "
+            "use --local-embedding for the managed llama-server sidecar or "
+            "provider='openai' with a localhost OpenAI-compatible endpoint."
+        )
+        return None
+
+    if normalized_provider is None:
+        if all(
+            os.environ.get(name)
+            for name in ("CRG_OPENAI_API_KEY", "CRG_OPENAI_BASE_URL", "CRG_OPENAI_MODEL")
+        ):
+            normalized_provider = "openai"
+        else:
+            return None
+
+    if normalized_provider == "openai":
         api_key = os.environ.get("CRG_OPENAI_API_KEY")
         base_url = os.environ.get("CRG_OPENAI_BASE_URL")
         resolved_model = model or os.environ.get("CRG_OPENAI_MODEL")
@@ -888,7 +855,7 @@ def get_provider(
             max_length=max_length,
         )
 
-    if provider == "minimax":
+    if normalized_provider == "minimax":
         api_key = os.environ.get("MINIMAX_API_KEY")
         if not api_key:
             raise ValueError(
@@ -898,7 +865,7 @@ def get_provider(
         _warn_cloud_egress("minimax")
         return MiniMaxEmbeddingProvider(api_key=api_key)
 
-    if provider == "google":
+    if normalized_provider == "google":
         api_key = os.environ.get("GOOGLE_API_KEY")
         if not api_key:
             raise ValueError(
@@ -913,27 +880,16 @@ def get_provider(
         except ImportError:
             return None
 
-    # Default: local
-    try:
-        return LocalEmbeddingProvider(model_name=model)
-    except ImportError:
-        return None
+    raise ValueError(
+        f"Unknown embedding provider '{normalized_provider}'. "
+        "Expected one of: openai, google, minimax."
+    )
 
 
 def provider_from_persisted_name(provider_name: str) -> EmbeddingProvider | None:
     """Return a safe provider reconstructed from a persisted DB identity."""
     base_name = embedding_provider_base_name(provider_name)
     return OpenAIEmbeddingProvider.from_persisted_name(base_name)
-
-
-def _check_available() -> bool:
-    """Check whether local embedding support is available."""
-    try:
-        import sentence_transformers  # noqa: F401
-
-        return True
-    except ImportError:
-        return False
 
 
 # ---------------------------------------------------------------------------

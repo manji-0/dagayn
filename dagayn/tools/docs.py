@@ -23,23 +23,23 @@ def embed_graph(
 ) -> dict[str, Any]:
     """Compute vector embeddings for all graph nodes to enable semantic search.
 
-    The local provider requires the optional ``dagayn[embeddings]`` extra;
-    cloud providers like ``openai`` / ``google`` / ``minimax`` use stdlib
-    ``urllib``.
-    Default model: BAAI/bge-m3. Override via ``model`` param or
-    CRG_EMBEDDING_MODEL env var.
+    Local embeddings use dagayn's managed llama-server sidecar
+    (``--local-embedding``), which exposes an OpenAI-compatible localhost
+    endpoint. Cloud providers like ``openai`` / ``google`` / ``minimax`` use
+    stdlib ``urllib``.
+    Override the model via ``model`` param or CRG_OPENAI_MODEL env var.
     Changing the model or provider re-embeds all nodes automatically.
 
     Only embeds nodes that don't already have up-to-date embeddings.
 
     Args:
         repo_root: Repository root path. Auto-detected if omitted.
-        model: Embedding model name. For local: HuggingFace ID or path;
-               for openai: model ID (e.g. ``text-embedding-3-small``);
-               for google: Gemini model ID. Falls back to
-               CRG_EMBEDDING_MODEL / CRG_OPENAI_MODEL env vars as appropriate.
-        provider: Provider name: ``local`` (default), ``openai``, ``google``,
-                  or ``minimax``. ``openai`` requires CRG_OPENAI_BASE_URL +
+        model: Embedding model name. For openai: model ID (e.g.
+               ``text-embedding-3-small``); for google: Gemini model ID. Falls
+               back to CRG_OPENAI_MODEL where appropriate.
+        provider: Provider name: ``openai``, ``google``, or ``minimax``.
+                  Omit when the MCP server was started with
+                  ``--local-embedding``. ``openai`` requires CRG_OPENAI_BASE_URL +
                   CRG_OPENAI_API_KEY + CRG_OPENAI_MODEL env vars and accepts
                   any OpenAI-compatible endpoint (real OpenAI, Azure, new-api,
                   LiteLLM, vLLM, LocalAI, Ollama openai-mode, etc.).
@@ -53,7 +53,14 @@ def embed_graph(
     store_closed = False
     try:
         if not emb_store.available:
-            if provider in ("openai", "google", "minimax"):
+            if provider == "local":
+                err = (
+                    "provider='local' sentence-transformers embeddings were removed. "
+                    "Use dagayn build/update/serve --local-embedding for the managed "
+                    "llama-server sidecar, or provider='openai' with a localhost "
+                    "OpenAI-compatible endpoint."
+                )
+            elif provider in ("openai", "google", "minimax"):
                 err = (
                     f"The '{provider}' embedding provider is not available. "
                     "Check the required environment variables "
@@ -62,10 +69,10 @@ def embed_graph(
                 )
             else:
                 err = (
-                    "The local embedding provider needs sentence-transformers, "
-                    "which is installed by the dagayn[embeddings] extra. "
-                    "Install that extra, "
-                    "or switch provider to 'openai' / 'google' / 'minimax'."
+                    "No embedding provider is configured. Use "
+                    "dagayn build/update/serve --local-embedding for the managed "
+                    "llama-server sidecar, or configure provider='openai', "
+                    "'google', or 'minimax'."
                 )
             return {"status": "error", "error": err}
 

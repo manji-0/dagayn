@@ -40,8 +40,8 @@ search_queries:
     expected: "dagayn/embeddings.py::EmbeddingProvider"
     label: "pascal_case_class"
 
-  - query: "LocalEmbeddingProvider"
-    expected: "dagayn/embeddings.py::LocalEmbeddingProvider"
+  - query: "OpenAIEmbeddingProvider"
+    expected: "dagayn/embeddings.py::OpenAIEmbeddingProvider"
     label: "pascal_case_class"
 
   # --- Conceptual / natural language (FTS weakness baseline) ---
@@ -49,8 +49,8 @@ search_queries:
     expected: "dagayn/search.py::rrf_merge"
     label: "conceptual"
 
-  - query: "sentence transformers local model"
-    expected: "dagayn/embeddings.py::LocalEmbeddingProvider"
+  - query: "managed local embedding sidecar"
+    expected: "dagayn/local_embeddings.py::LocalEmbeddingServer"
     label: "conceptual"
 
   - query: "kind boost detection query"

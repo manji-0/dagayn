@@ -247,16 +247,16 @@ unrelated negative calibration queries. `negative top score` is lower-is-better.
 The managed BGE-M3 Q8 sidecar was also checked against the smaller
 `dagayn.yaml` search-quality set with 8,308 graph nodes and the `material` text
 mode. It embedded the full graph copy in 194.9 seconds (42.6 nodes/s), matched
-the existing sentence-transformers BGE-M3 ranks on this set (MRR 0.7708,
+the previous Python sentence-transformers BGE-M3 ranks on this set (MRR 0.7708,
 Hit@5 11/12, Hit@20 12/12), and measured around 0.7-1.3 GiB RSS for
 `llama-server` during the run. The same run put Qwen3 Q8 at MRR 0.7014,
 Hit@5 11/12, and Hit@20 11/12.
 
-`BAAI/bge-m3` remains the default for explicit
-`embed_graph_tool(provider="local")` sentence-transformers runs. Bare
-`--local-embedding` on `build`, `update`, and `serve` uses the managed
-BGE-M3 GGUF sidecar instead. The managed `low` preset remains Qwen3 GGUF for
-legacy sidecar users.
+Bare `--local-embedding` on `build`, `update`, and `serve` is now the only
+supported local embedding mode and uses the managed BGE-M3 GGUF sidecar. The
+managed `low` preset remains Qwen3 GGUF for legacy sidecar users. The older
+Python sentence-transformers/PyTorch `provider="local"` mode was removed, so
+local embedding no longer requires or installs a Python ML stack.
 
 ## Troubleshooting
 
