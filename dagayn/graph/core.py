@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Optional
 
 import networkx as nx
 
+from ..state_types import normalize_confidence_tier
 from ._sql import _SCHEMA_SQL
 from .access import GraphStoreAccessMixin
 from .analysis import GraphStoreAnalysisMixin
@@ -222,7 +223,9 @@ class GraphStore(
     def _row_to_edge(self, row: sqlite3.Row) -> GraphEdge:
         extra = json.loads(row["extra"]) if row["extra"] else {}
         confidence = row["confidence"] if "confidence" in row.keys() else 1.0
-        confidence_tier = row["confidence_tier"] if "confidence_tier" in row.keys() else "EXTRACTED"
+        confidence_tier = normalize_confidence_tier(
+            row["confidence_tier"] if "confidence_tier" in row.keys() else "EXTRACTED"
+        )
         return GraphEdge(
             id=row["id"],
             kind=row["kind"],

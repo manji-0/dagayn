@@ -105,6 +105,23 @@ class TestGraphStore:
         assert edges[0].kind == "CALLS"
         assert edges[0].target_qualified == "/test/file.py::func_b"
 
+    def test_upsert_edge_normalizes_unknown_confidence_tier(self):
+        edge = EdgeInfo(
+            kind="CROSS_ARTIFACT",
+            source="/test/file.py::func_a",
+            target="/test/file.py::func_b",
+            file_path="/test/file.py",
+            line=15,
+            extra={"confidence_tier": "surprising", "confidence": 0.4},
+        )
+        self.store.upsert_edge(edge)
+        self.store.commit()
+
+        edges = self.store.get_edges_by_source("/test/file.py::func_a")
+        assert len(edges) == 1
+        assert edges[0].confidence_tier == "EXTRACTED"
+        assert edges[0].confidence == 0.4
+
     def test_remove_file_data(self):
         node = self._make_file_node()
         func = self._make_func_node()

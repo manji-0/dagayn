@@ -4,6 +4,7 @@ import json
 import time
 from typing import TYPE_CHECKING
 
+from ..state_types import normalize_confidence_tier
 from ._mixin_protocol import GraphStoreMixinProtocol
 from ._sql import _edge_target_name
 
@@ -62,7 +63,7 @@ class GraphStoreStorageMixin(GraphStoreMixinProtocol):
         now = time.time()
         extra_dict = edge.extra if edge.extra else {}
         confidence = float(extra_dict.get("confidence", 1.0))
-        confidence_tier = str(extra_dict.get("confidence_tier", "EXTRACTED"))
+        confidence_tier = normalize_confidence_tier(extra_dict.get("confidence_tier"))
         extra = json.dumps(extra_dict)
 
         # Check for existing edge (include line so multiple call sites are preserved)

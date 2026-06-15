@@ -1,5 +1,74 @@
 use crate::*;
 
+enum MarkdownArtifactResolution {
+    Resolved {
+        target: String,
+        extra: Value,
+        re_resolved: bool,
+    },
+    Dropped,
+    Demoted {
+        unresolved_target: String,
+        extra: Value,
+    },
+    StillUnresolved,
+}
+
+fn markdown_artifact_resolution(
+    current_target: &str,
+    symbol: &str,
+    mut extra: Value,
+    matches: &[(String, Option<String>)],
+    needs_legacy_key_update: bool,
+) -> Option<MarkdownArtifactResolution> {
+    if matches.len() == 1 {
+        let (target, language) = &matches[0];
+        let extra_obj = extra.as_object_mut()?;
+        extra_obj.insert(
+            "target_language".to_string(),
+            Value::String(language.clone().unwrap_or_else(|| "unknown".to_string())),
+        );
+        extra_obj.insert("confidence".to_string(), Value::from(0.8));
+        extra_obj.insert(
+            "confidence_tier".to_string(),
+            Value::String(ConfidenceTier::High.as_str().to_string()),
+        );
+        return Some(MarkdownArtifactResolution::Resolved {
+            target: target.clone(),
+            extra,
+            re_resolved: !current_target.starts_with("<unresolved:"),
+        });
+    }
+
+    let is_implicit_code_span = extra
+        .as_object()
+        .map(|obj| {
+            obj.get("evidence_kind").and_then(Value::as_str) == Some("markdown_code_span")
+                && obj.get("evidence_source").and_then(Value::as_str) == Some("code_span")
+        })
+        .unwrap_or(false);
+    if is_implicit_code_span {
+        return Some(MarkdownArtifactResolution::Dropped);
+    }
+
+    let unresolved_target = format!("<unresolved:{symbol}>");
+    if current_target == unresolved_target && !needs_legacy_key_update {
+        return Some(MarkdownArtifactResolution::StillUnresolved);
+    }
+
+    let extra_obj = extra.as_object_mut()?;
+    extra_obj.remove("target_language");
+    extra_obj.insert("confidence".to_string(), Value::from(0.2));
+    extra_obj.insert(
+        "confidence_tier".to_string(),
+        Value::String(ConfidenceTier::Low.as_str().to_string()),
+    );
+    Some(MarkdownArtifactResolution::Demoted {
+        unresolved_target,
+        extra,
+    })
+}
+
 impl GraphStore {
     pub fn resolve_markdown_artifact_refs(&mut self) -> Result<(i64, i64, i64, i64)> {
         let tx = self.conn.transaction()?;
@@ -78,78 +147,59 @@ impl GraphStore {
             }
         }
 
-        for (edge_id, current_target, raw_extra, sym, mut extra) in edge_data {
+        for (edge_id, current_target, raw_extra, sym, extra) in edge_data {
             let matches = matches_by_symbol
                 .get(&sym)
                 .map(Vec::as_slice)
                 .unwrap_or(&[]);
 
-            if matches.len() == 1 {
-                let (target, language) = &matches[0];
-                let Some(extra_obj) = extra.as_object_mut() else {
-                    continue;
-                };
-                extra_obj.insert(
-                    "target_language".to_string(),
-                    Value::String(language.clone().unwrap_or_else(|| "unknown".to_string())),
-                );
-                extra_obj.insert("confidence".to_string(), Value::from(0.8));
-                extra_obj.insert(
-                    "confidence_tier".to_string(),
-                    Value::String("HIGH".to_string()),
-                );
-                if current_target == *target && !raw_extra.contains("unresolved_target_name") {
-                    continue;
+            match markdown_artifact_resolution(
+                &current_target,
+                &sym,
+                extra,
+                matches,
+                raw_extra.contains("unresolved_target_name"),
+            ) {
+                Some(MarkdownArtifactResolution::Resolved {
+                    target,
+                    extra,
+                    re_resolved: was_previously_resolved,
+                }) => {
+                    if current_target == target && !raw_extra.contains("unresolved_target_name") {
+                        continue;
+                    }
+                    tx.execute(
+                        "UPDATE edges \
+                         SET target_qualified = ?, extra = ?, confidence = 0.8, confidence_tier = 'HIGH' \
+                         WHERE id = ?",
+                        params![target, serde_json::to_string(&extra)?, edge_id],
+                    )?;
+                    if was_previously_resolved {
+                        re_resolved += 1;
+                    } else {
+                        resolved += 1;
+                    }
                 }
-                tx.execute(
-                    "UPDATE edges \
-                     SET target_qualified = ?, extra = ?, confidence = 0.8, confidence_tier = 'HIGH' \
-                     WHERE id = ?",
-                    params![target, serde_json::to_string(&extra)?, edge_id],
-                )?;
-                if current_target.starts_with("<unresolved:") {
-                    resolved += 1;
-                } else if current_target != *target {
-                    re_resolved += 1;
-                }
-            } else {
-                let is_implicit_code_span = extra
-                    .as_object()
-                    .map(|obj| {
-                        obj.get("evidence_kind").and_then(Value::as_str)
-                            == Some("markdown_code_span")
-                            && obj.get("evidence_source").and_then(Value::as_str)
-                                == Some("code_span")
-                    })
-                    .unwrap_or(false);
-                if is_implicit_code_span {
+                Some(MarkdownArtifactResolution::Dropped) => {
                     tx.execute("DELETE FROM edges WHERE id = ?", params![edge_id])?;
                     demoted += 1;
-                    continue;
                 }
-                let unresolved_target = format!("<unresolved:{sym}>");
-                if current_target == unresolved_target
-                    && !raw_extra.contains("unresolved_target_name")
-                {
+                Some(MarkdownArtifactResolution::Demoted {
+                    unresolved_target,
+                    extra,
+                }) => {
+                    tx.execute(
+                        "UPDATE edges \
+                         SET target_qualified = ?, extra = ?, confidence = 0.2, confidence_tier = 'LOW' \
+                         WHERE id = ?",
+                        params![unresolved_target, serde_json::to_string(&extra)?, edge_id],
+                    )?;
+                    demoted += 1;
+                }
+                Some(MarkdownArtifactResolution::StillUnresolved) => {
                     still_unresolved += 1;
-                    continue;
                 }
-                let Some(extra_obj) = extra.as_object_mut() else {
-                    continue;
-                };
-                extra_obj.remove("target_language");
-                extra_obj.insert("confidence".to_string(), Value::from(0.2));
-                extra_obj.insert(
-                    "confidence_tier".to_string(),
-                    Value::String("LOW".to_string()),
-                );
-                tx.execute(
-                    "UPDATE edges \
-                     SET target_qualified = ?, extra = ?, confidence = 0.2, confidence_tier = 'LOW' \
-                     WHERE id = ?",
-                    params![unresolved_target, serde_json::to_string(&extra)?, edge_id],
-                )?;
-                demoted += 1;
+                None => continue,
             }
         }
 

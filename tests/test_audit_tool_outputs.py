@@ -52,6 +52,12 @@ def test_traverse_graph_not_found_has_standard_envelope(monkeypatch) -> None:
     assert result["status"] == "not_found"
     assert result["summary"] == "No node matching 'missing-symbol'."
     assert result["traversal"] == []
+    assert result["reachability"] == {
+        "state": "not_found",
+        "truncated": False,
+        "max_depth": 3,
+        "nodes_visited": 0,
+    }
     assert result["_hints"]["next_steps"][0]["tool"] == "semantic_search_nodes_tool"
 
 

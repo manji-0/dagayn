@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,7 @@ from ..graph import _sanitize_name, edge_to_dict, node_to_dict
 from ..hints import generate_hints, get_session
 from ..incremental import get_changed_files, get_db_path, get_staged_and_unstaged
 from ..search import hybrid_search
+from ..state_types import ReachabilityInfo, TraversalEntry, TraversalMode
 from ._common import (
     _BUILTIN_CALL_NAMES,
     _get_store,
@@ -838,7 +840,7 @@ def find_large_functions(
 # -------------------------------------------------------------------
 
 
-def _estimate_traversal_entry_tokens(entry: dict) -> int:
+def _estimate_traversal_entry_tokens(entry: Mapping[str, Any]) -> int:
     return (len(entry["qualified_name"]) + len(entry["file"]) + len(entry["name"]) + 30) // 4
 
 
@@ -848,10 +850,10 @@ def _traverse_dfs_lazy(
     depth: int,
     token_budget: int,
     make_entry: Any,
-) -> tuple[dict[str, int], list[dict], bool]:
+) -> tuple[dict[str, int], list[TraversalEntry], bool]:
     """Depth-first traversal that hydrates only nodes it actually visits."""
     visited: dict[str, int] = {}
-    traversal: list[dict] = []
+    traversal: list[TraversalEntry] = []
     approx_tokens = 0
     budget_exceeded = False
     node_cache: dict[str, Any | None] = {}
@@ -900,7 +902,7 @@ def _traverse_dfs_lazy(
 
 def traverse_graph_func(
     query: str,
-    mode: str = "bfs",
+    mode: TraversalMode = "bfs",
     depth: int = 3,
     token_budget: int = 2000,
     repo_root: str | None = None,
@@ -928,6 +930,12 @@ def traverse_graph_func(
             provider=provider,
         )["results"]
         if not results:
+            reachability: ReachabilityInfo = {
+                "state": "not_found",
+                "truncated": False,
+                "max_depth": max(1, min(depth, 6)),
+                "nodes_visited": 0,
+            }
             return make_response(
                 "not_found",
                 f"No node matching '{query}'.",
@@ -937,6 +945,7 @@ def traverse_graph_func(
                 nodes_visited=0,
                 traversal=[],
                 truncated=False,
+                reachability=reachability,
                 next_tool_suggestions=[
                     "semantic_search_nodes_tool -- search more broadly for the symbol",
                     "query_graph_tool -- inspect a known qualified name directly",
@@ -948,11 +957,11 @@ def traverse_graph_func(
 
         # Traversal state shared by both modes.
         visited: dict[str, int] = {}
-        traversal: list[dict] = []
+        traversal: list[TraversalEntry] = []
         approx_tokens = 0
         budget_exceeded = False
 
-        def _make_entry(node: Any, cur_depth: int) -> dict:
+        def _make_entry(node: Any, cur_depth: int) -> TraversalEntry:
             return {
                 "name": _sanitize_name(node.name),
                 "qualified_name": node.qualified_name,
@@ -1021,6 +1030,12 @@ def traverse_graph_func(
                 current_frontier = next_frontier
                 cur_depth += 1
 
+        reachability = {
+            "state": "truncated" if budget_exceeded else "complete",
+            "truncated": budget_exceeded,
+            "max_depth": depth,
+            "nodes_visited": len(traversal),
+        }
         return make_response(
             "ok",
             f"Traversed {len(traversal)} node(s) from '{start_qn}' up to depth {depth}."
@@ -1031,6 +1046,7 @@ def traverse_graph_func(
             nodes_visited=len(traversal),
             traversal=traversal,
             truncated=budget_exceeded,
+            reachability=reachability,
             next_tool_suggestions=[
                 "query_graph_tool callers_of -- focused relationship query",
                 'review_tool mode="impact" -- blast radius analysis',

@@ -24,6 +24,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
+from .state_types import EmbeddingStatus
+
 if TYPE_CHECKING:
     import numpy as np
 else:
@@ -110,7 +112,7 @@ _GRAPH_FACT_EDGE_KINDS = {
 }
 
 
-def get_embedding_status(db_path: str | Path) -> dict[str, Any]:
+def get_embedding_status(db_path: str | Path) -> EmbeddingStatus:
     """Return read-only embedding coverage for a graph database."""
     path = Path(db_path)
     try:
@@ -145,7 +147,7 @@ def get_embedding_status(db_path: str | Path) -> dict[str, Any]:
                 "SELECT provider, COUNT(*) AS count FROM embeddings GROUP BY provider"
             ).fetchall()
         }
-        status: dict[str, Any] = {
+        status: EmbeddingStatus = {
             "status": "empty" if total_embeddings == 0 else "unknown",
             "total_embeddings": total_embeddings,
             "provider_counts": provider_counts,

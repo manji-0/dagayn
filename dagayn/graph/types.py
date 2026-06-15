@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
+from ..state_types import ConfidenceTier
+
 
 @dataclass
 class GraphNode:
@@ -35,7 +37,7 @@ class GraphEdge:
     line: int
     extra: dict
     confidence: float = 1.0
-    confidence_tier: str = "EXTRACTED"
+    confidence_tier: ConfidenceTier = "EXTRACTED"
 
 
 @dataclass

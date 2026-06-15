@@ -24,6 +24,7 @@ from .prompts import (
     pre_merge_check_prompt,
     review_changes_prompt,
 )
+from .state_types import RefactorMode, TraversalMode
 
 
 def _patch_typing_eval_type_for_python314_beta() -> None:
@@ -673,7 +674,7 @@ def flow_tool(
 
 @mcp.tool()
 def refactor_tool(
-    mode: str = "rename",
+    mode: RefactorMode = "rename",
     old_name: Optional[str] = None,
     new_name: Optional[str] = None,
     kind: Optional[str] = None,
@@ -816,7 +817,7 @@ def get_suggested_questions_tool(
 @mcp.tool()
 def traverse_graph_tool(
     query: str,
-    mode: str = "bfs",
+    mode: TraversalMode = "bfs",
     depth: int = 3,
     token_budget: int = 2000,
     repo_root: Optional[str] = None,

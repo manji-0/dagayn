@@ -15,11 +15,13 @@ commands, and watch mode — produces identical results.
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 from typing import Any
 
 from .graph import GraphStore
+from .state_types import MarkdownArtifactResolution
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +55,63 @@ def run_post_processing(store: GraphStore) -> dict[str, Any]:
 
 
 # -- Individual steps (private) ------------------------------------------
+
+
+def _markdown_artifact_resolution(
+    *,
+    edge_id: int,
+    current_target: str,
+    symbol: str,
+    extra: dict[str, Any],
+    matches: list[tuple[str, str]],
+) -> MarkdownArtifactResolution:
+    """Return the typed target state for one Markdown artifact edge."""
+    unresolved_target = f"<unresolved:{symbol}>"
+    is_implicit_code_span = (
+        extra.get("evidence_kind") == "markdown_code_span"
+        and extra.get("evidence_source") == "code_span"
+    )
+
+    if len(matches) == 1:
+        qname, lang = matches[0]
+        new_extra = dict(extra)
+        new_extra["target_language"] = lang
+        new_extra["confidence"] = 0.8
+        new_extra["confidence_tier"] = "HIGH"
+        return {
+            "state": "resolved" if current_target.startswith("<unresolved:") else "re_resolved",
+            "edge_id": edge_id,
+            "target_qualified": qname,
+            "target_language": lang,
+            "confidence": 0.8,
+            "confidence_tier": "HIGH",
+            "extra": new_extra,
+        }
+
+    if is_implicit_code_span:
+        return {"state": "dropped", "edge_id": edge_id}
+
+    if current_target == unresolved_target:
+        return {
+            "state": "still_unresolved",
+            "edge_id": edge_id,
+            "target_qualified": unresolved_target,
+            "confidence": 0.2,
+            "confidence_tier": "LOW",
+        }
+
+    new_extra = dict(extra)
+    new_extra.pop("target_language", None)
+    new_extra["confidence"] = 0.2
+    new_extra["confidence_tier"] = "LOW"
+    return {
+        "state": "dropped",
+        "edge_id": edge_id,
+        "target_qualified": unresolved_target,
+        "confidence": 0.2,
+        "confidence_tier": "LOW",
+        "extra": new_extra,
+    }
 
 
 def _resolve_markdown_artifact_refs(
@@ -102,8 +161,6 @@ def _resolve_markdown_artifact_refs(
                 int(rust_result[3]) if len(rust_result) > 3 else 0
             )
             return
-
-        import json
 
         rows = store._conn.execute(
             "SELECT id, target_qualified, extra "
@@ -162,39 +219,52 @@ def _resolve_markdown_artifact_refs(
 
         for edge_id, current_target, sym, extra in edge_data:
             matches = matches_by_sym.get(sym, [])
-            unresolved_target = f"<unresolved:{sym}>"
-            is_implicit_code_span = (
-                extra.get("evidence_kind") == "markdown_code_span"
-                and extra.get("evidence_source") == "code_span"
+            decision = _markdown_artifact_resolution(
+                edge_id=edge_id,
+                current_target=current_target,
+                symbol=sym,
+                extra=extra,
+                matches=matches,
             )
 
-            if len(matches) == 1:
-                qname, lang = matches[0]
+            if decision["state"] in {"resolved", "re_resolved"}:
+                qname = decision["target_qualified"]
                 if current_target == qname:
                     continue  # already correct — no-op
-                new_extra = dict(extra)
-                new_extra["target_language"] = lang
-                new_extra["confidence"] = 0.8
-                new_extra["confidence_tier"] = "HIGH"
-                to_update.append((qname, json.dumps(new_extra), 0.8, "HIGH", edge_id))
-                if current_target.startswith("<unresolved:"):
+                to_update.append(
+                    (
+                        qname,
+                        json.dumps(decision["extra"]),
+                        decision["confidence"],
+                        decision["confidence_tier"],
+                        edge_id,
+                    )
+                )
+                if decision["state"] == "resolved":
                     resolved += 1
                 else:
                     re_resolved += 1
-            else:
-                if is_implicit_code_span:
-                    to_delete.append((edge_id,))
-                    demoted += 1
-                    continue
-                if current_target == unresolved_target:
-                    still_unresolved += 1
-                    continue  # already correct — no-op
-                new_extra = dict(extra)
-                new_extra.pop("target_language", None)
-                new_extra["confidence"] = 0.2
-                new_extra["confidence_tier"] = "LOW"
-                to_update.append((unresolved_target, json.dumps(new_extra), 0.2, "LOW", edge_id))
+                continue
+
+            if decision["state"] == "still_unresolved":
+                still_unresolved += 1
+                continue
+
+            if "target_qualified" not in decision:
+                to_delete.append((edge_id,))
                 demoted += 1
+                continue
+
+            to_update.append(
+                (
+                    decision["target_qualified"],
+                    json.dumps(decision["extra"]),
+                    decision["confidence"],
+                    decision["confidence_tier"],
+                    edge_id,
+                )
+            )
+            demoted += 1
 
         if to_update:
             store._conn.executemany(

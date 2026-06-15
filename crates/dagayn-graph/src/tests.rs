@@ -1927,7 +1927,7 @@ fn reads_nodes_and_edges_for_incremental_dependents() {
     let incoming = store.get_edges_by_target("src/lib.py::build").unwrap();
     assert_eq!(incoming.len(), 1);
     assert_eq!(incoming[0].file_path, "src/app.py");
-    assert_eq!(incoming[0].confidence_tier, "HEURISTIC");
+    assert_eq!(incoming[0].confidence_tier.as_str(), "EXTRACTED");
 
     let outgoing = store.get_edges_by_source("src/app.py::main").unwrap();
     assert_eq!(outgoing.len(), 1);

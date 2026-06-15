@@ -8,7 +8,11 @@ from unittest.mock import MagicMock, patch
 from dagayn.graph import GraphStore
 from dagayn.incremental import full_build
 from dagayn.parser import EdgeInfo, NodeInfo
-from dagayn.postprocessing import _resolve_markdown_artifact_refs, run_post_processing
+from dagayn.postprocessing import (
+    _markdown_artifact_resolution,
+    _resolve_markdown_artifact_refs,
+    run_post_processing,
+)
 
 
 def _get_signature(store, qualified_name):
@@ -17,6 +21,38 @@ def _get_signature(store, qualified_name):
         (qualified_name,),
     ).fetchone()
     return row["signature"] if row else None
+
+
+def test_markdown_artifact_resolution_returns_typed_states():
+    resolved = _markdown_artifact_resolution(
+        edge_id=1,
+        current_target="<unresolved:Service>",
+        symbol="Service",
+        extra={"evidence_kind": "markdown_code_span", "evidence_source": "code_span"},
+        matches=[("/repo/app.py::Service", "python")],
+    )
+    assert resolved["state"] == "resolved"
+    assert resolved["target_qualified"] == "/repo/app.py::Service"
+    assert resolved["confidence_tier"] == "HIGH"
+
+    dropped = _markdown_artifact_resolution(
+        edge_id=2,
+        current_target="<unresolved:Missing>",
+        symbol="Missing",
+        extra={"evidence_kind": "markdown_code_span", "evidence_source": "code_span"},
+        matches=[],
+    )
+    assert dropped == {"state": "dropped", "edge_id": 2}
+
+    still_unresolved = _markdown_artifact_resolution(
+        edge_id=3,
+        current_target="<unresolved:Missing>",
+        symbol="Missing",
+        extra={"relationship_role": "implemented_by"},
+        matches=[],
+    )
+    assert still_unresolved["state"] == "still_unresolved"
+    assert still_unresolved["confidence_tier"] == "LOW"
 
 
 class TestRunPostProcessing:

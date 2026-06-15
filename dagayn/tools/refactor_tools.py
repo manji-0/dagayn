@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, overload
 
 from ..hints import generate_hints, get_session
 from ..incremental import find_project_root
@@ -14,6 +14,7 @@ from ..refactor import (
     suggest_refactorings,
 )
 from ..stability_policy import component_stability_profiles, scope_key_for_file
+from ..state_types import RefactorMode
 from ._common import (
     _get_store,
     _validate_repo_root,
@@ -132,8 +133,36 @@ def _refactor_guidance(
 # ---------------------------------------------------------------------------
 
 
+@overload
 def refactor_func(
-    mode: str = "rename",
+    mode: Literal["rename"] = "rename",
+    old_name: str | None = None,
+    new_name: str | None = None,
+    kind: str | None = None,
+    file_pattern: str | None = None,
+    limit: int = 50,
+    top_n: int | None = None,
+    detail_level: str = "standard",
+    repo_root: str | None = None,
+) -> dict[str, Any]: ...
+
+
+@overload
+def refactor_func(
+    mode: Literal["dead_code", "suggest"],
+    old_name: str | None = None,
+    new_name: str | None = None,
+    kind: str | None = None,
+    file_pattern: str | None = None,
+    limit: int = 50,
+    top_n: int | None = None,
+    detail_level: str = "standard",
+    repo_root: str | None = None,
+) -> dict[str, Any]: ...
+
+
+def refactor_func(
+    mode: RefactorMode | str = "rename",
     old_name: str | None = None,
     new_name: str | None = None,
     kind: str | None = None,

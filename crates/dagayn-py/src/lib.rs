@@ -1137,7 +1137,7 @@ fn graph_edge_to_py_with_cls(
             edge.line,
             extra,
             edge.confidence,
-            edge.confidence_tier,
+            edge.confidence_tier.as_str(),
         ))?
         .unbind())
 }

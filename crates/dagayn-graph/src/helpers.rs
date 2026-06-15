@@ -448,11 +448,8 @@ pub(crate) fn store_file_batch_tx(
                 .get("confidence")
                 .and_then(Value::as_f64)
                 .unwrap_or(1.0);
-            let confidence_tier = edge
-                .extra
-                .get("confidence_tier")
-                .and_then(Value::as_str)
-                .unwrap_or("EXTRACTED");
+            let confidence_tier =
+                ConfidenceTier::from_raw(edge.extra.get("confidence_tier").and_then(Value::as_str));
             let extra_json = extra_json(&edge.extra)?;
             push_text(&mut edge_params, &edge.kind);
             push_text(&mut edge_params, &edge.source);
@@ -461,7 +458,7 @@ pub(crate) fn store_file_batch_tx(
             edge_params.push(SqlValue::Integer(edge.line));
             edge_params.push(SqlValue::Text(extra_json));
             edge_params.push(SqlValue::Real(confidence));
-            push_text(&mut edge_params, confidence_tier);
+            push_text(&mut edge_params, confidence_tier.as_str());
             edge_params.push(SqlValue::Real(now));
             edge_rows += 1;
             if edge_rows == EDGE_INSERT_ROWS {
@@ -568,7 +565,7 @@ pub(crate) fn store_raw_compact_file_batch_tx(
             edge_params.push(SqlValue::Integer(*line));
             edge_params.push(SqlValue::Text(extra.get().to_string()));
             edge_params.push(SqlValue::Real(confidence));
-            edge_params.push(SqlValue::Text(confidence_tier));
+            edge_params.push(SqlValue::Text(confidence_tier.as_str().to_string()));
             edge_params.push(SqlValue::Real(now));
             edge_rows += 1;
             if edge_rows == EDGE_INSERT_ROWS {
@@ -623,20 +620,17 @@ pub(crate) fn create_graph_write_indexes(tx: &Transaction<'_>) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn edge_metadata_from_raw_extra(raw: &str) -> Result<(f64, String)> {
+pub(crate) fn edge_metadata_from_raw_extra(raw: &str) -> Result<(f64, ConfidenceTier)> {
     if raw == "{}" {
-        return Ok((1.0, "EXTRACTED".to_string()));
+        return Ok((1.0, ConfidenceTier::default()));
     }
     let extra: Value = serde_json::from_str(raw)?;
     let confidence = extra
         .get("confidence")
         .and_then(Value::as_f64)
         .unwrap_or(1.0);
-    let confidence_tier = extra
-        .get("confidence_tier")
-        .and_then(Value::as_str)
-        .unwrap_or("EXTRACTED")
-        .to_string();
+    let confidence_tier =
+        ConfidenceTier::from_raw(extra.get("confidence_tier").and_then(Value::as_str));
     Ok((confidence, confidence_tier))
 }
 
@@ -743,9 +737,9 @@ pub(crate) fn edge_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<GraphEd
             rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(err))
         })?,
         confidence: row.get::<_, Option<f64>>("confidence")?.unwrap_or(1.0),
-        confidence_tier: row
-            .get::<_, Option<String>>("confidence_tier")?
-            .unwrap_or_else(|| "EXTRACTED".to_string()),
+        confidence_tier: ConfidenceTier::from_raw(
+            row.get::<_, Option<String>>("confidence_tier")?.as_deref(),
+        ),
     })
 }
 

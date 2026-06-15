@@ -258,6 +258,11 @@ Use `implementations_of` to find code or Terraform nodes linked to a Markdown
 contract section through `implemented_by` / `implements_contract`
 `CROSS_ARTIFACT` edges.
 
+`traverse_graph_tool` returns both the legacy top-level `truncated` boolean and a
+typed `reachability` object. `reachability.state` is `complete`, `truncated`, or
+`not_found`, so callers can distinguish a fully explored budgeted neighborhood
+from a partial traversal or a missing start node without inferring from text.
+
 ### MCP tool surface
 
 <!-- Plan context: ./plans/ANALYSIS-TOOL-STRATEGY.md#mcp-tool-surface-plan; not a graph dependency because stable command docs are canonical. -->

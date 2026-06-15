@@ -1119,6 +1119,12 @@ class TestFlowTools:
         assert result["status"] == "ok"
         assert endpoint_calls
         assert result["nodes_visited"] >= 1
+        assert result["reachability"] == {
+            "state": "complete",
+            "truncated": False,
+            "max_depth": 2,
+            "nodes_visited": result["nodes_visited"],
+        }
 
     def test_get_flow_by_name(self):
         result = get_flow(flow_name="handle_request", repo_root=str(self.root))

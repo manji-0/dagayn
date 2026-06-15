@@ -22,6 +22,8 @@ from pathlib import Path
 from typing import Literal, cast
 from urllib.parse import urlparse
 
+from .state_types import LocalEmbeddingProbeStatus
+
 LocalEmbeddingLevel = Literal["bge-m3", "low"]
 LocalEmbeddingRuntime = Literal["llama"]
 EmbeddingTextMode = Literal["metadata", "body", "material"]
@@ -85,8 +87,12 @@ class PersistedLocalEmbeddingProvider:
 
 @dataclass(frozen=True)
 class _ProbeResult:
-    status: Literal["ready", "unreachable", "not_ready", "incompatible"]
+    status: LocalEmbeddingProbeStatus
     detail: str = ""
+
+    @property
+    def ready(self) -> bool:
+        return self.status == "ready"
 
 
 LOCAL_EMBEDDING_PRESETS: dict[
@@ -366,7 +372,7 @@ def local_embedding_server(
     preset = get_local_embedding_preset(level, runtime=runtime)
     base_url = local_embedding_base_url(port)
     probe = _probe_embedding_server(base_url, preset.model, preset.dimension)
-    if probe.status == "ready":
+    if probe.ready:
         yield LocalEmbeddingServer(preset=preset, base_url=base_url, command=[], started=False)
         return
     if probe.status == "incompatible":
@@ -379,7 +385,7 @@ def local_embedding_server(
     ready = False
     try:
         probe = _probe_embedding_server(base_url, preset.model, preset.dimension)
-        if probe.status == "ready":
+        if probe.ready:
             _release_local_embedding_port_lock(port_lock)
             port_lock = None
             yield LocalEmbeddingServer(preset=preset, base_url=base_url, command=[], started=False)
@@ -393,7 +399,7 @@ def local_embedding_server(
             deadline = time.monotonic() + startup_timeout
             while time.monotonic() < deadline:
                 probe = _probe_embedding_server(base_url, preset.model, preset.dimension)
-                if probe.status == "ready":
+                if probe.ready:
                     _release_local_embedding_port_lock(port_lock)
                     port_lock = None
                     yield LocalEmbeddingServer(
@@ -432,7 +438,7 @@ def local_embedding_server(
                     f"(exit code {proc.returncode}). Command: {shlex.join(command)}"
                 )
             probe = _probe_embedding_server(base_url, preset.model, preset.dimension)
-            if probe.status == "ready":
+            if probe.ready:
                 ready = True
                 if keep_running:
                     _release_local_embedding_port_lock(port_lock)

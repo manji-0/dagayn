@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, Literal, overload
 
 from ..hints import generate_hints, get_session
 from ._common import attach_answerability
@@ -40,6 +40,34 @@ def _error(message: str, *, mode: str, repo_root: str | None) -> dict[str, Any]:
         },
         repo_root,
     )
+
+
+@overload
+def flow_func(
+    mode: Literal["list"] = "list",
+    sort_by: Literal["criticality", "depth", "node_count", "file_count", "name"] = "criticality",
+    limit: int = 50,
+    kind: str | None = None,
+    detail_level: Literal["minimal", "standard"] = "standard",
+    flow_id: None = None,
+    flow_name: None = None,
+    include_source: bool = False,
+    repo_root: str | None = None,
+) -> dict[str, Any]: ...
+
+
+@overload
+def flow_func(
+    mode: Literal["get"],
+    sort_by: Literal["criticality", "depth", "node_count", "file_count", "name"] = "criticality",
+    limit: int = 50,
+    kind: str | None = None,
+    detail_level: Literal["minimal", "standard"] = "standard",
+    flow_id: int | None = None,
+    flow_name: str | None = None,
+    include_source: bool = False,
+    repo_root: str | None = None,
+) -> dict[str, Any]: ...
 
 
 def flow_func(

@@ -5,6 +5,7 @@ import logging
 import time
 from typing import TYPE_CHECKING
 
+from ..state_types import normalize_confidence_tier
 from ._mixin_protocol import GraphStoreMixinProtocol
 from ._sql import _edge_target_name
 
@@ -94,7 +95,7 @@ class GraphStoreStorageBatchMixin(GraphStoreMixinProtocol):
                     e.line,
                     json.dumps(e.extra) if e.extra else "{}",
                     float((e.extra or {}).get("confidence", 1.0)),
-                    str((e.extra or {}).get("confidence_tier", "EXTRACTED")),
+                    normalize_confidence_tier((e.extra or {}).get("confidence_tier")),
                     now,
                 )
                 for e in edges

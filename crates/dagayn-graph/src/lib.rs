@@ -259,7 +259,48 @@ pub struct GraphEdge {
     pub line: i64,
     pub extra: Value,
     pub confidence: f64,
-    pub confidence_tier: String,
+    pub confidence_tier: ConfidenceTier,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ConfidenceTier {
+    Exact,
+    Extracted,
+    High,
+    Medium,
+    Low,
+    Unknown,
+}
+
+impl ConfidenceTier {
+    pub fn from_raw(value: Option<&str>) -> Self {
+        match value.unwrap_or("EXTRACTED").to_ascii_uppercase().as_str() {
+            "EXACT" => Self::Exact,
+            "EXTRACTED" => Self::Extracted,
+            "HIGH" => Self::High,
+            "MEDIUM" => Self::Medium,
+            "LOW" => Self::Low,
+            "UNKNOWN" => Self::Unknown,
+            _ => Self::Extracted,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Exact => "EXACT",
+            Self::Extracted => "EXTRACTED",
+            Self::High => "HIGH",
+            Self::Medium => "MEDIUM",
+            Self::Low => "LOW",
+            Self::Unknown => "UNKNOWN",
+        }
+    }
+}
+
+impl Default for ConfidenceTier {
+    fn default() -> Self {
+        Self::Extracted
+    }
 }
 
 pub type EdgeEndpointMap = HashMap<String, Vec<GraphEdge>>;
