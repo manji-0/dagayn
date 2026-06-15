@@ -262,9 +262,10 @@ pub struct GraphEdge {
     pub confidence_tier: ConfidenceTier,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum ConfidenceTier {
     Exact,
+    #[default]
     Extracted,
     High,
     Medium,
@@ -294,12 +295,6 @@ impl ConfidenceTier {
             Self::Low => "LOW",
             Self::Unknown => "UNKNOWN",
         }
-    }
-}
-
-impl Default for ConfidenceTier {
-    fn default() -> Self {
-        Self::Extracted
     }
 }
 

@@ -2,6 +2,22 @@
 
 All notable changes to `dagayn` are documented here.
 
+## 4.2.8 — 2026-06-15
+
+### Improvements
+
+- Recognize public API coverage for bare helper contracts across Rust, Python,
+  JavaScript, TypeScript, Go, Java, C#, C++, PHP, Ruby, and Kotlin test styles,
+  reducing false quality-check gaps when helpers are intentionally private.
+- Share edge-record normalization between graph storage paths so rich edge
+  metadata such as line ranges, confidence, scope, and evidence is preserved
+  consistently.
+
+### Fixes
+
+- Keep the Rust graph backend clippy-clean by deriving the default confidence
+  tier directly on the enum variant.
+
 ## 4.2.6 — 2026-06-09
 
 ### Fixes
