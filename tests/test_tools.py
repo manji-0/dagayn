@@ -339,6 +339,95 @@ class TestTools:
         assert result["results"][0]["confidence"] == "medium"
         assert "setup_method" not in {item["name"] for item in result["results"]}
 
+    @pytest.mark.parametrize(
+        ("language", "source_path", "test_path", "symbol", "test_symbol"),
+        [
+            (
+                "python",
+                "/repo/src/service.py",
+                "/repo/tests/test_service.py",
+                "load_user",
+                "test_load_user",
+            ),
+            (
+                "typescript",
+                "/repo/src/service.ts",
+                "/repo/src/service.test.ts",
+                "loadUser",
+                "testLoadUser",
+            ),
+            (
+                "lua",
+                "/repo/src/service.lua",
+                "/repo/tests/service_test.lua",
+                "load_user",
+                "test_load_user",
+            ),
+            ("go", "/repo/src/service.go", "/repo/src/service_test.go", "LoadUser", "TestLoadUser"),
+        ],
+    )
+    def test_query_graph_tests_for_accepts_bare_tested_by_sources_across_languages(
+        self,
+        monkeypatch,
+        language: str,
+        source_path: str,
+        test_path: str,
+        symbol: str,
+        test_symbol: str,
+    ):
+        from dagayn.tools import query as query_module
+
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name=symbol,
+                file_path=source_path,
+                line_start=1,
+                line_end=20,
+                language=language,
+            )
+        )
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Test",
+                name=test_symbol,
+                file_path=test_path,
+                line_start=1,
+                line_end=20,
+                language=language,
+                is_test=True,
+            )
+        )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="TESTED_BY",
+                source=symbol,
+                target=f"{test_path}::{test_symbol}",
+                file_path=test_path,
+                line=3,
+            )
+        )
+        self.store.commit()
+        monkeypatch.setattr(
+            query_module,
+            "_get_store",
+            lambda repo_root: (self.store, Path("/repo")),
+        )
+        self.store.close = lambda: None
+
+        result = query_module.query_graph(
+            pattern="tests_for",
+            target=f"{source_path}::{symbol}",
+            repo_root="/repo",
+            detail_level="minimal",
+        )
+
+        assert result["status"] == "ok"
+        assert result["result_count"] >= 1
+        assert result["results"][0]["name"] == test_symbol
+        assert result["results"][0]["confidence"] == "high"
+        assert result["results"][0]["coverage_source"] == "graph_edge"
+
     def test_query_graph_docs_for_uses_documentation_inverse_labels(self, monkeypatch):
         from dagayn.tools import query as query_module
 

@@ -4,6 +4,8 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from dagayn.changes import (
     _parse_diff_ranges_cached,
     _parse_unified_diff,
@@ -37,6 +39,7 @@ class TestChanges:
         is_test: bool = False,
         line_start: int = 1,
         line_end: int = 10,
+        language: str = "python",
         extra: dict | None = None,
     ) -> int:
         node = NodeInfo(
@@ -45,7 +48,7 @@ class TestChanges:
             file_path=path,
             line_start=line_start,
             line_end=line_end,
-            language="python",
+            language=language,
             parent_name=parent,
             is_test=is_test,
             extra=extra or {},
@@ -529,6 +532,35 @@ class TestChanges:
             "crates/dagayn-graph/src/tests.rs::stores_file_batch_edge_metadata_once_per_call_site"
         )
         assert inferred[0]["coverage_source"] == "graph_edge"
+
+    @pytest.mark.parametrize(
+        ("language", "source_path", "test_path", "symbol", "test_symbol"),
+        [
+            ("python", "src/service.py", "tests/test_service.py", "load_user", "test_load_user"),
+            ("typescript", "src/service.ts", "src/service.test.ts", "loadUser", "testLoadUser"),
+            ("lua", "src/service.lua", "tests/service_test.lua", "load_user", "test_load_user"),
+            ("go", "src/service.go", "src/service_test.go", "LoadUser", "TestLoadUser"),
+        ],
+    )
+    def test_bare_tested_by_source_suppresses_test_gap_across_languages(
+        self,
+        language: str,
+        source_path: str,
+        test_path: str,
+        symbol: str,
+        test_symbol: str,
+    ):
+        self._add_func(symbol, path=source_path, language=language)
+        self._add_func(test_symbol, path=test_path, is_test=True, language=language)
+        self._add_tested_by(symbol, f"{test_path}::{test_symbol}", test_path)
+
+        result = analyze_changes(
+            self.store,
+            changed_files=[source_path],
+            changed_ranges={source_path: [(1, 10)]},
+        )
+
+        assert result["test_gaps"] == []
 
     def test_get_review_context_minimal_uses_tested_by_source_as_covered_node(self):
         """Minimal review context should treat TESTED_BY as production -> test."""
