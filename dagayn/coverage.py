@@ -157,11 +157,16 @@ def infer_tests_for_node(
     confidence_rank = {"low": 0, "medium": 1, "high": 2}
     results: dict[str, tuple[int, dict[str, Any]]] = {}
 
-    direct_edges = [
-        edge
-        for edge in store.get_edges_by_source(target.qualified_name)
-        if edge.kind == "TESTED_BY"
-    ]
+    direct_edges = []
+    seen_direct_edge_ids: set[int] = set()
+    for source_key in dict.fromkeys([target.qualified_name, target.name]):
+        for edge in store.get_edges_by_source(source_key):
+            if edge.kind != "TESTED_BY":
+                continue
+            if edge.id in seen_direct_edge_ids:
+                continue
+            seen_direct_edge_ids.add(edge.id)
+            direct_edges.append(edge)
     direct_targets = [edge.target_qualified for edge in direct_edges]
     direct_nodes = store.get_nodes_by_qualified_names(direct_targets)
     for edge in direct_edges:

@@ -504,6 +504,32 @@ class TestChanges:
         )
         assert result["test_gaps"] == []
 
+    def test_infer_tests_for_node_accepts_bare_tested_by_source(self):
+        """Rust cross-file private helper calls may be stored as bare TESTED_BY sources."""
+        from dagayn.coverage import infer_tests_for_node
+
+        self._add_func("store_file_batch_tx", path="crates/dagayn-graph/src/helpers.rs")
+        self._add_func(
+            "stores_file_batch_edge_metadata_once_per_call_site",
+            path="crates/dagayn-graph/src/tests.rs",
+            is_test=True,
+        )
+        self._add_tested_by(
+            "store_file_batch_tx",
+            "crates/dagayn-graph/src/tests.rs::stores_file_batch_edge_metadata_once_per_call_site",
+            "crates/dagayn-graph/src/tests.rs",
+        )
+
+        node = self.store.get_node("crates/dagayn-graph/src/helpers.rs::store_file_batch_tx")
+        assert node is not None
+
+        inferred = infer_tests_for_node(self.store, node)
+
+        assert inferred[0]["qualified_name"] == (
+            "crates/dagayn-graph/src/tests.rs::stores_file_batch_edge_metadata_once_per_call_site"
+        )
+        assert inferred[0]["coverage_source"] == "graph_edge"
+
     def test_get_review_context_minimal_uses_tested_by_source_as_covered_node(self):
         """Minimal review context should treat TESTED_BY as production -> test."""
         from dagayn.tools.review import _generate_review_guidance, get_review_context

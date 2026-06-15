@@ -1719,7 +1719,7 @@ def detect_changes_func(
             changed_ranges=abs_ranges if abs_ranges else None,
             repo_root=str(root),
             base=base,
-            include_heuristic_test_gap_evidence=detail_level == "verbose",
+            include_heuristic_test_gap_evidence=True,
             heuristic_test_gap_node_limit=_SUPPLEMENTAL_TEST_DENSITY_NODE_LIMIT,
         )
 

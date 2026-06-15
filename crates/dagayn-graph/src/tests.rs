@@ -808,15 +808,20 @@ fn stores_file_batch_edge_metadata_once_per_call_site() {
         extra: json!({"confidence": 0.42, "confidence_tier": "low", "role": "contract"}),
     };
 
-    store
-        .store_file_batch(&[(
+    let tx = store.conn.transaction().unwrap();
+    store_file_batch_tx(
+        &tx,
+        &[(
             "app.py".to_string(),
             vec![file, caller, callee],
             vec![edge.clone(), edge],
             "hash".to_string(),
             0,
-        )])
-        .unwrap();
+        )],
+        false,
+    )
+    .unwrap();
+    tx.commit().unwrap();
 
     let edges = store.get_edges_by_source("app.py::caller").unwrap();
     assert_eq!(edges.len(), 1);
@@ -859,9 +864,8 @@ fn stores_compact_json_batch() {
 fn stores_compact_json_batch_edge_metadata() {
     let path = temp_db("json-batch-edge-meta");
     let mut store = GraphStore::open(&path).expect("open graph store");
-    store
-        .store_file_batch_json(
-            r#"[
+    let compact: Vec<RawCompactFileBatchItem> = serde_json::from_str(
+        r#"[
                     [
                         "app.py",
                         [
@@ -883,8 +887,11 @@ fn stores_compact_json_batch_edge_metadata() {
                         123
                     ]
                 ]"#,
-        )
-        .unwrap();
+    )
+    .unwrap();
+    let tx = store.conn.transaction().unwrap();
+    store_raw_compact_file_batch_tx(&tx, &compact, false).unwrap();
+    tx.commit().unwrap();
 
     let edges = store.get_edges_by_source("app.py::caller").unwrap();
     assert_eq!(edges.len(), 1);
@@ -909,10 +916,20 @@ fn reads_legacy_edges_with_default_confidence_metadata() {
         )
         .unwrap();
 
-    let edges = store.get_edges_by_source("app.py::caller").unwrap();
-    assert_eq!(edges.len(), 1);
-    assert_eq!(edges[0].confidence, 1.0);
-    assert_eq!(edges[0].confidence_tier, ConfidenceTier::Extracted);
+    let edge: GraphEdge = store
+        .conn
+        .query_row(
+            "SELECT * FROM edges WHERE source_qualified = 'app.py::caller'",
+            [],
+            edge_from_row,
+        )
+        .unwrap();
+    assert_eq!(edge.confidence, 1.0);
+    assert_eq!(edge.confidence_tier, ConfidenceTier::Extracted);
+    assert_eq!(
+        edge_metadata_from_raw_extra(r#"{"confidence":0.33,"confidence_tier":"exact"}"#).unwrap(),
+        (0.33, ConfidenceTier::Exact)
+    );
     let _ = std::fs::remove_file(path);
 }
 
