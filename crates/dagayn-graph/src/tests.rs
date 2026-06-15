@@ -754,6 +754,79 @@ fn stores_file_batch_in_one_transaction() {
 }
 
 #[test]
+fn stores_file_batch_edge_metadata_once_per_call_site() {
+    let path = temp_db("batch-edge-meta");
+    let mut store = GraphStore::open(&path).expect("open graph store");
+    let file = NodeInput {
+        kind: "File".to_string(),
+        name: "app.py".to_string(),
+        file_path: "app.py".to_string(),
+        line_start: 1,
+        line_end: 10,
+        language: "python".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: Value::Object(Default::default()),
+    };
+    let caller = NodeInput {
+        kind: "Function".to_string(),
+        name: "caller".to_string(),
+        file_path: "app.py".to_string(),
+        line_start: 2,
+        line_end: 4,
+        language: "python".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: Value::Object(Default::default()),
+    };
+    let callee = NodeInput {
+        kind: "Function".to_string(),
+        name: "callee".to_string(),
+        file_path: "app.py".to_string(),
+        line_start: 6,
+        line_end: 8,
+        language: "python".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: Value::Object(Default::default()),
+    };
+    let edge = EdgeInput {
+        kind: "CROSS_ARTIFACT".to_string(),
+        source: "app.py::caller".to_string(),
+        target: "app.py::callee".to_string(),
+        file_path: "app.py".to_string(),
+        line: 3,
+        extra: json!({"confidence": 0.42, "confidence_tier": "low", "role": "contract"}),
+    };
+
+    store
+        .store_file_batch(&[(
+            "app.py".to_string(),
+            vec![file, caller, callee],
+            vec![edge.clone(), edge],
+            "hash".to_string(),
+            0,
+        )])
+        .unwrap();
+
+    let edges = store.get_edges_by_source("app.py::caller").unwrap();
+    assert_eq!(edges.len(), 1);
+    assert_eq!(edges[0].confidence, 0.42);
+    assert_eq!(edges[0].confidence_tier, ConfidenceTier::Low);
+    assert_eq!(edges[0].extra["role"], "contract");
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
 fn stores_compact_json_batch() {
     let path = temp_db("json-batch");
     let mut store = GraphStore::open(&path).expect("open graph store");
@@ -779,6 +852,67 @@ fn stores_compact_json_batch() {
         store.get_file_meta_map().unwrap()["app.py"],
         ("hash".to_string(), 123)
     );
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn stores_compact_json_batch_edge_metadata() {
+    let path = temp_db("json-batch-edge-meta");
+    let mut store = GraphStore::open(&path).expect("open graph store");
+    store
+        .store_file_batch_json(
+            r#"[
+                    [
+                        "app.py",
+                        [
+                            ["File","app.py","app.py",1,10,"python",null,null,null,null,false,{}],
+                            ["Function","caller","app.py",2,4,"python",null,null,null,null,false,{}],
+                            ["Function","callee","app.py",6,8,"python",null,null,null,null,false,{}]
+                        ],
+                        [
+                            [
+                                "CROSS_ARTIFACT",
+                                "app.py::caller",
+                                "app.py::callee",
+                                "app.py",
+                                3,
+                                {"confidence":0.77,"confidence_tier":"medium","role":"contract"}
+                            ]
+                        ],
+                        "hash",
+                        123
+                    ]
+                ]"#,
+        )
+        .unwrap();
+
+    let edges = store.get_edges_by_source("app.py::caller").unwrap();
+    assert_eq!(edges.len(), 1);
+    assert_eq!(edges[0].confidence, 0.77);
+    assert_eq!(edges[0].confidence_tier, ConfidenceTier::Medium);
+    assert_eq!(edges[0].extra["role"], "contract");
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn reads_legacy_edges_with_default_confidence_metadata() {
+    let path = temp_db("legacy-edge-meta");
+    let store = GraphStore::open(&path).expect("open graph store");
+    store
+        .conn
+        .execute(
+            "INSERT INTO edges \
+             (kind, source_qualified, target_qualified, file_path, line, extra, confidence, \
+              confidence_tier, updated_at) \
+             VALUES ('CALLS', 'app.py::caller', 'app.py::callee', 'app.py', 3, '{}', NULL, NULL, 1.0)",
+            [],
+        )
+        .unwrap();
+
+    let edges = store.get_edges_by_source("app.py::caller").unwrap();
+    assert_eq!(edges.len(), 1);
+    assert_eq!(edges[0].confidence, 1.0);
+    assert_eq!(edges[0].confidence_tier, ConfidenceTier::Extracted);
     let _ = std::fs::remove_file(path);
 }
 

@@ -122,6 +122,81 @@ class TestGraphStore:
         assert edges[0].confidence_tier == "EXTRACTED"
         assert edges[0].confidence == 0.4
 
+    def test_upsert_edge_updates_existing_edge_metadata(self):
+        edge = EdgeInfo(
+            kind="CROSS_ARTIFACT",
+            source="/test/file.py::func_a",
+            target="/test/file.py::func_b",
+            file_path="/test/file.py",
+            line=15,
+            extra={"confidence": 0.4, "confidence_tier": "low"},
+        )
+        edge_id = self.store.upsert_edge(edge)
+        updated_id = self.store.upsert_edge(
+            EdgeInfo(
+                kind=edge.kind,
+                source=edge.source,
+                target=edge.target,
+                file_path=edge.file_path,
+                line=edge.line,
+                extra={"confidence": 0.9, "confidence_tier": "exact", "role": "contract"},
+            )
+        )
+        self.store.commit()
+
+        edges = self.store.get_edges_by_source("/test/file.py::func_a")
+        assert updated_id == edge_id
+        assert len(edges) == 1
+        assert edges[0].confidence == 0.9
+        assert edges[0].confidence_tier == "EXACT"
+        assert edges[0].extra["role"] == "contract"
+
+    def test_store_file_batch_normalizes_edge_confidence_metadata(self):
+        edge = EdgeInfo(
+            kind="CROSS_ARTIFACT",
+            source="/test/file.py",
+            target="/test/file.py::my_func",
+            file_path="/test/file.py",
+            line=9,
+            extra={"confidence": 0.25, "confidence_tier": "medium"},
+        )
+
+        self.store.store_file_batch(
+            [
+                (
+                    "/test/file.py",
+                    [self._make_file_node(), self._make_func_node()],
+                    [edge],
+                    "hash-a",
+                    123,
+                )
+            ]
+        )
+
+        edges = self.store.get_edges_by_source("/test/file.py")
+        assert len(edges) == 1
+        assert edges[0].confidence == 0.25
+        assert edges[0].confidence_tier == "MEDIUM"
+        assert edges[0].extra["confidence_tier"] == "medium"
+
+    def test_row_to_edge_defaults_legacy_confidence_columns(self):
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            """SELECT 1 AS id, 'CALLS' AS kind,
+                      '/test/file.py::func_a' AS source_qualified,
+                      '/test/file.py::func_b' AS target_qualified,
+                      '/test/file.py' AS file_path,
+                      15 AS line,
+                      '{}' AS extra"""
+        ).fetchone()
+
+        edge = self.store._row_to_edge(row)
+
+        assert edge.confidence == 1.0
+        assert edge.confidence_tier == "EXTRACTED"
+        conn.close()
+
     def test_remove_file_data(self):
         node = self._make_file_node()
         func = self._make_func_node()

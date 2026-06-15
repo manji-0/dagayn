@@ -4,9 +4,8 @@ import json
 import time
 from typing import TYPE_CHECKING
 
-from ..state_types import normalize_confidence_tier
+from ._edge_records import edge_insert_values, edge_update_values
 from ._mixin_protocol import GraphStoreMixinProtocol
-from ._sql import _edge_target_name
 
 if TYPE_CHECKING:
     from ..parser._base.types import EdgeInfo, NodeInfo
@@ -61,10 +60,6 @@ class GraphStoreStorageMixin(GraphStoreMixinProtocol):
     def upsert_edge(self, edge: EdgeInfo) -> int:
         """Insert or update an edge."""
         now = time.time()
-        extra_dict = edge.extra if edge.extra else {}
-        confidence = float(extra_dict.get("confidence", 1.0))
-        confidence_tier = normalize_confidence_tier(extra_dict.get("confidence_tier"))
-        extra = json.dumps(extra_dict)
 
         # Check for existing edge (include line so multiple call sites are preserved)
         existing = self._conn.execute(
@@ -78,15 +73,7 @@ class GraphStoreStorageMixin(GraphStoreMixinProtocol):
             self._conn.execute(
                 "UPDATE edges SET target_name=?, line=?, extra=?, confidence=?, confidence_tier=?,"
                 " updated_at=? WHERE id=?",
-                (
-                    _edge_target_name(edge.target),
-                    edge.line,
-                    extra,
-                    confidence,
-                    confidence_tier,
-                    now,
-                    existing["id"],
-                ),
+                edge_update_values(edge, now, existing["id"]),
             )
             self._invalidate_cache()
             return existing["id"]
@@ -96,18 +83,7 @@ class GraphStoreStorageMixin(GraphStoreMixinProtocol):
                (kind, source_qualified, target_qualified, target_name, file_path, line, extra,
                 confidence, confidence_tier, updated_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                edge.kind,
-                edge.source,
-                edge.target,
-                _edge_target_name(edge.target),
-                edge.file_path,
-                edge.line,
-                extra,
-                confidence,
-                confidence_tier,
-                now,
-            ),
+            edge_insert_values(edge, now),
         )
         self._invalidate_cache()
         return cursor.lastrowid or 0

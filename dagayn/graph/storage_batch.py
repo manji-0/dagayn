@@ -5,9 +5,8 @@ import logging
 import time
 from typing import TYPE_CHECKING
 
-from ..state_types import normalize_confidence_tier
+from ._edge_records import edge_insert_values
 from ._mixin_protocol import GraphStoreMixinProtocol
-from ._sql import _edge_target_name
 
 if TYPE_CHECKING:
     from ..parser._base.types import EdgeInfo, NodeInfo
@@ -85,21 +84,7 @@ class GraphStoreStorageBatchMixin(GraphStoreMixinProtocol):
                (kind, source_qualified, target_qualified, target_name, file_path, line, extra,
                 confidence, confidence_tier, updated_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            [
-                (
-                    e.kind,
-                    e.source,
-                    e.target,
-                    _edge_target_name(e.target),
-                    e.file_path,
-                    e.line,
-                    json.dumps(e.extra) if e.extra else "{}",
-                    float((e.extra or {}).get("confidence", 1.0)),
-                    normalize_confidence_tier((e.extra or {}).get("confidence_tier")),
-                    now,
-                )
-                for e in edges
-            ],
+            [edge_insert_values(e, now) for e in edges],
         )
 
     def remove_files_data(self, file_paths: list[str]) -> None:
