@@ -24,6 +24,7 @@ env/
 # IDE
 .idea/
 .vscode/
+.cursor/
 *.swp
 *.swo
 *~
@@ -70,6 +71,9 @@ diagrams/export_pngs.mjs
 evaluate/test_repos/
 evaluate/results/
 evaluate/reports/
+
+# Logs
+logs/
 
 # Superpowers brainstorm docs
 .superpowers/

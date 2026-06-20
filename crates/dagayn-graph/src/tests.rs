@@ -1743,6 +1743,136 @@ fn stores_flows_and_reads_flow_inputs() {
 }
 
 #[test]
+fn analyze_changes_json_scores_range_limited_untested_security_changes() {
+    let path = temp_db("analyze-changes");
+    let mut store = GraphStore::open(&path).expect("open graph store");
+    let entry = NodeInput {
+        kind: "Function".to_string(),
+        name: "entry".to_string(),
+        file_path: "app.py".to_string(),
+        line_start: 1,
+        line_end: 5,
+        language: "python".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: Value::Object(Default::default()),
+    };
+    let auth_token = NodeInput {
+        kind: "Function".to_string(),
+        name: "auth_token".to_string(),
+        file_path: "app.py".to_string(),
+        line_start: 20,
+        line_end: 30,
+        language: "python".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: Value::Object(Default::default()),
+    };
+    let helper = NodeInput {
+        kind: "Function".to_string(),
+        name: "helper".to_string(),
+        file_path: "app.py".to_string(),
+        line_start: 40,
+        line_end: 45,
+        language: "python".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: Value::Object(Default::default()),
+    };
+    let test_helper = NodeInput {
+        kind: "Test".to_string(),
+        name: "test_helper".to_string(),
+        file_path: "test_app.py".to_string(),
+        line_start: 1,
+        line_end: 5,
+        language: "python".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: true,
+        extra: Value::Object(Default::default()),
+    };
+    let calls_auth = EdgeInput {
+        kind: "CALLS".to_string(),
+        source: "app.py::entry".to_string(),
+        target: "app.py::auth_token".to_string(),
+        file_path: "app.py".to_string(),
+        line: 3,
+        extra: Value::Object(Default::default()),
+    };
+    let tested_helper = EdgeInput {
+        kind: "TESTED_BY".to_string(),
+        source: "app.py::helper".to_string(),
+        target: "test_app.py::test_helper".to_string(),
+        file_path: "test_app.py".to_string(),
+        line: 2,
+        extra: Value::Object(Default::default()),
+    };
+    store
+        .store_file_batch(&[(
+            "app.py".to_string(),
+            vec![entry, auth_token, helper, test_helper],
+            vec![calls_auth, tested_helper],
+            "hash".to_string(),
+            0,
+        )])
+        .unwrap();
+    let auth_id = store.get_node("app.py::auth_token").unwrap().unwrap().id;
+    let flows = vec![FlowInput {
+        name: "auth_token".to_string(),
+        entry_point_id: auth_id,
+        depth: 0,
+        node_count: 1,
+        file_count: 1,
+        criticality: 0.25,
+        path: vec![auth_id],
+    }];
+    assert_eq!(store.store_flows(&flows).unwrap(), 1);
+
+    let changed_ranges = json!({"app.py": [[20, 22]]}).to_string();
+    let analysis: Value = serde_json::from_str(
+        &store
+            .analyze_changes_json(&["app.py".to_string()], Some(&changed_ranges))
+            .unwrap(),
+    )
+    .unwrap();
+
+    assert_eq!(analysis["risk_score"], json!(0.8));
+    assert_eq!(analysis["changed_functions"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        analysis["changed_functions"][0]["qualified_name"],
+        json!("app.py::auth_token")
+    );
+    assert_eq!(analysis["changed_functions"][0]["risk_score"], json!(0.8));
+    assert_eq!(analysis["affected_flows"].as_array().unwrap().len(), 1);
+    assert_eq!(analysis["test_gaps"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        analysis["test_gaps"][0]["qualified_name"],
+        json!("app.py::auth_token")
+    );
+    assert_eq!(analysis["review_priorities"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        analysis["review_priorities"][0]["qualified_name"],
+        json!("app.py::auth_token")
+    );
+    assert!(analysis["summary"]
+        .as_str()
+        .unwrap()
+        .contains("1 test gap(s)"));
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
 fn store_flows_json_replaces_existing_flows_from_serialized_input() {
     let path = temp_db("flows-json");
     let mut store = GraphStore::open(&path).expect("open graph store");
