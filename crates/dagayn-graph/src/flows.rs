@@ -51,19 +51,12 @@ impl GraphStore {
     }
 
     pub fn get_flows_json(&self, sort_by: &str, limit: i64) -> Result<String> {
-        let sort_by = match sort_by {
-            "criticality" | "depth" | "node_count" | "file_count" | "name" => sort_by,
-            _ => "criticality",
-        };
-        let order = if matches!(
-            sort_by,
-            "criticality" | "depth" | "node_count" | "file_count"
-        ) {
-            "DESC"
-        } else {
-            "ASC"
-        };
-        let sql = format!("SELECT * FROM flows ORDER BY {sort_by} {order} LIMIT ?");
+        let sort_by = FlowSortBy::from_raw(sort_by);
+        let sql = format!(
+            "SELECT * FROM flows ORDER BY {} {} LIMIT ?",
+            sort_by.column(),
+            sort_by.order()
+        );
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map([limit], flow_json_from_row)?;
         let flows = rows.collect::<std::result::Result<Vec<_>, _>>()?;

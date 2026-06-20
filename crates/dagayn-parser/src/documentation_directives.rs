@@ -5,16 +5,73 @@ use regex::Regex;
 use serde_json::{json, Value};
 
 use super::qualify;
-use super::types::{ParsedEdge, ParsedNode};
+use super::types::{EdgeKind, ParsedEdge, ParsedNode};
 use super::util::normalize_relative_path;
 
 static DAGAYN_DIRECTIVE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)\bdagayn:\s*([A-Za-z][A-Za-z-]*)\s+(.+?)\s*$").unwrap());
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum DocumentationDirectiveKind {
+    ImplementedBy,
+    Implements,
+    ExplainedBy,
+    HasRunbook,
+    ProblemDescribedBy,
+    DiscussedBy,
+    DiscussesArtifact,
+    RaisesIssueFor,
+    DescribesSymbol,
+}
+
+impl DocumentationDirectiveKind {
+    fn parse(raw: &str) -> Option<Self> {
+        match raw.to_ascii_lowercase().as_str() {
+            "implemented-by" => Some(Self::ImplementedBy),
+            "implements" => Some(Self::Implements),
+            "explained-by" => Some(Self::ExplainedBy),
+            "has-runbook" => Some(Self::HasRunbook),
+            "problem-described-by" => Some(Self::ProblemDescribedBy),
+            "discussed-by" => Some(Self::DiscussedBy),
+            "discusses" | "discusses-artifact" => Some(Self::DiscussesArtifact),
+            "raises-issue-for" => Some(Self::RaisesIssueFor),
+            "describes" | "describes-symbol" => Some(Self::DescribesSymbol),
+            _ => None,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::ImplementedBy => "implemented-by",
+            Self::Implements => "implements",
+            Self::ExplainedBy => "explained-by",
+            Self::HasRunbook => "has-runbook",
+            Self::ProblemDescribedBy => "problem-described-by",
+            Self::DiscussedBy => "discussed-by",
+            Self::DiscussesArtifact => "discusses-artifact",
+            Self::RaisesIssueFor => "raises-issue-for",
+            Self::DescribesSymbol => "describes-symbol",
+        }
+    }
+
+    fn relationship_role(self) -> &'static str {
+        match self {
+            Self::ImplementedBy => "implemented_by",
+            Self::Implements => "implements_contract",
+            Self::ExplainedBy => "explained_by",
+            Self::HasRunbook => "has_runbook",
+            Self::ProblemDescribedBy => "problem_described_by",
+            Self::DiscussedBy => "discussed_by",
+            Self::DiscussesArtifact => "discusses_artifact",
+            Self::RaisesIssueFor => "raises_issue_for",
+            Self::DescribesSymbol => "describes_symbol",
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(super) struct DocumentationDirective {
-    pub directive_kind: String,
-    pub relationship_role: &'static str,
+    pub directive_kind: DocumentationDirectiveKind,
     pub target: String,
     pub line: i64,
 }
@@ -24,8 +81,7 @@ pub(super) fn parse_dagayn_directive(
     line_number: i64,
 ) -> Option<DocumentationDirective> {
     let captures = DAGAYN_DIRECTIVE_RE.captures(line)?;
-    let directive_kind = captures.get(1)?.as_str().to_ascii_lowercase();
-    let relationship_role = relationship_role_for_directive(&directive_kind)?;
+    let directive_kind = DocumentationDirectiveKind::parse(captures.get(1)?.as_str())?;
     let target = captures
         .get(2)?
         .as_str()
@@ -35,7 +91,6 @@ pub(super) fn parse_dagayn_directive(
         .to_string();
     (!target.is_empty()).then_some(DocumentationDirective {
         directive_kind,
-        relationship_role,
         target,
         line: line_number,
     })
@@ -73,19 +128,19 @@ pub(super) fn push_documentation_directive_edge(
     let mut extra = documentation_directive_extra(
         directive,
         source_language,
-        target_language_hint(&resolved.target),
-        resolved.unresolved_symbol.as_deref(),
+        target_language_hint(resolved.target()),
+        resolved.unresolved_symbol(),
         evidence_kind,
-        resolved.confidence,
-        resolved.confidence_tier,
+        resolved.confidence(),
+        resolved.confidence_tier(),
     );
-    if resolved.unresolved_symbol.is_some() {
+    if resolved.unresolved_symbol().is_some() {
         extra["target_language"] = json!("unknown");
     }
     edges.push(ParsedEdge {
-        kind: "CROSS_ARTIFACT".to_string(),
+        kind: EdgeKind::CrossArtifact.as_str().to_string(),
         source,
-        target: resolved.target,
+        target: resolved.target().to_string(),
         file_path: source_file.to_string(),
         line: directive.line,
         extra,
@@ -116,26 +171,38 @@ pub(super) fn nearest_documentation_source(
     file_path.to_string()
 }
 
-fn relationship_role_for_directive(kind: &str) -> Option<&'static str> {
-    match kind {
-        "implemented-by" => Some("implemented_by"),
-        "implements" => Some("implements_contract"),
-        "explained-by" => Some("explained_by"),
-        "has-runbook" => Some("has_runbook"),
-        "problem-described-by" => Some("problem_described_by"),
-        "discussed-by" => Some("discussed_by"),
-        "discusses" | "discusses-artifact" => Some("discusses_artifact"),
-        "raises-issue-for" => Some("raises_issue_for"),
-        "describes" | "describes-symbol" => Some("describes_symbol"),
-        _ => None,
-    }
+enum DirectiveTarget {
+    Direct { target: String },
+    Unresolved { symbol: String, target: String },
 }
 
-struct DirectiveTarget {
-    target: String,
-    unresolved_symbol: Option<String>,
-    confidence: f64,
-    confidence_tier: &'static str,
+impl DirectiveTarget {
+    fn target(&self) -> &str {
+        match self {
+            Self::Direct { target } | Self::Unresolved { target, .. } => target,
+        }
+    }
+
+    fn unresolved_symbol(&self) -> Option<&str> {
+        match self {
+            Self::Direct { .. } => None,
+            Self::Unresolved { symbol, .. } => Some(symbol),
+        }
+    }
+
+    fn confidence(&self) -> f64 {
+        match self {
+            Self::Direct { .. } => 0.8,
+            Self::Unresolved { .. } => 0.2,
+        }
+    }
+
+    fn confidence_tier(&self) -> &'static str {
+        match self {
+            Self::Direct { .. } => "HIGH",
+            Self::Unresolved { .. } => "LOW",
+        }
+    }
 }
 
 fn directive_target(raw_target: &str, source_file: &str) -> DirectiveTarget {
@@ -168,21 +235,14 @@ fn directive_target(raw_target: &str, source_file: &str) -> DirectiveTarget {
         return direct_target(normalize_directive_path(target, source_file));
     }
 
-    DirectiveTarget {
+    DirectiveTarget::Unresolved {
+        symbol: target.to_string(),
         target: format!("<unresolved:{target}>"),
-        unresolved_symbol: Some(target.to_string()),
-        confidence: 0.2,
-        confidence_tier: "LOW",
     }
 }
 
 fn direct_target(target: String) -> DirectiveTarget {
-    DirectiveTarget {
-        target,
-        unresolved_symbol: None,
-        confidence: 0.8,
-        confidence_tier: "HIGH",
-    }
+    DirectiveTarget::Direct { target }
 }
 
 fn normalize_directive_path(path: &str, source_file: &str) -> String {
@@ -243,7 +303,7 @@ fn documentation_directive_extra(
     confidence_tier: &str,
 ) -> Value {
     let mut extra = json!({
-        "relationship_role": directive.relationship_role,
+        "relationship_role": directive.directive_kind.relationship_role(),
         "bridge_kind": "documentation",
         "evidence_kind": evidence_kind,
         "evidence_source": "dagayn_directive",
@@ -251,7 +311,7 @@ fn documentation_directive_extra(
         "target_language": target_language,
         "confidence": confidence,
         "confidence_tier": confidence_tier,
-        "dagayn_directive_kind": directive.directive_kind,
+        "dagayn_directive_kind": directive.directive_kind.as_str(),
     });
     if let Some(symbol) = unresolved_symbol {
         extra["original_symbol_name"] = json!(symbol);

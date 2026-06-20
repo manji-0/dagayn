@@ -49,7 +49,7 @@ pub(super) fn parse_javascript_like_with_parser(
     let line_end = line_count(source);
     let test_file = is_javascript_test_file(file_path);
     let mut nodes = vec![ParsedNode {
-        kind: "File".to_string(),
+        kind: crate::core::types::NodeKind::File.as_str().to_string(),
         name: file_path.to_string(),
         file_path: file_path.to_string(),
         line_start: 1,
@@ -116,7 +116,7 @@ fn javascript_walk_children(
                 ) {
                     let qualified = qualify(context.file_path, &name, enclosing_class);
                     nodes.push(ParsedNode {
-                        kind: "Class".to_string(),
+                        kind: crate::core::types::NodeKind::Class.as_str().to_string(),
                         name: name.clone(),
                         file_path: context.file_path.to_string(),
                         line_start: child.start_position().row as i64 + 1,
@@ -130,7 +130,7 @@ fn javascript_walk_children(
                         extra: javascript_class_extra(child, context.source),
                     });
                     edges.push(ParsedEdge {
-                        kind: "CONTAINS".to_string(),
+                        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
                         source: context.file_path.to_string(),
                         target: qualified.clone(),
                         file_path: context.file_path.to_string(),
@@ -178,7 +178,9 @@ fn javascript_walk_children(
                     )
                     .unwrap_or(target);
                     edges.push(ParsedEdge {
-                        kind: "IMPORTS_FROM".to_string(),
+                        kind: crate::core::types::EdgeKind::ImportsFrom
+                            .as_str()
+                            .to_string(),
                         source: context.file_path.to_string(),
                         target: resolved,
                         file_path: context.file_path.to_string(),
@@ -269,7 +271,7 @@ fn javascript_emit_function_node(
         .map(|name| qualify(context.file_path, name, None))
         .unwrap_or_else(|| context.file_path.to_string());
     edges.push(ParsedEdge {
-        kind: "CONTAINS".to_string(),
+        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
         source: container,
         target: qualified,
         file_path: context.file_path.to_string(),
@@ -325,7 +327,7 @@ fn javascript_emit_variable_functions(
             .map(|class_name| qualify(context.file_path, class_name, None))
             .unwrap_or_else(|| context.file_path.to_string());
         edges.push(ParsedEdge {
-            kind: "CONTAINS".to_string(),
+            kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
             source: container,
             target: qualified,
             file_path: context.file_path.to_string(),
@@ -385,7 +387,7 @@ fn javascript_emit_field_function(
         .map(|class_name| qualify(context.file_path, class_name, None))
         .unwrap_or_else(|| context.file_path.to_string());
     edges.push(ParsedEdge {
-        kind: "CONTAINS".to_string(),
+        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
         source: container,
         target: qualified,
         file_path: context.file_path.to_string(),
@@ -429,7 +431,7 @@ fn javascript_emit_call(
         };
         let qualified = qualify(context.file_path, &synthetic_name, enclosing_class);
         nodes.push(ParsedNode {
-            kind: "Test".to_string(),
+            kind: crate::core::types::NodeKind::Test.as_str().to_string(),
             name: synthetic_name.clone(),
             file_path: context.file_path.to_string(),
             line_start: line,
@@ -446,7 +448,7 @@ fn javascript_emit_call(
             .map(|func| qualify(context.file_path, func, enclosing_class))
             .unwrap_or_else(|| context.file_path.to_string());
         edges.push(ParsedEdge {
-            kind: "CONTAINS".to_string(),
+            kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
             source: container,
             target: qualified,
             file_path: context.file_path.to_string(),
@@ -469,7 +471,7 @@ fn javascript_emit_call(
         .unwrap_or_else(|| context.file_path.to_string());
     let target = resolve_javascript_call_target(&call_name, context);
     edges.push(ParsedEdge {
-        kind: "CALLS".to_string(),
+        kind: crate::core::types::EdgeKind::Calls.as_str().to_string(),
         source: caller.clone(),
         target,
         file_path: context.file_path.to_string(),
@@ -534,7 +536,7 @@ fn javascript_emit_jsx_component_call(
         .map(|func| qualify(context.file_path, func, enclosing_class))
         .unwrap_or_else(|| context.file_path.to_string());
     edges.push(ParsedEdge {
-        kind: "CALLS".to_string(),
+        kind: crate::core::types::EdgeKind::Calls.as_str().to_string(),
         source: caller,
         target,
         file_path: context.file_path.to_string(),
@@ -603,7 +605,9 @@ fn javascript_emit_reference_if_known(
     }
     let target = resolve_javascript_call_target(name, context);
     edges.push(ParsedEdge {
-        kind: "REFERENCES".to_string(),
+        kind: crate::core::types::EdgeKind::References
+            .as_str()
+            .to_string(),
         source: caller.to_string(),
         target,
         file_path: context.file_path.to_string(),
@@ -844,7 +848,9 @@ fn javascript_bridge_edge(
             ),
         };
     Some(ParsedEdge {
-        kind: "CROSS_ARTIFACT".to_string(),
+        kind: crate::core::types::EdgeKind::CrossArtifact
+            .as_str()
+            .to_string(),
         source: caller.to_string(),
         target,
         file_path: context.file_path.to_string(),

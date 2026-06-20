@@ -349,6 +349,76 @@ pub struct CommunityInput {
     pub members: Vec<String>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FlowSortBy {
+    Criticality,
+    Depth,
+    NodeCount,
+    FileCount,
+    Name,
+}
+
+impl FlowSortBy {
+    pub fn from_raw(value: &str) -> Self {
+        match value {
+            "depth" => Self::Depth,
+            "node_count" => Self::NodeCount,
+            "file_count" => Self::FileCount,
+            "name" => Self::Name,
+            _ => Self::Criticality,
+        }
+    }
+
+    pub fn column(self) -> &'static str {
+        match self {
+            Self::Criticality => "criticality",
+            Self::Depth => "depth",
+            Self::NodeCount => "node_count",
+            Self::FileCount => "file_count",
+            Self::Name => "name",
+        }
+    }
+
+    pub fn order(self) -> &'static str {
+        match self {
+            Self::Name => "ASC",
+            _ => "DESC",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CommunitySortBy {
+    Size,
+    Cohesion,
+    Name,
+}
+
+impl CommunitySortBy {
+    pub fn from_raw(value: &str) -> Self {
+        match value {
+            "cohesion" => Self::Cohesion,
+            "name" => Self::Name,
+            _ => Self::Size,
+        }
+    }
+
+    pub fn column(self) -> &'static str {
+        match self {
+            Self::Size => "size",
+            Self::Cohesion => "cohesion",
+            Self::Name => "name",
+        }
+    }
+
+    pub fn order(self) -> &'static str {
+        match self {
+            Self::Name => "ASC",
+            _ => "DESC",
+        }
+    }
+}
+
 pub struct GraphStore {
     conn: Connection,
     bulk_load_indexes_suspended: bool,

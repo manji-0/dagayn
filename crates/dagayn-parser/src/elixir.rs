@@ -13,7 +13,7 @@ pub(super) fn parse_elixir_with_parser(
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
-        kind: "File".to_string(),
+        kind: crate::core::types::NodeKind::File.as_str().to_string(),
         name: file_path.to_string(),
         file_path: file_path.to_string(),
         line_start: 1,
@@ -145,7 +145,9 @@ fn elixir_handle_call(
             if let Some(arguments) = elixir_direct_child(node, &["arguments"]) {
                 if let Some(module_name) = elixir_module_name(arguments, context.source) {
                     edges.push(ParsedEdge {
-                        kind: "IMPORTS_FROM".to_string(),
+                        kind: crate::core::types::EdgeKind::ImportsFrom
+                            .as_str()
+                            .to_string(),
                         source: context.file_path.to_string(),
                         target: module_name,
                         file_path: context.file_path.to_string(),
@@ -185,7 +187,7 @@ fn elixir_emit_module(
 ) {
     let qualified = qualify(context.file_path, name, None);
     nodes.push(ParsedNode {
-        kind: "Class".to_string(),
+        kind: crate::core::types::NodeKind::Class.as_str().to_string(),
         name: name.to_string(),
         file_path: context.file_path.to_string(),
         line_start: node.start_position().row as i64 + 1,
@@ -199,7 +201,7 @@ fn elixir_emit_module(
         extra: json!({}),
     });
     edges.push(ParsedEdge {
-        kind: "CONTAINS".to_string(),
+        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
         source: context.file_path.to_string(),
         target: qualified,
         file_path: context.file_path.to_string(),
@@ -234,7 +236,7 @@ fn elixir_emit_function(
         extra: json!({}),
     });
     edges.push(ParsedEdge {
-        kind: "CONTAINS".to_string(),
+        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
         source: enclosing_module
             .map(|module| qualify(context.file_path, module, None))
             .unwrap_or_else(|| context.file_path.to_string()),
@@ -259,7 +261,7 @@ fn elixir_emit_call(
         .map(|func| qualify(context.file_path, func, enclosing_module))
         .unwrap_or_else(|| context.file_path.to_string());
     edges.push(ParsedEdge {
-        kind: "CALLS".to_string(),
+        kind: crate::core::types::EdgeKind::Calls.as_str().to_string(),
         source: caller,
         target,
         file_path: context.file_path.to_string(),

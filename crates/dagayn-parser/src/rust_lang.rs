@@ -13,7 +13,7 @@ pub(super) fn parse_rust_with_parser(
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
-        kind: "File".to_string(),
+        kind: crate::core::types::NodeKind::File.as_str().to_string(),
         name: file_path.to_string(),
         file_path: file_path.to_string(),
         line_start: 1,
@@ -63,7 +63,7 @@ fn rust_walk_children(
                 if let Some(name) = rust_type_name(child, context.source) {
                     let qualified = qualify(context.file_path, &name, enclosing_class);
                     nodes.push(ParsedNode {
-                        kind: "Class".to_string(),
+                        kind: crate::core::types::NodeKind::Class.as_str().to_string(),
                         name: name.clone(),
                         file_path: context.file_path.to_string(),
                         line_start: child.start_position().row as i64 + 1,
@@ -77,7 +77,7 @@ fn rust_walk_children(
                         extra: rust_type_extra(child, context.source),
                     });
                     edges.push(ParsedEdge {
-                        kind: "CONTAINS".to_string(),
+                        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
                         source: context.file_path.to_string(),
                         target: qualified,
                         file_path: context.file_path.to_string(),
@@ -120,7 +120,7 @@ fn rust_walk_children(
                         .map(|name| qualify(context.file_path, name, None))
                         .unwrap_or_else(|| context.file_path.to_string());
                     edges.push(ParsedEdge {
-                        kind: "CONTAINS".to_string(),
+                        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
                         source: container,
                         target: qualified,
                         file_path: context.file_path.to_string(),
@@ -143,7 +143,9 @@ fn rust_walk_children(
             "use_declaration" => {
                 if let Some(target) = rust_use_target(child, context.source) {
                     edges.push(ParsedEdge {
-                        kind: "IMPORTS_FROM".to_string(),
+                        kind: crate::core::types::EdgeKind::ImportsFrom
+                            .as_str()
+                            .to_string(),
                         source: context.file_path.to_string(),
                         target,
                         file_path: context.file_path.to_string(),
@@ -158,7 +160,7 @@ fn rust_walk_children(
                         .map(|name| qualify(context.file_path, name, enclosing_class))
                         .unwrap_or_else(|| context.file_path.to_string());
                     edges.push(ParsedEdge {
-                        kind: "CALLS".to_string(),
+                        kind: crate::core::types::EdgeKind::Calls.as_str().to_string(),
                         source: caller.clone(),
                         target: call_name.clone(),
                         file_path: context.file_path.to_string(),
@@ -444,7 +446,9 @@ fn rust_emit_argument_references(
             continue;
         }
         edges.push(ParsedEdge {
-            kind: "REFERENCES".to_string(),
+            kind: crate::core::types::EdgeKind::References
+                .as_str()
+                .to_string(),
             source: caller.clone(),
             target: qualify(file_path, &name, None),
             file_path: file_path.to_string(),
@@ -495,7 +499,9 @@ fn rust_collect_type_references(
             && emitted.insert(name.clone())
         {
             edges.push(ParsedEdge {
-                kind: "REFERENCES".to_string(),
+                kind: crate::core::types::EdgeKind::References
+                    .as_str()
+                    .to_string(),
                 source: context.source_qualified.to_string(),
                 target: qualify(context.file_path, &name, None),
                 file_path: context.file_path.to_string(),
@@ -550,7 +556,9 @@ fn rust_bridge_edge(
         ),
     };
     Some(ParsedEdge {
-        kind: "CROSS_ARTIFACT".to_string(),
+        kind: crate::core::types::EdgeKind::CrossArtifact
+            .as_str()
+            .to_string(),
         source: caller.to_string(),
         target,
         file_path: file_path.to_string(),

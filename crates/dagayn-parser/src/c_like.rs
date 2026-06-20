@@ -38,7 +38,7 @@ fn parse_c_like_with_parser(
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
-        kind: "File".to_string(),
+        kind: crate::core::types::NodeKind::File.as_str().to_string(),
         name: file_path.to_string(),
         file_path: file_path.to_string(),
         line_start: 1,
@@ -97,7 +97,9 @@ fn c_walk_children(
             "preproc_include" if enclosing_func.is_none() => {
                 if let Some(target) = c_include_target(child, context.source) {
                     edges.push(ParsedEdge {
-                        kind: "IMPORTS_FROM".to_string(),
+                        kind: crate::core::types::EdgeKind::ImportsFrom
+                            .as_str()
+                            .to_string(),
                         source: context.file_path.to_string(),
                         target,
                         file_path: context.file_path.to_string(),
@@ -175,7 +177,7 @@ fn c_emit_type(
 ) {
     let qualified = qualify(context.file_path, name, None);
     nodes.push(ParsedNode {
-        kind: "Class".to_string(),
+        kind: crate::core::types::NodeKind::Class.as_str().to_string(),
         name: name.to_string(),
         file_path: context.file_path.to_string(),
         line_start: node.start_position().row as i64 + 1,
@@ -189,7 +191,7 @@ fn c_emit_type(
         extra: json!({"type_role": "class"}),
     });
     edges.push(ParsedEdge {
-        kind: "CONTAINS".to_string(),
+        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
         source: context.file_path.to_string(),
         target: qualified,
         file_path: context.file_path.to_string(),
@@ -223,7 +225,7 @@ fn c_emit_function(
         extra: json!({}),
     });
     edges.push(ParsedEdge {
-        kind: "CONTAINS".to_string(),
+        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
         source: enclosing_class
             .map(|class| qualify(context.file_path, class, None))
             .unwrap_or_else(|| context.file_path.to_string()),
@@ -246,7 +248,7 @@ fn c_emit_call(
         .unwrap_or_else(|| context.file_path.to_string());
     if let Some(call_name) = c_call_name(node, context.source) {
         edges.push(ParsedEdge {
-            kind: "CALLS".to_string(),
+            kind: crate::core::types::EdgeKind::Calls.as_str().to_string(),
             source: caller.clone(),
             target: call_name,
             file_path: context.file_path.to_string(),
@@ -278,7 +280,7 @@ fn c_emit_inheritance(
         return;
     };
     edges.push(ParsedEdge {
-        kind: "INHERITS".to_string(),
+        kind: crate::core::types::EdgeKind::Inherits.as_str().to_string(),
         source: qualify(context.file_path, name, None),
         target: base,
         file_path: context.file_path.to_string(),
@@ -400,7 +402,9 @@ fn c_bridge_edge(
         ),
     };
     Some(ParsedEdge {
-        kind: "CROSS_ARTIFACT".to_string(),
+        kind: crate::core::types::EdgeKind::CrossArtifact
+            .as_str()
+            .to_string(),
         source: caller.to_string(),
         target,
         file_path: context.file_path.to_string(),

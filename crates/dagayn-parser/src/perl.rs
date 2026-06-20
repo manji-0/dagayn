@@ -13,7 +13,7 @@ pub(super) fn parse_perl_with_parser(
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
-        kind: "File".to_string(),
+        kind: crate::core::types::NodeKind::File.as_str().to_string(),
         name: file_path.to_string(),
         file_path: file_path.to_string(),
         line_start: 1,
@@ -58,7 +58,9 @@ fn perl_walk_children(
         match child.kind() {
             "use_statement" | "require_expression" if enclosing_func.is_none() => {
                 edges.push(ParsedEdge {
-                    kind: "IMPORTS_FROM".to_string(),
+                    kind: crate::core::types::EdgeKind::ImportsFrom
+                        .as_str()
+                        .to_string(),
                     source: context.file_path.to_string(),
                     target: node_text(child, context.source),
                     file_path: context.file_path.to_string(),
@@ -103,7 +105,7 @@ fn perl_emit_class(
 ) {
     let qualified = qualify(context.file_path, name, None);
     nodes.push(ParsedNode {
-        kind: "Class".to_string(),
+        kind: crate::core::types::NodeKind::Class.as_str().to_string(),
         name: name.to_string(),
         file_path: context.file_path.to_string(),
         line_start: node.start_position().row as i64 + 1,
@@ -117,7 +119,7 @@ fn perl_emit_class(
         extra: json!({"type_role": "class"}),
     });
     edges.push(ParsedEdge {
-        kind: "CONTAINS".to_string(),
+        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
         source: context.file_path.to_string(),
         target: qualified,
         file_path: context.file_path.to_string(),
@@ -150,7 +152,7 @@ fn perl_emit_function(
         extra: json!({}),
     });
     edges.push(ParsedEdge {
-        kind: "CONTAINS".to_string(),
+        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
         source: context.file_path.to_string(),
         target: qualified,
         file_path: context.file_path.to_string(),
@@ -170,7 +172,7 @@ fn perl_emit_call(
         .map(|func| qualify(context.file_path, func, None))
         .unwrap_or_else(|| context.file_path.to_string());
     edges.push(ParsedEdge {
-        kind: "CALLS".to_string(),
+        kind: crate::core::types::EdgeKind::Calls.as_str().to_string(),
         source: caller.clone(),
         target: call_name.to_string(),
         file_path: context.file_path.to_string(),
@@ -206,7 +208,9 @@ fn perl_bridge_edge(
         ),
     };
     Some(ParsedEdge {
-        kind: "CROSS_ARTIFACT".to_string(),
+        kind: crate::core::types::EdgeKind::CrossArtifact
+            .as_str()
+            .to_string(),
         source: caller.to_string(),
         target,
         file_path: context.file_path.to_string(),

@@ -8,6 +8,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
+use serde::Serialize;
 use serde_json::{json, Value};
 
 #[path = "bash.rs"]
@@ -444,28 +445,81 @@ pub fn parse_markdown_compact_json(file_path: &str, source: &[u8]) -> String {
     parsed_compact_json(nodes, edges)
 }
 
+#[derive(Debug, Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+enum RustOwnedParseFileResult {
+    Ok {
+        file_path: String,
+        nodes: Vec<Value>,
+        edges: Vec<Value>,
+        file_hash: String,
+    },
+    Error {
+        file_path: String,
+        reason_code: &'static str,
+        error: String,
+    },
+    Unsupported {
+        file_path: String,
+        reason_code: &'static str,
+        error: String,
+    },
+}
+
+#[derive(Debug, Serialize)]
+struct RustOwnedParseFilesCompactPayload {
+    batch: Vec<Value>,
+    errors: Vec<(String, String)>,
+    results: Vec<RustOwnedParseFileResult>,
+}
+
 pub fn parse_rust_owned_files_compact_json(repo_root: &Path, file_paths: &[String]) -> String {
     let mut batch = Vec::new();
     let mut errors = Vec::new();
+    let mut results = Vec::new();
     let mut parser = RustOwnedParser::new();
     for file_path in file_paths {
         let full_path = repo_root.join(file_path);
         let source = match std::fs::read(&full_path) {
             Ok(source) => source,
             Err(err) => {
-                errors.push(json!([file_path, err.to_string()]));
+                let error = err.to_string();
+                errors.push((file_path.clone(), error.clone()));
+                results.push(RustOwnedParseFileResult::Error {
+                    file_path: file_path.clone(),
+                    reason_code: "read_error",
+                    error,
+                });
                 continue;
             }
         };
         if !rust_parser_owns_source(file_path, &source) {
-            errors.push(json!([file_path, "unsupported Rust parser path"]));
+            let error = "unsupported Rust parser path".to_string();
+            errors.push((file_path.clone(), error.clone()));
+            results.push(RustOwnedParseFileResult::Unsupported {
+                file_path: file_path.clone(),
+                reason_code: "unsupported_rust_parser_path",
+                error,
+            });
             continue;
         }
         let (nodes, edges) = parser.parse_file_in_repo(Some(repo_root), file_path, &source);
         let (nodes, edges) = parsed_compact_values(nodes, edges);
-        batch.push(json!([file_path, nodes, edges, sha256_hex(&source)]));
+        let file_hash = sha256_hex(&source);
+        batch.push(json!([file_path, &nodes, &edges, &file_hash]));
+        results.push(RustOwnedParseFileResult::Ok {
+            file_path: file_path.clone(),
+            nodes,
+            edges,
+            file_hash,
+        });
     }
-    json!({"batch": batch, "errors": errors}).to_string()
+    serde_json::to_string(&RustOwnedParseFilesCompactPayload {
+        batch,
+        errors,
+        results,
+    })
+    .expect("serializing Rust-owned parser payload should not fail")
 }
 
 pub fn parse_rust_owned_file_compact_json(file_path: &str, source: &[u8]) -> String {
@@ -534,7 +588,7 @@ fn add_tested_by_edges(nodes: &[ParsedNode], edges: &mut Vec<ParsedEdge>) {
         .iter()
         .filter(|edge| edge.kind == "CALLS" && test_qnames.contains(&edge.source))
         .map(|edge| ParsedEdge {
-            kind: "TESTED_BY".to_string(),
+            kind: crate::core::types::EdgeKind::TestedBy.as_str().to_string(),
             source: edge.target.clone(),
             target: edge.source.clone(),
             file_path: edge.file_path.clone(),

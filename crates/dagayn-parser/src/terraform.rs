@@ -33,7 +33,7 @@ pub(super) fn parse_terraform_with_parser(
     }
 
     let mut nodes = vec![ParsedNode {
-        kind: "File".to_string(),
+        kind: crate::core::types::NodeKind::File.as_str().to_string(),
         name: file_path.to_string(),
         file_path: file_path.to_string(),
         line_start: 1,
@@ -119,7 +119,9 @@ pub(super) fn parse_terraform_with_parser(
                 .find(|attr| attr.name == "source")
             {
                 edges.push(ParsedEdge {
-                    kind: "IMPORTS_FROM".to_string(),
+                    kind: crate::core::types::EdgeKind::ImportsFrom
+                        .as_str()
+                        .to_string(),
                     source: terraform_qualified(file_path, &node_name),
                     target: strip_tf_string(&source_attr.value),
                     file_path: file_path.to_string(),
@@ -132,7 +134,7 @@ pub(super) fn parse_terraform_with_parser(
         if block.kind == "terraform" {
             for provider_source in terraform_provider_sources(block).iter() {
                 edges.push(ParsedEdge {
-                    kind: "DEPENDS_ON".to_string(),
+                    kind: crate::core::types::EdgeKind::DependsOn.as_str().to_string(),
                     source: terraform_qualified(file_path, &node_name),
                     target: provider_source.clone(),
                     file_path: file_path.to_string(),
@@ -240,7 +242,7 @@ fn push_terraform_node(
         extra: json!({"terraform_kind": spec.terraform_kind}),
     });
     edges.push(ParsedEdge {
-        kind: "CONTAINS".to_string(),
+        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
         source: file_path.to_string(),
         target: qualified,
         file_path: file_path.to_string(),
@@ -266,7 +268,9 @@ fn handle_terraform_meta_block(
         "import" => {
             if let Some(target) = attr_value("id").or_else(|| attr_value("to")) {
                 edges.push(ParsedEdge {
-                    kind: "IMPORTS_FROM".to_string(),
+                    kind: crate::core::types::EdgeKind::ImportsFrom
+                        .as_str()
+                        .to_string(),
                     source: file_path.to_string(),
                     target,
                     file_path: file_path.to_string(),
@@ -278,7 +282,9 @@ fn handle_terraform_meta_block(
         "moved" => {
             if let (Some(source), Some(target)) = (attr_value("from"), attr_value("to")) {
                 edges.push(ParsedEdge {
-                    kind: "REFERENCES".to_string(),
+                    kind: crate::core::types::EdgeKind::References
+                        .as_str()
+                        .to_string(),
                     source,
                     target,
                     file_path: file_path.to_string(),
@@ -290,7 +296,9 @@ fn handle_terraform_meta_block(
         "removed" => {
             if let Some(target) = attr_value("from") {
                 edges.push(ParsedEdge {
-                    kind: "REFERENCES".to_string(),
+                    kind: crate::core::types::EdgeKind::References
+                        .as_str()
+                        .to_string(),
                     source: file_path.to_string(),
                     target,
                     file_path: file_path.to_string(),
@@ -383,7 +391,7 @@ fn push_terraform_calls(
             continue;
         }
         edges.push(ParsedEdge {
-            kind: "CALLS".to_string(),
+            kind: crate::core::types::EdgeKind::Calls.as_str().to_string(),
             source: caller.to_string(),
             target: name.clone(),
             file_path: file_path.to_string(),
@@ -424,7 +432,9 @@ fn push_terraform_references(
             target.clone()
         };
         edges.push(ParsedEdge {
-            kind: "REFERENCES".to_string(),
+            kind: crate::core::types::EdgeKind::References
+                .as_str()
+                .to_string(),
             source: caller.to_string(),
             target: resolved,
             file_path: file_path.to_string(),

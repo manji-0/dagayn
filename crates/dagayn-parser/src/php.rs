@@ -11,7 +11,7 @@ pub(super) fn parse_php_with_parser(
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
-        kind: "File".to_string(),
+        kind: crate::core::types::NodeKind::File.as_str().to_string(),
         name: file_path.to_string(),
         file_path: file_path.to_string(),
         line_start: 1,
@@ -124,7 +124,9 @@ fn php_emit_import(
     edges: &mut Vec<ParsedEdge>,
 ) {
     edges.push(ParsedEdge {
-        kind: "IMPORTS_FROM".to_string(),
+        kind: crate::core::types::EdgeKind::ImportsFrom
+            .as_str()
+            .to_string(),
         source: file_path.to_string(),
         target: node_text(node, source).trim().to_string(),
         file_path: file_path.to_string(),
@@ -156,7 +158,7 @@ fn php_emit_type(
         }
     }
     nodes.push(ParsedNode {
-        kind: "Class".to_string(),
+        kind: crate::core::types::NodeKind::Class.as_str().to_string(),
         name: name.to_string(),
         file_path: file_path.to_string(),
         line_start: node.start_position().row as i64 + 1,
@@ -170,7 +172,7 @@ fn php_emit_type(
         extra,
     });
     edges.push(ParsedEdge {
-        kind: "CONTAINS".to_string(),
+        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
         source: file_path.to_string(),
         target: qualify(file_path, name, enclosing_class),
         file_path: file_path.to_string(),
@@ -190,7 +192,7 @@ fn php_emit_function(
 ) {
     let qualified = qualify(file_path, name, enclosing_class);
     nodes.push(ParsedNode {
-        kind: "Function".to_string(),
+        kind: crate::core::types::NodeKind::Function.as_str().to_string(),
         name: name.to_string(),
         file_path: file_path.to_string(),
         line_start: node.start_position().row as i64 + 1,
@@ -204,7 +206,7 @@ fn php_emit_function(
         extra: json!({}),
     });
     edges.push(ParsedEdge {
-        kind: "CONTAINS".to_string(),
+        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
         source: enclosing_class
             .map(|class| qualify(file_path, class, None))
             .unwrap_or_else(|| file_path.to_string()),
@@ -230,7 +232,7 @@ fn php_emit_call(
         .map(|func| qualify(file_path, func, enclosing_class))
         .unwrap_or_else(|| file_path.to_string());
     edges.push(ParsedEdge {
-        kind: "CALLS".to_string(),
+        kind: crate::core::types::EdgeKind::Calls.as_str().to_string(),
         source: caller.clone(),
         target: call_name.clone(),
         file_path: file_path.to_string(),
@@ -294,7 +296,9 @@ fn php_bridge_edge(
         ),
     };
     Some(ParsedEdge {
-        kind: "CROSS_ARTIFACT".to_string(),
+        kind: crate::core::types::EdgeKind::CrossArtifact
+            .as_str()
+            .to_string(),
         source: caller.to_string(),
         target,
         file_path: file_path.to_string(),

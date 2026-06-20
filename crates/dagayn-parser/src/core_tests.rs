@@ -2758,6 +2758,12 @@ fn parses_rust_owned_files_as_one_compact_batch() {
     assert_eq!(batch.len(), 2);
     assert!(batch.iter().any(|item| item[0] == "docs/README.md"));
     assert!(batch.iter().any(|item| item[0] == "main.tf"));
+    let results = parsed["results"].as_array().unwrap();
+    assert_eq!(results.len(), 2);
+    assert!(results.iter().all(|item| item["status"] == "ok"));
+    assert!(results
+        .iter()
+        .any(|item| item["file_path"] == "docs/README.md"));
 
     let _ = std::fs::remove_dir_all(&repo_root);
 }

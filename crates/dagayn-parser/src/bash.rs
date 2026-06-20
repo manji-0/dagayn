@@ -16,7 +16,7 @@ pub(super) fn parse_bash_with_parser(
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
-        kind: "File".to_string(),
+        kind: crate::core::types::NodeKind::File.as_str().to_string(),
         name: file_path.to_string(),
         file_path: file_path.to_string(),
         line_start: 1,
@@ -61,7 +61,7 @@ fn bash_walk_children(
                 if let Some(name) = bash_function_name(child, source) {
                     let qualified = qualify(file_path, &name, None);
                     nodes.push(ParsedNode {
-                        kind: "Function".to_string(),
+                        kind: crate::core::types::NodeKind::Function.as_str().to_string(),
                         name: name.clone(),
                         file_path: file_path.to_string(),
                         line_start: child.start_position().row as i64 + 1,
@@ -75,7 +75,7 @@ fn bash_walk_children(
                         extra: json!({}),
                     });
                     edges.push(ParsedEdge {
-                        kind: "CONTAINS".to_string(),
+                        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
                         source: file_path.to_string(),
                         target: qualified,
                         file_path: file_path.to_string(),
@@ -134,7 +134,9 @@ fn bash_emit_command(
     if matches!(command_name.as_str(), "source" | ".") {
         if let Some(target) = bash_first_command_arg(node, source) {
             edges.push(ParsedEdge {
-                kind: "IMPORTS_FROM".to_string(),
+                kind: crate::core::types::EdgeKind::ImportsFrom
+                    .as_str()
+                    .to_string(),
                 source: file_path.to_string(),
                 target: resolve_bash_source_target(&target, file_path, repo_root).unwrap_or(target),
                 file_path: file_path.to_string(),
@@ -149,7 +151,7 @@ fn bash_emit_command(
         .map(|func| qualify(file_path, func, None))
         .unwrap_or_else(|| file_path.to_string());
     edges.push(ParsedEdge {
-        kind: "CALLS".to_string(),
+        kind: crate::core::types::EdgeKind::Calls.as_str().to_string(),
         source: caller,
         target: command_name,
         file_path: file_path.to_string(),

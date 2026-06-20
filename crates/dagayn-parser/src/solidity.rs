@@ -11,7 +11,7 @@ pub(super) fn parse_solidity_with_parser(
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
-        kind: "File".to_string(),
+        kind: crate::core::types::NodeKind::File.as_str().to_string(),
         name: file_path.to_string(),
         file_path: file_path.to_string(),
         line_start: 1,
@@ -190,7 +190,9 @@ fn solidity_emit_import(
             let target = strip_matching_quotes(node_text(child, source).trim()).to_string();
             if !target.is_empty() {
                 edges.push(ParsedEdge {
-                    kind: "IMPORTS_FROM".to_string(),
+                    kind: crate::core::types::EdgeKind::ImportsFrom
+                        .as_str()
+                        .to_string(),
                     source: file_path.to_string(),
                     target,
                     file_path: file_path.to_string(),
@@ -228,7 +230,7 @@ fn solidity_emit_type(
     }
     let qualified = qualify(file_path, name, enclosing_class);
     nodes.push(ParsedNode {
-        kind: "Class".to_string(),
+        kind: crate::core::types::NodeKind::Class.as_str().to_string(),
         name: name.to_string(),
         file_path: file_path.to_string(),
         line_start: node.start_position().row as i64 + 1,
@@ -242,7 +244,7 @@ fn solidity_emit_type(
         extra,
     });
     edges.push(ParsedEdge {
-        kind: "CONTAINS".to_string(),
+        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
         source: file_path.to_string(),
         target: qualified.clone(),
         file_path: file_path.to_string(),
@@ -251,7 +253,7 @@ fn solidity_emit_type(
     });
     for target in solidity_inheritance_targets(node, source) {
         edges.push(ParsedEdge {
-            kind: "INHERITS".to_string(),
+            kind: crate::core::types::EdgeKind::Inherits.as_str().to_string(),
             source: qualified.clone(),
             target,
             file_path: file_path.to_string(),
@@ -277,7 +279,7 @@ fn solidity_emit_constant(
     };
     let qualified = qualify(file_path, &name, enclosing_class);
     nodes.push(ParsedNode {
-        kind: "Function".to_string(),
+        kind: crate::core::types::NodeKind::Function.as_str().to_string(),
         name: name.clone(),
         file_path: file_path.to_string(),
         line_start: node.start_position().row as i64 + 1,
@@ -291,7 +293,7 @@ fn solidity_emit_constant(
         extra: json!({"solidity_kind": "constant"}),
     });
     edges.push(ParsedEdge {
-        kind: "CONTAINS".to_string(),
+        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
         source: enclosing_class
             .map(|class| qualify(file_path, class, None))
             .unwrap_or_else(|| file_path.to_string()),
@@ -316,7 +318,7 @@ fn solidity_emit_state_variable(
     };
     let qualified = qualify(file_path, &name, Some(enclosing_class));
     nodes.push(ParsedNode {
-        kind: "Function".to_string(),
+        kind: crate::core::types::NodeKind::Function.as_str().to_string(),
         name: name.clone(),
         file_path: file_path.to_string(),
         line_start: node.start_position().row as i64 + 1,
@@ -333,7 +335,7 @@ fn solidity_emit_state_variable(
         }),
     });
     edges.push(ParsedEdge {
-        kind: "CONTAINS".to_string(),
+        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
         source: qualify(file_path, enclosing_class, None),
         target: qualified,
         file_path: file_path.to_string(),
@@ -354,7 +356,7 @@ fn solidity_emit_function(
 ) {
     let qualified = qualify(file_path, name, enclosing_class);
     nodes.push(ParsedNode {
-        kind: "Function".to_string(),
+        kind: crate::core::types::NodeKind::Function.as_str().to_string(),
         name: name.to_string(),
         file_path: file_path.to_string(),
         line_start: node.start_position().row as i64 + 1,
@@ -368,7 +370,7 @@ fn solidity_emit_function(
         extra: json!({}),
     });
     edges.push(ParsedEdge {
-        kind: "CONTAINS".to_string(),
+        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
         source: enclosing_class
             .map(|class| qualify(file_path, class, None))
             .unwrap_or_else(|| file_path.to_string()),
@@ -394,7 +396,7 @@ fn solidity_emit_call(
         .map(|func| qualify(file_path, func, enclosing_class))
         .unwrap_or_else(|| file_path.to_string());
     edges.push(ParsedEdge {
-        kind: "CALLS".to_string(),
+        kind: crate::core::types::EdgeKind::Calls.as_str().to_string(),
         source: caller,
         target: call_name,
         file_path: file_path.to_string(),
@@ -415,7 +417,7 @@ fn solidity_emit_modifier_invocation_calls(
         if child.kind() == "modifier_invocation" {
             if let Some(name) = solidity_first_descendant_text(child, source, &["identifier"]) {
                 edges.push(ParsedEdge {
-                    kind: "CALLS".to_string(),
+                    kind: crate::core::types::EdgeKind::Calls.as_str().to_string(),
                     source: caller.to_string(),
                     target: name,
                     file_path: file_path.to_string(),
@@ -442,7 +444,7 @@ fn solidity_emit_emit_call(
         .map(|func| qualify(file_path, func, enclosing_class))
         .unwrap_or_else(|| file_path.to_string());
     edges.push(ParsedEdge {
-        kind: "CALLS".to_string(),
+        kind: crate::core::types::EdgeKind::Calls.as_str().to_string(),
         source: caller,
         target: name,
         file_path: file_path.to_string(),
@@ -465,7 +467,7 @@ fn solidity_emit_using(
         .map(|class| qualify(file_path, class, None))
         .unwrap_or_else(|| file_path.to_string());
     edges.push(ParsedEdge {
-        kind: "DEPENDS_ON".to_string(),
+        kind: crate::core::types::EdgeKind::DependsOn.as_str().to_string(),
         source: source_name,
         target,
         file_path: file_path.to_string(),

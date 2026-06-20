@@ -45,16 +45,12 @@ impl GraphStore {
     }
 
     pub fn get_communities_json(&self, sort_by: &str, min_size: i64) -> Result<String> {
-        let sort_by = match sort_by {
-            "size" | "cohesion" | "name" => sort_by,
-            _ => "size",
-        };
-        let order = if matches!(sort_by, "size" | "cohesion") {
-            "DESC"
-        } else {
-            "ASC"
-        };
-        let sql = format!("SELECT * FROM communities WHERE size >= ? ORDER BY {sort_by} {order}");
+        let sort_by = CommunitySortBy::from_raw(sort_by);
+        let sql = format!(
+            "SELECT * FROM communities WHERE size >= ? ORDER BY {} {}",
+            sort_by.column(),
+            sort_by.order()
+        );
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map([min_size], community_json_from_row)?;
         let mut communities = rows.collect::<std::result::Result<Vec<_>, _>>()?;

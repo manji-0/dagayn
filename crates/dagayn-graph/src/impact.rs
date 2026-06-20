@@ -1,5 +1,47 @@
 use crate::helpers::*;
 use crate::*;
+use serde::Serialize;
+
+#[derive(Debug)]
+enum ChangedRangeInput {
+    Empty,
+    Parsed(ChangedRanges),
+}
+
+impl ChangedRangeInput {
+    fn parse(raw: Option<&str>) -> Result<Self> {
+        match raw {
+            Some(raw) if !raw.is_empty() => Ok(Self::Parsed(serde_json::from_str(raw)?)),
+            _ => Ok(Self::Empty),
+        }
+    }
+
+    fn as_ranges(&self) -> Option<&ChangedRanges> {
+        match self {
+            Self::Empty => None,
+            Self::Parsed(ranges) => Some(ranges),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct ChangeAnalysisJson {
+    summary: String,
+    risk_score: f64,
+    changed_functions: Vec<Value>,
+    affected_flows: Vec<Value>,
+    test_gaps: Vec<Value>,
+    review_priorities: Vec<Value>,
+}
+
+#[derive(Serialize)]
+struct TestGapJson {
+    name: String,
+    qualified_name: String,
+    file: String,
+    line_start: i64,
+    line_end: i64,
+}
 
 impl GraphStore {
     pub(crate) fn get_affected_flow_values(&self, changed_files: &[String]) -> Result<Vec<Value>> {
@@ -36,14 +78,11 @@ impl GraphStore {
         changed_files: &[String],
         changed_ranges_json: Option<&str>,
     ) -> Result<String> {
-        let changed_ranges = match changed_ranges_json {
-            Some(raw) if !raw.is_empty() => serde_json::from_str::<ChangedRanges>(raw)?,
-            _ => HashMap::new(),
-        };
-        let changed_nodes = if changed_ranges.is_empty() {
-            self.changed_nodes_by_files(changed_files)?
+        let changed_ranges = ChangedRangeInput::parse(changed_ranges_json)?;
+        let changed_nodes = if let Some(ranges) = changed_ranges.as_ranges() {
+            self.changed_nodes_by_ranges(ranges)?
         } else {
-            self.changed_nodes_by_ranges(&changed_ranges)?
+            self.changed_nodes_by_files(changed_files)?
         };
         let changed_funcs = changed_nodes
             .into_iter()
@@ -136,12 +175,12 @@ impl GraphStore {
                 .map(|edges| edges.iter().any(|edge| edge.kind == "TESTED_BY"))
                 .unwrap_or(false);
             if !tested {
-                test_gaps.push(json!({
-                    "name": sanitize_name(&node.name),
-                    "qualified_name": sanitize_name(&node.qualified_name),
-                    "file": node.file_path,
-                    "line_start": node.line_start,
-                    "line_end": node.line_end,
+                test_gaps.push(json!(TestGapJson {
+                    name: sanitize_name(&node.name),
+                    qualified_name: sanitize_name(&node.qualified_name),
+                    file: node.file_path.clone(),
+                    line_start: node.line_start,
+                    line_end: node.line_end,
                 }));
             }
         }
@@ -179,14 +218,14 @@ impl GraphStore {
             summary_parts.push(format!("  - Untested: {gap_names}"));
         }
 
-        serde_json::to_string(&json!({
-            "summary": summary_parts.join("\n"),
-            "risk_score": overall_risk,
-            "changed_functions": node_risks,
-            "affected_flows": affected_flows,
-            "test_gaps": test_gaps,
-            "review_priorities": review_priorities,
-        }))
+        serde_json::to_string(&ChangeAnalysisJson {
+            summary: summary_parts.join("\n"),
+            risk_score: overall_risk,
+            changed_functions: node_risks,
+            affected_flows,
+            test_gaps,
+            review_priorities,
+        })
         .map_err(Into::into)
     }
 }

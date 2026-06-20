@@ -1,4 +1,5 @@
 use crate::*;
+use serde::Serialize;
 
 pub(crate) fn now_seconds() -> Result<f64> {
     let duration = SystemTime::now()
@@ -298,6 +299,57 @@ pub(crate) fn store_flows_tx(tx: &Transaction<'_>, flows: &[FlowInput]) -> Resul
     Ok(())
 }
 
+#[derive(Serialize)]
+struct FlowJson<'a> {
+    id: i64,
+    name: String,
+    entry_point_id: i64,
+    depth: i64,
+    node_count: i64,
+    file_count: i64,
+    criticality: f64,
+    path: &'a [i64],
+    created_at: String,
+    updated_at: String,
+}
+
+#[derive(Serialize)]
+struct FlowStepJson {
+    node_id: i64,
+    name: String,
+    kind: String,
+    file: String,
+    line_start: i64,
+    line_end: i64,
+    qualified_name: String,
+}
+
+#[derive(Serialize)]
+struct CommunityJson {
+    id: i64,
+    name: String,
+    level: i64,
+    cohesion: f64,
+    size: i64,
+    dominant_language: String,
+    description: String,
+    members: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct GraphNodeJson {
+    id: i64,
+    kind: String,
+    name: String,
+    qualified_name: String,
+    file_path: String,
+    line_start: i64,
+    line_end: i64,
+    language: String,
+    parent_name: Option<String>,
+    is_test: bool,
+}
+
 pub(crate) fn flow_json_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
     let path_json: String = row.get("path_json")?;
     let path = serde_json::from_str::<Vec<i64>>(&path_json).unwrap_or_default();
@@ -323,17 +375,17 @@ pub(crate) fn flow_json_value_from_parts(
     name: &str,
     path: &[i64],
 ) -> rusqlite::Result<Value> {
-    Ok(json!({
-        "id": row.get::<_, i64>("id")?,
-        "name": sanitize_name(name),
-        "entry_point_id": row.get::<_, i64>("entry_point_id")?,
-        "depth": row.get::<_, i64>("depth")?,
-        "node_count": row.get::<_, i64>("node_count")?,
-        "file_count": row.get::<_, i64>("file_count")?,
-        "criticality": row.get::<_, f64>("criticality")?,
-        "path": path,
-        "created_at": row.get::<_, String>("created_at")?,
-        "updated_at": row.get::<_, String>("updated_at")?,
+    Ok(json!(FlowJson {
+        id: row.get::<_, i64>("id")?,
+        name: sanitize_name(name),
+        entry_point_id: row.get::<_, i64>("entry_point_id")?,
+        depth: row.get::<_, i64>("depth")?,
+        node_count: row.get::<_, i64>("node_count")?,
+        file_count: row.get::<_, i64>("file_count")?,
+        criticality: row.get::<_, f64>("criticality")?,
+        path,
+        created_at: row.get::<_, String>("created_at")?,
+        updated_at: row.get::<_, String>("updated_at")?,
     }))
 }
 
@@ -344,14 +396,14 @@ pub(crate) fn flow_steps_from_nodes(
     let mut steps = Vec::new();
     for node_id in path_ids {
         if let Some(node) = nodes_by_id.get(node_id) {
-            steps.push(json!({
-                "node_id": node.id,
-                "name": sanitize_name(&node.name),
-                "kind": node.kind,
-                "file": node.file_path,
-                "line_start": node.line_start,
-                "line_end": node.line_end,
-                "qualified_name": sanitize_name(&node.qualified_name),
+            steps.push(json!(FlowStepJson {
+                node_id: node.id,
+                name: sanitize_name(&node.name),
+                kind: node.kind.clone(),
+                file: node.file_path.clone(),
+                line_start: node.line_start,
+                line_end: node.line_end,
+                qualified_name: sanitize_name(&node.qualified_name),
             }));
         }
     }
@@ -363,15 +415,17 @@ pub(crate) fn community_json_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Resu
     let description = row
         .get::<_, Option<String>>("description")?
         .unwrap_or_default();
-    Ok(json!({
-        "id": row.get::<_, i64>("id")?,
-        "name": sanitize_name(&name),
-        "level": row.get::<_, i64>("level")?,
-        "cohesion": row.get::<_, f64>("cohesion")?,
-        "size": row.get::<_, i64>("size")?,
-        "dominant_language": row.get::<_, Option<String>>("dominant_language")?.unwrap_or_default(),
-        "description": sanitize_name(&description),
-        "members": [],
+    Ok(json!(CommunityJson {
+        id: row.get::<_, i64>("id")?,
+        name: sanitize_name(&name),
+        level: row.get::<_, i64>("level")?,
+        cohesion: row.get::<_, f64>("cohesion")?,
+        size: row.get::<_, i64>("size")?,
+        dominant_language: row
+            .get::<_, Option<String>>("dominant_language")?
+            .unwrap_or_default(),
+        description: sanitize_name(&description),
+        members: Vec::new(),
     }))
 }
 
@@ -744,17 +798,17 @@ pub(crate) fn edge_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<GraphEd
 }
 
 pub(crate) fn node_to_value(node: &GraphNode) -> Value {
-    json!({
-        "id": node.id,
-        "kind": node.kind,
-        "name": sanitize_name(&node.name),
-        "qualified_name": sanitize_name(&node.qualified_name),
-        "file_path": node.file_path,
-        "line_start": node.line_start,
-        "line_end": node.line_end,
-        "language": node.language,
-        "parent_name": node.parent_name.as_deref().map(sanitize_name),
-        "is_test": node.is_test,
+    json!(GraphNodeJson {
+        id: node.id,
+        kind: node.kind.clone(),
+        name: sanitize_name(&node.name),
+        qualified_name: sanitize_name(&node.qualified_name),
+        file_path: node.file_path.clone(),
+        line_start: node.line_start,
+        line_end: node.line_end,
+        language: node.language.clone(),
+        parent_name: node.parent_name.as_deref().map(sanitize_name),
+        is_test: node.is_test,
     })
 }
 
