@@ -5,8 +5,8 @@ from typing import cast
 
 from dagayn import main as crg_main
 from dagayn.dependency_profiles import DependencyProfile
+from dagayn.state_types import ArchitectureAnalysisMode
 from dagayn.tools import architecture_analysis
-from dagayn.tools.architecture_analysis import ArchitectureAnalysisMode
 
 
 def test_architecture_analysis_sap_violations_preserves_exclusion_explanation(monkeypatch) -> None:

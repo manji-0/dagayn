@@ -17,7 +17,14 @@ from ..refactor import (
     suggest_refactorings,
 )
 from ..stability_policy import component_stability_profiles, scope_key_for_file
-from ..state_types import RefactorMode, format_validation_error, parse_refactor_request
+from ..state_types import (
+    RefactorMode,
+    format_validation_error,
+    parse_refactor_request,
+    seal_refactor_error,
+    seal_refactor_not_found,
+    seal_refactor_ok,
+)
 from ._common import (
     _get_store,
     _validate_repo_root,
@@ -219,12 +226,14 @@ def refactor_func(
             repo_root=repo_root,
         )
     except ValidationError as exc:
-        return attach_answerability(
-            {
-                "status": "error",
-                "error": format_validation_error(exc),
-            },
-            repo_root,
+        return seal_refactor_error(
+            attach_answerability(
+                {
+                    "status": "error",
+                    "error": format_validation_error(exc),
+                },
+                repo_root,
+            )
         )
 
     store = None
@@ -235,23 +244,25 @@ def refactor_func(
         if request.mode == "rename":
             preview = rename_preview(store, request.old_name, request.new_name)
             if preview is None:
-                return {
-                    "status": "not_found",
-                    "summary": (
-                        f"No node found matching '{request.old_name}' in the current graph."
-                    ),
-                    "answerability": answerability,
-                    "missingness": [
-                        *missingness,
-                        {
-                            "reason_code": "rename_target_not_found_in_graph",
-                            "severity": "medium",
-                            "claim_effect": (
-                                "absence is graph-limited, not proof the symbol does not exist"
-                            ),
-                        },
-                    ],
-                }
+                return seal_refactor_not_found(
+                    {
+                        "status": "not_found",
+                        "summary": (
+                            f"No node found matching '{request.old_name}' in the current graph."
+                        ),
+                        "answerability": answerability,
+                        "missingness": [
+                            *missingness,
+                            {
+                                "reason_code": "rename_target_not_found_in_graph",
+                                "severity": "medium",
+                                "claim_effect": (
+                                    "absence is graph-limited, not proof the symbol does not exist"
+                                ),
+                            },
+                        ],
+                    }
+                )
             result: dict[str, Any] = {
                 "status": "ok",
                 "summary": (
@@ -271,7 +282,7 @@ def refactor_func(
                 ],
             }
             result["_hints"] = generate_hints("refactor", result, get_session())
-            return result
+            return seal_refactor_ok(result)
 
         if request.mode == "dead_code":
             dead = find_dead_code(
@@ -303,7 +314,7 @@ def refactor_func(
                 ],
             }
             result["_hints"] = generate_hints("refactor", result, get_session())
-            return result
+            return seal_refactor_ok(result)
 
         suggestions = suggest_refactorings(store)
         suggestions = _apply_stability_policy_to_suggestions(
@@ -339,7 +350,7 @@ def refactor_func(
         result["_hints"] = guidance_actions_to_hints(result["guidance"])
         if not result["_hints"]["next_steps"]:
             result["_hints"] = generate_hints("refactor", result, get_session())
-        return result
+        return seal_refactor_ok(result)
 
     except Exception as exc:
         return handle_tool_runtime_error(exc, logger=logger, context="refactor_func")

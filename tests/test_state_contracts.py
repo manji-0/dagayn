@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from dagayn.state_types import (
+    ArchitectureCommunityRequest,
     DroppedMarkdownArtifactResolution,
     FlowGetRequest,
     RefactorRenameRequest,
@@ -11,11 +12,15 @@ from dagayn.state_types import (
     StillUnresolvedMarkdownArtifactResolution,
     build_markdown_artifact_resolution,
     format_validation_error,
+    parse_architecture_analysis_request,
     parse_flow_request,
     parse_refactor_request,
     parse_review_request,
     seal_dispatcher_error,
     seal_dispatcher_ok,
+    seal_refactor_error,
+    seal_refactor_not_found,
+    seal_refactor_ok,
 )
 
 
@@ -140,3 +145,81 @@ def test_dispatcher_envelopes_allow_extra_metadata() -> None:
     assert error["status"] == "error"
     assert "answerability" in ok
     assert "answerability" in error
+
+
+def test_architecture_community_request_requires_selector() -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        parse_architecture_analysis_request(mode="community")
+
+    assert 'mode="community" requires community_id or community_name.' in format_validation_error(
+        exc_info.value
+    )
+
+
+def test_architecture_community_request_parses_selector() -> None:
+    request = parse_architecture_analysis_request(
+        mode="community",
+        community_name="auth",
+        include_members=True,
+    )
+
+    assert isinstance(request, ArchitectureCommunityRequest)
+    assert request.community_name == "auth"
+    assert request.include_members is True
+
+
+def test_architecture_request_accepts_all_modes() -> None:
+    modes = (
+        "overview",
+        "communities",
+        "community",
+        "hubs",
+        "bridges",
+        "knowledge_gaps",
+        "surprising_connections",
+        "adp_violations",
+        "sdp_metrics",
+        "sdp_violations",
+        "sap_metrics",
+        "sap_violations",
+    )
+    for mode in modes:
+        payload: dict[str, object] = {"mode": mode, "repo_root": "/repo"}
+        if mode == "community":
+            payload["community_id"] = 1
+        request = parse_architecture_analysis_request(**payload)
+        assert request.mode == mode
+        assert request.repo_root == "/repo"
+
+
+def test_architecture_request_rejects_unknown_dependency_profile() -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        parse_architecture_analysis_request(mode="sdp_metrics", dependency_profile="typo")
+
+    assert "Unknown dependency_profile" in format_validation_error(exc_info.value)
+
+
+def test_refactor_envelopes_allow_extra_metadata() -> None:
+    ok = seal_refactor_ok(
+        {
+            "status": "ok",
+            "summary": "done",
+            "answerability": {"status": "ok"},
+            "dead_code": [],
+        }
+    )
+    error = seal_refactor_error({"status": "error", "error": "bad input"})
+    not_found = seal_refactor_not_found(
+        {
+            "status": "not_found",
+            "summary": "missing symbol",
+            "missingness": [],
+        }
+    )
+
+    assert ok["status"] == "ok"
+    assert error["status"] == "error"
+    assert error["summary"] == "bad input"
+    assert not_found["status"] == "not_found"
+    assert "answerability" in ok
+    assert "missingness" in not_found

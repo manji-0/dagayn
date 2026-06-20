@@ -4,9 +4,16 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from .._scope import ArtifactScope
-from ..dependency_profiles import DependencyProfile, validate_dependency_profile
+from pydantic import ValidationError
+
 from ..hints import generate_hints, get_session
+from ..state_types import (
+    ArchitectureAnalysisMode,
+    format_validation_error,
+    parse_architecture_analysis_request,
+    seal_dispatcher_error,
+    seal_dispatcher_ok,
+)
 from ._common import attach_answerability
 from .analysis_tools import (
     get_bridge_nodes_func,
@@ -25,21 +32,6 @@ from .community_tools import (
     list_communities_func,
 )
 from .sap_tools import compute_sap_metrics_func, detect_sap_violations_func
-
-ArchitectureAnalysisMode = Literal[
-    "overview",
-    "communities",
-    "community",
-    "hubs",
-    "bridges",
-    "knowledge_gaps",
-    "surprising_connections",
-    "adp_violations",
-    "sdp_metrics",
-    "sdp_violations",
-    "sap_metrics",
-    "sap_violations",
-]
 
 
 def _with_dispatch_metadata(
@@ -60,19 +52,21 @@ def _with_dispatch_metadata(
         "_hints",
         generate_hints("architecture_analysis", payload, get_session()),
     )
-    return payload
+    return seal_dispatcher_ok(payload)
 
 
 def _error(message: str, *, mode: str, repo_root: str | None) -> dict[str, Any]:
-    return attach_answerability(
-        {
-            "status": "error",
-            "summary": message,
-            "error": message,
-            "mode": mode,
-            "called_subtool": None,
-        },
-        repo_root,
+    return seal_dispatcher_error(
+        attach_answerability(
+            {
+                "status": "error",
+                "summary": message,
+                "error": message,
+                "mode": mode,
+                "called_subtool": None,
+            },
+            repo_root,
+        )
     )
 
 
@@ -93,187 +87,193 @@ def architecture_analysis_func(
     min_delta: float = 0.1,
     min_distance: float = 0.5,
     repo_root: str | None = None,
-    artifact_scope: ArtifactScope = "code",
-    dependency_profile: DependencyProfile = "strict_static",
+    artifact_scope: Literal["code", "docs", "all"] = "code",
+    dependency_profile: Literal[
+        "strict_static",
+        "implementation",
+        "infra_dataflow",
+        "artifact_trace",
+    ] = "strict_static",
 ) -> dict[str, Any]:
     """Run architecture analysis by dispatching to the requested internal mode."""
-    include_tests = artifact_scope != "code"
-    profile_modes = {
-        "adp_violations",
-        "sdp_metrics",
-        "sdp_violations",
-        "sap_metrics",
-        "sap_violations",
-    }
-    if mode in profile_modes:
-        try:
-            dependency_profile = validate_dependency_profile(dependency_profile)
-        except ValueError as exc:
-            return _error(str(exc), mode=mode, repo_root=repo_root)
-    if mode == "overview":
+    try:
+        request = parse_architecture_analysis_request(
+            mode=mode,
+            detail_level=detail_level,
+            top_n=top_n,
+            sort_by=sort_by,
+            min_size=min_size,
+            community_name=community_name,
+            community_id=community_id,
+            include_members=include_members,
+            granularity=granularity,
+            scope_kind=scope_kind,
+            unit_filter=unit_filter,
+            min_cycle_size=min_cycle_size,
+            max_cycle_length=max_cycle_length,
+            min_delta=min_delta,
+            min_distance=min_distance,
+            repo_root=repo_root,
+            artifact_scope=artifact_scope,
+            dependency_profile=dependency_profile,
+        )
+    except ValidationError as exc:
+        return _error(format_validation_error(exc), mode=mode, repo_root=repo_root)
+
+    include_tests = request.artifact_scope != "code"
+
+    if request.mode == "overview":
         return _with_dispatch_metadata(
             get_architecture_overview_func(
-                repo_root=repo_root,
-                detail_level=detail_level,
-                top_n=top_n,
-                artifact_scope=artifact_scope,
+                repo_root=request.repo_root,
+                detail_level=request.detail_level,
+                top_n=request.top_n,
+                artifact_scope=request.artifact_scope,
             ),
-            mode=mode,
+            mode=request.mode,
             called_subtool="get_architecture_overview_func",
-            repo_root=repo_root,
+            repo_root=request.repo_root,
         )
-    if mode == "communities":
+    if request.mode == "communities":
         return _with_dispatch_metadata(
             list_communities_func(
-                repo_root=repo_root,
-                sort_by=sort_by,
-                min_size=min_size,
-                detail_level=detail_level,
-                limit=top_n,
+                repo_root=request.repo_root,
+                sort_by=request.sort_by,
+                min_size=request.min_size,
+                detail_level=request.detail_level,
+                limit=request.top_n,
             ),
-            mode=mode,
+            mode=request.mode,
             called_subtool="list_communities_func",
-            repo_root=repo_root,
+            repo_root=request.repo_root,
         )
-    if mode == "community":
-        if community_id is None and not community_name:
-            return _error(
-                'mode="community" requires community_id or community_name.',
-                mode=mode,
-                repo_root=repo_root,
-            )
+    if request.mode == "community":
         return _with_dispatch_metadata(
             get_community_func(
-                repo_root=repo_root,
-                community_name=community_name,
-                community_id=community_id,
-                include_members=include_members,
+                repo_root=request.repo_root,
+                community_name=request.community_name,
+                community_id=request.community_id,
+                include_members=request.include_members,
             ),
-            mode=mode,
+            mode=request.mode,
             called_subtool="get_community_func",
-            repo_root=repo_root,
+            repo_root=request.repo_root,
         )
-    if mode == "hubs":
+    if request.mode == "hubs":
         return _with_dispatch_metadata(
             get_hub_nodes_func(
-                repo_root=repo_root,
-                top_n=top_n,
-                artifact_scope=artifact_scope,
+                repo_root=request.repo_root,
+                top_n=request.top_n,
+                artifact_scope=request.artifact_scope,
                 include_tests=include_tests,
             ),
-            mode=mode,
+            mode=request.mode,
             called_subtool="get_hub_nodes_func",
-            repo_root=repo_root,
+            repo_root=request.repo_root,
         )
-    if mode == "bridges":
+    if request.mode == "bridges":
         return _with_dispatch_metadata(
             get_bridge_nodes_func(
-                repo_root=repo_root,
-                top_n=top_n,
-                artifact_scope=artifact_scope,
+                repo_root=request.repo_root,
+                top_n=request.top_n,
+                artifact_scope=request.artifact_scope,
                 include_tests=include_tests,
             ),
-            mode=mode,
+            mode=request.mode,
             called_subtool="get_bridge_nodes_func",
-            repo_root=repo_root,
+            repo_root=request.repo_root,
         )
-    if mode == "knowledge_gaps":
+    if request.mode == "knowledge_gaps":
         return _with_dispatch_metadata(
             get_knowledge_gaps_func(
-                repo_root=repo_root,
-                top_n=top_n,
-                artifact_scope=artifact_scope,
+                repo_root=request.repo_root,
+                top_n=request.top_n,
+                artifact_scope=request.artifact_scope,
                 include_tests=include_tests,
             ),
-            mode=mode,
+            mode=request.mode,
             called_subtool="get_knowledge_gaps_func",
-            repo_root=repo_root,
+            repo_root=request.repo_root,
         )
-    if mode == "surprising_connections":
+    if request.mode == "surprising_connections":
         return _with_dispatch_metadata(
             get_surprising_connections_func(
-                repo_root=repo_root,
-                top_n=top_n,
-                artifact_scope=artifact_scope,
+                repo_root=request.repo_root,
+                top_n=request.top_n,
+                artifact_scope=request.artifact_scope,
                 include_tests=include_tests,
             ),
-            mode=mode,
+            mode=request.mode,
             called_subtool="get_surprising_connections_func",
-            repo_root=repo_root,
+            repo_root=request.repo_root,
         )
-    if mode == "adp_violations":
+    if request.mode == "adp_violations":
         return _with_dispatch_metadata(
             detect_adp_violations_func(
-                repo_root=repo_root,
-                granularity=granularity,
-                artifact_scope=artifact_scope,
-                dependency_profile=dependency_profile,
-                min_cycle_size=min_cycle_size,
-                max_cycle_length=max_cycle_length,
-                top_n=top_n,
+                repo_root=request.repo_root,
+                granularity=request.granularity,
+                artifact_scope=request.artifact_scope,
+                dependency_profile=request.dependency_profile,
+                min_cycle_size=request.min_cycle_size,
+                max_cycle_length=request.max_cycle_length,
+                top_n=request.top_n,
             ),
-            mode=mode,
+            mode=request.mode,
             called_subtool="detect_adp_violations_func",
-            repo_root=repo_root,
+            repo_root=request.repo_root,
         )
-    if mode == "sdp_metrics":
+    if request.mode == "sdp_metrics":
         return _with_dispatch_metadata(
             compute_sdp_metrics_func(
-                repo_root=repo_root,
-                granularity=granularity,
-                artifact_scope=artifact_scope,
-                dependency_profile=dependency_profile,
-                top_n=top_n,
+                repo_root=request.repo_root,
+                granularity=request.granularity,
+                artifact_scope=request.artifact_scope,
+                dependency_profile=request.dependency_profile,
+                top_n=request.top_n,
             ),
-            mode=mode,
+            mode=request.mode,
             called_subtool="compute_sdp_metrics_func",
-            repo_root=repo_root,
+            repo_root=request.repo_root,
         )
-    if mode == "sdp_violations":
+    if request.mode == "sdp_violations":
         return _with_dispatch_metadata(
             detect_sdp_violations_func(
-                repo_root=repo_root,
-                granularity=granularity,
-                artifact_scope=artifact_scope,
-                dependency_profile=dependency_profile,
-                min_delta=min_delta,
-                top_n=top_n,
+                repo_root=request.repo_root,
+                granularity=request.granularity,
+                artifact_scope=request.artifact_scope,
+                dependency_profile=request.dependency_profile,
+                min_delta=request.min_delta,
+                top_n=request.top_n,
             ),
-            mode=mode,
+            mode=request.mode,
             called_subtool="detect_sdp_violations_func",
-            repo_root=repo_root,
+            repo_root=request.repo_root,
         )
-    if mode == "sap_metrics":
+    if request.mode == "sap_metrics":
         return _with_dispatch_metadata(
             compute_sap_metrics_func(
-                repo_root=repo_root,
-                scope_kind=scope_kind,
-                unit_filter=unit_filter,
-                artifact_scope=artifact_scope,
-                top_n=top_n,
-                detail_level=detail_level,
-                dependency_profile=dependency_profile,
+                repo_root=request.repo_root,
+                scope_kind=request.scope_kind,
+                unit_filter=request.unit_filter,
+                artifact_scope=request.artifact_scope,
+                top_n=request.top_n,
+                detail_level=request.detail_level,
+                dependency_profile=request.dependency_profile,
             ),
-            mode=mode,
+            mode=request.mode,
             called_subtool="compute_sap_metrics_func",
-            repo_root=repo_root,
+            repo_root=request.repo_root,
         )
-    if mode == "sap_violations":
-        return _with_dispatch_metadata(
-            detect_sap_violations_func(
-                repo_root=repo_root,
-                scope_kind=scope_kind,
-                artifact_scope=artifact_scope,
-                dependency_profile=dependency_profile,
-                min_distance=min_distance,
-                top_n=top_n,
-            ),
-            mode=mode,
-            called_subtool="detect_sap_violations_func",
-            repo_root=repo_root,
-        )
-    return _error(
-        f"Unknown architecture analysis mode: {mode!r}.",
-        mode=str(mode),
-        repo_root=repo_root,
+    return _with_dispatch_metadata(
+        detect_sap_violations_func(
+            repo_root=request.repo_root,
+            scope_kind=request.scope_kind,
+            artifact_scope=request.artifact_scope,
+            dependency_profile=request.dependency_profile,
+            min_distance=request.min_distance,
+            top_n=request.top_n,
+        ),
+        mode=request.mode,
+        called_subtool="detect_sap_violations_func",
+        repo_root=request.repo_root,
     )

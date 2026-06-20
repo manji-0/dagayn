@@ -4,9 +4,18 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal, TypeAlias, TypedDict, cast
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from . import _python314_compat  # noqa: F401
+from .dependency_profiles import DependencyProfile, validate_dependency_profile
 
 ConfidenceTier: TypeAlias = Literal["EXACT", "EXTRACTED", "HIGH", "MEDIUM", "LOW", "UNKNOWN"]
 CrossArtifactRole: TypeAlias = Literal[
@@ -54,6 +63,25 @@ ReviewMode: TypeAlias = Literal["changes", "context", "affected_flows", "impact"
 FlowSortBy: TypeAlias = Literal["criticality", "depth", "node_count", "file_count", "name"]
 FlowDetailLevel: TypeAlias = Literal["minimal", "standard"]
 ReviewDetailLevel: TypeAlias = Literal["minimal", "standard", "verbose"]
+ArchitectureAnalysisMode: TypeAlias = Literal[
+    "overview",
+    "communities",
+    "community",
+    "hubs",
+    "bridges",
+    "knowledge_gaps",
+    "surprising_connections",
+    "adp_violations",
+    "sdp_metrics",
+    "sdp_violations",
+    "sap_metrics",
+    "sap_violations",
+]
+ArchitectureDetailLevel: TypeAlias = Literal["minimal", "standard", "verbose"]
+ArchitectureSortBy: TypeAlias = Literal["size", "cohesion", "name"]
+ArchitectureGranularity: TypeAlias = Literal["file", "package"]
+ArchitectureScopeKind: TypeAlias = Literal["file", "package", "directory"]
+ArtifactScope: TypeAlias = Literal["code", "docs", "all"]
 
 
 class EmbeddingStatus(TypedDict, total=False):
@@ -276,10 +304,7 @@ class ReviewImpactRequest(_ReviewRequestBase):
 
 
 ReviewRequest = Annotated[
-    ReviewChangesRequest
-    | ReviewContextRequest
-    | ReviewAffectedFlowsRequest
-    | ReviewImpactRequest,
+    ReviewChangesRequest | ReviewContextRequest | ReviewAffectedFlowsRequest | ReviewImpactRequest,
     Field(discriminator="mode"),
 ]
 _REVIEW_REQUEST_ADAPTER = TypeAdapter(ReviewRequest)
@@ -325,3 +350,167 @@ _REFACTOR_REQUEST_ADAPTER = TypeAdapter(RefactorRequest)
 def parse_refactor_request(**payload: Any) -> RefactorRequest:
     """Validate refactor dispatcher input."""
     return _REFACTOR_REQUEST_ADAPTER.validate_python(payload)
+
+
+class RefactorOkResponse(BaseModel):
+    """Shared success envelope for refactor tool responses."""
+
+    model_config = ConfigDict(extra="allow")
+
+    status: Literal["ok"]
+    summary: str
+
+
+class RefactorErrorResponse(BaseModel):
+    """Shared error envelope for refactor tool responses."""
+
+    model_config = ConfigDict(extra="allow")
+
+    status: Literal["error"]
+    error: str
+    summary: str | None = None
+
+
+class RefactorNotFoundResponse(BaseModel):
+    """Graph-limited absence envelope for rename previews."""
+
+    model_config = ConfigDict(extra="allow")
+
+    status: Literal["not_found"]
+    summary: str
+
+
+def seal_refactor_ok(payload: dict[str, Any]) -> dict[str, Any]:
+    """Validate and normalize a refactor success response."""
+    return RefactorOkResponse.model_validate(payload).model_dump()
+
+
+def seal_refactor_error(payload: dict[str, Any]) -> dict[str, Any]:
+    """Validate and normalize a refactor error response."""
+    normalized = dict(payload)
+    if "summary" not in normalized and "error" in normalized:
+        normalized["summary"] = normalized["error"]
+    return RefactorErrorResponse.model_validate(normalized).model_dump()
+
+
+def seal_refactor_not_found(payload: dict[str, Any]) -> dict[str, Any]:
+    """Validate and normalize a refactor not-found response."""
+    return RefactorNotFoundResponse.model_validate(payload).model_dump()
+
+
+class _ArchitectureRequestBase(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    repo_root: str | None = None
+    top_n: int = 10
+    artifact_scope: ArtifactScope = "code"
+
+
+class ArchitectureOverviewRequest(_ArchitectureRequestBase):
+    mode: Literal["overview"] = "overview"
+    detail_level: ArchitectureDetailLevel = "minimal"
+
+
+class ArchitectureCommunitiesRequest(_ArchitectureRequestBase):
+    mode: Literal["communities"] = "communities"
+    detail_level: ArchitectureDetailLevel = "minimal"
+    sort_by: ArchitectureSortBy = "size"
+    min_size: int = 0
+
+
+class ArchitectureCommunityRequest(_ArchitectureRequestBase):
+    mode: Literal["community"] = "community"
+    community_name: str | None = None
+    community_id: int | None = None
+    include_members: bool = False
+
+    @model_validator(mode="after")
+    def require_selector(self) -> ArchitectureCommunityRequest:
+        if self.community_id is None and not self.community_name:
+            raise ValueError('mode="community" requires community_id or community_name.')
+        return self
+
+
+class ArchitectureHubsRequest(_ArchitectureRequestBase):
+    mode: Literal["hubs"] = "hubs"
+
+
+class ArchitectureBridgesRequest(_ArchitectureRequestBase):
+    mode: Literal["bridges"] = "bridges"
+
+
+class ArchitectureKnowledgeGapsRequest(_ArchitectureRequestBase):
+    mode: Literal["knowledge_gaps"] = "knowledge_gaps"
+
+
+class ArchitectureSurprisingConnectionsRequest(_ArchitectureRequestBase):
+    mode: Literal["surprising_connections"] = "surprising_connections"
+
+
+class _ArchitectureGranularityRequest(_ArchitectureRequestBase):
+    granularity: ArchitectureGranularity = "package"
+    dependency_profile: str = "strict_static"
+
+    @field_validator("dependency_profile")
+    @classmethod
+    def validate_dependency_profile_name(cls, value: str) -> DependencyProfile:
+        return validate_dependency_profile(value)
+
+
+class ArchitectureAdpViolationsRequest(_ArchitectureGranularityRequest):
+    mode: Literal["adp_violations"] = "adp_violations"
+    min_cycle_size: int = 2
+    max_cycle_length: int = 10
+
+
+class ArchitectureSdpMetricsRequest(_ArchitectureGranularityRequest):
+    mode: Literal["sdp_metrics"] = "sdp_metrics"
+
+
+class ArchitectureSdpViolationsRequest(_ArchitectureGranularityRequest):
+    mode: Literal["sdp_violations"] = "sdp_violations"
+    min_delta: float = 0.1
+
+
+class _ArchitectureSapRequest(_ArchitectureRequestBase):
+    scope_kind: ArchitectureScopeKind = "package"
+    unit_filter: list[str] | None = None
+    dependency_profile: str = "strict_static"
+
+    @field_validator("dependency_profile")
+    @classmethod
+    def validate_dependency_profile_name(cls, value: str) -> DependencyProfile:
+        return validate_dependency_profile(value)
+
+
+class ArchitectureSapMetricsRequest(_ArchitectureSapRequest):
+    mode: Literal["sap_metrics"] = "sap_metrics"
+    detail_level: ArchitectureDetailLevel = "minimal"
+
+
+class ArchitectureSapViolationsRequest(_ArchitectureSapRequest):
+    mode: Literal["sap_violations"] = "sap_violations"
+    min_distance: float = 0.5
+
+
+ArchitectureAnalysisRequest = Annotated[
+    ArchitectureOverviewRequest
+    | ArchitectureCommunitiesRequest
+    | ArchitectureCommunityRequest
+    | ArchitectureHubsRequest
+    | ArchitectureBridgesRequest
+    | ArchitectureKnowledgeGapsRequest
+    | ArchitectureSurprisingConnectionsRequest
+    | ArchitectureAdpViolationsRequest
+    | ArchitectureSdpMetricsRequest
+    | ArchitectureSdpViolationsRequest
+    | ArchitectureSapMetricsRequest
+    | ArchitectureSapViolationsRequest,
+    Field(discriminator="mode"),
+]
+_ARCHITECTURE_REQUEST_ADAPTER = TypeAdapter(ArchitectureAnalysisRequest)
+
+
+def parse_architecture_analysis_request(**payload: Any) -> ArchitectureAnalysisRequest:
+    """Validate architecture analysis dispatcher input."""
+    return _ARCHITECTURE_REQUEST_ADAPTER.validate_python(payload)
