@@ -209,6 +209,20 @@ class TestGuidanceItems:
         assert item["confidence"] == "high"
         assert item["evidence"][0]["type"] == "computed"
 
+    def test_guidance_item_normalizes_invalid_values_via_contract(self) -> None:
+        item = make_guidance_item(
+            claim="Inspect evidence.",
+            evidence={"type": "unsupported", "value": 1},
+            confidence="certain",
+            missingness={"reason_code": "gap", "severity": "severe"},
+            action={"tool": "review_tool", "suggestion": "inspect context"},
+        )
+
+        assert item["evidence"][0]["type"] == "computed"
+        assert item["confidence"] == "unknown"
+        assert item["missingness"][0]["severity"] == "low"
+        assert item["action"]["tool"] == "review_tool"
+
     def test_guidance_actions_to_hints(self) -> None:
         hints = guidance_actions_to_hints(
             [

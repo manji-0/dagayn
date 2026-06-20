@@ -82,17 +82,47 @@ ArchitectureSortBy: TypeAlias = Literal["size", "cohesion", "name"]
 ArchitectureGranularity: TypeAlias = Literal["file", "package"]
 ArchitectureScopeKind: TypeAlias = Literal["file", "package", "directory"]
 ArtifactScope: TypeAlias = Literal["code", "docs", "all"]
+GuidanceConfidence: TypeAlias = Literal["high", "medium", "low", "unknown"]
+GuidanceEvidenceType: TypeAlias = Literal["extracted", "authored", "computed", "evaluated"]
+MissingnessSeverity: TypeAlias = Literal["info", "low", "medium", "high"]
+AnswerabilityStatus: TypeAlias = Literal["ok", "degraded", "empty", "unknown"]
 
 
-class EmbeddingStatus(TypedDict, total=False):
-    status: EmbeddingStatusCode
+class EmbeddingBasicStatus(BaseModel):
+    """Embedding index state before full coverage metrics are available."""
+
+    model_config = ConfigDict(extra="allow")
+
+    status: Literal["not_indexed", "unavailable", "empty", "unknown"]
+    total_embeddings: int = 0
+    provider_counts: dict[str, int] = Field(default_factory=dict)
+    error: str | None = None
+
+
+class EmbeddingCoverageStatus(BaseModel):
+    """Embedding index state with node coverage metrics."""
+
+    model_config = ConfigDict(extra="allow")
+
+    status: Literal["stale", "partial", "complete"]
     total_embeddings: int
-    provider_counts: dict[str, int]
+    provider_counts: dict[str, int] = Field(default_factory=dict)
     embeddable_nodes: int
     indexed_embeddings: int
     missing_embeddings: int
     orphan_embeddings: int
-    error: str
+
+
+EmbeddingStatus = Annotated[
+    EmbeddingBasicStatus | EmbeddingCoverageStatus,
+    Field(discriminator="status"),
+]
+_EMBEDDING_STATUS_ADAPTER = TypeAdapter(EmbeddingStatus)
+
+
+def seal_embedding_status(payload: dict[str, Any]) -> dict[str, Any]:
+    """Validate and normalize embedding coverage metadata."""
+    return _EMBEDDING_STATUS_ADAPTER.validate_python(payload).model_dump(exclude_none=True)
 
 
 class TraversalEntry(TypedDict):
@@ -103,11 +133,43 @@ class TraversalEntry(TypedDict):
     depth: int
 
 
-class ReachabilityInfo(TypedDict):
-    state: ReachabilityState
-    truncated: bool
+class ReachabilityNotFoundInfo(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    state: Literal["not_found"]
+    truncated: Literal[False] = False
+    max_depth: int
+    nodes_visited: Literal[0] = 0
+
+
+class ReachabilityCompleteInfo(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    state: Literal["complete"]
+    truncated: Literal[False] = False
     max_depth: int
     nodes_visited: int
+
+
+class ReachabilityTruncatedInfo(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    state: Literal["truncated"]
+    truncated: Literal[True] = True
+    max_depth: int
+    nodes_visited: int
+
+
+ReachabilityInfo = Annotated[
+    ReachabilityNotFoundInfo | ReachabilityCompleteInfo | ReachabilityTruncatedInfo,
+    Field(discriminator="state"),
+]
+_REACHABILITY_INFO_ADAPTER = TypeAdapter(ReachabilityInfo)
+
+
+def seal_reachability_info(payload: dict[str, Any]) -> dict[str, Any]:
+    """Validate and normalize traversal reachability metadata."""
+    return _REACHABILITY_INFO_ADAPTER.validate_python(payload).model_dump(exclude_none=True)
 
 
 def normalize_confidence_tier(value: Any, default: ConfidenceTier = "EXTRACTED") -> ConfidenceTier:
@@ -236,6 +298,98 @@ def format_validation_error(exc: ValidationError) -> str:
     """Return a single-line validation message suitable for tool errors."""
     messages = [str(error["msg"]) for error in exc.errors()]
     return messages[0] if len(messages) == 1 else "; ".join(messages)
+
+
+class GuidanceEvidence(BaseModel):
+    """Evidence record used by calibrated workflow guidance."""
+
+    model_config = ConfigDict(extra="allow")
+
+    type: GuidanceEvidenceType = "computed"
+
+    @field_validator("type", mode="before")
+    @classmethod
+    def normalize_type(cls, value: Any) -> GuidanceEvidenceType:
+        evidence_type = str(value or "computed")
+        if evidence_type in {"extracted", "authored", "computed", "evaluated"}:
+            return cast(GuidanceEvidenceType, evidence_type)
+        return "computed"
+
+
+class MissingnessItem(BaseModel):
+    """One reason a tool claim should be treated as limited."""
+
+    model_config = ConfigDict(extra="allow")
+
+    reason_code: str
+    severity: MissingnessSeverity = "low"
+    claim_effect: str | None = None
+
+    @field_validator("severity", mode="before")
+    @classmethod
+    def normalize_severity(cls, value: Any) -> MissingnessSeverity:
+        severity = str(value or "low")
+        if severity in {"info", "low", "medium", "high"}:
+            return cast(MissingnessSeverity, severity)
+        return "low"
+
+
+class GuidanceItem(BaseModel):
+    """Shared guidance contract for workflow tools."""
+
+    model_config = ConfigDict(extra="allow")
+
+    claim: str
+    evidence: list[GuidanceEvidence] = Field(default_factory=list)
+    confidence: GuidanceConfidence = "unknown"
+    missingness: list[MissingnessItem] = Field(default_factory=list)
+    action: str | dict[str, Any]
+    reason_codes: list[str] = Field(default_factory=list)
+    counts: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def normalize_confidence(cls, value: Any) -> GuidanceConfidence:
+        confidence = str(value or "unknown")
+        if confidence in {"high", "medium", "low", "unknown"}:
+            return cast(GuidanceConfidence, confidence)
+        return "unknown"
+
+    @field_validator("evidence", "missingness", mode="before")
+    @classmethod
+    def normalize_item_list(cls, value: Any) -> list[Any]:
+        if value is None:
+            return []
+        if isinstance(value, dict):
+            return [value]
+        return list(value)
+
+
+class AnswerabilitySummary(BaseModel):
+    """Graph answerability envelope attached to tool responses."""
+
+    model_config = ConfigDict(extra="allow")
+
+    status: AnswerabilityStatus
+    score: float
+    reason_codes: list[str] = Field(default_factory=list)
+    parse: list[Any] = Field(default_factory=list)
+    counts: dict[str, Any] = Field(default_factory=dict)
+
+
+def seal_guidance_item(payload: dict[str, Any]) -> dict[str, Any]:
+    """Validate and normalize one guidance item."""
+    return GuidanceItem.model_validate(payload).model_dump(exclude_none=True)
+
+
+def seal_answerability_summary(payload: dict[str, Any]) -> dict[str, Any]:
+    """Validate and normalize graph answerability metadata."""
+    return AnswerabilitySummary.model_validate(payload).model_dump(exclude_none=True)
+
+
+def seal_missingness_item(payload: dict[str, Any]) -> dict[str, Any]:
+    """Validate and normalize one missingness item."""
+    return MissingnessItem.model_validate(payload).model_dump(exclude_none=True)
 
 
 class _FlowRequestBase(BaseModel):

@@ -4,9 +4,13 @@ import pytest
 from pydantic import ValidationError
 
 from dagayn.state_types import (
+    AnswerabilitySummary,
     ArchitectureCommunityRequest,
     DroppedMarkdownArtifactResolution,
+    EmbeddingCoverageStatus,
     FlowGetRequest,
+    GuidanceItem,
+    MissingnessItem,
     RefactorRenameRequest,
     ResolvedMarkdownArtifactResolution,
     StillUnresolvedMarkdownArtifactResolution,
@@ -16,8 +20,13 @@ from dagayn.state_types import (
     parse_flow_request,
     parse_refactor_request,
     parse_review_request,
+    seal_answerability_summary,
     seal_dispatcher_error,
     seal_dispatcher_ok,
+    seal_embedding_status,
+    seal_guidance_item,
+    seal_missingness_item,
+    seal_reachability_info,
     seal_refactor_error,
     seal_refactor_not_found,
     seal_refactor_ok,
@@ -197,6 +206,99 @@ def test_architecture_request_rejects_unknown_dependency_profile() -> None:
         parse_architecture_analysis_request(mode="sdp_metrics", dependency_profile="typo")
 
     assert "Unknown dependency_profile" in format_validation_error(exc_info.value)
+
+
+def test_guidance_item_normalizes_boundary_fields() -> None:
+    item = seal_guidance_item(
+        {
+            "claim": "Inspect impact before merging.",
+            "evidence": {"type": "typo", "metric": "risk", "value": 0.7},
+            "confidence": "certain",
+            "missingness": {"reason_code": "missing_tests", "severity": "severe"},
+            "action": {"tool": "review_tool", "suggestion": "inspect impact"},
+            "reason_codes": ["risk"],
+            "counts": {"changed_files": 2},
+        }
+    )
+
+    assert isinstance(GuidanceItem.model_validate(item), GuidanceItem)
+    assert item["evidence"][0]["type"] == "computed"
+    assert item["confidence"] == "unknown"
+    assert item["missingness"][0]["severity"] == "low"
+
+
+def test_answerability_and_missingness_contracts_allow_extra_metadata() -> None:
+    answerability = seal_answerability_summary(
+        {
+            "status": "degraded",
+            "score": 0.5,
+            "reason_codes": ["missing_flows"],
+            "parse": [10, 2, True],
+            "answerability": [0, 1, 2, 3, 0.0],
+        }
+    )
+    missingness = seal_missingness_item(
+        {
+            "reason_code": "missing_flows",
+            "severity": "medium",
+            "claim_effect": "flow claims are incomplete",
+            "source": "answerability",
+        }
+    )
+
+    assert isinstance(AnswerabilitySummary.model_validate(answerability), AnswerabilitySummary)
+    assert isinstance(MissingnessItem.model_validate(missingness), MissingnessItem)
+    assert answerability["answerability"] == [0, 1, 2, 3, 0.0]
+    assert missingness["source"] == "answerability"
+
+
+def test_embedding_status_contract_distinguishes_coverage_states() -> None:
+    complete = seal_embedding_status(
+        {
+            "status": "complete",
+            "total_embeddings": 1,
+            "provider_counts": {"local:test": 1},
+            "embeddable_nodes": 1,
+            "indexed_embeddings": 1,
+            "missing_embeddings": 0,
+            "orphan_embeddings": 0,
+        }
+    )
+    unavailable = seal_embedding_status(
+        {
+            "status": "unavailable",
+            "total_embeddings": 0,
+            "provider_counts": {},
+            "error": "database is missing",
+        }
+    )
+
+    assert isinstance(EmbeddingCoverageStatus.model_validate(complete), EmbeddingCoverageStatus)
+    assert complete["status"] == "complete"
+    assert unavailable["status"] == "unavailable"
+    assert unavailable["error"] == "database is missing"
+
+
+def test_reachability_contract_enforces_state_shape() -> None:
+    not_found = seal_reachability_info(
+        {"state": "not_found", "truncated": False, "max_depth": 3, "nodes_visited": 0}
+    )
+    truncated = seal_reachability_info(
+        {"state": "truncated", "truncated": True, "max_depth": 3, "nodes_visited": 4}
+    )
+
+    assert not_found == {
+        "state": "not_found",
+        "truncated": False,
+        "max_depth": 3,
+        "nodes_visited": 0,
+    }
+    assert truncated["state"] == "truncated"
+    assert truncated["truncated"] is True
+    with pytest.raises(ValidationError):
+        seal_reachability_info(
+            {"state": "not_found", "truncated": True, "max_depth": 3, "nodes_visited": 0}
+        )
 
 
 def test_refactor_envelopes_allow_extra_metadata() -> None:

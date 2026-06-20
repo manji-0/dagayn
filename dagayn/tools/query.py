@@ -13,7 +13,7 @@ from ..graph import _sanitize_name, edge_to_dict, node_to_dict
 from ..hints import generate_hints, get_session
 from ..incremental import get_changed_files, get_db_path, get_staged_and_unstaged
 from ..search import hybrid_search
-from ..state_types import ReachabilityInfo, TraversalEntry, TraversalMode
+from ..state_types import TraversalEntry, TraversalMode, seal_reachability_info
 from ._common import (
     _BUILTIN_CALL_NAMES,
     _get_store,
@@ -1121,12 +1121,14 @@ def traverse_graph_func(
             provider=provider,
         )["results"]
         if not results:
-            reachability: ReachabilityInfo = {
-                "state": "not_found",
-                "truncated": False,
-                "max_depth": max(1, min(depth, 6)),
-                "nodes_visited": 0,
-            }
+            reachability: dict[str, Any] = seal_reachability_info(
+                {
+                    "state": "not_found",
+                    "truncated": False,
+                    "max_depth": max(1, min(depth, 6)),
+                    "nodes_visited": 0,
+                }
+            )
             return make_response(
                 "not_found",
                 f"No node matching '{query}'.",
@@ -1221,12 +1223,14 @@ def traverse_graph_func(
                 current_frontier = next_frontier
                 cur_depth += 1
 
-        reachability = {
-            "state": "truncated" if budget_exceeded else "complete",
-            "truncated": budget_exceeded,
-            "max_depth": depth,
-            "nodes_visited": len(traversal),
-        }
+        reachability = seal_reachability_info(
+            {
+                "state": "truncated" if budget_exceeded else "complete",
+                "truncated": budget_exceeded,
+                "max_depth": depth,
+                "nodes_visited": len(traversal),
+            }
+        )
         return make_response(
             "ok",
             f"Traversed {len(traversal)} node(s) from '{start_qn}' up to depth {depth}."

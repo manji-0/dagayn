@@ -21,6 +21,11 @@ from ..incremental import (
     find_project_root,
     get_db_path,
 )
+from ..state_types import (
+    seal_answerability_summary,
+    seal_guidance_item,
+    seal_missingness_item,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,9 +37,6 @@ _TOOL_RUNTIME_ERRORS: tuple[type[BaseException], ...] = (
     TypeError,
     AttributeError,
 )
-
-GUIDANCE_CONFIDENCE_VALUES = {"high", "medium", "low", "unknown"}
-GUIDANCE_EVIDENCE_TYPES = {"extracted", "authored", "computed", "evaluated"}
 
 
 def _error_response(
@@ -421,7 +423,7 @@ def _hints_from_next_tool_suggestions(
 def make_guidance_item(
     *,
     claim: str,
-    action: str,
+    action: str | dict[str, Any],
     evidence: list[dict[str, Any]] | dict[str, Any] | None = None,
     confidence: str = "unknown",
     missingness: list[dict[str, Any]] | dict[str, Any] | None = None,
@@ -429,41 +431,18 @@ def make_guidance_item(
     counts: dict[str, Any] | None = None,
     **extra: Any,
 ) -> dict[str, Any]:
-    """Build the shared guidance item shape used by workflow tools."""
-    confidence_value = confidence if confidence in GUIDANCE_CONFIDENCE_VALUES else "unknown"
-
-    if evidence is None:
-        evidence_items: list[dict[str, Any]] = []
-    elif isinstance(evidence, Mapping):
-        evidence_items = [dict(evidence)]
-    else:
-        evidence_items = [dict(item) for item in evidence]
-
-    normalized_evidence: list[dict[str, Any]] = []
-    for item in evidence_items:
-        evidence_type = str(item.get("type", "computed"))
-        if evidence_type not in GUIDANCE_EVIDENCE_TYPES:
-            evidence_type = "computed"
-        normalized_evidence.append({**item, "type": evidence_type})
-
-    if missingness is None:
-        missing_items: list[dict[str, Any]] = []
-    elif isinstance(missingness, Mapping):
-        missing_items = [dict(missingness)]
-    else:
-        missing_items = [dict(item) for item in missingness]
-
+    """Build and validate the shared guidance item shape used by workflow tools."""
     item: dict[str, Any] = {
         "claim": claim,
-        "evidence": normalized_evidence,
-        "confidence": confidence_value,
-        "missingness": missing_items,
+        "evidence": evidence,
+        "confidence": confidence,
+        "missingness": missingness,
         "action": action,
         "reason_codes": list(reason_codes or []),
         "counts": dict(counts or {}),
     }
     item.update(extra)
-    return item
+    return seal_guidance_item(item)
 
 
 def guidance_actions_to_hints(guidance: list[dict[str, Any]], *, limit: int = 3) -> dict[str, Any]:
@@ -499,20 +478,24 @@ def graph_answerability_summary(store: Any, stats: Any | None = None) -> dict[st
         try:
             stats = store.get_stats()
         except (AttributeError, sqlite3.Error):
-            return {
-                "status": "unknown",
-                "score": 0.0,
-                "reason_codes": ["missing_graph_stats"],
-                "parse": [0, 0, False],
-            }
+            return seal_answerability_summary(
+                {
+                    "status": "unknown",
+                    "score": 0.0,
+                    "reason_codes": ["missing_graph_stats"],
+                    "parse": [0, 0, False],
+                }
+            )
     conn = getattr(store, "_conn", None)
     if conn is None:
-        return {
-            "status": "unknown",
-            "score": 0.0,
-            "reason_codes": ["no_sqlite_connection"],
-            "parse": [stats.files_count, len(stats.languages), bool(stats.last_updated)],
-        }
+        return seal_answerability_summary(
+            {
+                "status": "unknown",
+                "score": 0.0,
+                "reason_codes": ["no_sqlite_connection"],
+                "parse": [stats.files_count, len(stats.languages), bool(stats.last_updated)],
+            }
+        )
 
     query_failures: list[str] = []
 
@@ -608,7 +591,7 @@ def graph_answerability_summary(store: Any, stats: Any | None = None) -> dict[st
     }
     if reportable_unresolved_cross_artifact_count:
         health["unresolved_edges"] = reportable_unresolved_cross_artifact_count
-    return health
+    return seal_answerability_summary(health)
 
 
 def attach_answerability(
@@ -618,17 +601,20 @@ def attach_answerability(
     """Ensure a tool response carries answerability and missingness metadata."""
     attach_runtime_metadata(payload)
     if "answerability" in payload and "missingness" in payload:
+        payload["answerability"] = seal_answerability_summary(payload["answerability"])
         return payload
 
     try:
         store, _root = _get_store(repo_root)
     except Exception:
-        answerability = {
-            "status": "unknown",
-            "score": 0.0,
-            "reason_codes": ["answerability_unavailable"],
-            "parse": [0, 0, False],
-        }
+        answerability = seal_answerability_summary(
+            {
+                "status": "unknown",
+                "score": 0.0,
+                "reason_codes": ["answerability_unavailable"],
+                "parse": [0, 0, False],
+            }
+        )
         if "answerability" not in payload:
             payload["answerability"] = answerability
         payload.setdefault("missingness", missingness_from_answerability(answerability))
@@ -641,6 +627,8 @@ def attach_answerability(
 
     if "answerability" not in payload:
         payload["answerability"] = answerability
+    else:
+        payload["answerability"] = seal_answerability_summary(payload["answerability"])
     payload.setdefault("missingness", missingness_from_answerability(payload["answerability"]))
     return payload
 
@@ -666,11 +654,15 @@ def missingness_from_answerability(answerability: dict[str, Any]) -> list[dict[s
     for code in answerability.get("reason_codes", []):
         severity = severity_by_code.get(str(code), "low")
         items.append(
-            {
-                "reason_code": str(code),
-                "severity": severity,
-                "claim_effect": "claims should be treated as graph-limited until this is resolved",
-            }
+            seal_missingness_item(
+                {
+                    "reason_code": str(code),
+                    "severity": severity,
+                    "claim_effect": (
+                        "claims should be treated as graph-limited until this is resolved"
+                    ),
+                }
+            )
         )
     return items
 

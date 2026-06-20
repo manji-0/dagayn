@@ -23,7 +23,7 @@ from .embeddings_text import (
     _slow_embed_batch_seconds,
 )
 from .graph import GraphNode, GraphStore
-from .state_types import EmbeddingStatus
+from .state_types import EmbeddingStatus, seal_embedding_status
 
 _EMBED_PROVIDER_ERRORS = (OSError, RuntimeError, ValueError, TypeError, sqlite3.Error)
 
@@ -56,12 +56,14 @@ def get_embedding_status(db_path: str | Path) -> EmbeddingStatus:
     try:
         conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     except sqlite3.Error as exc:
-        return {
-            "status": "unavailable",
-            "total_embeddings": 0,
-            "provider_counts": {},
-            "error": str(exc),
-        }
+        return seal_embedding_status(
+            {
+                "status": "unavailable",
+                "total_embeddings": 0,
+                "provider_counts": {},
+                "error": str(exc),
+            }
+        )
 
     try:
         conn.row_factory = sqlite3.Row
@@ -72,11 +74,13 @@ def get_embedding_status(db_path: str | Path) -> EmbeddingStatus:
             ).fetchall()
         }
         if "embeddings" not in tables:
-            return {
-                "status": "not_indexed",
-                "total_embeddings": 0,
-                "provider_counts": {},
-            }
+            return seal_embedding_status(
+                {
+                    "status": "not_indexed",
+                    "total_embeddings": 0,
+                    "provider_counts": {},
+                }
+            )
 
         total_embeddings = int(conn.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0])
         provider_counts = {
@@ -85,14 +89,14 @@ def get_embedding_status(db_path: str | Path) -> EmbeddingStatus:
                 "SELECT provider, COUNT(*) AS count FROM embeddings GROUP BY provider"
             ).fetchall()
         }
-        status: EmbeddingStatus = {
+        status: dict[str, Any] = {
             "status": "empty" if total_embeddings == 0 else "unknown",
             "total_embeddings": total_embeddings,
             "provider_counts": provider_counts,
         }
 
         if "nodes" not in tables:
-            return status
+            return seal_embedding_status(status)
 
         embeddable_nodes = int(
             conn.execute("SELECT COUNT(*) FROM nodes WHERE kind != 'File'").fetchone()[0]
@@ -149,14 +153,16 @@ def get_embedding_status(db_path: str | Path) -> EmbeddingStatus:
                 "orphan_embeddings": orphan_embeddings,
             }
         )
-        return status
+        return seal_embedding_status(status)
     except sqlite3.Error as exc:
-        return {
-            "status": "unavailable",
-            "total_embeddings": 0,
-            "provider_counts": {},
-            "error": str(exc),
-        }
+        return seal_embedding_status(
+            {
+                "status": "unavailable",
+                "total_embeddings": 0,
+                "provider_counts": {},
+                "error": str(exc),
+            }
+        )
     finally:
         conn.close()
 
