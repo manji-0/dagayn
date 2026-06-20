@@ -1249,7 +1249,35 @@ fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(parse_terraform_compact_json, module)?)?;
     module.add_function(wrap_pyfunction!(parse_rust_compact_json, module)?)?;
     module.add_function(wrap_pyfunction!(parse_python_compact_json, module)?)?;
+    module.add_function(wrap_pyfunction!(embedding_search, module)?)?;
+    module.add_function(wrap_pyfunction!(embedding_search_prewarm, module)?)?;
     Ok(())
+}
+
+#[pyfunction]
+fn embedding_search(
+    py: Python<'_>,
+    db_path: &Bound<'_, PyAny>,
+    provider: &str,
+    query_vec: Vec<f32>,
+    limit: usize,
+) -> PyResult<Vec<(String, f32)>> {
+    let os = PyModule::import(py, "os")?;
+    let db_path: String = os.getattr("fspath")?.call1((db_path,))?.extract()?;
+    py.detach(|| dagayn_core::embedding_search(db_path, provider, &query_vec, limit))
+        .map_err(to_py_runtime_error)
+}
+
+#[pyfunction]
+fn embedding_search_prewarm(
+    py: Python<'_>,
+    db_path: &Bound<'_, PyAny>,
+    provider: &str,
+) -> PyResult<usize> {
+    let os = PyModule::import(py, "os")?;
+    let db_path: String = os.getattr("fspath")?.call1((db_path,))?.extract()?;
+    py.detach(|| dagayn_core::embedding_search_prewarm(db_path, provider))
+        .map_err(to_py_runtime_error)
 }
 
 #[pyfunction]

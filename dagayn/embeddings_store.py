@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import sqlite3
 import struct
 import sys
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from .embeddings_providers import (
     EmbeddingProvider,
@@ -26,19 +27,7 @@ from .graph import GraphNode, GraphStore
 from .state_types import seal_embedding_status
 
 _EMBED_PROVIDER_ERRORS = (OSError, RuntimeError, ValueError, TypeError, sqlite3.Error)
-
-if TYPE_CHECKING:
-    import numpy as np
-
-    _NUMPY_AVAILABLE = True
-else:
-    try:
-        import numpy as np
-
-        _NUMPY_AVAILABLE = True
-    except ImportError:
-        np = None
-        _NUMPY_AVAILABLE = False
+_EMBEDDING_SEARCH_BACKENDS = {"auto", "rust", "python"}
 
 logger = logging.getLogger(__name__)
 
@@ -231,46 +220,56 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
     return dot / (norm_a * norm_b)
 
 
-# ---------------------------------------------------------------------------
-# numpy vector cache (only used when _NUMPY_AVAILABLE is True)
-# key: (db_path_str, provider_name, mtime_ns)
-# value: (matrix float32 (N, D), names list[str], row_norms float32 (N,))
-# ---------------------------------------------------------------------------
-
-_np_vec_cache: dict[tuple[str, str, int], tuple[Any, list[str], Any]] = {}
+def _embedding_search_backend() -> str:
+    """Return the configured embedding search backend."""
+    backend = os.environ.get("DAGAYN_EMBEDDING_SEARCH_BACKEND", "rust").strip().lower()
+    return backend if backend in _EMBEDDING_SEARCH_BACKENDS else "rust"
 
 
-def _load_vec_matrix(conn: sqlite3.Connection, provider_name: str) -> tuple[Any, list[str], Any]:
-    """Load all embedding rows for *provider_name* into a numpy matrix."""
-    assert np is not None
-    rows = conn.execute(
-        "SELECT qualified_name, vector FROM embeddings WHERE provider = ?",
-        (provider_name,),
-    ).fetchall()
-    if not rows:
-        empty = np.empty((0, 0), dtype=np.float32)
-        return empty, [], np.empty((0,), dtype=np.float32)
-    names = [r["qualified_name"] for r in rows]
-    vecs = [np.frombuffer(r["vector"], dtype=np.float32) for r in rows]
-    matrix = np.stack(vecs)
-    row_norms = np.linalg.norm(matrix, axis=1).astype(np.float32)
-    return matrix, names, row_norms
+def _native_embedding_search(
+    db_path: str | Path,
+    provider_name: str,
+    query_vec: list[float],
+    limit: int,
+) -> list[tuple[str, float]]:
+    """Run native Rust embedding search through the PyO3 extension."""
+    from dagayn import _core
+
+    return [
+        (str(qualified_name), float(score))
+        for qualified_name, score in _core.embedding_search(
+            db_path,
+            provider_name,
+            query_vec,
+            limit,
+        )
+    ]
 
 
-def _numpy_vec_cache() -> dict[tuple[str, str, int], tuple[Any, list[str], Any]]:
-    """Return the numpy vector cache via the public embeddings shim."""
+def _native_embedding_search_for_search(
+    db_path: str | Path,
+    provider_name: str,
+    query_vec: list[float],
+    limit: int,
+) -> list[tuple[str, float]]:
+    """Run native search through the public embeddings shim for monkeypatch compatibility."""
     from . import embeddings as emb
 
-    return emb._np_vec_cache
+    return emb._native_embedding_search(db_path, provider_name, query_vec, limit)
 
 
-def _load_vec_matrix_for_search(
-    conn: sqlite3.Connection, provider_name: str
-) -> tuple[Any, list[str], Any]:
-    """Load vectors through the public embeddings shim for monkeypatch compatibility."""
+def _native_embedding_search_prewarm(db_path: str | Path, provider_name: str) -> int:
+    """Preload the native Rust embedding-search matrix cache."""
+    from dagayn import _core
+
+    return int(_core.embedding_search_prewarm(db_path, provider_name))
+
+
+def _native_embedding_search_prewarm_for_search(db_path: str | Path, provider_name: str) -> int:
+    """Prewarm native search through the public embeddings shim for monkeypatch compatibility."""
     from . import embeddings as emb
 
-    return emb._load_vec_matrix(conn, provider_name)
+    return emb._native_embedding_search_prewarm(db_path, provider_name)
 
 
 class EmbeddingStore:
@@ -527,10 +526,10 @@ class EmbeddingStore:
     def search(self, query: str, limit: int = 20) -> list[tuple[str, float]]:
         """Search for nodes by semantic similarity.
 
-        When numpy is available (``embeddings`` extra), vectors are cached in a
-        process-level matrix keyed by (db_path, provider, mtime_ns) and
-        similarity is computed via a single BLAS matrix-vector product.
-        Falls back to a pure-Python loop when numpy is not installed.
+        The default ``rust`` backend uses the Rust native search path. Set
+        ``DAGAYN_EMBEDDING_SEARCH_BACKEND=auto`` to fall back to the pure-Python
+        loop when native search is unavailable, or ``python`` to force the
+        pure-Python loop for A/B testing.
         """
         if not self.provider:
             return []
@@ -539,64 +538,46 @@ class EmbeddingStore:
         if provider_name is None:
             return []
         query_vec = _embed_query_cached(self.provider, query)
+        backend = _embedding_search_backend()
 
-        if not _NUMPY_AVAILABLE:
-            # Pure-Python fallback (no numpy installed)
-            scored: list[tuple[str, float]] = []
-            cursor = self._conn.execute(
-                "SELECT qualified_name, vector FROM embeddings WHERE provider = ?",
-                (provider_name,),
-            )
-            while True:
-                rows = cursor.fetchmany(500)
-                if not rows:
-                    break
-                for row in rows:
-                    vec = _decode_vector(row["vector"])
-                    sim = _cosine_similarity(query_vec, vec)
-                    scored.append((row["qualified_name"], sim))
-            scored.sort(key=lambda x: x[1], reverse=True)
-            return scored[:limit]
+        if backend in {"auto", "rust"}:
+            try:
+                return _native_embedding_search_for_search(
+                    self.db_path,
+                    provider_name,
+                    query_vec,
+                    limit,
+                )
+            except (ImportError, AttributeError, RuntimeError, ValueError, TypeError):
+                if backend == "rust":
+                    raise
+                logger.debug("Native embedding search unavailable; falling back", exc_info=True)
 
-        # numpy fast path: process-level matrix cache keyed by mtime
-        assert np is not None
-        try:
-            mtime_ns = int(self.db_path.stat().st_mtime_ns)
-        except OSError:
-            mtime_ns = 0
-        cache_key = (str(self.db_path), provider_name, mtime_ns)
-        vec_cache = _numpy_vec_cache()
-        if cache_key not in vec_cache:
-            vec_cache[cache_key] = _load_vec_matrix_for_search(self._conn, provider_name)
-            # Evict stale entries for the same (path, provider) to bound memory
-            for k in list(vec_cache):
-                if k != cache_key and k[0] == cache_key[0] and k[1] == cache_key[1]:
-                    del vec_cache[k]
+        # Pure-Python fallback (explicitly requested, or auto fallback after native failure)
+        scored: list[tuple[str, float]] = []
+        cursor = self._conn.execute(
+            "SELECT qualified_name, vector FROM embeddings WHERE provider = ?",
+            (provider_name,),
+        )
+        while True:
+            rows = cursor.fetchmany(500)
+            if not rows:
+                break
+            for row in rows:
+                vec = _decode_vector(row["vector"])
+                sim = _cosine_similarity(query_vec, vec)
+                scored.append((row["qualified_name"], sim))
+        scored.sort(key=lambda x: x[1], reverse=True)
+        return scored[:limit]
 
-        matrix, names, row_norms = vec_cache[cache_key]
-        if not names:
-            return []
-
-        q = np.array(query_vec, dtype=np.float32)
-        q_norm = float(np.linalg.norm(q))
-        if q_norm == 0.0:
-            return []
-        q = q / q_norm
-
-        # Single BLAS call: (N, D) @ (D,) → (N,)
-        dots = matrix @ q
-        safe_norms = np.where(row_norms > 0, row_norms, 1.0)
-        sims = (dots / safe_norms).astype(np.float32)
-
-        n = len(names)
-        k = min(limit, n)
-        if k == n:
-            top_idx = np.argsort(-sims)
-        else:
-            top_idx = np.argpartition(-sims, k)[:k]
-            top_idx = top_idx[np.argsort(-sims[top_idx])]
-
-        return [(names[int(i)], float(sims[i])) for i in top_idx]
+    def prewarm_search(self) -> int:
+        """Preload the configured provider's native search matrix cache."""
+        if not self.provider:
+            return 0
+        provider_name = self._provider_key_for_lookup()
+        if provider_name is None:
+            return 0
+        return _native_embedding_search_prewarm_for_search(self.db_path, provider_name)
 
     def remove_node(self, qualified_name: str) -> None:
         self._conn.execute("DELETE FROM embeddings WHERE qualified_name = ?", (qualified_name,))

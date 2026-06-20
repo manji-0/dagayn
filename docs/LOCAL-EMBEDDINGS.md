@@ -22,6 +22,25 @@ see the README's "Choosing an install mode" section.
 | `--local-embedding --mode llama-qwen3` | `llama-server` sidecar | `Qwen/Qwen3-Embedding-0.6B-GGUF:Q8_0` | 1024 |
 | `--local-embedding low` | `llama-server` sidecar | `Qwen/Qwen3-Embedding-0.6B-GGUF:Q8_0` | 1024 |
 
+## Search Backend
+
+Embedding generation stays in the configured provider or managed sidecar, but
+similarity search over stored vectors uses dagayn's Rust native backend by
+default. The native path reads the provider-partitioned `embeddings` rows,
+caches a normalized row-major matrix by database/provider/mtime, uses platform
+acceleration where available (macOS Accelerate for matrix-vector search, Linux
+system BLAS by default, and SIMD fallback dot products otherwise), and returns
+the same `(qualified_name, score)` shape as the previous numpy path. If the
+native extension is unavailable, `auto` mode falls back to the pure-Python loop.
+
+Use `DAGAYN_EMBEDDING_SEARCH_BACKEND` for local A/B checks:
+
+| Value | Behavior |
+| --- | --- |
+| `rust` | Require Rust native search and surface native errors (default) |
+| `auto` | Rust native search, then pure Python fallback |
+| `python` | Force the pure-Python SQLite scan |
+
 ## BGE-M3 Sidecar Preset
 
 | Preset | Runtime | Default platform | Model | Quantization | Dimension |

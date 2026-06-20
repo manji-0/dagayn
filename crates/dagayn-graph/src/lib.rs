@@ -192,6 +192,8 @@ pub enum GraphError {
     Json(#[from] serde_json::Error),
     #[error("system clock error")]
     Clock,
+    #[error("invalid embedding data: {0}")]
+    InvalidEmbedding(String),
 }
 
 pub type Result<T> = std::result::Result<T, GraphError>;
@@ -461,6 +463,7 @@ mod analysis_stats;
 mod communities;
 mod core;
 mod edge_queries;
+mod embeddings;
 mod flows;
 mod helpers;
 mod impact;
@@ -479,6 +482,8 @@ mod summary_communities;
 mod summary_flows;
 mod summary_risk;
 mod write;
+
+pub use embeddings::{embedding_search, embedding_search_prewarm};
 
 #[cfg(test)]
 use helpers::*;

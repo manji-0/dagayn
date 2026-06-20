@@ -784,10 +784,8 @@ class TestEmbeddingStore:
             assert store.count() == 0
             store.close()
 
-    def test_search_reuses_numpy_matrix_cache(self, tmp_path, monkeypatch):
+    def test_search_uses_native_backend_when_configured(self, tmp_path, monkeypatch):
         import dagayn.embeddings as emb
-
-        assert emb._NUMPY_AVAILABLE
 
         db = tmp_path / "embeddings.db"
 
@@ -805,6 +803,83 @@ class TestEmbeddingStore:
             def dimension(self):
                 return 2
 
+        calls = []
+
+        def fake_native_search(db_path, provider_name, query_vec, limit):
+            calls.append((db_path, provider_name, query_vec, limit))
+            return [("file.py::best", 1.0)]
+
+        monkeypatch.delenv("DAGAYN_EMBEDDING_SEARCH_BACKEND", raising=False)
+        monkeypatch.setattr(emb, "_native_embedding_search", fake_native_search)
+
+        with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
+            store = EmbeddingStore(db)
+            assert store.search("query", limit=1) == [("file.py::best", 1.0)]
+            store.close()
+
+        assert len(calls) == 1
+        assert calls[0][1:] == ("fake#text=material", [1.0, 0.0], 1)
+
+    def test_prewarm_search_uses_native_cache(self, tmp_path, monkeypatch):
+        import dagayn.embeddings as emb
+
+        db = tmp_path / "embeddings.db"
+
+        class FakeProvider:
+            name = "fake"
+            preferred_batch_size = 1
+
+            def embed(self, texts):
+                return [[1.0, 0.0] for _ in texts]
+
+            def embed_query(self, text):
+                return [1.0, 0.0]
+
+            @property
+            def dimension(self):
+                return 2
+
+        calls = []
+
+        def fake_prewarm(db_path, provider_name):
+            calls.append((db_path, provider_name))
+            return 2
+
+        monkeypatch.setattr(emb, "_native_embedding_search_prewarm", fake_prewarm)
+
+        with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
+            store = EmbeddingStore(db)
+            assert store.prewarm_search() == 2
+            store.close()
+
+        assert len(calls) == 1
+        assert calls[0][1] == "fake#text=material"
+
+    def test_search_auto_falls_back_when_native_unavailable(self, tmp_path, monkeypatch):
+        import dagayn.embeddings as emb
+
+        db = tmp_path / "embeddings.db"
+
+        class FakeProvider:
+            name = "fake"
+            preferred_batch_size = 1
+
+            def embed(self, texts):
+                return [[1.0, 0.0] for _ in texts]
+
+            def embed_query(self, text):
+                return [1.0, 0.0]
+
+            @property
+            def dimension(self):
+                return 2
+
+        def failing_native_search(*args, **kwargs):
+            raise AttributeError("old extension")
+
+        monkeypatch.setenv("DAGAYN_EMBEDDING_SEARCH_BACKEND", "auto")
+        monkeypatch.setattr(emb, "_native_embedding_search", failing_native_search)
+
         with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
             store = EmbeddingStore(db)
             store._conn.executemany(
@@ -817,20 +892,7 @@ class TestEmbeddingStore:
             )
             store._conn.commit()
 
-            emb._np_vec_cache.clear()
-            load_calls = 0
-            original_load = emb._load_vec_matrix
-
-            def counting_load(*args, **kwargs):
-                nonlocal load_calls
-                load_calls += 1
-                return original_load(*args, **kwargs)
-
-            monkeypatch.setattr(emb, "_load_vec_matrix", counting_load)
-
             assert store.search("query", limit=1)[0][0] == "file.py::best"
-            assert store.search("query", limit=1)[0][0] == "file.py::best"
-            assert load_calls == 1
             store.close()
 
 
