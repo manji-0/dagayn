@@ -228,77 +228,13 @@ fn matrix_scores(matrix: &EmbeddingMatrix, query: &[f32]) -> Vec<f32> {
         return scores;
     }
 
-    let mut scores = vec![0.0_f32; rows];
-    #[cfg(target_arch = "aarch64")]
-    {
-        matrix_scores_neon_block4(matrix, query, &mut scores);
-    }
-    #[cfg(not(target_arch = "aarch64"))]
-    {
-        for row_idx in 0..rows {
-            let start = row_idx * dim;
-            let row = &matrix.rows[start..start + dim];
-            scores[row_idx] = dot(row, query);
-        }
+    let mut scores = Vec::with_capacity(rows);
+    for row_idx in 0..rows {
+        let start = row_idx * dim;
+        let row = &matrix.rows[start..start + dim];
+        scores.push(dot(row, query));
     }
     scores
-}
-
-#[cfg(target_arch = "aarch64")]
-fn matrix_scores_neon_block4(matrix: &EmbeddingMatrix, query: &[f32], scores: &mut [f32]) {
-    use std::arch::aarch64::{vaddvq_f32, vdupq_n_f32, vfmaq_f32, vld1q_f32};
-    const ROW_BLOCK: usize = 4;
-    const VL: usize = 4;
-
-    let rows = matrix.names.len();
-    let dim = matrix.dim;
-    let dim_lanes = dim / VL;
-    let dim_simd_end = dim_lanes * VL;
-    let row_blocks = rows / ROW_BLOCK;
-
-    unsafe {
-        for rb in 0..row_blocks {
-            let mut acc0 = vdupq_n_f32(0.0);
-            let mut acc1 = vdupq_n_f32(0.0);
-            let mut acc2 = vdupq_n_f32(0.0);
-            let mut acc3 = vdupq_n_f32(0.0);
-
-            let base0 = rb * ROW_BLOCK;
-            let base1 = base0 + 1;
-            let base2 = base0 + 2;
-            let base3 = base0 + 3;
-
-            for lane in 0..dim_lanes {
-                let col = lane * VL;
-                let q = vld1q_f32(query.as_ptr().add(col));
-                let r0 = vld1q_f32(matrix.rows.as_ptr().add(base0 * dim + col));
-                let r1 = vld1q_f32(matrix.rows.as_ptr().add(base1 * dim + col));
-                let r2 = vld1q_f32(matrix.rows.as_ptr().add(base2 * dim + col));
-                let r3 = vld1q_f32(matrix.rows.as_ptr().add(base3 * dim + col));
-                acc0 = vfmaq_f32(acc0, r0, q);
-                acc1 = vfmaq_f32(acc1, r1, q);
-                acc2 = vfmaq_f32(acc2, r2, q);
-                acc3 = vfmaq_f32(acc3, r3, q);
-            }
-
-            scores[base0] = vaddvq_f32(acc0);
-            scores[base1] = vaddvq_f32(acc1);
-            scores[base2] = vaddvq_f32(acc2);
-            scores[base3] = vaddvq_f32(acc3);
-
-            for (col, q) in query.iter().enumerate().skip(dim_simd_end) {
-                scores[base0] += *matrix.rows.get_unchecked(base0 * dim + col) * *q;
-                scores[base1] += *matrix.rows.get_unchecked(base1 * dim + col) * *q;
-                scores[base2] += *matrix.rows.get_unchecked(base2 * dim + col) * *q;
-                scores[base3] += *matrix.rows.get_unchecked(base3 * dim + col) * *q;
-            }
-        }
-    }
-
-    for (row, score) in scores.iter_mut().enumerate().skip(row_blocks * ROW_BLOCK) {
-        let start = row * dim;
-        *score = dot(&matrix.rows[start..start + dim], query);
-    }
 }
 
 #[inline(never)]
