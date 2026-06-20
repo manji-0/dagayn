@@ -6,49 +6,6 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::UNIX_EPOCH;
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
-const CBLAS_ROW_MAJOR: i32 = 101;
-#[cfg(any(target_os = "macos", target_os = "linux"))]
-const CBLAS_NO_TRANS: i32 = 111;
-
-#[cfg(target_os = "macos")]
-#[link(name = "Accelerate", kind = "framework")]
-unsafe extern "C" {
-    fn cblas_sgemv(
-        order: i32,
-        trans_a: i32,
-        m: i32,
-        n: i32,
-        alpha: f32,
-        a: *const f32,
-        lda: i32,
-        x: *const f32,
-        inc_x: i32,
-        beta: f32,
-        y: *mut f32,
-        inc_y: i32,
-    );
-}
-
-#[cfg(target_os = "linux")]
-#[link(name = "blas")]
-unsafe extern "C" {
-    fn cblas_sgemv(
-        order: i32,
-        trans_a: i32,
-        m: i32,
-        n: i32,
-        alpha: f32,
-        a: *const f32,
-        lda: i32,
-        x: *const f32,
-        inc_x: i32,
-        beta: f32,
-        y: *mut f32,
-        inc_y: i32,
-    );
-}
-
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct CacheKey {
     db_path: String,
@@ -256,47 +213,11 @@ fn append_normalized_blob(blob: &[u8], out: &mut Vec<f32>) -> Result<()> {
 }
 
 fn matrix_scores(matrix: &EmbeddingMatrix, query: &[f32]) -> Vec<f32> {
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
-    {
-        matrix_scores_cblas(matrix, query)
-    }
-
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-    {
-        let mut scores = Vec::with_capacity(matrix.names.len());
-        for row_idx in 0..matrix.names.len() {
-            let start = row_idx * matrix.dim;
-            let row = &matrix.rows[start..start + matrix.dim];
-            scores.push(dot(row, query));
-        }
-        scores
-    }
-}
-
-#[cfg(any(target_os = "macos", target_os = "linux"))]
-fn matrix_scores_cblas(matrix: &EmbeddingMatrix, query: &[f32]) -> Vec<f32> {
-    let mut scores = vec![0.0; matrix.names.len()];
-    if matrix.names.is_empty() || matrix.dim == 0 {
-        return scores;
-    }
-    // SAFETY: matrix.rows is a dense row-major `names.len() x dim` buffer,
-    // query has been checked to match `dim`, and scores has one output slot per
-    // row. cblas_sgemv only reads/writes within those bounds with inc=1.
-    unsafe {
-        cblas_sgemv(
-            CBLAS_ROW_MAJOR,
-            CBLAS_NO_TRANS,
-            matrix.names.len() as i32,
-            matrix.dim as i32,
-            1.0,
-            matrix.rows.as_ptr(),
-            matrix.dim as i32,
-            query.as_ptr(),
-            1,
-            0.0,
-            scores.as_mut_ptr(),
-            1,
-        );
+    let mut scores = Vec::with_capacity(matrix.names.len());
+    for row_idx in 0..matrix.names.len() {
+        let start = row_idx * matrix.dim;
+        let row = &matrix.rows[start..start + matrix.dim];
+        scores.push(dot(row, query));
     }
     scores
 }
