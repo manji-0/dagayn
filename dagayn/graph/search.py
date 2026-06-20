@@ -4,8 +4,7 @@ import logging
 import re
 import sqlite3
 
-from dagayn.fts_tokenize import segment_japanese_fts_text
-
+from ._fts_tokenize import segment_japanese_fts_text
 from ._mixin_protocol import GraphStoreMixinProtocol
 from .types import GraphEdge, GraphNode
 

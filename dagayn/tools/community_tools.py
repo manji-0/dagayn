@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from .._scope import ArtifactScope
@@ -14,9 +15,12 @@ from ._common import (
     apply_output_budget,
     graph_answerability_summary,
     guidance_actions_to_hints,
+    handle_tool_runtime_error,
     make_guidance_item,
     missingness_from_answerability,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _architecture_health_summary(
@@ -311,8 +315,9 @@ def list_communities_func(
     Returns:
         List of communities with size and cohesion scores.
     """
-    store, root = _get_store(repo_root)
+    store = None
     try:
+        store, root = _get_store(repo_root)
         if detail_level == "minimal":
             valid_sorts = {"size", "cohesion", "name"}
             sort = sort_by if sort_by in valid_sorts else "size"
@@ -347,9 +352,10 @@ def list_communities_func(
         result["_hints"] = generate_hints("list_communities", result, get_session())
         return result
     except Exception as exc:
-        return {"status": "error", "error": str(exc)}
+        return handle_tool_runtime_error(exc, logger=logger, context="list_communities")
     finally:
-        store.close()
+        if store is not None:
+            store.close()
 
 
 # ---------------------------------------------------------------------------
@@ -378,8 +384,9 @@ def get_community_func(
     Returns:
         Community details, or not_found status.
     """
-    store, root = _get_store(repo_root)
+    store = None
     try:
+        store, root = _get_store(repo_root)
         community: dict | None = None
         all_communities = get_communities(store)
 
@@ -427,9 +434,10 @@ def get_community_func(
         result["_hints"] = generate_hints("get_community", result, get_session())
         return result
     except Exception as exc:
-        return {"status": "error", "error": str(exc)}
+        return handle_tool_runtime_error(exc, logger=logger, context="get_community")
     finally:
-        store.close()
+        if store is not None:
+            store.close()
 
 
 # ---------------------------------------------------------------------------
@@ -464,8 +472,9 @@ def get_architecture_overview_func(
     Returns:
         Architecture overview with communities, cross_community_coupling, and warnings.
     """
-    store, root = _get_store(repo_root)
+    store = None
     try:
+        store, root = _get_store(repo_root)
         answerability = graph_answerability_summary(store)
         overview = get_architecture_overview(store, detail_level=detail_level, top_n=top_n)
         n_communities = len(overview["communities"])
@@ -515,6 +524,7 @@ def get_architecture_overview_func(
             result["_hints"] = generate_hints("get_architecture_overview", result, get_session())
         return result
     except Exception as exc:
-        return {"status": "error", "error": str(exc)}
+        return handle_tool_runtime_error(exc, logger=logger, context="get_architecture_overview")
     finally:
-        store.close()
+        if store is not None:
+            store.close()

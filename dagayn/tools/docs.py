@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
 from ..embeddings import EmbeddingStore, embed_all_nodes
 from ..incremental import get_db_path
-from ._common import _get_store
+from ._common import _get_store, handle_tool_runtime_error
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Tool 7: embed_graph
@@ -216,8 +219,9 @@ def generate_wiki_func(
     from ..incremental import get_data_dir
     from ..wiki import generate_wiki
 
-    store, root = _get_store(repo_root)
+    store = None
     try:
+        store, root = _get_store(repo_root)
         wiki_dir = get_data_dir(root) / "wiki"
         result = generate_wiki(store, wiki_dir, force=force)
         total = result["pages_generated"] + result["pages_updated"] + result["pages_unchanged"]
@@ -233,9 +237,10 @@ def generate_wiki_func(
             **result,
         }
     except Exception as exc:
-        return {"status": "error", "error": str(exc)}
+        return handle_tool_runtime_error(exc, logger=logger, context="generate_wiki")
     finally:
-        store.close()
+        if store is not None:
+            store.close()
 
 
 # ---------------------------------------------------------------------------

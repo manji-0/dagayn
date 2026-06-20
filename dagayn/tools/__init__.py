@@ -89,12 +89,12 @@ from .registry_tools import cross_repo_search_func, list_repos_func
 # -- review -----------------------------------------------------------------
 from .review import (
     detect_changes_func,
-    get_affected_flows_func,
     get_review_context,
 )
 
 # -- review_dispatcher ------------------------------------------------------
 from .review_dispatcher import review_func
+from .review_flows import get_affected_flows_func
 
 # -- sap_tools --------------------------------------------------------------
 from .sap_tools import compute_sap_metrics_func, detect_sap_violations_func

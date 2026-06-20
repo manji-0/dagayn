@@ -19,6 +19,9 @@ from ._common import (
     _get_store,
     apply_output_budget,
     graph_answerability_summary,
+    guidance_actions_to_hints,
+    handle_tool_runtime_error,
+    make_guidance_item,
     make_response,
     missingness_from_answerability,
 )
@@ -155,6 +158,130 @@ def _exactness_action(query: str, exact_count: int, result_count: int) -> dict[s
     }
 
 
+def _query_graph_guidance(
+    *,
+    pattern: str,
+    target: str,
+    result_count: int,
+    exact_count: int,
+) -> list[dict[str, Any]]:
+    if result_count:
+        return [
+            make_guidance_item(
+                claim=(
+                    f"Graph query '{pattern}' returned {result_count} related node(s) "
+                    f"for '{target}'."
+                ),
+                evidence={
+                    "type": "computed",
+                    "pattern": pattern,
+                    "target": target,
+                    "result_count": result_count,
+                    "exact_match_count": exact_count,
+                },
+                confidence="medium",
+                missingness=[
+                    {
+                        "reason_code": "relationship_query_not_runtime_proof",
+                        "severity": "low",
+                        "claim_effect": ("graph edges are static extraction, not runtime traces"),
+                    }
+                ],
+                action=f'query_graph_tool pattern="{pattern}" -- drill into a relationship',
+                reason_codes=["graph_relationship_query"],
+                counts={"result_count": result_count},
+            )
+        ]
+    return [
+        make_guidance_item(
+            claim=f"No graph relationships matched '{pattern}' for '{target}'.",
+            evidence={
+                "type": "computed",
+                "pattern": pattern,
+                "target": target,
+                "result_count": 0,
+            },
+            confidence="low",
+            missingness=[
+                {
+                    "reason_code": "not_found_in_current_graph",
+                    "severity": "medium",
+                    "claim_effect": (
+                        "absence is graph-limited, not proof the relationship does not exist"
+                    ),
+                }
+            ],
+            action="semantic_search_nodes_tool -- verify the target and refresh the graph",
+            reason_codes=["zero_result"],
+            counts={"result_count": 0},
+        )
+    ]
+
+
+def _semantic_search_guidance(
+    *,
+    query: str,
+    result_count: int,
+    search_mode: str,
+    embedding_health: dict[str, Any],
+) -> list[dict[str, Any]]:
+    missingness_items: list[dict[str, Any]] = []
+    if embedding_health and not embedding_health.get("available", True):
+        missingness_items.append(
+            {
+                "reason_code": "missing_embeddings",
+                "severity": "medium",
+                "claim_effect": "semantic ranking may be keyword-only",
+            }
+        )
+    if result_count:
+        return [
+            make_guidance_item(
+                claim=f"Hybrid search returned {result_count} candidate(s) for '{query}'.",
+                evidence={
+                    "type": "computed",
+                    "query": query,
+                    "result_count": result_count,
+                    "search_mode": search_mode,
+                },
+                confidence="medium",
+                missingness=missingness_items
+                or [
+                    {
+                        "reason_code": "ranking_is_evidence_not_verdict",
+                        "severity": "low",
+                        "claim_effect": (
+                            "scores rank leads; verify with callers_of or source reads"
+                        ),
+                    }
+                ],
+                action="query_graph_tool callers_of -- confirm the best candidate relationship",
+                reason_codes=["hybrid_search"],
+                counts={"result_count": result_count},
+            )
+        ]
+    return [
+        make_guidance_item(
+            claim=f"No nodes matched '{query}' in the current graph.",
+            evidence={"type": "computed", "query": query, "search_mode": search_mode},
+            confidence="low",
+            missingness=[
+                *missingness_items,
+                {
+                    "reason_code": "not_found_in_current_graph",
+                    "severity": "medium",
+                    "claim_effect": (
+                        "absence is graph-limited, not proof the symbol does not exist"
+                    ),
+                },
+            ],
+            action="dagayn update -- refresh graph coverage before concluding absence",
+            reason_codes=["zero_result"],
+            counts={"result_count": 0},
+        )
+    ]
+
+
 def get_impact_radius(
     changed_files: list[str] | None = None,
     max_depth: int = 2,
@@ -178,8 +305,9 @@ def get_impact_radius(
         Changed nodes, impacted nodes, impacted files, connecting edges,
         plus ``truncated`` flag and ``total_impacted`` count.
     """
-    store, root = _get_store(repo_root)
+    store = None
     try:
+        store, root = _get_store(repo_root)
         answerability = graph_answerability_summary(store)
         missingness = missingness_from_answerability(answerability)
         if changed_files is None:
@@ -271,8 +399,11 @@ def get_impact_radius(
             ],
         )
         return payload
+    except Exception as exc:
+        return handle_tool_runtime_error(exc, logger=logger, context="get_impact_radius")
     finally:
-        store.close()
+        if store is not None:
+            store.close()
 
 
 # ---------------------------------------------------------------------------
@@ -299,8 +430,9 @@ def query_graph(
     Returns:
         Matching nodes and edges for the query.
     """
-    store, root = _get_store(repo_root)
+    store = None
     try:
+        store, root = _get_store(repo_root)
         answerability = graph_answerability_summary(store)
         missingness = missingness_from_answerability(answerability)
         if pattern not in _QUERY_PATTERNS:
@@ -358,6 +490,12 @@ def query_graph(
                 }
 
         if not node and pattern != "file_summary":
+            guidance = _query_graph_guidance(
+                pattern=pattern,
+                target=target,
+                result_count=0,
+                exact_count=0,
+            )
             return {
                 "status": "not_found",
                 "summary": f"No node found matching '{target}' in the current graph.",
@@ -376,6 +514,8 @@ def query_graph(
                         ),
                     },
                 ],
+                "guidance": guidance,
+                "_hints": guidance_actions_to_hints(guidance),
             }
 
         qn = node.qualified_name if node else target
@@ -542,6 +682,12 @@ def query_graph(
             ]
             for item in minimal_results:
                 item["evidence_type"] = _result_evidence_type(item)
+            guidance = _query_graph_guidance(
+                pattern=pattern,
+                target=target,
+                result_count=len(results),
+                exact_count=1 if node else 0,
+            )
             return {
                 "status": "ok",
                 "pattern": pattern,
@@ -555,8 +701,16 @@ def query_graph(
                 "answerability": answerability,
                 "missingness": missingness,
                 "results": minimal_results,
+                "guidance": guidance,
+                "_hints": guidance_actions_to_hints(guidance),
             }
 
+        guidance = _query_graph_guidance(
+            pattern=pattern,
+            target=target,
+            result_count=len(results),
+            exact_count=1 if node else 0,
+        )
         payload = {
             "status": "ok",
             "pattern": pattern,
@@ -571,11 +725,16 @@ def query_graph(
             "missingness": missingness,
             "results": results,
             "edges": edges_out,
+            "guidance": guidance,
+            "_hints": guidance_actions_to_hints(guidance),
         }
         apply_output_budget(payload, budget_tokens=8000, list_priorities=["results", "edges"])
         return payload
+    except Exception as exc:
+        return handle_tool_runtime_error(exc, logger=logger, context="query_graph")
     finally:
-        store.close()
+        if store is not None:
+            store.close()
 
 
 # ---------------------------------------------------------------------------
@@ -611,8 +770,9 @@ def semantic_search_nodes(
     Returns:
         Ranked list of matching nodes.
     """
-    store, root = _get_store(repo_root)
+    store = None
     try:
+        store, root = _get_store(repo_root)
         answerability = graph_answerability_summary(store)
         missingness = missingness_from_answerability(answerability)
         hs = hybrid_search(
@@ -649,6 +809,12 @@ def semantic_search_nodes(
         ]
         ambiguity = "multiple_exact_matches" if len(exact_matches) > 1 else None
         next_action = _exactness_action(query, len(exact_matches), len(results))
+        guidance = _semantic_search_guidance(
+            query=query,
+            result_count=result_count,
+            search_mode=search_mode,
+            embedding_health=embedding_health if isinstance(embedding_health, dict) else {},
+        )
 
         if detail_level == "minimal":
             minimal_results = [
@@ -658,6 +824,7 @@ def semantic_search_nodes(
                 }
                 for r in results[:5]
             ]
+            hints = guidance_actions_to_hints(guidance)
             return {
                 "status": "ok",
                 "query": query,
@@ -677,6 +844,12 @@ def semantic_search_nodes(
                 },
                 "summary": summary,
                 "results": minimal_results,
+                "guidance": guidance,
+                "_hints": hints
+                if hints["next_steps"]
+                else generate_hints(
+                    "semantic_search_nodes", {"status": "ok", "summary": summary}, get_session()
+                ),
             }
 
         result: dict[str, object] = {
@@ -698,11 +871,20 @@ def semantic_search_nodes(
             },
             "summary": summary,
             "results": results,
+            "guidance": guidance,
         }
-        result["_hints"] = generate_hints("semantic_search_nodes", result, get_session())
+        hints = guidance_actions_to_hints(guidance)
+        result["_hints"] = (
+            hints
+            if hints["next_steps"]
+            else generate_hints("semantic_search_nodes", result, get_session())
+        )
         return result
+    except Exception as exc:
+        return handle_tool_runtime_error(exc, logger=logger, context="semantic_search_nodes")
     finally:
-        store.close()
+        if store is not None:
+            store.close()
 
 
 # ---------------------------------------------------------------------------
@@ -719,8 +901,9 @@ def list_graph_stats(repo_root: str | None = None) -> dict[str, Any]:
     Returns:
         Total nodes, edges, breakdown by kind, languages, and last update time.
     """
-    store, root = _get_store(repo_root)
+    store = None
     try:
+        store, root = _get_store(repo_root)
         stats = store.get_stats()
 
         # Add embedding info if available
@@ -751,8 +934,11 @@ def list_graph_stats(repo_root: str | None = None) -> dict[str, Any]:
                 "semantic_search_nodes_tool -- search for specific entities",
             ],
         )
+    except Exception as exc:
+        return handle_tool_runtime_error(exc, logger=logger, context="list_graph_stats")
     finally:
-        store.close()
+        if store is not None:
+            store.close()
 
 
 # ---------------------------------------------------------------------------
@@ -782,8 +968,9 @@ def find_large_functions(
     Returns:
         Oversized nodes with line counts, ordered largest first.
     """
-    store, root = _get_store(repo_root)
+    store = None
     try:
+        store, root = _get_store(repo_root)
         nodes = store.get_nodes_by_size(
             min_lines=min_lines,
             kind=kind,
@@ -831,8 +1018,11 @@ def find_large_functions(
             "min_lines": min_lines,
             "results": results,
         }
+    except Exception as exc:
+        return handle_tool_runtime_error(exc, logger=logger, context="find_large_functions")
     finally:
-        store.close()
+        if store is not None:
+            store.close()
 
 
 # -------------------------------------------------------------------
@@ -920,8 +1110,9 @@ def traverse_graph_func(
         model: Embedding model for the initial hybrid search.
         provider: Embedding provider for the initial hybrid search.
     """
-    store, root = _get_store(repo_root)
+    store = None
     try:
+        store, root = _get_store(repo_root)
         results = hybrid_search(
             store,
             query,
@@ -1052,5 +1243,8 @@ def traverse_graph_func(
                 'review_tool mode="impact" -- blast radius analysis',
             ],
         )
+    except Exception as exc:
+        return handle_tool_runtime_error(exc, logger=logger, context="traverse_graph")
     finally:
-        store.close()
+        if store is not None:
+            store.close()

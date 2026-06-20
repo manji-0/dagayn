@@ -117,7 +117,7 @@ def find_adp_violations(
                     "dependency_profile": dependency_profile,
                 }
             )
-    except Exception as exc:
+    except (nx.NetworkXError, RuntimeError, ValueError, RecursionError, MemoryError) as exc:
         logger.warning("Cycle detection failed: %s", exc)
 
     violations.sort(key=lambda x: x["severity"], reverse=True)

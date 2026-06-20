@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import urllib.error
+from email.message import Message
 
 import pytest
 
@@ -161,7 +162,7 @@ def test_probe_treats_retryable_http_as_not_ready(monkeypatch):
             url="http://127.0.0.1:18080/v1/embeddings",
             code=503,
             msg="loading",
-            hdrs={},
+            hdrs=Message(),
             fp=None,
         )
 

@@ -1,0 +1,796 @@
+"""Repository discovery, ignore rules, and file-change detection."""
+
+from __future__ import annotations
+
+import fnmatch
+import logging
+import os
+import re
+import subprocess
+from pathlib import Path, PurePosixPath
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:
+    from .graph import GraphStore
+
+from .parser import CodeParser
+from .parser._base.types import EdgeInfo, NodeInfo
+
+logger = logging.getLogger(__name__)
+
+_DEFAULT_BACKEND = "rust"
+
+# Default ignore patterns (in addition to .gitignore).
+#
+# `<dir>/**` patterns are matched at any depth by _should_ignore, so
+# `node_modules/**` also excludes `packages/app/node_modules/react/index.js`
+# inside monorepos. See: #91
+DEFAULT_IGNORE_PATTERNS = [
+    ".dagayn/**",
+    "node_modules/**",
+    ".git/**",
+    ".svn/**",
+    "__pycache__/**",
+    "*.pyc",
+    ".venv/**",
+    "venv/**",
+    "dist/**",
+    "build/**",
+    ".next/**",
+    "target/**",
+    "dagayn/_vendor_grammars/**",
+    ".hatch-vendor-grammars/**",
+    # PHP / Laravel / Composer
+    "vendor/**",
+    "bootstrap/cache/**",
+    "public/build/**",
+    # Ruby / Bundler
+    ".bundle/**",
+    # Java / Kotlin / Gradle
+    ".gradle/**",
+    "*.jar",
+    # Dart / Flutter
+    ".dart_tool/**",
+    ".pub-cache/**",
+    # General
+    "coverage/**",
+    ".cache/**",
+    "*.min.js",
+    "*.min.css",
+    "*.map",
+    "*.lock",
+    "package-lock.json",
+    "yarn.lock",
+    "*.db",
+    "*.sqlite",
+    "*.db-journal",
+    "*.db-wal",
+]
+
+
+def find_svn_root(start: Path | None = None) -> Optional[Path]:
+    """Walk up from start to find the SVN working copy root.
+
+    For SVN 1.7+, there is a single ``.svn`` at the WC root.
+    For older SVN, every directory has ``.svn`` — we return the topmost one
+    found so that the WC root is correctly identified.
+    """
+    current = start or Path.cwd()
+    candidate: Optional[Path] = None
+    while current != current.parent:
+        if (current / ".svn").exists():
+            candidate = current
+        current = current.parent
+    if (current / ".svn").exists():
+        candidate = current
+    return candidate
+
+
+def find_repo_root(
+    start: Path | None = None,
+    stop_at: Path | None = None,
+) -> Optional[Path]:
+    """Walk up from ``start`` to find the nearest ``.git`` directory or SVN working copy root.
+
+    Args:
+        start: Starting directory.  Defaults to ``Path.cwd()``.
+        stop_at: Optional boundary — if provided, the walk examines
+            ``stop_at`` for a ``.git`` directory and then stops without
+            crossing above it.  Useful for tests that create a synthetic
+            repo under ``tmp_path`` (so the walk does not accidentally
+            climb into a developer's home-directory dotfiles repo) and
+            for any production caller that wants to bound the ancestor
+            walk — e.g. multi-repo orchestrators, CI containers with
+            bind-mounted volumes, embedded sandboxes.  See #241.
+
+    Returns:
+        The first ancestor containing ``.git`` or an SVN working copy,
+        or ``None`` if no ancestor up to and including ``stop_at`` (when
+        set) or the filesystem root (when ``stop_at is None``) contains one.
+    """
+    current = start or Path.cwd()
+    while current != current.parent:
+        if (current / ".git").exists():
+            return current
+        if stop_at is not None and current == stop_at:
+            return None
+        current = current.parent
+    if (current / ".git").exists():
+        return current
+    # No Git root found — try SVN
+    return find_svn_root(start)
+
+
+def detect_vcs(root: Path) -> str:
+    """Return ``'git'``, ``'svn'``, or ``'none'`` based on VCS markers at *root*."""
+    if (root / ".git").exists():
+        return "git"
+    if (root / ".svn").exists():
+        return "svn"
+    return "none"
+
+
+def find_project_root(
+    start: Path | None = None,
+    stop_at: Path | None = None,
+) -> Path:
+    """Find the project root.
+
+    Resolution order (highest precedence first):
+
+    1. ``CRG_REPO_ROOT`` environment variable — explicit override for
+       anyone scripting the CLI from outside the repo (CI jobs, daemons,
+       multi-repo orchestrators). See: #155
+    2. Git repository root via :func:`find_repo_root` from ``start``,
+       honoring ``stop_at`` if provided.
+    3. ``start`` itself (or cwd if no start given).
+
+    ``stop_at`` is forwarded to :func:`find_repo_root` so callers that
+    want to bound the ancestor walk (typically tests; see #241) can do so
+    without having to call ``find_repo_root`` directly.
+    """
+    env_override = os.environ.get("CRG_REPO_ROOT", "").strip()
+    if env_override:
+        p = Path(env_override).expanduser().resolve()
+        if p.exists():
+            return p
+    root = find_repo_root(start, stop_at=stop_at)
+    if root:
+        return root
+    return start or Path.cwd()
+
+
+def get_data_dir(repo_root: Path) -> Path:
+    """Return the directory where this project's graph data lives.
+
+    By default, ``<repo_root>/.dagayn``. If the
+    ``CRG_DATA_DIR`` environment variable is set, it is used verbatim
+    instead — letting you keep graphs outside the working tree (useful
+    for ephemeral workspaces, Docker volumes, or shared caches). See: #155
+
+    The directory is created if it does not already exist; an inner
+    ``.gitignore`` (with ``*``) is written so any accidentally-nested
+    files never get committed. Both are idempotent.
+    """
+    env_override = os.environ.get("CRG_DATA_DIR", "").strip()
+    if env_override:
+        data_dir = Path(env_override).expanduser().resolve()
+    else:
+        data_dir = repo_root / ".dagayn"
+
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    inner_gitignore = data_dir / ".gitignore"
+    if not inner_gitignore.exists():
+        try:
+            # `encoding="utf-8"` is REQUIRED — the em-dash in the header is
+            # U+2014 which falls outside cp1252.  On Windows, calling
+            # write_text without an encoding silently uses the system default
+            # codepage, producing a file that subsequently fails to decode as
+            # UTF-8 (see issue #239).
+            inner_gitignore.write_text(
+                "# Auto-generated by dagayn — do not commit database files.\n"
+                "# The graph.db contains absolute paths and code structure metadata.\n"
+                "*\n",
+                encoding="utf-8",
+            )
+        except OSError:
+            # Data dir might be read-only (rare); that's OK, it's a best-effort guard.
+            pass
+
+    return data_dir
+
+
+def get_db_path(repo_root: Path) -> Path:
+    """Determine the database path for a repository.
+
+    Respects ``CRG_DATA_DIR`` (see :func:`get_data_dir`). Migrates a
+    legacy top-level ``.dagayn.db`` file into the new
+    directory when it exists (WAL/SHM side-files are discarded).
+    """
+    crg_dir = get_data_dir(repo_root)
+    new_db = crg_dir / "graph.db"
+
+    # Migrate legacy database if present (only meaningful when the
+    # legacy file sits at the repo root — if CRG_DATA_DIR is set we
+    # skip the migration because there's no relationship between the
+    # legacy location and the new one).
+    legacy_db = repo_root / ".dagayn.db"
+    if legacy_db.exists() and not new_db.exists():
+        legacy_db.rename(new_db)
+    # Discard stale WAL/SHM side-files from the old location
+    for suffix in ("-wal", "-shm", "-journal"):
+        side = repo_root / f".dagayn.db{suffix}"
+        if side.exists():
+            side.unlink()
+
+    return new_db
+
+
+def _make_repo_relative(path_str: str, repo_root: Path) -> str:
+    path = Path(path_str)
+    if not path.is_absolute():
+        return str(path)
+    root_candidates = [repo_root]
+    try:
+        resolved_root = repo_root.resolve()
+    except (OSError, RuntimeError):
+        resolved_root = None
+    if resolved_root is not None and resolved_root not in root_candidates:
+        root_candidates.append(resolved_root)
+    try:
+        resolved_path = path.resolve()
+    except (OSError, RuntimeError):
+        resolved_path = path
+    for root in root_candidates:
+        for candidate in (path, resolved_path):
+            try:
+                return str(candidate.relative_to(root))
+            except ValueError:
+                continue
+    return str(path)
+
+
+def _make_repo_relative_qualified(value: str, repo_root: Path) -> str:
+    if "::" not in value:
+        return _make_repo_relative(value, repo_root)
+    file_path, rest = value.split("::", 1)
+    return f"{_make_repo_relative(file_path, repo_root)}::{rest}"
+
+
+_REPO_RELATIVE_QUALIFIED_EXTRA_KEYS = frozenset(
+    {
+        "parent_section",
+    }
+)
+
+
+def _relativize_extra(value: Any, repo_root: Path) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _make_repo_relative_qualified(extra_value, repo_root)
+            if key in _REPO_RELATIVE_QUALIFIED_EXTRA_KEYS and isinstance(extra_value, str)
+            else _relativize_extra(extra_value, repo_root)
+            for key, extra_value in value.items()
+        }
+    if isinstance(value, list):
+        return [_relativize_extra(item, repo_root) for item in value]
+    return value
+
+
+def _relativize_parsed_entities(
+    nodes: list[NodeInfo], edges: list[EdgeInfo], repo_root: Path
+) -> tuple[list[NodeInfo], list[EdgeInfo]]:
+    rel_nodes = [
+        NodeInfo(
+            kind=node.kind,
+            name=node.name,
+            file_path=_make_repo_relative(node.file_path, repo_root),
+            line_start=node.line_start,
+            line_end=node.line_end,
+            language=node.language,
+            parent_name=node.parent_name,
+            params=node.params,
+            return_type=node.return_type,
+            modifiers=node.modifiers,
+            is_test=node.is_test,
+            extra=_relativize_extra(node.extra, repo_root),
+        )
+        for node in nodes
+    ]
+    rel_edges = [
+        EdgeInfo(
+            kind=edge.kind,
+            source=_make_repo_relative_qualified(edge.source, repo_root),
+            target=_make_repo_relative_qualified(edge.target, repo_root),
+            file_path=_make_repo_relative(edge.file_path, repo_root),
+            line=edge.line,
+            extra=_relativize_extra(edge.extra, repo_root),
+        )
+        for edge in edges
+    ]
+    return rel_nodes, rel_edges
+
+
+def ensure_repo_gitignore_excludes_crg(repo_root: Path) -> str:
+    """Ensure repo-level .gitignore excludes ``.dagayn/``.
+
+    Returns one of:
+    - ``created``: .gitignore was created with the entry
+    - ``updated``: entry was appended to existing .gitignore
+    - ``already-present``: no changes were needed
+    """
+    gitignore_path = repo_root / ".gitignore"
+    existing = gitignore_path.read_text(encoding="utf-8") if gitignore_path.exists() else ""
+
+    for raw_line in existing.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line == ".dagayn" or line.startswith(".dagayn/"):
+            return "already-present"
+
+    block = "# Added by dagayn\n.dagayn/\n"
+    prefix = "\n" if existing and not existing.endswith("\n") else ""
+    gitignore_path.write_text(existing + prefix + block, encoding="utf-8")
+
+    if existing:
+        return "updated"
+    return "created"
+
+
+def _load_ignore_patterns(repo_root: Path) -> list[str]:
+    """Load ignore patterns from .dagaynignore file."""
+    patterns = list(DEFAULT_IGNORE_PATTERNS)
+    ignore_file = repo_root / ".dagaynignore"
+    if ignore_file.exists():
+        for line in ignore_file.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#"):
+                patterns.append(line)
+    return patterns
+
+
+def _should_ignore(path: str, patterns: list[str]) -> bool:
+    """Check if a path matches any ignore pattern.
+
+    Handles nested occurrences of ``<dir>/**`` patterns: for example,
+    ``node_modules/**`` also matches ``packages/app/node_modules/foo.js``
+    inside monorepos. ``fnmatch`` alone treats ``*`` as not crossing ``/``
+    and only matches the prefix, so we additionally test each path segment
+    against the bare prefix of ``<dir>/**`` patterns. See: #91
+    """
+    # Direct fnmatch first (cheap)
+    if any(fnmatch.fnmatch(path, p) for p in patterns):
+        return True
+    # Then: treat simple single-segment "dir/**" patterns as
+    # "this directory at any depth".
+    parts = PurePosixPath(path).parts
+    for p in patterns:
+        if not p.endswith("/**"):
+            continue
+        prefix = p[:-3]
+        # Only single-segment dir patterns (no "/" inside the prefix)
+        # qualify for nested matching.
+        if "/" in prefix or not prefix:
+            continue
+        if prefix in parts:
+            return True
+    return False
+
+
+def _is_binary(path: Path) -> bool:
+    """Quick heuristic: check if file appears to be binary."""
+    try:
+        chunk = path.read_bytes()[:8192]
+        return b"\x00" in chunk
+    except (OSError, PermissionError):
+        return True
+
+
+_GIT_TIMEOUT = int(os.environ.get("CRG_GIT_TIMEOUT", "30"))  # seconds, configurable
+
+# When True, `git ls-files --recurse-submodules` is used so that files
+# inside git submodules are included in the graph.  Opt-in via env var;
+# can also be overridden per-call through function parameters.
+_RECURSE_SUBMODULES = os.environ.get("CRG_RECURSE_SUBMODULES", "").lower() in ("1", "true", "yes")
+
+
+def _git_branch_info(repo_root: Path) -> tuple[str, str]:
+    """Return (branch_name, head_sha) for the current repo state."""
+    branch = ""
+    sha = ""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True,
+            text=True,
+            cwd=str(repo_root),
+            timeout=_GIT_TIMEOUT,
+        )
+        if result.returncode == 0:
+            branch = result.stdout.strip()
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            cwd=str(repo_root),
+            timeout=_GIT_TIMEOUT,
+        )
+        if result.returncode == 0:
+            sha = result.stdout.strip()
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+    return branch, sha
+
+
+def _svn_revision_info(repo_root: Path) -> tuple[str, str]:
+    """Return (branch_path, revision_str) for the current SVN working copy."""
+    branch = ""
+    rev = ""
+    try:
+        result = subprocess.run(
+            ["svn", "info", "--non-interactive"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=str(repo_root),
+            timeout=_GIT_TIMEOUT,
+        )
+        if result.returncode == 0:
+            for line in result.stdout.splitlines():
+                if line.startswith("URL: "):
+                    url = line[5:].strip()
+                    # Extract trunk/branches/tags segment from SVN URL
+                    for marker in ("/branches/", "/tags/", "/trunk"):
+                        if marker in url:
+                            idx = url.index(marker)
+                            branch = url[idx:].lstrip("/")
+                            break
+                    if not branch and url:
+                        branch = url.rstrip("/").split("/")[-1]
+                elif line.startswith("Revision: "):
+                    rev = line[10:].strip()
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+    return branch, rev
+
+
+_SAFE_GIT_REF = re.compile(r"^[A-Za-z0-9_.~^/@{}\-]+$")
+_SAFE_SVN_REV = re.compile(r"^r?\d+(:r?\d+|:HEAD|:BASE|:COMMITTED)?$", re.IGNORECASE)
+
+
+def _store_vcs_metadata(repo_root: Path, store: "GraphStore") -> None:
+    """Persist VCS branch/revision info into the graph metadata table."""
+    vcs = detect_vcs(repo_root)
+    if vcs == "git":
+        branch, sha = _git_branch_info(repo_root)
+        if branch:
+            store.set_metadata("git_branch", branch)
+        if sha:
+            store.set_metadata("git_head_sha", sha)
+    elif vcs == "svn":
+        branch, rev = _svn_revision_info(repo_root)
+        if branch:
+            store.set_metadata("svn_branch", branch)
+        if rev:
+            store.set_metadata("svn_revision", rev)
+
+
+def get_changed_files(repo_root: Path, base: str = "HEAD~1") -> list[str]:
+    """Get list of changed files via git diff plus working-tree status.
+
+    For SVN working copies the *base* parameter is ignored; modified/added/
+    deleted files are detected from ``svn status``.  Pass an SVN revision
+    range (e.g. ``"r100:HEAD"``) as *base* to compare against a specific
+    revision instead.
+    """
+    if detect_vcs(repo_root) == "svn":
+        return _get_svn_changed_files(repo_root, base if _SAFE_SVN_REV.match(base) else None)
+    return get_changed_file_sources(repo_root, base).get("files", [])
+
+
+def get_changed_file_sources(repo_root: Path, base: str = "HEAD~1") -> dict[str, list[str]]:
+    """Get changed files grouped by origin.
+
+    ``base_diff`` contains files changed between *base* and the current
+    revision. ``worktree`` contains local staged, unstaged, and untracked
+    changes. The combined ``files`` list preserves first-seen order.
+    """
+    if detect_vcs(repo_root) == "svn":
+        files = _get_svn_changed_files(repo_root, base if _SAFE_SVN_REV.match(base) else None)
+        return {
+            "files": files,
+            "base_diff": [],
+            "worktree": files,
+            "staged": [],
+            "unstaged": files,
+            "untracked": [],
+        }
+
+    if not _SAFE_GIT_REF.match(base):
+        logger.warning("Invalid git ref rejected: %s", base)
+        return {
+            "files": [],
+            "base_diff": [],
+            "worktree": [],
+            "staged": [],
+            "unstaged": [],
+            "untracked": [],
+        }
+
+    base_diff = _get_git_diff_files(repo_root, base)
+    worktree_sources = _get_git_worktree_change_sources(repo_root)
+    worktree = worktree_sources["worktree"]
+    return {
+        "files": _dedupe_preserve_order(base_diff + worktree),
+        "base_diff": base_diff,
+        **worktree_sources,
+    }
+
+
+def _get_git_diff_files(repo_root: Path, base: str) -> list[str]:
+    try:
+        result = subprocess.run(
+            ["git", "diff", "--name-only", base, "HEAD", "--"],
+            capture_output=True,
+            text=True,
+            cwd=str(repo_root),
+            timeout=_GIT_TIMEOUT,
+        )
+        if result.returncode != 0:
+            logger.warning("git diff failed (rc=%d): %s", result.returncode, result.stderr[:200])
+            return []
+        return [f.strip() for f in result.stdout.splitlines() if f.strip()]
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return []
+
+
+def _get_git_worktree_change_sources(repo_root: Path) -> dict[str, list[str]]:
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=all"],
+            capture_output=True,
+            text=True,
+            cwd=str(repo_root),
+            timeout=_GIT_TIMEOUT,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return {"worktree": [], "staged": [], "unstaged": [], "untracked": []}
+
+    staged: list[str] = []
+    unstaged: list[str] = []
+    untracked: list[str] = []
+    for line in result.stdout.splitlines():
+        if len(line) <= 3:
+            continue
+        x_status = line[0]
+        y_status = line[1]
+        entry = line[3:].strip()
+        if " -> " in entry:
+            entry = entry.split(" -> ", 1)[1]
+        if x_status == "?" and y_status == "?":
+            untracked.append(entry)
+            continue
+        if x_status != " ":
+            staged.append(entry)
+        if y_status != " ":
+            unstaged.append(entry)
+
+    return {
+        "worktree": _dedupe_preserve_order(staged + unstaged + untracked),
+        "staged": _dedupe_preserve_order(staged),
+        "unstaged": _dedupe_preserve_order(unstaged),
+        "untracked": _dedupe_preserve_order(untracked),
+    }
+
+
+def _dedupe_preserve_order(paths: list[str]) -> list[str]:
+    """Return unique paths while preserving first-seen order."""
+    seen: set[str] = set()
+    result: list[str] = []
+    for path in paths:
+        if path in seen:
+            continue
+        seen.add(path)
+        result.append(path)
+    return result
+
+
+def _get_svn_changed_files(repo_root: Path, rev_range: str | None = None) -> list[str]:
+    """Return changed files in an SVN working copy.
+
+    When *rev_range* is given (e.g. ``"r100:HEAD"``), ``svn diff --summarize``
+    is used to list files changed between those revisions.  Otherwise
+    ``svn status`` reports working-copy modifications.
+    """
+    try:
+        if rev_range:
+            result = subprocess.run(
+                ["svn", "diff", "--summarize", "--non-interactive", "-r", rev_range],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                cwd=str(repo_root),
+                timeout=_GIT_TIMEOUT,
+            )
+            if result.returncode != 0:
+                logger.warning(
+                    "svn diff --summarize failed (rc=%d): %s",
+                    result.returncode,
+                    result.stderr[:200],
+                )
+                return []
+            files = []
+            for line in result.stdout.splitlines():
+                # Format: "M       path/to/file"  (first char is status)
+                if len(line) >= 2 and line[0] in ("M", "A", "D"):
+                    files.append(line[1:].strip())
+            return files
+        else:
+            result = subprocess.run(
+                ["svn", "status", "--non-interactive"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                cwd=str(repo_root),
+                timeout=_GIT_TIMEOUT,
+            )
+            files = []
+            for line in result.stdout.splitlines():
+                if len(line) < 2:
+                    continue
+                status_char = line[0]
+                # M=modified, A=added, D=deleted, R=replaced, C=conflicted
+                if status_char in ("M", "A", "D", "R", "C"):
+                    # SVN status: 8 fixed-width columns then the path
+                    path = line[8:].strip() if len(line) > 8 else line[1:].strip()
+                    files.append(path)
+            return files
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return []
+
+
+def get_staged_and_unstaged(repo_root: Path) -> list[str]:
+    """Get all modified files (staged + unstaged + untracked)."""
+    if detect_vcs(repo_root) == "svn":
+        return _get_svn_changed_files(repo_root)
+    return _get_git_worktree_change_sources(repo_root)["worktree"]
+
+
+def get_all_tracked_files(
+    repo_root: Path,
+    recurse_submodules: bool | None = None,
+) -> list[str]:
+    """Get all files tracked by git or svn.
+
+    Args:
+        repo_root: Repository root directory.
+        recurse_submodules: If True, pass ``--recurse-submodules`` to
+            ``git ls-files`` so that files inside git submodules are
+            included.  When *None* (default), falls back to the
+            ``CRG_RECURSE_SUBMODULES`` environment variable.
+            (Ignored for SVN working copies.)
+    """
+    if detect_vcs(repo_root) == "svn":
+        return _get_svn_all_tracked_files(repo_root)
+
+    if recurse_submodules is None:
+        from . import incremental as inc
+
+        recurse_submodules = bool(inc._RECURSE_SUBMODULES)
+
+    cmd = ["git", "ls-files"]
+    if recurse_submodules:
+        cmd.append("--recurse-submodules")
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            cwd=str(repo_root),
+            timeout=_GIT_TIMEOUT,
+        )
+        return [f.strip() for f in result.stdout.splitlines() if f.strip()]
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return []
+
+
+def _get_svn_all_tracked_files(repo_root: Path) -> list[str]:
+    """Return SVN-versioned files by walking the working copy.
+
+    Uses ``svn list -R`` to get the server-side file list, falling back to
+    a filesystem walk (which is also the fallback in :func:`collect_all_files`).
+    """
+    try:
+        result = subprocess.run(
+            ["svn", "list", "--recursive", "--non-interactive"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=str(repo_root),
+            timeout=60,  # svn list queries the server
+        )
+        if result.returncode == 0:
+            # svn list returns paths relative to the WC URL; directories end with "/"
+            files = [
+                f.strip()
+                for f in result.stdout.splitlines()
+                if f.strip() and not f.strip().endswith("/")
+            ]
+            if files:
+                return files
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+    # Fallback: let collect_all_files do a filesystem walk
+    return []
+
+
+def _backend_selection() -> str:
+    return os.environ.get("DAGAYN_BACKEND", _DEFAULT_BACKEND).strip().lower()
+
+
+def _rust_backend_enabled() -> bool:
+    return _backend_selection() == "rust"
+
+
+def collect_all_files(
+    repo_root: Path,
+    recurse_submodules: bool | None = None,
+) -> list[str]:
+    """Collect all parseable files in the repo, respecting ignore patterns.
+
+    Args:
+        repo_root: Repository root directory.
+        recurse_submodules: If True, include files from git submodules.
+            When *None*, falls back to ``CRG_RECURSE_SUBMODULES`` env var.
+    """
+    if _rust_backend_enabled() and detect_vcs(repo_root) != "svn":
+        try:
+            from dagayn._core import collect_parseable_files
+
+            return collect_parseable_files(repo_root, recurse_submodules)
+        except (ImportError, RuntimeError, TypeError, ValueError) as exc:
+            raise RuntimeError(
+                "Rust file discovery requires dagayn._core. "
+                "Install a wheel with the native extension or rebuild from source."
+            ) from exc
+
+    ignore_patterns = _load_ignore_patterns(repo_root)
+    parser = CodeParser()
+    files = []
+    # Prefer git ls-files for tracked files
+    tracked = get_all_tracked_files(repo_root, recurse_submodules)
+    if tracked:
+        candidates = tracked
+    else:
+        # Fallback: walk directory
+        candidates = [str(p.relative_to(repo_root)) for p in repo_root.rglob("*") if p.is_file()]
+
+    for rel_path in candidates:
+        if _should_ignore(rel_path, ignore_patterns):
+            continue
+        full_path = repo_root / rel_path
+        if not full_path.is_file():
+            continue
+        if full_path.is_symlink():
+            continue
+        if parser.detect_language(full_path) is None:
+            continue
+        if _is_binary(full_path):
+            continue
+        files.append(rel_path)
+
+    return files
+
+
+_MAX_DEPENDENT_HOPS = int(os.environ.get("CRG_DEPENDENT_HOPS", "2"))
+_MAX_DEPENDENT_FILES = 500

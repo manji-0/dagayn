@@ -4,6 +4,7 @@ import json
 import os
 import sqlite3
 import time
+from email.message import Message
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -1680,7 +1681,7 @@ class TestOpenAIEmbeddingProvider:
                     url="http://localhost:3000/v1/embeddings",
                     code=429,
                     msg="Too Many Requests",
-                    hdrs=None,
+                    hdrs=Message(),
                     fp=io.BytesIO(b'{"error": "rate limited"}'),
                 )
             return good_response
@@ -1761,7 +1762,7 @@ class TestOpenAIEmbeddingProvider:
                 url="http://localhost:3000/v1/embeddings",
                 code=400,
                 msg="Bad Request",
-                hdrs=None,
+                hdrs=Message(),
                 fp=io.BytesIO(b'{"error": {"message": "invalid model"}}'),
             )
 
@@ -1792,7 +1793,7 @@ class TestOpenAIEmbeddingProvider:
             url="http://localhost:3000/v1/embeddings",
             code=400,
             msg="Bad Request",
-            hdrs=None,
+            hdrs=Message(),
             fp=io.BytesIO(body),
         )
         with patch("urllib.request.urlopen", side_effect=err):
@@ -1834,18 +1835,22 @@ class TestGetProviderOpenAI:
     def test_model_arg_overrides_env(self):
         with patch.dict("os.environ", self._MIN_ENV, clear=True):
             p = get_provider("openai", model="text-embedding-3-large")
+        assert p is not None
         assert p.name == "openai:text-embedding-3-large@http://127.0.0.1:3000/v1"
 
     def test_dimension_env_forwarded(self):
         env = {**self._MIN_ENV, "CRG_OPENAI_DIMENSION": "256"}
         with patch.dict("os.environ", env, clear=True):
             p = get_provider("openai")
+        assert p is not None
+        assert isinstance(p, OpenAIEmbeddingProvider)
         assert p._dimension == 256
 
     def test_max_length_env_forwarded(self):
         env = {**self._MIN_ENV, "CRG_OPENAI_MAX_LENGTH": "2048"}
         with patch.dict("os.environ", env, clear=True):
             p = get_provider("openai")
+        assert p is not None
         assert p.name == "openai:text-embedding-3-small@http://127.0.0.1:3000/v1#max_length=2048"
 
     def test_localhost_suppresses_egress_warning(self, capsys):

@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 
+from dagayn.dependency_profiles import DependencyProfile
 from dagayn.graph import GraphStore
 from dagayn.parser import EdgeInfo, NodeInfo
 
@@ -315,7 +318,7 @@ class TestFindAdpViolations:
             compute_sdp_metrics(
                 two_cycle_store,
                 granularity="file",
-                dependency_profile="typo",  # type: ignore[arg-type]
+                dependency_profile=cast(DependencyProfile, "typo"),
             )
 
     def test_severity_equals_length_times_edge_weight(self, two_cycle_store):

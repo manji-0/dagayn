@@ -584,7 +584,10 @@ class TestChanges:
         self.store.get_impact_radius = lambda *_args, **_kwargs: impact
         self.store.close = lambda: None
 
-        with patch("dagayn.tools.review._get_store", return_value=(self.store, Path("/repo"))):
+        with patch(
+            "dagayn.tools.review_context._get_store",
+            return_value=(self.store, Path("/repo")),
+        ):
             result = get_review_context(
                 changed_files=["app.py"],
                 repo_root="/repo",
@@ -674,7 +677,7 @@ class TestChanges:
         self._add_func("test_direct_target", path="tests/test_app.py", is_test=True)
         self._add_tested_by("app/direct.py::direct_target", "tests/test_app.py::test_direct_target")
 
-        with patch.object(review, "infer_tests_for_node") as infer_tests_for_node:
+        with patch("dagayn.tools.review_helpers.infer_tests_for_node") as infer_tests_for_node:
             density = review._component_density_by_scope(self.store, {"app"})["app"]
 
         infer_tests_for_node.assert_not_called()
@@ -691,7 +694,10 @@ class TestChanges:
         self._add_func("b_target", path="app/b.py")
         self._add_func("c_target", path="app/c.py")
 
-        with patch.object(review, "infer_tests_for_node", return_value=[]) as infer_tests_for_node:
+        with patch(
+            "dagayn.tools.review_helpers.infer_tests_for_node",
+            return_value=[],
+        ) as infer_tests_for_node:
             density = review._component_density_by_scope(
                 self.store,
                 {"app"},

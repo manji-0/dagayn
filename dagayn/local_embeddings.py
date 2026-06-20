@@ -239,7 +239,7 @@ def _probe_embedding_server(
     except urllib.error.HTTPError as exc:
         try:
             detail = exc.read().decode("utf-8", errors="replace")
-        except Exception:  # nosec B110
+        except (OSError, UnicodeDecodeError):
             detail = str(exc)
         if exc.code == 429 or 500 <= exc.code < 600:
             return _ProbeResult("not_ready", f"HTTP {exc.code}: {detail}")
@@ -333,7 +333,7 @@ def _acquire_local_embedding_port_lock(port: int):
         lock_file.write(f"{os.getpid()}\n")
         lock_file.flush()
         return lock_file
-    except Exception:
+    except (OSError, ValueError):
         lock_file.close()
         raise
 

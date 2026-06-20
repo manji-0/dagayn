@@ -112,7 +112,8 @@ class TestPython314Compatibility:
 
         crg_main._patch_typing_eval_type_for_python314_beta()
 
-        assert typing._eval_type("T", {}, {}, prefer_fwd_module=True) == "resolved"
+        eval_type = getattr(typing, "_eval_type")
+        assert eval_type("T", {}, {}, prefer_fwd_module=True) == "resolved"
         assert calls == [{"value": "T", "globalns": {}, "localns": {}, "type_params": ()}]
 
     def test_bytestring_compat_restores_removed_collections_abc_name(self, monkeypatch):
@@ -416,7 +417,7 @@ class TestLongRunningToolsAreAsync:
             # stores the underlying callable on ``.fn`` on current FastMCP
             # 2.x but we fall back to the wrapper itself for resilience.
             underlying = getattr(fn, "fn", None) or fn
-            if not asyncio.iscoroutinefunction(underlying):
+            if not inspect.iscoroutinefunction(underlying):
                 not_async.append(tool_name)
 
         assert not missing, f"heavy tool(s) not registered at all: {missing}"
@@ -514,7 +515,7 @@ class TestApplyToolFilter:
     def _restore_tools(self):
         """Snapshot registered tools before test, restore after.
 
-        _apply_tool_filter calls ``mcp.remove_tool()`` which is
+        _apply_tool_filter calls ``_remove_mcp_tool()`` which is
         permanent.  We restore by re-adding from the saved snapshot.
         """
         original = crg_main._snapshot_components()

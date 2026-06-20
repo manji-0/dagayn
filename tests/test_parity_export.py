@@ -39,12 +39,13 @@ def test_export_matches_snapshot(name, parity_fixture_dbs):
     """Export of a freshly built fixture matches the committed baseline."""
     snapshot_path = SNAPSHOT_DIR / f"{name}.json"
     if not snapshot_path.exists():
-        pytest.skip(
+        msg = (
             f"Snapshot not yet generated. Run:\n"
             f"  dagayn build --repo-dir tests/fixtures/parity/{name}\n"
             f"  uv run python tools/parity_export.py tests/fixtures/parity/{name} "
             f"--out tests/fixtures/parity/__snapshots__/{name}.json"
         )
+        pytest.skip(msg)  # ty: ignore[too-many-positional-arguments]
 
     actual = export_db(parity_fixture_dbs[name])
     expected = snapshot_path.read_text(encoding="utf-8")

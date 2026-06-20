@@ -239,3 +239,15 @@ embedding_material_negative_queries:
 
   - query: "symptoms of low tire pressure on a winter morning"
     label: "negative_unrelated_vehicle"
+
+guidance_precision_cases:
+  - name: review-guidance-contract
+    kind: guidance_field_coverage
+    changed_files: ["dagayn/tools/review.py"]
+    expected: ["1.0"]
+    k: 1
+  - name: review-answerability-lead
+    kind: answerability_warnings
+    changed_files: ["dagayn/tools/query.py"]
+    expected: ["missing_test_edges"]
+    k: 5

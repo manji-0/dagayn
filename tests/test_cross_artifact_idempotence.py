@@ -15,10 +15,10 @@ from dagayn.parser.types import EdgeInfo, NodeInfo
 from dagayn.postprocessing import _resolve_markdown_artifact_refs
 
 
-def _make_store() -> tuple[GraphStore, tempfile.NamedTemporaryFile]:
+def _make_store() -> tuple[GraphStore, Path]:
     tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
     store = GraphStore(tmp.name)
-    return store, tmp
+    return store, Path(tmp.name)
 
 
 def _ca_edge(sym: str, target: str | None = None, line: int = 5) -> EdgeInfo:
@@ -74,7 +74,7 @@ class TestResolveToDemote:
 
     def teardown_method(self):
         self.store.close()
-        Path(self.tmp.name).unlink(missing_ok=True)
+        Path(self.tmp).unlink(missing_ok=True)
 
     def test_resolve_then_demote(self):
         self.store.upsert_node(_py_node("compute_foo", "/repo/foo.py"))
@@ -124,7 +124,7 @@ class TestUnresolvedToResolved:
 
     def teardown_method(self):
         self.store.close()
-        Path(self.tmp.name).unlink(missing_ok=True)
+        Path(self.tmp).unlink(missing_ok=True)
 
     def test_unresolved_code_span_is_pruned(self):
         self.store.upsert_edge(_ca_edge("new_bar"))
@@ -150,7 +150,7 @@ class TestAmbiguousToUnique:
 
     def teardown_method(self):
         self.store.close()
-        Path(self.tmp.name).unlink(missing_ok=True)
+        Path(self.tmp).unlink(missing_ok=True)
 
     def test_ambiguous_code_span_is_pruned(self):
         self.store.upsert_node(_py_node("Quux", "/repo/a.py"))
@@ -178,7 +178,7 @@ class TestUniqueToAmbiguous:
 
     def teardown_method(self):
         self.store.close()
-        Path(self.tmp.name).unlink(missing_ok=True)
+        Path(self.tmp).unlink(missing_ok=True)
 
     def test_resolved_demoted_when_duplicate_added(self):
         self.store.upsert_node(_py_node("Zap", "/repo/a.py"))
@@ -211,7 +211,7 @@ class TestIdempotence:
 
     def teardown_method(self):
         self.store.close()
-        Path(self.tmp.name).unlink(missing_ok=True)
+        Path(self.tmp).unlink(missing_ok=True)
 
     def test_double_run_no_changes(self):
         self.store.upsert_node(_py_node("steady_fn", "/repo/lib.py"))

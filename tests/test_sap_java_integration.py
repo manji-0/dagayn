@@ -197,6 +197,8 @@ class TestSapMetrics:
         metrics = compute_sap_metrics(java_store)
         api = _find(metrics, "api")
         impl = _find(metrics, "impl")
+        assert api is not None
+        assert impl is not None
         assert impl["ce"] == 1, f"Expected impl.Ce=1, got {impl['ce']}"
         assert api["ca"] == 1, f"Expected api.Ca=1, got {api['ca']}"
 
@@ -204,6 +206,7 @@ class TestSapMetrics:
         """api/ does not depend on anything in this fixture → Ce=0, I=0.0."""
         metrics = compute_sap_metrics(java_store)
         api = _find(metrics, "api")
+        assert api is not None
         assert api["ce"] == 0
         assert api["instability"] == 0.0
 
@@ -211,6 +214,7 @@ class TestSapMetrics:
         """impl/ has only outgoing deps (Ce=1, Ca=0) → I=1.0."""
         metrics = compute_sap_metrics(java_store)
         impl = _find(metrics, "impl")
+        assert impl is not None
         assert impl["ca"] == 0
         assert impl["instability"] == 1.0
 
@@ -218,12 +222,14 @@ class TestSapMetrics:
         """api/ is abstract+stable → D=0.0."""
         metrics = compute_sap_metrics(java_store)
         api = _find(metrics, "api")
+        assert api is not None
         assert api["distance"] == 0.0
 
     def test_domain_zone_of_pain(self, java_store):
         """domain/ is concrete (A=0) and isolated (I=0) → D=1.0 (Zone of Pain)."""
         metrics = compute_sap_metrics(java_store)
         domain = _find(metrics, "domain")
+        assert domain is not None
         assert domain["abstractness"] == 0.0
         assert domain["instability"] == 0.0
         assert domain["distance"] == 1.0
@@ -237,6 +243,7 @@ class TestSapMetrics:
         """api.top_incoming_dependencies should list impl as a dependent."""
         metrics = compute_sap_metrics(java_store)
         api = _find(metrics, "api")
+        assert api is not None
         incoming = {d["scope"] for d in api["top_incoming_dependencies"]}
         assert _scope("impl") in incoming, (
             f"Expected impl in api.top_incoming_dependencies, got: {incoming}"
@@ -246,6 +253,7 @@ class TestSapMetrics:
         """impl.top_outgoing_dependencies should list api."""
         metrics = compute_sap_metrics(java_store)
         impl = _find(metrics, "impl")
+        assert impl is not None
         outgoing = {d["scope"] for d in impl["top_outgoing_dependencies"]}
         assert _scope("api") in outgoing, (
             f"Expected api in impl.top_outgoing_dependencies, got: {outgoing}"

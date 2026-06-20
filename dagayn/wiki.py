@@ -38,7 +38,7 @@ def _build_architecture_metrics_context(store: GraphStore) -> dict[str, Any]:
         sdp_violations = find_sdp_violations(store, granularity="package")
         adp_violations = find_adp_violations(store, granularity="package")
         sap_metrics = compute_sap_metrics(store, scope_kind="package")
-    except Exception as exc:
+    except (sqlite3.Error, OSError, RuntimeError, ValueError, TypeError) as exc:
         logger.warning("wiki: architecture metrics unavailable: %s", exc)
         return {
             "available": False,

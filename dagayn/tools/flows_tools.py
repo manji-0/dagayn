@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -11,8 +12,13 @@ from ._common import (
     _get_store,
     apply_output_budget,
     graph_answerability_summary,
+    guidance_actions_to_hints,
+    handle_tool_runtime_error,
+    make_guidance_item,
     missingness_from_answerability,
 )
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Tool 10: list_flows  [EXPLORE]
@@ -45,8 +51,9 @@ def list_flows(
     Returns:
         List of flows with criticality scores.
     """
-    store, root = _get_store(repo_root)
+    store = None
     try:
+        store, root = _get_store(repo_root)
         answerability = graph_answerability_summary(store)
         fetch_limit = limit if not kind else limit * 10  # fetch more when filtering
         flows = get_flows(store, sort_by=sort_by, limit=fetch_limit)
@@ -94,12 +101,48 @@ def list_flows(
                 },
             ],
         }
-        result["_hints"] = generate_hints("list_flows", result, get_session())
+        flow_guidance = [
+            make_guidance_item(
+                claim=(
+                    f"Returned {len(flows)} ranked execution flow(s) from stored flow extraction."
+                    if flows
+                    else "No execution flows matched the current filters."
+                ),
+                evidence={
+                    "type": "computed",
+                    "returned_flow_count": len(flows),
+                    "limit": limit,
+                    "sort_by": sort_by,
+                    "kind_filter": kind,
+                },
+                confidence="medium" if flows else "low",
+                missingness=[
+                    {
+                        "reason_code": "flow_criticality_is_ranking_signal",
+                        "severity": "low",
+                        "claim_effect": "flow ranking is not a coverage guarantee",
+                    }
+                ],
+                action=(
+                    'flow_tool mode="get" -- inspect a specific flow path'
+                    if flows
+                    else 'flow_tool mode="list" -- broaden kind filter or increase limit'
+                ),
+                reason_codes=["stored_flow_extraction"],
+                counts={"returned_flow_count": len(flows)},
+            )
+        ]
+        result["guidance"] = flow_guidance
+        hints = guidance_actions_to_hints(flow_guidance)
+        result["_hints"] = (
+            hints if hints["next_steps"] else generate_hints("list_flows", result, get_session())
+        )
         return result
     except Exception as exc:
-        return {"status": "error", "error": str(exc)}
+        return handle_tool_runtime_error(exc, logger=logger, context="list_flows")
     finally:
-        store.close()
+        if store is not None:
+            store.close()
 
 
 # ---------------------------------------------------------------------------
@@ -129,8 +172,9 @@ def get_flow(
     Returns:
         Flow details with steps, or not_found status.
     """
-    store, root = _get_store(repo_root)
+    store = None
     try:
+        store, root = _get_store(repo_root)
         answerability = graph_answerability_summary(store)
         flow: dict | None = None
 
@@ -206,11 +250,43 @@ def get_flow(
                 },
             ],
         }
+        flow_guidance = [
+            make_guidance_item(
+                claim=(
+                    f"Flow '{flow['name']}' has {flow['node_count']} step(s) "
+                    f"with criticality {flow['criticality']:.4f}."
+                ),
+                evidence={
+                    "type": "computed",
+                    "flow_id": flow.get("id"),
+                    "name": flow.get("name"),
+                    "node_count": flow.get("node_count"),
+                    "depth": flow.get("depth"),
+                    "criticality": flow.get("criticality"),
+                    "source_included": bool(include_source),
+                },
+                confidence="medium",
+                missingness=[
+                    {
+                        "reason_code": "flow_path_is_stored_extraction",
+                        "severity": "low",
+                        "claim_effect": "flow steps are graph-derived, not runtime-proven",
+                    }
+                ],
+                action='review_tool mode="impact" -- check blast radius along this flow',
+                reason_codes=["stored_flow_extraction"],
+            )
+        ]
+        result["guidance"] = flow_guidance
         if include_source:
             apply_output_budget(result["flow"], budget_tokens=8000, list_priorities=["steps"])
-        result["_hints"] = generate_hints("get_flow", result, get_session())
+        hints = guidance_actions_to_hints(flow_guidance)
+        result["_hints"] = (
+            hints if hints["next_steps"] else generate_hints("get_flow", result, get_session())
+        )
         return result
     except Exception as exc:
-        return {"status": "error", "error": str(exc)}
+        return handle_tool_runtime_error(exc, logger=logger, context="get_flow")
     finally:
-        store.close()
+        if store is not None:
+            store.close()

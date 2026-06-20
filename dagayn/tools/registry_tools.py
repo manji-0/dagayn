@@ -8,7 +8,7 @@ from typing import Any
 
 from ..graph import GraphStore
 from ..search import hybrid_search
-from ._common import make_response
+from ._common import handle_tool_runtime_error, make_response
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ def list_repos_func() -> dict[str, Any]:
             ],
         )
     except Exception as exc:
-        return {"status": "error", "error": str(exc)}
+        return handle_tool_runtime_error(exc, logger=logger, context="list_repos")
 
 
 # ---------------------------------------------------------------------------
@@ -136,4 +136,4 @@ def cross_repo_search_func(
             ],
         )
     except Exception as exc:
-        return {"status": "error", "error": str(exc)}
+        return handle_tool_runtime_error(exc, logger=logger, context="cross_repo_search")

@@ -39,7 +39,7 @@ jobs:
         run: uv sync --frozen --extra dev
       - name: Run ty
         run: >
-          uv tool run ty check dagayn
+          uv tool run ty check dagayn tests
           --python-version 3.13
           --ignore unresolved-import
           --output-format github

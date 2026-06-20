@@ -24,6 +24,15 @@ from ..incremental import (
 
 logger = logging.getLogger(__name__)
 
+_TOOL_RUNTIME_ERRORS: tuple[type[BaseException], ...] = (
+    OSError,
+    sqlite3.Error,
+    ValueError,
+    KeyError,
+    TypeError,
+    AttributeError,
+)
+
 GUIDANCE_CONFIDENCE_VALUES = {"high", "medium", "low", "unknown"}
 GUIDANCE_EVIDENCE_TYPES = {"extracted", "authored", "computed", "evaluated"}
 
@@ -687,6 +696,34 @@ def make_response(
     if next_tool_suggestions:
         resp["next_tool_suggestions"] = next_tool_suggestions[:3]
     return resp
+
+
+def handle_tool_runtime_error(
+    exc: BaseException,
+    *,
+    logger: logging.Logger,
+    context: str,
+) -> dict[str, Any]:
+    """Convert a tool failure into a structured MCP error envelope."""
+    if isinstance(exc, _TOOL_RUNTIME_ERRORS):
+        logger.warning("%s failed: %s", context, exc)
+        reason_code = "tool_runtime_error"
+    else:
+        logger.exception("%s failed unexpectedly", context)
+        reason_code = "unexpected_tool_failure"
+    return {
+        "status": "error",
+        "error": str(exc),
+        "missingness": [
+            {
+                "reason_code": reason_code,
+                "severity": "high",
+                "claim_effect": (
+                    "tool output is unavailable until the underlying failure is resolved"
+                ),
+            }
+        ],
+    }
 
 
 def _get_path(container: dict[str, Any], path: str) -> tuple[dict[str, Any] | None, str]:

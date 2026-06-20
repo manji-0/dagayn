@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import pytest
 
 from dagayn.graph import GraphStore
@@ -279,7 +281,7 @@ class TestFindBridgeNodes:
 
         monkeypatch.setattr(analysis, "build_graph_snapshot", fail_runtime_snapshot)
 
-        result = find_hub_nodes(store, top_n=1, snapshot=object())
+        result = find_hub_nodes(store, top_n=1, snapshot=cast(Any, object()))
 
         assert len(result) == 1
         assert result[0]["score_source"] == "persisted"

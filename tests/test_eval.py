@@ -5,6 +5,7 @@ import os
 import subprocess
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -17,12 +18,9 @@ from dagayn.eval.reporter import (
 try:
     import yaml as _yaml  # noqa: F401
 
-    from dagayn.eval.runner import write_csv
-
     _HAS_YAML = True
 except ImportError:
     _HAS_YAML = False
-    write_csv = None  # type: ignore[assignment]
 from dagayn.eval.scorer import (
     compute_mrr,
     compute_precision_at_k,
@@ -176,6 +174,8 @@ def test_load_config():
 @pytest.mark.skipif(not _HAS_YAML, reason="pyyaml not installed")
 def test_write_csv():
     """Write results to CSV and read back."""
+    from dagayn.eval.runner import write_csv
+
     with tempfile.TemporaryDirectory() as tmpdir:
         path = Path(tmpdir) / "results" / "test.csv"
         results = [
@@ -197,6 +197,8 @@ def test_write_csv():
 @pytest.mark.skipif(not _HAS_YAML, reason="pyyaml not installed")
 def test_write_csv_empty():
     """Writing empty results should be a no-op."""
+    from dagayn.eval.runner import write_csv
+
     with tempfile.TemporaryDirectory() as tmpdir:
         path = Path(tmpdir) / "empty.csv"
         write_csv([], path)
@@ -472,6 +474,8 @@ def test_runner_with_mock_repo():
 
 @pytest.mark.skipif(not _HAS_YAML, reason="pyyaml not installed")
 def test_write_csv_heterogeneous_rows_preserves_all_columns(tmp_path):
+    from dagayn.eval.runner import write_csv
+
     path = tmp_path / "results.csv"
     write_csv(
         [
@@ -483,9 +487,11 @@ def test_write_csv_heterogeneous_rows_preserves_all_columns(tmp_path):
     with open(path, newline="") as f:
         reader = csv.DictReader(f)
         rows = list(reader)
-    assert reader.fieldnames[:4] == ["benchmark", "repo", "status", "error"]
-    assert "only_a" in reader.fieldnames
-    assert "only_b" in reader.fieldnames
+    fieldnames = reader.fieldnames
+    assert fieldnames is not None
+    assert fieldnames[:4] == ["benchmark", "repo", "status", "error"]
+    assert "only_a" in fieldnames
+    assert "only_b" in fieldnames
     assert rows[0]["only_b"] == ""
     assert rows[1]["only_a"] == ""
 
@@ -555,6 +561,120 @@ def test_guidance_precision_no_cases_skipped():
             "status": "skipped",
         }
     ]
+
+
+def test_guidance_precision_review_case_kinds(tmp_path):
+    """Focused CI fixture for calibrated guidance precision case kinds."""
+    from dagayn.eval.benchmarks import guidance_precision
+
+    fake_result = {
+        "status": "ok",
+        "missingness": [
+            {
+                "reason_code": "missing_test_edges",
+                "detail": "no TESTED_BY edges for changed production nodes",
+            }
+        ],
+        "analysis_summary": {
+            "guidance": [
+                {
+                    "claim": "Changed code lacks direct test coverage.",
+                    "evidence": {"test_gaps": 1},
+                    "confidence": "medium",
+                    "missingness": [],
+                    "action": "review_tool mode='impact'",
+                    "reason_codes": ["test_gaps", "documentation_update_candidates"],
+                    "counts": {"test_gap_count": 1},
+                }
+            ],
+            "recommended_tests": [{"qualified_name": "tests/test_app.py::test_run"}],
+            "documentation_update_candidates": [{"file": "README.md"}],
+            "stability_contracts": [{"status": "warn", "scope_key": "core"}],
+            "architecture_delta": {"counts": {"coupling_increase": 2}},
+        },
+    }
+    config = {
+        "guidance_precision_cases": [
+            {
+                "name": "guidance-contract",
+                "kind": "guidance_items",
+                "changed_files": ["app.py"],
+                "expected": ["test_gaps"],
+                "k": 1,
+            },
+            {
+                "name": "field-coverage",
+                "kind": "guidance_field_coverage",
+                "changed_files": ["app.py"],
+                "expected": ["1.0"],
+                "k": 1,
+            },
+            {
+                "name": "stable-warn",
+                "kind": "stable_contract_warnings",
+                "changed_files": ["app.py"],
+                "expected": ["core"],
+                "k": 1,
+            },
+            {
+                "name": "arch-leads",
+                "kind": "architecture_leads",
+                "changed_files": ["app.py"],
+                "expected": ["coupling_increase"],
+                "k": 1,
+            },
+            {
+                "name": "answerability",
+                "kind": "answerability_warnings",
+                "changed_files": ["app.py"],
+                "expected": ["missing_test_edges"],
+                "k": 1,
+            },
+            {
+                "name": "recommended-tests",
+                "kind": "recommended_tests",
+                "changed_files": ["app.py"],
+                "expected": ["tests/test_app.py::test_run"],
+                "k": 1,
+            },
+        ]
+    }
+    with patch("dagayn.tools.review.detect_changes_func", return_value=fake_result):
+        rows = guidance_precision.run(tmp_path, None, config)
+
+    by_name = {row["case"]: row for row in rows}
+    assert by_name["guidance-contract"]["precision_at_k"] == 1.0
+    assert by_name["field-coverage"]["field_coverage"] == 1.0
+    assert by_name["stable-warn"]["precision_at_k"] == 1.0
+    assert by_name["arch-leads"]["precision_at_k"] == 1.0
+    assert by_name["answerability"]["precision_at_k"] == 1.0
+    assert by_name["recommended-tests"]["precision_at_k"] == 1.0
+
+
+def test_guidance_precision_refactor_suggestions_kind(tmp_path):
+    from dagayn.eval.benchmarks import guidance_precision
+
+    fake_result = {
+        "suggestions": [
+            {"symbols": ["src/app.py::dead_helper"]},
+            {"symbols": ["src/util.py::unused"]},
+        ]
+    }
+    config = {
+        "guidance_precision_cases": [
+            {
+                "name": "refactor-suggest",
+                "kind": "refactor_suggestions",
+                "expected": ["src/app.py::dead_helper"],
+                "k": 1,
+            }
+        ]
+    }
+    with patch("dagayn.tools.refactor_tools.refactor_func", return_value=fake_result):
+        rows = guidance_precision.run(tmp_path, None, config)
+
+    assert rows[0]["precision_at_k"] == 1.0
+    assert rows[0]["hits"] == 1
 
 
 def test_build_performance_times_full_build(monkeypatch, tmp_path):

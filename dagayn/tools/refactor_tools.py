@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any, Literal, overload
 
@@ -21,9 +22,12 @@ from ._common import (
     attach_answerability,
     graph_answerability_summary,
     guidance_actions_to_hints,
+    handle_tool_runtime_error,
     make_guidance_item,
     missingness_from_answerability,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _apply_stability_policy_to_suggestions(
@@ -212,8 +216,9 @@ def refactor_func(
             repo_root,
         )
 
-    store, root = _get_store(repo_root)
+    store = None
     try:
+        store, root = _get_store(repo_root)
         answerability = graph_answerability_summary(store)
         missingness = missingness_from_answerability(answerability)
         if mode == "rename":
@@ -328,9 +333,10 @@ def refactor_func(
             return result
 
     except Exception as exc:
-        return {"status": "error", "error": str(exc)}
+        return handle_tool_runtime_error(exc, logger=logger, context="refactor_func")
     finally:
-        store.close()
+        if store is not None:
+            store.close()
 
 
 # ---------------------------------------------------------------------------

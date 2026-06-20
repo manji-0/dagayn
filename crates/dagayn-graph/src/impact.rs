@@ -190,3 +190,261 @@ impl GraphStore {
         .map_err(Into::into)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn node(kind: &str, name: &str, file_path: &str, line_start: i64, line_end: i64) -> NodeInput {
+        NodeInput {
+            kind: kind.to_string(),
+            name: name.to_string(),
+            file_path: file_path.to_string(),
+            line_start,
+            line_end,
+            language: "python".to_string(),
+            parent_name: None,
+            params: None,
+            return_type: None,
+            modifiers: None,
+            is_test: kind == "Test",
+            extra: Value::Object(Default::default()),
+        }
+    }
+
+    fn edge(kind: &str, source: &str, target: &str, file_path: &str, line: i64) -> EdgeInput {
+        EdgeInput {
+            kind: kind.to_string(),
+            source: source.to_string(),
+            target: target.to_string(),
+            file_path: file_path.to_string(),
+            line,
+            extra: Value::Object(Default::default()),
+        }
+    }
+
+    fn populated_store() -> GraphStore {
+        let mut store = GraphStore::open(":memory:").expect("open graph store");
+        store
+            .store_file_batch(&[
+                (
+                    "app.py".to_string(),
+                    vec![
+                        node("File", "app.py", "app.py", 1, 1),
+                        node("Function", "auth_token", "app.py", 10, 20),
+                        node("Function", "helper", "app.py", 30, 35),
+                    ],
+                    vec![
+                        edge(
+                            "CALLS",
+                            "caller.py::caller",
+                            "app.py::auth_token",
+                            "caller.py",
+                            3,
+                        ),
+                        edge(
+                            "TESTED_BY",
+                            "app.py::helper",
+                            "test_app.py::test_helper",
+                            "test_app.py",
+                            4,
+                        ),
+                    ],
+                    "app-hash".to_string(),
+                    0,
+                ),
+                (
+                    "caller.py".to_string(),
+                    vec![
+                        node("File", "caller.py", "caller.py", 1, 1),
+                        node("Function", "caller", "caller.py", 1, 5),
+                    ],
+                    Vec::new(),
+                    "caller-hash".to_string(),
+                    0,
+                ),
+                (
+                    "test_app.py".to_string(),
+                    vec![
+                        node("File", "test_app.py", "test_app.py", 1, 1),
+                        node("Test", "test_helper", "test_app.py", 1, 5),
+                    ],
+                    Vec::new(),
+                    "test-hash".to_string(),
+                    0,
+                ),
+            ])
+            .expect("store fixture graph");
+
+        let auth_id = store
+            .get_node("app.py::auth_token")
+            .expect("read auth node")
+            .expect("auth node exists")
+            .id;
+        let helper_id = store
+            .get_node("app.py::helper")
+            .expect("read helper node")
+            .expect("helper node exists")
+            .id;
+        store
+            .store_flows(&[
+                FlowInput {
+                    name: "auth flow".to_string(),
+                    entry_point_id: auth_id,
+                    depth: 0,
+                    node_count: 1,
+                    file_count: 1,
+                    criticality: 0.25,
+                    path: vec![auth_id],
+                },
+                FlowInput {
+                    name: "helper flow".to_string(),
+                    entry_point_id: helper_id,
+                    depth: 0,
+                    node_count: 1,
+                    file_count: 1,
+                    criticality: 0.75,
+                    path: vec![helper_id],
+                },
+            ])
+            .expect("store flows");
+        store
+    }
+
+    #[test]
+    fn get_affected_flow_values_returns_matching_flows_by_criticality() {
+        let store = populated_store();
+
+        let flows = store
+            .get_affected_flow_values(&["app.py".to_string()])
+            .expect("affected flows");
+
+        assert_eq!(flows.len(), 2);
+        assert_eq!(flows[0]["name"], json!("helper flow"));
+        assert_eq!(flows[0]["criticality"], json!(0.75));
+        assert_eq!(
+            flows[0]["steps"][0]["qualified_name"],
+            json!("app.py::helper")
+        );
+        assert_eq!(flows[1]["name"], json!("auth flow"));
+        assert_eq!(flows[1]["criticality"], json!(0.25));
+        assert_eq!(
+            flows[1]["steps"][0]["qualified_name"],
+            json!("app.py::auth_token")
+        );
+    }
+
+    #[test]
+    fn analyze_changes_json_returns_summary_risk_gaps_and_priorities() {
+        let store = populated_store();
+
+        let analysis: Value = serde_json::from_str(
+            &store
+                .analyze_changes_json(&["app.py".to_string()], None)
+                .expect("analyze changes"),
+        )
+        .expect("analysis json");
+
+        let summary = analysis["summary"].as_str().expect("summary string");
+        assert!(summary.contains("Analyzed 1 changed file(s):"));
+        assert!(summary.contains("2 changed function(s)/class(es)"));
+        assert!(summary.contains("2 affected flow(s)"));
+        assert!(summary.contains("1 test gap(s)"));
+        assert!(summary.contains("Overall risk score: 0.80"));
+
+        assert_eq!(analysis["risk_score"], json!(0.8));
+
+        let changed_functions = analysis["changed_functions"]
+            .as_array()
+            .expect("changed functions array");
+        assert_eq!(changed_functions.len(), 2);
+        assert!(changed_functions.iter().any(|node| {
+            node["qualified_name"] == json!("app.py::auth_token")
+                && node["risk_score"] == json!(0.8)
+        }));
+        assert!(changed_functions.iter().any(|node| {
+            node["qualified_name"] == json!("app.py::helper") && node["risk_score"] == json!(0.5)
+        }));
+
+        let affected_flows = analysis["affected_flows"]
+            .as_array()
+            .expect("affected flows array");
+        assert_eq!(affected_flows.len(), 2);
+        assert_eq!(affected_flows[0]["name"], json!("helper flow"));
+        assert_eq!(affected_flows[1]["name"], json!("auth flow"));
+
+        let test_gaps = analysis["test_gaps"].as_array().expect("test gaps array");
+        assert_eq!(test_gaps.len(), 1);
+        assert_eq!(test_gaps[0]["name"], json!("auth_token"));
+        assert_eq!(test_gaps[0]["qualified_name"], json!("app.py::auth_token"));
+        assert_eq!(test_gaps[0]["file"], json!("app.py"));
+
+        let review_priorities = analysis["review_priorities"]
+            .as_array()
+            .expect("review priorities array");
+        assert_eq!(review_priorities.len(), 2);
+        assert_eq!(
+            review_priorities[0]["qualified_name"],
+            json!("app.py::auth_token")
+        );
+        assert_eq!(review_priorities[0]["risk_score"], json!(0.8));
+        assert_eq!(
+            review_priorities[1]["qualified_name"],
+            json!("app.py::helper")
+        );
+        assert_eq!(review_priorities[1]["risk_score"], json!(0.5));
+    }
+
+    #[test]
+    fn impact_analysis_empty_inputs_return_empty_json_shapes() {
+        let store = GraphStore::open(":memory:").expect("open graph store");
+
+        assert_eq!(
+            store
+                .get_affected_flow_values(&[])
+                .expect("empty affected flows"),
+            Vec::<Value>::new()
+        );
+        assert_eq!(
+            store
+                .get_affected_flow_values(&["missing.py".to_string()])
+                .expect("missing affected flows"),
+            Vec::<Value>::new()
+        );
+
+        let analysis: Value = serde_json::from_str(
+            &store
+                .analyze_changes_json(&[], Some(""))
+                .expect("empty analysis"),
+        )
+        .expect("analysis json");
+
+        assert!(analysis["summary"]
+            .as_str()
+            .expect("summary string")
+            .contains("Analyzed 0 changed file(s):"));
+        assert_eq!(analysis["risk_score"], json!(0.0));
+        assert_eq!(
+            analysis["changed_functions"]
+                .as_array()
+                .expect("changed functions array"),
+            &Vec::<Value>::new()
+        );
+        assert_eq!(
+            analysis["affected_flows"]
+                .as_array()
+                .expect("affected flows array"),
+            &Vec::<Value>::new()
+        );
+        assert_eq!(
+            analysis["test_gaps"].as_array().expect("test gaps array"),
+            &Vec::<Value>::new()
+        );
+        assert_eq!(
+            analysis["review_priorities"]
+                .as_array()
+                .expect("review priorities array"),
+            &Vec::<Value>::new()
+        );
+    }
+}

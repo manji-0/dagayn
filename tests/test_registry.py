@@ -5,7 +5,13 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from dagayn.registry import ConnectionPool, Registry, resolve_repo
+from dagayn.connection_pool import ConnectionPool
+from dagayn.registry import ConnectionPool as RegistryConnectionPool
+from dagayn.registry import Registry, resolve_repo
+
+
+def test_registry_reexports_connection_pool():
+    assert RegistryConnectionPool is ConnectionPool
 
 
 class TestRegistry:

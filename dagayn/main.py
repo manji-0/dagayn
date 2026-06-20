@@ -79,12 +79,19 @@ class _FallbackProvider:
     def __init__(self) -> None:
         self._components: dict[str, _FallbackComponent] = {}
 
+    def remove_tool(self, name: str) -> None:
+        self._components.pop(f"tool:{name}", None)
+
 
 class _FallbackFastMCP:
     """Enough FastMCP surface for tests when FastMCP's deps are incompatible."""
 
     def __init__(self, *_args: Any, **_kwargs: Any) -> None:
         self._local_provider = _FallbackProvider()
+
+    @property
+    def local_provider(self) -> _FallbackProvider:
+        return self._local_provider
 
     def tool(self, *_args: Any, **_kwargs: Any) -> Any:
         def decorator(fn: Any) -> Any:
@@ -114,7 +121,7 @@ class _FallbackFastMCP:
         ]
 
     def remove_tool(self, name: str) -> None:
-        self._local_provider._components.pop(f"tool:{name}", None)
+        self._local_provider.remove_tool(name)
 
     def run(self, **_kwargs: Any) -> None:
         raise RuntimeError(
@@ -982,6 +989,20 @@ def _restore_components(snapshot: dict[str, Any]) -> None:
     components.update(snapshot)
 
 
+def _remove_mcp_tool(name: str) -> None:
+    """Remove a registered MCP tool from the server surface."""
+    local_provider = getattr(mcp, "local_provider", None) or getattr(mcp, "_local_provider", None)
+    provider_remove = getattr(local_provider, "remove_tool", None)
+    if callable(provider_remove):
+        provider_remove(name)
+        return
+    remove_tool = getattr(mcp, "remove_tool", None)
+    if callable(remove_tool):
+        remove_tool(name)
+        return
+    raise RuntimeError("FastMCP tool registry does not support remove_tool")
+
+
 def _parse_tool_allow_list(raw: str) -> set[str]:
     """Parse a comma-separated MCP tool allow-list."""
     return {tool.strip() for tool in raw.split(",") if tool.strip()}
@@ -1045,7 +1066,7 @@ def _apply_tool_filter(tools: str | None = None) -> None:
     registered = _registered_tool_names()
     for name in registered:
         if name not in allowed:
-            mcp.remove_tool(name)
+            _remove_mcp_tool(name)
 
 
 def main(

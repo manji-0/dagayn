@@ -62,6 +62,49 @@ def populated_store(tmp_path):
 
 
 @pytest.fixture
+def knowledge_gap_hotspot_store(tmp_path):
+    """Graph with a high-degree production node that lacks TESTED_BY coverage."""
+    db_path = tmp_path / "hotspot.db"
+    store = GraphStore(db_path)
+
+    def _node(kind, name, file_path, *, is_test=False, language="python"):
+        return NodeInfo(
+            kind=kind,
+            name=name,
+            file_path=file_path,
+            line_start=1,
+            line_end=10,
+            language=language,
+            parent_name=None,
+            params=None,
+            return_type=None,
+            modifiers=None,
+            is_test=is_test,
+            extra={},
+        )
+
+    def _edge(source, target, file_path="src/service.py"):
+        return EdgeInfo(
+            kind="CALLS",
+            source=source,
+            target=target,
+            file_path=file_path,
+            line=1,
+            extra={},
+        )
+
+    store.upsert_node(_node("Function", "service", "src/service.py"))
+    for idx in range(8):
+        caller_path = f"src/caller_{idx}.py"
+        store.upsert_node(_node("Function", f"caller_{idx}", caller_path))
+        store.upsert_edge(
+            _edge(f"{caller_path}::caller_{idx}", "src/service.py::service", caller_path)
+        )
+    store.commit()
+    return store
+
+
+@pytest.fixture
 def mermaid_store(tmp_path):
     db_path = tmp_path / "mermaid.db"
     store = GraphStore(db_path)
@@ -328,6 +371,50 @@ class TestExportObsidianVault:
         assert _obsidian_slug("my function") == "my-function"
         assert _obsidian_slug("") == "unnamed"
         assert len(_obsidian_slug("a" * 200)) <= 100
+
+    def test_export_obsidian_vault_surfaces_knowledge_gap_hotspot(
+        self, knowledge_gap_hotspot_store, tmp_path
+    ):
+        """High-degree untested nodes should export as first-class vault pages."""
+        from dagayn.analysis import find_knowledge_gaps
+        from dagayn.exports import export_obsidian_vault, _obsidian_slug
+
+        gaps = find_knowledge_gaps(
+            knowledge_gap_hotspot_store,
+            top_n=5,
+            artifact_scope="code",
+        )
+        hotspot_qn = "src/service.py::service"
+        hotspot_names = {item["qualified_name"] for item in gaps["untested_hotspots"]}
+        assert hotspot_qn in hotspot_names
+
+        out = tmp_path / "vault"
+        export_obsidian_vault(knowledge_gap_hotspot_store, out)
+
+        hotspot_slug = _obsidian_slug("service")
+        hotspot_page = out / f"{hotspot_slug}.md"
+        assert hotspot_page.exists()
+
+        hotspot_body = hotspot_page.read_text(encoding="utf-8")
+        assert "src/service.py" in hotspot_body
+        assert "## Connections" in hotspot_body
+        assert "[[" in hotspot_body
+
+        index = (out / "_INDEX.md").read_text(encoding="utf-8")
+        assert f"[[{hotspot_slug}]]" in index
+
+    def test_export_obsidian_vault_hotspot_links_callers(
+        self, knowledge_gap_hotspot_store, tmp_path
+    ):
+        """Obsidian export should connect hotspot nodes to their callers."""
+        from dagayn.exports import export_obsidian_vault, _obsidian_slug
+
+        out = tmp_path / "vault"
+        export_obsidian_vault(knowledge_gap_hotspot_store, out)
+
+        hotspot_page = (out / f"{_obsidian_slug('service')}.md").read_text(encoding="utf-8")
+        caller_slug = _obsidian_slug("caller_0")
+        assert f"[[{caller_slug}" in hotspot_page
 
 
 class TestExportSVG:

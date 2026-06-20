@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 from dagayn.tools.architecture_tools import detect_sdp_violations_func
 from dagayn.tools.query import list_graph_stats, traverse_graph_func
+from dagayn.tools.refactor_tools import refactor_func
 from dagayn.tools.registry_tools import list_repos_func
 from dagayn.tools.review import get_review_context
 
@@ -79,7 +80,7 @@ def test_get_review_context_minimal_uses_relative_key_entities(monkeypatch) -> N
             }
 
     monkeypatch.setattr(
-        "dagayn.tools.review._get_store",
+        "dagayn.tools.review_context._get_store",
         lambda repo_root: (_Store(), Path("/repo")),
     )
 
@@ -146,3 +147,99 @@ def test_list_repos_has_hints(monkeypatch) -> None:
     assert result["status"] == "ok"
     assert result["repos"] == [{"alias": "dagayn", "path": "/repo"}]
     assert result["_hints"]["next_steps"][0]["tool"] == "cross_repo_search_tool"
+
+
+def test_refactor_dead_code_truncates(monkeypatch) -> None:
+    dead = [{"qualified_name": f"/repo/a.py::fn_{idx}"} for idx in range(5)]
+
+    monkeypatch.setattr(
+        "dagayn.tools.refactor_tools._get_store",
+        lambda repo_root: (_Closable(), None),
+    )
+    monkeypatch.setattr("dagayn.tools.refactor_tools.find_dead_code", lambda store, **kwargs: dead)
+
+    result = refactor_func(mode="dead_code", top_n=2, repo_root="/repo")
+
+    assert result["status"] == "ok"
+    assert result["total"] == 5
+    assert result["truncated"] is True
+    assert len(result["dead_code"]) == 2
+    assert result["missingness"]
+
+
+def test_refactor_suggest_truncates(monkeypatch) -> None:
+    suggestions = [
+        {
+            "type": "remove",
+            "symbols": [f"/repo/a.py::fn_{idx}"],
+            "work_pack": {"estimated_size": "small"},
+        }
+        for idx in range(4)
+    ]
+
+    monkeypatch.setattr(
+        "dagayn.tools.refactor_tools._get_store",
+        lambda repo_root: (_Closable(), None),
+    )
+    monkeypatch.setattr(
+        "dagayn.tools.refactor_tools.suggest_refactorings",
+        lambda store: suggestions,
+    )
+    monkeypatch.setattr(
+        "dagayn.tools.refactor_tools.component_stability_profiles",
+        lambda store: {},
+    )
+
+    result = refactor_func(mode="suggest", top_n=2, repo_root="/repo")
+
+    assert result["status"] == "ok"
+    assert result["total"] == 4
+    assert result["truncated"] is True
+    assert len(result["suggestions"]) == 2
+    assert result["guidance"]
+    assert result["missingness"]
+
+
+def test_flow_tool_runtime_error_has_missingness(monkeypatch) -> None:
+    from dagayn.tools import flows_tools
+
+    def _boom(repo_root):
+        raise ValueError("graph unavailable")
+
+    monkeypatch.setattr(flows_tools, "_get_store", _boom)
+
+    result = flows_tools.list_flows(repo_root="/repo")
+
+    assert result["status"] == "error"
+    assert result["error"] == "graph unavailable"
+    assert result["missingness"][0]["reason_code"] == "tool_runtime_error"
+
+
+def test_list_repos_runtime_error_has_missingness(monkeypatch) -> None:
+    from dagayn.tools import registry_tools
+
+    def _fail_list_repos(self):
+        raise ValueError("registry unavailable")
+
+    monkeypatch.setattr("dagayn.registry.Registry.list_repos", _fail_list_repos)
+
+    result = registry_tools.list_repos_func()
+
+    assert result["status"] == "error"
+    assert result["error"] == "registry unavailable"
+    assert result["missingness"][0]["reason_code"] == "tool_runtime_error"
+
+
+def test_query_graph_runtime_error_has_missingness(monkeypatch) -> None:
+    from dagayn.tools import query as query_module
+
+    def _boom(repo_root):
+        raise ValueError("graph unavailable")
+
+    monkeypatch.setattr(query_module, "_get_store", _boom)
+
+    result = query_module.query_graph(pattern="callers_of", target="foo", repo_root="/repo")
+
+    assert result["status"] == "error"
+    assert result["error"] == "graph unavailable"
+    assert result["missingness"][0]["reason_code"] == "tool_runtime_error"

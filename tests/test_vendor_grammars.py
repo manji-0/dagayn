@@ -21,9 +21,8 @@ class _Response(io.BytesIO):
     def __enter__(self):
         return self
 
-    def __exit__(self, exc_type, exc, tb):
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         self.close()
-        return False
 
 
 def _hide_packaged_grammars(monkeypatch, tmp_path: Path) -> None:

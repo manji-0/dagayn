@@ -1,5 +1,6 @@
 """Tests for the hybrid search engine."""
 
+import inspect
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -8,6 +9,8 @@ from unittest.mock import patch
 from dagayn import fts_tokenize
 from dagayn.embeddings import _encode_vector
 from dagayn.graph import GraphStore
+from dagayn.graph import _fts_tokenize as graph_fts_tokenize
+from dagayn.graph import search as graph_search
 from dagayn.parser import NodeInfo
 from dagayn.search import (
     _emb_failure_cache,
@@ -22,6 +25,19 @@ from dagayn.search import (
     rebuild_fts_index,
     rrf_merge,
 )
+
+
+def test_graph_search_uses_graph_local_fts_tokenizer():
+    """Keep graph search from reintroducing a root dagayn import cycle."""
+    assert graph_search.segment_japanese_fts_text is graph_fts_tokenize.segment_japanese_fts_text
+    source = inspect.getsource(graph_search)
+    assert "from dagayn import fts_tokenize" not in source
+    assert "from .. import fts_tokenize" not in source
+
+
+def test_fts_tokenize_shim_reexports_graph_impl():
+    assert fts_tokenize.segment_japanese_fts_text is graph_fts_tokenize.segment_japanese_fts_text
+    assert fts_tokenize.contains_japanese is graph_fts_tokenize.contains_japanese
 
 
 class TestHybridSearch:

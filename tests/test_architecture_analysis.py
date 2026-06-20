@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import inspect
+from typing import cast
 
 from dagayn import main as crg_main
+from dagayn.dependency_profiles import DependencyProfile
 from dagayn.tools import architecture_analysis
+from dagayn.tools.architecture_analysis import ArchitectureAnalysisMode
 
 
 def test_architecture_analysis_sap_violations_preserves_exclusion_explanation(monkeypatch) -> None:
@@ -151,7 +154,7 @@ def test_architecture_analysis_routes_every_mode(monkeypatch) -> None:
 
     for mode, (subtool, expected) in mapping.items():
         result = architecture_analysis.architecture_analysis_func(
-            mode=mode,  # type: ignore[arg-type]
+            mode=cast(ArchitectureAnalysisMode, mode),
             repo_root="/repo",
             detail_level="verbose",
             top_n=7,
@@ -183,7 +186,7 @@ def test_architecture_analysis_routes_every_mode(monkeypatch) -> None:
 def test_architecture_analysis_rejects_unknown_dependency_profile() -> None:
     result = architecture_analysis.architecture_analysis_func(
         mode="sdp_metrics",
-        dependency_profile="typo",  # type: ignore[arg-type]
+        dependency_profile=cast(DependencyProfile, "typo"),
     )
 
     assert result["status"] == "error"

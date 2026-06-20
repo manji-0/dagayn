@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import inspect
+from typing import cast
 
 from dagayn import main as crg_main
 from dagayn.tools import architecture_analysis, flow_dispatcher, review_dispatcher
+from dagayn.tools.review_dispatcher import ReviewMode
 
 
 def test_review_wrapper_exposes_typed_dispatch_args() -> None:
@@ -70,7 +72,7 @@ def test_review_routes_every_mode(monkeypatch) -> None:
 
     for mode, (subtool, expected) in mapping.items():
         result = review_dispatcher.review_func(
-            mode=mode,  # type: ignore[arg-type]
+            mode=cast(ReviewMode, mode),
             changed_files=["a.py"],
             base="main",
             include_source=True,
@@ -206,7 +208,7 @@ def test_dispatcher_error_paths_use_requested_repo_root(monkeypatch) -> None:
         fake_attach("architecture"),
     )
 
-    review = review_dispatcher.review_func(mode="unknown", repo_root="/repo")  # type: ignore[arg-type]
+    review = review_dispatcher.review_func(mode=cast(ReviewMode, "unknown"), repo_root="/repo")
     flow = flow_dispatcher.flow_func(mode="get", repo_root="/repo")
     architecture = architecture_analysis.architecture_analysis_func(
         mode="community",

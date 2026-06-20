@@ -1,5 +1,5 @@
 ---
-name: Architecture Analysis
+name: architecture-analysis
 description: Evaluate architecture signals through the unified dagayn dispatcher
 ---
 

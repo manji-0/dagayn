@@ -16,13 +16,17 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
-from .fts_tokenize import segment_japanese_fts_text
 from .graph import GraphStore, _sanitize_name
+from .graph._fts_tokenize import segment_japanese_fts_text
 
 if TYPE_CHECKING:
     from .embeddings import EmbeddingStore
 
 logger = logging.getLogger(__name__)
+
+_STORE_CLOSE_ERRORS = (OSError, sqlite3.Error, RuntimeError, AttributeError)
+_FTS_QUERY_ERRORS = (sqlite3.Error, TypeError, AttributeError, ValueError, RuntimeError)
+_EMBEDDING_SEARCH_ERRORS = (OSError, sqlite3.Error, RuntimeError, TypeError, AttributeError)
 
 # Process-level EmbeddingStore cache — mirrors the GraphStore cache in tools/_common.
 # Key: (db_path, provider, model).  Invalidated when the database file mtime changes.
@@ -72,7 +76,7 @@ def _get_cached_emb_store(
                 return cached_store
             try:
                 cached_store.close()
-            except Exception:  # noqa: BLE001  # nosec B110
+            except _STORE_CLOSE_ERRORS:  # nosec B110
                 pass
             del _emb_cache[key]
 
@@ -791,7 +795,7 @@ def _embedding_search_with_health(
         health["error"] = message
         logger.warning("Embedding search failed: %s", e)
         return [], health
-    except Exception as e:
+    except _EMBEDDING_SEARCH_ERRORS as e:
         health["status"] = "search_failed"
         health["error"] = str(e)
         provider_name = health.get("resolved_provider")
@@ -863,12 +867,12 @@ def hybrid_search(
         for ident in _extract_identifiers(query):
             try:
                 extra = store.fts_query(ident, limit=fetch_limit)
-            except Exception as e:
+            except _FTS_QUERY_ERRORS as e:
                 logger.debug("FTS5 sub-query failed for %r: %s", ident, e)
                 continue
             if extra:
                 fts_results.extend(extra)
-    except Exception as e:
+    except _FTS_QUERY_ERRORS as e:
         logger.warning("FTS5 unavailable, will use fallback: %s", e)
 
     # Try embedding search

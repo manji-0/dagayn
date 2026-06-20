@@ -7,7 +7,8 @@ from typing import Any, Literal
 from ..hints import generate_hints, get_session
 from ._common import attach_answerability
 from .query import get_impact_radius
-from .review import detect_changes_func, get_affected_flows_func, get_review_context
+from .review import detect_changes_func, get_review_context
+from .review_flows import get_affected_flows_func
 
 ReviewMode = Literal["changes", "context", "affected_flows", "impact"]
 
