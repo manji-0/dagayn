@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from pydantic import ValidationError
 
+from ..dependency_profiles import DependencyProfile
 from ..hints import generate_hints, get_session
 from ..state_types import (
     ArchitectureAnalysisMode,
@@ -121,6 +122,10 @@ def architecture_analysis_func(
         return _error(format_validation_error(exc), mode=mode, repo_root=repo_root)
 
     include_tests = request.artifact_scope != "code"
+    dependency_profile_value = cast(
+        DependencyProfile,
+        getattr(request, "dependency_profile", "strict_static"),
+    )
 
     if request.mode == "overview":
         return _with_dispatch_metadata(
@@ -213,7 +218,7 @@ def architecture_analysis_func(
                 repo_root=request.repo_root,
                 granularity=request.granularity,
                 artifact_scope=request.artifact_scope,
-                dependency_profile=request.dependency_profile,
+                dependency_profile=dependency_profile_value,
                 min_cycle_size=request.min_cycle_size,
                 max_cycle_length=request.max_cycle_length,
                 top_n=request.top_n,
@@ -228,7 +233,7 @@ def architecture_analysis_func(
                 repo_root=request.repo_root,
                 granularity=request.granularity,
                 artifact_scope=request.artifact_scope,
-                dependency_profile=request.dependency_profile,
+                dependency_profile=dependency_profile_value,
                 top_n=request.top_n,
             ),
             mode=request.mode,
@@ -241,7 +246,7 @@ def architecture_analysis_func(
                 repo_root=request.repo_root,
                 granularity=request.granularity,
                 artifact_scope=request.artifact_scope,
-                dependency_profile=request.dependency_profile,
+                dependency_profile=dependency_profile_value,
                 min_delta=request.min_delta,
                 top_n=request.top_n,
             ),
@@ -258,7 +263,7 @@ def architecture_analysis_func(
                 artifact_scope=request.artifact_scope,
                 top_n=request.top_n,
                 detail_level=request.detail_level,
-                dependency_profile=request.dependency_profile,
+                dependency_profile=dependency_profile_value,
             ),
             mode=request.mode,
             called_subtool="compute_sap_metrics_func",
@@ -269,7 +274,7 @@ def architecture_analysis_func(
             repo_root=request.repo_root,
             scope_kind=request.scope_kind,
             artifact_scope=request.artifact_scope,
-            dependency_profile=request.dependency_profile,
+            dependency_profile=dependency_profile_value,
             min_distance=request.min_distance,
             top_n=request.top_n,
         ),

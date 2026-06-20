@@ -21,7 +21,12 @@ import sqlite3
 from typing import Any
 
 from .graph import GraphStore
-from .state_types import MarkdownArtifactResolution, build_markdown_artifact_resolution
+from .state_types import (
+    DroppedMarkdownArtifactResolution,
+    MarkdownArtifactResolution,
+    ResolvedMarkdownArtifactResolution,
+    build_markdown_artifact_resolution,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -227,7 +232,7 @@ def _resolve_markdown_artifact_refs(
                 matches=matches,
             )
 
-            if decision.state in {"resolved", "re_resolved"}:
+            if isinstance(decision, ResolvedMarkdownArtifactResolution):
                 qname = decision.target_qualified
                 if current_target == qname:
                     continue  # already correct — no-op
@@ -250,21 +255,22 @@ def _resolve_markdown_artifact_refs(
                 still_unresolved += 1
                 continue
 
-            if decision.target_qualified is None:
-                to_delete.append((edge_id,))
-                demoted += 1
-                continue
+            if isinstance(decision, DroppedMarkdownArtifactResolution):
+                if decision.target_qualified is None:
+                    to_delete.append((edge_id,))
+                    demoted += 1
+                    continue
 
-            to_update.append(
-                (
-                    decision.target_qualified,
-                    json.dumps(decision.extra),
-                    decision.confidence,
-                    decision.confidence_tier,
-                    edge_id,
+                to_update.append(
+                    (
+                        decision.target_qualified,
+                        json.dumps(decision.extra),
+                        decision.confidence,
+                        decision.confidence_tier,
+                        edge_id,
+                    )
                 )
-            )
-            demoted += 1
+                demoted += 1
 
         if to_update:
             store._conn.executemany(

@@ -23,7 +23,7 @@ from .embeddings_text import (
     _slow_embed_batch_seconds,
 )
 from .graph import GraphNode, GraphStore
-from .state_types import EmbeddingStatus, seal_embedding_status
+from .state_types import seal_embedding_status
 
 _EMBED_PROVIDER_ERRORS = (OSError, RuntimeError, ValueError, TypeError, sqlite3.Error)
 
@@ -50,7 +50,7 @@ def _get_provider(provider: str | None, *, model: str | None = None) -> Embeddin
     return emb.get_provider(provider, model=model)
 
 
-def get_embedding_status(db_path: str | Path) -> EmbeddingStatus:
+def get_embedding_status(db_path: str | Path) -> dict[str, Any]:
     """Return read-only embedding coverage for a graph database."""
     path = Path(db_path)
     try:
