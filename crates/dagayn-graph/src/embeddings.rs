@@ -222,7 +222,7 @@ fn embedding_row_shape_hint(conn: &Connection, provider: &str) -> Result<(usize,
 }
 
 fn blob_dim(blob: &[u8]) -> Result<usize> {
-    if blob.len() % 4 != 0 {
+    if !blob.len().is_multiple_of(4) {
         return Err(GraphError::InvalidEmbedding(format!(
             "embedding vector blob length {} is not divisible by 4",
             blob.len()
@@ -258,7 +258,7 @@ fn append_normalized_blob(blob: &[u8], out: &mut Vec<f32>) -> Result<()> {
 fn matrix_scores(matrix: &EmbeddingMatrix, query: &[f32]) -> Vec<f32> {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
-        return matrix_scores_cblas(matrix, query);
+        matrix_scores_cblas(matrix, query)
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
