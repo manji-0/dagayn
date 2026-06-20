@@ -73,3 +73,9 @@ dagayn serve
 ## Documentation rule
 
 If you update features, command names, integrations, or supported languages, update the fork's docs in the same change.
+
+## Subagent delegation rules
+
+<!-- derived-from ~/.pi/agent/AGENTS.md -->
+
+Subagent delegation rules are maintained in the global `~/.pi/agent/AGENTS.md`. See that file for the current agent roster, models, use-when rules, and tool constraints.
