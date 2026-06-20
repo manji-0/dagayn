@@ -6,6 +6,8 @@ import logging
 from pathlib import Path
 from typing import Any, Literal, overload
 
+from pydantic import ValidationError
+
 from ..hints import generate_hints, get_session
 from ..incremental import find_project_root
 from ..refactor import (
@@ -15,7 +17,7 @@ from ..refactor import (
     suggest_refactorings,
 )
 from ..stability_policy import component_stability_profiles, scope_key_for_file
-from ..state_types import RefactorMode
+from ..state_types import RefactorMode, format_validation_error, parse_refactor_request
 from ._common import (
     _get_store,
     _validate_repo_root,
@@ -204,36 +206,40 @@ def refactor_func(
         limit = top_n
     _ = detail_level
 
-    valid_modes = {"rename", "dead_code", "suggest"}
-    if mode not in valid_modes:
+    try:
+        request = parse_refactor_request(
+            mode=mode,
+            old_name=old_name,
+            new_name=new_name,
+            kind=kind,
+            file_pattern=file_pattern,
+            limit=limit,
+            top_n=top_n,
+            detail_level=detail_level,
+            repo_root=repo_root,
+        )
+    except ValidationError as exc:
         return attach_answerability(
             {
                 "status": "error",
-                "error": (
-                    f"Invalid mode '{mode}'. Must be one of: {', '.join(sorted(valid_modes))}"
-                ),
+                "error": format_validation_error(exc),
             },
             repo_root,
         )
 
     store = None
     try:
-        store, root = _get_store(repo_root)
+        store, root = _get_store(request.repo_root)
         answerability = graph_answerability_summary(store)
         missingness = missingness_from_answerability(answerability)
-        if mode == "rename":
-            if not old_name or not new_name:
-                return {
-                    "status": "error",
-                    "error": ("rename mode requires both old_name and new_name."),
-                    "answerability": answerability,
-                    "missingness": missingness,
-                }
-            preview = rename_preview(store, old_name, new_name)
+        if request.mode == "rename":
+            preview = rename_preview(store, request.old_name, request.new_name)
             if preview is None:
                 return {
                     "status": "not_found",
-                    "summary": f"No node found matching '{old_name}' in the current graph.",
+                    "summary": (
+                        f"No node found matching '{request.old_name}' in the current graph."
+                    ),
                     "answerability": answerability,
                     "missingness": [
                         *missingness,
@@ -249,7 +255,7 @@ def refactor_func(
             result: dict[str, Any] = {
                 "status": "ok",
                 "summary": (
-                    f"Rename preview: {old_name} -> {new_name}, "
+                    f"Rename preview: {request.old_name} -> {request.new_name}, "
                     f"{len(preview['edits'])} edit(s). "
                     f"Use apply_refactor_tool(refactor_id="
                     f"'{preview['refactor_id']}') to apply."
@@ -267,15 +273,19 @@ def refactor_func(
             result["_hints"] = generate_hints("refactor", result, get_session())
             return result
 
-        elif mode == "dead_code":
-            dead = find_dead_code(store, kind=kind, file_pattern=file_pattern)
+        if request.mode == "dead_code":
+            dead = find_dead_code(
+                store,
+                kind=request.kind,
+                file_pattern=request.file_pattern,
+            )
             total = len(dead)
-            truncated = total > limit
+            truncated = total > request.limit
             result: dict[str, Any] = {
                 "status": "ok",
                 "summary": f"Found {total} dead code symbol(s)."
-                + (f" Showing first {limit}." if truncated else ""),
-                "dead_code": dead[:limit],
+                + (f" Showing first {request.limit}." if truncated else ""),
+                "dead_code": dead[: request.limit],
                 "total": total,
                 "truncated": truncated,
                 "caveats": [
@@ -295,42 +305,41 @@ def refactor_func(
             result["_hints"] = generate_hints("refactor", result, get_session())
             return result
 
-        else:  # suggest
-            suggestions = suggest_refactorings(store)
-            suggestions = _apply_stability_policy_to_suggestions(
-                suggestions,
-                component_stability_profiles(store),
-            )
-            total = len(suggestions)
-            truncated = total > limit
-            counts_by_type: dict[str, int] = {}
-            for suggestion in suggestions:
-                stype = str(suggestion.get("type", "unknown"))
-                counts_by_type[stype] = counts_by_type.get(stype, 0) + 1
-            result: dict[str, Any] = {
-                "status": "ok",
-                "summary": f"Generated {total} refactoring suggestion(s)."
-                + (f" Showing first {limit}." if truncated else ""),
-                "suggestions": suggestions[:limit],
-                "work_packs": [
-                    {
-                        "symbols": suggestion.get("symbols", []),
-                        "type": suggestion.get("type"),
-                        **suggestion.get("work_pack", {}),
-                    }
-                    for suggestion in suggestions[: min(limit, 5)]
-                ],
-                "guidance": _refactor_guidance(suggestions[:limit]),
-                "total": total,
-                "truncated": truncated,
-                "counts_by_type": counts_by_type,
-                "answerability": answerability,
-                "missingness": missingness,
-            }
-            result["_hints"] = guidance_actions_to_hints(result["guidance"])
-            if not result["_hints"]["next_steps"]:
-                result["_hints"] = generate_hints("refactor", result, get_session())
-            return result
+        suggestions = suggest_refactorings(store)
+        suggestions = _apply_stability_policy_to_suggestions(
+            suggestions,
+            component_stability_profiles(store),
+        )
+        total = len(suggestions)
+        truncated = total > request.limit
+        counts_by_type: dict[str, int] = {}
+        for suggestion in suggestions:
+            stype = str(suggestion.get("type", "unknown"))
+            counts_by_type[stype] = counts_by_type.get(stype, 0) + 1
+        result: dict[str, Any] = {
+            "status": "ok",
+            "summary": f"Generated {total} refactoring suggestion(s)."
+            + (f" Showing first {request.limit}." if truncated else ""),
+            "suggestions": suggestions[: request.limit],
+            "work_packs": [
+                {
+                    "symbols": suggestion.get("symbols", []),
+                    "type": suggestion.get("type"),
+                    **suggestion.get("work_pack", {}),
+                }
+                for suggestion in suggestions[: min(request.limit, 5)]
+            ],
+            "guidance": _refactor_guidance(suggestions[: request.limit]),
+            "total": total,
+            "truncated": truncated,
+            "counts_by_type": counts_by_type,
+            "answerability": answerability,
+            "missingness": missingness,
+        }
+        result["_hints"] = guidance_actions_to_hints(result["guidance"])
+        if not result["_hints"]["next_steps"]:
+            result["_hints"] = generate_hints("refactor", result, get_session())
+        return result
 
     except Exception as exc:
         return handle_tool_runtime_error(exc, logger=logger, context="refactor_func")

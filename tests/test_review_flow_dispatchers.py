@@ -4,8 +4,8 @@ import inspect
 from typing import cast
 
 from dagayn import main as crg_main
+from dagayn.state_types import ReviewMode
 from dagayn.tools import architecture_analysis, flow_dispatcher, review_dispatcher
-from dagayn.tools.review_dispatcher import ReviewMode
 
 
 def test_review_wrapper_exposes_typed_dispatch_args() -> None:

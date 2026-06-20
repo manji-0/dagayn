@@ -21,7 +21,7 @@ import sqlite3
 from typing import Any
 
 from .graph import GraphStore
-from .state_types import MarkdownArtifactResolution
+from .state_types import MarkdownArtifactResolution, build_markdown_artifact_resolution
 
 logger = logging.getLogger(__name__)
 
@@ -78,40 +78,40 @@ def _markdown_artifact_resolution(
         new_extra["target_language"] = lang
         new_extra["confidence"] = 0.8
         new_extra["confidence_tier"] = "HIGH"
-        return {
-            "state": "resolved" if current_target.startswith("<unresolved:") else "re_resolved",
-            "edge_id": edge_id,
-            "target_qualified": qname,
-            "target_language": lang,
-            "confidence": 0.8,
-            "confidence_tier": "HIGH",
-            "extra": new_extra,
-        }
+        return build_markdown_artifact_resolution(
+            state="resolved" if current_target.startswith("<unresolved:") else "re_resolved",
+            edge_id=edge_id,
+            target_qualified=qname,
+            target_language=lang,
+            confidence=0.8,
+            confidence_tier="HIGH",
+            extra=new_extra,
+        )
 
     if is_implicit_code_span:
-        return {"state": "dropped", "edge_id": edge_id}
+        return build_markdown_artifact_resolution(state="dropped", edge_id=edge_id)
 
     if current_target == unresolved_target:
-        return {
-            "state": "still_unresolved",
-            "edge_id": edge_id,
-            "target_qualified": unresolved_target,
-            "confidence": 0.2,
-            "confidence_tier": "LOW",
-        }
+        return build_markdown_artifact_resolution(
+            state="still_unresolved",
+            edge_id=edge_id,
+            target_qualified=unresolved_target,
+            confidence=0.2,
+            confidence_tier="LOW",
+        )
 
     new_extra = dict(extra)
     new_extra.pop("target_language", None)
     new_extra["confidence"] = 0.2
     new_extra["confidence_tier"] = "LOW"
-    return {
-        "state": "dropped",
-        "edge_id": edge_id,
-        "target_qualified": unresolved_target,
-        "confidence": 0.2,
-        "confidence_tier": "LOW",
-        "extra": new_extra,
-    }
+    return build_markdown_artifact_resolution(
+        state="dropped",
+        edge_id=edge_id,
+        target_qualified=unresolved_target,
+        confidence=0.2,
+        confidence_tier="LOW",
+        extra=new_extra,
+    )
 
 
 def _resolve_markdown_artifact_refs(
@@ -227,40 +227,40 @@ def _resolve_markdown_artifact_refs(
                 matches=matches,
             )
 
-            if decision["state"] in {"resolved", "re_resolved"}:
-                qname = decision["target_qualified"]
+            if decision.state in {"resolved", "re_resolved"}:
+                qname = decision.target_qualified
                 if current_target == qname:
                     continue  # already correct — no-op
                 to_update.append(
                     (
                         qname,
-                        json.dumps(decision["extra"]),
-                        decision["confidence"],
-                        decision["confidence_tier"],
+                        json.dumps(decision.extra),
+                        decision.confidence,
+                        decision.confidence_tier,
                         edge_id,
                     )
                 )
-                if decision["state"] == "resolved":
+                if decision.state == "resolved":
                     resolved += 1
                 else:
                     re_resolved += 1
                 continue
 
-            if decision["state"] == "still_unresolved":
+            if decision.state == "still_unresolved":
                 still_unresolved += 1
                 continue
 
-            if "target_qualified" not in decision:
+            if decision.target_qualified is None:
                 to_delete.append((edge_id,))
                 demoted += 1
                 continue
 
             to_update.append(
                 (
-                    decision["target_qualified"],
-                    json.dumps(decision["extra"]),
-                    decision["confidence"],
-                    decision["confidence_tier"],
+                    decision.target_qualified,
+                    json.dumps(decision.extra),
+                    decision.confidence,
+                    decision.confidence_tier,
                     edge_id,
                 )
             )

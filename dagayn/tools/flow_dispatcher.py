@@ -4,11 +4,18 @@ from __future__ import annotations
 
 from typing import Any, Literal, overload
 
+from pydantic import ValidationError
+
 from ..hints import generate_hints, get_session
+from ..state_types import (
+    FlowMode,
+    format_validation_error,
+    parse_flow_request,
+    seal_dispatcher_error,
+    seal_dispatcher_ok,
+)
 from ._common import attach_answerability
 from .flows_tools import get_flow, list_flows
-
-FlowMode = Literal["list", "get"]
 
 
 def _with_dispatch_metadata(
@@ -26,19 +33,21 @@ def _with_dispatch_metadata(
     payload["called_subtool"] = called_subtool
     attach_answerability(payload, repo_root)
     payload.setdefault("_hints", generate_hints("flow", payload, get_session()))
-    return payload
+    return seal_dispatcher_ok(payload)
 
 
 def _error(message: str, *, mode: str, repo_root: str | None) -> dict[str, Any]:
-    return attach_answerability(
-        {
-            "status": "error",
-            "summary": message,
-            "error": message,
-            "mode": mode,
-            "called_subtool": None,
-        },
-        repo_root,
+    return seal_dispatcher_error(
+        attach_answerability(
+            {
+                "status": "error",
+                "summary": message,
+                "error": message,
+                "mode": mode,
+                "called_subtool": None,
+            },
+            repo_root,
+        )
     )
 
 
@@ -82,35 +91,43 @@ def flow_func(
     repo_root: str | None = None,
 ) -> dict[str, Any]:
     """Run execution-flow analysis by dispatching to the requested internal mode."""
-    if mode == "list":
+    try:
+        request = parse_flow_request(
+            mode=mode,
+            sort_by=sort_by,
+            limit=limit,
+            kind=kind,
+            detail_level=detail_level,
+            flow_id=flow_id,
+            flow_name=flow_name,
+            include_source=include_source,
+            repo_root=repo_root,
+        )
+    except ValidationError as exc:
+        return _error(format_validation_error(exc), mode=mode, repo_root=repo_root)
+
+    if request.mode == "list":
         return _with_dispatch_metadata(
             list_flows(
-                repo_root=repo_root,
-                sort_by=sort_by,
-                limit=limit,
-                kind=kind,
-                detail_level=detail_level,
+                repo_root=request.repo_root,
+                sort_by=request.sort_by,
+                limit=request.limit,
+                kind=request.kind,
+                detail_level=request.detail_level,
             ),
-            mode=mode,
+            mode=request.mode,
             called_subtool="list_flows",
-            repo_root=repo_root,
+            repo_root=request.repo_root,
         )
-    if mode == "get":
-        if flow_id is None and not flow_name:
-            return _error(
-                'mode="get" requires flow_id or flow_name.',
-                mode=mode,
-                repo_root=repo_root,
-            )
-        return _with_dispatch_metadata(
-            get_flow(
-                flow_id=flow_id,
-                flow_name=flow_name,
-                include_source=include_source,
-                repo_root=repo_root,
-            ),
-            mode=mode,
-            called_subtool="get_flow",
-            repo_root=repo_root,
-        )
-    return _error(f"Unknown flow mode: {mode!r}.", mode=str(mode), repo_root=repo_root)
+
+    return _with_dispatch_metadata(
+        get_flow(
+            flow_id=request.flow_id,
+            flow_name=request.flow_name,
+            include_source=request.include_source,
+            repo_root=request.repo_root,
+        ),
+        mode=request.mode,
+        called_subtool="get_flow",
+        repo_root=request.repo_root,
+    )
