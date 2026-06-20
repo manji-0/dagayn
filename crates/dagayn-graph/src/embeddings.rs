@@ -213,13 +213,48 @@ fn append_normalized_blob(blob: &[u8], out: &mut Vec<f32>) -> Result<()> {
 }
 
 fn matrix_scores(matrix: &EmbeddingMatrix, query: &[f32]) -> Vec<f32> {
-    let mut scores = Vec::with_capacity(matrix.names.len());
-    for row_idx in 0..matrix.names.len() {
-        let start = row_idx * matrix.dim;
-        let row = &matrix.rows[start..start + matrix.dim];
+    let rows = matrix.names.len();
+    let dim = matrix.dim;
+    if rows == 0 || dim == 0 {
+        return Vec::new();
+    }
+
+    // For large matrices the computation is memory-bandwidth-bound and benefits
+    // from parallel row chunks. Small matrices are fastest with the simple
+    // SIMD-per-row loop to avoid rayon scheduling overhead.
+    if rows * dim >= 16_000_000 {
+        let mut scores = vec![0.0_f32; rows];
+        matrix_scores_parallel(matrix, query, &mut scores);
+        return scores;
+    }
+
+    let mut scores = Vec::with_capacity(rows);
+    for row_idx in 0..rows {
+        let start = row_idx * dim;
+        let row = &matrix.rows[start..start + dim];
         scores.push(dot(row, query));
     }
     scores
+}
+
+#[inline(never)]
+fn matrix_scores_parallel(matrix: &EmbeddingMatrix, query: &[f32], scores: &mut [f32]) {
+    use rayon::prelude::*;
+    const CHUNK_ROWS: usize = 64;
+
+    let dim = matrix.dim;
+    scores
+        .par_chunks_mut(CHUNK_ROWS)
+        .enumerate()
+        .for_each(|(chunk_idx, chunk)| {
+            let row_start = chunk_idx * CHUNK_ROWS;
+            for (offset, score) in chunk.iter_mut().enumerate() {
+                let row_idx = row_start + offset;
+                let start = row_idx * dim;
+                let row = &matrix.rows[start..start + dim];
+                *score = dot(row, query);
+            }
+        });
 }
 
 fn l2_norm(values: &[f32]) -> f32 {
@@ -227,6 +262,7 @@ fn l2_norm(values: &[f32]) -> f32 {
 }
 
 #[cfg(target_arch = "aarch64")]
+#[inline]
 fn dot(left: &[f32], right: &[f32]) -> f32 {
     // SAFETY: `dot_neon` only performs in-bounds unaligned loads over slices
     // checked by its loop condition, then handles the scalar remainder.
@@ -276,6 +312,7 @@ unsafe fn dot_neon(left: &[f32], right: &[f32]) -> f32 {
 }
 
 #[cfg(target_arch = "x86_64")]
+#[inline]
 fn dot(left: &[f32], right: &[f32]) -> f32 {
     if std::is_x86_feature_detected!("avx") {
         // SAFETY: AVX support is checked at runtime; the implementation only
@@ -383,6 +420,7 @@ unsafe fn dot_sse(left: &[f32], right: &[f32]) -> f32 {
 }
 
 #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
+#[inline]
 fn dot(left: &[f32], right: &[f32]) -> f32 {
     dot_scalar(left, right)
 }
