@@ -700,5 +700,3 @@ def provider_from_persisted_name(provider_name: str) -> EmbeddingProvider | None
     """Return a safe provider reconstructed from a persisted DB identity."""
     base_name = embedding_provider_base_name(provider_name)
     return OpenAIEmbeddingProvider.from_persisted_name(base_name)
-
-

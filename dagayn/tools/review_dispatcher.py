@@ -101,9 +101,7 @@ def review_func(
             get_review_context(
                 changed_files=request.changed_files,
                 max_depth=request.max_depth,
-                include_source=(
-                    True if request.include_source is None else request.include_source
-                ),
+                include_source=(True if request.include_source is None else request.include_source),
                 max_lines_per_file=request.max_lines_per_file,
                 repo_root=request.repo_root,
                 base=request.base,

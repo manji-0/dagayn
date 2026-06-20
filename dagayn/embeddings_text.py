@@ -86,6 +86,7 @@ _GRAPH_FACT_EDGE_KINDS = {
     "TESTED_BY",
 }
 
+
 def _embedding_text_mode(text_mode: str | None = None) -> str:
     mode = (text_mode or os.environ.get("DAGAYN_EMBEDDING_TEXT_MODE") or "material").lower()
     if mode not in _EMBEDDING_TEXT_MODES:
@@ -609,5 +610,3 @@ def _embed_query_cached(provider: "EmbeddingProvider", query: str) -> list[float
     instance) is created after a DB mtime change.
     """
     return provider.embed_query(query)
-
-
