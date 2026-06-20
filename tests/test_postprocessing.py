@@ -31,9 +31,9 @@ def test_markdown_artifact_resolution_returns_typed_states():
         extra={"evidence_kind": "markdown_code_span", "evidence_source": "code_span"},
         matches=[("/repo/app.py::Service", "python")],
     )
-    assert resolved["state"] == "resolved"
-    assert resolved["target_qualified"] == "/repo/app.py::Service"
-    assert resolved["confidence_tier"] == "HIGH"
+    assert resolved.state == "resolved"
+    assert resolved.target_qualified == "/repo/app.py::Service"
+    assert resolved.confidence_tier == "HIGH"
 
     dropped = _markdown_artifact_resolution(
         edge_id=2,
@@ -42,7 +42,9 @@ def test_markdown_artifact_resolution_returns_typed_states():
         extra={"evidence_kind": "markdown_code_span", "evidence_source": "code_span"},
         matches=[],
     )
-    assert dropped == {"state": "dropped", "edge_id": 2}
+    assert dropped.state == "dropped"
+    assert dropped.edge_id == 2
+    assert dropped.target_qualified is None
 
     still_unresolved = _markdown_artifact_resolution(
         edge_id=3,
@@ -51,8 +53,8 @@ def test_markdown_artifact_resolution_returns_typed_states():
         extra={"relationship_role": "implemented_by"},
         matches=[],
     )
-    assert still_unresolved["state"] == "still_unresolved"
-    assert still_unresolved["confidence_tier"] == "LOW"
+    assert still_unresolved.state == "still_unresolved"
+    assert still_unresolved.confidence_tier == "LOW"
 
 
 class TestRunPostProcessing:
