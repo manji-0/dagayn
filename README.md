@@ -344,9 +344,12 @@ modes, and provider setup, see
 
 The `openai` provider speaks the standard `/v1/embeddings` schema, so it works with real OpenAI, Azure OpenAI, LiteLLM, vLLM, LocalAI, Ollama (in OpenAI mode), and similar gateways. When `CRG_OPENAI_BASE_URL` points to localhost the cloud egress warning is suppressed automatically.
 
-Vector search uses numpy by default for the cosine-similarity matrix path.
-`dagayn serve --local-embedding` runs BGE-M3 through a managed llama.cpp GGUF
-sidecar so acceleration stays out of the Python process. The older
+Vector search uses the Rust native cosine-similarity backend by default, with
+platform acceleration where available. Set `DAGAYN_EMBEDDING_SEARCH_BACKEND=auto`
+to fall back to the pure-Python loop when native search is unavailable, or
+`DAGAYN_EMBEDDING_SEARCH_BACKEND=python` for A/B testing.
+`dagayn serve --local-embedding` runs BGE-M3 through a managed
+llama.cpp GGUF sidecar so acceleration stays out of the Python process. The older
 sentence-transformers/PyTorch `provider="local"` mode has been removed; local
 embedding now means the managed llama-server sidecar or another localhost
 OpenAI-compatible endpoint.

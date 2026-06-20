@@ -34,7 +34,6 @@ dependencies = [
     "networkx>=3.2,<4",
     "watchdog>=4.0.0,<6",
     "igraph>=1.0.0",
-    "numpy>=1.26,<3",
 ]
 
 [project.urls]

@@ -2,6 +2,16 @@
 
 All notable changes to `dagayn` are documented here.
 
+## Unreleased
+
+### Improvements
+
+- Add a Rust native embedding-search backend with process-level vector caching,
+  prewarm support, macOS Accelerate matrix-vector search, default Linux system
+  BLAS, and SIMD dot-product fallbacks; remove the Python-side numpy search path
+  while keeping a pure-Python fallback mode through
+  `DAGAYN_EMBEDDING_SEARCH_BACKEND` for A/B testing.
+
 ## 4.2.8 — 2026-06-15
 
 ### Improvements
