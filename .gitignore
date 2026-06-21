@@ -45,7 +45,6 @@ dagayn-vscode/dist/
 dagayn-vscode/out/
 *.vsix
 pnpm-debug.log*
-dagayn-vscode/test/vscode-stub-package/
 
 # Claude Code
 .claude/
