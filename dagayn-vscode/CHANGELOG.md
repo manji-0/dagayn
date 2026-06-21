@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.2 — Unreleased
+
+### Added
+
+- Auto-update failure notification: consecutive failures now surface a warning after `dagayn.autoUpdateFailureThreshold` consecutive failures with "Open Settings" and "Disable Auto-Update" actions.
+- New setting `dagayn.autoUpdateFailureThreshold` (default `3`) to control when the warning appears.
+
 ## 0.2.1 — 2026-04-08
 
 ### Fixed

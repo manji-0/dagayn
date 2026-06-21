@@ -64,14 +64,15 @@ The graph database is stored locally at `.dagayn/graph.db` and updates automatic
 
 ## Settings
 
-| Setting                     | Default             | Description                                         |
-| --------------------------- | ------------------- | --------------------------------------------------- |
-| `dagayn.cliPath`            | `""`                | Path to the CLI binary. Leave empty to auto-detect. |
-| `dagayn.autoUpdate`         | `true`              | Auto-update the graph on file save.                 |
-| `dagayn.blastRadiusDepth`   | `2`                 | Max traversal depth for blast radius (1--10).       |
-| `dagayn.graphTheme`         | `"auto"`            | Graph color theme: `auto`, `light`, or `dark`.      |
-| `dagayn.graph.maxNodes`     | `500`               | Max nodes in the graph visualization (10--5000).    |
-| `dagayn.graph.defaultEdges` | All except CONTAINS | Edge types shown by default.                        |
+| Setting                             | Default             | Description                                                              |
+| ----------------------------------- | ------------------- | ------------------------------------------------------------------------ |
+| `dagayn.cliPath`                    | `""`                | Path to the CLI binary. Leave empty to auto-detect.                      |
+| `dagayn.autoUpdate`                 | `true`              | Auto-update the graph on file save.                                      |
+| `dagayn.autoUpdateFailureThreshold` | `3`                 | Consecutive auto-update failures before a warning notification is shown. |
+| `dagayn.blastRadiusDepth`           | `2`                 | Max traversal depth for blast radius (1--10).                            |
+| `dagayn.graphTheme`                 | `"auto"`            | Graph color theme: `auto`, `light`, or `dark`.                           |
+| `dagayn.graph.maxNodes`             | `500`               | Max nodes in the graph visualization (10--5000).                         |
+| `dagayn.graph.defaultEdges`         | All except CONTAINS | Edge types shown by default.                                             |
 
 ## Requirements
 

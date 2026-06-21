@@ -5,7 +5,7 @@
  * Only implements the surface used by src/ modules imported during tests.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.FileDecoration = exports.env = exports.commands = exports.workspace = exports.window = exports.RelativePattern = exports.EventEmitter = exports.TreeItem = exports.ThemeColor = exports.Position = exports.Range = exports.Uri = exports.FileType = exports.ColorThemeKind = exports.ViewColumn = exports.ProgressLocation = exports.StatusBarAlignment = exports.TreeItemCollapsibleState = void 0;
+exports.FileDecoration = exports.env = exports.commands = exports.workspace = exports.window = exports.ConfigurationTarget = exports.RelativePattern = exports.EventEmitter = exports.TreeItem = exports.ThemeColor = exports.Position = exports.Range = exports.Uri = exports.FileType = exports.ColorThemeKind = exports.ViewColumn = exports.ProgressLocation = exports.StatusBarAlignment = exports.TreeItemCollapsibleState = void 0;
 var TreeItemCollapsibleState;
 (function (TreeItemCollapsibleState) {
     TreeItemCollapsibleState[TreeItemCollapsibleState["None"] = 0] = "None";
@@ -41,6 +41,12 @@ var FileType;
     FileType[FileType["Directory"] = 2] = "Directory";
     FileType[FileType["SymbolicLink"] = 64] = "SymbolicLink";
 })(FileType || (exports.FileType = FileType = {}));
+var ConfigurationTarget;
+(function (ConfigurationTarget) {
+    ConfigurationTarget[ConfigurationTarget["Global"] = 1] = "Global";
+    ConfigurationTarget[ConfigurationTarget["Workspace"] = 3] = "Workspace";
+    ConfigurationTarget[ConfigurationTarget["WorkspaceFolder"] = 4] = "WorkspaceFolder";
+})(ConfigurationTarget || (exports.ConfigurationTarget = ConfigurationTarget = {}));
 class Uri {
     scheme = "file";
     authority = "";
@@ -132,18 +138,56 @@ class FileSystemWatcherStub {
     dispose = () => { };
 }
 const noopDisposable = { dispose: () => { } };
+const configStore = new Map();
+function getSectionStore(section) {
+    if (!configStore.has(section)) {
+        configStore.set(section, new Map());
+    }
+    return configStore.get(section);
+}
+function __resetConfigStore() {
+    configStore.clear();
+}
+const commandCalls = [];
+const warningCalls = [];
+let warningResult = undefined;
+function __setWarningResult(result) {
+    warningResult = result;
+}
+const outputChannels = new Map();
+let saveCallbacks = [];
+function __fireSave(document) {
+    for (const cb of saveCallbacks) {
+        cb(document);
+    }
+}
+function __clearSaveCallbacks() {
+    saveCallbacks = [];
+}
 exports.window = {
     activeTextEditor: undefined,
-    showWarningMessage: async () => undefined,
+    showWarningMessage: async (message, ...buttons) => {
+        warningCalls.push({ message, buttons });
+        return warningResult;
+    },
     showInformationMessage: async () => undefined,
     showErrorMessage: async () => undefined,
     showQuickPick: async () => undefined,
     showTextDocument: async () => ({}),
     showSaveDialog: async () => undefined,
-    createOutputChannel: () => ({
-        appendLine: () => { },
-        show: () => { },
-    }),
+    createOutputChannel: (name) => {
+        if (!outputChannels.has(name)) {
+            outputChannels.set(name, []);
+        }
+        const lines = outputChannels.get(name);
+        return {
+            appendLine: (line) => {
+                lines.push(String(line));
+            },
+            show: () => { },
+            dispose: () => { outputChannels.delete(name); },
+        };
+    },
     createStatusBarItem: () => ({
         text: "",
         tooltip: "",
@@ -160,24 +204,59 @@ exports.window = {
     registerFileDecorationProvider: () => noopDisposable,
     onDidChangeActiveColorTheme: () => noopDisposable,
     withProgress: async (_options, task) => task(),
+    __warningCalls: warningCalls,
+    __setWarningResult,
+    __outputChannels: outputChannels,
 };
 exports.workspace = {
     workspaceFolders: [],
     openTextDocument: async () => ({}),
-    getConfiguration: () => ({
-        get: (_key, defaultValue) => defaultValue,
-    }),
+    __fireSave,
+    __clearSaveCallbacks,
+    getConfiguration: (section) => {
+        const store = getSectionStore(section);
+        return {
+            get: (key, defaultValue) => {
+                if (key === "autoUpdate" && !store.has(key)) {
+                    return defaultValue !== undefined ? defaultValue : true;
+                }
+                if (key === "autoUpdateFailureThreshold" && !store.has(key)) {
+                    return defaultValue !== undefined ? defaultValue : 3;
+                }
+                if (key === "cliPath" && !store.has(key)) {
+                    return defaultValue !== undefined ? defaultValue : "";
+                }
+                return store.has(key) ? store.get(key) : defaultValue;
+            },
+            update: async (key, value, _target) => {
+                store.set(key, value);
+            },
+        };
+    },
     createFileSystemWatcher: () => new FileSystemWatcherStub(),
-    onDidSaveTextDocument: () => noopDisposable,
+    onDidSaveTextDocument: (cb) => {
+        saveCallbacks.push(cb);
+        return { dispose: () => {
+                const idx = saveCallbacks.indexOf(cb);
+                if (idx >= 0) {
+                    saveCallbacks.splice(idx, 1);
+                }
+            } };
+    },
     fs: {
         stat: async () => ({ type: FileType.File }),
         writeFile: async () => { },
         readFile: async () => Buffer.from(""),
     },
+    __resetConfigStore,
 };
 exports.commands = {
     registerCommand: () => noopDisposable,
-    executeCommand: async () => undefined,
+    executeCommand: async (command, ...args) => {
+        commandCalls.push({ command, args });
+        return undefined;
+    },
+    __calls: commandCalls,
 };
 exports.env = {
     clipboard: {

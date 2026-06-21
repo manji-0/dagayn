@@ -222,6 +222,14 @@
           "default": true,
           "description": "Automatically update the graph database when files are saved."
         },
+        "dagayn.autoUpdateFailureThreshold": {
+          "type": "number",
+          "default": 3,
+          "minimum": 1,
+          "multipleOf": 1,
+          "scope": "window",
+          "description": "Number of consecutive auto-update failures before a warning notification is shown. Set to 1 to notify on the first failure."
+        },
         "dagayn.blastRadiusDepth": {
           "type": "number",
           "default": 2,

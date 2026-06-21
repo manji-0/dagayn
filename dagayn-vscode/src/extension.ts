@@ -19,13 +19,13 @@ import { registerBlastRadiusCommand } from "./features/blastRadius";
 import { registerNavigationCommands } from "./features/navigation";
 import { registerSearchCommand } from "./features/search";
 import { registerReviewCommand } from "./features/reviewAssistant";
+import { AutoUpdateController } from "./features/autoUpdate";
 
 let sqliteReader: SqliteReader | undefined;
 let codeGraphProvider: CodeGraphTreeProvider | undefined;
 let blastRadiusProvider: BlastRadiusTreeProvider | undefined;
 let statsProvider: StatsTreeProvider | undefined;
 let statusBar: StatusBar | undefined;
-let autoUpdateTimer: ReturnType<typeof setTimeout> | undefined;
 let scmDecorationProvider: ScmDecorationProvider | undefined;
 
 function findGraphDb(workspaceRoot: string): string | undefined {
@@ -169,35 +169,6 @@ function watchGraphDb(context: vscode.ExtensionContext): void {
   context.subscriptions.push(watcher);
 }
 
-function setupAutoUpdate(context: vscode.ExtensionContext, cli: CliWrapper): void {
-  const AUTO_UPDATE_DEBOUNCE_MS = 2000;
-
-  const onSave = vscode.workspace.onDidSaveTextDocument(() => {
-    const config = vscode.workspace.getConfiguration("dagayn");
-    if (!config.get<boolean>("autoUpdate", true)) {
-      return;
-    }
-
-    if (autoUpdateTimer) {
-      clearTimeout(autoUpdateTimer);
-    }
-
-    autoUpdateTimer = setTimeout(async () => {
-      const wsRoot = getWorkspaceRoot();
-      if (!wsRoot || !sqliteReader) {
-        return;
-      }
-      try {
-        await cli.updateGraph(wsRoot);
-      } catch {
-        // Silently ignore update errors on save
-      }
-    }, AUTO_UPDATE_DEBOUNCE_MS);
-  });
-
-  context.subscriptions.push(onSave);
-}
-
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const cli = new CliWrapper();
   const installer = new Installer(cli);
@@ -233,14 +204,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 
   watchGraphDb(context);
-  setupAutoUpdate(context, cli);
+
+  const outputChannel = vscode.window.createOutputChannel("Code Graph");
+  context.subscriptions.push(outputChannel);
+  const autoUpdate = new AutoUpdateController(
+    cli,
+    getWorkspaceRoot,
+    () => sqliteReader,
+    outputChannel,
+  );
+  context.subscriptions.push(autoUpdate);
 }
 
 export function deactivate(): void {
-  if (autoUpdateTimer) {
-    clearTimeout(autoUpdateTimer);
-    autoUpdateTimer = undefined;
-  }
   sqliteReader?.close();
   sqliteReader = undefined;
 }
