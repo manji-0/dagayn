@@ -4,13 +4,34 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+## 4.3.0 — 2026-06-21
+
 ### Improvements
 
 - Add a Rust native embedding-search backend with process-level vector caching,
-  prewarm support, macOS Accelerate matrix-vector search, default Linux system
-  BLAS, and SIMD dot-product fallbacks; remove the Python-side numpy search path
-  while keeping a pure-Python fallback mode through
-  `DAGAYN_EMBEDDING_SEARCH_BACKEND` for A/B testing.
+  prewarm support, macOS Accelerate matrix-vector search, and SIMD dot-product
+  fallbacks; remove the Python-side numpy search path while keeping a
+  pure-Python fallback mode through `DAGAYN_EMBEDDING_SEARCH_BACKEND` for A/B
+  testing.
+- Parallelize embedding search for large matrices.
+- Add typed Rust DTOs and enum-backed parser contracts for stricter
+  cross-language interfaces.
+- Add Pydantic boundary DTOs for state transitions, dispatchers, architecture
+  analysis, refactor outputs, and answerability guidance.
+- Split the embeddings, incremental build, and review tool modules into
+  focused submodules.
+
+### Fixes
+
+- Drop the system BLAS dependency in the native embedding search backend.
+- Keep the Rust embedding backend clippy-clean.
+- Align typed contracts with CI checks.
+
+### Testing
+
+- Add an embedding search micro-benchmark.
+- Expand test coverage for impact analysis scoring.
+- Update markdown resolution contract assertions.
 
 ## 4.2.8 — 2026-06-15
 
