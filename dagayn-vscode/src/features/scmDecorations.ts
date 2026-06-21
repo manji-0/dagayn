@@ -7,79 +7,66 @@
  *  - UNTESTED (red) — changed functions lack test coverage
  */
 
-import * as vscode from 'vscode';
-import { SqliteReader } from '../backend/sqlite';
+import * as vscode from "vscode";
+import { SqliteReader } from "../backend/sqlite";
 
-export class ScmDecorationProvider
-  implements vscode.FileDecorationProvider
-{
+type FileClassification =
+  | { kind: "changed-tested" }
+  | { kind: "changed-untested" }
+  | { kind: "impacted" };
+
+export class ScmDecorationProvider implements vscode.FileDecorationProvider {
   private readonly _onDidChange = new vscode.EventEmitter<vscode.Uri | vscode.Uri[] | undefined>();
   readonly onDidChangeFileDecorations = this._onDidChange.event;
 
-  /** Files directly changed (staged + unstaged). */
-  private changedFiles = new Set<string>();
-  /** Files in the blast radius but not directly changed. */
-  private impactedFiles = new Set<string>();
-  /** Changed files whose functions all have TESTED_BY edges. */
-  private testedFiles = new Set<string>();
-  /** Changed files with at least one function lacking TESTED_BY edges. */
-  private untestedFiles = new Set<string>();
+  private classifications = new Map<string, FileClassification>();
 
   /**
    * Recompute decorations from git state and the graph database.
    */
-  async update(
-    reader: SqliteReader,
-    workspaceRoot: string,
-  ): Promise<void> {
-    const { execFile } = await import('node:child_process');
-    const { promisify } = await import('node:util');
+  async update(reader: SqliteReader, workspaceRoot: string): Promise<void> {
+    const { execFile } = await import("node:child_process");
+    const { promisify } = await import("node:util");
     const execFileAsync = promisify(execFile);
-    const path = await import('node:path');
+    const path = await import("node:path");
 
     // 1. Collect changed files
     let unstaged: string[] = [];
     let staged: string[] = [];
     try {
-      const r1 = await execFileAsync('git', ['diff', '--name-only', 'HEAD'], {
+      const r1 = await execFileAsync("git", ["diff", "--name-only", "HEAD"], {
         cwd: workspaceRoot,
         timeout: 10_000,
       });
-      unstaged = r1.stdout.trim().split('\n').filter(Boolean);
-    } catch { /* ignore */ }
+      unstaged = r1.stdout.trim().split("\n").filter(Boolean);
+    } catch {
+      /* ignore */
+    }
     try {
-      const r2 = await execFileAsync('git', ['diff', '--cached', '--name-only'], {
+      const r2 = await execFileAsync("git", ["diff", "--cached", "--name-only"], {
         cwd: workspaceRoot,
         timeout: 10_000,
       });
-      staged = r2.stdout.trim().split('\n').filter(Boolean);
-    } catch { /* ignore */ }
+      staged = r2.stdout.trim().split("\n").filter(Boolean);
+    } catch {
+      /* ignore */
+    }
 
     const changedRelative = [...new Set([...unstaged, ...staged])];
     const changedAbsolute = changedRelative.map((f) => path.join(workspaceRoot, f));
 
     // 2. Compute impact radius
-    const config = vscode.workspace.getConfiguration('dagayn');
-    const depth = config.get<number>('blastRadiusDepth', 2);
+    const config = vscode.workspace.getConfiguration("dagayn");
+    const depth = config.get<number>("blastRadiusDepth", 2);
     const impact = reader.getImpactRadius(changedAbsolute, depth);
 
-    // 3. Classify files
-    this.changedFiles = new Set(changedAbsolute);
-    this.impactedFiles = new Set(
-      impact.impactedNodes
-        .map((n) => n.filePath)
-        .filter((f) => !this.changedFiles.has(f)),
-    );
+    // 3. Reset classifications
+    this.classifications.clear();
 
-    // 4. Test coverage classification
-    this.testedFiles = new Set<string>();
-    this.untestedFiles = new Set<string>();
-
-    for (const filePath of this.changedFiles) {
+    // 4. Test coverage classification for changed files
+    for (const filePath of changedAbsolute) {
       const nodes = reader.getNodesByFile(filePath);
-      const functions = nodes.filter(
-        (n) => n.kind === 'Function' && !n.isTest,
-      );
+      const functions = nodes.filter((n) => n.kind === "Function" && !n.isTest);
       if (functions.length === 0) {
         continue;
       }
@@ -87,11 +74,11 @@ export class ScmDecorationProvider
       let allTested = true;
       for (const fn of functions) {
         const edges = reader.getEdgesByTarget(fn.qualifiedName);
-        const hasTest = edges.some((e) => e.kind === 'TESTED_BY');
+        const hasTest = edges.some((e) => e.kind === "TESTED_BY");
         if (!hasTest) {
           // Also check outgoing TESTED_BY (reverse direction)
           const outEdges = reader.getEdgesBySource(fn.qualifiedName);
-          const hasOutTest = outEdges.some((e) => e.kind === 'TESTED_BY');
+          const hasOutTest = outEdges.some((e) => e.kind === "TESTED_BY");
           if (!hasOutTest) {
             allTested = false;
             break;
@@ -99,59 +86,63 @@ export class ScmDecorationProvider
         }
       }
 
-      if (allTested) {
-        this.testedFiles.add(filePath);
-      } else {
-        this.untestedFiles.add(filePath);
+      this.classifications.set(
+        filePath,
+        allTested ? { kind: "changed-tested" } : { kind: "changed-untested" },
+      );
+    }
+
+    // 5. Classify impacted files (excluding files already classified as changed)
+    for (const impactedFile of impact.impactedNodes.map((n) => n.filePath)) {
+      if (!this.classifications.has(impactedFile)) {
+        this.classifications.set(impactedFile, { kind: "impacted" });
       }
     }
 
-    // 5. Fire change event
+    // 6. Fire change event
     this._onDidChange.fire(undefined);
   }
 
   /** Clear all decorations. */
   clear(): void {
-    this.changedFiles.clear();
-    this.impactedFiles.clear();
-    this.testedFiles.clear();
-    this.untestedFiles.clear();
+    this.classifications.clear();
     this._onDidChange.fire(undefined);
   }
 
-  provideFileDecoration(
-    uri: vscode.Uri,
-  ): vscode.FileDecoration | undefined {
+  provideFileDecoration(uri: vscode.Uri): vscode.FileDecoration | undefined {
     const filePath = uri.fsPath;
-
-    if (this.untestedFiles.has(filePath)) {
-      return {
-        badge: '!',
-        color: new vscode.ThemeColor('editorError.foreground'),
-        tooltip: 'Code Graph: Changed functions lack test coverage',
-        propagate: false,
-      };
+    const classification = this.classifications.get(filePath);
+    if (!classification) {
+      return undefined;
     }
 
-    if (this.testedFiles.has(filePath)) {
-      return {
-        badge: '\u2713',
-        color: new vscode.ThemeColor('testing.iconPassed'),
-        tooltip: 'Code Graph: All changed functions have test coverage',
-        propagate: false,
-      };
+    switch (classification.kind) {
+      case "changed-untested":
+        return {
+          badge: "!",
+          color: new vscode.ThemeColor("editorError.foreground"),
+          tooltip: "Code Graph: Changed functions lack test coverage",
+          propagate: false,
+        };
+      case "changed-tested":
+        return {
+          badge: "\u2713",
+          color: new vscode.ThemeColor("testing.iconPassed"),
+          tooltip: "Code Graph: All changed functions have test coverage",
+          propagate: false,
+        };
+      case "impacted":
+        return {
+          badge: "\u25CF",
+          color: new vscode.ThemeColor("editorWarning.foreground"),
+          tooltip: "Code Graph: In blast radius of current changes",
+          propagate: false,
+        };
+      default: {
+        const _exhaustive: never = classification;
+        return _exhaustive;
+      }
     }
-
-    if (this.impactedFiles.has(filePath)) {
-      return {
-        badge: '\u25CF',
-        color: new vscode.ThemeColor('editorWarning.foreground'),
-        tooltip: 'Code Graph: In blast radius of current changes',
-        propagate: false,
-      };
-    }
-
-    return undefined;
   }
 
   dispose(): void {

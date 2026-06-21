@@ -126,6 +126,36 @@ jobs:
       - name: Smoke-test uvx source install path
         run: uvx --refresh --from . dagayn --help
 
+  vscode:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dagayn-vscode
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.6.0
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+          cache-dependency-path: dagayn-vscode/pnpm-lock.yaml
+      - name: Install dependencies (frozen)
+        run: pnpm install --frozen-lockfile
+      - name: Compile
+        run: pnpm compile
+      - name: Check formatting
+        run: pnpm fmt:check
+      - name: Lint (tsc --noEmit)
+        run: pnpm lint
+      - name: Test
+        run: pnpm test
+      - name: Type-check tests
+        run: pnpm test:compile
+
   install-smoke:
     runs-on: macos-latest
     strategy:

@@ -292,20 +292,29 @@
     "watch": "node esbuild.mjs --watch",
     "package": "vsce package",
     "lint": "tsc --noEmit",
-    "test": "node --experimental-vm-modules node_modules/@vscode/test-electron/out/runTest.js"
+    "fmt": "biome check --write --unsafe .",
+    "fmt:check": "biome check .",
+    "test": "mocha",
+    "test:compile": "tsc -p tsconfig.test.json --noEmit"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/d3": "^7.4.3",
+    "@types/mocha": "^10.0.6",
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.85.0",
     "@vscode/test-electron": "^2.3.8",
     "@vscode/vsce": "^2.22.0",
     "esbuild": "^0.20.0",
-    "typescript": "^5.3.3"
+    "mocha": "^10.2.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3",
+    "vscode": "file:./test/vscode-stub-package"
   },
   "dependencies": {
     "better-sqlite3": "^12.4.1",
     "d3": "^7.9.0"
-  }
+  },
+  "packageManager": "pnpm@11.6.0"
 }

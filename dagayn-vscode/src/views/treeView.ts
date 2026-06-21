@@ -1,23 +1,26 @@
-import * as vscode from 'vscode';
-import { SqliteReader, GraphNode, GraphEdge } from '../backend/sqlite';
+import * as vscode from "vscode";
+import { SqliteReader, GraphNode } from "../backend/sqlite";
 import {
   FileTreeItem,
   SymbolTreeItem,
   EdgeTreeItem,
   BlastRadiusGroupItem,
   StatsItem,
-} from './treeItems';
+} from "./treeItems";
 
 // ---------------------------------------------------------------------------
 // CodeGraphTreeProvider -- main file > symbol > edge tree
 // ---------------------------------------------------------------------------
 
 export class CodeGraphTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
-  private readonly _onDidChangeTreeData = new vscode.EventEmitter<vscode.TreeItem | undefined | null>();
-  readonly onDidChangeTreeData: vscode.Event<vscode.TreeItem | undefined | null> = this._onDidChangeTreeData.event;
+  private readonly _onDidChangeTreeData = new vscode.EventEmitter<
+    vscode.TreeItem | undefined | null
+  >();
+  readonly onDidChangeTreeData: vscode.Event<vscode.TreeItem | undefined | null> =
+    this._onDidChangeTreeData.event;
 
   constructor(
-    private readonly reader: SqliteReader,
+    private readonly getReader: () => SqliteReader | undefined,
     private readonly workspaceRoot: string,
   ) {}
 
@@ -45,7 +48,11 @@ export class CodeGraphTreeProvider implements vscode.TreeDataProvider<vscode.Tre
   // -- Root level: one FileTreeItem per file --------------------------------
 
   private getRootChildren(): vscode.TreeItem[] {
-    const files = this.reader.getAllFiles();
+    const reader = this.getReader();
+    if (!reader) {
+      return [];
+    }
+    const files = reader.getAllFiles();
     return files
       .slice()
       .sort((a, b) => a.localeCompare(b))
@@ -55,65 +62,54 @@ export class CodeGraphTreeProvider implements vscode.TreeDataProvider<vscode.Tre
   // -- File level: symbols (non-File nodes) sorted by line ------------------
 
   private getFileChildren(fileItem: FileTreeItem): vscode.TreeItem[] {
-    const nodes = this.reader.getNodesByFile(fileItem.filePath);
+    const reader = this.getReader();
+    if (!reader) {
+      return [];
+    }
+    const nodes = reader.getNodesByFile(fileItem.filePath);
     return nodes
-      .filter((n) => n.kind !== 'File')
+      .filter((n) => n.kind !== "File")
       .sort((a, b) => (a.lineStart ?? 0) - (b.lineStart ?? 0))
       .map(
         (n) =>
-          new SymbolTreeItem(
-            n.qualifiedName,
-            n.name,
-            n.kind,
-            n.filePath,
-            n.lineStart,
-            n.lineEnd,
-          ),
+          new SymbolTreeItem(n.qualifiedName, n.name, n.kind, n.filePath, n.lineStart, n.lineEnd),
       );
   }
 
   // -- Symbol level: outgoing + incoming edges (skip CONTAINS) --------------
 
   private getSymbolChildren(symbolItem: SymbolTreeItem): vscode.TreeItem[] {
+    const reader = this.getReader();
+    if (!reader) {
+      return [];
+    }
     const items: vscode.TreeItem[] = [];
 
     // Outgoing edges
-    const outgoing = this.reader.getEdgesBySource(symbolItem.qualifiedName);
+    const outgoing = reader.getEdgesBySource(symbolItem.qualifiedName);
     for (const edge of outgoing) {
-      if (edge.kind === 'CONTAINS') {
+      if (edge.kind === "CONTAINS") {
         continue;
       }
-      const targetNode = this.reader.getNode(edge.targetQualified);
+      const targetNode = reader.getNode(edge.targetQualified);
       const targetFile = targetNode?.filePath ?? edge.filePath;
       const targetLine = targetNode?.lineStart ?? edge.line;
       items.push(
-        new EdgeTreeItem(
-          edge.kind,
-          'outgoing',
-          edge.targetQualified,
-          targetFile,
-          targetLine,
-        ),
+        new EdgeTreeItem(edge.kind, "outgoing", edge.targetQualified, targetFile, targetLine),
       );
     }
 
     // Incoming edges
-    const incoming = this.reader.getEdgesByTarget(symbolItem.qualifiedName);
+    const incoming = reader.getEdgesByTarget(symbolItem.qualifiedName);
     for (const edge of incoming) {
-      if (edge.kind === 'CONTAINS') {
+      if (edge.kind === "CONTAINS") {
         continue;
       }
-      const sourceNode = this.reader.getNode(edge.sourceQualified);
+      const sourceNode = reader.getNode(edge.sourceQualified);
       const sourceFile = sourceNode?.filePath ?? edge.filePath;
       const sourceLine = sourceNode?.lineStart ?? edge.line;
       items.push(
-        new EdgeTreeItem(
-          edge.kind,
-          'incoming',
-          edge.sourceQualified,
-          sourceFile,
-          sourceLine,
-        ),
+        new EdgeTreeItem(edge.kind, "incoming", edge.sourceQualified, sourceFile, sourceLine),
       );
     }
 
@@ -126,8 +122,11 @@ export class CodeGraphTreeProvider implements vscode.TreeDataProvider<vscode.Tre
 // ---------------------------------------------------------------------------
 
 export class BlastRadiusTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
-  private readonly _onDidChangeTreeData = new vscode.EventEmitter<vscode.TreeItem | undefined | null>();
-  readonly onDidChangeTreeData: vscode.Event<vscode.TreeItem | undefined | null> = this._onDidChangeTreeData.event;
+  private readonly _onDidChangeTreeData = new vscode.EventEmitter<
+    vscode.TreeItem | undefined | null
+  >();
+  readonly onDidChangeTreeData: vscode.Event<vscode.TreeItem | undefined | null> =
+    this._onDidChangeTreeData.event;
 
   private changedNodes: GraphNode[] = [];
   private impactedNodes: GraphNode[] = [];
@@ -164,26 +163,19 @@ export class BlastRadiusTreeProvider implements vscode.TreeDataProvider<vscode.T
     }
     const groups: vscode.TreeItem[] = [];
     if (this.changedNodes.length > 0) {
-      groups.push(new BlastRadiusGroupItem('changed', this.changedNodes.length));
+      groups.push(new BlastRadiusGroupItem("changed", this.changedNodes.length));
     }
     if (this.impactedNodes.length > 0) {
-      groups.push(new BlastRadiusGroupItem('impacted', this.impactedNodes.length));
+      groups.push(new BlastRadiusGroupItem("impacted", this.impactedNodes.length));
     }
     return groups;
   }
 
   private getGroupChildren(group: BlastRadiusGroupItem): vscode.TreeItem[] {
-    const nodes = group.groupKind === 'changed' ? this.changedNodes : this.impactedNodes;
+    const nodes = group.groupKind === "changed" ? this.changedNodes : this.impactedNodes;
     return nodes.map(
       (n) =>
-        new SymbolTreeItem(
-          n.qualifiedName,
-          n.name,
-          n.kind,
-          n.filePath,
-          n.lineStart,
-          n.lineEnd,
-        ),
+        new SymbolTreeItem(n.qualifiedName, n.name, n.kind, n.filePath, n.lineStart, n.lineEnd),
     );
   }
 }
@@ -193,10 +185,13 @@ export class BlastRadiusTreeProvider implements vscode.TreeDataProvider<vscode.T
 // ---------------------------------------------------------------------------
 
 export class StatsTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
-  private readonly _onDidChangeTreeData = new vscode.EventEmitter<vscode.TreeItem | undefined | null>();
-  readonly onDidChangeTreeData: vscode.Event<vscode.TreeItem | undefined | null> = this._onDidChangeTreeData.event;
+  private readonly _onDidChangeTreeData = new vscode.EventEmitter<
+    vscode.TreeItem | undefined | null
+  >();
+  readonly onDidChangeTreeData: vscode.Event<vscode.TreeItem | undefined | null> =
+    this._onDidChangeTreeData.event;
 
-  constructor(private readonly reader: SqliteReader) {}
+  constructor(private readonly getReader: () => SqliteReader | undefined) {}
 
   refresh(): void {
     this._onDidChangeTreeData.fire(undefined);
@@ -207,28 +202,24 @@ export class StatsTreeProvider implements vscode.TreeDataProvider<vscode.TreeIte
   }
 
   getChildren(): vscode.ProviderResult<vscode.TreeItem[]> {
-    const stats = this.reader.getStats();
+    const reader = this.getReader();
+    if (!reader) {
+      return [];
+    }
+    const stats = reader.getStats();
     const items: StatsItem[] = [];
 
-    items.push(new StatsItem('Files', stats.filesCount.toLocaleString()));
-    items.push(new StatsItem('Total Nodes', stats.totalNodes.toLocaleString()));
-    items.push(new StatsItem('Total Edges', stats.totalEdges.toLocaleString()));
+    items.push(new StatsItem("Files", stats.filesCount.toLocaleString()));
+    items.push(new StatsItem("Total Nodes", stats.totalNodes.toLocaleString()));
+    items.push(new StatsItem("Total Edges", stats.totalEdges.toLocaleString()));
     items.push(
-      new StatsItem(
-        'Languages',
-        stats.languages.length > 0 ? stats.languages.join(', ') : 'none',
-      ),
+      new StatsItem("Languages", stats.languages.length > 0 ? stats.languages.join(", ") : "none"),
     );
+    items.push(new StatsItem("Last Updated", stats.lastUpdated ?? "unknown"));
     items.push(
       new StatsItem(
-        'Last Updated',
-        stats.lastUpdated ?? 'unknown',
-      ),
-    );
-    items.push(
-      new StatsItem(
-        'Embeddings',
-        stats.embeddingsCount > 0 ? stats.embeddingsCount.toLocaleString() : 'none',
+        "Embeddings",
+        stats.embeddingsCount > 0 ? stats.embeddingsCount.toLocaleString() : "none",
       ),
     );
 

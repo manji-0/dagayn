@@ -115,7 +115,7 @@ let allNodes: SimNode[] = [];
 let allEdges: SimLink[] = [];
 let nodeMap = new Map<string, SimNode>();
 
-let visibleEdgeKinds = new Set<EdgeKind>(ALL_EDGE_KINDS);
+const visibleEdgeKinds = new Set<EdgeKind>(ALL_EDGE_KINDS);
 let selectedNode: SimNode | null = null;
 let depthLimit = 0; // 0 = show all
 
@@ -213,7 +213,7 @@ function createSvg(): void {
 
 function setData(nodes: GraphNode[], edges: GraphEdge[]): void {
   // Build SimNodes
-  allNodes = nodes.map((n) => ({ ...n } as SimNode));
+  allNodes = nodes.map((n) => ({ ...n }) as SimNode);
   nodeMap = new Map(allNodes.map((n) => [n.qualifiedName, n]));
 
   // Build SimLinks, filtering to edges where both endpoints exist
@@ -293,13 +293,9 @@ function getVisibleData(): { nodes: SimNode[]; links: SimLink[] } {
     const reachableSet = reachable;
     links = links.filter((l) => {
       const srcQn =
-        typeof l.source === "object"
-          ? (l.source as SimNode).qualifiedName
-          : l.sourceQualified;
+        typeof l.source === "object" ? (l.source as SimNode).qualifiedName : l.sourceQualified;
       const tgtQn =
-        typeof l.target === "object"
-          ? (l.target as SimNode).qualifiedName
-          : l.targetQualified;
+        typeof l.target === "object" ? (l.target as SimNode).qualifiedName : l.targetQualified;
       return reachableSet.has(srcQn) && reachableSet.has(tgtQn);
     });
   } else {
@@ -312,8 +308,11 @@ function getVisibleData(): { nodes: SimNode[]; links: SimLink[] } {
   if (query.length > 0) {
     const matchingQns = new Set(
       nodes
-        .filter((n) => n.name.toLowerCase().includes(query) || n.qualifiedName.toLowerCase().includes(query))
-        .map((n) => n.qualifiedName)
+        .filter(
+          (n) =>
+            n.name.toLowerCase().includes(query) || n.qualifiedName.toLowerCase().includes(query),
+        )
+        .map((n) => n.qualifiedName),
     );
     // Keep matching nodes + their direct neighbors
     const expanded = new Set(matchingQns);
@@ -332,13 +331,9 @@ function getVisibleData(): { nodes: SimNode[]; links: SimLink[] } {
     nodes = nodes.filter((n) => expanded.has(n.qualifiedName));
     links = links.filter((l) => {
       const srcQn =
-        typeof l.source === "object"
-          ? (l.source as SimNode).qualifiedName
-          : l.sourceQualified;
+        typeof l.source === "object" ? (l.source as SimNode).qualifiedName : l.sourceQualified;
       const tgtQn =
-        typeof l.target === "object"
-          ? (l.target as SimNode).qualifiedName
-          : l.targetQualified;
+        typeof l.target === "object" ? (l.target as SimNode).qualifiedName : l.targetQualified;
       return expanded.has(srcQn) && expanded.has(tgtQn);
     });
   }
@@ -422,7 +417,7 @@ function buildGraph(): void {
           if (!event.active) simulation?.alphaTarget(0);
           d.fx = null;
           d.fy = null;
-        })
+        }),
     );
 
   // Highlight search matches
@@ -431,8 +426,7 @@ function buildGraph(): void {
   if (query.length > 0) {
     nodeSelection.attr("stroke", (d) => {
       const matches =
-        d.name.toLowerCase().includes(query) ||
-        d.qualifiedName.toLowerCase().includes(query);
+        d.name.toLowerCase().includes(query) || d.qualifiedName.toLowerCase().includes(query);
       return matches ? "#f5e0dc" : "none";
     });
   }
@@ -443,8 +437,7 @@ function buildGraph(): void {
       if (d.qualifiedName === selectedNode!.qualifiedName) return "#f5e0dc";
       if (query.length > 0) {
         const matches =
-          d.name.toLowerCase().includes(query) ||
-          d.qualifiedName.toLowerCase().includes(query);
+          d.name.toLowerCase().includes(query) || d.qualifiedName.toLowerCase().includes(query);
         return matches ? "#f5e0dc" : "none";
       }
       return "none";
@@ -472,13 +465,13 @@ function buildGraph(): void {
       d3
         .forceLink<SimNode, SimLink>(links)
         .id((d) => d.qualifiedName)
-        .distance(100)
+        .distance(100),
     )
     .force("charge", d3.forceManyBody<SimNode>().strength(-200))
     .force("center", d3.forceCenter(width / 2, height / 2))
     .force(
       "collide",
-      d3.forceCollide<SimNode>().radius((d) => (NODE_RADIUS[d.kind] ?? 10) + 5)
+      d3.forceCollide<SimNode>().radius((d) => (NODE_RADIUS[d.kind] ?? 10) + 5),
     )
     .on("tick", () => {
       linkSelection
@@ -506,7 +499,7 @@ function buildGraph(): void {
 function selectNode(node: SimNode): void {
   selectedNode = node;
   nodeSelection.attr("stroke", (d) =>
-    d.qualifiedName === node.qualifiedName ? "#f5e0dc" : "none"
+    d.qualifiedName === node.qualifiedName ? "#f5e0dc" : "none",
   );
 }
 
@@ -525,12 +518,8 @@ function highlightConnected(node: SimNode): void {
     return 0.1;
   });
 
-  nodeSelection.attr("opacity", (d) =>
-    connectedQns.has(d.qualifiedName) ? 1 : 0.2
-  );
-  labelSelection.attr("opacity", (d) =>
-    connectedQns.has(d.qualifiedName) ? 1 : 0.2
-  );
+  nodeSelection.attr("opacity", (d) => (connectedQns.has(d.qualifiedName) ? 1 : 0.2));
+  labelSelection.attr("opacity", (d) => (connectedQns.has(d.qualifiedName) ? 1 : 0.2));
 }
 
 function unhighlightAll(): void {
@@ -666,10 +655,7 @@ function centerOnNode(node: SimNode): void {
     .scale(1.5)
     .translate(-node.x, -node.y);
 
-  svg
-    .transition()
-    .duration(500)
-    .call(zoomBehavior.transform, transform);
+  svg.transition().duration(500).call(zoomBehavior.transform, transform);
 }
 
 function fitToView(): void {
@@ -683,7 +669,10 @@ function fitToView(): void {
   const visibleNodes = nodeSelection.data();
   if (visibleNodes.length === 0) return;
 
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  let minX = Infinity,
+    maxX = -Infinity,
+    minY = Infinity,
+    maxY = -Infinity;
   for (const n of visibleNodes) {
     if (n.x == null || n.y == null) continue;
     const r = NODE_RADIUS[n.kind] ?? 10;
@@ -693,7 +682,7 @@ function fitToView(): void {
     maxY = Math.max(maxY, n.y + r);
   }
 
-  if (!isFinite(minX)) return;
+  if (!Number.isFinite(minX)) return;
 
   const padding = 60;
   const bboxWidth = maxX - minX + padding * 2;
@@ -707,10 +696,7 @@ function fitToView(): void {
     .scale(scale)
     .translate(-cx, -cy);
 
-  svg
-    .transition()
-    .duration(500)
-    .call(zoomBehavior.transform, transform);
+  svg.transition().duration(500).call(zoomBehavior.transform, transform);
 }
 
 // ---------------------------------------------------------------------------
@@ -789,16 +775,20 @@ function bindToolbarEvents(): void {
   if (exportPngBtn) {
     exportPngBtn.addEventListener("click", () => {
       const svgEl = document.querySelector("#graph-area svg") as SVGSVGElement | null;
-      if (!svgEl) { return; }
+      if (!svgEl) {
+        return;
+      }
 
       const serializer = new XMLSerializer();
       const svgString = serializer.serializeToString(svgEl);
       const canvas = document.createElement("canvas");
       const bbox = svgEl.getBoundingClientRect();
-      canvas.width = bbox.width * 2;  // 2x for retina
+      canvas.width = bbox.width * 2; // 2x for retina
       canvas.height = bbox.height * 2;
       const ctx = canvas.getContext("2d");
-      if (!ctx) { return; }
+      if (!ctx) {
+        return;
+      }
       ctx.scale(2, 2);
 
       const img = new Image();
@@ -807,7 +797,7 @@ function bindToolbarEvents(): void {
         const pngData = canvas.toDataURL("image/png");
         vscodeApi.postMessage({ command: "exportPng", data: pngData });
       };
-      img.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svgString)));
+      img.src = `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svgString)))}`;
     });
   }
 }
@@ -821,10 +811,7 @@ function bindExtensionMessages(): void {
     const message = event.data;
     switch (message.command) {
       case "setData":
-        setData(
-          message.nodes as GraphNode[],
-          message.edges as GraphEdge[]
-        );
+        setData(message.nodes as GraphNode[], message.edges as GraphEdge[]);
         // Auto-fit after simulation settles a bit
         setTimeout(() => fitToView(), 800);
         // Show truncation warning if needed

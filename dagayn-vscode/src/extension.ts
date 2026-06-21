@@ -21,43 +21,99 @@ import { registerSearchCommand } from "./features/search";
 import { registerReviewCommand } from "./features/reviewAssistant";
 
 let sqliteReader: SqliteReader | undefined;
+let codeGraphProvider: CodeGraphTreeProvider | undefined;
 let blastRadiusProvider: BlastRadiusTreeProvider | undefined;
+let statsProvider: StatsTreeProvider | undefined;
+let statusBar: StatusBar | undefined;
 let autoUpdateTimer: ReturnType<typeof setTimeout> | undefined;
 let scmDecorationProvider: ScmDecorationProvider | undefined;
 
 function findGraphDb(workspaceRoot: string): string | undefined {
   const primary = path.join(workspaceRoot, ".dagayn", "graph.db");
-  if (fs.existsSync(primary)) { return primary; }
+  if (fs.existsSync(primary)) {
+    return primary;
+  }
   const fallback = path.join(workspaceRoot, ".dagayn.db");
-  if (fs.existsSync(fallback)) { return fallback; }
+  if (fs.existsSync(fallback)) {
+    return fallback;
+  }
   return undefined;
 }
 
 function getWorkspaceRoot(): string | undefined {
   const folders = vscode.workspace.workspaceFolders;
-  if (!folders) { return undefined; }
+  if (!folders) {
+    return undefined;
+  }
   for (const folder of folders) {
-    if (findGraphDb(folder.uri.fsPath)) { return folder.uri.fsPath; }
+    if (findGraphDb(folder.uri.fsPath)) {
+      return folder.uri.fsPath;
+    }
   }
   return folders[0]?.uri.fsPath;
 }
 
-async function reinitialize(context: vscode.ExtensionContext): Promise<void> {
-  const workspaceRoot = getWorkspaceRoot();
-  if (!workspaceRoot) { return; }
-  const dbPath = findGraphDb(workspaceRoot);
-  if (!dbPath) { return; }
-  sqliteReader?.close();
-  sqliteReader = new SqliteReader(dbPath);
-  await vscode.commands.executeCommand("dagayn.codeGraph.refresh");
+function ensureProviders(context: vscode.ExtensionContext, workspaceRoot: string): void {
+  if (codeGraphProvider) {
+    return;
+  }
+
+  codeGraphProvider = new CodeGraphTreeProvider(() => sqliteReader, workspaceRoot);
+  blastRadiusProvider = new BlastRadiusTreeProvider();
+  statsProvider = new StatsTreeProvider(() => sqliteReader);
+
+  context.subscriptions.push(
+    vscode.window.registerTreeDataProvider("dagayn.codeGraph", codeGraphProvider),
+    vscode.window.registerTreeDataProvider("dagayn.blastRadius", blastRadiusProvider),
+    vscode.window.registerTreeDataProvider("dagayn.stats", statsProvider),
+  );
+
+  statusBar = new StatusBar();
+  statusBar.update(sqliteReader);
+  statusBar.show();
+  context.subscriptions.push(statusBar);
+
+  scmDecorationProvider = new ScmDecorationProvider();
+  context.subscriptions.push(vscode.window.registerFileDecorationProvider(scmDecorationProvider));
 }
 
-function registerCommands(
-  context: vscode.ExtensionContext,
-  cli: CliWrapper,
-): void {
+function onReaderChanged(context: vscode.ExtensionContext): void {
+  const workspaceRoot = getWorkspaceRoot();
+  if (workspaceRoot) {
+    ensureProviders(context, workspaceRoot);
+  }
+  codeGraphProvider?.refresh();
+  statsProvider?.refresh();
+  statusBar?.update(sqliteReader);
+}
+
+async function reinitialize(context: vscode.ExtensionContext): Promise<void> {
+  const workspaceRoot = getWorkspaceRoot();
+  if (!workspaceRoot) {
+    return;
+  }
+  const dbPath = findGraphDb(workspaceRoot);
+  if (!dbPath) {
+    return;
+  }
+  sqliteReader?.close();
+  sqliteReader = new SqliteReader(dbPath);
+  onReaderChanged(context);
+}
+
+function registerCommands(context: vscode.ExtensionContext, cli: CliWrapper): void {
+  context.subscriptions.push(
+    vscode.commands.registerCommand("dagayn.codeGraph.refresh", () => {
+      onReaderChanged(context);
+    }),
+  );
+
   registerGraphLifecycleCommands(context, cli, getWorkspaceRoot, reinitialize);
-  registerBlastRadiusCommand(context, () => sqliteReader, () => blastRadiusProvider);
+  registerBlastRadiusCommand(
+    context,
+    () => sqliteReader,
+    () => blastRadiusProvider,
+  );
   registerNavigationCommands(context, () => sqliteReader);
   registerSearchCommand(context, () => sqliteReader);
   registerReviewCommand(
@@ -76,14 +132,16 @@ function watchGraphDb(context: vscode.ExtensionContext): void {
   const workspaceRoot = getWorkspaceRoot();
   if (workspaceRoot) {
     const dbPath = findGraphDb(workspaceRoot);
-    if (dbPath) { dbPathRef.current = dbPath; }
+    if (dbPath) {
+      dbPathRef.current = dbPath;
+    }
   }
 
   watcher.onDidChange(() => {
     if (sqliteReader && dbPathRef.current) {
       sqliteReader.close();
       sqliteReader = new SqliteReader(dbPathRef.current);
-      vscode.commands.executeCommand("dagayn.codeGraph.refresh");
+      onReaderChanged(context);
     }
   });
 
@@ -94,7 +152,7 @@ function watchGraphDb(context: vscode.ExtensionContext): void {
       if (dbPath) {
         dbPathRef.current = dbPath;
         sqliteReader = new SqliteReader(dbPath);
-        vscode.commands.executeCommand("dagayn.codeGraph.refresh");
+        onReaderChanged(context);
       }
     }
   });
@@ -103,6 +161,9 @@ function watchGraphDb(context: vscode.ExtensionContext): void {
     sqliteReader?.close();
     sqliteReader = undefined;
     dbPathRef.current = "";
+    codeGraphProvider?.refresh();
+    statsProvider?.refresh();
+    statusBar?.update(undefined);
   });
 
   context.subscriptions.push(watcher);
@@ -113,13 +174,19 @@ function setupAutoUpdate(context: vscode.ExtensionContext, cli: CliWrapper): voi
 
   const onSave = vscode.workspace.onDidSaveTextDocument(() => {
     const config = vscode.workspace.getConfiguration("dagayn");
-    if (!config.get<boolean>("autoUpdate", true)) { return; }
+    if (!config.get<boolean>("autoUpdate", true)) {
+      return;
+    }
 
-    if (autoUpdateTimer) { clearTimeout(autoUpdateTimer); }
+    if (autoUpdateTimer) {
+      clearTimeout(autoUpdateTimer);
+    }
 
     autoUpdateTimer = setTimeout(async () => {
       const wsRoot = getWorkspaceRoot();
-      if (!wsRoot || !sqliteReader) { return; }
+      if (!wsRoot || !sqliteReader) {
+        return;
+      }
       try {
         await cli.updateGraph(wsRoot);
       } catch {
@@ -135,9 +202,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const cli = new CliWrapper();
   const installer = new Installer(cli);
 
-  registerWalkthroughCommands(context, cli, installer);
+  registerWalkthroughCommands(context, installer);
 
   const workspaceRoot = getWorkspaceRoot();
+
+  registerCommands(context, cli);
 
   if (workspaceRoot) {
     const dbPath = findGraphDb(workspaceRoot);
@@ -157,31 +226,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
       }
 
-      const codeGraphProvider = new CodeGraphTreeProvider(sqliteReader, workspaceRoot);
-      blastRadiusProvider = new BlastRadiusTreeProvider();
-      const statsProvider = new StatsTreeProvider(sqliteReader);
-
-      context.subscriptions.push(
-        vscode.window.registerTreeDataProvider("dagayn.codeGraph", codeGraphProvider),
-        vscode.window.registerTreeDataProvider("dagayn.blastRadius", blastRadiusProvider),
-        vscode.window.registerTreeDataProvider("dagayn.stats", statsProvider),
-      );
-
-      const statusBar = new StatusBar();
-      statusBar.update(sqliteReader);
-      statusBar.show();
-      context.subscriptions.push(statusBar);
-
-      scmDecorationProvider = new ScmDecorationProvider();
-      context.subscriptions.push(
-        vscode.window.registerFileDecorationProvider(scmDecorationProvider),
-      );
+      onReaderChanged(context);
     } else {
       showWelcomeIfNeeded(context);
     }
   }
 
-  registerCommands(context, cli);
   watchGraphDb(context);
   setupAutoUpdate(context, cli);
 }

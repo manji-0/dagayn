@@ -28,3 +28,26 @@ uv run ruff format --check .
 ty check dagayn --python-version 3.13 --ignore unresolved-import
 uv run pytest --tb=short -q
 ```
+
+### VS Code extension (`dagayn-vscode/`)
+
+Requires Node 20+ and npm.
+
+```bash
+cd dagayn-vscode
+pnpm install
+pnpm compile
+pnpm lint
+pnpm fmt:check
+pnpm test
+pnpm test:compile
+```
+
+The `prek` pre-commit hooks (configured in `prek.toml`) run these same checks
+when files under `dagayn-vscode/` change. To auto-fix formatting:
+
+```bash
+cd dagayn-vscode && pnpm fmt
+```
+
+The formatter is Biome (configured in `biome.json`).

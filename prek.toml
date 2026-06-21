@@ -26,6 +26,16 @@ id = "end-of-file-fixer"
 repo = "local"
 
 [[repos.hooks]]
+id = "dagayn-vscode-checks"
+name = "dagayn-vscode (fmt/lint/test/test:compile)"
+language = "system"
+entry = "dagayn-vscode/scripts/checks.sh"
+pass_filenames = false
+files = { glob = ["dagayn-vscode/**/*"] }
+stages = ["pre-commit"]
+priority = 0
+
+[[repos.hooks]]
 id = "ruff-format"
 name = "ruff format"
 language = "system"

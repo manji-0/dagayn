@@ -41,8 +41,11 @@ target/
 dagayn/_vendor_grammars/
 
 # VS Code extension build artifacts
-code-review-graph-vscode/dist/
+dagayn-vscode/dist/
+dagayn-vscode/out/
 *.vsix
+pnpm-debug.log*
+dagayn-vscode/test/vscode-stub-package/
 
 # Claude Code
 .claude/

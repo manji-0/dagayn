@@ -12,12 +12,30 @@ import * as fs from "node:fs";
 import * as crypto from "node:crypto";
 import type { SqliteReader, ImpactRadius } from "../backend/sqlite";
 
+type PanelState =
+  | { status: "idle" }
+  | {
+      status: "loading";
+      panel: vscode.WebviewPanel;
+      reader: SqliteReader;
+      impactRadius?: ImpactRadius;
+      pendingHighlight?: string;
+    }
+  | {
+      status: "ready";
+      panel: vscode.WebviewPanel;
+      reader: SqliteReader;
+      impactRadius?: ImpactRadius;
+      pendingHighlight?: string;
+    };
+
 export class GraphWebviewPanel {
-  private static currentPanel: GraphWebviewPanel | undefined;
+  private static lifecycle: PanelState = { status: "idle" };
+
   private readonly panel: vscode.WebviewPanel;
   private readonly reader: SqliteReader;
   private readonly impactRadius?: ImpactRadius;
-  private readonly highlightQualifiedName?: string;
+  private pendingHighlight?: string;
   private disposables: vscode.Disposable[] = [];
 
   private constructor(
@@ -25,24 +43,21 @@ export class GraphWebviewPanel {
     extensionUri: vscode.Uri,
     reader: SqliteReader,
     impactRadius?: ImpactRadius,
-    highlightQualifiedName?: string
+    pendingHighlight?: string,
   ) {
     this.panel = panel;
     this.reader = reader;
     this.impactRadius = impactRadius;
-    this.highlightQualifiedName = highlightQualifiedName;
+    this.pendingHighlight = pendingHighlight;
 
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
 
-    this.panel.webview.html = this.getHtmlContent(
-      this.panel.webview,
-      extensionUri
-    );
+    this.panel.webview.html = this.getHtmlContent(this.panel.webview, extensionUri);
 
     this.panel.webview.onDidReceiveMessage(
       (message) => this.handleMessage(message),
       null,
-      this.disposables
+      this.disposables,
     );
 
     // Listen for theme changes
@@ -57,7 +72,7 @@ export class GraphWebviewPanel {
           command: "setTheme",
           theme: themeKind,
         });
-      })
+      }),
     );
   }
 
@@ -65,16 +80,19 @@ export class GraphWebviewPanel {
     extensionUri: vscode.Uri,
     reader: SqliteReader,
     impactRadius?: ImpactRadius,
-    highlightQualifiedName?: string
+    highlightQualifiedName?: string,
   ): void {
     const column = vscode.ViewColumn.Beside;
 
-    if (GraphWebviewPanel.currentPanel) {
-      GraphWebviewPanel.currentPanel.panel.reveal(column);
+    if (
+      GraphWebviewPanel.lifecycle.status === "loading" ||
+      GraphWebviewPanel.lifecycle.status === "ready"
+    ) {
+      GraphWebviewPanel.lifecycle.panel.reveal(column);
 
       // Re-send data if a new highlight is requested
       if (highlightQualifiedName) {
-        GraphWebviewPanel.currentPanel.panel.webview.postMessage({
+        GraphWebviewPanel.lifecycle.panel.webview.postMessage({
           command: "highlightNode",
           qualifiedName: highlightQualifiedName,
         });
@@ -83,31 +101,28 @@ export class GraphWebviewPanel {
       return;
     }
 
-    const panel = vscode.window.createWebviewPanel(
-      "dagayn.graph",
-      "Code Graph",
-      column,
-      {
-        enableScripts: true,
-        retainContextWhenHidden: true,
-        localResourceRoots: [
-          vscode.Uri.joinPath(extensionUri, "dist"),
-          vscode.Uri.joinPath(extensionUri, "media"),
-        ],
-      }
-    );
+    const panel = vscode.window.createWebviewPanel("dagayn.graph", "Code Graph", column, {
+      enableScripts: true,
+      retainContextWhenHidden: true,
+      localResourceRoots: [
+        vscode.Uri.joinPath(extensionUri, "dist"),
+        vscode.Uri.joinPath(extensionUri, "media"),
+      ],
+    });
 
-    GraphWebviewPanel.currentPanel = new GraphWebviewPanel(
+    GraphWebviewPanel.lifecycle = {
+      status: "loading",
       panel,
-      extensionUri,
       reader,
       impactRadius,
-      highlightQualifiedName
-    );
+      pendingHighlight: highlightQualifiedName,
+    };
+
+    new GraphWebviewPanel(panel, extensionUri, reader, impactRadius, highlightQualifiedName);
   }
 
   private dispose(): void {
-    GraphWebviewPanel.currentPanel = undefined;
+    GraphWebviewPanel.lifecycle = { status: "idle" };
     this.panel.dispose();
     for (const d of this.disposables) {
       d.dispose();
@@ -119,26 +134,23 @@ export class GraphWebviewPanel {
   // Message handling
   // -----------------------------------------------------------------------
 
-  private handleMessage(message: {
-    command: string;
-    [key: string]: unknown;
-  }): void {
+  private handleMessage(message: { command: string; [key: string]: unknown }): void {
     switch (message.command) {
       case "ready":
+        if (GraphWebviewPanel.lifecycle.status === "loading") {
+          GraphWebviewPanel.lifecycle = {
+            ...GraphWebviewPanel.lifecycle,
+            status: "ready",
+          };
+        }
         this.sendGraphData();
         break;
 
       case "nodeClicked":
-        this.openFileAtLine(
-          message.filePath as string,
-          message.lineStart as number
-        );
+        this.openFileAtLine(message.filePath as string, message.lineStart as number);
         // Bidirectional sync: reveal in tree view
         if (message.qualifiedName) {
-          vscode.commands.executeCommand(
-            "dagayn.revealInTree",
-            message.qualifiedName as string
-          );
+          vscode.commands.executeCommand("dagayn.revealInTree", message.qualifiedName as string);
         }
         break;
 
@@ -162,10 +174,7 @@ export class GraphWebviewPanel {
     let edges;
 
     if (this.impactRadius) {
-      nodes = [
-        ...this.impactRadius.changedNodes,
-        ...this.impactRadius.impactedNodes,
-      ];
+      nodes = [...this.impactRadius.changedNodes, ...this.impactRadius.impactedNodes];
       edges = this.impactRadius.edges;
     } else {
       // Load all nodes and edges
@@ -185,7 +194,7 @@ export class GraphWebviewPanel {
       const nodeQns = new Set(nodes.map((n: { qualifiedName: string }) => n.qualifiedName));
       edges = edges.filter(
         (e: { sourceQualified: string; targetQualified: string }) =>
-          nodeQns.has(e.sourceQualified) && nodeQns.has(e.targetQualified)
+          nodeQns.has(e.sourceQualified) && nodeQns.has(e.targetQualified),
       );
     }
 
@@ -200,8 +209,7 @@ export class GraphWebviewPanel {
     // Send theme
     const themeKind =
       vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Light ||
-      vscode.window.activeColorTheme.kind ===
-        vscode.ColorThemeKind.HighContrastLight
+      vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.HighContrastLight
         ? "light"
         : "dark";
     this.panel.webview.postMessage({
@@ -210,12 +218,20 @@ export class GraphWebviewPanel {
     });
 
     // Highlight node if requested
-    if (this.highlightQualifiedName) {
+    const highlightQualifiedName = this.pendingHighlight;
+    if (highlightQualifiedName) {
+      this.pendingHighlight = undefined;
+      if (GraphWebviewPanel.lifecycle.status !== "idle") {
+        GraphWebviewPanel.lifecycle = {
+          ...GraphWebviewPanel.lifecycle,
+          pendingHighlight: undefined,
+        };
+      }
       // Small delay to let the graph render first
       setTimeout(() => {
         this.panel.webview.postMessage({
           command: "highlightNode",
-          qualifiedName: this.highlightQualifiedName,
+          qualifiedName: highlightQualifiedName,
         });
       }, 1000);
     }
@@ -224,15 +240,9 @@ export class GraphWebviewPanel {
   /**
    * Open a file in the editor at a specific line.
    */
-  private async openFileAtLine(
-    filePath: string,
-    lineStart: number
-  ): Promise<void> {
-    const workspaceRoot =
-      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    const fullPath = workspaceRoot
-      ? path.join(workspaceRoot, filePath)
-      : filePath;
+  private async openFileAtLine(filePath: string, lineStart: number): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const fullPath = workspaceRoot ? path.join(workspaceRoot, filePath) : filePath;
 
     try {
       const doc = await vscode.workspace.openTextDocument(fullPath);
@@ -243,9 +253,7 @@ export class GraphWebviewPanel {
         preserveFocus: false,
       });
     } catch {
-      vscode.window.showWarningMessage(
-        `Code Graph: Could not open file ${filePath}`
-      );
+      vscode.window.showWarningMessage(`Code Graph: Could not open file ${filePath}`);
     }
   }
 
@@ -254,9 +262,7 @@ export class GraphWebviewPanel {
    */
   private async exportSvgToClipboard(svgString: string): Promise<void> {
     await vscode.env.clipboard.writeText(svgString);
-    vscode.window.showInformationMessage(
-      "Code Graph: SVG copied to clipboard."
-    );
+    vscode.window.showInformationMessage("Code Graph: SVG copied to clipboard.");
   }
 
   /**
@@ -267,7 +273,9 @@ export class GraphWebviewPanel {
       defaultUri: vscode.Uri.file("code-graph.png"),
       filters: { "PNG Image": ["png"] },
     });
-    if (!uri) { return; }
+    if (!uri) {
+      return;
+    }
 
     const base64 = dataUrl.replace(/^data:image\/png;base64,/, "");
     const buffer = Buffer.from(base64, "base64");
@@ -279,11 +287,16 @@ export class GraphWebviewPanel {
    * Highlight a node by qualified name from external code (tree view click).
    */
   static highlightNode(qualifiedName: string): void {
-    if (GraphWebviewPanel.currentPanel) {
-      GraphWebviewPanel.currentPanel.panel.webview.postMessage({
+    if (GraphWebviewPanel.lifecycle.status === "ready") {
+      GraphWebviewPanel.lifecycle.panel.webview.postMessage({
         command: "highlightNode",
         qualifiedName,
       });
+    } else if (GraphWebviewPanel.lifecycle.status === "loading") {
+      GraphWebviewPanel.lifecycle = {
+        ...GraphWebviewPanel.lifecycle,
+        pendingHighlight: qualifiedName,
+      };
     }
   }
 
@@ -291,20 +304,15 @@ export class GraphWebviewPanel {
   // HTML content
   // -----------------------------------------------------------------------
 
-  private getHtmlContent(
-    webview: vscode.Webview,
-    extensionUri: vscode.Uri
-  ): string {
+  private getHtmlContent(webview: vscode.Webview, extensionUri: vscode.Uri): string {
     const scriptUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(extensionUri, "dist", "webview", "graph.js")
+      vscode.Uri.joinPath(extensionUri, "dist", "webview", "graph.js"),
     );
     const styleUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(extensionUri, "media", "webview", "graph.css")
+      vscode.Uri.joinPath(extensionUri, "media", "webview", "graph.css"),
     );
     const nonce = getNonce();
-    const htmlPath = vscode.Uri.joinPath(
-      extensionUri, "media", "webview", "graph.html"
-    ).fsPath;
+    const htmlPath = vscode.Uri.joinPath(extensionUri, "media", "webview", "graph.html").fsPath;
     const template = fs.readFileSync(htmlPath, "utf-8");
     return template
       .replace(/\{\{NONCE\}\}/g, nonce)

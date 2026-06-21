@@ -46,32 +46,32 @@ The graph database is stored locally at `.dagayn/graph.db` and updates automatic
 
 ## Commands
 
-| Command | Description |
-|---|---|
-| `Code Graph: Build Graph` | Parse the codebase and create the graph database |
-| `Code Graph: Update Graph` | Incrementally update the graph |
-| `Code Graph: Show Blast Radius` | Show the blast radius for a symbol |
-| `Code Graph: Review Changes` | Analyze git changes and show impacted files |
-| `Code Graph: Find Callers` | Find all callers of a function |
-| `Code Graph: Find Callees` | Find all functions called by a target |
-| `Code Graph: Find Tests` | Find tests for a symbol |
-| `Code Graph: Find Large Functions` | Find functions/classes exceeding a size threshold |
-| `Code Graph: Query Graph` | Run semantic queries (8 patterns: callers_of, callees_of, etc.) |
-| `Code Graph: Search` | Search the code graph |
-| `Code Graph: Show Graph` | Open the interactive graph visualization |
-| `Code Graph: Compute Embeddings` | Generate vector embeddings for semantic search |
-| `Code Graph: Watch Mode` | Run graph in watch mode for continuous updates |
+| Command                            | Description                                                     |
+| ---------------------------------- | --------------------------------------------------------------- |
+| `Code Graph: Build Graph`          | Parse the codebase and create the graph database                |
+| `Code Graph: Update Graph`         | Incrementally update the graph                                  |
+| `Code Graph: Show Blast Radius`    | Show the blast radius for a symbol                              |
+| `Code Graph: Review Changes`       | Analyze git changes and show impacted files                     |
+| `Code Graph: Find Callers`         | Find all callers of a function                                  |
+| `Code Graph: Find Callees`         | Find all functions called by a target                           |
+| `Code Graph: Find Tests`           | Find tests for a symbol                                         |
+| `Code Graph: Find Large Functions` | Find functions/classes exceeding a size threshold               |
+| `Code Graph: Query Graph`          | Run semantic queries (8 patterns: callers_of, callees_of, etc.) |
+| `Code Graph: Search`               | Search the code graph                                           |
+| `Code Graph: Show Graph`           | Open the interactive graph visualization                        |
+| `Code Graph: Compute Embeddings`   | Generate vector embeddings for semantic search                  |
+| `Code Graph: Watch Mode`           | Run graph in watch mode for continuous updates                  |
 
 ## Settings
 
-| Setting | Default | Description |
-|---|---|---|
-| `dagayn.cliPath` | `""` | Path to the CLI binary. Leave empty to auto-detect. |
-| `dagayn.autoUpdate` | `true` | Auto-update the graph on file save. |
-| `dagayn.blastRadiusDepth` | `2` | Max traversal depth for blast radius (1--10). |
-| `dagayn.graphTheme` | `"auto"` | Graph color theme: `auto`, `light`, or `dark`. |
-| `dagayn.graph.maxNodes` | `500` | Max nodes in the graph visualization (10--5000). |
-| `dagayn.graph.defaultEdges` | All except CONTAINS | Edge types shown by default. |
+| Setting                     | Default             | Description                                         |
+| --------------------------- | ------------------- | --------------------------------------------------- |
+| `dagayn.cliPath`            | `""`                | Path to the CLI binary. Leave empty to auto-detect. |
+| `dagayn.autoUpdate`         | `true`              | Auto-update the graph on file save.                 |
+| `dagayn.blastRadiusDepth`   | `2`                 | Max traversal depth for blast radius (1--10).       |
+| `dagayn.graphTheme`         | `"auto"`            | Graph color theme: `auto`, `light`, or `dark`.      |
+| `dagayn.graph.maxNodes`     | `500`               | Max nodes in the graph visualization (10--5000).    |
+| `dagayn.graph.defaultEdges` | All except CONTAINS | Edge types shown by default.                        |
 
 ## Requirements
 
