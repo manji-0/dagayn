@@ -47,7 +47,7 @@ Directive / link target shapes:
 - `./relative/path.md` — whole-file dependency
 - `./relative/path.md#Section` — specific section in another doc
 
-**Slug rules** (`_markdown_slugify`, lines 219–228):
+**Slug rules** (`markdown_slugify`, `crates/dagayn-parser/src/markdown.rs:568`):
 - Alphanumerics are lowercased.
 - Spaces and hyphens both become `-`.
 - Underscores are **preserved** (not converted to `-`).
@@ -65,7 +65,9 @@ Worked examples:
 - Identifiers shorter than 3 chars are skipped.
 - Identifiers without `_` or `.` need ≥ 10 chars (filters generic English words like `list` / `parser`).
 
-**Postprocessing** (`dagayn/postprocessing.py:56–125` and `crates/dagayn-graph/src/lib.rs:511–625`): each unresolved Markdown-sourced `CROSS_ARTIFACT` edge is resolved against the code graph by symbol name. **One non-Markdown match → target is promoted to that node's qualified name with HIGH/0.8 confidence. Zero or 2+ matches → target stays or returns to `<unresolved:Symbol>` with LOW/0.2 confidence.** The edge is kept so a future graph update can resolve it; the `markdown_artifact_refs_dropped` counter means "demoted", not deleted. Use distinctive, ideally qualified, symbol names.
+**Postprocessing** (`dagayn/postprocessing.py:63–127` and `crates/dagayn-graph/src/search_markdown.rs:73`): each unresolved Markdown-sourced `CROSS_ARTIFACT` edge is resolved against the code graph by symbol name. **One non-Markdown match → target is promoted to that node's qualified name with HIGH/0.8 confidence.**
+
+For implicit backticked code spans, **zero or 2+ matches delete the edge** because the span is likely ordinary vocabulary. For explicit `dagayn:` documentation directives, **zero or 2+ matches keep or demote the edge to `<unresolved:Symbol>` with LOW/0.2 confidence** so a future graph update can resolve it; in this case the `markdown_artifact_refs_dropped` counter means "demoted", not deleted. Use distinctive, ideally qualified, symbol names, or use explicit `dagayn:` directives when the link is intentional.
 
 ## Markdown ↔ code documentation links
 
@@ -126,7 +128,7 @@ For each section, in dependency order:
    an omitted `local_embedding` argument may inherit the server preset and turn
    a documentation-edge check into a large embedding refresh.
 4. **Verify the edges resolved:**
-   - `query_graph_tool(pattern="importers_of", target="<doc.md>", detail_level="minimal")` — file-level inbound edges. **Use the file path only — `importers_of` resolves the target to a file path; `<doc.md>::<section>` will silently return zero hits** (`tools/query.py:241`).
+   - `query_graph_tool(pattern="importers_of", target="<doc.md>", detail_level="minimal")` — file-level inbound edges. **Use the file path only — `importers_of` resolves the target to a file path; `<doc.md>::<section>` will silently return zero hits** (`tools/query.py:556`).
    - `review_tool(mode="impact", changed_files=["<doc.md>"], detail_level="minimal")` — outbound blast radius for the whole file.
    - For explicit Markdown → code directives, `query_graph_tool(pattern="implementations_of", target="<doc.md>::<section-slug>", detail_level="minimal")` — confirms linked implementation/artifact targets.
 5. **If a directive looks like it didn't take effect**, re-read your slug against the rules in the reference table above (most common bug: punctuation in heading not accounted for, or section slug typo). Fix and re-run step 3 + 4.

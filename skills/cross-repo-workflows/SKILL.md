@@ -37,7 +37,7 @@ retrieval setup.
    ```
 4. Search structurally across repos:
    ```bash
-   dagayn tool cross_repo_search_tool --arg query='"billing client"' --arg detail_level='"minimal"'
+   dagayn tool cross_repo_search_tool --arg query='"billing client"'
    ```
 5. After cross-repo candidates are identified, switch back to the relevant repo
    and use local graph tools such as `query_graph_tool`, `review_tool`, or

@@ -40,10 +40,12 @@ These are the tools that should appear in the recommended default path:
 - `refactor_tool`
 - `query_graph_tool`
 - `semantic_search_nodes_tool`
+- `get_docs_section_tool`
 
 This set keeps the user-facing shape small: one orientation tool, one review
-dispatcher, one flow dispatcher, one architecture tool, one refactor tool, and
-two exploration tools.
+dispatcher, one flow dispatcher, one architecture tool, one refactor tool,
+two exploration tools, plus a read-only docs helper so skills can fetch their
+optimized workflow from `docs/LLM-OPTIMIZED-REFERENCE.md`.
 
 ### Tier 2: drill-down tools
 

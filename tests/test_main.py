@@ -49,6 +49,7 @@ DEFAULT_MCP_TOOL_NAMES = {
     "refactor_tool",
     "query_graph_tool",
     "semantic_search_nodes_tool",
+    "get_docs_section_tool",
 }
 
 

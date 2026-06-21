@@ -125,6 +125,7 @@ _DEFAULT_MCP_TOOL_NAMES: frozenset[str] = frozenset(
         "refactor_tool",
         "query_graph_tool",
         "semantic_search_nodes_tool",
+        "get_docs_section_tool",
     }
 )
 _ALL_TOOL_SENTINELS: frozenset[str] = frozenset({"*", "all", "full"})

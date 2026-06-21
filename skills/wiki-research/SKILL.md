@@ -16,11 +16,11 @@ wiki, or static export file for humans to read.
    `architecture_analysis_tool(mode="overview", detail_level="minimal")` first.
 3. Generate or refresh wiki content only when the user needs a durable report:
    ```bash
-   dagayn tool generate_wiki_tool --arg detail_level='"minimal"'
+   dagayn tool generate_wiki_tool
    ```
 4. Read focused pages instead of opening generated files wholesale:
    ```bash
-   dagayn tool get_wiki_page_tool --arg page='"overview"'
+   dagayn tool get_wiki_page_tool --arg community_name='"overview"'
    ```
 5. For external graph exports, use the static CLI export surface. Pick the
    smallest format that matches the downstream tool:

@@ -332,6 +332,11 @@ Default tool names are:
 - `refactor_tool`
 - `query_graph_tool`
 - `semantic_search_nodes_tool`
+- `get_docs_section_tool`
+
+`get_docs_section_tool` reads a section from `docs/LLM-OPTIMIZED-REFERENCE.md`
+so skills can fetch their optimized workflow without duplicating it in the
+skill file.
 
 `query_graph_tool` includes documentation-aware bridge patterns in addition to
 ordinary code relationships. Use `docs_for` to find specifications, runbooks,
