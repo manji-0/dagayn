@@ -129,6 +129,50 @@
       }
     ],
     "menus": {
+      "editor/context": [
+        {
+          "command": "dagayn.findCallers",
+          "when": "editorTextFocus",
+          "group": "dagayn.codeGraph@1"
+        },
+        {
+          "command": "dagayn.findCallees",
+          "when": "editorTextFocus",
+          "group": "dagayn.codeGraph@2"
+        },
+        {
+          "command": "dagayn.findTests",
+          "when": "editorTextFocus",
+          "group": "dagayn.codeGraph@3"
+        },
+        {
+          "command": "dagayn.showBlastRadius",
+          "when": "editorTextFocus",
+          "group": "dagayn.codeGraph@4"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "dagayn.findCallers",
+          "when": "editorTextFocus",
+          "group": "dagayn.codeGraph@1"
+        },
+        {
+          "command": "dagayn.findCallees",
+          "when": "editorTextFocus",
+          "group": "dagayn.codeGraph@2"
+        },
+        {
+          "command": "dagayn.findTests",
+          "when": "editorTextFocus",
+          "group": "dagayn.codeGraph@3"
+        },
+        {
+          "command": "dagayn.showBlastRadius",
+          "when": "editorTextFocus",
+          "group": "dagayn.codeGraph@4"
+        }
+      ],
       "scm/title": [
         {
           "command": "dagayn.reviewChanges",
