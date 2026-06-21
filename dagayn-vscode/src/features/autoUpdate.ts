@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { CliWrapper, CliResult } from "../backend/cli";
-import { SqliteReader } from "../backend/sqlite";
+import { WorkspaceGraphRegistry } from "../backend/registry";
 
 export const DEFAULT_FAILURE_THRESHOLD = 3;
 const AUTO_UPDATE_DEBOUNCE_MS = 2000;
@@ -12,16 +12,18 @@ export class AutoUpdateController implements vscode.Disposable {
   private readonly disposables: vscode.Disposable[] = [];
   private disposed = false;
   private readonly debounceMs: number;
+  private lastSavedDoc: vscode.TextDocument | undefined;
 
   constructor(
     private readonly cli: CliWrapper,
-    private readonly getWorkspaceRoot: () => string | undefined,
-    private readonly getReader: () => SqliteReader | undefined,
+    private readonly registry: WorkspaceGraphRegistry,
     private readonly outputChannel: vscode.OutputChannel,
     debounceMs?: number,
+    private readonly onFolderUpdated?: (folderFsPath: string) => void,
   ) {
     this.debounceMs = debounceMs ?? AUTO_UPDATE_DEBOUNCE_MS;
-    const saveListener = vscode.workspace.onDidSaveTextDocument(() => {
+    const saveListener = vscode.workspace.onDidSaveTextDocument((doc) => {
+      this.lastSavedDoc = doc;
       this.scheduleUpdate();
     });
     this.disposables.push(saveListener);
@@ -51,14 +53,19 @@ export class AutoUpdateController implements vscode.Disposable {
   }
 
   private async runUpdate(): Promise<void> {
-    const wsRoot = this.getWorkspaceRoot();
-    if (!wsRoot || !this.getReader()) {
+    const doc = this.lastSavedDoc;
+    if (!doc) {
+      return;
+    }
+
+    const folder = vscode.workspace.getWorkspaceFolder(doc.uri)?.uri.fsPath;
+    if (!folder || !this.registry.getReaderForFolder(folder)) {
       return;
     }
 
     let result: CliResult;
     try {
-      result = await this.cli.updateGraph(wsRoot);
+      result = await this.cli.updateGraph(folder);
     } catch (err) {
       if (!this.disposed) {
         this.handleFailure(`Auto-update threw: ${this.toMessage(err)}`);
@@ -71,15 +78,25 @@ export class AutoUpdateController implements vscode.Disposable {
     }
 
     if (result.success) {
-      this.handleSuccess();
+      await this.handleSuccess(folder);
     } else {
       this.handleFailure(result.stderr || `Auto-update failed (${result.errorKind})`);
     }
   }
 
-  private handleSuccess(): void {
+  private async handleSuccess(folderFsPath: string): Promise<void> {
     this.consecutiveFailures = 0;
     this.notifiedThisSession = false;
+    if (this.onFolderUpdated) {
+      try {
+        await this.onFolderUpdated(folderFsPath);
+      } catch (err) {
+        const timestamp = new Date().toISOString();
+        this.outputChannel.appendLine(
+          `[${timestamp}] Reinitialize after auto-update failed: ${this.toMessage(err)}`,
+        );
+      }
+    }
   }
 
   private handleFailure(detail: string): void {

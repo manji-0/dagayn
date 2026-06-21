@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import * as path from "node:path";
-import { SqliteReader, GraphNode } from "../backend/sqlite";
+import { GraphNode } from "../backend/sqlite";
+import { WorkspaceGraphRegistry } from "../backend/registry";
 import { navigateToNode } from "./cursorResolver";
 
 const KIND_ICON: Record<string, string> = {
@@ -11,11 +12,10 @@ const KIND_ICON: Record<string, string> = {
   Type: "$(symbol-interface)",
 };
 
-function nodeToQuickPickItem(
-  node: GraphNode,
-  workspaceRoot: string | undefined,
-): vscode.QuickPickItem & { node: GraphNode } {
+function nodeToQuickPickItem(node: GraphNode): vscode.QuickPickItem & { node: GraphNode } {
   const icon = KIND_ICON[node.kind] ?? "$(symbol-misc)";
+  const workspaceRoot = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(node.filePath))?.uri
+    .fsPath;
   const relativePath = workspaceRoot ? path.relative(workspaceRoot, node.filePath) : node.filePath;
   const lineInfo = node.lineStart != null ? `:${node.lineStart}` : "";
 
@@ -27,18 +27,27 @@ function nodeToQuickPickItem(
   };
 }
 
+function searchAllFolders(
+  registry: WorkspaceGraphRegistry,
+  query: string,
+  limit: number,
+): GraphNode[] {
+  const all: GraphNode[] = [];
+  for (const { reader } of registry.getAllReaders()) {
+    all.push(...reader.searchNodes(query, limit));
+  }
+  return all.slice(0, limit);
+}
+
 export function registerSearchCommand(
   context: vscode.ExtensionContext,
-  getReader: () => SqliteReader | undefined,
+  registry: WorkspaceGraphRegistry,
 ): void {
   const disposable = vscode.commands.registerCommand("dagayn.search", async () => {
-    const reader = getReader();
-    if (!reader) {
+    if (registry.getAllReaders().length === 0) {
       vscode.window.showWarningMessage("Code Graph: No graph database loaded.");
       return;
     }
-
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 
     const quickPick = vscode.window.createQuickPick<vscode.QuickPickItem & { node: GraphNode }>();
     quickPick.placeholder = "Search for functions, classes, files, types...";
@@ -57,12 +66,8 @@ export function registerSearchCommand(
       }
 
       debounceTimer = setTimeout(() => {
-        const currentReader = getReader();
-        if (!currentReader) {
-          return;
-        }
-        const results = currentReader.searchNodes(value, 20);
-        quickPick.items = results.map((node) => nodeToQuickPickItem(node, workspaceRoot));
+        const results = searchAllFolders(registry, value, 20);
+        quickPick.items = results.map((node) => nodeToQuickPickItem(node));
       }, 100);
     });
 

@@ -1,11 +1,14 @@
 import * as vscode from "vscode";
+import * as path from "node:path";
 import { SqliteReader, GraphNode } from "../backend/sqlite";
+import { WorkspaceGraphRegistry } from "../backend/registry";
 import {
   FileTreeItem,
   SymbolTreeItem,
   EdgeTreeItem,
   BlastRadiusGroupItem,
   StatsItem,
+  WorkspaceFolderTreeItem,
 } from "./treeItems";
 
 // ---------------------------------------------------------------------------
@@ -19,10 +22,7 @@ export class CodeGraphTreeProvider implements vscode.TreeDataProvider<vscode.Tre
   readonly onDidChangeTreeData: vscode.Event<vscode.TreeItem | undefined | null> =
     this._onDidChangeTreeData.event;
 
-  constructor(
-    private readonly getReader: () => SqliteReader | undefined,
-    private readonly workspaceRoot: string,
-  ) {}
+  constructor(private readonly getRegistry: () => WorkspaceGraphRegistry | undefined) {}
 
   refresh(): void {
     this._onDidChangeTreeData.fire(undefined);
@@ -36,6 +36,9 @@ export class CodeGraphTreeProvider implements vscode.TreeDataProvider<vscode.Tre
     if (!element) {
       return this.getRootChildren();
     }
+    if (element instanceof WorkspaceFolderTreeItem) {
+      return this.getFolderChildren(element);
+    }
     if (element instanceof FileTreeItem) {
       return this.getFileChildren(element);
     }
@@ -45,28 +48,73 @@ export class CodeGraphTreeProvider implements vscode.TreeDataProvider<vscode.Tre
     return [];
   }
 
-  // -- Root level: one FileTreeItem per file --------------------------------
+  // -- Root level: either folder groups or files directly -------------------
 
   private getRootChildren(): vscode.TreeItem[] {
-    const reader = this.getReader();
+    const registry = this.getRegistry();
+    if (!registry) {
+      return [];
+    }
+    const entries = registry.getAllReaders();
+    if (entries.length === 0) {
+      return [];
+    }
+    if (entries.length === 1) {
+      return this.filesToItems(entries[0].reader, entries[0].folderFsPath);
+    }
+    return entries.map(
+      ({ folderFsPath, reader }) =>
+        new WorkspaceFolderTreeItem(folderFsPath, this.countFiles(reader)),
+    );
+  }
+
+  private getFolderChildren(folderItem: WorkspaceFolderTreeItem): vscode.TreeItem[] {
+    const registry = this.getRegistry();
+    if (!registry) {
+      return [];
+    }
+    const reader = registry.getReaderForFolder(folderItem.folderFsPath);
     if (!reader) {
       return [];
     }
+    return this.filesToItems(reader, folderItem.folderFsPath);
+  }
+
+  private filesToItems(reader: SqliteReader, workspaceRoot: string): FileTreeItem[] {
     const files = reader.getAllFiles();
     return files
       .slice()
       .sort((a, b) => a.localeCompare(b))
-      .map((filePath) => new FileTreeItem(filePath, this.workspaceRoot));
+      .map((filePath) => new FileTreeItem(filePath, workspaceRoot));
+  }
+
+  private countFiles(reader: SqliteReader): number {
+    return reader.getAllFiles().length;
   }
 
   // -- File level: symbols (non-File nodes) sorted by line ------------------
 
   private getFileChildren(fileItem: FileTreeItem): vscode.TreeItem[] {
-    const reader = this.getReader();
-    if (!reader) {
+    const registry = this.getRegistry();
+    if (!registry) {
       return [];
     }
-    const nodes = reader.getNodesByFile(fileItem.filePath);
+    const reader = registry.getReaderForFolder(fileItem.folderFsPath);
+    if (!reader) {
+      // Fall back to any reader that contains the file path for single-folder
+      // compatibility when the item was created before the registry was wired.
+      const all = registry.getAllReaders();
+      const match = all.find((e) => fileItem.filePath.startsWith(e.folderFsPath));
+      if (!match) {
+        return [];
+      }
+      return this.nodesForFile(match.reader, fileItem.filePath);
+    }
+    return this.nodesForFile(reader, fileItem.filePath);
+  }
+
+  private nodesForFile(reader: SqliteReader, filePath: string): SymbolTreeItem[] {
+    const nodes = reader.getNodesByFile(filePath);
     return nodes
       .filter((n) => n.kind !== "File")
       .sort((a, b) => (a.lineStart ?? 0) - (b.lineStart ?? 0))
@@ -79,7 +127,12 @@ export class CodeGraphTreeProvider implements vscode.TreeDataProvider<vscode.Tre
   // -- Symbol level: outgoing + incoming edges (skip CONTAINS) --------------
 
   private getSymbolChildren(symbolItem: SymbolTreeItem): vscode.TreeItem[] {
-    const reader = this.getReader();
+    const registry = this.getRegistry();
+    if (!registry) {
+      return [];
+    }
+    const folder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(symbolItem.filePath));
+    const reader = folder ? registry.getReaderForFolder(folder.uri.fsPath) : undefined;
     if (!reader) {
       return [];
     }
@@ -191,7 +244,7 @@ export class StatsTreeProvider implements vscode.TreeDataProvider<vscode.TreeIte
   readonly onDidChangeTreeData: vscode.Event<vscode.TreeItem | undefined | null> =
     this._onDidChangeTreeData.event;
 
-  constructor(private readonly getReader: () => SqliteReader | undefined) {}
+  constructor(private readonly getRegistry: () => WorkspaceGraphRegistry | undefined) {}
 
   refresh(): void {
     this._onDidChangeTreeData.fire(undefined);
@@ -202,10 +255,32 @@ export class StatsTreeProvider implements vscode.TreeDataProvider<vscode.TreeIte
   }
 
   getChildren(): vscode.ProviderResult<vscode.TreeItem[]> {
-    const reader = this.getReader();
-    if (!reader) {
+    const registry = this.getRegistry();
+    if (!registry) {
       return [];
     }
+    const folders = registry.foldersWithGraph();
+    if (folders.length === 0) {
+      return [];
+    }
+    if (folders.length === 1) {
+      const reader = registry.getReaderForFolder(folders[0]);
+      if (!reader) {
+        return [];
+      }
+      return this.statsItems(reader);
+    }
+    return folders.map((folderFsPath) => {
+      const reader = registry.getReaderForFolder(folderFsPath);
+      const stats = reader?.getStats();
+      const label = stats
+        ? `${path.basename(folderFsPath)} — ${stats.totalNodes} nodes / ${stats.totalEdges} edges`
+        : path.basename(folderFsPath);
+      return new StatsItem(label, "");
+    });
+  }
+
+  private statsItems(reader: SqliteReader): StatsItem[] {
     const stats = reader.getStats();
     const items: StatsItem[] = [];
 

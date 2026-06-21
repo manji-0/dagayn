@@ -2,7 +2,8 @@ import * as vscode from "vscode";
 import * as path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { SqliteReader } from "../backend/sqlite";
+import { WorkspaceGraphRegistry } from "../backend/registry";
+import { pickFolderForGlobalOp } from "../backend/folderPicker";
 import { GraphWebviewPanel } from "../views/graphWebview";
 import { ScmDecorationProvider } from "./scmDecorations";
 
@@ -23,21 +24,20 @@ async function gitLines(args: string[], cwd: string): Promise<string[]> {
 
 export function registerReviewCommand(
   context: vscode.ExtensionContext,
-  getReader: () => SqliteReader | undefined,
-  getWorkspaceRoot: () => string | undefined,
+  registry: WorkspaceGraphRegistry,
   getScmProvider: () => ScmDecorationProvider | undefined,
 ): void {
   context.subscriptions.push(
     vscode.commands.registerCommand("dagayn.reviewChanges", async () => {
-      const reader = getReader();
-      if (!reader) {
+      const folder = await pickFolderForGlobalOp(registry, { requireGraph: true });
+      if (!folder) {
         vscode.window.showWarningMessage("Code Graph: No graph database loaded.");
         return;
       }
 
-      const workspaceRoot = getWorkspaceRoot();
-      if (!workspaceRoot) {
-        vscode.window.showErrorMessage("No workspace folder is open.");
+      const reader = registry.getReaderForFolder(folder);
+      if (!reader) {
+        vscode.window.showWarningMessage(`Code Graph: No graph database loaded for ${folder}.`);
         return;
       }
 
@@ -49,8 +49,8 @@ export function registerReviewCommand(
         },
         async () => {
           const [unstaged, staged] = await Promise.all([
-            gitLines(["diff", "--name-only"], workspaceRoot),
-            gitLines(["diff", "--cached", "--name-only"], workspaceRoot),
+            gitLines(["diff", "--name-only"], folder),
+            gitLines(["diff", "--cached", "--name-only"], folder),
           ]);
 
           const changedFiles = [...new Set([...unstaged, ...staged])];
@@ -60,7 +60,7 @@ export function registerReviewCommand(
             return;
           }
 
-          const absFiles = changedFiles.map((f) => path.join(workspaceRoot, f));
+          const absFiles = changedFiles.map((f) => path.join(folder, f));
           const impact = reader.getImpactRadius(absFiles);
 
           const guidance: string[] = [];
@@ -125,11 +125,11 @@ export function registerReviewCommand(
           }
           channel.show(true);
 
-          GraphWebviewPanel.createOrShow(context.extensionUri, reader, impact);
+          GraphWebviewPanel.createOrShow(context.extensionUri, reader, folder, impact);
 
           const scmProvider = getScmProvider();
           if (scmProvider) {
-            await scmProvider.update(reader, workspaceRoot);
+            await scmProvider.update(reader, folder);
           }
         },
       );

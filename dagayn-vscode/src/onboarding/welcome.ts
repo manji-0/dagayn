@@ -21,8 +21,8 @@ export function registerWalkthroughCommands(
 
   context.subscriptions.push(
     vscode.commands.registerCommand("dagayn.walkthrough.build", async () => {
-      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-      if (!workspaceFolder) {
+      const workspaceFolders = vscode.workspace.workspaceFolders;
+      if (!workspaceFolders || workspaceFolders.length === 0) {
         vscode.window.showWarningMessage("No workspace folder is open. Open a folder first.");
         return;
       }

@@ -8,7 +8,6 @@
 
 import * as assert from "node:assert";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import Database from "better-sqlite3";
 import { SqliteReader } from "../src/backend/sqlite";
@@ -17,89 +16,13 @@ import {
   collectTestQualifiedNames,
   QUERY_MAP,
 } from "../src/features/navigation";
-
-// ---------------------------------------------------------------------------
-// Schema (mirrors the Python backend exactly)
-// ---------------------------------------------------------------------------
-
-const SCHEMA_SQL = `
-CREATE TABLE IF NOT EXISTS nodes (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    kind TEXT NOT NULL,
-    name TEXT NOT NULL,
-    qualified_name TEXT NOT NULL UNIQUE,
-    file_path TEXT NOT NULL,
-    line_start INTEGER,
-    line_end INTEGER,
-    language TEXT,
-    parent_name TEXT,
-    params TEXT,
-    return_type TEXT,
-    modifiers TEXT,
-    is_test INTEGER DEFAULT 0,
-    file_hash TEXT,
-    extra TEXT DEFAULT '{}',
-    updated_at REAL NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS edges (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    kind TEXT NOT NULL,
-    source_qualified TEXT NOT NULL,
-    target_qualified TEXT NOT NULL,
-    file_path TEXT NOT NULL,
-    line INTEGER DEFAULT 0,
-    extra TEXT DEFAULT '{}',
-    updated_at REAL NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS metadata (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_nodes_file ON nodes(file_path);
-CREATE INDEX IF NOT EXISTS idx_nodes_kind ON nodes(kind);
-CREATE INDEX IF NOT EXISTS idx_nodes_qualified ON nodes(qualified_name);
-CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_qualified);
-CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_qualified);
-CREATE INDEX IF NOT EXISTS idx_edges_kind ON edges(kind);
-CREATE INDEX IF NOT EXISTS idx_edges_file ON edges(file_path);
-`;
+import { buildTestDb, TestNode, TestEdge } from "./helpers/schema";
 
 // ---------------------------------------------------------------------------
 // Test data
 // ---------------------------------------------------------------------------
 
 const NOW = Date.now() / 1000;
-
-interface TestNode {
-  kind: string;
-  name: string;
-  qualified_name: string;
-  file_path: string;
-  line_start: number;
-  line_end: number;
-  language: string;
-  parent_name: string | null;
-  params: string | null;
-  return_type: string | null;
-  modifiers: string | null;
-  is_test: number;
-  file_hash: string;
-  extra: string;
-  updated_at: number;
-}
-
-interface TestEdge {
-  kind: string;
-  source_qualified: string;
-  target_qualified: string;
-  file_path: string;
-  line: number;
-  extra: string;
-  updated_at: number;
-}
 
 const TEST_NODES: TestNode[] = [
   // auth.py -- File node + 2 functions
@@ -281,50 +204,13 @@ const TEST_EDGES: TestEdge[] = [
   },
 ];
 
-// ---------------------------------------------------------------------------
-// Helper: create a populated temp database
-// ---------------------------------------------------------------------------
-
-function createTestDb(): string {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "crg-test-"));
-  const dbPath = path.join(tmpDir, "graph.db");
-
+function insertMetadata(dbPath: string): void {
   const db = new Database(dbPath);
-  db.exec(SCHEMA_SQL);
-
-  const insertNode = db.prepare(`
-    INSERT INTO nodes
-      (kind, name, qualified_name, file_path, line_start, line_end,
-       language, parent_name, params, return_type, modifiers, is_test,
-       file_hash, extra, updated_at)
-    VALUES
-      (@kind, @name, @qualified_name, @file_path, @line_start, @line_end,
-       @language, @parent_name, @params, @return_type, @modifiers, @is_test,
-       @file_hash, @extra, @updated_at)
-  `);
-
-  const insertEdge = db.prepare(`
-    INSERT INTO edges
-      (kind, source_qualified, target_qualified, file_path, line, extra, updated_at)
-    VALUES
-      (@kind, @source_qualified, @target_qualified, @file_path, @line, @extra, @updated_at)
-  `);
-
-  const insertMeta = db.prepare("INSERT INTO metadata (key, value) VALUES (?, ?)");
-
-  const insertMany = db.transaction(() => {
-    for (const n of TEST_NODES) {
-      insertNode.run(n);
-    }
-    for (const e of TEST_EDGES) {
-      insertEdge.run(e);
-    }
-    insertMeta.run("last_updated", "2025-06-15T10:30:00Z");
-  });
-  insertMany();
+  db.prepare("INSERT INTO metadata (key, value) VALUES (?, ?)").run(
+    "last_updated",
+    "2025-06-15T10:30:00Z",
+  );
   db.close();
-
-  return dbPath;
 }
 
 function cleanup(dbPath: string): void {
@@ -345,7 +231,8 @@ describe("SqliteReader", () => {
   let reader: SqliteReader;
 
   before(() => {
-    dbPath = createTestDb();
+    dbPath = buildTestDb(TEST_NODES, TEST_EDGES);
+    insertMetadata(dbPath);
     reader = new SqliteReader(dbPath);
   });
 
@@ -582,7 +469,8 @@ describe("SqliteReader", () => {
   // -- close / isValid after close ----------------------------------------
 
   it("isValid() returns false after close()", () => {
-    const tmpPath = createTestDb();
+    const tmpPath = buildTestDb(TEST_NODES, TEST_EDGES);
+    insertMetadata(tmpPath);
     const tmpReader = new SqliteReader(tmpPath);
     assert.strictEqual(tmpReader.isValid(), true);
     tmpReader.close();

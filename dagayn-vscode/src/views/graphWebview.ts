@@ -18,6 +18,7 @@ type PanelState =
       status: "loading";
       panel: vscode.WebviewPanel;
       reader: SqliteReader;
+      sourceId: string;
       impactRadius?: ImpactRadius;
       pendingHighlight?: string;
     }
@@ -25,6 +26,7 @@ type PanelState =
       status: "ready";
       panel: vscode.WebviewPanel;
       reader: SqliteReader;
+      sourceId: string;
       impactRadius?: ImpactRadius;
       pendingHighlight?: string;
     };
@@ -42,6 +44,7 @@ export class GraphWebviewPanel {
     panel: vscode.WebviewPanel,
     extensionUri: vscode.Uri,
     reader: SqliteReader,
+    private readonly sourceId: string,
     impactRadius?: ImpactRadius,
     pendingHighlight?: string,
   ) {
@@ -79,14 +82,16 @@ export class GraphWebviewPanel {
   static createOrShow(
     extensionUri: vscode.Uri,
     reader: SqliteReader,
+    sourceId: string,
     impactRadius?: ImpactRadius,
     highlightQualifiedName?: string,
   ): void {
     const column = vscode.ViewColumn.Beside;
 
     if (
-      GraphWebviewPanel.lifecycle.status === "loading" ||
-      GraphWebviewPanel.lifecycle.status === "ready"
+      (GraphWebviewPanel.lifecycle.status === "loading" ||
+        GraphWebviewPanel.lifecycle.status === "ready") &&
+      GraphWebviewPanel.lifecycle.sourceId === sourceId
     ) {
       GraphWebviewPanel.lifecycle.panel.reveal(column);
 
@@ -99,6 +104,14 @@ export class GraphWebviewPanel {
       }
 
       return;
+    }
+
+    // Dispose any existing panel from a different source so the new graph is shown.
+    if (
+      GraphWebviewPanel.lifecycle.status === "loading" ||
+      GraphWebviewPanel.lifecycle.status === "ready"
+    ) {
+      GraphWebviewPanel.lifecycle.panel.dispose();
     }
 
     const panel = vscode.window.createWebviewPanel("dagayn.graph", "Code Graph", column, {
@@ -114,11 +127,19 @@ export class GraphWebviewPanel {
       status: "loading",
       panel,
       reader,
+      sourceId,
       impactRadius,
       pendingHighlight: highlightQualifiedName,
     };
 
-    new GraphWebviewPanel(panel, extensionUri, reader, impactRadius, highlightQualifiedName);
+    new GraphWebviewPanel(
+      panel,
+      extensionUri,
+      reader,
+      sourceId,
+      impactRadius,
+      highlightQualifiedName,
+    );
   }
 
   private dispose(): void {
@@ -241,8 +262,12 @@ export class GraphWebviewPanel {
    * Open a file in the editor at a specific line.
    */
   private async openFileAtLine(filePath: string, lineStart: number): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    const fullPath = workspaceRoot ? path.join(workspaceRoot, filePath) : filePath;
+    let fullPath = filePath;
+    if (!path.isAbsolute(filePath)) {
+      const workspaceRoot = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(filePath))?.uri
+        .fsPath;
+      fullPath = workspaceRoot ? path.join(workspaceRoot, filePath) : filePath;
+    }
 
     try {
       const doc = await vscode.workspace.openTextDocument(fullPath);

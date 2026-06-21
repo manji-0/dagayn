@@ -1,9 +1,7 @@
 import * as vscode from "vscode";
-import * as path from "node:path";
-import * as fs from "node:fs";
-
-import { SqliteReader } from "./backend/sqlite";
 import { CliWrapper } from "./backend/cli";
+import { WorkspaceGraphRegistry } from "./backend/registry";
+import { findGraphDb } from "./backend/paths";
 import {
   CodeGraphTreeProvider,
   BlastRadiusTreeProvider,
@@ -21,46 +19,21 @@ import { registerSearchCommand } from "./features/search";
 import { registerReviewCommand } from "./features/reviewAssistant";
 import { AutoUpdateController } from "./features/autoUpdate";
 
-let sqliteReader: SqliteReader | undefined;
+let registry: WorkspaceGraphRegistry | undefined;
 let codeGraphProvider: CodeGraphTreeProvider | undefined;
 let blastRadiusProvider: BlastRadiusTreeProvider | undefined;
 let statsProvider: StatsTreeProvider | undefined;
 let statusBar: StatusBar | undefined;
 let scmDecorationProvider: ScmDecorationProvider | undefined;
 
-function findGraphDb(workspaceRoot: string): string | undefined {
-  const primary = path.join(workspaceRoot, ".dagayn", "graph.db");
-  if (fs.existsSync(primary)) {
-    return primary;
-  }
-  const fallback = path.join(workspaceRoot, ".dagayn.db");
-  if (fs.existsSync(fallback)) {
-    return fallback;
-  }
-  return undefined;
-}
-
-function getWorkspaceRoot(): string | undefined {
-  const folders = vscode.workspace.workspaceFolders;
-  if (!folders) {
-    return undefined;
-  }
-  for (const folder of folders) {
-    if (findGraphDb(folder.uri.fsPath)) {
-      return folder.uri.fsPath;
-    }
-  }
-  return folders[0]?.uri.fsPath;
-}
-
-function ensureProviders(context: vscode.ExtensionContext, workspaceRoot: string): void {
+function ensureProviders(context: vscode.ExtensionContext): void {
   if (codeGraphProvider) {
     return;
   }
 
-  codeGraphProvider = new CodeGraphTreeProvider(() => sqliteReader, workspaceRoot);
+  codeGraphProvider = new CodeGraphTreeProvider(() => registry);
   blastRadiusProvider = new BlastRadiusTreeProvider();
-  statsProvider = new StatsTreeProvider(() => sqliteReader);
+  statsProvider = new StatsTreeProvider(() => registry);
 
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider("dagayn.codeGraph", codeGraphProvider),
@@ -69,7 +42,7 @@ function ensureProviders(context: vscode.ExtensionContext, workspaceRoot: string
   );
 
   statusBar = new StatusBar();
-  statusBar.update(sqliteReader);
+  statusBar.update(registry?.getReaderForActiveEditor() ?? registry?.getAllReaders()[0]?.reader);
   statusBar.show();
   context.subscriptions.push(statusBar);
 
@@ -78,92 +51,97 @@ function ensureProviders(context: vscode.ExtensionContext, workspaceRoot: string
 }
 
 function onReaderChanged(context: vscode.ExtensionContext): void {
-  const workspaceRoot = getWorkspaceRoot();
-  if (workspaceRoot) {
-    ensureProviders(context, workspaceRoot);
+  if (registry && registry.foldersWithGraph().length > 0) {
+    ensureProviders(context);
   }
   codeGraphProvider?.refresh();
   statsProvider?.refresh();
-  statusBar?.update(sqliteReader);
+  statusBar?.update(registry?.getReaderForActiveEditor());
 }
 
-async function reinitialize(context: vscode.ExtensionContext): Promise<void> {
-  const workspaceRoot = getWorkspaceRoot();
-  if (!workspaceRoot) {
+async function reinitializeFolder(
+  context: vscode.ExtensionContext,
+  folderFsPath: string,
+): Promise<void> {
+  if (!registry) {
     return;
   }
-  const dbPath = findGraphDb(workspaceRoot);
-  if (!dbPath) {
-    return;
-  }
-  sqliteReader?.close();
-  sqliteReader = new SqliteReader(dbPath);
+  await registry.reinitializeFolder(folderFsPath);
   onReaderChanged(context);
 }
 
 function registerCommands(context: vscode.ExtensionContext, cli: CliWrapper): void {
+  if (!registry) {
+    return;
+  }
+
   context.subscriptions.push(
     vscode.commands.registerCommand("dagayn.codeGraph.refresh", () => {
       onReaderChanged(context);
     }),
   );
 
-  registerGraphLifecycleCommands(context, cli, getWorkspaceRoot, reinitialize);
+  registerGraphLifecycleCommands(context, cli, registry, reinitializeFolder);
   registerBlastRadiusCommand(
     context,
-    () => sqliteReader,
+    () => registry?.getReaderForActiveEditor(),
     () => blastRadiusProvider,
   );
-  registerNavigationCommands(context, () => sqliteReader);
-  registerSearchCommand(context, () => sqliteReader);
-  registerReviewCommand(
-    context,
-    () => sqliteReader,
-    getWorkspaceRoot,
-    () => scmDecorationProvider,
-  );
-  registerGraphViewerCommands(context, () => sqliteReader);
+  registerNavigationCommands(context, () => registry?.getReaderForActiveEditor());
+  registerSearchCommand(context, registry);
+  registerReviewCommand(context, registry, () => scmDecorationProvider);
+  registerGraphViewerCommands(context, registry);
 }
 
 function watchGraphDb(context: vscode.ExtensionContext): void {
   const watcher = vscode.workspace.createFileSystemWatcher("**/.dagayn/graph.db");
 
-  const dbPathRef = { current: "" };
-  const workspaceRoot = getWorkspaceRoot();
-  if (workspaceRoot) {
-    const dbPath = findGraphDb(workspaceRoot);
-    if (dbPath) {
-      dbPathRef.current = dbPath;
+  watcher.onDidChange(async (uri) => {
+    if (!registry || !uri) {
+      return;
     }
-  }
-
-  watcher.onDidChange(() => {
-    if (sqliteReader && dbPathRef.current) {
-      sqliteReader.close();
-      sqliteReader = new SqliteReader(dbPathRef.current);
-      onReaderChanged(context);
+    const folder = vscode.workspace.getWorkspaceFolder(uri);
+    if (!folder) {
+      return;
     }
+    try {
+      await registry.reinitializeFolder(folder.uri.fsPath);
+    } catch (err) {
+      console.error(`[dagayn] Failed to reinitialize graph for ${folder.uri.fsPath}:`, err);
+    }
+    onReaderChanged(context);
   });
 
-  watcher.onDidCreate(async () => {
-    const wsRoot = getWorkspaceRoot();
-    if (wsRoot && !sqliteReader) {
-      const dbPath = findGraphDb(wsRoot);
-      if (dbPath) {
-        dbPathRef.current = dbPath;
-        sqliteReader = new SqliteReader(dbPath);
-        onReaderChanged(context);
+  watcher.onDidCreate(async (uri) => {
+    if (!registry || !uri) {
+      return;
+    }
+    const folder = vscode.workspace.getWorkspaceFolder(uri);
+    if (!folder) {
+      return;
+    }
+    if (!registry.getReaderForFolder(folder.uri.fsPath)) {
+      try {
+        await registry.reinitializeFolder(folder.uri.fsPath);
+      } catch (err) {
+        console.error(`[dagayn] Failed to open new graph for ${folder.uri.fsPath}:`, err);
       }
     }
+    onReaderChanged(context);
   });
 
-  watcher.onDidDelete(() => {
-    sqliteReader?.close();
-    sqliteReader = undefined;
-    dbPathRef.current = "";
-    codeGraphProvider?.refresh();
-    statsProvider?.refresh();
-    statusBar?.update(undefined);
+  watcher.onDidDelete(async (uri) => {
+    if (!registry || !uri) {
+      return;
+    }
+    const folder = vscode.workspace.getWorkspaceFolder(uri);
+    if (!folder) {
+      return;
+    }
+    if (!findGraphDb(folder.uri.fsPath)) {
+      registry.closeFolder(folder.uri.fsPath);
+    }
+    onReaderChanged(context);
   });
 
   context.subscriptions.push(watcher);
@@ -175,32 +153,45 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   registerWalkthroughCommands(context, installer);
 
-  const workspaceRoot = getWorkspaceRoot();
+  registry = new WorkspaceGraphRegistry();
 
   registerCommands(context, cli);
 
-  if (workspaceRoot) {
-    const dbPath = findGraphDb(workspaceRoot);
+  const foldersWithGraph = registry.foldersWithGraph();
+  if (foldersWithGraph.length > 0) {
+    // Collect distinct schema warnings and the folders that produced them.
+    const warnings = new Map<string, string[]>();
+    for (const folder of foldersWithGraph) {
+      const reader = registry.getReaderForFolder(folder);
+      const warning = reader?.checkSchemaCompatibility();
+      if (warning) {
+        const folders = warnings.get(warning) ?? [];
+        folders.push(folder);
+        warnings.set(warning, folders);
+      }
+    }
 
-    if (dbPath) {
-      sqliteReader = new SqliteReader(dbPath);
-
-      const schemaWarning = sqliteReader.checkSchemaCompatibility();
-      if (schemaWarning) {
-        const choice = await vscode.window.showWarningMessage(
-          `Code Graph: ${schemaWarning}`,
-          "Rebuild Graph",
-          "Dismiss",
-        );
-        if (choice === "Rebuild Graph") {
-          await vscode.commands.executeCommand("dagayn.buildGraph");
+    for (const [warning, affectedFolders] of warnings) {
+      const choice = await vscode.window.showWarningMessage(
+        affectedFolders.length > 1
+          ? `Code Graph (${affectedFolders.length} folders): ${warning}`
+          : `Code Graph: ${warning}`,
+        "Rebuild Graph",
+        "Dismiss",
+      );
+      if (choice === "Rebuild Graph") {
+        for (const folder of affectedFolders) {
+          const result = await cli.buildGraph(folder);
+          if (result.success) {
+            await reinitializeFolder(context, folder);
+          }
         }
       }
-
-      onReaderChanged(context);
-    } else {
-      showWelcomeIfNeeded(context);
     }
+
+    onReaderChanged(context);
+  } else {
+    showWelcomeIfNeeded(context);
   }
 
   watchGraphDb(context);
@@ -209,14 +200,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(outputChannel);
   const autoUpdate = new AutoUpdateController(
     cli,
-    getWorkspaceRoot,
-    () => sqliteReader,
+    registry,
     outputChannel,
+    undefined,
+    (folderFsPath) => reinitializeFolder(context, folderFsPath),
   );
   context.subscriptions.push(autoUpdate);
+
+  context.subscriptions.push(
+    vscode.window.onDidChangeActiveTextEditor(() => {
+      statusBar?.update(
+        registry?.getReaderForActiveEditor() ?? registry?.getAllReaders()[0]?.reader,
+      );
+    }),
+  );
 }
 
 export function deactivate(): void {
-  sqliteReader?.close();
-  sqliteReader = undefined;
+  registry?.dispose();
+  registry = undefined;
 }

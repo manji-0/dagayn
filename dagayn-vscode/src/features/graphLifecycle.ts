@@ -1,22 +1,24 @@
 import * as vscode from "vscode";
 import { CliWrapper } from "../backend/cli";
+import { WorkspaceGraphRegistry } from "../backend/registry";
+import { pickFolderForGlobalOp, pickFolderForBuild } from "../backend/folderPicker";
 
 export function registerGraphLifecycleCommands(
   context: vscode.ExtensionContext,
   cli: CliWrapper,
-  getWorkspaceRoot: () => string | undefined,
-  reinitialize: (context: vscode.ExtensionContext) => Promise<void>,
+  registry: WorkspaceGraphRegistry,
+  reinitializeFolder: (context: vscode.ExtensionContext, folderFsPath: string) => Promise<void>,
 ): void {
   context.subscriptions.push(
     vscode.commands.registerCommand("dagayn.buildGraph", async () => {
-      const workspaceRoot = getWorkspaceRoot();
-      if (!workspaceRoot) {
+      const folder = await pickFolderForBuild(registry);
+      if (!folder) {
         vscode.window.showErrorMessage("No workspace folder is open.");
         return;
       }
-      const result = await cli.buildGraph(workspaceRoot);
+      const result = await cli.buildGraph(folder);
       if (result.success) {
-        await reinitialize(context);
+        await reinitializeFolder(context, folder);
         vscode.window.showInformationMessage("Code Graph: Build complete.");
       } else {
         vscode.window.showErrorMessage(`Code Graph: Build failed. ${result.stderr}`);
@@ -26,9 +28,9 @@ export function registerGraphLifecycleCommands(
 
   context.subscriptions.push(
     vscode.commands.registerCommand("dagayn.updateGraph", async () => {
-      const workspaceRoot = getWorkspaceRoot();
-      if (!workspaceRoot) {
-        vscode.window.showErrorMessage("No workspace folder is open.");
+      const folder = await pickFolderForGlobalOp(registry, { requireGraph: true });
+      if (!folder) {
+        vscode.window.showErrorMessage("No workspace folder with a graph is open.");
         return;
       }
       await vscode.window.withProgress(
@@ -38,8 +40,10 @@ export function registerGraphLifecycleCommands(
           cancellable: false,
         },
         async () => {
-          const result = await cli.updateGraph(workspaceRoot);
-          if (!result.success) {
+          const result = await cli.updateGraph(folder);
+          if (result.success) {
+            await reinitializeFolder(context, folder);
+          } else {
             vscode.window.showErrorMessage(`Code Graph: Update failed. ${result.stderr}`);
           }
         },
@@ -49,12 +53,12 @@ export function registerGraphLifecycleCommands(
 
   context.subscriptions.push(
     vscode.commands.registerCommand("dagayn.embedGraph", async () => {
-      const workspaceRoot = getWorkspaceRoot();
-      if (!workspaceRoot) {
-        vscode.window.showErrorMessage("No workspace folder is open.");
+      const folder = await pickFolderForGlobalOp(registry, { requireGraph: true });
+      if (!folder) {
+        vscode.window.showErrorMessage("No workspace folder with a graph is open.");
         return;
       }
-      const result = await cli.embedGraph(workspaceRoot);
+      const result = await cli.embedGraph(folder);
       if (result.success) {
         vscode.window.showInformationMessage("Code Graph: Embeddings computed.");
       } else {
@@ -69,13 +73,13 @@ export function registerGraphLifecycleCommands(
 
   context.subscriptions.push(
     vscode.commands.registerCommand("dagayn.watchGraph", async () => {
-      const workspaceRoot = getWorkspaceRoot();
-      if (!workspaceRoot) {
+      const folder = await pickFolderForBuild(registry);
+      if (!folder) {
         vscode.window.showErrorMessage("No workspace folder is open.");
         return;
       }
       vscode.window.showInformationMessage("Code Graph: Watch mode started.");
-      const result = await cli.watchGraph(workspaceRoot);
+      const result = await cli.watchGraph(folder);
       if (!result.success) {
         vscode.window.showErrorMessage(`Code Graph: Watch failed. ${result.stderr}`);
       }

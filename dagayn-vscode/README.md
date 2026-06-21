@@ -74,6 +74,21 @@ The graph database is stored locally at `.dagayn/graph.db` and updates automatic
 | `dagayn.graph.maxNodes`             | `500`               | Max nodes in the graph visualization (10--5000).                         |
 | `dagayn.graph.defaultEdges`         | All except CONTAINS | Edge types shown by default.                                             |
 
+## Multi-root Workspace Support
+
+Dagayn supports VS Code workspaces with multiple root folders. When more than one
+open folder contains a `.dagayn/graph.db`, the extension keeps one graph reader
+per folder:
+
+- The **Code Graph** and **Stats** views group results by workspace folder.
+- Cursor-bound commands such as **Find Callers** and **Show Blast Radius**
+  automatically use the graph for the folder that contains the active editor.
+- Global commands such as **Build Graph**, **Update Graph**, and **Review
+  Changes** prefer the active editor's folder and show a folder picker when the
+  target is ambiguous.
+- In single-folder workspaces the behavior is unchanged: files are shown
+  directly at the root of the tree view.
+
 ## Requirements
 
 - VS Code 1.85+

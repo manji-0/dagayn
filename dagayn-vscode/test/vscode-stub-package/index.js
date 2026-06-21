@@ -100,6 +100,13 @@ class ThemeColor {
     }
 }
 exports.ThemeColor = ThemeColor;
+class ThemeIcon {
+    id;
+    constructor(id) {
+        this.id = id;
+    }
+}
+exports.ThemeIcon = ThemeIcon;
 class TreeItem {
     label;
     description;
@@ -138,6 +145,7 @@ class FileSystemWatcherStub {
     dispose = () => { };
 }
 const noopDisposable = { dispose: () => { } };
+let workspaceFolders = [];
 const configStore = new Map();
 function getSectionStore(section) {
     if (!configStore.has(section)) {
@@ -153,6 +161,11 @@ const warningCalls = [];
 let warningResult = undefined;
 function __setWarningResult(result) {
     warningResult = result;
+}
+const quickPickCalls = [];
+let quickPickResult = undefined;
+function __setQuickPickResult(result) {
+    quickPickResult = result;
 }
 const outputChannels = new Map();
 let saveCallbacks = [];
@@ -172,7 +185,10 @@ exports.window = {
     },
     showInformationMessage: async () => undefined,
     showErrorMessage: async () => undefined,
-    showQuickPick: async () => undefined,
+    showQuickPick: async (items, options) => {
+        quickPickCalls.push({ items, options });
+        return quickPickResult;
+    },
     showTextDocument: async () => ({}),
     showSaveDialog: async () => undefined,
     createOutputChannel: (name) => {
@@ -203,13 +219,31 @@ exports.window = {
     registerTreeDataProvider: () => noopDisposable,
     registerFileDecorationProvider: () => noopDisposable,
     onDidChangeActiveColorTheme: () => noopDisposable,
+    onDidChangeActiveTextEditor: () => noopDisposable,
     withProgress: async (_options, task) => task(),
     __warningCalls: warningCalls,
     __setWarningResult,
     __outputChannels: outputChannels,
+    __quickPickCalls: quickPickCalls,
+    __setQuickPickResult,
 };
 exports.workspace = {
-    workspaceFolders: [],
+    get workspaceFolders() {
+        return workspaceFolders;
+    },
+    __setWorkspaceFolders(folders) {
+        workspaceFolders = folders;
+    },
+    getWorkspaceFolder(uri) {
+        const sorted = [...workspaceFolders].sort((a, b) => b.uri.fsPath.length - a.uri.fsPath.length);
+        for (const folder of sorted) {
+            const fp = folder.uri.fsPath;
+            if (uri.fsPath === fp || uri.fsPath.startsWith(fp + "/")) {
+                return folder;
+            }
+        }
+        return undefined;
+    },
     openTextDocument: async () => ({}),
     __fireSave,
     __clearSaveCallbacks,

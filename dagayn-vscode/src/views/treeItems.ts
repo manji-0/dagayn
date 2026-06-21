@@ -2,12 +2,31 @@ import * as vscode from "vscode";
 import * as path from "node:path";
 
 // ---------------------------------------------------------------------------
+// WorkspaceFolderTreeItem – groups files when multiple folders have a graph
+// ---------------------------------------------------------------------------
+
+export class WorkspaceFolderTreeItem extends vscode.TreeItem {
+  public readonly folderFsPath: string;
+
+  constructor(folderFsPath: string, fileCount: number) {
+    super(path.basename(folderFsPath), vscode.TreeItemCollapsibleState.Collapsed);
+
+    this.folderFsPath = folderFsPath;
+    this.description = `${fileCount} files`;
+    this.iconPath = new vscode.ThemeIcon("folder");
+    this.contextValue = "workspace-folder";
+    this.tooltip = folderFsPath;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // FileTreeItem – represents a source file in the code graph
 // ---------------------------------------------------------------------------
 
 export class FileTreeItem extends vscode.TreeItem {
   public readonly filePath: string;
   public readonly qualifiedName: string;
+  public readonly folderFsPath: string;
 
   constructor(filePath: string, workspaceRoot: string) {
     const fileName = path.basename(filePath);
@@ -15,6 +34,7 @@ export class FileTreeItem extends vscode.TreeItem {
 
     this.filePath = filePath;
     this.qualifiedName = filePath;
+    this.folderFsPath = workspaceRoot;
 
     const relativePath = path.relative(workspaceRoot, filePath);
     this.description = relativePath !== fileName ? relativePath : "";
