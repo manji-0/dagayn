@@ -172,6 +172,88 @@ communities. Each community page includes members, execution flows,
 cross-community dependencies, and code-scoped package-level ADP/SDP/SAP
 architecture metrics filtered to the scopes represented by that community.
 
+### Architecture metrics
+
+<!-- derived-from ./USAGE.md -->
+
+These CLI commands compute and detect package/file-level architecture-principle
+metrics directly from the graph, independently of the MCP
+`architecture_analysis_tool`. They default to `artifact_scope="code"` so
+Markdown dependencies are not mixed into code design metrics; pass
+`--artifact-scope docs` or `--artifact-scope all` for documentation or legacy
+mixed-graph analysis.
+
+- `dagayn detect-adp` — Detect cyclic dependencies (Acyclic Dependencies
+  Principle violations). Reports cycles with length and severity.
+  - `--granularity {package,file}` (default `package`)
+  - `--artifact-scope {code,docs,all}` (default `code`)
+  - `--min-cycle-size N` (default 2)
+  - `--max-cycle-length N` (default 10)
+  - `--format {json,text}` (default `json`)
+- `dagayn sdp-metrics` — Compute per-scope instability (Stable Dependencies
+  Principle) scores. Returns `instability`, `Ca`, and `Ce` per scope, sorted,
+  limited by `--top-n`.
+  - `--granularity {package,file}` (default `package`)
+  - `--artifact-scope {code,docs,all}` (default `code`)
+  - `--top-n N` (default 30)
+  - `--format {json,text}` (default `json`)
+- `dagayn detect-sdp` — Detect stability-direction violations: dependencies
+  from a more-stable scope to a less-stable scope whose instability gap meets
+  `--min-delta`.
+  - `--granularity {package,file}` (default `package`)
+  - `--artifact-scope {code,docs,all}` (default `code`)
+  - `--min-delta FLOAT` (default 0.1)
+  - `--format {json,text}` (default `json`)
+<!-- derived-from ./SAP-METRICS.md -->
+
+- `dagayn sap-metrics` — Compute per-scope abstractness, instability, and
+  distance from the main sequence (Stable Abstractions Principle). Returns
+  `A`, `I`, and `D` per scope, limited by `--top-n`.
+  - `--scope-kind {package,file,directory}` (default `package`)
+  - `--unit-filter PREFIXES` — comma-separated scope_key prefixes to restrict
+    output
+  - `--artifact-scope {code,docs,all}` (default `code`)
+  - `--top-n N` (default 30)
+  - `--format {json,text}` (default `json`)
+- `dagayn detect-sap` — Detect scopes whose distance from the main sequence
+  meets `--min-distance`.
+  - `--scope-kind {package,file,directory}` (default `package`)
+  - `--artifact-scope {code,docs,all}` (default `code`)
+  - `--min-distance FLOAT` (default 0.5)
+  - `--format {json,text}` (default `json`)
+
+All five commands accept `--repo` to override the repository root
+(auto-detected by default). `detect-sap` suppresses test-scope and
+fixture-scope entries from the violation list, consistent with the matching
+`architecture_analysis_tool(mode="sap_violations")` MCP mode.
+
+### Profiling
+
+- `dagayn profile`
+
+`dagayn profile` wraps any other dagayn subcommand in a
+[pyinstrument](https://pyinstrument.readthedocs.io/) CPU profile and writes an
+HTML report. The profiler is an optional dev dependency; install it with
+`uv sync --extra dev` or `pip install pyinstrument`.
+
+```bash
+dagayn profile build
+dagayn profile update --local-embedding
+dagayn profile tool review_tool --arg mode='"changes"'
+```
+
+Flags:
+
+- `--output-dir DIR` — directory for the HTML report (default
+  `.dagayn/profiles`)
+- `--interval SECONDS` — sampling interval (default `0.001`)
+- `--open` — open the HTML report in a browser when finished
+
+The subcommand and its arguments are passed after the `profile` command name.
+The wrapped subcommand re-enters the dagayn CLI under the profiler, so the
+profile reflects the full nested command execution. If `pyinstrument` is not
+installed, the command prints a clear install hint and exits non-zero.
+
 ### Integration and serving
 
 - `dagayn install`

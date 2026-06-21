@@ -27,11 +27,14 @@ see the README's "Choosing an install mode" section.
 Embedding generation stays in the configured provider or managed sidecar, but
 similarity search over stored vectors uses dagayn's Rust native backend by
 default. The native path reads the provider-partitioned `embeddings` rows,
-caches a normalized row-major matrix by database/provider/mtime, uses platform
-acceleration where available (macOS Accelerate for matrix-vector search, Linux
-system BLAS by default, and SIMD fallback dot products otherwise), and returns
-the same `(qualified_name, score)` shape as the previous numpy path. If the
-native extension is unavailable, `auto` mode falls back to the pure-Python loop.
+caches a normalized row-major matrix by database/provider/mtime, and computes
+cosine similarity with architecture-specific SIMD intrinsics directly in Rust
+(NEON on aarch64, AVX with SSE fallback on x86_64, and a scalar fallback
+elsewhere) — with no dependency on macOS Accelerate, Linux system BLAS, or any
+external linear-algebra library. For large matrices the scan parallelizes row
+chunks with rayon. It returns the same `(qualified_name, score)` shape as the
+previous numpy path. If the native extension is unavailable, `auto` mode
+falls back to the pure-Python loop.
 
 Use `DAGAYN_EMBEDDING_SEARCH_BACKEND` for local A/B checks:
 

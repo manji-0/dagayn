@@ -45,6 +45,9 @@ Important CLI commands:
 - `dagayn tool`
 - `dagayn visualize`
 - `dagayn serve`
+- `dagayn detect-adp` / `dagayn sdp-metrics` / `dagayn detect-sdp`
+- `dagayn sap-metrics` / `dagayn detect-sap`
+- `dagayn profile`
 - `dagayn register` / `dagayn repos` / `dagayn daemon`
 
 `dagayn serve` exposes the compact workflow MCP surface by default. Use `--tools` when a deployment needs an exact allow-list; `--tools all` exposes every advanced/maintenance tool.

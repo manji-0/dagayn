@@ -345,9 +345,11 @@ modes, and provider setup, see
 The `openai` provider speaks the standard `/v1/embeddings` schema, so it works with real OpenAI, Azure OpenAI, LiteLLM, vLLM, LocalAI, Ollama (in OpenAI mode), and similar gateways. When `CRG_OPENAI_BASE_URL` points to localhost the cloud egress warning is suppressed automatically.
 
 Vector search uses the Rust native cosine-similarity backend by default. It
-uses Accelerate on macOS and SIMD/scalar fallbacks elsewhere, so no external
-BLAS library is required. Set `DAGAYN_EMBEDDING_SEARCH_BACKEND=auto` to fall
-back to the pure-Python loop when native search is unavailable, or
+computes dot products with architecture-specific SIMD intrinsics directly in
+Rust (NEON on aarch64, AVX with SSE fallback on x86_64, and a scalar fallback
+elsewhere), so no external BLAS or Accelerate library is required. Set
+`DAGAYN_EMBEDDING_SEARCH_BACKEND=auto` to fall back to the pure-Python loop
+when native search is unavailable, or
 `DAGAYN_EMBEDDING_SEARCH_BACKEND=python` for A/B testing.
 `dagayn serve --local-embedding` runs BGE-M3 through a managed
 llama.cpp GGUF sidecar so acceleration stays out of the Python process. The older
