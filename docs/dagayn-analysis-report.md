@@ -1,8 +1,8 @@
-<!-- constrained-by ./AGENTS.md -->
-<!-- derived-from ./docs/ARCHITECTURE.md -->
-<!-- derived-from ./docs/COMMANDS.md -->
-<!-- derived-from ./docs/SCHEMA.md -->
-<!-- derived-from ./docs/MARKDOWN-AUTHORING.md -->
+<!-- constrained-by ../AGENTS.md -->
+<!-- derived-from ./ARCHITECTURE.md -->
+<!-- derived-from ./COMMANDS.md -->
+<!-- derived-from ./SCHEMA.md -->
+<!-- derived-from ./MARKDOWN-AUTHORING.md -->
 
 # dagayn 最新分析レポート
 
