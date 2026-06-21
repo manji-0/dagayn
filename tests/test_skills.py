@@ -61,7 +61,6 @@ EXPECTED_SKILLS = [
     "review-delta.md",
     "review-pr.md",
     "semantic-search.md",
-    "wiki-research.md",
     "writing-markdown-document.md",
 ]
 
@@ -89,8 +88,6 @@ CURRENT_MCP_TOOL_NAMES = [
     "build_or_update_graph_tool",
     "cross_repo_search_tool",
     "embed_graph_tool",
-    "generate_wiki_tool",
-    "get_wiki_page_tool",
     "list_repos_tool",
     "run_postprocess_tool",
 ]
@@ -138,21 +135,12 @@ class TestGenerateSkills:
         skills_dir = generate_skills(tmp_path)
         install = (skills_dir / "install-dagayn.md").read_text()
         semantic = (skills_dir / "semantic-search.md").read_text()
-        wiki = (skills_dir / "wiki-research.md").read_text()
         cross_repo = (skills_dir / "cross-repo-workflows.md").read_text()
 
         assert "dagayn install --platform codex" in install
         assert "--no-instructions" in install
         assert "embed_graph_tool" in semantic
         assert 'search_mode="hybrid"' in semantic
-        assert "generate_wiki_tool" in wiki
-        assert "dagayn visualize --format graphml" in wiki
-        assert "dagayn visualize --format mermaid-c4" in wiki
-        assert "dagayn visualize --format svg" in wiki
-        assert "dagayn visualize --format cypher" in wiki
-        assert "dagayn visualize --format obsidian" in wiki
-        assert "--serve" not in wiki
-        assert "interactive HTML graph mode" in wiki
         assert "cross_repo_search_tool" in cross_repo
         assert "dagayn daemon" in cross_repo
 
