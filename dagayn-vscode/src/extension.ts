@@ -15,6 +15,7 @@ import { registerGraphLifecycleCommands } from "./features/graphLifecycle";
 import { registerGraphViewerCommands } from "./features/graphViewer";
 import { registerModuleDependenciesCommand } from "./features/moduleDependencies";
 import { registerBlastRadiusCommand } from "./features/blastRadius";
+import { registerBlastRadiusSnapshotCommands } from "./features/blastRadiusSnapshot";
 import { registerNavigationCommands } from "./features/navigation";
 import { registerSearchCommand } from "./features/search";
 import { registerReviewCommand } from "./features/reviewAssistant";
@@ -90,6 +91,7 @@ function registerCommands(context: vscode.ExtensionContext, cli: CliWrapper): vo
     () => registry?.getReaderForActiveEditor(),
     () => blastRadiusProvider,
   );
+  registerBlastRadiusSnapshotCommands(context, registry, () => blastRadiusProvider);
   registerNavigationCommands(context, () => registry?.getReaderForActiveEditor());
   registerSearchCommand(context, registry);
   registerReviewCommand(context, registry, () => scmDecorationProvider);

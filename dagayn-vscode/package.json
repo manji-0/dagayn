@@ -68,6 +68,16 @@
         "icon": "$(pulse)"
       },
       {
+        "command": "dagayn.saveBlastRadiusSnapshot",
+        "title": "Code Graph: Save Blast Radius Snapshot",
+        "icon": "$(save)"
+      },
+      {
+        "command": "dagayn.compareBlastRadiusSnapshot",
+        "title": "Code Graph: Compare Blast Radius Snapshot",
+        "icon": "$(compare-changes)"
+      },
+      {
         "command": "dagayn.findCallers",
         "title": "Code Graph: Find Callers",
         "icon": "$(references)"
@@ -154,6 +164,16 @@
           "command": "dagayn.showBlastRadius",
           "when": "editorTextFocus",
           "group": "dagayn.codeGraph@4"
+        },
+        {
+          "command": "dagayn.saveBlastRadiusSnapshot",
+          "when": "editorTextFocus",
+          "group": "dagayn.codeGraph@5"
+        },
+        {
+          "command": "dagayn.compareBlastRadiusSnapshot",
+          "when": "editorTextFocus",
+          "group": "dagayn.codeGraph@6"
         }
       ],
       "editor/title/context": [
@@ -176,6 +196,16 @@
           "command": "dagayn.showBlastRadius",
           "when": "editorTextFocus",
           "group": "dagayn.codeGraph@4"
+        },
+        {
+          "command": "dagayn.saveBlastRadiusSnapshot",
+          "when": "editorTextFocus",
+          "group": "dagayn.codeGraph@5"
+        },
+        {
+          "command": "dagayn.compareBlastRadiusSnapshot",
+          "when": "editorTextFocus",
+          "group": "dagayn.codeGraph@6"
         }
       ],
       "scm/title": [

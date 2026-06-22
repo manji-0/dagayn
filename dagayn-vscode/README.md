@@ -16,6 +16,7 @@ Visualize code dependencies, blast radius, and review context from your code gra
 - **Compute Embeddings** -- Generate vector embeddings for semantic search
 - **Watch Mode** -- Continuous graph updates as you work
 - **Auto-Update** -- Graph rebuilds in the background when you save files
+- **Blast Radius Snapshots** -- Save and compare blast radius baselines while refactoring
 
 ## Quick Start
 
@@ -60,6 +61,8 @@ The graph database is stored locally at `.dagayn/graph.db` and updates automatic
 | `Code Graph: Search`                   | Search the code graph                                           |
 | `Code Graph: Show Graph`                 | Open the interactive graph visualization                        |
 | `Code Graph: Show Module Dependencies`   | Aggregate files by parent directory and show directory-level dependencies |
+| `Code Graph: Save Blast Radius Snapshot` | Save the current blast radius to `.dagayn/snapshots/`          |
+| `Code Graph: Compare Blast Radius Snapshot` | Diff a saved snapshot against the current blast radius          |
 | `Code Graph: Compute Embeddings`         | Generate vector embeddings for semantic search                  |
 | `Code Graph: Watch Mode`                 | Run graph in watch mode for continuous updates                  |
 
@@ -74,6 +77,21 @@ The graph database is stored locally at `.dagayn/graph.db` and updates automatic
 | `dagayn.graphTheme`                 | `"auto"`            | Graph color theme: `auto`, `light`, or `dark`.                           |
 | `dagayn.graph.maxNodes`             | `500`               | Max nodes in the graph visualization (10--5000).                         |
 | `dagayn.graph.defaultEdges`         | All except CONTAINS | Edge types shown by default.                                             |
+
+## Refactoring Support: Blast Radius Snapshots
+
+Use snapshots to track how a refactor changes your blast radius:
+
+1. Open the file you plan to change and run **Code Graph: Save Blast Radius
+   Snapshot**. The snapshot is stored as JSON in `.dagayn/snapshots/`.
+2. Make your changes and rebuild/update the graph if necessary.
+3. Run **Code Graph: Compare Blast Radius Snapshot**, select the baseline, and
+   review the diff report in the *Code Graph Blast Radius Compare* output
+   channel.
+
+The comparison shows newly impacted nodes, no-longer-impacted nodes, unchanged
+impacted nodes, and added/removed files. Snapshots are scoped to the active
+workspace folder and use repo-relative paths.
 
 ## Multi-root Workspace Support
 

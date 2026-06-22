@@ -167,6 +167,11 @@ let quickPickResult = undefined;
 function __setQuickPickResult(result) {
     quickPickResult = result;
 }
+const inputBoxCalls = [];
+let inputBoxResult = undefined;
+function __setInputBoxResult(result) {
+    inputBoxResult = result;
+}
 const outputChannels = new Map();
 let saveCallbacks = [];
 function __fireSave(document) {
@@ -188,6 +193,10 @@ exports.window = {
     showQuickPick: async (items, options) => {
         quickPickCalls.push({ items, options });
         return quickPickResult;
+    },
+    showInputBox: async (options) => {
+        inputBoxCalls.push(options);
+        return inputBoxResult;
     },
     showTextDocument: async () => ({}),
     showSaveDialog: async () => undefined,
@@ -226,6 +235,8 @@ exports.window = {
     __outputChannels: outputChannels,
     __quickPickCalls: quickPickCalls,
     __setQuickPickResult,
+    __inputBoxCalls: inputBoxCalls,
+    __setInputBoxResult,
 };
 exports.workspace = {
     get workspaceFolders() {
