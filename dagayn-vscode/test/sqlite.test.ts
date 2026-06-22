@@ -281,6 +281,80 @@ describe("SqliteReader", () => {
     assert.strictEqual(node.kind, "Function");
     assert.strictEqual(node.name, "login");
     assert.strictEqual(node.params, "(username, password)");
+    assert.deepStrictEqual(node.extra, {});
+  });
+
+  it("getNode() parses extra JSON into an object", () => {
+    const tmpPath = buildTestDb(
+      [
+        ...TEST_NODES,
+        {
+          kind: "Function",
+          name: "authed_fn",
+          qualified_name: "src/auth.py::authed_fn",
+          file_path: "src/auth.py",
+          line_start: 40,
+          line_end: 45,
+          language: "python",
+          parent_name: null,
+          params: "()",
+          return_type: "bool",
+          modifiers: null,
+          is_test: 0,
+          file_hash: "aaa",
+          extra: '{"docstring":"Authenticate a user.","confidence_tier":"high"}',
+          updated_at: NOW,
+        },
+      ],
+      TEST_EDGES,
+    );
+    const tmpReader = new SqliteReader(tmpPath);
+    try {
+      const node = tmpReader.getNode("src/auth.py::authed_fn");
+      assert.ok(node);
+      assert.deepStrictEqual(node.extra, {
+        docstring: "Authenticate a user.",
+        confidence_tier: "high",
+      });
+    } finally {
+      tmpReader.close();
+      cleanup(tmpPath);
+    }
+  });
+
+  it("getNode() falls back to empty extra for malformed JSON", () => {
+    const tmpPath = buildTestDb(
+      [
+        ...TEST_NODES,
+        {
+          kind: "Function",
+          name: "broken_extra",
+          qualified_name: "src/auth.py::broken_extra",
+          file_path: "src/auth.py",
+          line_start: 40,
+          line_end: 45,
+          language: "python",
+          parent_name: null,
+          params: "()",
+          return_type: "bool",
+          modifiers: null,
+          is_test: 0,
+          file_hash: "aaa",
+          extra: "not-json",
+          updated_at: NOW,
+        },
+      ],
+      TEST_EDGES,
+    );
+    const tmpReader = new SqliteReader(tmpPath);
+    try {
+      const node = tmpReader.getNode("src/auth.py::broken_extra");
+      assert.ok(node);
+      assert.deepStrictEqual(node.extra, {});
+    } finally {
+      tmpReader.close();
+      cleanup(tmpPath);
+    }
   });
 
   it("getNode() returns undefined for non-existent qualified name", () => {

@@ -17,6 +17,7 @@ import { registerModuleDependenciesCommand } from "./features/moduleDependencies
 import { registerBlastRadiusCommand } from "./features/blastRadius";
 import { registerBlastRadiusSnapshotCommands } from "./features/blastRadiusSnapshot";
 import { registerNavigationCommands } from "./features/navigation";
+import { registerNodeDocsCommand } from "./features/nodeDocs";
 import { registerSearchCommand } from "./features/search";
 import { registerReviewCommand } from "./features/reviewAssistant";
 import { AutoUpdateController } from "./features/autoUpdate";
@@ -93,6 +94,7 @@ function registerCommands(context: vscode.ExtensionContext, cli: CliWrapper): vo
   );
   registerBlastRadiusSnapshotCommands(context, registry, () => blastRadiusProvider);
   registerNavigationCommands(context, () => registry?.getReaderForActiveEditor());
+  registerNodeDocsCommand(context, () => registry?.getReaderForActiveEditor());
   registerSearchCommand(context, registry);
   registerReviewCommand(context, registry, () => scmDecorationProvider);
 }

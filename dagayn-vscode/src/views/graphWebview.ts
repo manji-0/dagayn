@@ -273,6 +273,7 @@ export class GraphWebviewPanel {
         modifiers: null,
         isTest: false,
         fileHash: null,
+        extra: {},
       }));
       edges = this.moduleGraph.edges.map((e, index) => ({
         id: index + 1,

@@ -67,6 +67,7 @@ export interface GraphNode {
   modifiers: string | null;
   isTest: boolean;
   fileHash: string | null;
+  extra: Record<string, unknown>;
 }
 
 export interface GraphEdge {
@@ -149,6 +150,25 @@ interface FilePathRow {
 
 interface MetadataRow {
   value: string;
+}
+
+// ---------------------------------------------------------------------------
+// Extra JSON parsing
+// ---------------------------------------------------------------------------
+
+function parseNodeExtra(raw: string | null | undefined): Record<string, unknown> {
+  if (!raw) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed != null && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    // malformed JSON: fall back to empty object
+  }
+  return {};
 }
 
 // ---------------------------------------------------------------------------
@@ -577,8 +597,11 @@ export class SqliteReader {
       modifiers: row.modifiers ?? null,
       isTest: row.is_test === 1,
       fileHash: row.file_hash ?? null,
+      extra: parseNodeExtra(row.extra),
     };
   }
+
+  /** Convert a raw edge row (snake_case) to a typed GraphEdge (camelCase). */
 
   /** Convert a raw edge row (snake_case) to a typed GraphEdge (camelCase). */
   private _rowToEdge(row: EdgeRow): GraphEdge {

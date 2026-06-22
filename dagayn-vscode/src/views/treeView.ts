@@ -120,7 +120,15 @@ export class CodeGraphTreeProvider implements vscode.TreeDataProvider<vscode.Tre
       .sort((a, b) => (a.lineStart ?? 0) - (b.lineStart ?? 0))
       .map(
         (n) =>
-          new SymbolTreeItem(n.qualifiedName, n.name, n.kind, n.filePath, n.lineStart, n.lineEnd),
+          new SymbolTreeItem(
+            n.qualifiedName,
+            n.name,
+            n.kind,
+            n.filePath,
+            n.lineStart,
+            n.lineEnd,
+            n.extra,
+          ),
       );
   }
 
@@ -228,7 +236,15 @@ export class BlastRadiusTreeProvider implements vscode.TreeDataProvider<vscode.T
     const nodes = group.groupKind === "changed" ? this.changedNodes : this.impactedNodes;
     return nodes.map(
       (n) =>
-        new SymbolTreeItem(n.qualifiedName, n.name, n.kind, n.filePath, n.lineStart, n.lineEnd),
+        new SymbolTreeItem(
+          n.qualifiedName,
+          n.name,
+          n.kind,
+          n.filePath,
+          n.lineStart,
+          n.lineEnd,
+          n.extra,
+        ),
     );
   }
 }

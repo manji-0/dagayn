@@ -377,6 +377,7 @@ describe("blastRadiusSnapshot", () => {
             modifiers: null,
             isTest: false,
             fileHash: null,
+            extra: {},
           },
         ],
         impactedFiles: [path.join(tmpRoot, "src/auth.py")],

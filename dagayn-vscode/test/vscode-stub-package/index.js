@@ -182,6 +182,13 @@ function __fireSave(document) {
 function __clearSaveCallbacks() {
     saveCallbacks = [];
 }
+const createdWebviewPanels = [];
+function __getCreatedWebviewPanels() {
+    return createdWebviewPanels;
+}
+function __clearCreatedWebviewPanels() {
+    createdWebviewPanels.length = 0;
+}
 exports.window = {
     activeTextEditor: undefined,
     showWarningMessage: async (message, ...buttons) => {
@@ -225,6 +232,35 @@ exports.window = {
         show: () => { },
         sendText: () => { },
     }),
+    createWebviewPanel: (_viewType, title, column, options) => {
+        const disposeCallbacks = [];
+        const panel = {
+            viewType: _viewType,
+            title,
+            column,
+            options,
+            webview: {
+                html: "",
+                onDidReceiveMessage: () => noopDisposable,
+                asWebviewUri: (uri) => uri,
+                cspSource: "",
+            },
+            reveal: () => { },
+            dispose: () => {
+                for (const cb of disposeCallbacks) {
+                    cb();
+                }
+            },
+            onDidDispose: (cb) => {
+                disposeCallbacks.push(cb);
+                return noopDisposable;
+            },
+            active: true,
+            visible: true,
+        };
+        createdWebviewPanels.push(panel);
+        return panel;
+    },
     registerTreeDataProvider: () => noopDisposable,
     registerFileDecorationProvider: () => noopDisposable,
     onDidChangeActiveColorTheme: () => noopDisposable,
@@ -237,6 +273,9 @@ exports.window = {
     __setQuickPickResult,
     __inputBoxCalls: inputBoxCalls,
     __setInputBoxResult,
+    __createdWebviewPanels: createdWebviewPanels,
+    __getCreatedWebviewPanels,
+    __clearCreatedWebviewPanels,
 };
 exports.workspace = {
     get workspaceFolders() {
@@ -322,3 +361,17 @@ const FileDecoration = class {
     }
 };
 exports.FileDecoration = FileDecoration;
+class MarkdownString {
+    value;
+    isTrusted = false;
+    supportThemeIcons = false;
+    supportHtml = false;
+    constructor(value = "") {
+        this.value = value;
+    }
+    appendMarkdown(s) {
+        this.value += s;
+        return this;
+    }
+}
+exports.MarkdownString = MarkdownString;

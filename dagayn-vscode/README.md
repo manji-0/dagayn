@@ -5,6 +5,7 @@ Visualize code dependencies, blast radius, and review context from your code gra
 ## Features
 
 - **Code Graph Explorer** -- Browse files, classes, functions, and their relationships in a tree view
+- **Node Documentation** -- Hover over a symbol to see its docstring, or open a dedicated documentation panel
 - **Blast Radius** -- See which files and symbols are impacted when you change code
 - **Review Changes** -- Automatically detect git changes and show their blast radius
 - **Find Callers / Callees** -- Trace all callers or callees of any function

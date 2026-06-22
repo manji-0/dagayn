@@ -1,9 +1,9 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { CodeGraphTreeProvider, StatsTreeProvider } from "../src/views/treeView";
-import { WorkspaceFolderTreeItem, FileTreeItem } from "../src/views/treeItems";
+import { WorkspaceFolderTreeItem, FileTreeItem, SymbolTreeItem } from "../src/views/treeItems";
 import { WorkspaceGraphRegistry } from "../src/backend/registry";
-import { SqliteReader } from "../src/backend/sqlite";
+import { SqliteReader, GraphNode } from "../src/backend/sqlite";
 
 const workspace = vscode.workspace as typeof vscode.workspace & {
   __setWorkspaceFolders: (
@@ -15,10 +15,10 @@ function _makeFolder(fsPath: string, index: number) {
   return { uri: vscode.Uri.file(fsPath), name: fsPath.split("/").pop() ?? fsPath, index };
 }
 
-function makeReader(files: string[]): SqliteReader {
+function makeReader(files: string[], nodesForFile: GraphNode[] = []): SqliteReader {
   return {
     getAllFiles: () => files,
-    getNodesByFile: () => [],
+    getNodesByFile: () => nodesForFile,
     getStats: () => ({
       totalNodes: 10,
       totalEdges: 5,
@@ -32,10 +32,12 @@ function makeReader(files: string[]): SqliteReader {
   } as unknown as SqliteReader;
 }
 
-function makeRegistry(entries: Array<{ folder: string; files: string[] }>): WorkspaceGraphRegistry {
+function makeRegistry(
+  entries: Array<{ folder: string; files: string[]; nodes?: GraphNode[] }>,
+): WorkspaceGraphRegistry {
   const readers = new Map<string, SqliteReader>();
-  for (const { folder, files } of entries) {
-    readers.set(folder, makeReader(files));
+  for (const { folder, files, nodes } of entries) {
+    readers.set(folder, makeReader(files, nodes));
   }
   return {
     foldersWithGraph: () => [...readers.keys()],
@@ -63,6 +65,41 @@ describe("CodeGraphTreeProvider", () => {
     assert.ok(children);
     assert.strictEqual(children!.length, 1);
     assert.ok(children![0] instanceof FileTreeItem);
+  });
+
+  it("renders SymbolTreeItem tooltips with docstring markdown", async () => {
+    const nodes: GraphNode[] = [
+      {
+        id: 1,
+        kind: "Function",
+        name: "doThing",
+        qualifiedName: "/workspace/a.py::doThing",
+        filePath: "/workspace/a.py",
+        lineStart: 10,
+        lineEnd: 20,
+        language: "python",
+        parentName: null,
+        params: null,
+        returnType: null,
+        modifiers: null,
+        isTest: false,
+        fileHash: null,
+        extra: { docstring: "Does the thing." },
+      },
+    ];
+    const registry = makeRegistry([{ folder: "/workspace", files: ["/workspace/a.py"], nodes }]);
+    const provider = new CodeGraphTreeProvider(() => registry);
+
+    const fileItem = (await provider.getChildren())![0] as FileTreeItem;
+    const children = await provider.getChildren(fileItem);
+    assert.ok(children);
+    assert.strictEqual(children!.length, 1);
+    assert.ok(children![0] instanceof SymbolTreeItem);
+
+    const symbolItem = children![0] as SymbolTreeItem;
+    assert.ok(symbolItem.tooltip instanceof vscode.MarkdownString);
+    assert.ok(symbolItem.tooltip.value.includes("Does the thing."));
+    assert.deepStrictEqual(symbolItem.extra, { docstring: "Does the thing." });
   });
 
   it("renders folder groups for multiple folders", async () => {

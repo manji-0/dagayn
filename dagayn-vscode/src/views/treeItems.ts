@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import * as path from "node:path";
+import { getNodeDocumentation } from "../features/nodeDocs";
 
 // ---------------------------------------------------------------------------
 // WorkspaceFolderTreeItem – groups files when multiple folders have a graph
@@ -95,6 +96,7 @@ export class SymbolTreeItem extends vscode.TreeItem {
   public readonly filePath: string;
   public readonly lineStart: number | null;
   public readonly kind: string;
+  public readonly extra: Record<string, unknown>;
 
   constructor(
     qualifiedName: string,
@@ -103,6 +105,7 @@ export class SymbolTreeItem extends vscode.TreeItem {
     filePath: string,
     lineStart: number | null,
     lineEnd: number | null,
+    extra: Record<string, unknown> = {},
   ) {
     const label = formatSymbolLabel(name, kind);
     super(label, vscode.TreeItemCollapsibleState.Collapsed);
@@ -115,7 +118,16 @@ export class SymbolTreeItem extends vscode.TreeItem {
     this.description = formatSymbolDescription(kind, lineStart, lineEnd);
     this.iconPath = new vscode.ThemeIcon(KIND_ICON_MAP[kind] ?? "symbol-misc");
     this.contextValue = KIND_CONTEXT_MAP[kind] ?? "node-function";
-    this.tooltip = qualifiedName;
+
+    const docs = getNodeDocumentation({ extra });
+    if (docs.length > 0) {
+      const tooltip = new vscode.MarkdownString();
+      tooltip.appendMarkdown(`**${qualifiedName}**\n\n---\n\n${docs}`);
+      this.tooltip = tooltip;
+    } else {
+      this.tooltip = qualifiedName;
+    }
+    this.extra = extra;
 
     const line = lineStart != null ? lineStart - 1 : 0;
     this.command = {

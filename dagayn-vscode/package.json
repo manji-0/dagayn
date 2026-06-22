@@ -123,6 +123,11 @@
         "icon": "$(git-compare)"
       },
       {
+        "command": "dagayn.showNodeDocumentation",
+        "title": "Code Graph: Show Node Documentation",
+        "icon": "$(book)"
+      },
+      {
         "command": "dagayn.embedGraph",
         "title": "Code Graph: Compute Embeddings",
         "icon": "$(sparkle)"
@@ -174,6 +179,11 @@
           "command": "dagayn.compareBlastRadiusSnapshot",
           "when": "editorTextFocus",
           "group": "dagayn.codeGraph@6"
+        },
+        {
+          "command": "dagayn.showNodeDocumentation",
+          "when": "editorTextFocus",
+          "group": "dagayn.codeGraph@7"
         }
       ],
       "editor/title/context": [
@@ -206,6 +216,11 @@
           "command": "dagayn.compareBlastRadiusSnapshot",
           "when": "editorTextFocus",
           "group": "dagayn.codeGraph@6"
+        },
+        {
+          "command": "dagayn.showNodeDocumentation",
+          "when": "editorTextFocus",
+          "group": "dagayn.codeGraph@7"
         }
       ],
       "scm/title": [
@@ -240,6 +255,11 @@
           "command": "dagayn.showGraph",
           "when": "viewItem =~ /node-/",
           "group": "codeGraph@5"
+        },
+        {
+          "command": "dagayn.showNodeDocumentation",
+          "when": "viewItem =~ /node-(function|class|type|test)/",
+          "group": "codeGraph@6"
         }
       ]
     },
@@ -388,12 +408,14 @@
     "@biomejs/biome": "^2.5.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/d3": "^7.4.3",
+    "@types/markdown-it": "^14.1.2",
     "@types/mocha": "^10.0.6",
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.85.0",
     "@vscode/test-electron": "^2.3.8",
     "@vscode/vsce": "^2.22.0",
     "esbuild": "^0.20.0",
+    "markdown-it": "^14.2.0",
     "mocha": "^10.2.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.3.3",
