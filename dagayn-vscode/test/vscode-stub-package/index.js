@@ -214,12 +214,19 @@ const createdWebviewPanels = [];
 function __getCreatedWebviewPanels() {
     return createdWebviewPanels;
 }
+function __findCreatedWebviewPanel(viewType) {
+    return createdWebviewPanels.find((p) => p.viewType === viewType);
+}
 function __clearCreatedWebviewPanels() {
     createdWebviewPanels.length = 0;
 }
 const informationCalls = [];
 function __resetInformationCalls() {
     informationCalls.length = 0;
+}
+const errorCalls = [];
+function __resetErrorCalls() {
+    errorCalls.length = 0;
 }
 const treeViewRegistrations = [];
 function __resetTreeViewRegistrations() {
@@ -247,7 +254,10 @@ exports.window = {
         informationCalls.push({ message, buttons });
         return undefined;
     },
-    showErrorMessage: async () => undefined,
+    showErrorMessage: async (message, ...buttons) => {
+        errorCalls.push({ message, buttons });
+        return undefined;
+    },
     showQuickPick: async (items, options) => {
         quickPickCalls.push({ items, options });
         return quickPickResult;
@@ -289,19 +299,44 @@ exports.window = {
     }),
     createWebviewPanel: (_viewType, title, column, options) => {
         const disposeCallbacks = [];
+        let disposed = false;
         const panel = {
             viewType: _viewType,
             title,
             column,
             options,
-            webview: {
-                html: "",
-                onDidReceiveMessage: () => noopDisposable,
-                asWebviewUri: (uri) => uri,
-                cspSource: "",
-            },
+            webview: (() => {
+                const messages = [];
+                const receiveCallbacks = [];
+                return {
+                    html: "",
+                    postMessage: (msg) => {
+                        messages.push(msg);
+                    },
+                    onDidReceiveMessage: (cb) => {
+                        receiveCallbacks.push(cb);
+                        return noopDisposable;
+                    },
+                    asWebviewUri: (uri) => uri,
+                    cspSource: "",
+                    __messages: messages,
+                    __clearMessages: () => {
+                        messages.length = 0;
+                    },
+                    __receiveCallbacks: receiveCallbacks,
+                    __fireReceiveMessage: (msg) => {
+                        for (const cb of receiveCallbacks) {
+                            cb(msg);
+                        }
+                    },
+                };
+            })(),
             reveal: () => { },
             dispose: () => {
+                if (disposed) {
+                    return;
+                }
+                disposed = true;
                 for (const cb of disposeCallbacks) {
                     cb();
                 }
@@ -336,9 +371,12 @@ exports.window = {
     __setInputBoxResult,
     __createdWebviewPanels: createdWebviewPanels,
     __getCreatedWebviewPanels,
+    __findCreatedWebviewPanel,
     __clearCreatedWebviewPanels,
     __informationCalls: informationCalls,
     __resetInformationCalls,
+    __errorCalls: errorCalls,
+    __resetErrorCalls,
     __treeViewRegistrations: treeViewRegistrations,
     __resetTreeViewRegistrations,
     __fileDecorationProviders: fileDecorationProviders,

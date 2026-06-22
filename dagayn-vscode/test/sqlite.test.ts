@@ -445,6 +445,41 @@ describe("SqliteReader", () => {
     assert.deepStrictEqual(edges, []);
   });
 
+  // -- getNodesLimited ----------------------------------------------------
+
+  it("getNodesLimited() returns rows ordered by id", () => {
+    const nodes = reader.getNodesLimited(3);
+    assert.strictEqual(nodes.length, 3);
+    assert.ok(nodes[0].id < nodes[1].id && nodes[1].id < nodes[2].id);
+  });
+
+  it("getNodesLimited() returns all rows when limit exceeds table size", () => {
+    const nodes = reader.getNodesLimited(1000);
+    assert.strictEqual(nodes.length, TEST_NODES.length);
+  });
+
+  // -- getEdgesForNodes ---------------------------------------------------
+
+  it("getEdgesForNodes() returns only edges within the given set", () => {
+    const qns = new Set(["src/routes.py::handle_login", "src/auth.py::login", "src/auth.py"]);
+    const edges = reader.getEdgesForNodes(qns);
+    for (const e of edges) {
+      assert.ok(qns.has(e.sourceQualified));
+      assert.ok(qns.has(e.targetQualified));
+    }
+  });
+
+  it("getEdgesForNodes() respects an optional limit", () => {
+    const qns = new Set(["src/routes.py::handle_login", "src/auth.py::login", "src/auth.py"]);
+    const edges = reader.getEdgesForNodes(qns, 1);
+    assert.strictEqual(edges.length, 1);
+  });
+
+  it("getEdgesForNodes() returns empty array for empty set", () => {
+    const edges = reader.getEdgesForNodes(new Set());
+    assert.deepStrictEqual(edges, []);
+  });
+
   // -- searchNodes --------------------------------------------------------
 
   it("searchNodes() finds nodes by name substring", () => {

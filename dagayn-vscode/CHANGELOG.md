@@ -16,6 +16,13 @@
 ### Fixed
 
 - `GraphWebview.openFileAtLine` no longer duplicates the workspace root when the stored file path is already absolute.
+- Multi-root relative path resolution in `openFileAtLine` now correctly opens files relative to the longest-matching workspace folder and surfaces actionable diagnostics with a "Copy Path" action.
+- Webview message handlers are wrapped in a single `try/catch` so malformed payloads cannot crash the extension host.
+- Full-symbol graph loading is now bounded by `dagayn.graph.maxNodes` at the reader level, preventing large databases from freezing the extension host.
+
+### Changed
+
+- Symbol graph node ordering when truncated is now deterministic by `id`; previously it followed file enumeration order.
 
 ## 0.2.1 — 2026-04-08
 

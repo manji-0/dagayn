@@ -7,11 +7,12 @@
  */
 
 import * as vscode from "vscode";
-import * as path from "node:path";
 import * as fs from "node:fs";
 import * as crypto from "node:crypto";
 import type { SqliteReader, ImpactRadius, GraphNode, GraphEdge } from "../backend/sqlite";
+import { resolveNodeFilePath } from "../backend/pathResolution";
 import type { ModuleGraph } from "../backend/moduleAggregation";
+import { parseIncomingWebviewMessage } from "./webviewMessages";
 
 type ViewMode = "symbol" | "module";
 
@@ -40,6 +41,7 @@ type PanelState =
 
 export class GraphWebviewPanel {
   private static lifecycle: PanelState = { status: "idle" };
+  private static testInstance: GraphWebviewPanel | undefined;
 
   private readonly panel: vscode.WebviewPanel;
   private readonly reader: SqliteReader;
@@ -68,10 +70,14 @@ export class GraphWebviewPanel {
 
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
 
+    GraphWebviewPanel.testInstance = this;
+
     this.panel.webview.html = this.getHtmlContent(this.panel.webview, extensionUri);
 
     this.panel.webview.onDidReceiveMessage(
-      (message) => this.handleMessage(message),
+      (message) => {
+        void this.handleMessage(message);
+      },
       null,
       this.disposables,
     );
@@ -198,6 +204,7 @@ export class GraphWebviewPanel {
 
   private dispose(): void {
     GraphWebviewPanel.lifecycle = { status: "idle" };
+    GraphWebviewPanel.testInstance = undefined;
     this.panel.dispose();
     for (const d of this.disposables) {
       d.dispose();
@@ -205,41 +212,79 @@ export class GraphWebviewPanel {
     this.disposables = [];
   }
 
+  /** Test-only hook to drive message handling from unit tests. */
+  static async __handleMessageForTests(message: unknown): Promise<void> {
+    const instance = GraphWebviewPanel.testInstance;
+    if (!instance) {
+      return Promise.resolve();
+    }
+    return (
+      instance as unknown as { handleMessage: (msg: unknown) => Promise<void> }
+    ).handleMessage(message);
+  }
+
+  /** Test-only hook to reset the singleton lifecycle between tests. */
+  static __resetForTests(): void {
+    GraphWebviewPanel.lifecycle = { status: "idle" };
+    GraphWebviewPanel.testInstance = undefined;
+  }
+
   // -----------------------------------------------------------------------
   // Message handling
   // -----------------------------------------------------------------------
 
-  private handleMessage(message: { command: string; [key: string]: unknown }): void {
-    switch (message.command) {
-      case "ready":
-        if (GraphWebviewPanel.lifecycle.status === "loading") {
-          GraphWebviewPanel.lifecycle = {
-            ...GraphWebviewPanel.lifecycle,
-            status: "ready",
-          };
-        }
-        this.sendGraphData();
-        break;
+  private async handleMessage(message: unknown): Promise<void> {
+    const command =
+      message != null && typeof message === "object" && "command" in message
+        ? String((message as { command?: unknown }).command)
+        : "unknown";
 
-      case "nodeClicked":
-        if (message.kind === "Module") {
-          vscode.window.showInformationMessage(`Code Graph: Module ${message.filePath as string}`);
-        } else {
-          this.openFileAtLine(message.filePath as string, message.lineStart as number);
-          // Bidirectional sync: reveal in tree view
-          if (message.qualifiedName) {
-            vscode.commands.executeCommand("dagayn.revealInTree", message.qualifiedName as string);
+    try {
+      const parsed = parseIncomingWebviewMessage(message);
+      if (!parsed) {
+        console.error(`[dagayn] invalid webview message (${command}):`, message);
+        await vscode.window.showErrorMessage(
+          `Code Graph: invalid webview message (${command}). See console for details.`,
+        );
+        return;
+      }
+
+      switch (parsed.command) {
+        case "ready":
+          if (GraphWebviewPanel.lifecycle.status === "loading") {
+            GraphWebviewPanel.lifecycle = {
+              ...GraphWebviewPanel.lifecycle,
+              status: "ready",
+            };
           }
-        }
-        break;
+          this.sendGraphData();
+          break;
 
-      case "exportSvg":
-        this.exportSvgToClipboard(message.svg as string);
-        break;
+        case "nodeClicked":
+          if (parsed.kind === "Module") {
+            await vscode.window.showInformationMessage(`Code Graph: Module ${parsed.filePath}`);
+          } else {
+            await this.openFileAtLine(parsed.filePath, parsed.lineStart);
+            // Bidirectional sync: reveal in tree view
+            if (parsed.qualifiedName) {
+              await vscode.commands.executeCommand("dagayn.revealInTree", parsed.qualifiedName);
+            }
+          }
+          break;
 
-      case "exportPng":
-        this.savePngToFile(message.data as string);
-        break;
+        case "exportSvg":
+          await this.exportSvgToClipboard(parsed.svg);
+          break;
+
+        case "exportPng":
+          await this.savePngToFile(parsed.data);
+          break;
+      }
+    } catch (err) {
+      console.error(`[dagayn] failed to handle webview message (${command}):`, err);
+      await vscode.window.showErrorMessage(
+        `Code Graph: failed to handle webview message (${command}). See console for details.`,
+      );
     }
   }
 
@@ -250,6 +295,9 @@ export class GraphWebviewPanel {
    * Otherwise send the full symbol graph.
    */
   private sendGraphData(): void {
+    const config = vscode.workspace.getConfiguration("dagayn");
+    const configuredMaxNodes = config.get<number>("graph.maxNodes", 500);
+
     let nodes: GraphNode[];
     let edges: GraphEdge[];
     let truncated = false;
@@ -284,16 +332,16 @@ export class GraphWebviewPanel {
         line: 0,
       }));
     } else {
-      // Load all nodes and edges
-      const files = this.reader.getAllFiles();
-      nodes = files.flatMap((f) => this.reader.getNodesByFile(f));
-      const qualifiedNames = new Set(nodes.map((n) => n.qualifiedName));
-      edges = this.reader.getEdgesAmong(qualifiedNames);
+      // Bounded load: ask for one extra row so we can detect truncation
+      // without materialising the whole table.
+      const nodesPlus = this.reader.getNodesLimited(configuredMaxNodes + 1);
+      truncated = nodesPlus.length > configuredMaxNodes;
+      nodes = truncated ? nodesPlus.slice(0, configuredMaxNodes) : nodesPlus;
+      const nodeQns = new Set(nodes.map((n) => n.qualifiedName));
+      edges = this.reader.getEdgesForNodes(nodeQns);
     }
 
     // Enforce maxNodes setting in symbol/impact mode only (module graphs are small).
-    const config = vscode.workspace.getConfiguration("dagayn");
-    const configuredMaxNodes = config.get<number>("graph.maxNodes", 500);
     const maxNodes = this.viewMode === "module" ? nodes.length : configuredMaxNodes;
     if (this.viewMode !== "module" && nodes.length > maxNodes) {
       truncated = true;
@@ -344,24 +392,39 @@ export class GraphWebviewPanel {
   /**
    * Open a file in the editor at a specific line.
    */
-  private async openFileAtLine(filePath: string, lineStart: number): Promise<void> {
-    let fullPath = filePath;
-    if (!path.isAbsolute(filePath)) {
-      const workspaceRoot = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(filePath))?.uri
-        .fsPath;
-      fullPath = workspaceRoot ? path.join(workspaceRoot, filePath) : filePath;
-    }
+  private async openFileAtLine(
+    filePath: string,
+    lineStart: number | null | undefined,
+  ): Promise<void> {
+    const workspaceFolders =
+      vscode.workspace.workspaceFolders?.map((folder) => folder.uri.fsPath) ?? [];
+    const { candidate, tried } = resolveNodeFilePath(filePath, workspaceFolders);
+    const fullPath = candidate ?? filePath;
 
     try {
       const doc = await vscode.workspace.openTextDocument(fullPath);
-      const line = Math.max(0, (lineStart ?? 1) - 1);
+      const line = Math.max(
+        0,
+        (typeof lineStart === "number" && Number.isFinite(lineStart) ? lineStart : 1) - 1,
+      );
       await vscode.window.showTextDocument(doc, {
         viewColumn: vscode.ViewColumn.One,
         selection: new vscode.Range(line, 0, line, 0),
         preserveFocus: false,
       });
-    } catch {
-      vscode.window.showWarningMessage(`Code Graph: Could not open file ${filePath}`);
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      console.error(
+        `Code Graph: Could not open file ${filePath}\nResolved to: ${fullPath}\nTried: ${tried.join(", ")}\n${detail}`,
+      );
+      const action = await vscode.window.showErrorMessage(
+        `Code Graph: Could not open file ${filePath}. ${candidate ? `Resolved to ${candidate}.` : "See console for candidates tried."}`,
+        "Copy Path",
+        "Dismiss",
+      );
+      if (action === "Copy Path") {
+        await vscode.env.clipboard.writeText(candidate ?? filePath);
+      }
     }
   }
 

@@ -809,32 +809,68 @@ function bindToolbarEvents(): void {
 // Extension message handling
 // ---------------------------------------------------------------------------
 
+function showWebviewError(message: string): void {
+  const el = document.getElementById("truncation-warning");
+  if (el) {
+    el.style.display = "inline";
+    el.textContent = `\u26a0 ${message}`;
+  }
+}
+
 function bindExtensionMessages(): void {
   window.addEventListener("message", (event) => {
-    const message = event.data;
-    switch (message.command) {
-      case "setData":
-        setData(message.nodes as GraphNode[], message.edges as GraphEdge[]);
-        // Auto-fit after simulation settles a bit
-        setTimeout(() => fitToView(), 800);
-        // Show truncation warning if needed
-        if (message.truncated) {
+    try {
+      const message = event.data;
+      if (!message || typeof message !== "object" || typeof message.command !== "string") {
+        console.warn("[graph] invalid extension message", message);
+        return;
+      }
+
+      switch (message.command) {
+        case "setData": {
+          if (!Array.isArray(message.nodes) || !Array.isArray(message.edges)) {
+            console.warn("[graph] setData missing node or edge arrays", message);
+            showWebviewError("Received invalid graph data.");
+            return;
+          }
+          setData(message.nodes as GraphNode[], message.edges as GraphEdge[]);
+          // Auto-fit after simulation settles a bit
+          setTimeout(() => fitToView(), 800);
+          // Show truncation warning if needed
           const warn = document.getElementById("truncation-warning");
           if (warn) {
-            warn.style.display = "inline";
-            warn.textContent = `\u26a0 Showing ${message.maxNodes} of more nodes. Increase maxNodes in settings.`;
+            if (message.truncated) {
+              warn.style.display = "inline";
+              warn.textContent = `\u26a0 Showing ${message.maxNodes} of more nodes. Increase maxNodes in settings.`;
+            } else {
+              warn.style.display = "none";
+            }
           }
+          break;
         }
-        break;
 
-      case "highlightNode":
-        highlightNodeByName(message.qualifiedName as string);
-        break;
+        case "highlightNode": {
+          if (typeof message.qualifiedName !== "string") {
+            console.warn("[graph] highlightNode missing qualifiedName", message);
+            return;
+          }
+          highlightNodeByName(message.qualifiedName);
+          break;
+        }
 
-      case "setTheme":
-        currentTheme = message.theme as "dark" | "light";
-        applyTheme();
-        break;
+        case "setTheme": {
+          if (message.theme !== "dark" && message.theme !== "light") {
+            console.warn("[graph] setTheme invalid theme", message);
+            return;
+          }
+          currentTheme = message.theme;
+          applyTheme();
+          break;
+        }
+      }
+    } catch (err) {
+      console.error("[graph] error handling extension message", err);
+      showWebviewError("Code Graph: error updating graph. See devtools for details.");
     }
   });
 }

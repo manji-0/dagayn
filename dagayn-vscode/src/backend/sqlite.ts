@@ -296,6 +296,15 @@ export class SqliteReader {
     return rows.map((r) => this._rowToNode(r));
   }
 
+  /** All nodes ordered by id, up to a limit. */
+  getNodesLimited(limit: number): GraphNode[] {
+    const safeLimit = Math.max(0, limit);
+    const rows = this._db()
+      .prepare("SELECT * FROM nodes ORDER BY id LIMIT ?")
+      .all(safeLimit) as NodeRow[];
+    return rows.map((r) => this._rowToNode(r));
+  }
+
   /** Single node lookup by qualified_name. */
   getNode(qualifiedName: string): GraphNode | undefined {
     const row = this._db()
@@ -358,18 +367,38 @@ export class SqliteReader {
    * (better-sqlite3 handles large parameter lists efficiently).
    */
   getEdgesAmong(qualifiedNames: Set<string>): GraphEdge[] {
+    return this._getEdgesForNodes(qualifiedNames);
+  }
+
+  /**
+   * Edges where both source and target are in the given set, optionally limited.
+   *
+   * This is the bounded variant used by the webview; `getEdgesAmong` is kept
+   * unchanged for existing callers that expect the full edge set.
+   */
+  getEdgesForNodes(qualifiedNames: Set<string>, limit?: number): GraphEdge[] {
+    return this._getEdgesForNodes(qualifiedNames, limit);
+  }
+
+  private _getEdgesForNodes(qualifiedNames: Set<string>, limit?: number): GraphEdge[] {
     if (qualifiedNames.size === 0) {
       return [];
     }
     const qns = [...qualifiedNames];
     const placeholders = qns.map(() => "?").join(",");
+    const safeLimit = limit !== undefined ? Math.max(0, limit) : undefined;
+    const limitClause = safeLimit !== undefined ? " LIMIT ?" : "";
+    const params: Array<string | number> = [...qns, ...qns];
+    if (safeLimit !== undefined) {
+      params.push(safeLimit);
+    }
     const rows = this._db()
       .prepare(
         `SELECT * FROM edges
          WHERE source_qualified IN (${placeholders})
-           AND target_qualified IN (${placeholders})`,
+           AND target_qualified IN (${placeholders})${limitClause}`,
       )
-      .all(...qns, ...qns) as EdgeRow[];
+      .all(...params) as EdgeRow[];
     return rows.map((r) => this._rowToEdge(r));
   }
 
