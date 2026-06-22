@@ -1,4 +1,5 @@
 "use strict";
+const fs = require("fs");
 /**
  * Minimal vscode API stub for running unit tests under plain Node.
  *
@@ -139,9 +140,36 @@ class RelativePattern {
 }
 exports.RelativePattern = RelativePattern;
 class FileSystemWatcherStub {
-    onDidChange = () => ({ dispose: () => { } });
-    onDidCreate = () => ({ dispose: () => { } });
-    onDidDelete = () => ({ dispose: () => { } });
+    changeCallbacks = [];
+    createCallbacks = [];
+    deleteCallbacks = [];
+    onDidChange = (cb) => {
+        this.changeCallbacks.push(cb);
+        return { dispose: () => { } };
+    };
+    onDidCreate = (cb) => {
+        this.createCallbacks.push(cb);
+        return { dispose: () => { } };
+    };
+    onDidDelete = (cb) => {
+        this.deleteCallbacks.push(cb);
+        return { dispose: () => { } };
+    };
+    async __fireChange(uri) {
+        for (const cb of this.changeCallbacks) {
+            await cb(uri);
+        }
+    }
+    async __fireCreate(uri) {
+        for (const cb of this.createCallbacks) {
+            await cb(uri);
+        }
+    }
+    async __fireDelete(uri) {
+        for (const cb of this.deleteCallbacks) {
+            await cb(uri);
+        }
+    }
     dispose = () => { };
 }
 const noopDisposable = { dispose: () => { } };
@@ -189,13 +217,36 @@ function __getCreatedWebviewPanels() {
 function __clearCreatedWebviewPanels() {
     createdWebviewPanels.length = 0;
 }
+const informationCalls = [];
+function __resetInformationCalls() {
+    informationCalls.length = 0;
+}
+const treeViewRegistrations = [];
+function __resetTreeViewRegistrations() {
+    treeViewRegistrations.length = 0;
+}
+const fileDecorationProviders = [];
+function __resetFileDecorationProviders() {
+    fileDecorationProviders.length = 0;
+}
+const statusBarItems = [];
+function __resetStatusBarItems() {
+    statusBarItems.length = 0;
+}
+const fileSystemWatchers = [];
+function __resetFileSystemWatchers() {
+    fileSystemWatchers.length = 0;
+}
 exports.window = {
     activeTextEditor: undefined,
     showWarningMessage: async (message, ...buttons) => {
         warningCalls.push({ message, buttons });
         return warningResult;
     },
-    showInformationMessage: async () => undefined,
+    showInformationMessage: async (message, ...buttons) => {
+        informationCalls.push({ message, buttons });
+        return undefined;
+    },
     showErrorMessage: async () => undefined,
     showQuickPick: async (items, options) => {
         quickPickCalls.push({ items, options });
@@ -220,14 +271,18 @@ exports.window = {
             dispose: () => { outputChannels.delete(name); },
         };
     },
-    createStatusBarItem: () => ({
-        text: "",
-        tooltip: "",
-        command: undefined,
-        show: () => { },
-        hide: () => { },
-        dispose: () => { },
-    }),
+    createStatusBarItem: () => {
+        const item = {
+            text: "",
+            tooltip: "",
+            command: undefined,
+            show: () => { },
+            hide: () => { },
+            dispose: () => { },
+        };
+        statusBarItems.push(item);
+        return item;
+    },
     createTerminal: () => ({
         show: () => { },
         sendText: () => { },
@@ -261,8 +316,14 @@ exports.window = {
         createdWebviewPanels.push(panel);
         return panel;
     },
-    registerTreeDataProvider: () => noopDisposable,
-    registerFileDecorationProvider: () => noopDisposable,
+    registerTreeDataProvider: (viewId, provider) => {
+        treeViewRegistrations.push({ viewId, provider });
+        return noopDisposable;
+    },
+    registerFileDecorationProvider: (provider) => {
+        fileDecorationProviders.push(provider);
+        return noopDisposable;
+    },
     onDidChangeActiveColorTheme: () => noopDisposable,
     onDidChangeActiveTextEditor: () => noopDisposable,
     withProgress: async (_options, task) => task(),
@@ -276,6 +337,14 @@ exports.window = {
     __createdWebviewPanels: createdWebviewPanels,
     __getCreatedWebviewPanels,
     __clearCreatedWebviewPanels,
+    __informationCalls: informationCalls,
+    __resetInformationCalls,
+    __treeViewRegistrations: treeViewRegistrations,
+    __resetTreeViewRegistrations,
+    __fileDecorationProviders: fileDecorationProviders,
+    __resetFileDecorationProviders,
+    __statusBarItems: statusBarItems,
+    __resetStatusBarItems,
 };
 exports.workspace = {
     get workspaceFolders() {
@@ -317,7 +386,11 @@ exports.workspace = {
             },
         };
     },
-    createFileSystemWatcher: () => new FileSystemWatcherStub(),
+    createFileSystemWatcher: () => {
+        const watcher = new FileSystemWatcherStub();
+        fileSystemWatchers.push(watcher);
+        return watcher;
+    },
     onDidSaveTextDocument: (cb) => {
         saveCallbacks.push(cb);
         return { dispose: () => {
@@ -328,11 +401,18 @@ exports.workspace = {
             } };
     },
     fs: {
-        stat: async () => ({ type: FileType.File }),
+        stat: async (uri) => {
+            if (fs.existsSync(uri.fsPath)) {
+                return { type: FileType.File };
+            }
+            throw new Error("File not found");
+        },
         writeFile: async () => { },
         readFile: async () => Buffer.from(""),
     },
     __resetConfigStore,
+    __fileSystemWatchers: fileSystemWatchers,
+    __resetFileSystemWatchers,
 };
 exports.commands = {
     registerCommand: () => noopDisposable,

@@ -226,3 +226,19 @@ export function deactivate(): void {
   registry?.dispose();
   registry = undefined;
 }
+
+/** @internal — test-only: access the active registry. */
+export function __getRegistryForTests(): WorkspaceGraphRegistry | undefined {
+  return registry;
+}
+
+/** @internal — test-only: reset module-level singletons between tests. */
+export function __resetForTests(): void {
+  registry?.dispose();
+  registry = undefined;
+  codeGraphProvider = undefined;
+  blastRadiusProvider = undefined;
+  statsProvider = undefined;
+  statusBar = undefined;
+  scmDecorationProvider = undefined;
+}
