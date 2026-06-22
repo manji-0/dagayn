@@ -13,6 +13,7 @@ import { StatusBar } from "./views/statusBar";
 import { ScmDecorationProvider } from "./features/scmDecorations";
 import { registerGraphLifecycleCommands } from "./features/graphLifecycle";
 import { registerGraphViewerCommands } from "./features/graphViewer";
+import { registerModuleDependenciesCommand } from "./features/moduleDependencies";
 import { registerBlastRadiusCommand } from "./features/blastRadius";
 import { registerNavigationCommands } from "./features/navigation";
 import { registerSearchCommand } from "./features/search";
@@ -82,6 +83,8 @@ function registerCommands(context: vscode.ExtensionContext, cli: CliWrapper): vo
   );
 
   registerGraphLifecycleCommands(context, cli, registry, reinitializeFolder);
+  registerGraphViewerCommands(context, registry);
+  registerModuleDependenciesCommand(context, registry);
   registerBlastRadiusCommand(
     context,
     () => registry?.getReaderForActiveEditor(),
@@ -90,7 +93,6 @@ function registerCommands(context: vscode.ExtensionContext, cli: CliWrapper): vo
   registerNavigationCommands(context, () => registry?.getReaderForActiveEditor());
   registerSearchCommand(context, registry);
   registerReviewCommand(context, registry, () => scmDecorationProvider);
-  registerGraphViewerCommands(context, registry);
 }
 
 function watchGraphDb(context: vscode.ExtensionContext): void {

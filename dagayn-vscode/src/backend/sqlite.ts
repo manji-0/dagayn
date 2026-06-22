@@ -41,7 +41,7 @@ try {
 // Interfaces
 // ---------------------------------------------------------------------------
 
-export type NodeKind = "File" | "Class" | "Function" | "Type" | "Test";
+export type NodeKind = "File" | "Class" | "Function" | "Type" | "Test" | "Module";
 
 export type EdgeKind =
   | "CALLS"

@@ -18,7 +18,7 @@ declare function acquireVsCodeApi(): {
 // Types
 // ---------------------------------------------------------------------------
 
-type NodeKind = "File" | "Class" | "Function" | "Test" | "Type";
+type NodeKind = "File" | "Class" | "Function" | "Test" | "Type" | "Module";
 
 type EdgeKind =
   | "CALLS"
@@ -75,6 +75,7 @@ const NODE_RADIUS: Record<NodeKind, number> = {
   Function: 10,
   Test: 10,
   Type: 10,
+  Module: 16,
 };
 
 const NODE_COLOR: Record<NodeKind, string> = {
@@ -83,6 +84,7 @@ const NODE_COLOR: Record<NodeKind, string> = {
   Function: "#a6e3a1",
   Test: "#89b4fa",
   Type: "#fab387",
+  Module: "#89dceb",
 };
 
 const EDGE_COLOR: Record<EdgeKind, string> = {
@@ -380,6 +382,7 @@ function buildGraph(): void {
         qualifiedName: d.qualifiedName,
         filePath: d.filePath,
         lineStart: d.lineStart ?? 1,
+        kind: d.kind,
       });
     })
     .on("dblclick", (_event, d) => {

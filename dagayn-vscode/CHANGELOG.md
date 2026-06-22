@@ -6,6 +6,7 @@
 
 - **Multi-root workspace support**: one graph reader per workspace folder, folder grouping in the tree and stats views, per-folder lifecycle commands, and active-editor-aware cursor commands.
 - Folder picker for global commands (`Build Graph`, `Update Graph`, `Embed Graph`, `Watch Graph`, `Review Changes`) when multiple workspace folders are open.
+- **Module dependency view**: new command `Code Graph: Show Module Dependencies` aggregates files by parent directory and renders directory-level dependency edges.
 - Auto-update failure notification: consecutive failures now surface a warning after `dagayn.autoUpdateFailureThreshold` consecutive failures with "Open Settings" and "Disable Auto-Update" actions.
 - New setting `dagayn.autoUpdateFailureThreshold` (default `3`) to control when the warning appears.
 

@@ -10,7 +10,10 @@ import * as vscode from "vscode";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import * as crypto from "node:crypto";
-import type { SqliteReader, ImpactRadius } from "../backend/sqlite";
+import type { SqliteReader, ImpactRadius, GraphNode, GraphEdge } from "../backend/sqlite";
+import type { ModuleGraph } from "../backend/moduleAggregation";
+
+type ViewMode = "symbol" | "module";
 
 type PanelState =
   | { status: "idle" }
@@ -21,6 +24,8 @@ type PanelState =
       sourceId: string;
       impactRadius?: ImpactRadius;
       pendingHighlight?: string;
+      moduleGraph?: ModuleGraph;
+      viewMode: ViewMode;
     }
   | {
       status: "ready";
@@ -29,6 +34,8 @@ type PanelState =
       sourceId: string;
       impactRadius?: ImpactRadius;
       pendingHighlight?: string;
+      moduleGraph?: ModuleGraph;
+      viewMode: ViewMode;
     };
 
 export class GraphWebviewPanel {
@@ -37,6 +44,8 @@ export class GraphWebviewPanel {
   private readonly panel: vscode.WebviewPanel;
   private readonly reader: SqliteReader;
   private readonly impactRadius?: ImpactRadius;
+  private readonly moduleGraph?: ModuleGraph;
+  private readonly viewMode: ViewMode;
   private pendingHighlight?: string;
   private disposables: vscode.Disposable[] = [];
 
@@ -47,10 +56,14 @@ export class GraphWebviewPanel {
     private readonly sourceId: string,
     impactRadius?: ImpactRadius,
     pendingHighlight?: string,
+    moduleGraph?: ModuleGraph,
+    viewMode: ViewMode = "symbol",
   ) {
     this.panel = panel;
     this.reader = reader;
     this.impactRadius = impactRadius;
+    this.moduleGraph = moduleGraph;
+    this.viewMode = viewMode;
     this.pendingHighlight = pendingHighlight;
 
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
@@ -85,6 +98,43 @@ export class GraphWebviewPanel {
     sourceId: string,
     impactRadius?: ImpactRadius,
     highlightQualifiedName?: string,
+  ): void {
+    GraphWebviewPanel.createOrShowInternal(
+      extensionUri,
+      reader,
+      sourceId,
+      impactRadius,
+      highlightQualifiedName,
+      undefined,
+      "symbol",
+    );
+  }
+
+  static createOrShowModule(
+    extensionUri: vscode.Uri,
+    reader: SqliteReader,
+    folder: string,
+    moduleGraph: ModuleGraph,
+  ): void {
+    GraphWebviewPanel.createOrShowInternal(
+      extensionUri,
+      reader,
+      `module:${folder}`,
+      undefined,
+      undefined,
+      moduleGraph,
+      "module",
+    );
+  }
+
+  private static createOrShowInternal(
+    extensionUri: vscode.Uri,
+    reader: SqliteReader,
+    sourceId: string,
+    impactRadius?: ImpactRadius,
+    highlightQualifiedName?: string,
+    moduleGraph?: ModuleGraph,
+    viewMode: ViewMode = "symbol",
   ): void {
     const column = vscode.ViewColumn.Beside;
 
@@ -130,6 +180,8 @@ export class GraphWebviewPanel {
       sourceId,
       impactRadius,
       pendingHighlight: highlightQualifiedName,
+      moduleGraph,
+      viewMode,
     };
 
     new GraphWebviewPanel(
@@ -139,6 +191,8 @@ export class GraphWebviewPanel {
       sourceId,
       impactRadius,
       highlightQualifiedName,
+      moduleGraph,
+      viewMode,
     );
   }
 
@@ -168,10 +222,14 @@ export class GraphWebviewPanel {
         break;
 
       case "nodeClicked":
-        this.openFileAtLine(message.filePath as string, message.lineStart as number);
-        // Bidirectional sync: reveal in tree view
-        if (message.qualifiedName) {
-          vscode.commands.executeCommand("dagayn.revealInTree", message.qualifiedName as string);
+        if (message.kind === "Module") {
+          vscode.window.showInformationMessage(`Code Graph: Module ${message.filePath as string}`);
+        } else {
+          this.openFileAtLine(message.filePath as string, message.lineStart as number);
+          // Bidirectional sync: reveal in tree view
+          if (message.qualifiedName) {
+            vscode.commands.executeCommand("dagayn.revealInTree", message.qualifiedName as string);
+          }
         }
         break;
 
@@ -188,15 +246,42 @@ export class GraphWebviewPanel {
   /**
    * Send full graph data to the webview.
    * If an impact radius was provided, send only those nodes/edges.
-   * Otherwise send the full graph.
+   * If module mode is active, send the precomputed module graph.
+   * Otherwise send the full symbol graph.
    */
   private sendGraphData(): void {
-    let nodes;
-    let edges;
+    let nodes: GraphNode[];
+    let edges: GraphEdge[];
+    let truncated = false;
 
     if (this.impactRadius) {
       nodes = [...this.impactRadius.changedNodes, ...this.impactRadius.impactedNodes];
       edges = this.impactRadius.edges;
+    } else if (this.viewMode === "module" && this.moduleGraph) {
+      nodes = this.moduleGraph.nodes.map((m) => ({
+        id: m.id,
+        kind: "Module" as const,
+        name: m.name,
+        qualifiedName: m.dirPath,
+        filePath: m.dirPath,
+        lineStart: null,
+        lineEnd: null,
+        language: m.language,
+        parentName: null,
+        params: null,
+        returnType: null,
+        modifiers: null,
+        isTest: false,
+        fileHash: null,
+      }));
+      edges = this.moduleGraph.edges.map((e, index) => ({
+        id: index + 1,
+        kind: e.kind,
+        sourceQualified: e.sourceDir,
+        targetQualified: e.targetDir,
+        filePath: e.sourceDir,
+        line: 0,
+      }));
     } else {
       // Load all nodes and edges
       const files = this.reader.getAllFiles();
@@ -205,18 +290,15 @@ export class GraphWebviewPanel {
       edges = this.reader.getEdgesAmong(qualifiedNames);
     }
 
-    // Enforce maxNodes setting
+    // Enforce maxNodes setting in symbol/impact mode only (module graphs are small).
     const config = vscode.workspace.getConfiguration("dagayn");
-    const maxNodes = config.get<number>("graph.maxNodes", 500);
-    let truncated = false;
-    if (nodes.length > maxNodes) {
+    const configuredMaxNodes = config.get<number>("graph.maxNodes", 500);
+    const maxNodes = this.viewMode === "module" ? nodes.length : configuredMaxNodes;
+    if (this.viewMode !== "module" && nodes.length > maxNodes) {
       truncated = true;
       nodes = nodes.slice(0, maxNodes);
-      const nodeQns = new Set(nodes.map((n: { qualifiedName: string }) => n.qualifiedName));
-      edges = edges.filter(
-        (e: { sourceQualified: string; targetQualified: string }) =>
-          nodeQns.has(e.sourceQualified) && nodeQns.has(e.targetQualified),
-      );
+      const nodeQns = new Set(nodes.map((n) => n.qualifiedName));
+      edges = edges.filter((e) => nodeQns.has(e.sourceQualified) && nodeQns.has(e.targetQualified));
     }
 
     this.panel.webview.postMessage({

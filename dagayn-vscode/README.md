@@ -57,10 +57,11 @@ The graph database is stored locally at `.dagayn/graph.db` and updates automatic
 | `Code Graph: Find Tests`           | Find tests for a symbol                                         |
 | `Code Graph: Find Large Functions` | Find functions/classes exceeding a size threshold               |
 | `Code Graph: Query Graph`          | Run semantic queries (8 patterns: callers_of, callees_of, etc.) |
-| `Code Graph: Search`               | Search the code graph                                           |
-| `Code Graph: Show Graph`           | Open the interactive graph visualization                        |
-| `Code Graph: Compute Embeddings`   | Generate vector embeddings for semantic search                  |
-| `Code Graph: Watch Mode`           | Run graph in watch mode for continuous updates                  |
+| `Code Graph: Search`                   | Search the code graph                                           |
+| `Code Graph: Show Graph`                 | Open the interactive graph visualization                        |
+| `Code Graph: Show Module Dependencies`   | Aggregate files by parent directory and show directory-level dependencies |
+| `Code Graph: Compute Embeddings`         | Generate vector embeddings for semantic search                  |
+| `Code Graph: Watch Mode`                 | Run graph in watch mode for continuous updates                  |
 
 ## Settings
 

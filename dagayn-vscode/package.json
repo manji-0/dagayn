@@ -98,6 +98,11 @@
         "icon": "$(type-hierarchy)"
       },
       {
+        "command": "dagayn.showModuleDependencies",
+        "title": "Code Graph: Show Module Dependencies",
+        "icon": "$(symbol-namespace)"
+      },
+      {
         "command": "dagayn.search",
         "title": "Code Graph: Search",
         "icon": "$(search)"
