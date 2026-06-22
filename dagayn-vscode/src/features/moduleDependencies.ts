@@ -1,13 +1,13 @@
 import * as vscode from "vscode";
 import { WorkspaceGraphRegistry } from "../backend/registry";
-import { pickFolderForGlobalOp } from "../backend/folderPicker";
+import { resolveReaderAndFolder } from "../backend/readerResolver";
 import { GraphWebviewPanel } from "../views/graphWebview";
 import {
   aggregateModules,
   DEFAULT_MODULE_EDGE_KINDS,
   type ModuleGraph,
 } from "../backend/moduleAggregation";
-import type { EdgeKind, SqliteReader } from "../backend/sqlite";
+import type { EdgeKind } from "../backend/sqlite";
 
 export function registerModuleDependenciesCommand(
   context: vscode.ExtensionContext,
@@ -15,31 +15,14 @@ export function registerModuleDependenciesCommand(
 ): void {
   context.subscriptions.push(
     vscode.commands.registerCommand("dagayn.showModuleDependencies", async () => {
-      let reader: SqliteReader | undefined = registry.getReaderForActiveEditor();
-      let folder: string | undefined;
-
-      if (reader) {
-        const activeEditor = vscode.window.activeTextEditor;
-        folder = activeEditor
-          ? vscode.workspace.getWorkspaceFolder(activeEditor.document.uri)?.uri.fsPath
-          : undefined;
-      } else {
-        const folders = registry.foldersWithGraph();
-        if (folders.length === 1) {
-          folder = folders[0];
-          reader = registry.getReaderForFolder(folder);
-        } else if (folders.length > 1) {
-          folder = await pickFolderForGlobalOp(registry, { requireGraph: true });
-          reader = folder ? registry.getReaderForFolder(folder) : undefined;
-        }
-      }
-
-      if (!reader || !folder) {
+      const resolved = await resolveReaderAndFolder(registry);
+      if (!resolved) {
         vscode.window.showWarningMessage(
           "Code Graph: No graph database loaded. Run 'Code Graph: Build Graph' first.",
         );
         return;
       }
+      const { reader, folder } = resolved;
 
       const config = vscode.workspace.getConfiguration("dagayn");
       const defaultEdges = config.get<EdgeKind[]>("graph.defaultEdges", DEFAULT_MODULE_EDGE_KINDS);

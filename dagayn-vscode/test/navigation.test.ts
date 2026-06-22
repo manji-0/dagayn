@@ -4,7 +4,12 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { SqliteReader } from "../src/backend/sqlite";
-import { executeQuery, pickAndNavigate } from "../src/features/navigation";
+import {
+  buildEdgeNavigationItems,
+  buildTestNavigationItems,
+  executeQuery,
+  pickAndNavigate,
+} from "../src/features/navigation";
 import { buildTestGraphDb, TestEdge, TestNode } from "./helpers/schema";
 
 const NOW = Date.now() / 1000;
@@ -84,6 +89,9 @@ function makeSampleGraph(root: string): { nodes: TestNode[]; edges: TestEdge[] }
     },
   ];
 
+  const testPath = path.join(root, "src/test_auth.py");
+  const testLoginQn = `${testPath}::test_login`;
+
   const edges: TestEdge[] = [
     {
       kind: "CALLS",
@@ -103,7 +111,34 @@ function makeSampleGraph(root: string): { nodes: TestNode[]; edges: TestEdge[] }
       extra: "{}",
       updated_at: NOW,
     },
+    {
+      kind: "TESTED_BY",
+      source_qualified: testLoginQn,
+      target_qualified: `${authPath}::login`,
+      file_path: testPath,
+      line: 8,
+      extra: "{}",
+      updated_at: NOW,
+    },
   ];
+
+  nodes.push({
+    kind: "Test",
+    name: "test_login",
+    qualified_name: testLoginQn,
+    file_path: testPath,
+    line_start: 5,
+    line_end: 25,
+    language: "python",
+    parent_name: null,
+    params: null,
+    return_type: null,
+    modifiers: null,
+    is_test: 1,
+    file_hash: "ccc",
+    extra: "{}",
+    updated_at: NOW,
+  });
 
   return { nodes, edges };
 }
@@ -155,6 +190,84 @@ describe("navigation query execution", () => {
     const target = path.join(tmpRoot, "src/auth.py::login");
     const items = await executeQuery(reader, "unknown_pattern", target);
     assert.deepStrictEqual(items, []);
+  });
+});
+
+describe("buildEdgeNavigationItems", () => {
+  let tmpRoot: string;
+  let reader: SqliteReader;
+
+  beforeEach(async () => {
+    tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "dagayn-nav-test-"));
+    const { nodes, edges } = makeSampleGraph(tmpRoot);
+    buildTestGraphDb(tmpRoot, nodes, edges);
+    reader = new SqliteReader(path.join(tmpRoot, ".dagayn", "graph.db"));
+  });
+
+  afterEach(async () => {
+    reader.close();
+    await fs.rm(tmpRoot, { recursive: true, force: true });
+  });
+
+  it("uses the filePath fallback when the related node is missing", () => {
+    const edge = {
+      id: 99,
+      kind: "CALLS" as const,
+      sourceQualified: "missing-source",
+      targetQualified: "missing-target",
+      filePath: "/fallback/path.py",
+      line: 42,
+    };
+    const items = buildEdgeNavigationItems(reader, [edge], "outgoing");
+    assert.strictEqual(items.length, 1);
+    assert.strictEqual(items[0].label, "missing-target");
+    assert.strictEqual(items[0].description, "/fallback/path.py");
+    assert.strictEqual(items[0].detail, "Line 42");
+    assert.strictEqual(items[0].node, undefined);
+  });
+
+  it("keeps the callers/callees description format (no kind prefix)", () => {
+    const loginNode = reader.getNode(path.join(tmpRoot, "src/auth.py::login"));
+    assert.ok(loginNode);
+    const callerEdges = reader
+      .getEdgesByTarget(loginNode!.qualifiedName)
+      .filter((e) => e.kind === "CALLS");
+    const items = buildEdgeNavigationItems(reader, callerEdges, "incoming");
+    assert.strictEqual(items.length, 1);
+    assert.strictEqual(items[0].label, "handle_login");
+    assert.strictEqual(items[0].description, path.join(tmpRoot, "src/routes.py"));
+    assert.strictEqual(items[0].detail, "Line 10");
+    assert.ok(items[0].node);
+  });
+});
+
+describe("buildTestNavigationItems", () => {
+  let tmpRoot: string;
+  let reader: SqliteReader;
+
+  beforeEach(async () => {
+    tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "dagayn-nav-test-"));
+    const { nodes, edges } = makeSampleGraph(tmpRoot);
+    buildTestGraphDb(tmpRoot, nodes, edges);
+    reader = new SqliteReader(path.join(tmpRoot, ".dagayn", "graph.db"));
+  });
+
+  afterEach(async () => {
+    reader.close();
+    await fs.rm(tmpRoot, { recursive: true, force: true });
+  });
+
+  it("shows 'Line ?' when the test node has no line start", () => {
+    const loginNode = reader.getNode(path.join(tmpRoot, "src/auth.py::login"));
+    assert.ok(loginNode);
+    const items = buildTestNavigationItems(reader, loginNode!);
+    assert.strictEqual(items.length, 1);
+    assert.strictEqual(items[0].label, "test_login");
+    assert.strictEqual(items[0].detail, "Line 5");
+    assert.strictEqual(
+      items[0].node?.qualifiedName,
+      path.join(tmpRoot, "src/test_auth.py::test_login"),
+    );
   });
 });
 

@@ -145,6 +145,81 @@ export function buildRelatedItems(
 }
 
 /**
+ * Build QuickPick items for a cursor-based edge query (callers/callees).
+ *
+ * This intentionally produces a different description format than
+ * {@link buildRelatedItems} (used by queryGraph/runSavedQuery), so callers
+ * keep their existing visible text after the refactor.
+ */
+export function buildEdgeNavigationItems(
+  reader: SqliteReader,
+  edges: GraphEdge[],
+  direction: QueryDirection,
+): NavigationItem[] {
+  return edges.map((edge) => {
+    const relatedQn = direction === "incoming" ? edge.sourceQualified : edge.targetQualified;
+    const relatedNode = reader.getNode(relatedQn);
+    return {
+      label: relatedNode?.name ?? relatedQn,
+      description: relatedNode?.filePath ?? edge.filePath,
+      detail: `Line ${relatedNode?.lineStart ?? edge.line}`,
+      node: relatedNode,
+    };
+  });
+}
+
+/**
+ * Build QuickPick items for the tests related to the node at the cursor.
+ */
+export function buildTestNavigationItems(reader: SqliteReader, node: GraphNode): NavigationItem[] {
+  const testQualifiedNames = collectTestQualifiedNames(reader, node);
+  return testQualifiedNames.map((tqn) => {
+    const testNode = reader.getNode(tqn);
+    return {
+      label: testNode?.name ?? tqn,
+      description: testNode?.filePath ?? "",
+      detail: `Line ${testNode?.lineStart ?? "?"}`,
+      node: testNode,
+    };
+  });
+}
+
+async function runCursorEdgeQueryAndNavigate(opts: {
+  getReader: () => SqliteReader | undefined;
+  buildItems: (reader: SqliteReader, node: GraphNode) => NavigationItem[];
+  emptyMessage: (node: GraphNode) => string;
+  quickPickPlaceholder: (node: GraphNode) => string;
+}): Promise<void> {
+  const reader = opts.getReader();
+  if (!reader) {
+    vscode.window.showWarningMessage("Code Graph: No graph database loaded.");
+    return;
+  }
+
+  const node = resolveNodeAtCursor(reader);
+  if (!node) {
+    vscode.window.showWarningMessage(
+      "Code Graph: No graph node found at the current cursor position.",
+    );
+    return;
+  }
+
+  const items = opts.buildItems(reader, node);
+  if (items.length === 0) {
+    vscode.window.showInformationMessage(opts.emptyMessage(node));
+    return;
+  }
+
+  const selected = await vscode.window.showQuickPick(items, {
+    placeHolder: opts.quickPickPlaceholder(node),
+  });
+
+  if (selected?.node) {
+    await navigateToNode(selected.node);
+  }
+}
+
+/**
  * Register the navigation commands: findCallers, findTests, findCallees,
  * queryGraph, and findLargeFunctions.
  */
@@ -157,55 +232,17 @@ export function registerNavigationCommands(
   // -----------------------------------------------------------------
   context.subscriptions.push(
     vscode.commands.registerCommand("dagayn.findCallers", async () => {
-      const reader = getReader();
-      if (!reader) {
-        vscode.window.showWarningMessage("Code Graph: No graph database loaded.");
-        return;
-      }
-
-      // Resolve node at cursor
-      const node = resolveNodeAtCursor(reader);
-      if (!node) {
-        vscode.window.showWarningMessage(
-          "Code Graph: No graph node found at the current cursor position.",
-        );
-        return;
-      }
-
-      // Query incoming CALLS edges
-      const edges = reader.getEdgesByTarget(node.qualifiedName);
-      const callerEdges = edges.filter((e) => e.kind === "CALLS");
-
-      if (callerEdges.length === 0) {
-        vscode.window.showInformationMessage(`Code Graph: No callers found for "${node.name}".`);
-        return;
-      }
-
-      // Build QuickPick items, resolving each caller to its full node
-      const items: Array<{
-        label: string;
-        description: string;
-        detail: string;
-        node: GraphNode | undefined;
-      }> = [];
-
-      for (const edge of callerEdges) {
-        const callerNode = reader.getNode(edge.sourceQualified);
-        items.push({
-          label: callerNode?.name ?? edge.sourceQualified,
-          description: callerNode?.filePath ?? edge.filePath,
-          detail: `Line ${callerNode?.lineStart ?? edge.line}`,
-          node: callerNode,
-        });
-      }
-
-      const selected = await vscode.window.showQuickPick(items, {
-        placeHolder: `Callers of ${node.name}`,
+      await runCursorEdgeQueryAndNavigate({
+        getReader,
+        buildItems: (reader, node) =>
+          buildEdgeNavigationItems(
+            reader,
+            reader.getEdgesByTarget(node.qualifiedName).filter((e) => e.kind === "CALLS"),
+            "incoming",
+          ),
+        emptyMessage: (node) => `Code Graph: No callers found for "${node.name}".`,
+        quickPickPlaceholder: (node) => `Callers of ${node.name}`,
       });
-
-      if (selected?.node) {
-        await navigateToNode(selected.node);
-      }
     }),
   );
 
@@ -214,54 +251,12 @@ export function registerNavigationCommands(
   // -----------------------------------------------------------------
   context.subscriptions.push(
     vscode.commands.registerCommand("dagayn.findTests", async () => {
-      const reader = getReader();
-      if (!reader) {
-        vscode.window.showWarningMessage("Code Graph: No graph database loaded.");
-        return;
-      }
-
-      // Resolve node at cursor
-      const node = resolveNodeAtCursor(reader);
-      if (!node) {
-        vscode.window.showWarningMessage(
-          "Code Graph: No graph node found at the current cursor position.",
-        );
-        return;
-      }
-
-      // --- Collect test qualified names from TESTED_BY edges (both directions) ---
-      const testQualifiedNames = collectTestQualifiedNames(reader, node);
-
-      if (testQualifiedNames.length === 0) {
-        vscode.window.showInformationMessage(`Code Graph: No tests found for "${node.name}".`);
-        return;
-      }
-
-      // --- Build QuickPick items ---
-      const items: Array<{
-        label: string;
-        description: string;
-        detail: string;
-        node: GraphNode | undefined;
-      }> = [];
-
-      for (const tqn of testQualifiedNames) {
-        const testNode = reader.getNode(tqn);
-        items.push({
-          label: testNode?.name ?? tqn,
-          description: testNode?.filePath ?? "",
-          detail: `Line ${testNode?.lineStart ?? "?"}`,
-          node: testNode,
-        });
-      }
-
-      const selected = await vscode.window.showQuickPick(items, {
-        placeHolder: `Tests for ${node.name}`,
+      await runCursorEdgeQueryAndNavigate({
+        getReader,
+        buildItems: (reader, node) => buildTestNavigationItems(reader, node),
+        emptyMessage: (node) => `Code Graph: No tests found for "${node.name}".`,
+        quickPickPlaceholder: (node) => `Tests for ${node.name}`,
       });
-
-      if (selected?.node) {
-        await navigateToNode(selected.node);
-      }
     }),
   );
 
@@ -270,52 +265,17 @@ export function registerNavigationCommands(
   // -----------------------------------------------------------------
   context.subscriptions.push(
     vscode.commands.registerCommand("dagayn.findCallees", async () => {
-      const reader = getReader();
-      if (!reader) {
-        vscode.window.showWarningMessage("Code Graph: No graph database loaded.");
-        return;
-      }
-
-      const node = resolveNodeAtCursor(reader);
-      if (!node) {
-        vscode.window.showWarningMessage(
-          "Code Graph: No graph node found at the current cursor position.",
-        );
-        return;
-      }
-
-      const edges = reader.getEdgesBySource(node.qualifiedName);
-      const calleeEdges = edges.filter((e) => e.kind === "CALLS");
-
-      if (calleeEdges.length === 0) {
-        vscode.window.showInformationMessage(`Code Graph: No callees found for "${node.name}".`);
-        return;
-      }
-
-      const items: Array<{
-        label: string;
-        description: string;
-        detail: string;
-        node: GraphNode | undefined;
-      }> = [];
-
-      for (const edge of calleeEdges) {
-        const calleeNode = reader.getNode(edge.targetQualified);
-        items.push({
-          label: calleeNode?.name ?? edge.targetQualified,
-          description: calleeNode?.filePath ?? edge.filePath,
-          detail: `Line ${calleeNode?.lineStart ?? edge.line}`,
-          node: calleeNode,
-        });
-      }
-
-      const selected = await vscode.window.showQuickPick(items, {
-        placeHolder: `Callees of ${node.name}`,
+      await runCursorEdgeQueryAndNavigate({
+        getReader,
+        buildItems: (reader, node) =>
+          buildEdgeNavigationItems(
+            reader,
+            reader.getEdgesBySource(node.qualifiedName).filter((e) => e.kind === "CALLS"),
+            "outgoing",
+          ),
+        emptyMessage: (node) => `Code Graph: No callees found for "${node.name}".`,
+        quickPickPlaceholder: (node) => `Callees of ${node.name}`,
       });
-
-      if (selected?.node) {
-        await navigateToNode(selected.node);
-      }
     }),
   );
 

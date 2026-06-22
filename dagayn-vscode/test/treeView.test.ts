@@ -1,7 +1,12 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { CodeGraphTreeProvider, StatsTreeProvider } from "../src/views/treeView";
-import { WorkspaceFolderTreeItem, FileTreeItem, SymbolTreeItem } from "../src/views/treeItems";
+import {
+  EdgeTreeItem,
+  WorkspaceFolderTreeItem,
+  FileTreeItem,
+  SymbolTreeItem,
+} from "../src/views/treeItems";
 import { WorkspaceGraphRegistry } from "../src/backend/registry";
 import { SqliteReader, GraphNode } from "../src/backend/sqlite";
 
@@ -120,6 +125,31 @@ describe("CodeGraphTreeProvider", () => {
     assert.ok(files);
     assert.strictEqual(files!.length, 1);
     assert.ok(files![0] instanceof FileTreeItem);
+  });
+});
+
+describe("EdgeTreeItem", () => {
+  it("renders CALLS outgoing and incoming labels and icons", () => {
+    const outgoing = new EdgeTreeItem("CALLS", "outgoing", "/a.py::foo", "/a.py", 10);
+    assert.strictEqual(outgoing.label, "\u2192 calls foo");
+    assert.strictEqual((outgoing.iconPath as vscode.ThemeIcon).id, "arrow-right");
+
+    const incoming = new EdgeTreeItem("CALLS", "incoming", "/a.py::foo", "/a.py", 10);
+    assert.strictEqual(incoming.label, "\u2190 called by foo");
+    assert.strictEqual((incoming.iconPath as vscode.ThemeIcon).id, "arrow-left");
+  });
+
+  it("uses the same icon for both directions when the edge is direction-agnostic", () => {
+    const outgoing = new EdgeTreeItem("IMPORTS_FROM", "outgoing", "/a.py::foo", "/a.py", 1);
+    const incoming = new EdgeTreeItem("IMPORTS_FROM", "incoming", "/a.py::foo", "/a.py", 1);
+    assert.strictEqual((outgoing.iconPath as vscode.ThemeIcon).id, "package");
+    assert.strictEqual((incoming.iconPath as vscode.ThemeIcon).id, "package");
+  });
+
+  it("falls back to the lower-case edge kind and arrow-right icon for unknown edges", () => {
+    const item = new EdgeTreeItem("UNKNOWN", "outgoing", "/a.py::foo", "/a.py", 1);
+    assert.strictEqual(item.label, "\u2192 unknown foo");
+    assert.strictEqual((item.iconPath as vscode.ThemeIcon).id, "arrow-right");
   });
 });
 

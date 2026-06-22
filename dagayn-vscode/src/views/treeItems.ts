@@ -145,44 +145,52 @@ export class SymbolTreeItem extends vscode.TreeItem {
 // EdgeTreeItem – represents a relationship edge (leaf node)
 // ---------------------------------------------------------------------------
 
-const OUTGOING_EDGE_LABELS: Record<string, string> = {
-  CALLS: "calls",
-  IMPORTS_FROM: "imports",
-  INHERITS: "inherits from",
-  IMPLEMENTS: "implements",
-  TESTED_BY: "tested by",
-  CONTAINS: "contains",
-  DEPENDS_ON: "depends on",
-};
-
-const INCOMING_EDGE_LABELS: Record<string, string> = {
-  CALLS: "called by",
-  IMPORTS_FROM: "imported by",
-  INHERITS: "inherited by",
-  IMPLEMENTS: "implemented by",
-  TESTED_BY: "tests",
-  CONTAINS: "contained in",
-  DEPENDS_ON: "depended on by",
-};
-
-const EDGE_ICON_MAP_OUTGOING: Record<string, string> = {
-  CALLS: "arrow-right",
-  IMPORTS_FROM: "package",
-  INHERITS: "type-hierarchy",
-  IMPLEMENTS: "symbol-interface",
-  TESTED_BY: "testing-run-icon",
-  CONTAINS: "symbol-namespace",
-  DEPENDS_ON: "references",
-};
-
-const EDGE_ICON_MAP_INCOMING: Record<string, string> = {
-  CALLS: "arrow-left",
-  IMPORTS_FROM: "package",
-  INHERITS: "type-hierarchy",
-  IMPLEMENTS: "symbol-interface",
-  TESTED_BY: "testing-run-icon",
-  CONTAINS: "symbol-namespace",
-  DEPENDS_ON: "references",
+const EDGE_DIRECTION_INFO: Record<
+  string,
+  { outgoingLabel: string; incomingLabel: string; outgoingIcon: string; incomingIcon: string }
+> = {
+  CALLS: {
+    outgoingLabel: "calls",
+    incomingLabel: "called by",
+    outgoingIcon: "arrow-right",
+    incomingIcon: "arrow-left",
+  },
+  IMPORTS_FROM: {
+    outgoingLabel: "imports",
+    incomingLabel: "imported by",
+    outgoingIcon: "package",
+    incomingIcon: "package",
+  },
+  INHERITS: {
+    outgoingLabel: "inherits from",
+    incomingLabel: "inherited by",
+    outgoingIcon: "type-hierarchy",
+    incomingIcon: "type-hierarchy",
+  },
+  IMPLEMENTS: {
+    outgoingLabel: "implements",
+    incomingLabel: "implemented by",
+    outgoingIcon: "symbol-interface",
+    incomingIcon: "symbol-interface",
+  },
+  TESTED_BY: {
+    outgoingLabel: "tested by",
+    incomingLabel: "tests",
+    outgoingIcon: "testing-run-icon",
+    incomingIcon: "testing-run-icon",
+  },
+  CONTAINS: {
+    outgoingLabel: "contains",
+    incomingLabel: "contained in",
+    outgoingIcon: "symbol-namespace",
+    incomingIcon: "symbol-namespace",
+  },
+  DEPENDS_ON: {
+    outgoingLabel: "depends on",
+    incomingLabel: "depended on by",
+    outgoingIcon: "references",
+    incomingIcon: "references",
+  },
 };
 
 function extractShortName(qualifiedName: string): string {
@@ -207,10 +215,17 @@ export class EdgeTreeItem extends vscode.TreeItem {
     targetLine: number,
   ) {
     const shortName = extractShortName(targetQualifiedName);
-    const verb =
-      direction === "outgoing"
-        ? (OUTGOING_EDGE_LABELS[edgeKind] ?? edgeKind.toLowerCase())
-        : (INCOMING_EDGE_LABELS[edgeKind] ?? edgeKind.toLowerCase());
+    const info = EDGE_DIRECTION_INFO[edgeKind];
+    const verb = info
+      ? direction === "outgoing"
+        ? info.outgoingLabel
+        : info.incomingLabel
+      : edgeKind.toLowerCase();
+    const icon = info
+      ? direction === "outgoing"
+        ? info.outgoingIcon
+        : info.incomingIcon
+      : "arrow-right";
     const arrow = direction === "outgoing" ? "\u2192" : "\u2190";
     const label = `${arrow} ${verb} ${shortName}`;
 
@@ -220,8 +235,7 @@ export class EdgeTreeItem extends vscode.TreeItem {
     this.targetFilePath = targetFilePath;
     this.targetLine = targetLine;
 
-    const iconMap = direction === "outgoing" ? EDGE_ICON_MAP_OUTGOING : EDGE_ICON_MAP_INCOMING;
-    this.iconPath = new vscode.ThemeIcon(iconMap[edgeKind] ?? "arrow-right");
+    this.iconPath = new vscode.ThemeIcon(icon);
     this.contextValue = "edge";
     this.tooltip = `${arrow} ${verb} ${targetQualifiedName}`;
 
