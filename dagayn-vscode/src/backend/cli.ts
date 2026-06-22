@@ -62,7 +62,7 @@ export class CliWrapper {
     return vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
-        title: "Dagayn: Building graph\u2026",
+        title: "Code Graph: Building graph\u2026",
         cancellable: false,
       },
       () => this.exec(args, workspaceRoot),
@@ -93,7 +93,7 @@ export class CliWrapper {
     return vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
-        title: "Dagayn: Computing embeddings\u2026",
+        title: "Code Graph: Computing embeddings\u2026",
         cancellable: false,
       },
       () => this.exec(["tool", "embed_graph", "--repo", workspaceRoot], workspaceRoot),
@@ -138,7 +138,7 @@ export class CliWrapper {
     return vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
-        title: `Dagayn: Installing via ${installer}\u2026`,
+        title: `Code Graph: Installing via ${installer}\u2026`,
         cancellable: false,
       },
       async () => {

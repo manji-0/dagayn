@@ -12,7 +12,7 @@ import * as crypto from "node:crypto";
 import type { SqliteReader, ImpactRadius, GraphNode, GraphEdge } from "../backend/sqlite";
 import { resolveNodeFilePath } from "../backend/pathResolution";
 import type { ModuleGraph } from "../backend/moduleAggregation";
-import { parseIncomingWebviewMessage } from "./webviewMessages";
+import { extractCommand, parseIncomingWebviewMessage } from "./webviewMessages";
 
 type ViewMode = "symbol" | "module";
 
@@ -212,15 +212,18 @@ export class GraphWebviewPanel {
     this.disposables = [];
   }
 
+  /** @internal test-only delegate so tests avoid casting to a private method. */
+  private __handleMessage(msg: unknown): Promise<void> {
+    return this.handleMessage(msg);
+  }
+
   /** Test-only hook to drive message handling from unit tests. */
   static async __handleMessageForTests(message: unknown): Promise<void> {
     const instance = GraphWebviewPanel.testInstance;
     if (!instance) {
       return Promise.resolve();
     }
-    return (
-      instance as unknown as { handleMessage: (msg: unknown) => Promise<void> }
-    ).handleMessage(message);
+    return instance.__handleMessage(message);
   }
 
   /** Test-only hook to reset the singleton lifecycle between tests. */
@@ -234,10 +237,7 @@ export class GraphWebviewPanel {
   // -----------------------------------------------------------------------
 
   private async handleMessage(message: unknown): Promise<void> {
-    const command =
-      message != null && typeof message === "object" && "command" in message
-        ? String((message as { command?: unknown }).command)
-        : "unknown";
+    const command = extractCommand(message);
 
     try {
       const parsed = parseIncomingWebviewMessage(message);

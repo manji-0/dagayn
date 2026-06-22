@@ -406,18 +406,25 @@ exports.workspace = {
     __clearSaveCallbacks,
     getConfiguration: (section) => {
         const store = getSectionStore(section);
+        const CONFIG_DEFAULTS = new Map([
+            ["dagayn.cliPath", ""],
+            ["dagayn.autoUpdate", true],
+            ["dagayn.autoUpdateFailureThreshold", 3],
+            ["dagayn.blastRadiusDepth", 2],
+            ["dagayn.graphTheme", "auto"],
+            ["dagayn.treeView.showFunctions", true],
+            ["dagayn.treeView.showClasses", true],
+            ["dagayn.treeView.showFiles", true],
+            ["dagayn.treeView.showTypes", true],
+            ["dagayn.treeView.showTests", true],
+            ["dagayn.graph.defaultEdges", ["CALLS", "IMPORTS_FROM", "INHERITS", "IMPLEMENTS", "TESTED_BY", "DEPENDS_ON"]],
+            ["dagayn.graph.maxNodes", 500],
+        ]);
         return {
             get: (key, defaultValue) => {
-                if (key === "autoUpdate" && !store.has(key)) {
-                    return defaultValue !== undefined ? defaultValue : true;
-                }
-                if (key === "autoUpdateFailureThreshold" && !store.has(key)) {
-                    return defaultValue !== undefined ? defaultValue : 3;
-                }
-                if (key === "cliPath" && !store.has(key)) {
-                    return defaultValue !== undefined ? defaultValue : "";
-                }
-                return store.has(key) ? store.get(key) : defaultValue;
+                if (store.has(key)) return store.get(key);
+                if (defaultValue !== undefined) return defaultValue;
+                return CONFIG_DEFAULTS.get(`${section}.${key}`);
             },
             update: async (key, value, _target) => {
                 store.set(key, value);

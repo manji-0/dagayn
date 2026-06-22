@@ -60,7 +60,7 @@ export class CodeGraphTreeProvider implements vscode.TreeDataProvider<vscode.Tre
       return [];
     }
     if (entries.length === 1) {
-      return this.filesToItems(entries[0].reader, entries[0].folderFsPath);
+      return this.filesToItems(entries[0]!.reader, entries[0]!.folderFsPath);
     }
     return entries.map(
       ({ folderFsPath, reader }) =>
@@ -280,7 +280,7 @@ export class StatsTreeProvider implements vscode.TreeDataProvider<vscode.TreeIte
       return [];
     }
     if (folders.length === 1) {
-      const reader = registry.getReaderForFolder(folders[0]);
+      const reader = registry.getReaderForFolder(folders[0]!);
       if (!reader) {
         return [];
       }

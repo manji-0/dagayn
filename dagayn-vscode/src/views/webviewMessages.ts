@@ -1,3 +1,5 @@
+import type { GraphNode, GraphEdge } from "../backend/sqlite";
+
 export type IncomingWebviewMessage =
   | { command: "ready" }
   | {
@@ -11,9 +13,22 @@ export type IncomingWebviewMessage =
   | { command: "exportPng"; data: string };
 
 export type OutgoingWebviewMessage =
-  | { command: "setData"; nodes: unknown[]; edges: unknown[]; truncated: boolean; maxNodes: number }
+  | {
+      command: "setData";
+      nodes: GraphNode[];
+      edges: GraphEdge[];
+      truncated: boolean;
+      maxNodes: number;
+    }
   | { command: "setTheme"; theme: "dark" | "light" }
   | { command: "highlightNode"; qualifiedName: string };
+
+/** Extract a best-effort command string for diagnostics, or "unknown". */
+export function extractCommand(raw: unknown): string {
+  return raw != null && typeof raw === "object" && "command" in raw
+    ? String((raw as Record<string, unknown>).command)
+    : "unknown";
+}
 
 function isString(value: unknown): value is string {
   return typeof value === "string";

@@ -81,7 +81,7 @@ export class Installer {
     await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
-        title: `Installing dagayn via ${installer}...`,
+        title: `Code Graph: Installing via ${installer}...`,
         cancellable: false,
       },
       async () => {

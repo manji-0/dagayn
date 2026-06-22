@@ -29,7 +29,7 @@ export async function resolveReaderAndFolder(
   } else {
     const folders = registry.foldersWithGraph();
     if (folders.length === 1) {
-      folder = folders[0];
+      folder = folders[0]!;
       reader = registry.getReaderForFolder(folder);
     } else if (folders.length > 1) {
       folder = await pickFolderForGlobalOp(registry, { requireGraph: true });

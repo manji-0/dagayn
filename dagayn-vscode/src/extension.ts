@@ -180,7 +180,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     for (const [warning, affectedFolders] of warnings) {
       const choice = await vscode.window.showWarningMessage(
         affectedFolders.length > 1
-          ? `Code Graph (${affectedFolders.length} folders): ${warning}`
+          ? `Code Graph: ${warning} (${affectedFolders.length} folders)`
           : `Code Graph: ${warning}`,
         "Rebuild Graph",
         "Dismiss",

@@ -3,6 +3,7 @@
   "compilerOptions": {
     "rootDir": ".",
     "types": ["node", "mocha"],
+    "noUncheckedIndexedAccess": false,
     "noEmit": true
   },
   "include": ["src/**/*.ts", "test/**/*.ts"],

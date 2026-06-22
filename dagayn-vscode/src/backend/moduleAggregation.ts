@@ -119,7 +119,7 @@ export function aggregateModules(
   const sortedDirs = [...dirToFileCount.keys()].sort();
   const dirToId = new Map<string, number>();
   for (let i = 0; i < sortedDirs.length; i++) {
-    dirToId.set(sortedDirs[i], i + 1);
+    dirToId.set(sortedDirs[i]!, i + 1);
   }
 
   const nodes: ModuleNode[] = sortedDirs.map((dir) => ({
