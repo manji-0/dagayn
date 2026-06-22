@@ -11,6 +11,7 @@ Visualize code dependencies, blast radius, and review context from your code gra
 - **Find Callers / Callees** -- Trace all callers or callees of any function
 - **Find Tests** -- Locate tests for any symbol
 - **Query Graph** -- Run semantic queries (callers, callees, imports, inheritance, tests) with 8 patterns
+- **Saved Custom Queries** -- Save frequently-used `{label, pattern, target}` queries to `.dagayn/queries.json` and rerun them from the Command Palette
 - **Find Large Functions** -- Identify functions or classes exceeding a line-count threshold
 - **Interactive Graph** -- Force-directed D3.js visualization of your code dependencies
 - **Live Search** -- Fuzzy search across your entire code graph with instant results
@@ -59,6 +60,8 @@ The graph database is stored locally at `.dagayn/graph.db` and updates automatic
 | `Code Graph: Find Tests`           | Find tests for a symbol                                         |
 | `Code Graph: Find Large Functions` | Find functions/classes exceeding a size threshold               |
 | `Code Graph: Query Graph`          | Run semantic queries (8 patterns: callers_of, callees_of, etc.) |
+| `Code Graph: Save Custom Query`    | Persist a query pattern and target to `.dagayn/queries.json`    |
+| `Code Graph: Run Saved Query`      | Rerun a saved query, with an inline delete option               |
 | `Code Graph: Search`                   | Search the code graph                                           |
 | `Code Graph: Show Graph`                 | Open the interactive graph visualization                        |
 | `Code Graph: Show Module Dependencies`   | Aggregate files by parent directory and show directory-level dependencies |

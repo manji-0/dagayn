@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { SqliteReader, GraphNode, GraphEdge } from "../backend/sqlite";
 import { resolveNodeAtCursor, navigateToNode } from "./cursorResolver";
+import { deleteSavedQuery, loadSavedQueries, saveSavedQuery, SavedQuery } from "./savedQueries";
 
 export type QueryDirection = "incoming" | "outgoing";
 export type QueryDef = { edgeKind: string; direction: QueryDirection };
@@ -33,6 +34,73 @@ export type NavigationItem = {
   detail: string;
   node: GraphNode | undefined;
 };
+
+export type TargetResolution = {
+  node: GraphNode | undefined;
+  multiple?: GraphNode[];
+};
+
+const VALID_PATTERNS = Object.keys(QUERY_MAP);
+
+export function resolveTarget(reader: SqliteReader, target: string): TargetResolution {
+  const node = reader.getNode(target);
+  if (node) {
+    return { node };
+  }
+
+  const matches = reader.searchNodes(target, 5);
+  if (matches.length === 1) {
+    return { node: matches[0] };
+  }
+  if (matches.length > 1) {
+    return { node: undefined, multiple: matches };
+  }
+
+  return { node: undefined };
+}
+
+export function runQueryForNode(
+  reader: SqliteReader,
+  patternLabel: string,
+  node: GraphNode,
+): NavigationItem[] {
+  const qdef = QUERY_MAP[patternLabel];
+  if (!qdef) {
+    return [];
+  }
+
+  const edges =
+    qdef.direction === "incoming"
+      ? reader.getEdgesByTarget(node.qualifiedName)
+      : reader.getEdgesBySource(node.qualifiedName);
+
+  const filtered = edges.filter((e) => e.kind === qdef.edgeKind);
+  return buildRelatedItems(reader, filtered, qdef.direction);
+}
+
+export async function executeQuery(
+  reader: SqliteReader,
+  patternLabel: string,
+  target: string,
+): Promise<NavigationItem[]> {
+  const resolution = resolveTarget(reader, target);
+  if (!resolution.node) {
+    return [];
+  }
+  return runQueryForNode(reader, patternLabel, resolution.node);
+}
+
+export async function pickAndNavigate(items: NavigationItem[], placeHolder: string): Promise<void> {
+  if (items.length === 0) {
+    vscode.window.showInformationMessage("Code Graph: No results found.");
+    return;
+  }
+
+  const selected = await vscode.window.showQuickPick(items, { placeHolder });
+  if (selected?.node) {
+    await navigateToNode(selected.node);
+  }
+}
 
 export function collectTestQualifiedNames(reader: SqliteReader, node: GraphNode): string[] {
   const incomingEdges = reader.getEdgesByTarget(node.qualifiedName);
@@ -277,60 +345,37 @@ export function registerNavigationCommands(
         return;
       }
 
-      const qdef = QUERY_MAP[pattern.label];
-      if (!qdef) {
-        return;
-      }
-
-      let node = reader.getNode(target);
-      if (!node) {
-        const matches = reader.searchNodes(target, 5);
-        if (matches.length === 1) {
-          node = matches[0];
-        } else if (matches.length > 1) {
-          const picked = await vscode.window.showQuickPick(
-            matches.map((m) => ({
-              label: m.name,
-              description: `${m.kind} · ${m.filePath}`,
-              node: m,
-            })),
-            { placeHolder: `Multiple matches for "${target}" — select one` },
-          );
-          if (!picked) {
-            return;
-          }
-          node = picked.node;
+      const resolution = resolveTarget(reader, target);
+      if (resolution.multiple) {
+        const picked = await vscode.window.showQuickPick(
+          resolution.multiple.map((m) => ({
+            label: m.name,
+            description: `${m.kind} · ${m.filePath}`,
+            node: m,
+          })),
+          { placeHolder: `Multiple matches for "${target}" — select one` },
+        );
+        if (!picked?.node) {
+          return;
         }
-      }
-
-      if (!node) {
-        vscode.window.showInformationMessage(`Code Graph: "${target}" not found.`);
-        return;
-      }
-
-      const edges =
-        qdef.direction === "incoming"
-          ? reader.getEdgesByTarget(node.qualifiedName)
-          : reader.getEdgesBySource(node.qualifiedName);
-
-      const filtered = edges.filter((e) => e.kind === qdef.edgeKind);
-
-      if (filtered.length === 0) {
-        vscode.window.showInformationMessage(
-          `Code Graph: No ${pattern.label} results for "${node.name}".`,
+        const items = runQueryForNode(reader, pattern.label, picked.node);
+        await pickAndNavigate(
+          items,
+          `${pattern.label}: ${picked.node.name} (${items.length} results)`,
         );
         return;
       }
 
-      const items = buildRelatedItems(reader, filtered, qdef.direction);
-
-      const selected = await vscode.window.showQuickPick(items, {
-        placeHolder: `${pattern.label}: ${node.name} (${filtered.length} results)`,
-      });
-
-      if (selected?.node) {
-        await navigateToNode(selected.node);
+      if (!resolution.node) {
+        vscode.window.showInformationMessage(`Code Graph: "${target}" not found.`);
+        return;
       }
+
+      const items = runQueryForNode(reader, pattern.label, resolution.node);
+      await pickAndNavigate(
+        items,
+        `${pattern.label}: ${resolution.node.name} (${items.length} results)`,
+      );
     }),
   );
 
@@ -383,6 +428,204 @@ export function registerNavigationCommands(
       if (selected?.node) {
         await navigateToNode(selected.node);
       }
+    }),
+  );
+
+  // -----------------------------------------------------------------
+  // Saved custom queries
+  // -----------------------------------------------------------------
+
+  function getWorkspaceFsPath(): string | undefined {
+    const activeEditor = vscode.window.activeTextEditor;
+    if (activeEditor) {
+      const folder = vscode.workspace.getWorkspaceFolder(activeEditor.document.uri);
+      if (folder) {
+        return folder.uri.fsPath;
+      }
+    }
+    return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  }
+
+  async function deleteSavedQueryFlow(workspaceFsPath: string): Promise<void> {
+    let queries: SavedQuery[];
+    try {
+      queries = await loadSavedQueries(workspaceFsPath, VALID_PATTERNS);
+    } catch (err: unknown) {
+      vscode.window.showErrorMessage(
+        `Code Graph: Could not load saved queries. ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return;
+    }
+
+    if (queries.length === 0) {
+      vscode.window.showInformationMessage("Code Graph: No saved queries to delete.");
+      return;
+    }
+
+    const picked = await vscode.window.showQuickPick(
+      queries.map((q) => ({
+        label: q.label,
+        description: `${q.pattern} · ${q.target}`,
+        query: q,
+      })),
+      { placeHolder: "Delete which saved query?" },
+    );
+
+    if (!picked?.query) {
+      return;
+    }
+
+    try {
+      await deleteSavedQuery(workspaceFsPath, picked.query.label);
+      vscode.window.showInformationMessage(
+        `Code Graph: Deleted saved query "${picked.query.label}".`,
+      );
+    } catch (err: unknown) {
+      vscode.window.showErrorMessage(
+        `Code Graph: Could not delete query. ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  // -----------------------------------------------------------------
+  // dagayn.saveCustomQuery
+  // -----------------------------------------------------------------
+  context.subscriptions.push(
+    vscode.commands.registerCommand("dagayn.saveCustomQuery", async () => {
+      const workspaceFsPath = getWorkspaceFsPath();
+      if (!workspaceFsPath) {
+        vscode.window.showWarningMessage("Code Graph: Open a workspace folder to save queries.");
+        return;
+      }
+
+      const pattern = await vscode.window.showQuickPick(QUERY_PATTERNS, {
+        placeHolder: "Select a query pattern to save",
+      });
+      if (!pattern) {
+        return;
+      }
+
+      const target = await vscode.window.showInputBox({
+        prompt: `Enter the target for ${pattern.label}`,
+        placeHolder: "e.g., my_module.py::my_function or path/to/file.py",
+      });
+      if (!target) {
+        return;
+      }
+
+      const label = await vscode.window.showInputBox({
+        prompt: "Name for this saved query",
+        placeHolder: "e.g., callers of login",
+        validateInput: (value) => (value?.trim() ? undefined : "Label is required"),
+      });
+      if (!label) {
+        return;
+      }
+
+      try {
+        await saveSavedQuery(workspaceFsPath, {
+          label: label.trim(),
+          pattern: pattern.label,
+          target,
+        });
+        vscode.window.showInformationMessage(`Code Graph: Saved query "${label.trim()}".`);
+      } catch (err: unknown) {
+        vscode.window.showErrorMessage(
+          `Code Graph: Could not save query. ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }),
+  );
+
+  // -----------------------------------------------------------------
+  // dagayn.runSavedQuery
+  // -----------------------------------------------------------------
+  context.subscriptions.push(
+    vscode.commands.registerCommand("dagayn.runSavedQuery", async () => {
+      const reader = getReader();
+      if (!reader) {
+        vscode.window.showWarningMessage("Code Graph: No graph database loaded.");
+        return;
+      }
+
+      const workspaceFsPath = getWorkspaceFsPath();
+      if (!workspaceFsPath) {
+        vscode.window.showWarningMessage(
+          "Code Graph: Open a workspace folder to run saved queries.",
+        );
+        return;
+      }
+
+      let queries: SavedQuery[];
+      try {
+        queries = await loadSavedQueries(workspaceFsPath, VALID_PATTERNS);
+      } catch (err: unknown) {
+        vscode.window.showErrorMessage(
+          `Code Graph: Could not load saved queries. ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+        return;
+      }
+
+      if (queries.length === 0) {
+        vscode.window.showInformationMessage(
+          "Code Graph: No saved queries yet. Run Code Graph: Save Custom Query first.",
+        );
+        return;
+      }
+
+      type SavedQueryItem = vscode.QuickPickItem & {
+        query?: SavedQuery;
+        action?: "run" | "delete";
+      };
+
+      const items: SavedQueryItem[] = [
+        ...queries.map((q) => ({
+          label: q.label,
+          description: `${q.pattern} · ${q.target}`,
+          query: q,
+          action: "run" as const,
+        })),
+        { label: "— Delete a saved query —", action: "delete" as const },
+      ];
+
+      const picked = await vscode.window.showQuickPick(items, {
+        placeHolder: "Select a saved query to run",
+      });
+      if (!picked) {
+        return;
+      }
+
+      if (picked.action === "delete") {
+        await deleteSavedQueryFlow(workspaceFsPath);
+        return;
+      }
+
+      const query = picked.query!;
+      const resolution = resolveTarget(reader, query.target);
+
+      if (resolution.multiple) {
+        vscode.window.showInformationMessage(
+          `Code Graph: Saved query "${query.label}" matched multiple nodes — refine the target.`,
+        );
+        return;
+      }
+
+      if (!resolution.node) {
+        vscode.window.showInformationMessage(
+          `Code Graph: Saved query "${query.label}" did not match any node.`,
+        );
+        return;
+      }
+
+      const results = runQueryForNode(reader, query.pattern, resolution.node);
+      await pickAndNavigate(
+        results,
+        `${query.pattern}: ${resolution.node.name} (${results.length} results)`,
+      );
     }),
   );
 }

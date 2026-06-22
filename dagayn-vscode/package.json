@@ -93,6 +93,16 @@
         "icon": "$(symbol-keyword)"
       },
       {
+        "command": "dagayn.saveCustomQuery",
+        "title": "Code Graph: Save Custom Query",
+        "icon": "$(bookmark)"
+      },
+      {
+        "command": "dagayn.runSavedQuery",
+        "title": "Code Graph: Run Saved Query",
+        "icon": "$(run-all)"
+      },
+      {
         "command": "dagayn.findCallees",
         "title": "Code Graph: Find Callees",
         "icon": "$(call-outgoing)"
@@ -149,6 +159,16 @@
       }
     ],
     "menus": {
+      "commandPalette": [
+        {
+          "command": "dagayn.saveCustomQuery",
+          "when": "workspaceFolderCount > 0"
+        },
+        {
+          "command": "dagayn.runSavedQuery",
+          "when": "workspaceFolderCount > 0"
+        }
+      ],
       "editor/context": [
         {
           "command": "dagayn.findCallers",
