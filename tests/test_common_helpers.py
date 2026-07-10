@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import sqlite3
 from types import SimpleNamespace
+from typing import Any
 
 from dagayn.tools._common import (
     apply_output_budget,
@@ -167,7 +168,7 @@ class TestAnswerability:
                 pass
 
         monkeypatch.setattr("dagayn.tools._common._get_store", lambda _repo: (Store(), None))
-        payload = {"status": "ok", "summary": "x", "missingness": []}
+        payload: dict[str, Any] = {"status": "ok", "summary": "x", "missingness": []}
 
         result = attach_answerability(payload, "/repo")
 
