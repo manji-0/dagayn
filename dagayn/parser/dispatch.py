@@ -84,7 +84,19 @@ SHEBANG_INTERPRETER_TO_LANGUAGE: dict[str, str] = {
 _SHEBANG_PROBE_BYTES = 256
 
 
+_COMPOUND_EXTENSIONS: tuple[tuple[str, str], ...] = (
+    (".tftest.hcl", "terraform"),
+    (".tfcomponent.hcl", "terraform"),
+    (".tfdeploy.hcl", "terraform"),
+    (".tfquery.hcl", "terraform"),
+)
+
+
 def detect_language(path: Path) -> Optional[str]:
+    name_lower = path.name.lower()
+    for compound_ext, lang in _COMPOUND_EXTENSIONS:
+        if name_lower.endswith(compound_ext):
+            return lang
     suffix = path.suffix.lower()
     lang = EXTENSION_TO_LANGUAGE.get(suffix)
     if lang is not None:

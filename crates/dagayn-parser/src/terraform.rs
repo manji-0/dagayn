@@ -87,8 +87,9 @@ pub(super) fn parse_terraform_with_parser(
         };
         let terraform_kind = terraform_kind_for_block(block);
         let (kind, is_test) = match block.kind.as_str() {
-            "variable" | "output" => ("Function", false),
-            "check" => ("Test", true),
+            "variable" | "output" | "publish_output" | "upstream_input" => ("Function", false),
+            "check" | "run" | "mock_provider" | "variables" | "override_resource"
+            | "override_data" | "override_module" => ("Test", true),
             _ => ("Class", false),
         };
         push_terraform_node(
@@ -170,28 +171,24 @@ fn extract_terraform_documentation_directives(
 }
 
 fn terraform_defined_name(block: &TerraformBlock) -> Option<String> {
-    match block.kind.as_str() {
-        "terraform" => Some("terraform".to_string()),
+    let kind = block.kind.as_str();
+    match kind {
+        "terraform" | "variables" | "required_providers" | "override_resource"
+        | "override_data" | "override_module" => Some(kind.to_string()),
         "provider" => block.labels.first().map(|name| format!("provider.{name}")),
         "variable" => block.labels.first().map(|name| format!("var.{name}")),
         "module" => block.labels.first().map(|name| format!("module.{name}")),
-        "data" => block
-            .labels
-            .first()
-            .zip(block.labels.get(1))
-            .map(|(block_type, name)| format!("data.{block_type}.{name}")),
-        "resource" => block
-            .labels
-            .first()
-            .zip(block.labels.get(1))
-            .map(|(block_type, name)| format!("resource.{block_type}.{name}")),
-        "ephemeral" => block
-            .labels
-            .first()
-            .zip(block.labels.get(1))
-            .map(|(block_type, name)| format!("ephemeral.{block_type}.{name}")),
         "output" => block.labels.first().map(|name| format!("output.{name}")),
         "check" => block.labels.first().map(|name| format!("check.{name}")),
+        "data" | "resource" | "ephemeral" | "action" | "orchestrate" | "store" | "list" => block
+            .labels
+            .first()
+            .zip(block.labels.get(1))
+            .map(|(block_type, name)| format!("{kind}.{block_type}.{name}")),
+        "run" | "mock_provider" | "component" | "identity_token" | "deployment"
+        | "deployment_group" | "publish_output" | "upstream_input" => {
+            block.labels.first().map(|name| format!("{kind}.{name}"))
+        }
         _ => None,
     }
 }

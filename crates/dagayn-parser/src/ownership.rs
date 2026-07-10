@@ -48,6 +48,10 @@ pub(super) fn rust_owned_path_kind(file_path: &str) -> RustOwnedPathKind {
         RustOwnedPathKind::Markdown
     } else if ends_with_ascii_ignore_case(file_path, ".tf")
         || ends_with_ascii_ignore_case(file_path, ".tfvars")
+        || ends_with_ascii_ignore_case(file_path, ".tftest.hcl")
+        || ends_with_ascii_ignore_case(file_path, ".tfcomponent.hcl")
+        || ends_with_ascii_ignore_case(file_path, ".tfdeploy.hcl")
+        || ends_with_ascii_ignore_case(file_path, ".tfquery.hcl")
     {
         RustOwnedPathKind::Terraform
     } else if ends_with_ascii_ignore_case(file_path, ".rs") {

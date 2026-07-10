@@ -120,6 +120,23 @@ fn terraform_kind_from_node_kind(node_kind: &str) -> Option<&'static str> {
         "moved_block" => Some("moved"),
         "removed_block" => Some("removed"),
         "ephemeral_block" => Some("ephemeral"),
+        "action_block" => Some("action"),
+        "run_block" => Some("run"),
+        "mock_provider_block" => Some("mock_provider"),
+        "variables_block" => Some("variables"),
+        "override_resource_block" => Some("override_resource"),
+        "override_data_block" => Some("override_data"),
+        "override_module_block" => Some("override_module"),
+        "component_block" => Some("component"),
+        "required_providers_block" => Some("required_providers"),
+        "identity_token_block" => Some("identity_token"),
+        "store_block" => Some("store"),
+        "deployment_block" => Some("deployment"),
+        "deployment_group_block" => Some("deployment_group"),
+        "orchestrate_block" => Some("orchestrate"),
+        "publish_output_block" => Some("publish_output"),
+        "upstream_input_block" => Some("upstream_input"),
+        "list_block" => Some("list"),
         _ => None,
     }
 }
@@ -214,6 +231,23 @@ fn parse_terraform_header(header: &str) -> Option<(String, Vec<String>)> {
             | "moved"
             | "removed"
             | "ephemeral"
+            | "action"
+            | "run"
+            | "mock_provider"
+            | "variables"
+            | "override_resource"
+            | "override_data"
+            | "override_module"
+            | "component"
+            | "required_providers"
+            | "identity_token"
+            | "store"
+            | "deployment"
+            | "deployment_group"
+            | "orchestrate"
+            | "publish_output"
+            | "upstream_input"
+            | "list"
     );
     supported.then(|| (kind.clone(), labels.to_vec()))
 }

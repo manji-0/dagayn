@@ -97,7 +97,7 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
         language="terraform",
         owner="manji-0",
         repo="tree-sitter-terraform",
-        commit="5a5b258a71290999ce58797eafeaa098b2d450b9",
+        commit="5d417e03e80efb2e5cf73c3750cf839de4e08479",
         required_paths=(
             "src/parser.c",
             "src/scanner.c",
