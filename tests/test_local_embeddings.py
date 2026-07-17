@@ -223,7 +223,8 @@ def test_local_embedding_server_starts_and_stops_llama_server(monkeypatch):
         assert "--embedding" in server.command
         assert "--pooling" in server.command
         assert "last" in server.command
-        assert "--flash-attn" in server.command
+        flash_attn_idx = server.command.index("--flash-attn")
+        assert server.command[flash_attn_idx + 1] == "on"
         assert "--cache-type-k" in server.command
         assert "f16" in server.command
         assert "--cache-type-v" in server.command
@@ -236,7 +237,8 @@ def test_local_embedding_server_starts_and_stops_llama_server(monkeypatch):
     assert commands
     assert commands[0][1]["stdin"] is subprocess.DEVNULL
     assert commands[0][1]["stdout"] is subprocess.DEVNULL
-    assert commands[0][1]["stderr"] is subprocess.DEVNULL
+    assert commands[0][1]["stderr"] is not subprocess.DEVNULL
+    assert hasattr(commands[0][1]["stderr"], "write")
     assert fake_proc.terminated is True
     assert fake_proc.killed is False
 

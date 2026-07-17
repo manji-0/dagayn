@@ -12,6 +12,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -19,7 +20,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, cast
+from typing import IO, Literal, cast
 from urllib.parse import urlparse
 
 from .state_types import LocalEmbeddingProbeStatus
@@ -291,7 +292,9 @@ def _server_command(
         preset.pooling,
     ]
     if preset.flash_attention:
-        command.append("--flash-attn")
+        # llama.cpp requires an explicit mode; a bare --flash-attn makes the
+        # next flag (e.g. --cache-type-k) parse as the mode value and exit 1.
+        command += ["--flash-attn", "on"]
     if preset.cache_type_k is not None:
         command += ["--cache-type-k", preset.cache_type_k]
     if preset.cache_type_v is not None:
@@ -309,6 +312,26 @@ def _server_command(
         preset.model,
     ]
     return command
+
+
+def _stderr_tail(stderr_file: IO[bytes] | None, *, limit: int = 2000) -> str:
+    """Return a decoded stderr tail for startup-failure diagnostics."""
+    if stderr_file is None:
+        return ""
+    try:
+        stderr_file.flush()
+        stderr_file.seek(0)
+        raw = stderr_file.read()
+    except OSError:
+        return ""
+    if not raw:
+        return ""
+    text = raw.decode("utf-8", errors="replace").strip()
+    if not text:
+        return ""
+    if len(text) > limit:
+        text = text[-limit:]
+    return text
 
 
 def _local_embedding_lock_path(port: int) -> Path:
@@ -424,43 +447,57 @@ def local_embedding_server(
 
         resolved_binary = _resolve_binary(binary, preset)
         command = _server_command(preset, resolved_binary, port)
-        proc = subprocess.Popen(  # noqa: S603
-            command,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        deadline = time.monotonic() + startup_timeout
-        while time.monotonic() < deadline:
-            if proc.poll() is not None:
-                raise RuntimeError(
-                    "Local embedding server exited before the endpoint became ready "
-                    f"(exit code {proc.returncode}). Command: {shlex.join(command)}"
-                )
-            probe = _probe_embedding_server(base_url, preset.model, preset.dimension)
-            if probe.ready:
-                ready = True
-                if keep_running:
-                    _release_local_embedding_port_lock(port_lock)
-                    port_lock = None
-                yield LocalEmbeddingServer(
-                    preset=preset,
-                    base_url=base_url,
-                    command=command,
-                    started=True,
-                )
-                return
-            if probe.status == "incompatible":
-                raise RuntimeError(
-                    "Local embedding server responded, but not as a compatible "
-                    "embedding endpoint: "
-                    f"{probe.detail}. Command: {shlex.join(command)}"
-                )
-            time.sleep(0.5)
-        raise RuntimeError(
-            "Timed out waiting for local embedding server to expose /v1/embeddings. "
-            f"Command: {shlex.join(command)}"
-        )
+        stderr_file: IO[bytes] | None = tempfile.TemporaryFile()
+        try:
+            proc = subprocess.Popen(  # noqa: S603
+                command,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=stderr_file,
+            )
+            deadline = time.monotonic() + startup_timeout
+            while time.monotonic() < deadline:
+                if proc.poll() is not None:
+                    detail = _stderr_tail(stderr_file)
+                    message = (
+                        "Local embedding server exited before the endpoint became ready "
+                        f"(exit code {proc.returncode}). Command: {shlex.join(command)}"
+                    )
+                    if detail:
+                        message = f"{message}\nstderr:\n{detail}"
+                    raise RuntimeError(message)
+                probe = _probe_embedding_server(base_url, preset.model, preset.dimension)
+                if probe.ready:
+                    ready = True
+                    if keep_running:
+                        _release_local_embedding_port_lock(port_lock)
+                        port_lock = None
+                    yield LocalEmbeddingServer(
+                        preset=preset,
+                        base_url=base_url,
+                        command=command,
+                        started=True,
+                    )
+                    return
+                if probe.status == "incompatible":
+                    raise RuntimeError(
+                        "Local embedding server responded, but not as a compatible "
+                        "embedding endpoint: "
+                        f"{probe.detail}. Command: {shlex.join(command)}"
+                    )
+                time.sleep(0.5)
+            detail = _stderr_tail(stderr_file)
+            message = (
+                "Timed out waiting for local embedding server to expose /v1/embeddings. "
+                f"Command: {shlex.join(command)}"
+            )
+            if detail:
+                message = f"{message}\nstderr:\n{detail}"
+            raise RuntimeError(message)
+        finally:
+            if stderr_file is not None:
+                stderr_file.close()
+                stderr_file = None
     finally:
         if proc is not None and (not keep_running or not ready) and proc.poll() is None:
             proc.terminate()

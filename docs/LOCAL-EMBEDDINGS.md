@@ -95,7 +95,7 @@ llama-server \
   -hf Qwen/Qwen3-Embedding-0.6B-GGUF:Q8_0 \
   --embedding \
   --pooling last \
-  --flash-attn \
+  --flash-attn on \
   --cache-type-k f16 \
   --cache-type-v f16 \
   -b 8192 \
@@ -179,7 +179,8 @@ The managed sidecar batch size is also pinned. `dagayn build
 larger batches can make local embedding endpoints stall on some hosts.
 
 Dagayn starts `llama-server` with Flash Attention
-enabled and keeps both KV cache tensors at `f16`. Flash Attention improves
+enabled (`--flash-attn on`) and keeps both KV cache tensors at `f16`. Flash
+Attention improves
 prompt/embedding throughput on supported backends without changing the model
 weights. The KV cache type is intentionally not quantized by the preset:
 `q8_0`, `q4_0`, and similar cache types can reduce memory pressure, but they
@@ -286,6 +287,9 @@ local embedding no longer requires or installs a Python ML stack.
 
 - `Could not find 'llama-server'`: install `llama.cpp` or pass
   `--local-embedding-bin /path/to/llama-server`.
+- `unknown value for --flash-attn: '--cache-type-k'`: the managed sidecar needs
+  a `llama-server` that accepts `--flash-attn on|off|auto`. Upgrade llama.cpp,
+  or start the server manually with `--flash-attn on`.
 - Port already in use: either stop the process on that port or use
   `--local-embedding-port`.
 - Timeout while starting: the first run may download the GGUF model from

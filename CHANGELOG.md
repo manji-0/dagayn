@@ -4,6 +4,13 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Fixes
+
+- Pass `--flash-attn on` to managed `llama-server` sidecars so current llama.cpp
+  CLI parsers no longer treat the next flag as the Flash Attention mode and
+  exit before MCP/`serve` becomes ready. Startup failures now include a stderr
+  tail for diagnosis.
+
 ## 4.3.0 — 2026-06-21
 
 ### Improvements
