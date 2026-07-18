@@ -20,7 +20,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import IO, Literal, cast
+from typing import IO, Literal
 from urllib.parse import urlparse
 
 from .state_types import LocalEmbeddingProbeStatus
@@ -141,7 +141,7 @@ def _default_local_embedding_runtime() -> LocalEmbeddingRuntime:
     if configured:
         normalized = configured.strip().lower()
         if normalized == "llama":
-            return cast(LocalEmbeddingRuntime, normalized)
+            return normalized
         raise ValueError("DAGAYN_LOCAL_EMBEDDING_RUNTIME must be: llama.")
     return "llama"
 
@@ -160,7 +160,7 @@ def get_local_embedding_preset(
         raise ValueError(f"Unknown local embedding preset '{level}'. Expected one of: {choices}.")
 
     selected_runtime = (runtime or _default_local_embedding_runtime()).strip().lower()
-    selected_level = cast(LocalEmbeddingLevel, normalized)
+    selected_level = normalized
     presets = LOCAL_EMBEDDING_PRESETS[selected_level]
     if selected_runtime not in presets:
         runtime_choices = ", ".join(sorted(presets))
@@ -168,7 +168,7 @@ def get_local_embedding_preset(
             f"Unknown local embedding runtime '{selected_runtime}' for preset "
             f"'{normalized}'. Expected one of: {runtime_choices}."
         )
-    return presets[cast(LocalEmbeddingRuntime, selected_runtime)]
+    return presets[selected_runtime]
 
 
 def local_embedding_base_url(port: int) -> str:

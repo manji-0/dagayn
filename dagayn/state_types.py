@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal, TypeAlias, TypedDict, cast
+from typing import Annotated, Any, Literal, TypeAlias, TypedDict
 
 from pydantic import (
     BaseModel,
@@ -176,7 +176,7 @@ def normalize_confidence_tier(value: Any, default: ConfidenceTier = "EXTRACTED")
     """Return a known confidence tier, preserving type-level state invariants."""
     tier = str(value or default).upper()
     if tier in {"EXACT", "EXTRACTED", "HIGH", "MEDIUM", "LOW", "UNKNOWN"}:
-        return cast(ConfidenceTier, tier)
+        return tier
     return default
 
 
@@ -312,7 +312,7 @@ class GuidanceEvidence(BaseModel):
     def normalize_type(cls, value: Any) -> GuidanceEvidenceType:
         evidence_type = str(value or "computed")
         if evidence_type in {"extracted", "authored", "computed", "evaluated"}:
-            return cast(GuidanceEvidenceType, evidence_type)
+            return evidence_type
         return "computed"
 
 
@@ -330,7 +330,7 @@ class MissingnessItem(BaseModel):
     def normalize_severity(cls, value: Any) -> MissingnessSeverity:
         severity = str(value or "low")
         if severity in {"info", "low", "medium", "high"}:
-            return cast(MissingnessSeverity, severity)
+            return severity
         return "low"
 
 
@@ -352,7 +352,7 @@ class GuidanceItem(BaseModel):
     def normalize_confidence(cls, value: Any) -> GuidanceConfidence:
         confidence = str(value or "unknown")
         if confidence in {"high", "medium", "low", "unknown"}:
-            return cast(GuidanceConfidence, confidence)
+            return confidence
         return "unknown"
 
     @field_validator("evidence", "missingness", mode="before")

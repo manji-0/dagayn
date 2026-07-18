@@ -21,6 +21,24 @@ from .graph import GraphEdge, GraphNode, GraphStore, _sanitize_name
 logger = logging.getLogger(__name__)
 
 
+def _sort_key_int(item: dict[str, Any], field: str) -> int:
+    value = item.get(field)
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    return 0
+
+
+def _sort_key_float(item: dict[str, Any], field: str) -> float:
+    value = item.get(field)
+    if isinstance(value, (int, float)):
+        return float(value)
+    return 0.0
+
+
 @dataclasses.dataclass(frozen=True)
 class GraphSnapshot:
     """Pre-computed slice of the graph shared by analysis helpers.
@@ -122,7 +140,7 @@ def find_hub_nodes(
         )
 
     scored.sort(
-        key=lambda x: x.get("total_degree", 0),  # type: ignore[arg-type,return-value]
+        key=lambda x: _sort_key_int(x, "total_degree"),
         reverse=True,
     )
     return scored[:top_n]
@@ -197,7 +215,7 @@ def find_bridge_nodes(
         )
 
     results.sort(
-        key=lambda x: float(x.get("betweenness", 0)),  # type: ignore[arg-type,return-value]
+        key=lambda x: _sort_key_float(x, "betweenness"),
         reverse=True,
     )
     return results[:top_n]
@@ -950,7 +968,7 @@ def find_surprising_connections(
             )
 
     scored_edges.sort(
-        key=lambda x: float(x.get("surprise_score", 0)),  # type: ignore[arg-type,return-value]
+        key=lambda x: _sort_key_float(x, "surprise_score"),
         reverse=True,
     )
     return scored_edges[:top_n]
