@@ -4,12 +4,35 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+## 4.4.0 — 2026-07-18
+
+### Improvements
+
+- Update Terraform parsing to `tree-sitter-terraform` v0.2.0 and recognize 17
+  additional block types.
+- Expand the VS Code extension with multi-root workspace support, module
+  dependency visualization, saved custom queries, node documentation panels,
+  blast-radius snapshot save/compare, editor context-menu commands, and
+  auto-update failure notifications.
+- Align skill examples with current tool signatures and remove the obsolete
+  `wiki-research` skill.
+
 ### Fixes
 
-- Pass `--flash-attn on` to managed `llama-server` sidecars so current llama.cpp
-  CLI parsers no longer treat the next flag as the Flash Attention mode and
-  exit before MCP/`serve` becomes ready. Startup failures now include a stderr
-  tail for diagnosis.
+- Pass `--flash-attn on` to managed `llama-server` sidecars so current
+  llama.cpp CLI parsers no longer treat the next flag as the Flash Attention
+  mode and exit before MCP/`serve` becomes ready. Startup failures now include
+  a stderr tail for diagnosis.
+- Satisfy ty 0.0.61 sort-key and redundant-cast diagnostics in analysis,
+  local-embedding, and state-type helpers.
+- Include the VS Code test stub package in git so extension CI can run
+  reliably.
+
+### Documentation
+
+- Update vector-search backend documentation and remove the outdated system
+  BLAS requirement from the README.
+- Move the architecture analysis report from the repository root into `docs/`.
 
 ## 4.3.0 — 2026-06-21
 
