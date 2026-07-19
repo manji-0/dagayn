@@ -22,7 +22,9 @@ incremental graph refresh can parse them. Incremental results include
 worktree changes.
 `dagayn status` prints graph totals and embedding coverage for the same
 database, including the current state (`complete`, `partial`, `stale`, `empty`,
-or `not_indexed`) and provider-level vector counts.
+or `not_indexed`) and provider-level vector counts. It also prints the VCS
+branch/revision recorded at build time and warns when the working copy has
+moved to a different git branch/commit or SVN path/revision.
 
 ### Local embedding refresh
 

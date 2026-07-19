@@ -4,6 +4,7 @@ import argparse
 
 from dagayn.cli.commands.build import (
     _print_local_embedding_summary,
+    _print_vcs_status,
     _remove_existing_graph_database,
     handle,
     register_commands,
@@ -176,6 +177,89 @@ def test_print_local_embedding_summary_for_bge_sidecar(capsys):
 
     out = capsys.readouterr().out
     assert "Local embeddings (bge-m3/material, reused server)" in out
+
+
+class _FakeMetaStore:
+    def __init__(self, meta: dict[str, str]):
+        self._meta = meta
+
+    def get_metadata(self, key: str) -> str | None:
+        return self._meta.get(key)
+
+
+def test_print_vcs_status_warns_on_git_commit_drift(tmp_path, monkeypatch, capsys):
+    import dagayn.incremental as incremental
+
+    monkeypatch.setattr(incremental, "detect_vcs", lambda _root: "git")
+    monkeypatch.setattr(
+        incremental,
+        "_git_branch_info",
+        lambda _root: ("main", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+    )
+    store = _FakeMetaStore(
+        {
+            "git_branch": "main",
+            "git_head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        }
+    )
+
+    _print_vcs_status(tmp_path, store)
+
+    out = capsys.readouterr().out
+    assert "Built on branch: main" in out
+    assert "Built at commit: aaaaaaaaaaaa" in out
+    assert "WARNING: Graph was built at commit 'aaaaaaaaaaaa'" in out
+    assert "HEAD is now 'bbbbbbbbbbbb'" in out
+
+
+def test_print_vcs_status_warns_on_git_branch_change(tmp_path, monkeypatch, capsys):
+    import dagayn.incremental as incremental
+
+    monkeypatch.setattr(incremental, "detect_vcs", lambda _root: "git")
+    monkeypatch.setattr(
+        incremental,
+        "_git_branch_info",
+        lambda _root: ("feature", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+    )
+    store = _FakeMetaStore(
+        {
+            "git_branch": "main",
+            "git_head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        }
+    )
+
+    _print_vcs_status(tmp_path, store)
+
+    out = capsys.readouterr().out
+    assert "WARNING: Graph was built on 'main'" in out
+    assert "you are now on 'feature'" in out
+    assert "Built at commit" in out
+    assert "HEAD is now" not in out
+
+
+def test_print_vcs_status_warns_on_svn_revision_drift(tmp_path, monkeypatch, capsys):
+    import dagayn.incremental as incremental
+
+    monkeypatch.setattr(incremental, "detect_vcs", lambda _root: "svn")
+    monkeypatch.setattr(
+        incremental,
+        "_svn_revision_info",
+        lambda _root: ("trunk", "42"),
+    )
+    store = _FakeMetaStore(
+        {
+            "svn_branch": "trunk",
+            "svn_revision": "41",
+        }
+    )
+
+    _print_vcs_status(tmp_path, store)
+
+    out = capsys.readouterr().out
+    assert "SVN branch: trunk" in out
+    assert "SVN revision at build: 41" in out
+    assert "WARNING: Graph was built at SVN revision '41'" in out
+    assert "working copy is now '42'" in out
 
 
 def test_handle_runs_full_build_without_postprocess(tmp_path, monkeypatch, capsys):

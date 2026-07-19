@@ -75,6 +75,55 @@ def _print_embedding_status(db_path: Path) -> None:
         print(f"  Provider: {provider} ({count})")
 
 
+def _print_vcs_status(repo_root: Path, store: object) -> None:
+    """Print stored VCS metadata and warn when the working copy has drifted."""
+    from ...incremental import _git_branch_info, _svn_revision_info, detect_vcs
+
+    get_metadata = getattr(store, "get_metadata")
+    stored_branch = get_metadata("git_branch")
+    stored_sha = get_metadata("git_head_sha")
+    if stored_branch:
+        print(f"Built on branch: {stored_branch}")
+    if stored_sha:
+        print(f"Built at commit: {stored_sha[:12]}")
+
+    vcs = detect_vcs(repo_root)
+    if vcs == "git":
+        current_branch, current_sha = _git_branch_info(repo_root)
+        if stored_branch and current_branch and stored_branch != current_branch:
+            print(
+                f"WARNING: Graph was built on '{stored_branch}' "
+                f"but you are now on '{current_branch}'. "
+                f"Run 'dagayn build' to rebuild."
+            )
+        elif stored_sha and current_sha and stored_sha != current_sha:
+            print(
+                f"WARNING: Graph was built at commit '{stored_sha[:12]}' "
+                f"but HEAD is now '{current_sha[:12]}'. "
+                f"Run 'dagayn update' or 'dagayn build' to refresh."
+            )
+    elif vcs == "svn":
+        stored_rev = get_metadata("svn_revision")
+        stored_svn_branch = get_metadata("svn_branch")
+        if stored_svn_branch:
+            print(f"SVN branch: {stored_svn_branch}")
+        if stored_rev:
+            print(f"SVN revision at build: {stored_rev}")
+        current_branch, current_rev = _svn_revision_info(repo_root)
+        if stored_svn_branch and current_branch and stored_svn_branch != current_branch:
+            print(
+                f"WARNING: Graph was built on SVN path '{stored_svn_branch}' "
+                f"but the working copy is now '{current_branch}'. "
+                f"Run 'dagayn build' to rebuild."
+            )
+        elif stored_rev and current_rev and stored_rev != current_rev:
+            print(
+                f"WARNING: Graph was built at SVN revision '{stored_rev}' "
+                f"but the working copy is now '{current_rev}'. "
+                f"Run 'dagayn update' or 'dagayn build' to refresh."
+            )
+
+
 def register_commands(sub: argparse._SubParsersAction) -> dict:
     """Register build/update/postprocess/watch/status/visualize subcommands."""
 
@@ -477,31 +526,7 @@ def handle(args: argparse.Namespace) -> None:
             print(f"Languages: {', '.join(stats.languages)}")
             print(f"Last updated: {stats.last_updated or 'never'}")
             _print_embedding_status(db_path)
-            # Show branch info and warn if stale
-            stored_branch = store.get_metadata("git_branch")
-            stored_sha = store.get_metadata("git_head_sha")
-            if stored_branch:
-                print(f"Built on branch: {stored_branch}")
-            if stored_sha:
-                print(f"Built at commit: {stored_sha[:12]}")
-            from ...incremental import _git_branch_info, detect_vcs
-
-            vcs = detect_vcs(repo_root)
-            if vcs == "git":
-                current_branch, current_sha = _git_branch_info(repo_root)
-                if stored_branch and current_branch and stored_branch != current_branch:
-                    print(
-                        f"WARNING: Graph was built on '{stored_branch}' "
-                        f"but you are now on '{current_branch}'. "
-                        f"Run 'dagayn build' to rebuild."
-                    )
-            elif vcs == "svn":
-                stored_rev = store.get_metadata("svn_revision")
-                stored_svn_branch = store.get_metadata("svn_branch")
-                if stored_svn_branch:
-                    print(f"SVN branch: {stored_svn_branch}")
-                if stored_rev:
-                    print(f"SVN revision at build: {stored_rev}")
+            _print_vcs_status(repo_root, store)
 
         elif args.command == "watch":
             from ...postprocessing import run_post_processing

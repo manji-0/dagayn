@@ -12,18 +12,17 @@ from typing import Any
 
 import yaml
 
-from dagayn.embeddings import LocalEmbeddingProvider, OpenAIEmbeddingProvider
+from dagayn.embeddings import OpenAIEmbeddingProvider
 from dagayn.eval.benchmarks import embedding_materials
 from dagayn.graph import GraphStore
 from dagayn.incremental import get_db_path
 
 DEFAULT_STRATEGY = "doc=section|code=name|comment=sentence|join=combined"
+# OpenAI-compatible llama-server sidecars only (in-process sentence-transformers
+# provider="local" was removed).
 DEFAULT_MODELS = [
+    "openai:bge-m3-gguf-q8_0@http://127.0.0.1:18080/v1",
     "openai:qwen3-embedding-0.6b-gguf-q8_0@http://127.0.0.1:18080/v1",
-    "local:BAAI/bge-m3",
-    "local:google/embeddinggemma-300m",
-    "local:nomic-ai/nomic-embed-code",
-    "local:microsoft/Harrier-OSS-v1-0.6B",
 ]
 
 
@@ -38,7 +37,11 @@ def _provider(spec: str, *, openai_batch_size: int):
             timeout=180,
         )
     if spec.startswith("local:"):
-        return LocalEmbeddingProvider(spec[len("local:") :])
+        raise ValueError(
+            "in-process local: specs were removed; use "
+            "openai:<gguf-model>@http://127.0.0.1:18080/v1 "
+            f"(got {spec!r})"
+        )
     raise ValueError(f"Unsupported model spec: {spec}")
 
 
@@ -134,7 +137,7 @@ def _model_rows(
 
     provider = _provider(model_spec, openai_batch_size=openai_batch_size)
     load_started = time.perf_counter()
-    # Force lazy sentence-transformers providers to load before timing indexing.
+    # Touch provider metadata before timing indexing (HTTP providers resolve lazily).
     _ = provider.dimension
     load_ms = (time.perf_counter() - load_started) * 1000.0
 

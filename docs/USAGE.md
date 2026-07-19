@@ -74,6 +74,8 @@ Use `dagayn build --force-full-build` (or `--force`) to delete the existing
 graph database and SQLite sidecar files before running a clean full parse.
 `dagayn status` also reports embedding coverage from the current graph database,
 including provider counts, missing embeddable nodes, and orphaned embedding rows.
+When VCS metadata is present, it warns if the working copy branch/commit (git)
+or path/revision (SVN) no longer matches the graph build.
 
 ## Use the Rust backend
 
