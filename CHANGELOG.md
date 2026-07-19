@@ -4,6 +4,25 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+## 4.4.1 — 2026-07-20
+
+### Fixes
+
+- Re-export `_git_branch_info` from the incremental facade so `dagayn status`
+  no longer raises `ImportError` when printing branch metadata.
+- Warn from `dagayn status` when the working copy git commit or SVN
+  path/revision has drifted from the graph build metadata.
+- Drop removed in-process `local:` embedding specs from the material-model
+  benchmark and require OpenAI-compatible sidecar URLs instead.
+- Widen Cursor `beforeShellExecution` matching so path-qualified `git`
+  binaries (for example nix-profile absolute paths) still trigger the
+  pre-commit graph refresh, and replace existing `crg-*` hook entries on
+  reinstall so matcher updates take effect.
+
+### Documentation
+
+- Document Cursor install hooks and VCS drift warnings for `dagayn status`.
+
 ## 4.4.0 — 2026-07-18
 
 ### Improvements
