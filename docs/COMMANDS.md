@@ -262,6 +262,13 @@ installed, the command prints a clear install hint and exits non-zero.
 - `dagayn init`
 - `dagayn serve`
 
+`dagayn install --platform cursor` merges graph-refresh hooks into
+`~/.cursor/hooks.json` and writes scripts under `~/.cursor/hooks/`:
+`afterFileEdit` runs `dagayn update --skip-flows`, `sessionStart` runs
+`dagayn status`, and `beforeShellExecution` matches bare or path-qualified
+`git commit` commands before running update + `detect-changes --brief`.
+Existing unrelated Cursor hooks are preserved.
+
 `dagayn install --platform codex` configures the Codex MCP server, installs
 Codex skills, and writes global Codex hooks in `~/.codex/hooks.json` with the
 required `~/.codex/config.toml` feature flag. Claude hooks are written to

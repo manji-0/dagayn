@@ -1608,6 +1608,12 @@ def inject_platform_instructions(
 # --- Cursor hooks ---
 
 
+# Matcher for Cursor beforeShellExecution / similar git-commit detectors.
+# Matches bare `git commit` and absolute/relative paths like
+# `/usr/bin/git commit` or `.../nix-profile/bin/git commit`.
+_GIT_COMMIT_COMMAND_MATCHER = r"(?:^|[/\\]|\s)git(?:\.exe)?\s+commit\b"
+
+
 def generate_cursor_hooks_config() -> dict[str, Any]:
     """Generate Cursor hooks.json configuration.
 
@@ -1636,7 +1642,7 @@ def generate_cursor_hooks_config() -> dict[str, Any]:
             ],
             "beforeShellExecution": [
                 {
-                    "matcher": "^git\\s+commit",
+                    "matcher": _GIT_COMMIT_COMMAND_MATCHER,
                     "command": f"{hooks_dir}/crg-pre-commit.sh",
                     "timeout": 10,
                 },
@@ -1768,10 +1774,29 @@ def install_cursor_hooks() -> Path:
         event_hooks = existing_hooks.get(event, [])
         if not isinstance(event_hooks, list):
             event_hooks = []
-        # De-duplicate: skip if a hook with the same command already exists
-        existing_commands = {h.get("command", "") for h in event_hooks if isinstance(h, dict)}
+
+        def _hook_script_name(command: object) -> str:
+            if not isinstance(command, str) or not command:
+                return ""
+            return Path(command).name
+
+        # Replace existing dagayn/crg hook entries (same command path or
+        # same script basename) so matcher/timeout updates take effect.
         for entry in entries:
-            if entry["command"] not in existing_commands:
+            entry_cmd = entry.get("command", "")
+            entry_name = _hook_script_name(entry_cmd)
+            replaced = False
+            for idx, existing_entry in enumerate(event_hooks):
+                if not isinstance(existing_entry, dict):
+                    continue
+                existing_cmd = existing_entry.get("command", "")
+                if existing_cmd == entry_cmd or (
+                    entry_name and _hook_script_name(existing_cmd) == entry_name
+                ):
+                    event_hooks[idx] = entry
+                    replaced = True
+                    break
+            if not replaced:
                 event_hooks.append(entry)
         existing_hooks[event] = event_hooks
 
@@ -1932,7 +1957,7 @@ export default (app: any) => {
       const input = ctx?.input ?? ctx?.params ?? {}
       const cmd =
         input.command ?? input.cmd ?? input.content ?? ""
-      if (typeof cmd === "string" && /^git\\s+commit/i.test(cmd)) {
+      if (typeof cmd === "string" && /(?:^|[\\/\\\\]|\\s)git(?:\\.exe)?\\s+commit\\b/i.test(cmd)) {
         await ctx.$`dagayn update --skip-flows`.quiet()
         const result =
           await ctx.$`dagayn detect-changes --brief`.quiet()

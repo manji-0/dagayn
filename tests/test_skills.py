@@ -1960,7 +1960,22 @@ class TestCursorHooksConfig:
         assert len(hooks) >= 1
         assert "crg-pre-commit.sh" in hooks[0]["command"]
         assert hooks[0]["timeout"] == 10
-        assert hooks[0]["matcher"] == "^git\\s+commit"
+        assert hooks[0]["matcher"] == (r"(?:^|[/\\]|\s)git(?:\.exe)?\s+commit\b")
+
+    def test_git_commit_matcher_covers_path_qualified_git(self):
+        import re
+
+        from dagayn.skills import _GIT_COMMIT_COMMAND_MATCHER
+
+        pattern = re.compile(_GIT_COMMIT_COMMAND_MATCHER)
+        assert pattern.search("git commit -m 'x'")
+        assert pattern.search("/Users/manji0/.nix-profile/bin/git commit -m 'x'")
+        assert pattern.search(r"C:\Program Files\Git\cmd\git.exe commit -m x")
+        assert pattern.search("env FOO=1 /usr/bin/git commit")
+        assert pattern.search("echo git commit")
+        assert not pattern.search("git status")
+        assert not pattern.search("gitaly commit")
+        assert not pattern.search("git-commit hook")
 
     def test_has_all_three_hook_types(self):
         config = generate_cursor_hooks_config()
@@ -2085,6 +2100,39 @@ class TestInstallCursorHooks:
         for event, entries in data["hooks"].items():
             crg_hooks = [h for h in entries if "crg-" in h.get("command", "")]
             assert len(crg_hooks) == 1, f"{event} has {len(crg_hooks)} crg hooks after reinstall"
+
+    def test_reinstall_updates_git_commit_matcher(self, tmp_path):
+        cursor_dir = tmp_path / ".cursor"
+        hooks_dir = cursor_dir / "hooks"
+        hooks_dir.mkdir(parents=True)
+        stale_cmd = str(hooks_dir / "crg-pre-commit.sh")
+        existing = {
+            "version": 1,
+            "hooks": {
+                "beforeShellExecution": [
+                    {
+                        "matcher": "^git\\s+commit",
+                        "command": stale_cmd,
+                        "timeout": 10,
+                    }
+                ],
+                "sessionStart": [{"command": "bash '/tmp/herdr-agent-state.sh' session"}],
+            },
+        }
+        (cursor_dir / "hooks.json").write_text(json.dumps(existing))
+
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            install_cursor_hooks()
+
+        data = json.loads((cursor_dir / "hooks.json").read_text())
+        shell_hooks = data["hooks"]["beforeShellExecution"]
+        crg = [h for h in shell_hooks if "crg-pre-commit.sh" in h.get("command", "")]
+        assert len(crg) == 1
+        assert crg[0]["matcher"] == r"(?:^|[/\\]|\s)git(?:\.exe)?\s+commit\b"
+        # Unrelated hooks preserved
+        session_cmds = [h["command"] for h in data["hooks"]["sessionStart"]]
+        assert "bash '/tmp/herdr-agent-state.sh' session" in session_cmds
+        assert any("crg-session-start.sh" in c for c in session_cmds)
 
     def test_handles_corrupt_existing_json(self, tmp_path):
         cursor_dir = tmp_path / ".cursor"
@@ -2392,10 +2440,11 @@ class TestOpenCodePluginContent:
         assert "dagayn detect-changes --brief" in content
 
     def test_has_git_commit_detection(self):
-        """Pre-commit hook should match git commit commands."""
+        """Pre-commit hook should match path-qualified git commit commands."""
         content = _opencode_plugin_content()
         assert "git" in content
         assert "commit" in content
+        assert r"(?:^|[\/\\]|\s)git(?:\.exe)?\s+commit\b" in content
 
     def test_all_handlers_have_try_catch(self):
         """Every event handler must use try/catch for graceful failure."""
