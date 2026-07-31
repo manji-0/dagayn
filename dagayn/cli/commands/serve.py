@@ -41,6 +41,34 @@ def _embedding_provider_counts(db_path: Path) -> dict[str, int]:
     return {str(provider): int(count) for provider, count in rows}
 
 
+def _resolve_serve_root(repo_root: str | None) -> Path:
+    if repo_root is None:
+        from ...incremental import find_project_root
+
+        return find_project_root()
+    return Path(repo_root).expanduser().resolve()
+
+
+def _inherit_worktree_graph(repo_root: str | None) -> None:
+    """Inherit the main checkout's graph when serving from a linked worktree.
+
+    A worktree is a fresh checkout with no ``.dagayn/`` directory, so without
+    this every MCP tool in a worktree session reports a missing graph. Progress
+    goes to stderr — stdout carries the MCP JSON-RPC stream.
+    """
+    import sys
+
+    from ...worktree import ensure_worktree_graph
+
+    result = ensure_worktree_graph(_resolve_serve_root(repo_root))
+    if result.seeded:
+        print(
+            f"[dagayn] inherited graph from {result.source}; "
+            "run 'dagayn worktree sync' to catch up on the branch diff",
+            file=sys.stderr,
+        )
+
+
 def _infer_persisted_local_embedding(repo_root: str | None):
     if repo_root is None:
         from ...incremental import find_project_root
@@ -120,6 +148,9 @@ def handle(args: argparse.Namespace, serve_parser: argparse.ArgumentParser) -> N
         serve_parser.error("--host requires --http")
     if _local_embedding_requested(args.local_embedding) and args.remote_embedding != "none":
         serve_parser.error("--local-embedding and --remote-embedding are mutually exclusive")
+
+    # Must run before embedding inference below, which reads the graph.
+    _inherit_worktree_graph(args.repo)
 
     remote_embedding = args.remote_embedding if args.remote_embedding != "none" else None
     effective_local_embedding_port = args.local_embedding_port

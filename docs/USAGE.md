@@ -75,7 +75,38 @@ graph database and SQLite sidecar files before running a clean full parse.
 `dagayn status` also reports embedding coverage from the current graph database,
 including provider counts, missing embeddable nodes, and orphaned embedding rows.
 When VCS metadata is present, it warns if the working copy branch/commit (git)
-or path/revision (SVN) no longer matches the graph build.
+or path/revision (SVN) no longer matches the graph build. A branch name that
+differs while the commit matches is not treated as drift, which is the normal
+state in a worktree that inherited the main checkout's graph.
+
+## Work in git worktrees
+
+<!-- derived-from #build-and-refresh-the-graph -->
+
+Parallel agent sessions run in linked git worktrees: `claude --worktree`, the
+`EnterWorktree` tool, subagents with `isolation: worktree`, and Cursor's
+parallel agents. A worktree checks out tracked files only, so the gitignored
+`.dagayn/` graph and MCP config files are missing there.
+
+```bash
+dagayn worktree info    # is this a worktree? what can it inherit?
+dagayn worktree sync    # inherit the main checkout's graph, then catch up
+```
+
+`sync` copies the main checkout's gitignored MCP config and `graph.db` —
+embeddings included — and runs an incremental update against the commit that
+graph was built at, so only the branch diff is re-parsed. Graph inheritance also
+happens automatically when `dagayn serve` starts and before `dagayn update` /
+`dagayn status`, so an MCP session that opens in a worktree finds a working
+graph. Set `DAGAYN_WORKTREE_SEED=0` to disable it.
+
+`dagayn install` wires this into both hosts so it happens without you asking: a
+managed block in `.worktreeinclude` (Claude Code copies matching gitignored files
+into new worktrees — commit that file) and a `dagayn worktree sync` entry in
+`.cursor/worktrees.json` (Cursor runs it when creating a worktree for a parallel
+agent). Installing from inside a worktree also configures the main checkout, and
+git hooks go into the repository's shared hooks directory so one install covers
+every worktree.
 
 ## Use the Rust backend
 

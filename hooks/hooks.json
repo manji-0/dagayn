@@ -5,7 +5,7 @@
       "hooks": [
         {
           "type": "command",
-          "command": "dagayn status",
+          "command": "repo=\"$(git rev-parse --show-toplevel 2>/dev/null)\" || repo=\"${CLAUDE_PROJECT_DIR:-}\"; [ -n \"$repo\" ] && dagayn status --repo \"$repo\" || echo 'Not a git repo, skipping'",
           "timeout": 10
         }
       ]
@@ -13,11 +13,12 @@
   ],
   "PostToolUse": [
     {
-      "matcher": "EnterWorktree",
+      "matcher": "EnterWorktree|ExitWorktree",
       "hooks": [
         {
           "type": "command",
-          "command": "dagayn build >/dev/null 2>&1 &"
+          "command": "dagayn worktree sync --from-hook || true",
+          "timeout": 300
         }
       ]
     },
@@ -26,8 +27,8 @@
       "hooks": [
         {
           "type": "command",
-          "command": "dagayn update --skip-flows",
-          "timeout": 30
+          "command": "repo=\"$(git rev-parse --show-toplevel 2>/dev/null)\" || repo=\"${CLAUDE_PROJECT_DIR:-}\"; [ -n \"$repo\" ] && DAGAYN_HOOK_UPDATE=1 dagayn update --skip-flows --repo \"$repo\" || true",
+          "timeout": 300
         }
       ]
     }

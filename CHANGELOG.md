@@ -4,6 +4,51 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Features
+
+- Support Claude Code and Cursor worktree sessions end to end. New
+  `dagayn worktree sync` / `dagayn worktree info` inherit the main checkout's
+  `graph.db` into a linked worktree through the SQLite backup API (WAL content
+  and embeddings included) and re-parse only the branch diff; inheritance also
+  runs automatically at `dagayn serve` startup and before `dagayn update` /
+  `dagayn status`. Disable with `DAGAYN_WORKTREE_SEED=0`.
+- Add `dagayn hook-repo`, which resolves the repository an agent hook payload
+  refers to from `workspace_roots`, `file_path`, or an `EnterWorktree` tool
+  response, so hook scripts no longer depend on their working directory.
+- `dagayn install` now maintains a managed `.worktreeinclude` block listing the
+  gitignored MCP config it wrote, so Claude Code copies it into every worktree
+  it creates, and registers `dagayn worktree sync` in `.cursor/worktrees.json`
+  so Cursor runs it when creating a worktree for a parallel agent. Installing
+  from inside a worktree also configures the main checkout.
+- `dagayn worktree sync` copies the main checkout's gitignored MCP config and
+  skill files into the worktree (`--no-copy-config` to opt out), which covers
+  hosts that create worktrees with plain `git worktree add`.
+- Claude Code hooks gained a `PostToolUse` entry matching
+  `EnterWorktree|ExitWorktree` that runs `dagayn worktree sync`, and their repo
+  resolution now falls back to `CLAUDE_PROJECT_DIR` when the working directory
+  is outside the repository. Codex hooks omit the worktree entry.
+
+### Fixes
+
+- Install git hooks into the repository's shared hooks directory resolved via
+  `git rev-parse --git-common-dir`, honoring `core.hooksPath`. Previously
+  `dagayn install` skipped git hooks entirely inside a worktree, where `.git`
+  is a file rather than a directory.
+- Cursor hook scripts now resolve the repository from the hook payload and pass
+  `--repo` explicitly. User-level Cursor hooks run with their working directory
+  set to `~/.cursor`, so the previous cwd-dependent scripts updated the wrong
+  repository (or none).
+- Cursor hooks now return the JSON each event expects: `sessionStart` reports
+  graph status as `additional_context`, and `beforeShellExecution` returns
+  `{"permission": "allow"}` with the change analysis attached. `afterFileEdit`
+  runs the update detached so the editor never blocks on it, and the hook
+  timeouts were raised from 5/5/10 seconds to values a real refresh fits in.
+- Cursor hook updates now reuse the local embedding arguments chosen at install
+  time, matching the Claude and Codex hooks.
+- `dagayn status` no longer warns about branch drift when the graph was built at
+  the current commit, and points worktrees at `dagayn worktree sync` instead of
+  a full rebuild.
+
 ## 4.4.1 — 2026-07-20
 
 ### Fixes

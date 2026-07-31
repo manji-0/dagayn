@@ -264,10 +264,15 @@ installed, the command prints a clear install hint and exits non-zero.
 
 `dagayn install --platform cursor` merges graph-refresh hooks into
 `~/.cursor/hooks.json` and writes scripts under `~/.cursor/hooks/`:
-`afterFileEdit` runs `dagayn update --skip-flows`, `sessionStart` runs
-`dagayn status`, and `beforeShellExecution` matches bare or path-qualified
-`git commit` commands before running update + `detect-changes --brief`.
-Existing unrelated Cursor hooks are preserved.
+`afterFileEdit` runs `dagayn update --skip-flows` detached so the editor never
+waits, `sessionStart` inherits the graph in a worktree and returns
+`dagayn status` as `additional_context`, and `beforeShellExecution` matches bare
+or path-qualified `git commit` commands before running update +
+`detect-changes --brief`, returning `{"permission": "allow"}` with the analysis
+attached. Every script resolves the repository from the hook payload via
+`dagayn hook-repo` and passes it as `--repo`, because user-level Cursor hooks
+run from `~/.cursor` rather than the project directory. Existing unrelated
+Cursor hooks are preserved.
 
 `dagayn install --platform codex` configures the Codex MCP server, installs
 Codex skills, and writes global Codex hooks in `~/.codex/hooks.json` with the
@@ -297,6 +302,55 @@ corresponding remote provider flag. Legacy mode names such as `fts`, `local`,
 `dagayn install --platform hermes` writes `~/.hermes/config.yaml` under
 `mcp_servers`, installs skills under `~/.hermes/skills/`, and adds shell hooks
 to the same config's `hooks:` block.
+
+### Git worktrees
+
+- `dagayn worktree sync`
+- `dagayn worktree info`
+- `dagayn hook-repo`
+
+Agent hosts run parallel sessions in linked git worktrees: `claude --worktree`,
+the `EnterWorktree` tool, subagents with `isolation: worktree`, Claude Code
+desktop sessions, and Cursor's parallel agents. A worktree is a fresh checkout,
+so gitignored files — `.mcp.json`, `.cursor/mcp.json`, and the whole `.dagayn/`
+graph directory — are not there.
+
+`dagayn worktree sync` makes a worktree usable in seconds. It copies the main
+checkout's gitignored MCP config and skill files (never overwriting files the
+worktree already has), copies `graph.db` via the SQLite backup API so
+write-ahead-log content and every embedding come along, then runs an incremental
+update against the commit that graph was built at so only the branch diff is
+re-parsed. `--seed-only` copies without updating, `--no-copy-config` skips the
+config copy, `--build-if-missing` falls back to a full build when the main
+checkout has no graph, and `--json` emits a machine-readable result for hook
+integrations. Set `DAGAYN_WORKTREE_SEED=0` to disable graph inheritance;
+`CRG_DATA_DIR` also disables it, since it already pins the graph outside the
+working tree.
+
+The same inheritance runs automatically at `dagayn serve` startup and before
+`dagayn update` / `dagayn status`, so an MCP session that opens in a worktree
+has a graph without any manual step.
+
+`dagayn install` wires both hosts' worktree-bootstrap mechanisms:
+
+- **Claude Code** — a managed block in `.worktreeinclude` listing the gitignored
+  MCP config files dagayn wrote. Claude Code copies files matching that file into
+  every worktree it creates; commit it so worktree sessions keep their MCP tools.
+- **Cursor** — a `dagayn worktree sync` entry in `.cursor/worktrees.json`, which
+  Cursor runs inside each worktree it creates for a parallel agent. User commands
+  in that file are preserved; when it delegates to a setup script, install prints
+  the line to add yourself.
+
+Running `dagayn install` from inside a worktree also configures the main
+checkout, and git hooks are installed into the repository's shared hooks
+directory (resolved through `git rev-parse --git-common-dir`, honoring
+`core.hooksPath`), so one install covers every worktree.
+
+`dagayn hook-repo` reads an agent hook's JSON payload on stdin and prints the
+repository root it refers to, resolving `workspace_roots`, `file_path`, and
+`EnterWorktree` tool responses through `git rev-parse --show-toplevel`. The
+generated Cursor hook scripts use it because user-level Cursor hooks run with
+their working directory set to `~/.cursor` rather than the project.
 
 ### Multi-repo management
 

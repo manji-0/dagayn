@@ -82,21 +82,38 @@ def _print_vcs_status(repo_root: Path, store: object) -> None:
     get_metadata = getattr(store, "get_metadata")
     stored_branch = get_metadata("git_branch")
     stored_sha = get_metadata("git_head_sha")
+
+    vcs = detect_vcs(repo_root)
+    label: str | None = None
+    if vcs == "git":
+        from ...worktree import main_worktree_root, worktree_label
+
+        label = worktree_label(repo_root)
+        if label:
+            print(f"Linked worktree: {label} (main checkout: {main_worktree_root(repo_root)})")
+
     if stored_branch:
         print(f"Built on branch: {stored_branch}")
     if stored_sha:
         print(f"Built at commit: {stored_sha[:12]}")
 
-    vcs = detect_vcs(repo_root)
     if vcs == "git":
         current_branch, current_sha = _git_branch_info(repo_root)
-        if stored_branch and current_branch and stored_branch != current_branch:
+        # Same commit means the parsed tree matches HEAD, so a different branch
+        # name is not staleness — that is the normal state in a worktree that
+        # inherited the main checkout's graph.
+        same_commit = bool(stored_sha) and bool(current_sha) and stored_sha == current_sha
+        refresh_hint = (
+            "Run 'dagayn worktree sync' to catch up." if label else "Run 'dagayn build' to rebuild."
+        )
+        if same_commit:
+            pass
+        elif stored_branch and current_branch and stored_branch != current_branch:
             print(
                 f"WARNING: Graph was built on '{stored_branch}' "
-                f"but you are now on '{current_branch}'. "
-                f"Run 'dagayn build' to rebuild."
+                f"but you are now on '{current_branch}'. {refresh_hint}"
             )
-        elif stored_sha and current_sha and stored_sha != current_sha:
+        elif stored_sha and current_sha:
             print(
                 f"WARNING: Graph was built at commit '{stored_sha[:12]}' "
                 f"but HEAD is now '{current_sha[:12]}'. "
@@ -418,6 +435,19 @@ def handle(args: argparse.Namespace) -> None:
             sys.exit(1)
     else:
         repo_root = Path(args.repo) if args.repo else find_project_root()
+
+    # A linked worktree is a fresh checkout with no .dagayn/, so inherit the
+    # main checkout's graph instead of reporting an empty one. When the
+    # inherited graph supplies a build commit, diff against it rather than
+    # HEAD~1 so the worktree branch is caught up in one pass.
+    if args.command in ("update", "status"):
+        from ...worktree import ensure_worktree_graph
+
+        seed = ensure_worktree_graph(repo_root)
+        if seed.seeded:
+            print(f"Inherited graph from {seed.source} (this worktree had none)")
+            if seed.base_sha and getattr(args, "base", None) == "HEAD~1":
+                args.base = seed.base_sha
 
     db_path = get_db_path(repo_root)
     if args.command == "build" and getattr(args, "force_full_build", False):

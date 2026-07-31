@@ -53,6 +53,7 @@ def main() -> None:
     eval_cmd = _command_module("eval_cmd")
     profile = _command_module("profile")
     tool = _command_module("tool")
+    worktree = _command_module("worktree")
 
     ap = argparse.ArgumentParser(
         prog="dagayn",
@@ -72,6 +73,7 @@ def main() -> None:
     eval_cmd.register_command(sub)
     profile.register_command(sub)
     tool.register_command(sub)
+    worktree_parsers = worktree.register_commands(sub)
 
     args = ap.parse_args()
 
@@ -105,3 +107,7 @@ def main() -> None:
             sys.exit(rc)
     elif args.command in _TOOL_COMMANDS:
         tool.handle(args)
+    elif args.command == "worktree":
+        worktree.handle(args, worktree_parsers["worktree"])
+    elif args.command == "hook-repo":
+        worktree.handle_hook_repo(args)

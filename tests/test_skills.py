@@ -1945,21 +1945,21 @@ class TestCursorHooksConfig:
         hooks = config["hooks"]["afterFileEdit"]
         assert len(hooks) >= 1
         assert "crg-update.sh" in hooks[0]["command"]
-        assert hooks[0]["timeout"] == 5
+        assert hooks[0]["timeout"] == 15
 
     def test_has_session_start(self):
         config = generate_cursor_hooks_config()
         hooks = config["hooks"]["sessionStart"]
         assert len(hooks) >= 1
         assert "crg-session-start.sh" in hooks[0]["command"]
-        assert hooks[0]["timeout"] == 5
+        assert hooks[0]["timeout"] == 60
 
     def test_has_before_shell_execution(self):
         config = generate_cursor_hooks_config()
         hooks = config["hooks"]["beforeShellExecution"]
         assert len(hooks) >= 1
         assert "crg-pre-commit.sh" in hooks[0]["command"]
-        assert hooks[0]["timeout"] == 10
+        assert hooks[0]["timeout"] == 120
         assert hooks[0]["matcher"] == (r"(?:^|[/\\]|\s)git(?:\.exe)?\s+commit\b")
 
     def test_git_commit_matcher_covers_path_qualified_git(self):
@@ -2017,18 +2017,51 @@ class TestCursorHookScripts:
             assert "exit 0" in content, f"{name} missing 'exit 0'"
 
     def test_scripts_consume_stdin(self):
-        """Each script must consume stdin (Cursor protocol)."""
+        """Each script must read the JSON payload Cursor sends on stdin."""
         scripts = _cursor_hook_scripts()
         for name, content in scripts.items():
-            assert "cat > /dev/null" in content, f"{name} missing stdin consumption"
+            assert 'payload="$(cat 2>/dev/null || true)"' in content, (
+                f"{name} does not read the hook payload"
+            )
+
+    def test_scripts_resolve_repo_from_payload(self):
+        """User hooks run from ~/.cursor, so cwd must never decide the repo."""
+        scripts = _cursor_hook_scripts()
+        for name, content in scripts.items():
+            assert "dagayn hook-repo --no-cwd-fallback" in content, (
+                f"{name} does not resolve the repo from the payload"
+            )
+            assert "CURSOR_PROJECT_DIR" in content, f"{name} missing env fallback"
+
+    def test_scripts_pass_repo_explicitly(self):
+        scripts = _cursor_hook_scripts()
+        for name, content in scripts.items():
+            if "dagayn update" in content or "dagayn status" in content:
+                assert '--repo "$repo"' in content, f"{name} does not pass --repo"
 
     def test_update_script_runs_update(self):
         scripts = _cursor_hook_scripts()
         assert "dagayn update --skip-flows" in scripts["crg-update.sh"]
 
+    def test_update_script_includes_extra_update_args(self):
+        scripts = _cursor_hook_scripts(["--local-embedding", "low"])
+        assert "--local-embedding low" in scripts["crg-update.sh"]
+        assert "--local-embedding low" in scripts["crg-session-start.sh"]
+        assert "--local-embedding low" in scripts["crg-pre-commit.sh"]
+
     def test_session_start_script_runs_status(self):
         scripts = _cursor_hook_scripts()
         assert "dagayn status" in scripts["crg-session-start.sh"]
+
+    def test_session_start_script_inherits_worktree_graph(self):
+        script = _cursor_hook_scripts()["crg-session-start.sh"]
+        assert "dagayn worktree sync --seed-only" in script
+        assert "additional_context" in script
+
+    def test_pre_commit_script_returns_permission_decision(self):
+        script = _cursor_hook_scripts()["crg-pre-commit.sh"]
+        assert '"permission"' in script
+        assert "allow" in script
 
     def test_pre_commit_script_runs_detect_changes(self):
         scripts = _cursor_hook_scripts()

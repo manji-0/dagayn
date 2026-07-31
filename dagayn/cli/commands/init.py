@@ -182,14 +182,61 @@ def _instruction_files_to_modify(
     return targets
 
 
+def _install_worktree_support(repo_root: Path, main_root: Path | None, cursor: bool) -> None:
+    """Carry dagayn's gitignored config into worktrees the agent hosts create.
+
+    Claude Code copies files matching ``.worktreeinclude``; Cursor runs the
+    commands in ``.cursor/worktrees.json``. Both are written at the repository
+    root, and also at the main checkout when installing from a worktree.
+    """
+    from ...skills import (
+        ensure_worktree_include,
+        install_cursor_worktree_setup,
+        worktree_include_patterns,
+    )
+
+    roots = [repo_root]
+    if main_root is not None and main_root != repo_root:
+        roots.append(main_root)
+
+    for root in roots:
+        patterns = worktree_include_patterns(root)
+        if patterns:
+            state = ensure_worktree_include(root, patterns)
+            if state in ("created", "updated"):
+                print(f"{state.capitalize()} {root / '.worktreeinclude'} ({', '.join(patterns)})")
+                print("  Commit it so new git worktrees inherit the dagayn MCP config.")
+
+        if not cursor:
+            continue
+        state = install_cursor_worktree_setup(root)
+        if state in ("created", "updated"):
+            print(f"{state.capitalize()} {root / '.cursor' / 'worktrees.json'}")
+            print("  Cursor worktrees now run 'dagayn worktree sync' on creation.")
+        elif state == "manual":
+            print(
+                f"{root / '.cursor' / 'worktrees.json'} uses a setup script — "
+                "add 'dagayn worktree sync' to it so Cursor worktrees keep the graph."
+            )
+
+
 def handle(args: argparse.Namespace) -> None:
     """Set up MCP config for detected AI coding platforms."""
     from ...incremental import ensure_repo_gitignore_excludes_crg, find_repo_root
     from ...skills import install_platform_configs, normalize_platform_target
+    from ...worktree import is_linked_worktree, main_worktree_root
 
     repo_root = Path(args.repo) if args.repo else find_repo_root()
     if not repo_root:
         repo_root = Path.cwd()
+
+    # Installing from inside a linked worktree must also configure the main
+    # checkout: worktrees are throwaway, and new worktrees inherit project
+    # config from the main checkout via .worktreeinclude.
+    main_root = main_worktree_root(repo_root)
+    in_worktree = main_root is not None and is_linked_worktree(repo_root)
+    if not in_worktree:
+        main_root = None
 
     dry_run = getattr(args, "dry_run", False)
     target = normalize_platform_target(getattr(args, "platform", "all") or "all")
@@ -228,6 +275,9 @@ def handle(args: argparse.Namespace) -> None:
         assert provider is not None
         extra_serve_args += ["--remote-embedding", provider]
 
+    if main_root is not None:
+        print(f"Linked worktree detected — also configuring the main checkout at {main_root}")
+
     print("Installing MCP server config...")
     configured = install_platform_configs(
         repo_root,
@@ -235,6 +285,13 @@ def handle(args: argparse.Namespace) -> None:
         dry_run=dry_run,
         extra_serve_args=extra_serve_args or None,
     )
+    if main_root is not None:
+        install_platform_configs(
+            main_root,
+            target=target,
+            dry_run=dry_run,
+            extra_serve_args=extra_serve_args or None,
+        )
 
     if not configured:
         print("No platforms detected.")
@@ -251,6 +308,7 @@ def handle(args: argparse.Namespace) -> None:
 
     if dry_run:
         print("\n[dry-run] Would ensure .gitignore ignores .dagayn/.")
+        print("[dry-run] Would ensure .worktreeinclude carries dagayn config into worktrees.")
         print("[dry-run] No files were modified.")
         return
 
@@ -261,6 +319,8 @@ def handle(args: argparse.Namespace) -> None:
         print("Updated .gitignore with .dagayn/.")
     else:
         print(".gitignore already contains .dagayn/.")
+    if main_root is not None:
+        ensure_repo_gitignore_excludes_crg(main_root)
 
     # Skills and hooks are installed by default so Claude actually uses the
     # graph tools proactively.  Use --no-skills / --no-hooks / --no-instructions
@@ -433,7 +493,7 @@ def handle(args: argparse.Namespace) -> None:
         # Cursor hooks (user-level, only if ~/.cursor exists — matching MCP detect)
         if target in ("all", "cursor") and PLATFORMS["cursor"]["detect"]():
             try:
-                hooks_path = install_cursor_hooks()
+                hooks_path = install_cursor_hooks(extra_hook_update_args or None)
                 print(f"Installed Cursor hooks in {hooks_path}")
             except Exception as exc:
                 import logging
@@ -449,6 +509,13 @@ def handle(args: argparse.Namespace) -> None:
             import logging
 
             logging.getLogger(__name__).warning("Could not install OpenCode plugin: %s", exc)
+
+    # Keep dagayn's tools reachable from worktree sessions the hosts create.
+    _install_worktree_support(
+        repo_root,
+        main_root,
+        cursor=target in ("all", "cursor") and PLATFORMS["cursor"]["detect"](),
+    )
 
     print()
     print("Next steps:")
