@@ -1,0 +1,6 @@
+# >>> dagayn worktree include
+# Copied into new git worktrees so agent sessions there keep the dagayn
+# MCP server and skills. Managed by 'dagayn install'.
+.claude/skills/**
+.cursor/mcp.json
+# <<< dagayn worktree include

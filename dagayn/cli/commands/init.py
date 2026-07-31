@@ -490,15 +490,15 @@ def handle(args: argparse.Namespace) -> None:
         if git_hook:
             print(f"Installed git commit hooks in {git_hook.parent}")
 
-        # Cursor hooks (user-level, only if ~/.cursor exists — matching MCP detect)
-        if target in ("all", "cursor") and PLATFORMS["cursor"]["detect"]():
-            try:
-                hooks_path = install_cursor_hooks(extra_hook_update_args or None)
-                print(f"Installed Cursor hooks in {hooks_path}")
-            except Exception as exc:
-                import logging
+    # Cursor hooks (user-level, only if ~/.cursor exists — matching MCP detect)
+    if not skip_hooks and target in ("all", "cursor") and PLATFORMS["cursor"]["detect"]():
+        try:
+            hooks_path = install_cursor_hooks(extra_hook_update_args or None)
+            print(f"Installed Cursor hooks in {hooks_path}")
+        except Exception as exc:
+            import logging
 
-                logging.getLogger(__name__).warning("Could not install Cursor hooks: %s", exc)
+            logging.getLogger(__name__).warning("Could not install Cursor hooks: %s", exc)
 
     # OpenCode plugin (user-level, gated by same detect() as MCP config)
     if not skip_hooks and target in ("all", "opencode") and PLATFORMS["opencode"]["detect"]():
