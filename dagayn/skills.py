@@ -2146,7 +2146,7 @@ def install_qoder_skills(
 # --- OpenCode plugin ---
 
 
-def _opencode_plugin_content() -> str:
+def _opencode_plugin_content(extra_update_args: list[str] | None = None) -> str:
     """Return TypeScript source for the OpenCode user-level plugin.
 
     The plugin hooks into three OpenCode events to mirror the Claude Code
@@ -2167,7 +2167,10 @@ def _opencode_plugin_content() -> str:
     The plugin uses Bun's ``$`` shell API (provided by OpenCode's plugin
     context) for subprocess execution.
     """
-    return """\
+    update_args = ""
+    if extra_update_args:
+        update_args = " " + " ".join(shlex.quote(arg) for arg in extra_update_args)
+    template = """\
 import type { Plugin } from "@opencode-ai/plugin"
 
 /**
@@ -2195,9 +2198,9 @@ export default (app: any) => {
     try {
       const repo = await resolveRepo($)
       if (repo) {
-        await $`dagayn update --skip-flows --repo ${repo}`.quiet()
+        await $`dagayn update --skip-flows__DAGAYN_UPDATE_ARGS__ --repo ${repo}`.quiet()
       } else {
-        await $`dagayn update --skip-flows`.quiet()
+        await $`dagayn update --skip-flows__DAGAYN_UPDATE_ARGS__`.quiet()
       }
     } catch {
       // Swallow — graph may not be built yet for this project.
@@ -2210,7 +2213,7 @@ export default (app: any) => {
       const repo = await resolveRepo($)
       if (repo) {
         await $`dagayn worktree sync --seed-only --repo ${repo}`.quiet()
-        await $`dagayn update --skip-flows --repo ${repo}`.quiet()
+        await $`dagayn update --skip-flows__DAGAYN_UPDATE_ARGS__ --repo ${repo}`.quiet()
         const result = await $`dagayn status --repo ${repo}`.quiet()
         const output = result.stdout?.toString().trim()
         if (output) {
@@ -2218,7 +2221,7 @@ export default (app: any) => {
         }
       } else {
         await $`dagayn worktree sync --seed-only`.quiet()
-        await $`dagayn update --skip-flows`.quiet()
+        await $`dagayn update --skip-flows__DAGAYN_UPDATE_ARGS__`.quiet()
         const result = await $`dagayn status`.quiet()
         const output = result.stdout?.toString().trim()
         if (output) {
@@ -2239,7 +2242,7 @@ export default (app: any) => {
       if (typeof cmd === "string" && /(?:^|[\\/\\\\]|\\s)git(?:\\.exe)?\\s+commit\\b/i.test(cmd)) {
         const repo = await resolveRepo(ctx.$)
         if (repo) {
-          await ctx.$`dagayn update --skip-flows --repo ${repo}`.quiet()
+          await ctx.$`dagayn update --skip-flows__DAGAYN_UPDATE_ARGS__ --repo ${repo}`.quiet()
           const result =
             await ctx.$`dagayn detect-changes --brief --repo ${repo}`.quiet()
           const output = result.stdout?.toString().trim()
@@ -2247,7 +2250,7 @@ export default (app: any) => {
             console.log("[dagayn] Pre-commit analysis:\\n" + output)
           }
         } else {
-          await ctx.$`dagayn update --skip-flows`.quiet()
+          await ctx.$`dagayn update --skip-flows__DAGAYN_UPDATE_ARGS__`.quiet()
           const result =
             await ctx.$`dagayn detect-changes --brief`.quiet()
           const output = result.stdout?.toString().trim()
@@ -2262,9 +2265,10 @@ export default (app: any) => {
   })
 }
 """
+    return template.replace("__DAGAYN_UPDATE_ARGS__", update_args)
 
 
-def install_opencode_plugin() -> Path:
+def install_opencode_plugin(extra_update_args: list[str] | None = None) -> Path:
     """Install the OpenCode user-level plugin for dagayn.
 
     Writes ``~/.config/opencode/plugins/crg-plugin.ts``.  Creates the
@@ -2278,7 +2282,7 @@ def install_opencode_plugin() -> Path:
     plugin_path = plugins_dir / "crg-plugin.ts"
 
     plugins_dir.mkdir(parents=True, exist_ok=True)
-    plugin_path.write_text(_opencode_plugin_content(), encoding="utf-8")
+    plugin_path.write_text(_opencode_plugin_content(extra_update_args), encoding="utf-8")
     logger.info("Wrote OpenCode plugin: %s", plugin_path)
 
     return plugin_path

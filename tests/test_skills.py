@@ -2473,6 +2473,10 @@ class TestOpenCodePluginContent:
         assert "git rev-parse --show-toplevel" in content
         assert "--repo ${repo}" in content
 
+    def test_plugin_includes_extra_update_args(self):
+        content = _opencode_plugin_content(["--local-embedding"])
+        assert "--local-embedding" in content
+
     def test_hooks_tool_execute_before_event(self):
         content = _opencode_plugin_content()
         assert '"tool.execute.before"' in content

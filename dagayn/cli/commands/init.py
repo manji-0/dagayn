@@ -503,7 +503,7 @@ def handle(args: argparse.Namespace) -> None:
     # OpenCode plugin (user-level, gated by same detect() as MCP config)
     if not skip_hooks and target in ("all", "opencode") and PLATFORMS["opencode"]["detect"]():
         try:
-            plugin_path = install_opencode_plugin()
+            plugin_path = install_opencode_plugin(extra_update_args=extra_hook_update_args or None)
             print(f"Installed OpenCode plugin in {plugin_path}")
         except Exception as exc:
             import logging
