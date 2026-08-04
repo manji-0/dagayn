@@ -4,6 +4,8 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+## 4.5.0 — 2026-08-04
+
 ### Features
 
 - Support Claude Code and Cursor worktree sessions end to end. New
@@ -27,6 +29,10 @@ All notable changes to `dagayn` are documented here.
   `EnterWorktree|ExitWorktree` that runs `dagayn worktree sync`, and their repo
   resolution now falls back to `CLAUDE_PROJECT_DIR` when the working directory
   is outside the repository. Codex hooks omit the worktree entry.
+- OpenCode's user-level plugin now resolves the repository with
+  `git rev-parse --show-toplevel`, passes `--repo` on every command, and runs
+  `dagayn worktree sync --seed-only` at session start so linked worktrees
+  inherit the main checkout's graph.
 
 ### Fixes
 

@@ -2465,7 +2465,13 @@ class TestOpenCodePluginContent:
     def test_hooks_session_created_event(self):
         content = _opencode_plugin_content()
         assert '"session.created"' in content
+        assert "dagayn worktree sync --seed-only" in content
         assert "dagayn status" in content
+
+    def test_hooks_resolve_repo_and_pass_repo_flag(self):
+        content = _opencode_plugin_content()
+        assert "git rev-parse --show-toplevel" in content
+        assert "--repo ${repo}" in content
 
     def test_hooks_tool_execute_before_event(self):
         content = _opencode_plugin_content()

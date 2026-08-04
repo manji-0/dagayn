@@ -2153,10 +2153,15 @@ def _opencode_plugin_content() -> str:
     hook behaviors:
 
     1. ``file.edited`` — runs ``dagayn update --skip-flows``
-    2. ``session.created`` — runs ``dagayn status``
+    2. ``session.created`` — inherits the graph in a linked worktree, then
+       runs ``dagayn status``
     3. ``tool.execute.before`` — when the tool is a shell command starting
        with ``git commit``, runs ``dagayn update --skip-flows`` followed by
        ``dagayn detect-changes --brief``
+
+    Every command resolves the repository with ``git rev-parse --show-toplevel``
+    and passes ``--repo`` explicitly so worktree sessions update the checkout
+    they are running in, not whichever directory OpenCode happened to start in.
 
     All handlers use try/catch so errors never break the editor session.
     The plugin uses Bun's ``$`` shell API (provided by OpenCode's plugin
@@ -2174,10 +2179,10 @@ import type { Plugin } from "@opencode-ai/plugin"
  * Installed by: dagayn install --platform opencode
  */
 
-// Helper: run a shell command quietly, swallowing errors.
-async function run($: any, cmd: string): Promise<string> {
+// Resolve the git repository root for the active project directory.
+async function resolveRepo($: any): Promise<string> {
   try {
-    const result = await $`${cmd}`.quiet()
+    const result = await $`git rev-parse --show-toplevel`.quiet()
     return result.stdout?.toString().trim() ?? ""
   } catch {
     return ""
@@ -2188,19 +2193,37 @@ export default (app: any) => {
   // 1. Auto-update graph after file edits
   app.on("file.edited", async ({ $ }: { $: any }) => {
     try {
-      await $`dagayn update --skip-flows`.quiet()
+      const repo = await resolveRepo($)
+      if (repo) {
+        await $`dagayn update --skip-flows --repo ${repo}`.quiet()
+      } else {
+        await $`dagayn update --skip-flows`.quiet()
+      }
     } catch {
       // Swallow — graph may not be built yet for this project.
     }
   })
 
-  // 2. Show graph status when a new session starts
+  // 2. Inherit the graph in a worktree, then show status
   app.on("session.created", async ({ $ }: { $: any }) => {
     try {
-      const result = await $`dagayn status`.quiet()
-      const output = result.stdout?.toString().trim()
-      if (output) {
-        console.log("[dagayn]", output)
+      const repo = await resolveRepo($)
+      if (repo) {
+        await $`dagayn worktree sync --seed-only --repo ${repo}`.quiet()
+        await $`dagayn update --skip-flows --repo ${repo}`.quiet()
+        const result = await $`dagayn status --repo ${repo}`.quiet()
+        const output = result.stdout?.toString().trim()
+        if (output) {
+          console.log("[dagayn]", output)
+        }
+      } else {
+        await $`dagayn worktree sync --seed-only`.quiet()
+        await $`dagayn update --skip-flows`.quiet()
+        const result = await $`dagayn status`.quiet()
+        const output = result.stdout?.toString().trim()
+        if (output) {
+          console.log("[dagayn]", output)
+        }
       }
     } catch {
       // Swallow — not every project has a graph.
@@ -2214,12 +2237,23 @@ export default (app: any) => {
       const cmd =
         input.command ?? input.cmd ?? input.content ?? ""
       if (typeof cmd === "string" && /(?:^|[\\/\\\\]|\\s)git(?:\\.exe)?\\s+commit\\b/i.test(cmd)) {
-        await ctx.$`dagayn update --skip-flows`.quiet()
-        const result =
-          await ctx.$`dagayn detect-changes --brief`.quiet()
-        const output = result.stdout?.toString().trim()
-        if (output) {
-          console.log("[dagayn] Pre-commit analysis:\\n" + output)
+        const repo = await resolveRepo(ctx.$)
+        if (repo) {
+          await ctx.$`dagayn update --skip-flows --repo ${repo}`.quiet()
+          const result =
+            await ctx.$`dagayn detect-changes --brief --repo ${repo}`.quiet()
+          const output = result.stdout?.toString().trim()
+          if (output) {
+            console.log("[dagayn] Pre-commit analysis:\\n" + output)
+          }
+        } else {
+          await ctx.$`dagayn update --skip-flows`.quiet()
+          const result =
+            await ctx.$`dagayn detect-changes --brief`.quiet()
+          const output = result.stdout?.toString().trim()
+          if (output) {
+            console.log("[dagayn] Pre-commit analysis:\\n" + output)
+          }
         }
       }
     } catch {
