@@ -51,9 +51,6 @@ from .architecture_tools import (
 # -- build ------------------------------------------------------------------
 from .build import build_or_update_graph, run_postprocess
 
-# -- ensure -----------------------------------------------------------------
-from .ensure import ensure_graph
-
 # -- community_tools --------------------------------------------------------
 from .community_tools import (
     get_architecture_overview_func,
@@ -66,6 +63,9 @@ from .context import get_minimal_context
 
 # -- docs -------------------------------------------------------------------
 from .docs import embed_graph, generate_wiki_func, get_docs_section, get_wiki_page_func
+
+# -- ensure -----------------------------------------------------------------
+from .ensure import ensure_graph
 
 # -- flow_dispatcher --------------------------------------------------------
 from .flow_dispatcher import flow_func
