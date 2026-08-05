@@ -196,6 +196,41 @@ class TestSeedWorktreeGraph:
         assert result.status == "skipped"
         assert _metadata(linked_worktree / ".dagayn" / "graph.db", "git_head_sha") == "own"
 
+    def test_replaces_empty_stub_left_by_status(self, main_repo: Path, linked_worktree: Path):
+        """GraphStore/status create a schema-only stub; that must not block seed.
+
+        Regression: existence + size > 0 made sync skip inheritance, leaving
+        worktrees at 0 nodes after a status-only SessionStart.
+        """
+        head = _git(main_repo, "rev-parse", "HEAD").stdout.strip()
+        _write_graph_db(main_repo / ".dagayn" / "graph.db", head_sha=head, repo_root=main_repo)
+        stub = linked_worktree / ".dagayn" / "graph.db"
+        stub.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(str(stub))
+        try:
+            conn.execute("CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT)")
+            conn.execute("CREATE TABLE nodes (id INTEGER PRIMARY KEY, file_path TEXT)")
+            conn.execute(
+                "INSERT INTO metadata (key, value) VALUES (?, ?)",
+                ("repo_root", str(linked_worktree)),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        assert stub.stat().st_size > 0
+
+        result = seed_worktree_graph(linked_worktree)
+
+        assert result.status == "seeded", result.reason
+        assert result.base_sha == head
+        assert _metadata(stub, "git_head_sha") == head
+        conn = sqlite3.connect(str(stub))
+        try:
+            count = conn.execute("SELECT COUNT(*) FROM nodes").fetchone()[0]
+        finally:
+            conn.close()
+        assert count >= 1
+
     def test_skips_in_main_checkout(self, main_repo: Path):
         result = seed_worktree_graph(main_repo)
         assert result.status == "skipped"

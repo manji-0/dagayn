@@ -721,6 +721,7 @@ class TestGenerateHooksConfig:
         assert "matcher" in entry
         inner = entry["hooks"][0]
         assert inner["type"] == "command"
+        assert "worktree sync --seed-only" in inner["command"]
         assert "status" in inner["command"]
         assert inner["timeout"] == 10
 

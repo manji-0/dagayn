@@ -240,6 +240,30 @@ def read_graph_metadata(db_path: Path, key: str) -> str | None:
     return str(row[0]) if row and row[0] is not None else None
 
 
+def graph_has_nodes(db_path: Path) -> bool:
+    """Return True when *db_path* is a readable graph with at least one node.
+
+    An empty SQLite stub (schema only, 0 nodes) is treated as absent so
+    :func:`seed_worktree_graph` can still inherit from the main checkout.
+    ``dagayn status`` opens :class:`~dagayn.graph.GraphStore`, which creates
+    such a stub when ``graph.db`` is missing — existence alone must not block
+    inheritance.
+    """
+    try:
+        if not db_path.exists() or db_path.stat().st_size <= 0:
+            return False
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    except (OSError, sqlite3.Error):
+        return False
+    try:
+        row = conn.execute("SELECT 1 FROM nodes LIMIT 1").fetchone()
+    except sqlite3.Error:
+        return False
+    finally:
+        conn.close()
+    return row is not None
+
+
 def _copy_graph_db(source: Path, dest: Path, repo_root: Path) -> None:
     """Copy *source* to *dest* via the sqlite backup API, then re-root it.
 
@@ -284,7 +308,9 @@ def seed_worktree_graph(repo_root: Path) -> SeedResult:
     * graph inheritance is not disabled via :data:`SEED_ENV_VAR`;
     * ``CRG_DATA_DIR`` is unset (an explicit data dir is already shared);
     * *repo_root* is a linked worktree with a reachable main checkout;
-    * the worktree has no graph yet and the main checkout has one.
+    * the worktree has no populated graph yet and the main checkout has one.
+      Empty schema-only stubs (0 nodes) created by ``dagayn status`` /
+      :class:`~dagayn.graph.GraphStore` do **not** count as populated.
 
     A full ``dagayn build`` in a fresh worktree re-parses every file and
     re-computes every embedding. Inheriting the main graph turns that into a
@@ -302,11 +328,8 @@ def seed_worktree_graph(repo_root: Path) -> SeedResult:
         return SeedResult("skipped", "already in the main checkout")
 
     dest = repo_root / ".dagayn" / "graph.db"
-    try:
-        if dest.exists() and dest.stat().st_size > 0:
-            return SeedResult("skipped", "worktree already has a graph", dest=dest)
-    except OSError as exc:
-        return SeedResult("failed", f"could not inspect {dest}: {exc}", dest=dest)
+    if graph_has_nodes(dest):
+        return SeedResult("skipped", "worktree already has a graph", dest=dest)
 
     source = main / ".dagayn" / "graph.db"
     if not source.exists():

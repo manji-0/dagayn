@@ -4,6 +4,17 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Fixes
+
+- Worktree graph inheritance now replaces empty schema-only `graph.db` stubs
+  (0 nodes) created by `dagayn status` / `GraphStore`, instead of treating
+  file existence as a populated graph. Claude Code `SessionStart` also runs
+  `dagayn worktree sync --seed-only` before `status`, matching Cursor.
+- Clamp stale node line ranges in embedding materialization so
+  `_comment_sentences_for_node` cannot `IndexError` when `line_start` points
+  past EOF — previously `dagayn update --local-embedding` aborted mid-embed
+  and never committed the update that would heal those nodes.
+
 ## 4.6.0 — 2026-08-05
 
 ### Features

@@ -1082,8 +1082,14 @@ def generate_hooks_config(
                     "hooks": [
                         {
                             "type": "command",
+                            # Inherit before status: status opens GraphStore and
+                            # creates an empty stub when graph.db is missing.
+                            # Sync first (like Cursor) so a prior stub or a
+                            # status-only SessionStart cannot block inheritance.
                             "command": (
                                 f"{repo_expr}"
+                                ' && dagayn worktree sync --seed-only --repo "$repo"'
+                                " >/dev/null 2>&1 || true"
                                 ' && dagayn status --repo "$repo"'
                                 " || echo 'Not a git repo, skipping'"
                             ),
@@ -1098,7 +1104,7 @@ def generate_hooks_config(
 
 _DAGAYN_HOOK_NEEDLES: dict[str, tuple[str, ...]] = {
     "PostToolUse": ("dagayn update --skip-flows", "dagayn worktree sync"),
-    "SessionStart": ("dagayn status --repo",),
+    "SessionStart": ("dagayn worktree sync --seed-only", "dagayn status --repo"),
 }
 
 

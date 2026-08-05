@@ -258,6 +258,33 @@ class TestNodeToText:
         assert "def handle_failure" not in text
         assert "(retry_budget)" not in text
 
+    def test_material_mode_tolerates_stale_line_past_eof(self, tmp_path):
+        """Stale nodes past EOF must not IndexError during comment walk.
+
+        Regression: idx = start - 1 was not clamped to len(lines), so
+        ``dagayn update --local-embedding`` aborted mid-embedding and never
+        committed the update that would have healed the stale ranges.
+        """
+        source = tmp_path / "service.py"
+        source.write_text(
+            "# Still useful.\ndef tiny():\n    return 1\n",
+            encoding="utf-8",
+        )
+        node = self._make_node(
+            name="tiny",
+            qualified_name="service.py::tiny",
+            file_path="service.py",
+            line_start=99,
+            line_end=120,
+        )
+
+        text = _node_to_text(node, source_root=tmp_path, text_mode="material")
+
+        assert "service.py::tiny" in text
+        # No source span / adjacent comments when the range is entirely past EOF;
+        # the important guarantee is that materialization completes.
+        assert isinstance(text, str) and text
+
     def test_body_mode_includes_source_excerpt(self, tmp_path):
         source = tmp_path / "service.py"
         source.write_text(

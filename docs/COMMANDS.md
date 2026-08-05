@@ -329,7 +329,10 @@ working tree.
 
 The same inheritance runs automatically at `dagayn serve` startup and before
 `dagayn update` / `dagayn status`, so an MCP session that opens in a worktree
-has a graph without any manual step.
+has a graph without any manual step. An empty schema-only `graph.db` stub
+(0 nodes) — the kind `status` creates when the file is missing — is treated as
+absent and replaced by inheritance; Claude Code `SessionStart` also runs
+`worktree sync --seed-only` before `status`, matching Cursor.
 
 `dagayn install` wires both hosts' worktree-bootstrap mechanisms:
 

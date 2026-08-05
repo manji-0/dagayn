@@ -118,6 +118,20 @@ def _doc_embedding_body_weight() -> int:
         return _DEFAULT_DOC_BODY_WEIGHT
 
 
+def _node_line_span(node: GraphNode, line_count: int) -> tuple[int, int]:
+    """Return a 0-based ``[start, end)`` span clamped to *line_count*.
+
+    Stale graph nodes can point past the current file length. Callers must
+    clamp before indexing ``lines[idx]`` — Python slicing is safe, but
+    walking ``start - 1`` for adjacent comments is not.
+    """
+    line_start = node.line_start or 1
+    line_end = node.line_end or line_start
+    start = min(max(int(line_start) - 1, 0), line_count)
+    end = min(max(int(line_end), int(line_start)), line_count)
+    return start, end
+
+
 def _read_node_source_excerpt(
     node: GraphNode,
     *,
@@ -139,10 +153,7 @@ def _read_node_source_excerpt(
     except OSError:
         return ""
 
-    line_start = node.line_start or 1
-    line_end = node.line_end or line_start
-    start = max(int(line_start) - 1, 0)
-    end = min(max(int(line_end), int(line_start)), len(lines))
+    start, end = _node_line_span(node, len(lines))
 
     if node.kind == "DocSection":
         level = None
@@ -204,13 +215,11 @@ def _comment_sentences_for_node(
     except OSError:
         return []
 
-    line_start = node.line_start or 1
-    line_end = node.line_end or line_start
-    start = max(int(line_start) - 1, 0)
-    end = min(max(int(line_end), int(line_start)), len(lines))
+    start, end = _node_line_span(node, len(lines))
     comments: list[str] = []
 
-    idx = start - 1
+    # Clamp again so a stale start past EOF cannot IndexError on lines[idx].
+    idx = min(start, len(lines)) - 1
     while idx >= 0:
         stripped = lines[idx].strip()
         if not stripped:
