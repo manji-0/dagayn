@@ -1466,6 +1466,7 @@ advanced/maintenance tools.
 | Tool | Use when |
 | ------ | ---------- |
 | `get_minimal_context_tool` | Start here: graph freshness, risk, communities, next tools |
+| `ensure_graph_tool` | Empty or missing graph; safe bootstrap without embeddings |
 | `review_tool` | Primary change review and review drill-down dispatcher |
 | `flow_tool` | Execution-flow lists and step-by-step flow paths |
 | `architecture_analysis_tool` | Primary architecture review and drill-down dispatcher |

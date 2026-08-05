@@ -20,7 +20,9 @@ correctly.
 
 Run **once** at the start, regardless of what the rest of the flow says:
 
-1. `list_graph_stats_tool` — if `last_updated` is `null` or `nodes == 0`, run `build_or_update_graph_tool(full_rebuild=True, local_embedding="none")` and stop until that returns.
+1. `get_minimal_context_tool` (or `list_graph_stats_tool` on the advanced
+   surface) — if `graph_health.status` is `empty`, `last_updated` is `null`, or
+   `nodes == 0`, run `ensure_graph_tool()` and stop until that returns.
 2. Resolve the doc path:
    - If `[doc path]` was provided and the file exists → that's your target.
    - If it was provided but the file is new → continue (Stage 1 will create it).
@@ -123,7 +125,7 @@ For each section, in dependency order:
    - Inline narrative references → `[text](./other.md#Section)`.
    - Intentional Markdown → code obligations → `<!-- dagayn: implemented-by path::symbol -->`, `<!-- dagayn: discusses-artifact path::symbol -->`, or `<!-- dagayn: raises-issue-for path::symbol -->`.
    - Low-intent code mentions → backtick the symbol exactly as it appears in code.
-3. **Save the file** and run `build_or_update_graph_tool(local_embedding="none")`
+3. **Save the file** and run `ensure_graph_tool(force=True)`
    for Markdown/parser/postprocess verification. In local embedding installs,
    an omitted `local_embedding` argument may inherit the server preset and turn
    a documentation-edge check into a large embedding refresh.
@@ -141,7 +143,7 @@ Stage 2 done for the section when: dependency/link directives appear either as i
 
 1. Re-read the full draft top-to-bottom; tighten prose; merge or split sections if Stage 2 surfaced badly-balanced ones.
 2. For every backticked `Symbol`, run `semantic_search_nodes_tool(query="<symbol>", detail_level="minimal")` and require exactly one exact symbol match. Ignore semantic near-matches when embeddings are enabled; only exact `name` / `qualified_name` matches count for Markdown code-span `CROSS_ARTIFACT` promotion. If multiple exact matches remain, qualify (`module.Symbol`); if still multiple after qualification, **accept that this edge will remain LOW/0.2 and unresolved** and either (a) leave the backticks for prose readability and add a `<!-- TODO: ambiguous symbol — qualify when API stabilizes -->` comment, or (b) remove the backticks and use plain text.
-3. Run `build_or_update_graph_tool(local_embedding="none")` once more, then `review_tool(mode="impact")` again. Compare its output to Stage 2's. **Done criterion: no edge that was present in Stage 2 has disappeared.**
+3. Run `ensure_graph_tool(force=True)` once more, then `review_tool(mode="impact")` again. Compare its output to Stage 2's. **Done criterion: no edge that was present in Stage 2 has disappeared.**
 
 Tool-call budget for Stage 3: ≤ 1 call per backticked symbol + 2 final builds.
 
@@ -161,6 +163,7 @@ tool needed for Markdown authoring or verification, run the same implementation
 through the CLI without restarting the agent:
 
 ```bash
+dagayn tool ensure_graph_tool --arg force=true
 dagayn tool build_or_update_graph_tool --arg local_embedding='"none"'
 dagayn tool query_graph_tool --arg pattern='"file_summary"' --arg target='"docs/design.md"'
 dagayn tool query_graph_tool --arg pattern='"implementations_of"' --arg target='"docs/design.md::contract-section"'

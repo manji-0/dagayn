@@ -2674,6 +2674,177 @@ class TestGetMinimalContext:
         assert result["status"] == "ok"
         assert observed["cached"] is False
 
+    def test_empty_graph_recommends_ensure_graph(self):
+        from dagayn.tools.context import get_minimal_context
+
+        empty_root = Path(tempfile.mkdtemp())
+        try:
+            (empty_root / ".git").mkdir()
+            (empty_root / ".dagayn").mkdir()
+            GraphStore(str(empty_root / ".dagayn" / "graph.db")).close()
+
+            result = get_minimal_context(
+                task="explore codebase",
+                repo_root=str(empty_root),
+            )
+
+            assert result["graph_health"]["status"] == "empty"
+            assert result["next_tool_suggestions"][0] == "ensure_graph_tool"
+            assert "ensure_graph_tool" in result["recommended_action"]
+            assert result["confidence"] == "high"
+            assert result["_hints"]["next_steps"][0]["tool"] == "ensure_graph_tool"
+        finally:
+            import shutil
+
+            shutil.rmtree(empty_root, ignore_errors=True)
+
+
+class TestEnsureGraph:
+    """Tests for ensure_graph safe bootstrap defaults."""
+
+    def setup_method(self):
+        self.tmp = tempfile.mkdtemp()
+        self.root = Path(self.tmp)
+        (self.root / ".git").mkdir()
+        (self.root / ".dagayn").mkdir()
+        (self.root / "sample.py").write_text("def hello():\n    pass\n")
+
+    def teardown_method(self):
+        import shutil
+
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _seed_ready_graph(self) -> None:
+        store = GraphStore(str(self.root / ".dagayn" / "graph.db"))
+        store.upsert_node(
+            NodeInfo(
+                kind="File",
+                name="sample.py",
+                file_path=str(self.root / "sample.py"),
+                line_start=1,
+                line_end=2,
+                language="python",
+            )
+        )
+        store.set_metadata("last_updated", "2026-08-05T00:00:00")
+        store.commit()
+        store.close()
+
+    def test_noop_when_graph_ready(self, monkeypatch):
+        from unittest.mock import patch
+
+        from dagayn.tools.ensure import ensure_graph
+
+        self._seed_ready_graph()
+        with patch("dagayn.tools.ensure.build_or_update_graph") as build:
+            result = ensure_graph(repo_root=str(self.root))
+
+        assert result["status"] == "ok"
+        assert result["action"] == "noop"
+        assert result["reason"] == "graph_ready"
+        assert result["total_nodes"] >= 1
+        build.assert_not_called()
+
+    def test_full_build_when_empty(self, monkeypatch):
+        from unittest.mock import patch
+
+        from dagayn.tools.ensure import ensure_graph
+
+        GraphStore(str(self.root / ".dagayn" / "graph.db")).close()
+        fake_build = {
+            "status": "ok",
+            "summary": "Full build complete.",
+            "total_nodes": 3,
+            "total_edges": 1,
+        }
+
+        def _fake_build(**kwargs):
+            assert kwargs["full_rebuild"] is True
+            assert kwargs["postprocess"] == "minimal"
+            assert kwargs["local_embedding"] == "none"
+            store = GraphStore(str(self.root / ".dagayn" / "graph.db"))
+            store.upsert_node(
+                NodeInfo(
+                    kind="File",
+                    name="sample.py",
+                    file_path=str(self.root / "sample.py"),
+                    line_start=1,
+                    line_end=2,
+                    language="python",
+                )
+            )
+            store.set_metadata("last_updated", "2026-08-05T01:00:00")
+            store.commit()
+            store.close()
+            return fake_build
+
+        with patch("dagayn.tools.ensure.build_or_update_graph", side_effect=_fake_build):
+            result = ensure_graph(repo_root=str(self.root))
+
+        assert result["status"] == "ok"
+        assert result["action"] == "full"
+        assert result["reason"] == "empty_graph"
+        assert result["build"]["summary"] == "Full build complete."
+        assert "local_embedding" not in result
+        assert result.get("build", {}).get("local_embedding") is None
+
+    def test_force_runs_incremental_when_ready(self, monkeypatch):
+        from unittest.mock import patch
+
+        from dagayn.tools.ensure import ensure_graph
+
+        self._seed_ready_graph()
+
+        def _fake_build(**kwargs):
+            assert kwargs["full_rebuild"] is False
+            assert kwargs["postprocess"] == "minimal"
+            assert kwargs["local_embedding"] == "none"
+            return {
+                "status": "ok",
+                "summary": "Incremental update complete.",
+                "files_updated": 1,
+            }
+
+        with patch(
+            "dagayn.tools.ensure.build_or_update_graph", side_effect=_fake_build
+        ) as build:
+            result = ensure_graph(repo_root=str(self.root), force=True)
+
+        assert result["action"] == "incremental"
+        assert result["reason"] == "forced_refresh"
+        build.assert_called_once()
+
+    def test_force_on_empty_still_full(self, monkeypatch):
+        from unittest.mock import patch
+
+        from dagayn.tools.ensure import ensure_graph
+
+        GraphStore(str(self.root / ".dagayn" / "graph.db")).close()
+
+        def _fake_build(**kwargs):
+            assert kwargs["full_rebuild"] is True
+            store = GraphStore(str(self.root / ".dagayn" / "graph.db"))
+            store.upsert_node(
+                NodeInfo(
+                    kind="File",
+                    name="sample.py",
+                    file_path=str(self.root / "sample.py"),
+                    line_start=1,
+                    line_end=2,
+                    language="python",
+                )
+            )
+            store.set_metadata("last_updated", "2026-08-05T01:00:00")
+            store.commit()
+            store.close()
+            return {"status": "ok", "summary": "Full build complete."}
+
+        with patch("dagayn.tools.ensure.build_or_update_graph", side_effect=_fake_build):
+            result = ensure_graph(repo_root=str(self.root), force=True)
+
+        assert result["action"] == "full"
+        assert result["reason"] == "empty_graph"
+
 
 class TestImpactRadiusBudgeting:
     def test_get_impact_radius_trims_oversized_standard_output(self, monkeypatch):

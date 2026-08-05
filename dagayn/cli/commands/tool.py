@@ -19,6 +19,7 @@ TOOL_REGISTRY: dict[str, str] = {
     "build_or_update_graph_tool": "dagayn.tools.build:build_or_update_graph",
     "cross_repo_search_tool": "dagayn.tools.registry_tools:cross_repo_search_func",
     "embed_graph_tool": "dagayn.tools.docs:embed_graph",
+    "ensure_graph_tool": "dagayn.tools.ensure:ensure_graph",
     "find_large_functions_tool": "dagayn.tools.query:find_large_functions",
     "flow_tool": "dagayn.tools.flow_dispatcher:flow_func",
     "generate_wiki_tool": "dagayn.tools.docs:generate_wiki_func",

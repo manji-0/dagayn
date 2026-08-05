@@ -43,6 +43,7 @@ SPLIT_REVIEW_FLOW_TOOL_NAMES = {
 
 DEFAULT_MCP_TOOL_NAMES = {
     "get_minimal_context_tool",
+    "ensure_graph_tool",
     "review_tool",
     "flow_tool",
     "architecture_analysis_tool",
@@ -386,6 +387,7 @@ class TestLongRunningToolsAreAsync:
 
     HEAVY_TOOLS = {
         "build_or_update_graph_tool",
+        "ensure_graph_tool",
         "run_postprocess_tool",
         "embed_graph_tool",
         "review_tool",

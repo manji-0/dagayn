@@ -51,6 +51,9 @@ from .architecture_tools import (
 # -- build ------------------------------------------------------------------
 from .build import build_or_update_graph, run_postprocess
 
+# -- ensure -----------------------------------------------------------------
+from .ensure import ensure_graph
+
 # -- community_tools --------------------------------------------------------
 from .community_tools import (
     get_architecture_overview_func,
@@ -107,6 +110,8 @@ __all__ = [
     # build
     "build_or_update_graph",
     "run_postprocess",
+    # ensure
+    "ensure_graph",
     # context
     "get_minimal_context",
     # architecture_analysis

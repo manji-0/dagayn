@@ -368,6 +368,7 @@ their working directory set to `~/.cursor` rather than the project.
 The compact default MCP surface exposes tools for:
 
 - minimal context retrieval
+- safe graph bootstrap (`ensure_graph_tool`)
 - impact radius and review context
 - graph queries and traversal
 - semantic search
@@ -389,6 +390,7 @@ unless the client explicitly passes another provider or model.
 Default tool names are:
 
 - `get_minimal_context_tool`
+- `ensure_graph_tool`
 - `review_tool`
 - `flow_tool`
 - `architecture_analysis_tool`
@@ -396,6 +398,11 @@ Default tool names are:
 - `query_graph_tool`
 - `semantic_search_nodes_tool`
 - `get_docs_section_tool`
+
+`ensure_graph_tool` bootstraps an empty graph (or refreshes with `force=True`)
+using safe defaults: `postprocess="minimal"` and `local_embedding="none"`.
+Prefer it on the default MCP surface; keep `build_or_update_graph_tool` for
+explicit maintenance via `--tools all` or `dagayn tool`.
 
 `get_docs_section_tool` reads a section from `docs/LLM-OPTIMIZED-REFERENCE.md`
 so skills can fetch their optimized workflow without duplicating it in the
@@ -481,7 +488,9 @@ for review, debugging, exploration, feature addition, and refactoring to the
 next small set of MCP tools. It also returns `workflow`,
 `recommended_action`, `why`, and `confidence` so clients can show the next
 step without requiring users to know tool names. It includes compact
-`graph_health` answerability metadata. `parse` is `[files, languages,
+`graph_health` answerability metadata. When `graph_health.status` is `empty`,
+it overrides the workflow suggestion and points at `ensure_graph_tool` first.
+`parse` is `[files, languages,
 has_last_updated]`; `answerability` is `[flows, communities, test_edges,
 reportable_cross_artifact_edges, unresolved_cross_artifact_ratio]`. Unresolved
 Markdown code-span candidates are excluded from these answerability counts

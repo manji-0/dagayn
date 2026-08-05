@@ -381,6 +381,37 @@ def get_minimal_context(
         response["why"] = guidance["why"]
         response["confidence"] = guidance["confidence"]
         response["graph_health"] = graph_health
+        if graph_health.get("status") == "empty" or "empty_graph" in graph_health.get(
+            "reason_codes", []
+        ):
+            response["recommended_action"] = (
+                "Call ensure_graph_tool first; the graph is empty and analysis "
+                "tools will return nothing useful."
+            )
+            response["why"] = (
+                "graph_health reports an empty graph, so build/bootstrap must "
+                "precede review, search, or architecture analysis."
+            )
+            response["confidence"] = "high"
+            response["next_tool_suggestions"] = [
+                "ensure_graph_tool",
+                *[s for s in suggestions if s != "ensure_graph_tool"],
+            ]
+            hints = response.get("_hints")
+            if isinstance(hints, dict):
+                next_steps = [
+                    {
+                        "tool": "ensure_graph_tool",
+                        "suggestion": "ensure_graph_tool",
+                    },
+                    *[
+                        step
+                        for step in hints.get("next_steps", [])
+                        if step.get("tool") != "ensure_graph_tool"
+                    ],
+                ]
+                hints["next_steps"] = next_steps[:3]
+                response["_hints"] = hints
         return response
     finally:
         store.close()

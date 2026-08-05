@@ -26,7 +26,9 @@ retrieval setup.
    - If a PR number or branch is provided, use `git diff main...<branch>` to get changed files
    - Otherwise auto-detect from the current branch vs main/master
 
-3. **Update the graph** by calling `build_or_update_graph_tool(base="main")` to ensure the graph reflects the current state.
+3. **Update the graph** with `ensure_graph_tool(force=True)` on the default
+   surface, or `build_or_update_graph_tool(base="main")` when the advanced
+   surface is available and you need an explicit base ref.
 
 4. **Get risk and review priorities** by calling `review_tool(mode="changes", base="main")`:
    - This uses `main` (or the specified base branch) as the diff base

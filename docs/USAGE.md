@@ -159,10 +159,10 @@ dagayn serve
 ```
 
 By default the server runs over stdio and exposes only the compact workflow
-surface: `get_minimal_context_tool`, `review_tool`, `flow_tool`,
-`architecture_analysis_tool`, `refactor_tool`, `query_graph_tool`, and
-`semantic_search_nodes_tool`. Use `--tools` when you need an exact
-comma-separated allow-list:
+surface: `get_minimal_context_tool`, `ensure_graph_tool`, `review_tool`,
+`flow_tool`, `architecture_analysis_tool`, `refactor_tool`,
+`query_graph_tool`, `semantic_search_nodes_tool`, and `get_docs_section_tool`.
+Use `--tools` when you need an exact comma-separated allow-list:
 
 ```bash
 dagayn serve --tools query_graph_tool,semantic_search_nodes_tool

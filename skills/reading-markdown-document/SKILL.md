@@ -11,7 +11,11 @@ Read a Markdown doc the way dagayn indexes it: load its dependency graph first, 
 ## Stage 0 — Prerequisites
 
 1. Confirm `[doc path]` was provided. If not, ask the user before continuing.
-2. Run `list_graph_stats_tool` once. If `last_updated` is `null`, **or** the doc's mtime (`stat <path>`) is newer than `last_updated`, run `build_or_update_graph_tool()` and wait for it to finish before Stage 1.
+2. Run `get_minimal_context_tool` once (or `list_graph_stats_tool` on the
+   advanced surface). If `graph_health` is empty / `last_updated` is `null`,
+   **or** the doc's mtime (`stat <path>`) is newer than `last_updated`, run
+   `ensure_graph_tool()` (or `ensure_graph_tool(force=True)` when the graph
+   already exists) and wait for it to finish before Stage 1.
 3. **Skip-to-prose shortcut.** Run a quick check:
    ```
    wc -l <path>
@@ -24,7 +28,7 @@ Read a Markdown doc the way dagayn indexes it: load its dependency graph first, 
 Take a structural snapshot before opening the file:
 
 1. **Section list** — `query_graph_tool(pattern="file_summary", target="<doc.md>", detail_level="minimal")` to get every heading and its slug. This is the table of contents.
-   - If this returns empty (the doc isn't yet in the graph), Stage 0 missed an update — re-run `build_or_update_graph_tool()` once. If still empty, the file is brand new; treat it as a plain text read and skip to Stage 3.
+   - If this returns empty (the doc isn't yet in the graph), Stage 0 missed an update — re-run `ensure_graph_tool(force=True)` once. If still empty, the file is brand new; treat it as a plain text read and skip to Stage 3.
 2. **Inbound edges** — `query_graph_tool(pattern="importers_of", target="<doc.md>", detail_level="minimal")`. **Use the file path only**, not `<doc.md>::<section>` — `importers_of` resolves to file paths; section-form targets silently return zero hits (`tools/query.py:556`).
 3. **Outbound file-level imports** — `query_graph_tool(pattern="imports_of", target="<doc.md>", detail_level="minimal")` to list cross-doc `IMPORTS_FROM` edges (directives + links targeting other files).
 4. **Outbound blast radius** — `review_tool(mode="impact", changed_files=["<doc.md>"], detail_level="minimal")` to see everything that would be affected if this doc changed. This is your set of downstream consumers.

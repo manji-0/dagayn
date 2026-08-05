@@ -34,6 +34,7 @@ internal signal, a response section, or an advanced drill-down tool.
 These are the tools that should appear in the recommended default path:
 
 - `get_minimal_context_tool`
+- `ensure_graph_tool`
 - `review_tool`
 - `flow_tool`
 - `architecture_analysis_tool`
@@ -42,10 +43,17 @@ These are the tools that should appear in the recommended default path:
 - `semantic_search_nodes_tool`
 - `get_docs_section_tool`
 
-This set keeps the user-facing shape small: one orientation tool, one review
-dispatcher, one flow dispatcher, one architecture tool, one refactor tool,
-two exploration tools, plus a read-only docs helper so skills can fetch their
-optimized workflow from `docs/LLM-OPTIMIZED-REFERENCE.md`.
+This set keeps the user-facing shape small: one orientation tool, one safe
+graph bootstrap tool, one review dispatcher, one flow dispatcher, one
+architecture tool, one refactor tool, two exploration tools, plus a read-only
+docs helper so skills can fetch their optimized workflow from
+`docs/LLM-OPTIMIZED-REFERENCE.md`.
+
+`ensure_graph_tool` is the only write-oriented default tool. It full-builds an
+empty graph (or incrementally refreshes when `force=True`) with
+`postprocess="minimal"` and `local_embedding="none"`. It does not replace
+`build_or_update_graph_tool`, which remains the maintenance surface for
+embeddings, full postprocess, and explicit rebuild controls.
 
 ### Tier 2: drill-down tools
 

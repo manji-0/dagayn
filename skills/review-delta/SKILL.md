@@ -14,7 +14,9 @@ Perform a focused, token-efficient code review of only the changed code and its 
 
 1. **Orient first** by calling `get_minimal_context_tool(task="<review goal>")`.
 
-2. **Ensure the graph is current** by calling `build_or_update_graph_tool()` (incremental update).
+2. **Ensure the graph is current**: if `graph_health` is empty, call
+   `ensure_graph_tool()`; otherwise call `ensure_graph_tool(force=True)` for a
+   safe incremental refresh (no embeddings).
 
 3. **Get risk and review priorities** by calling `review_tool(mode="changes")`.
    Read `analysis_summary` first. It returns:

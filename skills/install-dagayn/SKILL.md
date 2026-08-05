@@ -35,7 +35,7 @@ hooks, instruction injection, or embedding mode selection.
      skills should mention `docs_for`, `implementations_of`, and `dagayn:`
      documentation directives.
 5. Run `dagayn status` or `list_graph_stats_tool` in a target repo. If the graph
-   is missing, run `build_or_update_graph_tool(full_rebuild=True)`.
+   is missing, run `ensure_graph_tool()`.
 
 ## Repo-Local Files
 

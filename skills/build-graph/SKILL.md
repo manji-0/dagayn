@@ -17,20 +17,30 @@ the selected embedding mode so graph builds refresh the right retrieval indexes.
 
 ## Steps
 
-1. **Check graph status** by calling the `list_graph_stats_tool` MCP tool.
-   - If the graph has never been built (last_updated is null), proceed with a full build.
-   - If the graph exists, proceed with an incremental update.
+1. **Check graph status** with `get_minimal_context_tool` (or
+   `list_graph_stats_tool` when the advanced surface is available).
+   - If `graph_health.status` is `empty` / `last_updated` is null, proceed with
+     bootstrap.
+   - If the graph exists, prefer hooks/`dagayn update` for routine refresh.
 
-2. **Build the graph** by calling the `build_or_update_graph_tool` MCP tool:
-   - For first-time graph setup: `build_or_update_graph_tool(full_rebuild=True, local_embedding="none")`
-   - For routine updates: `build_or_update_graph_tool(local_embedding="none")`
+2. **Bootstrap or refresh**:
+   - Default MCP surface (preferred): `ensure_graph_tool()` for first-time /
+     empty graphs, or `ensure_graph_tool(force=True)` for a safe incremental
+     refresh. This always uses `postprocess="minimal"` and
+     `local_embedding="none"`.
+   - Maintenance / advanced surface: `build_or_update_graph_tool` when you need
+     full postprocess, embeddings, or explicit rebuild controls:
+     - First-time: `build_or_update_graph_tool(full_rebuild=True, local_embedding="none")`
+     - Routine: `build_or_update_graph_tool(local_embedding="none")`
    - Do not run embedding-enabled full rebuilds as a routine verification step.
      When the MCP server was started with `--local-embedding`, omitting
-     `local_embedding` may inherit that mode and trigger a large embedding
-     refresh. Pass `local_embedding="bge-m3"` only when the task explicitly requires
-     embedding quality or hybrid-search freshness, and state that reason first.
+     `local_embedding` on `build_or_update_graph_tool` may inherit that mode and
+     trigger a large embedding refresh. Pass `local_embedding="bge-m3"` only when
+     the task explicitly requires embedding quality or hybrid-search freshness,
+     and state that reason first.
 
-3. **Verify** by calling `list_graph_stats_tool` again and report the results:
+3. **Verify** with `get_minimal_context_tool` (or `list_graph_stats_tool`) and
+   report:
    - Number of files parsed
    - Number of nodes and edges created
    - Languages detected
@@ -58,6 +68,7 @@ Use MCP tools first. If the current MCP server profile does not expose a tool,
 run the same implementation through the CLI without restarting the agent:
 
 ```bash
+dagayn tool ensure_graph_tool
 dagayn tool list_graph_stats_tool
 dagayn tool build_or_update_graph_tool --arg full_rebuild=true
 dagayn tool run_postprocess_tool --arg fts=true
@@ -65,8 +76,8 @@ dagayn tool run_postprocess_tool --arg fts=true
 
 ## Efficiency Rules
 
-- Use incremental `build_or_update_graph_tool()` unless the graph is empty,
-  branch state changed heavily, or new files are missing from graph queries.
+- Prefer `ensure_graph_tool()` on the default MCP surface; use incremental
+  `build_or_update_graph_tool()` only when maintenance options are required.
 - For parser, flow, documentation-edge, or review verification, keep
   `local_embedding="none"` so hooks and local embedding refresh do not turn a
   graph check into an expensive embedding rebuild.

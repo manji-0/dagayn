@@ -52,6 +52,7 @@ dagayn serve
 ## Useful MCP flows
 
 - `get_minimal_context_tool` for quick orientation
+- `ensure_graph_tool` when `graph_health` is empty (safe bootstrap; no embeddings)
 - `review_tool(mode="changes")` or `review_tool(mode="context")` for review work
 - `query_graph_tool`, `semantic_search_nodes_tool`, and `flow_tool(mode="list")` for exploration
 - `architecture_analysis_tool(mode="overview")` and its drill-down modes for

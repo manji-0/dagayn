@@ -119,6 +119,7 @@ _default_local_embedding_batch_size: int = 1
 _DEFAULT_MCP_TOOL_NAMES: frozenset[str] = frozenset(
     {
         "get_minimal_context_tool",
+        "ensure_graph_tool",
         "review_tool",
         "flow_tool",
         "architecture_analysis_tool",
@@ -275,6 +276,33 @@ async def build_or_update_graph_tool(
         local_embedding_timeout=local_embedding_timeout,
         local_embedding_request_timeout=local_embedding_request_timeout,
         local_embedding_batch_size=local_embedding_batch_size,
+    )
+
+
+@mcp.tool()
+async def ensure_graph_tool(
+    repo_root: Optional[str] = None,
+    force: bool = False,
+) -> dict:
+    """Ensure a usable knowledge graph exists for analysis tools.
+
+    Prefer this over ``build_or_update_graph_tool`` on the default MCP surface.
+    Empty graphs get a full parse with ``postprocess="minimal"`` and
+    ``local_embedding="none"`` (never inherits ``serve --local-embedding``).
+    Ready graphs are a no-op unless ``force=True`` (incremental refresh).
+
+    Offloaded via ``asyncio.to_thread`` like other long-running build tools.
+    See: #46, #136.
+
+    Args:
+        repo_root: Repository root path. Auto-detected if omitted.
+        force: If True and the graph already has nodes, run an incremental
+            update. Empty graphs still take the full-build path.
+    """
+    return await asyncio.to_thread(
+        _tool("ensure_graph"),
+        repo_root=_resolve_repo_root(repo_root),
+        force=force,
     )
 
 

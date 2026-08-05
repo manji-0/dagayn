@@ -4,6 +4,14 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Features
+
+- Add `ensure_graph_tool` to the default MCP surface for safe empty-graph
+  bootstrap (`postprocess="minimal"`, `local_embedding="none"`). Ready graphs
+  are a no-op unless `force=True`. `get_minimal_context_tool` now recommends
+  it when `graph_health` is empty. Full `build_or_update_graph_tool` stays on
+  the advanced/maintenance surface.
+
 ## 4.5.0 — 2026-08-04
 
 ### Features
