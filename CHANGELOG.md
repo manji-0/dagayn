@@ -4,6 +4,8 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+## 4.6.0 — 2026-08-05
+
 ### Features
 
 - Add `ensure_graph_tool` to the default MCP surface for safe empty-graph
