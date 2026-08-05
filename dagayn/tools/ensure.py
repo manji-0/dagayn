@@ -18,16 +18,15 @@ _ENSURE_LOCAL_EMBEDDING = "none"
 
 def _graph_needs_full_build(stats: Any) -> bool:
     """True when the graph is empty and needs a first-time full parse."""
-    return int(getattr(stats, "total_nodes", 0) or 0) == 0 or int(
-        getattr(stats, "files_count", 0) or 0
-    ) == 0
+    return (
+        int(getattr(stats, "total_nodes", 0) or 0) == 0
+        or int(getattr(stats, "files_count", 0) or 0) == 0
+    )
 
 
 def _graph_is_ready(stats: Any) -> bool:
     """True when the graph already has parse data and a recorded update time."""
-    return not _graph_needs_full_build(stats) and bool(
-        getattr(stats, "last_updated", None)
-    )
+    return not _graph_needs_full_build(stats) and bool(getattr(stats, "last_updated", None))
 
 
 def ensure_graph(
@@ -106,8 +105,7 @@ def ensure_graph(
 
     status = build_result.get("status", "ok")
     summary = build_result.get("summary") or (
-        f"Ensured graph via {action} build "
-        f"({stats.total_nodes} nodes, {stats.total_edges} edges)."
+        f"Ensured graph via {action} build ({stats.total_nodes} nodes, {stats.total_edges} edges)."
     )
     response = make_response(
         status=status,

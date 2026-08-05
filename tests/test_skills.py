@@ -330,6 +330,7 @@ class TestGenerateSkills:
         assert steps.index("Pick **one** next move") < steps.index(
             'architecture_analysis_tool(mode="overview"'
         )
+
     def test_review_skills_refresh_only_when_needed(self, tmp_path):
         skills_dir = generate_skills(tmp_path)
         delta = (skills_dir / "review-delta.md").read_text()

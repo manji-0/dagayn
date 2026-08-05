@@ -2805,9 +2805,7 @@ class TestEnsureGraph:
                 "files_updated": 1,
             }
 
-        with patch(
-            "dagayn.tools.ensure.build_or_update_graph", side_effect=_fake_build
-        ) as build:
+        with patch("dagayn.tools.ensure.build_or_update_graph", side_effect=_fake_build) as build:
             result = ensure_graph(repo_root=str(self.root), force=True)
 
         assert result["action"] == "incremental"
