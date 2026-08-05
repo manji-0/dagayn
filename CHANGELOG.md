@@ -4,6 +4,8 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+## 4.6.1 — 2026-08-05
+
 ### Fixes
 
 - Worktree graph inheritance now replaces empty schema-only `graph.db` stubs
