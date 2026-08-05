@@ -30,37 +30,41 @@ the selected embedding mode so exploration chooses the right search strategy.
 - Execution path: use `flow_tool(mode="list")`, then `flow_tool(mode="get")`
   only after choosing a concrete flow.
 - Neighborhood exploration: use `traverse_graph_tool` only after choosing a
-  concrete start node and only when a specific relationship query would be too
-  narrow.
+  concrete start node, only when a specific relationship query would be too
+  narrow, and only when the advanced MCP surface (or `dagayn tool`) exposes it.
 
 ### Steps
 
 1. Run `get_minimal_context_tool(task="<what you need to understand>")` to see graph
-   freshness, risk, major communities, and suggested next tools.
-2. Run `architecture_analysis_tool(mode="overview", detail_level="minimal")`
-   for high-level architecture questions. Read `architecture_health` first; it
-   summarizes coupling, hubs, bridges, knowledge gaps, surprising connections,
-   and ADP/SDP/SAP signals. Use the Architecture Analysis skill for mode
-   selection before drilling down.
-3. Use `semantic_search_nodes_tool` to find specific functions or classes.
-4. Use `query_graph_tool` with patterns like `callers_of`, `callees_of`, `imports_of`
-   to trace relationships. Use `docs_for` when starting from a code/Terraform
-   node and you need linked specs, runbooks, explanations, or issue notes. Use
-   `implementations_of` when starting from a Markdown section and you need the
-   code points linked by `implemented_by` / `implements_contract` documentation
-   bridges.
-5. Use `flow_tool(mode="list", detail_level="minimal")` to find candidate
-   execution paths. Call `flow_tool(mode="get")` only after choosing a concrete
-   flow name.
-6. Fall back to `rg`/file reads when graph output is stale, ambiguous, truncated,
+   freshness, risk, major communities, and suggested next tools. If
+   `graph_health.status` is `empty` (or `ensure_graph_tool` is the first
+   next-tool hint), call `ensure_graph_tool()` and re-orient before exploration.
+2. Pick **one** next move from the Decision Model — do not run the whole ladder:
+   - Unknown / fuzzy / process language → `semantic_search_nodes_tool`, then a
+     concrete `qualified_name`.
+   - Known entity + relationship → `query_graph_tool` with the narrowest pattern.
+   - Review risk / blast radius → `review_tool(mode="changes")` and read
+     `analysis_summary` first.
+   - Architecture / structural risk only →
+     `architecture_analysis_tool(mode="overview", detail_level="minimal")`.
+     Read `architecture_health` first; use the Architecture Analysis skill for
+     drill-down mode selection.
+   - Execution path → `flow_tool(mode="list", detail_level="minimal")`, then
+     `flow_tool(mode="get")` only after choosing a concrete flow name.
+3. After you have a concrete node, use `query_graph_tool` patterns such as
+   `callers_of`, `callees_of`, `imports_of`, `docs_for`, or `implementations_of`
+   to verify relationships. Prefer these over raw traversal.
+4. Fall back to `rg`/file reads when graph output is stale, ambiguous, truncated,
    or missing exact source text.
 
 ### Tips
 
-- Start broad (minimal context, architecture health) then narrow down to
-  specific areas.
+- Start from `get_minimal_context_tool`, then follow the Decision Model. Do not
+  open with architecture overview unless the question is about structure or
+  health.
 - Use `children_of` on a file to see all its functions and classes.
-- Use `find_large_functions_tool` to identify complex code.
+- Use `find_large_functions_tool` (advanced surface / `dagayn tool`) to identify
+  complex code.
 - For Markdown ↔ code traceability, treat `dagayn:` directives as authored
   `CROSS_ARTIFACT` evidence. Markdown comments such as
   `<!-- dagayn: implemented-by path::symbol -->` point from a doc section to a
@@ -83,21 +87,21 @@ the selected embedding mode so exploration chooses the right search strategy.
 
 ## CLI Fallback
 
-Use MCP tools first. If the current MCP server profile does not expose a
-drill-down tool such as `flow_tool`, `architecture_analysis_tool`, or
-`find_large_functions_tool`, run the same implementation through the CLI without
-restarting the agent:
+Default MCP already exposes `flow_tool`, `architecture_analysis_tool`,
+`query_graph_tool`, and `semantic_search_nodes_tool`. Use `dagayn tool` when the
+server allow-list omitted a tool, or for advanced helpers such as
+`find_large_functions_tool` / `traverse_graph_tool`:
 
 ```bash
-dagayn tool flow_tool --arg mode='"list"' --arg detail_level='"minimal"'
-dagayn tool architecture_analysis_tool --arg mode='"overview"' --arg detail_level='"minimal"'
-dagayn tool architecture_analysis_tool --arg mode='"communities"'
 dagayn tool find_large_functions_tool --arg min_lines=80
+dagayn tool traverse_graph_tool --arg query='"auth handler"' --arg depth=2
 dagayn tool query_graph_tool --arg pattern='"docs_for"' --arg target='"src/app.py::handler"'
 dagayn tool query_graph_tool --arg pattern='"implementations_of"' --arg target='"docs/spec.md::contract-section"'
 ```
 
 ## Token Efficiency Rules
 - ALWAYS start with `get_minimal_context_tool(task="<your task>")` before any other graph tool.
+- If the graph was empty, count tool calls **after** `ensure_graph_tool` returns.
 - Use `detail_level="minimal"` on all calls. Only escalate to "standard" when minimal is insufficient.
-- Target: complete any review/debug/refactor task in ≤5 tool calls and ≤800 total output tokens.
+- Target: complete any explore task in ≤5 tool calls and ≤800 total output tokens
+  after ensure.

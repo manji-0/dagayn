@@ -10,7 +10,9 @@ Perform a thorough, risk-aware code review using the knowledge graph.
 ### Steps
 
 1. Run `get_minimal_context_tool(task="<review goal>")` to check graph freshness,
-   risk, and suggested next tools.
+   risk, and suggested next tools. If `graph_health.status` is `empty` (or
+   `ensure_graph_tool` is the first next-tool hint), call `ensure_graph_tool()`
+   and re-orient before any review call.
 2. Run `review_tool(mode="changes")` to get risk-scored change analysis. Read
    `analysis_summary` first; it includes reason codes, recommended tests,
    affected-flow rankings, documentation update candidates, hotspot proximity,
@@ -23,12 +25,27 @@ Perform a thorough, risk-aware code review using the knowledge graph.
    - For changed code or Terraform nodes, use `query_graph_tool(pattern="docs_for", target="<path::symbol>", detail_level="minimal")` to find linked specs, runbooks, explanations, or issue notes from `dagayn:` documentation directives.
    - For changed Markdown contract sections, use `query_graph_tool(pattern="implementations_of", target="<doc.md>::<section-slug>", detail_level="minimal")` to find code linked by Markdown `implemented-by` or code `implements` directives.
 6. For any remaining untested changes, suggest specific test cases.
+7. **Docs update after code change** — when `analysis_summary` lists documentation
+   update candidates, or `docs_for` returns authored contract/runbook links for
+   changed symbols, do not stop at "docs may be stale":
+   1. Rank candidates: `implemented_by` / `implements_contract` first, then
+      `explained_by` / `has_runbook` / `problem_described_by`, then weaker
+      `extracted` / `heuristic_reachable` hits.
+   2. Open only the docs that affect the merge decision.
+   3. Edit them with the `writing-markdown-document` skill (keep `dagayn:`
+      directives and heading slugs accurate).
+   4. `ensure_graph_tool(force=True)`, then re-check
+      `query_graph_tool(pattern="docs_for" | "implementations_of")` or
+      `review_tool(mode="impact")` on the touched doc paths.
+   If docs work is deferred, say so explicitly in the review output with the
+   doc path and role that still needs an update.
 
 ### Output Format
 
 Provide findings grouped by risk level (high/medium/low) with:
 - What changed and why it matters
 - Test coverage status
+- Documentation updates required or deferred (path + role)
 - Suggested improvements
 - Overall merge recommendation
 
@@ -60,9 +77,8 @@ Provide findings grouped by risk level (high/medium/low) with:
 
 ## CLI Fallback
 
-Use MCP tools first. If the current MCP server profile does not expose a review
-drill-down mode such as `affected_flows` or `impact`,
-run the same implementation through the CLI without restarting the agent:
+Default MCP already exposes `review_tool` and `query_graph_tool`. Use
+`dagayn tool` when the server allow-list omitted them:
 
 ```bash
 dagayn tool review_tool --arg mode='"changes"' --arg detail_level='"minimal"'
@@ -75,5 +91,7 @@ dagayn tool query_graph_tool --arg pattern='"implementations_of"' --arg target='
 
 ## Token Efficiency Rules
 - ALWAYS start with `get_minimal_context_tool(task="<your task>")` before any other graph tool.
+- If the graph was empty, count tool calls **after** `ensure_graph_tool` returns.
 - Use `detail_level="minimal"` on all calls. Only escalate to "standard" when minimal is insufficient.
-- Target: complete any review/debug/refactor task in ≤5 tool calls and ≤800 total output tokens.
+- Target: complete any review/debug/refactor task in ≤5 tool calls and ≤800 total output tokens
+  after ensure.

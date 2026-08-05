@@ -3,11 +3,16 @@
 <!-- derived-from ./COMMANDS.md -->
 
 <section name="usage">
-Install with `pip install dagayn` or `uv tool install dagayn`, then run `dagayn install` and `dagayn build`.
+Install with `pip install dagayn` or `uv tool install dagayn`, then run `dagayn install`.
 
-Use `dagayn update` for change-driven refreshes and `dagayn watch` for live development.
+First graph: `ensure_graph_tool()` on the default MCP surface, or `dagayn build` from the CLI.
+Routine refresh: hooks, `dagayn update`, `dagayn watch`, or `ensure_graph_tool(force=True)` when stale.
 
-`dagayn serve` exposes the compact workflow MCP surface by default. Use an exact `--tools` or `CRG_TOOLS` allow-list for a different surface; `all`, `full`, or `*` exposes every advanced/maintenance tool.
+Linked worktrees: `dagayn worktree sync` (or the `worktree-sync` skill) inherits the main checkout graph/MCP config before analysis.
+
+Feature work: find extension points with search/query/flow, implement, then `review_tool(mode="changes")` (see the `implement-feature` skill). After code changes, follow documentation update candidates via `docs_for` / the review-changes docs-update flow.
+
+`dagayn serve` exposes the compact workflow MCP surface by default (`get_minimal_context_tool`, `ensure_graph_tool`, `review_tool`, `flow_tool`, `architecture_analysis_tool`, `refactor_tool`, `query_graph_tool`, `semantic_search_nodes_tool`, `get_docs_section_tool`). Use an exact `--tools` or `CRG_TOOLS` allow-list for a different surface; `all`, `full`, or `*` exposes every advanced/maintenance tool.
 
 Use `dagayn` in all user-facing guidance.
 </section>
@@ -15,10 +20,10 @@ Use `dagayn` in all user-facing guidance.
 <section name="review-delta">
 Recommended sequence for reviewing a delta:
 
-1. ensure the graph is up to date
-2. call `review_tool(mode="changes")` or `review_tool(mode="context")`
-3. inspect affected nodes, flows, and tests
-4. read only the files that remain ambiguous after graph queries
+1. `get_minimal_context_tool(task=...)` — if `graph_health` is empty, call `ensure_graph_tool()`; if stale, `ensure_graph_tool(force=True)`; otherwise skip ensure
+2. `review_tool(mode="changes")` and read `analysis_summary` first
+3. Call `review_tool(mode="context")` / `mode="impact"` / `query_graph_tool` only for concrete source, blast-radius, or coverage questions
+4. Read only the files that remain ambiguous after graph queries
 
 `review_tool(mode="changes")` returns an `analysis_summary` with risk reasons, recommended
 tests, affected-flow rankings, documentation update candidates, hotspot
@@ -28,7 +33,12 @@ The fork is designed to work well when docs, app code, and Terraform all change 
 </section>
 
 <section name="review-pr">
-For larger reviews, start with `get_minimal_context`, then use `review_tool`, `flow_tool`, and `architecture_analysis_tool(mode="communities")` as needed.
+Recommended sequence for reviewing a PR or branch:
+
+1. `get_minimal_context_tool(task="PR review")`
+2. Refresh only when empty/stale: `ensure_graph_tool()` or `ensure_graph_tool(force=True)`; use `build_or_update_graph_tool(base="main")` only on the advanced surface when an explicit base ref is required
+3. `review_tool(mode="changes", base="main")` and read `analysis_summary` first
+4. Prefer `review_tool(mode="context")` snippets over full-file reads; use `mode="impact"` and `query_graph_tool` only for high-risk follow-ups
 
 If the PR touches infrastructure, assume Terraform nodes and references are part of the review surface.
 </section>
@@ -95,6 +105,10 @@ For the managed local Qwen sidecar, use
 `dagayn build --local-embedding low`. dagayn reuses a compatible local
 OpenAI-compatible embedding server on localhost or starts one as a subprocess
 for the command; the managed preset starts llama.cpp GGUF via `llama-server`.
+
+`ensure_graph_tool` never builds embeddings (`local_embedding="none"`). Use
+`build_or_update_graph_tool` / `embed_graph_tool` / CLI `--local-embedding` for
+embedding refresh.
 </section>
 
 <section name="languages">
@@ -106,7 +120,7 @@ Terraform and Markdown are notable differentiators for this fork's review workfl
 </section>
 
 <section name="troubleshooting">
-If results look stale, rebuild or update the graph.
+If results look stale, call `ensure_graph_tool(force=True)` or run `dagayn update` / `dagayn build`.
 
 If integrations are missing, re-run `dagayn install --dry-run` first.
 

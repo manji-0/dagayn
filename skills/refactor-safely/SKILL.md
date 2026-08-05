@@ -10,7 +10,9 @@ Use the knowledge graph to plan and execute refactoring with confidence.
 ### Steps
 
 1. Run `get_minimal_context_tool(task="<refactor goal>")` to check graph freshness,
-   risk, and suggested next tools.
+   risk, and suggested next tools. If `graph_health.status` is `empty` (or
+   `ensure_graph_tool` is the first next-tool hint), call `ensure_graph_tool()`
+   and re-orient before refactor planning.
 2. Use `refactor_tool` with mode="suggest" for evidence-ranked remove, move,
    split, and document candidates.
 3. Use `refactor_tool` with mode="dead_code" only when the suggested remove
@@ -18,10 +20,12 @@ Use the knowledge graph to plan and execute refactoring with confidence.
 4. For renames, use `refactor_tool` with mode="rename" to preview all affected locations.
 5. Use `query_graph_tool` for specific callers, callees, tests, docs, imports,
    or children before considering a raw neighborhood traversal. Use
-   `traverse_graph_tool` only when the refactor candidate has a known start node
-   and the question is broader than one relationship pattern.
-6. Use `apply_refactor_tool` with `dry_run=True` first, then apply with the
-   refactor_id only after the diff is acceptable.
+   `traverse_graph_tool` only when the refactor candidate has a known start node,
+   the question is broader than one relationship pattern, and the advanced MCP
+   surface (or `dagayn tool`) exposes it.
+6. Use `apply_refactor_tool` (advanced surface / `dagayn tool`) with
+   `dry_run=True` first, then apply with the refactor_id only after the diff is
+   acceptable.
 7. Before renaming, moving, or deleting public code, follow documentation bridge
    edges when present: `query_graph_tool(pattern="docs_for", target="<path::symbol>", detail_level="minimal")`
    for specs/runbooks/issue notes attached to code, and
@@ -36,7 +40,8 @@ Use the knowledge graph to plan and execute refactoring with confidence.
 - Use `review_tool(mode="changes").analysis_summary` first; call
   `review_tool(mode="impact")` or `review_tool(mode="affected_flows")` only
   when a wider drill-down is needed.
-- Run `find_large_functions_tool` to identify decomposition targets.
+- Run `find_large_functions_tool` (advanced surface / `dagayn tool`) to identify
+  decomposition targets.
 - Preserve authored `dagayn:` documentation directives. Update Markdown
   `implemented-by path::symbol` targets after code renames, and update code
   `implements docs/spec.md#Section` targets after doc heading/path changes.
@@ -74,19 +79,23 @@ role-aware refactoring profile, not a verdict that the function is bad.
 
 ## CLI Fallback
 
-Use MCP tools first. If the current MCP server profile does not expose a
-refactor-only tool such as `apply_refactor_tool` or `find_large_functions_tool`,
-run the same implementation through the CLI without restarting the agent:
+Default MCP already exposes `refactor_tool`, `review_tool`, and
+`query_graph_tool`. Use `dagayn tool` for advanced helpers such as
+`apply_refactor_tool` and `find_large_functions_tool`, or when the server
+allow-list omitted a default tool:
 
 ```bash
 dagayn tool refactor_tool --arg mode='"suggest"' --arg limit=10
 dagayn tool refactor_tool --arg mode='"rename"' --arg old_name='"old_symbol"' --arg new_name='"new_symbol"'
 dagayn tool apply_refactor_tool --arg refactor_id='"refactor_123"' --arg dry_run=true
+dagayn tool find_large_functions_tool --arg min_lines=80
 dagayn tool query_graph_tool --arg pattern='"docs_for"' --arg target='"src/app.py::handler"'
 dagayn tool query_graph_tool --arg pattern='"implementations_of"' --arg target='"docs/spec.md::contract-section"'
 ```
 
 ## Token Efficiency Rules
 - ALWAYS start with `get_minimal_context_tool(task="<your task>")` before any other graph tool.
+- If the graph was empty, count tool calls **after** `ensure_graph_tool` returns.
 - Use `detail_level="minimal"` on all calls. Only escalate to "standard" when minimal is insufficient.
-- Target: complete any review/debug/refactor task in ≤5 tool calls and ≤800 total output tokens.
+- Target: complete any review/debug/refactor task in ≤5 tool calls and ≤800 total output tokens
+  after ensure.

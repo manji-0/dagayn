@@ -26,9 +26,13 @@ retrieval setup.
    - If a PR number or branch is provided, use `git diff main...<branch>` to get changed files
    - Otherwise auto-detect from the current branch vs main/master
 
-3. **Update the graph** with `ensure_graph_tool(force=True)` on the default
-   surface, or `build_or_update_graph_tool(base="main")` when the advanced
-   surface is available and you need an explicit base ref.
+3. **Refresh only when needed**:
+   - If `graph_health.status` is `empty`, call `ensure_graph_tool()`.
+   - If the branch diverged heavily, hooks look skipped, or results look stale,
+     call `ensure_graph_tool(force=True)` on the default surface, or
+     `build_or_update_graph_tool(base="main")` when the advanced surface is
+     available and you need that explicit base ref.
+   - Otherwise skip ensure and go to review.
 
 4. **Get risk and review priorities** by calling `review_tool(mode="changes", base="main")`:
    - This uses `main` (or the specified base branch) as the diff base
@@ -38,7 +42,8 @@ retrieval setup.
      architecture risks in changed scopes
 
 5. **Fetch focused source context** by calling `review_tool(mode="context", base="main")`
-   for the files or functions that need exact snippets.
+   for the files or functions that need exact snippets. Prefer snippets over
+   full-file reads.
 
 6. **Analyze impact** by using `analysis_summary` first, then calling
    `review_tool(mode="impact", base="main")` only when a wider view is needed:
@@ -50,8 +55,9 @@ retrieval setup.
      `query_graph_tool(pattern="implementations_of", target=<doc.md>::<section-slug>)`
      for changed Markdown contract sections
 
-7. **Deep-dive each changed file**:
-   - Read the full source of files with significant changes
+7. **Deep-dive highest-risk changes only** (from `analysis_summary`):
+   - Start with `review_tool(mode="context")` snippets; read a full file only
+     when behavior cannot be judged from the snippet
    - Use `query_graph_tool(pattern="callers_of", target=<func>)` for high-risk functions
    - Start with `analysis_summary.recommended_tests`; use
      `query_graph_tool(pattern="tests_for", target=<func>)` to verify uncertain coverage
@@ -119,12 +125,16 @@ retrieval setup.
   only when behavior cannot be judged from the snippet.
 - For broad PRs, cap graph drill-down to the top few impacted functions per
   risk area before reporting residual uncertainty.
+- Do not call `ensure_graph_tool(force=True)` on every PR when `graph_health`
+  is already healthy and the branch looks fresh.
+- When `analysis_summary` lists documentation update candidates, follow
+  **Docs update after code change** in the `review-changes` skill, or record
+  each deferred doc path + role in the PR review output.
 
 ## CLI Fallback
 
-Use MCP tools first. If the current MCP server profile does not expose a PR
-review drill-down tool, run the same implementation through the CLI without
-restarting the agent:
+Default MCP already exposes `review_tool`, `query_graph_tool`, and `flow_tool`.
+Use `dagayn tool` when the server allow-list omitted them:
 
 ```bash
 dagayn tool review_tool --arg mode='"changes"' --arg base='"main"' --arg detail_level='"minimal"'
@@ -132,5 +142,4 @@ dagayn tool review_tool --arg mode='"context"' --arg base='"main"' --arg detail_
 dagayn tool review_tool --arg mode='"impact"' --arg base='"main"' --arg detail_level='"minimal"'
 dagayn tool query_graph_tool --arg pattern='"docs_for"' --arg target='"src/app.py::handler"'
 dagayn tool query_graph_tool --arg pattern='"implementations_of"' --arg target='"docs/spec.md::contract-section"'
-dagayn tool flow_tool --arg mode='"list"' --arg detail_level='"minimal"'
 ```

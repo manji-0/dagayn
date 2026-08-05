@@ -17,12 +17,15 @@ the selected embedding mode so bug searches balance semantic recall with speed.
 ### Steps
 
 1. Run `get_minimal_context_tool(task="<bug or symptom>")` to check graph freshness,
-   risk, and suggested next tools.
+   risk, and suggested next tools. If `graph_health.status` is `empty` (or
+   `ensure_graph_tool` is the first next-tool hint), call `ensure_graph_tool()`
+   and re-orient before search or traversal.
 2. Use `semantic_search_nodes_tool` to find code related to the issue.
 3. Use `query_graph_tool` with `callers_of` and `callees_of` to trace call chains.
-4. Use `traverse_graph_tool` only after selecting a concrete suspected node and
+4. Use `traverse_graph_tool` only after selecting a concrete suspected node,
    only when a bounded neighborhood is more useful than a specific caller,
-   callee, import, test, or documentation relationship.
+   callee, import, test, or documentation relationship, and only when the
+   advanced MCP surface (or `dagayn tool`) exposes it.
 5. Use `flow_tool(mode="list", detail_level="minimal")` or
    `review_tool(mode="affected_flows")` to identify candidate flow names before
    calling `flow_tool(mode="get")`.
@@ -65,9 +68,9 @@ the selected embedding mode so bug searches balance semantic recall with speed.
 
 ## CLI Fallback
 
-Use MCP tools first. If the current MCP server profile does not expose a tool
-such as `flow_tool` or `review_tool`, run the same implementation
-through the CLI without restarting the agent:
+Default MCP already exposes `get_minimal_context_tool`, `flow_tool`,
+`review_tool`, and `query_graph_tool`. Use `dagayn tool` when the server
+allow-list omitted them, or for advanced helpers such as `traverse_graph_tool`:
 
 ```bash
 dagayn tool get_minimal_context_tool --arg 'task="debug login timeout"'
@@ -80,5 +83,7 @@ dagayn tool query_graph_tool --arg pattern='"implementations_of"' --arg target='
 
 ## Token Efficiency Rules
 - ALWAYS start with `get_minimal_context_tool(task="<your task>")` before any other graph tool.
+- If the graph was empty, count tool calls **after** `ensure_graph_tool` returns.
 - Use `detail_level="minimal"` on all calls. Only escalate to "standard" when minimal is insufficient.
-- Target: complete any review/debug/refactor task in ≤5 tool calls and ≤800 total output tokens.
+- Target: complete any review/debug/refactor task in ≤5 tool calls and ≤800 total output tokens
+  after ensure.

@@ -12,6 +12,23 @@ All notable changes to `dagayn` are documented here.
   it when `graph_health` is empty. Full `build_or_update_graph_tool` stays on
   the advanced/maintenance surface.
 
+### Documentation
+
+- Align packaged skills with the default MCP surface: everyday workflows gate
+  on `ensure_graph_tool` when `graph_health` is empty; semantic-search and
+  cross-repo freshness prefer ensure over advanced-only stats/build tools;
+  clarify that traverse/apply/find_large helpers need `--tools all` or
+  `dagayn tool`.
+- Tighten skill efficiency: explore follows Decision Model instead of always
+  opening architecture overview; review-delta/PR refresh only when empty/stale;
+  PR deep-dives prefer snippets; reading-markdown defers impact unless needed;
+  CLI fallbacks describe default vs advanced tools accurately; update
+  `docs/LLM-OPTIMIZED-REFERENCE.md` usage/review sections for ensure +
+  `analysis_summary`.
+- Add `worktree-sync` and `implement-feature` skills; document worktree
+  bootstrap in `install-dagayn`; add a docs-update-after-code-change flow to
+  `review-changes` (with pointers from review-delta/PR).
+
 ## 4.5.0 — 2026-08-04
 
 ### Features

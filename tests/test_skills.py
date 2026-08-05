@@ -54,6 +54,7 @@ EXPECTED_SKILLS = [
     "cross-repo-workflows.md",
     "debug-issue.md",
     "explore-codebase.md",
+    "implement-feature.md",
     "install-dagayn.md",
     "reading-markdown-document.md",
     "refactor-safely.md",
@@ -61,6 +62,7 @@ EXPECTED_SKILLS = [
     "review-delta.md",
     "review-pr.md",
     "semantic-search.md",
+    "worktree-sync.md",
     "writing-markdown-document.md",
 ]
 
@@ -78,6 +80,7 @@ LEGACY_MCP_TOOL_NAMES = [
 
 CURRENT_MCP_TOOL_NAMES = [
     "apply_refactor_tool",
+    "ensure_graph_tool",
     "get_minimal_context_tool",
     "review_tool",
     "architecture_analysis_tool",
@@ -143,6 +146,23 @@ class TestGenerateSkills:
         assert 'search_mode="hybrid"' in semantic
         assert "cross_repo_search_tool" in cross_repo
         assert "dagayn daemon" in cross_repo
+
+    def test_new_workflow_skills_cover_worktree_and_feature(self, tmp_path):
+        skills_dir = generate_skills(tmp_path)
+        worktree = (skills_dir / "worktree-sync.md").read_text()
+        feature = (skills_dir / "implement-feature.md").read_text()
+        install = (skills_dir / "install-dagayn.md").read_text()
+        review = (skills_dir / "review-changes.md").read_text()
+
+        assert "dagayn worktree sync" in worktree
+        assert "worktree info" in worktree
+        assert ".worktreeinclude" in worktree
+        assert "ensure_graph_tool" in feature
+        assert "extension points" in feature
+        assert 'review_tool(mode="changes")' in feature
+        assert "Worktree bootstrap" in install
+        assert "Docs update after code change" in review
+        assert "writing-markdown-document" in review
 
     def test_search_skills_are_mode_neutral_without_install_context(self, tmp_path):
         skills_dir = generate_skills(tmp_path)
@@ -285,6 +305,39 @@ class TestGenerateSkills:
             assert tool_name in combined
         for legacy_name in LEGACY_MCP_TOOL_NAMES:
             assert legacy_name not in combined
+
+    def test_workflow_skills_gate_on_ensure_graph_when_empty(self, tmp_path):
+        """Everyday workflow skills must bootstrap via ensure_graph on empty graphs."""
+        skills_dir = generate_skills(tmp_path)
+        for name in (
+            "review-changes.md",
+            "explore-codebase.md",
+            "debug-issue.md",
+            "architecture-analysis.md",
+            "refactor-safely.md",
+        ):
+            content = (skills_dir / name).read_text()
+            assert "ensure_graph_tool" in content
+            assert "graph_health.status" in content
+
+    def test_explore_skill_follows_decision_model_not_architecture_first(self, tmp_path):
+        skills_dir = generate_skills(tmp_path)
+        content = (skills_dir / "explore-codebase.md").read_text()
+        assert "Pick **one** next move from the Decision Model" in content
+        assert "open with architecture overview unless" in content
+        steps = content.split("### Steps", 1)[1]
+        assert "Pick **one** next move from the Decision Model" in steps
+        assert steps.index("Pick **one** next move") < steps.index(
+            'architecture_analysis_tool(mode="overview"'
+        )
+    def test_review_skills_refresh_only_when_needed(self, tmp_path):
+        skills_dir = generate_skills(tmp_path)
+        delta = (skills_dir / "review-delta.md").read_text()
+        pr = (skills_dir / "review-pr.md").read_text()
+        for content in (delta, pr):
+            assert "Refresh only when needed" in content
+            assert "Otherwise skip ensure" in content
+            assert "Do not call `ensure_graph_tool(force=True)` on every" in content
 
     def test_explore_skill_uses_architecture_health(self, tmp_path):
         """Generated exploration skill should use the composed architecture surface."""

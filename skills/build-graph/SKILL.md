@@ -64,8 +64,9 @@ the selected embedding mode so graph builds refresh the right retrieval indexes.
 
 ## CLI Fallback
 
-Use MCP tools first. If the current MCP server profile does not expose a tool,
-run the same implementation through the CLI without restarting the agent:
+Default MCP already exposes `ensure_graph_tool` and `get_minimal_context_tool`.
+Use `dagayn tool` for advanced/maintenance tools such as `list_graph_stats_tool`,
+`build_or_update_graph_tool`, and `run_postprocess_tool`:
 
 ```bash
 dagayn tool ensure_graph_tool

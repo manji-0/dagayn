@@ -29,12 +29,12 @@ Take a structural snapshot before opening the file:
 
 1. **Section list** — `query_graph_tool(pattern="file_summary", target="<doc.md>", detail_level="minimal")` to get every heading and its slug. This is the table of contents.
    - If this returns empty (the doc isn't yet in the graph), Stage 0 missed an update — re-run `ensure_graph_tool(force=True)` once. If still empty, the file is brand new; treat it as a plain text read and skip to Stage 3.
-2. **Inbound edges** — `query_graph_tool(pattern="importers_of", target="<doc.md>", detail_level="minimal")`. **Use the file path only**, not `<doc.md>::<section>` — `importers_of` resolves to file paths; section-form targets silently return zero hits (`tools/query.py:556`).
+2. **Inbound edges** — `query_graph_tool(pattern="importers_of", target="<doc.md>", detail_level="minimal")`. **Use the file path only**, not `<doc.md>::<section>` — `importers_of` resolves to file paths; section-form targets silently return zero hits.
 3. **Outbound file-level imports** — `query_graph_tool(pattern="imports_of", target="<doc.md>", detail_level="minimal")` to list cross-doc `IMPORTS_FROM` edges (directives + links targeting other files).
-4. **Outbound blast radius** — `review_tool(mode="impact", changed_files=["<doc.md>"], detail_level="minimal")` to see everything that would be affected if this doc changed. This is your set of downstream consumers.
-5. **Documentation bridges** — if the doc is a spec, run `query_graph_tool(pattern="implementations_of", target="<doc.md>::<section-slug>", detail_level="minimal")` for the relevant contract section(s). This reads both Markdown-authored `implemented_by` and code-authored `implements_contract` `CROSS_ARTIFACT` edges. Check `evidence_type` and `missingness` before treating a bridge as contract evidence.
+4. **Documentation bridges** — if the doc is a spec or the user asks about implementations, run `query_graph_tool(pattern="implementations_of", target="<doc.md>::<section-slug>", detail_level="minimal")` for the relevant contract section(s). Check `evidence_type` and `missingness` before treating a bridge as contract evidence.
+5. **Outbound blast radius** — call `review_tool(mode="impact", changed_files=["<doc.md>"], detail_level="minimal")` only when the task is about change impact, dependents, or editing the doc. Skip it for ordinary reading/summarization.
 
-Tool-call budget for Stage 1: ≤ 4 calls plus ≤ 1 `implementations_of` call for the contract section(s) that matter to the user request. Stop here before any pre-reading.
+Tool-call budget for Stage 1: ≤ 3 calls for ordinary reads (file_summary + importers + imports), plus ≤ 1 `implementations_of` and ≤ 1 impact call when those questions are in scope. Stop here before any pre-reading.
 
 ## Stage 2 — Pre-read by dependency type
 
@@ -75,12 +75,12 @@ Stage 3 done when: you reach EOF, you've read every section, and your "surprises
 
 ## CLI Fallback
 
-Use MCP tools first. If the current MCP server profile does not expose a graph
-tool needed for document reading, run the same implementation through the CLI
-without restarting the agent:
+Default MCP already exposes `get_minimal_context_tool`, `ensure_graph_tool`,
+`query_graph_tool`, and `review_tool`. Use `dagayn tool` when the server
+allow-list omitted them; `list_graph_stats_tool` is advanced-only:
 
 ```bash
-dagayn tool list_graph_stats_tool
+dagayn tool ensure_graph_tool
 dagayn tool query_graph_tool --arg pattern='"file_summary"' --arg target='"docs/adr.md"'
 dagayn tool query_graph_tool --arg pattern='"implementations_of"' --arg target='"docs/adr.md::contract-section"'
 dagayn tool query_graph_tool --arg pattern='"docs_for"' --arg target='"src/app.py::handler"'

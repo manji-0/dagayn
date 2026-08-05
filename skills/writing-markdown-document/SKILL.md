@@ -67,7 +67,11 @@ Worked examples:
 - Identifiers shorter than 3 chars are skipped.
 - Identifiers without `_` or `.` need ≥ 10 chars (filters generic English words like `list` / `parser`).
 
-**Postprocessing** (`dagayn/postprocessing.py:63–127` and `crates/dagayn-graph/src/search_markdown.rs:73`): each unresolved Markdown-sourced `CROSS_ARTIFACT` edge is resolved against the code graph by symbol name. **One non-Markdown match → target is promoted to that node's qualified name with HIGH/0.8 confidence.**
+**Postprocessing** (`dagayn.postprocessing._resolve_markdown_artifact_refs` and
+`crates/dagayn-graph/src/search_markdown.rs::resolve_markdown_artifact_refs`):
+each unresolved Markdown-sourced `CROSS_ARTIFACT` edge is resolved against the
+code graph by symbol name. **One non-Markdown match → target is promoted to that
+node's qualified name with HIGH/0.8 confidence.**
 
 For implicit backticked code spans, **zero or 2+ matches delete the edge** because the span is likely ordinary vocabulary. For explicit `dagayn:` documentation directives, **zero or 2+ matches keep or demote the edge to `<unresolved:Symbol>` with LOW/0.2 confidence** so a future graph update can resolve it; in this case the `markdown_artifact_refs_dropped` counter means "demoted", not deleted. Use distinctive, ideally qualified, symbol names, or use explicit `dagayn:` directives when the link is intentional.
 
@@ -126,11 +130,12 @@ For each section, in dependency order:
    - Intentional Markdown → code obligations → `<!-- dagayn: implemented-by path::symbol -->`, `<!-- dagayn: discusses-artifact path::symbol -->`, or `<!-- dagayn: raises-issue-for path::symbol -->`.
    - Low-intent code mentions → backtick the symbol exactly as it appears in code.
 3. **Save the file** and run `ensure_graph_tool(force=True)`
-   for Markdown/parser/postprocess verification. In local embedding installs,
-   an omitted `local_embedding` argument may inherit the server preset and turn
-   a documentation-edge check into a large embedding refresh.
+   for Markdown/parser/FTS refresh. Prefer ensure on the default MCP surface;
+   it always uses `postprocess="minimal"` and `local_embedding="none"`. Use
+   `build_or_update_graph_tool(local_embedding="none")` only when you need full
+   postprocess or other maintenance controls on the advanced surface.
 4. **Verify the edges resolved:**
-   - `query_graph_tool(pattern="importers_of", target="<doc.md>", detail_level="minimal")` — file-level inbound edges. **Use the file path only — `importers_of` resolves the target to a file path; `<doc.md>::<section>` will silently return zero hits** (`tools/query.py:556`).
+   - `query_graph_tool(pattern="importers_of", target="<doc.md>", detail_level="minimal")` — file-level inbound edges. **Use the file path only — `importers_of` resolves the target to a file path; `<doc.md>::<section>` will silently return zero hits**.
    - `review_tool(mode="impact", changed_files=["<doc.md>"], detail_level="minimal")` — outbound blast radius for the whole file.
    - For explicit Markdown → code directives, `query_graph_tool(pattern="implementations_of", target="<doc.md>::<section-slug>", detail_level="minimal")` — confirms linked implementation/artifact targets.
 5. **If a directive looks like it didn't take effect**, re-read your slug against the rules in the reference table above (most common bug: punctuation in heading not accounted for, or section slug typo). Fix and re-run step 3 + 4.
@@ -158,9 +163,9 @@ Final check: `query_graph_tool(pattern="file_summary", target="<doc.md>")` shoul
 
 ## CLI Fallback
 
-Use MCP tools first. If the current MCP server profile does not expose a graph
-tool needed for Markdown authoring or verification, run the same implementation
-through the CLI without restarting the agent:
+Default MCP already exposes `ensure_graph_tool`, `query_graph_tool`,
+`review_tool`, and `semantic_search_nodes_tool`. Use `dagayn tool` when the
+server allow-list omitted them, or for maintenance `build_or_update_graph_tool`:
 
 ```bash
 dagayn tool ensure_graph_tool --arg force=true

@@ -45,8 +45,10 @@ retrieval setup.
 
 ## Safety Rules
 
-- Never assume a registered repo is fresh. Check daemon status or run a local
-  `build_or_update_graph_tool()` before relying on a result.
+- Never assume a registered repo is fresh. Check daemon status, or on the
+  default MCP surface run `ensure_graph_tool(force=True)` in that repo before
+  relying on a result. Use `build_or_update_graph_tool()` only when the
+  advanced surface is available and you need explicit rebuild/embedding controls.
 - Cross-repo search is for candidate discovery. Confirm behavior in the owning
   repo before recommending edits.
 - Use aliases in reports so users can tell which repo each finding came from.

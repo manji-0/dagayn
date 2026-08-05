@@ -12,7 +12,9 @@ question points to a signal.
 ### Steps
 
 1. Run `get_minimal_context_tool(task="<architecture goal>")` to check graph
-   freshness, risk, and suggested next tools.
+   freshness, risk, and suggested next tools. If `graph_health.status` is
+   `empty` (or `ensure_graph_tool` is the first next-tool hint), call
+   `ensure_graph_tool()` and re-orient before architecture analysis.
 2. Run `architecture_analysis_tool(mode="overview", detail_level="minimal")`.
    Read `architecture_health.reason_codes`, counts, examples, and
    `drill_downs`.
@@ -29,7 +31,8 @@ question points to a signal.
 4. Use `query_graph_tool` or source reads only after the metric output identifies a
    concrete node, edge, community, package, or file to verify.
 5. Use `traverse_graph_tool` only as a bounded neighborhood drill-down after a
-   concrete hub, bridge, surprising edge, or violating scope is chosen. Prefer
+   concrete hub, bridge, surprising edge, or violating scope is chosen, and only
+   when the advanced MCP surface (or `dagayn tool`) exposes it. Prefer
    `query_graph_tool` when the follow-up is a specific relationship.
 6. For architecture questions that cross documentation/code boundaries, use
    `query_graph_tool(pattern="docs_for", target="<path::symbol>", detail_level="minimal")`
@@ -61,8 +64,9 @@ question points to a signal.
 
 ## CLI Fallback
 
-Use MCP first. If the current MCP profile does not expose the dispatcher, call
-the same implementation through the CLI:
+Default MCP already exposes `architecture_analysis_tool` and `query_graph_tool`.
+Use `dagayn tool` when the server allow-list omitted them, or for advanced
+helpers such as `traverse_graph_tool`:
 
 ```bash
 dagayn tool architecture_analysis_tool --arg mode='"overview"' --arg detail_level='"minimal"'
@@ -75,7 +79,8 @@ dagayn tool query_graph_tool --arg pattern='"implementations_of"' --arg target='
 ## Token Efficiency Rules
 
 - ALWAYS start with `get_minimal_context_tool(task="<your task>")`.
+- If the graph was empty, count tool calls **after** `ensure_graph_tool` returns.
 - Use `architecture_analysis_tool(mode="overview", detail_level="minimal")`
   before any architecture drill-down mode.
-- Target: answer architecture questions in <=5 tool calls unless a concrete
-  source verification step requires more.
+- Target: answer architecture questions in ≤5 tool calls after ensure unless a
+  concrete source verification step requires more.

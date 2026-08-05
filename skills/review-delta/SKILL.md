@@ -14,9 +14,12 @@ Perform a focused, token-efficient code review of only the changed code and its 
 
 1. **Orient first** by calling `get_minimal_context_tool(task="<review goal>")`.
 
-2. **Ensure the graph is current**: if `graph_health` is empty, call
-   `ensure_graph_tool()`; otherwise call `ensure_graph_tool(force=True)` for a
-   safe incremental refresh (no embeddings).
+2. **Refresh only when needed**:
+   - If `graph_health.status` is `empty`, call `ensure_graph_tool()`.
+   - If the working tree looks newer than the graph (hooks skipped, untracked
+     files needed, or results look stale), call `ensure_graph_tool(force=True)`.
+   - Otherwise skip ensure and go straight to review — hooks/`dagayn update`
+     usually keep a healthy graph current.
 
 3. **Get risk and review priorities** by calling `review_tool(mode="changes")`.
    Read `analysis_summary` first. It returns:
@@ -79,6 +82,11 @@ Perform a focused, token-efficient code review of only the changed code and its 
   change the review outcome.
 - Prefer recommended tests first; use `query_graph_tool(pattern="tests_for")`
   only for uncertain coverage.
+- Do not call `ensure_graph_tool(force=True)` on every review when
+  `graph_health` is already healthy.
+- When documentation candidates appear, either update them (see review-changes
+  **Docs update after code change**) or list them as explicit deferrals — do not
+  silently ignore authored contract links.
 
 ## Evidence Rules
 
@@ -94,9 +102,8 @@ Perform a focused, token-efficient code review of only the changed code and its 
 
 ## CLI Fallback
 
-Use MCP tools first. If the current MCP server profile does not expose a review
-drill-down tool, run the same implementation through the CLI without restarting
-the agent:
+Default MCP already exposes `review_tool` and `query_graph_tool`. Use
+`dagayn tool` when the server allow-list omitted them:
 
 ```bash
 dagayn tool review_tool --arg mode='"changes"' --arg detail_level='"minimal"'

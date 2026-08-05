@@ -34,8 +34,30 @@ hooks, instruction injection, or embedding mode selection.
    - Markdown/code traceability guidance: installed writing/review/explore
      skills should mention `docs_for`, `implementations_of`, and `dagayn:`
      documentation directives.
-5. Run `dagayn status` or `list_graph_stats_tool` in a target repo. If the graph
-   is missing, run `ensure_graph_tool()`.
+5. Run `dagayn status` or `get_minimal_context_tool` in a target repo. If the
+   graph is missing / `graph_health` is empty, run `ensure_graph_tool()`. Use
+   `list_graph_stats_tool` only when the advanced surface is available.
+6. For worktree / parallel-agent hosts, verify bootstrap wiring in the **main**
+   checkout (see the Worktree section below, or the `worktree-sync` skill).
+
+## Worktree bootstrap
+
+`dagayn install` should leave the main checkout ready for linked worktrees:
+
+- `.worktreeinclude` — managed block listing gitignored MCP paths such as
+  `.cursor/mcp.json` (Claude Code copies matches into new worktrees; commit it)
+- `.cursor/worktrees.json` — contains `dagayn worktree sync` (Cursor runs it in
+  each parallel-agent worktree)
+
+When an agent is already inside a worktree:
+
+```bash
+dagayn worktree info
+dagayn worktree sync
+```
+
+Then `get_minimal_context_tool`. Prefer sync over a full rebuild when the main
+checkout already has a healthy graph. Details: the `worktree-sync` skill.
 
 ## Repo-Local Files
 

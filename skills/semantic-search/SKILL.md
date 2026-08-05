@@ -20,10 +20,14 @@ the selected embedding mode so agents can avoid stale or wasteful search advice.
 
 <!-- derived-from ../../docs/ARCHITECTURE.md#hybrid-search -->
 
-1. Start with graph freshness:
+1. Start with graph freshness via the default MCP surface:
    ```bash
-   dagayn tool list_graph_stats_tool
+   dagayn tool get_minimal_context_tool --arg 'task="semantic search setup"'
+   dagayn tool ensure_graph_tool
    ```
+   If `graph_health.status` is already healthy, skip ensure. Use
+   `list_graph_stats_tool` only when the advanced surface is available and you
+   need detailed counts.
 2. Run the intended search and read `search_mode` / per-result `source`:
    ```bash
    dagayn tool semantic_search_nodes_tool --arg query='"auth handler"' --arg detail_level='"minimal"'
@@ -51,13 +55,15 @@ the selected embedding mode so agents can avoid stale or wasteful search advice.
      neighborhood after the start node is clear.
    - If the search result has a `next_action`, follow it before widening the
      query.
-4. If embeddings are missing or stale, build them through the graph tools:
+4. If embeddings are missing or stale, build them through maintenance tools
+   (`dagayn serve --tools all` or `dagayn tool`):
    - Incremental local refresh: `build_or_update_graph_tool(local_embedding="bge-m3")`
    - Dedicated embedding pass: `embed_graph_tool`
    - Full local refresh: `build_or_update_graph_tool(full_rebuild=True, local_embedding="bge-m3")` only when explicitly doing embedding-quality or end-to-end maintenance work.
    Before any embedding-enabled full rebuild, state the reason and get explicit
    confirmation from the user; do not use it for parser, flow, documentation, or
-   ordinary implementation verification.
+   ordinary implementation verification. Do not use `ensure_graph_tool` for
+   embedding refresh — it always sets `local_embedding="none"`.
 5. For CLI fallback:
    ```bash
    dagayn build --local-embedding
