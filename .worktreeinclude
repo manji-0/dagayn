@@ -3,4 +3,6 @@
 # MCP server and skills. Managed by 'dagayn install'.
 .claude/skills/**
 .cursor/mcp.json
+.qoder/mcp.json
+.qoder/skills/**
 # <<< dagayn worktree include
