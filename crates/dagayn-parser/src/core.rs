@@ -71,6 +71,8 @@ mod solidity;
 mod swift;
 #[path = "terraform.rs"]
 mod terraform;
+#[path = "terraform_bridges.rs"]
+mod terraform_bridges;
 #[path = "terraform_collect.rs"]
 mod terraform_collect;
 #[path = "types.rs"]

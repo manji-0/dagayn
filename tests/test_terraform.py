@@ -1,10 +1,6 @@
 from pathlib import Path
 
-import pytest
-
 from dagayn.parser import CodeParser
-
-pytest.importorskip("tree_sitter")
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -52,3 +48,103 @@ class TestTerraformParsing:
         assert any(target.endswith("::module.network") for target in targets)
         assert any(target.endswith("::data.aws_caller_identity.current") for target in targets)
         assert any(target.endswith("::resource.aws_vpc.main") for target in targets)
+
+
+class TestTerraformCodeBridges:
+    """CROSS_ARTIFACT bridges from Terraform resources to application code."""
+
+    def setup_method(self):
+        self.parser = CodeParser()
+
+    def _cross_artifact(self, edges):
+        return [e for e in edges if e.kind == "CROSS_ARTIFACT"]
+
+    def test_aws_lambda_filename_and_handler_bridges(self):
+        _, edges = self.parser.parse_bytes(
+            Path("infra/main.tf"),
+            b"""
+resource "aws_lambda_function" "auth" {
+  filename = "${path.module}/../app/hello.py"
+  handler  = "hello.main"
+  runtime  = "python3.12"
+  role     = "arn:aws:iam::123456789012:role/lambda"
+}
+""",
+        )
+        ca = self._cross_artifact(edges)
+        filename = next(
+            e
+            for e in ca
+            if e.extra.get("evidence_source") == "filename"
+            and e.extra.get("relationship_role") == "maps_entrypoint"
+        )
+        assert filename.source == "infra/main.tf::resource.aws_lambda_function.auth"
+        assert filename.target == "app/hello.py"
+        assert filename.extra["confidence_tier"] == "HIGH"
+        assert filename.extra["bridge_kind"] == "manifest_link"
+        assert filename.extra["source_language"] == "terraform"
+        assert filename.extra["target_language"] == "python"
+
+        handler = next(e for e in ca if e.extra.get("evidence_source") == "handler")
+        assert handler.target == "<unresolved:hello.main>"
+        assert handler.extra["original_symbol_name"] == "hello.main"
+        assert handler.extra["confidence_tier"] == "HIGH"
+        assert handler.extra["relationship_role"] == "maps_entrypoint"
+
+    def test_gcp_source_directory_and_entry_point_bridges(self):
+        _, edges = self.parser.parse_bytes(
+            Path("infra/main.tf"),
+            b"""
+resource "google_cloudfunctions_function" "api" {
+  name                = "api"
+  runtime             = "python312"
+  entry_point         = "serve"
+  source_directory    = "${path.module}/../app"
+  available_memory_mb = 128
+  trigger_http        = true
+}
+""",
+        )
+        ca = self._cross_artifact(edges)
+        source_dir = next(e for e in ca if e.extra.get("evidence_source") == "source_directory")
+        assert source_dir.target == "app"
+        assert source_dir.extra["relationship_role"] == "maps_entrypoint"
+        assert source_dir.extra["confidence_tier"] == "HIGH"
+
+        entry = next(e for e in ca if e.extra.get("evidence_source") == "entry_point")
+        assert entry.target == "<unresolved:serve>"
+        assert entry.extra["original_symbol_name"] == "serve"
+
+    def test_local_exec_and_archive_file_path_bridges(self):
+        _, edges = self.parser.parse_file(
+            FIXTURES / "terraform_cross_artifact" / "infra" / "main.tf"
+        )
+        ca = self._cross_artifact(edges)
+
+        local_exec = next(
+            e for e in ca if e.extra.get("evidence_source") == "provisioner.local-exec.command"
+        )
+        assert local_exec.extra["relationship_role"] == "invokes_binary"
+        assert local_exec.extra["bridge_kind"] == "subprocess"
+        assert local_exec.target.endswith("scripts/bootstrap.py")
+        assert local_exec.extra["confidence_tier"] == "HIGH"
+
+        archive = next(e for e in ca if e.extra.get("evidence_source") == "source_dir")
+        assert archive.source.endswith("::data.archive_file.hello_zip")
+        assert archive.target.endswith("app")
+
+    def test_rejects_remote_uri_filename(self):
+        _, edges = self.parser.parse_bytes(
+            Path("infra/main.tf"),
+            b"""
+resource "aws_lambda_function" "remote" {
+  filename = "s3://bucket/key.zip"
+  handler  = "index.handler"
+  runtime  = "nodejs18.x"
+  role     = "arn:aws:iam::123456789012:role/lambda"
+}
+""",
+        )
+        ca = self._cross_artifact(edges)
+        assert not any(e.extra.get("evidence_source") == "filename" for e in ca)
+        assert any(e.extra.get("evidence_source") == "handler" for e in ca)
