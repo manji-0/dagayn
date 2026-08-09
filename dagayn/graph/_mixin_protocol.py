@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 class GraphStoreMixinProtocol(Protocol):
     _conn: sqlite3.Connection
+    _repo_root_cache: Any
 
     def _normalize_file_path_key(self, file_path: str | Path) -> str: ...
 
@@ -49,9 +50,9 @@ class GraphStoreMixinProtocol(Protocol):
 
     def _batch_get_nodes(self, qualified_names: set[str]) -> list[GraphNode]: ...
 
-    def remove_file_data(self, file_path: str) -> None: ...
+    def remove_file_data(self, file_path: str, *, invalidate: bool = True) -> None: ...
 
-    def remove_files_data(self, file_paths: list[str]) -> None: ...
+    def remove_files_data(self, file_paths: list[str], *, invalidate: bool = True) -> None: ...
 
     def _bulk_insert_nodes(
         self,

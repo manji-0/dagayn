@@ -92,6 +92,10 @@ class GraphStore(
         migrations.run_migrations(self._conn)
         self._nxg_cache: nx.DiGraph | None = None
         self._cache_lock = threading.Lock()
+        # Cached ``repo_root`` metadata — avoids one SELECT per path
+        # normalization during batch deletes (see ``remove_files_data``).
+        # ``False`` means unset; ``None`` means metadata has no repo_root.
+        self._repo_root_cache: Optional[Path] | bool = False
         # When *True*, :meth:`close` becomes a no-op so that the
         # process-level store cache in ``dagayn.tools._common`` can
         # keep the underlying ``sqlite3.Connection`` alive across
@@ -138,8 +142,13 @@ class GraphStore(
         self._conn.close()
 
     def get_repo_root(self) -> Optional[Path]:
+        cached = self._repo_root_cache
+        if cached is not False:
+            return cached  # type: ignore[return-value]
         raw = self.get_metadata("repo_root")
-        return Path(raw) if raw else None
+        resolved = Path(raw) if raw else None
+        self._repo_root_cache = resolved
+        return resolved
 
     def resolve_file_path(self, file_path: str | Path) -> Path:
         path = Path(file_path)

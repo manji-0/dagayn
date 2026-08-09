@@ -6,6 +6,7 @@ use super::documentation_directives::{
     extract_line_comment_dagayn_directives, nearest_documentation_source,
     push_documentation_directive_edge,
 };
+use super::terraform_bridges::extract_terraform_code_bridges;
 use super::terraform_collect::{
     collect_terraform_blocks, collect_terraform_reference_targets, strip_tf_string,
     terraform_attrs, terraform_provider_sources, TerraformAttr, TerraformBlock, TERRAFORM_CALL_RE,
@@ -147,6 +148,7 @@ pub(super) fn parse_terraform_with_parser(
     }
 
     extract_terraform_documentation_directives(file_path, &text, &nodes, &mut edges);
+    extract_terraform_code_bridges(file_path, &blocks, &mut edges);
 
     (nodes, dedupe_edges(edges))
 }

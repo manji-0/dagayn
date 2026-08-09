@@ -1204,6 +1204,10 @@ fn resolves_markdown_artifact_refs() {
         line: 5,
         extra: json!({
             "relationship_role": "describes_symbol",
+            "bridge_kind": "documentation",
+            "evidence_kind": "markdown_code_span",
+            "evidence_source": "code_span",
+            "source_language": "markdown",
             "target_language": "unknown",
             "confidence": 0.2,
             "confidence_tier": "LOW",
@@ -1301,6 +1305,69 @@ fn prunes_unresolved_markdown_code_span_refs() {
         )
         .unwrap();
     assert_eq!(count, 0);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn markdown_resolver_skips_terraform_handler_bridges() {
+    let path = temp_db("markdown-skip-terraform-handler");
+    let mut store = GraphStore::open(&path).expect("open graph store");
+    let decoy = NodeInput {
+        kind: "Class".to_string(),
+        name: "hello.main".to_string(),
+        file_path: "app/decoy.py".to_string(),
+        line_start: 1,
+        line_end: 10,
+        language: "python".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: Value::Object(Default::default()),
+    };
+    let edge = EdgeInput {
+        kind: "CROSS_ARTIFACT".to_string(),
+        source: "infra/main.tf::resource.aws_lambda_function.auth".to_string(),
+        target: "<unresolved:hello.main>".to_string(),
+        file_path: "infra/main.tf".to_string(),
+        line: 4,
+        extra: json!({
+            "relationship_role": "maps_entrypoint",
+            "bridge_kind": "manifest_link",
+            "evidence_kind": "config",
+            "evidence_source": "handler",
+            "source_language": "terraform",
+            "target_language": "unknown",
+            "confidence": 0.8,
+            "confidence_tier": "HIGH",
+            "original_symbol_name": "hello.main",
+        }),
+    };
+
+    store
+        .store_file_batch(&[(
+            "infra/main.tf".to_string(),
+            vec![decoy],
+            vec![edge],
+            "hash".to_string(),
+            0,
+        )])
+        .unwrap();
+
+    assert_eq!(
+        store.resolve_markdown_artifact_refs().unwrap(),
+        (0, 0, 0, 0)
+    );
+    let row = store
+        .conn
+        .query_row(
+            "SELECT target_qualified FROM edges WHERE kind = 'CROSS_ARTIFACT'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap();
+    assert_eq!(row, "<unresolved:hello.main>");
     let _ = std::fs::remove_file(path);
 }
 

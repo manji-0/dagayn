@@ -404,12 +404,15 @@ llama-server endpoint. No Python ML stack or PyTorch dependency is required.
 ## Documentation map
 
 - `docs/USAGE.md` — installation and day-to-day workflows
+- `docs/RECIPES.md` — copy-paste recipes for watch, registry/daemon, and embeddings
 - `docs/COMMANDS.md` — CLI, MCP tools, prompts, and exported artifacts
 - `docs/FEATURES.md` — what the fork emphasizes and where it differs
 - `docs/ARCHITECTURE.md` — parser, storage, and post-processing pipeline
 - `docs/SCHEMA.md` — node, edge, and metadata model
 - `docs/EVALUATION-SEMANTICS.md` — metric roles, profile summaries, gates,
   costs, and semantic report outputs
+- `docs/LOCAL-EMBEDDINGS.md` — managed sidecar and local embedding setup
+- `docs/DAEMON-CONFIG.md` — registry and watch daemon file formats
 - `docs/TROUBLESHOOTING.md` — practical fixes
 - `docs/LLM-OPTIMIZED-REFERENCE.md` — machine-oriented reference sections
 

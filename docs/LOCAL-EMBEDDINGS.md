@@ -1,8 +1,11 @@
 # Local Embeddings
 
 <!-- constrained-by ./COMMANDS.md -->
+<!-- constrained-by ./RECIPES.md#optional-embedding-providers -->
 
-This document describes dagayn's local embedding paths. A bare
+This document describes dagayn's local embedding paths. Short copy-paste
+recipes (including failure modes) are in
+[RECIPES.md](./RECIPES.md#optional-embedding-providers). A bare
 `--local-embedding` on `build`, `update`, or `serve` uses the measured default:
 BGE-M3 as a managed llama.cpp GGUF sidecar with the `material` text mode. This
 keeps Apple Metal execution inside `llama-server` instead of PyTorch MPS, whose

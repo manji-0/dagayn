@@ -20,6 +20,14 @@ All notable changes to `dagayn` are documented here.
   numpy-vs-Python microbenchmark coverage for embedding search.
 - Extend `tools/embedding_search_benchmark.py` with `--compare-numpy`.
 
+### Performance
+
+- Finish write-side batch upserts (#15): `upsert_edge` uses `UPDATE`/`INSERT`
+  `RETURNING id` (no `SELECT id`); community member assignment uses a temp-table
+  `UPDATE … FROM` join; cache `repo_root` during path normalization; avoid
+  double cache invalidation inside `store_file_batch`; document §4.4 as shipped
+  with statement-count regression tests.
+
 ## 4.7.0 — 2026-08-10
 
 ### Features
