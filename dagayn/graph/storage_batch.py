@@ -87,7 +87,7 @@ class GraphStoreStorageBatchMixin(GraphStoreMixinProtocol):
             [edge_insert_values(e, now) for e in edges],
         )
 
-    def remove_files_data(self, file_paths: list[str]) -> None:
+    def remove_files_data(self, file_paths: list[str], *, invalidate: bool = True) -> None:
         """Remove graph data for multiple files in one store operation."""
         keys: list[str] = []
         seen: set[str] = set()
@@ -109,7 +109,8 @@ class GraphStoreStorageBatchMixin(GraphStoreMixinProtocol):
                 f"DELETE FROM edges WHERE file_path IN ({placeholders})",
                 chunk,
             )
-        self._invalidate_cache()
+        if invalidate:
+            self._invalidate_cache()
 
     def store_file_nodes_edges(
         self,
@@ -125,7 +126,7 @@ class GraphStoreStorageBatchMixin(GraphStoreMixinProtocol):
             self._conn.rollback()
         self._conn.execute("BEGIN IMMEDIATE")
         try:
-            self.remove_file_data(file_path)
+            self.remove_file_data(file_path, invalidate=False)
             self._bulk_insert_nodes(nodes, fhash, mtime_ns)
             self._bulk_insert_edges(edges)
             self._conn.commit()
@@ -159,7 +160,7 @@ class GraphStoreStorageBatchMixin(GraphStoreMixinProtocol):
                 file_paths.append(file_path)
                 all_nodes.extend((node, fhash, mtime_ns) for node in nodes)
                 all_edges.extend(edges)
-            self.remove_files_data(file_paths)
+            self.remove_files_data(file_paths, invalidate=False)
             self._bulk_insert_nodes_with_meta(all_nodes)
             self._bulk_insert_edges(all_edges)
             self._conn.commit()
