@@ -4,6 +4,13 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Features
+
+- Phase 3 cross-artifact Layer-2 bridges: parse maturin/PyO3 `pyproject.toml`
+  and OpenAPI Generator manifests to emit `CROSS_ARTIFACT` edges
+  (`builds_artifact`, `generates_code`, `binds_generated_client`) with
+  confidence/evidence metadata. Edges appear in normal `edges_by_kind` stats.
+
 ## 4.7.0 — 2026-08-10
 
 ### Features

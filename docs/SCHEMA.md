@@ -33,7 +33,7 @@ Edge kinds include:
 - `IMPLEMENTS`
 - `TESTED_BY`
 - `DEPENDS_ON`
-- `CROSS_ARTIFACT` — cross-boundary references between artifacts (cross-language process/FFI bridges, Markdown → code symbol references). Carries `bridge_kind`, `relationship_role`, `evidence_kind`, and `confidence_tier` in `extra`. Markdown code-span candidates carry `extra.original_symbol_name` while they are being resolved; post-processing keeps them only when they resolve uniquely to a non-Markdown symbol. Explicit `dagayn:` documentation directives may remain unresolved because they are author-declared dependencies.
+- `CROSS_ARTIFACT` — cross-boundary references between artifacts (cross-language process/FFI bridges, Markdown → code symbol references, manifest-backed native-extension / generated-client links). Carries `bridge_kind`, `relationship_role`, `evidence_kind`, and `confidence_tier` in `extra`. Markdown code-span candidates carry `extra.original_symbol_name` while they are being resolved; post-processing keeps them only when they resolve uniquely to a non-Markdown symbol. Explicit `dagayn:` documentation directives may remain unresolved because they are author-declared dependencies. Manifest bridges set `extra.extractor=manifest_bridges` and roles such as `builds_artifact`, `generates_code`, and `binds_generated_client`.
 
 `TESTED_BY` edges are directed from the covered production symbol to the test
 symbol that exercises it. For example, `src/auth.py::login -> tests/test_auth.py::test_login`.

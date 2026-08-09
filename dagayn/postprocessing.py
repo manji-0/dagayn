@@ -1,13 +1,15 @@
 """Shared post-build processing pipeline.
 
-After the core Tree-sitter parse (full_build or incremental_update), four
-post-processing steps must run to populate derived tables:
+After the core Tree-sitter parse (full_build or incremental_update), post-
+processing steps must run to populate derived tables and resolve bridges:
 
 1. Compute node signatures
 2. Rebuild FTS5 search index
-3. Trace execution flows
-4. Detect code communities
-5. Persist hub / bridge centrality scores
+3. Resolve Markdown → code CROSS_ARTIFACT candidates
+4. Extract Layer-2 manifest-backed CROSS_ARTIFACT bridges
+5. Trace execution flows
+6. Detect code communities
+7. Persist hub / bridge centrality scores
 
 This module extracts that pipeline so every entry point — MCP tool, CLI
 commands, and watch mode — produces identical results.
@@ -50,6 +52,7 @@ def run_post_processing(store: GraphStore) -> dict[str, Any]:
     _compute_signatures(store, result, warnings)
     _rebuild_fts_index(store, result, warnings)
     _resolve_markdown_artifact_refs(store, result, warnings)
+    _apply_manifest_bridges(store, result, warnings)
     _trace_flows(store, result, warnings)
     _detect_communities(store, result, warnings)
     _persist_centrality_scores(store, result, warnings)
@@ -290,6 +293,56 @@ def _resolve_markdown_artifact_refs(
     except (sqlite3.OperationalError, RuntimeError) as e:
         logger.warning("Markdown artifact ref resolution failed: %s", e)
         warnings.append(f"Markdown artifact ref resolution failed: {type(e).__name__}: {e}")
+
+
+def _apply_manifest_bridges(
+    store: GraphStore,
+    result: dict[str, Any],
+    warnings: list[str],
+) -> None:
+    """Idempotently extract Layer-2 manifest-backed CROSS_ARTIFACT bridges.
+
+    Removes previous edges/nodes stamped with ``extractor=manifest_bridges``,
+    then re-scans the repository root for maturin/PyO3 and OpenAPI generator
+    manifests.  Edges land in the normal ``edges`` table so ``edges_by_kind``
+    and ``query_graph`` see them without special tooling.
+    """
+    try:
+        from .parser.manifest_bridges import (
+            EXTRACTOR_ID,
+            discover_manifest_bridges,
+            refine_node_line_ends,
+        )
+
+        repo_root = store.get_repo_root()
+        if repo_root is None or not repo_root.is_dir():
+            result["manifest_bridges_edges"] = 0
+            result["manifest_bridges_nodes"] = 0
+            return
+
+        # Drop prior extractor output so the step is idempotent across rebuilds.
+        store._conn.execute(
+            "DELETE FROM edges WHERE kind='CROSS_ARTIFACT' AND extra LIKE ?",
+            (f'%"extractor": "{EXTRACTOR_ID}"%',),
+        )
+        store._conn.execute(
+            "DELETE FROM nodes WHERE kind='File' AND extra LIKE ?",
+            (f'%"extractor": "{EXTRACTOR_ID}"%',),
+        )
+
+        discovered = discover_manifest_bridges(repo_root)
+        refine_node_line_ends(repo_root, discovered.nodes)
+        for node in discovered.nodes:
+            store.upsert_node(node)
+        for edge in discovered.edges:
+            store.upsert_edge(edge)
+        store.commit()
+
+        result["manifest_bridges_edges"] = discovered.edge_count
+        result["manifest_bridges_nodes"] = len(discovered.nodes)
+    except (sqlite3.OperationalError, OSError, RuntimeError, TypeError, ValueError) as e:
+        logger.warning("Manifest bridge extraction failed: %s", e)
+        warnings.append(f"Manifest bridge extraction failed: {type(e).__name__}: {e}")
 
 
 def _compute_signatures(
