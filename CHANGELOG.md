@@ -4,6 +4,8 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+## 4.7.0 — 2026-08-10
+
 ### Features
 
 - Add `dagayn session prepare` to guarantee a usable+synced graph at session
