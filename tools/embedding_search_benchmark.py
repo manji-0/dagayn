@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Micro-benchmark for the native Rust embedding search path."""
+"""Micro-benchmark for embedding search backends (Rust / numpy / pure-Python)."""
 
 from __future__ import annotations
 
@@ -65,6 +65,16 @@ def _build_db(db_path: Path, rows: int, dim: int, provider: str) -> None:
         conn.close()
 
 
+def _summarize(backend: str, times: list[float], loaded_rows: int) -> dict[str, Any]:
+    return {
+        "backend": backend,
+        "loaded_rows": loaded_rows,
+        "mean_ms": statistics.mean(times) * 1000,
+        "best_ms": min(times) * 1000,
+        "std_ms": (statistics.stdev(times) * 1000) if len(times) > 1 else 0.0,
+    }
+
+
 def _benchmark_native(
     db_path: Path, provider: str, query: list[float], limit: int, iterations: int, warmup: int
 ) -> dict[str, Any]:
@@ -83,18 +93,13 @@ def _benchmark_native(
         times.append(elapsed)
         assert len(result) == limit, f"expected {limit} results, got {len(result)}"
 
-    return {
-        "backend": "native-rust",
-        "loaded_rows": loaded,
-        "mean_ms": statistics.mean(times) * 1000,
-        "best_ms": min(times) * 1000,
-        "std_ms": (statistics.stdev(times) * 1000) if len(times) > 1 else 0.0,
-    }
+    return _summarize("native-rust", times, loaded)
 
 
 def _benchmark_python(
     db_path: Path, provider: str, query: list[float], limit: int, iterations: int, warmup: int
 ) -> dict[str, Any]:
+    """Full pure-Python cosine scan (decode + score + sort) each iteration."""
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     try:
         rows = conn.execute(
@@ -104,33 +109,83 @@ def _benchmark_python(
     finally:
         conn.close()
 
+    decoded = [(qn, _decode_vector(blob)) for qn, blob in rows]
     query_norm = math.sqrt(sum(v * v for v in query))
-    scored_template = []
-    for qn, blob in rows:
-        vec = _decode_vector(blob)
-        dot = sum(a * b for a, b in zip(query, vec))
-        scored_template.append((qn, dot / query_norm))
+
+    def _run() -> list[tuple[str, float]]:
+        scored = []
+        for qn, vec in decoded:
+            dot = sum(a * b for a, b in zip(query, vec))
+            scored.append((qn, dot / query_norm))
+        scored.sort(key=lambda x: x[1], reverse=True)
+        return scored[:limit]
 
     for _ in range(warmup):
-        scored = sorted(scored_template, key=lambda x: x[1], reverse=True)
-        _ = scored[:limit]
+        _run()
 
     times: list[float] = []
     for _ in range(iterations):
         start = time.perf_counter()
-        scored = sorted(scored_template, key=lambda x: x[1], reverse=True)
-        result = scored[:limit]
+        result = _run()
         elapsed = time.perf_counter() - start
         times.append(elapsed)
         assert len(result) == limit
 
-    return {
-        "backend": "pure-python",
-        "loaded_rows": len(rows),
-        "mean_ms": statistics.mean(times) * 1000,
-        "best_ms": min(times) * 1000,
-        "std_ms": (statistics.stdev(times) * 1000) if len(times) > 1 else 0.0,
-    }
+    return _summarize("pure-python", times, len(rows))
+
+
+def _benchmark_numpy(
+    db_path: Path, provider: str, query: list[float], limit: int, iterations: int, warmup: int
+) -> dict[str, Any] | None:
+    try:
+        import numpy as np
+    except ImportError:
+        return None
+
+    from dagayn.embeddings_store import _load_vec_matrix, _np_vec_cache
+
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    try:
+        matrix, names, row_norms = _load_vec_matrix(conn, provider)
+    finally:
+        conn.close()
+
+    if not names:
+        return None
+
+    # Seed the process cache the same way EmbeddingStore.search does.
+    _np_vec_cache.clear()
+    stamp = int(db_path.stat().st_mtime_ns)
+    _np_vec_cache[(str(db_path), provider, stamp)] = (matrix, names, row_norms)
+
+    q = np.array(query, dtype=np.float32)
+    q = q / float(np.linalg.norm(q))
+    safe_norms = np.where(row_norms > 0, row_norms, 1.0)
+
+    def _run() -> list[tuple[str, float]]:
+        sims = (matrix @ q / safe_norms).astype(np.float32)
+        k = min(limit, len(names))
+        if k == len(names):
+            top_idx = np.argsort(-sims)
+        else:
+            # argpartition kth is 0-based: k-1 places the k-th largest on the boundary.
+            top_idx = np.argpartition(-sims, k - 1)[:k]
+            top_idx = top_idx[np.argsort(-sims[top_idx])]
+        return [(names[int(i)], float(sims[i])) for i in top_idx]
+
+    for _ in range(warmup):
+        _run()
+
+    times: list[float] = []
+    for _ in range(iterations):
+        start = time.perf_counter()
+        result = _run()
+        elapsed = time.perf_counter() - start
+        times.append(elapsed)
+        assert len(result) == limit
+
+    return _summarize("numpy-matmul", times, len(names))
 
 
 def main() -> None:
@@ -142,6 +197,11 @@ def main() -> None:
     parser.add_argument("--warmup", type=int, default=3)
     parser.add_argument("--db", type=Path, default=None)
     parser.add_argument("--compare-python", action="store_true")
+    parser.add_argument(
+        "--compare-numpy",
+        action="store_true",
+        help="Also time the optional numpy BLAS matmul path (requires numpy).",
+    )
     args = parser.parse_args()
 
     db_path = args.db or Path(tempfile.mkdtemp(prefix="dagayn-embed-bench-")) / "graph.db"
@@ -157,6 +217,18 @@ def main() -> None:
 
     native = _benchmark_native(db_path, provider, query, args.limit, args.iterations, args.warmup)
     results.append(native)
+
+    if args.compare_numpy:
+        numpy_result = _benchmark_numpy(
+            db_path, provider, query, args.limit, args.iterations, args.warmup
+        )
+        if numpy_result is None:
+            print(
+                "\nnumpy unavailable — skip --compare-numpy "
+                "(install with: pip install 'dagayn[numpy]')"
+            )
+        else:
+            results.append(numpy_result)
 
     if args.compare_python:
         py = _benchmark_python(db_path, provider, query, args.limit, args.iterations, args.warmup)
@@ -181,9 +253,13 @@ def main() -> None:
             f"per-row={per_row_ns:.2f} ns"
         )
 
-    if args.compare_python:
-        speedup = results[1]["mean_ms"] / results[0]["mean_ms"]
-        print(f"\nNative is {speedup:.2f}x faster than pure-Python (cached decode).")
+    by_name = {r["backend"]: r for r in results}
+    if "pure-python" in by_name and "native-rust" in by_name:
+        speedup = by_name["pure-python"]["mean_ms"] / by_name["native-rust"]["mean_ms"]
+        print(f"\nNative is {speedup:.2f}x faster than pure-Python (decode once, score each iter).")
+    if "pure-python" in by_name and "numpy-matmul" in by_name:
+        speedup = by_name["pure-python"]["mean_ms"] / by_name["numpy-matmul"]["mean_ms"]
+        print(f"numpy matmul is {speedup:.2f}x faster than pure-Python (cached matrix vs loop).")
 
 
 if __name__ == "__main__":

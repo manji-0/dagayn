@@ -49,6 +49,9 @@ dagayn = "dagayn.cli:main"
 dagayn-daemon = "dagayn.daemon_cli:main"
 
 [project.optional-dependencies]
+numpy = [
+    "numpy>=1.26,<3",
+]
 google-embeddings = [
     "google-generativeai>=0.8.0,<1",
 ]
@@ -66,12 +69,14 @@ all = [
     "dagayn[communities]",
     "dagayn[enrichment]",
     "dagayn[eval]",
+    "dagayn[numpy]",
     "dagayn[wiki]",
 ]
 enrichment = [
     "jedi>=0.19.2",
 ]
 dev = [
+    "numpy>=1.26,<3",
     "pytest>=8.0,<9",
     "pytest-asyncio>=0.23,<1",
     "pytest-cov>=4.0,<8",

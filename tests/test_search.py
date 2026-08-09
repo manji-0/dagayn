@@ -13,9 +13,11 @@ from dagayn.graph import _fts_tokenize as graph_fts_tokenize
 from dagayn.graph import search as graph_search
 from dagayn.parser import NodeInfo
 from dagayn.search import (
+    _emb_cache,
     _emb_failure_cache,
     _embedding_text_mode_for_intent,
     _extract_identifiers,
+    _get_cached_emb_store,
     _intent_boost,
     _qualified_name_matches,
     _query_rerank_intent,
@@ -512,6 +514,8 @@ class TestHybridSearch:
         monkeypatch.delenv("CRG_OPENAI_API_KEY", raising=False)
         monkeypatch.delenv("CRG_OPENAI_BASE_URL", raising=False)
         monkeypatch.delenv("CRG_OPENAI_MODEL", raising=False)
+        _emb_failure_cache.clear()
+        _emb_cache.clear()
         provider_name = "openai:qwen@http://127.0.0.1:18080/v1"
         node = self.store.get_node("auth.py::authenticate")
         assert node is not None
@@ -571,6 +575,7 @@ class TestHybridSearch:
         )
         self.store._conn.commit()
         _emb_failure_cache.clear()
+        _emb_cache.clear()
 
         with patch(
             "dagayn.embeddings.OpenAIEmbeddingProvider._call_api",
@@ -582,6 +587,8 @@ class TestHybridSearch:
         assert first["embedding_health"]["status"] == "search_failed"
         assert second["embedding_health"]["status"] == "search_failed_recent"
         assert call_api.call_count == 1
+        _emb_failure_cache.clear()
+        _emb_cache.clear()
 
     def test_mode_keyword_fallback(self):
         """Mode is 'keyword_fallback' when FTS table is absent."""
@@ -1139,3 +1146,38 @@ class TestIntentReranking:
         finally:
             store.close()
             Path(tmp.name).unlink(missing_ok=True)
+
+
+class TestCachedEmbeddingStore:
+    def test_get_cached_emb_store_reuses_instance(self, tmp_path, monkeypatch):
+        from dagayn.embeddings import EmbeddingStore
+
+        db = tmp_path / "graph.db"
+        # Touch an empty SQLite file so mtime is stable.
+        GraphStore(db).close()
+
+        class FakeProvider:
+            name = "fake"
+            preferred_batch_size = 1
+
+            def embed(self, texts):
+                return [[1.0, 0.0] for _ in texts]
+
+            def embed_query(self, text):
+                return [1.0, 0.0]
+
+            @property
+            def dimension(self):
+                return 2
+
+        _emb_cache.clear()
+        monkeypatch.setenv("DAGAYN_EMBEDDING_SEARCH_BACKEND", "python")
+
+        with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
+            first = _get_cached_emb_store(db, provider=None, model=None)
+            second = _get_cached_emb_store(db, provider=None, model=None)
+
+        assert first is not None
+        assert second is first
+        assert isinstance(first, EmbeddingStore)
+        assert len(_emb_cache) == 1
