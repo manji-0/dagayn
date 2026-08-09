@@ -2,6 +2,7 @@
 
 <!-- constrained-by ./USAGE.md -->
 <!-- constrained-by ./COMMANDS.md -->
+<!-- constrained-by ./RECIPES.md -->
 <!-- constrained-by ./ARCHITECTURE.md -->
 <!-- constrained-by ./SCHEMA.md -->
 <!-- constrained-by ./FEATURES.md -->
@@ -22,7 +23,9 @@ This directory documents the fork as `dagayn`.
 
 ## Operation
 
+- [RECIPES.md](./RECIPES.md) — copy-paste recipes for watch, registry/daemon, and optional embeddings
 - [DAEMON-CONFIG.md](./DAEMON-CONFIG.md) — registry and watch daemon file formats
+- [LOCAL-EMBEDDINGS.md](./LOCAL-EMBEDDINGS.md) — managed sidecar and local embedding setup
 - [GRAMMAR-PROVISIONING.md](./GRAMMAR-PROVISIONING.md) — pinned Tree-sitter grammar provisioning contract
 - [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) — common operational fixes
 - [LLM-OPTIMIZED-REFERENCE.md](./LLM-OPTIMIZED-REFERENCE.md) — machine-oriented reference sections for tool consumption

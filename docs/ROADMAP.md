@@ -1,6 +1,7 @@
 # Roadmap
 
 <!-- derived-from ./FEATURES.md -->
+<!-- derived-from ./RECIPES.md -->
 
 `dagayn` is being shaped around real-world repository analysis rather than benchmark-only feature growth.
 
@@ -17,5 +18,6 @@ Areas that still need work:
 
 - deeper cross-language resolution in some ecosystems
 - broader flow coverage outside the strongest language integrations
-- clearer optional-provider setup for embeddings
-- more user-facing examples for registry and daemon workflows
+
+Shipped docs recipes for single-repo watch, multi-repo registry/daemon, and
+optional embedding providers live in [RECIPES.md](./RECIPES.md).

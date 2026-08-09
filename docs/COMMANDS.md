@@ -374,6 +374,8 @@ their working directory set to `~/.cursor` rather than the project.
 - `dagayn repos`
 - `dagayn daemon ...`
 
+Copy-paste register → search and daemon recipes: [RECIPES.md](./RECIPES.md#multi-repo-registry--search).
+
 ## MCP tools
 
 <!-- constrained-by ./ARCHITECTURE.md#query-surfaces -->
