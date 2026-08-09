@@ -11,6 +11,9 @@ class GraphStoreStorageMetadataMixin(GraphStoreMixinProtocol):
             "INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)", (key, value)
         )
         self._conn.commit()
+        if key == "repo_root":
+            # Force get_repo_root() to re-read on next normalization.
+            self._repo_root_cache = False
 
     def get_metadata(self, key: str) -> Optional[str]:
         row = self._conn.execute("SELECT value FROM metadata WHERE key=?", (key,)).fetchone()

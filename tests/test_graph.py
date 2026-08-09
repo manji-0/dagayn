@@ -266,9 +266,9 @@ class TestGraphStore:
         original_nodes = self.store._bulk_insert_nodes_with_meta
         original_edges = self.store._bulk_insert_edges
 
-        def counting_remove(file_paths):
+        def counting_remove(file_paths, *, invalidate: bool = True):
             removed.append(list(file_paths))
-            return original_remove(file_paths)
+            return original_remove(file_paths, invalidate=invalidate)
 
         def counting_nodes(nodes):
             inserted_node_counts.append(len(nodes))
@@ -307,6 +307,152 @@ class TestGraphStore:
         assert self.store.get_node("/test/a.py") is None
         assert self.store.get_node("/test/b.py") is None
         assert self.store.get_node("/test/c.py") is not None
+
+    def test_upsert_edge_avoids_select_id_round_trip(self):
+        """upsert_edge should not issue SELECT … id lookups (RETURNING path)."""
+        selects: list[str] = []
+
+        def trace(sql: str) -> None:
+            normalized = sql.strip().lower()
+            if normalized.startswith("select"):
+                selects.append(sql)
+
+        edge = EdgeInfo(
+            kind="CALLS",
+            source="/test/file.py::func_a",
+            target="/test/file.py::func_b",
+            file_path="/test/file.py",
+            line=15,
+            extra={"confidence": 0.4, "confidence_tier": "low"},
+        )
+        conn = self.store._conn
+        conn.set_trace_callback(trace)
+        try:
+            edge_id = self.store.upsert_edge(edge)
+            updated_id = self.store.upsert_edge(
+                EdgeInfo(
+                    kind=edge.kind,
+                    source=edge.source,
+                    target=edge.target,
+                    file_path=edge.file_path,
+                    line=edge.line,
+                    extra={"confidence": 0.9, "confidence_tier": "exact"},
+                )
+            )
+        finally:
+            conn.set_trace_callback(None)
+
+        assert edge_id > 0
+        assert updated_id == edge_id
+        assert selects == [], f"unexpected SELECT during upsert_edge: {selects}"
+
+    def test_store_file_batch_reduces_write_statement_count(self):
+        """Mid-size fixture: store_file_batch must beat per-file upsert loops.
+
+        Counts Python-level ``execute`` / ``executemany`` calls (not SQLite
+        trace rows — ``executemany`` expands to one trace event per row).
+        Legacy path issues O(nodes+edges) executes per file; batch path uses
+        ``remove_files_data`` + two ``executemany`` inserts in one transaction.
+        """
+        file_count = 40
+        nodes_per_file = 5
+        edges_per_file = 4
+
+        def make_batch():
+            batch = []
+            for idx in range(file_count):
+                path = f"/bench/file_{idx}.py"
+                nodes = [self._make_file_node(path)]
+                edges = []
+                for n_idx in range(nodes_per_file - 1):
+                    name = f"func_{n_idx}"
+                    nodes.append(self._make_func_node(name=name, path=path))
+                    edges.append(
+                        EdgeInfo(
+                            kind="CONTAINS",
+                            source=path,
+                            target=f"{path}::{name}",
+                            file_path=path,
+                            line=10 + n_idx,
+                        )
+                    )
+                while len(edges) < edges_per_file and len(nodes) > 2:
+                    edges.append(
+                        EdgeInfo(
+                            kind="CALLS",
+                            source=f"{path}::func_0",
+                            target=f"{path}::func_1",
+                            file_path=path,
+                            line=50 + len(edges),
+                        )
+                    )
+                batch.append((path, nodes, edges, f"hash-{idx}", idx))
+            return batch
+
+        def count_db_calls(callback) -> dict[str, int]:
+            real_conn = self.store._conn
+            counts = {"execute": 0, "executemany": 0}
+
+            class _CountingConn:
+                def execute(self, *args, **kwargs):
+                    counts["execute"] += 1
+                    return real_conn.execute(*args, **kwargs)
+
+                def executemany(self, *args, **kwargs):
+                    counts["executemany"] += 1
+                    return real_conn.executemany(*args, **kwargs)
+
+                def __getattr__(self, name):
+                    return getattr(real_conn, name)
+
+            self.store._conn = _CountingConn()  # type: ignore[assignment]
+            try:
+                callback()
+            finally:
+                self.store._conn = real_conn
+            return counts
+
+        batch = make_batch()
+
+        def legacy_write() -> None:
+            self.store._conn.execute("BEGIN IMMEDIATE")
+            try:
+                for file_path, nodes, edges, fhash, mtime_ns in batch:
+                    self.store.remove_file_data(file_path)
+                    for node in nodes:
+                        self.store.upsert_node(node, file_hash=fhash, mtime_ns=mtime_ns)
+                    for edge in edges:
+                        self.store.upsert_edge(edge)
+                self.store._conn.commit()
+            except BaseException:
+                self.store._conn.rollback()
+                raise
+            self.store._invalidate_cache()
+
+        legacy = count_db_calls(legacy_write)
+        legacy_total = legacy["execute"] + legacy["executemany"]
+
+        self.store._conn.execute("DELETE FROM edges")
+        self.store._conn.execute("DELETE FROM nodes")
+        self.store._conn.commit()
+        batched = count_db_calls(lambda: self.store.store_file_batch(batch))
+        batch_total = batched["execute"] + batched["executemany"]
+
+        total_nodes = sum(len(item[1]) for item in batch)
+        total_edges = sum(len(item[2]) for item in batch)
+        assert self.store._conn.execute("SELECT COUNT(*) FROM nodes").fetchone()[0] == total_nodes
+        assert self.store._conn.execute("SELECT COUNT(*) FROM edges").fetchone()[0] == total_edges
+
+        # Mid-size fixture: 40 files × 5 nodes × 4 edges → legacy is hundreds of
+        # per-row executes; batch is a handful of DELETE/INSERT statements plus
+        # two executemany calls.
+        assert batch_total * 2 < legacy_total, (
+            f"expected store_file_batch DB calls ({batch_total}) to be "
+            f"materially below legacy upsert loop ({legacy_total}); "
+            f"legacy={legacy} batch={batched}"
+        )
+        assert batched["executemany"] >= 2, batched
+        assert batch_total < 20, f"store_file_batch issued unexpectedly many DB calls: {batched}"
 
     def test_store_after_remove_no_transaction_error(self):
         """Regression test for #135: store_file_nodes_edges after

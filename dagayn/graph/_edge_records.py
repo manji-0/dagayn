@@ -40,7 +40,7 @@ def edge_insert_values(edge: EdgeInfo, updated_at: float) -> tuple:
 
 
 def edge_update_values(edge: EdgeInfo, updated_at: float, edge_id: int) -> tuple:
-    """Return the SQLite values used by edge UPDATE statements."""
+    """Return the SQLite values used by id-keyed edge UPDATE statements."""
     extra, confidence, confidence_tier = edge_storage_metadata(edge)
     return (
         _edge_target_name(edge.target),
@@ -50,4 +50,24 @@ def edge_update_values(edge: EdgeInfo, updated_at: float, edge_id: int) -> tuple
         confidence_tier,
         updated_at,
         edge_id,
+    )
+
+
+def edge_identity_update_values(edge: EdgeInfo, updated_at: float) -> tuple:
+    """Return SET + WHERE values for identity-keyed UPDATE … RETURNING id.
+
+    Identity key: ``(kind, source_qualified, target_qualified, file_path, line)``.
+    """
+    extra, confidence, confidence_tier = edge_storage_metadata(edge)
+    return (
+        _edge_target_name(edge.target),
+        extra,
+        confidence,
+        confidence_tier,
+        updated_at,
+        edge.kind,
+        edge.source,
+        edge.target,
+        edge.file_path,
+        edge.line,
     )

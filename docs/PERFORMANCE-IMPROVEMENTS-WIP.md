@@ -5,7 +5,7 @@
 <!-- constrained-by ./RUST-CORE-MIGRATION-WIP.md -->
 <!-- constrained-by ./DAEMON-CONFIG.md -->
 
-> **Status:** Implementation in progress — multiple items shipped, others still tracked. Last updated 2026-04-30.
+> **Status:** Implementation in progress — multiple items shipped, others still tracked. Last updated 2026-08-09.
 >
 > **Related:** `RUST-CORE-MIGRATION-WIP.md`, `DAEMON-CONFIG.md`, `ROADMAP.md`
 
@@ -320,7 +320,8 @@ A scheduled GitHub Actions job could run `dagayn eval --benchmark latency` again
 
 ## 4. Additional findings (audit 2026-04-30)
 
-Items below were identified in a follow-up audit and are **not yet covered** by sections 1–3 above.
+Items below were identified in a follow-up audit. Several have since shipped
+(§4.1–§4.4); remaining open items are marked below.
 
 ### 4.1 PRAGMA tuning (quick win — shipped)
 
@@ -351,29 +352,41 @@ independently.
 `str(dict)` serialises the entire dict just to count characters.
 Replaced with `(len(qualified_name) + len(file) + len(name) + 30) // 4`.
 
-### 4.4 Write-side N+1 (not yet implemented)
+### 4.4 Write-side N+1 ✅ Shipped (issue #15)
 
-#### `upsert_node` / `upsert_edge` — per-row INSERT + SELECT
-- `graph/core.py:202-244` (node), `graph/core.py:255-287` (edge)
-- Each node causes INSERT/UPSERT + follow-up `SELECT id`. A 200-node file issues 400 statements.
-- Fix: `INSERT ... ON CONFLICT DO UPDATE ... RETURNING id` + `executemany`.
+> **Status:** Shipped. Build/update write paths are batched; single-row upserts
+> use `RETURNING id`. Last verified 2026-08-09.
 
-#### `store_file_batch` unused by build path
-- Defined at `graph/core.py:326-342`, but `full_build` and `incremental_update` call
-  `store_file_nodes_edges` per file instead, opening `BEGIN IMMEDIATE` and committing once per file.
-- Fix: group 50–100 files and pass them to `store_file_batch`.
+#### `upsert_node` / `upsert_edge` — `RETURNING id` + bulk inserts ✅
+- `upsert_node` (`graph/storage.py`): `INSERT … ON CONFLICT DO UPDATE … RETURNING id`
+  (no follow-up `SELECT id`).
+- `upsert_edge` (`graph/storage.py`): identity-keyed `UPDATE … RETURNING id`, else
+  `INSERT … RETURNING id` (no `SELECT id` round-trip).
+- Build hot path uses `_bulk_insert_nodes` / `_bulk_insert_edges` via
+  `executemany` after a file clear (not per-row upserts).
 
-#### `_clear_and_store_communities` per-community INSERT loop
-- `communities.py:703-738` — inserts one community at a time.
-- Fix: `executemany` + single `UPDATE nodes SET community_id` JOIN.
+#### `store_file_batch` used by build path ✅
+- `full_build` / `incremental_update` (`incremental_build.py`) buffer parsed
+  results and flush through `_flush_store_batch` → `store_file_batch` (or
+  Rust `store_file_batch_json`) in chunks of `DAGAYN_STORE_BATCH_SIZE`
+  (default **128**, within the planned 50–100+ range).
+- One `BEGIN IMMEDIATE` per chunk instead of per file.
 
-#### `flows.store_flows` / `incremental_trace_flows` INSERT loops
-- `flows.py:394-429`, `flows.py:463-556` — flow-by-flow INSERT/DELETE.
-- Fix: pre-allocate IDs + `executemany`, delete via `WHERE id IN (?,...)`.
+#### Community / flow stores ✅
+- `store_communities` (`communities.py`): `executemany` community INSERT, then
+  temp-table `UPDATE nodes … FROM _community_assign` (1 UPDATE for all members).
+- `store_flows` / `incremental_trace_flows` (`flows.py`): `executemany` INSERT and
+  `DELETE … WHERE id IN (?,…)` batches.
 
-#### `postprocessing._resolve_markdown_artifact_refs`
-- `postprocessing.py:83-117` — edge-by-edge SELECT + UPDATE/DELETE.
-- Fix: batch-load target symbols, bulk `executemany`.
+#### `postprocessing._resolve_markdown_artifact_refs` ✅
+- Batch-loads target symbols with `WHERE name IN (?,…)` (chunk 450), then
+  `executemany` UPDATE/DELETE for changed edges only.
+
+**Measurement (regression test `test_store_file_batch_reduces_write_statement_count`):**
+40 files × 5 nodes × 4 edges — counts Python-level `execute`/`executemany` calls
+(legacy per-row upsert loop vs `store_file_batch`). Observed on this fixture:
+**1324 → 7** DB calls (~189×). Batch path must stay under half the legacy call
+count and under 20 DB calls total.
 
 ### 4.5 Embedding search performance (not yet implemented)
 

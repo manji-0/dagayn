@@ -11,13 +11,14 @@
 > one important bridge family within this umbrella, but it is no longer the
 > only one. The edge kind has been renamed `CROSS_LANGUAGE` → `CROSS_ARTIFACT`.
 >
-> **Status:** Phase 1 (schema/storage) + Phase 2 Layer-1 extractors + Phase 3 Layer-2 manifest/codegen bridges are implemented for **four bridge families**:
+> **Status:** Phase 1 (schema/storage) + Phase 2 Layer-1 extractors + Phase 3 Layer-2 manifest/codegen bridges are implemented for **five bridge families**:
 > 1. Cross-language process/FFI bridges (multi-language, syntax-local)
 > 2. Markdown → code symbol references (doc-to-code, two-phase: parse + postprocess resolve)
 > 3. Explicit documentation bridge directives in Markdown, Python comments, and Terraform comments
-> 4. Manifest-backed native-extension and generated-client bridges (maturin/PyO3, OpenAPI Generator)
+> 4. Terraform → application code bridges (high-confidence path and entrypoint attributes)
+> 5. Manifest-backed native-extension and generated-client bridges (maturin/PyO3, OpenAPI Generator)
 >
-> The remaining phases (Terraform↔code and broader analysis integration) are still WIP.
+> The remaining phases (broader cloud-provider attribute coverage and broader analysis integration) are still WIP.
 >
 > **What is implemented:**
 >
@@ -32,14 +33,14 @@
 > | `r`          | `system`, `system2`, `.Call`, `.External`, `dyn.load`, `library.dynam` |
 > | `bash`       | deferred — every command is a process invocation; needs a distinct model |
 >
-> - `CROSS_ARTIFACT` edge kind with the full `extra` metadata contract — Rust language parsers (`crates/dagayn-parser`) emit Layer-1 bridges; `BridgePattern` remains the Python-side descriptor type in `dagayn/parser/_base/types.py`
-> - Tests covering Python, JavaScript, TypeScript, Java, and R (`TestCrossArtifactEdges` in `tests/test_parser.py`)
+> - `CROSS_ARTIFACT` edge kind with the full `extra` metadata contract — `BridgePattern` in `dagayn/parser/_base/types.py`; extractors live in the Rust language parsers (formerly documented as `dagayn/parser/bridges.py`)
+> - 26 tests covering Python, JavaScript, TypeScript, Java, and R (`TestCrossArtifactEdges` in `tests/test_parser.py`)
 > - Confidence `HIGH` (0.8) for string-literal targets, `LOW` (0.2) for dynamic expressions
 > - **Limitation:** only canonical dotted forms detected; aliased imports require dataflow resolution (deferred)
 >
 > ### Bridge family 2 — Markdown → code symbol references
 >
-> - Markdown parser scans inline backtick spans, filters by identifier-shape regex, emits `CROSS_ARTIFACT` edges with `relationship_role=describes_symbol`, `bridge_kind=documentation`, `evidence_kind=markdown_code_span`
+> - `_extract_markdown_code_spans` (`dagayn/parser/languages/markdown.py` / Rust `markdown.rs`) scans inline backtick spans, filters by identifier-shape regex, emits `CROSS_ARTIFACT` edges with `relationship_role=describes_symbol`, `bridge_kind=documentation`, `evidence_kind=markdown_code_span`
 > - Source = the deepest enclosing Markdown section (or File node when no section precedes the span)
 > - Parser phase emits unresolved candidates (`target=<unresolved:{name}>`, `confidence_tier=LOW`, `extra.original_symbol_name=<raw symbol>`)
 > - `_resolve_markdown_artifact_refs` (`dagayn/postprocessing.py`) runs on every postprocess call (full build and incremental alike). For each Markdown code-span CROSS_ARTIFACT edge carrying `original_symbol_name`, it consults the current nodes table and keeps the edge only when it resolves to a unique non-Markdown qualified name (confidence HIGH 0.8). Unmatched or ambiguous code-span candidates are deleted so general prose vocabulary does not enter graph data or analysis summaries as unresolved references.
@@ -53,7 +54,26 @@
 > - Supported roles include `implemented_by`, `implements_contract`, `explained_by`, `has_runbook`, `problem_described_by`, `discussed_by`, `discusses_artifact`, and `raises_issue_for`.
 > - `query_graph` exposes `docs_for` and `implementations_of` patterns so agents can follow inverse labels without materializing duplicate inverse edges.
 >
-> ### Bridge family 4 — Manifest-backed / generated-code bridges (Phase 3 / Layer 2)
+> ### Bridge family 4 — Terraform → application code
+>
+> <!-- derived-from #extraction-strategy -->
+>
+> High-confidence Layer-1/2 extractors in `crates/dagayn-parser/src/terraform_bridges.rs` (wired from `terraform.rs`):
+>
+> | Pattern | Evidence | Role / bridge_kind |
+> |---------|----------|--------------------|
+> | `provisioner "local-exec"` `command` with a concrete script/path token | `evidence_kind=syntax`, `evidence_source=provisioner.local-exec.command` | `invokes_binary` / `subprocess` |
+> | `filename` on Lambda/function-style resources (local path only; rejects `s3://` / `http(s)://` / `gs://`) | `evidence_kind=config`, `evidence_source=filename` | `maps_entrypoint` / `manifest_link` |
+> | `source_dir` / `source_file` / `source_directory` (e.g. `archive_file`, GCP Cloud Functions) | `evidence_kind=config` | `maps_entrypoint` / `manifest_link` |
+> | Explicit `handler` / `entry_point` attributes | `evidence_kind=config`; unresolved until postprocess | `maps_entrypoint` / `manifest_link` |
+>
+> - Paths normalize `${path.module}` / `${path.root}` relative to the `.tf` file; remaining interpolations are rejected (not high-confidence).
+> - `_resolve_terraform_artifact_refs` resolves `handler = "module.attr"` to a unique Function/Test whose file stem matches `module`.
+> - `query_graph` pattern `bridges_from` follows high-confidence infra→code `CROSS_ARTIFACT` edges (docs_for-style).
+> - Fixtures: `tests/fixtures/terraform_cross_artifact/`; tests in `tests/test_terraform.py`, `tests/test_postprocessing.py`, and Rust `extracts_terraform_code_bridges`.
+> - **Out of scope for this family:** full cloud-provider attribute matrices; Layer-3 naming-only heuristics.
+
+> ### Bridge family 5 — Manifest-backed / generated-code bridges (Phase 3 / Layer 2)
 >
 > - `_apply_manifest_bridges` (`dagayn/postprocessing.py`) + `dagayn/parser/manifest_bridges.py` scan the repo root on every postprocess call
 > - **Maturin / PyO3:** `[tool.maturin]` with explicit `manifest-path` → `pyproject.toml` → `Cargo.toml` edge (`relationship_role=builds_artifact`, `bridge_kind=extension_module`, `evidence_kind=manifest`, confidence `EXACT`). Default adjacent `Cargo.toml` without `manifest-path` is `HIGH` only when `[tool.maturin]` is present.
@@ -61,6 +81,7 @@
 > - Confidence tiers for this family: `EXACT` for explicit manifest fields/paths; `HIGH` for maturin default layout; Layer-3 naming-only heuristics are intentionally **not** emitted
 > - Fixtures under `tests/fixtures/cross_artifact_manifest/` (Python↔Rust maturin + OpenAPI schema→package→consumer + negative controls); tests in `tests/test_manifest_bridges.py`
 > - **Limitation:** does not invent bridges from package-name similarity alone; protobuf/`buf.gen.yaml` and setuptools-rust are deferred
+
 >
 > Edges surface automatically in graph stats (`edges_by_kind`) and `query_graph` without additional code.
 

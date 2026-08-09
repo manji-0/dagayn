@@ -61,6 +61,7 @@ When Codex is selected, `dagayn install` also writes global hooks to `~/.codex/h
 ## Build and refresh the graph
 
 <!-- constrained-by ./ARCHITECTURE.md#pipeline-overview -->
+<!-- constrained-by ./RECIPES.md#single-repo-watch--session-prepare -->
 
 ```bash
 dagayn build
@@ -70,6 +71,8 @@ dagayn status
 ```
 
 Use `build` the first time, `update` for change-driven refreshes, and `watch` during active development.
+See [RECIPES.md](./RECIPES.md#single-repo-watch--session-prepare) for session
+prepare and MCP serve variants.
 Use `dagayn build --force-full-build` (or `--force`) to delete the existing
 graph database and SQLite sidecar files before running a clean full parse.
 `dagayn status` also reports embedding coverage from the current graph database,
@@ -273,6 +276,7 @@ Notes:
 ## Multi-repo workflows
 
 <!-- constrained-by ./DAEMON-CONFIG.md -->
+<!-- constrained-by ./RECIPES.md -->
 
 ```bash
 dagayn register /path/to/repo --alias app
@@ -281,3 +285,5 @@ dagayn daemon start
 ```
 
 The registry is useful when you want cross-repo search or long-running watch management.
+Copy-paste recipes for single-repo watch, registry → search, optional embedding
+providers, and common failure modes are in [RECIPES.md](./RECIPES.md).

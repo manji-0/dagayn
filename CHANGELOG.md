@@ -20,6 +20,14 @@ All notable changes to `dagayn` are documented here.
 - Manifest-controlled paths reject `..` / out-of-root traversal before any
   filesystem join or read.
 
+### Performance
+
+- Finish write-side batch upserts (#15): `upsert_edge` uses `UPDATE`/`INSERT`
+  `RETURNING id` (no `SELECT id`); community member assignment uses a temp-table
+  `UPDATE … FROM` join; cache `repo_root` during path normalization; avoid
+  double cache invalidation inside `store_file_batch`; document §4.4 as shipped
+  with statement-count regression tests.
+
 ## 4.7.0 — 2026-08-10
 
 ### Features
