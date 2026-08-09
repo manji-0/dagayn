@@ -443,7 +443,10 @@ class TestCursorWorktreeSetup:
         assert install_cursor_worktree_setup(main_repo) == "unchanged"
 
         config = json.loads(config_path.read_text(encoding="utf-8"))
-        assert config["setup-worktree-unix"] == ["npm ci", "dagayn session prepare --budget-seconds 45"]
+        assert config["setup-worktree-unix"] == [
+            "npm ci",
+            "dagayn session prepare --budget-seconds 45",
+        ]
         # The generic key is left alone when an OS-specific key already exists.
         assert "setup-worktree" not in config
 

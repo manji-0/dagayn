@@ -67,12 +67,6 @@ from .docs import embed_graph, generate_wiki_func, get_docs_section, get_wiki_pa
 # -- ensure -----------------------------------------------------------------
 from .ensure import ensure_graph
 
-# -- session_prepare --------------------------------------------------------
-from .session_prepare import session_prepare
-
-# -- sync_status ------------------------------------------------------------
-from .sync_status import assess_graph_sync
-
 # -- flow_dispatcher --------------------------------------------------------
 from .flow_dispatcher import flow_func
 
@@ -107,6 +101,12 @@ from .review_flows import get_affected_flows_func
 
 # -- sap_tools --------------------------------------------------------------
 from .sap_tools import compute_sap_metrics_func, detect_sap_violations_func
+
+# -- session_prepare --------------------------------------------------------
+from .session_prepare import session_prepare
+
+# -- sync_status ------------------------------------------------------------
+from .sync_status import assess_graph_sync
 
 __all__ = [
     # _common

@@ -420,12 +420,8 @@ def get_minimal_context(
         response["why"] = guidance["why"]
         response["confidence"] = guidance["confidence"]
         response["graph_health"] = graph_health
-        response["sync"] = {
-            "status": sync.get("status"),
-            "repo_root": sync.get("repo_root"),
-            "git_head_sha": sync.get("git_head_sha"),
-            "current_head_sha": sync.get("current_head_sha"),
-        }
+        # Keep sync compact: status alone stays within the ~800-char budget.
+        response["sync"] = {"status": sync.get("status")}
         if prepare_result is not None:
             response["prepare"] = {
                 "status": prepare_result.get("status"),
@@ -463,14 +459,8 @@ def get_minimal_context(
                 hints["next_steps"] = next_steps[:3]
                 response["_hints"] = hints
         elif sync.get("status") in {"git_drift", "dirty_worktree"}:
-            response["recommended_action"] = (
-                "Call ensure_graph_tool (or dagayn session prepare) to sync the "
-                "graph with the current HEAD/worktree before analysis."
-            )
-            response["why"] = (
-                f"sync.status is {sync.get('status')}; structural tools may "
-                "rank stale nodes until prepare refreshes the graph."
-            )
+            response["recommended_action"] = "Call ensure_graph_tool to sync the graph."
+            response["why"] = f"sync.status={sync.get('status')}"
             response["confidence"] = "high"
             if "ensure_graph_tool" not in response["next_tool_suggestions"]:
                 response["next_tool_suggestions"] = [
