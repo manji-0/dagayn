@@ -6,6 +6,11 @@ All notable changes to `dagayn` are documented here.
 
 ### Features
 
+- Phase 4 CROSS_ARTIFACT analysis integration: impact radius traverses reportable
+  bridges with explainable `bridge_transitions`; low-confidence bridges appear as
+  missingness/caveats; flow steps mark bridge arrivals distinctly; review and
+  architecture guidance recommend `docs_for` / `implementations_of` / bridge
+  follow-ups; communities weight `CROSS_ARTIFACT` at 0.6.
 - Phase 3 cross-artifact Layer-2 bridges: parse maturin/PyO3 `pyproject.toml`
   and OpenAPI Generator manifests to emit `CROSS_ARTIFACT` edges
   (`builds_artifact`, `generates_code`, `binds_generated_client`) with
@@ -35,6 +40,7 @@ All notable changes to `dagayn` are documented here.
 - Add ranking-parity, matrix-cache reuse, EmbeddingStore pin-reuse, and
   numpy-vs-Python microbenchmark coverage for embedding search.
 - Extend `tools/embedding_search_benchmark.py` with `--compare-numpy`.
+
 ### Performance
 
 - Finish write-side batch upserts (#15): `upsert_edge` uses `UPDATE`/`INSERT`

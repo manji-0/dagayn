@@ -15,6 +15,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from ._scope import ArtifactScope, node_matches_artifact_scope
+from .cross_artifact import is_reportable_bridge
 from .flows import _has_framework_decorator, _matches_entry_name
 from .graph import GraphEdge, GraphNode, GraphStore, _sanitize_name
 
@@ -944,6 +945,12 @@ def find_surprising_connections(
         if src.is_test != tgt.is_test and e.kind == "CALLS":
             score += 0.15
             reasons.append("cross-test-boundary")
+            boundary_signal = True
+
+        # Explicit reportable cross-artifact bridge (+0.25)
+        if is_reportable_bridge(e):
+            score += 0.25
+            reasons.append("cross-artifact-bridge")
             boundary_signal = True
 
         # Non-standard edge kind (+0.15)

@@ -440,6 +440,9 @@ contract section through `implemented_by` / `implements_contract`
 `CROSS_ARTIFACT` edges. Use `bridges_from` to follow high-confidence Terraform
 → application-code bridges (`maps_entrypoint`, `invokes_binary`) emitted from
 `filename` / `source_dir` / `handler` / `entry_point` / `local-exec` patterns.
+Review impact / flow / architecture guidance also surfaces reportable bridges
+as first-class transitions and keeps low-confidence bridges as missingness
+caveats rather than hard claims.
 
 `traverse_graph_tool` returns both the legacy top-level `truncated` boolean and a
 typed `reachability` object. `reachability.state` is `complete`, `truncated`, or

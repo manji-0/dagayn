@@ -254,7 +254,12 @@ def get_flow(
             make_guidance_item(
                 claim=(
                     f"Flow '{flow['name']}' has {flow['node_count']} step(s) "
-                    f"with criticality {flow['criticality']:.4f}."
+                    f"with criticality {flow['criticality']:.4f}"
+                    + (
+                        f", including {flow.get('bridge_step_count', 0)} bridge step(s)."
+                        if int(flow.get("bridge_step_count") or 0)
+                        else "."
+                    )
                 ),
                 evidence={
                     "type": "computed",
@@ -263,6 +268,7 @@ def get_flow(
                     "node_count": flow.get("node_count"),
                     "depth": flow.get("depth"),
                     "criticality": flow.get("criticality"),
+                    "bridge_step_count": flow.get("bridge_step_count", 0),
                     "source_included": bool(include_source),
                 },
                 confidence="medium",
@@ -271,10 +277,31 @@ def get_flow(
                         "reason_code": "flow_path_is_stored_extraction",
                         "severity": "low",
                         "claim_effect": "flow steps are graph-derived, not runtime-proven",
-                    }
+                    },
+                    *(
+                        [
+                            {
+                                "reason_code": "cross_artifact_bridge_is_static_evidence",
+                                "severity": "low",
+                                "claim_effect": (
+                                    "bridge steps mark CROSS_ARTIFACT transitions distinctly"
+                                ),
+                            }
+                        ]
+                        if int(flow.get("bridge_step_count") or 0)
+                        else []
+                    ),
                 ],
-                action='review_tool mode="impact" -- check blast radius along this flow',
-                reason_codes=["stored_flow_extraction"],
+                action=(
+                    'review_tool mode="impact" -- check blast radius along this flow; '
+                    'query_graph_tool pattern="docs_for" -- follow bridge docs when present'
+                ),
+                reason_codes=["stored_flow_extraction"]
+                + (
+                    ["cross_artifact_bridge_step"]
+                    if int(flow.get("bridge_step_count") or 0)
+                    else []
+                ),
             )
         ]
         result["guidance"] = flow_guidance

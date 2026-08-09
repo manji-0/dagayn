@@ -138,7 +138,7 @@ class GraphStoreFlowMixin(GraphStoreMixinProtocol):
         return result
 
     def load_flow_adjacency(self) -> "FlowAdjacency":
-        """Load all nodes and CALLS/TESTED_BY edges into memory for fast traversal.
+        """Load all nodes and CALLS/TESTED_BY/CROSS_ARTIFACT edges for traversal.
 
         Reads the entire ``nodes`` and ``edges`` tables in two streaming
         queries and returns an in-memory adjacency structure suitable for
@@ -146,7 +146,14 @@ class GraphStoreFlowMixin(GraphStoreMixinProtocol):
         this fits in a few hundred MB and eliminates tens of millions of
         single-row SQLite point queries that otherwise dominate
         ``trace_flows`` / ``compute_criticality`` runtime.
+
+        Reportable ``CROSS_ARTIFACT`` edges that target an existing graph
+        node are included in ``calls_out`` so flows can cross artifact
+        boundaries; ``bridge_edges`` preserves the transition metadata so
+        hydration can mark bridge steps distinctly.
         """
+        from ..cross_artifact import bridge_transition_dict, is_reportable_bridge
+
         nodes_by_qn: dict[str, GraphNode] = {}
         nodes_by_id: dict[int, GraphNode] = {}
         for row in self._conn.execute("SELECT * FROM nodes"):
@@ -155,20 +162,27 @@ class GraphStoreFlowMixin(GraphStoreMixinProtocol):
             nodes_by_id[node.id] = node
 
         calls_out: dict[str, list[str]] = {}
+        bridge_edges: dict[str, dict[str, dict]] = {}
         has_tested_by: set[str] = set()
         for row in self._conn.execute(
-            "SELECT kind, source_qualified, target_qualified FROM edges "
-            "WHERE kind IN ('CALLS', 'TESTED_BY')"
+            "SELECT * FROM edges WHERE kind IN ('CALLS', 'TESTED_BY', 'CROSS_ARTIFACT')"
         ):
-            kind, src, tgt = row["kind"], row["source_qualified"], row["target_qualified"]
+            edge = self._row_to_edge(row)
+            kind = edge.kind
+            src = edge.source_qualified
+            tgt = edge.target_qualified
             if kind == "CALLS":
                 calls_out.setdefault(src, []).append(tgt)
-            else:  # TESTED_BY
+            elif kind == "TESTED_BY":
                 has_tested_by.add(src)
+            elif is_reportable_bridge(edge) and tgt in nodes_by_qn:
+                calls_out.setdefault(src, []).append(tgt)
+                bridge_edges.setdefault(src, {})[tgt] = bridge_transition_dict(edge)
 
         return FlowAdjacency(
             calls_out=calls_out,
             has_tested_by=has_tested_by,
             nodes_by_qn=nodes_by_qn,
             nodes_by_id=nodes_by_id,
+            bridge_edges=bridge_edges,
         )
