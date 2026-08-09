@@ -1009,15 +1009,106 @@ class TestEmbeddingStore:
 
             emb._np_vec_cache.clear()
             numpy_results = store.search("query", limit=5)
+            # Also exercise argpartition (limit < n); limit == n takes the argsort path.
+            numpy_top2 = store.search("query", limit=2)
 
             monkeypatch.setattr(emb_store, "_NUMPY_AVAILABLE", False)
             monkeypatch.setattr(emb, "_NUMPY_AVAILABLE", False)
             python_results = store.search("query", limit=5)
+            python_top2 = store.search("query", limit=2)
             store.close()
 
         assert [qn for qn, _ in numpy_results] == [qn for qn, _ in python_results]
         for (_, numpy_score), (_, python_score) in zip(numpy_results, python_results):
             assert numpy_score == pytest.approx(python_score, abs=1e-5)
+        assert [qn for qn, _ in numpy_top2] == [qn for qn, _ in python_top2]
+        for (_, numpy_score), (_, python_score) in zip(numpy_top2, python_top2):
+            assert numpy_score == pytest.approx(python_score, abs=1e-5)
+
+    def test_numpy_argpartition_topk_zero_based_kth(self):
+        """argpartition kth is 0-based; kth=k can drop a true top-k member."""
+        np = pytest.importorskip("numpy")
+
+        # Distinct scores: true top-3 are indices 1, 3, 5. Index 7 (0.50) is the
+        # (k+1)-th neighbor that an off-by-one kth must not let displace 0.90.
+        sims = np.array([0.10, 0.99, 0.20, 0.95, 0.30, 0.90, 0.40, 0.50], dtype=np.float32)
+        k = 3
+        expected = set(np.argsort(-sims)[:k].tolist())
+        assert expected == {1, 3, 5}
+
+        def select(kth: int) -> set[int]:
+            top_idx = np.argpartition(-sims, kth)[:k]
+            top_idx = top_idx[np.argsort(-sims[top_idx])]
+            return {int(i) for i in top_idx}
+
+        # Production form: 0-based kth=k-1 with [:k] keeps exactly the true top-k.
+        assert select(k - 1) == expected
+
+        # Old kth=k bounds on the (k+1)-th largest. The pivot-inclusive window
+        # [:k+1] admits that worse neighbor; truncating back to k without a
+        # score re-rank can keep the pivot and drop a true top-k member.
+        part = np.argpartition(-sims, k)
+        pivot = int(part[k])
+        assert float(sims[pivot]) == pytest.approx(float(sorted(sims, reverse=True)[k]))
+        assert pivot not in expected
+        old_window = {int(i) for i in part[: k + 1]}
+        assert expected < old_window
+        left = [int(i) for i in part[:k]]
+        buggy = set(left[: k - 1] + [pivot])
+        assert expected - buggy, "old kth=k truncation must omit a true top-k index"
+        assert buggy != expected
+        assert float(min(sims[i] for i in select(k - 1))) > float(sims[pivot])
+
+    def test_numpy_matmul_topk_keeps_boundary_member(self, tmp_path):
+        """Numpy path with limit < n must not drop the true k-th match."""
+        import sqlite3
+
+        import dagayn.embeddings as emb
+        import dagayn.embeddings_store as emb_store
+
+        if not emb._NUMPY_AVAILABLE:
+            pytest.skip("numpy fast path is optional")
+
+        # Query [1,0]; cosine equals the first component for these rows.
+        # Ranked: best, second, third, fourth(near-miss). limit=3 must keep third.
+        rows = [
+            ("n::best", [1.00, 0.0]),
+            ("n::second", [0.90, 0.0]),
+            ("n::third", [0.80, 0.0]),
+            ("n::fourth", [0.70, 0.0]),
+            ("n::noise", [0.10, 1.0]),
+        ]
+        query = [1.0, 0.0]
+        db = tmp_path / "topk.db"
+        provider = "fake"
+        conn = sqlite3.connect(str(db))
+        conn.row_factory = sqlite3.Row
+        conn.executescript(
+            """
+            CREATE TABLE embeddings (
+                qualified_name TEXT NOT NULL,
+                vector BLOB NOT NULL,
+                text_hash TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                PRIMARY KEY (qualified_name, provider)
+            );
+            """
+        )
+        conn.executemany(
+            "INSERT INTO embeddings (qualified_name, vector, text_hash, provider) "
+            "VALUES (?, ?, ?, ?)",
+            [(qn, _encode_vector(vec), f"h{i}", provider) for i, (qn, vec) in enumerate(rows)],
+        )
+        conn.commit()
+
+        emb._np_vec_cache.clear()
+        numpy_hits = emb_store._numpy_matmul_search(db, conn, provider, query, limit=3)
+        python_hits = emb_store._python_loop_search(conn, provider, query, limit=3)
+        conn.close()
+
+        assert [qn for qn, _ in numpy_hits] == ["n::best", "n::second", "n::third"]
+        assert [qn for qn, _ in numpy_hits] == [qn for qn, _ in python_hits]
+        assert "n::fourth" not in {qn for qn, _ in numpy_hits}
 
     def test_search_reuses_numpy_matrix_cache(self, tmp_path, monkeypatch):
         import dagayn.embeddings as emb

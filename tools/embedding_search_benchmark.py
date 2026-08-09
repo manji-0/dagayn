@@ -169,7 +169,8 @@ def _benchmark_numpy(
         if k == len(names):
             top_idx = np.argsort(-sims)
         else:
-            top_idx = np.argpartition(-sims, k)[:k]
+            # argpartition kth is 0-based: k-1 places the k-th largest on the boundary.
+            top_idx = np.argpartition(-sims, k - 1)[:k]
             top_idx = top_idx[np.argsort(-sims[top_idx])]
         return [(names[int(i)], float(sims[i])) for i in top_idx]
 
