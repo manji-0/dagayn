@@ -120,14 +120,30 @@ def _markdown_artifact_resolution(
     )
 
 
+def _is_markdown_artifact_bridge(extra: dict[str, Any]) -> bool:
+    """Return True for Markdown/documentation CROSS_ARTIFACT bridges only.
+
+    Terraform ``handler`` / ``entry_point`` bridges also carry
+    ``original_symbol_name`` but must be resolved by
+    :func:`_resolve_terraform_artifact_refs` (Function/Test matching), not by
+    the Markdown any-kind unique-name binder.
+    """
+    if extra.get("source_language") == "markdown":
+        return True
+    if extra.get("bridge_kind") == "documentation":
+        return True
+    return False
+
+
 def _resolve_markdown_artifact_refs(
     store: GraphStore,
     result: dict[str, Any],
     warnings: list[str],
 ) -> None:
-    """Idempotently resolve/update all Markdown→code CROSS_ARTIFACT edges.
+    """Idempotently resolve/update Markdown→code CROSS_ARTIFACT edges.
 
-    Every CROSS_ARTIFACT edge emitted by the Markdown parser carries
+    Only documentation/markdown bridges are considered.  Every such edge
+    emitted by the Markdown parser (or documentation directives) carries
     ``extra.original_symbol_name`` — the raw backtick span symbol.  This
     step runs on every postprocess call and brings each edge in line with
     the *current* state of the nodes table:
@@ -140,6 +156,9 @@ def _resolve_markdown_artifact_refs(
     - Zero or 2+ matches from explicit documentation directives → keep or
       demote to ``<unresolved:{sym}>`` because the author intentionally
       declared a dependency.
+
+    Terraform and other non-documentation bridges that happen to carry
+    ``original_symbol_name`` are left untouched for their dedicated resolvers.
 
     Result keys:
       ``markdown_artifact_refs_resolved``   — transitions unresolved→resolved
@@ -188,6 +207,8 @@ def _resolve_markdown_artifact_refs(
             try:
                 extra = json.loads(row["extra"] or "{}")
             except (json.JSONDecodeError, TypeError):
+                continue
+            if not _is_markdown_artifact_bridge(extra):
                 continue
             sym = extra.get("original_symbol_name")
             if not sym:

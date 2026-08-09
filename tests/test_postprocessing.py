@@ -688,3 +688,95 @@ class TestTerraformArtifactResolver:
         assert q["result_count"] >= 1
         roles = {r.get("relationship_role") for r in q["results"]}
         assert "maps_entrypoint" in roles
+
+    def test_markdown_resolver_does_not_hijack_terraform_handler(self):
+        """A unique non-Function named like the handler must not steal the edge.
+
+        Markdown resolution binds any unique non-Markdown node by bare name.
+        For ``hello.main``, that would wrongly attach to a Class named
+        ``hello.main``.  Full postprocess must leave Function matching to the
+        Terraform resolver instead.
+        """
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Class",
+                name="hello.main",
+                file_path="app/decoy.py",
+                line_start=1,
+                line_end=10,
+                language="python",
+            )
+        )
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="main",
+                file_path="app/hello.py",
+                line_start=1,
+                line_end=2,
+                language="python",
+            )
+        )
+        self.store.upsert_edge(self._handler_edge("hello.main"))
+        self.store.commit()
+
+        result = run_post_processing(self.store)
+        assert not result.get("warnings")
+        assert result.get("markdown_artifact_refs_resolved", 0) == 0
+        assert result.get("terraform_artifact_refs_resolved") == 1
+
+        row = self.store._conn.execute(
+            "SELECT target_qualified, confidence_tier, extra FROM edges WHERE kind='CROSS_ARTIFACT'"
+        ).fetchone()
+        assert row["target_qualified"] == "app/hello.py::main"
+        assert row["confidence_tier"] == "HIGH"
+        extra = json.loads(row["extra"])
+        assert extra["source_language"] == "terraform"
+        assert extra["target_language"] == "python"
+        assert extra["original_symbol_name"] == "hello.main"
+
+    def test_markdown_resolver_leaves_terraform_unresolved_without_function(self):
+        """Without a Function/Test match, terraform edges stay unresolved."""
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Class",
+                name="serve",
+                file_path="app/decoy.py",
+                line_start=1,
+                line_end=10,
+                language="python",
+            )
+        )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CROSS_ARTIFACT",
+                source="infra/main.tf::resource.google_cloudfunctions2_function.api",
+                target="<unresolved:serve>",
+                file_path="infra/main.tf",
+                line=10,
+                extra={
+                    "relationship_role": "maps_entrypoint",
+                    "bridge_kind": "manifest_link",
+                    "evidence_kind": "config",
+                    "evidence_source": "entry_point",
+                    "source_language": "terraform",
+                    "target_language": "unknown",
+                    "confidence": 0.8,
+                    "confidence_tier": "HIGH",
+                    "original_symbol_name": "serve",
+                },
+            )
+        )
+        self.store.commit()
+
+        result = run_post_processing(self.store)
+        assert not result.get("warnings")
+        assert result.get("markdown_artifact_refs_resolved", 0) == 0
+        assert result.get("terraform_artifact_refs_resolved", 0) == 0
+        assert result.get("terraform_artifact_refs_still_unresolved") == 1
+
+        row = self.store._conn.execute(
+            "SELECT target_qualified, confidence_tier FROM edges WHERE kind='CROSS_ARTIFACT'"
+        ).fetchone()
+        assert row["target_qualified"] == "<unresolved:serve>"
+        assert row["confidence_tier"] == "HIGH"
