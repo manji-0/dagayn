@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import sqlite3
+from pathlib import Path
 from typing import Any
 
 from ._common import _get_store, compact_response, graph_answerability_summary
@@ -241,6 +242,10 @@ def get_minimal_context(
     repo_root: str | None = None,
     base: str = "HEAD~1",
     detail_level: str = "minimal",
+    *,
+    auto_prepare: bool = False,
+    local_embedding: str | None = "none",
+    prepare_budget_seconds: int | None = 300,
 ) -> dict[str, Any]:
     """Return minimum context an agent needs to start any task (~100 tokens).
 
@@ -255,15 +260,49 @@ def get_minimal_context(
         base: Git ref for diff comparison.
         detail_level: Accepted for CLI/MCP interface consistency. This tool is
               intentionally compact, so all detail levels share the same shape.
+        auto_prepare: When True, run ``session_prepare`` if the graph is empty
+              or out of sync (and finish deferred embeddings when needed).
+        local_embedding: Embedding mode for auto-prepare (serve default via MCP).
+        prepare_budget_seconds: Wall-clock budget for auto-prepare.
     """
     _ = detail_level
+    prepare_result: dict[str, Any] | None = None
+    if auto_prepare:
+        from .session_prepare import session_prepare
+        from .sync_status import (
+            assess_graph_sync,
+            embedding_needs_refresh,
+            needs_structure_prepare,
+        )
+
+        probe_store, probe_root = _get_store(repo_root, cached=False)
+        try:
+            sync = assess_graph_sync(probe_store, probe_root)
+            db_path = Path(probe_root) / ".dagayn" / "graph.db"
+            emb_pending = embedding_needs_refresh(db_path, local_embedding=local_embedding)
+        finally:
+            probe_store.close()
+
+        if needs_structure_prepare(sync) or emb_pending:
+            prepare_result = session_prepare(
+                repo_root=str(probe_root),
+                local_embedding=local_embedding,
+                budget_seconds=prepare_budget_seconds,
+                embedding_policy="auto",
+                seed_worktree=True,
+            )
+            repo_root = str(probe_root)
+
     # Use a dedicated GraphStore connection for this tool to avoid sharing a
     # cached sqlite handle across concurrent MCP calls.
     store, root = _get_store(repo_root, cached=False)
     try:
+        from .sync_status import assess_graph_sync
+
         # 1. Quick stats
         stats = store.get_stats()
         graph_health = _graph_answerability(store, stats)
+        sync = assess_graph_sync(store, root)
 
         # 2. Route the task before optional risk analysis so non-review entry
         # points stay cheap even when the default base has a large diff.
@@ -381,9 +420,16 @@ def get_minimal_context(
         response["why"] = guidance["why"]
         response["confidence"] = guidance["confidence"]
         response["graph_health"] = graph_health
-        if graph_health.get("status") == "empty" or "empty_graph" in graph_health.get(
-            "reason_codes", []
-        ):
+        # Keep sync compact: status alone stays within the ~800-char budget.
+        response["sync"] = {"status": sync.get("status")}
+        if prepare_result is not None:
+            response["prepare"] = {
+                "status": prepare_result.get("status"),
+                "action": prepare_result.get("action"),
+                "reason": prepare_result.get("reason"),
+                "phases": prepare_result.get("phases"),
+            }
+        if graph_health.get("status") == "empty" or sync.get("status") == "empty":
             response["recommended_action"] = (
                 "Call ensure_graph_tool first; the graph is empty and analysis "
                 "tools will return nothing useful."
@@ -412,6 +458,15 @@ def get_minimal_context(
                 ]
                 hints["next_steps"] = next_steps[:3]
                 response["_hints"] = hints
+        elif sync.get("status") in {"git_drift", "dirty_worktree"}:
+            response["recommended_action"] = "Call ensure_graph_tool to sync the graph."
+            response["why"] = f"sync.status={sync.get('status')}"
+            response["confidence"] = "high"
+            if "ensure_graph_tool" not in response["next_tool_suggestions"]:
+                response["next_tool_suggestions"] = [
+                    "ensure_graph_tool",
+                    *response["next_tool_suggestions"],
+                ]
         return response
     finally:
         store.close()

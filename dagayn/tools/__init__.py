@@ -102,6 +102,12 @@ from .review_flows import get_affected_flows_func
 # -- sap_tools --------------------------------------------------------------
 from .sap_tools import compute_sap_metrics_func, detect_sap_violations_func
 
+# -- session_prepare --------------------------------------------------------
+from .session_prepare import session_prepare
+
+# -- sync_status ------------------------------------------------------------
+from .sync_status import assess_graph_sync
+
 __all__ = [
     # _common
     "_BUILTIN_CALL_NAMES",
@@ -112,6 +118,9 @@ __all__ = [
     "run_postprocess",
     # ensure
     "ensure_graph",
+    # session_prepare / sync_status
+    "session_prepare",
+    "assess_graph_sync",
     # context
     "get_minimal_context",
     # architecture_analysis

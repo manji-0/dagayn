@@ -25,9 +25,10 @@ the selected embedding mode so graph builds refresh the right retrieval indexes.
 
 2. **Bootstrap or refresh**:
    - Default MCP surface (preferred): `ensure_graph_tool()` for first-time /
-     empty graphs, or `ensure_graph_tool(force=True)` for a safe incremental
-     refresh. This always uses `postprocess="minimal"` and
-     `local_embedding="none"`.
+     empty graphs, or when `sync.status` is `git_drift` / `dirty_worktree`.
+     `ensure_graph_tool(force=True)` always runs an incremental refresh.
+     Uses `postprocess="minimal"` and inherits `dagayn serve --local-embedding`.
+   - CLI: `dagayn session prepare` (hooks use `--budget-seconds 45`).
    - Maintenance / advanced surface: `build_or_update_graph_tool` when you need
      full postprocess, embeddings, or explicit rebuild controls:
      - First-time: `build_or_update_graph_tool(full_rebuild=True, local_embedding="none")`
@@ -77,11 +78,12 @@ dagayn tool run_postprocess_tool --arg fts=true
 
 ## Efficiency Rules
 
-- Prefer `ensure_graph_tool()` on the default MCP surface; use incremental
-  `build_or_update_graph_tool()` only when maintenance options are required.
-- For parser, flow, documentation-edge, or review verification, keep
-  `local_embedding="none"` so hooks and local embedding refresh do not turn a
-  graph check into an expensive embedding rebuild.
+- Prefer `ensure_graph_tool()` / `dagayn session prepare` on the default MCP /
+  hook surface; use incremental `build_or_update_graph_tool()` only when
+  maintenance options are required.
+- For parser, flow, documentation-edge, or review verification that must not
+  touch vectors, keep `local_embedding="none"` on advanced build tools.
+  `ensure_graph_tool` follows the serve embedding mode instead.
 - Use `postprocess="minimal"` while iterating; run full postprocess only when
   flow/community freshness matters.
 - Report node, edge, file, language, and error counts instead of reading the

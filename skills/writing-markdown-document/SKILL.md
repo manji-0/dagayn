@@ -131,7 +131,7 @@ For each section, in dependency order:
    - Low-intent code mentions → backtick the symbol exactly as it appears in code.
 3. **Save the file** and run `ensure_graph_tool(force=True)`
    for Markdown/parser/FTS refresh. Prefer ensure on the default MCP surface;
-   it always uses `postprocess="minimal"` and `local_embedding="none"`. Use
+   it uses `postprocess="minimal"` and inherits serve `--local-embedding`. Use
    `build_or_update_graph_tool(local_embedding="none")` only when you need full
    postprocess or other maintenance controls on the advanced surface.
 4. **Verify the edges resolved:**

@@ -265,12 +265,13 @@ installed, the command prints a clear install hint and exits non-zero.
 `dagayn install --platform cursor` merges graph-refresh hooks into
 `~/.cursor/hooks.json` and writes scripts under `~/.cursor/hooks/`:
 `afterFileEdit` runs `dagayn update --skip-flows` detached so the editor never
-waits, `sessionStart` inherits the graph in a worktree and returns
-`dagayn status` as `additional_context`, and `beforeShellExecution` matches bare
+waits, `sessionStart` runs `dagayn session prepare --budget-seconds 45` and
+returns the result as `additional_context`, `beforeShellExecution` matches bare
 or path-qualified `git commit` commands before running update +
-`detect-changes --brief`, returning `{"permission": "allow"}` with the analysis
-attached. Every script resolves the repository from the hook payload via
-`dagayn hook-repo` and passes it as `--repo`, because user-level Cursor hooks
+`detect-changes --brief`, and `afterShellExecution` matches HEAD-moving git
+commands (`checkout` / `switch` / `reset` / `pull` / …) to re-prepare the graph
+after HEAD has moved. Every script resolves the repository from the hook payload
+via `dagayn hook-repo` and passes it as `--repo`, because user-level Cursor hooks
 run from `~/.cursor` rather than the project directory. Existing unrelated
 Cursor hooks are preserved.
 
@@ -308,12 +309,22 @@ to the same config's `hooks:` block.
 - `dagayn worktree sync`
 - `dagayn worktree info`
 - `dagayn hook-repo`
+- `dagayn session prepare`
 
 Agent hosts run parallel sessions in linked git worktrees: `claude --worktree`,
 the `EnterWorktree` tool, subagents with `isolation: worktree`, Claude Code
 desktop sessions, and Cursor's parallel agents. A worktree is a fresh checkout,
 so gitignored files — `.mcp.json`, `.cursor/mcp.json`, and the whole `.dagayn/`
 graph directory — are not there.
+
+`dagayn session prepare` is the session-lifecycle entry point: seed a linked
+worktree when needed, build an empty graph (`postprocess=minimal`), or
+incrementally refresh when `git_head_sha` / dirty worktree files drift. Hooks
+pass `--budget-seconds 45` and optional `--local-embedding` args from
+`dagayn install`. Use `--embedding auto|defer|skip|inline` to control whether
+Phase 2 vector refresh runs inside the budget. MCP `ensure_graph_tool` /
+`get_minimal_context_tool` call the same prepare path with a longer budget and
+inherit `serve --local-embedding`.
 
 `dagayn worktree sync` makes a worktree usable in seconds. It copies the main
 checkout's gitignored MCP config and skill files (never overwriting files the
@@ -331,18 +342,19 @@ The same inheritance runs automatically at `dagayn serve` startup and before
 `dagayn update` / `dagayn status`, so an MCP session that opens in a worktree
 has a graph without any manual step. An empty schema-only `graph.db` stub
 (0 nodes) — the kind `status` creates when the file is missing — is treated as
-absent and replaced by inheritance; Claude Code `SessionStart` also runs
-`worktree sync --seed-only` before `status`, matching Cursor.
+absent and replaced by inheritance. Session-start hooks call
+`dagayn session prepare` (budgeted structure sync + optional embeddings),
+which seeds linked worktrees and refreshes HEAD/worktree drift.
 
 `dagayn install` wires both hosts' worktree-bootstrap mechanisms:
 
 - **Claude Code** — a managed block in `.worktreeinclude` listing the gitignored
   MCP config files dagayn wrote. Claude Code copies files matching that file into
   every worktree it creates; commit it so worktree sessions keep their MCP tools.
-- **Cursor** — a `dagayn worktree sync` entry in `.cursor/worktrees.json`, which
-  Cursor runs inside each worktree it creates for a parallel agent. User commands
-  in that file are preserved; when it delegates to a setup script, install prints
-  the line to add yourself.
+- **Cursor** — a `dagayn session prepare --budget-seconds 45` entry in
+  `.cursor/worktrees.json`, which Cursor runs inside each worktree it creates
+  for a parallel agent. User commands in that file are preserved; when it
+  delegates to a setup script, install prints the line to add yourself.
 
 Running `dagayn install` from inside a worktree also configures the main
 checkout, and git hooks are installed into the repository's shared hooks
@@ -402,10 +414,17 @@ Default tool names are:
 - `semantic_search_nodes_tool`
 - `get_docs_section_tool`
 
-`ensure_graph_tool` bootstraps an empty graph (or refreshes with `force=True`)
-using safe defaults: `postprocess="minimal"` and `local_embedding="none"`.
-Prefer it on the default MCP surface; keep `build_or_update_graph_tool` for
-explicit maintenance via `--tools all` or `dagayn tool`.
+`ensure_graph_tool` bootstraps an empty graph, or refreshes when HEAD/worktree
+has drifted (and always with `force=True`), using `postprocess="minimal"`.
+Local embedding mode inherits `dagayn serve --local-embedding`. Prefer it on
+the default MCP surface; keep `build_or_update_graph_tool` for explicit
+maintenance via `--tools all` or `dagayn tool`.
+
+`dagayn session prepare` is the CLI entry point used by SessionStart /
+EnterWorktree / relocate hooks. It runs a budgeted Phase 1 structure sync and
+an optional Phase 2 embedding refresh (`--embedding auto|defer|skip|inline`,
+`--budget-seconds`). Hooks default to a 45s budget; MCP auto-prepare uses a
+longer budget so deferred embeddings can finish.
 
 `get_docs_section_tool` reads a section from `docs/LLM-OPTIMIZED-REFERENCE.md`
 so skills can fetch their optimized workflow without duplicating it in the
@@ -491,8 +510,11 @@ for review, debugging, exploration, feature addition, and refactoring to the
 next small set of MCP tools. It also returns `workflow`,
 `recommended_action`, `why`, and `confidence` so clients can show the next
 step without requiring users to know tool names. It includes compact
-`graph_health` answerability metadata. When `graph_health.status` is `empty`,
-it overrides the workflow suggestion and points at `ensure_graph_tool` first.
+`graph_health` answerability metadata and a `sync` object
+(`synced` / `git_drift` / `dirty_worktree` / `empty`). On the MCP surface it
+auto-runs `session prepare` when empty or out of sync (inheriting
+`serve --local-embedding`). When `graph_health.status` / `sync.status` is still
+`empty` after prepare, it points at `ensure_graph_tool` first.
 `parse` is `[files, languages,
 has_last_updated]`; `answerability` is `[flows, communities, test_edges,
 reportable_cross_artifact_edges, unresolved_cross_artifact_ratio]`. Unresolved

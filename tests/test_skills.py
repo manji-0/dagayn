@@ -154,7 +154,7 @@ class TestGenerateSkills:
         install = (skills_dir / "install-dagayn.md").read_text()
         review = (skills_dir / "review-changes.md").read_text()
 
-        assert "dagayn worktree sync" in worktree
+        assert "dagayn session prepare" in worktree
         assert "worktree info" in worktree
         assert ".worktreeinclude" in worktree
         assert "ensure_graph_tool" in feature
@@ -721,9 +721,8 @@ class TestGenerateHooksConfig:
         assert "matcher" in entry
         inner = entry["hooks"][0]
         assert inner["type"] == "command"
-        assert "worktree sync --seed-only" in inner["command"]
-        assert "status" in inner["command"]
-        assert inner["timeout"] == 10
+        assert "session prepare" in inner["command"]
+        assert inner["timeout"] == 60
 
     def test_does_not_emit_invalid_pre_commit_hook(self):
         config = generate_hooks_config(Path("/repo"))
@@ -2012,10 +2011,21 @@ class TestCursorHooksConfig:
     def test_has_before_shell_execution(self):
         config = generate_cursor_hooks_config()
         hooks = config["hooks"]["beforeShellExecution"]
-        assert len(hooks) >= 1
+        assert len(hooks) == 1
         assert "crg-pre-commit.sh" in hooks[0]["command"]
         assert hooks[0]["timeout"] == 120
         assert hooks[0]["matcher"] == (r"(?:^|[/\\]|\s)git(?:\.exe)?\s+commit\b")
+
+    def test_has_after_shell_execution_relocate(self):
+        config = generate_cursor_hooks_config()
+        hooks = config["hooks"]["afterShellExecution"]
+        assert len(hooks) == 1
+        assert "crg-relocate.sh" in hooks[0]["command"]
+        assert hooks[0]["timeout"] == 60
+        assert hooks[0]["matcher"] == (
+            r"(?:^|[/\\]|\s)git(?:\.exe)?\s+"
+            r"(?:checkout|switch|reset|pull|merge|rebase|cherry-pick)\b"
+        )
 
     def test_git_commit_matcher_covers_path_qualified_git(self):
         import re
@@ -2032,10 +2042,15 @@ class TestCursorHooksConfig:
         assert not pattern.search("gitaly commit")
         assert not pattern.search("git-commit hook")
 
-    def test_has_all_three_hook_types(self):
+    def test_has_all_hook_types(self):
         config = generate_cursor_hooks_config()
         hook_types = set(config["hooks"].keys())
-        assert hook_types == {"afterFileEdit", "sessionStart", "beforeShellExecution"}
+        assert hook_types == {
+            "afterFileEdit",
+            "sessionStart",
+            "beforeShellExecution",
+            "afterShellExecution",
+        }
 
     def test_commands_point_to_home_cursor_hooks(self):
         config = generate_cursor_hooks_config()
@@ -2052,12 +2067,13 @@ class TestCursorHooksConfig:
 class TestCursorHookScripts:
     """Tests for _cursor_hook_scripts()."""
 
-    def test_returns_three_scripts(self):
+    def test_returns_four_scripts(self):
         scripts = _cursor_hook_scripts()
         assert set(scripts.keys()) == {
             "crg-update.sh",
             "crg-session-start.sh",
             "crg-pre-commit.sh",
+            "crg-relocate.sh",
         }
 
     def test_scripts_start_with_shebang(self):
@@ -2091,7 +2107,7 @@ class TestCursorHookScripts:
     def test_scripts_pass_repo_explicitly(self):
         scripts = _cursor_hook_scripts()
         for name, content in scripts.items():
-            if "dagayn update" in content or "dagayn status" in content:
+            if "dagayn update" in content or "dagayn session prepare" in content:
                 assert '--repo "$repo"' in content, f"{name} does not pass --repo"
 
     def test_update_script_runs_update(self):
@@ -2106,17 +2122,24 @@ class TestCursorHookScripts:
 
     def test_session_start_script_runs_status(self):
         scripts = _cursor_hook_scripts()
-        assert "dagayn status" in scripts["crg-session-start.sh"]
+        assert "session prepare" in scripts["crg-session-start.sh"]
 
     def test_session_start_script_inherits_worktree_graph(self):
         script = _cursor_hook_scripts()["crg-session-start.sh"]
-        assert "dagayn worktree sync --seed-only" in script
+        assert "dagayn session prepare" in script
+        assert "crg-relocate.sh" in _cursor_hook_scripts()
         assert "additional_context" in script
 
     def test_pre_commit_script_returns_permission_decision(self):
         script = _cursor_hook_scripts()["crg-pre-commit.sh"]
         assert '"permission"' in script
         assert "allow" in script
+
+    def test_relocate_script_is_observational(self):
+        script = _cursor_hook_scripts()["crg-relocate.sh"]
+        assert "session prepare" in script
+        assert "afterShellExecution" in script or "HEAD-moving" in script
+        assert '"permission"' not in script
 
     def test_pre_commit_script_runs_detect_changes(self):
         scripts = _cursor_hook_scripts()
@@ -2184,10 +2207,51 @@ class TestInstallCursorHooks:
             install_cursor_hooks()
 
         data = json.loads((tmp_path / ".cursor" / "hooks.json").read_text())
-        # Each event type should have exactly 1 crg hook
+        # dagayn hooks should not duplicate on reinstall.
+        expected = {
+            "afterFileEdit": 1,
+            "sessionStart": 1,
+            "beforeShellExecution": 1,
+            "afterShellExecution": 1,
+        }
         for event, entries in data["hooks"].items():
             crg_hooks = [h for h in entries if "crg-" in h.get("command", "")]
-            assert len(crg_hooks) == 1, f"{event} has {len(crg_hooks)} crg hooks after reinstall"
+            assert len(crg_hooks) == expected.get(event, len(crg_hooks)), (
+                f"{event} has {len(crg_hooks)} crg hooks after reinstall"
+            )
+
+    def test_reinstall_migrates_relocate_to_after_shell(self, tmp_path):
+        cursor_dir = tmp_path / ".cursor"
+        hooks_dir = cursor_dir / "hooks"
+        hooks_dir.mkdir(parents=True)
+        relocate_cmd = str(hooks_dir / "crg-relocate.sh")
+        existing = {
+            "version": 1,
+            "hooks": {
+                "beforeShellExecution": [
+                    {
+                        "matcher": r"(?:^|[/\\]|\s)git(?:\.exe)?\s+commit\b",
+                        "command": str(hooks_dir / "crg-pre-commit.sh"),
+                        "timeout": 120,
+                    },
+                    {
+                        "matcher": "git checkout",
+                        "command": relocate_cmd,
+                        "timeout": 60,
+                    },
+                ],
+            },
+        }
+        (cursor_dir / "hooks.json").write_text(json.dumps(existing))
+
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            install_cursor_hooks()
+
+        data = json.loads((cursor_dir / "hooks.json").read_text())
+        before = data["hooks"]["beforeShellExecution"]
+        assert not any("crg-relocate.sh" in h.get("command", "") for h in before)
+        after = data["hooks"]["afterShellExecution"]
+        assert any("crg-relocate.sh" in h.get("command", "") for h in after)
 
     def test_reinstall_updates_git_commit_matcher(self, tmp_path):
         cursor_dir = tmp_path / ".cursor"
@@ -2520,7 +2584,7 @@ class TestOpenCodePluginContent:
     def test_hooks_session_created_event(self):
         content = _opencode_plugin_content()
         assert '"session.created"' in content
-        assert "dagayn worktree sync --seed-only" in content
+        assert "dagayn session prepare" in content
         assert "dagayn status" in content
 
     def test_hooks_resolve_repo_and_pass_repo_flag(self):
@@ -2537,6 +2601,17 @@ class TestOpenCodePluginContent:
         assert '"tool.execute.before"' in content
         assert "dagayn detect-changes --brief" in content
 
+    def test_hooks_tool_execute_after_relocate(self):
+        content = _opencode_plugin_content()
+        assert '"tool.execute.after"' in content
+        assert "checkout|switch|reset|pull|merge|rebase|cherry-pick" in content
+        # Relocate must not run on the before hook.
+        before_idx = content.index('"tool.execute.before"')
+        after_idx = content.index('"tool.execute.after"')
+        before_block = content[before_idx:after_idx]
+        assert "session prepare" not in before_block
+        assert "session prepare" in content[after_idx:]
+
     def test_has_git_commit_detection(self):
         """Pre-commit hook should match path-qualified git commit commands."""
         content = _opencode_plugin_content()
@@ -2547,8 +2622,8 @@ class TestOpenCodePluginContent:
     def test_all_handlers_have_try_catch(self):
         """Every event handler must use try/catch for graceful failure."""
         content = _opencode_plugin_content()
-        # Count the three event registrations and ensure catch blocks
-        assert content.count("} catch") >= 3
+        # file.edited, session.created, tool.execute.before, tool.execute.after
+        assert content.count("} catch") >= 4
 
 
 class TestInstallOpenCodePlugin:
