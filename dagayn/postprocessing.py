@@ -384,6 +384,7 @@ def _apply_manifest_bridges(
         logger.warning("Manifest bridge extraction failed: %s", e)
         warnings.append(f"Manifest bridge extraction failed: {type(e).__name__}: {e}")
 
+
 def _resolve_terraform_artifact_refs(
     store: GraphStore,
     result: dict[str, Any],
@@ -509,6 +510,7 @@ def _terraform_module_matches_file(module: str, file_path: str) -> bool:
     # Allow package-style handlers such as app/hello/__init__.py for module "hello".
     parts = path.split("/")
     return module in parts[:-1]
+
 
 def _compute_signatures(
     store: GraphStore,
