@@ -1,13 +1,15 @@
 """Shared post-build processing pipeline.
 
-After the core Tree-sitter parse (full_build or incremental_update), four
-post-processing steps must run to populate derived tables:
+After the core Tree-sitter parse (full_build or incremental_update), post-
+processing steps must run to populate derived tables and resolve bridges:
 
 1. Compute node signatures
 2. Rebuild FTS5 search index
-3. Trace execution flows
-4. Detect code communities
-5. Persist hub / bridge centrality scores
+3. Resolve Markdown → code CROSS_ARTIFACT candidates
+4. Extract Layer-2 manifest-backed CROSS_ARTIFACT bridges
+5. Trace execution flows
+6. Detect code communities
+7. Persist hub / bridge centrality scores
 
 This module extracts that pipeline so every entry point — MCP tool, CLI
 commands, and watch mode — produces identical results.
@@ -51,6 +53,7 @@ def run_post_processing(store: GraphStore) -> dict[str, Any]:
     _rebuild_fts_index(store, result, warnings)
     _resolve_markdown_artifact_refs(store, result, warnings)
     _resolve_terraform_artifact_refs(store, result, warnings)
+    _apply_manifest_bridges(store, result, warnings)
     _trace_flows(store, result, warnings)
     _detect_communities(store, result, warnings)
     _persist_centrality_scores(store, result, warnings)
@@ -314,6 +317,73 @@ def _resolve_markdown_artifact_refs(
         warnings.append(f"Markdown artifact ref resolution failed: {type(e).__name__}: {e}")
 
 
+def _apply_manifest_bridges(
+    store: GraphStore,
+    result: dict[str, Any],
+    warnings: list[str],
+) -> None:
+    """Idempotently extract Layer-2 manifest-backed CROSS_ARTIFACT bridges.
+
+    Discovers the replacement set first, then atomically swaps prior
+    ``extractor=manifest_bridges`` edges/nodes inside an explicit
+    ``BEGIN IMMEDIATE`` transaction.  Failure leaves prior bridges intact.
+    Existing parser ``File`` rows are left untouched so hash/mtime survive.
+    """
+    try:
+        from .parser.manifest_bridges import (
+            EXTRACTOR_ID,
+            discover_manifest_bridges,
+            refine_node_line_ends,
+        )
+
+        repo_root = store.get_repo_root()
+        if repo_root is None or not repo_root.is_dir():
+            result["manifest_bridges_edges"] = 0
+            result["manifest_bridges_nodes"] = 0
+            return
+
+        # Discover before mutating so a scan failure cannot wipe prior bridges.
+        discovered = discover_manifest_bridges(repo_root)
+        refine_node_line_ends(repo_root, discovered.nodes)
+
+        conn = store._conn
+        if conn.in_transaction:
+            logger.warning("Rolling back uncommitted transaction before manifest bridge refresh")
+            conn.rollback()
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            conn.execute(
+                "DELETE FROM edges WHERE kind='CROSS_ARTIFACT' AND extra LIKE ?",
+                (f'%"extractor": "{EXTRACTOR_ID}"%',),
+            )
+            conn.execute(
+                "DELETE FROM nodes WHERE kind='File' AND extra LIKE ?",
+                (f'%"extractor": "{EXTRACTOR_ID}"%',),
+            )
+
+            nodes_upserted = 0
+            for node in discovered.nodes:
+                # Skip existing File rows (typically parser-owned) so we do not
+                # clobber file_hash / mtime_ns / extra used by incremental skip.
+                if node.kind == "File" and store.get_node(node.file_path) is not None:
+                    continue
+                store.upsert_node(node)
+                nodes_upserted += 1
+            for edge in discovered.edges:
+                store.upsert_edge(edge)
+            conn.commit()
+        except BaseException:
+            conn.rollback()
+            store._invalidate_cache()
+            raise
+        store._invalidate_cache()
+
+        result["manifest_bridges_edges"] = discovered.edge_count
+        result["manifest_bridges_nodes"] = nodes_upserted
+    except (sqlite3.OperationalError, OSError, RuntimeError, TypeError, ValueError) as e:
+        logger.warning("Manifest bridge extraction failed: %s", e)
+        warnings.append(f"Manifest bridge extraction failed: {type(e).__name__}: {e}")
+
 def _resolve_terraform_artifact_refs(
     store: GraphStore,
     result: dict[str, Any],
@@ -439,7 +509,6 @@ def _terraform_module_matches_file(module: str, file_path: str) -> bool:
     # Allow package-style handlers such as app/hello/__init__.py for module "hello".
     parts = path.split("/")
     return module in parts[:-1]
-
 
 def _compute_signatures(
     store: GraphStore,

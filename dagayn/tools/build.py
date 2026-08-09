@@ -314,6 +314,21 @@ def _run_postprocess(
             logger.warning("Markdown artifact ref resolution failed: %s", e)
             warnings.append(f"Markdown artifact ref resolution failed: {type(e).__name__}: {e}")
 
+        try:
+            from dagayn.postprocessing import _apply_manifest_bridges
+
+            _manifest_result: dict[str, Any] = {}
+            _apply_manifest_bridges(store, _manifest_result, warnings)
+            build_result["manifest_bridges_edges"] = _manifest_result.get(
+                "manifest_bridges_edges", 0
+            )
+            build_result["manifest_bridges_nodes"] = _manifest_result.get(
+                "manifest_bridges_nodes", 0
+            )
+        except (sqlite3.OperationalError, ImportError) as e:
+            logger.warning("Manifest bridge extraction failed: %s", e)
+            warnings.append(f"Manifest bridge extraction failed: {type(e).__name__}: {e}")
+
     if postprocess == "minimal":
         return warnings
 
