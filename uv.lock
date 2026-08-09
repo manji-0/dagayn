@@ -506,6 +506,7 @@ all = [
     { name = "igraph" },
     { name = "jedi" },
     { name = "matplotlib" },
+    { name = "numpy" },
     { name = "ollama" },
     { name = "pyyaml" },
 ]
@@ -513,6 +514,7 @@ communities = [
     { name = "igraph" },
 ]
 dev = [
+    { name = "numpy" },
     { name = "pyinstrument" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -529,6 +531,9 @@ eval = [
 google-embeddings = [
     { name = "google-generativeai" },
 ]
+numpy = [
+    { name = "numpy" },
+]
 wiki = [
     { name = "ollama" },
 ]
@@ -544,6 +549,7 @@ requires-dist = [
     { name = "dagayn", extras = ["communities"], marker = "extra == 'all'" },
     { name = "dagayn", extras = ["enrichment"], marker = "extra == 'all'" },
     { name = "dagayn", extras = ["eval"], marker = "extra == 'all'" },
+    { name = "dagayn", extras = ["numpy"], marker = "extra == 'all'" },
     { name = "dagayn", extras = ["wiki"], marker = "extra == 'all'" },
     { name = "fastmcp", specifier = ">=3.2.4" },
     { name = "google-generativeai", marker = "extra == 'google-embeddings'", specifier = ">=0.8.0,<1" },
@@ -553,6 +559,8 @@ requires-dist = [
     { name = "matplotlib", marker = "extra == 'eval'", specifier = ">=3.7.0" },
     { name = "mcp", specifier = ">=1.0.0,<2" },
     { name = "networkx", specifier = ">=3.2,<4" },
+    { name = "numpy", marker = "extra == 'dev'", specifier = ">=1.26,<3" },
+    { name = "numpy", marker = "extra == 'numpy'", specifier = ">=1.26,<3" },
     { name = "ollama", marker = "extra == 'wiki'", specifier = ">=0.1.0" },
     { name = "pydantic", specifier = ">=2.10,<3" },
     { name = "pyinstrument", marker = "extra == 'dev'", specifier = ">=4.6,<6" },
@@ -563,7 +571,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.3.0,<1" },
     { name = "watchdog", specifier = ">=4.0.0,<6" },
 ]
-provides-extras = ["google-embeddings", "communities", "eval", "wiki", "all", "enrichment", "dev"]
+provides-extras = ["numpy", "google-embeddings", "communities", "eval", "wiki", "all", "enrichment", "dev"]
 
 [package.metadata.requires-dev]
 dev = [

@@ -5,7 +5,7 @@
 <!-- constrained-by ./RUST-CORE-MIGRATION-WIP.md -->
 <!-- constrained-by ./DAEMON-CONFIG.md -->
 
-> **Status:** Implementation in progress — multiple items shipped, others still tracked. Last updated 2026-04-30.
+> **Status:** Implementation in progress — multiple items shipped, others still tracked. Last updated 2026-08-09.
 >
 > **Related:** `RUST-CORE-MIGRATION-WIP.md`, `DAEMON-CONFIG.md`, `ROADMAP.md`
 
@@ -375,23 +375,35 @@ Replaced with `(len(qualified_name) + len(file) + len(name) + 30) // 4`.
 - `postprocessing.py:83-117` — edge-by-edge SELECT + UPDATE/DELETE.
 - Fix: batch-load target symbols, bulk `executemany`.
 
-### 4.5 Embedding search performance (not yet implemented)
+### 4.5 Embedding search performance ✅ Shipped
 
-#### Pure-Python cosine loop
-- `embeddings.py:810-835` — `_cosine_similarity` (`embeddings.py:695-704`) runs a
-  Python loop over ~4 k float32 vectors per search request.
-- Fix: cache `numpy.ndarray (N, D)` keyed on db mtime; replace loop with
-  `vectors @ q / norms` (single BLAS call).
+**Status:** Shipped.
 
-#### `EmbeddingStore` re-instantiated per search
-- `search.py:192` — `GraphStore` is pinned across tool calls but `EmbeddingStore`
-  opens a fresh sqlite3 connection on every `hybrid_search` call.
-- Fix: same process-level cache pattern as `_get_store()` in `tools/_common.py`.
+#### Pure-Python cosine loop → optional numpy matmul / Rust native
+- Default search uses the Rust native SIMD path (`DAGAYN_EMBEDDING_SEARCH_BACKEND=rust`).
+- The Python fallback path (`python` / `auto` after native failure) caches a
+  `numpy.ndarray (N, D)` keyed on a WAL-aware DB stamp and computes cosine via
+  a single BLAS matmul (`vectors @ q / norms`) when numpy is installed
+  (`pip install dagayn[numpy]` or the `dev` extra). Without numpy, the pure-Python
+  cosine loop remains correct.
+- Ranking parity between numpy and pure-Python is covered by unit tests;
+  `tools/embedding_search_benchmark.py --compare-numpy --compare-python`
+  documents latency.
 
-#### `embed_nodes` N+1
-- `embeddings.py:778-805` — one `SELECT FROM embeddings WHERE qualified_name = ?` per
-  node, then one `INSERT OR REPLACE` per node.
-- Fix: batch `WHERE qualified_name IN (?,...)` + `executemany`.
+#### `EmbeddingStore` re-instantiated per search ✅
+- `search.py` pins `EmbeddingStore` across `hybrid_search` calls via
+  `_get_cached_emb_store`, mirroring `_get_store()` for `GraphStore`. The cache
+  key includes provider/model/text-mode and is invalidated when the DB mtime
+  changes.
+
+#### `embed_nodes` N+1 ✅
+- `embeddings_store.py` batch-fetches existing hashes with
+  `WHERE qualified_name IN (...)` (chunked under SQLite's variable limit) and
+  persists vectors with `executemany`.
+
+~~Original problems:~~ pure-Python cosine over thousands of float32 vectors per
+search; fresh `EmbeddingStore` / sqlite connection on every hybrid search; one
+SELECT + INSERT per node in `embed_nodes`.
 
 ### 4.6 Missing indexes (partial)
 
@@ -421,7 +433,7 @@ Fix: add `mtime_ns INTEGER` to the `nodes` table (migration v9); skip sha256 whe
 
 ## Out of scope
 
-- `EmbeddingStore.search` cosine similarity vectorisation (numpy/ANN) — tracked separately
 - Parser worker `CodeParser` reuse (`incremental.py:803`) — **shipped in §4.2** as a per-worker singleton via `ProcessPoolExecutor(initializer=_init_worker)`. Full Rust migration remains Phase 3.
 - `LIKE '%suffix'` full-scan in `get_files_matching` (`graph/core.py:1029`) — low-frequency path, low priority
 - Embedding batch parallelisation (`embeddings.py:507`) — tracked separately
+- HNSW/FAISS ANN index for embedding search — stretch goal (see Non-goals)

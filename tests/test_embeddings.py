@@ -922,6 +922,221 @@ class TestEmbeddingStore:
             assert store.search("query", limit=1)[0][0] == "file.py::best"
             store.close()
 
+    def test_search_python_backend_uses_pure_python_without_numpy(self, tmp_path, monkeypatch):
+        import dagayn.embeddings as emb
+        import dagayn.embeddings_store as emb_store
+
+        db = tmp_path / "embeddings.db"
+
+        class FakeProvider:
+            name = "fake"
+            preferred_batch_size = 1
+
+            def embed(self, texts):
+                return [[1.0, 0.0] for _ in texts]
+
+            def embed_query(self, text):
+                return [1.0, 0.0]
+
+            @property
+            def dimension(self):
+                return 2
+
+        monkeypatch.setenv("DAGAYN_EMBEDDING_SEARCH_BACKEND", "python")
+        monkeypatch.setattr(emb_store, "_NUMPY_AVAILABLE", False)
+        monkeypatch.setattr(emb, "_NUMPY_AVAILABLE", False)
+
+        with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
+            store = EmbeddingStore(db)
+            store._conn.executemany(
+                """INSERT INTO embeddings (qualified_name, vector, text_hash, provider)
+                   VALUES (?, ?, ?, ?)""",
+                [
+                    ("file.py::best", _encode_vector([1.0, 0.0]), "h1", "fake"),
+                    ("file.py::other", _encode_vector([0.0, 1.0]), "h2", "fake"),
+                ],
+            )
+            store._conn.commit()
+            results = store.search("query", limit=2)
+            store.close()
+
+        assert results[0][0] == "file.py::best"
+        assert results[0][1] == pytest.approx(1.0, abs=1e-5)
+        assert results[1][0] == "file.py::other"
+        assert results[1][1] == pytest.approx(0.0, abs=1e-5)
+
+    def test_search_numpy_matmul_parity_with_python_loop(self, tmp_path, monkeypatch):
+        import dagayn.embeddings as emb
+        import dagayn.embeddings_store as emb_store
+
+        if not emb._NUMPY_AVAILABLE:
+            pytest.skip("numpy fast path is optional")
+
+        db = tmp_path / "embeddings.db"
+        vectors = [
+            ("n::a", [1.0, 0.0, 0.0]),
+            ("n::b", [0.8, 0.6, 0.0]),
+            ("n::c", [0.0, 1.0, 0.0]),
+            ("n::d", [-1.0, 0.0, 0.0]),
+            ("n::e", [0.1, 0.2, 0.3]),
+        ]
+        query = [0.9, 0.1, 0.0]
+
+        class FakeProvider:
+            name = "fake"
+            preferred_batch_size = 1
+
+            def embed(self, texts):
+                return [[1.0, 0.0, 0.0] for _ in texts]
+
+            def embed_query(self, text):
+                return list(query)
+
+            @property
+            def dimension(self):
+                return 3
+
+        monkeypatch.setenv("DAGAYN_EMBEDDING_SEARCH_BACKEND", "python")
+
+        with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
+            store = EmbeddingStore(db)
+            store._conn.executemany(
+                """INSERT INTO embeddings (qualified_name, vector, text_hash, provider)
+                   VALUES (?, ?, ?, ?)""",
+                [(qn, _encode_vector(vec), f"h{i}", "fake") for i, (qn, vec) in enumerate(vectors)],
+            )
+            store._conn.commit()
+
+            emb._np_vec_cache.clear()
+            numpy_results = store.search("query", limit=5)
+
+            monkeypatch.setattr(emb_store, "_NUMPY_AVAILABLE", False)
+            monkeypatch.setattr(emb, "_NUMPY_AVAILABLE", False)
+            python_results = store.search("query", limit=5)
+            store.close()
+
+        assert [qn for qn, _ in numpy_results] == [qn for qn, _ in python_results]
+        for (_, numpy_score), (_, python_score) in zip(numpy_results, python_results):
+            assert numpy_score == pytest.approx(python_score, abs=1e-5)
+
+    def test_search_reuses_numpy_matrix_cache(self, tmp_path, monkeypatch):
+        import dagayn.embeddings as emb
+
+        if not emb._NUMPY_AVAILABLE:
+            pytest.skip("numpy fast path is optional")
+
+        db = tmp_path / "embeddings.db"
+
+        class FakeProvider:
+            name = "fake"
+            preferred_batch_size = 1
+
+            def embed(self, texts):
+                return [[1.0, 0.0] for _ in texts]
+
+            def embed_query(self, text):
+                return [1.0, 0.0]
+
+            @property
+            def dimension(self):
+                return 2
+
+        monkeypatch.setenv("DAGAYN_EMBEDDING_SEARCH_BACKEND", "python")
+
+        with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
+            store = EmbeddingStore(db)
+            store._conn.executemany(
+                """INSERT INTO embeddings (qualified_name, vector, text_hash, provider)
+                   VALUES (?, ?, ?, ?)""",
+                [
+                    ("file.py::best", _encode_vector([1.0, 0.0]), "h1", "fake"),
+                    ("file.py::other", _encode_vector([0.0, 1.0]), "h2", "fake"),
+                ],
+            )
+            store._conn.commit()
+
+            emb._np_vec_cache.clear()
+            load_calls = 0
+            original_load = emb._load_vec_matrix
+
+            def counting_load(*args, **kwargs):
+                nonlocal load_calls
+                load_calls += 1
+                return original_load(*args, **kwargs)
+
+            monkeypatch.setattr(emb, "_load_vec_matrix", counting_load)
+
+            assert store.search("query", limit=1)[0][0] == "file.py::best"
+            assert store.search("query", limit=1)[0][0] == "file.py::best"
+            assert load_calls == 1
+            store.close()
+
+    def test_numpy_matmul_microbenchmark_beats_python_loop(self, tmp_path):
+        """Document that the numpy matmul path is faster than the pure-Python loop."""
+        import sqlite3
+        import time
+
+        import dagayn.embeddings as emb
+        import dagayn.embeddings_store as emb_store
+
+        if not emb._NUMPY_AVAILABLE:
+            pytest.skip("numpy fast path is optional")
+
+        rows = 4000
+        dim = 96
+        db = tmp_path / "bench.db"
+        provider = "bench"
+        query = [1.0] + [0.0] * (dim - 1)
+
+        conn = sqlite3.connect(str(db))
+        conn.row_factory = sqlite3.Row
+        conn.executescript(
+            """
+            CREATE TABLE embeddings (
+                qualified_name TEXT NOT NULL,
+                vector BLOB NOT NULL,
+                text_hash TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                PRIMARY KEY (qualified_name, provider)
+            );
+            """
+        )
+        records = []
+        for i in range(rows):
+            vec = [0.0] * dim
+            vec[i % dim] = 1.0
+            records.append((f"node::{i}", _encode_vector(vec), "h", provider))
+        conn.executemany(
+            "INSERT INTO embeddings (qualified_name, vector, text_hash, provider) "
+            "VALUES (?, ?, ?, ?)",
+            records,
+        )
+        conn.commit()
+
+        emb._np_vec_cache.clear()
+        # Warm caches / decode once for a fair comparison of the scan itself.
+        _ = emb_store._python_loop_search(conn, provider, query, limit=10)
+        _ = emb_store._numpy_matmul_search(db, conn, provider, query, limit=10)
+
+        iterations = 8
+        start = time.perf_counter()
+        for _ in range(iterations):
+            emb_store._python_loop_search(conn, provider, query, limit=10)
+        python_ms = (time.perf_counter() - start) * 1000 / iterations
+
+        start = time.perf_counter()
+        for _ in range(iterations):
+            emb_store._numpy_matmul_search(db, conn, provider, query, limit=10)
+        numpy_ms = (time.perf_counter() - start) * 1000 / iterations
+        conn.close()
+
+        # Soft assertion: matmul should win on this synthetic size; if the
+        # environment is too noisy, still record timings in the assertion message.
+        assert numpy_ms < python_ms, (
+            f"expected numpy matmul ({numpy_ms:.3f}ms) faster than "
+            f"pure-Python ({python_ms:.3f}ms) for {rows}x{dim}"
+        )
+
 
 class TestGetProviderModel:
     """Tests for model parameter in get_provider()."""

@@ -4,6 +4,22 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Improvements
+
+- Restore an optional numpy BLAS matmul path for embedding hybrid search when
+  the Python fallback runs (`DAGAYN_EMBEDDING_SEARCH_BACKEND=python` / `auto`).
+  Vectors are cached as a process-level `(N, D)` matrix keyed on a WAL-aware DB
+  stamp; ranking stays within float tolerance of the pure-Python cosine loop.
+  Install with `pip install "dagayn[numpy]"` — numpy remains optional, not a
+  hard dependency. `EmbeddingStore` pinning in `hybrid_search` and batched
+  `embed_nodes` SELECT/INSERT are documented as shipped.
+
+### Testing
+
+- Add ranking-parity, matrix-cache reuse, EmbeddingStore pin-reuse, and
+  numpy-vs-Python microbenchmark coverage for embedding search.
+- Extend `tools/embedding_search_benchmark.py` with `--compare-numpy`.
+
 ## 4.7.0 — 2026-08-10
 
 ### Features
