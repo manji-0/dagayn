@@ -50,6 +50,7 @@ def run_post_processing(store: GraphStore) -> dict[str, Any]:
     _compute_signatures(store, result, warnings)
     _rebuild_fts_index(store, result, warnings)
     _resolve_markdown_artifact_refs(store, result, warnings)
+    _resolve_terraform_artifact_refs(store, result, warnings)
     _trace_flows(store, result, warnings)
     _detect_communities(store, result, warnings)
     _persist_centrality_scores(store, result, warnings)
@@ -290,6 +291,133 @@ def _resolve_markdown_artifact_refs(
     except (sqlite3.OperationalError, RuntimeError) as e:
         logger.warning("Markdown artifact ref resolution failed: %s", e)
         warnings.append(f"Markdown artifact ref resolution failed: {type(e).__name__}: {e}")
+
+
+def _resolve_terraform_artifact_refs(
+    store: GraphStore,
+    result: dict[str, Any],
+    warnings: list[str],
+) -> None:
+    """Resolve Terraform entrypoint CROSS_ARTIFACT edges to unique code symbols.
+
+    Handles ``handler`` / ``entry_point`` bridges whose ``original_symbol_name``
+    looks like ``module.attr`` (AWS Lambda-style) by matching a unique
+    non-Markdown Function/Test named ``attr`` whose file stem is ``module``.
+    Path-based Terraform bridges are already concrete and left untouched.
+    """
+    resolved = 0
+    still_unresolved = 0
+
+    try:
+        rows = store._conn.execute(
+            "SELECT id, target_qualified, extra "
+            "FROM edges "
+            "WHERE kind='CROSS_ARTIFACT' AND extra LIKE '%original_symbol_name%'"
+        ).fetchall()
+
+        edge_data: list[tuple[int, str, str, dict[str, Any]]] = []
+        for row in rows:
+            try:
+                extra = json.loads(row["extra"] or "{}")
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if extra.get("source_language") != "terraform":
+                continue
+            if extra.get("evidence_source") not in {"handler", "entry_point"}:
+                continue
+            if extra.get("relationship_role") != "maps_entrypoint":
+                continue
+            sym = extra.get("original_symbol_name")
+            if not isinstance(sym, str) or not sym:
+                continue
+            edge_data.append((row["id"], row["target_qualified"], sym, extra))
+
+        if not edge_data:
+            result["terraform_artifact_refs_resolved"] = 0
+            result["terraform_artifact_refs_still_unresolved"] = 0
+            return
+
+        to_update: list[tuple[Any, ...]] = []
+        for edge_id, current_target, sym, extra in edge_data:
+            match = _resolve_terraform_entrypoint_symbol(store, sym)
+            if match is None:
+                still_unresolved += 1
+                continue
+            qname, lang = match
+            if current_target == qname:
+                continue
+            new_extra = dict(extra)
+            new_extra["target_language"] = lang
+            new_extra["confidence"] = 0.8
+            new_extra["confidence_tier"] = "HIGH"
+            to_update.append((qname, json.dumps(new_extra), 0.8, "HIGH", edge_id))
+            resolved += 1
+
+        if to_update:
+            store._conn.executemany(
+                "UPDATE edges "
+                "SET target_qualified=?, extra=?, confidence=?, confidence_tier=? "
+                "WHERE id=?",
+                to_update,
+            )
+            store.commit()
+
+        result["terraform_artifact_refs_resolved"] = resolved
+        result["terraform_artifact_refs_still_unresolved"] = still_unresolved
+    except (sqlite3.OperationalError, RuntimeError) as e:
+        logger.warning("Terraform artifact ref resolution failed: %s", e)
+        warnings.append(f"Terraform artifact ref resolution failed: {type(e).__name__}: {e}")
+
+
+def _resolve_terraform_entrypoint_symbol(
+    store: GraphStore,
+    symbol: str,
+) -> tuple[str, str] | None:
+    """Return ``(qualified_name, language)`` for a unique Terraform entrypoint."""
+    symbol = symbol.strip()
+    if not symbol or symbol.startswith("<"):
+        return None
+
+    if "." in symbol:
+        module, _, attr = symbol.rpartition(".")
+        if not module or not attr:
+            return None
+        rows = store._conn.execute(
+            "SELECT qualified_name, language, file_path FROM nodes "
+            "WHERE name = ? AND kind IN ('Function', 'Test') AND language != 'markdown'",
+            (attr,),
+        ).fetchall()
+        matches = [
+            (row["qualified_name"], row["language"] or "unknown")
+            for row in rows
+            if _terraform_module_matches_file(module, row["file_path"] or "")
+        ]
+    else:
+        rows = store._conn.execute(
+            "SELECT qualified_name, language FROM nodes "
+            "WHERE name = ? AND kind IN ('Function', 'Test') AND language != 'markdown'",
+            (symbol,),
+        ).fetchall()
+        matches = [(row["qualified_name"], row["language"] or "unknown") for row in rows]
+
+    if len(matches) != 1:
+        return None
+    return matches[0]
+
+
+def _terraform_module_matches_file(module: str, file_path: str) -> bool:
+    """Return whether *file_path* plausibly implements Terraform handler module *module*."""
+    if not file_path:
+        return False
+    path = file_path.replace("\\", "/")
+    stem = path.rsplit("/", 1)[-1]
+    if "." in stem:
+        stem = stem.rsplit(".", 1)[0]
+    if stem == module:
+        return True
+    # Allow package-style handlers such as app/hello/__init__.py for module "hello".
+    parts = path.split("/")
+    return module in parts[:-1]
 
 
 def _compute_signatures(

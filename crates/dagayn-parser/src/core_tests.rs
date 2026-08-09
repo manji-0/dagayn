@@ -182,6 +182,60 @@ output "vpc_id" {
     }));
 }
 
+
+#[test]
+fn extracts_terraform_code_bridges() {
+    let source = br#"
+resource "null_resource" "bootstrap" {
+  provisioner "local-exec" {
+    command = "python3 ${path.module}/../scripts/bootstrap.py"
+  }
+}
+
+resource "aws_lambda_function" "auth" {
+  filename = "${path.module}/../app/hello.py"
+  handler  = "hello.main"
+  runtime  = "python3.12"
+  role     = "arn:aws:iam::123456789012:role/lambda"
+}
+
+resource "google_cloudfunctions_function" "api" {
+  name             = "api"
+  runtime          = "python312"
+  entry_point      = "serve"
+  source_directory = "${path.module}/../app"
+}
+"#;
+    let (_nodes, edges) = parse_terraform("infra/main.tf", source);
+    let bridges: Vec<_> = edges
+        .iter()
+        .filter(|edge| edge.kind == "CROSS_ARTIFACT")
+        .collect();
+    assert!(bridges.iter().any(|edge| {
+        edge.extra["evidence_source"] == "provisioner.local-exec.command"
+            && edge.target == "scripts/bootstrap.py"
+            && edge.extra["relationship_role"] == "invokes_binary"
+            && edge.extra["confidence_tier"] == "HIGH"
+    }));
+    assert!(bridges.iter().any(|edge| {
+        edge.extra["evidence_source"] == "filename"
+            && edge.target == "app/hello.py"
+            && edge.extra["relationship_role"] == "maps_entrypoint"
+    }));
+    assert!(bridges.iter().any(|edge| {
+        edge.extra["evidence_source"] == "handler"
+            && edge.target == "<unresolved:hello.main>"
+            && edge.extra["original_symbol_name"] == "hello.main"
+    }));
+    assert!(bridges.iter().any(|edge| {
+        edge.extra["evidence_source"] == "source_directory" && edge.target == "app"
+    }));
+    assert!(bridges.iter().any(|edge| {
+        edge.extra["evidence_source"] == "entry_point"
+            && edge.target == "<unresolved:serve>"
+    }));
+}
+
 #[test]
 fn parses_bash_functions_calls_and_sources() {
     let mut repo_root = std::env::temp_dir();

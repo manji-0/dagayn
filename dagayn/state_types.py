@@ -28,6 +28,8 @@ CrossArtifactRole: TypeAlias = Literal[
     "has_runbook",
     "problem_described_by",
     "discussed_by",
+    "maps_entrypoint",
+    "invokes_binary",
 ]
 
 MarkdownArtifactResolutionState: TypeAlias = Literal[
