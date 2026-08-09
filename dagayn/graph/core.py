@@ -190,7 +190,18 @@ class GraphStore(
             g: nx.DiGraph = nx.DiGraph()
             rows = self._conn.execute("SELECT * FROM edges").fetchall()
             for r in rows:
-                g.add_edge(r["source_qualified"], r["target_qualified"], kind=r["kind"])
+                keys = r.keys()
+                extra = json.loads(r["extra"]) if r["extra"] else {}
+                g.add_edge(
+                    r["source_qualified"],
+                    r["target_qualified"],
+                    kind=r["kind"],
+                    confidence_tier=r["confidence_tier"] if "confidence_tier" in keys else None,
+                    confidence=r["confidence"] if "confidence" in keys else 1.0,
+                    extra=extra,
+                    file_path=r["file_path"],
+                    line=r["line"],
+                )
             self._nxg_cache = g
             return g
 

@@ -5,6 +5,7 @@ from typing import Any
 from ..cross_artifact import (
     collect_bridge_transitions,
     is_low_confidence_bridge,
+    is_reportable_bridge,
 )
 from ._mixin_protocol import GraphStoreMixinProtocol
 from ._sql import BFS_ENGINE, MAX_IMPACT_DEPTH, MAX_IMPACT_NODES
@@ -21,6 +22,26 @@ _REPORTABLE_BRIDGE_SQL = """
     )
 )
 """
+
+
+def _nx_edge_allows_impact(edge_data: dict[str, Any] | None, source: str, target: str) -> bool:
+    """Match SQL/_REPORTABLE_BRIDGE_SQL: skip non-reportable CROSS_ARTIFACT hops."""
+    data = edge_data or {}
+    if data.get("kind") != "CROSS_ARTIFACT":
+        return True
+    from types import SimpleNamespace
+
+    edge = SimpleNamespace(
+        kind="CROSS_ARTIFACT",
+        source_qualified=source,
+        target_qualified=target,
+        confidence_tier=data.get("confidence_tier"),
+        extra=data.get("extra") if isinstance(data.get("extra"), dict) else {},
+        confidence=data.get("confidence", 1.0),
+        file_path=data.get("file_path"),
+        line=data.get("line"),
+    )
+    return is_reportable_bridge(edge)
 
 
 class GraphStoreImpactMixin(GraphStoreMixinProtocol):
@@ -241,14 +262,21 @@ class GraphStoreImpactMixin(GraphStoreMixinProtocol):
             for qn in frontier:
                 if qn in nxg:
                     for neighbor in nxg.neighbors(qn):
-                        if neighbor not in visited:
-                            next_frontier.add(neighbor)
-                            impacted.add(neighbor)
-                if qn in nxg:
+                        if neighbor in visited:
+                            continue
+                        edge_data = nxg.get_edge_data(qn, neighbor)
+                        if not _nx_edge_allows_impact(edge_data, qn, neighbor):
+                            continue
+                        next_frontier.add(neighbor)
+                        impacted.add(neighbor)
                     for pred in nxg.predecessors(qn):
-                        if pred not in visited:
-                            next_frontier.add(pred)
-                            impacted.add(pred)
+                        if pred in visited:
+                            continue
+                        edge_data = nxg.get_edge_data(pred, qn)
+                        if not _nx_edge_allows_impact(edge_data, pred, qn):
+                            continue
+                        next_frontier.add(pred)
+                        impacted.add(pred)
             next_frontier -= visited
             if len(visited) + len(next_frontier) > max_nodes:
                 break
@@ -271,8 +299,7 @@ class GraphStoreImpactMixin(GraphStoreMixinProtocol):
         if all_qns:
             relevant_edges = self.get_edges_among(all_qns)
 
-        # Legacy NetworkX walk may still touch low-confidence bridges; surface
-        # reportable transitions as explainable paths and caveats separately.
+        # Reportable transitions as explainable paths; low-confidence as caveats.
         bridge_transitions, _ = collect_bridge_transitions(relevant_edges)
 
         return {

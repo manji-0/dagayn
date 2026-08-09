@@ -675,6 +675,60 @@ def get_flows(
     return results
 
 
+def _collect_cross_artifact_edges_among(
+    store: GraphStore,
+    path_qns: set[str],
+) -> list[Any]:
+    """Fetch CROSS_ARTIFACT edges whose endpoints are both in ``path_qns``."""
+    if not path_qns:
+        return []
+    try:
+        get_among = getattr(store, "get_edges_among", None)
+        if callable(get_among):
+            return [
+                edge
+                for edge in get_among(path_qns)
+                if getattr(edge, "kind", None) == "CROSS_ARTIFACT"
+            ]
+        outgoing, incoming = store.get_edges_by_endpoints(list(path_qns))
+        bridge_edges: list[Any] = []
+        seen: set[int] = set()
+        for edge_list in (*outgoing.values(), *incoming.values()):
+            for edge in edge_list:
+                edge_id = getattr(edge, "id", None)
+                if edge_id in seen:
+                    continue
+                if edge_id is not None:
+                    seen.add(edge_id)
+                if getattr(edge, "kind", None) == "CROSS_ARTIFACT":
+                    src = str(getattr(edge, "source_qualified", "") or "")
+                    tgt = str(getattr(edge, "target_qualified", "") or "")
+                    if src in path_qns and tgt in path_qns:
+                        bridge_edges.append(edge)
+        return bridge_edges
+    except Exception:  # pragma: no cover - backend parity drift
+        return []
+
+
+def _annotate_flow_dict_bridges(store: GraphStore, flow: dict) -> dict:
+    """Mark bridge arrivals on a flow dict (shared by Rust and Python paths)."""
+    from .cross_artifact import annotate_flow_steps_with_bridges
+
+    steps = list(flow.get("steps") or [])
+    path_qns = {
+        str(step.get("qualified_name"))
+        for step in steps
+        if isinstance(step.get("qualified_name"), str)
+    }
+    bridge_edges = _collect_cross_artifact_edges_among(store, path_qns)
+    annotated = dict(flow)
+    annotated["steps"] = annotate_flow_steps_with_bridges(steps, bridge_edges)
+    annotated["bridge_step_count"] = sum(
+        1 for step in annotated["steps"] if step.get("is_bridge_step")
+    )
+    return annotated
+
+
 def get_flow_by_id(store: GraphStore, flow_id: int) -> Optional[dict]:
     """Retrieve a single flow with full path details.
 
@@ -682,47 +736,12 @@ def get_flow_by_id(store: GraphStore, flow_id: int) -> Optional[dict]:
     each node's name, kind, file, and line info. Bridge arrivals among path
     nodes are marked with ``step_kind="bridge"``.
     """
-    from .cross_artifact import annotate_flow_steps_with_bridges
-
     rust_get = getattr(store, "get_flow_by_id_json", None)
     if callable(rust_get):
         raw = rust_get(flow_id)
         if not raw:
             return None
-        flow = json.loads(raw)
-        steps = list(flow.get("steps") or [])
-        path_qns = {
-            str(step.get("qualified_name"))
-            for step in steps
-            if isinstance(step.get("qualified_name"), str)
-        }
-        bridge_edges: list[Any] = []
-        if path_qns:
-            try:
-                get_among = getattr(store, "get_edges_among", None)
-                if callable(get_among):
-                    bridge_edges = [
-                        edge
-                        for edge in get_among(path_qns)
-                        if getattr(edge, "kind", None) == "CROSS_ARTIFACT"
-                    ]
-                else:
-                    outgoing, incoming = store.get_edges_by_endpoints(list(path_qns))
-                    seen: set[int] = set()
-                    for edge_list in (*outgoing.values(), *incoming.values()):
-                        for edge in edge_list:
-                            edge_id = getattr(edge, "id", None)
-                            if edge_id in seen:
-                                continue
-                            if edge_id is not None:
-                                seen.add(edge_id)
-                            if getattr(edge, "kind", None) == "CROSS_ARTIFACT":
-                                bridge_edges.append(edge)
-            except Exception:  # pragma: no cover - backend parity drift
-                bridge_edges = []
-        flow["steps"] = annotate_flow_steps_with_bridges(steps, bridge_edges)
-        flow["bridge_step_count"] = sum(1 for step in flow["steps"] if step.get("is_bridge_step"))
-        return flow
+        return _annotate_flow_dict_bridges(store, json.loads(raw))
 
     # NOTE: get_flow_by_id reads from the flows table; see store_flows note.
     row = store._conn.execute("SELECT * FROM flows WHERE id = ?", (flow_id,)).fetchone()
@@ -830,7 +849,9 @@ def get_affected_flows(
 
     rust_get = getattr(store, "get_affected_flows_json", None)
     if callable(rust_get):
-        affected = json.loads(rust_get(changed_files))
+        affected = [
+            _annotate_flow_dict_bridges(store, flow) for flow in json.loads(rust_get(changed_files))
+        ]
         return {"affected_flows": affected, "total": len(affected)}
 
     # Find node IDs belonging to changed files.

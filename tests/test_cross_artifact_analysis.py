@@ -11,7 +11,7 @@ from dagayn.cross_artifact import (
     is_low_confidence_bridge,
     is_reportable_bridge,
 )
-from dagayn.flows import _hydrate_flow_rows, store_flows, trace_flows
+from dagayn.flows import _hydrate_flow_rows, get_affected_flows, store_flows, trace_flows
 from dagayn.graph import GraphStore
 from dagayn.parser.types import EdgeInfo, NodeInfo
 from dagayn.tools import query as query_module
@@ -237,6 +237,63 @@ class TestCrossArtifactFlows:
             step.get("transition", {}).get("kind") == "CROSS_ARTIFACT" for step in bridge_steps
         )
 
+    def test_get_affected_flows_annotates_bridge_steps(self, bridge_store):
+        """Rust get_affected_flows_json path must hydrate bridge annotations."""
+        store, paths = bridge_store
+        store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="main",
+                file_path=paths["wrapper"],
+                line_start=20,
+                line_end=30,
+                language="python",
+            )
+        )
+        main_qn = f"{paths['wrapper']}::main"
+        store.upsert_edge(
+            EdgeInfo(
+                kind="CALLS",
+                source=main_qn,
+                target=paths["wrapper_qn"],
+                file_path=paths["wrapper"],
+                line=21,
+            )
+        )
+        store.commit()
+        flows = trace_flows(store)
+        assert store_flows(store, flows) >= 1
+
+        # Simulate native store: JSON without bridge annotations.
+        import json
+
+        rows = store._conn.execute("SELECT * FROM flows").fetchall()
+        bare = _hydrate_flow_rows(store, rows)
+        for flow in bare:
+            for step in flow["steps"]:
+                step.pop("step_kind", None)
+                step.pop("transition", None)
+                step.pop("is_bridge_step", None)
+            flow.pop("bridge_step_count", None)
+
+        store.get_affected_flows_json = lambda _files: json.dumps(bare)
+
+        result = get_affected_flows(store, [paths["wrapper"]])
+        bridge_flows = [
+            flow
+            for flow in result["affected_flows"]
+            if any(step.get("qualified_name") == paths["native_qn"] for step in flow["steps"])
+        ]
+        assert bridge_flows, "expected affected flow reaching bridge target"
+        for flow in bridge_flows:
+            assert flow.get("bridge_step_count", 0) >= 1
+            bridge_steps = [step for step in flow["steps"] if step.get("is_bridge_step")]
+            assert bridge_steps
+            assert all(step.get("step_kind") == "bridge" for step in bridge_steps)
+            assert all(
+                step.get("transition", {}).get("kind") == "CROSS_ARTIFACT" for step in bridge_steps
+            )
+
     def test_annotate_flow_steps_marks_bridge_arrival(self):
         steps = [
             {"qualified_name": "a.py::main", "name": "main"},
@@ -260,6 +317,36 @@ class TestCrossArtifactFlows:
         assert annotated[2]["step_kind"] == "bridge"
         assert annotated[2]["is_bridge_step"] is True
         assert annotated[2]["transition"]["bridge_kind"] == "subprocess"
+
+
+class TestCrossArtifactImpactNetworkX:
+    def test_networkx_impact_skips_low_confidence_bridges(self, bridge_store, monkeypatch):
+        store, paths = bridge_store
+        # Only reachable via the LOW bridge — must not expand.
+        orphan = _add_func(store, "orphan_cli", str(paths["root"] / "orphan.py"))
+        store._conn.execute(
+            """
+            UPDATE edges
+            SET target_qualified = ?, confidence_tier = 'LOW'
+            WHERE kind = 'CROSS_ARTIFACT'
+              AND target_qualified LIKE '<unresolved:%'
+            """,
+            (orphan,),
+        )
+        store.commit()
+        store._nxg_cache = None
+
+        import dagayn.graph._sql as sql_mod
+        import dagayn.graph.analysis_impact as impact_mod
+
+        monkeypatch.setattr(sql_mod, "BFS_ENGINE", "networkx")
+        monkeypatch.setattr(impact_mod, "BFS_ENGINE", "networkx")
+
+        result = store.get_impact_radius([paths["wrapper"]], max_depth=2)
+        impacted_qns = {n.qualified_name for n in result["impacted_nodes"]}
+        assert paths["native_qn"] in impacted_qns  # reportable HIGH bridge still expands
+        assert orphan not in impacted_qns  # LOW bridge must not expand
+        assert result["low_confidence_bridges"]
 
 
 class TestCrossArtifactReviewGuidance:
@@ -352,3 +439,58 @@ class TestCrossArtifactHelpers:
         assert not is_low_confidence_bridge(high)
         assert not is_reportable_bridge(low)
         assert is_low_confidence_bridge(low)
+
+    def test_column_tier_preferred_over_extra(self):
+        """Parity with Rust: non-reportable column tier must not be overridden by extra."""
+        edge = _EdgeView(
+            _bridge(
+                source="a::x",
+                target="b::y",
+                file_path="a.py",
+                tier="HIGH",
+            )
+        )
+        edge.confidence_tier = "LOW"
+        edge.extra = {**edge.extra, "confidence_tier": "HIGH"}
+        assert not is_reportable_bridge(edge)
+        assert is_low_confidence_bridge(edge)
+
+    def test_surprising_connections_bonus_only_reportable_bridges(self, tmp_path):
+        from dagayn.analysis import find_surprising_connections
+
+        store = GraphStore(str(tmp_path / "surprise_bridge.db"))
+        left = str(tmp_path / "left.py")
+        right = str(tmp_path / "right.py")
+        left_qn = _add_func(store, "left_fn", left)
+        right_qn = _add_func(store, "right_fn", right)
+        store.upsert_edge(
+            _bridge(
+                source=left_qn,
+                target=right_qn,
+                file_path=left,
+                tier="LOW",
+                confidence=0.2,
+            )
+        )
+        store.commit()
+        store._conn.execute(
+            """
+            UPDATE nodes
+            SET community_id = CASE
+                WHEN qualified_name = ? THEN 1
+                ELSE 2
+            END
+            """,
+            (left_qn,),
+        )
+        store.commit()
+
+        result = find_surprising_connections(store, top_n=10)
+        for item in result:
+            if item["source_qualified"] == left_qn and item["target_qualified"] == right_qn:
+                assert "cross-artifact-bridge" not in item["reasons"]
+                break
+        else:
+            # Low-confidence-only bridge with no other boundary signal may be omitted.
+            assert True
+        store.close()
