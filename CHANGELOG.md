@@ -11,6 +11,15 @@ All notable changes to `dagayn` are documented here.
   (`builds_artifact`, `generates_code`, `binds_generated_client`) with
   confidence/evidence metadata. Edges appear in normal `edges_by_kind` stats.
 
+### Fixes
+
+- Manifest bridge refresh is transactional (discover-then-swap under
+  `BEGIN IMMEDIATE`) so a failed rescan leaves prior bridges intact.
+- Manifest File upserts no longer overwrite existing parser `file_hash` /
+  `mtime_ns` metadata used by incremental skip.
+- Manifest-controlled paths reject `..` / out-of-root traversal before any
+  filesystem join or read.
+
 ## 4.7.0 — 2026-08-10
 
 ### Features

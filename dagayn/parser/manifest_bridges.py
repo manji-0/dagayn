@@ -133,8 +133,15 @@ def _extract_maturin_bridges(
         confidence = CONFIDENCE_HIGH
         confidence_tier = "HIGH"
 
-    cargo_abs = repo_root / cargo_rel
-    if not cargo_abs.is_file():
+    if cargo_rel is None:
+        logger.debug(
+            "Skipping maturin bridge from %s: manifest-path escapes repository root",
+            pyproject_rel,
+        )
+        return
+
+    cargo_abs = _contained_path(repo_root, cargo_rel)
+    if cargo_abs is None or not cargo_abs.is_file():
         logger.debug(
             "Skipping maturin bridge from %s: missing Cargo.toml at %s",
             pyproject_rel,
@@ -197,17 +204,24 @@ def _extract_openapitools_bridges(
             continue
 
         schema_rel = _resolve_rel(config_dir, input_spec.strip())
-        output_rel = _resolve_rel(config_dir, output.strip()).rstrip("/")
-        schema_abs = repo_root / schema_rel
-        output_abs = repo_root / output_rel
-        if not schema_abs.is_file():
+        output_resolved = _resolve_rel(config_dir, output.strip())
+        if schema_rel is None or output_resolved is None:
+            logger.debug(
+                "Skipping openapitools generator %s: path escapes repository root",
+                gen_name,
+            )
+            continue
+        output_rel = output_resolved.rstrip("/")
+        schema_abs = _contained_path(repo_root, schema_rel)
+        output_abs = _contained_path(repo_root, output_rel)
+        if schema_abs is None or not schema_abs.is_file():
             logger.debug(
                 "Skipping openapitools generator %s: missing schema %s",
                 gen_name,
                 schema_rel,
             )
             continue
-        if not output_abs.exists():
+        if output_abs is None or not output_abs.exists():
             logger.debug(
                 "Skipping openapitools generator %s: missing output %s",
                 gen_name,
@@ -284,10 +298,18 @@ def _extract_package_json_generator_scripts(
             continue
 
         schema_rel = _resolve_rel(package_dir, _strip_quotes(input_match.group("path")))
-        output_rel = _resolve_rel(package_dir, _strip_quotes(output_match.group("path"))).rstrip(
-            "/"
-        )
-        if not (repo_root / schema_rel).is_file() or not (repo_root / output_rel).exists():
+        output_resolved = _resolve_rel(package_dir, _strip_quotes(output_match.group("path")))
+        if schema_rel is None or output_resolved is None:
+            continue
+        output_rel = output_resolved.rstrip("/")
+        schema_abs = _contained_path(repo_root, schema_rel)
+        output_abs = _contained_path(repo_root, output_rel)
+        if (
+            schema_abs is None
+            or output_abs is None
+            or not schema_abs.is_file()
+            or not output_abs.exists()
+        ):
             continue
 
         package_out = _package_root_for_output(repo_root, output_rel)
@@ -341,8 +363,8 @@ def _index_generated_package_names(
     by_name: dict[str, str] = {}
     for package_root in generated_roots:
         root = package_root.rstrip("/")
-        pkg_json = repo_root / root / "package.json"
-        if not pkg_json.is_file():
+        pkg_json = _contained_path(repo_root, f"{root}/package.json")
+        if pkg_json is None or not pkg_json.is_file():
             continue
         data = _load_json(pkg_json)
         if not data:
@@ -385,10 +407,9 @@ def _extract_generated_client_consumers(
             continue
 
         consumer_target = package_rel
+        gen_pkg = _contained_path(repo_root, f"{gen_root}/package.json")
         generated_target = (
-            f"{gen_root}/package.json"
-            if (repo_root / gen_root / "package.json").is_file()
-            else gen_root
+            f"{gen_root}/package.json" if gen_pkg is not None and gen_pkg.is_file() else gen_root
         )
 
         _ensure_file_node(result, consumer_target, language="json")
@@ -424,8 +445,8 @@ def _extract_generated_client_consumers(
 def _package_root_for_output(repo_root: Path, output_rel: str) -> str:
     """Prefer a package.json under the generator output when present."""
     output_rel = output_rel.rstrip("/")
-    direct = repo_root / output_rel / "package.json"
-    if direct.is_file():
+    direct = _contained_path(repo_root, f"{output_rel}/package.json")
+    if direct is not None and direct.is_file():
         return f"{output_rel}/package.json"
     return output_rel
 
@@ -474,14 +495,53 @@ def _bridge_extra(
     }
 
 
-def _resolve_rel(base_dir: PurePosixPath, declared: str) -> str:
-    declared_path = PurePosixPath(declared)
-    if declared_path.is_absolute() or declared.startswith("/"):
-        # Treat absolute-looking paths as repo-root-relative by stripping the root.
-        return declared.lstrip("/")
-    if str(base_dir) in ("", "."):
-        return declared_path.as_posix()
-    return (base_dir / declared_path).as_posix()
+def _resolve_rel(base_dir: PurePosixPath, declared: str) -> str | None:
+    """Resolve *declared* against *base_dir* as a repo-root-relative path.
+
+    Absolute inputs are treated as repo-root-relative by stripping the leading
+    slash.  Returns ``None`` when lexical normalization would escape the
+    repository root via ``..`` (path traversal).
+    """
+    raw = declared.strip()
+    if not raw:
+        return None
+
+    declared_path = PurePosixPath(raw)
+    if declared_path.is_absolute() or raw.startswith(("/", "\\")):
+        # Treat absolute-looking paths as repo-root-relative by stripping root.
+        candidate = PurePosixPath(raw.lstrip("/\\"))
+    elif str(base_dir) in ("", "."):
+        candidate = declared_path
+    else:
+        candidate = base_dir / declared_path
+
+    parts: list[str] = []
+    for part in candidate.parts:
+        if part in ("", ".", "/"):
+            continue
+        if part == "..":
+            if not parts:
+                return None
+            parts.pop()
+            continue
+        parts.append(part)
+    if not parts:
+        return None
+    return "/".join(parts)
+
+
+def _contained_path(repo_root: Path, rel_path: str) -> Path | None:
+    """Join *rel_path* under *repo_root*, rejecting escapes after resolve."""
+    if not rel_path or rel_path.startswith(("/", "\\")):
+        return None
+    # Lexical rejection before touching the filesystem.
+    if _resolve_rel(PurePosixPath("."), rel_path) is None:
+        return None
+    root = repo_root.resolve()
+    candidate = (root / rel_path).resolve()
+    if not candidate.is_relative_to(root):
+        return None
+    return candidate
 
 
 def _schema_language(path: str) -> str:
@@ -534,7 +594,9 @@ def refine_node_line_ends(repo_root: Path, nodes: Iterable[NodeInfo]) -> None:
     for node in nodes:
         if node.kind != "File":
             continue
-        abs_path = repo_root / node.file_path
+        abs_path = _contained_path(repo_root, node.file_path)
+        if abs_path is None:
+            continue
         try:
             text = abs_path.read_text(encoding="utf-8", errors="replace")
         except OSError:

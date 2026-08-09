@@ -302,10 +302,10 @@ def _apply_manifest_bridges(
 ) -> None:
     """Idempotently extract Layer-2 manifest-backed CROSS_ARTIFACT bridges.
 
-    Removes previous edges/nodes stamped with ``extractor=manifest_bridges``,
-    then re-scans the repository root for maturin/PyO3 and OpenAPI generator
-    manifests.  Edges land in the normal ``edges`` table so ``edges_by_kind``
-    and ``query_graph`` see them without special tooling.
+    Discovers the replacement set first, then atomically swaps prior
+    ``extractor=manifest_bridges`` edges/nodes inside an explicit
+    ``BEGIN IMMEDIATE`` transaction.  Failure leaves prior bridges intact.
+    Existing parser ``File`` rows are left untouched so hash/mtime survive.
     """
     try:
         from .parser.manifest_bridges import (
@@ -320,26 +320,44 @@ def _apply_manifest_bridges(
             result["manifest_bridges_nodes"] = 0
             return
 
-        # Drop prior extractor output so the step is idempotent across rebuilds.
-        store._conn.execute(
-            "DELETE FROM edges WHERE kind='CROSS_ARTIFACT' AND extra LIKE ?",
-            (f'%"extractor": "{EXTRACTOR_ID}"%',),
-        )
-        store._conn.execute(
-            "DELETE FROM nodes WHERE kind='File' AND extra LIKE ?",
-            (f'%"extractor": "{EXTRACTOR_ID}"%',),
-        )
-
+        # Discover before mutating so a scan failure cannot wipe prior bridges.
         discovered = discover_manifest_bridges(repo_root)
         refine_node_line_ends(repo_root, discovered.nodes)
-        for node in discovered.nodes:
-            store.upsert_node(node)
-        for edge in discovered.edges:
-            store.upsert_edge(edge)
-        store.commit()
+
+        conn = store._conn
+        if conn.in_transaction:
+            logger.warning("Rolling back uncommitted transaction before manifest bridge refresh")
+            conn.rollback()
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            conn.execute(
+                "DELETE FROM edges WHERE kind='CROSS_ARTIFACT' AND extra LIKE ?",
+                (f'%"extractor": "{EXTRACTOR_ID}"%',),
+            )
+            conn.execute(
+                "DELETE FROM nodes WHERE kind='File' AND extra LIKE ?",
+                (f'%"extractor": "{EXTRACTOR_ID}"%',),
+            )
+
+            nodes_upserted = 0
+            for node in discovered.nodes:
+                # Skip existing File rows (typically parser-owned) so we do not
+                # clobber file_hash / mtime_ns / extra used by incremental skip.
+                if node.kind == "File" and store.get_node(node.file_path) is not None:
+                    continue
+                store.upsert_node(node)
+                nodes_upserted += 1
+            for edge in discovered.edges:
+                store.upsert_edge(edge)
+            conn.commit()
+        except BaseException:
+            conn.rollback()
+            store._invalidate_cache()
+            raise
+        store._invalidate_cache()
 
         result["manifest_bridges_edges"] = discovered.edge_count
-        result["manifest_bridges_nodes"] = len(discovered.nodes)
+        result["manifest_bridges_nodes"] = nodes_upserted
     except (sqlite3.OperationalError, OSError, RuntimeError, TypeError, ValueError) as e:
         logger.warning("Manifest bridge extraction failed: %s", e)
         warnings.append(f"Manifest bridge extraction failed: {type(e).__name__}: {e}")
