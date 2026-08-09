@@ -2779,9 +2779,7 @@ class TestEnsureGraph:
             store.close()
             return fake_build
 
-        with patch(
-            "dagayn.tools.session_prepare.build_or_update_graph", side_effect=_fake_build
-        ):
+        with patch("dagayn.tools.session_prepare.build_or_update_graph", side_effect=_fake_build):
             result = ensure_graph(repo_root=str(self.root))
 
         assert result["status"] in {"ok", "partial"}
@@ -2841,9 +2839,7 @@ class TestEnsureGraph:
             store.close()
             return {"status": "ok", "summary": "Full build complete."}
 
-        with patch(
-            "dagayn.tools.session_prepare.build_or_update_graph", side_effect=_fake_build
-        ):
+        with patch("dagayn.tools.session_prepare.build_or_update_graph", side_effect=_fake_build):
             result = ensure_graph(repo_root=str(self.root), force=True)
 
         assert result["action"] == "full"
@@ -2904,9 +2900,7 @@ class TestEnsureGraph:
             "dagayn.tools.sync_status.embedding_needs_refresh",
             lambda *_a, **_k: True,
         )
-        with patch(
-            "dagayn.tools.session_prepare.build_or_update_graph", side_effect=_fake_build
-        ):
+        with patch("dagayn.tools.session_prepare.build_or_update_graph", side_effect=_fake_build):
             result = ensure_graph(
                 repo_root=str(self.root),
                 local_embedding="low",
