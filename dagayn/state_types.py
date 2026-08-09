@@ -28,6 +28,11 @@ CrossArtifactRole: TypeAlias = Literal[
     "has_runbook",
     "problem_described_by",
     "discussed_by",
+    "builds_artifact",
+    "generates_code",
+    "binds_generated_client",
+    "loads_native_module",
+    "loads_shared_library",
     "maps_entrypoint",
     "invokes_binary",
 ]

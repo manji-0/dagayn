@@ -11,13 +11,14 @@
 > one important bridge family within this umbrella, but it is no longer the
 > only one. The edge kind has been renamed `CROSS_LANGUAGE` → `CROSS_ARTIFACT`.
 >
-> **Status:** Phase 1 (schema/storage) + Phase 2 Layer-1 extractors are implemented for **four bridge families**:
+> **Status:** Phase 1 (schema/storage) + Phase 2 Layer-1 extractors + Phase 3 Layer-2 manifest/codegen bridges are implemented for **five bridge families**:
 > 1. Cross-language process/FFI bridges (multi-language, syntax-local)
 > 2. Markdown → code symbol references (doc-to-code, two-phase: parse + postprocess resolve)
 > 3. Explicit documentation bridge directives in Markdown, Python comments, and Terraform comments
 > 4. Terraform → application code bridges (high-confidence path and entrypoint attributes)
+> 5. Manifest-backed native-extension and generated-client bridges (maturin/PyO3, OpenAPI Generator)
 >
-> The remaining phases (broader cloud-provider attribute coverage, manifest-backed package bridges, and broader analysis integration) are still WIP.
+> The remaining phases (broader cloud-provider attribute coverage and broader analysis integration) are still WIP.
 >
 > **What is implemented:**
 >
@@ -43,7 +44,7 @@
 > - Source = the deepest enclosing Markdown section (or File node when no section precedes the span)
 > - Parser phase emits unresolved candidates (`target=<unresolved:{name}>`, `confidence_tier=LOW`, `extra.original_symbol_name=<raw symbol>`)
 > - `_resolve_markdown_artifact_refs` (`dagayn/postprocessing.py`) runs on every postprocess call (full build and incremental alike). For each Markdown code-span CROSS_ARTIFACT edge carrying `original_symbol_name`, it consults the current nodes table and keeps the edge only when it resolves to a unique non-Markdown qualified name (confidence HIGH 0.8). Unmatched or ambiguous code-span candidates are deleted so general prose vocabulary does not enter graph data or analysis summaries as unresolved references.
-> - 4 parser tests + 7 resolver tests (`TestMarkdownArtifactResolver` in `tests/test_postprocessing.py`) + 6 idempotence integration tests (`tests/test_cross_artifact_idempotence.py`)
+> - Parser tests + resolver tests (`TestMarkdownArtifactResolver` in `tests/test_postprocessing.py`) + idempotence integration tests (`tests/test_cross_artifact_idempotence.py`)
 > - **Limitation:** fenced code blocks not processed (too noisy for v1); low-intent code → doc inference is persisted only when it resolves uniquely, otherwise use explicit directives for durable dependencies
 >
 > ### Bridge family 3 — explicit documentation directives
@@ -71,6 +72,16 @@
 > - `query_graph` pattern `bridges_from` follows high-confidence infra→code `CROSS_ARTIFACT` edges (docs_for-style).
 > - Fixtures: `tests/fixtures/terraform_cross_artifact/`; tests in `tests/test_terraform.py`, `tests/test_postprocessing.py`, and Rust `extracts_terraform_code_bridges`.
 > - **Out of scope for this family:** full cloud-provider attribute matrices; Layer-3 naming-only heuristics.
+
+> ### Bridge family 5 — Manifest-backed / generated-code bridges (Phase 3 / Layer 2)
+>
+> - `_apply_manifest_bridges` (`dagayn/postprocessing.py`) + `dagayn/parser/manifest_bridges.py` scan the repo root on every postprocess call
+> - **Maturin / PyO3:** `[tool.maturin]` with explicit `manifest-path` → `pyproject.toml` → `Cargo.toml` edge (`relationship_role=builds_artifact`, `bridge_kind=extension_module`, `evidence_kind=manifest`, confidence `EXACT`). Default adjacent `Cargo.toml` without `manifest-path` is `HIGH` only when `[tool.maturin]` is present.
+> - **OpenAPI Generator:** `openapitools.json` `inputSpec`/`output` → schema → generated package (`generates_code`). `package.json` dependency on that generated package name → consumer → package (`binds_generated_client`). Exact CLI `-i`/`-o` paths in `openapi-generator-cli generate` scripts are also accepted.
+> - Confidence tiers for this family: `EXACT` for explicit manifest fields/paths; `HIGH` for maturin default layout; Layer-3 naming-only heuristics are intentionally **not** emitted
+> - Fixtures under `tests/fixtures/cross_artifact_manifest/` (Python↔Rust maturin + OpenAPI schema→package→consumer + negative controls); tests in `tests/test_manifest_bridges.py`
+> - **Limitation:** does not invent bridges from package-name similarity alone; protobuf/`buf.gen.yaml` and setuptools-rust are deferred
+
 >
 > Edges surface automatically in graph stats (`edges_by_kind`) and `query_graph` without additional code.
 
@@ -243,7 +254,9 @@ Examples:
 
 - an explicit `ctypes.CDLL("./target/release/libfoo.so")` match is `HIGH` or `EXACT`
 - a `subprocess.run(["foo-cli"])` inferred to a local Cargo binary by name is `MEDIUM`
-- a manifest-level guessed mapping by package naming convention is `LOW`
+- an explicit `tool.maturin.manifest-path` or `openapitools.json` `inputSpec`/`output` pair is `EXACT`
+- a `[tool.maturin]` block with the default adjacent `Cargo.toml` (no `manifest-path`) is `HIGH`
+- a manifest-level guessed mapping by package naming convention alone is `LOW` and is **not** emitted by the Phase 3 extractor
 
 ## Documentation bridge semantics
 
@@ -658,9 +671,9 @@ Implement the highest-signal bridge extractors first:
 
 ### Phase 3: generated and manifest-driven bridges
 
-- code generation pipelines
-- schema-to-generated-package relationships
-- manifest-backed package linking
+- code generation pipelines — **shipped** for OpenAPI Generator (`openapitools.json` + exact `package.json` script paths)
+- schema-to-generated-package relationships — **shipped** (`generates_code` + consumer `binds_generated_client`)
+- manifest-backed package linking — **shipped** for maturin/PyO3 (`builds_artifact`); broader Cargo/npm/protobuf manifests remain incremental
 
 ### Phase 4: analysis integration
 
