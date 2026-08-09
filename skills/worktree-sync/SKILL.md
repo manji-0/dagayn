@@ -29,18 +29,20 @@ checkout.
 
 2. Sync config + graph from the main checkout:
    ```bash
-   dagayn worktree sync
+   dagayn session prepare --budget-seconds 45
+   # or explicitly: dagayn worktree sync
    ```
-   This copies gitignored MCP config from the main checkout, inherits
-   `graph.db` (WAL + embeddings included), and re-parses only the branch diff.
+   Session prepare seeds a linked worktree (config + graph), then catches up
+   HEAD/worktree drift within a short budget. `dagayn worktree sync` remains
+   available for an explicit inherit + catch-up without the prepare budget.
 
-   Options:
+   Options for `worktree sync`:
    - `--seed-only` — inherit the graph without the incremental catch-up
    - `--no-copy-config` — skip MCP/skill file copy when config is already present
 
 3. Orient with MCP:
-   - `get_minimal_context_tool(task="worktree session")`
-   - If `graph_health.status` is still `empty`, call `ensure_graph_tool()` once
+   - `get_minimal_context_tool(task="worktree session")` (auto-prepares when empty/stale)
+   - If `sync.status` / `graph_health.status` is still `empty`, call `ensure_graph_tool()` once
    - Prefer review / explore tools after the graph is healthy
 
 4. If install never wired host bootstrap, fix that in the **main** checkout:
@@ -49,14 +51,14 @@ checkout.
    ```
    Expect:
    - `.worktreeinclude` listing `.cursor/mcp.json` (and related MCP paths)
-   - `.cursor/worktrees.json` containing `dagayn worktree sync`
+   - `.cursor/worktrees.json` containing `dagayn session prepare --budget-seconds 45`
    Commit `.worktreeinclude` (and force-add `.cursor/worktrees.json` when the
    team wants Cursor auto-sync). Do not commit local `.cursor/mcp.json`.
 
 ## Notes
 
-- `dagayn serve` / `dagayn update` / `dagayn status` also seed a worktree graph
-  automatically unless `DAGAYN_WORKTREE_SEED=0`.
+- `dagayn serve` / `dagayn update` / `dagayn status` / `dagayn session prepare`
+  also seed a worktree graph automatically unless `DAGAYN_WORKTREE_SEED=0`.
 - Git hooks live in the shared hooks directory, so one install covers every
   worktree of the same main checkout.
 - After sync, treat the worktree like a normal branch: review against the PR
@@ -64,8 +66,9 @@ checkout.
 
 ## Efficiency Rules
 
-- Prefer `dagayn worktree sync` over a full `ensure_graph_tool` / `dagayn build`
-  when the main checkout already has a healthy graph.
-- One `worktree info` + one `worktree sync` + one `get_minimal_context_tool` is
-  enough for most sessions.
+- Prefer `dagayn session prepare` / `dagayn worktree sync` over a full
+  `ensure_graph_tool` / `dagayn build` when the main checkout already has a
+  healthy graph.
+- One `worktree info` + one `session prepare` + one `get_minimal_context_tool`
+  is enough for most sessions.
 - Do not start embedding-enabled rebuilds to "fix" an empty worktree graph.
