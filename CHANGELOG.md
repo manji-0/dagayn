@@ -12,6 +12,14 @@ All notable changes to `dagayn` are documented here.
   architecture guidance recommend `docs_for` / `implementations_of` / bridge
   follow-ups; communities weight `CROSS_ARTIFACT` at 0.6.
 
+### Performance
+
+- Finish write-side batch upserts (#15): `upsert_edge` uses `UPDATE`/`INSERT`
+  `RETURNING id` (no `SELECT id`); community member assignment uses a temp-table
+  `UPDATE … FROM` join; cache `repo_root` during path normalization; avoid
+  double cache invalidation inside `store_file_batch`; document §4.4 as shipped
+  with statement-count regression tests.
+
 ## 4.7.0 — 2026-08-10
 
 ### Features

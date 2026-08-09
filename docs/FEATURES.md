@@ -30,6 +30,8 @@
 <!-- derived-from ./ARCHITECTURE.md#parsing-model -->
 
 - commit-pinned Terraform grammar support fetched from the fork at build/test/runtime
+- Terraform → application-code `CROSS_ARTIFACT` bridges (local-exec, Lambda/function
+  source paths, `handler` / `entry_point`) with confidence/evidence metadata
 - Markdown heading, body, reference, and directive extraction
 - stronger mixed-monorepo testing across docs, app code, and infra
 - updated CI stack using `ruff` and `ty`

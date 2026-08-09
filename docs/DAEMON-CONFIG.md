@@ -1,6 +1,7 @@
 # Daemon and registry configuration
 
 <!-- constrained-by ./COMMANDS.md -->
+<!-- constrained-by ./RECIPES.md#multi-repo-registry--search -->
 
 ## Purpose
 
@@ -11,7 +12,9 @@ dagayn supports multi-repo workflows through:
 - a JSON registry of known repositories
 - a watch daemon configured by TOML
 
-This document describes those local file contracts.
+This document describes those local file contracts. For copy-paste register →
+search and daemon recipes, see
+[RECIPES.md](./RECIPES.md#multi-repo-registry--search).
 
 ## Registry file
 

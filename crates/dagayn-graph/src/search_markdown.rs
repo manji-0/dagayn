@@ -104,6 +104,19 @@ impl GraphStore {
             let Some(extra_obj) = extra.as_object_mut() else {
                 continue;
             };
+            // Only Markdown/documentation bridges; Terraform handler/entry_point
+            // edges also carry original_symbol_name but use a dedicated resolver.
+            let is_markdown_bridge = extra_obj
+                .get("source_language")
+                .and_then(Value::as_str)
+                .is_some_and(|lang| lang == "markdown")
+                || extra_obj
+                    .get("bridge_kind")
+                    .and_then(Value::as_str)
+                    .is_some_and(|kind| kind == "documentation");
+            if !is_markdown_bridge {
+                continue;
+            }
             let sym = extra_obj
                 .get("original_symbol_name")
                 .or_else(|| extra_obj.get("unresolved_target_name"))

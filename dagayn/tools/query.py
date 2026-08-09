@@ -42,6 +42,10 @@ _QUERY_PATTERNS = {
     "importers_of": "Find all files that import a given file or module",
     "docs_for": "Find documentation linked to a code, Terraform, or artifact node",
     "implementations_of": "Find implementation artifacts linked to a document node",
+    "bridges_from": (
+        "Find high-confidence CROSS_ARTIFACT bridges from a node "
+        "(Terraform maps_entrypoint / invokes_binary, and similar)"
+    ),
     "children_of": "Find all nodes contained in a file or class",
     "tests_for": "Find all tests for a given function or class",
     "inheritors_of": "Find all classes that inherit from a given class",
@@ -61,6 +65,11 @@ _ARTIFACT_TO_DOC_ROLES = {
     "has_runbook": "runbook_for",
     "problem_described_by": "describes_problem_in",
     "discussed_by": "discusses",
+}
+
+_INFRA_TO_CODE_BRIDGE_ROLES = {
+    "maps_entrypoint": "entrypoint_for",
+    "invokes_binary": "invoked_by",
 }
 
 
@@ -497,7 +506,7 @@ def query_graph(
 
     Args:
         pattern: Query pattern. One of: callers_of, callees_of, imports_of,
-                 importers_of, docs_for, implementations_of, children_of,
+                 importers_of, docs_for, implementations_of, bridges_from, children_of,
                  tests_for, inheritors_of, file_summary.
         target: The node name, qualified name, or file path to query about.
         repo_root: Repository root path. Auto-detected if omitted.
@@ -693,6 +702,29 @@ def query_graph(
                         )
                     )
                     edges_out.append(edge_to_dict(e))
+
+        elif pattern == "bridges_from":
+            for e in store.get_edges_by_source(qn):
+                if e.kind != "CROSS_ARTIFACT":
+                    continue
+                if _is_low_confidence_unresolved_markdown_code_span(e):
+                    continue
+                role = _cross_artifact_role(e)
+                if role not in _INFRA_TO_CODE_BRIDGE_ROLES:
+                    continue
+                tier = str(getattr(e, "confidence_tier", "") or "").upper()
+                if not tier and isinstance(getattr(e, "extra", None), dict):
+                    tier = str(e.extra.get("confidence_tier", "")).upper()
+                if tier not in {"EXACT", "HIGH", "EXTRACTED"}:
+                    continue
+                results.append(
+                    _documentation_result(
+                        e,
+                        endpoint=e.target_qualified,
+                        inverse_label=_INFRA_TO_CODE_BRIDGE_ROLES[role],
+                    )
+                )
+                edges_out.append(edge_to_dict(e))
 
         elif pattern == "children_of":
             child_edges = [e for e in store.get_edges_by_source(qn) if e.kind == "CONTAINS"]

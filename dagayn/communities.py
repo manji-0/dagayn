@@ -754,8 +754,8 @@ def store_communities(store: GraphStore, communities: list[dict[str, Any]]) -> i
         for row in conn.execute("SELECT id, name FROM communities").fetchall():
             id_by_name[row["name"]] = row["id"]
 
-        # Collect all (community_id, qualified_name) pairs, then update nodes in
-        # one executemany instead of one UPDATE per community.
+        # Collect all (community_id, qualified_name) pairs, then assign via a
+        # temp-table JOIN (1 UPDATE) instead of one UPDATE per member.
         assignments: list[tuple[int, str]] = [
             (id_by_name[c["name"]], qn)
             for c in communities
@@ -763,10 +763,23 @@ def store_communities(store: GraphStore, communities: list[dict[str, Any]]) -> i
             for qn in c.get("members", [])
         ]
         if assignments:
+            conn.execute("DROP TABLE IF EXISTS _community_assign")
+            conn.execute(
+                "CREATE TEMP TABLE _community_assign ("
+                "community_id INTEGER NOT NULL, "
+                "qualified_name TEXT NOT NULL)"
+            )
             conn.executemany(
-                "UPDATE nodes SET community_id = ? WHERE qualified_name = ?",
+                "INSERT INTO _community_assign (community_id, qualified_name) VALUES (?, ?)",
                 assignments,
             )
+            conn.execute(
+                """UPDATE nodes
+                   SET community_id = a.community_id
+                   FROM _community_assign a
+                   WHERE nodes.qualified_name = a.qualified_name"""
+            )
+            conn.execute("DROP TABLE IF EXISTS _community_assign")
 
         conn.commit()
     except BaseException:

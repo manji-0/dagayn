@@ -33,7 +33,7 @@ Edge kinds include:
 - `IMPLEMENTS`
 - `TESTED_BY`
 - `DEPENDS_ON`
-- `CROSS_ARTIFACT` — cross-boundary references between artifacts (cross-language process/FFI bridges, Markdown → code symbol references). Carries `bridge_kind`, `relationship_role`, `evidence_kind`, and `confidence_tier` in `extra`. Markdown code-span candidates carry `extra.original_symbol_name` while they are being resolved; post-processing keeps them only when they resolve uniquely to a non-Markdown symbol. Explicit `dagayn:` documentation directives may remain unresolved because they are author-declared dependencies.
+- `CROSS_ARTIFACT` — cross-boundary references between artifacts (cross-language process/FFI bridges, Markdown → code symbol references, Terraform → application-code path/entrypoint bridges). Carries `bridge_kind`, `relationship_role`, `evidence_kind`, and `confidence_tier` in `extra`. Markdown code-span candidates carry `extra.original_symbol_name` while they are being resolved; post-processing keeps them only when they resolve uniquely to a non-Markdown symbol. Explicit `dagayn:` documentation directives may remain unresolved because they are author-declared dependencies. Terraform `handler` / `entry_point` bridges similarly carry `original_symbol_name` and resolve when a unique Function/Test match exists.
 
 `TESTED_BY` edges are directed from the covered production symbol to the test
 symbol that exercises it. For example, `src/auth.py::login -> tests/test_auth.py::test_login`.
