@@ -62,12 +62,15 @@ the selected embedding mode so agents can avoid stale or wasteful search advice.
    - Full local refresh: `build_or_update_graph_tool(full_rebuild=True, local_embedding="bge-m3")` only when explicitly doing embedding-quality or end-to-end maintenance work.
    Before any embedding-enabled full rebuild, state the reason and get explicit
    confirmation from the user; do not use it for parser, flow, documentation, or
-   ordinary implementation verification. Do not use `ensure_graph_tool` for
-   embedding refresh — it always sets `local_embedding="none"`.
+   ordinary implementation verification. Prefer `ensure_graph_tool` /
+   `dagayn session prepare` when serve already runs with `--local-embedding`;
+   otherwise use `build_or_update_graph_tool` / `embed_graph_tool` for an
+   explicit embedding refresh.
 5. For CLI fallback:
    ```bash
    dagayn build --local-embedding
    dagayn update --local-embedding
+   dagayn session prepare --local-embedding
    dagayn tool embed_graph_tool
    ```
 6. Re-run the same `semantic_search_nodes_tool` query and compare result count,
