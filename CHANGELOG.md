@@ -10,11 +10,20 @@ All notable changes to `dagayn` are documented here.
   start and after mid-session checkout / worktree moves. Hooks (Claude /
   Codex / Cursor / OpenCode / Pi / Hermes) call it with a 45s self-budget;
   structure sync is Phase 1, optional local embeddings are Phase 2 when budget
-  remains. Cursor also re-prepares after HEAD-moving git commands.
+  remains. Cursor re-prepares via `afterShellExecution` (and OpenCode via
+  `tool.execute.after`) so HEAD-moving git commands have already landed.
 - `ensure_graph_tool` / `get_minimal_context_tool` auto-refresh on empty or
   HEAD/worktree drift and inherit `dagayn serve --local-embedding` instead of
   forcing `none`. Responses expose a compact `sync` status
   (`synced` / `git_drift` / `dirty_worktree` / `empty`).
+
+### Fixes
+
+- Session prepare incremental updates now diff from the graph's stored
+  `git_head_sha` (same order as `dagayn worktree sync`), not only `HEAD~1`.
+- Hook lock contention that skips structure refresh reports `partial` when the
+  graph is still unsynced, instead of `ok`.
+- Cursor / OpenCode relocate hooks run after the git command, not before.
 
 ### Documentation
 

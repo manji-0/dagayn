@@ -268,10 +268,10 @@ installed, the command prints a clear install hint and exits non-zero.
 waits, `sessionStart` runs `dagayn session prepare --budget-seconds 45` and
 returns the result as `additional_context`, `beforeShellExecution` matches bare
 or path-qualified `git commit` commands before running update +
-`detect-changes --brief`, and also matches HEAD-moving git commands
-(`checkout` / `switch` / `reset` / `pull` / …) to re-prepare the graph.
-Every script resolves the repository from the hook payload via
-`dagayn hook-repo` and passes it as `--repo`, because user-level Cursor hooks
+`detect-changes --brief`, and `afterShellExecution` matches HEAD-moving git
+commands (`checkout` / `switch` / `reset` / `pull` / …) to re-prepare the graph
+after HEAD has moved. Every script resolves the repository from the hook payload
+via `dagayn hook-repo` and passes it as `--repo`, because user-level Cursor hooks
 run from `~/.cursor` rather than the project directory. Existing unrelated
 Cursor hooks are preserved.
 

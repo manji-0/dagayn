@@ -1860,8 +1860,9 @@ def generate_cursor_hooks_config() -> dict[str, Any]:
     """Generate Cursor hooks.json configuration.
 
     Returns a dict conforming to the Cursor hooks schema (version 1) with
-    hooks for afterFileEdit, sessionStart, and beforeShellExecution.
-    Each hook points to a shell script in ~/.cursor/hooks/.
+    hooks for afterFileEdit, sessionStart, beforeShellExecution (pre-commit),
+    and afterShellExecution (HEAD-moving git relocate). Each hook points to a
+    shell script in ~/.cursor/hooks/.
 
     Returns:
         Dict suitable for writing as ~/.cursor/hooks.json.
@@ -1888,6 +1889,8 @@ def generate_cursor_hooks_config() -> dict[str, Any]:
                     "command": f"{hooks_dir}/crg-pre-commit.sh",
                     "timeout": _CURSOR_COMMIT_HOOK_TIMEOUT_SECONDS,
                 },
+            ],
+            "afterShellExecution": [
                 {
                     "matcher": _GIT_RELOCATE_COMMAND_MATCHER,
                     "command": f"{hooks_dir}/crg-relocate.sh",
@@ -1927,12 +1930,13 @@ def _cursor_hook_scripts(extra_update_args: list[str] | None = None) -> dict[str
     - crg-pre-commit.sh: runs ``dagayn update --skip-flows`` and
       ``dagayn detect-changes --brief`` before git commit commands
     - crg-relocate.sh: re-prepares the graph after HEAD-moving git commands
+      (wired to ``afterShellExecution`` so HEAD has already moved)
 
     All scripts:
     - Resolve the repository from the hook payload (see
       :data:`_CURSOR_HOOK_PROLOGUE`) and pass it as ``--repo``
     - Fail gracefully (exit 0) so they never block the editor
-    - Emit the JSON the corresponding Cursor hook event expects
+    - Emit the JSON the corresponding Cursor hook event expects (when any)
 
     Args:
         extra_update_args: Additional CLI args appended to ``dagayn update`` /
@@ -2007,20 +2011,17 @@ exit 0
     relocate_script = f"""\
 #!/usr/bin/env bash
 # dagayn: re-prepare graph after HEAD-moving git commands (Cursor hook)
-# Fails gracefully — never blocks the shell command.
+# Wired to afterShellExecution so checkout/switch/pull have already landed.
+# Fails gracefully — never blocks the editor.
 {_CURSOR_HOOK_PROLOGUE}
 if [ -z "$repo" ]; then
-  printf '{{"permission":"allow"}}\\n'
   exit 0
 fi
 
-output="$(DAGAYN_HOOK_UPDATE=1 dagayn session prepare \\
+# afterShellExecution is observational — no permission JSON required.
+DAGAYN_HOOK_UPDATE=1 dagayn session prepare \\
   --budget-seconds {_SESSION_PREPARE_BUDGET_SECONDS}{update_args} \\
-  --repo "$repo" 2>&1)" || output=""
-
-python3 -c 'import json, sys
-print(json.dumps({{"permission": "allow", "agent_message": sys.stdin.read()}}))' \\
-  <<< "$output" 2>/dev/null || printf '{{"permission":"allow"}}\\n'
+  --repo "$repo" >/dev/null 2>&1 || true
 
 exit 0
 """
@@ -2098,6 +2099,19 @@ def install_cursor_hooks(extra_update_args: list[str] | None = None) -> Path:
             if not replaced:
                 event_hooks.append(entry)
         existing_hooks[event] = event_hooks
+
+    # Relocate moved from beforeShellExecution -> afterShellExecution. Strip any
+    # leftover managed relocate entry so prepare does not run before HEAD moves.
+    before_hooks = existing_hooks.get("beforeShellExecution", [])
+    if isinstance(before_hooks, list):
+        existing_hooks["beforeShellExecution"] = [
+            entry
+            for entry in before_hooks
+            if not (
+                isinstance(entry, dict)
+                and Path(str(entry.get("command", ""))).name == "crg-relocate.sh"
+            )
+        ]
 
     existing["hooks"] = existing_hooks
 
@@ -2192,15 +2206,17 @@ def install_qoder_skills(
 def _opencode_plugin_content(extra_update_args: list[str] | None = None) -> str:
     """Return TypeScript source for the OpenCode user-level plugin.
 
-    The plugin hooks into three OpenCode events to mirror the Claude Code
+    The plugin hooks into four OpenCode events to mirror the Claude Code
     hook behaviors:
 
     1. ``file.edited`` — runs ``dagayn update --skip-flows``
-    2. ``session.created`` — inherits the graph in a linked worktree, then
-       runs ``dagayn status``
+    2. ``session.created`` — prepares a usable+synced graph, then status
     3. ``tool.execute.before`` — when the tool is a shell command starting
        with ``git commit``, runs ``dagayn update --skip-flows`` followed by
        ``dagayn detect-changes --brief``
+    4. ``tool.execute.after`` — when the tool is a HEAD-moving git command
+       (``checkout`` / ``switch`` / ``pull`` / …), runs ``session prepare``
+       so the graph catches up to the new HEAD
 
     Every command resolves the repository with ``git rev-parse --show-toplevel``
     and passes ``--repo`` explicitly so worktree sessions update the checkout
@@ -2233,6 +2249,17 @@ async function resolveRepo($: any): Promise<string> {
   } catch {
     return ""
   }
+}
+
+function shellCommand(ctx: any): string {
+  const input = ctx?.input ?? ctx?.params ?? ctx?.args ?? {}
+  const cmd =
+    input.command ??
+    input.cmd ??
+    input.content ??
+    ctx?.args?.command ??
+    ""
+  return typeof cmd === "string" ? cmd : ""
 }
 
 export default (app: any) => {
@@ -2279,10 +2306,8 @@ export default (app: any) => {
   // 3. Detect changes before git commit commands
   app.on("tool.execute.before", async (ctx: any) => {
     try {
-      const input = ctx?.input ?? ctx?.params ?? {}
-      const cmd =
-        input.command ?? input.cmd ?? input.content ?? ""
-      if (typeof cmd === "string" && /(?:^|[\\/\\\\]|\\s)git(?:\\.exe)?\\s+commit\\b/i.test(cmd)) {
+      const cmd = shellCommand(ctx)
+      if (/(?:^|[\\/\\\\]|\\s)git(?:\\.exe)?\\s+commit\\b/i.test(cmd)) {
         const repo = await resolveRepo(ctx.$)
         if (repo) {
           await ctx.$`dagayn update --skip-flows__DAGAYN_UPDATE_ARGS__ --repo ${repo}`.quiet()
@@ -2301,9 +2326,20 @@ export default (app: any) => {
             console.log("[dagayn] Pre-commit analysis:\\n" + output)
           }
         }
-      } else if (
-        typeof cmd === "string" &&
-        /(?:^|[\\/\\\\]|\\s)git(?:\\.exe)?\\s+(?:checkout|switch|reset|pull|merge|rebase|cherry-pick)\\b/i.test(cmd)
+      }
+    } catch {
+      // Swallow — never block a commit.
+    }
+  })
+
+  // 4. Re-prepare after HEAD-moving git commands (post-execution)
+  app.on("tool.execute.after", async (ctx: any) => {
+    try {
+      const cmd = shellCommand(ctx)
+      if (
+        /(?:^|[\\/\\\\]|\\s)git(?:\\.exe)?\\s+(?:checkout|switch|reset|pull|merge|rebase|cherry-pick)\\b/i.test(
+          cmd,
+        )
       ) {
         const repo = await resolveRepo(ctx.$)
         const prepare =
@@ -2315,7 +2351,7 @@ export default (app: any) => {
         }
       }
     } catch {
-      // Swallow — never block a commit / checkout.
+      // Swallow — never block a checkout.
     }
   })
 }

@@ -189,10 +189,14 @@ def session_prepare(
                 reason = "forced_refresh" if force else "missing_last_updated"
 
             # Structure phase never spends budget on embeddings.
-            # After worktree inheritance, diff against the inherited commit.
+            # Diff against the commit the graph actually describes — same order
+            # as ``dagayn worktree sync``: just-seeded base, else stored
+            # ``git_head_sha``, else HEAD~1.
             base = "HEAD~1"
             if seed_info and seed_info.get("base_sha"):
                 base = str(seed_info["base_sha"])
+            elif sync_before.get("git_head_sha"):
+                base = str(sync_before["git_head_sha"])
             try:
                 build_result = build_or_update_graph(
                     full_rebuild=needs_full,
@@ -278,10 +282,15 @@ def session_prepare(
                 embedding_result = {"status": "error", "error": str(exc)}
 
     elapsed = time.monotonic() - started
+    structure_skipped = bool(build_result and build_result.get("skipped"))
     status = "ok"
     if phases["structure"] == "failed":
         status = "error"
-    elif phases["structure"] == "skipped_budget" and sync_after.get("status") != "synced":
+    elif sync_after.get("status") != "synced" and (
+        phases["structure"] == "skipped_budget" or structure_skipped
+    ):
+        # Budget miss or hook lock contention left the graph unsynced — do not
+        # report success so callers / MCP can retry.
         status = "partial"
     elif phases["embedding"] in {"pending", "skipped_budget"} and _local_embedding_requested(
         local_embedding

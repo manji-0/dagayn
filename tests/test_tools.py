@@ -2868,6 +2868,7 @@ class TestEnsureGraph:
 
         def _fake_build(**kwargs):
             assert kwargs["full_rebuild"] is False
+            assert kwargs["base"] == "aaa111"
             return {"status": "ok", "summary": "Incremental update complete.", "files_updated": 2}
 
         with patch(
@@ -2878,6 +2879,42 @@ class TestEnsureGraph:
         assert result["action"] == "incremental"
         assert result["reason"] == "git_drift"
         build.assert_called_once()
+
+    def test_hook_lock_skip_is_partial_when_unsynced(self, monkeypatch):
+        from unittest.mock import patch
+
+        from dagayn.tools.ensure import ensure_graph
+
+        self._seed_ready_graph()
+        store = GraphStore(str(self.root / ".dagayn" / "graph.db"))
+        store.set_metadata("git_head_sha", "aaa111")
+        store.commit()
+        store.close()
+
+        monkeypatch.setattr(
+            "dagayn.tools.sync_status._git_branch_info",
+            lambda _root: ("main", "bbb222"),
+        )
+        monkeypatch.setattr("dagayn.tools.sync_status.detect_vcs", lambda _root: "git")
+        monkeypatch.setattr(
+            "dagayn.tools.sync_status.get_changed_file_sources",
+            lambda *_a, **_k: {"worktree": [], "files": [], "base_diff": []},
+        )
+
+        with patch(
+            "dagayn.tools.session_prepare.build_or_update_graph",
+            return_value={
+                "status": "ok",
+                "skipped": True,
+                "skip_reason": "hook_lock_held",
+                "summary": "Skipped: another hook update is in progress.",
+            },
+        ):
+            result = ensure_graph(repo_root=str(self.root))
+
+        assert result["status"] == "partial"
+        assert result["reason"] == "hook_lock_held"
+        assert result["sync"]["status"] == "git_drift"
 
     def test_inherits_local_embedding_for_phase_two(self, monkeypatch):
         from unittest.mock import patch
