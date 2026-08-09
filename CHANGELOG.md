@@ -4,6 +4,22 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Features
+
+- Phase 3 cross-artifact Layer-2 bridges: parse maturin/PyO3 `pyproject.toml`
+  and OpenAPI Generator manifests to emit `CROSS_ARTIFACT` edges
+  (`builds_artifact`, `generates_code`, `binds_generated_client`) with
+  confidence/evidence metadata. Edges appear in normal `edges_by_kind` stats.
+
+### Fixes
+
+- Manifest bridge refresh is transactional (discover-then-swap under
+  `BEGIN IMMEDIATE`) so a failed rescan leaves prior bridges intact.
+- Manifest File upserts no longer overwrite existing parser `file_hash` /
+  `mtime_ns` metadata used by incremental skip.
+- Manifest-controlled paths reject `..` / out-of-root traversal before any
+  filesystem join or read.
+
 ### Performance
 
 - Finish write-side batch upserts (#15): `upsert_edge` uses `UPDATE`/`INSERT`

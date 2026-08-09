@@ -35,7 +35,7 @@ This directory documents the fork as `dagayn`.
 
 - [PERFORMANCE-IMPROVEMENTS-WIP.md](./PERFORMANCE-IMPROVEMENTS-WIP.md) — N+1 query fixes, connection management, and benchmark infrastructure (multiple items shipped; others tracked)
 - [SAP-METRICS.md](./SAP-METRICS.md) — Stable Abstractions Principle metrics (implemented)
-- [CROSS-ARTIFACT-EDGES-WIP.md](./CROSS-ARTIFACT-EDGES-WIP.md) — cross-artifact edge extraction for cross-language bridges, Markdown↔code, Terraform↔code, etc. (Phase 1+2 shipped; Terraform and manifest bridges WIP)
+- [CROSS-ARTIFACT-EDGES-WIP.md](./CROSS-ARTIFACT-EDGES-WIP.md) — cross-artifact edge extraction for cross-language bridges, Markdown↔code, manifest/codegen bridges, Terraform↔code, etc. (Phase 1–3 Layer-2 shipped; Terraform and analysis integration WIP)
 - [RUST-CORE-MIGRATION-WIP.md](./RUST-CORE-MIGRATION-WIP.md) — spec for replacing the graph engine, post-processing, and parser core with Rust (decisions frozen 2026-04-26; implementation on a separate branch, not yet merged)
 
 ## Case studies and direction
