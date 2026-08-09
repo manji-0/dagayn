@@ -4,7 +4,7 @@ import json
 import time
 from typing import TYPE_CHECKING
 
-from ._edge_records import edge_insert_values, edge_update_values
+from ._edge_records import edge_identity_update_values, edge_insert_values
 from ._mixin_protocol import GraphStoreMixinProtocol
 
 if TYPE_CHECKING:
@@ -58,37 +58,40 @@ class GraphStoreStorageMixin(GraphStoreMixinProtocol):
         return row["id"]
 
     def upsert_edge(self, edge: EdgeInfo) -> int:
-        """Insert or update an edge."""
+        """Insert or update an edge.
+
+        Uses ``UPDATE … RETURNING id`` for the existing-edge path and
+        ``INSERT … RETURNING id`` for inserts, so callers avoid a follow-up
+        ``SELECT id``. Hot build paths still prefer ``store_file_batch`` /
+        ``_bulk_insert_edges`` (delete-then-bulk) over per-row upserts.
+        """
         now = time.time()
 
-        # Check for existing edge (include line so multiple call sites are preserved)
+        # Identity includes line so multiple call sites are preserved.
         existing = self._conn.execute(
-            """SELECT id FROM edges
+            """UPDATE edges
+               SET target_name=?, extra=?, confidence=?, confidence_tier=?, updated_at=?
                WHERE kind=? AND source_qualified=? AND target_qualified=?
-                     AND file_path=? AND line=?""",
-            (edge.kind, edge.source, edge.target, edge.file_path, edge.line),
+                     AND file_path=? AND line=?
+               RETURNING id""",
+            edge_identity_update_values(edge, now),
         ).fetchone()
-
         if existing:
-            self._conn.execute(
-                "UPDATE edges SET target_name=?, line=?, extra=?, confidence=?, confidence_tier=?,"
-                " updated_at=? WHERE id=?",
-                edge_update_values(edge, now, existing["id"]),
-            )
             self._invalidate_cache()
             return existing["id"]
 
-        cursor = self._conn.execute(
+        row = self._conn.execute(
             """INSERT INTO edges
                (kind, source_qualified, target_qualified, target_name, file_path, line, extra,
                 confidence, confidence_tier, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               RETURNING id""",
             edge_insert_values(edge, now),
-        )
+        ).fetchone()
         self._invalidate_cache()
-        return cursor.lastrowid or 0
+        return row["id"]
 
-    def remove_file_data(self, file_path: str) -> None:
+    def remove_file_data(self, file_path: str, *, invalidate: bool = True) -> None:
         """Remove all nodes and edges associated with a file."""
         normalized = self._normalize_file_path_key(file_path)
         keys = [file_path]
@@ -103,4 +106,5 @@ class GraphStoreStorageMixin(GraphStoreMixinProtocol):
             f"DELETE FROM edges WHERE file_path IN ({placeholders})",
             tuple(keys),
         )
-        self._invalidate_cache()
+        if invalidate:
+            self._invalidate_cache()
