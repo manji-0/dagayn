@@ -47,12 +47,16 @@ class FlowAdjacency:
     Loaded once via :meth:`GraphStore.load_flow_adjacency` and passed to
     ``trace_flows`` / ``compute_criticality`` to avoid per-edge SQLite
     point queries on large graphs.
+
+    ``bridge_edges`` maps ``source -> target -> transition metadata`` for
+    reportable ``CROSS_ARTIFACT`` hops included in ``calls_out``.
     """
 
     calls_out: dict[str, list[str]]
     has_tested_by: set[str]
     nodes_by_qn: dict[str, "GraphNode"]
     nodes_by_id: dict[int, "GraphNode"]
+    bridge_edges: dict[str, dict[str, dict]] | None = None
 
 
 @dataclass

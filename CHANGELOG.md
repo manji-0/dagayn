@@ -4,6 +4,14 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Features
+
+- Phase 4 CROSS_ARTIFACT analysis integration: impact radius traverses reportable
+  bridges with explainable `bridge_transitions`; low-confidence bridges appear as
+  missingness/caveats; flow steps mark bridge arrivals distinctly; review and
+  architecture guidance recommend `docs_for` / `implementations_of` / bridge
+  follow-ups; communities weight `CROSS_ARTIFACT` at 0.6.
+
 ## 4.7.0 — 2026-08-10
 
 ### Features

@@ -35,7 +35,7 @@ def node_to_dict(n: GraphNode) -> dict:
 
 
 def edge_to_dict(e: GraphEdge) -> dict:
-    return {
+    payload = {
         "id": e.id,
         "kind": e.kind,
         "source": _sanitize_name(e.source_qualified),
@@ -45,3 +45,19 @@ def edge_to_dict(e: GraphEdge) -> dict:
         "confidence": e.confidence,
         "confidence_tier": e.confidence_tier,
     }
+    # Preserve bridge metadata so impact/flow consumers can explain transitions.
+    if e.kind == "CROSS_ARTIFACT" and isinstance(e.extra, dict) and e.extra:
+        payload["extra"] = {
+            key: e.extra[key]
+            for key in (
+                "relationship_role",
+                "bridge_kind",
+                "evidence_kind",
+                "evidence_source",
+                "source_language",
+                "target_language",
+                "confidence_tier",
+            )
+            if key in e.extra
+        }
+    return payload

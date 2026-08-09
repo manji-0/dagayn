@@ -16,7 +16,9 @@
 > 2. Markdown → code symbol references (doc-to-code, two-phase: parse + postprocess resolve)
 > 3. Explicit documentation bridge directives in Markdown, Python comments, and Terraform comments
 >
-> The remaining phases (Terraform↔code, manifest-backed bridges, and broader analysis integration) are still WIP.
+> **Phase 4 analysis integration is implemented** for impact radius, flows, review
+> guidance, communities weighting, and architecture proximity. Remaining WIP is
+> primarily Terraform↔code and manifest-backed extraction (Phases 2/3 expansion).
 >
 > **What is implemented:**
 >
@@ -649,6 +651,12 @@ Implement the highest-signal bridge extractors first:
 - communities
 - flows
 - architecture and hotspot tools
+
+**Implemented:** reportable `CROSS_ARTIFACT` hops expand impact with explainable
+`bridge_transitions`; low-confidence bridges surface as missingness/caveats;
+flow hydration marks bridge arrivals with `step_kind="bridge"`; review and
+architecture guidance recommend `docs_for` / `implementations_of` / bridge
+follow-ups; communities weight `CROSS_ARTIFACT` at `0.6`.
 
 ### Phase 5: explicit annotation support
 

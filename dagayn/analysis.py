@@ -946,6 +946,12 @@ def find_surprising_connections(
             reasons.append("cross-test-boundary")
             boundary_signal = True
 
+        # Explicit cross-artifact bridge (+0.25) — first-class interoperability hop
+        if e.kind == "CROSS_ARTIFACT":
+            score += 0.25
+            reasons.append("cross-artifact-bridge")
+            boundary_signal = True
+
         # Non-standard edge kind (+0.15)
         if e.kind == "CALLS" and src.kind == "Type":
             score += 0.15

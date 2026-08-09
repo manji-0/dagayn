@@ -163,6 +163,67 @@ def _architecture_health_summary(
                 counts={"hub_nodes": len(hubs)},
             )
         )
+    if bridges:
+        guidance.append(
+            make_guidance_item(
+                claim="Betweenness bridge nodes are interoperability chokepoints.",
+                evidence={"type": "computed", "metric": "betweenness", "examples": bridges[:3]},
+                confidence="medium",
+                missingness=[
+                    {
+                        "reason_code": "bridge_score_is_betweenness_rank",
+                        "severity": "low",
+                        "claim_effect": "high betweenness is a lead, not proof of bad design",
+                    }
+                ],
+                action=(
+                    'architecture_analysis_tool mode="bridges" -- inspect chokepoints; '
+                    'query_graph_tool pattern="docs_for" -- follow nearby contracts'
+                ),
+                reason_codes=["bridge_nodes"],
+                counts={"bridge_nodes": len(bridges)},
+            )
+        )
+
+    cross_artifact_count = 0
+    try:
+        stats = store.get_stats()
+        edges_by_kind = getattr(stats, "edges_by_kind", None) or {}
+        cross_artifact_count = int(edges_by_kind.get("CROSS_ARTIFACT", 0) or 0)
+    except Exception:  # pragma: no cover - defensive for backend parity drift
+        cross_artifact_count = 0
+    if cross_artifact_count:
+        reason_codes.append("cross_artifact_edges_present")
+        guidance.append(
+            make_guidance_item(
+                claim=(
+                    f"Graph contains {cross_artifact_count} CROSS_ARTIFACT edge(s); "
+                    "treat bridges as first-class transitions when reviewing coupling."
+                ),
+                evidence={
+                    "type": "extracted",
+                    "cross_artifact_edge_count": cross_artifact_count,
+                },
+                confidence="medium",
+                missingness=[
+                    {
+                        "reason_code": "cross_artifact_bridge_is_static_evidence",
+                        "severity": "low",
+                        "claim_effect": (
+                            "prefer docs_for / implementations_of / reportable bridges; "
+                            "treat low-confidence bridges as caveats"
+                        ),
+                    }
+                ],
+                action=(
+                    'query_graph_tool pattern="docs_for" -- follow documentation bridges; '
+                    'pattern="implementations_of" -- follow implementation bridges'
+                ),
+                reason_codes=["cross_artifact_edges_present"],
+                counts={"cross_artifact_edges": cross_artifact_count},
+            )
+        )
+
     if adp or sdp or sap:
         guidance.append(
             make_guidance_item(
@@ -203,6 +264,7 @@ def _architecture_health_summary(
                 "community_coupling",
                 "hub_nodes",
                 "bridge_nodes",
+                "cross_artifact_edges",
                 "knowledge_gaps",
                 "surprising_connections",
                 "adp",
@@ -227,6 +289,7 @@ def _architecture_health_summary(
             "warnings": len(overview.get("warnings", [])),
             "hub_nodes": len(hubs),
             "bridge_nodes": len(bridges),
+            "cross_artifact_edges": cross_artifact_count,
             "knowledge_gaps": sum(gap_counts.values()),
             "surprising_connections": len(surprises),
             "adp_violations": len(adp),

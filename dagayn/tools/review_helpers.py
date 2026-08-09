@@ -8,6 +8,17 @@ from pathlib import Path
 from typing import Any
 
 from ..coverage import infer_tests_for_node, is_test_file_path
+from ..cross_artifact import (
+    bridge_transition_dict,
+    is_low_confidence_bridge,
+    is_reportable_bridge,
+)
+from ..cross_artifact import (
+    cross_artifact_role as _shared_cross_artifact_role,
+)
+from ..cross_artifact import (
+    is_low_confidence_unresolved_markdown_code_span as _shared_low_conf_code_span,
+)
 from ..stability_policy import component_stability_profiles, scope_key_for_file
 from ._common import make_guidance_item
 
@@ -137,25 +148,11 @@ def _doc_role_weight(role: str | None) -> float:
 
 
 def _cross_artifact_role(edge: Any) -> str | None:
-    if getattr(edge, "kind", None) != "CROSS_ARTIFACT":
-        return None
-    extra = getattr(edge, "extra", None)
-    if not isinstance(extra, dict):
-        return None
-    role = extra.get("relationship_role")
-    return role if isinstance(role, str) else None
+    return _shared_cross_artifact_role(edge)
 
 
 def _is_low_confidence_unresolved_markdown_code_span(edge: Any) -> bool:
-    if getattr(edge, "kind", None) != "CROSS_ARTIFACT":
-        return False
-    extra = getattr(edge, "extra", None)
-    if not isinstance(extra, dict):
-        return False
-    role = extra.get("relationship_role")
-    target = str(getattr(edge, "target_qualified", ""))
-    tier = str(getattr(edge, "confidence_tier", "") or extra.get("confidence_tier", "")).upper()
-    return role == "describes_symbol" and target.startswith("<unresolved:") and tier == "LOW"
+    return _shared_low_conf_code_span(edge)
 
 
 def _is_production_code_node(node: Any) -> bool:
@@ -363,12 +360,19 @@ def _review_signal_quality(
                 "impacted_hotspot",
                 "architecture_violation_in_changed_scope",
                 "stable_component_contract_gap",
+                "cross_artifact_proximity",
             }
         ],
         "heuristics": [
             code
             for code in reason_codes
-            if code in {"test_gaps", "documentation_update_candidates", "stable_density_gap"}
+            if code
+            in {
+                "test_gaps",
+                "documentation_update_candidates",
+                "stable_density_gap",
+                "low_confidence_cross_artifact_bridge",
+            }
         ],
         "uncertain": uncertain,
     }
@@ -849,6 +853,85 @@ def _hotspot_proximity(
     }
 
 
+DOC_FOLLOW_UPS = (
+    'query_graph_tool pattern="docs_for"',
+    'query_graph_tool pattern="implementations_of"',
+)
+
+
+def _cross_artifact_proximity(
+    store: Any,
+    impact: dict[str, Any],
+    changed_functions: list[dict[str, Any]],
+    *,
+    limit: int = 8,
+) -> dict[str, Any]:
+    """Surface reportable CROSS_ARTIFACT bridges near the change as review leads."""
+    seed_qns = {
+        str(func.get("qualified_name"))
+        for func in changed_functions
+        if isinstance(func.get("qualified_name"), str)
+    }
+    seed_qns.update(
+        str(getattr(node, "qualified_name", ""))
+        for node in impact.get("changed_nodes", [])
+        if getattr(node, "qualified_name", "")
+    )
+    seed_qns.discard("")
+    if not seed_qns:
+        return {
+            "reportable_bridges": [],
+            "low_confidence_bridges": [],
+            "follow_ups": list(DOC_FOLLOW_UPS),
+            "counts": {"reportable": 0, "low_confidence": 0},
+        }
+
+    outgoing, incoming = store.get_edges_by_endpoints(list(seed_qns))
+    reportable: list[dict[str, Any]] = []
+    low_confidence: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for edge_map in (outgoing, incoming):
+        for edges in edge_map.values():
+            for edge in edges:
+                if getattr(edge, "kind", None) != "CROSS_ARTIFACT":
+                    continue
+                key = (edge.source_qualified, edge.target_qualified)
+                if key in seen:
+                    continue
+                seen.add(key)
+                meta = bridge_transition_dict(edge)
+                if is_reportable_bridge(edge):
+                    reportable.append(meta)
+                elif is_low_confidence_bridge(edge):
+                    low_confidence.append(meta)
+
+    reportable.sort(
+        key=lambda item: (
+            -float(item.get("confidence") or 0.0),
+            str(item.get("relationship_role") or ""),
+            str(item.get("source") or ""),
+        )
+    )
+    low_confidence.sort(
+        key=lambda item: (
+            str(item.get("relationship_role") or ""),
+            str(item.get("source") or ""),
+        )
+    )
+    return {
+        "reportable_bridges": reportable[:limit],
+        "low_confidence_bridges": low_confidence[:limit],
+        "follow_ups": [
+            *DOC_FOLLOW_UPS,
+            "follow CROSS_ARTIFACT bridge edges from changed nodes",
+        ],
+        "counts": {
+            "reportable": len(reportable),
+            "low_confidence": len(low_confidence),
+        },
+    }
+
+
 def _architecture_delta_summary(
     store: Any,
     changed_files: list[str],
@@ -940,8 +1023,10 @@ def _review_guidance_items(
     hotspots: dict[str, Any],
     architecture_delta: dict[str, Any],
     signal_quality: dict[str, Any],
+    cross_artifact_proximity: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     guidance: list[dict[str, Any]] = []
+    cross_artifact_proximity = cross_artifact_proximity or {}
     actionable_gap_count = int(test_gap_ranking.get("counts", {}).get("actionable", 0) or 0)
     if actionable_gap_count or recommended_tests:
         guidance.append(
@@ -1006,9 +1091,74 @@ def _review_guidance_items(
                 missingness=[missing for item in docs for missing in item.get("missingness", [])][
                     :5
                 ],
-                action='query_graph_tool pattern="docs_for" -- inspect linked contract docs',
+                action=(
+                    'query_graph_tool pattern="docs_for" -- inspect linked contract docs; '
+                    'also try pattern="implementations_of" for inverse follow-ups'
+                ),
                 reason_codes=["documentation_update_candidates"],
                 counts={"documentation_candidate_count": len(docs)},
+            )
+        )
+
+    reportable_bridges = list(cross_artifact_proximity.get("reportable_bridges") or [])
+    low_conf_bridges = list(cross_artifact_proximity.get("low_confidence_bridges") or [])
+    if reportable_bridges:
+        guidance.append(
+            make_guidance_item(
+                claim="Cross-artifact bridges are near this change and should be followed.",
+                evidence={
+                    "type": "extracted",
+                    "bridges": reportable_bridges[:5],
+                    "follow_ups": cross_artifact_proximity.get("follow_ups", []),
+                },
+                confidence="high",
+                missingness=[
+                    {
+                        "reason_code": "cross_artifact_bridge_is_static_evidence",
+                        "severity": "low",
+                        "claim_effect": (
+                            "bridge proximity is structural; confirm with docs_for / "
+                            "implementations_of or source reads"
+                        ),
+                    }
+                ],
+                action=(
+                    'query_graph_tool pattern="docs_for" -- follow docs; '
+                    'pattern="implementations_of" -- follow implementations; '
+                    "inspect CROSS_ARTIFACT neighbors"
+                ),
+                reason_codes=["cross_artifact_proximity"],
+                counts={
+                    "reportable_bridge_count": len(reportable_bridges),
+                    "low_confidence_bridge_count": len(low_conf_bridges),
+                },
+            )
+        )
+    elif low_conf_bridges:
+        guidance.append(
+            make_guidance_item(
+                claim="Low-confidence cross-artifact bridges are caveats near this change.",
+                evidence={
+                    "type": "extracted",
+                    "bridges": low_conf_bridges[:5],
+                },
+                confidence="low",
+                missingness=[
+                    {
+                        "reason_code": "low_confidence_cross_artifact_bridge",
+                        "severity": "medium",
+                        "claim_effect": (
+                            "do not treat the other side as confirmed impact without verification"
+                        ),
+                        "bridge": item,
+                    }
+                    for item in low_conf_bridges[:3]
+                ],
+                action=(
+                    'query_graph_tool pattern="docs_for" -- verify before treating as hard impact'
+                ),
+                reason_codes=["low_confidence_cross_artifact_bridge"],
+                counts={"low_confidence_bridge_count": len(low_conf_bridges)},
             )
         )
 
@@ -1190,6 +1340,7 @@ def _change_analysis_summary(
         include_heuristic_docs=detail_level == "verbose",
     )
     hotspots = _hotspot_proximity(store, impact)
+    cross_artifact = _cross_artifact_proximity(store, impact, changed_functions)
     architecture_delta = _architecture_delta_summary(store, changed_files)
     test_gap_ranking = _rank_test_gaps(test_gaps)
     stability_contracts = _stability_contracts(
@@ -1218,6 +1369,10 @@ def _change_analysis_summary(
         reason_codes.append("wide_blast_radius")
     if docs:
         reason_codes.append("documentation_update_candidates")
+    if cross_artifact.get("counts", {}).get("reportable"):
+        reason_codes.append("cross_artifact_proximity")
+    if cross_artifact.get("counts", {}).get("low_confidence"):
+        reason_codes.append("low_confidence_cross_artifact_bridge")
     if hotspots["changed_hubs"] or hotspots["changed_bridges"]:
         reason_codes.append("changed_hotspot")
     elif hotspots["impacted_hubs"] or hotspots["impacted_bridges"]:
@@ -1264,6 +1419,7 @@ def _change_analysis_summary(
         hotspots=hotspots,
         architecture_delta=architecture_delta,
         signal_quality=signal_quality,
+        cross_artifact_proximity=cross_artifact,
     )
 
     return {
@@ -1283,6 +1439,7 @@ def _change_analysis_summary(
         "recommended_tests": recommended_tests,
         "affected_flow_rankings": affected_flow_rankings,
         "documentation_update_candidates": docs,
+        "cross_artifact_proximity": cross_artifact,
         "test_gap_ranking": test_gap_ranking,
         "stability_contracts": stability_contracts,
         "signal_quality": signal_quality,
@@ -1294,5 +1451,10 @@ def _change_analysis_summary(
             "flows": {"tool": "review_tool", "mode": "affected_flows"},
             "review_context": {"tool": "review_tool", "mode": "context"},
             "architecture": {"tool": "architecture_analysis_tool", "mode": "overview"},
+            "docs_for": {"tool": "query_graph_tool", "pattern": "docs_for"},
+            "implementations_of": {
+                "tool": "query_graph_tool",
+                "pattern": "implementations_of",
+            },
         },
     }

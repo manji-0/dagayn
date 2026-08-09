@@ -40,6 +40,8 @@ EDGE_WEIGHTS: dict[str, float] = {
     "CONTAINS": 0.3,
     "TESTED_BY": 0.4,
     "DEPENDS_ON": 0.6,
+    # Cross-artifact bridges matter but are softer than in-language CALLS.
+    "CROSS_ARTIFACT": 0.6,
 }
 
 # Common words to filter when generating community names

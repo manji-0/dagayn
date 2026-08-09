@@ -435,7 +435,9 @@ ordinary code relationships. Use `docs_for` to find specifications, runbooks,
 issue notes, and explanations linked to a code, Terraform, or artifact node.
 Use `implementations_of` to find code or Terraform nodes linked to a Markdown
 contract section through `implemented_by` / `implements_contract`
-`CROSS_ARTIFACT` edges.
+`CROSS_ARTIFACT` edges. Review impact / flow / architecture guidance also
+surfaces reportable bridges as first-class transitions and keeps low-confidence
+bridges as missingness caveats rather than hard claims.
 
 `traverse_graph_tool` returns both the legacy top-level `truncated` boolean and a
 typed `reachability` object. `reachability.state` is `complete`, `truncated`, or

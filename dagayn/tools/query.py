@@ -8,6 +8,9 @@ from pathlib import Path
 from typing import Any
 
 from ..coverage import infer_tests_for_node
+from ..cross_artifact import (
+    is_low_confidence_unresolved_markdown_code_span,
+)
 from ..embeddings import EmbeddingStore
 from ..graph import _sanitize_name, edge_to_dict, node_to_dict
 from ..hints import generate_hints, get_session
@@ -90,15 +93,7 @@ def _cross_artifact_role(edge: Any) -> str | None:
 
 
 def _is_low_confidence_unresolved_markdown_code_span(edge: Any) -> bool:
-    if getattr(edge, "kind", None) != "CROSS_ARTIFACT":
-        return False
-    extra = getattr(edge, "extra", None)
-    if not isinstance(extra, dict):
-        return False
-    role = extra.get("relationship_role")
-    target = str(getattr(edge, "target_qualified", ""))
-    tier = str(getattr(edge, "confidence_tier", "") or extra.get("confidence_tier", "")).upper()
-    return role == "describes_symbol" and target.startswith("<unresolved:") and tier == "LOW"
+    return is_low_confidence_unresolved_markdown_code_span(edge)
 
 
 def _documentation_result(edge: Any, *, endpoint: str, inverse_label: str | None = None) -> dict:
@@ -339,6 +334,8 @@ def get_impact_radius(
             for e in result["edges"]
             if not _is_low_confidence_unresolved_markdown_code_span(e)
         ]
+        bridge_transitions = list(result.get("bridge_transitions") or [])
+        low_confidence_bridges = list(result.get("low_confidence_bridges") or [])
         truncated = result["truncated"]
         total_impacted = result["total_impacted"]
 
@@ -348,10 +345,82 @@ def get_impact_radius(
             f"  - {len(impacted_dicts)} nodes impacted (within {max_depth} hops)",
             f"  - {len(result['impacted_files'])} additional files affected",
         ]
+        if bridge_transitions:
+            summary_parts.append(
+                f"  - {len(bridge_transitions)} reportable cross-artifact bridge hop(s)"
+            )
+        if low_confidence_bridges:
+            summary_parts.append(
+                f"  - {len(low_confidence_bridges)} low-confidence bridge caveat(s)"
+            )
         if truncated:
             summary_parts.append(
                 f"  - Results truncated: showing {len(impacted_dicts)}"
                 f" of {total_impacted} impacted nodes"
+            )
+
+        impact_missingness = [
+            *missingness,
+            *low_confidence_bridges,
+        ]
+        if bridge_transitions:
+            impact_missingness.append(
+                {
+                    "reason_code": "cross_artifact_bridge_is_static_evidence",
+                    "severity": "low",
+                    "claim_effect": (
+                        "bridge hops are graph-derived explainable paths, not runtime traces"
+                    ),
+                }
+            )
+
+        guidance = []
+        if bridge_transitions:
+            guidance.append(
+                make_guidance_item(
+                    claim=(
+                        f"Impact crosses {len(bridge_transitions)} reportable "
+                        "cross-artifact bridge(s)."
+                    ),
+                    evidence={
+                        "type": "extracted",
+                        "bridge_transitions": bridge_transitions[:5],
+                    },
+                    confidence="high",
+                    missingness=[
+                        {
+                            "reason_code": "cross_artifact_bridge_is_static_evidence",
+                            "severity": "low",
+                            "claim_effect": (
+                                "follow docs_for / implementations_of / bridge edges to confirm"
+                            ),
+                        }
+                    ],
+                    action=(
+                        'query_graph_tool pattern="docs_for" -- follow contract docs; '
+                        "also try implementations_of / CROSS_ARTIFACT neighbors"
+                    ),
+                    reason_codes=["cross_artifact_bridge_impact"],
+                    counts={"bridge_transition_count": len(bridge_transitions)},
+                )
+            )
+        if low_confidence_bridges:
+            guidance.append(
+                make_guidance_item(
+                    claim="Low-confidence cross-artifact bridges are caveats, not hard impact.",
+                    evidence={
+                        "type": "extracted",
+                        "caveat_count": len(low_confidence_bridges),
+                        "examples": low_confidence_bridges[:3],
+                    },
+                    confidence="low",
+                    missingness=low_confidence_bridges[:5],
+                    action=(
+                        'query_graph_tool pattern="docs_for" -- verify before treating as impact'
+                    ),
+                    reason_codes=["low_confidence_cross_artifact_bridge"],
+                    counts={"low_confidence_bridge_count": len(low_confidence_bridges)},
+                )
             )
 
         if detail_level == "minimal":
@@ -369,9 +438,11 @@ def get_impact_radius(
                 "risk": risk,
                 "impacted_file_count": len(result["impacted_files"]),
                 "key_entities": key_entities,
+                "bridge_transition_count": len(bridge_transitions),
                 "truncated": truncated,
                 "answerability": answerability,
-                "missingness": missingness,
+                "missingness": impact_missingness,
+                "guidance": guidance,
             }
 
         payload = {
@@ -382,10 +453,13 @@ def get_impact_radius(
             "impacted_nodes": impacted_dicts,
             "impacted_files": result["impacted_files"],
             "edges": edge_dicts,
+            "bridge_transitions": bridge_transitions,
+            "low_confidence_bridges": low_confidence_bridges,
             "truncated": truncated,
             "total_impacted": total_impacted,
             "answerability": answerability,
-            "missingness": missingness,
+            "missingness": impact_missingness,
+            "guidance": guidance,
         }
         apply_output_budget(
             payload,
@@ -395,7 +469,9 @@ def get_impact_radius(
                 "impacted_files",
                 "changed_nodes",
                 "impacted_nodes",
+                "bridge_transitions",
                 "edges",
+                "low_confidence_bridges",
             ],
         )
         return payload

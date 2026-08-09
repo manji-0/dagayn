@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Literal, cast
 
+from .cross_artifact import is_reportable_bridge
+
 DependencyProfile = Literal[
     "strict_static",
     "implementation",
@@ -46,12 +48,4 @@ def edge_matches_dependency_profile(
         return False
     if kind != "CROSS_ARTIFACT":
         return True
-
-    extra = getattr(edge, "extra", None)
-    extra = extra if isinstance(extra, dict) else {}
-    role = extra.get("relationship_role")
-    target = str(getattr(edge, "target_qualified", ""))
-    tier = str(getattr(edge, "confidence_tier", "") or extra.get("confidence_tier", "")).upper()
-    if role == "describes_symbol" and target.startswith("<unresolved:") and tier == "LOW":
-        return False
-    return tier in {"EXACT", "HIGH", "EXTRACTED"}
+    return is_reportable_bridge(edge)

@@ -5,23 +5,49 @@ impl GraphStore {
     pub fn get_flow_edge_data(&self) -> Result<FlowEdgeData> {
         let mut calls_out: HashMap<String, Vec<String>> = HashMap::new();
         let mut has_tested_by: HashSet<String> = HashSet::new();
+
+        // Prefetch node qualified names so reportable CROSS_ARTIFACT targets
+        // can be validated without an N+1 lookup.
+        let mut node_qns: HashSet<String> = HashSet::new();
+        {
+            let mut node_stmt = self.conn.prepare("SELECT qualified_name FROM nodes")?;
+            let rows = node_stmt.query_map([], |row| row.get::<_, String>(0))?;
+            for row in rows {
+                node_qns.insert(row?);
+            }
+        }
+
+        // Include reportable CROSS_ARTIFACT hops so flow tracing can cross
+        // artifact boundaries. Low-confidence / unresolved bridges stay out.
         let mut stmt = self.conn.prepare(
-            "SELECT kind, source_qualified, target_qualified FROM edges \
-             WHERE kind IN ('CALLS', 'TESTED_BY')",
+            "SELECT kind, source_qualified, target_qualified, confidence_tier, extra \
+             FROM edges \
+             WHERE kind IN ('CALLS', 'TESTED_BY', 'CROSS_ARTIFACT')",
         )?;
         let rows = stmt.query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
                 row.get::<_, String>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, Option<String>>(4)?,
             ))
         })?;
         for row in rows {
-            let (kind, source, target) = row?;
+            let (kind, source, target, confidence_tier, extra_json) = row?;
             if kind == "CALLS" {
                 calls_out.entry(source).or_default().push(target);
-            } else {
+            } else if kind == "TESTED_BY" {
                 has_tested_by.insert(source);
+            } else if kind == "CROSS_ARTIFACT"
+                && node_qns.contains(&target)
+                && is_reportable_cross_artifact(
+                    &target,
+                    confidence_tier.as_deref(),
+                    extra_json.as_deref(),
+                )
+            {
+                calls_out.entry(source).or_default().push(target);
             }
         }
         Ok((calls_out, has_tested_by))
@@ -84,4 +110,31 @@ impl GraphStore {
             .optional()
             .map_err(Into::into)
     }
+}
+
+fn is_reportable_cross_artifact(
+    target: &str,
+    confidence_tier: Option<&str>,
+    extra_json: Option<&str>,
+) -> bool {
+    if target.starts_with("<unresolved:") {
+        return false;
+    }
+    let tier = confidence_tier
+        .unwrap_or("EXTRACTED")
+        .trim()
+        .to_ascii_uppercase();
+    if matches!(tier.as_str(), "EXACT" | "HIGH" | "EXTRACTED") {
+        return true;
+    }
+    // Fall back to extra.confidence_tier when the column is empty/unknown.
+    if let Some(raw) = extra_json {
+        if let Ok(Value::Object(map)) = serde_json::from_str::<Value>(raw) {
+            if let Some(extra_tier) = map.get("confidence_tier").and_then(Value::as_str) {
+                let extra_tier = extra_tier.trim().to_ascii_uppercase();
+                return matches!(extra_tier.as_str(), "EXACT" | "HIGH" | "EXTRACTED");
+            }
+        }
+    }
+    false
 }
