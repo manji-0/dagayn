@@ -50,8 +50,8 @@ docs helper so skills can fetch their optimized workflow from
 `docs/LLM-OPTIMIZED-REFERENCE.md`.
 
 `ensure_graph_tool` is the only write-oriented default tool. It full-builds an
-empty graph (or incrementally refreshes when `force=True`) with
-`postprocess="minimal"` and `local_embedding="none"`. It does not replace
+empty graph (or refreshes drifted HEAD/worktree state) with
+`postprocess="minimal"` and inherits `dagayn serve --local-embedding`. It does not replace
 `build_or_update_graph_tool`, which remains the maintenance surface for
 embeddings, full postprocess, and explicit rebuild controls.
 

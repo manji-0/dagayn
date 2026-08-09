@@ -20,7 +20,7 @@ Use `dagayn` in all user-facing guidance.
 <section name="review-delta">
 Recommended sequence for reviewing a delta:
 
-1. `get_minimal_context_tool(task=...)` — if `graph_health` is empty, call `ensure_graph_tool()`; if stale, `ensure_graph_tool(force=True)`; otherwise skip ensure
+1. `get_minimal_context_tool(task=...)` — auto-prepares when empty or out of sync (`sync.status`); call `ensure_graph_tool()` only if prepare could not finish
 2. `review_tool(mode="changes")` and read `analysis_summary` first
 3. Call `review_tool(mode="context")` / `mode="impact"` / `query_graph_tool` only for concrete source, blast-radius, or coverage questions
 4. Read only the files that remain ambiguous after graph queries
@@ -49,6 +49,7 @@ Important CLI commands:
 - `dagayn install`
 - `dagayn build`
 - `dagayn update`
+- `dagayn session prepare`
 - `dagayn watch`
 - `dagayn status`
 - `dagayn detect-changes`
@@ -106,9 +107,9 @@ For the managed local Qwen sidecar, use
 OpenAI-compatible embedding server on localhost or starts one as a subprocess
 for the command; the managed preset starts llama.cpp GGUF via `llama-server`.
 
-`ensure_graph_tool` never builds embeddings (`local_embedding="none"`). Use
-`build_or_update_graph_tool` / `embed_graph_tool` / CLI `--local-embedding` for
-embedding refresh.
+`ensure_graph_tool` inherits the active `dagayn serve --local-embedding` mode
+when refreshing vectors. Direct CLI `dagayn session prepare` / `ensure_graph`
+callers default to `none` unless `--local-embedding` is passed.
 </section>
 
 <section name="languages">

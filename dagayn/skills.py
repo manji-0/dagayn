@@ -25,7 +25,8 @@ import yaml
 logger = logging.getLogger(__name__)
 
 _UPDATE_HOOK_TIMEOUT_SECONDS = 300
-_STATUS_HOOK_TIMEOUT_SECONDS = 10
+_STATUS_HOOK_TIMEOUT_SECONDS = 60
+_SESSION_PREPARE_BUDGET_SECONDS = 45
 
 # --- Multi-platform MCP install ---
 
@@ -885,15 +886,17 @@ if [ -n "$repo" ]; then
 fi
 printf '{{}}\\n'
 """,
-        "dagayn-status.sh": """#!/usr/bin/env bash
-# dagayn: validate graph availability at session start
+        "dagayn-status.sh": f"""#!/usr/bin/env bash
+# dagayn: prepare a usable+synced graph at session start
 set -u
 cat >/dev/null || true
 repo="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 if [ -n "$repo" ]; then
-  dagayn status --repo "$repo" >/dev/null 2>&1 || true
+  DAGAYN_HOOK_UPDATE=1 dagayn session prepare \\
+    --budget-seconds {_SESSION_PREPARE_BUDGET_SECONDS}{update_args} \\
+    --repo "$repo" >/dev/null 2>&1 || true
 fi
-printf '{}\\n'
+printf '{{}}\\n'
 """,
     }
 
@@ -1060,14 +1063,17 @@ def generate_hooks_config(
         post_tool_use.append(
             {
                 # Entering a worktree switches the session to a fresh checkout
-                # with no .dagayn/ — inherit the main checkout's graph and catch
-                # up on the branch diff. The worktree path comes from the hook
-                # payload on stdin, which is more reliable than the hook's cwd.
+                # with no .dagayn/ — prepare inherits the main checkout's graph
+                # and catches up on the branch diff within a short budget.
                 "matcher": "EnterWorktree|ExitWorktree",
                 "hooks": [
                     {
                         "type": "command",
-                        "command": f"dagayn worktree sync --from-hook{update_args} || true",
+                        "command": (
+                            f"DAGAYN_HOOK_UPDATE=1 dagayn session prepare --from-hook"
+                            f" --budget-seconds {_SESSION_PREPARE_BUDGET_SECONDS}"
+                            f"{update_args} || true"
+                        ),
                         "timeout": _UPDATE_HOOK_TIMEOUT_SECONDS,
                     },
                 ],
@@ -1082,15 +1088,12 @@ def generate_hooks_config(
                     "hooks": [
                         {
                             "type": "command",
-                            # Inherit before status: status opens GraphStore and
-                            # creates an empty stub when graph.db is missing.
-                            # Sync first (like Cursor) so a prior stub or a
-                            # status-only SessionStart cannot block inheritance.
                             "command": (
                                 f"{repo_expr}"
-                                ' && dagayn worktree sync --seed-only --repo "$repo"'
-                                " >/dev/null 2>&1 || true"
-                                ' && dagayn status --repo "$repo"'
+                                f" && DAGAYN_HOOK_UPDATE=1 dagayn session prepare"
+                                f" --budget-seconds {_SESSION_PREPARE_BUDGET_SECONDS}"
+                                f"{update_args}"
+                                ' --repo "$repo"'
                                 " || echo 'Not a git repo, skipping'"
                             ),
                             "timeout": _STATUS_HOOK_TIMEOUT_SECONDS,
@@ -1103,8 +1106,8 @@ def generate_hooks_config(
 
 
 _DAGAYN_HOOK_NEEDLES: dict[str, tuple[str, ...]] = {
-    "PostToolUse": ("dagayn update --skip-flows", "dagayn worktree sync"),
-    "SessionStart": ("dagayn worktree sync --seed-only", "dagayn status --repo"),
+    "PostToolUse": ("dagayn update --skip-flows", "dagayn session prepare"),
+    "SessionStart": ("dagayn session prepare",),
 }
 
 
@@ -1753,7 +1756,7 @@ def ensure_worktree_include(
     return "updated"
 
 
-_CURSOR_WORKTREE_SETUP_COMMAND = "dagayn worktree sync"
+_CURSOR_WORKTREE_SETUP_COMMAND = "dagayn session prepare --budget-seconds 45"
 _CURSOR_SETUP_KEYS = ("setup-worktree-unix", "setup-worktree-windows")
 _CURSOR_SETUP_FALLBACK_KEY = "setup-worktree"
 
@@ -1763,20 +1766,23 @@ def _merge_cursor_setup_commands(commands: list[Any]) -> list[Any]:
     kept = [
         command
         for command in commands
-        if not (isinstance(command, str) and "dagayn worktree" in command)
+        if not (
+            isinstance(command, str)
+            and ("dagayn worktree" in command or "dagayn session prepare" in command)
+        )
     ]
     return kept + [_CURSOR_WORKTREE_SETUP_COMMAND]
 
 
 def install_cursor_worktree_setup(repo_root: Path, dry_run: bool = False) -> str:
-    """Register ``dagayn worktree sync`` in ``.cursor/worktrees.json``.
+    """Register ``dagayn session prepare`` in ``.cursor/worktrees.json``.
 
     Cursor runs the commands in that file inside each new worktree it creates
-    for a parallel agent. ``dagayn worktree sync`` copies the main checkout's
-    gitignored MCP config into the worktree and inherits the graph, which is
-    what makes dagayn's tools available to the agent running there. The command
-    is cross-platform, so the generic ``setup-worktree`` key is enough unless
-    the user already maintains OS-specific keys.
+    for a parallel agent. ``session prepare`` inherits the main checkout's
+    graph (and MCP config) then catches up the branch diff within a short
+    budget, which is what makes dagayn's tools available to the agent running
+    there. The command is cross-platform, so the generic ``setup-worktree``
+    key is enough unless the user already maintains OS-specific keys.
 
     Returns ``"created"``, ``"updated"``, ``"unchanged"``, or ``"manual"`` when
     the existing config points at a setup script this cannot safely edit.
@@ -1837,11 +1843,17 @@ def install_cursor_worktree_setup(repo_root: Path, dry_run: bool = False) -> str
 # Matches bare `git commit` and absolute/relative paths like
 # `/usr/bin/git commit` or `.../nix-profile/bin/git commit`.
 _GIT_COMMIT_COMMAND_MATCHER = r"(?:^|[/\\]|\s)git(?:\.exe)?\s+commit\b"
+# HEAD-moving git commands that should re-prepare the graph mid-session.
+_GIT_RELOCATE_COMMAND_MATCHER = (
+    r"(?:^|[/\\]|\s)git(?:\.exe)?\s+"
+    r"(?:checkout|switch|reset|pull|merge|rebase|cherry-pick)\b"
+)
 
 
 _CURSOR_EDIT_HOOK_TIMEOUT_SECONDS = 15
 _CURSOR_SESSION_HOOK_TIMEOUT_SECONDS = 60
 _CURSOR_COMMIT_HOOK_TIMEOUT_SECONDS = 120
+_CURSOR_RELOCATE_HOOK_TIMEOUT_SECONDS = 60
 
 
 def generate_cursor_hooks_config() -> dict[str, Any]:
@@ -1876,6 +1888,11 @@ def generate_cursor_hooks_config() -> dict[str, Any]:
                     "command": f"{hooks_dir}/crg-pre-commit.sh",
                     "timeout": _CURSOR_COMMIT_HOOK_TIMEOUT_SECONDS,
                 },
+                {
+                    "matcher": _GIT_RELOCATE_COMMAND_MATCHER,
+                    "command": f"{hooks_dir}/crg-relocate.sh",
+                    "timeout": _CURSOR_RELOCATE_HOOK_TIMEOUT_SECONDS,
+                },
             ],
         },
     }
@@ -1904,12 +1921,12 @@ fi
 def _cursor_hook_scripts(extra_update_args: list[str] | None = None) -> dict[str, str]:
     """Return a mapping of filename -> shell script content for Cursor hooks.
 
-    Three scripts are generated:
+    Four scripts are generated:
     - crg-update.sh: runs ``dagayn update --skip-flows`` after file edits
-    - crg-session-start.sh: inherits the graph in a worktree, then reports
-      ``dagayn status`` back to the agent as additional context
+    - crg-session-start.sh: runs ``dagayn session prepare`` and reports status
     - crg-pre-commit.sh: runs ``dagayn update --skip-flows`` and
       ``dagayn detect-changes --brief`` before git commit commands
+    - crg-relocate.sh: re-prepares the graph after HEAD-moving git commands
 
     All scripts:
     - Resolve the repository from the hook payload (see
@@ -1918,9 +1935,9 @@ def _cursor_hook_scripts(extra_update_args: list[str] | None = None) -> dict[str
     - Emit the JSON the corresponding Cursor hook event expects
 
     Args:
-        extra_update_args: Additional CLI args appended to ``dagayn update``
-            (e.g. ``["--local-embedding"]``) so hook updates use the same
-            embedding configuration as the install.
+        extra_update_args: Additional CLI args appended to ``dagayn update`` /
+            ``session prepare`` (e.g. ``["--local-embedding"]``) so hooks use
+            the same embedding configuration as the install.
     """
     update_args = ""
     if extra_update_args:
@@ -1944,7 +1961,7 @@ exit 0
 
     session_start_script = f"""\
 #!/usr/bin/env bash
-# dagayn: inherit the graph in a worktree and report status (Cursor hook)
+# dagayn: prepare a usable+synced graph at session start (Cursor hook)
 # Fails gracefully — never blocks the editor.
 {_CURSOR_HOOK_PROLOGUE}
 if [ -z "$repo" ]; then
@@ -1952,13 +1969,10 @@ if [ -z "$repo" ]; then
   exit 0
 fi
 
-# In a linked worktree there is no .dagayn/ yet: copy the main checkout's
-# graph (fast, no-op elsewhere), then catch up on the branch diff detached.
-dagayn worktree sync --seed-only --repo "$repo" >/dev/null 2>&1 || true
-( DAGAYN_HOOK_UPDATE=1 dagayn update --skip-flows{update_args} \\
-    --repo "$repo" >/dev/null 2>&1 & ) >/dev/null 2>&1
-
-output="$(dagayn status --repo "$repo" 2>&1)" || output="dagayn: no graph yet — run 'dagayn build'"
+output="$(DAGAYN_HOOK_UPDATE=1 dagayn session prepare \\
+  --budget-seconds {_SESSION_PREPARE_BUDGET_SECONDS}{update_args} \\
+  --repo "$repo" 2>&1)" \\
+  || output="dagayn: session prepare failed — run 'dagayn session prepare'"
 
 # sessionStart accepts {{"additional_context": "..."}}; feed status to the agent.
 python3 -c 'import json, sys; print(json.dumps({{"additional_context": sys.stdin.read()}}))' \\
@@ -1990,10 +2004,32 @@ print(json.dumps({{"permission": "allow", "agent_message": sys.stdin.read()}}))'
 exit 0
 """
 
+    relocate_script = f"""\
+#!/usr/bin/env bash
+# dagayn: re-prepare graph after HEAD-moving git commands (Cursor hook)
+# Fails gracefully — never blocks the shell command.
+{_CURSOR_HOOK_PROLOGUE}
+if [ -z "$repo" ]; then
+  printf '{{"permission":"allow"}}\\n'
+  exit 0
+fi
+
+output="$(DAGAYN_HOOK_UPDATE=1 dagayn session prepare \\
+  --budget-seconds {_SESSION_PREPARE_BUDGET_SECONDS}{update_args} \\
+  --repo "$repo" 2>&1)" || output=""
+
+python3 -c 'import json, sys
+print(json.dumps({{"permission": "allow", "agent_message": sys.stdin.read()}}))' \\
+  <<< "$output" 2>/dev/null || printf '{{"permission":"allow"}}\\n'
+
+exit 0
+"""
+
     return {
         "crg-update.sh": update_script,
         "crg-session-start.sh": session_start_script,
         "crg-pre-commit.sh": pre_commit_script,
+        "crg-relocate.sh": relocate_script,
     }
 
 
@@ -2214,21 +2250,21 @@ export default (app: any) => {
     }
   })
 
-  // 2. Inherit the graph in a worktree, then show status
+  // 2. Prepare a usable+synced graph when a session starts
   app.on("session.created", async ({ $ }: { $: any }) => {
     try {
+      const prepare =
+        "DAGAYN_HOOK_UPDATE=1 dagayn session prepare --budget-seconds 45__DAGAYN_UPDATE_ARGS__"
       const repo = await resolveRepo($)
       if (repo) {
-        await $`dagayn worktree sync --seed-only --repo ${repo}`.quiet()
-        await $`dagayn update --skip-flows__DAGAYN_UPDATE_ARGS__ --repo ${repo}`.quiet()
+        await $`${prepare} --repo ${repo}`.quiet()
         const result = await $`dagayn status --repo ${repo}`.quiet()
         const output = result.stdout?.toString().trim()
         if (output) {
           console.log("[dagayn]", output)
         }
       } else {
-        await $`dagayn worktree sync --seed-only`.quiet()
-        await $`dagayn update --skip-flows__DAGAYN_UPDATE_ARGS__`.quiet()
+        await $`${prepare}`.quiet()
         const result = await $`dagayn status`.quiet()
         const output = result.stdout?.toString().trim()
         if (output) {
@@ -2265,9 +2301,21 @@ export default (app: any) => {
             console.log("[dagayn] Pre-commit analysis:\\n" + output)
           }
         }
+      } else if (
+        typeof cmd === "string" &&
+        /(?:^|[\\/\\\\]|\\s)git(?:\\.exe)?\\s+(?:checkout|switch|reset|pull|merge|rebase|cherry-pick)\\b/i.test(cmd)
+      ) {
+        const repo = await resolveRepo(ctx.$)
+        const prepare =
+          "DAGAYN_HOOK_UPDATE=1 dagayn session prepare --budget-seconds 45__DAGAYN_UPDATE_ARGS__"
+        if (repo) {
+          await ctx.$`${prepare} --repo ${repo}`.quiet()
+        } else {
+          await ctx.$`${prepare}`.quiet()
+        }
       }
     } catch {
-      // Swallow — never block a commit.
+      // Swallow — never block a commit / checkout.
     }
   })
 }

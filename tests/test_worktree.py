@@ -41,7 +41,7 @@ from dagayn.worktree import (
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        ["git", *args],
+        ["git", "-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false", *args],
         capture_output=True,
         text=True,
         cwd=str(repo),
@@ -432,7 +432,7 @@ class TestCursorWorktreeSetup:
         assert install_cursor_worktree_setup(main_repo) == "created"
 
         config = json.loads((main_repo / ".cursor" / "worktrees.json").read_text(encoding="utf-8"))
-        assert config["setup-worktree"] == ["dagayn worktree sync"]
+        assert config["setup-worktree"] == ["dagayn session prepare --budget-seconds 45"]
 
     def test_preserves_user_commands_and_is_idempotent(self, main_repo: Path):
         config_path = main_repo / ".cursor" / "worktrees.json"
@@ -443,7 +443,7 @@ class TestCursorWorktreeSetup:
         assert install_cursor_worktree_setup(main_repo) == "unchanged"
 
         config = json.loads(config_path.read_text(encoding="utf-8"))
-        assert config["setup-worktree-unix"] == ["npm ci", "dagayn worktree sync"]
+        assert config["setup-worktree-unix"] == ["npm ci", "dagayn session prepare --budget-seconds 45"]
         # The generic key is left alone when an OS-specific key already exists.
         assert "setup-worktree" not in config
 
@@ -469,7 +469,7 @@ class TestWorktreeHookEntry:
         commands = [
             hook["command"] for entry in config["hooks"]["PostToolUse"] for hook in entry["hooks"]
         ]
-        assert any("dagayn worktree sync --from-hook" in command for command in commands)
+        assert any("dagayn session prepare --from-hook" in command for command in commands)
         matchers = [entry["matcher"] for entry in config["hooks"]["PostToolUse"]]
         assert "EnterWorktree|ExitWorktree" in matchers
 
@@ -490,6 +490,6 @@ class TestWorktreeHookEntry:
             hook["command"]
             for entry in config["hooks"]["PostToolUse"]
             for hook in entry["hooks"]
-            if "worktree sync" in hook["command"]
+            if "session prepare" in hook["command"]
         )
         assert "--local-embedding" in command

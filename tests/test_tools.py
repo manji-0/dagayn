@@ -2736,13 +2736,14 @@ class TestEnsureGraph:
         from dagayn.tools.ensure import ensure_graph
 
         self._seed_ready_graph()
-        with patch("dagayn.tools.ensure.build_or_update_graph") as build:
+        with patch("dagayn.tools.session_prepare.build_or_update_graph") as build:
             result = ensure_graph(repo_root=str(self.root))
 
         assert result["status"] == "ok"
         assert result["action"] == "noop"
         assert result["reason"] == "graph_ready"
         assert result["total_nodes"] >= 1
+        assert result["sync"]["status"] == "synced"
         build.assert_not_called()
 
     def test_full_build_when_empty(self, monkeypatch):
@@ -2778,15 +2779,16 @@ class TestEnsureGraph:
             store.close()
             return fake_build
 
-        with patch("dagayn.tools.ensure.build_or_update_graph", side_effect=_fake_build):
+        with patch(
+            "dagayn.tools.session_prepare.build_or_update_graph", side_effect=_fake_build
+        ):
             result = ensure_graph(repo_root=str(self.root))
 
-        assert result["status"] == "ok"
+        assert result["status"] in {"ok", "partial"}
         assert result["action"] == "full"
         assert result["reason"] == "empty_graph"
         assert result["build"]["summary"] == "Full build complete."
-        assert "local_embedding" not in result
-        assert result.get("build", {}).get("local_embedding") is None
+        assert result["phases"]["structure"] == "done"
 
     def test_force_runs_incremental_when_ready(self, monkeypatch):
         from unittest.mock import patch
@@ -2805,7 +2807,9 @@ class TestEnsureGraph:
                 "files_updated": 1,
             }
 
-        with patch("dagayn.tools.ensure.build_or_update_graph", side_effect=_fake_build) as build:
+        with patch(
+            "dagayn.tools.session_prepare.build_or_update_graph", side_effect=_fake_build
+        ) as build:
             result = ensure_graph(repo_root=str(self.root), force=True)
 
         assert result["action"] == "incremental"
@@ -2837,11 +2841,104 @@ class TestEnsureGraph:
             store.close()
             return {"status": "ok", "summary": "Full build complete."}
 
-        with patch("dagayn.tools.ensure.build_or_update_graph", side_effect=_fake_build):
+        with patch(
+            "dagayn.tools.session_prepare.build_or_update_graph", side_effect=_fake_build
+        ):
             result = ensure_graph(repo_root=str(self.root), force=True)
 
         assert result["action"] == "full"
         assert result["reason"] == "empty_graph"
+
+    def test_git_drift_triggers_incremental_without_force(self, monkeypatch):
+        from unittest.mock import patch
+
+        from dagayn.tools.ensure import ensure_graph
+
+        self._seed_ready_graph()
+        store = GraphStore(str(self.root / ".dagayn" / "graph.db"))
+        store.set_metadata("git_head_sha", "aaa111")
+        store.commit()
+        store.close()
+
+        monkeypatch.setattr(
+            "dagayn.tools.sync_status._git_branch_info",
+            lambda _root: ("main", "bbb222"),
+        )
+        monkeypatch.setattr("dagayn.tools.sync_status.detect_vcs", lambda _root: "git")
+        monkeypatch.setattr(
+            "dagayn.tools.sync_status.get_changed_file_sources",
+            lambda *_a, **_k: {"worktree": [], "files": [], "base_diff": []},
+        )
+
+        def _fake_build(**kwargs):
+            assert kwargs["full_rebuild"] is False
+            return {"status": "ok", "summary": "Incremental update complete.", "files_updated": 2}
+
+        with patch(
+            "dagayn.tools.session_prepare.build_or_update_graph", side_effect=_fake_build
+        ) as build:
+            result = ensure_graph(repo_root=str(self.root))
+
+        assert result["action"] == "incremental"
+        assert result["reason"] == "git_drift"
+        build.assert_called_once()
+
+    def test_inherits_local_embedding_for_phase_two(self, monkeypatch):
+        from unittest.mock import patch
+
+        from dagayn.tools.ensure import ensure_graph
+
+        self._seed_ready_graph()
+        calls: list[dict] = []
+
+        def _fake_build(**kwargs):
+            calls.append(kwargs)
+            return {
+                "status": "ok",
+                "summary": "ok",
+                "files_updated": 0,
+                "local_embedding": {"status": "ok"},
+            }
+
+        monkeypatch.setattr(
+            "dagayn.tools.sync_status.embedding_needs_refresh",
+            lambda *_a, **_k: True,
+        )
+        with patch(
+            "dagayn.tools.session_prepare.build_or_update_graph", side_effect=_fake_build
+        ):
+            result = ensure_graph(
+                repo_root=str(self.root),
+                local_embedding="low",
+                embedding_policy="inline",
+                budget_seconds=300,
+            )
+
+        assert result["phases"]["embedding"] == "done"
+        assert any(c.get("local_embedding") == "low" for c in calls)
+
+    def test_budget_defers_embedding(self, monkeypatch):
+        from unittest.mock import patch
+
+        from dagayn.tools.ensure import ensure_graph
+
+        self._seed_ready_graph()
+        monkeypatch.setattr(
+            "dagayn.tools.sync_status.embedding_needs_refresh",
+            lambda *_a, **_k: True,
+        )
+        with patch("dagayn.tools.session_prepare.build_or_update_graph") as build:
+            result = ensure_graph(
+                repo_root=str(self.root),
+                local_embedding="low",
+                embedding_policy="auto",
+                budget_seconds=1,
+            )
+
+        # Synced structure → no structure build; embedding deferred by tiny budget.
+        assert result["phases"]["structure"] == "noop"
+        assert result["phases"]["embedding"] in {"skipped_budget", "pending"}
+        build.assert_not_called()
 
 
 class TestImpactRadiusBudgeting:

@@ -67,6 +67,12 @@ from .docs import embed_graph, generate_wiki_func, get_docs_section, get_wiki_pa
 # -- ensure -----------------------------------------------------------------
 from .ensure import ensure_graph
 
+# -- session_prepare --------------------------------------------------------
+from .session_prepare import session_prepare
+
+# -- sync_status ------------------------------------------------------------
+from .sync_status import assess_graph_sync
+
 # -- flow_dispatcher --------------------------------------------------------
 from .flow_dispatcher import flow_func
 
@@ -112,6 +118,9 @@ __all__ = [
     "run_postprocess",
     # ensure
     "ensure_graph",
+    # session_prepare / sync_status
+    "session_prepare",
+    "assess_graph_sync",
     # context
     "get_minimal_context",
     # architecture_analysis

@@ -284,25 +284,37 @@ async def ensure_graph_tool(
     repo_root: Optional[str] = None,
     force: bool = False,
 ) -> dict:
-    """Ensure a usable knowledge graph exists for analysis tools.
+    """Ensure a usable+synced knowledge graph exists for analysis tools.
 
     Prefer this over ``build_or_update_graph_tool`` on the default MCP surface.
-    Empty graphs get a full parse with ``postprocess="minimal"`` and
-    ``local_embedding="none"`` (never inherits ``serve --local-embedding``).
-    Ready graphs are a no-op unless ``force=True`` (incremental refresh).
+    Empty graphs get a full parse with ``postprocess="minimal"``. Ready graphs
+    are refreshed when HEAD/worktree has drifted; ``force=True`` always runs
+    an incremental refresh. Local embedding mode inherits
+    ``dagayn serve --local-embedding`` (explicit ``none`` remains an opt-out
+    only via advanced build tools).
 
     Offloaded via ``asyncio.to_thread`` like other long-running build tools.
     See: #46, #136.
 
     Args:
         repo_root: Repository root path. Auto-detected if omitted.
-        force: If True and the graph already has nodes, run an incremental
-            update. Empty graphs still take the full-build path.
+        force: If True, run an incremental refresh even when already synced.
+            Empty graphs still take the full-build path.
     """
+    effective_local_embedding = _resolve_local_embedding(None) or "none"
     return await asyncio.to_thread(
         _tool("ensure_graph"),
         repo_root=_resolve_repo_root(repo_root),
         force=force,
+        local_embedding=effective_local_embedding,
+        local_embedding_port=_default_local_embedding_port,
+        local_embedding_bin=_default_local_embedding_bin,
+        keep_local_embedding_server=_default_keep_local_embedding_server,
+        local_embedding_timeout=_default_local_embedding_timeout,
+        local_embedding_request_timeout=_default_local_embedding_request_timeout,
+        local_embedding_batch_size=_default_local_embedding_batch_size,
+        budget_seconds=300,
+        embedding_policy="auto",
     )
 
 
@@ -348,7 +360,9 @@ def get_minimal_context_tool(
 
     Returns graph stats, risk score, top communities/flows, and suggested
     next tools in a single compact response. Use this as the entry point
-    before any other graph tool to minimize token usage.
+    before any other graph tool to minimize token usage. When the graph is
+    empty or out of sync with HEAD/worktree, prepares it first (inheriting
+    the serve-time local embedding mode).
 
     Args:
         task: What you are doing (e.g. "review PR #42", "debug login timeout").
@@ -356,11 +370,15 @@ def get_minimal_context_tool(
         repo_root: Repository root path. Auto-detected if omitted.
         base: Git ref for diff comparison. Default: HEAD~1.
     """
+    effective_local_embedding = _resolve_local_embedding(None) or "none"
     return _tool("get_minimal_context")(
         task=task,
         changed_files=changed_files,
         repo_root=_resolve_repo_root(repo_root),
         base=base,
+        auto_prepare=True,
+        local_embedding=effective_local_embedding,
+        prepare_budget_seconds=300,
     )
 
 

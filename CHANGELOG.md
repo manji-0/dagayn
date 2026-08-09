@@ -4,6 +4,23 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Features
+
+- Add `dagayn session prepare` to guarantee a usable+synced graph at session
+  start and after mid-session checkout / worktree moves. Hooks (Claude /
+  Codex / Cursor / OpenCode / Pi / Hermes) call it with a 45s self-budget;
+  structure sync is Phase 1, optional local embeddings are Phase 2 when budget
+  remains. Cursor also re-prepares after HEAD-moving git commands.
+- `ensure_graph_tool` / `get_minimal_context_tool` auto-refresh on empty or
+  HEAD/worktree drift and inherit `dagayn serve --local-embedding` instead of
+  forcing `none`. Responses expose a compact `sync` status
+  (`synced` / `git_drift` / `dirty_worktree` / `empty`).
+
+### Documentation
+
+- Document session prepare, sync observability, and serve-mode embedding
+  inheritance in COMMANDS / USAGE / LLM-OPTIMIZED-REFERENCE.
+
 ## 4.6.1 — 2026-08-05
 
 ### Fixes

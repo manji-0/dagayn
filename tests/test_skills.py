@@ -154,7 +154,7 @@ class TestGenerateSkills:
         install = (skills_dir / "install-dagayn.md").read_text()
         review = (skills_dir / "review-changes.md").read_text()
 
-        assert "dagayn worktree sync" in worktree
+        assert "dagayn session prepare" in worktree
         assert "worktree info" in worktree
         assert ".worktreeinclude" in worktree
         assert "ensure_graph_tool" in feature
@@ -721,9 +721,8 @@ class TestGenerateHooksConfig:
         assert "matcher" in entry
         inner = entry["hooks"][0]
         assert inner["type"] == "command"
-        assert "worktree sync --seed-only" in inner["command"]
-        assert "status" in inner["command"]
-        assert inner["timeout"] == 10
+        assert "session prepare" in inner["command"]
+        assert inner["timeout"] == 60
 
     def test_does_not_emit_invalid_pre_commit_hook(self):
         config = generate_hooks_config(Path("/repo"))
@@ -2012,10 +2011,12 @@ class TestCursorHooksConfig:
     def test_has_before_shell_execution(self):
         config = generate_cursor_hooks_config()
         hooks = config["hooks"]["beforeShellExecution"]
-        assert len(hooks) >= 1
+        assert len(hooks) >= 2
         assert "crg-pre-commit.sh" in hooks[0]["command"]
         assert hooks[0]["timeout"] == 120
         assert hooks[0]["matcher"] == (r"(?:^|[/\\]|\s)git(?:\.exe)?\s+commit\b")
+        assert "crg-relocate.sh" in hooks[1]["command"]
+        assert hooks[1]["timeout"] == 60
 
     def test_git_commit_matcher_covers_path_qualified_git(self):
         import re
@@ -2052,12 +2053,13 @@ class TestCursorHooksConfig:
 class TestCursorHookScripts:
     """Tests for _cursor_hook_scripts()."""
 
-    def test_returns_three_scripts(self):
+    def test_returns_four_scripts(self):
         scripts = _cursor_hook_scripts()
         assert set(scripts.keys()) == {
             "crg-update.sh",
             "crg-session-start.sh",
             "crg-pre-commit.sh",
+            "crg-relocate.sh",
         }
 
     def test_scripts_start_with_shebang(self):
@@ -2091,7 +2093,7 @@ class TestCursorHookScripts:
     def test_scripts_pass_repo_explicitly(self):
         scripts = _cursor_hook_scripts()
         for name, content in scripts.items():
-            if "dagayn update" in content or "dagayn status" in content:
+            if "dagayn update" in content or "dagayn session prepare" in content:
                 assert '--repo "$repo"' in content, f"{name} does not pass --repo"
 
     def test_update_script_runs_update(self):
@@ -2106,11 +2108,12 @@ class TestCursorHookScripts:
 
     def test_session_start_script_runs_status(self):
         scripts = _cursor_hook_scripts()
-        assert "dagayn status" in scripts["crg-session-start.sh"]
+        assert "session prepare" in scripts["crg-session-start.sh"]
 
     def test_session_start_script_inherits_worktree_graph(self):
         script = _cursor_hook_scripts()["crg-session-start.sh"]
-        assert "dagayn worktree sync --seed-only" in script
+        assert "dagayn session prepare" in script
+        assert "crg-relocate.sh" in _cursor_hook_scripts()
         assert "additional_context" in script
 
     def test_pre_commit_script_returns_permission_decision(self):
@@ -2184,10 +2187,18 @@ class TestInstallCursorHooks:
             install_cursor_hooks()
 
         data = json.loads((tmp_path / ".cursor" / "hooks.json").read_text())
-        # Each event type should have exactly 1 crg hook
+        # dagayn hooks should not duplicate on reinstall (relocate + commit share
+        # beforeShellExecution, so that event has two managed scripts).
+        expected = {
+            "afterFileEdit": 1,
+            "sessionStart": 1,
+            "beforeShellExecution": 2,
+        }
         for event, entries in data["hooks"].items():
             crg_hooks = [h for h in entries if "crg-" in h.get("command", "")]
-            assert len(crg_hooks) == 1, f"{event} has {len(crg_hooks)} crg hooks after reinstall"
+            assert len(crg_hooks) == expected.get(event, len(crg_hooks)), (
+                f"{event} has {len(crg_hooks)} crg hooks after reinstall"
+            )
 
     def test_reinstall_updates_git_commit_matcher(self, tmp_path):
         cursor_dir = tmp_path / ".cursor"
@@ -2520,7 +2531,7 @@ class TestOpenCodePluginContent:
     def test_hooks_session_created_event(self):
         content = _opencode_plugin_content()
         assert '"session.created"' in content
-        assert "dagayn worktree sync --seed-only" in content
+        assert "dagayn session prepare" in content
         assert "dagayn status" in content
 
     def test_hooks_resolve_repo_and_pass_repo_flag(self):
