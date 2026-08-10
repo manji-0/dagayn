@@ -24,6 +24,7 @@ from .incremental_files import (
     _rust_backend_enabled,
     _should_ignore,
     _store_vcs_metadata,
+    base_ref_is_resolvable,
     collect_all_files,
 )
 from .parser import CodeParser
@@ -820,13 +821,31 @@ def incremental_update(
 
     # Determine changed files
     change_file_sources: dict[str, list[str]]
+    diff_trustworthy = False
     if changed_files is None:
         change_file_sources = _changed_file_sources(repo_root, base)
         changed_files = change_file_sources["files"]
+        diff_trustworthy = base_ref_is_resolvable(repo_root, base)
     else:
         change_file_sources = {"files": changed_files, "explicit": changed_files}
 
+    def _record_head_when_verified() -> None:
+        """Advance ``git_head_sha`` on a no-op update whose diff was complete.
+
+        Nothing needed re-parsing, so the graph already describes HEAD. Without
+        this the stored sha keeps pointing at the base commit and
+        ``assess_graph_sync`` reports ``git_drift`` forever — every session
+        start and every MCP ``auto_prepare`` re-runs a prepare that can never
+        clear the drift. Only done when the diff itself was trustworthy: an
+        unresolvable base yields an empty diff too, and that must stay drift.
+        """
+        if not diff_trustworthy:
+            return
+        _store_vcs_metadata(repo_root, store)
+        store.commit()
+
     if not changed_files:
+        _record_head_when_verified()
         return {
             "files_updated": 0,
             "total_nodes": 0,
@@ -966,6 +985,7 @@ def incremental_update(
         and not to_parse_rust_checked
         and not to_parse
     ):
+        _record_head_when_verified()
         return {
             "files_updated": len(all_files),
             "total_nodes": total_nodes,

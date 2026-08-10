@@ -596,6 +596,35 @@ def _store_vcs_metadata(repo_root: Path, store: "GraphStore") -> None:
             store.set_metadata("svn_revision", rev)
 
 
+def base_ref_is_resolvable(repo_root: Path, base: str) -> bool:
+    """Return True when git can resolve *base* to a commit in *repo_root*.
+
+    ``_get_git_diff_files`` returns an empty list both for "nothing changed"
+    and for "git diff failed" (unreachable base after a rebase, a shallow
+    clone, a sha from another checkout). Callers that want to conclude the
+    graph already describes HEAD must first confirm the base was real —
+    otherwise a failed diff would be recorded as "up to date".
+
+    Non-git working copies return False: only git has the metadata contract
+    (``git_head_sha``) this guards.
+    """
+    if detect_vcs(repo_root) != "git":
+        return False
+    if not _SAFE_GIT_REF.match(base):
+        return False
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--verify", "--quiet", f"{base}^{{commit}}"],
+            capture_output=True,
+            text=True,
+            cwd=str(repo_root),
+            timeout=_GIT_TIMEOUT,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0
+
+
 def get_changed_files(repo_root: Path, base: str = "HEAD~1") -> list[str]:
     """Get list of changed files via git diff plus working-tree status.
 

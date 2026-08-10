@@ -187,6 +187,58 @@ def test_incremental_update_real_git(git_repo: Path) -> None:
         Path(db_path).unlink(missing_ok=True)
 
 
+def test_incremental_update_noop_advances_head_sha(git_repo: Path) -> None:
+    """A no-op update over a resolvable base records the new HEAD.
+
+    The content is already indexed, so nothing is re-parsed — but the graph
+    does describe HEAD, and leaving ``git_head_sha`` at the base commit would
+    report ``git_drift`` on every future session.
+    """
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        db_path = f.name
+
+    try:
+        store = GraphStore(db_path)
+        full_build(git_repo, store)
+        base = _git(git_repo, "rev-parse", "HEAD").stdout.strip()
+
+        # Commit a file the graph does not track, so the diff is non-empty but
+        # nothing needs re-parsing.
+        (git_repo / "notes.txt").write_text("no code here\n")
+        _git(git_repo, "add", "notes.txt")
+        _git(git_repo, "commit", "-m", "add notes")
+        head = _git(git_repo, "rev-parse", "HEAD").stdout.strip()
+        assert head != base
+
+        result = incremental_update(git_repo, store, base=base)
+        assert result["files_updated"] == 0
+        assert store.get_metadata("git_head_sha") == head
+        store.close()
+    finally:
+        Path(db_path).unlink(missing_ok=True)
+
+
+def test_incremental_update_noop_keeps_head_sha_when_base_unresolvable(
+    git_repo: Path,
+) -> None:
+    """An unresolvable base yields an empty diff that must stay drift."""
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        db_path = f.name
+
+    try:
+        store = GraphStore(db_path)
+        full_build(git_repo, store)
+        store.set_metadata("git_head_sha", "0" * 40)
+        store.commit()
+
+        result = incremental_update(git_repo, store, base="0" * 40)
+        assert result["files_updated"] == 0
+        assert store.get_metadata("git_head_sha") == "0" * 40
+        store.close()
+    finally:
+        Path(db_path).unlink(missing_ok=True)
+
+
 # ------------------------------------------------------------------
 # 4. base ref injection is rejected
 # ------------------------------------------------------------------
