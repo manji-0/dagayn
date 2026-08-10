@@ -4,20 +4,22 @@ Use-case catalog: docs/SESSION-GRAPH-FRESHNESS.md
 
 | ID    | Covered by |
 | ----- | ---------- |
-| UC-S1 | hook wiring + session_prepare on drift |
-| UC-S2 | dirty_worktree + HEAD drift prepare |
-| UC-H1 | HEAD relocate prepare |
-| UC-W1 | worktree create seed+prepare |
-| UC-W2 | worktree re-enter after branch commit |
+| UC-S1 | hook wiring (Claude/Cursor/OpenCode) + prepare on drift |
+| UC-S2 | dirty prepare (structure-ready) + resume noop when ready |
+| UC-H1 | HEAD relocate prepare + OpenCode relocate wiring |
+| UC-W1 | worktree create via session_prepare + worktree sync CLI |
+| UC-W2 | re-enter: seed skipped + catch-up from stored sha |
 | UC-W3 | worktree delete leaves main intact |
-| UC-A1 | worktree + get_minimal_context(auto_prepare) |
-| UC-M1 | get_minimal_context(auto_prepare=True) |
-| UC-M2 | ensure_graph seed_worktree + MCP budget |
+| UC-A1 | serve seed alone insufficient; auto_prepare catch-up |
+| UC-M1 | auto_prepare on drift; no dirty loop |
+| UC-M2 | ensure_graph MCP budget; retry after partial |
 | UC-E1 | documented only (ongoing update, not bootstrap) |
 """
 
 from __future__ import annotations
 
+import argparse
+import io
 import json
 from pathlib import Path
 from unittest.mock import patch
@@ -27,6 +29,7 @@ from worktree_fixtures import git
 from dagayn.graph import GraphStore
 from dagayn.parser import NodeInfo
 from dagayn.skills import (
+    _opencode_plugin_content,
     generate_hooks_config,
     install_cursor_hooks,
     install_cursor_worktree_setup,
@@ -39,8 +42,11 @@ from dagayn.tools.session_prepare import (
 )
 from dagayn.tools.sync_status import (
     assess_graph_sync,
+    is_structure_ready,
+    needs_mcp_auto_prepare,
     needs_structure_prepare,
 )
+from dagayn.worktree import ensure_worktree_graph, seed_worktree_graph
 
 
 def _head(repo: Path) -> str:
@@ -78,6 +84,12 @@ def _assess(repo: Path) -> dict:
         store.close()
 
 
+def _assert_structure_ready(result: dict, repo: Path) -> None:
+    assert result["status"] == "ok", result
+    assert is_structure_ready(result["sync"]), result["sync"]
+    assert is_structure_ready(_assess(repo))
+
+
 class TestAssessGraphSyncContract:
     """UC sync matrix: empty / git_drift / dirty_worktree / synced."""
 
@@ -86,14 +98,18 @@ class TestAssessGraphSyncContract:
         sync = _assess(main_repo)
         assert sync["status"] == "empty"
         assert needs_structure_prepare(sync) is True
+        assert needs_mcp_auto_prepare(sync) is True
+        assert is_structure_ready(sync) is False
 
     def test_git_drift_when_head_differs(self, main_repo: Path):
         _seed_store(main_repo, head_sha="0" * 40)
         sync = _assess(main_repo)
         assert sync["status"] == "git_drift"
         assert needs_structure_prepare(sync) is True
+        assert needs_mcp_auto_prepare(sync) is True
+        assert is_structure_ready(sync) is False
 
-    def test_dirty_worktree_when_head_matches(self, main_repo: Path):
+    def test_dirty_worktree_is_structure_ready(self, main_repo: Path):
         _seed_store(main_repo, head_sha=_head(main_repo))
         (main_repo / "hello.py").write_text(
             "def greet():\n    return 'dirty'\n",
@@ -103,13 +119,17 @@ class TestAssessGraphSyncContract:
         assert sync["status"] == "dirty_worktree"
         assert sync["worktree_dirty"] is True
         assert needs_structure_prepare(sync) is True
+        assert needs_mcp_auto_prepare(sync) is False
+        assert is_structure_ready(sync) is True
 
     def test_synced_when_head_matches_and_clean(self, main_repo: Path):
         _seed_store(main_repo, head_sha=_head(main_repo))
         sync = _assess(main_repo)
         assert sync["status"] == "synced"
         assert needs_structure_prepare(sync) is False
+        assert needs_mcp_auto_prepare(sync) is False
         assert needs_structure_prepare(sync, force=True) is True
+        assert is_structure_ready(sync) is True
 
 
 class TestSessionPrepareContract:
@@ -140,8 +160,7 @@ class TestSessionPrepareContract:
         assert result["action"] == "incremental"
         assert result["reason"] == "git_drift"
         assert result["phases"]["structure"] == "done"
-        assert result["sync"]["status"] == "synced"
-        assert result["status"] == "ok"
+        _assert_structure_ready(result, main_repo)
 
     def test_uc_s2_noop_when_already_synced(self, main_repo: Path):
         _seed_store(main_repo, head_sha=_head(main_repo))
@@ -155,26 +174,24 @@ class TestSessionPrepareContract:
         build.assert_not_called()
         assert result["action"] == "noop"
         assert result["reason"] == "graph_ready"
-        assert result["sync"]["status"] == "synced"
-        assert result["status"] == "ok"
+        _assert_structure_ready(result, main_repo)
 
     def test_budget_exhausted_before_structure_is_partial(self, main_repo: Path):
         _seed_store(main_repo, head_sha="0" * 40)
-        with patch("dagayn.tools.session_prepare.build_or_update_graph") as build:
+        with (
+            patch("dagayn.tools.session_prepare._remaining_seconds", return_value=0.0),
+            patch("dagayn.tools.session_prepare.build_or_update_graph") as build,
+        ):
             result = session_prepare(
                 repo_root=str(main_repo),
                 local_embedding="none",
                 embedding_policy="skip",
-                budget_seconds=0.0001,
+                budget_seconds=45,
             )
-        # Tiny budget may skip structure; never claim synced success.
-        if result["phases"]["structure"] == "skipped_budget":
-            build.assert_not_called()
-            assert result["status"] == "partial"
-            assert result["sync"]["status"] != "synced"
-        else:
-            # Race: prepare finished before deadline — still a valid outcome.
-            assert result["status"] in {"ok", "partial"}
+        build.assert_not_called()
+        assert result["phases"]["structure"] == "skipped_budget"
+        assert result["status"] == "partial"
+        assert is_structure_ready(result["sync"]) is False
 
     def test_uc_m2_ensure_graph_uses_mcp_budget_and_seeds(self, main_repo: Path):
         _seed_store(main_repo, head_sha=_head(main_repo))
@@ -188,9 +205,41 @@ class TestSessionPrepareContract:
         assert kwargs["budget_seconds"] == default_prepare_budget_seconds(mcp=True)
         assert kwargs["embedding_policy"] == "auto"
 
+    def test_uc_m2_retry_after_partial_reaches_ready(self, main_repo: Path):
+        _seed_store(main_repo, head_sha="0" * 40)
+        with (
+            patch("dagayn.tools.session_prepare._remaining_seconds", return_value=0.0),
+            patch("dagayn.tools.session_prepare.build_or_update_graph") as build,
+        ):
+            first = session_prepare(
+                repo_root=str(main_repo),
+                local_embedding="none",
+                embedding_policy="skip",
+                budget_seconds=45,
+            )
+        build.assert_not_called()
+        assert first["status"] == "partial"
+        assert is_structure_ready(first["sync"]) is False
+
+        def _fake_build(**kwargs):
+            _seed_store(main_repo, head_sha=_head(main_repo))
+            return {"status": "ok", "summary": "Incremental update complete."}
+
+        with patch(
+            "dagayn.tools.session_prepare.build_or_update_graph",
+            side_effect=_fake_build,
+        ):
+            second = ensure_graph(
+                repo_root=str(main_repo),
+                local_embedding="none",
+                embedding_policy="skip",
+                budget_seconds=60,
+            )
+        _assert_structure_ready(second, main_repo)
+
 
 class TestMinimalContextAutoPrepare:
-    """UC-M1: MCP first-tool path auto-prepares on drift."""
+    """UC-M1: MCP first-tool path auto-prepares on drift, not dirty loops."""
 
     def test_uc_m1_auto_prepare_on_git_drift(self, main_repo: Path):
         _seed_store(main_repo, head_sha="0" * 40)
@@ -235,6 +284,24 @@ class TestMinimalContextAutoPrepare:
         assert "prepare" not in result or result.get("prepare") is None
         assert result["sync"]["status"] == "synced"
 
+    def test_uc_m1_dirty_does_not_auto_prepare_loop(self, main_repo: Path):
+        _seed_store(main_repo, head_sha=_head(main_repo))
+        (main_repo / "hello.py").write_text(
+            "def greet():\n    return 'dirty'\n",
+            encoding="utf-8",
+        )
+        assert _assess(main_repo)["status"] == "dirty_worktree"
+        with patch("dagayn.tools.session_prepare.session_prepare") as prepare:
+            result = get_minimal_context(
+                task="explore codebase",
+                repo_root=str(main_repo),
+                auto_prepare=True,
+                local_embedding="none",
+            )
+        prepare.assert_not_called()
+        assert result["sync"]["status"] == "dirty_worktree"
+        assert "ensure_graph_tool" not in result.get("recommended_action", "")
+
 
 class TestWorktreeFreshnessIntegration:
     """Real-git UC-W1/W2/W3/A1/H1/S2 integration."""
@@ -257,16 +324,13 @@ class TestWorktreeFreshnessIntegration:
             budget_seconds=120,
             seed_worktree=True,
         )
-        assert result["status"] in {"ok", "partial"}
         assert (linked_worktree / ".dagayn" / "graph.db").exists()
-        sync = _assess(linked_worktree)
-        assert sync["status"] == "synced"
-        assert sync["git_head_sha"] == _head(linked_worktree)
-        # Main checkout graph remains present and separate.
-        assert (main_repo / ".dagayn" / "graph.db").exists()
-        assert _assess(main_repo)["status"] == "synced"
+        _assert_structure_ready(result, linked_worktree)
+        assert result["sync"]["git_head_sha"] == _head(linked_worktree)
+        assert is_structure_ready(_assess(main_repo))
 
-    def test_uc_w2_reenter_after_branch_commit(self, main_repo: Path, linked_worktree: Path):
+    def test_uc_w1_worktree_sync_cli(self, main_repo: Path, linked_worktree: Path):
+        from dagayn.cli.commands.worktree import _handle_sync
         from dagayn.tools.build import build_or_update_graph
 
         build_or_update_graph(
@@ -275,13 +339,79 @@ class TestWorktreeFreshnessIntegration:
             postprocess="minimal",
             local_embedding="none",
         )
-        session_prepare(
+        args = argparse.Namespace(
+            repo=str(linked_worktree),
+            from_hook=False,
+            base=None,
+            seed_only=False,
+            copy_config=True,
+            build_if_missing=False,
+            as_json=False,
+            local_embedding="none",
+            local_embedding_mode=None,
+            local_embedding_port=18080,
+            local_embedding_bin="auto",
+            keep_local_embedding_server=False,
+            local_embedding_timeout=300,
+            local_embedding_request_timeout=60,
+            local_embedding_batch_size=1,
+        )
+        _handle_sync(args)
+        assert (linked_worktree / ".dagayn" / "graph.db").exists()
+        assert is_structure_ready(_assess(linked_worktree))
+        assert _assess(linked_worktree)["git_head_sha"] == _head(linked_worktree)
+
+    def test_uc_w1_from_hook_prepare_resolves_worktree(
+        self, main_repo: Path, linked_worktree: Path
+    ):
+        from dagayn.tools.build import build_or_update_graph
+
+        build_or_update_graph(
+            full_rebuild=True,
+            repo_root=str(main_repo),
+            postprocess="minimal",
+            local_embedding="none",
+        )
+        payload = json.dumps(
+            {
+                "tool_name": "EnterWorktree",
+                "tool_response": {"worktree_path": str(linked_worktree)},
+            }
+        )
+
+        class _HookStdin(io.StringIO):
+            def isatty(self) -> bool:  # noqa: ANN001
+                return False
+
+        with patch("sys.stdin", _HookStdin(payload)):
+            result = session_prepare(
+                from_hook=True,
+                local_embedding="none",
+                embedding_policy="skip",
+                budget_seconds=120,
+            )
+        assert Path(result["repo_root"]).resolve() == linked_worktree.resolve()
+        _assert_structure_ready(result, linked_worktree)
+
+    def test_uc_w2_reenter_seed_skipped_then_catch_up(self, main_repo: Path, linked_worktree: Path):
+        from dagayn.tools.build import build_or_update_graph
+
+        build_or_update_graph(
+            full_rebuild=True,
+            repo_root=str(main_repo),
+            postprocess="minimal",
+            local_embedding="none",
+        )
+        first = session_prepare(
             repo_root=str(linked_worktree),
             local_embedding="none",
             embedding_policy="skip",
             budget_seconds=120,
         )
-        assert _assess(linked_worktree)["status"] == "synced"
+        _assert_structure_ready(first, linked_worktree)
+        seed = seed_worktree_graph(linked_worktree)
+        assert seed.status == "skipped"
+        assert "already has a graph" in seed.reason
 
         (linked_worktree / "feature.py").write_text(
             "def feature():\n    return 1\n",
@@ -297,11 +427,10 @@ class TestWorktreeFreshnessIntegration:
             embedding_policy="skip",
             budget_seconds=120,
         )
-        assert result["status"] in {"ok", "partial"}
-        assert result["reason"] in {"git_drift", "graph_ready"}
-        sync = _assess(linked_worktree)
-        assert sync["status"] == "synced"
-        assert sync["git_head_sha"] == _head(linked_worktree)
+        assert result["reason"] == "git_drift"
+        assert result["action"] == "incremental"
+        _assert_structure_ready(result, linked_worktree)
+        assert result["sync"]["git_head_sha"] == _head(linked_worktree)
 
     def test_uc_w3_worktree_delete_leaves_main_intact(self, main_repo: Path, linked_worktree: Path):
         from dagayn.tools.build import build_or_update_graph
@@ -323,7 +452,7 @@ class TestWorktreeFreshnessIntegration:
         assert removed.returncode == 0, removed.stderr
         assert not wt_path.exists()
         sync = _assess(main_repo)
-        assert sync["status"] == "synced"
+        assert is_structure_ready(sync)
         assert sync["git_head_sha"] == _head(main_repo)
 
     def test_uc_h1_head_relocate_prepare(self, main_repo: Path):
@@ -335,7 +464,7 @@ class TestWorktreeFreshnessIntegration:
             postprocess="minimal",
             local_embedding="none",
         )
-        assert _assess(main_repo)["status"] == "synced"
+        assert is_structure_ready(_assess(main_repo))
 
         (main_repo / "next.py").write_text("def next_step():\n    return 2\n", encoding="utf-8")
         git(main_repo, "add", "next.py")
@@ -348,11 +477,11 @@ class TestWorktreeFreshnessIntegration:
             embedding_policy="skip",
             budget_seconds=120,
         )
-        assert result["status"] in {"ok", "partial"}
-        assert result["reason"] == "git_drift" or result["sync"]["status"] == "synced"
-        assert _assess(main_repo)["status"] == "synced"
+        assert result["reason"] == "git_drift"
+        assert result["action"] == "incremental"
+        _assert_structure_ready(result, main_repo)
 
-    def test_uc_s2_dirty_worktree_prepare(self, main_repo: Path):
+    def test_uc_s2_dirty_worktree_prepare_is_structure_ready(self, main_repo: Path):
         from dagayn.tools.build import build_or_update_graph
 
         build_or_update_graph(
@@ -373,13 +502,14 @@ class TestWorktreeFreshnessIntegration:
             embedding_policy="skip",
             budget_seconds=120,
         )
-        assert result["status"] in {"ok", "partial"}
-        assert result["phases"]["structure"] == "done"
         assert result["reason"] == "dirty_worktree"
-        # Uncommitted edits keep worktree_dirty true; prepare still refreshed structure.
-        assert result["sync"]["status"] in {"synced", "dirty_worktree"}
+        assert result["phases"]["structure"] == "done"
+        _assert_structure_ready(result, main_repo)
+        assert result["sync"]["status"] == "dirty_worktree"
 
-    def test_uc_a1_subagent_standin_auto_prepare(self, main_repo: Path, linked_worktree: Path):
+    def test_uc_a1_serve_seed_alone_insufficient_then_auto_prepare(
+        self, main_repo: Path, linked_worktree: Path
+    ):
         from dagayn.tools.build import build_or_update_graph
 
         build_or_update_graph(
@@ -388,8 +518,21 @@ class TestWorktreeFreshnessIntegration:
             postprocess="minimal",
             local_embedding="none",
         )
-        # Simulate Subagent landing in a fresh worktree with no local graph.
-        assert not (linked_worktree / ".dagayn" / "graph.db").exists()
+        seeded = ensure_worktree_graph(linked_worktree)
+        assert seeded.status == "seeded"
+        assert is_structure_ready(_assess(linked_worktree))
+
+        (linked_worktree / "agent.py").write_text(
+            "def agent():\n    return True\n",
+            encoding="utf-8",
+        )
+        git(linked_worktree, "add", "agent.py")
+        git(linked_worktree, "commit", "-m", "subagent commit")
+        assert _assess(linked_worktree)["status"] == "git_drift"
+        # serve-style seed alone does not catch up an existing worktree graph.
+        again = ensure_worktree_graph(linked_worktree)
+        assert again.status == "skipped"
+        assert _assess(linked_worktree)["status"] == "git_drift"
 
         result = get_minimal_context(
             task="implement feature in worktree",
@@ -398,9 +541,9 @@ class TestWorktreeFreshnessIntegration:
             local_embedding="none",
             prepare_budget_seconds=120,
         )
-        assert (linked_worktree / ".dagayn" / "graph.db").exists()
-        assert result["sync"]["status"] == "synced"
         assert result.get("prepare") is not None
+        assert is_structure_ready(_assess(linked_worktree))
+        assert result["sync"]["status"] in {"synced", "dirty_worktree"}
 
 
 class TestHookWiringFreshness:
@@ -410,7 +553,7 @@ class TestHookWiringFreshness:
         config = generate_hooks_config(Path("/repo"), worktree_hook=True)
         session = config["hooks"]["SessionStart"][0]["hooks"][0]["command"]
         assert "session prepare" in session
-        assert "--budget-seconds" in session or "45" in session
+        assert "--budget-seconds" in session
 
     def test_uc_w1_claude_enter_worktree_uses_session_prepare(self):
         config = generate_hooks_config(Path("/repo"), worktree_hook=True)
@@ -440,3 +583,10 @@ class TestHookWiringFreshness:
         hooks = json.loads((tmp_path / ".cursor" / "hooks.json").read_text(encoding="utf-8"))
         assert "sessionStart" in hooks["hooks"]
         assert "afterShellExecution" in hooks["hooks"]
+
+    def test_uc_s1_uc_h1_opencode_plugin_uses_session_prepare(self):
+        content = _opencode_plugin_content()
+        assert '"session.created"' in content
+        assert "dagayn session prepare" in content
+        assert "checkout|switch|reset|pull|merge|rebase|cherry-pick" in content
+        assert '"tool.execute.after"' in content

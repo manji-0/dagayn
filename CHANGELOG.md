@@ -4,19 +4,25 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
-### Documentation
-
-- Document session / worktree / Subagent graph-freshness use cases and the
-  structure-ready contract in `docs/SESSION-GRAPH-FRESHNESS.md`, with
-  guarantee tests in `tests/test_session_graph_freshness.py`.
-
 ### Fixes
 
+- Structure-ready now means HEAD-aligned (`synced` or `dirty_worktree`); MCP
+  `auto_prepare` no longer re-runs on every dirty worktree tool call, and
+  `ensure_graph` guidance is limited to `empty` / `git_drift`.
+- Session/worktree freshness guarantee tests require `status == "ok"` plus
+  `is_structure_ready`, cover OpenCode wiring, `worktree sync`, `--from-hook`,
+  seed-skip re-enter, serve-seed vs catch-up, and partial→retry.
 - Cursor MCP install no longer pins `--repo` / `cwd` to a hardcoded path or an
   unexpanded `${workspaceFolder}` template. Shared `~/.cursor/mcp.json` is
   synced on install, and `dagayn serve` resolves the open workspace from
   Cursor's `WORKSPACE_FOLDER_PATHS` (preferring a folder that already has a
   `.dagayn` graph). Unexpanded IDE placeholders in `--repo` are ignored.
+
+### Documentation
+
+- Document session / worktree / Subagent graph-freshness use cases and the
+  structure-ready contract in `docs/SESSION-GRAPH-FRESHNESS.md`, with
+  guarantee tests in `tests/test_session_graph_freshness.py`.
 
 ## 4.8.1 — 2026-08-10
 

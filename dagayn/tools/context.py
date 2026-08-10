@@ -261,7 +261,9 @@ def get_minimal_context(
         detail_level: Accepted for CLI/MCP interface consistency. This tool is
               intentionally compact, so all detail levels share the same shape.
         auto_prepare: When True, run ``session_prepare`` if the graph is empty
-              or out of sync (and finish deferred embeddings when needed).
+              or HEAD-drifted (and finish deferred embeddings when needed).
+              Dirty worktrees are structure-ready and do not auto-prepare on
+              every call; use session-start prepare or edit hooks instead.
         local_embedding: Embedding mode for auto-prepare (serve default via MCP).
         prepare_budget_seconds: Wall-clock budget for auto-prepare.
     """
@@ -272,7 +274,7 @@ def get_minimal_context(
         from .sync_status import (
             assess_graph_sync,
             embedding_needs_refresh,
-            needs_structure_prepare,
+            needs_mcp_auto_prepare,
         )
 
         probe_store, probe_root = _get_store(repo_root, cached=False)
@@ -283,7 +285,9 @@ def get_minimal_context(
         finally:
             probe_store.close()
 
-        if needs_structure_prepare(sync) or emb_pending:
+        # Bootstrap only on empty/git_drift (or deferred embeddings). Dirty
+        # worktrees are HEAD-aligned; re-preparing on every tool call loops.
+        if needs_mcp_auto_prepare(sync) or emb_pending:
             prepare_result = session_prepare(
                 repo_root=str(probe_root),
                 local_embedding=local_embedding,
@@ -458,7 +462,9 @@ def get_minimal_context(
                 ]
                 hints["next_steps"] = next_steps[:3]
                 response["_hints"] = hints
-        elif sync.get("status") in {"git_drift", "dirty_worktree"}:
+        elif sync.get("status") == "git_drift":
+            # dirty_worktree is HEAD-aligned structure-ready; do not loop on
+            # ensure_graph — edit hooks / session prepare handle dirty indexing.
             response["recommended_action"] = "Call ensure_graph_tool to sync the graph."
             response["why"] = f"sync.status={sync.get('status')}"
             response["confidence"] = "high"

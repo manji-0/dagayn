@@ -81,7 +81,35 @@ def embedding_needs_refresh(db_path: str | Path, *, local_embedding: str | None)
 
 
 def needs_structure_prepare(sync: dict[str, Any], *, force: bool = False) -> bool:
-    """True when Phase 1 (structure) should run."""
+    """True when Phase 1 (structure) should run.
+
+    Includes ``dirty_worktree`` so session-start / explicit prepare can index
+    uncommitted edits once. MCP ``auto_prepare`` uses
+    :func:`needs_mcp_auto_prepare` instead to avoid re-preparing on every tool
+    call while the tree stays dirty.
+    """
     if force:
         return True
     return sync.get("status") in {"empty", "git_drift", "dirty_worktree"}
+
+
+def needs_mcp_auto_prepare(sync: dict[str, Any], *, force: bool = False) -> bool:
+    """True when MCP first-tool auto_prepare should bootstrap the graph.
+
+    Only ``empty`` / ``git_drift`` block analysis against the wrong or missing
+    commit. ``dirty_worktree`` is HEAD-aligned; ongoing dirty indexing is left
+    to session-start prepare and edit hooks (``dagayn update --skip-flows``).
+    """
+    if force:
+        return True
+    return sync.get("status") in {"empty", "git_drift"}
+
+
+def is_structure_ready(sync: dict[str, Any]) -> bool:
+    """True when the graph is HEAD-aligned and usable for analysis.
+
+    Both ``synced`` and ``dirty_worktree`` are structure-ready: stored
+    ``git_head_sha`` matches current HEAD. Uncommitted edits keep the status
+    dirty but do not mean the graph describes the wrong commit.
+    """
+    return sync.get("status") in {"synced", "dirty_worktree"}
