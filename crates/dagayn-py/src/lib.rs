@@ -100,6 +100,19 @@ impl PyGraphStore {
         self.with_store(|store| store.get_metadata(key))
     }
 
+    /// Match the Python ``GraphStore.get_repo_root`` contract used by postprocess.
+    fn get_repo_root(&self, py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
+        let raw = self.with_store(|store| store.get_metadata("repo_root"))?;
+        match raw {
+            Some(value) => {
+                let pathlib = PyModule::import(py, "pathlib")?;
+                let path = pathlib.getattr("Path")?.call1((value,))?;
+                Ok(Some(path.unbind()))
+            }
+            None => Ok(None),
+        }
+    }
+
     #[pyo3(signature = (file_path, nodes, edges, fhash = "", mtime_ns = 0))]
     fn store_file_nodes_edges(
         &self,

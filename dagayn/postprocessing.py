@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+from pathlib import Path
 from typing import Any
 
 from .graph import GraphStore
@@ -317,6 +318,35 @@ def _resolve_markdown_artifact_refs(
         warnings.append(f"Markdown artifact ref resolution failed: {type(e).__name__}: {e}")
 
 
+def _store_repo_root(store: GraphStore) -> Path | None:
+    """Resolve ``repo_root`` from Python or Rust GraphStore bindings."""
+    getter = getattr(store, "get_repo_root", None)
+    if callable(getter):
+        root = getter()
+        if root is not None:
+            return Path(root)
+    get_meta = getattr(store, "get_metadata", None)
+    if callable(get_meta):
+        raw = get_meta("repo_root")
+        if raw:
+            return Path(raw)
+    return None
+
+
+def _sql_capable_store(store: GraphStore, repo_root: Path) -> tuple[GraphStore, bool]:
+    """Return a store with ``_conn`` for transactional SQL.
+
+    The default Rust GraphStore does not expose sqlite handles. Open a short-lived
+    Python GraphStore on the same DB path when needed (WAL + busy_timeout).
+    """
+    if hasattr(store, "_conn"):
+        return store, False
+    from .graph.core import GraphStore as PyGraphStore
+    from .incremental_files import get_db_path
+
+    return PyGraphStore(get_db_path(repo_root)), True
+
+
 def _apply_manifest_bridges(
     store: GraphStore,
     result: dict[str, Any],
@@ -329,6 +359,8 @@ def _apply_manifest_bridges(
     ``BEGIN IMMEDIATE`` transaction.  Failure leaves prior bridges intact.
     Existing parser ``File`` rows are left untouched so hash/mtime survive.
     """
+    sql_store: GraphStore | None = None
+    owns_sql_store = False
     try:
         from .parser.manifest_bridges import (
             EXTRACTOR_ID,
@@ -336,7 +368,7 @@ def _apply_manifest_bridges(
             refine_node_line_ends,
         )
 
-        repo_root = store.get_repo_root()
+        repo_root = _store_repo_root(store)
         if repo_root is None or not repo_root.is_dir():
             result["manifest_bridges_edges"] = 0
             result["manifest_bridges_nodes"] = 0
@@ -346,7 +378,8 @@ def _apply_manifest_bridges(
         discovered = discover_manifest_bridges(repo_root)
         refine_node_line_ends(repo_root, discovered.nodes)
 
-        conn = store._conn
+        sql_store, owns_sql_store = _sql_capable_store(store, repo_root)
+        conn = sql_store._conn
         if conn.in_transaction:
             logger.warning("Rolling back uncommitted transaction before manifest bridge refresh")
             conn.rollback()
@@ -365,24 +398,40 @@ def _apply_manifest_bridges(
             for node in discovered.nodes:
                 # Skip existing File rows (typically parser-owned) so we do not
                 # clobber file_hash / mtime_ns / extra used by incremental skip.
-                if node.kind == "File" and store.get_node(node.file_path) is not None:
+                if node.kind == "File" and sql_store.get_node(node.file_path) is not None:
                     continue
-                store.upsert_node(node)
+                sql_store.upsert_node(node)
                 nodes_upserted += 1
             for edge in discovered.edges:
-                store.upsert_edge(edge)
+                sql_store.upsert_edge(edge)
             conn.commit()
         except BaseException:
             conn.rollback()
-            store._invalidate_cache()
+            invalidate = getattr(sql_store, "_invalidate_cache", None)
+            if callable(invalidate):
+                invalidate()
             raise
-        store._invalidate_cache()
+        invalidate = getattr(sql_store, "_invalidate_cache", None)
+        if callable(invalidate):
+            invalidate()
+        # Rust callers hold a separate connection; drop process caches if present.
+        invalidate_primary = getattr(store, "_invalidate_cache", None)
+        if callable(invalidate_primary) and store is not sql_store:
+            invalidate_primary()
 
         result["manifest_bridges_edges"] = discovered.edge_count
         result["manifest_bridges_nodes"] = nodes_upserted
     except (sqlite3.OperationalError, OSError, RuntimeError, TypeError, ValueError) as e:
         logger.warning("Manifest bridge extraction failed: %s", e)
         warnings.append(f"Manifest bridge extraction failed: {type(e).__name__}: {e}")
+    finally:
+        if owns_sql_store and sql_store is not None:
+            closer = getattr(sql_store, "_force_close", None) or getattr(sql_store, "close", None)
+            if callable(closer):
+                try:
+                    closer()
+                except Exception:  # noqa: BLE001 — defensive cleanup  # nosec B110
+                    pass
 
 
 def _resolve_terraform_artifact_refs(

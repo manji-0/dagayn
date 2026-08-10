@@ -4,6 +4,14 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+## 4.8.1 — 2026-08-10
+
+### Fixes
+
+- Rust-default GraphStore can run manifest bridge postprocess: resolve
+  `repo_root` without requiring Python-only helpers, and fall back to a
+  short-lived Python SQL store when `_conn` is unavailable.
+
 ## 4.8.0 — 2026-08-10
 
 ### Features
