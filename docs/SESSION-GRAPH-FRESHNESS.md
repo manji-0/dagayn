@@ -53,22 +53,34 @@ discriminated union on `state`) plus `assess_graph_sync` / `sync_state` /
 
 Freshness is decided in two tiers. The **commit tier** compares the graph's
 stored `git_head_sha` with HEAD. The **diff tier** applies only once the commit
-tier agrees, and compares the graph's indexed file content with the uncommitted
-working-tree changes.
+tier agrees, and compares the graph's indexed file content (`nodes.file_hash` /
+`nodes.mtime_ns`) with what is on disk.
 
 | `sync.state` | Tier | Meaning | Structure ready? |
 | ------------ | ---- | ------- | ---------------- |
 | `unbuilt` | — | No nodes/files in the graph | No |
 | `commit_drift` | commit | Stored `git_head_sha` ≠ HEAD (or missing metadata / undated graph) — degraded | No |
-| `commit_synced` | commit | HEAD match, clean worktree — stable | Yes |
-| `worktree_behind` | diff | HEAD match, but dirty files are not in the graph yet — outdated | Yes |
-| `worktree_ahead` | diff | HEAD match, and every dirty file is already indexed byte for byte | Yes |
+| `commit_synced` | commit + diff | HEAD match, clean worktree, every indexed file still matches its stored hash — stable | Yes |
+| `worktree_behind` | diff | HEAD match, but the graph does not have `pending_files` as they are on disk — outdated | Yes |
+| `worktree_ahead` | diff | HEAD match, dirty tree, and every dirty file is already indexed byte for byte | Yes |
 
-Diff-tier classification runs the dirty files through the incremental
-pipeline's own filters (`_filter_incremental_candidates` /
-`_classify_python_changed_files`), so a file dagayn would never parse — ignored,
-binary, unsupported language — cannot pin the state to `worktree_behind`. A
-dirty set larger than 200 files reports `worktree_behind` without hashing.
+The diff tier checks **every indexed file**, not only the files git calls dirty.
+A graph can hold content that no longer exists — an edit hook indexes an
+uncommitted change and the change is then discarded with `git checkout --` —
+which leaves HEAD matching and the tree clean, so neither the commit tier nor a
+dirty-only check would notice. That case is `worktree_behind` with
+`worktree_dirty: false`.
+
+Verification is a `stat`-only first pass (a rewritten file always moves its
+mtime) and hashes bytes only for files whose mtime moved; on this repository the
+whole diff tier costs ~5 ms against ~90 ms of git subprocess calls in the same
+assessment. Dirty files go through the incremental pipeline's own filters
+(`_filter_incremental_candidates` / `_classify_python_changed_files`), so a file
+dagayn would never parse — ignored, binary, unsupported language — cannot pin
+the state to `worktree_behind`. Above 200 hash candidates verification is
+abandoned and the dirty-only answer stands: a freshly seeded worktree has stored
+mtimes from the main checkout, and re-hashing the tree on every assessment would
+cost more than the state is worth.
 
 Session / explicit prepare runs when `needs_structure_prepare` is true
 (`unbuilt` / `commit_drift` / `worktree_behind`, or `force=True`) — notably

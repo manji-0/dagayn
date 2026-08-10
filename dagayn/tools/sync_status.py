@@ -25,10 +25,12 @@ from ..state_types import GraphSyncStateName, seal_graph_sync_state
 
 logger = logging.getLogger(__name__)
 
-#: Diff-tier classification hashes every dirty candidate. A huge dirty set
-#: (bulk checkout, generated tree) is reported ``worktree_behind`` without
-#: hashing: prepare would re-parse it anyway, so the refinement buys nothing.
-_MAX_DIFF_TIER_FILES = 200
+#: Diff-tier verification stats every indexed file (cheap) but only hashes the
+#: ones whose mtime moved. Above this many hash candidates the verification is
+#: abandoned rather than paid for: a freshly seeded worktree has a graph whose
+#: stored mtimes all came from the main checkout, and re-hashing the whole tree
+#: on every assessment would cost more than the state is worth.
+_MAX_HASH_CANDIDATES = 200
 
 #: Legacy 4-value status each state maps onto, for consumers written before
 #: ``state`` existed (MCP clients, hook scripts, older docs).
@@ -89,47 +91,91 @@ def sync_state(sync: dict[str, Any]) -> GraphSyncStateName | None:
     return None
 
 
+def _indexed_file_meta(store: Any) -> dict[str, tuple[str, int]]:
+    """Return ``{repo_relative_path: (file_hash, mtime_ns)}`` for indexed files."""
+    getter = getattr(store, "get_file_meta_map", None)
+    if not callable(getter):
+        return {}
+    return dict(getter() or {})
+
+
 def _classify_diff_tier(
     store: Any,
     root: Path,
     dirty_files: list[str],
 ) -> tuple[GraphSyncStateName, list[str]]:
-    """Split a dirty working tree into behind/ahead of the graph.
+    """Compare the graph's indexed content with the working tree.
 
-    Returns the state and the files that drove it: the not-yet-indexed files
-    for ``worktree_behind``, the already-indexed ones for ``worktree_ahead``.
-    Reuses the incremental pipeline's own filters so a file dagayn would never
-    parse (ignored, binary, unsupported language) cannot pin the state to
+    Every indexed file is checked, not just the files git calls dirty: the
+    graph may hold content that no longer exists on disk (an edit hook indexed
+    an uncommitted change and the change was then discarded with
+    ``git checkout --``). HEAD still matches and git reports a clean tree, so
+    neither the commit tier nor a dirty-only diff tier would notice.
+
+    The first pass is ``stat`` only — a rewritten file always moves its mtime —
+    and bytes are hashed just for the files whose mtime moved. Reuses the
+    incremental pipeline's own filters so a file dagayn would never parse
+    (ignored, binary, unsupported language) cannot pin the state to
     ``worktree_behind`` forever.
-    """
-    if len(dirty_files) > _MAX_DIFF_TIER_FILES:
-        return "worktree_behind", dirty_files[:_MAX_DIFF_TIER_FILES]
 
+    Returns the state plus the files that drove it: the files needing a re-index
+    for ``worktree_behind``, the verified dirty files for ``worktree_ahead``.
+    """
     from ..incremental_build import (
         _classify_python_changed_files,
         _filter_incremental_candidates,
-        _get_file_meta_for_candidates,
     )
     from ..incremental_files import _load_ignore_patterns
 
+    dirty_state: GraphSyncStateName = "worktree_ahead" if dirty_files else "commit_synced"
     try:
+        indexed = _indexed_file_meta(store)
+
+        # Pass 1 (stat only): indexed files that moved or vanished on disk.
+        stale: list[str] = []
+        suspect: list[str] = []
+        for rel_path, (_stored_hash, stored_mtime_ns) in indexed.items():
+            try:
+                current_mtime_ns = int((root / rel_path).stat().st_mtime_ns)
+            except OSError:
+                stale.append(rel_path)
+                continue
+            if current_mtime_ns != stored_mtime_ns:
+                suspect.append(rel_path)
+
+        # Dirty files dagayn would index that the graph has never seen, and
+        # dirty deletions it still holds nodes for.
         candidates, removed = _filter_incremental_candidates(
             root,
             set(dirty_files),
             _load_ignore_patterns(root),
         )
-        meta = _get_file_meta_for_candidates(store, candidates + removed)
-        # A deleted file the graph still holds nodes for is unindexed work too.
-        pending = [path for path in removed if path in meta]
-        changed, _mtime_only = _classify_python_changed_files(root, candidates, meta)
-        pending.extend(changed)
+        stale.extend(path for path in removed if path in indexed)
+        unseen = [path for path in candidates if path not in indexed]
+
+        to_hash = sorted(set(suspect) | set(unseen))
+        if len(to_hash) > _MAX_HASH_CANDIDATES:
+            # Too much to verify cheaply (typically a just-seeded worktree,
+            # whose stored mtimes all came from the main checkout). Fall back to
+            # the dirty-only answer rather than paying for a full re-hash or
+            # claiming a drift that probably is not there.
+            logger.debug(
+                "Skipping content verification: %d hash candidates exceed the %d limit",
+                len(to_hash),
+                _MAX_HASH_CANDIDATES,
+            )
+            return dirty_state, sorted(candidates)
+
+        # Pass 2 (hash): mtime moved, but the bytes may still be identical.
+        changed, _mtime_only = _classify_python_changed_files(root, to_hash, indexed)
+        pending = sorted(set(changed) | set(stale))
     except Exception as exc:  # noqa: BLE001 — assessment must never raise
         logger.debug("Diff-tier classification failed, assuming behind: %s", exc)
         return "worktree_behind", []
 
     if pending:
-        return "worktree_behind", sorted(pending)
-    return "worktree_ahead", sorted(candidates)
+        return "worktree_behind", pending
+    return dirty_state, sorted(candidates)
 
 
 def assess_graph_sync(store: Any, repo_root: str | Path) -> dict[str, Any]:
@@ -166,11 +212,12 @@ def assess_graph_sync(store: Any, repo_root: str | Path) -> dict[str, Any]:
         dirty_files = []
     elif commit_drift or undated:
         state = "commit_drift"
-    elif not dirty_files:
-        state = "commit_synced"
     else:
         state, evidence = _classify_diff_tier(store, root, dirty_files)
-        extra["pending_files" if state == "worktree_behind" else "indexed_files"] = evidence
+        if state == "worktree_behind":
+            extra["pending_files"] = evidence
+        elif state == "worktree_ahead":
+            extra["indexed_files"] = evidence
 
     return seal_graph_sync_state(
         {

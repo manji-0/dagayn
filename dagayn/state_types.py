@@ -230,7 +230,11 @@ class GraphSyncCommitDrift(_GraphSyncBase):
 
 
 class GraphSyncCommitSynced(_GraphSyncBase):
-    """Both tiers agree: the graph describes HEAD and the working tree is clean."""
+    """Both tiers agree: the graph describes HEAD, verified against the tree.
+
+    Stable — the working tree is clean and every indexed file still matches its
+    stored hash, so the graph holds exactly what HEAD holds.
+    """
 
     state: Literal["commit_synced"]
     status: Literal["synced"] = "synced"
@@ -238,16 +242,20 @@ class GraphSyncCommitSynced(_GraphSyncBase):
 
 
 class GraphSyncWorktreeBehind(_GraphSyncBase):
-    """Diff tier: HEAD matches, but uncommitted edits are not in the graph yet.
+    """Diff tier: HEAD matches, but the graph's content is not the tree's.
 
     Outdated — structurally usable (the graph is HEAD-aligned) but it does not
-    yet know about ``pending_files``, so an incremental update should run.
+    describe ``pending_files`` as they are on disk, so an incremental update
+    should run. Usually uncommitted edits that were never indexed; also reached
+    with a *clean* tree when the graph holds an edit that was later discarded,
+    which is why ``worktree_dirty`` is not fixed to True here.
     """
 
     state: Literal["worktree_behind"]
     status: Literal["dirty_worktree"] = "dirty_worktree"
-    worktree_dirty: Literal[True] = True
-    #: Dirty files dagayn would index whose content the graph does not have.
+    worktree_dirty: bool = True
+    #: Files whose on-disk content the graph does not have (added, edited,
+    #: reverted, or deleted while the graph still holds their nodes).
     pending_files: list[str] = Field(default_factory=list)
 
 

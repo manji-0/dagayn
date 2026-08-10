@@ -164,6 +164,53 @@ class TestAssessGraphSyncContract:
         assert needs_structure_prepare(sync) is False
         assert needs_structure_prepare(sync, force=True) is True
 
+    def test_discarded_edit_on_clean_tree_is_behind_not_synced(self, main_repo: Path):
+        """The graph holding a reverted edit is drift the commit tier cannot see.
+
+        HEAD never moved and git reports a clean tree, so only comparing the
+        graph's stored file hashes against disk catches it.
+        """
+        (main_repo / "hello.py").write_text(
+            "def greet():\n    return 'discarded'\n",
+            encoding="utf-8",
+        )
+        db = main_repo / ".dagayn" / "graph.db"
+        db.parent.mkdir(parents=True, exist_ok=True)
+        store = GraphStore(str(db))
+        try:
+            full_build(main_repo, store)
+        finally:
+            store.close()
+        assert _assess(main_repo)["state"] == "worktree_ahead"
+
+        git(main_repo, "checkout", "--", "hello.py")
+
+        sync = _assess(main_repo)
+        assert sync["state"] == "worktree_behind"
+        assert sync["status"] == "dirty_worktree"
+        assert sync["worktree_dirty"] is False
+        assert sync["pending_files"] == ["hello.py"]
+        assert needs_structure_prepare(sync) is True
+        # Still HEAD-aligned: analysis is not blocked, it is just behind.
+        assert is_structure_ready(sync) is True
+        assert needs_mcp_auto_prepare(sync) is False
+
+    def test_deleted_file_the_graph_still_holds_is_behind(self, main_repo: Path):
+        db = main_repo / ".dagayn" / "graph.db"
+        db.parent.mkdir(parents=True, exist_ok=True)
+        store = GraphStore(str(db))
+        try:
+            full_build(main_repo, store)
+        finally:
+            store.close()
+        assert _assess(main_repo)["state"] == "commit_synced"
+
+        (main_repo / "hello.py").unlink()
+
+        sync = _assess(main_repo)
+        assert sync["state"] == "worktree_behind"
+        assert sync["pending_files"] == ["hello.py"]
+
     def test_untracked_unparseable_file_does_not_hold_state_behind(self, main_repo: Path):
         """A dirty file dagayn would never index must not pin the state."""
         (main_repo / "notes.md.bak").write_text("scratch\n", encoding="utf-8")
