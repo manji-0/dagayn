@@ -323,7 +323,8 @@ graph directory — are not there.
 
 `dagayn session prepare` is the session-lifecycle entry point: seed a linked
 worktree when needed, build an empty graph (`postprocess=minimal`), or
-incrementally refresh when `git_head_sha` / dirty worktree files drift. Hooks
+incrementally refresh when the graph is `commit_drift` or `worktree_behind`
+(a `worktree_ahead` tree is already indexed and stays a noop). Hooks
 pass `--budget-seconds 45` and optional `--local-embedding` args from
 `dagayn install`. Use `--embedding auto|defer|skip|inline` to control whether
 Phase 2 vector refresh runs inside the budget. MCP `ensure_graph_tool` /
@@ -523,11 +524,14 @@ for review, debugging, exploration, feature addition, and refactoring to the
 next small set of MCP tools. It also returns `workflow`,
 `recommended_action`, `why`, and `confidence` so clients can show the next
 step without requiring users to know tool names. It includes compact
-`graph_health` answerability metadata and a `sync` object
-(`synced` / `git_drift` / `dirty_worktree` / `empty`). On the MCP surface it
-auto-runs `session prepare` when empty or out of sync (inheriting
-`serve --local-embedding`). When `graph_health.status` / `sync.status` is still
-`empty` after prepare, it points at `ensure_graph_tool` first.
+`graph_health` answerability metadata and a `sync` object carrying the
+freshness `state` (`unbuilt` / `commit_drift` / `commit_synced` /
+`worktree_behind` / `worktree_ahead`) alongside the legacy `status`
+(`empty` / `git_drift` / `dirty_worktree` / `synced`) for older clients. On the
+MCP surface it auto-runs `session prepare` when unbuilt or commit-drifted
+(inheriting `serve --local-embedding`). When `graph_health.status` is still
+`empty` / `sync.state` is still `unbuilt` after prepare, it points at
+`ensure_graph_tool` first.
 `parse` is `[files, languages,
 has_last_updated]`; `answerability` is `[flows, communities, test_edges,
 reportable_cross_artifact_edges, unresolved_cross_artifact_ratio]`. Unresolved

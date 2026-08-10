@@ -17,7 +17,9 @@ from ._common import (
 from .build import _local_embedding_requested, build_or_update_graph
 from .sync_status import (
     assess_graph_sync,
+    is_structure_ready,
     needs_structure_prepare,
+    sync_state,
 )
 
 _ENSURE_POSTPROCESS = "minimal"
@@ -175,15 +177,16 @@ def session_prepare(
             phases["structure"] = "skipped_budget"
             reason = "budget_exhausted_before_structure"
         else:
-            needs_full = sync_before["status"] == "empty"
+            state_before = sync_state(sync_before)
+            needs_full = state_before == "unbuilt"
             action = "full" if needs_full else "incremental"
             if needs_full:
                 reason = "empty_graph"
-            elif force and sync_before["status"] == "synced" and not emb_pending:
+            elif force and state_before in {"commit_synced", "worktree_ahead"} and not emb_pending:
                 reason = "forced_refresh"
-            elif sync_before["status"] == "git_drift":
+            elif state_before == "commit_drift":
                 reason = "git_drift"
-            elif sync_before["status"] == "dirty_worktree":
+            elif state_before == "worktree_behind":
                 reason = "dirty_worktree"
             else:
                 reason = "forced_refresh" if force else "missing_last_updated"
@@ -283,23 +286,22 @@ def session_prepare(
 
     elapsed = time.monotonic() - started
     structure_skipped = bool(build_result and build_result.get("skipped"))
+    structure_ready = is_structure_ready(sync_after)
     status = "ok"
     if phases["structure"] == "failed":
         status = "error"
-    elif sync_after.get("status") != "synced" and (
-        phases["structure"] == "skipped_budget" or structure_skipped
-    ):
-        # Budget miss or hook lock contention left the graph unsynced — do not
+    elif not structure_ready and (phases["structure"] == "skipped_budget" or structure_skipped):
+        # Budget miss or hook lock contention left structure not ready — do not
         # report success so callers / MCP can retry.
         status = "partial"
     elif phases["embedding"] in {"pending", "skipped_budget"} and _local_embedding_requested(
         local_embedding
     ):
-        status = "partial" if sync_after.get("status") == "synced" else status
+        status = "partial" if structure_ready else status
 
     summary_bits = [
         f"session prepare ({action})",
-        f"sync={sync_after.get('status')}",
+        f"sync={sync_state(sync_after)}",
         f"structure={phases['structure']}",
         f"embedding={phases['embedding']}",
         f"{stats.total_nodes} nodes / {stats.files_count} files",

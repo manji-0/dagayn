@@ -106,7 +106,7 @@ from .sap_tools import compute_sap_metrics_func, detect_sap_violations_func
 from .session_prepare import session_prepare
 
 # -- sync_status ------------------------------------------------------------
-from .sync_status import assess_graph_sync
+from .sync_status import assess_graph_sync, is_structure_ready, sync_state
 
 __all__ = [
     # _common
@@ -121,6 +121,8 @@ __all__ = [
     # session_prepare / sync_status
     "session_prepare",
     "assess_graph_sync",
+    "is_structure_ready",
+    "sync_state",
     # context
     "get_minimal_context",
     # architecture_analysis

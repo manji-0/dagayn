@@ -285,7 +285,7 @@ def get_minimal_context(
         finally:
             probe_store.close()
 
-        # Bootstrap only on empty/git_drift (or deferred embeddings). Dirty
+        # Bootstrap only on unbuilt/commit_drift (or deferred embeddings). Dirty
         # worktrees are HEAD-aligned; re-preparing on every tool call loops.
         if needs_mcp_auto_prepare(sync) or emb_pending:
             prepare_result = session_prepare(
@@ -301,7 +301,7 @@ def get_minimal_context(
     # cached sqlite handle across concurrent MCP calls.
     store, root = _get_store(repo_root, cached=False)
     try:
-        from .sync_status import assess_graph_sync
+        from .sync_status import assess_graph_sync, sync_state
 
         # 1. Quick stats
         stats = store.get_stats()
@@ -424,8 +424,9 @@ def get_minimal_context(
         response["why"] = guidance["why"]
         response["confidence"] = guidance["confidence"]
         response["graph_health"] = graph_health
-        # Keep sync compact: status alone stays within the ~800-char budget.
-        response["sync"] = {"status": sync.get("status")}
+        # Keep sync compact: the state name alone stays within the ~800-char
+        # budget. ``status`` rides along for pre-``state`` MCP clients.
+        response["sync"] = {"state": sync_state(sync), "status": sync.get("status")}
         if prepare_result is not None:
             response["prepare"] = {
                 "status": prepare_result.get("status"),
@@ -433,7 +434,7 @@ def get_minimal_context(
                 "reason": prepare_result.get("reason"),
                 "phases": prepare_result.get("phases"),
             }
-        if graph_health.get("status") == "empty" or sync.get("status") == "empty":
+        if graph_health.get("status") == "empty" or sync_state(sync) == "unbuilt":
             response["recommended_action"] = (
                 "Call ensure_graph_tool first; the graph is empty and analysis "
                 "tools will return nothing useful."
@@ -462,11 +463,12 @@ def get_minimal_context(
                 ]
                 hints["next_steps"] = next_steps[:3]
                 response["_hints"] = hints
-        elif sync.get("status") == "git_drift":
-            # dirty_worktree is HEAD-aligned structure-ready; do not loop on
-            # ensure_graph — edit hooks / session prepare handle dirty indexing.
+        elif sync_state(sync) == "commit_drift":
+            # worktree_behind / worktree_ahead are HEAD-aligned structure-ready;
+            # do not loop on ensure_graph — edit hooks / session prepare handle
+            # dirty indexing.
             response["recommended_action"] = "Call ensure_graph_tool to sync the graph."
-            response["why"] = f"sync.status={sync.get('status')}"
+            response["why"] = f"sync.state={sync_state(sync)}"
             response["confidence"] = "high"
             if "ensure_graph_tool" not in response["next_tool_suggestions"]:
                 response["next_tool_suggestions"] = [

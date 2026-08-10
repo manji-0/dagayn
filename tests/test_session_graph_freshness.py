@@ -27,6 +27,7 @@ from unittest.mock import patch
 from worktree_fixtures import git
 
 from dagayn.graph import GraphStore
+from dagayn.incremental import full_build
 from dagayn.parser import NodeInfo
 from dagayn.skills import (
     _opencode_plugin_content,
@@ -45,6 +46,7 @@ from dagayn.tools.sync_status import (
     is_structure_ready,
     needs_mcp_auto_prepare,
     needs_structure_prepare,
+    sync_state,
 )
 from dagayn.worktree import ensure_worktree_graph, seed_worktree_graph
 
@@ -91,11 +93,12 @@ def _assert_structure_ready(result: dict, repo: Path) -> None:
 
 
 class TestAssessGraphSyncContract:
-    """UC sync matrix: empty / git_drift / dirty_worktree / synced."""
+    """UC sync matrix: the five GraphSyncState members and their predicates."""
 
     def test_empty_graph(self, main_repo: Path):
         GraphStore(str(main_repo / ".dagayn" / "graph.db")).close()
         sync = _assess(main_repo)
+        assert sync["state"] == "unbuilt"
         assert sync["status"] == "empty"
         assert needs_structure_prepare(sync) is True
         assert needs_mcp_auto_prepare(sync) is True
@@ -104,6 +107,7 @@ class TestAssessGraphSyncContract:
     def test_git_drift_when_head_differs(self, main_repo: Path):
         _seed_store(main_repo, head_sha="0" * 40)
         sync = _assess(main_repo)
+        assert sync["state"] == "commit_drift"
         assert sync["status"] == "git_drift"
         assert needs_structure_prepare(sync) is True
         assert needs_mcp_auto_prepare(sync) is True
@@ -116,8 +120,10 @@ class TestAssessGraphSyncContract:
             encoding="utf-8",
         )
         sync = _assess(main_repo)
+        assert sync["state"] == "worktree_behind"
         assert sync["status"] == "dirty_worktree"
         assert sync["worktree_dirty"] is True
+        assert sync["pending_files"] == ["hello.py"]
         assert needs_structure_prepare(sync) is True
         assert needs_mcp_auto_prepare(sync) is False
         assert is_structure_ready(sync) is True
@@ -125,11 +131,62 @@ class TestAssessGraphSyncContract:
     def test_synced_when_head_matches_and_clean(self, main_repo: Path):
         _seed_store(main_repo, head_sha=_head(main_repo))
         sync = _assess(main_repo)
+        assert sync["state"] == "commit_synced"
         assert sync["status"] == "synced"
         assert needs_structure_prepare(sync) is False
         assert needs_mcp_auto_prepare(sync) is False
         assert needs_structure_prepare(sync, force=True) is True
         assert is_structure_ready(sync) is True
+
+    def test_worktree_ahead_when_dirty_edits_already_indexed(self, main_repo: Path):
+        """An edit hook indexed the dirty tree: nothing left to prepare."""
+        (main_repo / "hello.py").write_text(
+            "def greet():\n    return 'indexed dirty'\n",
+            encoding="utf-8",
+        )
+        db = main_repo / ".dagayn" / "graph.db"
+        db.parent.mkdir(parents=True, exist_ok=True)
+        store = GraphStore(str(db))
+        try:
+            full_build(main_repo, store)
+        finally:
+            store.close()
+
+        sync = _assess(main_repo)
+        assert sync["state"] == "worktree_ahead"
+        # Legacy consumers still see the single dirty status.
+        assert sync["status"] == "dirty_worktree"
+        assert sync["worktree_dirty"] is True
+        assert "hello.py" in sync["indexed_files"]
+        assert is_structure_ready(sync) is True
+        assert needs_mcp_auto_prepare(sync) is False
+        # The point of the state: no repeated re-index on every session start.
+        assert needs_structure_prepare(sync) is False
+        assert needs_structure_prepare(sync, force=True) is True
+
+    def test_untracked_unparseable_file_does_not_hold_state_behind(self, main_repo: Path):
+        """A dirty file dagayn would never index must not pin the state."""
+        (main_repo / "notes.md.bak").write_text("scratch\n", encoding="utf-8")
+        db = main_repo / ".dagayn" / "graph.db"
+        db.parent.mkdir(parents=True, exist_ok=True)
+        store = GraphStore(str(db))
+        try:
+            full_build(main_repo, store)
+        finally:
+            store.close()
+
+        sync = _assess(main_repo)
+        assert sync["state"] == "worktree_ahead"
+        assert needs_structure_prepare(sync) is False
+
+    def test_legacy_status_only_payload_still_answers_predicates(self):
+        """Callers holding a pre-union assessment keep working (dirty = behind)."""
+        assert sync_state({"status": "git_drift"}) == "commit_drift"
+        assert sync_state({"status": "dirty_worktree"}) == "worktree_behind"
+        assert sync_state({"status": "nonsense"}) is None
+        assert needs_structure_prepare({"status": "dirty_worktree"}) is True
+        assert is_structure_ready({"status": "synced"}) is True
+        assert is_structure_ready({}) is False
 
 
 class TestSessionPrepareContract:

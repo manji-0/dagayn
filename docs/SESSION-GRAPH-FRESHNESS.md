@@ -14,19 +14,22 @@ moves, Subagent/parallel-agent launch, and MCP first-tool calls.
 
 | Layer | Ready when | Not ready when |
 | ----- | ---------- | -------------- |
-| **Structure** (required) | `is_structure_ready(sync)` — status is `synced` **or** `dirty_worktree` (HEAD matches `git_head_sha`) | `empty` or `git_drift` |
+| **Structure** (required) | `is_structure_ready(sync)` — state is `commit_synced`, `worktree_behind`, or `worktree_ahead` (HEAD matches `git_head_sha`) | `unbuilt` or `commit_drift` |
 | **Worktree** | Linked worktree seeded (if needed) and catch-up so `git_head_sha` matches that worktree's HEAD | Graph missing, still describing main, or HEAD drifted |
 | **Embeddings** (best-effort) | Indexed when serve/install embedding mode is on | `pending` / `skipped_budget` — structure may still be ready; finish via MCP `ensure_graph_tool` / `get_minimal_context_tool` |
 
-`dirty_worktree` means uncommitted edits exist on a HEAD-aligned graph. It is
-**structure-ready** for analysis. Session-start / explicit `session prepare`
-still indexes dirty files once (`needs_structure_prepare`). MCP
-`get_minimal_context(auto_prepare=True)` only bootstraps on `empty` /
-`git_drift` (`needs_mcp_auto_prepare`) so a dirty tree does not re-prepare on
-every tool call; ongoing dirty indexing is UC-E1 (`update --skip-flows`).
+`worktree_behind` / `worktree_ahead` both mean uncommitted edits exist on a
+HEAD-aligned graph, and both are **structure-ready** for analysis. They differ
+in whether those edits are in the graph yet: session-start / explicit
+`session prepare` indexes the `worktree_behind` ones once
+(`needs_structure_prepare`), and skips `worktree_ahead` entirely because an
+edit hook already indexed them. MCP `get_minimal_context(auto_prepare=True)`
+only bootstraps on `unbuilt` / `commit_drift` (`needs_mcp_auto_prepare`) so a
+dirty tree does not re-prepare on every tool call; ongoing dirty indexing is
+UC-E1 (`update --skip-flows`).
 
 `session_prepare` / `ensure_graph` may return `status=partial` when the wall-clock
-budget or a hook lock leaves structure **not** ready (`empty` / `git_drift`), or
+budget or a hook lock leaves structure **not** ready (`unbuilt` / `commit_drift`), or
 when embeddings stay deferred while structure is ready. Callers must retry
 (UC-M2) before treating a non-ready structure as ready. Guarantee tests require
 `status == "ok"` **and** `is_structure_ready(sync)` after a successful prepare.
@@ -39,24 +42,45 @@ gate.
 `dagayn serve` only runs `ensure_worktree_graph` (seed). Catch-up still requires
 `session prepare` / `worktree sync` / MCP auto_prepare (UC-A1).
 
-## Sync status model
+## Sync state model
 
 <!-- constrained-by ./COMMANDS.md#git-worktrees -->
 
-Authority: `assess_graph_sync` / `is_structure_ready` /
-`needs_structure_prepare` / `needs_mcp_auto_prepare` in
+Authority: `GraphSyncState` in `dagayn/state_types.py` (a Pydantic
+discriminated union on `state`) plus `assess_graph_sync` / `sync_state` /
+`is_structure_ready` / `needs_structure_prepare` / `needs_mcp_auto_prepare` in
 `dagayn/tools/sync_status.py`.
 
-| `sync.status` | Meaning | Structure ready? |
-| ------------- | ------- | ---------------- |
-| `empty` | No nodes/files in the graph | No |
-| `git_drift` | Stored `git_head_sha` ≠ current HEAD (or missing metadata) | No |
-| `dirty_worktree` | HEAD matches but staged/unstaged/untracked files exist | Yes |
-| `synced` | Non-empty graph, HEAD match, clean worktree relative to HEAD | Yes |
+Freshness is decided in two tiers. The **commit tier** compares the graph's
+stored `git_head_sha` with HEAD. The **diff tier** applies only once the commit
+tier agrees, and compares the graph's indexed file content with the uncommitted
+working-tree changes.
+
+| `sync.state` | Tier | Meaning | Structure ready? |
+| ------------ | ---- | ------- | ---------------- |
+| `unbuilt` | — | No nodes/files in the graph | No |
+| `commit_drift` | commit | Stored `git_head_sha` ≠ HEAD (or missing metadata / undated graph) — degraded | No |
+| `commit_synced` | commit | HEAD match, clean worktree — stable | Yes |
+| `worktree_behind` | diff | HEAD match, but dirty files are not in the graph yet — outdated | Yes |
+| `worktree_ahead` | diff | HEAD match, and every dirty file is already indexed byte for byte | Yes |
+
+Diff-tier classification runs the dirty files through the incremental
+pipeline's own filters (`_filter_incremental_candidates` /
+`_classify_python_changed_files`), so a file dagayn would never parse — ignored,
+binary, unsupported language — cannot pin the state to `worktree_behind`. A
+dirty set larger than 200 files reports `worktree_behind` without hashing.
 
 Session / explicit prepare runs when `needs_structure_prepare` is true
-(`empty` / `git_drift` / `dirty_worktree`, or `force=True`). MCP auto_prepare
-runs when `needs_mcp_auto_prepare` is true (`empty` / `git_drift`, or force).
+(`unbuilt` / `commit_drift` / `worktree_behind`, or `force=True`) — notably
+**not** `worktree_ahead`, whose edits the graph already has. MCP auto_prepare
+runs when `needs_mcp_auto_prepare` is true (`unbuilt` / `commit_drift`, or
+force).
+
+Assessments also carry a legacy 4-value `status`
+(`empty` / `git_drift` / `dirty_worktree` / `synced`) for MCP clients and hook
+scripts written before `state` existed; both dirty states map onto
+`dirty_worktree`. `sync_state()` accepts either shape, degrading a legacy
+`dirty_worktree` to the conservative `worktree_behind`.
 
 ## Lifecycle flow
 
@@ -67,8 +91,8 @@ flowchart TD
   seed -->|yes| seedGraph[seed_worktree_graph]
   seed -->|no| assess[assess_graph_sync]
   seedGraph --> assess
-  assess -->|empty_git_drift_dirty| structure[build_or_update_graph minimal]
-  assess -->|synced| embedCheck{embedding_needs_refresh}
+  assess -->|unbuilt_commit_drift_worktree_behind| structure[build_or_update_graph minimal]
+  assess -->|commit_synced_worktree_ahead| embedCheck{embedding_needs_refresh}
   structure --> embedCheck
   embedCheck -->|yes_and_budget| embed[Phase2 embeddings]
   embedCheck -->|no_or_defer| ready[structure ready]
@@ -80,13 +104,13 @@ flowchart TD
 | ID | Trigger | Entry point | Freshness guarantee |
 | -- | ------- | ----------- | ------------------- |
 | UC-S1 | Session start | Cursor `sessionStart` / Claude `SessionStart` / OpenCode `session.created` → `dagayn session prepare` | Structure refresh if needed; hook budget 45s |
-| UC-S2 | Session resume | Same hooks (no dedicated resume event) | Re-assess dirty/drift; same prepare path |
-| UC-H1 | HEAD relocate mid-session | Cursor `crg-relocate.sh` / OpenCode after HEAD-moving git → `session prepare` | `git_drift` → structure refresh |
+| UC-S2 | Session resume | Same hooks (no dedicated resume event) | Re-assess dirty/drift; same prepare path. `worktree_ahead` is a noop |
+| UC-H1 | HEAD relocate mid-session | Cursor `crg-relocate.sh` / OpenCode after HEAD-moving git → `session prepare` | `commit_drift` → structure refresh |
 | UC-W1 | Worktree create | Cursor `.cursor/worktrees.json` setup / Claude `EnterWorktree` / `worktree sync` / `session prepare` | Seed from main + catch-up to worktree HEAD |
 | UC-W2 | Worktree switch / re-enter | EnterWorktree / `session prepare` in existing worktree | Seed skipped if graph exists; catch-up from stored `git_head_sha` |
 | UC-W3 | Worktree delete | `git worktree remove` (no dagayn hook) | Main checkout graph unchanged; orphaned worktree `.dagayn` discarded with the tree |
 | UC-A1 | Subagent / parallel agent | Worktree create + MCP in that tree | Seed alone is not enough; `get_minimal_context(auto_prepare=True)` or `session prepare` catch-up → structure ready |
-| UC-M1 | MCP first tool | `get_minimal_context_tool` | `auto_prepare` on `empty`/`git_drift` (300s); dirty does not loop |
+| UC-M1 | MCP first tool | `get_minimal_context_tool` | `auto_prepare` on `unbuilt`/`commit_drift` (300s); dirty does not loop |
 | UC-M2 | MCP explicit sync | `ensure_graph_tool` | Same prepare path with MCP budget; retry after `partial` until structure ready |
 | UC-E1 | File edit (ongoing) | `dagayn update --skip-flows` | Out of bootstrap scope — keeps graph current during a session, not a start gate |
 

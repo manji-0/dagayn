@@ -61,6 +61,18 @@ LocalEmbeddingProbeStatus: TypeAlias = Literal[
     "incompatible",
 ]
 
+#: Graph freshness relative to the working copy, in two tiers. The *commit*
+#: tier compares the graph's ``git_head_sha`` with HEAD; the *diff* tier only
+#: applies once the commit tier agrees, and compares the graph's indexed file
+#: content with the uncommitted working-tree changes.
+GraphSyncStateName: TypeAlias = Literal[
+    "unbuilt",
+    "commit_drift",
+    "commit_synced",
+    "worktree_behind",
+    "worktree_ahead",
+]
+
 TraversalMode: TypeAlias = Literal["bfs", "dfs"]
 ReachabilityState: TypeAlias = Literal["not_found", "complete", "truncated"]
 RefactorMode: TypeAlias = Literal["rename", "dead_code", "suggest"]
@@ -177,6 +189,97 @@ _REACHABILITY_INFO_ADAPTER = TypeAdapter(ReachabilityInfo)
 def seal_reachability_info(payload: dict[str, Any]) -> dict[str, Any]:
     """Validate and normalize traversal reachability metadata."""
     return _REACHABILITY_INFO_ADAPTER.validate_python(payload).model_dump(exclude_none=True)
+
+
+class _GraphSyncBase(BaseModel):
+    """Fields every graph sync state carries."""
+
+    model_config = ConfigDict(extra="allow")
+
+    repo_root: str
+    #: Legacy 4-value ``status`` kept for MCP clients and hook scripts that
+    #: predate ``state``. Derived, never a second source of truth.
+    status: Literal["empty", "git_drift", "dirty_worktree", "synced"]
+    git_head_sha: str | None = None
+    current_head_sha: str | None = None
+    current_branch: str | None = None
+    last_updated: str | None = None
+    total_nodes: int = 0
+    files_count: int = 0
+
+
+class GraphSyncUnbuilt(_GraphSyncBase):
+    """No graph yet: zero nodes or zero files. Nothing can be answered from it."""
+
+    state: Literal["unbuilt"]
+    status: Literal["empty"] = "empty"
+    worktree_dirty: bool = False
+
+
+class GraphSyncCommitDrift(_GraphSyncBase):
+    """Commit tier disagrees: the graph describes a different commit than HEAD.
+
+    Degraded — analysis would answer for the wrong tree. Reached when the
+    stored ``git_head_sha`` differs from HEAD, when it is missing entirely, or
+    when a populated graph has no ``last_updated`` to date it.
+    """
+
+    state: Literal["commit_drift"]
+    status: Literal["git_drift"] = "git_drift"
+    worktree_dirty: bool = False
+
+
+class GraphSyncCommitSynced(_GraphSyncBase):
+    """Both tiers agree: the graph describes HEAD and the working tree is clean."""
+
+    state: Literal["commit_synced"]
+    status: Literal["synced"] = "synced"
+    worktree_dirty: Literal[False] = False
+
+
+class GraphSyncWorktreeBehind(_GraphSyncBase):
+    """Diff tier: HEAD matches, but uncommitted edits are not in the graph yet.
+
+    Outdated — structurally usable (the graph is HEAD-aligned) but it does not
+    yet know about ``pending_files``, so an incremental update should run.
+    """
+
+    state: Literal["worktree_behind"]
+    status: Literal["dirty_worktree"] = "dirty_worktree"
+    worktree_dirty: Literal[True] = True
+    #: Dirty files dagayn would index whose content the graph does not have.
+    pending_files: list[str] = Field(default_factory=list)
+
+
+class GraphSyncWorktreeAhead(_GraphSyncBase):
+    """Diff tier: HEAD matches and every uncommitted edit is already indexed.
+
+    Ahead — the graph describes more than HEAD does, because an edit hook
+    indexed the working tree. Nothing to prepare: re-running an update would
+    re-parse files whose stored hashes already match.
+    """
+
+    state: Literal["worktree_ahead"]
+    status: Literal["dirty_worktree"] = "dirty_worktree"
+    worktree_dirty: Literal[True] = True
+    #: Dirty files already reflected in the graph, byte for byte.
+    indexed_files: list[str] = Field(default_factory=list)
+
+
+GraphSyncState = Annotated[
+    GraphSyncUnbuilt
+    | GraphSyncCommitDrift
+    | GraphSyncCommitSynced
+    | GraphSyncWorktreeBehind
+    | GraphSyncWorktreeAhead,
+    Field(discriminator="state"),
+]
+_GRAPH_SYNC_STATE_ADAPTER = TypeAdapter(GraphSyncState)
+
+
+def seal_graph_sync_state(payload: dict[str, Any]) -> dict[str, Any]:
+    """Validate a graph sync assessment against its state contract."""
+    return _GRAPH_SYNC_STATE_ADAPTER.validate_python(payload).model_dump()
 
 
 def normalize_confidence_tier(value: Any, default: ConfidenceTier = "EXTRACTED") -> ConfidenceTier:
