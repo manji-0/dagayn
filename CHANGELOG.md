@@ -4,6 +4,8 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+## 4.8.0 — 2026-08-10
+
 ### Features
 
 - Phase 4 CROSS_ARTIFACT analysis integration: impact radius traverses reportable
@@ -15,6 +17,9 @@ All notable changes to `dagayn` are documented here.
   and OpenAPI Generator manifests to emit `CROSS_ARTIFACT` edges
   (`builds_artifact`, `generates_code`, `binds_generated_client`) with
   confidence/evidence metadata. Edges appear in normal `edges_by_kind` stats.
+- High-confidence Terraform → application-code `CROSS_ARTIFACT` bridges
+  (`local-exec`, Lambda/function source paths, `handler` / `entry_point`) with
+  postprocess resolution and `query_graph` pattern `bridges_from`.
 
 ### Fixes
 
@@ -24,6 +29,8 @@ All notable changes to `dagayn` are documented here.
   `mtime_ns` metadata used by incremental skip.
 - Manifest-controlled paths reject `..` / out-of-root traversal before any
   filesystem join or read.
+- Markdown artifact resolution is scoped to documentation bridges so Terraform
+  `handler` / `entry_point` edges are not claimed by the Markdown resolver.
 
 ### Improvements
 
@@ -48,6 +55,12 @@ All notable changes to `dagayn` are documented here.
   `UPDATE … FROM` join; cache `repo_root` during path normalization; avoid
   double cache invalidation inside `store_file_batch`; document §4.4 as shipped
   with statement-count regression tests.
+
+### Documentation
+
+- Add `docs/RECIPES.md` with copy-paste flows for watch/`session prepare`/
+  `serve`, multi-repo registry → search, and optional embedding providers;
+  cross-link from README and related docs.
 
 ## 4.7.0 — 2026-08-10
 
