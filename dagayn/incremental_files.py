@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import fnmatch
+import json
 import logging
 import os
 import re
@@ -130,6 +131,109 @@ def detect_vcs(root: Path) -> str:
     return "none"
 
 
+def _workspace_folder_candidates() -> list[Path]:
+    """Return IDE/workspace roots hinted by process environment.
+
+    Cursor may launch MCP servers with ``cwd=$HOME`` even when a project is
+    open. Prefer these hints over treating the home directory as a repo.
+    Cursor injects ``WORKSPACE_FOLDER_PATHS`` (comma-separated) even when it
+    does not expand ``${workspaceFolder}`` in user-level ``mcp.json``.
+    """
+    candidates: list[Path] = []
+    for var in ("CURSOR_PROJECT_DIR", "CLAUDE_PROJECT_DIR"):
+        raw = os.environ.get(var, "").strip()
+        if raw:
+            candidates.append(Path(raw))
+
+    raw = os.environ.get("WORKSPACE_FOLDER_PATHS", "").strip()
+    if raw:
+        if raw.startswith("["):
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                parsed = None
+            if isinstance(parsed, list):
+                candidates.extend(Path(str(item)) for item in parsed)
+        elif "," in raw:
+            # Cursor uses comma-separated absolute paths (multi-root).
+            candidates.extend(Path(part.strip()) for part in raw.split(",") if part.strip())
+        else:
+            for part in raw.split(":"):
+                part = part.strip()
+                if part:
+                    candidates.append(Path(part))
+
+    resolved: list[Path] = []
+    seen: set[Path] = set()
+    for candidate in candidates:
+        try:
+            path = candidate.expanduser().resolve()
+        except OSError:
+            continue
+        if not path.exists() or path in seen:
+            continue
+        seen.add(path)
+        resolved.append(path)
+    return resolved
+
+
+def _pick_workspace_root(
+    candidates: list[Path],
+    *,
+    stop_at: Path | None = None,
+) -> Path | None:
+    """Choose the best IDE workspace root among multi-root candidates."""
+    scored: list[tuple[tuple[object, ...], Path]] = []
+    for workspace in candidates:
+        hinted = find_repo_root(workspace, stop_at=stop_at)
+        root = hinted or (workspace if (workspace / ".dagayn").is_dir() else None)
+        if root is None:
+            continue
+        graph = root / ".dagayn" / "graph.db"
+        has_graph = graph.is_file()
+        try:
+            mtime = graph.stat().st_mtime if has_graph else 0.0
+        except OSError:
+            mtime = 0.0
+        scored.append(((has_graph, mtime, (root / ".git").exists()), root))
+    if not scored:
+        return None
+    scored.sort(key=lambda item: item[0], reverse=True)
+    return scored[0][1]
+
+
+_UNRESOLVED_PATH_PLACEHOLDER = re.compile(r"^\$\{[^}]+\}$")
+
+
+def is_unresolved_path_placeholder(value: str | None) -> bool:
+    """Return True for IDE template strings like ``${workspaceFolder}``."""
+    if value is None:
+        return False
+    return bool(_UNRESOLVED_PATH_PLACEHOLDER.match(value.strip()))
+
+
+def resolve_cli_repo_root(
+    repo: str | None = None,
+    *,
+    start: Path | None = None,
+    stop_at: Path | None = None,
+) -> Path:
+    """Resolve a CLI/MCP ``--repo`` value, ignoring unexpanded IDE placeholders.
+
+    Cursor's user-level MCP config often passes ``--repo ${workspaceFolder}``
+    literally. Treat missing, placeholder, and non-existent paths as auto-detect
+    via :func:`find_project_root`.
+    """
+    if repo and not is_unresolved_path_placeholder(repo):
+        try:
+            path = Path(repo).expanduser().resolve()
+        except OSError:
+            path = None
+        if path is not None and path.exists():
+            return find_repo_root(path, stop_at=stop_at) or path
+    return find_project_root(start, stop_at=stop_at)
+
+
 def find_project_root(
     start: Path | None = None,
     stop_at: Path | None = None,
@@ -143,7 +247,12 @@ def find_project_root(
        multi-repo orchestrators). See: #155
     2. Git repository root via :func:`find_repo_root` from ``start``,
        honoring ``stop_at`` if provided.
-    3. ``start`` itself (or cwd if no start given).
+    3. Workspace/IDE hints (``CURSOR_PROJECT_DIR``, ``CLAUDE_PROJECT_DIR``,
+       ``WORKSPACE_FOLDER_PATHS``) when the start path is not already inside
+       a git root — e.g. Cursor launching MCP with ``cwd=$HOME``. Multi-root
+       workspaces prefer the folder with the richest existing ``.dagayn``
+       graph.
+    4. ``start`` itself (or cwd if no start given).
 
     ``stop_at`` is forwarded to :func:`find_repo_root` so callers that
     want to bound the ancestor walk (typically tests; see #241) can do so
@@ -154,9 +263,15 @@ def find_project_root(
         p = Path(env_override).expanduser().resolve()
         if p.exists():
             return p
+
     root = find_repo_root(start, stop_at=stop_at)
     if root:
         return root
+
+    picked = _pick_workspace_root(_workspace_folder_candidates(), stop_at=stop_at)
+    if picked is not None:
+        return picked
+
     return start or Path.cwd()
 
 

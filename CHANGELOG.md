@@ -4,6 +4,14 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Fixes
+
+- Cursor MCP install no longer pins `--repo` / `cwd` to a hardcoded path or an
+  unexpanded `${workspaceFolder}` template. Shared `~/.cursor/mcp.json` is
+  synced on install, and `dagayn serve` resolves the open workspace from
+  Cursor's `WORKSPACE_FOLDER_PATHS` (preferring a folder that already has a
+  `.dagayn` graph). Unexpanded IDE placeholders in `--repo` are ignored.
+
 ## 4.8.1 — 2026-08-10
 
 ### Fixes

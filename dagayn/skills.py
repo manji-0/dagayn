@@ -255,6 +255,10 @@ def _build_server_entry(
     entry: dict[str, Any] = {"command": command, "args": args}
     if plat["needs_type"]:
         entry["type"] = "stdio"
+    # Cursor launches user-level MCP with cwd=$HOME and does not reliably
+    # expand ${workspaceFolder} in ~/.cursor/mcp.json. Do not pin --repo to a
+    # template or absolute path; dagayn serve resolves the open workspace from
+    # WORKSPACE_FOLDER_PATHS (and related IDE env) at startup.
     if key == "opencode":
         entry["env"] = []
     if key == "pi":
@@ -525,6 +529,8 @@ def install_platform_configs(
                 if updated_entry == current:
                     print(f"  {plat['name']}: already configured in {config_path}")
                     configured.append(plat["name"])
+                    if key == "cursor":
+                        _sync_cursor_user_mcp(server_entry, dry_run=dry_run)
                     continue
                 servers["dagayn"] = updated_entry
             else:
@@ -540,7 +546,72 @@ def install_platform_configs(
 
         configured.append(plat["name"])
 
+        # Cursor prefers user-scoped MCP (shown as ``user-dagayn``). Keep
+        # ~/.cursor/mcp.json aligned with the same workspace-relative entry so
+        # a shared global config cannot pin serve to one absolute repo path.
+        if key == "cursor":
+            _sync_cursor_user_mcp(server_entry, dry_run=dry_run)
+
     return configured
+
+
+def _sync_cursor_user_mcp(server_entry: dict[str, Any], *, dry_run: bool) -> None:
+    """Merge the Cursor MCP server entry into ``~/.cursor/mcp.json``."""
+    config_path = Path.home() / ".cursor" / "mcp.json"
+    existing: dict[str, Any] = {}
+    if config_path.exists():
+        try:
+            existing = json.loads(config_path.read_text(encoding="utf-8", errors="replace"))
+        except (json.JSONDecodeError, OSError):
+            logger.warning("Invalid JSON in %s, will overwrite dagayn entry.", config_path)
+            existing = {}
+
+    servers = existing.get("mcpServers", {})
+    if not isinstance(servers, dict):
+        servers = {}
+    current = servers.get("dagayn")
+    if not isinstance(current, dict):
+        current = {}
+    updated = {**current, **server_entry}
+    # Drop stale absolute-path / placeholder pins that defeat shared global MCP.
+    updated.pop("cwd", None)
+    env = updated.get("env")
+    if isinstance(env, dict):
+        env = {
+            key: value
+            for key, value in env.items()
+            if key not in {"DAGAYN_REPO", "CRG_REPO_ROOT"}
+        }
+        if env:
+            updated["env"] = env
+        else:
+            updated.pop("env", None)
+    args = updated.get("args")
+    if isinstance(args, list):
+        cleaned: list[Any] = []
+        skip_next = False
+        for item in args:
+            if skip_next:
+                skip_next = False
+                continue
+            if item == "--repo":
+                skip_next = True
+                continue
+            cleaned.append(item)
+        updated["args"] = cleaned
+
+    if updated == current and "dagayn" in servers:
+        print(f"  Cursor (user): already configured in {config_path}")
+        return
+    if dry_run:
+        print(f"  [dry-run] Cursor (user): would write {config_path}")
+        return
+
+    servers["dagayn"] = updated
+    existing["mcpServers"] = servers
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
+    print(f"  Cursor (user): configured {config_path}")
 
 
 # --- Skill file contents ---

@@ -156,6 +156,61 @@ class TestFindProjectRoot:
         # back to its third resolution rule (the start path itself).
         assert find_project_root(inner, stop_at=inner) == inner
 
+    def test_find_project_root_cursor_project_dir(self, tmp_path, monkeypatch):
+        """CURSOR_PROJECT_DIR wins over a non-repo cwd (e.g. $HOME)."""
+        repo = tmp_path / "project"
+        (repo / ".git").mkdir(parents=True)
+        homeish = tmp_path / "home"
+        homeish.mkdir()
+        monkeypatch.delenv("CRG_REPO_ROOT", raising=False)
+        monkeypatch.setenv("CURSOR_PROJECT_DIR", str(repo))
+        assert find_project_root(homeish) == repo.resolve()
+
+    def test_find_project_root_workspace_folder_paths(self, tmp_path, monkeypatch):
+        """WORKSPACE_FOLDER_PATHS resolves a git root when cwd is unrelated."""
+        repo = tmp_path / "ws"
+        (repo / ".git").mkdir(parents=True)
+        other = tmp_path / "other"
+        other.mkdir()
+        monkeypatch.delenv("CRG_REPO_ROOT", raising=False)
+        monkeypatch.delenv("CURSOR_PROJECT_DIR", raising=False)
+        monkeypatch.delenv("CLAUDE_PROJECT_DIR", raising=False)
+        monkeypatch.setenv("WORKSPACE_FOLDER_PATHS", str(repo))
+        assert find_project_root(other) == repo.resolve()
+
+    def test_find_project_root_prefers_workspace_with_graph(self, tmp_path, monkeypatch):
+        """Multi-root WORKSPACE_FOLDER_PATHS prefers the folder with a graph."""
+        first = tmp_path / "first"
+        second = tmp_path / "second"
+        (first / ".git").mkdir(parents=True)
+        (second / ".git").mkdir(parents=True)
+        graph = second / ".dagayn" / "graph.db"
+        graph.parent.mkdir(parents=True)
+        graph.write_bytes(b"sqlite")
+        other = tmp_path / "homeish"
+        other.mkdir()
+        monkeypatch.delenv("CRG_REPO_ROOT", raising=False)
+        monkeypatch.delenv("CURSOR_PROJECT_DIR", raising=False)
+        monkeypatch.delenv("CLAUDE_PROJECT_DIR", raising=False)
+        monkeypatch.setenv(
+            "WORKSPACE_FOLDER_PATHS",
+            f"{first},{second}",
+        )
+        assert find_project_root(other) == second.resolve()
+
+    def test_resolve_cli_repo_root_ignores_placeholder(self, tmp_path, monkeypatch):
+        from dagayn.incremental import resolve_cli_repo_root
+
+        repo = tmp_path / "project"
+        (repo / ".git").mkdir(parents=True)
+        homeish = tmp_path / "home"
+        homeish.mkdir()
+        monkeypatch.delenv("CRG_REPO_ROOT", raising=False)
+        monkeypatch.delenv("CURSOR_PROJECT_DIR", raising=False)
+        monkeypatch.delenv("CLAUDE_PROJECT_DIR", raising=False)
+        monkeypatch.setenv("WORKSPACE_FOLDER_PATHS", str(repo))
+        assert resolve_cli_repo_root("${workspaceFolder}", start=homeish) == repo.resolve()
+
 
 class TestGetDbPath:
     def test_creates_directory_and_db_path(self, tmp_path):

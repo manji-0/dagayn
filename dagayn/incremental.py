@@ -48,6 +48,8 @@ from .incremental_files import (
     get_data_dir,
     get_db_path,
     get_staged_and_unstaged,
+    is_unresolved_path_placeholder,
+    resolve_cli_repo_root,
 )
 
 _incremental_files.subprocess = subprocess
@@ -88,5 +90,7 @@ __all__ = [
     "get_db_path",
     "get_staged_and_unstaged",
     "incremental_update",
+    "is_unresolved_path_placeholder",
+    "resolve_cli_repo_root",
     "watch",
 ]

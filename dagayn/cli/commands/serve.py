@@ -42,11 +42,9 @@ def _embedding_provider_counts(db_path: Path) -> dict[str, int]:
 
 
 def _resolve_serve_root(repo_root: str | None) -> Path:
-    if repo_root is None:
-        from ...incremental import find_project_root
+    from ...incremental import resolve_cli_repo_root
 
-        return find_project_root()
-    return Path(repo_root).expanduser().resolve()
+    return resolve_cli_repo_root(repo_root)
 
 
 def _inherit_worktree_graph(repo_root: str | None) -> None:
@@ -70,16 +68,10 @@ def _inherit_worktree_graph(repo_root: str | None) -> None:
 
 
 def _infer_persisted_local_embedding(repo_root: str | None):
-    if repo_root is None:
-        from ...incremental import find_project_root
-
-        root = find_project_root()
-    else:
-        root = Path(repo_root).expanduser().resolve()
-
-    from ...incremental import get_db_path
+    from ...incremental import get_db_path, resolve_cli_repo_root
     from ...local_embeddings import infer_local_embedding_provider
 
+    root = resolve_cli_repo_root(repo_root)
     db_path = get_db_path(root)
     provider_counts = _embedding_provider_counts(db_path)
     if len(provider_counts) != 1:
@@ -150,7 +142,10 @@ def handle(args: argparse.Namespace, serve_parser: argparse.ArgumentParser) -> N
         serve_parser.error("--local-embedding and --remote-embedding are mutually exclusive")
 
     # Must run before embedding inference below, which reads the graph.
-    _inherit_worktree_graph(args.repo)
+    from ...incremental import resolve_cli_repo_root
+
+    resolved_repo = str(resolve_cli_repo_root(args.repo))
+    _inherit_worktree_graph(resolved_repo)
 
     remote_embedding = args.remote_embedding if args.remote_embedding != "none" else None
     effective_local_embedding_port = args.local_embedding_port
@@ -166,7 +161,7 @@ def handle(args: argparse.Namespace, serve_parser: argparse.ArgumentParser) -> N
             host = args.host if args.host is not None else "127.0.0.1"
             port = args.port if args.port is not None else 5555
             serve_main(
-                repo_root=args.repo,
+                repo_root=resolved_repo,
                 transport="streamable-http",
                 host=host,
                 port=port,
@@ -183,7 +178,7 @@ def handle(args: argparse.Namespace, serve_parser: argparse.ArgumentParser) -> N
             )
         else:
             serve_main(
-                repo_root=args.repo,
+                repo_root=resolved_repo,
                 tools=args.tools,
                 embedding_provider=embedding_provider,
                 embedding_model=embedding_model,
@@ -200,7 +195,7 @@ def handle(args: argparse.Namespace, serve_parser: argparse.ArgumentParser) -> N
     local_embedding = args.local_embedding
     local_embedding_mode = args.local_embedding_mode
     if not _local_embedding_requested(local_embedding) and remote_embedding is None:
-        inferred_local_embedding = _infer_persisted_local_embedding(args.repo)
+        inferred_local_embedding = _infer_persisted_local_embedding(resolved_repo)
         if inferred_local_embedding is not None:
             local_embedding = inferred_local_embedding.level
             local_embedding_mode = (

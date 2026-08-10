@@ -145,6 +145,12 @@ def _resolve_repo_root(repo_root: Optional[str]) -> Optional[str]:
     so ``serve --repo <X>`` had no effect for the other 21 tools. See: #222
     follow-up.
     """
+    from .incremental import is_unresolved_path_placeholder
+
+    if repo_root and is_unresolved_path_placeholder(repo_root):
+        repo_root = None
+    if _default_repo_root and is_unresolved_path_placeholder(_default_repo_root):
+        return repo_root
     return repo_root if repo_root else _default_repo_root
 
 

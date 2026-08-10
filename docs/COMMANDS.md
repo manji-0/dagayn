@@ -273,7 +273,9 @@ commands (`checkout` / `switch` / `reset` / `pull` / …) to re-prepare the grap
 after HEAD has moved. Every script resolves the repository from the hook payload
 via `dagayn hook-repo` and passes it as `--repo`, because user-level Cursor hooks
 run from `~/.cursor` rather than the project directory. Existing unrelated
-Cursor hooks are preserved.
+Cursor hooks are preserved. MCP config is written to `.cursor/mcp.json` and
+synced to `~/.cursor/mcp.json` without a hardcoded `--repo`; at serve time
+dagayn resolves the open workspace from Cursor's `WORKSPACE_FOLDER_PATHS`.
 
 `dagayn install --platform codex` configures the Codex MCP server, installs
 Codex skills, and writes global Codex hooks in `~/.codex/hooks.json` with the

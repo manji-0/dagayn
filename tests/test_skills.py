@@ -1617,7 +1617,10 @@ class TestInstallPlatformConfigs:
         assert data["mcp_servers"]["dagayn"]["args"][-2:] == ["--local-embedding", "low"]
         assert codex_config.read_text().count("[mcp_servers.dagayn]") == 1
 
-    def test_install_cursor_config(self, tmp_path):
+    def test_install_cursor_config(self, tmp_path, monkeypatch):
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setattr("dagayn.skills.Path.home", lambda: fake_home)
         with patch.dict(
             PLATFORMS,
             {
@@ -1629,8 +1632,16 @@ class TestInstallPlatformConfigs:
         config_path = tmp_path / ".cursor" / "mcp.json"
         assert config_path.exists()
         data = json.loads(config_path.read_text())
-        assert "dagayn" in data["mcpServers"]
-        assert data["mcpServers"]["dagayn"]["type"] == "stdio"
+        entry = data["mcpServers"]["dagayn"]
+        assert entry["type"] == "stdio"
+        assert "cwd" not in entry
+        assert "--repo" not in entry["args"]
+
+        user_config = fake_home / ".cursor" / "mcp.json"
+        assert user_config.exists()
+        user_entry = json.loads(user_config.read_text())["mcpServers"]["dagayn"]
+        assert "--repo" not in user_entry["args"]
+        assert "cwd" not in user_entry
 
     def test_install_windsurf_config(self, tmp_path):
         windsurf_dir = tmp_path / ".codeium" / "windsurf"
