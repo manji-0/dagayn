@@ -578,9 +578,7 @@ def _sync_cursor_user_mcp(server_entry: dict[str, Any], *, dry_run: bool) -> Non
     env = updated.get("env")
     if isinstance(env, dict):
         env = {
-            key: value
-            for key, value in env.items()
-            if key not in {"DAGAYN_REPO", "CRG_REPO_ROOT"}
+            key: value for key, value in env.items() if key not in {"DAGAYN_REPO", "CRG_REPO_ROOT"}
         }
         if env:
             updated["env"] = env
