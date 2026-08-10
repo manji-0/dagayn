@@ -1174,9 +1174,24 @@ def generate_hooks_config(
     }
 
 
+#: Command fragments that identify a hook entry as dagayn-generated, so a
+#: re-install replaces it instead of appending a duplicate. Entries written by
+#: older dagayn versions are listed too: a session that still runs the legacy
+#: ``dagayn status`` session-start hook only *seeds* a worktree graph and never
+#: catches up the branch diff, so the stale entry must be removed rather than
+#: left running alongside ``dagayn session prepare``.
 _DAGAYN_HOOK_NEEDLES: dict[str, tuple[str, ...]] = {
-    "PostToolUse": ("dagayn update --skip-flows", "dagayn session prepare"),
-    "SessionStart": ("dagayn session prepare",),
+    "PostToolUse": (
+        "dagayn update --skip-flows",
+        "dagayn session prepare",
+        # <= 4.8.2 wrote this for EnterWorktree/ExitWorktree.
+        "dagayn worktree sync",
+    ),
+    "SessionStart": (
+        "dagayn session prepare",
+        # <= 4.8.2 wrote a seed-only status call here.
+        "dagayn status",
+    ),
 }
 
 

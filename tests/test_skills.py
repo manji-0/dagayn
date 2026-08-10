@@ -934,6 +934,58 @@ class TestInstallHooks:
         command = data["hooks"]["PostToolUse"][0]["hooks"][0]["command"]
         assert "--local-embedding low" in command
 
+    def test_reinstall_replaces_legacy_seed_only_hooks(self, tmp_path):
+        """A pre-4.8.3 install left seed-only hooks that must not survive."""
+        settings_dir = tmp_path / ".claude"
+        settings_dir.mkdir(parents=True)
+        legacy = {
+            "hooks": {
+                "SessionStart": [
+                    {
+                        "matcher": "",
+                        "hooks": [
+                            {
+                                "type": "command",
+                                "command": 'dagayn status --repo "$repo"',
+                                "timeout": 10,
+                            }
+                        ],
+                    }
+                ],
+                "PostToolUse": [
+                    {
+                        "matcher": "EnterWorktree|ExitWorktree",
+                        "hooks": [
+                            {
+                                "type": "command",
+                                "command": "dagayn worktree sync --from-hook || true",
+                                "timeout": 300,
+                            }
+                        ],
+                    }
+                ],
+            }
+        }
+        (settings_dir / "settings.json").write_text(json.dumps(legacy))
+
+        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+            install_hooks(tmp_path / "repo")
+
+        data = json.loads((settings_dir / "settings.json").read_text())
+        commands = [
+            hook.get("command", "")
+            for entries in data["hooks"].values()
+            for entry in entries
+            for hook in entry["hooks"]
+        ]
+        assert not any("dagayn status" in command for command in commands)
+        assert not any("dagayn worktree sync" in command for command in commands)
+        session_commands = [
+            hook["command"] for entry in data["hooks"]["SessionStart"] for hook in entry["hooks"]
+        ]
+        assert len(session_commands) == 1
+        assert "dagayn session prepare" in session_commands[0]
+
     def test_reinstall_updates_claude_hooks_when_extra_args_change(self, tmp_path):
         with patch("dagayn.skills.Path.home", return_value=tmp_path):
             settings_path = install_hooks(tmp_path / "repo")
