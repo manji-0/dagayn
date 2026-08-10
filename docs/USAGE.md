@@ -87,6 +87,8 @@ state in a worktree that inherited the main checkout's graph.
 ## Work in git worktrees
 
 <!-- derived-from #build-and-refresh-the-graph -->
+<!-- constrained-by ./SESSION-GRAPH-FRESHNESS.md -->
+<!-- constrained-by ./COMMANDS.md#git-worktrees -->
 
 Parallel agent sessions run in linked git worktrees: `claude --worktree`, the
 `EnterWorktree` tool, subagents with `isolation: worktree`, and Cursor's
@@ -107,11 +109,15 @@ graph. Set `DAGAYN_WORKTREE_SEED=0` to disable it.
 
 `dagayn install` wires this into both hosts so it happens without you asking: a
 managed block in `.worktreeinclude` (Claude Code copies matching gitignored files
-into new worktrees — commit that file) and a `dagayn worktree sync` entry in
-`.cursor/worktrees.json` (Cursor runs it when creating a worktree for a parallel
-agent). Installing from inside a worktree also configures the main checkout, and
-git hooks go into the repository's shared hooks directory so one install covers
-every worktree.
+into new worktrees — commit that file) and a `dagayn session prepare
+--budget-seconds 45` entry in `.cursor/worktrees.json` (Cursor runs it when
+creating a worktree for a parallel agent). Installing from inside a worktree
+also configures the main checkout, and git hooks go into the repository's shared
+hooks directory so one install covers every worktree.
+
+Session start/resume, worktree create/switch/delete, Subagent launch, and MCP
+first-tool readiness are defined in
+[SESSION-GRAPH-FRESHNESS.md](./SESSION-GRAPH-FRESHNESS.md).
 
 ## Use the Rust backend
 

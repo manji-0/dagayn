@@ -4,6 +4,12 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Documentation
+
+- Document session / worktree / Subagent graph-freshness use cases and the
+  structure-ready contract in `docs/SESSION-GRAPH-FRESHNESS.md`, with
+  guarantee tests in `tests/test_session_graph_freshness.py`.
+
 ### Fixes
 
 - Cursor MCP install no longer pins `--repo` / `cwd` to a hardcoded path or an

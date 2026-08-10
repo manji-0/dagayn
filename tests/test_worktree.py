@@ -11,10 +11,17 @@ from __future__ import annotations
 
 import json
 import sqlite3
-import subprocess
 from pathlib import Path
 
-import pytest
+from worktree_fixtures import (
+    git as _git,
+)
+from worktree_fixtures import (
+    graph_metadata as _metadata,
+)
+from worktree_fixtures import (
+    write_minimal_graph_db as _write_graph_db,
+)
 
 from dagayn.skills import (
     ensure_worktree_include,
@@ -37,70 +44,6 @@ from dagayn.worktree import (
     seed_worktree_graph,
     worktree_label,
 )
-
-
-def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["git", "-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false", *args],
-        capture_output=True,
-        text=True,
-        cwd=str(repo),
-        timeout=10,
-    )
-
-
-@pytest.fixture()
-def main_repo(tmp_path: Path) -> Path:
-    """A git repo with one commit and a gitignored ``.mcp.json``."""
-    repo = tmp_path / "main"
-    repo.mkdir()
-    _git(repo, "init")
-    _git(repo, "config", "user.email", "test@test.com")
-    _git(repo, "config", "user.name", "Test")
-    (repo / "hello.py").write_text("def greet():\n    return 'hello'\n", encoding="utf-8")
-    (repo / ".gitignore").write_text(".dagayn/\n.mcp.json\n.cursor/\n", encoding="utf-8")
-    _git(repo, "add", "hello.py", ".gitignore")
-    _git(repo, "commit", "-m", "initial")
-    return repo
-
-
-@pytest.fixture()
-def linked_worktree(main_repo: Path) -> Path:
-    """A linked worktree of ``main_repo`` on its own branch."""
-    worktree = main_repo.parent / "wt-feature"
-    result = _git(main_repo, "worktree", "add", "-b", "feature", str(worktree))
-    assert result.returncode == 0, result.stderr
-    return worktree
-
-
-def _write_graph_db(path: Path, *, head_sha: str, repo_root: Path) -> None:
-    """Create a minimal graph.db with the metadata dagayn stores."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path))
-    try:
-        conn.execute("CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT)")
-        conn.execute("CREATE TABLE nodes (id INTEGER PRIMARY KEY, file_path TEXT)")
-        conn.executemany(
-            "INSERT INTO metadata (key, value) VALUES (?, ?)",
-            [
-                ("git_head_sha", head_sha),
-                ("git_branch", "main"),
-                ("repo_root", str(repo_root)),
-            ],
-        )
-        conn.execute("INSERT INTO nodes (file_path) VALUES ('hello.py')")
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def _metadata(db_path: Path, key: str) -> str | None:
-    conn = sqlite3.connect(str(db_path))
-    try:
-        row = conn.execute("SELECT value FROM metadata WHERE key = ?", (key,)).fetchone()
-    finally:
-        conn.close()
-    return row[0] if row else None
 
 
 class TestWorktreeDetection:

@@ -313,6 +313,8 @@ to the same config's `hooks:` block.
 - `dagayn hook-repo`
 - `dagayn session prepare`
 
+<!-- constrained-by ./SESSION-GRAPH-FRESHNESS.md -->
+
 Agent hosts run parallel sessions in linked git worktrees: `claude --worktree`,
 the `EnterWorktree` tool, subagents with `isolation: worktree`, Claude Code
 desktop sessions, and Cursor's parallel agents. A worktree is a fresh checkout,
@@ -326,7 +328,9 @@ pass `--budget-seconds 45` and optional `--local-embedding` args from
 `dagayn install`. Use `--embedding auto|defer|skip|inline` to control whether
 Phase 2 vector refresh runs inside the budget. MCP `ensure_graph_tool` /
 `get_minimal_context_tool` call the same prepare path with a longer budget and
-inherit `serve --local-embedding`.
+inherit `serve --local-embedding`. See
+[SESSION-GRAPH-FRESHNESS.md](./SESSION-GRAPH-FRESHNESS.md) for the use-case
+catalog and structure-ready contract.
 
 `dagayn worktree sync` makes a worktree usable in seconds. It copies the main
 checkout's gitignored MCP config and skill files (never overwriting files the

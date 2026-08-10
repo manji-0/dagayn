@@ -36,6 +36,10 @@ dagayn session prepare --budget-seconds 45 --embedding defer
 `get_minimal_context_tool` call; `inline` ignores the remaining-budget gate.
 Use `--budget-seconds 0` for no wall-clock limit.
 
+Lifecycle readiness (session start/resume, worktree create/switch/delete,
+Subagent launch, MCP first tool) is catalogued in
+[SESSION-GRAPH-FRESHNESS.md](./SESSION-GRAPH-FRESHNESS.md).
+
 MCP serve for the same repo (stdio; optional local embeddings):
 
 ```bash
