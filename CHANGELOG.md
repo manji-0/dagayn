@@ -4,6 +4,8 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+## 4.8.2 — 2026-08-10
+
 ### Fixes
 
 - Structure-ready now means HEAD-aligned (`synced` or `dirty_worktree`); MCP
