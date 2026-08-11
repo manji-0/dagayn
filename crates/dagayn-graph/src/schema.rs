@@ -9,28 +9,28 @@ impl GraphStore {
 
     pub(crate) fn run_migrations(&self) -> Result<()> {
         let current = self.schema_version()?;
-        if current >= LATEST_VERSION {
-            return Ok(());
-        }
-        for version in (current + 1)..=LATEST_VERSION {
-            match version {
-                2 => self.migrate_v2()?,
-                3 => self.migrate_v3()?,
-                4 => self.migrate_v4()?,
-                5 => self.migrate_v5()?,
-                6 => self.migrate_v6()?,
-                7 => self.migrate_v7()?,
-                8 => self.migrate_v8()?,
-                9 => self.migrate_v9()?,
-                10 => self.migrate_v10()?,
-                11 => self.migrate_v11()?,
-                12 => self.migrate_v12()?,
-                13 => self.migrate_v13()?,
-                14 => self.migrate_v14()?,
-                _ => {}
+        if current < LATEST_VERSION {
+            for version in (current + 1)..=LATEST_VERSION {
+                match version {
+                    2 => self.migrate_v2()?,
+                    3 => self.migrate_v3()?,
+                    4 => self.migrate_v4()?,
+                    5 => self.migrate_v5()?,
+                    6 => self.migrate_v6()?,
+                    7 => self.migrate_v7()?,
+                    8 => self.migrate_v8()?,
+                    9 => self.migrate_v9()?,
+                    10 => self.migrate_v10()?,
+                    11 => self.migrate_v11()?,
+                    12 => self.migrate_v12()?,
+                    13 => self.migrate_v13()?,
+                    14 => self.migrate_v14()?,
+                    _ => {}
+                }
+                self.set_metadata("schema_version", &version.to_string())?;
             }
-            self.set_metadata("schema_version", &version.to_string())?;
         }
+        self.ensure_edge_target_name_column()?;
         Ok(())
     }
 
