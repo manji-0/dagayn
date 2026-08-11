@@ -33,6 +33,7 @@ _NON_TEST_HELPER_NAMES = {
     "setUp".casefold(),
     "tearDown".casefold(),
 }
+_MODULE_MARKER_SKIP = frozenset({"src", "lib", "pkg", "internal", "tests", "test"})
 
 
 def is_test_file_path(file_path: str) -> bool:
@@ -48,12 +49,25 @@ def is_test_file_path(file_path: str) -> bool:
 
 
 def _identifier_tokens(value: str) -> list[str]:
-    tokens = re.findall(r"[A-Za-z0-9]+", value.casefold())
+    camel_spaced = re.sub(r"([a-z])([A-Z])", r"\1_\2", value)
+    camel_spaced = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", camel_spaced)
+    tokens = re.findall(r"[a-z0-9]+", camel_spaced.casefold().replace("_", " "))
     return [token for token in tokens if token and token not in {"test", "tests"}]
 
 
 def _squashed_identifier(value: str) -> str:
     return "".join(_identifier_tokens(value))
+
+
+def _word_boundary_pattern(value: str) -> re.Pattern[str]:
+    escaped = re.escape(value.casefold())
+    return re.compile(rf"(?<![a-z0-9]){escaped}(?![a-z0-9])")
+
+
+def _contains_word(haystack: str, needle: str) -> bool:
+    if not needle:
+        return False
+    return _word_boundary_pattern(needle).search(haystack.casefold()) is not None
 
 
 def _is_test_like_node(node: GraphNode) -> bool:
@@ -108,6 +122,108 @@ def _coverage_record(
     }
 
 
+def _target_file_stem(target: GraphNode) -> str:
+    return Path(target.file_path.replace("\\", "/")).stem.casefold()
+
+
+def _target_module_markers(target: GraphNode) -> set[str]:
+    markers: set[str] = set()
+    path = Path(target.file_path.replace("\\", "/"))
+    stem = path.stem.casefold()
+    if stem:
+        markers.add(stem)
+        if stem.startswith("test_"):
+            markers.add(stem[5:])
+        elif stem.endswith("_test"):
+            markers.add(stem[:-5])
+    parent = path.parent.name.casefold()
+    if parent and parent not in _MODULE_MARKER_SKIP:
+        markers.add(parent)
+    return markers
+
+
+def _candidate_references_target_module(
+    store: Any,
+    target: GraphNode,
+    candidate: GraphNode,
+) -> tuple[bool, list[str]]:
+    evidence: list[str] = []
+    candidate_path = candidate.file_path.replace("\\", "/").casefold()
+    candidate_identity = (
+        f"{candidate.qualified_name} {candidate.name} {candidate.file_path}".casefold()
+    )
+    target_path = target.file_path.replace("\\", "/").casefold()
+
+    for marker in sorted(_target_module_markers(target), key=len, reverse=True):
+        if _contains_word(candidate_path, marker) or _contains_word(candidate_identity, marker):
+            evidence.append("test artifact references target module/file")
+            return True, evidence
+
+    target_stem = _target_file_stem(target)
+    if target_stem and (
+        candidate_path.startswith(f"{target_path}.")
+        or candidate_path.startswith(f"{target_path}_")
+        or _contains_word(Path(candidate_path).name, target_stem)
+    ):
+        evidence.append("test file co-located with target module")
+        return True, evidence
+
+    for source_key in dict.fromkeys([candidate.file_path, candidate.qualified_name]):
+        for edge in store.get_edges_by_source(source_key):
+            if edge.kind != "IMPORTS_FROM":
+                continue
+            import_target = edge.target_qualified.replace("\\", "/").casefold()
+            if import_target == target_path or import_target.startswith(f"{target_path}::"):
+                evidence.append("test file imports target module")
+                return True, evidence
+
+    return False, evidence
+
+
+def _name_matches_target_symbol(
+    target_name: str,
+    candidate_text: str,
+    *,
+    allowed_suffix_tokens: set[str] | None = None,
+) -> bool:
+    target_cf = target_name.casefold()
+    candidate_cf = candidate_text.casefold()
+    if target_cf == candidate_cf:
+        return True
+
+    for prefix in ("test_", "test"):
+        if candidate_cf.startswith(prefix):
+            remainder = candidate_cf[len(prefix) :].lstrip("_")
+            if remainder == target_cf:
+                return True
+
+    if _squashed_identifier(target_name) == _squashed_identifier(candidate_text):
+        return True
+
+    target_tokens = _identifier_tokens(target_name)
+    candidate_tokens = _identifier_tokens(candidate_text)
+    if not target_tokens or len(target_tokens) > len(candidate_tokens):
+        return False
+
+    suffix_allow = allowed_suffix_tokens or set()
+    for index in range(len(candidate_tokens) - len(target_tokens) + 1):
+        if candidate_tokens[index : index + len(target_tokens)] != target_tokens:
+            continue
+        before = candidate_tokens[:index]
+        after = candidate_tokens[index + len(target_tokens) :]
+        if before:
+            continue
+        if not after:
+            return True
+        if all(token in suffix_allow for token in after):
+            return True
+    return False
+
+
+def _candidate_symbol_text(candidate: GraphNode) -> str:
+    return candidate.name
+
+
 def _candidate_score(
     store: Any,
     target: GraphNode,
@@ -115,27 +231,42 @@ def _candidate_score(
     target_tokens: list[str],
     target_squashed: str,
 ) -> tuple[int, str, list[str]]:
+    del target_tokens, target_squashed
     evidence: list[str] = []
-    candidate_identity = f"{candidate.qualified_name} {candidate.name}".casefold()
-    candidate_squashed = _squashed_identifier(candidate_identity)
+    candidate_identity = (
+        f"{candidate.qualified_name} {candidate.name} {candidate.file_path}".casefold()
+    )
+    candidate_symbol = _candidate_symbol_text(candidate)
+    module_linked, module_evidence = _candidate_references_target_module(store, target, candidate)
+    suffix_allow = _target_module_markers(target)
 
-    if target_squashed and target_squashed in candidate_squashed:
-        evidence.append("test node name references target symbol")
-        return 80, "medium", evidence
+    if module_linked:
+        evidence.extend(module_evidence)
+        if _name_matches_target_symbol(
+            target.name,
+            candidate_symbol,
+            allowed_suffix_tokens=suffix_allow,
+        ):
+            evidence.append("test node name references target symbol")
+            return 80, "medium", evidence
 
-    if target_tokens and all(token in candidate_identity for token in target_tokens):
-        evidence.append("test node qualified name contains target tokens")
-        return 70, "medium", evidence
+        span = _span_text(store, candidate)
+        if span and _name_matches_target_symbol(
+            target.name,
+            span,
+            allowed_suffix_tokens=suffix_allow,
+        ):
+            evidence.append("test source references target symbol")
+            return 65, "medium", evidence
 
-    span = _span_text(store, candidate)
-    if span and target.name.casefold() in span:
-        evidence.append("test source references target symbol")
-        return 65, "medium", evidence
-
-    target_file_stem = Path(target.file_path).stem.casefold()
-    if target_file_stem and target_file_stem in candidate_identity:
+    target_file_stem = _target_file_stem(target)
+    if target_file_stem and _contains_word(candidate_identity, target_file_stem):
         evidence.append("test node name references target file stem")
         return 35, "low", evidence
+
+    if _name_matches_target_symbol(target.name, candidate_symbol):
+        evidence.append("test node name resembles target symbol (no module link)")
+        return 25, "low", evidence
 
     return 0, "low", evidence
 
@@ -159,8 +290,15 @@ def infer_tests_for_node(
 
     direct_edges = []
     seen_direct_edge_ids: set[int] = set()
-    for source_key in dict.fromkeys([target.qualified_name, target.name]):
-        for edge in store.get_edges_by_source(source_key):
+    for edge in store.get_edges_by_source(target.qualified_name):
+        if edge.kind != "TESTED_BY":
+            continue
+        if edge.id in seen_direct_edge_ids:
+            continue
+        seen_direct_edge_ids.add(edge.id)
+        direct_edges.append(edge)
+    if not direct_edges:
+        for edge in store.get_edges_by_source(target.name):
             if edge.kind != "TESTED_BY":
                 continue
             if edge.id in seen_direct_edge_ids:
