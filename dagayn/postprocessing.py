@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from .graph import GraphStore
+from .graph._sql import _edge_target_name
 from .state_types import (
     DroppedMarkdownArtifactResolution,
     MarkdownArtifactResolution,
@@ -153,15 +154,21 @@ def _markdown_artifact_resolution(
         qname, lang = matches[0]
         new_extra = dict(extra)
         new_extra["target_language"] = lang
-        new_extra["confidence"] = 0.8
-        new_extra["confidence_tier"] = "HIGH"
+        if is_implicit_code_span:
+            confidence = 0.4
+            confidence_tier = "MEDIUM"
+        else:
+            confidence = 0.8
+            confidence_tier = "HIGH"
+        new_extra["confidence"] = confidence
+        new_extra["confidence_tier"] = confidence_tier
         return build_markdown_artifact_resolution(
             state="resolved" if current_target.startswith("<unresolved:") else "re_resolved",
             edge_id=edge_id,
             target_qualified=qname,
             target_language=lang,
-            confidence=0.8,
-            confidence_tier="HIGH",
+            confidence=confidence,
+            confidence_tier=confidence_tier,
             extra=new_extra,
         )
 
@@ -312,7 +319,9 @@ def _resolve_markdown_artifact_refs(
                 )
 
         # Compute desired state; only UPDATE/DELETE rows where the state actually changes
-        to_update: list[tuple] = []  # (new_target, new_extra_json, confidence, tier, edge_id)
+        to_update: list[
+            tuple
+        ] = []  # (new_target, target_name, new_extra_json, confidence, tier, edge_id)
         to_delete: list[tuple[int]] = []
 
         for edge_id, current_target, sym, extra in edge_data:
@@ -332,6 +341,7 @@ def _resolve_markdown_artifact_refs(
                 to_update.append(
                     (
                         qname,
+                        _edge_target_name(qname),
                         json.dumps(decision.extra),
                         decision.confidence,
                         decision.confidence_tier,
@@ -357,6 +367,7 @@ def _resolve_markdown_artifact_refs(
                 to_update.append(
                     (
                         decision.target_qualified,
+                        _edge_target_name(decision.target_qualified),
                         json.dumps(decision.extra),
                         decision.confidence,
                         decision.confidence_tier,
@@ -368,7 +379,7 @@ def _resolve_markdown_artifact_refs(
         if to_update:
             store._conn.executemany(
                 "UPDATE edges "
-                "SET target_qualified=?, extra=?, confidence=?, confidence_tier=? "
+                "SET target_qualified=?, target_name=?, extra=?, confidence=?, confidence_tier=? "
                 "WHERE id=?",
                 to_update,
             )
@@ -558,13 +569,15 @@ def _resolve_terraform_artifact_refs(
             new_extra["target_language"] = lang
             new_extra["confidence"] = 0.8
             new_extra["confidence_tier"] = "HIGH"
-            to_update.append((qname, json.dumps(new_extra), 0.8, "HIGH", edge_id))
+            to_update.append(
+                (qname, _edge_target_name(qname), json.dumps(new_extra), 0.8, "HIGH", edge_id)
+            )
             resolved += 1
 
         if to_update:
             store._conn.executemany(
                 "UPDATE edges "
-                "SET target_qualified=?, extra=?, confidence=?, confidence_tier=? "
+                "SET target_qualified=?, target_name=?, extra=?, confidence=?, confidence_tier=? "
                 "WHERE id=?",
                 to_update,
             )

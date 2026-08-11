@@ -333,6 +333,21 @@ def _run_postprocess(
             warnings.append(f"Markdown artifact ref resolution failed: {type(e).__name__}: {e}")
 
         try:
+            from dagayn.postprocessing import _resolve_terraform_artifact_refs
+
+            _tf_result: dict[str, Any] = {}
+            _resolve_terraform_artifact_refs(store, _tf_result, warnings)
+            build_result["terraform_artifact_refs_resolved"] = _tf_result.get(
+                "terraform_artifact_refs_resolved", 0
+            )
+            build_result["terraform_artifact_refs_still_unresolved"] = _tf_result.get(
+                "terraform_artifact_refs_still_unresolved", 0
+            )
+        except (sqlite3.OperationalError, ImportError) as e:
+            logger.warning("Terraform artifact ref resolution failed: %s", e)
+            warnings.append(f"Terraform artifact ref resolution failed: {type(e).__name__}: {e}")
+
+        try:
             from dagayn.postprocessing import _apply_manifest_bridges
 
             _manifest_result: dict[str, Any] = {}
