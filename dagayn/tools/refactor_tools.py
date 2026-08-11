@@ -273,7 +273,7 @@ def refactor_func(
                 ),
                 **preview,
                 "answerability": answerability,
-                "missingness": missingness,
+                "missingness": [*missingness, *preview.get("missingness", [])],
                 "next_tool_suggestions": [
                     f"apply_refactor_tool(refactor_id='{preview['refactor_id']}', dry_run=True)"
                     " -- preview unified diff before writing files",
