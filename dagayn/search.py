@@ -708,6 +708,26 @@ def _single_provider_name(
     return next(iter(provider_counts)) if len(provider_counts) == 1 else None
 
 
+def _largest_populated_text_mode_partition(
+    provider_counts: dict[str, int],
+    *,
+    base_provider: str | None = None,
+) -> tuple[str, int] | None:
+    """Return the largest populated ``#text=`` partition, optionally scoped to one provider."""
+    from .embeddings import embedding_provider_base_name
+
+    candidates: list[tuple[str, int]] = []
+    for provider_key, count in provider_counts.items():
+        if count <= 0 or "#text=" not in provider_key:
+            continue
+        if base_provider and embedding_provider_base_name(provider_key) != base_provider:
+            continue
+        candidates.append((provider_key, count))
+    if not candidates:
+        return None
+    return max(candidates, key=lambda item: item[1])
+
+
 def _embedding_search_with_health(
     store: GraphStore,
     query: str,
@@ -765,9 +785,47 @@ def _embedding_search_with_health(
             health["auto_resolved_provider"] = provider_name_hint
         health["matching_vector_count"] = matching_count
 
+        if matching_count == 0 and text_mode:
+            from .embeddings import embedding_provider_text_mode
+
+            fallback = _largest_populated_text_mode_partition(
+                provider_counts,
+                base_provider=provider_name,
+            )
+            if fallback is not None:
+                fallback_key, fallback_count = fallback
+                fallback_mode = embedding_provider_text_mode(fallback_key)
+                if fallback_mode and fallback_mode != text_mode:
+                    emb_store = _get_cached_emb_store(
+                        store.db_path,
+                        provider,
+                        model,
+                        provider_name_hint=fallback_key,
+                        text_mode=fallback_mode,
+                    )
+                    if emb_store is not None and emb_store.available and emb_store.provider is not None:
+                        provider_key = emb_store.provider_key or fallback_key
+                        matching_count = emb_store.count_provider() or fallback_count
+                        health["resolved_provider_key"] = provider_key
+                        health["resolved_text_mode"] = fallback_mode
+                        health["text_mode_fallback"] = {
+                            "from": text_mode,
+                            "to": fallback_mode,
+                            "provider_key": fallback_key,
+                            "vector_count": matching_count,
+                        }
+                        health["matching_vector_count"] = matching_count
+
         if matching_count == 0:
             health["status"] = "provider_mismatch" if provider_counts else "missing_vectors"
             return [], health
+
+        from .embeddings import embedding_provider_text_mode
+
+        if "resolved_text_mode" not in health:
+            health["resolved_text_mode"] = (
+                embedding_provider_text_mode(provider_key) or text_mode
+            )
 
         failed_at, failure = _emb_failure_cache.get(provider_key, (0.0, ""))
         if failed_at and time.monotonic() - failed_at < _EMBEDDING_FAILURE_TTL_SECONDS:
