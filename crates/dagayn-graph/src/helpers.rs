@@ -24,18 +24,21 @@ pub(crate) fn make_qualified_parts(
 }
 
 pub(crate) fn remove_file_data_tx(tx: &Transaction<'_>, file_path: &str) -> Result<()> {
+    crate::fts_sync::delete_fts_for_file_paths_tx(tx, &[file_path.to_string()])?;
     tx.execute(
         "DELETE FROM risk_index WHERE node_id IN (SELECT id FROM nodes WHERE file_path = ?)",
         [file_path],
     )?;
     tx.execute("DELETE FROM edges WHERE file_path = ?", [file_path])?;
     tx.execute("DELETE FROM nodes WHERE file_path = ?", [file_path])?;
+    crate::fts_sync::set_fts_watermark_tx(tx, None)?;
     Ok(())
 }
 
 pub(crate) fn remove_files_data_tx(tx: &Transaction<'_>, file_paths: &[String]) -> Result<()> {
     tx.execute("DELETE FROM hub_scores", [])?;
     tx.execute("DELETE FROM bridge_scores", [])?;
+    crate::fts_sync::delete_fts_for_file_paths_tx(tx, file_paths)?;
     for chunk in file_paths.chunks(450) {
         if chunk.is_empty() {
             continue;
@@ -53,6 +56,7 @@ pub(crate) fn remove_files_data_tx(tx: &Transaction<'_>, file_paths: &[String]) 
         let nodes_sql = format!("DELETE FROM nodes WHERE file_path IN ({placeholders})");
         tx.execute(&nodes_sql, rusqlite::params_from_iter(chunk))?;
     }
+    crate::fts_sync::set_fts_watermark_tx(tx, None)?;
     Ok(())
 }
 
@@ -429,6 +433,25 @@ pub(crate) fn community_json_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Resu
     }))
 }
 
+pub(crate) fn sync_fts_after_file_batch_tx(
+    tx: &Transaction<'_>,
+    file_paths: &[String],
+) -> Result<()> {
+    let repo_root = tx
+        .query_row(
+            "SELECT value FROM metadata WHERE key = 'repo_root'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    crate::fts_sync::sync_fts_for_file_paths_tx(
+        tx,
+        file_paths,
+        repo_root.as_deref().map(Path::new),
+    )?;
+    Ok(())
+}
+
 pub(crate) fn store_file_batch_tx(
     tx: &Transaction<'_>,
     batch: &[FileBatchItem],
@@ -531,6 +554,7 @@ pub(crate) fn store_file_batch_tx(
     if suspend_indexes {
         create_graph_write_indexes(tx)?;
     }
+    sync_fts_after_file_batch_tx(tx, &file_paths)?;
     Ok(())
 }
 
@@ -638,6 +662,7 @@ pub(crate) fn store_raw_compact_file_batch_tx(
     if suspend_indexes {
         create_graph_write_indexes(tx)?;
     }
+    sync_fts_after_file_batch_tx(tx, &file_paths)?;
     Ok(())
 }
 

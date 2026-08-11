@@ -7,7 +7,6 @@ boosting for relevance tuning.
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 import sqlite3
@@ -17,7 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
 from .graph import GraphStore, _sanitize_name
-from .graph._fts_tokenize import segment_japanese_fts_text
+from .graph._fts_sync import fts_index_health, rebuild_fts_index_tx
 
 if TYPE_CHECKING:
     from .embeddings import EmbeddingStore
@@ -104,111 +103,6 @@ _FTS_DDL = """
 """
 
 _IDENT_BOUNDARY_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
-_IDENT_SPLIT_RE = re.compile(r"[^A-Za-z0-9]+")
-_MARKDOWN_HEADING_RE = re.compile(r"^(#{1,6})\s+")
-
-
-def _identifier_search_text(*values: object) -> str:
-    """Return identifier-friendly tokens for FTS (camel/snake/path split)."""
-    tokens: list[str] = []
-    for value in values:
-        if not value:
-            continue
-        for chunk in _IDENT_SPLIT_RE.split(str(value)):
-            if not chunk:
-                continue
-            tokens.extend(part.lower() for part in _IDENT_BOUNDARY_RE.sub(" ", chunk).split())
-    return " ".join(tokens)
-
-
-def _resolve_node_file(repo_root: Path | None, file_path_value: str) -> Path | None:
-    file_path = Path(file_path_value)
-    if not file_path.is_absolute():
-        if repo_root is None:
-            return None
-        file_path = repo_root / file_path
-    return file_path
-
-
-def _read_node_source_excerpt(
-    repo_root: Path | None,
-    row: Any,
-    file_lines_cache: dict[Path, list[str] | None] | None = None,
-) -> str:
-    """Read a bounded source/doc span for FTS, best-effort and side-effect free."""
-    file_path = _resolve_node_file(repo_root, row["file_path"])
-    if file_path is None:
-        return ""
-    if file_lines_cache is not None and file_path in file_lines_cache:
-        lines = file_lines_cache[file_path]
-    else:
-        try:
-            lines = file_path.read_text(encoding="utf-8", errors="replace").splitlines()
-        except OSError:
-            lines = None
-        if file_lines_cache is not None:
-            file_lines_cache[file_path] = lines
-    if lines is None:
-        return ""
-
-    line_start = row["line_start"] or 1
-    line_end = row["line_end"] or line_start
-    start = max(int(line_start) - 1, 0)
-    end = min(max(int(line_end), int(line_start)), len(lines))
-
-    if row["kind"] == "DocSection":
-        level = None
-        if start < len(lines):
-            match = _MARKDOWN_HEADING_RE.match(lines[start])
-            if match:
-                level = len(match.group(1))
-        end = len(lines)
-        for idx in range(start + 1, len(lines)):
-            match = _MARKDOWN_HEADING_RE.match(lines[idx])
-            if match and (level is None or len(match.group(1)) <= level):
-                end = idx
-                break
-
-    return "\n".join(lines[start:end])[:4096]
-
-
-def _fts_rows(conn: Any, repo_root: Path | None) -> list[tuple]:
-    rows = conn.execute(
-        "SELECT rowid AS node_rowid, kind, name, qualified_name, file_path, line_start, line_end, "
-        "signature, extra FROM nodes"
-    ).fetchall()
-    out = []
-    file_lines_cache: dict[Path, list[str] | None] = {}
-    for row in rows:
-        try:
-            extra = json.loads(row["extra"] or "{}")
-        except (TypeError, json.JSONDecodeError):
-            extra = {}
-        display_name = extra.get("display_name", "")
-        identifier_tokens = _identifier_search_text(
-            row["name"], row["qualified_name"], row["file_path"], display_name
-        )
-        doc_text = " ".join(
-            part
-            for part in (
-                str(display_name) if display_name else "",
-                _read_node_source_excerpt(repo_root, row, file_lines_cache),
-            )
-            if part
-        )
-        doc_text = segment_japanese_fts_text(doc_text)
-        out.append(
-            (
-                row["node_rowid"],
-                row["name"],
-                row["qualified_name"],
-                row["file_path"],
-                row["signature"] or "",
-                identifier_tokens,
-                doc_text,
-            )
-        )
-    return out
 
 
 def rebuild_fts_index(store: GraphStore) -> int:
@@ -239,26 +133,14 @@ def rebuild_fts_index(store: GraphStore) -> int:
         conn.rollback()
     conn.execute("BEGIN IMMEDIATE")
     try:
-        # Drop and recreate the FTS table. This is intentionally not an
-        # external-content FTS table: identifier_tokens/doc_text are generated
-        # search fields, not columns in nodes.
-        conn.execute("DROP TABLE IF EXISTS nodes_fts")
-        conn.execute(_FTS_DDL)
-
         repo_root_value = getattr(store, "get_metadata", lambda _key: None)("repo_root")
         repo_root = Path(repo_root_value) if repo_root_value else None
-        conn.executemany(
-            "INSERT INTO nodes_fts(rowid, name, qualified_name, file_path, signature, "
-            "identifier_tokens, doc_text) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            _fts_rows(conn, repo_root),
-        )
-
+        count = rebuild_fts_index_tx(conn, repo_root)
         conn.commit()
     except BaseException:
         conn.rollback()
         raise
 
-    count = conn.execute("SELECT count(*) FROM nodes_fts").fetchone()[0]
     logger.info("FTS index rebuilt: %d rows indexed", count)
     return count
 
@@ -849,6 +731,7 @@ def hybrid_search(
         return {"mode": "empty", "results": []}
 
     fetch_limit = limit * 3  # Fetch extra to allow for filtering and boosting
+    fts_health = fts_index_health(store._conn)
 
     # ------ Phase 1: Gather ranked lists ------
     fts_results: list[tuple[int, float]] = []
@@ -874,6 +757,19 @@ def hybrid_search(
                 fts_results.extend(extra)
     except _FTS_QUERY_ERRORS as e:
         logger.warning("FTS5 unavailable, will use fallback: %s", e)
+
+    if fts_results:
+        valid_ids = set(store.get_nodes_by_ids([nid for nid, _ in fts_results]).keys())
+        dropped = len(fts_results) - sum(1 for nid, _ in fts_results if nid in valid_ids)
+        if dropped:
+            logger.warning(
+                "Dropped %d stale FTS row(s); nodes_count=%s fts_count=%s",
+                dropped,
+                fts_health.get("nodes_count"),
+                fts_health.get("fts_count"),
+            )
+            fts_health = {**fts_health, "status": "stale", "dropped_ghost_rows": dropped}
+        fts_results = [(nid, score) for nid, score in fts_results if nid in valid_ids]
 
     # Try embedding search
     emb_results, embedding_health = _embedding_search_with_health(
@@ -1012,5 +908,6 @@ def hybrid_search(
         "mode": mode,
         "results": results,
         "embedding_health": embedding_health,
+        "fts_health": fts_health,
         "rerank_intent": rerank_intent,
     }

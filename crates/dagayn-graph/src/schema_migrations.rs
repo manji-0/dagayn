@@ -205,4 +205,18 @@ impl GraphStore {
         self.conn.execute_batch(CENTRALITY_SCORE_SCHEMA_SQL)?;
         Ok(())
     }
+
+    pub(crate) fn migrate_v15(&self) -> Result<()> {
+        let needs_rebuild = {
+            let tx = self.conn.unchecked_transaction()?;
+            let needs = crate::fts_sync::fts_needs_rebuild_tx(&tx)?;
+            tx.commit()?;
+            needs
+        };
+        if needs_rebuild {
+            let repo_root = self.get_metadata("repo_root")?.map(PathBuf::from);
+            crate::fts_sync::rebuild_fts_index_tx(&self.conn, repo_root.as_deref())?;
+        }
+        Ok(())
+    }
 }
