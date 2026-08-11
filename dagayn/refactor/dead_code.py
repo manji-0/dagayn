@@ -8,6 +8,13 @@ import re
 from pathlib import Path
 from typing import Any, Optional
 
+from ..cross_artifact import (
+    cross_artifact_role,
+    edge_extra,
+    is_cross_artifact,
+    is_reportable_bridge,
+    is_unresolved_target,
+)
 from ..flows import _has_framework_decorator, _matches_entry_name
 from ..graph import GraphStore, _sanitize_name
 
@@ -53,6 +60,17 @@ _STRUCTURAL_CLASS_ROLES = frozenset(
 )
 _VALUE_CONTAINER_CLASS_ROLES = frozenset({"struct", "enum", "record"})
 _VALUE_CONTAINER_DERIVE_TRAITS = frozenset({"Serialize", "Deserialize"})
+
+# Configuration / manifest languages are not executable deletion targets.
+_CONFIG_ARTIFACT_LANGUAGES = frozenset(
+    {
+        "terraform",
+        "hcl",
+        "json",
+        "yaml",
+        "toml",
+    }
+)
 
 
 @functools.lru_cache(maxsize=4096)
@@ -229,13 +247,63 @@ def _dead_code_confidence(
     public_api_candidate: bool,
     name_definition_count: int,
     source_available: bool,
+    reachable_via_cross_artifact: bool = False,
 ) -> str:
     extra = node.extra if isinstance(node.extra, dict) else {}
-    if public_api_candidate or _has_value_container_metadata(extra):
+    if public_api_candidate or _has_value_container_metadata(extra) or reachable_via_cross_artifact:
         return "low"
     if name_definition_count > 1 or not source_available:
         return "low"
     return "medium"
+
+
+def _cross_artifact_symbol_name(edge: Any) -> str | None:
+    """Return the handler/entrypoint symbol referenced by a CROSS_ARTIFACT edge."""
+    if not is_cross_artifact(edge):
+        return None
+    extra = edge_extra(edge)
+    sym = extra.get("original_symbol_name")
+    if isinstance(sym, str) and sym:
+        return sym
+    target = str(getattr(edge, "target_qualified", "") or "")
+    if target.startswith("<unresolved:") and target.endswith(">"):
+        return target[len("<unresolved:") : -1]
+    return None
+
+
+def _maps_entrypoint_symbol_matches_node(edge: Any, node: Any) -> bool:
+    """True when an unresolved maps_entrypoint bridge plausibly names *node*."""
+    if cross_artifact_role(edge) != "maps_entrypoint":
+        return False
+    sym = _cross_artifact_symbol_name(edge)
+    if not sym:
+        return False
+    if "." in sym:
+        _, _, attr = sym.rpartition(".")
+        return node.name == attr
+    return node.name == sym
+
+
+def _incoming_cross_artifact_reachability(
+    incoming: list[Any],
+    *,
+    unresolved_entrypoints: list[Any],
+    node: Any,
+) -> tuple[bool, bool]:
+    """Return ``(has_reportable_reference, has_unresolved_entrypoint_match)``."""
+    has_reportable = False
+    for edge in incoming:
+        if not is_cross_artifact(edge):
+            continue
+        if is_reportable_bridge(edge):
+            has_reportable = True
+            break
+
+    has_unresolved_entrypoint = any(
+        is_unresolved_target(edge) and _maps_entrypoint_symbol_matches_node(edge, node)
+        for edge in unresolved_entrypoints
+    )
+    return has_reportable, has_unresolved_entrypoint
 
 
 def _is_value_container_type_node(node: Any) -> bool:
@@ -250,7 +318,7 @@ def _survives_dead_code_node_filters(
     type_ref_names: set[str],
     class_bases: dict[str, list[str]],
 ) -> bool:
-    if node.language == "markdown":
+    if node.language in _CONFIG_ARTIFACT_LANGUAGES or node.language == "markdown":
         return False
     if node.is_test or _is_test_file(node.file_path):
         return False
@@ -322,6 +390,7 @@ def _dead_code_record(
     public_api_candidate: bool,
     name_definition_count: int,
     source_available: bool,
+    reachable_via_cross_artifact: bool = False,
 ) -> dict[str, Any]:
     reason_codes = []
     if caller_count == 0:
@@ -336,6 +405,8 @@ def _dead_code_record(
         reason_codes.append("no_subclasses")
     if public_api_candidate:
         reason_codes.append("public_api_candidate")
+    if reachable_via_cross_artifact:
+        reason_codes.append("reachable_via_cross_artifact")
     if name_definition_count > 1:
         reason_codes.append("ambiguous_symbol_name")
     if not source_available:
@@ -350,6 +421,11 @@ def _dead_code_record(
             "Public API symbols may be consumed outside the indexed graph; verify "
             "downstream users before deleting."
         )
+    if reachable_via_cross_artifact:
+        caveats.append(
+            "An unresolved manifest or Terraform entrypoint bridge references this "
+            "symbol; verify runtime wiring before deleting."
+        )
 
     return {
         "name": _sanitize_name(node.name),
@@ -363,6 +439,7 @@ def _dead_code_record(
             public_api_candidate=public_api_candidate,
             name_definition_count=name_definition_count,
             source_available=source_available,
+            reachable_via_cross_artifact=reachable_via_cross_artifact,
         ),
         "public_api_candidate": public_api_candidate,
         "reason_codes": reason_codes,
@@ -374,6 +451,7 @@ def _dead_code_record(
             "subclass_count": subclass_count,
             "name_definition_count": name_definition_count,
             "source_available": source_available,
+            "reachable_via_cross_artifact": reachable_via_cross_artifact,
         },
         "caveats": caveats,
     }
@@ -572,6 +650,20 @@ def find_dead_code(
         for qn, n in store.get_nodes_by_qualified_names(list(base_method_qns_set)).items():
             base_nodes_map[qn] = n
 
+    unresolved_entrypoint_by_name: dict[str, list[Any]] = {}
+    for row in conn.execute(
+        "SELECT * FROM edges "
+        "WHERE kind = 'CROSS_ARTIFACT' AND target_qualified LIKE '<unresolved:%'"
+    ).fetchall():
+        edge = store._row_to_edge(row)
+        if cross_artifact_role(edge) != "maps_entrypoint":
+            continue
+        sym = _cross_artifact_symbol_name(edge)
+        if not sym:
+            continue
+        key = sym.rpartition(".")[2] if "." in sym else sym
+        unresolved_entrypoint_by_name.setdefault(key, []).append(edge)
+
     # ---------------------------------------------------------------------------
     # Pass 2: main dead-code analysis using preloaded data (no SQL in the loop)
     # ---------------------------------------------------------------------------
@@ -636,9 +728,31 @@ def find_dead_code(
         has_importers = any(e.kind == "IMPORTS_FROM" for e in incoming)
         has_references = any(e.kind == "REFERENCES" for e in incoming)
         has_subclasses = any(e.kind == "INHERITS" for e in incoming)
+        caller_count = sum(1 for e in incoming if e.kind == "CALLS")
+        test_ref_count = len(tested_by_edges)
+        importer_count = sum(1 for e in incoming if e.kind == "IMPORTS_FROM")
+        reference_count = sum(1 for e in incoming if e.kind == "REFERENCES")
+        subclass_count = sum(1 for e in incoming if e.kind == "INHERITS")
+        has_reportable_cross_artifact, has_unresolved_entrypoint = (
+            _incoming_cross_artifact_reachability(
+                incoming,
+                unresolved_entrypoints=unresolved_entrypoint_by_name.get(node.name, []),
+                node=node,
+            )
+        )
+        if has_reportable_cross_artifact:
+            has_references = True
+            reference_count += sum(
+                1 for e in incoming if is_cross_artifact(e) and is_reportable_bridge(e)
+            )
 
         no_refs = not (
-            has_callers or has_test_refs or has_importers or has_references or has_subclasses
+            has_callers
+            or has_test_refs
+            or has_importers
+            or has_references
+            or has_subclasses
+            or has_unresolved_entrypoint
         )
         if node.kind == "Class" and no_refs:
             bare_prefix = node.name + "."
@@ -646,17 +760,25 @@ def find_dead_code(
             if member_calls > 0:
                 has_callers = True
 
-        caller_count = sum(1 for e in incoming if e.kind == "CALLS")
-        test_ref_count = len(tested_by_edges)
-        importer_count = sum(1 for e in incoming if e.kind == "IMPORTS_FROM")
-        reference_count = sum(1 for e in incoming if e.kind == "REFERENCES")
-        subclass_count = sum(1 for e in incoming if e.kind == "INHERITS")
-
-        if not (has_callers or has_test_refs or has_importers or has_references or has_subclasses):
+        if not (
+            has_callers
+            or has_test_refs
+            or has_importers
+            or has_references
+            or has_subclasses
+            or has_unresolved_entrypoint
+        ):
             if not has_callers and _has_callers_via_base_method(conn, node, class_bases):
                 has_callers = True
 
-            if not has_callers:
+            if not (
+                has_callers
+                or has_test_refs
+                or has_importers
+                or has_references
+                or has_subclasses
+                or has_unresolved_entrypoint
+            ):
                 lines = source_cache.setdefault(
                     node.file_path, _load_source_lines(store, node.file_path)
                 )
@@ -673,6 +795,7 @@ def find_dead_code(
                         public_api_candidate=public_api_candidate,
                         name_definition_count=name_counts.get(node.name, 0),
                         source_available=source_available,
+                        reachable_via_cross_artifact=has_unresolved_entrypoint,
                     )
                 )
 

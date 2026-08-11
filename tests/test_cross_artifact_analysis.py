@@ -417,6 +417,18 @@ class TestCrossArtifactReviewGuidance:
 
 
 class TestCrossArtifactHelpers:
+    def test_unresolved_high_target_is_low_confidence(self):
+        edge = _EdgeView(
+            _bridge(
+                source="infra/main.tf::resource.aws_lambda_function.auth",
+                target="<unresolved:serve>",
+                file_path="infra/main.tf",
+                tier="HIGH",
+            )
+        )
+        assert not is_reportable_bridge(edge)
+        assert is_low_confidence_bridge(edge)
+
     def test_reportable_vs_low_confidence(self):
         high = _EdgeView(
             _bridge(

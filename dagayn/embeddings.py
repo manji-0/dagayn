@@ -33,7 +33,10 @@ from .embeddings_store import (
     _native_embedding_search_prewarm,
     _np_vec_cache,
     embed_all_nodes,
+    get_embedding_provider_counts,
     get_embedding_status,
+    read_active_embedding_provider_metadata,
+    resolve_active_embedding_provider,
 )
 from .embeddings_text import _node_to_text
 
@@ -57,7 +60,10 @@ __all__ = [
     "embed_all_nodes",
     "embedding_provider_base_name",
     "embedding_provider_text_mode",
+    "get_embedding_provider_counts",
     "get_embedding_status",
     "get_provider",
     "provider_from_persisted_name",
+    "read_active_embedding_provider_metadata",
+    "resolve_active_embedding_provider",
 ]

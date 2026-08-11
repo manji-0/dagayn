@@ -7,8 +7,8 @@ from ._mixin_protocol import GraphStoreMixinProtocol
 
 #: Derived tables that reference ``nodes.id`` / each other, ordered so a parent
 #: is pruned only after the children that could keep it alive. Each entry is
-#: ``(table, DELETE predicate)``.
-_ORPHAN_PRUNE_STEPS: tuple[tuple[str, str], ...] = (
+#: ``(table, DELETE predicate)`` or ``(table, None)`` for custom handlers.
+_ORPHAN_PRUNE_STEPS: tuple[tuple[str, str | None], ...] = (
     (
         "flow_memberships",
         "NOT EXISTS (SELECT 1 FROM nodes n WHERE n.id = flow_memberships.node_id)",
@@ -23,7 +23,7 @@ _ORPHAN_PRUNE_STEPS: tuple[tuple[str, str], ...] = (
     ),
     (
         "communities",
-        "NOT EXISTS (SELECT 1 FROM nodes n WHERE n.community_id = communities.id)",
+        None,
     ),
     (
         "community_summaries",
@@ -157,6 +157,14 @@ class GraphStoreMaintenanceMixin(GraphStoreMixinProtocol):
             deleted.update(repaired)
         for table, predicate in _ORPHAN_PRUNE_STEPS:
             try:
+                if predicate is None:
+                    if table == "communities":
+                        from ..communities import refresh_community_stats
+
+                        stats = refresh_community_stats(self)
+                        if stats["updated"] or stats["deleted"]:
+                            deleted[table] = stats["updated"] + stats["deleted"]
+                    continue
                 cursor = self._conn.execute(f"DELETE FROM {table} WHERE {predicate}")  # noqa: S608
             except sqlite3.OperationalError:
                 # Table absent on an older schema — nothing to prune.

@@ -508,21 +508,32 @@ def _resolve_flow_entry_qn(
     return None
 
 
+def _normalize_changed_file_keys(store: GraphStore, changed_files: list[str]) -> list[str]:
+    keys: set[str] = set()
+    for file_path in changed_files:
+        keys.add(file_path)
+        normalized = store._normalize_file_path_key(file_path)
+        if normalized != file_path:
+            keys.add(normalized)
+    return list(keys)
+
+
 def _get_affected_flow_ids(store: GraphStore, changed_files: list[str]) -> list[int]:
     """Locate flows that touch *changed_files* even after node ids were replaced."""
     if not changed_files:
         return []
 
+    lookup_files = _normalize_changed_file_keys(store, changed_files)
+    changed_file_set = set(lookup_files)
     conn = store._conn
-    changed_file_set = set(changed_files)
     affected: set[int] = set()
-    placeholders = ",".join("?" * len(changed_files))
+    placeholders = ",".join("?" * len(lookup_files))
 
     for row in conn.execute(  # nosec B608
         f"SELECT DISTINCT fm.flow_id FROM flow_memberships fm "
         f"JOIN nodes n ON n.id = fm.node_id "
         f"WHERE n.file_path IN ({placeholders})",
-        changed_files,
+        lookup_files,
     ):
         affected.add(int(row[0]))
 
@@ -530,7 +541,7 @@ def _get_affected_flow_ids(store: GraphStore, changed_files: list[str]) -> list[
         f"SELECT f.id FROM flows f "
         f"JOIN nodes n ON n.id = f.entry_point_id "
         f"WHERE n.file_path IN ({placeholders})",
-        changed_files,
+        lookup_files,
     ):
         affected.add(int(row[0]))
 
@@ -545,7 +556,7 @@ def _get_affected_flow_ids(store: GraphStore, changed_files: list[str]) -> list[
         f"SELECT DISTINCT f.id FROM flows f, json_each(f.path_json) AS je "
         f"JOIN nodes n ON n.id = CAST(je.value AS INTEGER) "
         f"WHERE n.file_path IN ({placeholders})",
-        changed_files,
+        lookup_files,
     ):
         affected.add(int(row[0]))
 
@@ -560,7 +571,7 @@ def _get_affected_flow_ids(store: GraphStore, changed_files: list[str]) -> list[
         row["qualified_name"]
         for row in conn.execute(  # nosec B608
             f"SELECT qualified_name FROM nodes WHERE file_path IN ({placeholders})",
-            changed_files,
+            lookup_files,
         )
     }
 
@@ -874,6 +885,22 @@ def _collect_cross_artifact_edges_among(
         return []
 
 
+def _annotate_flow_step_resolution(flow: dict) -> dict:
+    """Add resolved/missing step counts for stored flow paths."""
+    path_ids = flow.get("path") or []
+    steps = flow.get("steps") or []
+    resolved_step_count = len(steps)
+    if path_ids:
+        missing_step_count = len(path_ids) - resolved_step_count
+    else:
+        stored_node_count = int(flow.get("node_count") or resolved_step_count)
+        missing_step_count = max(0, stored_node_count - resolved_step_count)
+    annotated = dict(flow)
+    annotated["resolved_step_count"] = resolved_step_count
+    annotated["missing_step_count"] = missing_step_count
+    return annotated
+
+
 def _annotate_flow_dict_bridges(store: GraphStore, flow: dict) -> dict:
     """Mark bridge arrivals on a flow dict (shared by Rust and Python paths)."""
     from .cross_artifact import annotate_flow_steps_with_bridges
@@ -890,7 +917,7 @@ def _annotate_flow_dict_bridges(store: GraphStore, flow: dict) -> dict:
     annotated["bridge_step_count"] = sum(
         1 for step in annotated["steps"] if step.get("is_bridge_step")
     )
-    return annotated
+    return _annotate_flow_step_resolution(annotated)
 
 
 def get_flow_by_id(store: GraphStore, flow_id: int) -> Optional[dict]:
@@ -946,9 +973,11 @@ def _hydrate_flow_rows(
         path_ids = paths_by_flow[row["id"]]
         steps: list[dict] = []
         path_qns: list[str] = []
+        missing_step_count = 0
         for nid in path_ids:
             node = nodes_by_id.get(nid)
             if node is None:
+                missing_step_count += 1
                 continue
             path_qns.append(node.qualified_name)
             steps.append(
@@ -962,6 +991,7 @@ def _hydrate_flow_rows(
                     "qualified_name": _sanitize_name(node.qualified_name),
                 }
             )
+        resolved_step_count = len(steps)
 
         bridge_edges: list[Any] = []
         if path_qns:
@@ -987,6 +1017,8 @@ def _hydrate_flow_rows(
                 "criticality": row["criticality"],
                 "path": path_ids,
                 "steps": steps,
+                "resolved_step_count": resolved_step_count,
+                "missing_step_count": missing_step_count,
                 "bridge_step_count": bridge_step_count,
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"],

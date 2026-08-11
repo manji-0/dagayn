@@ -232,16 +232,34 @@ def _run_local_embedding(
     }
 
 
+def _prune_orphaned_structures(store: Any, build_result: dict[str, Any]) -> list[str]:
+    """Prune derived rows orphaned by a re-parse; return warning strings."""
+    warnings: list[str] = []
+    try:
+        prune = getattr(store, "prune_orphaned_graph_structures", None)
+        if callable(prune):
+            pruned = prune()
+            store.commit()
+            if pruned:
+                build_result["orphans_pruned"] = pruned
+    except (sqlite3.OperationalError, RuntimeError, TypeError) as e:
+        logger.warning("Orphaned structure pruning failed: %s", e)
+        warnings.append(f"Orphaned structure pruning failed: {type(e).__name__}: {e}")
+    return warnings
+
+
 def _run_postprocess(
     store: Any,
     build_result: dict[str, Any],
     postprocess: str,
     full_rebuild: bool = False,
     changed_files: list[str] | None = None,
+    pre_affected_communities: int = 0,
     skip_minimal_steps: bool = False,
     skip_flow_steps: bool = False,
     skip_community_steps: bool = False,
     skip_summary_steps: bool = False,
+    skip_orphan_prune: bool = False,
 ) -> list[str]:
     """Run post-build steps based on *postprocess* level.
 
@@ -315,6 +333,21 @@ def _run_postprocess(
             warnings.append(f"Markdown artifact ref resolution failed: {type(e).__name__}: {e}")
 
         try:
+            from dagayn.postprocessing import _resolve_terraform_artifact_refs
+
+            _tf_result: dict[str, Any] = {}
+            _resolve_terraform_artifact_refs(store, _tf_result, warnings)
+            build_result["terraform_artifact_refs_resolved"] = _tf_result.get(
+                "terraform_artifact_refs_resolved", 0
+            )
+            build_result["terraform_artifact_refs_still_unresolved"] = _tf_result.get(
+                "terraform_artifact_refs_still_unresolved", 0
+            )
+        except (sqlite3.OperationalError, ImportError) as e:
+            logger.warning("Terraform artifact ref resolution failed: %s", e)
+            warnings.append(f"Terraform artifact ref resolution failed: {type(e).__name__}: {e}")
+
+        try:
             from dagayn.postprocessing import _apply_manifest_bridges
 
             _manifest_result: dict[str, Any] = {}
@@ -329,23 +362,10 @@ def _run_postprocess(
             logger.warning("Manifest bridge extraction failed: %s", e)
             warnings.append(f"Manifest bridge extraction failed: {type(e).__name__}: {e}")
 
-        # Re-parsing a file gives its nodes new ids, orphaning the flow
-        # memberships / community assignments / risk rows that referenced the
-        # old ones. Flow and community detection only runs at "full", which no
-        # hook uses, so prune here or ``flow_tool`` keeps serving flows whose
-        # entire path was deleted.
-        try:
-            prune = getattr(store, "prune_orphaned_graph_structures", None)
-            if callable(prune):
-                pruned = prune()
-                store.commit()
-                if pruned:
-                    build_result["orphans_pruned"] = pruned
-        except (sqlite3.OperationalError, RuntimeError, TypeError) as e:
-            logger.warning("Orphaned structure pruning failed: %s", e)
-            warnings.append(f"Orphaned structure pruning failed: {type(e).__name__}: {e}")
-
     if postprocess == "minimal":
+        if not skip_orphan_prune:
+            warnings.extend(_prune_orphaned_structures(store, build_result))
+
         # The minimal path returns before the bottom of this function, so record
         # the level here too. Leaving the previous run's ``postprocess_level``
         # in place made a graph whose flows had just been pruned still advertise
@@ -397,7 +417,11 @@ def _run_postprocess(
                     incremental_detect_communities,
                 )
 
-                count = incremental_detect_communities(store, changed_files or [])
+                count = incremental_detect_communities(
+                    store,
+                    changed_files or [],
+                    pre_affected_count=pre_affected_communities or None,
+                )
             else:
                 from dagayn.communities import (
                     detect_communities as _detect_communities,
@@ -412,6 +436,9 @@ def _run_postprocess(
         except (sqlite3.OperationalError, RuntimeError, ImportError) as e:
             logger.warning("Community detection failed: %s", e)
             warnings.append(f"Community detection failed: {type(e).__name__}: {e}")
+
+    if not skip_orphan_prune:
+        warnings.extend(_prune_orphaned_structures(store, build_result))
 
     if not skip_summary_steps:
         # -- Compute pre-computed summary tables --
@@ -505,12 +532,14 @@ def _compute_summaries(store: Any) -> None:
             "SELECT id, name, size, dominant_language FROM communities"
         ).fetchall()
         for r in community_rows:
-            cid, cname, csize, clang = r[0], r[1], r[2], r[3]
+            cid, cname, _csize, clang = r[0], r[1], r[2], r[3]
+            live_members = nodes_by_comm.get(cid, [])
+            live_size = len(live_members)
 
             # Top 5 symbols by total edge count (in + out). Python's
             # sorted() is stable so ties break by original row order.
             members = sorted(
-                nodes_by_comm.get(cid, []),
+                live_members,
                 key=lambda nc: nc[1],
                 reverse=True,
             )
@@ -528,7 +557,7 @@ def _compute_summaries(store: Any) -> None:
                 "INSERT OR REPLACE INTO community_summaries "
                 "(community_id, name, purpose, key_symbols, size, dominant_language) "
                 "VALUES (?, ?, ?, ?, ?, ?)",
-                (cid, cname, purpose, key_syms, csize, clang or ""),
+                (cid, cname, purpose, key_syms, live_size, clang or ""),
             )
         conn.commit()
     except sqlite3.OperationalError:
@@ -740,6 +769,7 @@ def build_or_update_graph(
             "summary": "Skipped: another hook-triggered dagayn update is already running.",
         }
     try:
+        pre_affected_communities = 0
         if full_rebuild:
             result = full_build(root, store, recurse_submodules)
             build_result = {
@@ -753,6 +783,13 @@ def build_or_update_graph(
                 **result,
             }
         else:
+            from dagayn.communities import count_affected_communities
+            from dagayn.incremental import get_changed_files
+
+            pre_affected_communities = 0
+            preview_changed = get_changed_files(root, base)
+            if preview_changed:
+                pre_affected_communities = count_affected_communities(store, preview_changed)
             result = incremental_update(root, store, base=base)
             if result["files_updated"] == 0:
                 build_result = {
@@ -802,6 +839,7 @@ def build_or_update_graph(
                 postprocess,
                 full_rebuild=full_rebuild,
                 changed_files=changed,
+                pre_affected_communities=pre_affected_communities,
             )
         elif (
             postprocess == "full"
@@ -834,6 +872,8 @@ def build_or_update_graph(
                 "minimal",
                 full_rebuild=full_rebuild,
                 changed_files=changed,
+                pre_affected_communities=pre_affected_communities,
+                skip_orphan_prune=True,
             )
             if can_trace_rust_flows:
                 try:
@@ -868,7 +908,9 @@ def build_or_update_graph(
                         from dagayn.communities import incremental_detect_communities
 
                         build_result["communities_detected"] = incremental_detect_communities(
-                            store, changed or []
+                            store,
+                            changed or [],
+                            pre_affected_count=pre_affected_communities or None,
                         )
                 except (sqlite3.OperationalError, RuntimeError, ImportError) as e:
                     logger.warning("Community detection failed: %s", e)
@@ -887,6 +929,7 @@ def build_or_update_graph(
                     postprocess,
                     full_rebuild=full_rebuild,
                     changed_files=changed,
+                    pre_affected_communities=pre_affected_communities,
                     skip_minimal_steps=True,
                     skip_flow_steps=True,
                     skip_community_steps=True,
@@ -902,6 +945,7 @@ def build_or_update_graph(
                     postprocess,
                     full_rebuild=full_rebuild,
                     changed_files=changed,
+                    pre_affected_communities=pre_affected_communities,
                 )
             finally:
                 if close_pp_store:
