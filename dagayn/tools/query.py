@@ -1443,9 +1443,7 @@ def traverse_graph_func(
         if budget_exceeded:
             summary_suffix = " Output was truncated to fit the token budget."
         elif unresolved_count:
-            summary_suffix = (
-                f" Traversal stopped at {unresolved_count} unresolvable endpoint(s)."
-            )
+            summary_suffix = f" Traversal stopped at {unresolved_count} unresolvable endpoint(s)."
         return make_response(
             "ok",
             f"Traversed {len(traversal)} node(s) from '{start_qn}' up to depth {depth}."

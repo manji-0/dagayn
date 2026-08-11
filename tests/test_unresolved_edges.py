@@ -104,9 +104,7 @@ def test_imports_of_flags_unresolved_import_target(
     )
 
     assert result["status"] == "ok"
-    assert result["results"] == [
-        {"import_target": "/repo/missing_module.py", "unresolved": True}
-    ]
+    assert result["results"] == [{"import_target": "/repo/missing_module.py", "unresolved": True}]
     assert result["unresolved_count"] == 1
     assert result["unresolved_targets"] == ["/repo/missing_module.py"]
 
@@ -229,10 +227,7 @@ def test_traverse_dfs_reexpands_when_shorter_path_exists(
         repo_root=str(root),
     )
 
-    depths = {
-        entry["qualified_name"]: entry["depth"]
-        for entry in result["traversal"]
-    }
+    depths = {entry["qualified_name"]: entry["depth"] for entry in result["traversal"]}
     assert depths["/repo/app.py::target"] == 1
 
 
