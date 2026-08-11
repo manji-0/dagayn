@@ -101,6 +101,7 @@ class GraphStoreStorageBatchMixin(GraphStoreMixinProtocol):
             if not chunk:
                 continue
             placeholders = ",".join("?" for _ in chunk)
+            self.remove_node_keyed_rows_for_files(chunk)
             self._conn.execute(
                 f"DELETE FROM nodes WHERE file_path IN ({placeholders})",
                 chunk,

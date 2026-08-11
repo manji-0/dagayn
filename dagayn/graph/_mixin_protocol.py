@@ -54,6 +54,8 @@ class GraphStoreMixinProtocol(Protocol):
 
     def remove_files_data(self, file_paths: list[str], *, invalidate: bool = True) -> None: ...
 
+    def remove_node_keyed_rows_for_files(self, file_keys: list[str]) -> None: ...
+
     def _bulk_insert_nodes(
         self,
         nodes: list[NodeInfo],

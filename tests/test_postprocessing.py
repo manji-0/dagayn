@@ -780,3 +780,26 @@ class TestTerraformArtifactResolver:
         ).fetchone()
         assert row["target_qualified"] == "<unresolved:serve>"
         assert row["confidence_tier"] == "HIGH"
+
+
+class TestPostprocessLevelMetadata:
+    """A minimal run must record that it was minimal."""
+
+    def test_minimal_postprocess_records_its_level(self):
+        from dagayn.tools.build import _run_postprocess
+
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as handle:
+            db_path = handle.name
+        try:
+            store = GraphStore(db_path)
+            try:
+                store.set_metadata("postprocess_level", "full")
+                _run_postprocess(store, {}, "minimal", full_rebuild=True)
+                # Returning early used to leave the previous level in place, so
+                # a graph whose flows were never computed advertised "full".
+                assert store.get_metadata("postprocess_level") == "minimal"
+                assert store.get_metadata("last_postprocessed_at")
+            finally:
+                store.close()
+        finally:
+            Path(db_path).unlink(missing_ok=True)

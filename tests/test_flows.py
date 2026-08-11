@@ -649,3 +649,86 @@ class TestFlows:
         assert count >= 1
         violations = conn.execute("PRAGMA foreign_key_check").fetchall()
         assert len(violations) == 0
+
+
+class TestOrphanedStructurePruning:
+    """Re-parsing a file must not leave flows pointing at deleted nodes."""
+
+    def setup_method(self):
+        self.tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self.store = GraphStore(self.tmp.name)
+
+    def teardown_method(self):
+        self.store.close()
+        Path(self.tmp.name).unlink(missing_ok=True)
+
+    def _flow_graph(self) -> None:
+        for name in ("entry", "callee"):
+            self.store.upsert_node(
+                NodeInfo(
+                    kind="Function",
+                    name=name,
+                    file_path="app.py",
+                    line_start=1,
+                    line_end=10,
+                    language="python",
+                ),
+                file_hash="abc",
+            )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CALLS",
+                source="app.py::entry",
+                target="app.py::callee",
+                file_path="app.py",
+                line=5,
+            )
+        )
+        self.store.commit()
+        store_flows(self.store, trace_flows(self.store))
+        assert len(get_flows(self.store)) >= 1
+
+    def _dangling_memberships(self) -> int:
+        row = self.store._conn.execute(
+            "SELECT COUNT(*) FROM flow_memberships m "
+            "LEFT JOIN nodes n ON n.id = m.node_id WHERE n.id IS NULL"
+        ).fetchone()
+        return row[0]
+
+    def test_replacing_a_file_leaves_no_dangling_memberships(self):
+        self._flow_graph()
+
+        # Same content, new node ids — what every re-parse does.
+        self.store.store_file_nodes_edges(
+            "app.py",
+            [
+                NodeInfo(
+                    kind="Function",
+                    name="entry",
+                    file_path="app.py",
+                    line_start=1,
+                    line_end=10,
+                    language="python",
+                )
+            ],
+            [],
+            fhash="def",
+        )
+
+        assert self._dangling_memberships() == 0
+
+    def test_prune_sweeps_flows_that_lost_every_member(self):
+        self._flow_graph()
+
+        # Simulate a graph that was rebuilt by a path which bypasses the Python
+        # store (the Rust backend), leaving the derived tables behind.
+        self.store._conn.execute("DELETE FROM nodes")
+        self.store.commit()
+        assert self._dangling_memberships() > 0
+
+        pruned = self.store.prune_orphaned_graph_structures()
+        self.store.commit()
+
+        assert pruned["flow_memberships"] > 0
+        assert self._dangling_memberships() == 0
+        assert get_flows(self.store) == []

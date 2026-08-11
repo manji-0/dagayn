@@ -256,6 +256,20 @@ def _run_postprocess(
     if postprocess == "none":
         return warnings
 
+    if postprocess == "minimal":
+        # Record the level for the minimal path, which returns before the
+        # bottom of this function: leaving the previous run's
+        # ``postprocess_level`` in place made a graph whose flows had just been
+        # pruned still advertise itself as fully post-processed.
+        #
+        # Recorded up front rather than next to the early return on purpose.
+        # Writing metadata *after* the minimal steps have run leaves the Rust
+        # store's database unopenable ("sqlite error: disk I/O error" on the
+        # next connect) — a defect in the native store that the full path does
+        # not hit. Every step below reports failures as warnings instead of
+        # raising, so the level recorded here is the level the run delivers.
+        _record_postprocess_level(store, postprocess)
+
     if not skip_minimal_steps:
         # -- Signatures + FTS (fast, always run unless "none") --
         try:
@@ -329,7 +343,24 @@ def _run_postprocess(
             logger.warning("Manifest bridge extraction failed: %s", e)
             warnings.append(f"Manifest bridge extraction failed: {type(e).__name__}: {e}")
 
+        # Re-parsing a file gives its nodes new ids, orphaning the flow
+        # memberships / community assignments / risk rows that referenced the
+        # old ones. Flow and community detection only runs at "full", which no
+        # hook uses, so prune here or ``flow_tool`` keeps serving flows whose
+        # entire path was deleted.
+        try:
+            prune = getattr(store, "prune_orphaned_graph_structures", None)
+            if callable(prune):
+                pruned = prune()
+                store.commit()
+                if pruned:
+                    build_result["orphans_pruned"] = pruned
+        except (sqlite3.OperationalError, RuntimeError, TypeError) as e:
+            logger.warning("Orphaned structure pruning failed: %s", e)
+            warnings.append(f"Orphaned structure pruning failed: {type(e).__name__}: {e}")
+
     if postprocess == "minimal":
+        # ``postprocess_level`` was recorded at the top of this function.
         return warnings
 
     # -- Expensive: flows + communities (only for "full") --
@@ -384,13 +415,18 @@ def _run_postprocess(
             logger.warning("Summary computation failed: %s", e)
             warnings.append(f"Summary computation failed: {type(e).__name__}: {e}")
 
+    _record_postprocess_level(store, postprocess)
+
+    return warnings
+
+
+def _record_postprocess_level(store: Any, postprocess: str) -> None:
+    """Persist which post-processing level the graph last received."""
     store.set_metadata(
         "last_postprocessed_at",
         time.strftime("%Y-%m-%dT%H:%M:%S"),
     )
     store.set_metadata("postprocess_level", postprocess)
-
-    return warnings
 
 
 def _compute_summaries(store: Any) -> None:

@@ -98,6 +98,7 @@ class GraphStoreStorageMixin(GraphStoreMixinProtocol):
         if normalized != file_path:
             keys.append(normalized)
         placeholders = ",".join("?" for _ in keys)
+        self.remove_node_keyed_rows_for_files(keys)
         self._conn.execute(
             f"DELETE FROM nodes WHERE file_path IN ({placeholders})",
             tuple(keys),

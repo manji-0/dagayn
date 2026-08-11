@@ -119,6 +119,30 @@ existed, `dagayn update` defaulted to `HEAD~1` and stamped HEAD regardless: an
 edit hook firing after a multi-commit `git pull` indexed the last commit only,
 then reported the graph as synced with the intervening files silently missing.
 
+## Derived tables across a re-parse
+
+Flows, community assignments, and the risk index are keyed on `nodes.id`, and
+re-parsing a file deletes its nodes and inserts new ones with new autoincrement
+ids. Flow and community detection only runs at `postprocess=full`, which no hook
+uses — every hook and `session prepare` run at `minimal` — so the derived rows
+would otherwise be left pointing at nodes that no longer exist, and `flow_tool`
+would keep serving flows whose entire path was deleted commits ago.
+
+Two guards keep that from happening:
+
+* the file-replacement paths (`remove_file_data` / `remove_files_data`) drop the
+  node-keyed rows for that file before its nodes go;
+* `minimal` post-processing runs a repository-wide sweep
+  (`prune_orphaned_graph_structures`) for rows orphaned by a path that bypasses
+  the Python store, such as the Rust backend, reporting counts as
+  `orphans_pruned`.
+
+Pruning leaves the graph honest rather than complete: after a rebuild at
+`minimal`, flows and communities are *absent*, not stale, and
+`graph_health` / answerability reports the gap. Run `dagayn postprocess` (or
+`dagayn build` without `--skip-flows`) to recompute them. `minimal` runs also
+record `postprocess_level` now, so a graph cannot claim a level it never got.
+
 ## Lifecycle flow
 
 ```mermaid
