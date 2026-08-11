@@ -19,6 +19,7 @@ fn creates_current_schema() {
     assert!(table_exists(&store.conn, "hub_scores").unwrap());
     assert!(table_exists(&store.conn, "bridge_scores").unwrap());
     assert!(has_column(&store.conn, "edges", "confidence_tier").unwrap());
+    assert!(has_column(&store.conn, "edges", "target_name").unwrap());
     let _ = std::fs::remove_file(path);
 }
 
@@ -42,6 +43,124 @@ fn migrate_v14_creates_centrality_tables_for_existing_db() {
     assert_eq!(store.schema_version().unwrap(), LATEST_VERSION);
     assert!(table_exists(&store.conn, "hub_scores").unwrap());
     assert!(table_exists(&store.conn, "bridge_scores").unwrap());
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn store_file_batch_populates_edge_target_name() {
+    let path = temp_db("edge-target-name");
+    let mut store = GraphStore::open(&path).expect("open graph store");
+    let file = NodeInput {
+        kind: "File".to_string(),
+        name: "app.py".to_string(),
+        file_path: "app.py".to_string(),
+        line_start: 1,
+        line_end: 1,
+        language: "python".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: Value::Object(Default::default()),
+    };
+    let caller = NodeInput {
+        kind: "Function".to_string(),
+        name: "main".to_string(),
+        file_path: "app.py".to_string(),
+        line_start: 1,
+        line_end: 3,
+        language: "python".to_string(),
+        parent_name: None,
+        params: Some("()".to_string()),
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: Value::Object(Default::default()),
+    };
+    store
+        .store_file_batch(&[(
+            "app.py".to_string(),
+            vec![file, caller],
+            vec![EdgeInput {
+                kind: "CALLS".to_string(),
+                source: "app.py::main".to_string(),
+                target: "app.py::helper".to_string(),
+                file_path: "app.py".to_string(),
+                line: 2,
+                extra: Value::Object(Default::default()),
+            }],
+            "hash".to_string(),
+            0,
+        )])
+        .expect("store file batch");
+
+    let (target_qualified, target_name): (String, String) = store
+        .conn
+        .query_row(
+            "SELECT target_qualified, target_name FROM edges WHERE kind = 'CALLS'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(target_qualified, "app.py::helper");
+    assert_eq!(target_name, "helper");
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn ensure_edge_target_name_backfills_legacy_edges_without_column() {
+    let path = temp_db("legacy-target-name");
+    {
+        let conn = rusqlite::Connection::open(&path).expect("open sqlite db");
+        conn.execute_batch(
+            r#"
+            CREATE TABLE edges (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                kind TEXT NOT NULL,
+                source_qualified TEXT NOT NULL,
+                target_qualified TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                line INTEGER DEFAULT 0,
+                extra TEXT DEFAULT '{}',
+                confidence REAL DEFAULT 1.0,
+                confidence_tier TEXT DEFAULT 'EXTRACTED',
+                updated_at REAL NOT NULL
+            );
+            CREATE TABLE metadata (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+            INSERT INTO edges
+                (kind, source_qualified, target_qualified, file_path, line, extra,
+                 confidence, confidence_tier, updated_at)
+            VALUES
+                ('CALLS', 'app.py::main', 'app.py::helper', 'app.py', 2, '{}', 1.0, 'EXTRACTED', 1.0),
+                ('CALLS', 'worker.py::run', 'helper', 'worker.py', 4, '{}', 1.0, 'EXTRACTED', 1.0);
+            INSERT INTO metadata (key, value) VALUES ('schema_version', '14');
+            "#,
+        )
+        .unwrap();
+    }
+
+    let store = GraphStore::open(&path).expect("open graph store");
+    assert!(has_column(&store.conn, "edges", "target_name").unwrap());
+
+    let rows = store
+        .conn
+        .prepare("SELECT target_qualified, target_name FROM edges ORDER BY id")
+        .unwrap()
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        .unwrap()
+        .map(|row| row.unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        rows,
+        vec![
+            ("app.py::helper".to_string(), "helper".to_string()),
+            ("helper".to_string(), "helper".to_string()),
+        ]
+    );
     let _ = std::fs::remove_file(path);
 }
 

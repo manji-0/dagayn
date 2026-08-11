@@ -142,30 +142,42 @@ class GraphStoreImpactMixin(GraphStoreMixinProtocol):
             JOIN edges e ON e.target_qualified = i.node_qn
             WHERE i.depth < ?
               AND {_REPORTABLE_BRIDGE_SQL}
+        ),
+        aggregated AS (
+            SELECT node_qn, MIN(depth) AS min_depth
+            FROM impacted
+            GROUP BY node_qn
         )
-        SELECT DISTINCT node_qn, MIN(depth) AS min_depth
-        FROM impacted
-        GROUP BY node_qn
-        LIMIT ?
         """
+        count_row = self._conn.execute(
+            f"""
+            {cte_sql}
+            SELECT COUNT(*) FROM aggregated
+            WHERE node_qn NOT IN (SELECT qn FROM _impact_seeds)
+            """,
+            (max_depth, max_depth),
+        ).fetchone()
+        total_impacted = int(count_row[0]) if count_row else 0
+
         rows = self._conn.execute(
-            cte_sql,
-            (max_depth, max_depth, max_nodes + len(seeds)),
+            f"""
+            {cte_sql}
+            SELECT node_qn, min_depth FROM aggregated
+            WHERE node_qn NOT IN (SELECT qn FROM _impact_seeds)
+            ORDER BY min_depth, node_qn
+            LIMIT ?
+            """,
+            (max_depth, max_depth, max_nodes),
         ).fetchall()
 
-        impacted_qns: set[str] = set()
-        for r in rows:
-            qn = r[0]
-            if qn not in seeds:
-                impacted_qns.add(qn)
+        impacted_qns = {r[0] for r in rows}
+        depth_by_qn = {r[0]: r[1] for r in rows}
 
         changed_nodes = self._batch_get_nodes(seeds)
         impacted_nodes = self._batch_get_nodes(impacted_qns)
+        impacted_nodes.sort(key=lambda n: (depth_by_qn.get(n.qualified_name, 0), n.qualified_name))
 
-        total_impacted = len(impacted_nodes)
         truncated = total_impacted > max_nodes
-        if truncated:
-            impacted_nodes = impacted_nodes[:max_nodes]
 
         impacted_files = list({n.file_path for n in impacted_nodes})
 
@@ -255,42 +267,44 @@ class GraphStoreImpactMixin(GraphStoreMixinProtocol):
         frontier = seeds.copy()
         depth = 0
         impacted: set[str] = set()
+        impacted_depth: dict[str, int] = {}
 
         while frontier and depth < max_depth:
             visited.update(frontier)
             next_frontier: set[str] = set()
+            next_depth = depth + 1
             for qn in frontier:
                 if qn in nxg:
                     for neighbor in nxg.neighbors(qn):
-                        if neighbor in visited:
+                        if neighbor in visited or neighbor in seeds:
                             continue
                         edge_data = nxg.get_edge_data(qn, neighbor)
                         if not _nx_edge_allows_impact(edge_data, qn, neighbor):
                             continue
                         next_frontier.add(neighbor)
-                        impacted.add(neighbor)
+                        if neighbor not in impacted_depth:
+                            impacted_depth[neighbor] = next_depth
+                            impacted.add(neighbor)
                     for pred in nxg.predecessors(qn):
-                        if pred in visited:
+                        if pred in visited or pred in seeds:
                             continue
                         edge_data = nxg.get_edge_data(pred, qn)
                         if not _nx_edge_allows_impact(edge_data, pred, qn):
                             continue
                         next_frontier.add(pred)
-                        impacted.add(pred)
+                        if pred not in impacted_depth:
+                            impacted_depth[pred] = next_depth
+                            impacted.add(pred)
             next_frontier -= visited
-            if len(visited) + len(next_frontier) > max_nodes:
-                break
             frontier = next_frontier
             depth += 1
 
         changed_nodes = self._batch_get_nodes(seeds)
-        impacted_qns = impacted - seeds
-        impacted_nodes = self._batch_get_nodes(impacted_qns)
-
-        total_impacted = len(impacted_nodes)
+        total_impacted = len(impacted)
         truncated = total_impacted > max_nodes
-        if truncated:
-            impacted_nodes = impacted_nodes[:max_nodes]
+        limited_qns = sorted(impacted, key=lambda qn: (impacted_depth[qn], qn))[:max_nodes]
+        impacted_nodes = self._batch_get_nodes(set(limited_qns))
+        impacted_nodes.sort(key=lambda n: (impacted_depth[n.qualified_name], n.qualified_name))
 
         impacted_files = list({n.file_path for n in impacted_nodes})
 
