@@ -35,6 +35,64 @@ RUST_OWNED_PARITY_FIXTURES = [
 ]
 
 
+def test_get_affected_flows_absolute_path_matches_rust_backend(tmp_path):
+    """Python and Rust stores return the same affected flows for absolute paths."""
+    try:
+        from dagayn._core import GraphStore as RustGraphStore
+    except ImportError as exc:
+        pytest.skip(f"Rust extension is not available: {exc}")  # ty: ignore[too-many-positional-arguments]
+
+    from dagayn.flows import get_affected_flows, store_flows, trace_flows
+    from dagayn.graph import GraphStore as PythonGraphStore
+    from dagayn.parser import EdgeInfo, NodeInfo
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    db_path = repo / ".dagayn" / "graph.db"
+
+    store = PythonGraphStore(db_path)
+    store.set_metadata("repo_root", str(repo.resolve()))
+    try:
+        nodes = [
+            NodeInfo("Function", "handler", "routes.py", 1, 10, "python"),
+            NodeInfo("Function", "service", "services.py", 1, 10, "python"),
+            NodeInfo("Function", "repo", "repo.py", 1, 10, "python"),
+        ]
+        for node in nodes:
+            store.upsert_node(node, file_hash="abc")
+        edges = [
+            EdgeInfo("CALLS", "routes.py::handler", "services.py::service", "routes.py", 5),
+            EdgeInfo("CALLS", "services.py::service", "repo.py::repo", "services.py", 5),
+        ]
+        for edge in edges:
+            store.upsert_edge(edge)
+        store.commit()
+        store_flows(store, trace_flows(store))
+    finally:
+        store.close()
+
+    abs_path = str((repo / "services.py").resolve())
+
+    py_store = PythonGraphStore(db_path)
+    try:
+        py_result = get_affected_flows(py_store, [abs_path])
+    finally:
+        py_store.close()
+
+    rust_store = RustGraphStore(db_path)
+    try:
+        rust_affected = json.loads(rust_store.get_affected_flows_json([abs_path]))
+    finally:
+        rust_store.close()
+
+    assert py_result["total"] >= 1
+    assert py_result["total"] == len(rust_affected)
+    py_names = {flow["name"] for flow in py_result["affected_flows"]}
+    rust_names = {flow["name"] for flow in rust_affected}
+    assert py_names == rust_names
+
+
 def test_rust_backend_is_default_when_extension_is_available(monkeypatch):
     """DAGAYN_BACKEND defaults to Rust when the native extension can be loaded."""
     monkeypatch.delenv("DAGAYN_BACKEND", raising=False)
