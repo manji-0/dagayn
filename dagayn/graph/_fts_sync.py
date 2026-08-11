@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from ._fts_content import build_fts_insert_row
+from ._fts_tokenize import FTS_SEGMENTER_METADATA_KEY, detect_fts_segmenter
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +63,10 @@ def set_fts_watermark(conn: Any, *, node_count: int | None = None) -> None:
     conn.execute(
         "INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)",
         (FTS_BUILT_AT_KEY, str(time.time())),
+    )
+    conn.execute(
+        "INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)",
+        (FTS_SEGMENTER_METADATA_KEY, detect_fts_segmenter()),
     )
 
 

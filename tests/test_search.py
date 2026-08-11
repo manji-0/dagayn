@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from dagayn import fts_tokenize
+from dagayn.graph._fts_tokenize import FTS_SEGMENTER_METADATA_KEY
 from dagayn.embeddings import _encode_vector
 from dagayn.graph import GraphStore
 from dagayn.graph import _fts_tokenize as graph_fts_tokenize
@@ -238,6 +239,53 @@ class TestHybridSearch:
         results = hybrid_search(self.store, "GraphStore 自然言語検索")["results"]
         assert results
         assert results[0]["qualified_name"] == "docs/design.md::japanese-search"
+
+    def test_fts_search_finds_cjk_symbol_without_source(self):
+        """CJK symbol names are searchable via identifier_tokens even without source text."""
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="ユーザー取得",
+                file_path="jp.py",
+                line_start=1,
+                line_end=5,
+                language="python",
+            ),
+            file_hash="abc123",
+        )
+        self.store.commit()
+        rebuild_fts_index(self.store)
+
+        assert self.store.get_metadata(FTS_SEGMENTER_METADATA_KEY) is not None
+
+        row = self.store._conn.execute(
+            "SELECT identifier_tokens, doc_text FROM nodes_fts WHERE name = ?",
+            ("ユーザー取得",),
+        ).fetchone()
+        assert "ユー" in row["identifier_tokens"]
+        assert "取得" in row["identifier_tokens"]
+
+        for query in ("ユーザー取得", "ユーザー"):
+            results = self.store.fts_query(query)
+            assert results.hits, f"expected hits for {query!r}"
+
+        hs = hybrid_search(self.store, "ユーザー取得")
+        assert hs["results"]
+        assert hs["results"][0]["name"] == "ユーザー取得"
+
+    def test_fts_query_uses_persisted_segmenter(self, monkeypatch):
+        """Queries segment with the index-time segmenter recorded in metadata."""
+        self.store.set_metadata(FTS_SEGMENTER_METADATA_KEY, "bigram")
+        calls: list[str | None] = []
+        original = graph_search.segment_japanese_fts_text
+
+        def recording_segment(text, *, segmenter=None):
+            calls.append(segmenter)
+            return original(text, segmenter=segmenter)
+
+        monkeypatch.setattr(graph_search, "segment_japanese_fts_text", recording_segment)
+        self.store.fts_query("自然言語検索")
+        assert calls == ["bigram"]
 
     # --- Kind boosting ---
 

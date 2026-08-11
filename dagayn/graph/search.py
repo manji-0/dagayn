@@ -4,7 +4,7 @@ import logging
 import re
 import sqlite3
 
-from ._fts_tokenize import segment_japanese_fts_text
+from ._fts_tokenize import FTS_SEGMENTER_METADATA_KEY, segment_japanese_fts_text
 from ._mixin_protocol import GraphStoreMixinProtocol
 from .types import FtsQueryResult, GraphEdge, GraphNode
 
@@ -148,7 +148,8 @@ class GraphStoreSearchMixin(GraphStoreMixinProtocol):
 
         Returns an empty result when the FTS index is unavailable.
         """
-        fts_query = segment_japanese_fts_text(query)
+        segmenter = self.get_metadata(FTS_SEGMENTER_METADATA_KEY)
+        fts_query = segment_japanese_fts_text(query, segmenter=segmenter)
         safe_query, fallback_query, fallback_mode = _build_fts_match_queries(fts_query)
         sql = (
             "SELECT rowid, bm25(nodes_fts, 8.0, 6.0, 3.0, 4.0, 5.0, 1.0) AS score "

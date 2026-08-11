@@ -7,7 +7,12 @@ import re
 from pathlib import Path
 from typing import Any
 
-from ._fts_tokenize import segment_japanese_fts_text
+from ._fts_tokenize import (
+    FTS_SEGMENTER_METADATA_KEY,
+    detect_fts_segmenter,
+    segment_cjk_identifier_tokens,
+    segment_japanese_fts_text,
+)
 
 _IDENT_BOUNDARY_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 _IDENT_SPLIT_RE = re.compile(r"[^A-Za-z0-9]+")
@@ -133,6 +138,9 @@ def build_node_fts_values(
     display_name = str(extra_data.get("display_name", "") or "")
     signature_value = signature or ""
     identifier_tokens = identifier_search_text(name, qualified_name, file_path, display_name)
+    cjk_tokens = segment_cjk_identifier_tokens(name)
+    if cjk_tokens:
+        identifier_tokens = " ".join(part for part in (identifier_tokens, cjk_tokens) if part)
     source_excerpt = read_node_source_excerpt(
         repo_root,
         kind=kind,
