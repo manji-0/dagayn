@@ -637,11 +637,7 @@ class EmbeddingStore:
         self.available = self.provider is not None
         self.db_path = Path(db_path)
         self.text_mode = _embedding_text_mode(text_mode)
-        self.provider_key = (
-            _embedding_provider_key(self.provider.name, self.text_mode)
-            if self.provider is not None
-            else None
-        )
+        self._provider_key_override: str | None = None
         self.source_root = Path(source_root) if source_root is not None else None
         self.graph_facts_by_qualified_name: dict[str, dict[str, list[str]]] = {}
         self._conn = sqlite3.connect(
@@ -670,6 +666,18 @@ class EmbeddingStore:
 
     def close(self) -> None:
         self._conn.close()
+
+    @property
+    def provider_key(self) -> str | None:
+        if self._provider_key_override is not None:
+            return self._provider_key_override
+        if self.provider is None:
+            return None
+        return _embedding_provider_key(self.provider.name, self.text_mode)
+
+    @provider_key.setter
+    def provider_key(self, value: str | None) -> None:
+        self._provider_key_override = value
 
     def checkpoint_writes(self, *, truncate: bool = False) -> None:
         """Checkpoint pending WAL pages after embedding writes."""
