@@ -141,6 +141,42 @@ def _print_vcs_status(repo_root: Path, store: object) -> None:
             )
 
 
+#: What to do about each graph sync state, for ``dagayn status`` readers.
+_SYNC_STATE_HINTS = {
+    "unbuilt": "no graph yet — run 'dagayn build'",
+    "commit_drift": "graph describes another commit — run 'dagayn update'",
+    "commit_synced": "graph matches HEAD",
+    "worktree_behind": "uncommitted or reverted edits are not in the graph — run 'dagayn update'",
+    "worktree_ahead": "graph already includes the uncommitted edits",
+}
+
+
+def _print_sync_state(repo_root: Path, store: object) -> None:
+    """Print the graph's freshness state from the single authority for it.
+
+    ``_print_vcs_status`` only compares commits, so it stays silent when the
+    graph holds content the tree no longer has (an indexed edit that was later
+    discarded). Report the assessed state so status cannot disagree with what
+    ``session prepare`` and the MCP tools act on.
+    """
+    from ...tools.sync_status import assess_graph_sync
+
+    try:
+        sync = assess_graph_sync(store, repo_root)
+    except Exception as exc:  # noqa: BLE001 — status must never fail on this
+        logging.debug("Could not assess graph sync state: %s", exc)
+        return
+
+    state = str(sync.get("state") or "")
+    hint = _SYNC_STATE_HINTS.get(state)
+    print(f"Graph state: {state}" + (f" — {hint}" if hint else ""))
+    pending = sync.get("pending_files") or []
+    if pending:
+        shown = ", ".join(pending[:5])
+        more = f" (+{len(pending) - 5} more)" if len(pending) > 5 else ""
+        print(f"  Needs re-indexing: {shown}{more}")
+
+
 def register_commands(sub: argparse._SubParsersAction) -> dict:
     """Register build/update/postprocess/watch/status/visualize subcommands."""
 
@@ -168,7 +204,11 @@ def register_commands(sub: argparse._SubParsersAction) -> dict:
 
     # update
     update_cmd = sub.add_parser("update", help="Incremental update (only changed files)")
-    update_cmd.add_argument("--base", default="HEAD~1", help="Git diff base (default: HEAD~1)")
+    update_cmd.add_argument(
+        "--base",
+        default=None,
+        help=("Git diff base (default: the commit the graph was built at, falling back to HEAD~1)"),
+    )
     update_cmd.add_argument("--repo", default=None, help="Repository root (auto-detected)")
     update_cmd.add_argument(
         "--skip-flows",
@@ -446,7 +486,7 @@ def handle(args: argparse.Namespace) -> None:
         seed = ensure_worktree_graph(repo_root)
         if seed.seeded:
             print(f"Inherited graph from {seed.source} (this worktree had none)")
-            if seed.base_sha and getattr(args, "base", None) == "HEAD~1":
+            if seed.base_sha and getattr(args, "base", None) is None:
                 args.base = seed.base_sha
 
     db_path = get_db_path(repo_root)
@@ -510,10 +550,17 @@ def handle(args: argparse.Namespace) -> None:
             )
             from ...tools.build import build_or_update_graph
 
+            # Diff against the commit the graph actually describes — the same
+            # base order as ``session prepare`` / ``worktree sync``. Defaulting
+            # to HEAD~1 silently skipped every commit in between: an edit hook
+            # firing after a multi-commit ``git pull`` would index only the last
+            # commit's files and then stamp the new HEAD as the graph's commit.
+            base = args.base or store.get_metadata("git_head_sha") or "HEAD~1"
+
             result = build_or_update_graph(
                 full_rebuild=False,
                 repo_root=str(repo_root),
-                base=args.base,
+                base=base,
                 postprocess=pp,
                 local_embedding=getattr(args, "local_embedding", "none"),
                 local_embedding_mode=getattr(args, "local_embedding_mode", None),
@@ -557,6 +604,7 @@ def handle(args: argparse.Namespace) -> None:
             print(f"Last updated: {stats.last_updated or 'never'}")
             _print_embedding_status(db_path)
             _print_vcs_status(repo_root, store)
+            _print_sync_state(repo_root, store)
 
         elif args.command == "watch":
             from ...postprocessing import run_post_processing

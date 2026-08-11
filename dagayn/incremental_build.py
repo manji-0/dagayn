@@ -24,8 +24,8 @@ from .incremental_files import (
     _rust_backend_enabled,
     _should_ignore,
     _store_vcs_metadata,
-    base_ref_is_resolvable,
     collect_all_files,
+    resolve_commit_sha,
 )
 from .parser import CodeParser
 from .parser.dispatch import detect_language as _detect_parser_language
@@ -808,6 +808,28 @@ def full_build(
     }
 
 
+def _diff_covers_graph_commit(repo_root: Path, store: GraphStore, base: str) -> bool:
+    """Return True when ``diff base..HEAD`` covers everything the graph misses.
+
+    ``git diff`` compares trees, not history, so a base that resolves to the
+    exact commit the graph was built at yields the complete file-level delta —
+    including files reverted along the way. Any other base may leave commits
+    unexamined, so its result must not be recorded as "the graph describes
+    HEAD".
+
+    A graph with no stored commit (pre-metadata graphs, non-git working copies)
+    keeps the historical behaviour: there is nothing to fall short of, and
+    refusing to stamp would strand it in permanent drift.
+    """
+    resolved_base = resolve_commit_sha(repo_root, base)
+    if resolved_base is None:
+        return False
+    stored = store.get_metadata("git_head_sha") or None
+    if not stored:
+        return True
+    return resolved_base == stored
+
+
 def incremental_update(
     repo_root: Path,
     store: GraphStore,
@@ -821,25 +843,33 @@ def incremental_update(
 
     # Determine changed files
     change_file_sources: dict[str, list[str]]
-    diff_trustworthy = False
+    diff_covers_graph = False
     if changed_files is None:
         change_file_sources = _changed_file_sources(repo_root, base)
         changed_files = change_file_sources["files"]
-        diff_trustworthy = base_ref_is_resolvable(repo_root, base)
+        diff_covers_graph = _diff_covers_graph_commit(repo_root, store, base)
     else:
         change_file_sources = {"files": changed_files, "explicit": changed_files}
 
     def _record_head_when_verified() -> None:
-        """Advance ``git_head_sha`` on a no-op update whose diff was complete.
+        """Stamp ``git_head_sha`` = HEAD, but only if the diff really covered it.
 
-        Nothing needed re-parsing, so the graph already describes HEAD. Without
-        this the stored sha keeps pointing at the base commit and
-        ``assess_graph_sync`` reports ``git_drift`` forever — every session
-        start and every MCP ``auto_prepare`` re-runs a prepare that can never
-        clear the drift. Only done when the diff itself was trustworthy: an
-        unresolvable base yields an empty diff too, and that must stay drift.
+        Two failure modes this guards:
+
+        * The diff was empty because it failed, not because nothing changed
+          (unreachable base after a rebase, a shallow clone, a sha from another
+          checkout). Recording HEAD there would call an unexamined tree synced.
+        * The base did not reach the commit the graph describes, so the commits
+          in between were never parsed. ``dagayn update`` used to default to
+          ``HEAD~1``, which meant an edit hook firing after a multi-commit
+          ``git pull`` indexed the last commit only and then stamped HEAD —
+          leaving files silently missing from a graph that claimed to be synced.
+
+        Conversely, without any stamping the stored sha stays at the base commit
+        and ``assess_graph_sync`` reports ``commit_drift`` forever, re-running a
+        prepare on every session start that can never clear it.
         """
-        if not diff_trustworthy:
+        if not diff_covers_graph:
             return
         _store_vcs_metadata(repo_root, store)
         store.commit()
@@ -1086,7 +1116,10 @@ def incremental_update(
 
     store.set_metadata("last_updated", time.strftime("%Y-%m-%dT%H:%M:%S"))
     store.set_metadata("last_build_type", "incremental")
-    _store_vcs_metadata(repo_root, store)
+    if diff_covers_graph:
+        # Same contract as the no-op paths: only a diff that reached the graph's
+        # own commit proves the graph now describes HEAD.
+        _store_vcs_metadata(repo_root, store)
     store.commit()
 
     return {

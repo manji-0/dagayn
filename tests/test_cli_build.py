@@ -126,6 +126,13 @@ def test_remove_existing_graph_database_removes_sqlite_sidecars(tmp_path):
     assert all(not path.exists() for path in paths)
 
 
+def test_update_base_defaults_to_the_graphs_own_commit():
+    """A hard-coded HEAD~1 default silently skips every commit in between."""
+    args = _parser().parse_args(["update"])
+
+    assert args.base is None
+
+
 def test_update_parser_accepts_local_embedding_options():
     args = _parser().parse_args(["update", "--local-embedding", "low"])
 

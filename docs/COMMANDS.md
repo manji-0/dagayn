@@ -19,7 +19,17 @@ running the normal full parse. `--force` is accepted as a shorter alias.
 untracked files together, so new files do not need to be staged before an
 incremental graph refresh can parse them. Incremental results include
 `change_file_sources` so base-ref diffs remain distinguishable from local
-worktree changes.
+worktree changes. Its diff base defaults to the commit the graph was built at
+(`git_head_sha`), falling back to `HEAD~1` for a graph that has none: a
+hard-coded `HEAD~1` skipped every commit in between, so an edit hook firing
+after a multi-commit `git pull` parsed the last commit only. Pass `--base`
+explicitly to narrow or widen it; a base that does not reach the graph's own
+commit leaves the graph's recorded commit untouched, so
+`dagayn status` keeps reporting `commit_drift` until a prepare catches up.
+`dagayn status` also prints `Graph state:` — the assessed freshness state with
+the command that clears it, and the files needing a re-index when there are any.
+It comes from the same `assess_graph_sync` the hooks and MCP tools act on, so
+status cannot disagree with them.
 `dagayn status` prints graph totals and embedding coverage for the same
 database, including the current state (`complete`, `partial`, `stale`, `empty`,
 or `not_indexed`) and provider-level vector counts. It also prints the VCS

@@ -226,6 +226,28 @@ class TestAssessGraphSyncContract:
         assert sync["state"] == "worktree_ahead"
         assert needs_structure_prepare(sync) is False
 
+    def test_status_command_reports_the_assessed_state(self, main_repo: Path, capsys):
+        """``dagayn status`` must not disagree with what prepare acts on."""
+        from dagayn.cli.commands.build import _print_sync_state
+
+        (main_repo / "hello.py").write_text(
+            "def greet():\n    return 'discarded'\n",
+            encoding="utf-8",
+        )
+        db = main_repo / ".dagayn" / "graph.db"
+        db.parent.mkdir(parents=True, exist_ok=True)
+        store = GraphStore(str(db))
+        try:
+            full_build(main_repo, store)
+            git(main_repo, "checkout", "--", "hello.py")
+            _print_sync_state(main_repo, store)
+        finally:
+            store.close()
+
+        out = capsys.readouterr().out
+        assert "Graph state: worktree_behind" in out
+        assert "Needs re-indexing: hello.py" in out
+
     def test_legacy_status_only_payload_still_answers_predicates(self):
         """Callers holding a pre-union assessment keep working (dirty = behind)."""
         assert sync_state({"status": "git_drift"}) == "commit_drift"

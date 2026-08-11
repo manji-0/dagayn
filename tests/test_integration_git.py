@@ -218,6 +218,44 @@ def test_incremental_update_noop_advances_head_sha(git_repo: Path) -> None:
         Path(db_path).unlink(missing_ok=True)
 
 
+def test_incremental_update_narrow_base_does_not_claim_head(git_repo: Path) -> None:
+    """A base that never reaches the graph's commit leaves the drift visible.
+
+    ``diff HEAD~1..HEAD`` after two new commits parses the last one only. If
+    that stamped HEAD, the graph would report itself synced while silently
+    missing the middle commit's files, with no trigger left to fix it.
+    """
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        db_path = f.name
+
+    try:
+        store = GraphStore(db_path)
+        full_build(git_repo, store)
+        built_at = _git(git_repo, "rev-parse", "HEAD").stdout.strip()
+
+        (git_repo / "middle.py").write_text("def middle():\n    return 'middle'\n")
+        _git(git_repo, "add", "middle.py")
+        _git(git_repo, "commit", "-m", "add middle.py")
+        (git_repo / "last.py").write_text("def last():\n    return 'last'\n")
+        _git(git_repo, "add", "last.py")
+        _git(git_repo, "commit", "-m", "add last.py")
+
+        incremental_update(git_repo, store, base="HEAD~1")
+        indexed = set(store.get_file_meta_map())
+        assert "last.py" in indexed
+        assert "middle.py" not in indexed
+        assert store.get_metadata("git_head_sha") == built_at
+
+        # Diffing from the graph's own commit covers the gap and then stamps.
+        incremental_update(git_repo, store, base=built_at)
+        assert "middle.py" in set(store.get_file_meta_map())
+        head = _git(git_repo, "rev-parse", "HEAD").stdout.strip()
+        assert store.get_metadata("git_head_sha") == head
+        store.close()
+    finally:
+        Path(db_path).unlink(missing_ok=True)
+
+
 def test_incremental_update_noop_keeps_head_sha_when_base_unresolvable(
     git_repo: Path,
 ) -> None:

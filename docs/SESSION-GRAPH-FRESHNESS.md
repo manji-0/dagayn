@@ -94,6 +94,31 @@ scripts written before `state` existed; both dirty states map onto
 `dirty_worktree`. `sync_state()` accepts either shape, degrading a legacy
 `dirty_worktree` to the conservative `worktree_behind`.
 
+## Which triggers may claim "the graph describes HEAD"
+
+<!-- constrained-by ./COMMANDS.md#git-worktrees -->
+
+`git_head_sha` is what the commit tier reads, so only an update that actually
+covered the gap may write it. `incremental_update` stamps it when
+`_diff_covers_graph_commit` holds — the diff base resolves to the exact commit
+the graph was built at (`git diff` compares trees, so that base yields the
+complete file-level delta), or the graph has no stored commit at all.
+
+| Trigger | Diff base | Stamps HEAD? |
+| ------- | --------- | ------------ |
+| `dagayn build` (full) | whole tree | Yes |
+| `dagayn update` | stored `git_head_sha`, else `HEAD~1` | Yes, unless `--base` is narrower than the graph's commit |
+| `dagayn session prepare` | seeded `base_sha` → stored `git_head_sha` → `HEAD~1` | Yes |
+| `dagayn worktree sync` | `--base` → seeded `base_sha` → stored `git_head_sha` → `HEAD~1` | Yes |
+| `dagayn watch` / daemon watchers | explicit changed files | No — file-level coverage only |
+| `seed_worktree_graph` | none (copy) | Keeps the source graph's commit |
+
+An update whose base fell short leaves the stored commit alone, so the state
+stays `commit_drift` and the next prepare catches up. Before this contract
+existed, `dagayn update` defaulted to `HEAD~1` and stamped HEAD regardless: an
+edit hook firing after a multi-commit `git pull` indexed the last commit only,
+then reported the graph as synced with the intervening files silently missing.
+
 ## Lifecycle flow
 
 ```mermaid

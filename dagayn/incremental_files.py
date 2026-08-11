@@ -596,33 +596,29 @@ def _store_vcs_metadata(repo_root: Path, store: "GraphStore") -> None:
             store.set_metadata("svn_revision", rev)
 
 
-def base_ref_is_resolvable(repo_root: Path, base: str) -> bool:
-    """Return True when git can resolve *base* to a commit in *repo_root*.
+def resolve_commit_sha(repo_root: Path, ref: str) -> str | None:
+    """Return the full sha *ref* names in *repo_root*, or None if it has none.
 
-    ``_get_git_diff_files`` returns an empty list both for "nothing changed"
-    and for "git diff failed" (unreachable base after a rebase, a shallow
-    clone, a sha from another checkout). Callers that want to conclude the
-    graph already describes HEAD must first confirm the base was real —
-    otherwise a failed diff would be recorded as "up to date".
-
-    Non-git working copies return False: only git has the metadata contract
-    (``git_head_sha``) this guards.
+    Non-git working copies return None: only git has the metadata contract
+    (``git_head_sha``) the callers of this guard.
     """
     if detect_vcs(repo_root) != "git":
-        return False
-    if not _SAFE_GIT_REF.match(base):
-        return False
+        return None
+    if not _SAFE_GIT_REF.match(ref):
+        return None
     try:
         result = subprocess.run(
-            ["git", "rev-parse", "--verify", "--quiet", f"{base}^{{commit}}"],
+            ["git", "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"],
             capture_output=True,
             text=True,
             cwd=str(repo_root),
             timeout=_GIT_TIMEOUT,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired):
-        return False
-    return result.returncode == 0
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
 
 
 def get_changed_files(repo_root: Path, base: str = "HEAD~1") -> list[str]:
