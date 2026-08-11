@@ -351,9 +351,17 @@ update against the commit that graph was built at so only the branch diff is
 re-parsed. `--seed-only` copies without updating, `--no-copy-config` skips the
 config copy, `--build-if-missing` falls back to a full build when the main
 checkout has no graph, and `--json` emits a machine-readable result for hook
-integrations. Set `DAGAYN_WORKTREE_SEED=0` to disable graph inheritance;
-`CRG_DATA_DIR` also disables it, since it already pins the graph outside the
-working tree.
+integrations. Set `DAGAYN_WORKTREE_SEED=0` to disable graph inheritance.
+
+`CRG_DATA_DIR` keeps graph data outside the working tree. Each repository —
+and each worktree — gets its own subdirectory of it,
+`<CRG_DATA_DIR>/<name>-<path digest>`: the variable used to be honored
+verbatim, so every checkout that saw it shared a single `graph.db` and one
+project's nodes silently mixed into another's. Because each worktree now has
+its own graph, inheritance applies under `CRG_DATA_DIR` too. A pre-existing
+`<CRG_DATA_DIR>/graph.db` moves into the subdirectory when its `repo_root`
+metadata names that repository, so a single-repository setup keeps its graph;
+a graph belonging to another repository is left untouched.
 
 The same inheritance runs automatically at `dagayn serve` startup and before
 `dagayn update` / `dagayn status`, so an MCP session that opens in a worktree

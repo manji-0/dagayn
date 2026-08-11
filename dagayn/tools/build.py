@@ -256,20 +256,6 @@ def _run_postprocess(
     if postprocess == "none":
         return warnings
 
-    if postprocess == "minimal":
-        # Record the level for the minimal path, which returns before the
-        # bottom of this function: leaving the previous run's
-        # ``postprocess_level`` in place made a graph whose flows had just been
-        # pruned still advertise itself as fully post-processed.
-        #
-        # Recorded up front rather than next to the early return on purpose.
-        # Writing metadata *after* the minimal steps have run leaves the Rust
-        # store's database unopenable ("sqlite error: disk I/O error" on the
-        # next connect) — a defect in the native store that the full path does
-        # not hit. Every step below reports failures as warnings instead of
-        # raising, so the level recorded here is the level the run delivers.
-        _record_postprocess_level(store, postprocess)
-
     if not skip_minimal_steps:
         # -- Signatures + FTS (fast, always run unless "none") --
         try:
@@ -360,7 +346,11 @@ def _run_postprocess(
             warnings.append(f"Orphaned structure pruning failed: {type(e).__name__}: {e}")
 
     if postprocess == "minimal":
-        # ``postprocess_level`` was recorded at the top of this function.
+        # The minimal path returns before the bottom of this function, so record
+        # the level here too. Leaving the previous run's ``postprocess_level``
+        # in place made a graph whose flows had just been pruned still advertise
+        # itself as fully post-processed.
+        _record_postprocess_level(store, postprocess)
         return warnings
 
     # -- Expensive: flows + communities (only for "full") --

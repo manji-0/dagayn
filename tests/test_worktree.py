@@ -193,13 +193,30 @@ class TestSeedWorktreeGraph:
         assert result.status == "skipped"
         assert not (linked_worktree / ".dagayn" / "graph.db").exists()
 
-    def test_explicit_data_dir_disables_inheritance(self, main_repo, linked_worktree, monkeypatch):
-        _write_graph_db(main_repo / ".dagayn" / "graph.db", head_sha="abc", repo_root=main_repo)
-        monkeypatch.setenv("CRG_DATA_DIR", str(main_repo / ".dagayn"))
+    def test_explicit_data_dir_still_inherits(
+        self, main_repo, linked_worktree, monkeypatch, tmp_path
+    ):
+        """Under CRG_DATA_DIR each tree has its own graph, so seeding applies.
+
+        The variable used to disable inheritance because it was honored
+        verbatim — the worktree then read the main checkout's graph file
+        directly. With a per-repository subdirectory the worktree starts empty
+        and has to be seeded like any other.
+        """
+        from dagayn.paths import get_db_path
+
+        external = tmp_path / "external-graphs"
+        monkeypatch.setenv("CRG_DATA_DIR", str(external))
+        source = get_db_path(main_repo)
+        _write_graph_db(source, head_sha="abc", repo_root=main_repo)
 
         result = seed_worktree_graph(linked_worktree)
 
-        assert result.status == "skipped"
+        assert result.status == "seeded"
+        assert result.source == source
+        assert result.dest == get_db_path(linked_worktree)
+        assert result.dest != source
+        assert result.dest.exists()
 
     def test_wal_content_is_included(self, main_repo: Path, linked_worktree: Path):
         """A plain file copy would lose uncommitted WAL pages; backup() keeps them."""

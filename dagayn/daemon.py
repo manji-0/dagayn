@@ -25,6 +25,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .paths import get_db_path
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -494,7 +496,7 @@ class WatchDaemon:
 
         # Build initial graph for repos that lack a database
         for repo in self._config.repos:
-            db_path = Path(repo.path) / ".dagayn" / "graph.db"
+            db_path = get_db_path(Path(repo.path))
             if not db_path.exists():
                 self._initial_build(repo)
 
@@ -565,7 +567,7 @@ class WatchDaemon:
             for alias in to_add | to_update:
                 repo = desired[alias]
                 registry.register(repo.path, alias=repo.alias)
-                db_path = Path(repo.path) / ".dagayn" / "graph.db"
+                db_path = get_db_path(Path(repo.path))
                 if not db_path.exists():
                     repos_needing_build.append(repo)
 

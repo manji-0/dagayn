@@ -217,3 +217,63 @@ class TestEvictionSafety:
         t_evict.join(timeout=10)
 
         assert not errors, f"Reader raised: {errors}"
+
+
+class TestNativeStoreClosesConnection:
+    """The Rust-backed store must honour the same close() contract.
+
+    Its ``close()`` / ``_force_close()`` used to be no-ops, so every store
+    leaked a SQLite connection for the life of the process. Leaked handles keep
+    the database mmap'd while another connection checkpoints and truncates the
+    WAL, and a later open then fails with ``sqlite error: disk I/O error``.
+    """
+
+    def _native_store_cls(self):
+        try:
+            from dagayn._core import GraphStore as NativeGraphStore
+        except ImportError:  # pragma: no cover - wheel without the extension
+            pytest.skip("native extension not built")
+        return NativeGraphStore
+
+    def test_close_releases_the_connection(self, tmp_path):
+        store_cls = self._native_store_cls()
+        store = store_cls(tmp_path / "g.db")
+        store._leases = 1
+        store.close()
+
+        with pytest.raises(RuntimeError, match="closed"):
+            store.get_metadata("repo_root")
+
+    def test_pinned_store_survives_close(self, tmp_path):
+        store_cls = self._native_store_cls()
+        store = store_cls(tmp_path / "g.db")
+        store._pinned = True
+        store._leases = 1
+        store.close()
+
+        store.set_metadata("probe", "1")
+        assert store.get_metadata("probe") == "1"
+
+    def test_force_close_releases_regardless_of_leases(self, tmp_path):
+        store_cls = self._native_store_cls()
+        store = store_cls(tmp_path / "g.db")
+        store._pinned = True
+        store._leases = 3
+        store._force_close()
+
+        with pytest.raises(RuntimeError, match="closed"):
+            store.get_metadata("repo_root")
+
+    def test_reopen_after_write_cycle_succeeds(self, tmp_path):
+        """The end-to-end shape of the bug: open, close, write, reopen."""
+        store_cls = self._native_store_cls()
+        db = tmp_path / "g.db"
+        for _ in range(4):
+            store = store_cls(db)
+            store._leases = 1
+            store.set_metadata("cycle", "x")
+            store.close()
+        store = store_cls(db)
+        assert store.get_metadata("cycle") == "x"
+        store._leases = 1
+        store.close()

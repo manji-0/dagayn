@@ -15,6 +15,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from .paths import get_db_path
+
 logger = logging.getLogger(__name__)
 
 # Flags that consume the next token in grep/rg commands
@@ -256,7 +258,7 @@ def enrich_search(pattern: str, repo_root: str) -> str:
     """Search the graph for pattern and return enriched context."""
     from .graph import GraphStore
 
-    db_path = Path(repo_root) / ".dagayn" / "graph.db"
+    db_path = get_db_path(Path(repo_root))
     if not db_path.exists():
         return ""
 
@@ -301,7 +303,7 @@ def enrich_file_read(file_path: str, repo_root: str) -> str:
     """Enrich a file read with structural context for functions in that file."""
     from .graph import GraphStore
 
-    db_path = Path(repo_root) / ".dagayn" / "graph.db"
+    db_path = get_db_path(Path(repo_root))
     if not db_path.exists():
         return ""
 
@@ -358,7 +360,7 @@ def run_hook() -> None:
     from .incremental import find_project_root
 
     repo_root = str(find_project_root(Path(cwd)))
-    db_path = Path(repo_root) / ".dagayn" / "graph.db"
+    db_path = get_db_path(Path(repo_root))
     if not db_path.exists():
         return
 

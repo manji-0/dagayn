@@ -49,6 +49,7 @@ from .incremental_files import (
     get_db_path,
     get_staged_and_unstaged,
     is_unresolved_path_placeholder,
+    repo_slug,
     resolve_cli_repo_root,
 )
 
@@ -91,6 +92,7 @@ __all__ = [
     "get_staged_and_unstaged",
     "incremental_update",
     "is_unresolved_path_placeholder",
+    "repo_slug",
     "resolve_cli_repo_root",
     "watch",
 ]

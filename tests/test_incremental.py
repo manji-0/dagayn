@@ -391,13 +391,30 @@ class TestDataDir:
         repo = tmp_path / "project"
         repo.mkdir()
         monkeypatch.setenv("CRG_DATA_DIR", str(external))
-        from dagayn.incremental import get_data_dir
+        from dagayn.incremental import get_data_dir, repo_slug
 
         result = get_data_dir(repo)
-        assert result == external.resolve()
+        assert result == external.resolve() / repo_slug(repo)
         assert result.is_dir()
         # The repo itself should NOT have a .dagayn dir now
         assert not (repo / ".dagayn").exists()
+
+    def test_env_override_keeps_repositories_apart(self, tmp_path, monkeypatch):
+        """One CRG_DATA_DIR must not mean one shared graph for every repo.
+
+        Honoring the variable verbatim mixed several projects' nodes into a
+        single graph.db whenever it was exported from a shell profile.
+        """
+        external = tmp_path / "external-graphs"
+        first = tmp_path / "project-a"
+        second = tmp_path / "project-b"
+        first.mkdir()
+        second.mkdir()
+        monkeypatch.setenv("CRG_DATA_DIR", str(external))
+        from dagayn.incremental import get_db_path
+
+        assert get_db_path(first) != get_db_path(second)
+        assert get_db_path(first).parent.parent == external.resolve()
 
     def test_get_db_path_uses_data_dir(self, tmp_path, monkeypatch):
         """get_db_path should honor CRG_DATA_DIR too."""
@@ -405,11 +422,71 @@ class TestDataDir:
         repo = tmp_path / "project"
         repo.mkdir()
         monkeypatch.setenv("CRG_DATA_DIR", str(external))
+        from dagayn.incremental import get_db_path, repo_slug
+
+        db_path = get_db_path(repo)
+        assert db_path == external.resolve() / repo_slug(repo) / "graph.db"
+        assert db_path.parent.is_dir()
+
+    def test_env_override_adopts_a_shared_graph_that_names_this_repo(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """A single-repo setup keeps the graph it already had."""
+        import sqlite3
+
+        external = tmp_path / "external"
+        external.mkdir()
+        repo = tmp_path / "project"
+        repo.mkdir()
+        legacy = external / "graph.db"
+        conn = sqlite3.connect(str(legacy))
+        conn.execute("CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT)")
+        conn.execute(
+            "INSERT INTO metadata (key, value) VALUES ('repo_root', ?)",
+            (str(repo.resolve()),),
+        )
+        conn.commit()
+        conn.close()
+
+        monkeypatch.setenv("CRG_DATA_DIR", str(external))
         from dagayn.incremental import get_db_path
 
         db_path = get_db_path(repo)
-        assert db_path == external.resolve() / "graph.db"
-        assert db_path.parent.is_dir()
+        assert db_path.exists()
+        assert not legacy.exists()
+
+    def test_env_override_leaves_another_repos_shared_graph_alone(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """A graph belonging to a different repo must not be claimed."""
+        import sqlite3
+
+        external = tmp_path / "external"
+        external.mkdir()
+        repo = tmp_path / "project"
+        other = tmp_path / "other"
+        repo.mkdir()
+        other.mkdir()
+        legacy = external / "graph.db"
+        conn = sqlite3.connect(str(legacy))
+        conn.execute("CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT)")
+        conn.execute(
+            "INSERT INTO metadata (key, value) VALUES ('repo_root', ?)",
+            (str(other.resolve()),),
+        )
+        conn.commit()
+        conn.close()
+
+        monkeypatch.setenv("CRG_DATA_DIR", str(external))
+        from dagayn.incremental import get_db_path
+
+        db_path = get_db_path(repo)
+        assert not db_path.exists()
+        assert legacy.exists()
 
     def test_find_project_root_env_override(self, tmp_path, monkeypatch):
         """CRG_REPO_ROOT should override normal git-root resolution."""

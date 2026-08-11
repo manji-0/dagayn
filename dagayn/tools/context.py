@@ -8,6 +8,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from ..paths import get_db_path
 from ._common import _get_store, compact_response, graph_answerability_summary
 
 logger = logging.getLogger(__name__)
@@ -280,7 +281,7 @@ def get_minimal_context(
         probe_store, probe_root = _get_store(repo_root, cached=False)
         try:
             sync = assess_graph_sync(probe_store, probe_root)
-            db_path = Path(probe_root) / ".dagayn" / "graph.db"
+            db_path = get_db_path(Path(probe_root))
             emb_pending = embedding_needs_refresh(db_path, local_embedding=local_embedding)
         finally:
             probe_store.close()

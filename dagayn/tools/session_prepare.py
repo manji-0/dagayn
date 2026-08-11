@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 from typing import Any, Literal
 
+from ..paths import get_db_path
 from . import sync_status as sync_status_mod
 from ._common import (
     _evict_store_cache,
@@ -161,7 +162,7 @@ def session_prepare(
     root = Path(resolved_root)
     try:
         sync_before = assess_graph_sync(store, root)
-        db_path = root / ".dagayn" / "graph.db"
+        db_path = get_db_path(root)
         emb_pending = sync_status_mod.embedding_needs_refresh(
             db_path, local_embedding=local_embedding
         )
@@ -231,7 +232,7 @@ def session_prepare(
         sync_after = assess_graph_sync(store, root)
         health = graph_answerability_summary(store, store.get_stats())
         stats = store.get_stats()
-        db_path = root / ".dagayn" / "graph.db"
+        db_path = get_db_path(root)
         emb_pending = sync_status_mod.embedding_needs_refresh(
             db_path, local_embedding=local_embedding
         )

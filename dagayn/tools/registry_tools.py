@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from ..graph import GraphStore
+from ..paths import get_db_path
 from ..search import hybrid_search
 from ._common import handle_tool_runtime_error, make_response
 
@@ -93,7 +94,7 @@ def cross_repo_search_func(
 
         for repo_entry in repos:
             repo_path = Path(repo_entry["path"])
-            db_path = repo_path / ".dagayn" / "graph.db"
+            db_path = get_db_path(repo_path)
             if not db_path.exists():
                 continue
 

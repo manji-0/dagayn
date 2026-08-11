@@ -13,7 +13,13 @@ use std::collections::HashMap;
 
 #[pyclass(name = "GraphStore")]
 struct PyGraphStore {
-    inner: Mutex<NativeGraphStore>,
+    /// `None` once the store has been closed. `close()` used to be a no-op,
+    /// which leaked one SQLite connection per store for the life of the
+    /// process: a later connection to the same file could then fail to open
+    /// with `disk I/O error`, because the leaked handles still hold the
+    /// database mmap'd while another connection checkpoints and truncates the
+    /// WAL underneath them.
+    inner: Mutex<Option<NativeGraphStore>>,
     pinned: Mutex<bool>,
     leases: Mutex<i64>,
     pending_rust_changed: Mutex<HashMap<String, CachedRustChangedFile>>,
@@ -49,7 +55,7 @@ impl PyGraphStore {
         let db_path: String = os.getattr("fspath")?.call1((db_path,))?.extract()?;
         let inner = NativeGraphStore::open(db_path).map_err(to_py_runtime_error)?;
         Ok(Self {
-            inner: Mutex::new(inner),
+            inner: Mutex::new(Some(inner)),
             pinned: Mutex::new(false),
             leases: Mutex::new(0),
             pending_rust_changed: Mutex::new(HashMap::new()),
@@ -544,18 +550,38 @@ impl PyGraphStore {
         self.with_store(|store| store.get_communities_json(sort_by, min_size))
     }
 
+    /// Release one lease, closing the connection once nothing holds it.
+    ///
+    /// A pinned store is one the Python-side cache owns; its `close()` stays a
+    /// no-op so `finally: store.close()` in tool handlers cannot destroy a
+    /// shared connection. `_evict_store_cache` unpins first, so the last
+    /// outstanding `close()` performs the real cleanup.
     fn close(&self) -> PyResult<()> {
-        let mut leases = self
-            .leases
-            .lock()
-            .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
-        if *leases > 0 {
-            *leases -= 1;
+        let remaining = {
+            let mut leases = self
+                .leases
+                .lock()
+                .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
+            if *leases > 0 {
+                *leases -= 1;
+            }
+            *leases
+        };
+        if remaining > 0 || self.get_pinned()? {
+            return Ok(());
         }
-        Ok(())
+        self._force_close()
     }
 
+    /// Drop the SQLite connection regardless of leases.
     fn _force_close(&self) -> PyResult<()> {
+        let mut guard = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("GraphStore lock poisoned"))?;
+        // Dropping the native store closes the connection, releasing its file
+        // locks and its mmap of the database.
+        guard.take();
         Ok(())
     }
 
@@ -577,7 +603,8 @@ impl PyGraphStore {
             .inner
             .lock()
             .map_err(|_| PyRuntimeError::new_err("GraphStore lock poisoned"))?;
-        f(&guard).map_err(to_py_runtime_error)
+        let store = guard.as_ref().ok_or_else(closed_store_error)?;
+        f(store).map_err(to_py_runtime_error)
     }
 
     fn with_store_mut<T>(
@@ -588,7 +615,8 @@ impl PyGraphStore {
             .inner
             .lock()
             .map_err(|_| PyRuntimeError::new_err("GraphStore lock poisoned"))?;
-        f(&mut guard).map_err(to_py_runtime_error)
+        let store = guard.as_mut().ok_or_else(closed_store_error)?;
+        f(store).map_err(to_py_runtime_error)
     }
 
     fn extend_pending_rust_changed(
@@ -1242,6 +1270,10 @@ fn json_value_to_py(py: Python<'_>, value: &Value) -> PyResult<Py<PyAny>> {
 
 fn to_py_runtime_error(err: dagayn_core::GraphError) -> PyErr {
     PyRuntimeError::new_err(err.to_string())
+}
+
+fn closed_store_error() -> PyErr {
+    PyRuntimeError::new_err("GraphStore is closed: open a new store for further queries")
 }
 
 #[pymodule]

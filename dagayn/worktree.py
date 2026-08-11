@@ -306,7 +306,6 @@ def seed_worktree_graph(repo_root: Path) -> SeedResult:
     Does nothing (``status="skipped"``) unless every condition holds:
 
     * graph inheritance is not disabled via :data:`SEED_ENV_VAR`;
-    * ``CRG_DATA_DIR`` is unset (an explicit data dir is already shared);
     * *repo_root* is a linked worktree with a reachable main checkout;
     * the worktree has no populated graph yet and the main checkout has one.
       Empty schema-only stubs (0 nodes) created by ``dagayn status`` /
@@ -315,11 +314,14 @@ def seed_worktree_graph(repo_root: Path) -> SeedResult:
     A full ``dagayn build`` in a fresh worktree re-parses every file and
     re-computes every embedding. Inheriting the main graph turns that into a
     copy plus an incremental update over the branch diff.
+
+    Both paths come from :func:`~dagayn.paths.get_db_path`, so this works under
+    ``CRG_DATA_DIR`` too. That used to be skipped, because the variable was
+    honored verbatim and the worktree therefore *shared* the main checkout's
+    graph file; now each gets its own subdirectory and has to be seeded.
     """
     if seeding_disabled():
         return SeedResult("skipped", f"{SEED_ENV_VAR} disables graph inheritance")
-    if os.environ.get("CRG_DATA_DIR", "").strip():
-        return SeedResult("skipped", "CRG_DATA_DIR pins the graph outside the worktree")
 
     main = main_worktree_root(repo_root)
     if main is None:
@@ -327,11 +329,13 @@ def seed_worktree_graph(repo_root: Path) -> SeedResult:
     if _same_path(main, repo_root):
         return SeedResult("skipped", "already in the main checkout")
 
-    dest = repo_root / ".dagayn" / "graph.db"
+    from .paths import get_db_path
+
+    dest = get_db_path(repo_root)
     if graph_has_nodes(dest):
         return SeedResult("skipped", "worktree already has a graph", dest=dest)
 
-    source = main / ".dagayn" / "graph.db"
+    source = get_db_path(main)
     if not source.exists():
         return SeedResult(
             "skipped",
