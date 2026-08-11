@@ -13,8 +13,9 @@ import logging
 import os
 import re
 import subprocess
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, Literal
 
 from .constants import SECURITY_KEYWORDS as _SECURITY_KEYWORDS
 from .coverage import has_coverage_evidence
@@ -45,11 +46,30 @@ _SAFE_SVN_REV = re.compile(r"^r?\d+(:r?\d+|:HEAD|:BASE|:COMMITTED)?$", re.IGNORE
 # 1. parse_git_diff_ranges / parse_svn_diff_ranges
 # ---------------------------------------------------------------------------
 
+DiffParseStatus = Literal["ok", "base_unresolved"]
 
-def parse_git_diff_ranges(
+
+@dataclass(frozen=True)
+class DiffParseResult:
+    """Git/SVN diff parse output with an explicit reachability status."""
+
+    ranges: dict[str, list[tuple[int, int]]]
+    status: DiffParseStatus = "ok"
+
+
+@dataclass
+class ChangeMappingResult:
+    """Node attribution for changed files with staleness metadata."""
+
+    nodes: list[GraphNode] = field(default_factory=list)
+    stale_line_range_files: list[str] = field(default_factory=list)
+    unmapped_files: list[str] = field(default_factory=list)
+
+
+def parse_git_diff(
     repo_root: str,
     base: str = "HEAD~1",
-) -> dict[str, list[tuple[int, int]]]:
+) -> DiffParseResult:
     """Run ``git diff --unified=0`` and extract changed line ranges per file.
 
     Args:
@@ -57,12 +77,12 @@ def parse_git_diff_ranges(
         base: Git ref to diff against (default: ``HEAD~1``).
 
     Returns:
-        Mapping of file paths to lists of ``(start_line, end_line)`` tuples.
-        Returns an empty dict on error.
+        Parsed ranges plus ``status``. ``base_unresolved`` means the diff base
+        could not be resolved (invalid ref or ``git diff`` failure).
     """
     if not _SAFE_GIT_REF.match(base):
         logger.warning("Invalid git ref rejected: %s", base)
-        return {}
+        return DiffParseResult({}, "base_unresolved")
     try:
         result = subprocess.run(
             ["git", "diff", "--unified=0", base, "--"],
@@ -75,12 +95,54 @@ def parse_git_diff_ranges(
         )
         if result.returncode != 0:
             logger.warning("git diff failed (rc=%d): %s", result.returncode, result.stderr[:200])
-            return {}
+            return DiffParseResult({}, "base_unresolved")
     except (OSError, subprocess.SubprocessError) as exc:
         logger.warning("git diff error: %s", exc)
+        return DiffParseResult({}, "base_unresolved")
+
+    return DiffParseResult(_parse_unified_diff(result.stdout), "ok")
+
+
+def parse_git_diff_ranges(
+    repo_root: str,
+    base: str = "HEAD~1",
+) -> dict[str, list[tuple[int, int]]]:
+    """Return changed line ranges per file (ranges only; see :func:`parse_git_diff`)."""
+    return parse_git_diff(repo_root, base).ranges
+
+
+def resolve_git_renames(repo_root: str, base: str = "HEAD~1") -> dict[str, str]:
+    """Return ``{new_path: old_path}`` rename pairs from ``git diff --name-status -M``."""
+    if not _SAFE_GIT_REF.match(base):
+        return {}
+    try:
+        result = subprocess.run(
+            ["git", "diff", "--name-status", "-M", base, "--"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=repo_root,
+            timeout=_GIT_TIMEOUT,
+        )
+        if result.returncode != 0:
+            logger.warning(
+                "git diff --name-status failed (rc=%d): %s",
+                result.returncode,
+                result.stderr[:200],
+            )
+            return {}
+    except (OSError, subprocess.SubprocessError) as exc:
+        logger.warning("git diff --name-status error: %s", exc)
         return {}
 
-    return _parse_unified_diff(result.stdout)
+    renames: dict[str, str] = {}
+    for line in result.stdout.splitlines():
+        parts = line.split("\t")
+        if len(parts) >= 3 and parts[0].startswith("R"):
+            old_path, new_path = parts[1], parts[2]
+            renames[new_path] = old_path
+    return renames
 
 
 def parse_svn_diff_ranges(
@@ -216,26 +278,50 @@ def parse_diff_ranges(
               when *base* is not a valid SVN revision, working-copy changes
               (``svn diff``) are used instead.
     """
+    return parse_diff_result(repo_root, base).ranges
+
+
+def parse_diff_result(repo_root: str, base: str = "HEAD~1") -> DiffParseResult:
+    """Like :func:`parse_diff_ranges` but includes diff-base reachability status."""
     root = str(Path(repo_root).resolve())
     stamp = _diff_ranges_cache_stamp(root)
-    cached = _parse_diff_ranges_cached(root, base, stamp)
-    return {path: list(ranges) for path, ranges in cached}
+    cached = _parse_diff_result_cached(root, base, stamp)
+    return DiffParseResult(
+        {path: list(ranges) for path, ranges in cached.ranges},
+        cached.status,
+    )
+
+
+@dataclass(frozen=True)
+class _CachedDiffParseResult:
+    ranges: tuple[tuple[str, tuple[tuple[int, int], ...]], ...]
+    status: DiffParseStatus
 
 
 @functools.lru_cache(maxsize=64)
-def _parse_diff_ranges_cached(
+def _parse_diff_result_cached(
     repo_root: str,
     base: str,
     cache_stamp: str,
-) -> tuple[tuple[str, tuple[tuple[int, int], ...]], ...]:
-    """Cached diff range parser with an immutable result payload."""
+) -> _CachedDiffParseResult:
+    """Cached diff parser with an immutable result payload."""
     root_path = Path(repo_root)
     if (root_path / ".svn").exists():
         rev_range = base if _SAFE_SVN_REV.match(base) else None
         ranges = parse_svn_diff_ranges(repo_root, rev_range)
+        status: DiffParseStatus = "ok"
     else:
-        ranges = parse_git_diff_ranges(repo_root, base)
-    return tuple((path, tuple(path_ranges)) for path, path_ranges in sorted(ranges.items()))
+        parsed = parse_git_diff(repo_root, base)
+        ranges = parsed.ranges
+        status = parsed.status
+    return _CachedDiffParseResult(
+        tuple((path, tuple(path_ranges)) for path, path_ranges in sorted(ranges.items())),
+        status,
+    )
+
+
+# Backward-compatible alias used by tests and eval benchmarks.
+_parse_diff_ranges_cached = _parse_diff_result_cached
 
 
 def _decode_git_quoted_path(text: str) -> str:
@@ -337,44 +423,205 @@ def _parse_unified_diff(diff_text: str) -> dict[str, list[tuple[int, int]]]:
 def map_changes_to_nodes(
     store: GraphStore,
     changed_ranges: dict[str, list[tuple[int, int]]],
+    *,
+    repo_root: str | None = None,
+    rename_map: dict[str, str] | None = None,
 ) -> list[GraphNode]:
-    """Find graph nodes whose line ranges overlap the changed lines.
+    """Find graph nodes whose line ranges overlap the changed lines."""
+    return map_changes_with_attribution(
+        store,
+        changed_ranges,
+        repo_root=repo_root,
+        rename_map=rename_map,
+    ).nodes
 
-    Args:
-        store: The graph store.
-        changed_ranges: Mapping of file paths to ``(start, end)`` tuples.
 
-    Returns:
-        Deduplicated list of overlapping graph nodes.
-    """
+def map_changes_with_attribution(
+    store: GraphStore,
+    changed_ranges: dict[str, list[tuple[int, int]]],
+    *,
+    repo_root: str | None = None,
+    rename_map: dict[str, str] | None = None,
+) -> ChangeMappingResult:
+    """Map diff ranges to graph nodes with staleness and rename awareness."""
     seen: set[str] = set()
     result: list[GraphNode] = []
+    stale_line_range_files: list[str] = []
+    unmapped_files: list[str] = []
+    rename_map = rename_map or {}
 
-    nodes_by_file = _get_nodes_for_files_boundary_aware(store, list(changed_ranges))
+    lookup_paths: list[str] = []
+    for file_path in changed_ranges:
+        lookup_paths.append(file_path)
+        rel_path = _repo_relative_path(file_path, repo_root)
+        renamed_from = rename_map.get(rel_path) or rename_map.get(file_path)
+        if renamed_from:
+            lookup_paths.append(renamed_from)
+            if repo_root:
+                lookup_paths.append(str(Path(repo_root) / renamed_from))
+
+    nodes_by_file = _get_nodes_for_files_boundary_aware(store, lookup_paths)
     for file_path, ranges in changed_ranges.items():
-        # Try the path as-is, then also try all nodes to match relative paths.
-        nodes = list(nodes_by_file.get(file_path, []))
+        graph_paths = _resolve_graph_file_paths(
+            store,
+            file_path,
+            rename_map,
+            nodes_by_file,
+            repo_root=repo_root,
+        )
+        nodes: list[GraphNode] = []
+        for graph_path in graph_paths:
+            nodes.extend(nodes_by_file.get(graph_path, []))
+
         if not nodes:
-            # The graph may store absolute paths; try a suffix match.
-            matched_paths = store.get_files_matching(file_path)
-            if matched_paths:
-                matched_nodes = _get_nodes_for_files_boundary_aware(store, matched_paths)
-                for mp in matched_paths:
-                    nodes.extend(matched_nodes.get(mp, []))
+            unmapped_files.append(file_path)
+            continue
+
+        if repo_root and _graph_line_ranges_stale(store, repo_root, file_path, graph_paths):
+            stale_line_range_files.append(file_path)
+            for node in nodes:
+                if node.qualified_name in seen:
+                    continue
+                if node.kind in ("Function", "Test", "Class"):
+                    result.append(node)
+                    seen.add(node.qualified_name)
+            continue
 
         for node in nodes:
             if node.qualified_name in seen:
                 continue
             if node.line_start is None or node.line_end is None:
                 continue
-            # Check overlap with any changed range.
             for start, end in ranges:
                 if node.line_start <= end and node.line_end >= start:
                     result.append(node)
                     seen.add(node.qualified_name)
                     break
 
-    return result
+    return ChangeMappingResult(
+        nodes=result,
+        stale_line_range_files=stale_line_range_files,
+        unmapped_files=unmapped_files,
+    )
+
+
+def _resolve_graph_file_paths(
+    store: GraphStore,
+    file_path: str,
+    rename_map: dict[str, str],
+    nodes_by_file: dict[str, list[GraphNode]],
+    *,
+    repo_root: str | None = None,
+) -> list[str]:
+    """Return graph file paths that may hold nodes for a changed file."""
+    candidates: list[str] = []
+    rel_path = _repo_relative_path(file_path, repo_root)
+
+    def _add(path: str) -> None:
+        if path and path not in candidates:
+            candidates.append(path)
+
+    if nodes_by_file.get(file_path):
+        _add(file_path)
+    renamed_from = rename_map.get(rel_path) or rename_map.get(file_path)
+    if renamed_from:
+        _add(renamed_from)
+        if repo_root:
+            _add(str(Path(repo_root) / renamed_from))
+    if not candidates:
+        matched_paths = store.get_files_matching(rel_path)
+        for matched_path in matched_paths:
+            _add(matched_path)
+    if candidates:
+        return candidates
+    if file_path in nodes_by_file:
+        return [file_path]
+    return []
+
+
+def _graph_line_ranges_stale(
+    store: GraphStore,
+    repo_root: str,
+    changed_path: str,
+    graph_paths: list[str],
+) -> bool:
+    """Return True when on-disk content no longer matches the indexed file hash."""
+    current_hash = _current_file_hash(repo_root, changed_path)
+    if current_hash is None:
+        return False
+    get_meta = getattr(store, "get_file_meta_for_files", None)
+    if not callable(get_meta):
+        return False
+    stored_meta = get_meta(graph_paths)
+    for graph_path in graph_paths:
+        stored_hash = stored_meta.get(graph_path, ("", 0))[0]
+        if stored_hash and stored_hash != current_hash:
+            return True
+    return False
+
+
+def _current_file_hash(repo_root: str, file_path: str) -> str | None:
+    from .parser.core import file_hash as compute_file_hash
+
+    path = Path(file_path)
+    if not path.is_absolute():
+        path = Path(repo_root) / path
+    if not path.is_file():
+        return None
+    try:
+        return compute_file_hash(path)
+    except OSError:
+        return None
+
+
+def _nodes_for_changed_file(
+    store: GraphStore,
+    file_path: str,
+    *,
+    repo_root: str | None,
+    rename_map: dict[str, str],
+) -> list[GraphNode]:
+    """Return all graph nodes indexed for a changed file, including rename fallbacks."""
+    rel_path = _repo_relative_path(file_path, repo_root)
+    lookup_paths = {file_path, rel_path}
+    renamed_from = rename_map.get(rel_path)
+    if renamed_from:
+        lookup_paths.add(renamed_from)
+        if repo_root:
+            lookup_paths.add(str(Path(repo_root) / renamed_from))
+    nodes: list[GraphNode] = []
+    seen_paths: set[str] = set()
+    for path in lookup_paths:
+        if path in seen_paths:
+            continue
+        seen_paths.add(path)
+        nodes.extend(store.get_nodes_by_file(path))
+    if not nodes:
+        for matched_path in store.get_files_matching(rel_path):
+            nodes.extend(store.get_nodes_by_file(matched_path))
+    return nodes
+
+
+def _collect_unmapped_changed_files(
+    changed_files: list[str],
+    changed_nodes: list[GraphNode],
+    *,
+    repo_root: str | None,
+    rename_map: dict[str, str],
+    store: GraphStore,
+) -> list[str]:
+    """Return repo-relative changed files with no graph-backed attribution."""
+    attributed_paths = {_repo_relative_path(node.file_path, repo_root) for node in changed_nodes}
+    unmapped: list[str] = []
+    for file_path in changed_files:
+        rel_path = _repo_relative_path(file_path, repo_root)
+        renamed_from = rename_map.get(rel_path)
+        if rel_path in attributed_paths or (renamed_from and renamed_from in attributed_paths):
+            continue
+        if _nodes_for_changed_file(store, file_path, repo_root=repo_root, rename_map=rename_map):
+            continue
+        unmapped.append(rel_path)
+    return unmapped
 
 
 def _get_nodes_for_files_boundary_aware(
@@ -596,6 +843,7 @@ def analyze_changes(
     base: str = "HEAD~1",
     include_heuristic_test_gap_evidence: bool = True,
     heuristic_test_gap_node_limit: int | None = None,
+    diff_parse_status: DiffParseStatus | None = None,
 ) -> dict[str, Any]:
     """Analyze changes and produce risk-scored review guidance.
 
@@ -618,11 +866,27 @@ def analyze_changes(
         ``affected_flows``, ``test_gaps``, and ``review_priorities``.
     """
     # Compute changed ranges if not provided.
+    rename_map: dict[str, str] = {}
     if changed_ranges is None and repo_root is not None:
-        changed_ranges = parse_diff_ranges(repo_root, base)
+        diff_result = parse_diff_result(repo_root, base)
+        changed_ranges = diff_result.ranges
+        diff_parse_status = diff_result.status
+        rename_map = resolve_git_renames(repo_root, base)
+    elif repo_root is not None:
+        rename_map = resolve_git_renames(repo_root, base)
+        if diff_parse_status is None:
+            diff_parse_status = "ok"
+    else:
+        diff_parse_status = diff_parse_status or "ok"
+
+    base_unresolved = diff_parse_status == "base_unresolved"
 
     rust_analyze = getattr(store, "analyze_changes_json", None)
-    if callable(rust_analyze) and include_heuristic_test_gap_evidence:
+    if (
+        callable(rust_analyze)
+        and include_heuristic_test_gap_evidence
+        and repo_root is None
+    ):
         try:
             return _annotate_review_priority_semantics(
                 json.loads(rust_analyze(changed_files, json.dumps(changed_ranges or {})))
@@ -630,21 +894,66 @@ def analyze_changes(
         except (RuntimeError, ValueError, TypeError, json.JSONDecodeError) as exc:
             raise RuntimeError("Rust change analysis failed") from exc
 
+    attribution_reason_codes: list[str] = []
+    mapping = ChangeMappingResult()
+    unmapped_changed_files: list[str] = []
+
     # Map changes to nodes.
-    if changed_ranges:
-        changed_nodes = map_changes_to_nodes(store, changed_ranges)
-        ranged_files = set(changed_ranges)
-        files_without_ranges = [fp for fp in changed_files if fp not in ranged_files]
-        if files_without_ranges:
-            nodes_by_file = _get_nodes_for_files_boundary_aware(store, files_without_ranges)
-            for fp in files_without_ranges:
-                changed_nodes.extend(nodes_by_file.get(fp, []))
-    else:
-        # Fallback: all nodes in changed files.
+    if base_unresolved:
         changed_nodes = []
-        nodes_by_file = _get_nodes_for_files_boundary_aware(store, changed_files)
-        for fp in changed_files:
-            changed_nodes.extend(nodes_by_file.get(fp, []))
+        attribution_reason_codes.append("diff_base_unreachable")
+    elif changed_ranges:
+        mapping = map_changes_with_attribution(
+            store,
+            changed_ranges,
+            repo_root=repo_root,
+            rename_map=rename_map,
+        )
+        changed_nodes = list(mapping.nodes)
+        ranged_files = set(changed_ranges)
+        seen_qns = {node.qualified_name for node in changed_nodes}
+        for file_path in changed_files:
+            if file_path in ranged_files:
+                continue
+            for node in _nodes_for_changed_file(
+                store,
+                file_path,
+                repo_root=repo_root,
+                rename_map=rename_map,
+            ):
+                if node.qualified_name not in seen_qns:
+                    changed_nodes.append(node)
+                    seen_qns.add(node.qualified_name)
+    else:
+        changed_nodes = []
+        seen_qns: set[str] = set()
+        for file_path in changed_files:
+            for node in _nodes_for_changed_file(
+                store,
+                file_path,
+                repo_root=repo_root,
+                rename_map=rename_map,
+            ):
+                if node.qualified_name not in seen_qns:
+                    changed_nodes.append(node)
+                    seen_qns.add(node.qualified_name)
+
+    unmapped_changed_files = _collect_unmapped_changed_files(
+        changed_files,
+        changed_nodes,
+        repo_root=repo_root,
+        rename_map=rename_map,
+        store=store,
+    )
+    if base_unresolved:
+        unmapped_changed_files = [
+            _repo_relative_path(file_path, repo_root) for file_path in changed_files
+        ]
+
+    if mapping.stale_line_range_files:
+        attribution_reason_codes.append("stale_graph_line_ranges")
+    if unmapped_changed_files:
+        attribution_reason_codes.append("unmapped_changed_files")
 
     # Filter to functions/tests for risk scoring (skip File nodes).
     changed_funcs = [n for n in changed_nodes if n.kind in ("Function", "Test", "Class")]
@@ -665,7 +974,7 @@ def analyze_changes(
         + [edge for edges in inbound_map.values() for edge in edges]
     )
     base_node_qns, base_edge_signatures = _base_entity_sets(repo_root, base, changed_funcs)
-    has_base_snapshot = repo_root is not None
+    has_base_snapshot = repo_root is not None and not base_unresolved
 
     # Caller communities: collect every CALLS source seen across all nodes
     # and resolve in a single batch.
@@ -796,6 +1105,18 @@ def analyze_changes(
     if test_gaps:
         gap_names = [g["name"] for g in test_gaps[:5]]
         summary_parts.append(f"  - Untested: {', '.join(gap_names)}")
+    if unmapped_changed_files:
+        summary_parts.append(
+            f"  - Unmapped changed files: {len(unmapped_changed_files)} "
+            f"({', '.join(unmapped_changed_files[:5])})"
+        )
+    if mapping.stale_line_range_files:
+        stale_paths = [
+            _repo_relative_path(path, repo_root) for path in mapping.stale_line_range_files
+        ]
+        summary_parts.append(
+            f"  - Stale graph line ranges (file-granular fallback): {', '.join(stale_paths[:5])}"
+        )
 
     return _annotate_review_priority_semantics(
         {
@@ -808,6 +1129,14 @@ def analyze_changes(
                 "nodes": node_status_counts,
                 "edges": edge_status_counts,
                 "base": base if has_base_snapshot else None,
+            },
+            "diff_parse_status": diff_parse_status,
+            "unmapped_changed_files": unmapped_changed_files,
+            "attribution": {
+                "stale_line_range_files": [
+                    _repo_relative_path(path, repo_root) for path in mapping.stale_line_range_files
+                ],
+                "reason_codes": attribution_reason_codes,
             },
             "affected_flows": affected["affected_flows"],
             "test_gaps": test_gaps,

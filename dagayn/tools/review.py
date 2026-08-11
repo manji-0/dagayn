@@ -6,7 +6,12 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from ..changes import analyze_changes, parse_diff_ranges, parse_git_diff_ranges  # noqa: F401
+from ..changes import (  # noqa: F401
+    analyze_changes,
+    parse_diff_ranges,
+    parse_diff_result,
+    parse_git_diff_ranges,
+)
 from ..coverage import infer_tests_for_node
 from ..hints import generate_hints, get_session
 from ..incremental import get_changed_file_sources, get_staged_and_unstaged
@@ -107,20 +112,21 @@ def detect_changes_func(
 
         abs_files = [str(root / f) for f in changed_files]
 
-        diff_ranges = parse_diff_ranges(str(root), base)
+        diff_result = parse_diff_result(str(root), base)
         abs_ranges: dict[str, list[tuple[int, int]]] = {}
-        for rel_path, ranges in diff_ranges.items():
+        for rel_path, ranges in diff_result.ranges.items():
             abs_path = str(root / rel_path)
             abs_ranges[abs_path] = ranges
 
         analysis = analyze_changes(
             store,
             changed_files=abs_files,
-            changed_ranges=abs_ranges if abs_ranges else None,
+            changed_ranges=abs_ranges,
             repo_root=str(root),
             base=base,
             include_heuristic_test_gap_evidence=True,
             heuristic_test_gap_node_limit=_SUPPLEMENTAL_TEST_DENSITY_NODE_LIMIT,
+            diff_parse_status=diff_result.status,
         )
 
         impact = store.get_impact_radius(abs_files, max_depth=max_depth)
