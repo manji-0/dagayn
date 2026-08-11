@@ -7,6 +7,7 @@ gaps. Produces risk-scored, priority-ordered review guidance.
 from __future__ import annotations
 
 import functools
+import hashlib
 import json
 import logging
 import os
@@ -185,6 +186,82 @@ def parse_svn_diff_ranges(
     return _parse_unified_diff(result.stdout)
 
 
+def _diff_ranges_cache_stamp(repo_root: str) -> str:
+    """Return a cheap stamp so cached diff ranges invalidate when the tree changes."""
+    root = Path(repo_root)
+    if (root / ".svn").exists():
+        return _svn_diff_cache_stamp(root)
+    return _git_diff_cache_stamp(root)
+
+
+def _git_diff_cache_stamp(root: Path) -> str:
+    head = ""
+    porcelain = ""
+    try:
+        head_result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            cwd=str(root),
+            timeout=_GIT_TIMEOUT,
+        )
+        if head_result.returncode == 0:
+            head = head_result.stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        pass
+    try:
+        status_result = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=all"],
+            capture_output=True,
+            text=True,
+            cwd=str(root),
+            timeout=_GIT_TIMEOUT,
+        )
+        if status_result.returncode == 0:
+            porcelain = status_result.stdout
+    except (OSError, subprocess.SubprocessError):
+        pass
+    if not head and not porcelain:
+        return "0"
+    status_hash = hashlib.sha256(porcelain.encode()).hexdigest()[:16]
+    return f"{head}:{status_hash}"
+
+
+def _svn_diff_cache_stamp(root: Path) -> str:
+    revision = ""
+    status = ""
+    try:
+        rev_result = subprocess.run(
+            ["svn", "info", "--show-item", "revision", "--non-interactive"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=str(root),
+            timeout=_GIT_TIMEOUT,
+        )
+        if rev_result.returncode == 0:
+            revision = rev_result.stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        pass
+    try:
+        status_result = subprocess.run(
+            ["svn", "status", "--non-interactive"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=str(root),
+            timeout=_GIT_TIMEOUT,
+        )
+        if status_result.returncode == 0:
+            status = status_result.stdout
+    except (OSError, subprocess.SubprocessError):
+        pass
+    status_hash = hashlib.sha256(status.encode()).hexdigest()[:16]
+    return f"{revision}:{status_hash}"
+
+
 def parse_diff_ranges(
     repo_root: str,
     base: str = "HEAD~1",
@@ -206,7 +283,9 @@ def parse_diff_ranges(
 
 def parse_diff_result(repo_root: str, base: str = "HEAD~1") -> DiffParseResult:
     """Like :func:`parse_diff_ranges` but includes diff-base reachability status."""
-    cached = _parse_diff_result_cached(str(Path(repo_root).resolve()), base)
+    root = str(Path(repo_root).resolve())
+    stamp = _diff_ranges_cache_stamp(root)
+    cached = _parse_diff_result_cached(root, base, stamp)
     return DiffParseResult(
         {path: list(ranges) for path, ranges in cached.ranges},
         cached.status,
@@ -220,7 +299,11 @@ class _CachedDiffParseResult:
 
 
 @functools.lru_cache(maxsize=64)
-def _parse_diff_result_cached(repo_root: str, base: str) -> _CachedDiffParseResult:
+def _parse_diff_result_cached(
+    repo_root: str,
+    base: str,
+    cache_stamp: str,
+) -> _CachedDiffParseResult:
     """Cached diff parser with an immutable result payload."""
     root_path = Path(repo_root)
     if (root_path / ".svn").exists():
@@ -241,6 +324,67 @@ def _parse_diff_result_cached(repo_root: str, base: str) -> _CachedDiffParseResu
 _parse_diff_ranges_cached = _parse_diff_result_cached
 
 
+def _decode_git_quoted_path(text: str) -> str:
+    """Decode a git C-style quoted path (``core.quotePath``)."""
+    if not (text.startswith('"') and text.endswith('"')):
+        return text
+
+    inner = text[1:-1]
+    out = bytearray()
+    i = 0
+    while i < len(inner):
+        ch = inner[i]
+        if ch != "\\":
+            out.extend(ch.encode("utf-8"))
+            i += 1
+            continue
+        i += 1
+        if i >= len(inner):
+            break
+        esc = inner[i]
+        if esc in ('\\', '"'):
+            out.extend(esc.encode("ascii"))
+            i += 1
+        elif esc in "01234567":
+            octal = esc
+            i += 1
+            for _ in range(2):
+                if i < len(inner) and inner[i] in "01234567":
+                    octal += inner[i]
+                    i += 1
+                else:
+                    break
+            out.append(int(octal, 8))
+        elif esc == "n":
+            out.append(ord("\n"))
+            i += 1
+        elif esc == "t":
+            out.append(ord("\t"))
+            i += 1
+        elif esc == "r":
+            out.append(ord("\r"))
+            i += 1
+        else:
+            out.extend(esc.encode("ascii"))
+            i += 1
+    return out.decode("utf-8", errors="replace")
+
+
+def _parse_plus_plus_path(line: str) -> str | None:
+    """Return the new-file path from a ``+++`` header, or ``None`` when absent."""
+    if not line.startswith("+++"):
+        return None
+    raw = line[4:].strip()
+    if not raw or raw == "/dev/null":
+        return None
+    path = _decode_git_quoted_path(raw)
+    if "\t" in path:
+        path = path.split("\t", 1)[0]
+    if path.startswith("b/"):
+        return path[2:]
+    return None
+
+
 def _parse_unified_diff(diff_text: str) -> dict[str, list[tuple[int, int]]]:
     """Parse unified diff output into file -> line-range mappings.
 
@@ -249,15 +393,12 @@ def _parse_unified_diff(diff_text: str) -> dict[str, list[tuple[int, int]]]:
     ranges: dict[str, list[tuple[int, int]]] = {}
     current_file: str | None = None
 
-    # Match "+++ b/path/to/file"
-    file_pattern = re.compile(r"^\+\+\+ b/(.+)$")
     # Match "@@ ... +start,count @@" or "@@ ... +start @@"
     hunk_pattern = re.compile(r"^@@ .+? \+(\d+)(?:,(\d+))? @@")
 
     for line in diff_text.splitlines():
-        file_match = file_pattern.match(line)
-        if file_match:
-            current_file = file_match.group(1)
+        if line.startswith("+++"):
+            current_file = _parse_plus_plus_path(line)
             continue
 
         hunk_match = hunk_pattern.match(line)

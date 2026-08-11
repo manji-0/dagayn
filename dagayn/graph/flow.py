@@ -74,10 +74,19 @@ class GraphStoreFlowMixin(GraphStoreMixinProtocol):
         """Return node IDs belonging to the given file paths."""
         if not file_paths:
             return set()
+
+        keys: set[str] = set()
+        for file_path in file_paths:
+            normalized = self._normalize_file_path_key(file_path)
+            keys.add(file_path)
+            if normalized != file_path:
+                keys.add(normalized)
+
         result: set[int] = set()
+        keys_list = list(keys)
         batch_size = 450
-        for i in range(0, len(file_paths), batch_size):
-            batch = file_paths[i : i + batch_size]
+        for i in range(0, len(keys_list), batch_size):
+            batch = keys_list[i : i + batch_size]
             placeholders = ",".join("?" for _ in batch)
             rows = self._conn.execute(  # nosec B608
                 f"SELECT id FROM nodes WHERE file_path IN ({placeholders})",
