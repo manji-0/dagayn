@@ -219,4 +219,32 @@ impl GraphStore {
         }
         Ok(())
     }
+
+    pub(crate) fn ensure_edge_target_name_column(&self) -> Result<()> {
+        if !has_column(&self.conn, "edges", "target_name")? {
+            self.conn.execute(
+                "ALTER TABLE edges ADD COLUMN target_name TEXT NOT NULL DEFAULT ''",
+                [],
+            )?;
+        }
+        let mut stmt = self.conn.prepare(
+            "SELECT id, target_qualified FROM edges WHERE target_name = '' OR target_name IS NULL",
+        )?;
+        let rows = stmt
+            .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        if !rows.is_empty() {
+            let mut update = self
+                .conn
+                .prepare("UPDATE edges SET target_name = ? WHERE id = ?")?;
+            for (id, target_qualified) in rows {
+                update.execute(params![edge_target_name(&target_qualified), id])?;
+            }
+        }
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_edges_target_name_kind ON edges(target_name, kind)",
+            [],
+        )?;
+        Ok(())
+    }
 }

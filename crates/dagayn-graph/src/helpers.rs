@@ -23,6 +23,14 @@ pub(crate) fn make_qualified_parts(
     }
 }
 
+pub(crate) fn edge_target_name(target_qualified: &str) -> String {
+    target_qualified
+        .rsplit("::")
+        .next()
+        .unwrap_or(target_qualified)
+        .to_string()
+}
+
 pub(crate) fn remove_file_data_tx(tx: &Transaction<'_>, file_path: &str) -> Result<()> {
     crate::fts_sync::delete_fts_for_file_paths_tx(tx, &[file_path.to_string()])?;
     tx.execute(
@@ -531,6 +539,7 @@ pub(crate) fn store_file_batch_tx(
             push_text(&mut edge_params, &edge.kind);
             push_text(&mut edge_params, &edge.source);
             push_text(&mut edge_params, &edge.target);
+            push_text(&mut edge_params, &edge_target_name(&edge.target));
             push_text(&mut edge_params, &edge.file_path);
             edge_params.push(SqlValue::Integer(edge.line));
             edge_params.push(SqlValue::Text(extra_json));
@@ -639,6 +648,7 @@ pub(crate) fn store_raw_compact_file_batch_tx(
             push_text(&mut edge_params, kind);
             push_text(&mut edge_params, source);
             push_text(&mut edge_params, target);
+            push_text(&mut edge_params, &edge_target_name(target));
             push_text(&mut edge_params, file_path);
             edge_params.push(SqlValue::Integer(*line));
             edge_params.push(SqlValue::Text(extra.get().to_string()));
@@ -759,7 +769,7 @@ pub(crate) fn insert_compact_edge_rows(
     let sql = format!(
         r#"
         INSERT INTO edges
-            (kind, source_qualified, target_qualified, file_path, line, extra,
+            (kind, source_qualified, target_qualified, target_name, file_path, line, extra,
              confidence, confidence_tier, updated_at)
         VALUES {}
         "#,
