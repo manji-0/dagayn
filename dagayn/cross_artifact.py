@@ -36,7 +36,20 @@ def confidence_tier_of(edge: Any) -> str:
 
 def is_unresolved_target(edge: Any) -> bool:
     target = str(getattr(edge, "target_qualified", "") or "")
-    return target.startswith("<unresolved:")
+    return is_unresolvable_qualified_name(target)
+
+
+def is_unresolvable_qualified_name(
+    qualified_name: str,
+    *,
+    nodes_by_qn: Mapping[str, Any] | None = None,
+) -> bool:
+    """True when an edge endpoint cannot be resolved to a graph node row."""
+    if qualified_name.startswith("<unresolved:"):
+        return True
+    if nodes_by_qn is not None:
+        return qualified_name not in nodes_by_qn
+    return False
 
 
 def is_low_confidence_unresolved_markdown_code_span(edge: Any) -> bool:
