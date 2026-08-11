@@ -68,15 +68,24 @@ def _inherit_worktree_graph(repo_root: str | None) -> None:
 
 
 def _infer_persisted_local_embedding(repo_root: str | None):
+    from ...embeddings_store import (
+        get_embedding_provider_counts,
+        read_active_embedding_provider_metadata,
+        resolve_active_embedding_provider,
+    )
     from ...incremental import get_db_path, resolve_cli_repo_root
     from ...local_embeddings import infer_local_embedding_provider
 
     root = resolve_cli_repo_root(repo_root)
     db_path = get_db_path(root)
-    provider_counts = _embedding_provider_counts(db_path)
-    if len(provider_counts) != 1:
+    provider_counts = get_embedding_provider_counts(db_path)
+    preferred = read_active_embedding_provider_metadata(db_path)
+    provider_name = resolve_active_embedding_provider(
+        provider_counts,
+        preferred_provider=preferred,
+    )
+    if provider_name is None:
         return None
-    provider_name = next(iter(provider_counts))
     return infer_local_embedding_provider(provider_name)
 
 

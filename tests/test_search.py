@@ -642,6 +642,49 @@ class TestHybridSearch:
         assert hs["embedding_health"]["auto_resolved_provider"] == provider_name
         assert any(r["qualified_name"] == "auth.py::authenticate" for r in hs["results"])
 
+    def test_auto_resolves_dominant_provider_when_multiple_exist(self, monkeypatch):
+        rebuild_fts_index(self.store)
+        monkeypatch.delenv("CRG_OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("CRG_OPENAI_BASE_URL", raising=False)
+        monkeypatch.delenv("CRG_OPENAI_MODEL", raising=False)
+        _emb_failure_cache.clear()
+        _emb_cache.clear()
+        dominant = "openai:qwen@http://127.0.0.1:18080/v1"
+        abandoned = "openai:old@http://127.0.0.1:18081/v1"
+        self.store._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS embeddings (
+                qualified_name TEXT PRIMARY KEY,
+                vector BLOB NOT NULL,
+                text_hash TEXT NOT NULL,
+                provider TEXT NOT NULL DEFAULT 'unknown'
+            )
+            """
+        )
+        self.store._conn.executemany(
+            "INSERT OR REPLACE INTO embeddings VALUES (?, ?, ?, ?)",
+            [
+                ("auth.py::authenticate", _encode_vector([1.0, 0.0]), "hash", dominant),
+                ("auth.py::login", _encode_vector([0.9, 0.1]), "hash2", dominant),
+                ("auth.py::logout", _encode_vector([0.8, 0.2]), "hash3", dominant),
+                ("old.py::gone", _encode_vector([0.0, 1.0]), "hash4", abandoned),
+            ],
+        )
+        self.store._conn.commit()
+
+        with patch(
+            "dagayn.embeddings.OpenAIEmbeddingProvider._call_api",
+            return_value=[[1.0, 0.0]],
+        ):
+            hs = hybrid_search(self.store, "token validation")
+
+        assert hs["mode"] == "hybrid"
+        assert hs["embedding_health"]["status"] == "available"
+        assert hs["embedding_health"]["resolved_provider"] == dominant
+        assert hs["embedding_health"]["auto_resolved_provider"] == dominant
+        _emb_failure_cache.clear()
+        _emb_cache.clear()
+
     def test_embedding_search_failure_is_cached_briefly(self, monkeypatch):
         rebuild_fts_index(self.store)
         monkeypatch.delenv("CRG_OPENAI_API_KEY", raising=False)
@@ -1238,6 +1281,81 @@ class TestIntentReranking:
             assert result["embedding_health"]["status"] == "available"
             assert result["embedding_health"]["requested_text_mode"] == "narrative"
             assert result["embedding_health"]["resolved_provider_key"] == "fake#text=narrative"
+            assert result["results"][0]["qualified_name"] == "search.py::read_source_span"
+        finally:
+            store.close()
+            Path(tmp.name).unlink(missing_ok=True)
+
+    def test_hybrid_process_pattern_falls_back_to_material_partition(self):
+        tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        store = GraphStore(tmp.name)
+
+        class FakeProvider:
+            name = "fake"
+            preferred_batch_size = 1
+
+            def embed(self, texts):
+                return [[1.0, 0.0] for _ in texts]
+
+            def embed_query(self, text):
+                return [1.0, 0.0]
+
+            @property
+            def dimension(self):
+                return 2
+
+        try:
+            node = NodeInfo(
+                kind="Function",
+                name="read_source_span",
+                file_path="search.py",
+                line_start=1,
+                line_end=10,
+                language="python",
+            )
+            store.upsert_node(node, file_hash="rerank")
+            store._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS embeddings (
+                    qualified_name TEXT NOT NULL,
+                    vector BLOB NOT NULL,
+                    text_hash TEXT NOT NULL,
+                    provider TEXT NOT NULL DEFAULT 'unknown',
+                    PRIMARY KEY (qualified_name, provider)
+                )
+                """
+            )
+            store._conn.execute(
+                "INSERT OR REPLACE INTO embeddings VALUES (?, ?, ?, ?)",
+                (
+                    "search.py::read_source_span",
+                    _encode_vector([1.0, 0.0]),
+                    "h1",
+                    "fake#text=material",
+                ),
+            )
+            store._conn.commit()
+            rebuild_fts_index(store)
+
+            with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
+                result = hybrid_search(
+                    store,
+                    "function that reads source span and returns text",
+                    limit=5,
+                )
+
+            health = result["embedding_health"]
+            assert health["status"] == "available"
+            assert health["requested_text_mode"] == "narrative"
+            assert health["resolved_text_mode"] == "material"
+            assert health["resolved_provider_key"] == "fake#text=material"
+            assert health["text_mode_fallback"] == {
+                "from": "narrative",
+                "to": "material",
+                "provider_key": "fake#text=material",
+                "vector_count": 1,
+            }
+            assert result["mode"] == "hybrid"
             assert result["results"][0]["qualified_name"] == "search.py::read_source_span"
         finally:
             store.close()

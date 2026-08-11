@@ -396,7 +396,7 @@ class DispatcherOkResponse(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    status: Literal["ok"]
+    status: Literal["ok", "degraded", "not_found"]
     mode: str
     called_subtool: str
     summary: str
