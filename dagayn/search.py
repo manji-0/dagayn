@@ -746,6 +746,23 @@ def _embedding_search_with_health(
 
 
 # ---------------------------------------------------------------------------
+# Embedding health helpers
+# ---------------------------------------------------------------------------
+
+
+def embedding_health_available(health: dict[str, Any] | None) -> bool:
+    """Return True when embedding search succeeded or was not requested."""
+    if not health:
+        return True
+    status = health.get("status")
+    return status in (None, "available", "not_requested")
+
+
+def _empty_embedding_health() -> dict[str, Any]:
+    return {"status": "not_requested"}
+
+
+# ---------------------------------------------------------------------------
 # Main hybrid search
 # ---------------------------------------------------------------------------
 
@@ -785,7 +802,13 @@ def hybrid_search(
           are deboosted so source code outranks the tests for it).
     """
     if not query or not query.strip():
-        return {"mode": "empty", "results": []}
+        return {
+            "mode": "empty",
+            "results": [],
+            "embedding_health": _empty_embedding_health(),
+            "truncated": False,
+            "total": 0,
+        }
 
     fetch_multiplier = 12 if kind else 3
     max_fetch_multiplier = 48 if kind else 9
@@ -887,7 +910,10 @@ def hybrid_search(
                     "mode": "empty",
                     "results": [],
                     "embedding_health": embedding_health,
+                    "fts_health": fts_health,
                     "rerank_intent": rerank_intent,
+                    "truncated": False,
+                    "total": 0,
                 }
             merged = keyword_results
             keyword_mode = True
@@ -919,7 +945,10 @@ def hybrid_search(
             "mode": "empty",
             "results": [],
             "embedding_health": embedding_health,
+            "fts_health": fts_health,
             "rerank_intent": rerank_intent,
+            "truncated": False,
+            "total": 0,
         }
 
     # Track per-arm node sets for per-result source tagging
@@ -977,16 +1006,19 @@ def hybrid_search(
     boosted.sort(key=lambda x: x[1], reverse=True)
 
     # Build results
-    results: list[dict[str, Any]] = []
+    eligible: list[tuple[int, float]] = []
     for node_id, final_score in boosted:
-        if len(results) >= limit:
-            break
-
         node = node_map.get(node_id)
         if not node:
             continue
-
         if kind and node.kind != kind:
+            continue
+        eligible.append((node_id, final_score))
+
+    results: list[dict[str, Any]] = []
+    for node_id, final_score in eligible[:limit]:
+        node = node_map.get(node_id)
+        if not node:
             continue
 
         if node.kind == "DocSection":
@@ -1019,12 +1051,15 @@ def hybrid_search(
             }
         )
 
+    total = len(eligible)
     response: dict[str, Any] = {
         "mode": mode,
         "results": results,
         "embedding_health": embedding_health,
         "fts_health": fts_health,
         "rerank_intent": rerank_intent,
+        "truncated": total > limit,
+        "total": total,
     }
     if fts_match_mode:
         response["fts_match_mode"] = fts_match_mode
