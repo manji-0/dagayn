@@ -12,7 +12,7 @@ use thiserror::Error;
 const LATEST_VERSION: i64 = 14;
 const MAX_INSERT_PARAMS: usize = 30_000;
 const NODE_INSERT_PARAM_COUNT: usize = 16;
-const EDGE_INSERT_PARAM_COUNT: usize = 9;
+const EDGE_INSERT_PARAM_COUNT: usize = 10;
 const NODE_INSERT_ROWS: usize = MAX_INSERT_PARAMS / NODE_INSERT_PARAM_COUNT;
 const EDGE_INSERT_ROWS: usize = MAX_INSERT_PARAMS / EDGE_INSERT_PARAM_COUNT;
 const SUSPEND_INDEX_FILE_THRESHOLD: usize = 64;
@@ -52,6 +52,10 @@ const WRITE_INDEXES: &[(&str, &str)] = &[
     (
         "idx_edges_composite",
         "CREATE INDEX IF NOT EXISTS idx_edges_composite ON edges(kind, source_qualified, target_qualified, file_path, line)",
+    ),
+    (
+        "idx_edges_target_name_kind",
+        "CREATE INDEX IF NOT EXISTS idx_edges_target_name_kind ON edges(target_name, kind)",
     ),
 ];
 const SECURITY_KEYWORDS: &[&str] = &[
@@ -108,6 +112,7 @@ CREATE TABLE IF NOT EXISTS edges (
     kind TEXT NOT NULL,
     source_qualified TEXT NOT NULL,
     target_qualified TEXT NOT NULL,
+    target_name TEXT NOT NULL DEFAULT '',
     file_path TEXT NOT NULL,
     line INTEGER DEFAULT 0,
     extra TEXT DEFAULT '{}',
