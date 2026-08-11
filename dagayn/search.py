@@ -682,7 +682,11 @@ def _embedding_search_with_health(
                         provider_name_hint=fallback_key,
                         text_mode=fallback_mode,
                     )
-                    if emb_store is not None and emb_store.available and emb_store.provider is not None:
+                    if (
+                        emb_store is not None
+                        and emb_store.available
+                        and emb_store.provider is not None
+                    ):
                         provider_key = emb_store.provider_key or fallback_key
                         matching_count = emb_store.count_provider() or fallback_count
                         health["resolved_provider_key"] = provider_key
@@ -702,9 +706,7 @@ def _embedding_search_with_health(
         from .embeddings import embedding_provider_text_mode
 
         if "resolved_text_mode" not in health:
-            health["resolved_text_mode"] = (
-                embedding_provider_text_mode(provider_key) or text_mode
-            )
+            health["resolved_text_mode"] = embedding_provider_text_mode(provider_key) or text_mode
 
         failed_at, failure = _emb_failure_cache.get(provider_key, (0.0, ""))
         if failed_at and time.monotonic() - failed_at < _EMBEDDING_FAILURE_TTL_SECONDS:
@@ -785,87 +787,145 @@ def hybrid_search(
     if not query or not query.strip():
         return {"mode": "empty", "results": []}
 
-    fetch_limit = limit * 3  # Fetch extra to allow for filtering and boosting
+    fetch_multiplier = 12 if kind else 3
+    max_fetch_multiplier = 48 if kind else 9
     fts_health = fts_index_health(store._conn)
 
-    # ------ Phase 1: Gather ranked lists ------
+    # ------ Phase 1+2: Gather ranked lists (widen when kind filter needs depth) ------
     fts_results: list[tuple[int, float]] = []
     emb_results: list[tuple[int, float]] = []
+    keyword_results: list[tuple[int, float]] = []
+    fts_match_mode: str | None = None
     query_tokens = _query_tokens(query)
     rerank_intent = _query_rerank_intent(query, query_tokens)
     embedding_text_mode = _embedding_text_mode_for_intent(rerank_intent)
+    embedding_health: dict[str, Any] = {}
 
-    # Try FTS5 search via protocol method
-    try:
-        fts_results = store.fts_query(query, limit=fetch_limit)
-        # Additional FTS arms for each identifier-shaped token in the query
-        # so natural-language phrases like "tests for embed_graph" still
-        # match the embed_graph symbol directly.  Extra hits accumulate
-        # into the same list; rrf_merge handles repeated ids additively.
-        for ident in _extract_identifiers(query):
-            try:
-                extra = store.fts_query(ident, limit=fetch_limit)
-            except _FTS_QUERY_ERRORS as e:
-                logger.debug("FTS5 sub-query failed for %r: %s", ident, e)
-                continue
-            if extra:
-                fts_results.extend(extra)
-    except _FTS_QUERY_ERRORS as e:
-        logger.warning("FTS5 unavailable, will use fallback: %s", e)
-
-    if fts_results:
-        valid_ids = set(store.get_nodes_by_ids([nid for nid, _ in fts_results]).keys())
-        dropped = len(fts_results) - sum(1 for nid, _ in fts_results if nid in valid_ids)
-        if dropped:
-            logger.warning(
-                "Dropped %d stale FTS row(s); nodes_count=%s fts_count=%s",
-                dropped,
-                fts_health.get("nodes_count"),
-                fts_health.get("fts_count"),
-            )
-            fts_health = {**fts_health, "status": "stale", "dropped_ghost_rows": dropped}
-        fts_results = [(nid, score) for nid, score in fts_results if nid in valid_ids]
-
-    # Try embedding search
-    emb_results, embedding_health = _embedding_search_with_health(
-        store,
-        query,
-        limit=fetch_limit,
-        model=model,
-        provider=provider,
-        text_mode=embedding_text_mode,
-    )
-
-    # ------ Phase 2: Merge via RRF or fallback ------
+    merged: list[tuple[int, float]] = []
     keyword_mode = False
-    if fts_results or emb_results:
-        lists_to_merge = []
-        if fts_results:
-            lists_to_merge.append(fts_results)
-        if emb_results:
-            lists_to_merge.append(emb_results)
-        merged = rrf_merge(*lists_to_merge)
-    else:
-        # Fallback: keyword LIKE matching via protocol method
-        keyword_results = store.keyword_query(query, limit=fetch_limit)
-        if not keyword_results:
-            return {"mode": "empty", "results": [], "embedding_health": embedding_health}
-        merged = keyword_results
-        keyword_mode = True
+    mode = "empty"
 
-    # Determine top-level mode
-    if keyword_mode:
-        mode = "keyword_fallback"
-    elif fts_results and emb_results:
-        mode = "hybrid"
-    elif fts_results:
-        mode = "fts_only"
-    else:
-        mode = "embedding_only"
+    while fetch_multiplier <= max_fetch_multiplier:
+        fetch_limit = limit * fetch_multiplier
+        fts_results = []
+        emb_results = []
+        keyword_results = []
+        fts_match_modes: list[str] = []
+
+        # Try FTS5 search via protocol method
+        try:
+            primary = store.fts_query(query, limit=fetch_limit)
+            fts_results.extend(primary.hits)
+            if primary.match_mode != "none":
+                fts_match_modes.append(primary.match_mode)
+            # Additional FTS arms for each identifier-shaped token in the query
+            # so natural-language phrases like "tests for embed_graph" still
+            # match the embed_graph symbol directly.  Extra hits accumulate
+            # into the same list; rrf_merge handles repeated ids additively.
+            for ident in _extract_identifiers(query):
+                try:
+                    extra = store.fts_query(ident, limit=fetch_limit)
+                except _FTS_QUERY_ERRORS as e:
+                    logger.debug("FTS5 sub-query failed for %r: %s", ident, e)
+                    continue
+                if extra.hits:
+                    fts_results.extend(extra.hits)
+                    if extra.match_mode != "none":
+                        fts_match_modes.append(extra.match_mode)
+        except _FTS_QUERY_ERRORS as e:
+            logger.warning("FTS5 unavailable, will use fallback: %s", e)
+
+        if "and" in fts_match_modes:
+            fts_match_mode = "and"
+        elif "or" in fts_match_modes:
+            fts_match_mode = "any"
+        elif "phrase" in fts_match_modes:
+            fts_match_mode = "phrase"
+        else:
+            fts_match_mode = None
+
+        if fts_results:
+            valid_ids = set(store.get_nodes_by_ids([nid for nid, _ in fts_results]).keys())
+            dropped = len(fts_results) - sum(1 for nid, _ in fts_results if nid in valid_ids)
+            if dropped:
+                logger.warning(
+                    "Dropped %d stale FTS row(s); nodes_count=%s fts_count=%s",
+                    dropped,
+                    fts_health.get("nodes_count"),
+                    fts_health.get("fts_count"),
+                )
+                fts_health = {**fts_health, "status": "stale", "dropped_ghost_rows": dropped}
+            fts_results = [(nid, score) for nid, score in fts_results if nid in valid_ids]
+
+        # Try embedding search
+        emb_results, embedding_health = _embedding_search_with_health(
+            store,
+            query,
+            limit=fetch_limit,
+            model=model,
+            provider=provider,
+            text_mode=embedding_text_mode,
+        )
+
+        keyword_mode = False
+        if fts_results or emb_results:
+            lists_to_merge = []
+            if fts_results:
+                lists_to_merge.append(fts_results)
+            if emb_results:
+                lists_to_merge.append(emb_results)
+            merged = rrf_merge(*lists_to_merge)
+            if fts_match_mode == "any":
+                keyword_results = store.keyword_query(query, limit=fetch_limit)
+                if keyword_results:
+                    merged = rrf_merge(merged, keyword_results)
+        else:
+            # Fallback: keyword LIKE matching via protocol method
+            keyword_results = store.keyword_query(query, limit=fetch_limit)
+            if not keyword_results:
+                return {
+                    "mode": "empty",
+                    "results": [],
+                    "embedding_health": embedding_health,
+                    "rerank_intent": rerank_intent,
+                }
+            merged = keyword_results
+            keyword_mode = True
+
+        # Determine top-level mode
+        if keyword_mode:
+            mode = "keyword_fallback"
+        elif fts_results and emb_results:
+            mode = "hybrid"
+        elif fts_results:
+            mode = "fts_only"
+        else:
+            mode = "embedding_only"
+
+        if not kind:
+            break
+
+        candidate_ids = [node_id for node_id, _ in merged]
+        node_map = store.get_nodes_by_ids(candidate_ids)
+        kind_hits = sum(
+            1 for node_id in candidate_ids if (node := node_map.get(node_id)) and node.kind == kind
+        )
+        if kind_hits >= limit or fetch_multiplier >= max_fetch_multiplier:
+            break
+        fetch_multiplier *= 2
+
+    if not merged:
+        return {
+            "mode": "empty",
+            "results": [],
+            "embedding_health": embedding_health,
+            "rerank_intent": rerank_intent,
+        }
 
     # Track per-arm node sets for per-result source tagging
     fts_ids: set[int] = {nid for nid, _ in fts_results}
     emb_ids: set[int] = {nid for nid, _ in emb_results}
+    keyword_ids: set[int] = {nid for nid, _ in keyword_results}
     fts_rank_by_id: dict[int, int] = {}
     emb_rank_by_id: dict[int, int] = {}
     for rank, (nid, _score) in enumerate(fts_results, start=1):
@@ -931,7 +991,7 @@ def hybrid_search(
 
         if node.kind == "DocSection":
             source = "doc"
-        elif keyword_mode:
+        elif keyword_mode or node_id in keyword_ids:
             source = "keyword"
         elif node_id in fts_ids and node_id in emb_ids:
             source = "both"
@@ -959,10 +1019,13 @@ def hybrid_search(
             }
         )
 
-    return {
+    response: dict[str, Any] = {
         "mode": mode,
         "results": results,
         "embedding_health": embedding_health,
         "fts_health": fts_health,
         "rerank_intent": rerank_intent,
     }
+    if fts_match_mode:
+        response["fts_match_mode"] = fts_match_mode
+    return response

@@ -11,6 +11,7 @@ from dagayn.embeddings import _encode_vector
 from dagayn.graph import GraphStore
 from dagayn.graph import _fts_tokenize as graph_fts_tokenize
 from dagayn.graph import search as graph_search
+from dagayn.graph.types import FtsQueryResult
 from dagayn.parser import NodeInfo
 from dagayn.search import (
     _emb_cache,
@@ -411,6 +412,87 @@ class TestHybridSearch:
         for r in results:
             assert r["kind"] == "Class"
 
+    def test_junk_path_query_does_not_match_via_or_segments(self):
+        """Issue #40: path-shaped junk must not FTS-match on shared segments."""
+        for path, name in [("src/a.py", "alpha"), ("src/b.py", "beta")]:
+            self.store.upsert_node(
+                NodeInfo(
+                    kind="Function",
+                    name=name,
+                    file_path=path,
+                    line_start=1,
+                    line_end=5,
+                    language="python",
+                ),
+                file_hash="abc123",
+            )
+        self.store.commit()
+        rebuild_fts_index(self.store)
+
+        fts = self.store.fts_query("src/nonexistent_zzz.py")
+        assert fts.hits == []
+        assert fts.match_mode == "none"
+
+        hs = hybrid_search(self.store, "src/nonexistent_zzz.py")
+        assert hs["mode"] in ("empty", "keyword_fallback")
+        assert not any(r["name"] in {"alpha", "beta"} for r in hs["results"])
+
+    def test_junk_dotted_query_does_not_match_via_or_segments(self):
+        """Issue #40: dotted junk must not FTS-match unrelated alpha symbols."""
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="alpha",
+                file_path="src/a.py",
+                line_start=1,
+                line_end=5,
+                language="python",
+            ),
+            file_hash="abc123",
+        )
+        self.store.commit()
+        rebuild_fts_index(self.store)
+
+        fts = self.store.fts_query("totally.bogus.alpha")
+        assert fts.hits == []
+        assert fts.match_mode == "none"
+
+        hs = hybrid_search(self.store, "totally.bogus.alpha")
+        assert not any(r["name"] == "alpha" for r in hs["results"])
+
+    def test_kind_filter_with_small_limit_finds_class(self):
+        """Issue #40: kind filter must not hide matches behind candidate truncation."""
+        for i in range(20):
+            self.store.upsert_node(
+                NodeInfo(
+                    kind="Function",
+                    name=f"handler_{i}",
+                    file_path="handlers.py",
+                    line_start=i,
+                    line_end=i + 1,
+                    language="python",
+                ),
+                file_hash="abc123",
+            )
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Class",
+                name="HandlerThing",
+                file_path="z.py",
+                line_start=1,
+                line_end=20,
+                language="python",
+            ),
+            file_hash="abc123",
+        )
+        self.store.commit()
+        rebuild_fts_index(self.store)
+
+        results = hybrid_search(self.store, "handler", kind="Class", limit=5)["results"]
+        assert results
+        assert any(r["name"] == "HandlerThing" for r in results)
+        assert all(r["kind"] == "Class" for r in results)
+
     # --- Context file boosting ---
 
     def test_context_file_boost(self):
@@ -540,9 +622,16 @@ class TestHybridSearch:
         )
         self.store._conn.commit()
 
-        with patch(
-            "dagayn.embeddings.OpenAIEmbeddingProvider._call_api",
-            return_value=[[1.0, 0.0]],
+        with (
+            patch.object(
+                self.store,
+                "fts_query",
+                return_value=FtsQueryResult(hits=[(node.id, 0.5)], match_mode="or"),
+            ),
+            patch(
+                "dagayn.embeddings.OpenAIEmbeddingProvider._call_api",
+                return_value=[[1.0, 0.0]],
+            ),
         ):
             hs = hybrid_search(self.store, "token validation")
 
@@ -715,8 +804,8 @@ class TestGraphStoreProtocolMethods:
     def test_fts_query_returns_positive_scores(self):
         """fts_query returns non-empty list with strictly positive scores."""
         results = self.store.fts_query("get_users")
-        assert len(results) > 0
-        for _nid, score in results:
+        assert len(results.hits) > 0
+        for _nid, score in results.hits:
             assert score > 0
 
     def test_keyword_query_exact_match_score(self):
@@ -1095,13 +1184,20 @@ class TestIntentReranking:
             store._conn.commit()
             rebuild_fts_index(store)
 
-            with patch(
-                "dagayn.search._embedding_search_with_health",
-                return_value=(
-                    [(function_id, 0.99), (doc_id, 0.8)],
-                    {"status": "available", "resolved_provider": "test"},
+            with (
+                patch.object(
+                    store,
+                    "fts_query",
+                    return_value=FtsQueryResult(hits=[(function_id, 0.5)], match_mode="and"),
                 ),
-            ) as embedding_search:
+                patch(
+                    "dagayn.search._embedding_search_with_health",
+                    return_value=(
+                        [(function_id, 0.99), (doc_id, 0.8)],
+                        {"status": "available", "resolved_provider": "test"},
+                    ),
+                ) as embedding_search,
+            ):
                 result = hybrid_search(
                     store,
                     "function that merges ranked search results",
