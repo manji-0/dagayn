@@ -217,6 +217,34 @@ class TestTools:
         sources = {edge.source_qualified for edge in edges}
         assert sources == {"/repo/main.py::process", "/repo/worker.py::process"}
 
+    def test_search_import_edges_for_symbol(self):
+        """IMPORTS_FROM lookup resolves by defining file path."""
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="IMPORTS_FROM",
+                source="/repo/main.py",
+                target="/repo/utils.py",
+                file_path="/repo/main.py",
+                line=1,
+            )
+        )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="IMPORTS_FROM",
+                source="/repo/other.py",
+                target="/repo/helpers.py",
+                file_path="/repo/other.py",
+                line=2,
+            )
+        )
+        self.store.commit()
+        by_file = self.store.search_import_edges_for_symbol("/repo/utils.py", "helper")
+        assert len(by_file) == 1
+        assert by_file[0].file_path == "/repo/main.py"
+        unrelated = self.store.search_import_edges_for_symbol("/repo/helpers.py", "helper")
+        assert len(unrelated) == 1
+        assert unrelated[0].file_path == "/repo/other.py"
+
     def test_count_edges_by_target_name_prefix(self):
         self.store.upsert_edge(
             EdgeInfo(
