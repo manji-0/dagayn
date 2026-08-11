@@ -25,8 +25,10 @@ impl GraphStore {
             }
         }
 
+        let mut found_qualified_direct = false;
         for qn in &input_qns {
             for test_target in self.get_test_targets_for_source(qn)? {
+                found_qualified_direct = true;
                 if seen.insert(test_target.clone()) {
                     if let Some(test_node) = self.test_node_json(&test_target, false)? {
                         results.push(test_node);
@@ -35,14 +37,16 @@ impl GraphStore {
             }
         }
 
-        let bare = qualified_name
-            .rsplit_once("::")
-            .map(|(_, name)| name)
-            .unwrap_or(qualified_name);
-        for test_target in self.get_test_targets_for_source(bare)? {
-            if seen.insert(test_target.clone()) {
-                if let Some(test_node) = self.test_node_json(&test_target, false)? {
-                    results.push(test_node);
+        if !found_qualified_direct {
+            let bare = qualified_name
+                .rsplit_once("::")
+                .map(|(_, name)| name)
+                .unwrap_or(qualified_name);
+            for test_target in self.get_test_targets_for_source(bare)? {
+                if seen.insert(test_target.clone()) {
+                    if let Some(test_node) = self.test_node_json(&test_target, false)? {
+                        results.push(test_node);
+                    }
                 }
             }
         }
@@ -112,13 +116,6 @@ impl GraphStore {
                 .or_default()
                 .push(qualified_name.clone());
 
-            if let Some(bare) = qualified_name.rsplit_once("::").map(|(_, name)| name) {
-                direct_target_to_originals
-                    .entry(bare.to_string())
-                    .or_default()
-                    .push(qualified_name.clone());
-            }
-
             if let Some(contained) = contains_by_class.get(qualified_name) {
                 for target in contained {
                     direct_target_to_originals
@@ -137,8 +134,36 @@ impl GraphStore {
             .keys()
             .cloned()
             .collect::<Vec<_>>();
+        let mut originals_with_qualified_direct = HashSet::new();
         for (source, test_target) in self.get_test_targets_by_sources(&direct_targets)? {
             if let Some(originals) = direct_target_to_originals.get(&source) {
+                for original in originals {
+                    originals_with_qualified_direct.insert(original.clone());
+                    if let Some(seen) = seen_tests.get_mut(original) {
+                        seen.insert(test_target.clone());
+                    }
+                }
+            }
+        }
+
+        let mut bare_target_to_originals: HashMap<String, Vec<String>> = HashMap::new();
+        for qualified_name in qualified_names {
+            if originals_with_qualified_direct.contains(qualified_name) {
+                continue;
+            }
+            if let Some(bare) = qualified_name.rsplit_once("::").map(|(_, name)| name) {
+                bare_target_to_originals
+                    .entry(bare.to_string())
+                    .or_default()
+                    .push(qualified_name.clone());
+            }
+        }
+        let bare_targets = bare_target_to_originals
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        for (source, test_target) in self.get_test_targets_by_sources(&bare_targets)? {
+            if let Some(originals) = bare_target_to_originals.get(&source) {
                 for original in originals {
                     if let Some(seen) = seen_tests.get_mut(original) {
                         seen.insert(test_target.clone());
