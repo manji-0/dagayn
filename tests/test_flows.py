@@ -471,6 +471,46 @@ class TestFlows:
         result = get_affected_flows(self.store, [])
         assert result["total"] == 0
 
+    def test_get_affected_flows_absolute_path(self, tmp_path):
+        """Absolute changed-file paths resolve against repo_root like relative paths."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        self.store.set_metadata("repo_root", str(repo.resolve()))
+
+        self._add_func("handler", path="routes.py")
+        self._add_func("service", path="services.py")
+        self._add_func("repo", path="repo.py")
+        self._add_call("routes.py::handler", "services.py::service", "routes.py")
+        self._add_call("services.py::service", "repo.py::repo", "services.py")
+
+        flows = trace_flows(self.store)
+        store_flows(self.store, flows)
+
+        result_rel = get_affected_flows(self.store, ["services.py"])
+        abs_path = str((repo / "services.py").resolve())
+        result_abs = get_affected_flows(self.store, [abs_path])
+
+        assert result_rel["total"] >= 1
+        assert result_abs["total"] == result_rel["total"]
+        rel_entries = {f["entry_point_id"] for f in result_rel["affected_flows"]}
+        abs_entries = {f["entry_point_id"] for f in result_abs["affected_flows"]}
+        assert abs_entries == rel_entries
+
+    def test_get_node_ids_by_files_absolute_path(self, tmp_path):
+        """get_node_ids_by_files accepts absolute paths when repo_root is set."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        self.store.set_metadata("repo_root", str(repo.resolve()))
+
+        self._add_func("service", path="services.py")
+        self._add_func("other", path="other.py")
+
+        rel_ids = self.store.get_node_ids_by_files(["services.py"])
+        abs_ids = self.store.get_node_ids_by_files([str((repo / "services.py").resolve())])
+
+        assert rel_ids == abs_ids
+        assert len(rel_ids) == 1
+
     # ---------------------------------------------------------------
     # get_flows sorting
     # ---------------------------------------------------------------
