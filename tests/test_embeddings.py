@@ -1246,7 +1246,7 @@ class TestGetProviderModel:
             provider = get_provider(provider=None)
 
         assert isinstance(provider, OpenAIEmbeddingProvider)
-        assert provider.name == "openai:bge-m3-gguf-q8_0@http://127.0.0.1:18080/v1"
+        assert provider.name == "openai:bge-m3-gguf-q8_0@http://127.0.0.1:18080/v1#dim=1536"
 
     def test_removed_local_provider_returns_none(self, caplog):
         with patch.dict(os.environ, {}, clear=True):
@@ -1341,10 +1341,16 @@ class TestEmbeddingStoreModelPassthrough:
 
 class TestPersistedProviderResolution:
     def test_recreates_localhost_openai_provider(self):
-        name = "openai:qwen@http://127.0.0.1:18080/v1"
+        name = "openai:qwen@http://127.0.0.1:18080/v1#dim=1536"
         provider = provider_from_persisted_name(name)
         assert provider is not None
         assert provider.name == name
+
+    def test_recreates_legacy_localhost_openai_provider_without_dim_suffix(self):
+        legacy = "openai:qwen@http://127.0.0.1:18080/v1"
+        provider = provider_from_persisted_name(legacy)
+        assert provider is not None
+        assert provider.name == f"{legacy}#dim=1536"
 
     def test_refuses_non_localhost_openai_provider(self):
         assert provider_from_persisted_name("openai:qwen@https://api.example.com/v1") is None
@@ -1526,7 +1532,7 @@ class TestOpenAIEmbeddingProvider:
             base_url="http://localhost:3000/v1",
             model="text-embedding-3-small",
         )
-        assert p.name == "openai:text-embedding-3-small@http://localhost:3000/v1"
+        assert p.name == "openai:text-embedding-3-small@http://localhost:3000/v1#dim=1536"
 
     def test_default_dimension_before_call(self):
         p = OpenAIEmbeddingProvider(
@@ -1603,15 +1609,15 @@ class TestOpenAIEmbeddingProvider:
             p.embed_query("x")
         payload = json.loads(mock_urlopen.call_args[0][0].data.decode("utf-8"))
         assert payload["max_length"] == 2048
-        assert p.name == "openai:local-embedding@http://localhost:3000/v1#max_length=2048"
+        assert p.name == "openai:local-embedding@http://localhost:3000/v1#max_length=2048#dim=1024"
 
     def test_from_persisted_name_restores_local_max_length_suffix(self):
         p = OpenAIEmbeddingProvider.from_persisted_name(
-            "openai:local-embedding@http://127.0.0.1:3000/v1#max_length=2048"
+            "openai:local-embedding@http://127.0.0.1:3000/v1#max_length=2048#dim=1536"
         )
 
         assert p is not None
-        assert p.name == "openai:local-embedding@http://127.0.0.1:3000/v1#max_length=2048"
+        assert p.name == "openai:local-embedding@http://127.0.0.1:3000/v1#max_length=2048#dim=1536"
 
     def test_base_url_trailing_slash_stripped(self):
         p = OpenAIEmbeddingProvider(
@@ -1739,9 +1745,9 @@ class TestOpenAIEmbeddingProvider:
             model="text-embedding-3-small",
         )
         assert p1.name != p2.name != p3.name
-        assert p1.name == "openai:text-embedding-3-small@https://api.openai.com/v1"
-        assert p2.name == "openai:text-embedding-3-small@https://openrouter.ai/api/v1"
-        assert p3.name == "openai:text-embedding-3-small@http://127.0.0.1:3000/v1"
+        assert p1.name == "openai:text-embedding-3-small@https://api.openai.com/v1#dim=1536"
+        assert p2.name == "openai:text-embedding-3-small@https://openrouter.ai/api/v1#dim=1536"
+        assert p3.name == "openai:text-embedding-3-small@http://127.0.0.1:3000/v1#dim=1536"
 
     def test_trailing_slash_does_not_change_identity(self):
         """A trailing slash on base_url must not cause a re-embed."""
@@ -1772,8 +1778,8 @@ class TestOpenAIEmbeddingProvider:
             model="m",
         )
         assert p1.name != p2.name
-        assert p1.name == "openai:m@https://gw.example.com/openai/v1"
-        assert p2.name == "openai:m@https://gw.example.com/vendor-b/v1"
+        assert p1.name == "openai:m@https://gw.example.com/openai/v1#dim=1536"
+        assert p2.name == "openai:m@https://gw.example.com/vendor-b/v1#dim=1536"
 
     def test_default_port_is_stripped_from_identity(self):
         """`https://host/v1` and `https://host:443/v1` must map to the
@@ -1838,7 +1844,7 @@ class TestOpenAIEmbeddingProvider:
             base_url="http://[::1]:3000/v1",
             model="m",
         )
-        assert p.name == "openai:m@http://[::1]:3000/v1"
+        assert p.name == "openai:m@http://[::1]:3000/v1#dim=1536"
 
     def test_response_with_missing_index_raises(self):
         """Length-only checks let duplicate/missing indices through. We
@@ -1930,8 +1936,8 @@ class TestOpenAIEmbeddingProvider:
         assert p_http.name != p_https.name
         # http default port 80 and https default port 443 are both stripped
         # from the host, but scheme is preserved in the identity.
-        assert p_http.name == "openai:m@http://gw.example.com/v1"
-        assert p_https.name == "openai:m@https://gw.example.com/v1"
+        assert p_http.name == "openai:m@http://gw.example.com/v1#dim=1536"
+        assert p_https.name == "openai:m@https://gw.example.com/v1#dim=1536"
 
     def test_mixed_indexed_unindexed_response_raises(self):
         """Some items with ``index``, others without: must refuse rather
@@ -2207,7 +2213,7 @@ class TestGetProviderOpenAI:
         with patch.dict("os.environ", self._MIN_ENV, clear=True):
             p = get_provider("openai")
         assert isinstance(p, OpenAIEmbeddingProvider)
-        assert p.name == "openai:text-embedding-3-small@http://127.0.0.1:3000/v1"
+        assert p.name == "openai:text-embedding-3-small@http://127.0.0.1:3000/v1#dim=1536"
 
     def test_missing_api_key_raises(self):
         env = {k: v for k, v in self._MIN_ENV.items() if k != "CRG_OPENAI_API_KEY"}
@@ -2231,7 +2237,7 @@ class TestGetProviderOpenAI:
         with patch.dict("os.environ", self._MIN_ENV, clear=True):
             p = get_provider("openai", model="text-embedding-3-large")
         assert p is not None
-        assert p.name == "openai:text-embedding-3-large@http://127.0.0.1:3000/v1"
+        assert p.name == "openai:text-embedding-3-large@http://127.0.0.1:3000/v1#dim=1536"
 
     def test_dimension_env_forwarded(self):
         env = {**self._MIN_ENV, "CRG_OPENAI_DIMENSION": "256"}
@@ -2240,13 +2246,14 @@ class TestGetProviderOpenAI:
         assert p is not None
         assert isinstance(p, OpenAIEmbeddingProvider)
         assert p._dimension == 256
+        assert p.name == "openai:text-embedding-3-small@http://127.0.0.1:3000/v1#dim=256"
 
     def test_max_length_env_forwarded(self):
         env = {**self._MIN_ENV, "CRG_OPENAI_MAX_LENGTH": "2048"}
         with patch.dict("os.environ", env, clear=True):
             p = get_provider("openai")
         assert p is not None
-        assert p.name == "openai:text-embedding-3-small@http://127.0.0.1:3000/v1#max_length=2048"
+        assert p.name == "openai:text-embedding-3-small@http://127.0.0.1:3000/v1#max_length=2048#dim=1536"
 
     def test_localhost_suppresses_egress_warning(self, capsys):
         with patch.dict("os.environ", self._MIN_ENV, clear=True):
@@ -2277,3 +2284,207 @@ class TestGetProviderOpenAI:
             get_provider("openai")
         captured = capsys.readouterr()
         assert "cloud" in captured.err.lower()
+
+
+class TestVectorDimensionIdentity:
+    """Regression tests for issue #45: dimension must partition provider identity."""
+
+    def test_dimension_change_forces_reembed(self, tmp_path):
+        db = tmp_path / "embeddings.db"
+
+        class DimProvider:
+            def __init__(self, dim: int) -> None:
+                self._dim = dim
+
+            @property
+            def name(self) -> str:
+                return f"fake#dim={self._dim}"
+
+            @property
+            def dimension(self) -> int:
+                return self._dim
+
+            @property
+            def preferred_batch_size(self) -> int:
+                return 8
+
+            def embed(self, texts: list[str]) -> list[list[float]]:
+                return [[float(i + 1)] * self._dim for i, _ in enumerate(texts)]
+
+            def embed_query(self, text: str) -> list[float]:
+                return [1.0] * self._dim
+
+        node = GraphNode(
+            id=1,
+            kind="Function",
+            name="a",
+            qualified_name="file.py::a",
+            file_path="file.py",
+            line_start=1,
+            line_end=1,
+            language="python",
+            parent_name=None,
+            params=None,
+            return_type=None,
+            is_test=False,
+            file_hash=None,
+            extra={},
+            signature=None,
+        )
+        dim4 = DimProvider(4)
+        with patch("dagayn.embeddings.get_provider", return_value=dim4):
+            store = EmbeddingStore(db, provider_instance=dim4)
+            embedded = store.embed_nodes([node])
+            assert embedded == 1
+            store.close()
+
+        dim8 = DimProvider(8)
+        with patch("dagayn.embeddings.get_provider", return_value=dim8):
+            store = EmbeddingStore(db, provider_instance=dim8)
+            reembedded = store.embed_nodes([node])
+            assert reembedded == 1
+            rows = store._conn.execute(
+                "SELECT provider, length(vector) FROM embeddings WHERE qualified_name = ?",
+                (node.qualified_name,),
+            ).fetchall()
+            providers = {row["provider"]: row["length(vector)"] for row in rows}
+            assert providers["fake#dim=8#text=material"] == 32
+            assert providers["fake#dim=4#text=material"] == 16
+            store.close()
+
+        conn = sqlite3.connect(str(db))
+        assert conn.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0] == 2
+        conn.close()
+
+    def test_dimension_mismatch_reported_in_embedding_health(self, tmp_path, monkeypatch):
+        from dagayn.graph import GraphStore
+        from dagayn.parser import NodeInfo
+        from dagayn.search import _embedding_search_with_health
+
+        db = tmp_path / "graph.db"
+        store = GraphStore(db)
+        store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="a",
+                file_path="file.py",
+                line_start=1,
+                line_end=1,
+                language="python",
+            )
+        )
+        store._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS embeddings (
+                qualified_name TEXT NOT NULL,
+                vector BLOB NOT NULL,
+                text_hash TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                PRIMARY KEY (qualified_name, provider)
+            )
+            """
+        )
+        store._conn.execute(
+            "INSERT INTO embeddings (qualified_name, vector, text_hash, provider) "
+            "VALUES (?, ?, ?, ?)",
+            (
+                "file.py::a",
+                _encode_vector([1.0, 0.0, 0.0, 0.0]),
+                "hash",
+                "fake#dim=8#text=material",
+            ),
+        )
+        store._conn.commit()
+
+        class Dim8Provider:
+            name = "fake#dim=8"
+            preferred_batch_size = 1
+
+            @property
+            def dimension(self) -> int:
+                return 8
+
+            def embed(self, texts):
+                return [[1.0] * 8 for _ in texts]
+
+            def embed_query(self, text):
+                return [1.0] * 8
+
+        monkeypatch.setenv("DAGAYN_EMBEDDING_SEARCH_BACKEND", "python")
+        with patch("dagayn.embeddings.get_provider", return_value=Dim8Provider()):
+            results, health = _embedding_search_with_health(store, "alpha", limit=5)
+            store.close()
+
+        assert results == []
+        assert health["status"] == "dimension_mismatch"
+        assert health["matching_vector_count"] == 0
+        assert health["query_dimension"] == 8
+        assert health["stored_dimension"] == 4
+
+    def test_search_backends_agree_on_mixed_dimensions(self, tmp_path, monkeypatch):
+        import dagayn.embeddings as emb
+        import dagayn.embeddings_store as emb_store
+
+        rows = [
+            ("file.py::a", [1.0, 0.0, 0.0, 0.0]),
+            ("file.py::b", [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+        ]
+        query = [1.0, 0.0, 0.0, 0.0]
+        db = tmp_path / "mixed.db"
+        provider = "fake"
+        conn = sqlite3.connect(str(db))
+        conn.row_factory = sqlite3.Row
+        conn.executescript(
+            """
+            CREATE TABLE embeddings (
+                qualified_name TEXT NOT NULL,
+                vector BLOB NOT NULL,
+                text_hash TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                PRIMARY KEY (qualified_name, provider)
+            );
+            """
+        )
+        conn.executemany(
+            "INSERT INTO embeddings (qualified_name, vector, text_hash, provider) "
+            "VALUES (?, ?, ?, ?)",
+            [(qn, _encode_vector(vec), f"h{i}", provider) for i, (qn, vec) in enumerate(rows)],
+        )
+        conn.commit()
+
+        python_hits = emb_store._python_loop_search(conn, provider, query, limit=5)
+        if emb._NUMPY_AVAILABLE:
+            emb._np_vec_cache.clear()
+            numpy_hits = emb_store._numpy_matmul_search(db, conn, provider, query, limit=5)
+            assert [qn for qn, _ in numpy_hits] == [qn for qn, _ in python_hits]
+        try:
+            from dagayn import _core
+
+            rust_hits = [
+                (str(name), float(score))
+                for name, score in _core.embedding_search(db, provider, query, 5)
+            ]
+            assert [qn for qn, _ in rust_hits] == [qn for qn, _ in python_hits]
+        except (ImportError, AttributeError):
+            pytest.skip("native embedding search extension unavailable")
+        conn.close()
+
+        assert python_hits == [("file.py::a", pytest.approx(1.0))]
+        assert "file.py::b" not in {qn for qn, _ in python_hits}
+
+    def test_openai_dimension_change_partitions_provider_name(self):
+        p4 = OpenAIEmbeddingProvider(
+            api_key="k",
+            base_url="http://localhost:3000/v1",
+            model="m",
+            dimension=4,
+        )
+        p8 = OpenAIEmbeddingProvider(
+            api_key="k",
+            base_url="http://localhost:3000/v1",
+            model="m",
+            dimension=8,
+        )
+        assert p4.name != p8.name
+        assert p4.name.endswith("#dim=4")
+        assert p8.name.endswith("#dim=8")

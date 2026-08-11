@@ -11,6 +11,7 @@ struct CacheKey {
     db_path: String,
     provider: String,
     stamp_ns: u128,
+    vector_bytes: usize,
 }
 
 #[derive(Debug)]
@@ -47,7 +48,8 @@ pub fn embedding_search(
         .map(|value| value / query_norm)
         .collect::<Vec<_>>();
 
-    let matrix = load_embedding_matrix_cached(db_path.as_ref(), provider)?;
+    let vector_bytes = query_vec.len() * std::mem::size_of::<f32>();
+    let matrix = load_embedding_matrix_cached(db_path.as_ref(), provider, vector_bytes)?;
     if matrix.names.is_empty() || matrix.dim != query.len() {
         return Ok(Vec::new());
     }
@@ -66,16 +68,30 @@ pub fn embedding_search_prewarm(db_path: impl AsRef<Path>, provider: &str) -> Re
     if provider.is_empty() {
         return Ok(0);
     }
-    let matrix = load_embedding_matrix_cached(db_path.as_ref(), provider)?;
+    let db_path = db_path.as_ref();
+    let conn = Connection::open_with_flags(
+        db_path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    let (_, uniform_dim) = embedding_row_shape_hint(&conn, provider)?;
+    let vector_bytes = uniform_dim
+        .map(|dim| dim * std::mem::size_of::<f32>())
+        .unwrap_or(0);
+    let matrix = load_embedding_matrix_cached(db_path, provider, vector_bytes)?;
     Ok(matrix.names.len())
 }
 
-fn load_embedding_matrix_cached(db_path: &Path, provider: &str) -> Result<Arc<EmbeddingMatrix>> {
+fn load_embedding_matrix_cached(
+    db_path: &Path,
+    provider: &str,
+    vector_bytes: usize,
+) -> Result<Arc<EmbeddingMatrix>> {
     let stamp_ns = db_stamp_ns(db_path);
     let key = CacheKey {
         db_path: db_path.to_string_lossy().into_owned(),
         provider: provider.to_owned(),
         stamp_ns,
+        vector_bytes,
     };
     let cache = EMBEDDING_SEARCH_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
 
@@ -90,19 +106,24 @@ fn load_embedding_matrix_cached(db_path: &Path, provider: &str) -> Result<Arc<Em
         return Ok(matrix);
     }
 
-    let matrix = Arc::new(load_embedding_matrix(db_path, provider)?);
+    let matrix = Arc::new(load_embedding_matrix(db_path, provider, vector_bytes)?);
     let mut guard = cache.lock().map_err(|err| {
         GraphError::InvalidEmbedding(format!("embedding cache lock poisoned: {err}"))
     })?;
     guard.retain(|existing, _| {
         !(existing.db_path == key.db_path
             && existing.provider == key.provider
+            && existing.vector_bytes == key.vector_bytes
             && existing.stamp_ns != key.stamp_ns)
     });
     Ok(guard.entry(key).or_insert_with(|| matrix).clone())
 }
 
-fn load_embedding_matrix(db_path: &Path, provider: &str) -> Result<EmbeddingMatrix> {
+fn load_embedding_matrix(
+    db_path: &Path,
+    provider: &str,
+    vector_bytes: usize,
+) -> Result<EmbeddingMatrix> {
     let conn = Connection::open_with_flags(
         db_path,
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
@@ -127,9 +148,18 @@ fn load_embedding_matrix(db_path: &Path, provider: &str) -> Result<EmbeddingMatr
     }
 
     let (row_count, uniform_dim) = embedding_row_shape_hint(&conn, provider)?;
-    let mut stmt =
-        conn.prepare("SELECT qualified_name, vector FROM embeddings WHERE provider = ?")?;
-    let mut rows = stmt.query(params![provider])?;
+    let mut stmt = if vector_bytes > 0 {
+        conn.prepare(
+            "SELECT qualified_name, vector FROM embeddings WHERE provider = ? AND length(vector) = ?",
+        )?
+    } else {
+        conn.prepare("SELECT qualified_name, vector FROM embeddings WHERE provider = ?")?
+    };
+    let mut rows = if vector_bytes > 0 {
+        stmt.query(params![provider, vector_bytes as i64])?
+    } else {
+        stmt.query(params![provider])?
+    };
     let mut names = Vec::with_capacity(row_count);
     let mut values = uniform_dim
         .and_then(|dim| row_count.checked_mul(dim))
@@ -617,7 +647,7 @@ mod tests {
     }
 
     #[test]
-    fn native_embedding_search_rejects_malformed_blob() {
+    fn native_embedding_search_skips_wrong_length_blobs() {
         let db_path = temp_db_path("bad-blob");
         let conn = Connection::open(&db_path).unwrap();
         conn.execute_batch(
@@ -637,8 +667,32 @@ mod tests {
         .unwrap();
         drop(conn);
 
-        let error = embedding_search(&db_path, "fake", &[1.0], 1).unwrap_err();
-        assert!(error.to_string().contains("not divisible by 4"));
+        let results = embedding_search(&db_path, "fake", &[1.0], 1).unwrap();
+        assert!(results.is_empty());
+
+        let _ = std::fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn native_embedding_search_filters_mismatched_dimensions() {
+        let db_path = temp_db_path("mixed-dim");
+        seed_embeddings(
+            &db_path,
+            &[
+                ("four-dim", &[1.0, 0.0, 0.0, 0.0], "fake"),
+                ("eight-dim", &[1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "fake"),
+            ],
+        );
+
+        let four_dim_hits = embedding_search(&db_path, "fake", &[1.0, 0.0, 0.0, 0.0], 5).unwrap();
+        assert_eq!(four_dim_hits.len(), 1);
+        assert_eq!(four_dim_hits[0].0, "four-dim");
+
+        let eight_dim_hits =
+            embedding_search(&db_path, "fake", &[1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 5)
+                .unwrap();
+        assert_eq!(eight_dim_hits.len(), 1);
+        assert_eq!(eight_dim_hits[0].0, "eight-dim");
 
         let _ = std::fs::remove_file(db_path);
     }

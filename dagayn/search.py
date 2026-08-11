@@ -749,7 +749,9 @@ def _embedding_search_with_health(
 
         provider_name = emb_store.provider.name
         provider_key = emb_store.provider_key or provider_name
-        matching_count = emb_store.count_provider()
+        provider_dim = emb_store.provider.dimension
+        total_count = emb_store.count_provider()
+        matching_count = emb_store.count_provider(dimension=provider_dim)
         if (
             matching_count == 0
             and provider_name_hint
@@ -758,14 +760,20 @@ def _embedding_search_with_health(
         ):
             emb_store.provider_key = provider_name_hint
             provider_key = provider_name_hint
-            matching_count = emb_store.count_provider()
+            total_count = emb_store.count_provider()
+            matching_count = emb_store.count_provider(dimension=provider_dim)
         health["resolved_provider"] = provider_name
         health["resolved_provider_key"] = provider_key
         if provider_name_hint in {provider_name, provider_key}:
             health["auto_resolved_provider"] = provider_name_hint
         health["matching_vector_count"] = matching_count
+        health["query_dimension"] = provider_dim
 
         if matching_count == 0:
+            if total_count > 0:
+                health["status"] = "dimension_mismatch"
+                health["stored_dimension"] = emb_store.stored_vector_dimension()
+                return [], health
             health["status"] = "provider_mismatch" if provider_counts else "missing_vectors"
             return [], health
 

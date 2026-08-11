@@ -193,6 +193,9 @@ def infer_local_embedding_provider(
     except ValueError:
         return None
 
+    from .embeddings_providers import _parse_openai_identity_suffixes
+
+    base_url, _, _ = _parse_openai_identity_suffixes(base_url)
     parsed = urlparse(base_url)
     host = (parsed.hostname or "").lower()
     if host not in {"127.0.0.1", "localhost", "::1"}:
