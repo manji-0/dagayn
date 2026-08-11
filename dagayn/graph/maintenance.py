@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 
 from ._mixin_protocol import GraphStoreMixinProtocol
@@ -63,6 +64,76 @@ class GraphStoreMaintenanceMixin(GraphStoreMixinProtocol):
                 # Table absent on an older schema — nothing to remove.
                 continue
 
+    def _repair_stale_flow_paths(self) -> dict[str, int]:
+        """Rewrite ``path_json`` / counts for flows that lost node ids on re-parse."""
+        repaired = 0
+        rows = self._conn.execute(
+            "SELECT id, entry_point_id, path_json FROM flows"
+        ).fetchall()
+        for row in rows:
+            flow_id = int(row["id"])
+            entry_point_id = int(row["entry_point_id"])
+            path_ids: list[int] = json.loads(row["path_json"])
+
+            mem_rows = self._conn.execute(
+                "SELECT fm.node_id FROM flow_memberships fm "
+                "JOIN nodes n ON n.id = fm.node_id "
+                "WHERE fm.flow_id = ? ORDER BY fm.position",
+                (flow_id,),
+            ).fetchall()
+            if mem_rows:
+                live_path = [int(r["node_id"]) for r in mem_rows]
+            else:
+                live_path = [
+                    node_id
+                    for node_id in path_ids
+                    if self._conn.execute(
+                        "SELECT 1 FROM nodes WHERE id = ?",
+                        (node_id,),
+                    ).fetchone()
+                    is not None
+                ]
+
+            entry_live = (
+                self._conn.execute(
+                    "SELECT 1 FROM nodes WHERE id = ?",
+                    (entry_point_id,),
+                ).fetchone()
+                is not None
+            )
+            new_entry_point_id = (
+                entry_point_id
+                if entry_live
+                else (live_path[0] if live_path else entry_point_id)
+            )
+
+            if live_path == path_ids and entry_live:
+                continue
+            if not live_path:
+                continue
+
+            id_placeholders = ",".join("?" * len(live_path))
+            file_rows = self._conn.execute(
+                f"SELECT DISTINCT file_path FROM nodes WHERE id IN ({id_placeholders})",
+                live_path,
+            ).fetchall()
+            file_count = len(file_rows)
+
+            self._conn.execute(
+                "UPDATE flows SET path_json = ?, node_count = ?, file_count = ?, "
+                "entry_point_id = ? WHERE id = ?",
+                (
+                    json.dumps(live_path),
+                    len(live_path),
+                    file_count,
+                    new_entry_point_id,
+                    flow_id,
+                ),
+            )
+            repaired += 1
+
+        return {"flows_repaired": repaired} if repaired else {}
+
     def prune_orphaned_graph_structures(self) -> dict[str, int]:
         """Delete derived rows whose nodes no longer exist.
 
@@ -74,9 +145,16 @@ class GraphStoreMaintenanceMixin(GraphStoreMixinProtocol):
         no hook uses. Left alone, ``flow_tool`` keeps serving flows whose whole
         path was deleted commits ago.
 
+        Flow rows whose ``path_json`` still references deleted node ids are
+        rewritten from surviving memberships (or filtered live ids) before the
+        orphan sweep deletes empty flows.
+
         Returns ``{table: rows_deleted}`` for the tables that lost rows.
         """
         deleted: dict[str, int] = {}
+        repaired = self._repair_stale_flow_paths()
+        if repaired:
+            deleted.update(repaired)
         for table, predicate in _ORPHAN_PRUNE_STEPS:
             try:
                 cursor = self._conn.execute(f"DELETE FROM {table} WHERE {predicate}")  # noqa: S608

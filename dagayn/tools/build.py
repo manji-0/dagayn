@@ -373,6 +373,23 @@ def _run_postprocess(
             logger.warning("Flow detection failed: %s", e)
             warnings.append(f"Flow detection failed: {type(e).__name__}: {e}")
 
+        if postprocess != "minimal":
+            try:
+                prune = getattr(store, "prune_orphaned_graph_structures", None)
+                if callable(prune):
+                    pruned = prune()
+                    store.commit()
+                    if pruned:
+                        existing = build_result.get("orphans_pruned")
+                        if isinstance(existing, dict):
+                            for key, value in pruned.items():
+                                existing[key] = existing.get(key, 0) + value
+                        else:
+                            build_result["orphans_pruned"] = pruned
+            except (sqlite3.OperationalError, RuntimeError, TypeError) as e:
+                logger.warning("Post-flow orphan pruning failed: %s", e)
+                warnings.append(f"Post-flow orphan pruning failed: {type(e).__name__}: {e}")
+
     if not skip_community_steps:
         try:
             if use_incremental:

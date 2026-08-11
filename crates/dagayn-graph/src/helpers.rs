@@ -271,6 +271,74 @@ pub(crate) fn extra_json(value: &Value) -> Result<String> {
     }
 }
 
+pub(crate) fn delete_flows_for_entry_point_ids(
+    tx: &Transaction<'_>,
+    flows: &[FlowInput],
+) -> Result<()> {
+    let mut entry_point_ids = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for flow in flows {
+        if seen.insert(flow.entry_point_id) {
+            entry_point_ids.push(flow.entry_point_id);
+        }
+    }
+    if entry_point_ids.is_empty() {
+        return Ok(());
+    }
+
+    let mut qualified_names = Vec::new();
+    for chunk in entry_point_ids.chunks(450) {
+        let placeholders = std::iter::repeat_n("?", chunk.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!("SELECT qualified_name FROM nodes WHERE id IN ({placeholders})");
+        let mut stmt = tx.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
+            row.get::<_, String>(0)
+        })?;
+        for row in rows {
+            qualified_names.push(row?);
+        }
+    }
+
+    if qualified_names.is_empty() {
+        return Ok(());
+    }
+
+    let mut flow_ids: Vec<i64> = Vec::new();
+    for chunk in qualified_names.chunks(450) {
+        let placeholders = std::iter::repeat_n("?", chunk.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!(
+            "SELECT f.id FROM flows f \
+             JOIN nodes n ON n.id = f.entry_point_id \
+             WHERE n.qualified_name IN ({placeholders})"
+        );
+        let mut stmt = tx.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
+            row.get::<_, i64>(0)
+        })?;
+        for row in rows {
+            flow_ids.push(row?);
+        }
+    }
+
+    if flow_ids.is_empty() {
+        return Ok(());
+    }
+
+    let mut delete_snapshot = tx.prepare("DELETE FROM flow_snapshots WHERE flow_id = ?")?;
+    let mut delete_membership = tx.prepare("DELETE FROM flow_memberships WHERE flow_id = ?")?;
+    let mut delete_flow = tx.prepare("DELETE FROM flows WHERE id = ?")?;
+    for flow_id in flow_ids {
+        delete_snapshot.execute([flow_id])?;
+        delete_membership.execute([flow_id])?;
+        delete_flow.execute([flow_id])?;
+    }
+    Ok(())
+}
+
 pub(crate) fn store_flows_tx(tx: &Transaction<'_>, flows: &[FlowInput]) -> Result<()> {
     let mut insert_flow = tx.prepare(
         "INSERT INTO flows \
