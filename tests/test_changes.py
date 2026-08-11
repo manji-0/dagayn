@@ -1,5 +1,6 @@
 """Tests for change impact analysis (changes.py)."""
 
+import subprocess
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -172,6 +173,52 @@ class TestChanges:
 
             assert calls == [(str(repo.resolve()), "HEAD~1")]
             assert second == {"app.py": [(1, 2)]}
+        finally:
+            _parse_diff_ranges_cached.cache_clear()
+
+    def test_parse_diff_ranges_invalidates_when_worktree_changes(self, tmp_path):
+        """Cached diff ranges must refresh after local edits in a long-lived process."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        subprocess.run(["git", "init"], cwd=repo, capture_output=True, check=True)
+        subprocess.run(
+            ["git", "config", "user.email", "test@example.com"],
+            cwd=repo,
+            capture_output=True,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Test"],
+            cwd=repo,
+            capture_output=True,
+            check=True,
+        )
+        target = repo / "app.py"
+        target.write_text("def main():\n    return 1\n", encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=repo, capture_output=True, check=True)
+        subprocess.run(
+            ["git", "commit", "-m", "initial"],
+            cwd=repo,
+            capture_output=True,
+            check=True,
+        )
+
+        calls: list[int] = []
+
+        def fake_git_ranges(repo_root: str, base: str = "HEAD~1"):
+            calls.append(1)
+            return {"app.py": [(len(calls), len(calls))]}
+
+        _parse_diff_ranges_cached.cache_clear()
+        try:
+            with patch("dagayn.changes.parse_git_diff_ranges", side_effect=fake_git_ranges):
+                first = parse_diff_ranges(str(repo), "HEAD")
+                target.write_text("def main():\n    return 2\n\ndef extra():\n    pass\n")
+                second = parse_diff_ranges(str(repo), "HEAD")
+
+            assert first == {"app.py": [(1, 1)]}
+            assert second == {"app.py": [(2, 2)]}
+            assert calls == [1, 1]
         finally:
             _parse_diff_ranges_cached.cache_clear()
 
