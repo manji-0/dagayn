@@ -250,8 +250,7 @@ def get_flow(
                     "reason_code": "stale_flow",
                     "severity": "medium",
                     "claim_effect": (
-                        f"{missing_step_count} stored step(s) no longer resolve to live "
-                        "graph nodes"
+                        f"{missing_step_count} stored step(s) no longer resolve to live graph nodes"
                     ),
                 }
             ]
@@ -337,7 +336,7 @@ def get_flow(
                     ),
                 ],
                 action=(
-                    'dagayn build --local-embedding none -- refresh stored flows; '
+                    "dagayn build --local-embedding none -- refresh stored flows; "
                     'review_tool mode="impact" -- check blast radius along resolved steps'
                     if is_stale_flow
                     else (
