@@ -1353,6 +1353,17 @@ def _change_analysis_summary(
     )
 
     reason_codes: list[str] = []
+    attribution = analysis.get("attribution") or {}
+    for code in attribution.get("reason_codes", []):
+        if code not in reason_codes:
+            reason_codes.append(code)
+    if (
+        analysis.get("diff_parse_status") == "base_unresolved"
+        and "diff_base_unreachable" not in reason_codes
+    ):
+        reason_codes.append("diff_base_unreachable")
+    if analysis.get("unmapped_changed_files") and "unmapped_changed_files" not in reason_codes:
+        reason_codes.append("unmapped_changed_files")
     if risk == "high":
         reason_codes.append("high_risk_score")
     elif risk == "medium":
