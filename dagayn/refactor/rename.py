@@ -35,9 +35,7 @@ def _import_statement_mentions_symbol(
     symbol_name: str,
 ) -> bool:
     """Return True when an IMPORTS_FROM edge plausibly imports *symbol_name*."""
-    if edge.target_qualified == symbol_name or edge.target_qualified.endswith(
-        f"::{symbol_name}"
-    ):
+    if edge.target_qualified == symbol_name or edge.target_qualified.endswith(f"::{symbol_name}"):
         return True
 
     paths_to_try: list[Path] = []
