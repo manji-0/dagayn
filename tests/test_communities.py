@@ -11,10 +11,12 @@ from dagayn.communities import (
     _compute_cohesion_batch,
     _detect_file_based,
     _generate_community_name,
+    count_affected_communities,
     detect_communities,
     get_architecture_overview,
     get_communities,
     incremental_detect_communities,
+    refresh_community_stats,
     store_communities,
 )
 from dagayn.graph import GraphEdge, GraphNode, GraphStore
@@ -260,7 +262,7 @@ class TestCommunities:
 
         overview = get_architecture_overview(self.store, detail_level="minimal")
         for comm in overview["communities"]:
-            assert set(comm.keys()) == {"name", "size", "cohesion"}
+            assert set(comm.keys()) == {"name", "size", "assigned_member_count", "cohesion"}
         assert len(overview["cross_community_coupling"]) <= 5
 
     def test_architecture_overview_coupling_has_edge_kinds(self):
@@ -859,3 +861,127 @@ class TestCommunities:
         # Pass a file that IS part of existing communities
         result = incremental_detect_communities(self.store, ["auth.py"])
         assert result > 0
+
+    def test_incremental_detect_after_reparse_clears_assignments(self):
+        """Re-parsed files lose community_id; detection must still re-run."""
+        self._seed_two_clusters()
+        communities = detect_communities(self.store, min_size=2)
+        store_communities(self.store, communities)
+
+        # Simulate a re-parse: nodes keep their QNs but lose community_id.
+        self.store._conn.execute(
+            "UPDATE nodes SET community_id = NULL WHERE file_path = ?",
+            ("auth.py",),
+        )
+        self.store.commit()
+
+        assert count_affected_communities(self.store, ["auth.py"]) > 0
+        result = incremental_detect_communities(self.store, ["auth.py"])
+        assert result > 0
+
+        assigned = self.store._conn.execute(
+            "SELECT COUNT(*) FROM nodes WHERE file_path = ? AND community_id IS NOT NULL",
+            ("auth.py",),
+        ).fetchone()[0]
+        assert assigned > 0
+
+    def test_count_affected_communities_uses_pre_parse_snapshot(self):
+        """Pre-parse affected count still triggers detection after assignments clear."""
+        self._seed_two_clusters()
+        communities = detect_communities(self.store, min_size=2)
+        store_communities(self.store, communities)
+
+        pre_affected = count_affected_communities(self.store, ["auth.py"])
+        assert pre_affected > 0
+
+        self.store._conn.execute(
+            "UPDATE nodes SET community_id = NULL WHERE file_path = ?",
+            ("auth.py",),
+        )
+        self.store.commit()
+        assert count_affected_communities(self.store, ["auth.py"]) > 0
+
+        result = incremental_detect_communities(
+            self.store,
+            ["auth.py"],
+            pre_affected_count=pre_affected,
+        )
+        assert result > 0
+
+    def test_get_communities_reports_assigned_member_count(self):
+        """Stored size and live assigned_member_count are both exposed."""
+        self._seed_two_clusters()
+        communities = detect_communities(self.store, min_size=2)
+        store_communities(self.store, communities)
+
+        stored = get_communities(self.store)
+        assert stored
+        for comm in stored:
+            assert "assigned_member_count" in comm
+            assert comm["assigned_member_count"] == len(comm["members"])
+
+        # Simulate stale stored size after partial assignment loss.
+        comm_id = stored[0]["id"]
+        node_id = self.store._conn.execute(
+            "SELECT id FROM nodes WHERE community_id = ? LIMIT 1",
+            (comm_id,),
+        ).fetchone()[0]
+        self.store._conn.execute(
+            "UPDATE nodes SET community_id = NULL WHERE id = ?",
+            (node_id,),
+        )
+        self.store.commit()
+
+        refreshed = get_communities(self.store)
+        stale = next(c for c in refreshed if c["id"] == comm_id)
+        assert stale["size"] != stale["assigned_member_count"]
+
+    def test_refresh_community_stats_recomputes_size_and_cohesion(self):
+        """Orphan sweep refreshes stored community metrics from live members."""
+        self._seed_two_clusters()
+        communities = detect_communities(self.store, min_size=2)
+        store_communities(self.store, communities)
+
+        comm_id = get_communities(self.store)[0]["id"]
+        node_id = self.store._conn.execute(
+            "SELECT id FROM nodes WHERE community_id = ? LIMIT 1",
+            (comm_id,),
+        ).fetchone()[0]
+        self.store._conn.execute(
+            "UPDATE nodes SET community_id = NULL WHERE id = ?",
+            (node_id,),
+        )
+        self.store.commit()
+
+        stats = refresh_community_stats(self.store)
+        assert stats["updated"] >= 1
+
+        row = self.store._conn.execute(
+            "SELECT size FROM communities WHERE id = ?",
+            (comm_id,),
+        ).fetchone()
+        live_count = self.store._conn.execute(
+            "SELECT COUNT(*) FROM nodes WHERE community_id = ?",
+            (comm_id,),
+        ).fetchone()[0]
+        assert row[0] == live_count
+
+    def test_architecture_overview_warns_on_stale_community_size(self):
+        """Architecture overview surfaces stored/live size divergence."""
+        self._seed_two_clusters()
+        communities = detect_communities(self.store, min_size=2)
+        store_communities(self.store, communities)
+
+        comm_id = get_communities(self.store)[0]["id"]
+        node_id = self.store._conn.execute(
+            "SELECT id FROM nodes WHERE community_id = ? LIMIT 1",
+            (comm_id,),
+        ).fetchone()[0]
+        self.store._conn.execute(
+            "UPDATE nodes SET community_id = NULL WHERE id = ?",
+            (node_id,),
+        )
+        self.store.commit()
+
+        overview = get_architecture_overview(self.store)
+        assert any("stored size" in warning for warning in overview["warnings"])
