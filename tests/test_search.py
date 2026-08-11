@@ -1147,6 +1147,81 @@ class TestIntentReranking:
             store.close()
             Path(tmp.name).unlink(missing_ok=True)
 
+    def test_hybrid_process_pattern_falls_back_to_material_partition(self):
+        tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        store = GraphStore(tmp.name)
+
+        class FakeProvider:
+            name = "fake"
+            preferred_batch_size = 1
+
+            def embed(self, texts):
+                return [[1.0, 0.0] for _ in texts]
+
+            def embed_query(self, text):
+                return [1.0, 0.0]
+
+            @property
+            def dimension(self):
+                return 2
+
+        try:
+            node = NodeInfo(
+                kind="Function",
+                name="read_source_span",
+                file_path="search.py",
+                line_start=1,
+                line_end=10,
+                language="python",
+            )
+            store.upsert_node(node, file_hash="rerank")
+            store._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS embeddings (
+                    qualified_name TEXT NOT NULL,
+                    vector BLOB NOT NULL,
+                    text_hash TEXT NOT NULL,
+                    provider TEXT NOT NULL DEFAULT 'unknown',
+                    PRIMARY KEY (qualified_name, provider)
+                )
+                """
+            )
+            store._conn.execute(
+                "INSERT OR REPLACE INTO embeddings VALUES (?, ?, ?, ?)",
+                (
+                    "search.py::read_source_span",
+                    _encode_vector([1.0, 0.0]),
+                    "h1",
+                    "fake#text=material",
+                ),
+            )
+            store._conn.commit()
+            rebuild_fts_index(store)
+
+            with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
+                result = hybrid_search(
+                    store,
+                    "function that reads source span and returns text",
+                    limit=5,
+                )
+
+            health = result["embedding_health"]
+            assert health["status"] == "available"
+            assert health["requested_text_mode"] == "narrative"
+            assert health["resolved_text_mode"] == "material"
+            assert health["resolved_provider_key"] == "fake#text=material"
+            assert health["text_mode_fallback"] == {
+                "from": "narrative",
+                "to": "material",
+                "provider_key": "fake#text=material",
+                "vector_count": 1,
+            }
+            assert result["mode"] == "hybrid"
+            assert result["results"][0]["qualified_name"] == "search.py::read_source_span"
+        finally:
+            store.close()
+            Path(tmp.name).unlink(missing_ok=True)
+
 
 class TestCachedEmbeddingStore:
     def test_get_cached_emb_store_reuses_instance(self, tmp_path, monkeypatch):
