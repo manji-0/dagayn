@@ -117,7 +117,7 @@ def resolve_git_renames(repo_root: str, base: str = "HEAD~1") -> dict[str, str]:
         return {}
     try:
         result = subprocess.run(
-            ["git", "diff", "--name-status", "-M", base, "HEAD", "--"],
+            ["git", "diff", "--name-status", "-M", base, "--"],
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -882,7 +882,11 @@ def analyze_changes(
     base_unresolved = diff_parse_status == "base_unresolved"
 
     rust_analyze = getattr(store, "analyze_changes_json", None)
-    if callable(rust_analyze) and include_heuristic_test_gap_evidence:
+    if (
+        callable(rust_analyze)
+        and include_heuristic_test_gap_evidence
+        and repo_root is None
+    ):
         try:
             return _annotate_review_priority_semantics(
                 json.loads(rust_analyze(changed_files, json.dumps(changed_ranges or {})))
