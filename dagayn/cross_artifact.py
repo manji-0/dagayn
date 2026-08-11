@@ -58,12 +58,12 @@ def is_low_confidence_bridge(edge: Any) -> bool:
     """True when a CROSS_ARTIFACT edge must not be treated as a hard claim."""
     if not is_cross_artifact(edge):
         return False
+    if is_unresolved_target(edge):
+        return True
     if is_low_confidence_unresolved_markdown_code_span(edge):
         return True
     tier = confidence_tier_of(edge)
     if tier == "LOW" or not tier:
-        return True
-    if is_unresolved_target(edge) and tier not in REPORTABLE_CONFIDENCE_TIERS:
         return True
     return False
 
