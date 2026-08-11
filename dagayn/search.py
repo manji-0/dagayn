@@ -557,37 +557,30 @@ def _embedding_search(
 
 
 def _embedding_provider_counts(db_path: Path) -> dict[str, int]:
-    try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-        try:
-            rows = conn.execute(
-                "SELECT provider, COUNT(*) FROM embeddings GROUP BY provider"
-            ).fetchall()
-        finally:
-            conn.close()
-    except sqlite3.Error:
-        return {}
-    return {str(provider): int(count) for provider, count in rows}
+    from .embeddings_store import get_embedding_provider_counts
+
+    return get_embedding_provider_counts(db_path)
 
 
-def _single_provider_name(
+def _resolve_auto_provider_name(
     provider_counts: dict[str, int],
     *,
     text_mode: str | None = None,
+    preferred_provider: str | None = None,
 ) -> str | None:
-    if text_mode:
-        matches = [
-            provider_name
-            for provider_name in provider_counts
-            if provider_name.endswith(f"#text={text_mode}")
-        ]
-        if len(matches) == 1:
-            return matches[0]
-        legacy = [
-            provider_name for provider_name in provider_counts if "#text=" not in provider_name
-        ]
-        return legacy[0] if len(legacy) == 1 and len(provider_counts) == 1 else None
-    return next(iter(provider_counts)) if len(provider_counts) == 1 else None
+    from .embeddings_store import resolve_active_embedding_provider
+
+    return resolve_active_embedding_provider(
+        provider_counts,
+        text_mode=text_mode,
+        preferred_provider=preferred_provider,
+    )
+
+
+def _read_auto_provider_metadata(db_path: Path) -> str | None:
+    from .embeddings_store import read_active_embedding_provider_metadata
+
+    return read_active_embedding_provider_metadata(db_path)
 
 
 def _largest_populated_text_mode_partition(
@@ -632,7 +625,11 @@ def _embedding_search_with_health(
         "provider_counts": provider_counts,
     }
     provider_name_hint = (
-        _single_provider_name(provider_counts, text_mode=text_mode)
+        _resolve_auto_provider_name(
+            provider_counts,
+            text_mode=text_mode,
+            preferred_provider=_read_auto_provider_metadata(store.db_path),
+        )
         if provider is None and model is None
         else None
     )
