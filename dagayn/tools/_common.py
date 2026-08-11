@@ -541,6 +541,18 @@ def graph_answerability_summary(store: Any, stats: Any | None = None) -> dict[st
         else 0.0
     )
 
+    stale_flow_membership_count = _count(
+        "SELECT COUNT(*) FROM flow_memberships fm "
+        "WHERE NOT EXISTS (SELECT 1 FROM nodes n WHERE n.id = fm.node_id)",
+        failure_code="missing_flow_memberships_table",
+    )
+    unassigned_node_count = _count(
+        "SELECT COUNT(*) FROM nodes n "
+        "WHERE n.community_id IS NULL AND n.kind != 'File' "
+        "AND EXISTS (SELECT 1 FROM communities LIMIT 1)",
+        failure_code="missing_community_assignment_metadata",
+    )
+
     reason_codes: list[str] = []
     score = 1.0
     if query_failures:
@@ -564,6 +576,9 @@ def graph_answerability_summary(store: Any, stats: Any | None = None) -> dict[st
     if not stats.last_updated:
         reason_codes.append("missing_last_updated")
         score -= 0.1
+    if stale_flow_membership_count > 0 or unassigned_node_count > 0:
+        reason_codes.append("stale_derived_structures")
+        score -= 0.15
 
     score = max(0.0, round(score, 4))
     status = "ok" if score >= 0.75 else "degraded" if score > 0 else "empty"
@@ -587,6 +602,8 @@ def graph_answerability_summary(store: Any, stats: Any | None = None) -> dict[st
             "reportable_unresolved_cross_artifact_edges": (
                 reportable_unresolved_cross_artifact_count
             ),
+            "stale_flow_memberships": stale_flow_membership_count,
+            "unassigned_nodes": unassigned_node_count,
         },
     }
     if reportable_unresolved_cross_artifact_count:
@@ -649,6 +666,7 @@ def missingness_from_answerability(answerability: dict[str, Any]) -> list[dict[s
         "missing_cross_artifact_edge_metadata": "medium",
         "missing_cross_artifact_edges": "medium",
         "answerability_unavailable": "medium",
+        "stale_derived_structures": "medium",
     }
     items: list[dict[str, Any]] = []
     for code in answerability.get("reason_codes", []):

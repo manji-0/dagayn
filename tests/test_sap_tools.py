@@ -95,6 +95,33 @@ def test_compute_sap_metrics_separates_inapplicable_by_default(monkeypatch) -> N
     assert result["inapplicable_count"] == 1
     assert result["inapplicable_by_reason"] == {"no-eligible-types": 1}
     assert result["inapplicable_visibility"] == "separate_bucket"
+    assert result["truncated"] is False
+
+
+def test_compute_sap_metrics_reports_truncation(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "dagayn.tools.sap_tools._get_store",
+        lambda repo_root: (_DummyStore(), None),
+    )
+    monkeypatch.setattr(
+        "dagayn.tools.sap_tools.compute_sap_metrics",
+        lambda store, scope_kind, unit_filter, artifact_scope, dependency_profile: [
+            {
+                "scope_key": f"pkg.{index}",
+                "display_name": f"pkg.{index}",
+                "distance": float(index),
+                "sap_applicable": True,
+                "applicability_reason": "applicable",
+            }
+            for index in range(5)
+        ],
+    )
+
+    result = compute_sap_metrics_func(top_n=2)
+
+    assert result["truncated"] is True
+    assert len(result["metrics"]) == 2
+    assert "Results truncated." in result["summary"]
 
 
 def test_compute_sap_metrics_verbose_includes_inapplicable(monkeypatch) -> None:

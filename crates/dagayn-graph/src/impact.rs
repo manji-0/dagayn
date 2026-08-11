@@ -48,11 +48,7 @@ impl GraphStore {
         if changed_files.is_empty() {
             return Ok(Vec::new());
         }
-        let node_ids = self.get_node_ids_by_files(changed_files)?;
-        if node_ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        let flow_ids = self.get_flow_ids_by_node_ids(&node_ids)?;
+        let flow_ids = self.get_affected_flow_ids(changed_files)?;
         if flow_ids.is_empty() {
             return Ok(Vec::new());
         }

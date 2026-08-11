@@ -33,7 +33,21 @@ def test_markdown_artifact_resolution_returns_typed_states():
     )
     assert resolved.state == "resolved"
     assert resolved.target_qualified == "/repo/app.py::Service"
-    assert resolved.confidence_tier == "HIGH"
+    assert resolved.confidence_tier == "MEDIUM"
+    assert resolved.confidence == 0.4
+
+    directive_resolved = _markdown_artifact_resolution(
+        edge_id=4,
+        current_target="<unresolved:Service>",
+        symbol="Service",
+        extra={
+            "evidence_kind": "markdown_directive",
+            "evidence_source": "dagayn_directive",
+        },
+        matches=[("/repo/app.py::Service", "python")],
+    )
+    assert directive_resolved.confidence_tier == "HIGH"
+    assert directive_resolved.confidence == 0.8
 
     dropped = _markdown_artifact_resolution(
         edge_id=2,
@@ -414,7 +428,7 @@ class TestMarkdownArtifactResolver:
             },
         )
 
-    def test_resolves_unique_match_to_high(self):
+    def test_resolves_unique_code_span_match_to_medium(self):
         self.store.upsert_node(
             NodeInfo(
                 kind="Class",
@@ -435,13 +449,43 @@ class TestMarkdownArtifactResolver:
         assert result["markdown_artifact_refs_dropped"] == 0
 
         row = self.store._conn.execute(
-            "SELECT target_qualified, confidence_tier, extra FROM edges WHERE kind='CROSS_ARTIFACT'"
+            "SELECT target_qualified, target_name, confidence_tier, extra FROM edges "
+            "WHERE kind='CROSS_ARTIFACT'"
         ).fetchone()
         assert row["target_qualified"] == "/repo/parser.py::BridgePattern"
-        assert row["confidence_tier"] == "HIGH"
+        assert row["target_name"] == "BridgePattern"
+        assert row["confidence_tier"] == "MEDIUM"
         extra = json.loads(row["extra"])
         assert extra["original_symbol_name"] == "BridgePattern"  # always preserved
         assert extra["target_language"] == "python"
+        assert extra["confidence"] == 0.4
+
+    def test_resolves_unique_directive_match_to_high(self):
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Class",
+                name="BridgePattern",
+                file_path="/repo/parser.py",
+                line_start=1,
+                line_end=10,
+                language="python",
+            )
+        )
+        self.store.upsert_edge(self._directive_edge("BridgePattern"))
+        self.store.commit()
+
+        result: dict = {}
+        _resolve_markdown_artifact_refs(self.store, result, [])
+
+        assert result["markdown_artifact_refs_resolved"] == 1
+        row = self.store._conn.execute(
+            "SELECT target_qualified, target_name, confidence_tier, extra FROM edges "
+            "WHERE kind='CROSS_ARTIFACT'"
+        ).fetchone()
+        assert row["target_qualified"] == "/repo/parser.py::BridgePattern"
+        assert row["target_name"] == "BridgePattern"
+        assert row["confidence_tier"] == "HIGH"
+        extra = json.loads(row["extra"])
         assert extra["confidence"] == 0.8
 
     def test_prunes_ambiguous_code_span_candidate(self):
@@ -625,9 +669,11 @@ class TestTerraformArtifactResolver:
         assert result["terraform_artifact_refs_resolved"] == 1
 
         row = self.store._conn.execute(
-            "SELECT target_qualified, confidence_tier, extra FROM edges WHERE kind='CROSS_ARTIFACT'"
+            "SELECT target_qualified, target_name, confidence_tier, extra FROM edges "
+            "WHERE kind='CROSS_ARTIFACT'"
         ).fetchone()
         assert row["target_qualified"] == "app/hello.py::main"
+        assert row["target_name"] == "main"
         assert row["confidence_tier"] == "HIGH"
         extra = json.loads(row["extra"])
         assert extra["target_language"] == "python"
@@ -726,9 +772,11 @@ class TestTerraformArtifactResolver:
         assert result.get("terraform_artifact_refs_resolved") == 1
 
         row = self.store._conn.execute(
-            "SELECT target_qualified, confidence_tier, extra FROM edges WHERE kind='CROSS_ARTIFACT'"
+            "SELECT target_qualified, target_name, confidence_tier, extra FROM edges "
+            "WHERE kind='CROSS_ARTIFACT'"
         ).fetchone()
         assert row["target_qualified"] == "app/hello.py::main"
+        assert row["target_name"] == "main"
         assert row["confidence_tier"] == "HIGH"
         extra = json.loads(row["extra"])
         assert extra["source_language"] == "terraform"
@@ -779,6 +827,35 @@ class TestTerraformArtifactResolver:
             "SELECT target_qualified, confidence_tier FROM edges WHERE kind='CROSS_ARTIFACT'"
         ).fetchone()
         assert row["target_qualified"] == "<unresolved:serve>"
+        assert row["confidence_tier"] == "HIGH"
+
+    def test_run_postprocess_resolves_terraform_handlers(self):
+        from dagayn.tools.build import _run_postprocess
+
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="main",
+                file_path="app/hello.py",
+                line_start=1,
+                line_end=2,
+                language="python",
+            )
+        )
+        self.store.upsert_edge(self._handler_edge("hello.main"))
+        self.store.commit()
+
+        build_result: dict = {}
+        warnings = _run_postprocess(self.store, build_result, "minimal", full_rebuild=True)
+        assert warnings == []
+        assert build_result["terraform_artifact_refs_resolved"] == 1
+
+        row = self.store._conn.execute(
+            "SELECT target_qualified, target_name, confidence_tier FROM edges "
+            "WHERE kind='CROSS_ARTIFACT'"
+        ).fetchone()
+        assert row["target_qualified"] == "app/hello.py::main"
+        assert row["target_name"] == "main"
         assert row["confidence_tier"] == "HIGH"
 
 

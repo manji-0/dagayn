@@ -5,6 +5,7 @@ import time
 from typing import TYPE_CHECKING
 
 from ._edge_records import edge_identity_update_values, edge_insert_values
+from ._fts_sync import delete_fts_for_file_paths, set_fts_watermark, sync_fts_after_node_write
 from ._mixin_protocol import GraphStoreMixinProtocol
 
 if TYPE_CHECKING:
@@ -54,8 +55,14 @@ class GraphStoreStorageMixin(GraphStoreMixinProtocol):
                 now,
             ),
         ).fetchone()
+        node_id = row["id"]
+        sync_fts_after_node_write(
+            self._conn,
+            upserted_node_id=node_id,
+            repo_root=self.get_repo_root(),
+        )
         self._invalidate_cache()
-        return row["id"]
+        return node_id
 
     def upsert_edge(self, edge: EdgeInfo) -> int:
         """Insert or update an edge.
@@ -98,6 +105,7 @@ class GraphStoreStorageMixin(GraphStoreMixinProtocol):
         if normalized != file_path:
             keys.append(normalized)
         placeholders = ",".join("?" for _ in keys)
+        delete_fts_for_file_paths(self._conn, keys)
         self.remove_node_keyed_rows_for_files(keys)
         self._conn.execute(
             f"DELETE FROM nodes WHERE file_path IN ({placeholders})",
@@ -107,5 +115,6 @@ class GraphStoreStorageMixin(GraphStoreMixinProtocol):
             f"DELETE FROM edges WHERE file_path IN ({placeholders})",
             tuple(keys),
         )
+        set_fts_watermark(self._conn)
         if invalidate:
             self._invalidate_cache()

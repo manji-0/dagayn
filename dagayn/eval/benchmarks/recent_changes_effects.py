@@ -202,7 +202,7 @@ def _scenario_dfs(store: Any, config: dict) -> dict:
         lambda: _traverse_dfs_lazy(store, target, depth, token_budget, _bench_entry)
     )
     eager_meta, eager_traversal, eager_truncated = eager
-    _lazy_visited, lazy_traversal, lazy_truncated = lazy
+    _lazy_visited, lazy_traversal, lazy_truncated, _lazy_unresolved = lazy
     return {
         "scenario": "dfs_lazy_fetch",
         "before_ms": round(eager_ms, 3),

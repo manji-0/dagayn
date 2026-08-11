@@ -281,9 +281,9 @@ def _fts_ranked_docs(
 ) -> list[tuple[str, float]]:
     fetch_limit = max(limit * 25, 500)
     pairs = store.fts_query(query, limit=fetch_limit)
-    nodes_by_id = store.get_nodes_by_ids([node_id for node_id, _score in pairs])
+    nodes_by_id = store.get_nodes_by_ids([node_id for node_id, _score in pairs.hits])
     ranked: list[tuple[str, float]] = []
-    for node_id, score in pairs:
+    for node_id, score in pairs.hits:
         node = nodes_by_id.get(node_id)
         if not node or node.kind not in _DOC_KINDS:
             continue

@@ -11,6 +11,7 @@ from dagayn.embeddings import _encode_vector
 from dagayn.graph import GraphStore
 from dagayn.graph import _fts_tokenize as graph_fts_tokenize
 from dagayn.graph import search as graph_search
+from dagayn.graph.types import FtsQueryResult
 from dagayn.parser import NodeInfo
 from dagayn.search import (
     _emb_cache,
@@ -23,6 +24,7 @@ from dagayn.search import (
     _query_rerank_intent,
     _query_tokens,
     detect_query_kind_boost,
+    embedding_health_available,
     hybrid_search,
     rebuild_fts_index,
     rrf_merge,
@@ -40,6 +42,13 @@ def test_graph_search_uses_graph_local_fts_tokenizer():
 def test_fts_tokenize_shim_reexports_graph_impl():
     assert fts_tokenize.segment_japanese_fts_text is graph_fts_tokenize.segment_japanese_fts_text
     assert fts_tokenize.contains_japanese is graph_fts_tokenize.contains_japanese
+
+
+def test_embedding_health_available_uses_status_field():
+    assert embedding_health_available({"status": "available"}) is True
+    assert embedding_health_available({"status": "provider_unavailable"}) is False
+    assert embedding_health_available(None) is True
+    assert embedding_health_available({}) is True
 
 
 class TestHybridSearch:
@@ -367,12 +376,18 @@ class TestHybridSearch:
         hs = hybrid_search(self.store, "")
         assert hs["mode"] == "empty"
         assert hs["results"] == []
+        assert hs["embedding_health"]["status"] == "not_requested"
+        assert hs["truncated"] is False
+        assert hs["total"] == 0
 
     def test_whitespace_query_handled(self):
         """Whitespace-only query returns empty results."""
         hs = hybrid_search(self.store, "   ")
         assert hs["mode"] == "empty"
         assert hs["results"] == []
+        assert "embedding_health" in hs
+        assert hs["truncated"] is False
+        assert hs["total"] == 0
 
     # --- Return fields ---
 
@@ -410,6 +425,87 @@ class TestHybridSearch:
         results = hybrid_search(self.store, "User", kind="Class")["results"]
         for r in results:
             assert r["kind"] == "Class"
+
+    def test_junk_path_query_does_not_match_via_or_segments(self):
+        """Issue #40: path-shaped junk must not FTS-match on shared segments."""
+        for path, name in [("src/a.py", "alpha"), ("src/b.py", "beta")]:
+            self.store.upsert_node(
+                NodeInfo(
+                    kind="Function",
+                    name=name,
+                    file_path=path,
+                    line_start=1,
+                    line_end=5,
+                    language="python",
+                ),
+                file_hash="abc123",
+            )
+        self.store.commit()
+        rebuild_fts_index(self.store)
+
+        fts = self.store.fts_query("src/nonexistent_zzz.py")
+        assert fts.hits == []
+        assert fts.match_mode == "none"
+
+        hs = hybrid_search(self.store, "src/nonexistent_zzz.py")
+        assert hs["mode"] in ("empty", "keyword_fallback")
+        assert not any(r["name"] in {"alpha", "beta"} for r in hs["results"])
+
+    def test_junk_dotted_query_does_not_match_via_or_segments(self):
+        """Issue #40: dotted junk must not FTS-match unrelated alpha symbols."""
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="alpha",
+                file_path="src/a.py",
+                line_start=1,
+                line_end=5,
+                language="python",
+            ),
+            file_hash="abc123",
+        )
+        self.store.commit()
+        rebuild_fts_index(self.store)
+
+        fts = self.store.fts_query("totally.bogus.alpha")
+        assert fts.hits == []
+        assert fts.match_mode == "none"
+
+        hs = hybrid_search(self.store, "totally.bogus.alpha")
+        assert not any(r["name"] == "alpha" for r in hs["results"])
+
+    def test_kind_filter_with_small_limit_finds_class(self):
+        """Issue #40: kind filter must not hide matches behind candidate truncation."""
+        for i in range(20):
+            self.store.upsert_node(
+                NodeInfo(
+                    kind="Function",
+                    name=f"handler_{i}",
+                    file_path="handlers.py",
+                    line_start=i,
+                    line_end=i + 1,
+                    language="python",
+                ),
+                file_hash="abc123",
+            )
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Class",
+                name="HandlerThing",
+                file_path="z.py",
+                line_start=1,
+                line_end=20,
+                language="python",
+            ),
+            file_hash="abc123",
+        )
+        self.store.commit()
+        rebuild_fts_index(self.store)
+
+        results = hybrid_search(self.store, "handler", kind="Class", limit=5)["results"]
+        assert results
+        assert any(r["name"] == "HandlerThing" for r in results)
+        assert all(r["kind"] == "Class" for r in results)
 
     # --- Context file boosting ---
 
@@ -540,9 +636,16 @@ class TestHybridSearch:
         )
         self.store._conn.commit()
 
-        with patch(
-            "dagayn.embeddings.OpenAIEmbeddingProvider._call_api",
-            return_value=[[1.0, 0.0]],
+        with (
+            patch.object(
+                self.store,
+                "fts_query",
+                return_value=FtsQueryResult(hits=[(node.id, 0.5)], match_mode="or"),
+            ),
+            patch(
+                "dagayn.embeddings.OpenAIEmbeddingProvider._call_api",
+                return_value=[[1.0, 0.0]],
+            ),
         ):
             hs = hybrid_search(self.store, "token validation")
 
@@ -552,6 +655,49 @@ class TestHybridSearch:
         assert hs["embedding_health"]["resolved_provider"] == provider_name
         assert hs["embedding_health"]["auto_resolved_provider"] == provider_name
         assert any(r["qualified_name"] == "auth.py::authenticate" for r in hs["results"])
+
+    def test_auto_resolves_dominant_provider_when_multiple_exist(self, monkeypatch):
+        rebuild_fts_index(self.store)
+        monkeypatch.delenv("CRG_OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("CRG_OPENAI_BASE_URL", raising=False)
+        monkeypatch.delenv("CRG_OPENAI_MODEL", raising=False)
+        _emb_failure_cache.clear()
+        _emb_cache.clear()
+        dominant = "openai:qwen@http://127.0.0.1:18080/v1"
+        abandoned = "openai:old@http://127.0.0.1:18081/v1"
+        self.store._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS embeddings (
+                qualified_name TEXT PRIMARY KEY,
+                vector BLOB NOT NULL,
+                text_hash TEXT NOT NULL,
+                provider TEXT NOT NULL DEFAULT 'unknown'
+            )
+            """
+        )
+        self.store._conn.executemany(
+            "INSERT OR REPLACE INTO embeddings VALUES (?, ?, ?, ?)",
+            [
+                ("auth.py::authenticate", _encode_vector([1.0, 0.0]), "hash", dominant),
+                ("auth.py::login", _encode_vector([0.9, 0.1]), "hash2", dominant),
+                ("auth.py::logout", _encode_vector([0.8, 0.2]), "hash3", dominant),
+                ("old.py::gone", _encode_vector([0.0, 1.0]), "hash4", abandoned),
+            ],
+        )
+        self.store._conn.commit()
+
+        with patch(
+            "dagayn.embeddings.OpenAIEmbeddingProvider._call_api",
+            return_value=[[1.0, 0.0]],
+        ):
+            hs = hybrid_search(self.store, "token validation")
+
+        assert hs["mode"] == "hybrid"
+        assert hs["embedding_health"]["status"] == "available"
+        assert hs["embedding_health"]["resolved_provider"] == dominant
+        assert hs["embedding_health"]["auto_resolved_provider"] == dominant
+        _emb_failure_cache.clear()
+        _emb_cache.clear()
 
     def test_embedding_search_failure_is_cached_briefly(self, monkeypatch):
         rebuild_fts_index(self.store)
@@ -672,8 +818,8 @@ class TestGraphStoreProtocolMethods:
     def test_fts_query_returns_positive_scores(self):
         """fts_query returns non-empty list with strictly positive scores."""
         results = self.store.fts_query("get_users")
-        assert len(results) > 0
-        for _nid, score in results:
+        assert len(results.hits) > 0
+        for _nid, score in results.hits:
             assert score > 0
 
     def test_keyword_query_exact_match_score(self):
@@ -1052,13 +1198,20 @@ class TestIntentReranking:
             store._conn.commit()
             rebuild_fts_index(store)
 
-            with patch(
-                "dagayn.search._embedding_search_with_health",
-                return_value=(
-                    [(function_id, 0.99), (doc_id, 0.8)],
-                    {"status": "available", "resolved_provider": "test"},
+            with (
+                patch.object(
+                    store,
+                    "fts_query",
+                    return_value=FtsQueryResult(hits=[(function_id, 0.5)], match_mode="and"),
                 ),
-            ) as embedding_search:
+                patch(
+                    "dagayn.search._embedding_search_with_health",
+                    return_value=(
+                        [(function_id, 0.99), (doc_id, 0.8)],
+                        {"status": "available", "resolved_provider": "test"},
+                    ),
+                ) as embedding_search,
+            ):
                 result = hybrid_search(
                     store,
                     "function that merges ranked search results",
@@ -1142,6 +1295,81 @@ class TestIntentReranking:
             assert result["embedding_health"]["status"] == "available"
             assert result["embedding_health"]["requested_text_mode"] == "narrative"
             assert result["embedding_health"]["resolved_provider_key"] == "fake#text=narrative"
+            assert result["results"][0]["qualified_name"] == "search.py::read_source_span"
+        finally:
+            store.close()
+            Path(tmp.name).unlink(missing_ok=True)
+
+    def test_hybrid_process_pattern_falls_back_to_material_partition(self):
+        tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        store = GraphStore(tmp.name)
+
+        class FakeProvider:
+            name = "fake"
+            preferred_batch_size = 1
+
+            def embed(self, texts):
+                return [[1.0, 0.0] for _ in texts]
+
+            def embed_query(self, text):
+                return [1.0, 0.0]
+
+            @property
+            def dimension(self):
+                return 2
+
+        try:
+            node = NodeInfo(
+                kind="Function",
+                name="read_source_span",
+                file_path="search.py",
+                line_start=1,
+                line_end=10,
+                language="python",
+            )
+            store.upsert_node(node, file_hash="rerank")
+            store._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS embeddings (
+                    qualified_name TEXT NOT NULL,
+                    vector BLOB NOT NULL,
+                    text_hash TEXT NOT NULL,
+                    provider TEXT NOT NULL DEFAULT 'unknown',
+                    PRIMARY KEY (qualified_name, provider)
+                )
+                """
+            )
+            store._conn.execute(
+                "INSERT OR REPLACE INTO embeddings VALUES (?, ?, ?, ?)",
+                (
+                    "search.py::read_source_span",
+                    _encode_vector([1.0, 0.0]),
+                    "h1",
+                    "fake#text=material",
+                ),
+            )
+            store._conn.commit()
+            rebuild_fts_index(store)
+
+            with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
+                result = hybrid_search(
+                    store,
+                    "function that reads source span and returns text",
+                    limit=5,
+                )
+
+            health = result["embedding_health"]
+            assert health["status"] == "available"
+            assert health["requested_text_mode"] == "narrative"
+            assert health["resolved_text_mode"] == "material"
+            assert health["resolved_provider_key"] == "fake#text=material"
+            assert health["text_mode_fallback"] == {
+                "from": "narrative",
+                "to": "material",
+                "provider_key": "fake#text=material",
+                "vector_count": 1,
+            }
+            assert result["mode"] == "hybrid"
             assert result["results"][0]["qualified_name"] == "search.py::read_source_span"
         finally:
             store.close()

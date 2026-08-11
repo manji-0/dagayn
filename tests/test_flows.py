@@ -1,9 +1,11 @@
 """Tests for execution flow detection, tracing, and scoring."""
 
+import json
 import tempfile
 from pathlib import Path
 
 from dagayn.flows import (
+    _hydrate_flow_rows,
     detect_entry_points,
     get_affected_flows,
     get_flow_by_id,
@@ -690,6 +692,102 @@ class TestFlows:
         violations = conn.execute("PRAGMA foreign_key_check").fetchall()
         assert len(violations) == 0
 
+    def test_incremental_retrace_after_reparse_middle_file(self):
+        """Regression for #29: changed middle file must re-trace the flow."""
+        self._add_func("main", path="pkg/a.py")
+        self._add_func("helper", path="pkg/b.py")
+        self._add_func("leaf", path="pkg/c.py")
+        self._add_call("pkg/a.py::main", "pkg/b.py::helper", "pkg/a.py")
+        self._add_call("pkg/b.py::helper", "pkg/c.py::leaf", "pkg/b.py")
+
+        store_flows(self.store, trace_flows(self.store))
+
+        self._add_func("extra", path="pkg/b.py")
+        self._add_call("pkg/b.py::helper", "pkg/b.py::extra", "pkg/b.py")
+        self.store.store_file_nodes_edges(
+            "pkg/b.py",
+            [
+                NodeInfo(
+                    kind="Function",
+                    name="helper",
+                    file_path="pkg/b.py",
+                    line_start=1,
+                    line_end=10,
+                    language="python",
+                ),
+                NodeInfo(
+                    kind="Function",
+                    name="extra",
+                    file_path="pkg/b.py",
+                    line_start=11,
+                    line_end=20,
+                    language="python",
+                ),
+            ],
+            [
+                EdgeInfo(
+                    kind="CALLS",
+                    source="pkg/b.py::helper",
+                    target="pkg/b.py::extra",
+                    file_path="pkg/b.py",
+                    line=12,
+                ),
+                EdgeInfo(
+                    kind="CALLS",
+                    source="pkg/b.py::helper",
+                    target="pkg/c.py::leaf",
+                    file_path="pkg/b.py",
+                    line=5,
+                ),
+            ],
+            fhash="new",
+        )
+
+        count = incremental_trace_flows(self.store, ["pkg/b.py"])
+        assert count >= 1
+
+        main_flows = [f for f in get_flows(self.store) if f["name"] == "main"]
+        assert len(main_flows) == 1
+        detail = get_flow_by_id(self.store, main_flows[0]["id"])
+        assert "extra" in {step["name"] for step in detail["steps"]}
+
+    def test_incremental_retrace_entry_file_no_duplicate_flows(self):
+        """Regression for #29: re-parsed entry file must not leave duplicate flows."""
+        self._add_func("main", path="pkg/a.py")
+        self._add_func("helper", path="pkg/b.py")
+        self._add_call("pkg/a.py::main", "pkg/b.py::helper", "pkg/a.py")
+
+        store_flows(self.store, trace_flows(self.store))
+        assert len([f for f in get_flows(self.store) if f["name"] == "main"]) == 1
+
+        self.store.store_file_nodes_edges(
+            "pkg/a.py",
+            [
+                NodeInfo(
+                    kind="Function",
+                    name="main",
+                    file_path="pkg/a.py",
+                    line_start=1,
+                    line_end=10,
+                    language="python",
+                )
+            ],
+            [
+                EdgeInfo(
+                    kind="CALLS",
+                    source="pkg/a.py::main",
+                    target="pkg/b.py::helper",
+                    file_path="pkg/a.py",
+                    line=5,
+                )
+            ],
+            fhash="new",
+        )
+
+        count = incremental_trace_flows(self.store, ["pkg/a.py"])
+        assert count >= 1
+        assert len([f for f in get_flows(self.store) if f["name"] == "main"]) == 1
+
 
 class TestOrphanedStructurePruning:
     """Re-parsing a file must not leave flows pointing at deleted nodes."""
@@ -772,3 +870,88 @@ class TestOrphanedStructurePruning:
         assert pruned["flow_memberships"] > 0
         assert self._dangling_memberships() == 0
         assert get_flows(self.store) == []
+
+    def test_prune_rewrites_stale_path_json(self):
+        self._flow_graph()
+        flow = get_flows(self.store)[0]
+        flow_id = flow["id"]
+        stale_path = json.loads(self.store._conn.execute(
+            "SELECT path_json FROM flows WHERE id = ?", (flow_id,)
+        ).fetchone()[0])
+
+        self.store._conn.execute(
+            "UPDATE flows SET path_json = ? WHERE id = ?",
+            (json.dumps(stale_path + [999999]), flow_id),
+        )
+        self.store.commit()
+
+        pruned = self.store.prune_orphaned_graph_structures()
+        assert pruned.get("flows_repaired", 0) >= 1
+
+        row = self.store._conn.execute(
+            "SELECT path_json, node_count FROM flows WHERE id = ?", (flow_id,)
+        ).fetchone()
+        live_path = json.loads(row[0])
+        assert 999999 not in live_path
+        assert row[1] == len(live_path)
+
+
+class TestStaleFlowHydration:
+    """Stored flow paths must report unresolved step counts."""
+
+    def setup_method(self):
+        self.tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self.store = GraphStore(self.tmp.name)
+
+    def teardown_method(self):
+        self.store.close()
+        Path(self.tmp.name).unlink(missing_ok=True)
+
+    def test_hydrate_flow_rows_reports_missing_steps(self):
+        for name in ("entry", "middle", "leaf"):
+            self.store.upsert_node(
+                NodeInfo(
+                    kind="Function",
+                    name=name,
+                    file_path="app.py",
+                    line_start=1,
+                    line_end=10,
+                    language="python",
+                ),
+                file_hash="abc",
+            )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CALLS",
+                source="app.py::entry",
+                target="app.py::middle",
+                file_path="app.py",
+                line=2,
+            )
+        )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CALLS",
+                source="app.py::middle",
+                target="app.py::leaf",
+                file_path="app.py",
+                line=3,
+            )
+        )
+        self.store.commit()
+        store_flows(self.store, trace_flows(self.store))
+
+        row = self.store._conn.execute("SELECT * FROM flows WHERE name = 'entry'").fetchone()
+        assert row is not None
+        path_ids = json.loads(row["path_json"])
+        assert len(path_ids) == 3
+
+        for node_id in path_ids[1:]:
+            self.store._conn.execute("DELETE FROM nodes WHERE id = ?", (node_id,))
+        self.store.commit()
+
+        hydrated = _hydrate_flow_rows(self.store, [row])[0]
+        assert hydrated["node_count"] == 3
+        assert hydrated["resolved_step_count"] == 1
+        assert hydrated["missing_step_count"] == 2
+        assert len(hydrated["steps"]) == 1
