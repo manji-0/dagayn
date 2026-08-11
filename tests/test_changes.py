@@ -339,6 +339,24 @@ class TestChanges:
             "dagayn/tools/context.py::get_minimal_context"
         ]
 
+    def test_test_gap_coverage_confidence_unchecked_when_heuristic_capped(self):
+        self._add_func("uncovered_a", path="app/a.py", line_start=1, line_end=10)
+        self._add_func("uncovered_b", path="app/b.py", line_start=1, line_end=10)
+
+        result = analyze_changes(
+            self.store,
+            changed_files=["app/a.py", "app/b.py"],
+            changed_ranges={
+                "app/a.py": [(1, 10)],
+                "app/b.py": [(1, 10)],
+            },
+            heuristic_test_gap_node_limit=1,
+        )
+
+        confidences = {gap["coverage_confidence"] for gap in result["test_gaps"]}
+        assert "unchecked" in confidences
+        assert result["test_gap_evidence"]["heuristic_truncated"] is True
+
     def test_map_changes_to_nodes_different_files(self):
         """Maps changes across different files."""
         self._add_func("func_x", path="x.py", line_start=1, line_end=10)

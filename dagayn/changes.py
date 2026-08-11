@@ -748,7 +748,9 @@ def analyze_changes(
                         if has_base_snapshot
                         else "unknown"
                     ),
-                    "coverage_confidence": "none",
+                    "coverage_confidence": (
+                        "none" if can_check_heuristic_gap else "unchecked"
+                    ),
                 }
             )
 

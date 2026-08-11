@@ -15,7 +15,7 @@ from ..embeddings import EmbeddingStore
 from ..graph import _sanitize_name, edge_to_dict, node_to_dict
 from ..hints import generate_hints, get_session
 from ..incremental import get_changed_files, get_db_path, get_staged_and_unstaged
-from ..search import hybrid_search
+from ..search import embedding_health_available, hybrid_search
 from ..state_types import TraversalEntry, TraversalMode, seal_reachability_info
 from ._common import (
     _BUILTIN_CALL_NAMES,
@@ -280,7 +280,7 @@ def _semantic_search_guidance(
     embedding_health: dict[str, Any],
 ) -> list[dict[str, Any]]:
     missingness_items: list[dict[str, Any]] = []
-    if embedding_health and not embedding_health.get("available", True):
+    if embedding_health and not embedding_health_available(embedding_health):
         missingness_items.append(
             {
                 "reason_code": "missing_embeddings",
@@ -971,7 +971,9 @@ def semantic_search_nodes(
         results = hs["results"]
         search_mode = hs["mode"]
         embedding_health = hs.get("embedding_health", {})
-        if embedding_health and not embedding_health.get("available", True):
+        truncated = bool(hs.get("truncated", False))
+        total = int(hs.get("total", len(results)))
+        if embedding_health and not embedding_health_available(embedding_health):
             missingness.append(
                 {
                     "reason_code": "missing_embeddings",
@@ -1017,6 +1019,8 @@ def semantic_search_nodes(
                 "answerability": answerability,
                 "missingness": missingness,
                 "result_count": result_count,
+                "truncated": truncated,
+                "total": total,
                 "confidence": confidence,
                 "zero_result_reason": zero_result_reason,
                 "next_action": next_action,
@@ -1044,6 +1048,8 @@ def semantic_search_nodes(
             "answerability": answerability,
             "missingness": missingness,
             "result_count": result_count,
+            "truncated": truncated,
+            "total": total,
             "confidence": confidence,
             "zero_result_reason": zero_result_reason,
             "next_action": next_action,

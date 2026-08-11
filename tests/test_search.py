@@ -24,6 +24,7 @@ from dagayn.search import (
     _query_rerank_intent,
     _query_tokens,
     detect_query_kind_boost,
+    embedding_health_available,
     hybrid_search,
     rebuild_fts_index,
     rrf_merge,
@@ -41,6 +42,13 @@ def test_graph_search_uses_graph_local_fts_tokenizer():
 def test_fts_tokenize_shim_reexports_graph_impl():
     assert fts_tokenize.segment_japanese_fts_text is graph_fts_tokenize.segment_japanese_fts_text
     assert fts_tokenize.contains_japanese is graph_fts_tokenize.contains_japanese
+
+
+def test_embedding_health_available_uses_status_field():
+    assert embedding_health_available({"status": "available"}) is True
+    assert embedding_health_available({"status": "provider_unavailable"}) is False
+    assert embedding_health_available(None) is True
+    assert embedding_health_available({}) is False
 
 
 class TestHybridSearch:
@@ -368,12 +376,18 @@ class TestHybridSearch:
         hs = hybrid_search(self.store, "")
         assert hs["mode"] == "empty"
         assert hs["results"] == []
+        assert hs["embedding_health"]["status"] == "not_requested"
+        assert hs["truncated"] is False
+        assert hs["total"] == 0
 
     def test_whitespace_query_handled(self):
         """Whitespace-only query returns empty results."""
         hs = hybrid_search(self.store, "   ")
         assert hs["mode"] == "empty"
         assert hs["results"] == []
+        assert "embedding_health" in hs
+        assert hs["truncated"] is False
+        assert hs["total"] == 0
 
     # --- Return fields ---
 

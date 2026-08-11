@@ -703,7 +703,7 @@ class TestTools:
             lambda *_args, **_kwargs: {
                 "results": [],
                 "mode": "fts_only",
-                "embedding_health": {"available": False},
+                "embedding_health": {"status": "provider_unavailable"},
             },
         )
 
