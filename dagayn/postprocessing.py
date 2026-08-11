@@ -252,7 +252,9 @@ def _resolve_markdown_artifact_refs(
                 )
 
         # Compute desired state; only UPDATE/DELETE rows where the state actually changes
-        to_update: list[tuple] = []  # (new_target, target_name, new_extra_json, confidence, tier, edge_id)
+        to_update: list[
+            tuple
+        ] = []  # (new_target, target_name, new_extra_json, confidence, tier, edge_id)
         to_delete: list[tuple[int]] = []
 
         for edge_id, current_target, sym, extra in edge_data:
