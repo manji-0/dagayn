@@ -52,7 +52,141 @@ def _get_provider(provider: str | None, *, model: str | None = None) -> Embeddin
     return emb.get_provider(provider, model=model)
 
 
-def get_embedding_status(db_path: str | Path) -> dict[str, Any]:
+ACTIVE_EMBEDDING_PROVIDER_METADATA_KEY = "embedding_provider"
+
+
+def get_embedding_provider_counts(db_path: str | Path) -> dict[str, int]:
+    """Return persisted embedding row counts grouped by provider key."""
+    path = Path(db_path)
+    try:
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    except sqlite3.Error:
+        return {}
+    try:
+        tables = {
+            str(row[0])
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type IN ('table', 'view')"
+            ).fetchall()
+        }
+        if "embeddings" not in tables:
+            return {}
+        return {
+            str(provider): int(count)
+            for provider, count in conn.execute(
+                "SELECT provider, COUNT(*) FROM embeddings GROUP BY provider"
+            ).fetchall()
+        }
+    except sqlite3.Error:
+        return {}
+    finally:
+        conn.close()
+
+
+def read_active_embedding_provider_metadata(
+    db_path: str | Path,
+    *,
+    conn: sqlite3.Connection | None = None,
+) -> str | None:
+    """Return the active embedding provider key stored in graph metadata, if any."""
+    owns_conn = conn is None
+    if owns_conn:
+        try:
+            conn = sqlite3.connect(f"file:{Path(db_path)}?mode=ro", uri=True)
+        except sqlite3.Error:
+            return None
+    assert conn is not None
+    try:
+        tables = {
+            str(row[0])
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type IN ('table', 'view')"
+            ).fetchall()
+        }
+        if "metadata" not in tables:
+            return None
+        row = conn.execute(
+            "SELECT value FROM metadata WHERE key = ?",
+            (ACTIVE_EMBEDDING_PROVIDER_METADATA_KEY,),
+        ).fetchone()
+        return str(row[0]) if row else None
+    except sqlite3.Error:
+        return None
+    finally:
+        if owns_conn:
+            conn.close()
+
+
+def _provider_candidates(
+    provider_counts: dict[str, int],
+    *,
+    text_mode: str | None = None,
+) -> dict[str, int]:
+    if not provider_counts:
+        return {}
+    if not text_mode:
+        return provider_counts
+
+    matches = {
+        provider_name: count
+        for provider_name, count in provider_counts.items()
+        if provider_name.endswith(f"#text={text_mode}")
+    }
+    if matches:
+        return matches
+
+    legacy = {
+        provider_name: count
+        for provider_name, count in provider_counts.items()
+        if "#text=" not in provider_name
+    }
+    return legacy or provider_counts
+
+
+def resolve_active_embedding_provider(
+    provider_counts: dict[str, int],
+    *,
+    text_mode: str | None = None,
+    preferred_provider: str | None = None,
+) -> str | None:
+    """Pick the persisted provider key to use when the caller did not specify one."""
+    if not provider_counts:
+        return None
+    if preferred_provider and preferred_provider in provider_counts:
+        return preferred_provider
+
+    candidates = _provider_candidates(provider_counts, text_mode=text_mode)
+    if not candidates:
+        return None
+    if len(candidates) == 1:
+        return next(iter(candidates))
+
+    return max(candidates.items(), key=lambda item: (item[1], item[0]))[0]
+
+
+def _persist_active_embedding_provider_metadata(
+    conn: sqlite3.Connection,
+    provider_key: str,
+) -> None:
+    tables = {
+        str(row[0])
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type IN ('table', 'view')"
+        ).fetchall()
+    }
+    if "metadata" not in tables:
+        return
+    conn.execute(
+        "INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)",
+        (ACTIVE_EMBEDDING_PROVIDER_METADATA_KEY, provider_key),
+    )
+    conn.commit()
+
+
+def get_embedding_status(
+    db_path: str | Path,
+    provider: str | None = None,
+) -> dict[str, Any]:
     """Return read-only embedding coverage for a graph database."""
     path = Path(db_path)
     try:
@@ -100,40 +234,64 @@ def get_embedding_status(db_path: str | Path) -> dict[str, Any]:
         if "nodes" not in tables:
             return seal_embedding_status(status)
 
+        metadata_provider = (
+            read_active_embedding_provider_metadata(db_path, conn=conn)
+            if "metadata" in tables
+            else None
+        )
+        coverage_provider = provider or resolve_active_embedding_provider(
+            provider_counts,
+            preferred_provider=metadata_provider,
+        )
+        if coverage_provider is not None:
+            status["active_provider"] = coverage_provider
+
+        provider_clause = ""
+        provider_params: list[str] = []
+        if coverage_provider is not None:
+            provider_clause = "AND e.provider = ?"
+            provider_params = [coverage_provider]
+
         embeddable_nodes = int(
             conn.execute("SELECT COUNT(*) FROM nodes WHERE kind != 'File'").fetchone()[0]
         )
         missing_embeddings = int(
             conn.execute(
-                """
+                f"""
                 SELECT COUNT(*)
                 FROM nodes n
                 WHERE n.kind != 'File'
                   AND NOT EXISTS (
                       SELECT 1 FROM embeddings e
                       WHERE e.qualified_name = n.qualified_name
+                      {provider_clause}
                   )
-                """
+                """,
+                provider_params,
             ).fetchone()[0]
         )
         indexed_embeddings = int(
             conn.execute(
-                """
+                f"""
                 SELECT COUNT(DISTINCT e.qualified_name)
                 FROM embeddings e
                 JOIN nodes n ON n.qualified_name = e.qualified_name
                 WHERE n.kind != 'File'
-                """
+                {provider_clause}
+                """,
+                provider_params,
             ).fetchone()[0]
         )
         orphan_embeddings = int(
             conn.execute(
-                """
+                f"""
                 SELECT COUNT(*)
                 FROM embeddings e
                 LEFT JOIN nodes n ON n.qualified_name = e.qualified_name
                 WHERE n.qualified_name IS NULL
-                """
+                {provider_clause}
+                """,
+                provider_params,
             ).fetchone()[0]
         )
 
@@ -748,31 +906,52 @@ class EmbeddingStore:
         self._conn.commit()
         _invalidate_np_vec_cache(self.db_path)
 
-    def remove_orphans(self, live_qualified_names: set[str]) -> int:
-        """Delete embeddings for this provider whose nodes no longer exist."""
-        if not self.provider:
-            return 0
+    def remove_orphans(
+        self,
+        live_qualified_names: set[str],
+        *,
+        all_providers: bool = False,
+    ) -> int:
+        """Delete embeddings whose nodes no longer exist.
 
-        provider_name = self.provider_key or self.provider.name
-        provider_names = [provider_name]
-        if self.provider.name != provider_name:
-            provider_names.append(self.provider.name)
-        placeholders = ",".join("?" for _ in provider_names)
-        rows = self._conn.execute(
-            f"SELECT qualified_name, provider FROM embeddings WHERE provider IN ({placeholders})",  # nosec B608
-            provider_names,
-        ).fetchall()
-        orphan_rows = [
-            (row["qualified_name"], row["provider"])
-            for row in rows
-            if row["qualified_name"] not in live_qualified_names
-        ]
+        When ``all_providers`` is false (default), only rows for the configured
+        provider are removed. Pass ``all_providers=True`` to reclaim abandoned
+        vectors from other providers as well.
+        """
+        if all_providers:
+            rows = self._conn.execute("SELECT qualified_name, provider FROM embeddings").fetchall()
+            orphan_rows = [
+                (row["qualified_name"], row["provider"])
+                for row in rows
+                if row["qualified_name"] not in live_qualified_names
+            ]
+        else:
+            if not self.provider:
+                return 0
+
+            provider_name = self.provider_key or self.provider.name
+            provider_names = [provider_name]
+            if self.provider.name != provider_name:
+                provider_names.append(self.provider.name)
+            placeholders = ",".join("?" for _ in provider_names)
+            rows = self._conn.execute(
+                f"SELECT qualified_name, provider FROM embeddings WHERE provider IN ({placeholders})",  # nosec B608
+                provider_names,
+            ).fetchall()
+            orphan_rows = [
+                (row["qualified_name"], row["provider"])
+                for row in rows
+                if row["qualified_name"] not in live_qualified_names
+            ]
         if not orphan_rows:
             return 0
 
         batch_size = 450
         deleted = 0
-        for provider_to_clean in provider_names:
+        providers_to_clean = (
+            sorted({provider for _, provider in orphan_rows}) if all_providers else provider_names
+        )
+        for provider_to_clean in providers_to_clean:
             names = [qn for qn, provider in orphan_rows if provider == provider_to_clean]
             for i in range(0, len(names), batch_size):
                 chunk = names[i : i + batch_size]
@@ -787,6 +966,13 @@ class EmbeddingStore:
         if deleted:
             _invalidate_np_vec_cache(self.db_path)
         return deleted
+
+    def persist_active_provider_metadata(self) -> None:
+        """Record the configured provider key as the active embedding provider."""
+        provider_name = self._provider_key_for_lookup()
+        if provider_name is None:
+            return
+        _persist_active_embedding_provider_metadata(self._conn, provider_name)
 
     def count(self) -> int:
         return self._conn.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0]
@@ -833,8 +1019,10 @@ def embed_all_nodes(
 
     all_nodes = graph_store.get_all_nodes(exclude_files=True)
     embedding_store.last_orphans_removed = embedding_store.remove_orphans(
-        {node.qualified_name for node in all_nodes}
+        {node.qualified_name for node in all_nodes},
+        all_providers=True,
     )
+    embedding_store.persist_active_provider_metadata()
 
     if embedding_store.source_root is None:
         get_repo_root = getattr(graph_store, "get_repo_root", None)

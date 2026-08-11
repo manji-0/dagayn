@@ -553,6 +553,49 @@ class TestHybridSearch:
         assert hs["embedding_health"]["auto_resolved_provider"] == provider_name
         assert any(r["qualified_name"] == "auth.py::authenticate" for r in hs["results"])
 
+    def test_auto_resolves_dominant_provider_when_multiple_exist(self, monkeypatch):
+        rebuild_fts_index(self.store)
+        monkeypatch.delenv("CRG_OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("CRG_OPENAI_BASE_URL", raising=False)
+        monkeypatch.delenv("CRG_OPENAI_MODEL", raising=False)
+        _emb_failure_cache.clear()
+        _emb_cache.clear()
+        dominant = "openai:qwen@http://127.0.0.1:18080/v1"
+        abandoned = "openai:old@http://127.0.0.1:18081/v1"
+        self.store._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS embeddings (
+                qualified_name TEXT PRIMARY KEY,
+                vector BLOB NOT NULL,
+                text_hash TEXT NOT NULL,
+                provider TEXT NOT NULL DEFAULT 'unknown'
+            )
+            """
+        )
+        self.store._conn.executemany(
+            "INSERT OR REPLACE INTO embeddings VALUES (?, ?, ?, ?)",
+            [
+                ("auth.py::authenticate", _encode_vector([1.0, 0.0]), "hash", dominant),
+                ("auth.py::login", _encode_vector([0.9, 0.1]), "hash2", dominant),
+                ("auth.py::logout", _encode_vector([0.8, 0.2]), "hash3", dominant),
+                ("old.py::gone", _encode_vector([0.0, 1.0]), "hash4", abandoned),
+            ],
+        )
+        self.store._conn.commit()
+
+        with patch(
+            "dagayn.embeddings.OpenAIEmbeddingProvider._call_api",
+            return_value=[[1.0, 0.0]],
+        ):
+            hs = hybrid_search(self.store, "token validation")
+
+        assert hs["mode"] == "hybrid"
+        assert hs["embedding_health"]["status"] == "available"
+        assert hs["embedding_health"]["resolved_provider"] == dominant
+        assert hs["embedding_health"]["auto_resolved_provider"] == dominant
+        _emb_failure_cache.clear()
+        _emb_cache.clear()
+
     def test_embedding_search_failure_is_cached_briefly(self, monkeypatch):
         rebuild_fts_index(self.store)
         monkeypatch.delenv("CRG_OPENAI_API_KEY", raising=False)
