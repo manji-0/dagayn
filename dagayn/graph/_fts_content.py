@@ -151,9 +151,7 @@ def build_node_fts_values(
         source_excerpt=source_excerpt,
     )
     doc_text = " ".join(
-        part
-        for part in (display_name, structured_description, source_excerpt)
-        if part
+        part for part in (display_name, structured_description, source_excerpt) if part
     )
     doc_text = segment_japanese_fts_text(doc_text)
     return (
