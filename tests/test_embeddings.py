@@ -2253,7 +2253,10 @@ class TestGetProviderOpenAI:
         with patch.dict("os.environ", env, clear=True):
             p = get_provider("openai")
         assert p is not None
-        assert p.name == "openai:text-embedding-3-small@http://127.0.0.1:3000/v1#max_length=2048#dim=1536"
+        assert (
+            p.name
+            == "openai:text-embedding-3-small@http://127.0.0.1:3000/v1#max_length=2048#dim=1536"
+        )
 
     def test_localhost_suppresses_egress_warning(self, capsys):
         with patch.dict("os.environ", self._MIN_ENV, clear=True):

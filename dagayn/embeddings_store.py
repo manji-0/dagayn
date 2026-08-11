@@ -327,8 +327,7 @@ def _python_loop_search(
     vector_bytes = _vector_byte_length(len(query_vec))
     scored: list[tuple[str, float]] = []
     cursor = conn.execute(
-        "SELECT qualified_name, vector FROM embeddings "
-        "WHERE provider = ? AND length(vector) = ?",
+        "SELECT qualified_name, vector FROM embeddings WHERE provider = ? AND length(vector) = ?",
         (provider_name, vector_bytes),
     )
     while True:
