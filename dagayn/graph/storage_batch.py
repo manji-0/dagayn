@@ -6,6 +6,7 @@ import time
 from typing import TYPE_CHECKING
 
 from ._edge_records import edge_insert_values
+from ._fts_sync import delete_fts_for_file_paths, set_fts_watermark, sync_fts_for_file_paths
 from ._mixin_protocol import GraphStoreMixinProtocol
 
 if TYPE_CHECKING:
@@ -101,6 +102,7 @@ class GraphStoreStorageBatchMixin(GraphStoreMixinProtocol):
             if not chunk:
                 continue
             placeholders = ",".join("?" for _ in chunk)
+            delete_fts_for_file_paths(self._conn, chunk)
             self.remove_node_keyed_rows_for_files(chunk)
             self._conn.execute(
                 f"DELETE FROM nodes WHERE file_path IN ({placeholders})",
@@ -110,6 +112,7 @@ class GraphStoreStorageBatchMixin(GraphStoreMixinProtocol):
                 f"DELETE FROM edges WHERE file_path IN ({placeholders})",
                 chunk,
             )
+            set_fts_watermark(self._conn)
         if invalidate:
             self._invalidate_cache()
 
@@ -130,6 +133,7 @@ class GraphStoreStorageBatchMixin(GraphStoreMixinProtocol):
             self.remove_file_data(file_path, invalidate=False)
             self._bulk_insert_nodes(nodes, fhash, mtime_ns)
             self._bulk_insert_edges(edges)
+            sync_fts_for_file_paths(self._conn, [file_path], self.get_repo_root())
             self._conn.commit()
         except BaseException:
             self._conn.rollback()
@@ -164,6 +168,7 @@ class GraphStoreStorageBatchMixin(GraphStoreMixinProtocol):
             self.remove_files_data(file_paths, invalidate=False)
             self._bulk_insert_nodes_with_meta(all_nodes)
             self._bulk_insert_edges(all_edges)
+            sync_fts_for_file_paths(self._conn, file_paths, self.get_repo_root())
             self._conn.commit()
         except BaseException:
             self._conn.rollback()

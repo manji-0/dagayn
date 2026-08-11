@@ -127,6 +127,13 @@ def _architecture_health_summary(
     gap_counts = {key: int(raw_gap_counts.get(key, len(gaps.get(key, [])))) for key in gap_keys}
 
     reason_codes: list[str] = []
+    stale_communities = sum(
+        1
+        for comm in overview.get("communities", [])
+        if comm.get("size") != comm.get("assigned_member_count", comm.get("size"))
+    )
+    if stale_communities:
+        reason_codes.append("stale_community_membership")
     if overview.get("warnings"):
         reason_codes.append("high_cross_community_coupling")
     if hubs:

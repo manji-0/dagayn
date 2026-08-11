@@ -66,7 +66,8 @@ class GraphStoreDependencyMixin(GraphStoreMixinProtocol):
     ) -> list[dict]:
         """Find tests covering a node, including indirect (transitive) coverage.
 
-        1. Direct: TESTED_BY edges sourced from this node (+ bare-name fallback).
+        1. Direct: TESTED_BY edges sourced from this node (bare-name fallback only
+           when the qualified lookup finds no direct coverage).
         2. Indirect: follow outgoing CALLS edges up to *max_depth* hops,
            then collect TESTED_BY edges on each callee.
 
@@ -103,12 +104,14 @@ class GraphStoreDependencyMixin(GraphStoreMixinProtocol):
             }
 
         # Direct TESTED_BY (production node -> test node)
+        found_qualified_direct = False
         for qn in input_qns:
             for row in conn.execute(
                 "SELECT target_qualified FROM edges "
                 "WHERE source_qualified = ? AND kind = 'TESTED_BY'",
                 (qn,),
             ).fetchall():
+                found_qualified_direct = True
                 test_qn = row["target_qualified"]
                 if test_qn not in seen:
                     seen.add(test_qn)
@@ -116,18 +119,20 @@ class GraphStoreDependencyMixin(GraphStoreMixinProtocol):
                     if d:
                         results.append(d)
 
-        # Bare-name fallback for direct
-        bare = qualified_name.rsplit("::", 1)[-1] if "::" in qualified_name else qualified_name
-        for row in conn.execute(
-            "SELECT target_qualified FROM edges WHERE source_qualified = ? AND kind = 'TESTED_BY'",
-            (bare,),
-        ).fetchall():
-            test_qn = row["target_qualified"]
-            if test_qn not in seen:
-                seen.add(test_qn)
-                d = _node_dict(test_qn, indirect=False)
-                if d:
-                    results.append(d)
+        # Bare-name fallback only when qualified lookup found no direct coverage.
+        if not found_qualified_direct:
+            bare = qualified_name.rsplit("::", 1)[-1] if "::" in qualified_name else qualified_name
+            for row in conn.execute(
+                "SELECT target_qualified FROM edges "
+                "WHERE source_qualified = ? AND kind = 'TESTED_BY'",
+                (bare,),
+            ).fetchall():
+                test_qn = row["target_qualified"]
+                if test_qn not in seen:
+                    seen.add(test_qn)
+                    d = _node_dict(test_qn, indirect=False)
+                    if d:
+                        results.append(d)
 
         # Transitive: follow CALLS edges, then collect TESTED_BY on callees
         frontier = set(input_qns)
