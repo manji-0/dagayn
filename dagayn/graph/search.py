@@ -6,9 +6,61 @@ import sqlite3
 
 from ._fts_tokenize import segment_japanese_fts_text
 from ._mixin_protocol import GraphStoreMixinProtocol
-from .types import GraphEdge, GraphNode
+from .types import FtsQueryResult, GraphEdge, GraphNode
 
 logger = logging.getLogger(__name__)
+
+_COMMON_FTS_SEGMENTS = frozenset(
+    {
+        "py",
+        "rs",
+        "ts",
+        "js",
+        "go",
+        "src",
+        "test",
+        "tests",
+        "index",
+        "main",
+        "lib",
+        "mod",
+        "api",
+        "app",
+        "util",
+        "utils",
+        "common",
+        "core",
+    }
+)
+
+
+def _most_selective_segment(segments: list[str]) -> str:
+    """Pick the segment least likely to match spuriously via OR fallback."""
+    return max(
+        segments,
+        key=lambda segment: (
+            len(segment),
+            segment not in _COMMON_FTS_SEGMENTS,
+            segment,
+        ),
+    )
+
+
+def _build_fts_match_queries(fts_query: str) -> tuple[str, str, str]:
+    """Return (primary_query, or_fallback_query, expected_match_mode_if_primary_misses)."""
+    segments = [seg for seg in re.split(r"[./:\s]+", fts_query) if seg]
+    quoted_segments = ['"' + seg.replace('"', '""') + '"' for seg in segments]
+    if len(quoted_segments) > 1:
+        safe_query = " AND ".join(quoted_segments)
+        anchor = _most_selective_segment(segments)
+        quoted_anchor = '"' + anchor.replace('"', '""') + '"'
+        fallback_query = f"({' OR '.join(quoted_segments)}) AND {quoted_anchor}"
+        fallback_mode = "or"
+    else:
+        safe_query = '"' + fts_query.replace('"', '""') + '"'
+        fallback_query = safe_query
+        fallback_mode = "phrase"
+    return safe_query, fallback_query, fallback_mode
 
 
 class GraphStoreSearchMixin(GraphStoreMixinProtocol):
@@ -57,8 +109,8 @@ class GraphStoreSearchMixin(GraphStoreMixinProtocol):
             out.update({row["file_path"]: row["file_hash"] for row in rows})
         return out
 
-    def fts_query(self, query: str, limit: int = 50) -> list[tuple[int, float]]:
-        """FTS5 BM25 search. Returns (node_id, score) with higher = better.
+    def fts_query(self, query: str, limit: int = 50) -> FtsQueryResult:
+        """FTS5 BM25 search. Returns hits and how the query was matched.
 
         Builds an AND-of-quoted-segments query when the input contains
         separators (``.``, ``/``, ``::``) so that ``api.get_users`` matches
@@ -66,30 +118,32 @@ class GraphStoreSearchMixin(GraphStoreMixinProtocol):
         wraps the whole query as a single phrase. Quotes prevent FTS5
         operator injection.
 
-        Returns [] when the FTS index is unavailable.
+        When the AND arm misses, retries with an OR arm that still requires
+        the most selective segment so path-shaped junk queries do not match
+        on shared tokens like ``py`` or ``src``.
+
+        Returns an empty result when the FTS index is unavailable.
         """
         fts_query = segment_japanese_fts_text(query)
-        segments = [seg for seg in re.split(r"[./:\s]+", fts_query) if seg]
-        quoted_segments = ['"' + seg.replace('"', '""') + '"' for seg in segments]
-        if len(quoted_segments) > 1:
-            safe_query = " AND ".join(quoted_segments)
-            fallback_query = " OR ".join(quoted_segments)
-        else:
-            safe_query = '"' + fts_query.replace('"', '""') + '"'
-            fallback_query = safe_query
+        safe_query, fallback_query, fallback_mode = _build_fts_match_queries(fts_query)
         sql = (
             "SELECT rowid, bm25(nodes_fts, 8.0, 6.0, 3.0, 4.0, 5.0, 1.0) AS score "
             "FROM nodes_fts WHERE nodes_fts MATCH ? ORDER BY score LIMIT ?"
         )
         try:
             rows = self._conn.execute(sql, (safe_query, limit)).fetchall()
+            match_mode = "and" if len(re.split(r"[./:\s]+", fts_query)) > 1 else "phrase"
             if not rows and fallback_query != safe_query:
                 rows = self._conn.execute(sql, (fallback_query, limit)).fetchall()
+                match_mode = fallback_mode if rows else "none"
+            elif not rows:
+                match_mode = "none"
             # FTS5 rank is negative BM25 (lower = better), negate for consistency
-            return [(row[0], -row[1]) for row in rows]
+            hits = [(row[0], -row[1]) for row in rows]
+            return FtsQueryResult(hits=hits, match_mode=match_mode)
         except sqlite3.OperationalError as e:
             logger.warning("FTS5 search failed: %s", e)
-            return []
+            return FtsQueryResult(hits=[], match_mode="none")
 
     def keyword_query(self, query: str, limit: int = 50) -> list[tuple[int, float]]:
         """AND-of-words LIKE fallback. Returns (node_id, score) with 3/2/1 scoring.
@@ -136,9 +190,9 @@ class GraphStoreSearchMixin(GraphStoreMixinProtocol):
         Tries FTS5 first (fast, tokenized matching), then falls back to
         LIKE-based substring search when FTS5 returns no results.
         """
-        fts_results = self.fts_query(query, limit=limit)
-        if fts_results:
-            node_ids = [nid for nid, _ in fts_results]
+        fts_result = self.fts_query(query, limit=limit)
+        if fts_result.hits:
+            node_ids = [nid for nid, _ in fts_result.hits]
             by_id = self.get_nodes_by_ids(node_ids)
             return [by_id[nid] for nid in node_ids if nid in by_id]
 

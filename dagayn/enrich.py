@@ -267,12 +267,12 @@ def enrich_search(pattern: str, repo_root: str) -> str:
         conn = store._conn
 
         fts_results = store.fts_query(pattern, limit=8)
-        if not fts_results:
+        if not fts_results.hits:
             return ""
 
-        nodes_by_id = store.get_nodes_by_ids([node_id for node_id, _score in fts_results])
+        nodes_by_id = store.get_nodes_by_ids([node_id for node_id, _score in fts_results.hits])
         selected = []
-        for node_id, _score in fts_results:
+        for node_id, _score in fts_results.hits:
             if len(selected) >= 5:
                 break
             node = nodes_by_id.get(node_id)
