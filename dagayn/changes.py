@@ -7,6 +7,7 @@ gaps. Produces risk-scored, priority-ordered review guidance.
 from __future__ import annotations
 
 import functools
+import hashlib
 import json
 import logging
 import os
@@ -123,6 +124,82 @@ def parse_svn_diff_ranges(
     return _parse_unified_diff(result.stdout)
 
 
+def _diff_ranges_cache_stamp(repo_root: str) -> str:
+    """Return a cheap stamp so cached diff ranges invalidate when the tree changes."""
+    root = Path(repo_root)
+    if (root / ".svn").exists():
+        return _svn_diff_cache_stamp(root)
+    return _git_diff_cache_stamp(root)
+
+
+def _git_diff_cache_stamp(root: Path) -> str:
+    head = ""
+    porcelain = ""
+    try:
+        head_result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            cwd=str(root),
+            timeout=_GIT_TIMEOUT,
+        )
+        if head_result.returncode == 0:
+            head = head_result.stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        pass
+    try:
+        status_result = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=all"],
+            capture_output=True,
+            text=True,
+            cwd=str(root),
+            timeout=_GIT_TIMEOUT,
+        )
+        if status_result.returncode == 0:
+            porcelain = status_result.stdout
+    except (OSError, subprocess.SubprocessError):
+        pass
+    if not head and not porcelain:
+        return "0"
+    status_hash = hashlib.sha256(porcelain.encode()).hexdigest()[:16]
+    return f"{head}:{status_hash}"
+
+
+def _svn_diff_cache_stamp(root: Path) -> str:
+    revision = ""
+    status = ""
+    try:
+        rev_result = subprocess.run(
+            ["svn", "info", "--show-item", "revision", "--non-interactive"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=str(root),
+            timeout=_GIT_TIMEOUT,
+        )
+        if rev_result.returncode == 0:
+            revision = rev_result.stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        pass
+    try:
+        status_result = subprocess.run(
+            ["svn", "status", "--non-interactive"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=str(root),
+            timeout=_GIT_TIMEOUT,
+        )
+        if status_result.returncode == 0:
+            status = status_result.stdout
+    except (OSError, subprocess.SubprocessError):
+        pass
+    status_hash = hashlib.sha256(status.encode()).hexdigest()[:16]
+    return f"{revision}:{status_hash}"
+
+
 def parse_diff_ranges(
     repo_root: str,
     base: str = "HEAD~1",
@@ -139,7 +216,9 @@ def parse_diff_ranges(
               when *base* is not a valid SVN revision, working-copy changes
               (``svn diff``) are used instead.
     """
-    cached = _parse_diff_ranges_cached(str(Path(repo_root).resolve()), base)
+    root = str(Path(repo_root).resolve())
+    stamp = _diff_ranges_cache_stamp(root)
+    cached = _parse_diff_ranges_cached(root, base, stamp)
     return {path: list(ranges) for path, ranges in cached}
 
 
@@ -147,6 +226,7 @@ def parse_diff_ranges(
 def _parse_diff_ranges_cached(
     repo_root: str,
     base: str,
+    cache_stamp: str,
 ) -> tuple[tuple[str, tuple[tuple[int, int], ...]], ...]:
     """Cached diff range parser with an immutable result payload."""
     root_path = Path(repo_root)
