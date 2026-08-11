@@ -399,13 +399,15 @@ class TestChanges:
 
         calls: list[int] = []
 
-        def fake_git_ranges(repo_root: str, base: str = "HEAD~1"):
+        def fake_git_diff(repo_root: str, base: str = "HEAD~1"):
             calls.append(1)
-            return {"app.py": [(len(calls), len(calls))]}
+            from dagayn.changes import DiffParseResult
+
+            return DiffParseResult({"app.py": [(len(calls), len(calls))]}, "ok")
 
         _parse_diff_ranges_cached.cache_clear()
         try:
-            with patch("dagayn.changes.parse_git_diff_ranges", side_effect=fake_git_ranges):
+            with patch("dagayn.changes.parse_git_diff", side_effect=fake_git_diff):
                 first = parse_diff_ranges(str(repo), "HEAD")
                 target.write_text("def main():\n    return 2\n\ndef extra():\n    pass\n")
                 second = parse_diff_ranges(str(repo), "HEAD")
