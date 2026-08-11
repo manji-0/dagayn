@@ -1293,6 +1293,136 @@ class TestFindDeadCode:
         assert all("ambiguous_symbol_name" in d["reason_codes"] for d in dead)
 
 
+class TestFindDeadCodeCrossArtifact:
+    """Regression tests for issue #27: cross-artifact reachability and config artifacts."""
+
+    def setup_method(self):
+        self.tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self.store = GraphStore(self.tmp.name)
+
+    def teardown_method(self):
+        self.store.close()
+        Path(self.tmp.name).unlink(missing_ok=True)
+
+    def test_excludes_terraform_config_resources(self):
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Class",
+                name="resource.aws_lambda_function.auth",
+                file_path="infra/main.tf",
+                line_start=7,
+                line_end=12,
+                language="terraform",
+            )
+        )
+        self.store.commit()
+
+        dead = find_dead_code(self.store)
+        assert dead == []
+
+    def test_excludes_handler_target_with_reportable_cross_artifact(self):
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="serve",
+                file_path="app/hello.py",
+                line_start=5,
+                line_end=6,
+                language="python",
+            )
+        )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CROSS_ARTIFACT",
+                source="infra/main.tf::resource.google_cloudfunctions_function.api",
+                target="app/hello.py::serve",
+                file_path="infra/main.tf",
+                line=4,
+                extra={
+                    "relationship_role": "maps_entrypoint",
+                    "bridge_kind": "manifest_link",
+                    "evidence_kind": "config",
+                    "evidence_source": "entry_point",
+                    "source_language": "terraform",
+                    "target_language": "python",
+                    "confidence": 0.8,
+                    "confidence_tier": "HIGH",
+                },
+            )
+        )
+        self.store.commit()
+
+        dead = find_dead_code(self.store)
+        assert dead == []
+
+    def test_excludes_unresolved_maps_entrypoint_matching_symbol_name(self):
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="process_records",
+                file_path="worker.py",
+                line_start=1,
+                line_end=3,
+                language="python",
+            )
+        )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CROSS_ARTIFACT",
+                source="main.tf::resource.aws_lambda_function.w",
+                target="<unresolved:worker.process_records>",
+                file_path="main.tf",
+                line=3,
+                extra={
+                    "relationship_role": "maps_entrypoint",
+                    "bridge_kind": "manifest_link",
+                    "evidence_kind": "config",
+                    "evidence_source": "handler",
+                    "source_language": "terraform",
+                    "target_language": "unknown",
+                    "original_symbol_name": "worker.process_records",
+                    "confidence": 0.8,
+                    "confidence_tier": "HIGH",
+                },
+            )
+        )
+        self.store.commit()
+
+        dead = find_dead_code(self.store)
+        assert dead == []
+
+    def test_mixed_terraform_fixture_after_postprocess(self, tmp_path):
+        import shutil
+        from unittest.mock import patch
+
+        from dagayn.incremental import full_build
+        from dagayn.postprocessing import run_post_processing
+
+        fixture = Path(__file__).parent / "fixtures" / "terraform_cross_artifact"
+        for rel in ("infra/main.tf", "app/hello.py", "scripts/bootstrap.py"):
+            dest = tmp_path / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(fixture / rel, dest)
+        (tmp_path / ".git").mkdir()
+        (tmp_path / ".dagayn").mkdir()
+        db_path = tmp_path / ".dagayn" / "graph.db"
+        store = GraphStore(db_path)
+        tracked = ["infra/main.tf", "app/hello.py", "scripts/bootstrap.py"]
+        try:
+            with patch("dagayn.incremental_build.collect_all_files", return_value=tracked):
+                full_build(tmp_path, store)
+            run_post_processing(store)
+
+            dead = find_dead_code(store)
+            dead_qnames = {d["qualified_name"] for d in dead}
+
+            assert "app/hello.py::main" not in dead_qnames
+            assert "app/hello.py::serve" not in dead_qnames
+            assert not any(qn.startswith("infra/main.tf::") for qn in dead_qnames)
+        finally:
+            store.close()
+
+
 class TestSuggestRefactorings:
     """Tests for suggest_refactorings."""
 

@@ -640,10 +640,88 @@ def detect_communities(store: GraphStore, min_size: int = 2) -> list[dict[str, A
     return results
 
 
+def count_affected_communities(store: GraphStore, changed_files: list[str]) -> int:
+    """Return how many communities are affected by *changed_files*.
+
+    Uses assigned nodes when they still exist (pre-re-parse), and falls back
+    to unassigned code nodes in changed files when communities are stored but
+    assignments were cleared by a re-parse.
+    """
+    if not changed_files:
+        return 0
+
+    rust_count = getattr(store, "count_affected_communities", None)
+    if callable(rust_count):
+        return int(rust_count(changed_files))
+
+    conn = store._conn
+    placeholders = ",".join("?" * len(changed_files))
+
+    assigned = conn.execute(
+        f"SELECT COUNT(DISTINCT community_id) FROM nodes "  # nosec B608
+        f"WHERE community_id IS NOT NULL AND file_path IN ({placeholders})",
+        changed_files,
+    ).fetchone()
+    affected_count = assigned[0] if assigned else 0
+    if affected_count:
+        return int(affected_count)
+
+    community_rows = conn.execute("SELECT COUNT(*) FROM communities").fetchone()
+    if not community_rows or community_rows[0] == 0:
+        return 0
+
+    unassigned = conn.execute(
+        f"SELECT COUNT(*) FROM nodes "  # nosec B608
+        f"WHERE community_id IS NULL AND kind != 'File' "
+        f"AND file_path IN ({placeholders})",
+        changed_files,
+    ).fetchone()
+    if unassigned and unassigned[0] > 0:
+        return 1
+    return 0
+
+
+def refresh_community_stats(store: GraphStore) -> dict[str, int]:
+    """Recompute ``communities.size``/``cohesion`` from live node assignments.
+
+    Communities with zero assigned members are deleted. Returns
+    ``{"updated": n, "deleted": m}``.
+    """
+    members_by_id = store.get_all_community_member_qns()
+    conn = store._conn
+    updated = 0
+    deleted = 0
+
+    if members_by_id:
+        all_edges = store.get_all_edges()
+        community_ids = list(members_by_id.keys())
+        member_sets = [set(members_by_id[cid]) for cid in community_ids]
+        cohesions = _compute_cohesion_batch(member_sets, all_edges)
+        for cid, member_qns, cohesion in zip(community_ids, member_sets, cohesions):
+            size = len(member_qns)
+            if size == 0:
+                conn.execute("DELETE FROM communities WHERE id = ?", (cid,))
+                deleted += 1
+            else:
+                conn.execute(
+                    "UPDATE communities SET size = ?, cohesion = ? WHERE id = ?",
+                    (size, cohesion, cid),
+                )
+                updated += 1
+
+    cursor = conn.execute(
+        "DELETE FROM communities WHERE NOT EXISTS "
+        "(SELECT 1 FROM nodes n WHERE n.community_id = communities.id)"
+    )
+    deleted += cursor.rowcount or 0
+    return {"updated": updated, "deleted": deleted}
+
+
 def incremental_detect_communities(
     store: GraphStore,
     changed_files: list[str],
     min_size: int = 2,
+    pre_affected_count: int | None = None,
 ) -> int:
     """Re-detect communities only if changed files affect existing communities.
 
@@ -655,6 +733,8 @@ def incremental_detect_communities(
         store: The GraphStore instance.
         changed_files: List of file paths that have changed.
         min_size: Minimum number of nodes for a community to be included.
+        pre_affected_count: Optional affected-community count captured before
+            nodes were replaced by a re-parse.
 
     Returns:
         Number of communities detected, or 0 if skipped.
@@ -662,21 +742,11 @@ def incremental_detect_communities(
     if not changed_files:
         return 0
 
-    affected_count = 0
-    rust_count = getattr(store, "count_affected_communities", None)
-    if callable(rust_count):
-        affected_count = int(rust_count(changed_files))
-    else:
-        conn = store._conn
-
-        # Check if any communities are affected
-        placeholders = ",".join("?" * len(changed_files))
-        affected = conn.execute(
-            f"SELECT COUNT(DISTINCT community_id) FROM nodes "  # nosec B608
-            f"WHERE community_id IS NOT NULL AND file_path IN ({placeholders})",
-            changed_files,
-        ).fetchone()
-        affected_count = affected[0] if affected else 0
+    affected_count = (
+        pre_affected_count
+        if pre_affected_count is not None
+        else count_affected_communities(store, changed_files)
+    )
 
     if affected_count == 0:
         return 0  # No communities affected, skip
@@ -823,7 +893,10 @@ def get_communities(
 
     communities: list[dict[str, Any]] = []
     for row in rows:
-        member_qns = [_sanitize_name(qn) for qn in members_by_id.get(row["id"], [])]
+        live_member_qns = members_by_id.get(row["id"], [])
+        member_qns = [_sanitize_name(qn) for qn in live_member_qns]
+        assigned_member_count = len(live_member_qns)
+        stored_size = row["size"]
 
         communities.append(
             {
@@ -831,7 +904,8 @@ def get_communities(
                 "name": _sanitize_name(row["name"]),
                 "level": row["level"],
                 "cohesion": row["cohesion"],
-                "size": row["size"],
+                "size": stored_size,
+                "assigned_member_count": assigned_member_count,
                 "dominant_language": row["dominant_language"] or "",
                 "description": _sanitize_name(row["description"] or ""),
                 "members": member_qns,
@@ -912,6 +986,15 @@ def get_architecture_overview(
 
     # Generate warnings for high coupling, skipping test-dominated pairs.
     warnings: list[str] = []
+    for comm in communities:
+        stored_size = comm.get("size", 0)
+        assigned = comm.get("assigned_member_count", len(comm.get("members", [])))
+        if stored_size != assigned and not _is_test_community(comm["name"]):
+            warnings.append(
+                f"Community '{comm['name']}' stored size ({stored_size}) "
+                f"differs from assigned members ({assigned}); "
+                "run a full community refresh"
+            )
     comm_name_map = {c.get("id", 0): c["name"] for c in communities}
     for (c1, c2), count in cross_counts.most_common():
         if count > 10:
@@ -941,7 +1024,15 @@ def get_architecture_overview(
     # Strip members from communities unless verbose
     if detail_level == "minimal":
         out_communities = [
-            {"name": c["name"], "size": c["size"], "cohesion": c["cohesion"]} for c in communities
+            {
+                "name": c["name"],
+                "size": c["size"],
+                "assigned_member_count": c.get(
+                    "assigned_member_count", len(c.get("members", []))
+                ),
+                "cohesion": c["cohesion"],
+            }
+            for c in communities
         ]
     elif detail_level == "verbose":
         out_communities = communities

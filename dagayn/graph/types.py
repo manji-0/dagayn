@@ -59,6 +59,14 @@ class FlowAdjacency:
     bridge_edges: dict[str, dict[str, dict]] | None = None
 
 
+@dataclass(frozen=True)
+class FtsQueryResult:
+    """FTS5 search hits plus how the query was matched."""
+
+    hits: list[tuple[int, float]]
+    match_mode: str  # "and", "or", "phrase", or "none"
+
+
 @dataclass
 class GraphStats:
     total_nodes: int

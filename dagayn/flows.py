@@ -447,6 +447,225 @@ def store_flows(store: GraphStore, flows: list[dict]) -> int:
     return count
 
 
+def _qualified_name_file(qualified_name: str) -> str:
+    if "::" in qualified_name:
+        return qualified_name.rsplit("::", 1)[0]
+    return qualified_name
+
+
+def _entry_reaches_changed_files(
+    adj: FlowAdjacency,
+    entry_qn: str,
+    changed_files: set[str],
+    changed_qnames: set[str],
+    max_depth: int = 15,
+) -> bool:
+    """Return True when a forward trace from *entry_qn* can reach *changed_files*."""
+    if entry_qn in changed_qnames or _qualified_name_file(entry_qn) in changed_files:
+        return True
+
+    visited: set[str] = set()
+    queue: deque[tuple[str, int]] = deque([(entry_qn, 0)])
+    calls_out = adj.calls_out
+    while queue:
+        qn, depth = queue.popleft()
+        if qn in visited:
+            continue
+        visited.add(qn)
+        if qn in changed_qnames or _qualified_name_file(qn) in changed_files:
+            return True
+        if depth >= max_depth:
+            continue
+        for target in calls_out.get(qn, ()):
+            queue.append((target, depth + 1))
+    return False
+
+
+def _resolve_flow_entry_qn(
+    store: GraphStore,
+    flow_id: int,
+    entry_point_id: int,
+    path_ids: list[int],
+) -> str | None:
+    """Best-effort entry qualified name when ``entry_point_id`` may be stale."""
+    nodes = store.get_nodes_by_ids([entry_point_id])
+    if entry_point_id in nodes:
+        return nodes[entry_point_id].qualified_name
+
+    row = store._conn.execute(
+        "SELECT n.qualified_name FROM flow_memberships fm "
+        "JOIN nodes n ON n.id = fm.node_id "
+        "WHERE fm.flow_id = ? ORDER BY fm.position LIMIT 1",
+        (flow_id,),
+    ).fetchone()
+    if row is not None:
+        return row["qualified_name"]
+
+    for node_id in path_ids:
+        node = store.get_nodes_by_ids([node_id]).get(node_id)
+        if node is not None:
+            return node.qualified_name
+    return None
+
+
+def _normalize_changed_file_keys(store: GraphStore, changed_files: list[str]) -> list[str]:
+    keys: set[str] = set()
+    for file_path in changed_files:
+        keys.add(file_path)
+        normalized = store._normalize_file_path_key(file_path)
+        if normalized != file_path:
+            keys.add(normalized)
+    return list(keys)
+
+
+def _get_affected_flow_ids(store: GraphStore, changed_files: list[str]) -> list[int]:
+    """Locate flows that touch *changed_files* even after node ids were replaced."""
+    if not changed_files:
+        return []
+
+    lookup_files = _normalize_changed_file_keys(store, changed_files)
+    changed_file_set = set(lookup_files)
+    conn = store._conn
+    affected: set[int] = set()
+    placeholders = ",".join("?" * len(lookup_files))
+
+    for row in conn.execute(  # nosec B608
+        f"SELECT DISTINCT fm.flow_id FROM flow_memberships fm "
+        f"JOIN nodes n ON n.id = fm.node_id "
+        f"WHERE n.file_path IN ({placeholders})",
+        lookup_files,
+    ):
+        affected.add(int(row[0]))
+
+    for row in conn.execute(  # nosec B608
+        f"SELECT f.id FROM flows f "
+        f"JOIN nodes n ON n.id = f.entry_point_id "
+        f"WHERE n.file_path IN ({placeholders})",
+        lookup_files,
+    ):
+        affected.add(int(row[0]))
+
+    for row in conn.execute(
+        "SELECT DISTINCT fm.flow_id FROM flow_memberships fm "
+        "LEFT JOIN nodes n ON n.id = fm.node_id "
+        "WHERE n.id IS NULL"
+    ):
+        affected.add(int(row[0]))
+
+    for row in conn.execute(  # nosec B608
+        f"SELECT DISTINCT f.id FROM flows f, json_each(f.path_json) AS je "
+        f"JOIN nodes n ON n.id = CAST(je.value AS INTEGER) "
+        f"WHERE n.file_path IN ({placeholders})",
+        lookup_files,
+    ):
+        affected.add(int(row[0]))
+
+    for row in conn.execute(
+        "SELECT f.id FROM flows f "
+        "LEFT JOIN nodes n ON n.id = f.entry_point_id "
+        "WHERE n.id IS NULL"
+    ):
+        affected.add(int(row[0]))
+
+    changed_qnames = {
+        row["qualified_name"]
+        for row in conn.execute(  # nosec B608
+            f"SELECT qualified_name FROM nodes WHERE file_path IN ({placeholders})",
+            lookup_files,
+        )
+    }
+
+    stale_rows = conn.execute(
+        "SELECT DISTINCT f.id, f.entry_point_id, f.path_json "
+        "FROM flows f "
+        "WHERE EXISTS ("
+        "  SELECT 1 FROM json_each(f.path_json) AS je "
+        "  LEFT JOIN nodes n ON n.id = CAST(je.value AS INTEGER) "
+        "  WHERE n.id IS NULL"
+        ")"
+    ).fetchall()
+
+    adj: FlowAdjacency | None = None
+    for row in stale_rows:
+        flow_id = int(row["id"])
+        if flow_id in affected:
+            continue
+        path_ids = json.loads(row["path_json"])
+        entry_qn = _resolve_flow_entry_qn(store, flow_id, int(row["entry_point_id"]), path_ids)
+        if entry_qn is None:
+            affected.add(flow_id)
+            continue
+        if adj is None:
+            adj = store.load_flow_adjacency()
+        if _entry_reaches_changed_files(adj, entry_qn, changed_file_set, changed_qnames):
+            affected.add(flow_id)
+
+    return sorted(affected)
+
+
+def _delete_flows_by_ids(store: GraphStore, flow_ids: list[int]) -> set[int]:
+    """Delete flows (and snapshots/memberships) and return their entry-point ids."""
+    if not flow_ids:
+        return set()
+
+    conn = store._conn
+    entry_point_ids: set[int] = set()
+    ep_placeholders = ",".join("?" * len(flow_ids))
+    for row in conn.execute(  # nosec B608
+        f"SELECT entry_point_id FROM flows WHERE id IN ({ep_placeholders})",
+        flow_ids,
+    ):
+        entry_point_ids.add(int(row[0]))
+
+    if conn.in_transaction:
+        conn.commit()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        _batch_size = 450
+        for i in range(0, len(flow_ids), _batch_size):
+            chunk = flow_ids[i : i + _batch_size]
+            placeholders = ",".join("?" * len(chunk))
+            conn.execute(  # nosec B608
+                f"DELETE FROM flow_snapshots WHERE flow_id IN ({placeholders})",
+                chunk,
+            )
+            conn.execute(  # nosec B608
+                f"DELETE FROM flow_memberships WHERE flow_id IN ({placeholders})",
+                chunk,
+            )
+            conn.execute(  # nosec B608
+                f"DELETE FROM flows WHERE id IN ({placeholders})",
+                chunk,
+            )
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+    return entry_point_ids
+
+
+def _delete_flows_for_entry_qualified_names(
+    store: GraphStore,
+    entry_qualified_names: set[str],
+) -> None:
+    """Remove stale flows that share an entry-point qualified name."""
+    if not entry_qualified_names:
+        return
+
+    conn = store._conn
+    flow_ids: set[int] = set()
+    for qn in entry_qualified_names:
+        for row in conn.execute(
+            "SELECT f.id FROM flows f "
+            "JOIN nodes n ON n.id = f.entry_point_id "
+            "WHERE n.qualified_name = ?",
+            (qn,),
+        ):
+            flow_ids.add(int(row[0]))
+    if flow_ids:
+        _delete_flows_by_ids(store, sorted(flow_ids))
+
+
 def incremental_trace_flows(
     store: GraphStore,
     changed_files: list[str],
@@ -454,13 +673,15 @@ def incremental_trace_flows(
 ) -> int:
     """Re-trace only flows that touch *changed_files*.  Much faster than full trace.
 
-    1. Find flow IDs whose memberships reference nodes in *changed_files*.
+    1. Find affected flows by qualified name, live memberships, dangling
+       memberships, or stale ``path_json`` node ids.
     2. Collect the entry-point node IDs of those flows before deleting them.
     3. Delete only the affected flows and their memberships.
     4. Re-detect entry points, keeping those in *changed_files* **or** whose
        node ID was an entry point of a deleted flow.
     5. BFS-trace each relevant entry point via :func:`_trace_single_flow`.
-    6. INSERT the new flows (without clearing unrelated flows).
+    6. INSERT the new flows (without clearing unrelated flows), first deleting
+       any stale flow that shares the same entry-point qualified name.
 
     Returns the number of re-traced flows that were stored.
     """
@@ -492,66 +713,13 @@ def incremental_trace_flows(
             return 0
         return int(rust_insert(json.dumps(new_flows)))
 
-    conn = store._conn
     changed_file_set = set(changed_files)
 
     # ------------------------------------------------------------------
-    # 1. Find affected flow IDs
+    # 1-3. Find and delete affected flows
     # ------------------------------------------------------------------
-    placeholders = ",".join("?" * len(changed_files))
-    affected_rows = conn.execute(
-        f"SELECT DISTINCT fm.flow_id FROM flow_memberships fm "  # nosec B608
-        f"JOIN nodes n ON n.id = fm.node_id "
-        f"WHERE n.file_path IN ({placeholders})",
-        changed_files,
-    ).fetchall()
-    affected_ids = [r[0] for r in affected_rows]
-
-    # ------------------------------------------------------------------
-    # 2. Collect old entry-point node IDs before deletion
-    # ------------------------------------------------------------------
-    entry_point_ids: set[int] = set()
-    if affected_ids:
-        ep_placeholders = ",".join("?" * len(affected_ids))
-        ep_rows = conn.execute(
-            f"SELECT entry_point_id FROM flows "  # nosec B608
-            f"WHERE id IN ({ep_placeholders})",
-            affected_ids,
-        ).fetchall()
-        entry_point_ids = {r[0] for r in ep_rows}
-
-    # ------------------------------------------------------------------
-    # 3. Delete affected flows and their memberships
-    # ------------------------------------------------------------------
-    # Wrap in an explicit transaction so a crash mid-loop cannot leave
-    # orphaned flow_memberships rows pointing at deleted flows.  See #258.
-    if affected_ids:
-        if conn.in_transaction:
-            conn.commit()
-        conn.execute("BEGIN IMMEDIATE")
-        try:
-            # Batch-delete memberships and flows in one statement each
-            _batch_size = 450
-            id_list = list(affected_ids)
-            for i in range(0, len(id_list), _batch_size):
-                chunk = id_list[i : i + _batch_size]
-                placeholders = ",".join("?" * len(chunk))
-                conn.execute(  # nosec B608
-                    f"DELETE FROM flow_snapshots WHERE flow_id IN ({placeholders})",
-                    chunk,
-                )
-                conn.execute(  # nosec B608
-                    f"DELETE FROM flow_memberships WHERE flow_id IN ({placeholders})",
-                    chunk,
-                )
-                conn.execute(  # nosec B608
-                    f"DELETE FROM flows WHERE id IN ({placeholders})",
-                    chunk,
-                )
-            conn.commit()
-        except BaseException:
-            conn.rollback()
-            raise
+    affected_ids = _get_affected_flow_ids(store, changed_files)
+    entry_point_ids = _delete_flows_by_ids(store, affected_ids)
 
     # ------------------------------------------------------------------
     # 4. Re-detect entry points and filter to relevant ones
@@ -577,6 +745,12 @@ def incremental_trace_flows(
     # ------------------------------------------------------------------
     count = len(new_flows)
     if new_flows:
+        _delete_flows_for_entry_qualified_names(
+            store,
+            {flow["entry_point"] for flow in new_flows if flow.get("entry_point")},
+        )
+
+        conn = store._conn
         conn.executemany(
             """INSERT INTO flows
                (name, entry_point_id, depth, node_count, file_count,
@@ -618,6 +792,7 @@ def incremental_trace_flows(
                 memberships,
             )
 
+    conn = store._conn
     conn.commit()
     return count
 
@@ -710,6 +885,22 @@ def _collect_cross_artifact_edges_among(
         return []
 
 
+def _annotate_flow_step_resolution(flow: dict) -> dict:
+    """Add resolved/missing step counts for stored flow paths."""
+    path_ids = flow.get("path") or []
+    steps = flow.get("steps") or []
+    resolved_step_count = len(steps)
+    if path_ids:
+        missing_step_count = len(path_ids) - resolved_step_count
+    else:
+        stored_node_count = int(flow.get("node_count") or resolved_step_count)
+        missing_step_count = max(0, stored_node_count - resolved_step_count)
+    annotated = dict(flow)
+    annotated["resolved_step_count"] = resolved_step_count
+    annotated["missing_step_count"] = missing_step_count
+    return annotated
+
+
 def _annotate_flow_dict_bridges(store: GraphStore, flow: dict) -> dict:
     """Mark bridge arrivals on a flow dict (shared by Rust and Python paths)."""
     from .cross_artifact import annotate_flow_steps_with_bridges
@@ -726,7 +917,7 @@ def _annotate_flow_dict_bridges(store: GraphStore, flow: dict) -> dict:
     annotated["bridge_step_count"] = sum(
         1 for step in annotated["steps"] if step.get("is_bridge_step")
     )
-    return annotated
+    return _annotate_flow_step_resolution(annotated)
 
 
 def get_flow_by_id(store: GraphStore, flow_id: int) -> Optional[dict]:
@@ -782,9 +973,11 @@ def _hydrate_flow_rows(
         path_ids = paths_by_flow[row["id"]]
         steps: list[dict] = []
         path_qns: list[str] = []
+        missing_step_count = 0
         for nid in path_ids:
             node = nodes_by_id.get(nid)
             if node is None:
+                missing_step_count += 1
                 continue
             path_qns.append(node.qualified_name)
             steps.append(
@@ -798,6 +991,7 @@ def _hydrate_flow_rows(
                     "qualified_name": _sanitize_name(node.qualified_name),
                 }
             )
+        resolved_step_count = len(steps)
 
         bridge_edges: list[Any] = []
         if path_qns:
@@ -823,6 +1017,8 @@ def _hydrate_flow_rows(
                 "criticality": row["criticality"],
                 "path": path_ids,
                 "steps": steps,
+                "resolved_step_count": resolved_step_count,
+                "missing_step_count": missing_step_count,
                 "bridge_step_count": bridge_step_count,
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"],
@@ -854,14 +1050,8 @@ def get_affected_flows(
         ]
         return {"affected_flows": affected, "total": len(affected)}
 
-    # Find node IDs belonging to changed files.
-    node_ids = store.get_node_ids_by_files(changed_files)
-
-    if not node_ids:
-        return {"affected_flows": [], "total": 0}
-
-    # Find flow IDs that contain any of these nodes.
-    flow_ids = store.get_flow_ids_by_node_ids(node_ids)
+    # Find flow IDs that touch changed files (including stale path_json).
+    flow_ids = _get_affected_flow_ids(store, changed_files)
 
     if not flow_ids:
         return {"affected_flows": [], "total": 0}

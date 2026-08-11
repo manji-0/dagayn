@@ -80,19 +80,25 @@ def compute_sap_metrics_func(
         reason = str(metric.get("applicability_reason") or "inapplicable")
         inapplicable_by_reason[reason] = inapplicable_by_reason.get(reason, 0) + 1
 
+    metrics_slice = visible_metrics[:top_n]
+    inapplicable_slice = inapplicable_metrics[:top_n]
+    truncated = len(visible_metrics) > top_n or len(inapplicable_metrics) > top_n
+
     return make_response(
         "ok",
         f"Computed SAP metrics for {len(raw_metrics)} {scope_kind}(s) "
         f"(artifact_scope={artifact_scope}, dependency_profile={dependency_profile}); "
         f"{len(applicable_metrics)} applicable "
         f"and {len(inapplicable_metrics)} inapplicable."
-        f" Showing top {min(top_n, len(visible_metrics))} by distance.",
-        metrics=visible_metrics[:top_n],
-        inapplicable_metrics=inapplicable_metrics[:top_n],
+        f" Showing top {min(top_n, len(visible_metrics))} by distance."
+        + (" Results truncated." if truncated else ""),
+        metrics=metrics_slice,
+        inapplicable_metrics=inapplicable_slice,
         total=len(raw_metrics),
         visible_total=len(visible_metrics),
         applicable_count=len(applicable_metrics),
         inapplicable_count=len(inapplicable_metrics),
+        truncated=truncated,
         inapplicable_by_reason=inapplicable_by_reason,
         inapplicable_visibility=(
             "included_in_metrics" if detail_level == "verbose" else "separate_bucket"

@@ -22,6 +22,7 @@ from dagayn.embeddings import (
     get_embedding_status,
     get_provider,
     provider_from_persisted_name,
+    resolve_active_embedding_provider,
 )
 from dagayn.graph import GraphNode
 
@@ -90,6 +91,7 @@ class TestEmbeddingStatus:
             "status": "complete",
             "total_embeddings": 1,
             "provider_counts": {"local:test": 1},
+            "active_provider": "local:test",
             "embeddable_nodes": 1,
             "indexed_embeddings": 1,
             "missing_embeddings": 0,
@@ -101,14 +103,19 @@ class TestEmbeddingStatus:
         conn = self._make_db(db_path)
         conn.executemany(
             "INSERT INTO nodes (kind, qualified_name) VALUES (?, ?)",
-            [("Function", "app.py::main"), ("Class", "app.py::Widget")],
+            [
+                ("Function", "app.py::main"),
+                ("Class", "app.py::Widget"),
+                ("Function", "app.py::helper"),
+            ],
         )
         conn.executemany(
             "INSERT INTO embeddings (qualified_name, vector, text_hash, provider) "
             "VALUES (?, ?, ?, ?)",
             [
                 ("app.py::main", _encode_vector([1.0, 0.0]), "hash", "local:test"),
-                ("old.py::gone", _encode_vector([0.0, 1.0]), "hash", "openai:test"),
+                ("app.py::helper", _encode_vector([0.5, 0.5]), "hash2", "local:test"),
+                ("old.py::gone", _encode_vector([0.0, 1.0]), "hash3", "openai:test"),
             ],
         )
         conn.commit()
@@ -116,13 +123,14 @@ class TestEmbeddingStatus:
 
         status = get_embedding_status(db_path)
 
-        assert status["status"] == "stale"
-        assert status["total_embeddings"] == 2
-        assert status["provider_counts"] == {"local:test": 1, "openai:test": 1}
-        assert status["embeddable_nodes"] == 2
-        assert status["indexed_embeddings"] == 1
+        assert status["status"] == "partial"
+        assert status["total_embeddings"] == 3
+        assert status["provider_counts"] == {"local:test": 2, "openai:test": 1}
+        assert status["active_provider"] == "local:test"
+        assert status["embeddable_nodes"] == 3
+        assert status["indexed_embeddings"] == 2
         assert status["missing_embeddings"] == 1
-        assert status["orphan_embeddings"] == 1
+        assert status["orphan_embeddings"] == 0
 
     def test_cli_status_prints_embedding_state(self, tmp_path, capsys):
         db_path = tmp_path / "graph.db"
@@ -145,6 +153,76 @@ class TestEmbeddingStatus:
         assert "Embeddings: partial (1 vectors, 1 provider(s))" in out
         assert "Coverage: 1/2 embeddable nodes (1 missing)" in out
         assert "Provider: local:test (1)" in out
+
+    def test_reports_stale_when_active_provider_has_orphans(self, tmp_path):
+        db_path = tmp_path / "graph.db"
+        conn = self._make_db(db_path)
+        conn.executemany(
+            "INSERT INTO nodes (kind, qualified_name) VALUES (?, ?)",
+            [("Function", "app.py::main")],
+        )
+        conn.executemany(
+            "INSERT INTO embeddings (qualified_name, vector, text_hash, provider) "
+            "VALUES (?, ?, ?, ?)",
+            [
+                ("app.py::main", _encode_vector([1.0, 0.0]), "hash", "local:test"),
+                ("old.py::gone", _encode_vector([0.0, 1.0]), "hash", "local:test"),
+            ],
+        )
+        conn.commit()
+        conn.close()
+
+        status = get_embedding_status(db_path)
+
+        assert status["status"] == "stale"
+        assert status["active_provider"] == "local:test"
+        assert status["orphan_embeddings"] == 1
+
+    def test_prefers_metadata_active_provider_for_coverage(self, tmp_path):
+        db_path = tmp_path / "graph.db"
+        conn = self._make_db(db_path)
+        conn.execute(
+            "CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+        )
+        conn.executemany(
+            "INSERT INTO nodes (kind, qualified_name) VALUES (?, ?)",
+            [("Function", "app.py::main"), ("Function", "app.py::helper")],
+        )
+        conn.executemany(
+            "INSERT INTO embeddings (qualified_name, vector, text_hash, provider) "
+            "VALUES (?, ?, ?, ?)",
+            [
+                ("app.py::main", _encode_vector([1.0, 0.0]), "hash", "openai:test"),
+                ("app.py::helper", _encode_vector([0.0, 1.0]), "hash2", "openai:test"),
+                ("app.py::other", _encode_vector([1.0, 0.0]), "hash3", "local:test"),
+            ],
+        )
+        conn.execute(
+            "INSERT INTO metadata (key, value) VALUES (?, ?)",
+            ("embedding_provider", "openai:test"),
+        )
+        conn.commit()
+        conn.close()
+
+        status = get_embedding_status(db_path)
+
+        assert status["active_provider"] == "openai:test"
+        assert status["status"] == "complete"
+        assert status["missing_embeddings"] == 0
+
+    def test_resolve_active_provider_picks_highest_row_count(self):
+        counts = {
+            "local:small#text=material": 3,
+            "openai:big#text=material": 9718,
+            "legacy:abandoned": 569,
+        }
+
+        resolved = resolve_active_embedding_provider(
+            counts,
+            text_mode="material",
+        )
+
+        assert resolved == "openai:big#text=material"
 
 
 class TestCosineSimilarity:
@@ -570,6 +648,46 @@ class TestEmbeddingStore:
             assert [(row["qualified_name"], row["provider"]) for row in rows] == [
                 ("file.py::live", "fake"),
                 ("file.py::other_orphan", "other"),
+            ]
+            store.close()
+
+    def test_remove_orphans_can_sweep_all_providers(self, tmp_path):
+        db = tmp_path / "embeddings.db"
+
+        class FakeProvider:
+            name = "fake"
+            preferred_batch_size = 1
+
+            def embed(self, texts):
+                return [[1.0] for _ in texts]
+
+            def embed_query(self, text):
+                return [1.0]
+
+            @property
+            def dimension(self):
+                return 1
+
+        with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
+            store = EmbeddingStore(db)
+            store._conn.executemany(
+                """INSERT INTO embeddings (qualified_name, vector, text_hash, provider)
+                   VALUES (?, ?, ?, ?)""",
+                [
+                    ("file.py::live", _encode_vector([1.0]), "h1", "fake"),
+                    ("file.py::orphan", _encode_vector([2.0]), "h2", "fake"),
+                    ("file.py::other_orphan", _encode_vector([3.0]), "h3", "other"),
+                ],
+            )
+            store._conn.commit()
+
+            assert store.remove_orphans({"file.py::live"}, all_providers=True) == 2
+
+            rows = store._conn.execute(
+                "SELECT qualified_name, provider FROM embeddings ORDER BY provider"
+            ).fetchall()
+            assert [(row["qualified_name"], row["provider"]) for row in rows] == [
+                ("file.py::live", "fake"),
             ]
             store.close()
 

@@ -194,6 +194,38 @@ impl GraphStore {
                 community_ids.insert(row?);
             }
         }
-        Ok(community_ids.len() as i64)
+        if !community_ids.is_empty() {
+            return Ok(community_ids.len() as i64);
+        }
+
+        let community_count: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM communities", [], |row| row.get(0))?;
+        if community_count == 0 {
+            return Ok(0);
+        }
+
+        for chunk in file_paths.chunks(450) {
+            if chunk.is_empty() {
+                continue;
+            }
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!(
+                "SELECT COUNT(*) FROM nodes \
+                 WHERE community_id IS NULL AND kind != 'File' \
+                 AND file_path IN ({placeholders})"
+            );
+            let count: i64 = self.conn.query_row(
+                &sql,
+                rusqlite::params_from_iter(chunk),
+                |row| row.get(0),
+            )?;
+            if count > 0 {
+                return Ok(1);
+            }
+        }
+        Ok(0)
     }
 }

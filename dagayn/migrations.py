@@ -323,6 +323,36 @@ def _migrate_v14(conn: sqlite3.Connection) -> None:
     logger.info("Migration v14: populated normalized edge target names")
 
 
+def _migrate_v15(conn: sqlite3.Connection) -> None:
+    """v15: Rebuild FTS when v13 left empty generated columns or counts diverge."""
+    from dagayn.graph._fts_sync import fts_index_counts, rebuild_fts_index_tx
+
+    nodes_count, fts_count = fts_index_counts(conn)
+    needs_rebuild = nodes_count != fts_count
+    if not needs_rebuild and _table_exists(conn, "nodes_fts") and nodes_count > 0:
+        row = conn.execute(
+            "SELECT count(*) FROM nodes_fts "
+            "WHERE (identifier_tokens = '' OR identifier_tokens IS NULL) "
+            "AND (doc_text = '' OR doc_text IS NULL)"
+        ).fetchone()
+        empty_generated = row[0] if isinstance(row, tuple) else row[0]
+        needs_rebuild = empty_generated > 0
+
+    if needs_rebuild:
+        repo_root = None
+        meta = conn.execute("SELECT value FROM metadata WHERE key = 'repo_root'").fetchone()
+        if meta:
+            from pathlib import Path
+
+            repo_root = Path(meta[0] if isinstance(meta, tuple) else meta["value"])
+        rebuilt = rebuild_fts_index_tx(conn, repo_root)
+        logger.info(
+            "Migration v15: rebuilt FTS index (%d nodes, %d fts rows)",
+            nodes_count,
+            rebuilt,
+        )
+
+
 # ---------------------------------------------------------------------------
 # Migration registry
 # ---------------------------------------------------------------------------
@@ -341,6 +371,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     12: _migrate_v12,
     13: _migrate_v13,
     14: _migrate_v14,
+    15: _migrate_v15,
 }
 
 LATEST_VERSION = max(MIGRATIONS.keys())

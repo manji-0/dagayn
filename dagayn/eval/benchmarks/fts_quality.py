@@ -109,14 +109,14 @@ def run(repo_path: Path, store, config: dict[str, Any]) -> list[dict[str, Any]]:
             for idx in range(max(1, warmup + repeat)):
                 started = time.perf_counter()
                 fts_hits = store.fts_query(query, limit=20)
-                node_map = store.get_nodes_by_ids([node_id for node_id, _score in fts_hits])
+                node_map = store.get_nodes_by_ids([node_id for node_id, _score in fts_hits.hits])
                 search_results = [
                     {
                         "qualified_name": node_map[node_id].qualified_name,
                         "score": score,
                         "source": "fts",
                     }
-                    for node_id, score in fts_hits
+                    for node_id, score in fts_hits.hits
                     if node_id in node_map
                 ]
                 elapsed_ms = (time.perf_counter() - started) * 1000.0

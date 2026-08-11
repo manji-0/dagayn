@@ -176,6 +176,7 @@ def detect_changes_func(
                 "impacted_node_count": analysis_summary["impacted_node_count"],
                 "impacted_file_count": analysis_summary["impacted_file_count"],
                 "test_gap_count": len(analysis.get("test_gaps", [])),
+                "test_gap_evidence": analysis.get("test_gap_evidence", {}),
                 "test_gap_ranking": analysis_summary["test_gap_ranking"],
                 "signal_quality": analysis_summary["signal_quality"],
                 "recommended_tests": analysis_summary["recommended_tests"][:5],
