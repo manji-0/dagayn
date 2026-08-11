@@ -93,6 +93,7 @@ def test_get_affected_flows_absolute_path_matches_rust_backend(tmp_path):
     assert py_names == rust_names
 
 
+def test_rust_backend_is_default_when_extension_is_available(monkeypatch):
     """DAGAYN_BACKEND defaults to Rust when the native extension can be loaded."""
     monkeypatch.delenv("DAGAYN_BACKEND", raising=False)
     monkeypatch.setattr("dagayn.incremental._rust_backend_available", lambda: True)

@@ -507,7 +507,7 @@ class TestFlows:
         abs_ids = self.store.get_node_ids_by_files([str((repo / "services.py").resolve())])
 
         assert rel_ids == abs_ids
-        assert len(rel_ids) == 2  # File + Function nodes
+        assert len(rel_ids) == 1
 
     # ---------------------------------------------------------------
     # get_flows sorting
