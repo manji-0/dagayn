@@ -695,14 +695,38 @@ class TestImpactRadiusSql:
         assert sql_qns == nx_qns
 
     def test_max_nodes_truncation(self):
-        """Setting max_nodes=2 should truncate results."""
+        """Setting max_nodes=2 should truncate results but report true total."""
         result = self.store.get_impact_radius_sql(
             ["/a.py"],
             max_depth=3,
             max_nodes=2,
         )
-        # With 4 files in chain + file nodes, max_nodes=2 should limit
-        assert result["total_impacted"] <= 2 or result["truncated"]
+        assert result["truncated"] is True
+        assert result["total_impacted"] > 2
+        assert len(result["impacted_nodes"]) == 2
+
+    def test_total_impacted_not_capped_by_max_nodes(self):
+        """total_impacted reflects the full blast radius, not the limited row set."""
+        result = self.store.get_impact_radius_sql(
+            ["/a.py"],
+            max_depth=3,
+            max_nodes=1,
+        )
+        # Chain has func_b, func_c, func_d impacted (3 nodes) from /a.py seed.
+        assert result["total_impacted"] == 3
+        assert result["truncated"] is True
+        assert len(result["impacted_nodes"]) == 1
+        assert result["impacted_nodes"][0].qualified_name == "/b.py::func_b"
+
+    def test_truncation_orders_by_min_depth(self):
+        """Nearest impacted nodes survive truncation."""
+        result = self.store.get_impact_radius_sql(
+            ["/a.py"],
+            max_depth=3,
+            max_nodes=2,
+        )
+        impacted_qns = [n.qualified_name for n in result["impacted_nodes"]]
+        assert impacted_qns == ["/b.py::func_b", "/c.py::func_c"]
 
     def test_empty_changed_files(self):
         result = self.store.get_impact_radius_sql([], max_depth=2)
