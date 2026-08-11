@@ -136,9 +136,7 @@ class TestQueryGraphBareNameBinding:
 
     def test_fuzzy_resolution_reports_non_exact_match(self, monkeypatch):
         self.store.upsert_node(_node("File", "other.py", str(self.root / "other.py")))
-        self.store.upsert_node(
-            _node("Function", "unique_helper", str(self.root / "other.py"))
-        )
+        self.store.upsert_node(_node("Function", "unique_helper", str(self.root / "other.py")))
         self.store.commit()
         self._patch_store(monkeypatch)
 
