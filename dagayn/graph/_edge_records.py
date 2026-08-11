@@ -15,10 +15,15 @@ if TYPE_CHECKING:
 def edge_storage_metadata(edge: EdgeInfo) -> tuple[str, float, ConfidenceTier]:
     """Return serialized edge metadata and normalized confidence fields."""
     extra = edge.extra or {}
+    confidence = float(extra.get("confidence", 1.0))
+    confidence_tier = normalize_confidence_tier(extra.get("confidence_tier"))
+    if edge.target.startswith("<unresolved:") or edge.source.startswith("<unresolved:"):
+        confidence = min(confidence, 0.2)
+        confidence_tier = "LOW"
     return (
         json.dumps(extra),
-        float(extra.get("confidence", 1.0)),
-        normalize_confidence_tier(extra.get("confidence_tier")),
+        confidence,
+        confidence_tier,
     )
 
 

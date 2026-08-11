@@ -1213,6 +1213,8 @@ class TestFlowTools:
             "truncated": False,
             "max_depth": 2,
             "nodes_visited": result["nodes_visited"],
+            "unresolved_count": 0,
+            "unresolved_targets": [],
         }
 
     def test_get_flow_by_name(self):

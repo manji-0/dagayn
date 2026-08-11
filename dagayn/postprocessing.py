@@ -34,6 +34,69 @@ from .state_types import (
 logger = logging.getLogger(__name__)
 
 
+_NODE_QUALIFIED_EDGE_KINDS = (
+    "CALLS",
+    "INHERITS",
+    "IMPLEMENTS",
+    "CONTAINS",
+    "REFERENCES",
+    "TESTED_BY",
+)
+
+
+def _demote_unresolved_endpoint_edges(
+    store: GraphStore,
+    result: dict[str, Any],
+    warnings: list[str],
+) -> None:
+    """Lower confidence on edges whose node-qualified endpoints are absent."""
+    repo_root = _store_repo_root(store)
+    if repo_root is None:
+        result["unresolved_endpoint_edges_demoted"] = 0
+        return
+
+    sql_store, owns_sql_store = _sql_capable_store(store, repo_root)
+    try:
+        conn = sql_store._conn
+        placeholders = ", ".join("?" for _ in _NODE_QUALIFIED_EDGE_KINDS)
+        updated = conn.execute(
+            f"""
+            UPDATE edges
+            SET confidence = MIN(confidence, 0.2),
+                confidence_tier = 'LOW'
+            WHERE kind IN ({placeholders})
+              AND UPPER(COALESCE(confidence_tier, 'EXTRACTED')) NOT IN ('LOW', 'UNKNOWN')
+              AND (
+                target_qualified LIKE '<unresolved:%'
+                OR source_qualified LIKE '<unresolved:%'
+                OR NOT EXISTS (
+                    SELECT 1 FROM nodes n WHERE n.qualified_name = edges.target_qualified
+                )
+                OR NOT EXISTS (
+                    SELECT 1 FROM nodes n WHERE n.qualified_name = edges.source_qualified
+                )
+              )
+            """,
+            _NODE_QUALIFIED_EDGE_KINDS,
+        ).rowcount
+        conn.commit()
+        invalidate = getattr(sql_store, "_invalidate_cache", None)
+        if callable(invalidate):
+            invalidate()
+        invalidate_primary = getattr(store, "_invalidate_cache", None)
+        if callable(invalidate_primary) and store is not sql_store:
+            invalidate_primary()
+        result["unresolved_endpoint_edges_demoted"] = int(updated)
+    except (sqlite3.OperationalError, OSError, RuntimeError, TypeError, ValueError) as e:
+        logger.warning("Unresolved endpoint demotion failed: %s", e)
+        warnings.append(f"Unresolved endpoint demotion failed: {type(e).__name__}: {e}")
+    finally:
+        if owns_sql_store and sql_store is not None:
+            closer = getattr(sql_store, "_force_close", None) or getattr(sql_store, "close", None)
+            if callable(closer):
+                closer()
+
+
 def run_post_processing(store: GraphStore) -> dict[str, Any]:
     """Run all post-build steps on a populated graph.
 
@@ -54,6 +117,7 @@ def run_post_processing(store: GraphStore) -> dict[str, Any]:
     _rebuild_fts_index(store, result, warnings)
     _resolve_markdown_artifact_refs(store, result, warnings)
     _resolve_terraform_artifact_refs(store, result, warnings)
+    _demote_unresolved_endpoint_edges(store, result, warnings)
     _apply_manifest_bridges(store, result, warnings)
     _trace_flows(store, result, warnings)
     _detect_communities(store, result, warnings)

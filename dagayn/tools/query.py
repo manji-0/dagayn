@@ -73,24 +73,74 @@ _INFRA_TO_CODE_BRIDGE_ROLES = {
 }
 
 
+def _merge_unresolved_targets(
+    accumulated: list[str],
+    new_targets: list[str],
+) -> list[str]:
+    seen = set(accumulated)
+    for target in new_targets:
+        if target not in seen:
+            accumulated.append(target)
+            seen.add(target)
+    return accumulated
+
+
 def _node_dicts_for_edges(
     store: Any,
     edges: list[Any],
     *,
     qualified_attr: str,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], list[str]]:
     """Batch-resolve edge endpoints to node dicts while preserving edge order."""
     if not edges:
-        return []
+        return [], []
 
     qualified_names = [getattr(edge, qualified_attr) for edge in edges]
     nodes_by_qn = store.get_nodes_by_qualified_names(qualified_names)
     results: list[dict[str, Any]] = []
+    unresolved_targets: list[str] = []
+    seen_unresolved: set[str] = set()
     for edge in edges:
-        node = nodes_by_qn.get(getattr(edge, qualified_attr))
+        qn = getattr(edge, qualified_attr)
+        node = nodes_by_qn.get(qn)
         if node is not None:
             results.append(node_to_dict(node))
-    return results
+        elif qn not in seen_unresolved:
+            unresolved_targets.append(qn)
+            seen_unresolved.add(qn)
+    return results, unresolved_targets
+
+
+def _is_unresolved_import_target(store: Any, target: str, root: Path) -> bool:
+    if target.startswith("<unresolved:"):
+        return True
+    abs_target = (
+        str((root / target).resolve())
+        if not Path(target).is_absolute()
+        else str(Path(target).resolve())
+    )
+    return len(store.get_nodes_by_file(abs_target)) == 0
+
+
+def _query_zero_result_fields(
+    *,
+    results: list[dict],
+    unresolved_targets: list[str],
+) -> dict[str, Any]:
+    if results:
+        return {
+            "confidence": "medium",
+            "zero_result_reason": None,
+        }
+    if unresolved_targets:
+        return {
+            "confidence": "medium",
+            "zero_result_reason": "unresolved_endpoints_only",
+        }
+    return {
+        "confidence": "low",
+        "zero_result_reason": "not_found_in_current_graph",
+    }
 
 
 def _cross_artifact_role(edge: Any) -> str | None:
@@ -530,6 +580,7 @@ def query_graph(
 
         results: list[dict] = []
         edges_out: list[dict] = []
+        unresolved_targets: list[str] = []
 
         # For callers_of, skip common builtins early (bare names only)
         # "Who calls .map()?" returns hundreds of useless hits.
@@ -607,36 +658,51 @@ def query_graph(
 
         if pattern == "callers_of":
             call_edges = [e for e in store.get_edges_by_target(qn) if e.kind == "CALLS"]
-            results.extend(
-                _node_dicts_for_edges(store, call_edges, qualified_attr="source_qualified")
+            caller_nodes, caller_unresolved = _node_dicts_for_edges(
+                store, call_edges, qualified_attr="source_qualified"
             )
+            results.extend(caller_nodes)
+            _merge_unresolved_targets(unresolved_targets, caller_unresolved)
             edges_out.extend(edge_to_dict(e) for e in call_edges)
             # Fallback: CALLS edges store unqualified target names
             # (e.g. "generateTestCode") while qn is fully qualified
             # (e.g. "file.ts::generateTestCode"). Search by plain name too.
             if not results and node:
                 fallback_edges = store.search_edges_by_target_name(node.name)
-                results.extend(
-                    _node_dicts_for_edges(
-                        store,
-                        fallback_edges,
-                        qualified_attr="source_qualified",
-                    )
+                fallback_nodes, fallback_unresolved = _node_dicts_for_edges(
+                    store,
+                    fallback_edges,
+                    qualified_attr="source_qualified",
                 )
+                results.extend(fallback_nodes)
+                _merge_unresolved_targets(unresolved_targets, fallback_unresolved)
                 edges_out.extend(edge_to_dict(e) for e in fallback_edges)
 
         elif pattern == "callees_of":
             call_edges = [e for e in store.get_edges_by_source(qn) if e.kind == "CALLS"]
-            results.extend(
-                _node_dicts_for_edges(store, call_edges, qualified_attr="target_qualified")
+            callee_nodes, callee_unresolved = _node_dicts_for_edges(
+                store, call_edges, qualified_attr="target_qualified"
             )
+            results.extend(callee_nodes)
+            _merge_unresolved_targets(unresolved_targets, callee_unresolved)
             edges_out.extend(edge_to_dict(e) for e in call_edges)
 
         elif pattern == "imports_of":
             for e in store.get_edges_by_source(qn):
                 if e.kind == "IMPORTS_FROM":
-                    results.append({"import_target": e.target_qualified})
+                    results.append(
+                        {
+                            "import_target": e.target_qualified,
+                            "unresolved": _is_unresolved_import_target(
+                                store,
+                                e.target_qualified,
+                                root,
+                            ),
+                        }
+                    )
                     edges_out.append(edge_to_dict(e))
+                    if results[-1]["unresolved"]:
+                        _merge_unresolved_targets(unresolved_targets, [e.target_qualified])
 
         elif pattern == "importers_of":
             # Find edges where target matches this file.
@@ -728,9 +794,11 @@ def query_graph(
 
         elif pattern == "children_of":
             child_edges = [e for e in store.get_edges_by_source(qn) if e.kind == "CONTAINS"]
-            results.extend(
-                _node_dicts_for_edges(store, child_edges, qualified_attr="target_qualified")
+            child_nodes, child_unresolved = _node_dicts_for_edges(
+                store, child_edges, qualified_attr="target_qualified"
             )
+            results.extend(child_nodes)
+            _merge_unresolved_targets(unresolved_targets, child_unresolved)
 
         elif pattern == "tests_for":
             if node is not None:
@@ -742,9 +810,11 @@ def query_graph(
             inherit_edges = [
                 e for e in store.get_edges_by_target(qn) if e.kind in ("INHERITS", "IMPLEMENTS")
             ]
-            results.extend(
-                _node_dicts_for_edges(store, inherit_edges, qualified_attr="source_qualified")
+            inheritor_nodes, inheritor_unresolved = _node_dicts_for_edges(
+                store, inherit_edges, qualified_attr="source_qualified"
             )
+            results.extend(inheritor_nodes)
+            _merge_unresolved_targets(unresolved_targets, inheritor_unresolved)
             edges_out.extend(edge_to_dict(e) for e in inherit_edges)
             # Fallback: INHERITS/IMPLEMENTS edges store unqualified base names
             # (e.g. "Animal") while qn is fully qualified
@@ -753,13 +823,13 @@ def query_graph(
                 fallback_edges = []
                 for kind in ("INHERITS", "IMPLEMENTS"):
                     fallback_edges.extend(store.search_edges_by_target_name(node.name, kind=kind))
-                results.extend(
-                    _node_dicts_for_edges(
-                        store,
-                        fallback_edges,
-                        qualified_attr="source_qualified",
-                    )
+                fallback_nodes, fallback_unresolved = _node_dicts_for_edges(
+                    store,
+                    fallback_edges,
+                    qualified_attr="source_qualified",
                 )
+                results.extend(fallback_nodes)
+                _merge_unresolved_targets(unresolved_targets, fallback_unresolved)
                 edges_out.extend(edge_to_dict(e) for e in fallback_edges)
 
         elif pattern == "file_summary":
@@ -769,6 +839,10 @@ def query_graph(
                 results.append(node_to_dict(n))
 
         summary = f"Found {len(results)} result(s) for {pattern}('{target}')"
+        zero_result_fields = _query_zero_result_fields(
+            results=results,
+            unresolved_targets=unresolved_targets,
+        )
 
         if detail_level == "minimal":
             minimal_results = [
@@ -803,8 +877,9 @@ def query_graph(
                 "description": _QUERY_PATTERNS[pattern],
                 "summary": summary,
                 "result_count": len(results),
-                "confidence": "medium" if results else "low",
-                "zero_result_reason": None if results else "not_found_in_current_graph",
+                "unresolved_count": len(unresolved_targets),
+                "unresolved_targets": unresolved_targets,
+                **zero_result_fields,
                 "next_action": _exactness_action(target, 1 if node else 0, len(results)),
                 "answerability": answerability,
                 "missingness": missingness,
@@ -826,8 +901,9 @@ def query_graph(
             "description": _QUERY_PATTERNS[pattern],
             "summary": summary,
             "result_count": len(results),
-            "confidence": "medium" if results else "low",
-            "zero_result_reason": None if results else "not_found_in_current_graph",
+            "unresolved_count": len(unresolved_targets),
+            "unresolved_targets": unresolved_targets,
+            **zero_result_fields,
             "next_action": _exactness_action(target, 1 if node else 0, len(results)),
             "answerability": answerability,
             "missingness": missingness,
@@ -1148,10 +1224,13 @@ def _traverse_dfs_lazy(
     depth: int,
     token_budget: int,
     make_entry: Any,
-) -> tuple[dict[str, int], list[TraversalEntry], bool]:
+) -> tuple[dict[str, int], list[TraversalEntry], bool, list[str]]:
     """Depth-first traversal that hydrates only nodes it actually visits."""
     visited: dict[str, int] = {}
     traversal: list[TraversalEntry] = []
+    traversal_index: dict[str, int] = {}
+    unresolved_targets: list[str] = []
+    unresolved_seen: set[str] = set()
     approx_tokens = 0
     budget_exceeded = False
     node_cache: dict[str, Any | None] = {}
@@ -1173,12 +1252,18 @@ def _traverse_dfs_lazy(
 
     while stack and not budget_exceeded:
         current_qn, cur_depth = stack.pop()
-        if current_qn in visited or cur_depth > depth:
+        if cur_depth > depth:
+            continue
+        prev_depth = visited.get(current_qn)
+        if prev_depth is not None and cur_depth >= prev_depth:
             continue
 
         node = _get_node(current_qn)
         if not node:
             visited[current_qn] = cur_depth
+            if current_qn not in unresolved_seen:
+                unresolved_targets.append(current_qn)
+                unresolved_seen.add(current_qn)
             continue
 
         visited[current_qn] = cur_depth
@@ -1187,15 +1272,21 @@ def _traverse_dfs_lazy(
         if approx_tokens > token_budget:
             budget_exceeded = True
             break
-        traversal.append(entry)
+        if current_qn in traversal_index:
+            traversal[traversal_index[current_qn]] = entry
+        else:
+            traversal_index[current_qn] = len(traversal)
+            traversal.append(entry)
 
         if cur_depth + 1 > depth:
             continue
-        neighbors = [nb for nb in _get_neighbors(current_qn) if nb not in visited]
+        neighbors = _get_neighbors(current_qn)
         for nb in reversed(neighbors):
-            stack.append((nb, cur_depth + 1))
+            nb_prev = visited.get(nb)
+            if nb_prev is None or cur_depth + 1 < nb_prev:
+                stack.append((nb, cur_depth + 1))
 
-    return visited, traversal, budget_exceeded
+    return visited, traversal, budget_exceeded, unresolved_targets
 
 
 def traverse_graph_func(
@@ -1259,6 +1350,8 @@ def traverse_graph_func(
         # Traversal state shared by both modes.
         visited: dict[str, int] = {}
         traversal: list[TraversalEntry] = []
+        unresolved_targets: list[str] = []
+        unresolved_seen: set[str] = set()
         approx_tokens = 0
         budget_exceeded = False
 
@@ -1272,7 +1365,7 @@ def traverse_graph_func(
             }
 
         if mode == "dfs":
-            visited, traversal, budget_exceeded = _traverse_dfs_lazy(
+            visited, traversal, budget_exceeded, unresolved_targets = _traverse_dfs_lazy(
                 store,
                 start_qn,
                 depth,
@@ -1307,6 +1400,9 @@ def traverse_graph_func(
                     visited[current_qn] = cur_depth
                     node = nodes_by_qn.get(current_qn)
                     if not node:
+                        if current_qn not in unresolved_seen:
+                            unresolved_targets.append(current_qn)
+                            unresolved_seen.add(current_qn)
                         continue
 
                     entry = _make_entry(node, cur_depth)
@@ -1331,18 +1427,29 @@ def traverse_graph_func(
                 current_frontier = next_frontier
                 cur_depth += 1
 
+        unresolved_count = len(unresolved_targets)
+        reachability_state = "truncated" if budget_exceeded or unresolved_count else "complete"
         reachability = seal_reachability_info(
             {
-                "state": "truncated" if budget_exceeded else "complete",
-                "truncated": budget_exceeded,
+                "state": reachability_state,
+                "truncated": budget_exceeded or bool(unresolved_count),
                 "max_depth": depth,
                 "nodes_visited": len(traversal),
+                "unresolved_count": unresolved_count,
+                "unresolved_targets": unresolved_targets,
             }
         )
+        summary_suffix = ""
+        if budget_exceeded:
+            summary_suffix = " Output was truncated to fit the token budget."
+        elif unresolved_count:
+            summary_suffix = (
+                f" Traversal stopped at {unresolved_count} unresolvable endpoint(s)."
+            )
         return make_response(
             "ok",
             f"Traversed {len(traversal)} node(s) from '{start_qn}' up to depth {depth}."
-            + (" Output was truncated to fit the token budget." if budget_exceeded else ""),
+            + summary_suffix,
             start_node=start_qn,
             mode=mode,
             max_depth=depth,

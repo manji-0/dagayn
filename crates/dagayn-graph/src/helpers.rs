@@ -504,6 +504,8 @@ pub(crate) fn store_file_batch_tx(
                 .unwrap_or(1.0);
             let confidence_tier =
                 ConfidenceTier::from_raw(edge.extra.get("confidence_tier").and_then(Value::as_str));
+            let (confidence, confidence_tier) =
+                normalize_edge_confidence(&edge.source, &edge.target, confidence, confidence_tier);
             let extra_json = extra_json(&edge.extra)?;
             push_text(&mut edge_params, &edge.kind);
             push_text(&mut edge_params, &edge.source);
@@ -612,6 +614,8 @@ pub(crate) fn store_raw_compact_file_batch_tx(
                 continue;
             }
             let (confidence, confidence_tier) = edge_metadata_from_raw_extra(extra.get())?;
+            let (confidence, confidence_tier) =
+                normalize_edge_confidence(source, target, confidence, confidence_tier);
             push_text(&mut edge_params, kind);
             push_text(&mut edge_params, source);
             push_text(&mut edge_params, target);
@@ -686,6 +690,18 @@ pub(crate) fn edge_metadata_from_raw_extra(raw: &str) -> Result<(f64, Confidence
     let confidence_tier =
         ConfidenceTier::from_raw(extra.get("confidence_tier").and_then(Value::as_str));
     Ok((confidence, confidence_tier))
+}
+
+pub(crate) fn normalize_edge_confidence(
+    source: &str,
+    target: &str,
+    confidence: f64,
+    confidence_tier: ConfidenceTier,
+) -> (f64, ConfidenceTier) {
+    if source.starts_with("<unresolved:") || target.starts_with("<unresolved:") {
+        return (confidence.min(0.2), ConfidenceTier::Low);
+    }
+    (confidence, confidence_tier)
 }
 
 pub(crate) fn push_text(params: &mut Vec<SqlValue>, value: &str) {
