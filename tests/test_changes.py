@@ -1,5 +1,6 @@
 """Tests for change impact analysis (changes.py)."""
 
+import hashlib
 import subprocess
 import tempfile
 from pathlib import Path
@@ -8,13 +9,19 @@ from unittest.mock import patch
 import pytest
 
 from dagayn.changes import (
+    ChangeMappingResult,
+    DiffParseResult,
     _parse_diff_ranges_cached,
     _parse_unified_diff,
     analyze_changes,
     compute_risk_score,
     map_changes_to_nodes,
+    map_changes_with_attribution,
     parse_diff_ranges,
+    parse_diff_result,
+    parse_git_diff,
     parse_git_diff_ranges,
+    resolve_git_renames,
 )
 from dagayn.flows import store_flows, trace_flows
 from dagayn.graph import GraphStore
@@ -205,7 +212,12 @@ class TestChanges:
         result = parse_git_diff_ranges("/nonexistent/path", base="HEAD~1")
         assert result == {}
 
-    def test_parse_diff_ranges_caches_git_diff_and_returns_copy(self, tmp_path):
+    def test_parse_git_diff_reports_base_unresolved(self):
+        parsed = parse_git_diff("/nonexistent/path", base="HEAD~1")
+        assert parsed.ranges == {}
+        assert parsed.status == "base_unresolved"
+
+    def test_parse_diff_result_caches_git_diff_and_returns_copy(self, tmp_path):
         """Repeated review calls should reuse git diff output without sharing mutable results."""
         repo = tmp_path / "repo"
         repo.mkdir()
@@ -213,19 +225,156 @@ class TestChanges:
 
         def fake_git_ranges(repo_root: str, base: str = "HEAD~1"):
             calls.append((repo_root, base))
-            return {"app.py": [(1, 2)]}
+            return DiffParseResult({"app.py": [(1, 2)]}, "ok")
 
         _parse_diff_ranges_cached.cache_clear()
         try:
-            with patch("dagayn.changes.parse_git_diff_ranges", side_effect=fake_git_ranges):
+            with patch("dagayn.changes.parse_git_diff", side_effect=fake_git_ranges):
                 first = parse_diff_ranges(str(repo), "HEAD~1")
                 first["app.py"].append((99, 99))
                 second = parse_diff_ranges(str(repo), "HEAD~1")
+                parsed = parse_diff_result(str(repo), "HEAD~1")
 
             assert calls == [(str(repo.resolve()), "HEAD~1")]
             assert second == {"app.py": [(1, 2)]}
+            assert parsed.ranges == {"app.py": [(1, 2)]}
+            assert parsed.status == "ok"
         finally:
             _parse_diff_ranges_cached.cache_clear()
+
+    def test_map_changes_degrades_stale_line_ranges_to_file_granular(self, tmp_path):
+        """Stale indexed content falls back to file-granular attribution."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        src = repo / "src"
+        src.mkdir()
+        app_py = src / "app.py"
+        app_py.write_text(
+            "def alpha():\n    pass\n\n\ndef beta():\n    pass\n",
+            encoding="utf-8",
+        )
+        indexed_hash = hashlib.sha256(app_py.read_bytes()).hexdigest()
+
+        self._add_func("alpha", path="src/app.py", line_start=1, line_end=2)
+        self._add_func("beta", path="src/app.py", line_start=4, line_end=5)
+        self.store._conn.execute(
+            "UPDATE nodes SET file_hash=? WHERE file_path=?",
+            (indexed_hash, "src/app.py"),
+        )
+        self.store.commit()
+
+        app_py.write_text(
+            "def gamma():\n    pass\n\n\ndef alpha():\n    pass\n\n\ndef beta():\n    pass\n",
+            encoding="utf-8",
+        )
+
+        mapping = map_changes_with_attribution(
+            self.store,
+            {"src/app.py": [(1, 2)]},
+            repo_root=str(repo),
+        )
+        assert isinstance(mapping, ChangeMappingResult)
+        assert mapping.stale_line_range_files == ["src/app.py"]
+        names = {node.name for node in mapping.nodes}
+        assert names == {"alpha", "beta"}
+
+    def test_map_changes_uses_line_ranges_when_hash_matches(self, tmp_path):
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        app_py = repo / "app.py"
+        app_py.write_text("def alpha():\n    pass\n\n\ndef beta():\n    pass\n", encoding="utf-8")
+        file_hash = hashlib.sha256(app_py.read_bytes()).hexdigest()
+
+        self._add_func("alpha", path="app.py", line_start=1, line_end=2)
+        self._add_func("beta", path="app.py", line_start=4, line_end=5)
+        self.store._conn.execute(
+            "UPDATE nodes SET file_hash=? WHERE file_path=?",
+            (file_hash, "app.py"),
+        )
+        self.store.commit()
+
+        mapping = map_changes_with_attribution(
+            self.store,
+            {"app.py": [(1, 2)]},
+            repo_root=str(repo),
+        )
+        assert mapping.stale_line_range_files == []
+        assert {node.name for node in mapping.nodes} == {"alpha"}
+
+    def test_analyze_changes_resolves_renames_via_git_name_status(self, tmp_path):
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "config", "user.email", "test@example.com"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Test"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+        )
+        src = repo / "src"
+        src.mkdir()
+        app_py = src / "app.py"
+        app_py.write_text("def alpha():\n    return 1\n", encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-m", "init"], cwd=repo, check=True, capture_output=True)
+
+        renamed = src / "renamed.py"
+        app_py.rename(renamed)
+        renamed.write_text("def alpha():\n    return 2\n", encoding="utf-8")
+        subprocess.run(["git", "add", "-A"], cwd=repo, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-m", "rename"], cwd=repo, check=True, capture_output=True)
+
+        self._add_func("alpha", path="src/app.py", line_start=1, line_end=2)
+
+        rename_map = resolve_git_renames(str(repo), "HEAD~1")
+        assert rename_map.get("src/renamed.py") == "src/app.py"
+
+        result = analyze_changes(
+            self.store,
+            changed_files=[str(renamed)],
+            changed_ranges={"src/renamed.py": [(1, 2)]},
+            repo_root=str(repo),
+            base="HEAD~1",
+        )
+        assert result["unmapped_changed_files"] == []
+        assert any(func["name"] == "alpha" for func in result["changed_functions"])
+
+    def test_analyze_changes_marks_base_unresolved(self, tmp_path):
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        app_py = repo / "app.py"
+        app_py.write_text("def alpha():\n    pass\n", encoding="utf-8")
+        self._add_func("alpha", path="app.py", line_start=1, line_end=2)
+        self._add_func("beta", path="app.py", line_start=4, line_end=5)
+        self._add_func("gamma", path="app.py", line_start=7, line_end=8)
+
+        result = analyze_changes(
+            self.store,
+            changed_files=[str(app_py)],
+            repo_root=str(repo),
+            base="origin/nonexistent",
+        )
+        assert result["diff_parse_status"] == "base_unresolved"
+        assert result["change_entity_summary"]["base"] is None
+        assert result["changed_functions"] == []
+        assert result["unmapped_changed_files"] == ["app.py"]
+        assert "diff_base_unreachable" in result["attribution"]["reason_codes"]
+        assert all(func.get("change_status") != "added" for func in result["changed_functions"])
+
+    def test_analyze_changes_reports_unmapped_changed_files(self):
+        result = analyze_changes(
+            self.store,
+            changed_files=["missing.py"],
+            changed_ranges={"missing.py": [(1, 5)]},
+        )
+        assert result["unmapped_changed_files"] == ["missing.py"]
+        assert "unmapped_changed_files" in result["attribution"]["reason_codes"]
 
     def test_parse_diff_ranges_invalidates_when_worktree_changes(self, tmp_path):
         """Cached diff ranges must refresh after local edits in a long-lived process."""
@@ -250,13 +399,15 @@ class TestChanges:
 
         calls: list[int] = []
 
-        def fake_git_ranges(repo_root: str, base: str = "HEAD~1"):
+        def fake_git_diff(repo_root: str, base: str = "HEAD~1"):
             calls.append(1)
-            return {"app.py": [(len(calls), len(calls))]}
+            from dagayn.changes import DiffParseResult
+
+            return DiffParseResult({"app.py": [(len(calls), len(calls))]}, "ok")
 
         _parse_diff_ranges_cached.cache_clear()
         try:
-            with patch("dagayn.changes.parse_git_diff_ranges", side_effect=fake_git_ranges):
+            with patch("dagayn.changes.parse_git_diff", side_effect=fake_git_diff):
                 first = parse_diff_ranges(str(repo), "HEAD")
                 target.write_text("def main():\n    return 2\n\ndef extra():\n    pass\n")
                 second = parse_diff_ranges(str(repo), "HEAD")
@@ -338,6 +489,24 @@ class TestChanges:
         assert [gap["qualified_name"] for gap in direct_only["test_gaps"]] == [
             "dagayn/tools/context.py::get_minimal_context"
         ]
+
+    def test_test_gap_coverage_confidence_unchecked_when_heuristic_capped(self):
+        self._add_func("uncovered_a", path="app/a.py", line_start=1, line_end=10)
+        self._add_func("uncovered_b", path="app/b.py", line_start=1, line_end=10)
+
+        result = analyze_changes(
+            self.store,
+            changed_files=["app/a.py", "app/b.py"],
+            changed_ranges={
+                "app/a.py": [(1, 10)],
+                "app/b.py": [(1, 10)],
+            },
+            heuristic_test_gap_node_limit=1,
+        )
+
+        confidences = {gap["coverage_confidence"] for gap in result["test_gaps"]}
+        assert "unchecked" in confidences
+        assert result["test_gap_evidence"]["heuristic_truncated"] is True
 
     def test_map_changes_to_nodes_different_files(self):
         """Maps changes across different files."""
@@ -939,8 +1108,8 @@ class TestChanges:
                 },
             ),
             patch(
-                "dagayn.tools.review.parse_git_diff_ranges",
-                return_value={"app.py": [(1, 10)]},
+                "dagayn.tools.review.parse_diff_result",
+                return_value=DiffParseResult({"app.py": [(1, 10)]}, "ok"),
             ),
         ):
             mock_get_store.return_value = (self.store, Path("/fake/repo"))
@@ -1044,8 +1213,8 @@ class TestChanges:
                 },
             ),
             patch(
-                "dagayn.tools.review.parse_diff_ranges",
-                return_value={str(service): [(1, 10)]},
+                "dagayn.tools.review.parse_diff_result",
+                return_value=DiffParseResult({"core/service.py": [(1, 10)]}, "ok"),
             ),
         ):
             mock_get_store.return_value = (self.store, root)
@@ -1130,7 +1299,7 @@ class TestChanges:
                 "dagayn.tools.review.get_changed_file_sources",
                 return_value={"files": ["app.py"], "base_diff": ["app.py"], "worktree": []},
             ),
-            patch("dagayn.tools.review.parse_diff_ranges", return_value={}),
+            patch("dagayn.tools.review.parse_diff_result", return_value=DiffParseResult({}, "ok")),
             patch(
                 "dagayn.tools.review.analyze_changes",
                 return_value={

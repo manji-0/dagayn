@@ -15,6 +15,7 @@ from .types import FlowAdjacency, GraphEdge, GraphNode, GraphStats
 
 if TYPE_CHECKING:
     from ..parser._base.types import EdgeInfo, NodeInfo
+    from .types import FtsQueryResult
 
 
 @runtime_checkable
@@ -76,7 +77,7 @@ class GraphStoreProtocol(Protocol):
 
     def search_nodes(self, query: str, limit: int = 20) -> list[GraphNode]: ...
 
-    def fts_query(self, query: str, limit: int = 50) -> list[tuple[int, float]]: ...
+    def fts_query(self, query: str, limit: int = 50) -> "FtsQueryResult": ...
 
     def keyword_query(self, query: str, limit: int = 50) -> list[tuple[int, float]]: ...
 

@@ -151,6 +151,46 @@ class TestAnswerability:
             "missing_communities_table",
         }
 
+    def test_stale_derived_structures_downgrades_answerability(self) -> None:
+        class _Row:
+            def __init__(self, value: int) -> None:
+                self._value = value
+
+            def fetchone(self):
+                return (self._value,)
+
+        class Conn:
+            def execute(self, sql: str, params: tuple[Any, ...] = ()):
+                if "FROM flows" in sql and "flow_memberships" not in sql:
+                    return _Row(2)
+                if "FROM communities" in sql and "nodes" not in sql:
+                    return _Row(1)
+                if "flow_memberships fm" in sql:
+                    return _Row(3)
+                if "community_id IS NULL" in sql:
+                    return _Row(4)
+                if "TESTED_BY" in sql or "CROSS_ARTIFACT" in sql:
+                    return _Row(0)
+                return _Row(0)
+
+        store = SimpleNamespace(_conn=Conn())
+        stats = SimpleNamespace(
+            total_nodes=10,
+            files_count=2,
+            languages=["python"],
+            last_updated="2026-05-25T00:00:00",
+            edges_by_kind={"TESTED_BY": 1, "CROSS_ARTIFACT": 0},
+        )
+
+        answerability = graph_answerability_summary(store, stats)
+
+        assert "stale_derived_structures" in answerability["reason_codes"]
+        assert answerability["counts"]["stale_flow_memberships"] == 3
+        assert answerability["counts"]["unassigned_nodes"] == 4
+        assert answerability["score"] < 0.9
+        missingness = missingness_from_answerability(answerability)
+        assert any(item["reason_code"] == "stale_derived_structures" for item in missingness)
+
     def test_attach_answerability_preserves_existing_missingness(self, monkeypatch) -> None:
         class Store:
             def get_stats(self):

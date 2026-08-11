@@ -62,7 +62,12 @@ impl GraphStore {
         for community in &mut communities {
             let id = community.get("id").and_then(Value::as_i64).unwrap_or(0);
             let members = members_by_community.get(&id).cloned().unwrap_or_default();
+            let assigned_member_count = members.len() as i64;
             if let Some(obj) = community.as_object_mut() {
+                obj.insert(
+                    "assigned_member_count".to_string(),
+                    Value::Number(assigned_member_count.into()),
+                );
                 obj.insert(
                     "members".to_string(),
                     Value::Array(

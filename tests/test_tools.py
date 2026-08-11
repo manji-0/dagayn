@@ -1,5 +1,6 @@
 """Tests for MCP tool functions."""
 
+import json
 import os
 import sys
 import tempfile
@@ -216,6 +217,34 @@ class TestTools:
         edges = self.store.search_edges_by_target_name("helper")
         sources = {edge.source_qualified for edge in edges}
         assert sources == {"/repo/main.py::process", "/repo/worker.py::process"}
+
+    def test_search_import_edges_for_symbol(self):
+        """IMPORTS_FROM lookup resolves by defining file path."""
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="IMPORTS_FROM",
+                source="/repo/main.py",
+                target="/repo/utils.py",
+                file_path="/repo/main.py",
+                line=1,
+            )
+        )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="IMPORTS_FROM",
+                source="/repo/other.py",
+                target="/repo/helpers.py",
+                file_path="/repo/other.py",
+                line=2,
+            )
+        )
+        self.store.commit()
+        by_file = self.store.search_import_edges_for_symbol("/repo/utils.py", "helper")
+        assert len(by_file) == 1
+        assert by_file[0].file_path == "/repo/main.py"
+        unrelated = self.store.search_import_edges_for_symbol("/repo/helpers.py", "helper")
+        assert len(unrelated) == 1
+        assert unrelated[0].file_path == "/repo/other.py"
 
     def test_count_edges_by_target_name_prefix(self):
         self.store.upsert_edge(
@@ -702,7 +731,7 @@ class TestTools:
             lambda *_args, **_kwargs: {
                 "results": [],
                 "mode": "fts_only",
-                "embedding_health": {"available": False},
+                "embedding_health": {"status": "provider_unavailable"},
             },
         )
 
@@ -1213,6 +1242,8 @@ class TestFlowTools:
             "truncated": False,
             "max_depth": 2,
             "nodes_visited": result["nodes_visited"],
+            "unresolved_count": 0,
+            "unresolved_targets": [],
         }
 
     def test_get_flow_by_name(self):
@@ -1249,6 +1280,37 @@ class TestFlowTools:
         assert "nodes" in result["summary"]
         assert "depth" in result["summary"]
         assert "criticality" in result["summary"]
+
+    def test_get_flow_degrades_when_stored_steps_are_missing(self, monkeypatch):
+        from dagayn.tools import flows_tools
+
+        flow_id = list_flows(repo_root=str(self.root))["flows"][0]["id"]
+        row = self.store._conn.execute(
+            "SELECT path_json FROM flows WHERE id = ?",
+            (flow_id,),
+        ).fetchone()
+        path_ids = json.loads(row["path_json"])
+        assert len(path_ids) >= 2
+
+        for node_id in path_ids[1:]:
+            self.store._conn.execute("DELETE FROM nodes WHERE id = ?", (node_id,))
+        self.store.commit()
+
+        monkeypatch.setattr(flows_tools, "_get_store", lambda repo_root: (self.store, self.root))
+        self.store.close = lambda: None
+
+        result = flows_tools.get_flow(flow_id=flow_id, repo_root=str(self.root))
+
+        assert result["status"] == "degraded"
+        assert result["flow"]["node_count"] == len(path_ids)
+        assert result["flow"]["resolved_step_count"] == 1
+        assert result["flow"]["missing_step_count"] == len(path_ids) - 1
+        assert len(result["flow"]["steps"]) == 1
+        assert result["flow_coverage"]["stored_node_count"] == len(path_ids)
+        assert result["flow_coverage"]["resolved_step_count"] == 1
+        assert result["flow_coverage"]["missing_step_count"] == len(path_ids) - 1
+        assert any(item.get("reason_code") == "stale_flow" for item in result["missingness"])
+        assert "missing" in result["summary"]
 
     def test_get_affected_flows_with_changed_file(self):
         result = get_affected_flows_func(changed_files=["auth.py"], repo_root=str(self.root))
