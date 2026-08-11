@@ -15,6 +15,7 @@ from .types import FlowAdjacency, GraphEdge, GraphNode, GraphStats
 
 if TYPE_CHECKING:
     from ..parser._base.types import EdgeInfo, NodeInfo
+    from .types import FtsQueryResult
 
 
 @runtime_checkable
