@@ -64,6 +64,30 @@ def _build_fts_match_queries(fts_query: str) -> tuple[str, str, str]:
 
 
 class GraphStoreSearchMixin(GraphStoreMixinProtocol):
+    def search_import_edges_for_symbol(
+        self,
+        defining_file: str,
+        _symbol_name: str,
+    ) -> list[GraphEdge]:
+        """Return IMPORTS_FROM edges whose target is the defining file path.
+
+        ``IMPORTS_FROM.target_qualified`` stores the resolved module file path, not
+        a symbol qualified name. The symbol argument is accepted for rename-preview
+        call-site symmetry but is not used in the lookup itself.
+        """
+        normalized = self._normalize_file_path_key(defining_file)
+        keys = [defining_file]
+        if normalized != defining_file:
+            keys.append(normalized)
+
+        placeholders = ",".join("?" for _ in keys)
+        rows = self._conn.execute(  # nosec B608
+            f"SELECT * FROM edges WHERE kind = 'IMPORTS_FROM' "
+            f"AND target_qualified IN ({placeholders})",
+            tuple(keys),
+        ).fetchall()
+        return [self._row_to_edge(row) for row in rows]
+
     def search_edges_by_target_name(self, name: str, kind: str = "CALLS") -> list[GraphEdge]:
         """Search for edges where target_qualified matches an unqualified name.
 

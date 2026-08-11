@@ -244,12 +244,12 @@ class TestRenamePreview:
                 line=10,
             )
         )
-        # IMPORTS_FROM edge: main.py imports helper
+        # IMPORTS_FROM edge: main.py imports from utils.py (file path target)
         self.store.upsert_edge(
             EdgeInfo(
                 kind="IMPORTS_FROM",
                 source="/repo/main.py",
-                target="/repo/utils.py::helper",
+                target="/repo/utils.py",
                 file_path="/repo/main.py",
                 line=1,
             )
@@ -298,6 +298,41 @@ class TestRenamePreview:
         rid = result["refactor_id"]
         with _refactor_lock:
             assert rid in _pending_refactors
+
+    def test_rename_finds_references(self):
+        """rename_preview includes REFERENCES edges (e.g. map dispatch)."""
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="REFERENCES",
+                source="/repo/main.py::run",
+                target="/repo/utils.py::helper",
+                file_path="/repo/main.py",
+                line=12,
+            )
+        )
+        self.store.commit()
+        result = rename_preview(self.store, "helper", "new_helper")
+        assert result is not None
+        sources = {e["source"] for e in result["edits"]}
+        assert "reference" in sources
+        ref_edits = [e for e in result["edits"] if e["source"] == "reference"]
+        assert any(e["file"] == "/repo/main.py" and e["line"] == 12 for e in ref_edits)
+
+    def test_rename_includes_graph_limited_missingness(self):
+        """rename_preview states that edits cover graph-known sites only."""
+        result = rename_preview(self.store, "helper", "new_helper")
+        assert result is not None
+        reason_codes = {item["reason_code"] for item in result["missingness"]}
+        assert "rename_edits_graph_limited" in reason_codes
+
+    def test_rename_import_resolves_by_defining_file(self):
+        """IMPORTS_FROM lookup uses defining file path, not symbol qualified name."""
+        result = rename_preview(self.store, "helper", "new_helper")
+        assert result is not None
+        import_edits = [e for e in result["edits"] if e["source"] == "import"]
+        assert len(import_edits) == 1
+        assert import_edits[0]["file"] == "/repo/main.py"
+        assert import_edits[0]["line"] == 1
 
 
 class TestFindDeadCode:
