@@ -16,8 +16,11 @@ def edge_storage_metadata(edge: EdgeInfo) -> tuple[str, float, ConfidenceTier]:
     """Return serialized edge metadata and normalized confidence fields."""
     extra = edge.extra or {}
     confidence = float(extra.get("confidence", 1.0))
+    explicit_tier = str(extra.get("confidence_tier") or "").upper()
     confidence_tier = normalize_confidence_tier(extra.get("confidence_tier"))
-    if edge.target.startswith("<unresolved:") or edge.source.startswith("<unresolved:"):
+    if (edge.target.startswith("<unresolved:") or edge.source.startswith("<unresolved:")) and (
+        not explicit_tier or explicit_tier in {"EXTRACTED", "UNKNOWN"}
+    ):
         confidence = min(confidence, 0.2)
         confidence_tier = "LOW"
     return (

@@ -50,12 +50,15 @@ def _demote_unresolved_endpoint_edges(
     warnings: list[str],
 ) -> None:
     """Lower confidence on edges whose node-qualified endpoints are absent."""
-    repo_root = _store_repo_root(store)
-    if repo_root is None:
-        result["unresolved_endpoint_edges_demoted"] = 0
-        return
+    sql_store = store
+    owns_sql_store = False
+    if not hasattr(store, "_conn"):
+        repo_root = _store_repo_root(store)
+        if repo_root is None:
+            result["unresolved_endpoint_edges_demoted"] = 0
+            return
+        sql_store, owns_sql_store = _sql_capable_store(store, repo_root)
 
-    sql_store, owns_sql_store = _sql_capable_store(store, repo_root)
     try:
         conn = sql_store._conn
         placeholders = ", ".join("?" for _ in _NODE_QUALIFIED_EDGE_KINDS)
