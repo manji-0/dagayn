@@ -158,6 +158,67 @@ def _parse_diff_ranges_cached(
     return tuple((path, tuple(path_ranges)) for path, path_ranges in sorted(ranges.items()))
 
 
+def _decode_git_quoted_path(text: str) -> str:
+    """Decode a git C-style quoted path (``core.quotePath``)."""
+    if not (text.startswith('"') and text.endswith('"')):
+        return text
+
+    inner = text[1:-1]
+    out = bytearray()
+    i = 0
+    while i < len(inner):
+        ch = inner[i]
+        if ch != "\\":
+            out.extend(ch.encode("utf-8"))
+            i += 1
+            continue
+        i += 1
+        if i >= len(inner):
+            break
+        esc = inner[i]
+        if esc in ('\\', '"'):
+            out.extend(esc.encode("ascii"))
+            i += 1
+        elif esc in "01234567":
+            octal = esc
+            i += 1
+            for _ in range(2):
+                if i < len(inner) and inner[i] in "01234567":
+                    octal += inner[i]
+                    i += 1
+                else:
+                    break
+            out.append(int(octal, 8))
+        elif esc == "n":
+            out.append(ord("\n"))
+            i += 1
+        elif esc == "t":
+            out.append(ord("\t"))
+            i += 1
+        elif esc == "r":
+            out.append(ord("\r"))
+            i += 1
+        else:
+            out.extend(esc.encode("ascii"))
+            i += 1
+    return out.decode("utf-8", errors="replace")
+
+
+def _parse_plus_plus_path(line: str) -> str | None:
+    """Return the new-file path from a ``+++`` header, or ``None`` when absent."""
+    if not line.startswith("+++"):
+        return None
+    raw = line[4:].strip()
+    if not raw or raw == "/dev/null":
+        return None
+    path = _decode_git_quoted_path(raw)
+    if "\t" in path:
+        path = path.split("\t", 1)[0]
+    if path.startswith("b/"):
+        return path[2:]
+    return None
+
+
 def _parse_unified_diff(diff_text: str) -> dict[str, list[tuple[int, int]]]:
     """Parse unified diff output into file -> line-range mappings.
 
@@ -166,15 +227,12 @@ def _parse_unified_diff(diff_text: str) -> dict[str, list[tuple[int, int]]]:
     ranges: dict[str, list[tuple[int, int]]] = {}
     current_file: str | None = None
 
-    # Match "+++ b/path/to/file"
-    file_pattern = re.compile(r"^\+\+\+ b/(.+)$")
     # Match "@@ ... +start,count @@" or "@@ ... +start @@"
     hunk_pattern = re.compile(r"^@@ .+? \+(\d+)(?:,(\d+))? @@")
 
     for line in diff_text.splitlines():
-        file_match = file_pattern.match(line)
-        if file_match:
-            current_file = file_match.group(1)
+        if line.startswith("+++"):
+            current_file = _parse_plus_plus_path(line)
             continue
 
         hunk_match = hunk_pattern.match(line)

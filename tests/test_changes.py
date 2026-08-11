@@ -148,6 +148,57 @@ class TestChanges:
         assert "a.py" in result
         assert "b.py" in result
 
+    def test_parse_unified_diff_quoted_non_ascii_path(self):
+        """Quoted ``+++`` headers bind hunks to the correct non-ASCII file."""
+        diff = (
+            "diff --git a/aaa.py b/aaa.py\n"
+            "--- a/aaa.py\n"
+            "+++ b/aaa.py\n"
+            "@@ -3,1 +3,1 @@\n"
+            "+changed\n"
+            'diff --git "a/caf\\303\\251.py" "b/caf\\303\\251.py"\n'
+            '--- "a/caf\\303\\251.py"\n'
+            '+++ "b/caf\\303\\251.py"\n'
+            "@@ -2,4 +2,4 @@\n"
+            "+café changes\n"
+        )
+        result = _parse_unified_diff(diff)
+        assert result == {"aaa.py": [(3, 3)], "café.py": [(2, 5)]}
+
+    def test_parse_unified_diff_deleted_file_not_misattributed(self):
+        """Deletion headers reset attribution so hunks are not stolen."""
+        diff = (
+            "--- a/keep.py\n"
+            "+++ b/keep.py\n"
+            "@@ -11,2 +11,2 @@\n"
+            "+keep change\n"
+            "--- a/deleted.py\n"
+            "+++ /dev/null\n"
+            "@@ -11,2 +1,1 @@\n"
+            "-deleted\n"
+        )
+        result = _parse_unified_diff(diff)
+        assert result == {"keep.py": [(11, 12)]}
+        assert "deleted.py" not in result
+
+    def test_parse_unified_diff_unrecognized_plus_header_resets_file(self):
+        """Malformed ``+++`` headers drop subsequent hunks instead of reusing the prior file."""
+        diff = (
+            "--- a/first.py\n"
+            "+++ b/first.py\n"
+            "@@ -1,1 +1,1 @@\n"
+            "+first\n"
+            "+++ not-a-valid-path\n"
+            "@@ -9,1 +9,1 @@\n"
+            "+orphan\n"
+            "--- a/second.py\n"
+            "+++ b/second.py\n"
+            "@@ -2,1 +2,1 @@\n"
+            "+second\n"
+        )
+        result = _parse_unified_diff(diff)
+        assert result == {"first.py": [(1, 1)], "second.py": [(2, 2)]}
+
     def test_parse_git_diff_ranges_error_handling(self):
         """Returns empty dict when git command fails."""
         result = parse_git_diff_ranges("/nonexistent/path", base="HEAD~1")
