@@ -1,9 +1,11 @@
 """Tests for execution flow detection, tracing, and scoring."""
 
+import json
 import tempfile
 from pathlib import Path
 
 from dagayn.flows import (
+    _hydrate_flow_rows,
     detect_entry_points,
     get_affected_flows,
     get_flow_by_id,
@@ -732,3 +734,64 @@ class TestOrphanedStructurePruning:
         assert pruned["flow_memberships"] > 0
         assert self._dangling_memberships() == 0
         assert get_flows(self.store) == []
+
+
+class TestStaleFlowHydration:
+    """Stored flow paths must report unresolved step counts."""
+
+    def setup_method(self):
+        self.tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self.store = GraphStore(self.tmp.name)
+
+    def teardown_method(self):
+        self.store.close()
+        Path(self.tmp.name).unlink(missing_ok=True)
+
+    def test_hydrate_flow_rows_reports_missing_steps(self):
+        for name in ("entry", "middle", "leaf"):
+            self.store.upsert_node(
+                NodeInfo(
+                    kind="Function",
+                    name=name,
+                    file_path="app.py",
+                    line_start=1,
+                    line_end=10,
+                    language="python",
+                ),
+                file_hash="abc",
+            )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CALLS",
+                source="app.py::entry",
+                target="app.py::middle",
+                file_path="app.py",
+                line=2,
+            )
+        )
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="CALLS",
+                source="app.py::middle",
+                target="app.py::leaf",
+                file_path="app.py",
+                line=3,
+            )
+        )
+        self.store.commit()
+        store_flows(self.store, trace_flows(self.store))
+
+        row = self.store._conn.execute("SELECT * FROM flows WHERE name = 'entry'").fetchone()
+        assert row is not None
+        path_ids = json.loads(row["path_json"])
+        assert len(path_ids) == 3
+
+        for node_id in path_ids[1:]:
+            self.store._conn.execute("DELETE FROM nodes WHERE id = ?", (node_id,))
+        self.store.commit()
+
+        hydrated = _hydrate_flow_rows(self.store, [row])[0]
+        assert hydrated["node_count"] == 3
+        assert hydrated["resolved_step_count"] == 1
+        assert hydrated["missing_step_count"] == 2
+        assert len(hydrated["steps"]) == 1

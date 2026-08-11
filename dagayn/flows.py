@@ -710,6 +710,22 @@ def _collect_cross_artifact_edges_among(
         return []
 
 
+def _annotate_flow_step_resolution(flow: dict) -> dict:
+    """Add resolved/missing step counts for stored flow paths."""
+    path_ids = flow.get("path") or []
+    steps = flow.get("steps") or []
+    resolved_step_count = len(steps)
+    if path_ids:
+        missing_step_count = len(path_ids) - resolved_step_count
+    else:
+        stored_node_count = int(flow.get("node_count") or resolved_step_count)
+        missing_step_count = max(0, stored_node_count - resolved_step_count)
+    annotated = dict(flow)
+    annotated["resolved_step_count"] = resolved_step_count
+    annotated["missing_step_count"] = missing_step_count
+    return annotated
+
+
 def _annotate_flow_dict_bridges(store: GraphStore, flow: dict) -> dict:
     """Mark bridge arrivals on a flow dict (shared by Rust and Python paths)."""
     from .cross_artifact import annotate_flow_steps_with_bridges
@@ -726,7 +742,7 @@ def _annotate_flow_dict_bridges(store: GraphStore, flow: dict) -> dict:
     annotated["bridge_step_count"] = sum(
         1 for step in annotated["steps"] if step.get("is_bridge_step")
     )
-    return annotated
+    return _annotate_flow_step_resolution(annotated)
 
 
 def get_flow_by_id(store: GraphStore, flow_id: int) -> Optional[dict]:
@@ -782,9 +798,11 @@ def _hydrate_flow_rows(
         path_ids = paths_by_flow[row["id"]]
         steps: list[dict] = []
         path_qns: list[str] = []
+        missing_step_count = 0
         for nid in path_ids:
             node = nodes_by_id.get(nid)
             if node is None:
+                missing_step_count += 1
                 continue
             path_qns.append(node.qualified_name)
             steps.append(
@@ -798,6 +816,7 @@ def _hydrate_flow_rows(
                     "qualified_name": _sanitize_name(node.qualified_name),
                 }
             )
+        resolved_step_count = len(steps)
 
         bridge_edges: list[Any] = []
         if path_qns:
@@ -823,6 +842,8 @@ def _hydrate_flow_rows(
                 "criticality": row["criticality"],
                 "path": path_ids,
                 "steps": steps,
+                "resolved_step_count": resolved_step_count,
+                "missing_step_count": missing_step_count,
                 "bridge_step_count": bridge_step_count,
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"],
