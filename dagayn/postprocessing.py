@@ -119,6 +119,7 @@ def run_post_processing(store: GraphStore) -> dict[str, Any]:
 
     _compute_signatures(store, result, warnings)
     _rebuild_fts_index(store, result, warnings)
+    _resolve_bare_name_edges(store, result, warnings)
     _resolve_markdown_artifact_refs(store, result, warnings)
     _resolve_terraform_artifact_refs(store, result, warnings)
     _demote_unresolved_endpoint_edges(store, result, warnings)
@@ -694,6 +695,24 @@ def _rebuild_fts_index(
     except (sqlite3.OperationalError, ImportError) as e:
         logger.warning("FTS index rebuild failed: %s", e)
         warnings.append(f"FTS index rebuild failed: {type(e).__name__}: {e}")
+
+
+def _resolve_bare_name_edges(
+    store: GraphStore,
+    result: dict[str, Any],
+    warnings: list[str],
+) -> None:
+    """Resolve bare-name CALLS and INHERITS/IMPLEMENTS edges using import context."""
+    try:
+        resolve_calls = getattr(store, "resolve_bare_call_targets", None)
+        resolve_inherits = getattr(store, "resolve_bare_inheritance_targets", None)
+        if callable(resolve_calls):
+            result["bare_call_targets_resolved"] = int(resolve_calls())
+        if callable(resolve_inherits):
+            result["bare_inheritance_targets_resolved"] = int(resolve_inherits())
+    except (sqlite3.OperationalError, RuntimeError, TypeError) as e:
+        logger.warning("Bare-name edge resolution failed: %s", e)
+        warnings.append(f"Bare-name edge resolution failed: {type(e).__name__}: {e}")
 
 
 def _trace_flows(

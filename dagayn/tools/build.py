@@ -318,6 +318,21 @@ def _run_postprocess(
             warnings.append(f"FTS index rebuild failed: {type(e).__name__}: {e}")
 
         try:
+            from dagayn.postprocessing import _resolve_bare_name_edges
+
+            _bare_result: dict[str, Any] = {}
+            _resolve_bare_name_edges(store, _bare_result, warnings)
+            build_result["bare_call_targets_resolved"] = _bare_result.get(
+                "bare_call_targets_resolved", 0
+            )
+            build_result["bare_inheritance_targets_resolved"] = _bare_result.get(
+                "bare_inheritance_targets_resolved", 0
+            )
+        except (sqlite3.OperationalError, ImportError) as e:
+            logger.warning("Bare-name edge resolution failed: %s", e)
+            warnings.append(f"Bare-name edge resolution failed: {type(e).__name__}: {e}")
+
+        try:
             from dagayn.postprocessing import _resolve_markdown_artifact_refs
 
             _result: dict[str, Any] = {}

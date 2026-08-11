@@ -7,6 +7,12 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from ..bare_name_resolution import (
+    build_import_targets,
+    is_plausible_bare_edge,
+    looks_like_file_target,
+    node_file_from_qualified,
+)
 from ..coverage import infer_tests_for_node
 from ..cross_artifact import (
     is_low_confidence_unresolved_markdown_code_span,
@@ -210,6 +216,60 @@ def _exactness_action(query: str, exact_count: int, result_count: int) -> dict[s
         "tool": "semantic_search_nodes_tool",
         "suggestion": "broaden the query or verify the graph is up to date",
     }
+
+
+def _filter_bare_name_fallback_edges(
+    store: Any,
+    edges: list[Any],
+    target_node: Any,
+) -> list[Any]:
+    """Keep bare-name fallback edges only when import context supports them."""
+    if not edges or target_node is None:
+        return edges
+    import_targets = build_import_targets(store._conn)
+    target_file = target_node.file_path
+    return [
+        edge
+        for edge in edges
+        if is_plausible_bare_edge(
+            node_file_from_qualified(edge.source_qualified, edge.file_path),
+            target_file,
+            import_targets,
+        )
+    ]
+
+
+def _annotate_bare_name_edges(edges_out: list[dict[str, Any]]) -> None:
+    for edge in edges_out:
+        if "::" not in str(edge.get("target", "")):
+            edge["match"] = "bare_name"
+            edge["confidence_tier"] = "MEDIUM"
+            edge["confidence"] = 0.6
+
+
+def _file_path_candidates(root: Path, target: str) -> list[str]:
+    """Return absolute file paths to try for file_summary lookups."""
+    candidates = [str(root / target)]
+    resolved = (root / target).resolve()
+    candidates.append(str(resolved))
+    if target.startswith("/"):
+        candidates.append(target)
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for path in candidates:
+        if path not in seen:
+            seen.add(path)
+            ordered.append(path)
+    return ordered
+
+
+def _file_is_indexed(store: Any, root: Path, target: str) -> bool:
+    for abs_path in _file_path_candidates(root, target):
+        if store.get_nodes_by_file(abs_path):
+            return True
+        if store.get_node(abs_path) is not None:
+            return True
+    return False
 
 
 def _query_graph_guidance(
@@ -598,22 +658,66 @@ def query_graph(
                 "missingness": missingness,
             }
 
-        # Resolve target - try as-is, then as absolute path, then search
+        original_target = target
+        resolution = "exact"
+        resolved_target: str | None = None
+
+        # Resolve target - try as-is, then as absolute path, then fuzzy search
         node = store.get_node(target)
         if not node:
             abs_target = str(root / target)
             node = store.get_node(abs_target)
-        if not node:
-            # Search by name
+        if not node and pattern == "file_summary" and looks_like_file_target(target):
+            if not _file_is_indexed(store, root, target):
+                guidance = _query_graph_guidance(
+                    pattern=pattern,
+                    target=target,
+                    result_count=0,
+                    exact_count=0,
+                )
+                return {
+                    "status": "not_found",
+                    "pattern": pattern,
+                    "target": target,
+                    "description": _QUERY_PATTERNS[pattern],
+                    "summary": f"No indexed file found matching '{target}' in the current graph.",
+                    "result_count": 0,
+                    "results": [],
+                    "zero_result_reason": "target_not_found_in_graph",
+                    "next_action": _exactness_action(target, 0, 0),
+                    "answerability": answerability,
+                    "missingness": [
+                        *missingness,
+                        {
+                            "reason_code": "target_not_found_in_graph",
+                            "severity": "medium",
+                            "claim_effect": (
+                                "absence is graph-limited, not proof the file does not exist"
+                            ),
+                        },
+                    ],
+                    "guidance": guidance,
+                    "_hints": guidance_actions_to_hints(guidance),
+                }
+        elif not node and not looks_like_file_target(target):
             candidates = store.search_nodes(target, limit=5)
             if len(candidates) == 1:
                 node = candidates[0]
-                target = node.qualified_name
+                resolved_target = node.qualified_name
+                target = resolved_target
+                resolution = "fuzzy"
             elif len(candidates) > 1:
                 return {
                     "status": "ambiguous",
-                    "summary": (f"Multiple matches for '{target}'. Please use a qualified name."),
+                    "pattern": pattern,
+                    "target": original_target,
+                    "summary": (
+                        f"Multiple matches for '{original_target}'. Please use a qualified name."
+                    ),
+                    "result_count": 0,
+                    "results": [],
                     "candidates": [node_to_dict(c) for c in candidates],
+                    "candidates_truncated": len(candidates) >= 5,
                     "answerability": answerability,
                     "missingness": [
                         *missingness,
@@ -668,7 +772,11 @@ def query_graph(
             # (e.g. "generateTestCode") while qn is fully qualified
             # (e.g. "file.ts::generateTestCode"). Search by plain name too.
             if not results and node:
-                fallback_edges = store.search_edges_by_target_name(node.name)
+                fallback_edges = _filter_bare_name_fallback_edges(
+                    store,
+                    store.search_edges_by_target_name(node.name),
+                    node,
+                )
                 fallback_nodes, fallback_unresolved = _node_dicts_for_edges(
                     store,
                     fallback_edges,
@@ -677,6 +785,7 @@ def query_graph(
                 results.extend(fallback_nodes)
                 _merge_unresolved_targets(unresolved_targets, fallback_unresolved)
                 edges_out.extend(edge_to_dict(e) for e in fallback_edges)
+                _annotate_bare_name_edges(edges_out)
 
         elif pattern == "callees_of":
             call_edges = [e for e in store.get_edges_by_source(qn) if e.kind == "CALLS"]
@@ -822,7 +931,13 @@ def query_graph(
             if not results and node:
                 fallback_edges = []
                 for kind in ("INHERITS", "IMPLEMENTS"):
-                    fallback_edges.extend(store.search_edges_by_target_name(node.name, kind=kind))
+                    fallback_edges.extend(
+                        _filter_bare_name_fallback_edges(
+                            store,
+                            store.search_edges_by_target_name(node.name, kind=kind),
+                            node,
+                        )
+                    )
                 fallback_nodes, fallback_unresolved = _node_dicts_for_edges(
                     store,
                     fallback_edges,
@@ -831,14 +946,27 @@ def query_graph(
                 results.extend(fallback_nodes)
                 _merge_unresolved_targets(unresolved_targets, fallback_unresolved)
                 edges_out.extend(edge_to_dict(e) for e in fallback_edges)
+                _annotate_bare_name_edges(edges_out)
 
         elif pattern == "file_summary":
-            abs_path = str(root / target)
-            file_nodes = store.get_nodes_by_file(abs_path)
+            file_nodes: list[Any] = []
+            for abs_path in _file_path_candidates(root, target):
+                file_nodes = store.get_nodes_by_file(abs_path)
+                if file_nodes:
+                    break
             for n in file_nodes:
                 results.append(node_to_dict(n))
 
         summary = f"Found {len(results)} result(s) for {pattern}('{target}')"
+        exact_count = 1 if resolution == "exact" and node is not None else 0
+        resolution_payload: dict[str, Any] = {
+            "resolution": resolution,
+            "exact_match_count": exact_count,
+        }
+        if resolved_target is not None:
+            resolution_payload["resolved_target"] = resolved_target
+        if resolution == "fuzzy":
+            resolution_payload["original_target"] = original_target
         zero_result_fields = _query_zero_result_fields(
             results=results,
             unresolved_targets=unresolved_targets,
@@ -868,7 +996,7 @@ def query_graph(
                 pattern=pattern,
                 target=target,
                 result_count=len(results),
-                exact_count=1 if node else 0,
+                exact_count=exact_count,
             )
             return {
                 "status": "ok",
@@ -880,7 +1008,8 @@ def query_graph(
                 "unresolved_count": len(unresolved_targets),
                 "unresolved_targets": unresolved_targets,
                 **zero_result_fields,
-                "next_action": _exactness_action(target, 1 if node else 0, len(results)),
+                "next_action": _exactness_action(target, exact_count, len(results)),
+                **resolution_payload,
                 "answerability": answerability,
                 "missingness": missingness,
                 "results": minimal_results,
@@ -892,7 +1021,7 @@ def query_graph(
             pattern=pattern,
             target=target,
             result_count=len(results),
-            exact_count=1 if node else 0,
+            exact_count=exact_count,
         )
         payload = {
             "status": "ok",
@@ -904,7 +1033,8 @@ def query_graph(
             "unresolved_count": len(unresolved_targets),
             "unresolved_targets": unresolved_targets,
             **zero_result_fields,
-            "next_action": _exactness_action(target, 1 if node else 0, len(results)),
+            "next_action": _exactness_action(target, exact_count, len(results)),
+            **resolution_payload,
             "answerability": answerability,
             "missingness": missingness,
             "results": results,
