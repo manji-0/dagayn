@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -33,6 +34,64 @@ RUST_OWNED_PARITY_FIXTURES = [
     "notebook",
     "mixed",
 ]
+
+
+def test_get_affected_flows_absolute_path_matches_rust_backend(tmp_path):
+    """Python and Rust stores return the same affected flows for absolute paths."""
+    try:
+        from dagayn._core import GraphStore as RustGraphStore
+    except ImportError as exc:
+        pytest.skip(f"Rust extension is not available: {exc}")  # ty: ignore[too-many-positional-arguments]
+
+    from dagayn.flows import get_affected_flows, store_flows, trace_flows
+    from dagayn.graph import GraphStore as PythonGraphStore
+    from dagayn.parser import EdgeInfo, NodeInfo
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    db_path = repo / ".dagayn" / "graph.db"
+
+    store = PythonGraphStore(db_path)
+    store.set_metadata("repo_root", str(repo.resolve()))
+    try:
+        nodes = [
+            NodeInfo("Function", "handler", "routes.py", 1, 10, "python"),
+            NodeInfo("Function", "service", "services.py", 1, 10, "python"),
+            NodeInfo("Function", "repo", "repo.py", 1, 10, "python"),
+        ]
+        for node in nodes:
+            store.upsert_node(node, file_hash="abc")
+        edges = [
+            EdgeInfo("CALLS", "routes.py::handler", "services.py::service", "routes.py", 5),
+            EdgeInfo("CALLS", "services.py::service", "repo.py::repo", "services.py", 5),
+        ]
+        for edge in edges:
+            store.upsert_edge(edge)
+        store.commit()
+        store_flows(store, trace_flows(store))
+    finally:
+        store.close()
+
+    abs_path = str((repo / "services.py").resolve())
+
+    py_store = PythonGraphStore(db_path)
+    try:
+        py_result = get_affected_flows(py_store, [abs_path])
+    finally:
+        py_store.close()
+
+    rust_store = RustGraphStore(db_path)
+    try:
+        rust_affected = json.loads(rust_store.get_affected_flows_json([abs_path]))
+    finally:
+        rust_store.close()
+
+    assert py_result["total"] >= 1
+    assert py_result["total"] == len(rust_affected)
+    py_names = {flow["name"] for flow in py_result["affected_flows"]}
+    rust_names = {flow["name"] for flow in rust_affected}
+    assert py_names == rust_names
 
 
 def test_rust_backend_is_default_when_extension_is_available(monkeypatch):
@@ -105,6 +164,53 @@ def test_rust_backend_matches_python_parity_snapshots(name, tmp_path_factory, mo
     actual = export_db(db_path)
     expected = (PARITY_FIXTURE_DIR / "__snapshots__" / f"{name}.json").read_text(encoding="utf-8")
     assert actual == expected
+
+
+def test_rust_backend_populates_edge_target_name(tmp_path, monkeypatch):
+    """Rust-built graphs must expose populated edges.target_name for name lookups."""
+    try:
+        from dagayn._core import GraphStore as RustGraphStore
+    except ImportError as exc:
+        pytest.skip(f"Rust extension is not available: {exc}")  # ty: ignore[too-many-positional-arguments]
+
+    monkeypatch.setenv("DAGAYN_BACKEND", "rust")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    (repo / "main.py").write_text(
+        "def helper():\n    pass\n\ndef main():\n    helper()\n",
+        encoding="utf-8",
+    )
+
+    db_path = repo / ".dagayn" / "graph.db"
+    store = RustGraphStore(db_path)
+    try:
+        full_build(repo, store)
+    finally:
+        store.close()
+
+    conn = sqlite3.connect(db_path)
+    try:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(edges)")}
+        assert "target_name" in columns
+
+        rows = conn.execute(
+            "SELECT target_qualified, target_name FROM edges WHERE kind = 'CALLS'"
+        ).fetchall()
+        assert rows
+        for target_qualified, target_name in rows:
+            assert target_name
+            assert target_name == target_qualified.rsplit("::", 1)[-1]
+    finally:
+        conn.close()
+
+    py_store = GraphStore(db_path)
+    try:
+        edges = py_store.search_edges_by_target_name("helper", kind="CALLS")
+        assert edges
+        assert {edge.target_qualified for edge in edges} == {"main.py::helper"}
+    finally:
+        py_store.close()
 
 
 def test_rust_backend_incremental_touch_updates_mtime_without_reparse(
