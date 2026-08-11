@@ -203,6 +203,11 @@ def get_flow(
                 ],
             }
 
+        resolved_step_count = int(flow.get("resolved_step_count") or len(flow.get("steps", [])))
+        missing_step_count = int(flow.get("missing_step_count") or 0)
+        stored_node_count = int(flow.get("node_count") or resolved_step_count)
+        is_stale_flow = missing_step_count > 0
+
         _source_max_chars = 2000
         # Optionally include source snippets for each step
         if include_source and "steps" in flow:
@@ -226,23 +231,50 @@ def get_flow(
                     except (OSError, UnicodeDecodeError):
                         step["source"] = "(could not read file)"
 
-        result: dict[str, Any] = {
-            "status": "ok",
-            "summary": (
-                f"Flow '{flow['name']}': {flow['node_count']} nodes, "
+        if is_stale_flow:
+            summary = (
+                f"Flow '{flow['name']}': {resolved_step_count}/{stored_node_count} steps "
+                f"resolved ({missing_step_count} missing), depth {flow['depth']}, "
+                f"criticality {flow['criticality']:.4f}"
+            )
+        else:
+            summary = (
+                f"Flow '{flow['name']}': {stored_node_count} nodes, "
                 f"depth {flow['depth']}, "
                 f"criticality {flow['criticality']:.4f}"
-            ),
+            )
+
+        stale_missingness = (
+            [
+                {
+                    "reason_code": "stale_flow",
+                    "severity": "medium",
+                    "claim_effect": (
+                        f"{missing_step_count} stored step(s) no longer resolve to live graph nodes"
+                    ),
+                }
+            ]
+            if is_stale_flow
+            else []
+        )
+
+        result: dict[str, Any] = {
+            "status": "degraded" if is_stale_flow else "ok",
+            "summary": summary,
             "flow": flow,
             "flow_coverage": {
                 "source_included": bool(include_source),
-                "step_count": len(flow.get("steps", [])),
+                "step_count": resolved_step_count,
+                "stored_node_count": stored_node_count,
+                "resolved_step_count": resolved_step_count,
+                "missing_step_count": missing_step_count,
                 "truncated": bool(flow.get("truncated", False)),
                 "coverage_guarantee": False,
             },
             "answerability": answerability,
             "missingness": [
                 *missingness_from_answerability(answerability),
+                *stale_missingness,
                 {
                     "reason_code": "source_inclusion_explicit",
                     "severity": "low",
@@ -253,26 +285,37 @@ def get_flow(
         flow_guidance = [
             make_guidance_item(
                 claim=(
-                    f"Flow '{flow['name']}' has {flow['node_count']} step(s) "
-                    f"with criticality {flow['criticality']:.4f}"
-                    + (
-                        f", including {flow.get('bridge_step_count', 0)} bridge step(s)."
-                        if int(flow.get("bridge_step_count") or 0)
-                        else "."
+                    (
+                        f"Flow '{flow['name']}' resolves {resolved_step_count} of "
+                        f"{stored_node_count} stored step(s); {missing_step_count} step(s) "
+                        f"are missing from the live graph."
+                    )
+                    if is_stale_flow
+                    else (
+                        f"Flow '{flow['name']}' has {stored_node_count} step(s) "
+                        f"with criticality {flow['criticality']:.4f}"
+                        + (
+                            f", including {flow.get('bridge_step_count', 0)} bridge step(s)."
+                            if int(flow.get("bridge_step_count") or 0)
+                            else "."
+                        )
                     )
                 ),
                 evidence={
                     "type": "computed",
                     "flow_id": flow.get("id"),
                     "name": flow.get("name"),
-                    "node_count": flow.get("node_count"),
+                    "node_count": stored_node_count,
+                    "resolved_step_count": resolved_step_count,
+                    "missing_step_count": missing_step_count,
                     "depth": flow.get("depth"),
                     "criticality": flow.get("criticality"),
                     "bridge_step_count": flow.get("bridge_step_count", 0),
                     "source_included": bool(include_source),
                 },
-                confidence="medium",
+                confidence="medium" if not is_stale_flow else "low",
                 missingness=[
+                    *stale_missingness,
                     {
                         "reason_code": "flow_path_is_stored_extraction",
                         "severity": "low",
@@ -293,10 +336,16 @@ def get_flow(
                     ),
                 ],
                 action=(
-                    'review_tool mode="impact" -- check blast radius along this flow; '
-                    'query_graph_tool pattern="docs_for" -- follow bridge docs when present'
+                    "dagayn build --local-embedding none -- refresh stored flows; "
+                    'review_tool mode="impact" -- check blast radius along resolved steps'
+                    if is_stale_flow
+                    else (
+                        'review_tool mode="impact" -- check blast radius along this flow; '
+                        'query_graph_tool pattern="docs_for" -- follow bridge docs when present'
+                    )
                 ),
                 reason_codes=["stored_flow_extraction"]
+                + (["stale_flow"] if is_stale_flow else [])
                 + (
                     ["cross_artifact_bridge_step"]
                     if int(flow.get("bridge_step_count") or 0)
