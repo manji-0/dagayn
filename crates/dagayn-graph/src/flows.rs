@@ -71,6 +71,7 @@ impl GraphStore {
     pub fn insert_flows_json(&mut self, flows_json: &str) -> Result<i64> {
         let flows: Vec<FlowInput> = serde_json::from_str(flows_json)?;
         let tx = self.conn.transaction()?;
+        delete_flows_for_entry_point_ids(&tx, &flows)?;
         store_flows_tx(&tx, &flows)?;
         tx.commit()?;
         Ok(flows.len() as i64)
