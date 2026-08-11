@@ -379,6 +379,11 @@ def _decode_vector(blob: bytes) -> list[float]:
     return list(struct.unpack(f"{n}f", blob))
 
 
+def _vector_byte_length(dim: int) -> int:
+    """Return the byte length of a float32 vector with *dim* elements."""
+    return dim * 4
+
+
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
     """Compute cosine similarity between two vectors."""
     if len(a) != len(b):
@@ -393,12 +398,12 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
 
 # ---------------------------------------------------------------------------
 # Optional numpy vector cache (used when numpy is installed).
-# key: (db_path_str, provider_name, stamp_ns)
+# key: (db_path_str, provider_name, stamp_ns, vector_bytes)
 # value: (matrix float32 (N, D), names list[str], row_norms float32 (N,))
 # stamp_ns mirrors the Rust backend: max(mtime of db, -wal, -shm).
 # ---------------------------------------------------------------------------
 
-_np_vec_cache: dict[tuple[str, str, int], tuple[Any, list[str], Any]] = {}
+_np_vec_cache: dict[tuple[str, str, int, int], tuple[Any, list[str], Any]] = {}
 
 
 def _file_mtime_ns(path: Path) -> int:
@@ -416,13 +421,21 @@ def _db_stamp_ns(db_path: Path) -> int:
     return stamp
 
 
-def _load_vec_matrix(conn: sqlite3.Connection, provider_name: str) -> tuple[Any, list[str], Any]:
-    """Load all embedding rows for *provider_name* into a numpy matrix."""
+def _load_vec_matrix(
+    conn: sqlite3.Connection, provider_name: str, *, vector_bytes: int | None = None
+) -> tuple[Any, list[str], Any]:
+    """Load embedding rows for *provider_name* into a numpy matrix."""
     assert np is not None
-    rows = conn.execute(
-        "SELECT qualified_name, vector FROM embeddings WHERE provider = ?",
-        (provider_name,),
-    ).fetchall()
+    if vector_bytes is None:
+        sql = "SELECT qualified_name, vector FROM embeddings WHERE provider = ?"
+        params: tuple[Any, ...] = (provider_name,)
+    else:
+        sql = (
+            "SELECT qualified_name, vector FROM embeddings "
+            "WHERE provider = ? AND length(vector) = ?"
+        )
+        params = (provider_name, vector_bytes)
+    rows = conn.execute(sql, params).fetchall()
     if not rows:
         empty = np.empty((0, 0), dtype=np.float32)
         return empty, [], np.empty((0,), dtype=np.float32)
@@ -433,7 +446,7 @@ def _load_vec_matrix(conn: sqlite3.Connection, provider_name: str) -> tuple[Any,
     return matrix, names, row_norms
 
 
-def _numpy_vec_cache() -> dict[tuple[str, str, int], tuple[Any, list[str], Any]]:
+def _numpy_vec_cache() -> dict[tuple[str, str, int, int], tuple[Any, list[str], Any]]:
     """Return the numpy vector cache via the public embeddings shim."""
     from . import embeddings as emb
 
@@ -441,12 +454,15 @@ def _numpy_vec_cache() -> dict[tuple[str, str, int], tuple[Any, list[str], Any]]
 
 
 def _load_vec_matrix_for_search(
-    conn: sqlite3.Connection, provider_name: str
+    conn: sqlite3.Connection,
+    provider_name: str,
+    *,
+    vector_bytes: int | None = None,
 ) -> tuple[Any, list[str], Any]:
     """Load vectors through the public embeddings shim for monkeypatch compatibility."""
     from . import embeddings as emb
 
-    return emb._load_vec_matrix(conn, provider_name)
+    return emb._load_vec_matrix(conn, provider_name, vector_bytes=vector_bytes)
 
 
 def _invalidate_np_vec_cache(db_path: Path, provider_name: str | None = None) -> None:
@@ -466,10 +482,11 @@ def _python_loop_search(
     limit: int,
 ) -> list[tuple[str, float]]:
     """Pure-Python cosine scan over provider-partitioned embedding rows."""
+    vector_bytes = _vector_byte_length(len(query_vec))
     scored: list[tuple[str, float]] = []
     cursor = conn.execute(
-        "SELECT qualified_name, vector FROM embeddings WHERE provider = ?",
-        (provider_name,),
+        "SELECT qualified_name, vector FROM embeddings WHERE provider = ? AND length(vector) = ?",
+        (provider_name, vector_bytes),
     )
     while True:
         rows = cursor.fetchmany(500)
@@ -492,14 +509,22 @@ def _numpy_matmul_search(
 ) -> list[tuple[str, float]]:
     """BLAS matmul cosine search over a process-level cached float32 matrix."""
     assert np is not None
+    vector_bytes = _vector_byte_length(len(query_vec))
     stamp_ns = _db_stamp_ns(db_path)
-    cache_key = (str(db_path), provider_name, stamp_ns)
+    cache_key = (str(db_path), provider_name, stamp_ns, vector_bytes)
     vec_cache = _numpy_vec_cache()
     if cache_key not in vec_cache:
-        vec_cache[cache_key] = _load_vec_matrix_for_search(conn, provider_name)
+        vec_cache[cache_key] = _load_vec_matrix_for_search(
+            conn, provider_name, vector_bytes=vector_bytes
+        )
         # Evict stale entries for the same (path, provider) to bound memory
         for key in list(vec_cache):
-            if key != cache_key and key[0] == cache_key[0] and key[1] == cache_key[1]:
+            if (
+                key != cache_key
+                and key[0] == cache_key[0]
+                and key[1] == cache_key[1]
+                and key[3] == cache_key[3]
+            ):
                 del vec_cache[key]
 
     matrix, names, row_norms = vec_cache[cache_key]
@@ -612,11 +637,7 @@ class EmbeddingStore:
         self.available = self.provider is not None
         self.db_path = Path(db_path)
         self.text_mode = _embedding_text_mode(text_mode)
-        self.provider_key = (
-            _embedding_provider_key(self.provider.name, self.text_mode)
-            if self.provider is not None
-            else None
-        )
+        self._provider_key_override: str | None = None
         self.source_root = Path(source_root) if source_root is not None else None
         self.graph_facts_by_qualified_name: dict[str, dict[str, list[str]]] = {}
         self._conn = sqlite3.connect(
@@ -645,6 +666,18 @@ class EmbeddingStore:
 
     def close(self) -> None:
         self._conn.close()
+
+    @property
+    def provider_key(self) -> str | None:
+        if self._provider_key_override is not None:
+            return self._provider_key_override
+        if self.provider is None:
+            return None
+        return _embedding_provider_key(self.provider.name, self.text_mode)
+
+    @provider_key.setter
+    def provider_key(self, value: str | None) -> None:
+        self._provider_key_override = value
 
     def checkpoint_writes(self, *, truncate: bool = False) -> None:
         """Checkpoint pending WAL pages after embedding writes."""
@@ -977,16 +1010,37 @@ class EmbeddingStore:
     def count(self) -> int:
         return self._conn.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0]
 
-    def count_provider(self) -> int:
+    def count_provider(self, *, dimension: int | None = None) -> int:
         if not self.provider:
             return 0
         provider_name = self._provider_key_for_lookup()
         if provider_name is None:
             return 0
+        if dimension is None:
+            return self._conn.execute(
+                "SELECT COUNT(*) FROM embeddings WHERE provider = ?",
+                (provider_name,),
+            ).fetchone()[0]
         return self._conn.execute(
-            "SELECT COUNT(*) FROM embeddings WHERE provider = ?",
-            (provider_name,),
+            "SELECT COUNT(*) FROM embeddings WHERE provider = ? AND length(vector) = ?",
+            (provider_name, _vector_byte_length(dimension)),
         ).fetchone()[0]
+
+    def stored_vector_dimension(self) -> int | None:
+        """Return the dimension of the first stored vector for this provider, if any."""
+        provider_name = self._provider_key_for_lookup()
+        if provider_name is None:
+            return None
+        row = self._conn.execute(
+            "SELECT length(vector) FROM embeddings WHERE provider = ? LIMIT 1",
+            (provider_name,),
+        ).fetchone()
+        if not row or not row[0]:
+            return None
+        byte_len = int(row[0])
+        if byte_len % 4 != 0:
+            return None
+        return byte_len // 4
 
 
 def _draw_embed_progress(done: int, total: int, elapsed: float, *, end: bool = False) -> None:

@@ -12,6 +12,58 @@ from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
+
+def _parse_openai_identity_suffixes(tail: str) -> tuple[str, int | None, int | None]:
+    """Parse optional ``#max_length=`` and ``#dim=`` suffixes from an identity tail."""
+    max_length: int | None = None
+    dimension: int | None = None
+    while True:
+        if "#dim=" in tail:
+            tail, _, raw = tail.rpartition("#dim=")
+            if not tail:
+                return "", None, None
+            try:
+                dimension = int(raw)
+            except ValueError:
+                return "", None, None
+            continue
+        if "#max_length=" in tail:
+            tail, _, raw = tail.rpartition("#max_length=")
+            if not tail:
+                return "", None, None
+            try:
+                max_length = int(raw)
+            except ValueError:
+                return "", None, None
+            continue
+        break
+    return tail, max_length, dimension
+
+
+def _format_openai_identity_suffixes(*, max_length: int | None, dimension: int) -> str:
+    parts: list[str] = []
+    if max_length is not None:
+        parts.append(f"#max_length={max_length}")
+    parts.append(f"#dim={dimension}")
+    return "".join(parts)
+
+
+def _openai_provider_names_match(persisted: str, computed: str) -> bool:
+    """Return True when *computed* matches *persisted*, including legacy names."""
+    if persisted == computed:
+        return True
+    if "#dim=" in persisted:
+        return False
+    suffix = computed[len(persisted) :]
+    if not suffix.startswith("#dim="):
+        return False
+    try:
+        int(suffix[5:])
+    except ValueError:
+        return False
+    return True
+
+
 # ---------------------------------------------------------------------------
 # Provider Interface and Implementations
 # ---------------------------------------------------------------------------
@@ -275,17 +327,17 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
             model, base_url = provider_name[len(prefix) :].rsplit("@", 1)
         except ValueError:
             return None
-        max_length = None
-        if "#max_length=" in base_url:
-            base_url, raw_max_length = base_url.rsplit("#max_length=", 1)
-            try:
-                max_length = int(raw_max_length)
-            except ValueError:
-                return None
+        base_url, max_length, dimension = _parse_openai_identity_suffixes(base_url)
         if not model or not base_url or not _is_localhost_url(base_url):
             return None
-        provider = cls(api_key=api_key, base_url=base_url, model=model, max_length=max_length)
-        if provider.name != provider_name:
+        provider = cls(
+            api_key=api_key,
+            base_url=base_url,
+            model=model,
+            dimension=dimension,
+            max_length=max_length,
+        )
+        if not _openai_provider_names_match(provider_name, provider.name):
             return None
         return provider
 
@@ -521,7 +573,10 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         # and re-using cached embeddings across them silently corrupts
         # semantic ranking. Including the host partitions the embeddings
         # table so switching CRG_OPENAI_BASE_URL triggers a safe re-embed.
-        suffix = f"#max_length={self._max_length}" if self._max_length is not None else ""
+        suffix = _format_openai_identity_suffixes(
+            max_length=self._max_length,
+            dimension=self.dimension,
+        )
         return f"openai:{self._model}@{self._host_key}{suffix}"
 
 

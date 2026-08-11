@@ -612,7 +612,7 @@ class TestHybridSearch:
         monkeypatch.delenv("CRG_OPENAI_MODEL", raising=False)
         _emb_failure_cache.clear()
         _emb_cache.clear()
-        provider_name = "openai:qwen@http://127.0.0.1:18080/v1"
+        provider_name = "openai:qwen@http://127.0.0.1:18080/v1#dim=2"
         node = self.store.get_node("auth.py::authenticate")
         assert node is not None
         self.store._conn.execute(
@@ -704,7 +704,7 @@ class TestHybridSearch:
         monkeypatch.delenv("CRG_OPENAI_API_KEY", raising=False)
         monkeypatch.delenv("CRG_OPENAI_BASE_URL", raising=False)
         monkeypatch.delenv("CRG_OPENAI_MODEL", raising=False)
-        provider_name = "openai:qwen@http://127.0.0.1:18080/v1"
+        provider_name = "openai:qwen@http://127.0.0.1:18080/v1#dim=2"
         self.store._conn.execute(
             """
             CREATE TABLE IF NOT EXISTS embeddings (
