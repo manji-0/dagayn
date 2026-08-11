@@ -180,28 +180,22 @@ class TestChanges:
         """Cached diff ranges must refresh after local edits in a long-lived process."""
         repo = tmp_path / "repo"
         repo.mkdir()
-        subprocess.run(["git", "init"], cwd=repo, capture_output=True, check=True)
-        subprocess.run(
-            ["git", "config", "user.email", "test@example.com"],
-            cwd=repo,
-            capture_output=True,
-            check=True,
-        )
-        subprocess.run(
-            ["git", "config", "user.name", "Test"],
-            cwd=repo,
-            capture_output=True,
-            check=True,
-        )
+
+        def _git(*args: str) -> None:
+            subprocess.run(
+                ["git", "-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false", *args],
+                cwd=repo,
+                capture_output=True,
+                check=True,
+            )
+
+        _git("init")
+        _git("config", "user.email", "test@example.com")
+        _git("config", "user.name", "Test")
         target = repo / "app.py"
         target.write_text("def main():\n    return 1\n", encoding="utf-8")
-        subprocess.run(["git", "add", "."], cwd=repo, capture_output=True, check=True)
-        subprocess.run(
-            ["git", "commit", "-m", "initial"],
-            cwd=repo,
-            capture_output=True,
-            check=True,
-        )
+        _git("add", ".")
+        _git("commit", "-m", "initial")
 
         calls: list[int] = []
 
