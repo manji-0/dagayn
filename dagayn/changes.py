@@ -342,7 +342,7 @@ def _decode_git_quoted_path(text: str) -> str:
         if i >= len(inner):
             break
         esc = inner[i]
-        if esc in ('\\', '"'):
+        if esc in ("\\", '"'):
             out.extend(esc.encode("ascii"))
             i += 1
         elif esc in "01234567":
