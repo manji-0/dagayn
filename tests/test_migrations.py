@@ -73,6 +73,68 @@ class TestMigrations:
         columns = [row[1] if isinstance(row, tuple) else row["name"] for row in cursor]
         assert "target_name" in columns
 
+    def test_python_open_backfills_empty_target_name_at_schema_v14(self, tmp_path):
+        """Python GraphStore open must heal Rust v14 DBs with empty target_name rows."""
+        db_path = tmp_path / "graph.db"
+        conn = sqlite3.connect(db_path)
+        try:
+            conn.executescript(
+                """
+                CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                INSERT INTO metadata (key, value) VALUES ('schema_version', '14');
+                CREATE TABLE nodes (
+                    id INTEGER PRIMARY KEY,
+                    kind TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    qualified_name TEXT NOT NULL UNIQUE,
+                    file_path TEXT NOT NULL,
+                    line_start INTEGER,
+                    line_end INTEGER,
+                    language TEXT,
+                    params TEXT,
+                    return_type TEXT,
+                    signature TEXT,
+                    extra TEXT DEFAULT '{}',
+                    file_hash TEXT,
+                    community_id INTEGER,
+                    hub_score REAL DEFAULT 0.0,
+                    bridge_score REAL DEFAULT 0.0
+                );
+                CREATE TABLE edges (
+                    id INTEGER PRIMARY KEY,
+                    kind TEXT NOT NULL,
+                    source_qualified TEXT NOT NULL,
+                    target_qualified TEXT NOT NULL,
+                    target_name TEXT NOT NULL DEFAULT '',
+                    file_path TEXT NOT NULL,
+                    line INTEGER,
+                    extra TEXT DEFAULT '{}',
+                    confidence REAL DEFAULT 1.0,
+                    confidence_tier TEXT DEFAULT 'EXTRACTED',
+                    updated_at REAL
+                );
+                INSERT INTO nodes (id, kind, name, qualified_name, file_path)
+                VALUES (1, 'Function', 'helper', 'main.py::helper', 'main.py');
+                INSERT INTO edges (
+                    kind, source_qualified, target_qualified, target_name, file_path
+                ) VALUES ('CALLS', 'main.py::main', 'main.py::helper', '', 'main.py');
+                """
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        store = GraphStore(db_path)
+        try:
+            row = store._conn.execute(
+                "SELECT target_name FROM edges WHERE kind = 'CALLS'"
+            ).fetchone()
+            assert row["target_name"] == "helper"
+            edges = store.search_edges_by_target_name("helper", kind="CALLS")
+            assert len(edges) == 1
+        finally:
+            store.close()
+
     def test_flows_table_exists_after_migration(self):
         """The flows and flow_memberships tables should exist after migration."""
         tables = _get_table_names(self.store._conn)

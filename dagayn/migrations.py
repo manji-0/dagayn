@@ -299,8 +299,13 @@ def _edge_target_name(target_qualified: str) -> str:
     return target_qualified.rsplit("::", 1)[-1]
 
 
-def _migrate_v14(conn: sqlite3.Connection) -> None:
-    """v14: Add normalized edge target names for indexed bare-name lookups."""
+def ensure_edge_target_name_column(conn: sqlite3.Connection) -> int:
+    """Idempotently add and backfill ``edges.target_name`` for name-based lookups.
+
+    Rust GraphStore::open runs the same ensure path. Python must mirror it on
+    every open so refactor/rename/dead_code tools heal legacy DBs without a
+    full Rust rebuild.
+    """
     if not _has_column(conn, "edges", "target_name"):
         conn.execute("ALTER TABLE edges ADD COLUMN target_name TEXT NOT NULL DEFAULT ''")
     rows = conn.execute(
@@ -320,7 +325,15 @@ def _migrate_v14(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_edges_target_name_kind ON edges(target_name, kind)"
     )
-    logger.info("Migration v14: populated normalized edge target names")
+    conn.commit()
+    return len(rows)
+
+
+def _migrate_v14(conn: sqlite3.Connection) -> None:
+    """v14: Add normalized edge target names for indexed bare-name lookups."""
+    updated = ensure_edge_target_name_column(conn)
+    if updated:
+        logger.info("Migration v14: populated normalized edge target names")
 
 
 def _migrate_v15(conn: sqlite3.Connection) -> None:

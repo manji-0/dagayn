@@ -90,6 +90,7 @@ class GraphStore(
             )
             self._conn.commit()
         migrations.run_migrations(self._conn)
+        migrations.ensure_edge_target_name_column(self._conn)
         self._nxg_cache: nx.DiGraph | None = None
         self._cache_lock = threading.Lock()
         # Cached ``repo_root`` metadata — avoids one SELECT per path
