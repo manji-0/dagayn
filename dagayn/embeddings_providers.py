@@ -41,11 +41,12 @@ def _parse_openai_identity_suffixes(tail: str) -> tuple[str, int | None, int | N
     return tail, max_length, dimension
 
 
-def _format_openai_identity_suffixes(*, max_length: int | None, dimension: int) -> str:
+def _format_openai_identity_suffixes(*, max_length: int | None, dimension: int | None) -> str:
     parts: list[str] = []
     if max_length is not None:
         parts.append(f"#max_length={max_length}")
-    parts.append(f"#dim={dimension}")
+    if dimension is not None:
+        parts.append(f"#dim={dimension}")
     return "".join(parts)
 
 
@@ -599,7 +600,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         # table so switching CRG_OPENAI_BASE_URL triggers a safe re-embed.
         suffix = _format_openai_identity_suffixes(
             max_length=self._max_length,
-            dimension=self.dimension,
+            dimension=self._dimension,
         )
         return f"openai:{self._model}@{self._host_key}{suffix}"
 

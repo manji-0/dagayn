@@ -48,6 +48,7 @@ def test_fts_tokenize_shim_reexports_graph_impl():
 def test_embedding_health_available_uses_status_field():
     assert embedding_health_available({"status": "available"}) is True
     assert embedding_health_available({"status": "provider_unavailable"}) is False
+    assert embedding_health_available({"status": "not_requested"}) is True
     assert embedding_health_available(None) is True
     assert embedding_health_available({}) is True
 

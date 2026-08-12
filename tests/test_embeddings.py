@@ -1364,7 +1364,7 @@ class TestGetProviderModel:
             provider = get_provider(provider=None)
 
         assert isinstance(provider, OpenAIEmbeddingProvider)
-        assert provider.name == "openai:bge-m3-gguf-q8_0@http://127.0.0.1:18080/v1#dim=1536"
+        assert provider.name == "openai:bge-m3-gguf-q8_0@http://127.0.0.1:18080/v1"
 
     def test_removed_local_provider_returns_none(self, caplog):
         with patch.dict(os.environ, {}, clear=True):
@@ -1468,7 +1468,7 @@ class TestPersistedProviderResolution:
         legacy = "openai:qwen@http://127.0.0.1:18080/v1"
         provider = provider_from_persisted_name(legacy)
         assert provider is not None
-        assert provider.name == f"{legacy}#dim=1536"
+        assert provider.name == legacy
 
     def test_legacy_provider_rows_remain_searchable_after_dim_suffix_upgrade(self, tmp_path):
         legacy = "openai:qwen@http://127.0.0.1:18080/v1"
@@ -1491,6 +1491,46 @@ class TestPersistedProviderResolution:
             assert store.count_provider(dimension=2) == 1
         finally:
             store.close()
+
+    def test_embed_nodes_persists_probed_dimension_in_provider_key(self, tmp_path):
+        provider = OpenAIEmbeddingProvider(
+            api_key="k",
+            base_url="http://127.0.0.1:3000/v1",
+            model="bge-m3-gguf-q8_0",
+        )
+        node = GraphNode(
+            id=1,
+            kind="Function",
+            name="entry",
+            qualified_name="app.py::entry",
+            file_path="app.py",
+            line_start=1,
+            line_end=1,
+            language="python",
+            parent_name=None,
+            params=None,
+            return_type=None,
+            is_test=False,
+            file_hash=None,
+            extra={},
+            signature=None,
+        )
+        with patch.object(
+            provider,
+            "embed",
+            return_value=[[0.1] * 1024],
+        ):
+            store = EmbeddingStore(tmp_path / "graph.db", provider_instance=provider)
+            try:
+                assert store.embed_nodes([node]) == 1
+                row = store._conn.execute(
+                    "SELECT provider, length(vector) FROM embeddings WHERE qualified_name = ?",
+                    (node.qualified_name,),
+                ).fetchone()
+                assert "#dim=1024" in row["provider"]
+                assert row["length(vector)"] == 1024 * 4
+            finally:
+                store.close()
 
     def test_refuses_non_localhost_openai_provider(self):
         assert provider_from_persisted_name("openai:qwen@https://api.example.com/v1") is None
@@ -1672,7 +1712,20 @@ class TestOpenAIEmbeddingProvider:
             base_url="http://localhost:3000/v1",
             model="text-embedding-3-small",
         )
-        assert p.name == "openai:text-embedding-3-small@http://localhost:3000/v1#dim=1536"
+        assert p.name == "openai:text-embedding-3-small@http://localhost:3000/v1"
+
+    def test_name_includes_dimension_after_probe(self):
+        p = OpenAIEmbeddingProvider(
+            api_key="k",
+            base_url="http://localhost:3000/v1",
+            model="text-embedding-3-small",
+        )
+        with patch(
+            "urllib.request.urlopen",
+            return_value=_make_openai_response([[0.1] * 768]),
+        ):
+            p.embed_query("hello")
+        assert p.name == "openai:text-embedding-3-small@http://localhost:3000/v1#dim=768"
 
     def test_default_dimension_before_call(self):
         p = OpenAIEmbeddingProvider(
@@ -1885,9 +1938,9 @@ class TestOpenAIEmbeddingProvider:
             model="text-embedding-3-small",
         )
         assert p1.name != p2.name != p3.name
-        assert p1.name == "openai:text-embedding-3-small@https://api.openai.com/v1#dim=1536"
-        assert p2.name == "openai:text-embedding-3-small@https://openrouter.ai/api/v1#dim=1536"
-        assert p3.name == "openai:text-embedding-3-small@http://127.0.0.1:3000/v1#dim=1536"
+        assert p1.name == "openai:text-embedding-3-small@https://api.openai.com/v1"
+        assert p2.name == "openai:text-embedding-3-small@https://openrouter.ai/api/v1"
+        assert p3.name == "openai:text-embedding-3-small@http://127.0.0.1:3000/v1"
 
     def test_trailing_slash_does_not_change_identity(self):
         """A trailing slash on base_url must not cause a re-embed."""
@@ -1918,8 +1971,8 @@ class TestOpenAIEmbeddingProvider:
             model="m",
         )
         assert p1.name != p2.name
-        assert p1.name == "openai:m@https://gw.example.com/openai/v1#dim=1536"
-        assert p2.name == "openai:m@https://gw.example.com/vendor-b/v1#dim=1536"
+        assert p1.name == "openai:m@https://gw.example.com/openai/v1"
+        assert p2.name == "openai:m@https://gw.example.com/vendor-b/v1"
 
     def test_default_port_is_stripped_from_identity(self):
         """`https://host/v1` and `https://host:443/v1` must map to the
@@ -1984,7 +2037,7 @@ class TestOpenAIEmbeddingProvider:
             base_url="http://[::1]:3000/v1",
             model="m",
         )
-        assert p.name == "openai:m@http://[::1]:3000/v1#dim=1536"
+        assert p.name == "openai:m@http://[::1]:3000/v1"
 
     def test_response_with_missing_index_raises(self):
         """Length-only checks let duplicate/missing indices through. We
@@ -2076,8 +2129,8 @@ class TestOpenAIEmbeddingProvider:
         assert p_http.name != p_https.name
         # http default port 80 and https default port 443 are both stripped
         # from the host, but scheme is preserved in the identity.
-        assert p_http.name == "openai:m@http://gw.example.com/v1#dim=1536"
-        assert p_https.name == "openai:m@https://gw.example.com/v1#dim=1536"
+        assert p_http.name == "openai:m@http://gw.example.com/v1"
+        assert p_https.name == "openai:m@https://gw.example.com/v1"
 
     def test_mixed_indexed_unindexed_response_raises(self):
         """Some items with ``index``, others without: must refuse rather
@@ -2353,7 +2406,7 @@ class TestGetProviderOpenAI:
         with patch.dict("os.environ", self._MIN_ENV, clear=True):
             p = get_provider("openai")
         assert isinstance(p, OpenAIEmbeddingProvider)
-        assert p.name == "openai:text-embedding-3-small@http://127.0.0.1:3000/v1#dim=1536"
+        assert p.name == "openai:text-embedding-3-small@http://127.0.0.1:3000/v1"
 
     def test_missing_api_key_raises(self):
         env = {k: v for k, v in self._MIN_ENV.items() if k != "CRG_OPENAI_API_KEY"}
@@ -2377,7 +2430,7 @@ class TestGetProviderOpenAI:
         with patch.dict("os.environ", self._MIN_ENV, clear=True):
             p = get_provider("openai", model="text-embedding-3-large")
         assert p is not None
-        assert p.name == "openai:text-embedding-3-large@http://127.0.0.1:3000/v1#dim=1536"
+        assert p.name == "openai:text-embedding-3-large@http://127.0.0.1:3000/v1"
 
     def test_dimension_env_forwarded(self):
         env = {**self._MIN_ENV, "CRG_OPENAI_DIMENSION": "256"}
@@ -2395,7 +2448,7 @@ class TestGetProviderOpenAI:
         assert p is not None
         assert (
             p.name
-            == "openai:text-embedding-3-small@http://127.0.0.1:3000/v1#max_length=2048#dim=1536"
+            == "openai:text-embedding-3-small@http://127.0.0.1:3000/v1#max_length=2048"
         )
 
     def test_localhost_suppresses_egress_warning(self, capsys):

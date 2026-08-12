@@ -715,7 +715,7 @@ class EmbeddingStore:
             return 0
 
         # Filter to nodes that need embedding
-        provider_name = self.provider_key or self.provider.name
+        provider_name = self._provider_key_for_lookup() or self.provider.name
         candidate_nodes = [n for n in nodes if n.kind != "File"]
         if not candidate_nodes:
             return 0
@@ -796,6 +796,8 @@ class EmbeddingStore:
                     f"{batch_number}/{batch_total} returned {len(vectors)} vector(s) "
                     f"for {len(batch)} node(s), first={first_qn!r}."
                 )
+            if vectors and getattr(self.provider, "_dimension", None) is None:
+                self.provider._dimension = len(vectors[0])
             elapsed_batch = time.monotonic() - batch_started
             if slow_batch_seconds and elapsed_batch >= slow_batch_seconds:
                 logger.warning(
@@ -811,10 +813,16 @@ class EmbeddingStore:
                 """INSERT OR REPLACE INTO embeddings (qualified_name, vector, text_hash, provider)
                    VALUES (?, ?, ?, ?)""",
                 [
-                    (node.qualified_name, _encode_vector(vec), text_hash, provider_name)
+                    (
+                        node.qualified_name,
+                        _encode_vector(vec),
+                        text_hash,
+                        self.provider_key or self.provider.name,
+                    )
                     for (node, _text, text_hash), vec in zip(batch, vectors)
                 ],
             )
+            provider_name = self.provider_key or self.provider.name
             self._conn.commit()
             _invalidate_np_vec_cache(self.db_path, provider_name)
             embedded += len(batch)
@@ -853,10 +861,17 @@ class EmbeddingStore:
                     )
                 )
                 continue
+            if getattr(self.provider, "_dimension", None) is None:
+                self.provider._dimension = len(vectors[0])
             self._conn.execute(
                 """INSERT OR REPLACE INTO embeddings (qualified_name, vector, text_hash, provider)
                    VALUES (?, ?, ?, ?)""",
-                (node.qualified_name, _encode_vector(vectors[0]), text_hash, provider_name),
+                (
+                    node.qualified_name,
+                    _encode_vector(vectors[0]),
+                    text_hash,
+                    self.provider_key or self.provider.name,
+                ),
             )
             self._conn.commit()
             _invalidate_np_vec_cache(self.db_path, provider_name)
