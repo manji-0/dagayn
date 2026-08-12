@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 from .embeddings_providers import (
     EmbeddingProvider,
     _embedding_provider_key,
+    embedding_provider_lookup_candidates,
 )
 from .embeddings_text import (
     _build_graph_facts_by_qualified_name,
@@ -691,18 +692,17 @@ class EmbeddingStore:
         """Prefer mode-partitioned rows, falling back to legacy provider rows."""
         if not self.provider:
             return None
-        provider_name = self.provider_key or self.provider.name
-        count = self._conn.execute(
-            "SELECT COUNT(*) FROM embeddings WHERE provider = ?",
-            (provider_name,),
-        ).fetchone()[0]
-        if count or provider_name == self.provider.name:
-            return provider_name
-        legacy_count = self._conn.execute(
-            "SELECT COUNT(*) FROM embeddings WHERE provider = ?",
-            (self.provider.name,),
-        ).fetchone()[0]
-        return self.provider.name if legacy_count else provider_name
+        for candidate in embedding_provider_lookup_candidates(
+            self.provider_key,
+            self.provider.name,
+        ):
+            count = self._conn.execute(
+                "SELECT COUNT(*) FROM embeddings WHERE provider = ?",
+                (candidate,),
+            ).fetchone()[0]
+            if count:
+                return candidate
+        return self.provider_key or self.provider.name
 
     def embed_nodes(
         self,

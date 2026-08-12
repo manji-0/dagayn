@@ -651,11 +651,16 @@ def _embedding_search_with_health(
         provider_dim = emb_store.provider.dimension
         total_count = emb_store.count_provider()
         matching_count = emb_store.count_provider(dimension=provider_dim)
+        from .embeddings_providers import _openai_provider_names_match
+
         if (
             matching_count == 0
             and provider_name_hint
             and "#text=" not in provider_name_hint
-            and provider_name_hint == provider_name
+            and (
+                provider_name_hint == provider_name
+                or _openai_provider_names_match(provider_name_hint, provider_name)
+            )
         ):
             emb_store.provider_key = provider_name_hint
             provider_key = provider_name_hint

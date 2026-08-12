@@ -1470,6 +1470,28 @@ class TestPersistedProviderResolution:
         assert provider is not None
         assert provider.name == f"{legacy}#dim=1536"
 
+    def test_legacy_provider_rows_remain_searchable_after_dim_suffix_upgrade(self, tmp_path):
+        legacy = "openai:qwen@http://127.0.0.1:18080/v1"
+        provider = provider_from_persisted_name(legacy)
+        assert provider is not None
+
+        db_path = tmp_path / "graph.db"
+        store = EmbeddingStore(db_path, provider_instance=provider)
+        try:
+            vector = _encode_vector([1.0, 0.0])
+            store._conn.execute(
+                "INSERT INTO embeddings (qualified_name, provider, vector, text_hash) "
+                "VALUES (?, ?, ?, ?)",
+                ("app.py::entry", legacy, vector, "hash"),
+            )
+            store._conn.commit()
+
+            assert store._provider_key_for_lookup() == legacy
+            assert store.count_provider() == 1
+            assert store.count_provider(dimension=2) == 1
+        finally:
+            store.close()
+
     def test_refuses_non_localhost_openai_provider(self):
         assert provider_from_persisted_name("openai:qwen@https://api.example.com/v1") is None
 

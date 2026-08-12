@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import sys
 import time
 from abc import ABC, abstractmethod
@@ -62,6 +63,29 @@ def _openai_provider_names_match(persisted: str, computed: str) -> bool:
     except ValueError:
         return False
     return True
+
+
+_PROVIDER_DIM_SUFFIX_RE = re.compile(r"#dim=\d+")
+
+
+def strip_provider_dimension_suffix(provider_name: str) -> str:
+    """Return *provider_name* without any ``#dim=`` suffix segments."""
+    return _PROVIDER_DIM_SUFFIX_RE.sub("", provider_name)
+
+
+def embedding_provider_lookup_candidates(
+    provider_key: str | None,
+    provider_name: str,
+) -> list[str]:
+    """Return persisted provider keys to probe, newest identity first."""
+    candidates: list[str] = []
+    for key in (provider_key, provider_name):
+        if not key:
+            continue
+        for variant in (key, strip_provider_dimension_suffix(key)):
+            if variant and variant not in candidates:
+                candidates.append(variant)
+    return candidates
 
 
 # ---------------------------------------------------------------------------

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import sqlite3
 from pathlib import Path
 
 from ._shared import _add_local_embedding_args
@@ -25,20 +24,6 @@ def _resolve_local_embedding_mode(
     if normalized in {"low", "llama-qwen3", "qwen3", "qwen"}:
         return "llama-qwen3"
     return "bge-m3"
-
-
-def _embedding_provider_counts(db_path: Path) -> dict[str, int]:
-    try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-        try:
-            rows = conn.execute(
-                "SELECT provider, COUNT(*) FROM embeddings GROUP BY provider"
-            ).fetchall()
-        finally:
-            conn.close()
-    except sqlite3.Error:
-        return {}
-    return {str(provider): int(count) for provider, count in rows}
 
 
 def _resolve_serve_root(repo_root: str | None) -> Path:
