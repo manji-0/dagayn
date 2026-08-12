@@ -333,6 +333,18 @@ def _run_postprocess(
             warnings.append(f"Bare-name edge resolution failed: {type(e).__name__}: {e}")
 
         try:
+            from dagayn.postprocessing import _demote_unresolved_endpoint_edges
+
+            _demote_result: dict[str, Any] = {}
+            _demote_unresolved_endpoint_edges(store, _demote_result, warnings)
+            build_result["unresolved_endpoint_edges_demoted"] = _demote_result.get(
+                "unresolved_endpoint_edges_demoted", 0
+            )
+        except (sqlite3.OperationalError, ImportError) as e:
+            logger.warning("Unresolved endpoint demotion failed: %s", e)
+            warnings.append(f"Unresolved endpoint demotion failed: {type(e).__name__}: {e}")
+
+        try:
             from dagayn.postprocessing import _resolve_markdown_artifact_refs
 
             _result: dict[str, Any] = {}

@@ -703,16 +703,32 @@ def _resolve_bare_name_edges(
     warnings: list[str],
 ) -> None:
     """Resolve bare-name CALLS and INHERITS/IMPLEMENTS edges using import context."""
+    sql_store = store
+    owns_sql_store = False
     try:
-        resolve_calls = getattr(store, "resolve_bare_call_targets", None)
-        resolve_inherits = getattr(store, "resolve_bare_inheritance_targets", None)
-        if callable(resolve_calls):
-            result["bare_call_targets_resolved"] = int(resolve_calls())
-        if callable(resolve_inherits):
-            result["bare_inheritance_targets_resolved"] = int(resolve_inherits())
-    except (sqlite3.OperationalError, RuntimeError, TypeError) as e:
+        if not hasattr(store, "_conn"):
+            repo_root = _store_repo_root(store)
+            if repo_root is None:
+                return
+            sql_store, owns_sql_store = _sql_capable_store(store, repo_root)
+
+        from .bare_name_resolution import (
+            resolve_bare_call_targets,
+            resolve_bare_inheritance_targets,
+        )
+
+        result["bare_call_targets_resolved"] = int(resolve_bare_call_targets(sql_store))
+        result["bare_inheritance_targets_resolved"] = int(
+            resolve_bare_inheritance_targets(sql_store)
+        )
+    except (sqlite3.OperationalError, RuntimeError, TypeError, AttributeError) as e:
         logger.warning("Bare-name edge resolution failed: %s", e)
         warnings.append(f"Bare-name edge resolution failed: {type(e).__name__}: {e}")
+    finally:
+        if owns_sql_store and sql_store is not None:
+            closer = getattr(sql_store, "_force_close", None) or getattr(sql_store, "close", None)
+            if callable(closer):
+                closer()
 
 
 def _trace_flows(
