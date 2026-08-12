@@ -194,6 +194,46 @@ def _diff_ranges_cache_stamp(repo_root: str) -> str:
     return _git_diff_cache_stamp(root)
 
 
+def _paths_from_git_porcelain(porcelain: str) -> list[str]:
+    """Extract repo-relative paths from ``git status --porcelain`` output."""
+    paths: list[str] = []
+    for line in porcelain.splitlines():
+        if len(line) < 4:
+            continue
+        path_part = line[3:]
+        if " -> " in path_part:
+            path_part = path_part.rsplit(" -> ", 1)[1]
+        paths.append(path_part.strip())
+    return paths
+
+
+def _paths_from_svn_status(status: str) -> list[str]:
+    """Extract repo-relative paths from ``svn status`` output."""
+    paths: list[str] = []
+    for line in status.splitlines():
+        if len(line) < 8:
+            continue
+        path_part = line[8:].strip()
+        if path_part:
+            paths.append(path_part)
+    return paths
+
+
+def _worktree_mtime_fingerprint(root: Path, paths: list[str]) -> str:
+    """Fingerprint dirty paths by mtime_ns and size so successive edits invalidate."""
+    parts: list[str] = []
+    for rel in sorted(set(paths)):
+        full = root / rel
+        try:
+            st = full.stat()
+            parts.append(f"{rel}:{st.st_mtime_ns}:{st.st_size}")
+        except OSError:
+            parts.append(f"{rel}:missing")
+    if not parts:
+        return ""
+    return hashlib.sha256("\n".join(parts).encode()).hexdigest()[:16]
+
+
 def _git_diff_cache_stamp(root: Path) -> str:
     head = ""
     porcelain = ""
@@ -224,6 +264,9 @@ def _git_diff_cache_stamp(root: Path) -> str:
     if not head and not porcelain:
         return "0"
     status_hash = hashlib.sha256(porcelain.encode()).hexdigest()[:16]
+    mtime_fp = _worktree_mtime_fingerprint(root, _paths_from_git_porcelain(porcelain))
+    if mtime_fp:
+        return f"{head}:{status_hash}:{mtime_fp}"
     return f"{head}:{status_hash}"
 
 
@@ -259,6 +302,9 @@ def _svn_diff_cache_stamp(root: Path) -> str:
     except (OSError, subprocess.SubprocessError):
         pass
     status_hash = hashlib.sha256(status.encode()).hexdigest()[:16]
+    mtime_fp = _worktree_mtime_fingerprint(root, _paths_from_svn_status(status))
+    if mtime_fp:
+        return f"{revision}:{status_hash}:{mtime_fp}"
     return f"{revision}:{status_hash}"
 
 
@@ -882,11 +928,7 @@ def analyze_changes(
     base_unresolved = diff_parse_status == "base_unresolved"
 
     rust_analyze = getattr(store, "analyze_changes_json", None)
-    if (
-        callable(rust_analyze)
-        and include_heuristic_test_gap_evidence
-        and repo_root is None
-    ):
+    if callable(rust_analyze) and include_heuristic_test_gap_evidence and repo_root is None:
         try:
             return _annotate_review_priority_semantics(
                 json.loads(rust_analyze(changed_files, json.dumps(changed_ranges or {})))
@@ -1057,9 +1099,7 @@ def analyze_changes(
                         if has_base_snapshot
                         else "unknown"
                     ),
-                    "coverage_confidence": (
-                        "none" if can_check_heuristic_gap else "unchecked"
-                    ),
+                    "coverage_confidence": ("none" if can_check_heuristic_gap else "unchecked"),
                 }
             )
 

@@ -418,6 +418,49 @@ class TestChanges:
         finally:
             _parse_diff_ranges_cached.cache_clear()
 
+    def test_parse_diff_ranges_invalidates_on_successive_dirty_edits(self, tmp_path):
+        """Second edit to an already-dirty file must not reuse cached diff ranges."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+
+        def _git(*args: str) -> None:
+            subprocess.run(
+                ["git", "-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false", *args],
+                cwd=repo,
+                capture_output=True,
+                check=True,
+            )
+
+        _git("init")
+        _git("config", "user.email", "test@example.com")
+        _git("config", "user.name", "Test")
+        target = repo / "app.py"
+        target.write_text("def main():\n    return 1\n", encoding="utf-8")
+        _git("add", ".")
+        _git("commit", "-m", "initial")
+        target.write_text("def main():\n    return 2\n", encoding="utf-8")
+
+        calls: list[int] = []
+
+        def fake_git_diff(repo_root: str, base: str = "HEAD~1"):
+            calls.append(1)
+            from dagayn.changes import DiffParseResult
+
+            return DiffParseResult({"app.py": [(len(calls), len(calls))]}, "ok")
+
+        _parse_diff_ranges_cached.cache_clear()
+        try:
+            with patch("dagayn.changes.parse_git_diff", side_effect=fake_git_diff):
+                first = parse_diff_ranges(str(repo), "HEAD")
+                target.write_text("def main():\n    return 3\n\ndef extra():\n    pass\n")
+                second = parse_diff_ranges(str(repo), "HEAD")
+
+            assert first == {"app.py": [(1, 1)]}
+            assert second == {"app.py": [(2, 2)]}
+            assert len(calls) == 2
+        finally:
+            _parse_diff_ranges_cached.cache_clear()
+
     # ---------------------------------------------------------------
     # map_changes_to_nodes
     # ---------------------------------------------------------------
