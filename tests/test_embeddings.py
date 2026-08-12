@@ -181,9 +181,7 @@ class TestEmbeddingStatus:
     def test_prefers_metadata_active_provider_for_coverage(self, tmp_path):
         db_path = tmp_path / "graph.db"
         conn = self._make_db(db_path)
-        conn.execute(
-            "CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
-        )
+        conn.execute("CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
         conn.executemany(
             "INSERT INTO nodes (kind, qualified_name) VALUES (?, ?)",
             [("Function", "app.py::main"), ("Function", "app.py::helper")],
@@ -2446,10 +2444,7 @@ class TestGetProviderOpenAI:
         with patch.dict("os.environ", env, clear=True):
             p = get_provider("openai")
         assert p is not None
-        assert (
-            p.name
-            == "openai:text-embedding-3-small@http://127.0.0.1:3000/v1#max_length=2048"
-        )
+        assert p.name == "openai:text-embedding-3-small@http://127.0.0.1:3000/v1#max_length=2048"
 
     def test_localhost_suppresses_egress_warning(self, capsys):
         with patch.dict("os.environ", self._MIN_ENV, clear=True):

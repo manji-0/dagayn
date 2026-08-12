@@ -110,7 +110,7 @@ def _get_wakati(segmenter: str) -> Callable[[str], str] | None:
         return None if cached is _WAKATI_MISSING else cast(Callable[[str], str], cached)
 
     module_name, factory = _SEGMENTER_LOADERS.get(segmenter, (None, None))  # type: ignore[misc]
-    if module_name is None:
+    if module_name is None or factory is None:
         _wakati_cache[segmenter] = _WAKATI_MISSING
         return None
     try:

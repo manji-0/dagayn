@@ -97,14 +97,11 @@ def fts_index_health(conn: Any) -> dict[str, Any]:
 
 
 def delete_fts_for_node_ids(conn: Any, node_ids: list[int]) -> int:
-    """Delete FTS rows for the given node rowids."""
+    """Delete FTS rows for the given node rowids in one statement."""
     if not node_ids or not _table_exists(conn, "nodes_fts"):
         return 0
-    deleted = 0
-    for node_id in node_ids:
-        conn.execute(_FTS_DELETE_SQL, (node_id,))
-        deleted += 1
-    return deleted
+    conn.executemany(_FTS_DELETE_SQL, [(node_id,) for node_id in node_ids])
+    return len(node_ids)
 
 
 def delete_fts_for_file_paths(conn: Any, file_paths: list[str]) -> int:
@@ -171,12 +168,21 @@ def sync_fts_for_file_paths(
         return 0
     ensure_fts_table(conn)
     file_lines_cache: dict[Path, list[str] | None] = {}
-    for row in rows:
-        node_rowid = row["node_rowid"] if hasattr(row, "keys") else row[0]
-        conn.execute(
-            _FTS_INSERT_SQL,
-            build_fts_insert_row(node_rowid, row, repo_root, file_lines_cache),
-        )
+    # One statement for the whole file set: the per-row loop this replaces
+    # issued an INSERT per node from inside ``store_file_batch``, undoing the
+    # batched-write path that exists to keep large builds off an N+1 pattern.
+    conn.executemany(
+        _FTS_INSERT_SQL,
+        [
+            build_fts_insert_row(
+                row["node_rowid"] if hasattr(row, "keys") else row[0],
+                row,
+                repo_root,
+                file_lines_cache,
+            )
+            for row in rows
+        ],
+    )
     set_fts_watermark(conn)
     return len(rows)
 

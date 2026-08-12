@@ -508,7 +508,8 @@ class TestFlows:
 
         # Corrupt a second flow with a dangling membership unrelated to a.py.
         self.store._conn.execute(
-            "INSERT INTO flows (name, entry_point_id, path_json, node_count, depth, file_count, criticality) "
+            "INSERT INTO flows (name, entry_point_id, path_json, node_count, "
+            "depth, file_count, criticality) "
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
             ("xmain", 999999, "[]", 0, 0, 0, 0.0),
         )
@@ -904,9 +905,11 @@ class TestOrphanedStructurePruning:
         self._flow_graph()
         flow = get_flows(self.store)[0]
         flow_id = flow["id"]
-        stale_path = json.loads(self.store._conn.execute(
-            "SELECT path_json FROM flows WHERE id = ?", (flow_id,)
-        ).fetchone()[0])
+        stale_path = json.loads(
+            self.store._conn.execute(
+                "SELECT path_json FROM flows WHERE id = ?", (flow_id,)
+            ).fetchone()[0]
+        )
 
         self.store._conn.execute(
             "UPDATE flows SET path_json = ? WHERE id = ?",

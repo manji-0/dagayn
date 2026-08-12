@@ -666,6 +666,20 @@ def _embedding_search_with_health(
             provider_key = provider_name_hint
             total_count = emb_store.count_provider()
             matching_count = emb_store.count_provider(dimension=provider_dim)
+        if matching_count == 0 and total_count > 0 and "#dim=" not in provider_key:
+            # The dimension is not pinned in the provider identity, so the
+            # provider's declared default (1024 for a name-reconstructed OpenAI
+            # provider) says nothing about what is stored. Trust the rows: the
+            # query vector is length-checked against them at search time.
+            # Without this, an unpinned key reports ``dimension_mismatch`` and
+            # drops the whole semantic arm.
+            stored_dim = emb_store.stored_vector_dimension()
+            if stored_dim is not None and stored_dim != provider_dim:
+                matching_count = emb_store.count_provider(dimension=stored_dim)
+                if matching_count:
+                    provider_dim = stored_dim
+                    health["dimension_source"] = "stored_vectors"
+
         health["resolved_provider"] = provider_name
         health["resolved_provider_key"] = provider_key
         if provider_name_hint in {provider_name, provider_key}:
@@ -708,10 +722,15 @@ def _embedding_search_with_health(
                         }
                         health["matching_vector_count"] = matching_count
 
+        active_store = emb_store
+        if active_store is None:
+            health["status"] = "provider_unavailable"
+            return [], health
+
         if matching_count == 0:
             if total_count > 0:
                 health["status"] = "dimension_mismatch"
-                health["stored_dimension"] = emb_store.stored_vector_dimension()
+                health["stored_dimension"] = active_store.stored_vector_dimension()
                 return [], health
             health["status"] = "provider_mismatch" if provider_counts else "missing_vectors"
             return [], health
@@ -727,7 +746,7 @@ def _embedding_search_with_health(
             health["error"] = failure
             return [], health
 
-        results = emb_store.search(query, limit=limit)
+        results = active_store.search(query, limit=limit)
         nodes_by_qn = store.get_nodes_by_qualified_names([qn for qn, _ in results])
         id_scores: list[tuple[int, float]] = []
         for qn, score in results:

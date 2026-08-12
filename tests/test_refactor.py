@@ -2559,3 +2559,109 @@ class TestFindDeadCodeModuleScope:
         dead = find_dead_code(self.store)
         dead_names = {d["name"] for d in dead}
         assert "launch" not in dead_names
+
+
+class TestApplyRefactorIdentifierBoundaries:
+    """Edits must land on the recorded identifier, or be reported as skipped."""
+
+    def _pending(self, rid: str, target_file: Path, line: int, old: str, new: str) -> None:
+        with _refactor_lock:
+            _pending_refactors[rid] = {
+                "refactor_id": rid,
+                "type": "rename",
+                "old_name": old,
+                "new_name": new,
+                "edits": [
+                    {
+                        "file": str(target_file),
+                        "line": line,
+                        "old": old,
+                        "new": new,
+                        "confidence": "high",
+                    }
+                ],
+                "stats": {"high": 1, "medium": 0, "low": 0},
+                "created_at": time.time(),
+            }
+
+    def test_longer_identifier_on_the_same_line_is_left_alone(self):
+        """Substring replacement renamed a different function and missed the call."""
+        tmp_dir = Path(tempfile.mkdtemp())
+        (tmp_dir / ".git").mkdir()
+        target = tmp_dir / "core.py"
+        target.write_text(
+            "def caller(uid):\n    return get_user_profile(get_user(uid))\n",
+            encoding="utf-8",
+        )
+        try:
+            self._pending("bound1", target, 2, "get_user", "fetch_user")
+            result = apply_refactor("bound1", tmp_dir)
+
+            content = target.read_text(encoding="utf-8")
+            assert result["status"] == "ok"
+            assert result["edits_skipped"] == 0
+            assert "get_user_profile(fetch_user(uid))" in content
+            assert "fetch_user_profile" not in content
+        finally:
+            target.unlink(missing_ok=True)
+            (tmp_dir / ".git").rmdir()
+            tmp_dir.rmdir()
+
+    def test_string_literal_on_the_recorded_line_is_not_rewritten(self):
+        tmp_dir = Path(tempfile.mkdtemp())
+        (tmp_dir / ".git").mkdir()
+        target = tmp_dir / "core.py"
+        target.write_text('MSG = "user record"; user = 1\n', encoding="utf-8")
+        try:
+            self._pending("bound2", target, 1, "user", "person")
+            apply_refactor("bound2", tmp_dir)
+
+            content = target.read_text(encoding="utf-8")
+            assert content == 'MSG = "user record"; person = 1\n'
+        finally:
+            target.unlink(missing_ok=True)
+            (tmp_dir / ".git").rmdir()
+            tmp_dir.rmdir()
+
+    def test_moved_line_is_skipped_instead_of_replaced_elsewhere(self):
+        """The old whole-file fallback rewrote an arbitrary occurrence."""
+        tmp_dir = Path(tempfile.mkdtemp())
+        (tmp_dir / ".git").mkdir()
+        target = tmp_dir / "m.py"
+        target.write_text(
+            'MSG = "user record"\n\n\ndef user():\n    return 1\n',
+            encoding="utf-8",
+        )
+        try:
+            # The preview recorded line 1, which no longer holds the identifier.
+            self._pending("bound3", target, 1, "user", "person")
+            result = apply_refactor("bound3", tmp_dir)
+
+            content = target.read_text(encoding="utf-8")
+            assert result["status"] == "partial"
+            assert result["edits_applied"] == 0
+            assert result["edits_skipped"] == 1
+            assert result["skipped"][0]["reason"] == "line_no_longer_matches"
+            assert content == 'MSG = "user record"\n\n\ndef user():\n    return 1\n'
+        finally:
+            target.unlink(missing_ok=True)
+            (tmp_dir / ".git").rmdir()
+            tmp_dir.rmdir()
+
+    def test_dry_run_reports_skipped_edits(self):
+        tmp_dir = Path(tempfile.mkdtemp())
+        (tmp_dir / ".git").mkdir()
+        target = tmp_dir / "m.py"
+        target.write_text("x = 1\n", encoding="utf-8")
+        try:
+            self._pending("bound4", target, 5, "user", "person")
+            result = apply_refactor("bound4", tmp_dir, dry_run=True)
+
+            assert result["status"] == "partial"
+            assert result["edits_applied"] == 0
+            assert result["skipped"][0]["reason"] == "line_out_of_range"
+            assert target.read_text(encoding="utf-8") == "x = 1\n"
+        finally:
+            target.unlink(missing_ok=True)
+            (tmp_dir / ".git").rmdir()
+            tmp_dir.rmdir()

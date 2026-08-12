@@ -1027,9 +1027,7 @@ def get_architecture_overview(
             {
                 "name": c["name"],
                 "size": c["size"],
-                "assigned_member_count": c.get(
-                    "assigned_member_count", len(c.get("members", []))
-                ),
+                "assigned_member_count": c.get("assigned_member_count", len(c.get("members", []))),
                 "cohesion": c["cohesion"],
             }
             for c in communities

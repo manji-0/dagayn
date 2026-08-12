@@ -7,6 +7,7 @@ keeping low-confidence bridges as missingness/caveats rather than hard claims.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 # Tiers safe to treat as hard structural claims in impact/flow traversal.

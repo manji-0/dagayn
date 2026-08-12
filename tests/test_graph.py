@@ -358,9 +358,9 @@ class TestGraphStore:
         nodes_per_file = 5
         edges_per_file = 4
 
-        def make_batch():
+        def make_batch(count: int | None = None):
             batch = []
-            for idx in range(file_count):
+            for idx in range(file_count if count is None else count):
                 path = f"/bench/file_{idx}.py"
                 nodes = [self._make_file_node(path)]
                 edges = []
@@ -445,14 +445,28 @@ class TestGraphStore:
 
         # Mid-size fixture: 40 files × 5 nodes × 4 edges → legacy is hundreds of
         # per-row executes; batch is a handful of DELETE/INSERT statements plus
-        # two executemany calls.
+        # executemany calls for nodes, edges, and the FTS rows.
         assert batch_total * 2 < legacy_total, (
             f"expected store_file_batch DB calls ({batch_total}) to be "
             f"materially below legacy upsert loop ({legacy_total}); "
             f"legacy={legacy} batch={batched}"
         )
         assert batched["executemany"] >= 2, batched
-        assert batch_total < 20, f"store_file_batch issued unexpectedly many DB calls: {batched}"
+        assert batch_total < 40, f"store_file_batch issued unexpectedly many DB calls: {batched}"
+
+        # The invariant that matters is that the statement count does not scale
+        # with the batch size: incremental FTS maintenance adds a fixed handful
+        # (table probe, row fetch, watermark), not one statement per node.
+        self.store._conn.execute("DELETE FROM edges")
+        self.store._conn.execute("DELETE FROM nodes")
+        self.store._conn.commit()
+        double_batch = make_batch(file_count * 2)
+        doubled = count_db_calls(lambda: self.store.store_file_batch(double_batch))
+        doubled_total = doubled["execute"] + doubled["executemany"]
+        assert doubled_total <= batch_total + 2, (
+            "store_file_batch DB calls scale with batch size: "
+            f"{file_count} files={batched}, {file_count * 2} files={doubled}"
+        )
 
     def test_store_after_remove_no_transaction_error(self):
         """Regression test for #135: store_file_nodes_edges after

@@ -796,8 +796,11 @@ class EmbeddingStore:
                     f"{batch_number}/{batch_total} returned {len(vectors)} vector(s) "
                     f"for {len(batch)} node(s), first={first_qn!r}."
                 )
-            if vectors and getattr(self.provider, "_dimension", None) is None:
-                self.provider._dimension = len(vectors[0])
+            provider = self.provider
+            if vectors and provider is not None and getattr(provider, "_dimension", None) is None:
+                # Concrete providers learn their length from the first response;
+                # the abstract base does not declare the field.
+                setattr(provider, "_dimension", len(vectors[0]))  # noqa: B010
             elapsed_batch = time.monotonic() - batch_started
             if slow_batch_seconds and elapsed_batch >= slow_batch_seconds:
                 logger.warning(
@@ -817,7 +820,7 @@ class EmbeddingStore:
                         node.qualified_name,
                         _encode_vector(vec),
                         text_hash,
-                        self.provider_key or self.provider.name,
+                        self.provider_key or (provider.name if provider else ""),
                     )
                     for (node, _text, text_hash), vec in zip(batch, vectors)
                 ],
@@ -861,8 +864,11 @@ class EmbeddingStore:
                     )
                 )
                 continue
-            if getattr(self.provider, "_dimension", None) is None:
-                self.provider._dimension = len(vectors[0])
+            provider = self.provider
+            if provider is not None and getattr(provider, "_dimension", None) is None:
+                # Concrete providers learn their length from the first response;
+                # the abstract base does not declare the field.
+                setattr(provider, "_dimension", len(vectors[0]))  # noqa: B010
             self._conn.execute(
                 """INSERT OR REPLACE INTO embeddings (qualified_name, vector, text_hash, provider)
                    VALUES (?, ?, ?, ?)""",
@@ -870,7 +876,7 @@ class EmbeddingStore:
                     node.qualified_name,
                     _encode_vector(vectors[0]),
                     text_hash,
-                    self.provider_key or self.provider.name,
+                    self.provider_key or (provider.name if provider else ""),
                 ),
             )
             self._conn.commit()
@@ -983,7 +989,8 @@ class EmbeddingStore:
                 provider_names.append(self.provider.name)
             placeholders = ",".join("?" for _ in provider_names)
             rows = self._conn.execute(
-                f"SELECT qualified_name, provider FROM embeddings WHERE provider IN ({placeholders})",  # nosec B608
+                "SELECT qualified_name, provider FROM embeddings "  # nosec B608
+                f"WHERE provider IN ({placeholders})",
                 provider_names,
             ).fetchall()
             orphan_rows = [

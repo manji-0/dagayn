@@ -527,9 +527,22 @@ def _resolve_terraform_artifact_refs(
     """
     resolved = 0
     still_unresolved = 0
+    # The default Rust store exposes no sqlite handle; borrow a short-lived
+    # Python store on the same database, as the manifest bridge path does.
+    # Reaching for ``store._conn`` directly made every build and update on the
+    # default backend fail in post-processing.
+    sql_store: GraphStore = store
+    owns_sql_store = False
+    if not hasattr(store, "_conn"):
+        repo_root = _store_repo_root(store)
+        if repo_root is None:
+            result["terraform_artifact_refs_resolved"] = 0
+            result["terraform_artifact_refs_still_unresolved"] = 0
+            return
+        sql_store, owns_sql_store = _sql_capable_store(store, repo_root)
 
     try:
-        rows = store._conn.execute(
+        rows = sql_store._conn.execute(
             "SELECT id, target_qualified, extra "
             "FROM edges "
             "WHERE kind='CROSS_ARTIFACT' AND extra LIKE '%original_symbol_name%'"
@@ -559,7 +572,7 @@ def _resolve_terraform_artifact_refs(
 
         to_update: list[tuple[Any, ...]] = []
         for edge_id, current_target, sym, extra in edge_data:
-            match = _resolve_terraform_entrypoint_symbol(store, sym)
+            match = _resolve_terraform_entrypoint_symbol(sql_store, sym)
             if match is None:
                 still_unresolved += 1
                 continue
@@ -576,19 +589,31 @@ def _resolve_terraform_artifact_refs(
             resolved += 1
 
         if to_update:
-            store._conn.executemany(
+            sql_store._conn.executemany(
                 "UPDATE edges "
                 "SET target_qualified=?, target_name=?, extra=?, confidence=?, confidence_tier=? "
                 "WHERE id=?",
                 to_update,
             )
-            store.commit()
+            sql_store.commit()
+            # A Rust caller holds its own connection; drop its process caches.
+            invalidate_primary = getattr(store, "_invalidate_cache", None)
+            if callable(invalidate_primary) and store is not sql_store:
+                invalidate_primary()
 
         result["terraform_artifact_refs_resolved"] = resolved
         result["terraform_artifact_refs_still_unresolved"] = still_unresolved
     except (sqlite3.OperationalError, RuntimeError) as e:
         logger.warning("Terraform artifact ref resolution failed: %s", e)
         warnings.append(f"Terraform artifact ref resolution failed: {type(e).__name__}: {e}")
+    finally:
+        if owns_sql_store:
+            closer = getattr(sql_store, "_force_close", None) or getattr(sql_store, "close", None)
+            if callable(closer):
+                try:
+                    closer()
+                except Exception:  # noqa: BLE001 — defensive cleanup  # nosec B110
+                    pass
 
 
 def _resolve_terraform_entrypoint_symbol(

@@ -77,63 +77,154 @@ def _validate_edit_paths(edits: list[dict[str, Any]], repo_root: Path) -> dict[s
     return None
 
 
-def _apply_edit(content: str, file_path: Path, edit: dict[str, Any]) -> tuple[str, bool]:
+_IDENT_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_")
+
+
+def _identifier_spans(line: str, name: str) -> list[int]:
+    """Return start offsets where *name* occurs in *line* as a whole identifier.
+
+    Occurrences inside a single-line quoted string are skipped: the graph
+    records code sites, and rewriting a string literal that happens to contain
+    the same word is never what a rename meant. Strings opened on an earlier
+    line (triple-quoted blocks) are out of scope for this scan.
+    """
+    spans: list[int] = []
+    quote: str | None = None
+    index = 0
+    length = len(line)
+    while index < length:
+        char = line[index]
+        if quote is not None:
+            if char == "\\":
+                index += 2
+                continue
+            if char == quote:
+                quote = None
+            index += 1
+            continue
+        if char in "\"'":
+            quote = char
+            index += 1
+            continue
+        if line.startswith(name, index):
+            before_ok = index == 0 or line[index - 1] not in _IDENT_CHARS
+            after = index + len(name)
+            after_ok = after >= length or line[after] not in _IDENT_CHARS
+            if before_ok and after_ok:
+                spans.append(index)
+                index = after
+                continue
+        index += 1
+    return spans
+
+
+def _apply_edit(content: str, file_path: Path, edit: dict[str, Any]) -> tuple[str, str | None]:
+    """Apply one previewed edit. Returns ``(content, skip_reason)``.
+
+    The edit is applied only at the line the preview recorded, and only to
+    whole-identifier occurrences. There is deliberately no whole-file fallback:
+    replacing the first substring anywhere in the file rewrote unrelated
+    symbols and string literals while still reporting success.
+    """
     old_text = edit["old"]
     new_text = edit["new"]
-    if old_text not in content:
-        logger.warning("apply_refactor: old text %r not found in %s", old_text, file_path)
-        return content, False
-
     target_line = edit.get("line")
     if target_line is None:
-        return content.replace(old_text, new_text, 1), True
+        return content, "no_line_recorded"
 
     lines = content.splitlines(keepends=True)
-    idx = target_line - 1
-    if 0 <= idx < len(lines) and old_text in lines[idx]:
-        lines[idx] = lines[idx].replace(old_text, new_text, 1)
-        return "".join(lines), True
+    idx = int(target_line) - 1
+    if not (0 <= idx < len(lines)):
+        logger.warning(
+            "apply_refactor: line %s is past the end of %s (%d lines)",
+            target_line,
+            file_path,
+            len(lines),
+        )
+        return content, "line_out_of_range"
 
-    return content.replace(old_text, new_text, 1), True
+    line = lines[idx]
+    spans = _identifier_spans(line, old_text)
+    if not spans:
+        logger.warning(
+            "apply_refactor: %r no longer occurs as an identifier on %s:%s",
+            old_text,
+            file_path,
+            target_line,
+        )
+        return content, "line_no_longer_matches"
+
+    for start in reversed(spans):
+        line = line[:start] + new_text + line[start + len(old_text) :]
+    lines[idx] = line
+    return "".join(lines), None
 
 
 def _plan_edits(
     edits: list[dict[str, Any]],
     repo_root: Path,
-) -> dict[str, tuple[Path, str, str, int]]:
+) -> tuple[dict[str, tuple[Path, str, str, int]], list[dict[str, Any]]]:
+    """Return ``(planned_per_file, skipped_edits)``.
+
+    Every edit that could not be applied where the preview said it would be is
+    returned in *skipped* with a reason, so the caller can report it instead of
+    counting it as applied.
+    """
     edits_by_file: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for edit in edits:
         edits_by_file[edit["file"]].append(edit)
 
     planned: dict[str, tuple[Path, str, str, int]] = {}
+    skipped: list[dict[str, Any]] = []
+
+    def _skip(edit: dict[str, Any], reason: str) -> None:
+        skipped.append(
+            {
+                "file": edit.get("file"),
+                "line": edit.get("line"),
+                "old": edit.get("old"),
+                "new": edit.get("new"),
+                "reason": reason,
+            }
+        )
+
     for file_str, file_edits in edits_by_file.items():
         file_path = _resolve_repo_path(file_str, repo_root)
         if not file_path.is_file():
             logger.warning("apply_refactor: file not found: %s", file_path)
+            for edit in file_edits:
+                _skip(edit, "file_not_found")
             continue
 
         try:
             original = file_path.read_text(encoding="utf-8", errors="replace")
         except (OSError, UnicodeDecodeError) as exc:
             logger.warning("apply_refactor: could not read %s: %s", file_path, exc)
+            for edit in file_edits:
+                _skip(edit, "file_unreadable")
             continue
 
         content = original
         file_edits_applied = 0
+        # Later lines first: rewriting a line never shifts line numbers, but
+        # applying in preview order keeps diagnostics readable.
         for edit in file_edits:
-            content, applied = _apply_edit(content, file_path, edit)
-            if applied:
+            content, skip_reason = _apply_edit(content, file_path, edit)
+            if skip_reason is None:
                 file_edits_applied += 1
+            else:
+                _skip(edit, skip_reason)
 
         if file_edits_applied > 0:
             planned[file_str] = (file_path, original, content, file_edits_applied)
 
-    return planned
+    return planned, skipped
 
 
 def _build_dry_run_result(
     refactor_id: str,
     planned: dict[str, tuple[Path, str, str, int]],
+    skipped: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     diffs: dict[str, str] = {}
     for file_str, (_file_path, original, new_content, _count) in planned.items():
@@ -148,21 +239,25 @@ def _build_dry_run_result(
         )
         diffs[file_str] = "".join(diff_lines)
 
+    skipped = skipped or []
     total_edits = sum(count for _file_path, _o, _n, count in planned.values())
     result = {
-        "status": "ok",
+        "status": "partial" if skipped else "ok",
         "dry_run": True,
         "applied": 0,
         "edits_applied": total_edits,
+        "edits_skipped": len(skipped),
+        "skipped": skipped,
         "would_modify": sorted(planned.keys()),
         "files_modified": [],
         "diffs": diffs,
     }
     logger.info(
-        "apply_refactor: dry-run %s — %d edits would be applied to %d files",
+        "apply_refactor: dry-run %s — %d edits would be applied to %d files, %d skipped",
         refactor_id,
         total_edits,
         len(planned),
+        len(skipped),
     )
     return result
 
@@ -225,10 +320,10 @@ def apply_refactor(
     if path_error is not None:
         return path_error
 
-    planned = _plan_edits(edits, repo_root)
+    planned, skipped = _plan_edits(edits, repo_root)
 
     if dry_run:
-        return _build_dry_run_result(refactor_id, planned)
+        return _build_dry_run_result(refactor_id, planned, skipped)
 
     edits_applied, files_modified = _write_planned_edits(planned)
 
@@ -236,10 +331,19 @@ def apply_refactor(
         _pending_refactors.pop(refactor_id, None)
 
     result = {
-        "status": "ok",
+        # An edit that could not be placed is not a success; say so rather than
+        # reporting ``ok`` for a partially renamed symbol.
+        "status": "partial" if skipped else "ok",
         "applied": edits_applied,
         "files_modified": sorted(files_modified),
         "edits_applied": edits_applied,
+        "edits_skipped": len(skipped),
+        "skipped": skipped,
     }
-    logger.info("apply_refactor: completed %s — %d edits applied", refactor_id, edits_applied)
+    logger.info(
+        "apply_refactor: completed %s — %d edits applied, %d skipped",
+        refactor_id,
+        edits_applied,
+        len(skipped),
+    )
     return result

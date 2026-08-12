@@ -7,11 +7,11 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from dagayn import fts_tokenize
-from dagayn.graph._fts_tokenize import FTS_SEGMENTER_METADATA_KEY
 from dagayn.embeddings import _encode_vector
 from dagayn.graph import GraphStore
 from dagayn.graph import _fts_tokenize as graph_fts_tokenize
 from dagayn.graph import search as graph_search
+from dagayn.graph._fts_tokenize import FTS_SEGMENTER_METADATA_KEY
 from dagayn.graph.types import FtsQueryResult
 from dagayn.parser import NodeInfo
 from dagayn.search import (
@@ -290,7 +290,6 @@ class TestHybridSearch:
 
     def test_cjk_identifier_tokens_include_wakati_when_segmenter_pinned(self, monkeypatch):
         """Wakati-indexed identifier_tokens must still answer wakati-shaped queries."""
-        from dagayn.graph import _fts_content as fts_content
         from dagayn.graph import _fts_tokenize as fts_tokenize
 
         def fake_wakati(text: str) -> str:
@@ -799,10 +798,15 @@ class TestHybridSearch:
         ):
             hs = hybrid_search(self.store, "token validation")
 
-        assert hs["mode"] == "hybrid"
+        # "token validation" matches no identifier in the fixture, so the FTS
+        # arm is legitimately empty and the semantic arm answers alone. What
+        # this test is about is which provider got resolved.
+        assert hs["mode"] in {"hybrid", "embedding_only"}
         assert hs["embedding_health"]["status"] == "available"
+        assert hs["embedding_health"]["matching_vector_count"] == 3
         assert hs["embedding_health"]["resolved_provider"] == dominant
         assert hs["embedding_health"]["auto_resolved_provider"] == dominant
+        assert any(r["qualified_name"] == "auth.py::authenticate" for r in hs["results"])
         _emb_failure_cache.clear()
         _emb_cache.clear()
 

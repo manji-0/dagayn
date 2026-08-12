@@ -67,9 +67,7 @@ class GraphStoreMaintenanceMixin(GraphStoreMixinProtocol):
     def _repair_stale_flow_paths(self) -> dict[str, int]:
         """Rewrite ``path_json`` / counts for flows that lost node ids on re-parse."""
         repaired = 0
-        rows = self._conn.execute(
-            "SELECT id, entry_point_id, path_json FROM flows"
-        ).fetchall()
+        rows = self._conn.execute("SELECT id, entry_point_id, path_json FROM flows").fetchall()
         for row in rows:
             flow_id = int(row["id"])
             entry_point_id = int(row["entry_point_id"])
@@ -102,9 +100,7 @@ class GraphStoreMaintenanceMixin(GraphStoreMixinProtocol):
                 is not None
             )
             new_entry_point_id = (
-                entry_point_id
-                if entry_live
-                else (live_path[0] if live_path else entry_point_id)
+                entry_point_id if entry_live else (live_path[0] if live_path else entry_point_id)
             )
 
             if live_path == path_ids and entry_live:

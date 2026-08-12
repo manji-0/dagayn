@@ -8,8 +8,6 @@ from pathlib import Path
 from typing import Any
 
 from ._fts_tokenize import (
-    FTS_SEGMENTER_METADATA_KEY,
-    detect_fts_segmenter,
     segment_cjk_identifier_tokens,
     segment_japanese_fts_text,
 )
@@ -125,7 +123,7 @@ def build_node_fts_values(
     extra: dict[str, Any] | str | None,
     repo_root: Path | None,
     file_lines_cache: dict[Path, list[str] | None] | None = None,
-) -> tuple[str, str, str, str, str, str, str]:
+) -> tuple[str, str, str, str, str, str]:
     """Return FTS column values for a node row."""
     if isinstance(extra, str):
         try:
