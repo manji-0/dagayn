@@ -22,7 +22,12 @@ from ..graph import _sanitize_name, edge_to_dict, node_to_dict
 from ..hints import generate_hints, get_session
 from ..incremental import get_changed_files, get_db_path, get_staged_and_unstaged
 from ..search import embedding_health_available, hybrid_search
-from ..state_types import TraversalEntry, TraversalMode, seal_reachability_info
+from ..state_types import (
+    TraversalEntry,
+    TraversalMode,
+    seal_missingness_item,
+    seal_reachability_info,
+)
 from ._common import (
     _BUILTIN_CALL_NAMES,
     _get_store,
@@ -414,6 +419,36 @@ def _semantic_search_guidance(
     ]
 
 
+def _normalized_repo_path(value: str, root: Path) -> str:
+    """Return *value* as a repo-relative posix path when possible."""
+    path = Path(value)
+    if path.is_absolute():
+        try:
+            path = path.relative_to(root)
+        except ValueError:
+            return path.as_posix()
+    return path.as_posix()
+
+
+def _unmatched_changed_files(
+    changed_files: list[str], changed_nodes: list, root: Path
+) -> list[str]:
+    """Return the changed files the graph holds no nodes for.
+
+    Every indexed file has at least a ``File`` node, so "no changed node for
+    this path" means the graph has never seen it -- a path typo, a file added
+    since the last build, or an unsupported language. That is a very different
+    answer from "this file has no dependents", and the two are otherwise
+    reported identically.
+    """
+    matched = {
+        _normalized_repo_path(str(file_path), root)
+        for file_path in (getattr(node, "file_path", None) for node in changed_nodes)
+        if file_path
+    }
+    return [f for f in changed_files if _normalized_repo_path(f, root) not in matched]
+
+
 def get_impact_radius(
     changed_files: list[str] | None = None,
     max_depth: int = 2,
@@ -475,6 +510,7 @@ def get_impact_radius(
         low_confidence_bridges = list(result.get("low_confidence_bridges") or [])
         truncated = result["truncated"]
         total_impacted = result["total_impacted"]
+        unmatched_files = _unmatched_changed_files(changed_files, result["changed_nodes"], root)
 
         summary_parts = [
             f"Blast radius for {len(changed_files)} changed file(s):",
@@ -482,6 +518,11 @@ def get_impact_radius(
             f"  - {len(impacted_dicts)} nodes impacted (within {max_depth} hops)",
             f"  - {len(result['impacted_files'])} additional files affected",
         ]
+        if unmatched_files:
+            summary_parts.append(
+                f"  - {len(unmatched_files)} of {len(changed_files)} changed file(s) are NOT in"
+                " the graph: their blast radius is unknown, not zero"
+            )
         if bridge_transitions:
             summary_parts.append(
                 f"  - {len(bridge_transitions)} reportable cross-artifact bridge hop(s)"
@@ -500,6 +541,23 @@ def get_impact_radius(
             *missingness,
             *low_confidence_bridges,
         ]
+        if unmatched_files:
+            # Without this, "0 nodes impacted" for a file the graph has never
+            # seen is indistinguishable from a genuinely dependency-free change,
+            # and the caller reports the change as safe.
+            impact_missingness.append(
+                seal_missingness_item(
+                    {
+                        "reason_code": "changed_files_not_in_graph",
+                        "severity": "high",
+                        "claim_effect": (
+                            "impact for these files is unknown, not zero -- run dagayn update"
+                            " (or check the paths) before treating the change as safe"
+                        ),
+                        "details": {"unmatched_changed_files": unmatched_files[:20]},
+                    }
+                )
+            )
         if bridge_transitions:
             impact_missingness.append(
                 {
@@ -573,6 +631,7 @@ def get_impact_radius(
                 "status": "ok",
                 "summary": "\n".join(summary_parts),
                 "risk": risk,
+                "unmatched_changed_files": unmatched_files,
                 "impacted_file_count": len(result["impacted_files"]),
                 "key_entities": key_entities,
                 "bridge_transition_count": len(bridge_transitions),
@@ -586,6 +645,7 @@ def get_impact_radius(
             "status": "ok",
             "summary": "\n".join(summary_parts),
             "changed_files": changed_files,
+            "unmatched_changed_files": unmatched_files,
             "changed_nodes": changed_dicts,
             "impacted_nodes": impacted_dicts,
             "impacted_files": result["impacted_files"],

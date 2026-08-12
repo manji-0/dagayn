@@ -8,7 +8,12 @@ from typing import Any
 
 from ..embeddings import EmbeddingStore, embed_all_nodes
 from ..incremental import get_db_path
-from ._common import _get_store, handle_tool_runtime_error
+from ._common import (
+    _error_response,
+    _get_store,
+    _validate_repo_root,
+    handle_tool_runtime_error,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -138,14 +143,26 @@ def get_docs_section(
     search_roots: list[Path] = []
 
     if repo_root:
-        search_roots.append(Path(repo_root))
+        # Validate before reading: an unvalidated caller-supplied root turns
+        # this into a read from any directory on the filesystem.
+        try:
+            search_roots.append(_validate_repo_root(Path(repo_root)))
+        except ValueError:
+            return _error_response(
+                f"repo_root does not look like a project root: {repo_root}",
+                section=section_name,
+            )
 
+    store = None
     try:
-        _, root = _get_store(repo_root)
+        store, root = _get_store(repo_root)
         if root not in search_roots:
             search_roots.append(root)
     except (RuntimeError, ValueError):
         pass
+    finally:
+        if store is not None:
+            store.close()
 
     # Fallback: package directory (for uvx/pip installs)
     pkg_docs = Path(__file__).parent.parent.parent / "docs" / "LLM-OPTIMIZED-REFERENCE.md"

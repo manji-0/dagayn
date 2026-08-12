@@ -103,7 +103,9 @@ def _classify_diff_tier(
     store: Any,
     root: Path,
     dirty_files: list[str],
-) -> tuple[GraphSyncStateName, list[str]]:
+    *,
+    max_hash_candidates: int | None = _MAX_HASH_CANDIDATES,
+) -> tuple[GraphSyncStateName, list[str], dict[str, Any]]:
     """Compare the graph's indexed content with the working tree.
 
     Every indexed file is checked, not just the files git calls dirty: the
@@ -118,8 +120,14 @@ def _classify_diff_tier(
     (ignored, binary, unsupported language) cannot pin the state to
     ``worktree_behind`` forever.
 
-    Returns the state plus the files that drove it: the files needing a re-index
-    for ``worktree_behind``, the verified dirty files for ``worktree_ahead``.
+    *max_hash_candidates* caps that second pass; ``None`` removes the cap for
+    callers that can afford a full verification (session prepare, which is
+    about to re-index anyway). When the cap bites, the returned evidence says
+    so rather than letting the dirty-only answer pass as a verified one.
+
+    Returns the state, the files that drove it (the files needing a re-index
+    for ``worktree_behind``, the verified dirty files for ``worktree_ahead``),
+    and the verification evidence.
     """
     from ..incremental_build import (
         _classify_python_changed_files,
@@ -154,31 +162,71 @@ def _classify_diff_tier(
         unseen = [path for path in candidates if path not in indexed]
 
         to_hash = sorted(set(suspect) | set(unseen))
-        if len(to_hash) > _MAX_HASH_CANDIDATES:
+        if max_hash_candidates is not None and len(to_hash) > max_hash_candidates:
             # Too much to verify cheaply (typically a just-seeded worktree,
             # whose stored mtimes all came from the main checkout). Fall back to
             # the dirty-only answer rather than paying for a full re-hash or
-            # claiming a drift that probably is not there.
+            # claiming a drift that probably is not there -- but say that the
+            # content was never checked, because a fresh checkout of any real
+            # repository always lands here.
             logger.debug(
                 "Skipping content verification: %d hash candidates exceed the %d limit",
                 len(to_hash),
-                _MAX_HASH_CANDIDATES,
+                max_hash_candidates,
             )
-            return dirty_state, sorted(candidates)
+            return (
+                dirty_state,
+                sorted(candidates),
+                {"content_verified": False, "unverified_file_count": len(to_hash)},
+            )
 
         # Pass 2 (hash): mtime moved, but the bytes may still be identical.
         changed, _mtime_only = _classify_python_changed_files(root, to_hash, indexed)
         pending = sorted(set(changed) | set(stale))
     except Exception as exc:  # noqa: BLE001 — assessment must never raise
         logger.debug("Diff-tier classification failed, assuming behind: %s", exc)
-        return "worktree_behind", []
+        return "worktree_behind", [], {"content_verified": False}
 
     if pending:
-        return "worktree_behind", pending
-    return dirty_state, sorted(candidates)
+        return "worktree_behind", pending, {}
+    return dirty_state, sorted(candidates), {}
 
 
-def assess_graph_sync(store: Any, repo_root: str | Path) -> dict[str, Any]:
+def commit_tier_freshness(store: Any, repo_root: str | Path) -> dict[str, Any]:
+    """Return the cheap half of the freshness assessment.
+
+    Only the commit tier plus git's own dirty flag: two ``git`` invocations and
+    one metadata read, with none of :func:`_classify_diff_tier`'s per-file
+    ``stat``/hash work. Read tools call this on every response, so it has to
+    stay O(1) in repository size -- the price of the full assessment is only
+    worth paying where a re-index may follow.
+    """
+    root = Path(repo_root)
+    if detect_vcs(root) != "git":
+        return {"state": None}
+    stored_sha = store.get_metadata("git_head_sha") or None
+    _branch, current_sha = _git_branch_info(root)
+    if not current_sha:
+        return {"state": None}
+    try:
+        dirty = bool(get_changed_file_sources(root, "HEAD").get("worktree") or [])
+    except Exception:  # noqa: BLE001 — a status failure is not dirtiness
+        dirty = False
+    state: GraphSyncStateName = "commit_synced" if stored_sha == current_sha else "commit_drift"
+    return {
+        "state": state,
+        "git_head_sha": stored_sha,
+        "current_head_sha": current_sha,
+        "worktree_dirty": dirty,
+    }
+
+
+def assess_graph_sync(
+    store: Any,
+    repo_root: str | Path,
+    *,
+    max_hash_candidates: int | None = _MAX_HASH_CANDIDATES,
+) -> dict[str, Any]:
     """Return the graph sync state for *repo_root* relative to its working tree.
 
     The payload is a sealed :data:`~dagayn.state_types.GraphSyncState`: a
@@ -213,11 +261,17 @@ def assess_graph_sync(store: Any, repo_root: str | Path) -> dict[str, Any]:
     elif commit_drift or undated:
         state = "commit_drift"
     else:
-        state, evidence = _classify_diff_tier(store, root, dirty_files)
+        state, evidence, verification = _classify_diff_tier(
+            store,
+            root,
+            dirty_files,
+            max_hash_candidates=max_hash_candidates,
+        )
         if state == "worktree_behind":
             extra["pending_files"] = evidence
         elif state == "worktree_ahead":
             extra["indexed_files"] = evidence
+        extra.update(verification)
 
     return seal_graph_sync_state(
         {

@@ -77,10 +77,24 @@ whole diff tier costs ~5 ms against ~90 ms of git subprocess calls in the same
 assessment. Dirty files go through the incremental pipeline's own filters
 (`_filter_incremental_candidates` / `_classify_python_changed_files`), so a file
 dagayn would never parse — ignored, binary, unsupported language — cannot pin
-the state to `worktree_behind`. Above 200 hash candidates verification is
-abandoned and the dirty-only answer stands: a freshly seeded worktree has stored
-mtimes from the main checkout, and re-hashing the tree on every assessment would
-cost more than the state is worth.
+the state to `worktree_behind`.
+
+The cap on that second pass is `max_hash_candidates` (default 200 for read-path
+callers). Above it verification is abandoned and the dirty-only answer stands —
+a freshly seeded worktree has stored mtimes from the main checkout, and
+re-hashing the tree on every assessment would cost more than the state is worth.
+The assessment then reports `content_verified: false` plus
+`unverified_file_count`, because a fresh checkout of any real repository lands
+here and `commit_synced` would otherwise mean "git reports a clean tree" while
+implying "the graph's content was checked against it". Session prepare passes
+`max_hash_candidates=None` to verify everything: it is the caller that can
+afford the cost and is about to re-index anyway.
+
+`pending_files` is fed back into the update as `extra_files`
+(`incremental_update`). Without that the state is a fixed point its own
+prescribed action cannot leave: a file whose on-disk bytes equal the diff base
+cannot appear in `git diff`, so prepare re-ran every session, reported
+"No changes detected", and the graph kept serving the wrong content.
 
 Session / explicit prepare runs when `needs_structure_prepare` is true
 (`unbuilt` / `commit_drift` / `worktree_behind`, or `force=True`) — notably

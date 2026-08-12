@@ -612,10 +612,24 @@ def get_changed_file_sources(repo_root: Path, base: str = "HEAD~1") -> dict[str,
     }
 
 
+def _nul_fields(payload: str) -> list[str]:
+    """Split a ``-z`` git payload into its NUL-separated fields."""
+    return [field for field in payload.split("\0") if field]
+
+
 def _get_git_diff_files(repo_root: Path, base: str) -> list[str]:
+    """Return the files changed between *base* and HEAD, both sides of renames.
+
+    ``--name-status -M -z`` rather than ``--name-only``: git's rename detection
+    is on by default, so ``--name-only`` reports a rename's destination *only*,
+    and the source path's nodes were left in the graph forever -- the same code
+    served under two paths. ``-z`` additionally keeps non-ASCII paths usable,
+    which ``core.quotePath`` (on by default) otherwise C-quotes into a literal
+    no ``open()`` can resolve.
+    """
     try:
         result = subprocess.run(
-            ["git", "diff", "--name-only", base, "HEAD", "--"],
+            ["git", "diff", "--name-status", "-M", "-z", base, "HEAD", "--"],
             capture_output=True,
             text=True,
             cwd=str(repo_root),
@@ -624,15 +638,36 @@ def _get_git_diff_files(repo_root: Path, base: str) -> list[str]:
         if result.returncode != 0:
             logger.warning("git diff failed (rc=%d): %s", result.returncode, result.stderr[:200])
             return []
-        return [f.strip() for f in result.stdout.splitlines() if f.strip()]
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return []
 
+    fields = _nul_fields(result.stdout)
+    files: list[str] = []
+    index = 0
+    while index < len(fields):
+        status = fields[index]
+        # Rename/copy records carry two paths: ``R100 old new``. Both matter --
+        # the old path needs its nodes pruned, the new one needs parsing.
+        paths_wanted = 2 if status[:1] in {"R", "C"} else 1
+        for offset in range(1, paths_wanted + 1):
+            if index + offset < len(fields):
+                files.append(fields[index + offset])
+        index += paths_wanted + 1
+    return _dedupe_preserve_order(files)
+
 
 def _get_git_worktree_change_sources(repo_root: Path) -> dict[str, list[str]]:
+    """Return staged / unstaged / untracked working-tree paths.
+
+    Parsed from ``--porcelain -z``: the text form C-quotes non-ASCII paths and
+    encodes a rename as ``R  old -> new``, which the previous ` -> ` split
+    discarded the old half of (leaving its nodes in the graph) and which mangles
+    any filename containing that literal sequence. In ``-z`` mode a rename is
+    two NUL-separated fields, new path first.
+    """
     try:
         result = subprocess.run(
-            ["git", "status", "--porcelain", "--untracked-files=all"],
+            ["git", "status", "--porcelain", "-z", "--untracked-files=all"],
             capture_output=True,
             text=True,
             cwd=str(repo_root),
@@ -644,21 +679,27 @@ def _get_git_worktree_change_sources(repo_root: Path) -> dict[str, list[str]]:
     staged: list[str] = []
     unstaged: list[str] = []
     untracked: list[str] = []
-    for line in result.stdout.splitlines():
-        if len(line) <= 3:
+    entries = [entry for entry in result.stdout.split("\0") if entry]
+    index = 0
+    while index < len(entries):
+        entry = entries[index]
+        index += 1
+        if len(entry) <= 3:
             continue
-        x_status = line[0]
-        y_status = line[1]
-        entry = line[3:].strip()
-        if " -> " in entry:
-            entry = entry.split(" -> ", 1)[1]
+        x_status = entry[0]
+        y_status = entry[1]
+        paths = [entry[3:]]
+        if x_status in {"R", "C"} or y_status in {"R", "C"}:
+            if index < len(entries):
+                paths.append(entries[index])
+                index += 1
         if x_status == "?" and y_status == "?":
-            untracked.append(entry)
+            untracked.extend(paths)
             continue
         if x_status != " ":
-            staged.append(entry)
+            staged.extend(paths)
         if y_status != " ":
-            unstaged.append(entry)
+            unstaged.extend(paths)
 
     return {
         "worktree": _dedupe_preserve_order(staged + unstaged + untracked),
@@ -765,7 +806,10 @@ def get_all_tracked_files(
 
         recurse_submodules = bool(inc._RECURSE_SUBMODULES)
 
-    cmd = ["git", "ls-files"]
+    # ``-z``: without it ``core.quotePath`` (on by default) C-quotes any
+    # non-ASCII path, and the quoted literal fails ``is_file()`` -- files with
+    # Japanese or accented names were silently absent from the graph.
+    cmd = ["git", "ls-files", "-z"]
     if recurse_submodules:
         cmd.append("--recurse-submodules")
 
@@ -777,7 +821,7 @@ def get_all_tracked_files(
             cwd=str(repo_root),
             timeout=_GIT_TIMEOUT,
         )
-        return [f.strip() for f in result.stdout.splitlines() if f.strip()]
+        return _nul_fields(result.stdout)
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return []
 

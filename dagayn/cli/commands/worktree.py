@@ -145,7 +145,7 @@ def _graph_head_sha(repo_root: Path) -> str | None:
 
 
 def _handle_sync(args: argparse.Namespace) -> None:
-    from ...worktree import copy_worktree_config, seed_worktree_graph
+    from ...worktree import copy_worktree_config, graph_has_nodes, seed_worktree_graph
 
     as_json = getattr(args, "as_json", False)
     repo_root = _resolve_repo(args)
@@ -168,7 +168,10 @@ def _handle_sync(args: argparse.Namespace) -> None:
             print(f"Copied config from the main checkout: {', '.join(copied)}")
         print(f"Graph inheritance: {seed.status} ({seed.reason})")
 
-    graph_exists = get_db_path(repo_root).exists()
+    # A schema-only stub left by ``dagayn status``/``serve`` is not a graph:
+    # treating it as one picked the incremental path with base=HEAD~1, indexing
+    # the last commit only and then stamping that partial graph as HEAD-synced.
+    graph_exists = graph_has_nodes(get_db_path(repo_root))
     if not graph_exists and not getattr(args, "build_if_missing", False):
         result = {
             "status": seed.status,

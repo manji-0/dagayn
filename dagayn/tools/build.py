@@ -739,6 +739,7 @@ def build_or_update_graph(
     local_embedding_timeout: int = 300,
     local_embedding_request_timeout: int = 60,
     local_embedding_batch_size: int = 1,
+    extra_files: list[str] | None = None,
 ) -> dict[str, Any]:
     """Build or incrementally update the code knowledge graph.
 
@@ -747,6 +748,8 @@ def build_or_update_graph(
                       only re-parse files changed since ``base``.
         repo_root: Path to the repository root. Auto-detected if omitted.
         base: Git ref for incremental diff (default: HEAD~1).
+        extra_files: Files to re-index in addition to the git diff, for
+            content drift the diff cannot see (see ``incremental_update``).
         postprocess: Post-processing level after build:
             ``"full"`` (default) — signatures, FTS, flows, communities.
             ``"minimal"`` — signatures + FTS only (fast, keeps search working).
@@ -815,9 +818,11 @@ def build_or_update_graph(
 
             pre_affected_communities = 0
             preview_changed = get_changed_files(root, base)
+            if extra_files:
+                preview_changed = list(dict.fromkeys([*preview_changed, *extra_files]))
             if preview_changed:
                 pre_affected_communities = count_affected_communities(store, preview_changed)
-            result = incremental_update(root, store, base=base)
+            result = incremental_update(root, store, base=base, extra_files=extra_files)
             if result["files_updated"] == 0:
                 build_result = {
                     "status": "ok",

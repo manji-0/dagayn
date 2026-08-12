@@ -161,7 +161,10 @@ def session_prepare(
     store, resolved_root = _get_store(str(root), cached=False, use_backend_default=True)
     root = Path(resolved_root)
     try:
-        sync_before = assess_graph_sync(store, root)
+        # Unlimited content verification: prepare is the caller that can afford
+        # it, and it is about to re-index anyway. The read-path default cap
+        # would silently skip verification on any fresh checkout.
+        sync_before = assess_graph_sync(store, root, max_hash_candidates=None)
         db_path = get_db_path(root)
         emb_pending = sync_status_mod.embedding_needs_refresh(
             db_path, local_embedding=local_embedding
@@ -201,6 +204,11 @@ def session_prepare(
                 base = str(seed_info["base_sha"])
             elif sync_before.get("git_head_sha"):
                 base = str(sync_before["git_head_sha"])
+            # Content drift the git diff cannot see: without this the
+            # ``worktree_behind`` that pending_files proves is a fixed point,
+            # and every session start re-runs an update that reports
+            # "No changes detected" while the graph keeps the wrong content.
+            pending_files = list(sync_before.get("pending_files") or []) if not needs_full else []
             try:
                 build_result = build_or_update_graph(
                     full_rebuild=needs_full,
@@ -208,6 +216,7 @@ def session_prepare(
                     base=base,
                     postprocess=_ENSURE_POSTPROCESS,
                     local_embedding="none",
+                    extra_files=pending_files or None,
                 )
                 if build_result.get("skipped"):
                     phases["structure"] = "noop"

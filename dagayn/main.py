@@ -545,7 +545,7 @@ def get_docs_section_tool(
     """
     return _tool("get_docs_section")(
         section_name=section_name,
-        repo_root=repo_root,
+        repo_root=_resolve_repo_root(repo_root),
         max_chars=max_chars,
     )
 

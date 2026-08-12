@@ -538,8 +538,8 @@ class TestGitOperations:
     @patch("dagayn.incremental.subprocess.run")
     def test_get_changed_files(self, mock_run, tmp_path):
         mock_run.side_effect = [
-            MagicMock(returncode=0, stdout="src/a.py\nsrc/b.py\n"),
-            MagicMock(returncode=0, stdout=" M src/b.py\n?? src/c.py\n"),
+            MagicMock(returncode=0, stdout="M\0src/a.py\0M\0src/b.py\0"),
+            MagicMock(returncode=0, stdout=" M src/b.py\0?? src/c.py\0"),
         ]
         result = get_changed_files(tmp_path)
         assert result == ["src/a.py", "src/b.py", "src/c.py"]
@@ -551,10 +551,10 @@ class TestGitOperations:
     @patch("dagayn.incremental.subprocess.run")
     def test_get_changed_file_sources_distinguishes_base_and_worktree(self, mock_run, tmp_path):
         mock_run.side_effect = [
-            MagicMock(returncode=0, stdout="src/committed.py\nsrc/both.py\n"),
+            MagicMock(returncode=0, stdout="M\0src/committed.py\0M\0src/both.py\0"),
             MagicMock(
                 returncode=0,
-                stdout="M  src/staged.py\n M src/unstaged.py\nMM src/both.py\n?? src/new.py\n",
+                stdout="M  src/staged.py\0 M src/unstaged.py\0MM src/both.py\0?? src/new.py\0",
             ),
         ]
 
@@ -583,7 +583,7 @@ class TestGitOperations:
         # First call fails, then working-tree status is still merged.
         mock_run.side_effect = [
             MagicMock(returncode=1, stdout=""),
-            MagicMock(returncode=0, stdout="A  staged.py\n?? new.py\n"),
+            MagicMock(returncode=0, stdout="A  staged.py\0?? new.py\0"),
         ]
         result = get_changed_files(tmp_path)
         assert result == ["staged.py", "new.py"]
@@ -599,21 +599,25 @@ class TestGitOperations:
     def test_get_staged_and_unstaged(self, mock_run, tmp_path):
         mock_run.return_value = MagicMock(
             returncode=0,
-            stdout=" M src/a.py\n?? new.py\nR  old.py -> new_name.py\n",
+            # ``--porcelain -z``: a rename is two NUL-separated fields,
+            # new path first.
+            stdout=" M src/a.py\0?? new.py\0R  new_name.py\0old.py\0",
         )
         result = get_staged_and_unstaged(tmp_path)
         assert "src/a.py" in result
         assert "new.py" in result
         assert "new_name.py" in result
-        # old.py should NOT be in results (renamed away)
-        assert "old.py" not in result
+        # The renamed-away path must be reported too: it is the one whose
+        # nodes have to be pruned from the graph. Dropping it (as the old
+        # " -> " split did) left the same code indexed under both paths.
+        assert "old.py" in result
         assert "--untracked-files=all" in mock_run.call_args[0][0]
 
     @patch("dagayn.incremental.subprocess.run")
     def test_get_all_tracked_files(self, mock_run, tmp_path):
         mock_run.return_value = MagicMock(
             returncode=0,
-            stdout="a.py\nb.py\nc.go\n",
+            stdout="a.py\0b.py\0c.go\0",
         )
         result = get_all_tracked_files(tmp_path)
         assert result == ["a.py", "b.py", "c.go"]
@@ -622,7 +626,7 @@ class TestGitOperations:
     def test_get_all_tracked_files_recurse_submodules_param(self, mock_run, tmp_path):
         mock_run.return_value = MagicMock(
             returncode=0,
-            stdout="a.py\nsub/b.py\n",
+            stdout="a.py\0sub/b.py\0",
         )
         result = get_all_tracked_files(tmp_path, recurse_submodules=True)
         assert result == ["a.py", "sub/b.py"]
@@ -633,7 +637,7 @@ class TestGitOperations:
     def test_get_all_tracked_files_no_recurse_by_default(self, mock_run, tmp_path):
         mock_run.return_value = MagicMock(
             returncode=0,
-            stdout="a.py\n",
+            stdout="a.py\0",
         )
         result = get_all_tracked_files(tmp_path)
         assert result == ["a.py"]
@@ -645,7 +649,7 @@ class TestGitOperations:
     def test_get_all_tracked_files_env_var_fallback(self, mock_run, tmp_path):
         mock_run.return_value = MagicMock(
             returncode=0,
-            stdout="a.py\nsub/c.py\n",
+            stdout="a.py\0sub/c.py\0",
         )
         # None -> falls back to env var (_RECURSE_SUBMODULES=True)
         result = get_all_tracked_files(tmp_path, recurse_submodules=None)
@@ -658,7 +662,7 @@ class TestGitOperations:
     def test_get_all_tracked_files_param_overrides_env(self, mock_run, tmp_path):
         mock_run.return_value = MagicMock(
             returncode=0,
-            stdout="a.py\n",
+            stdout="a.py\0",
         )
         # Explicit False overrides env var
         result = get_all_tracked_files(tmp_path, recurse_submodules=False)

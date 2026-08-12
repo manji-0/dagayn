@@ -206,6 +206,13 @@ class _GraphSyncBase(BaseModel):
     last_updated: str | None = None
     total_nodes: int = 0
     files_count: int = 0
+    #: False when the diff tier gave up on comparing indexed content with the
+    #: working tree (too many hash candidates to verify cheaply). The state is
+    #: then the *dirty-only* answer, so ``commit_synced`` means "git reports a
+    #: clean tree", not "the graph's content was checked against it".
+    content_verified: bool = True
+    #: Indexed files whose content was left unverified when the above is False.
+    unverified_file_count: int = 0
 
 
 class GraphSyncUnbuilt(_GraphSyncBase):

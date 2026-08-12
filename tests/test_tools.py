@@ -816,6 +816,7 @@ class TestGetDocsSection:
     """Tests for the get_docs_section tool."""
 
     def test_explicit_repo_root_uses_that_docs_file(self, tmp_path):
+        (tmp_path / ".git").mkdir()
         docs_dir = tmp_path / "docs"
         docs_dir.mkdir()
         (docs_dir / "LLM-OPTIMIZED-REFERENCE.md").write_text(
@@ -827,6 +828,20 @@ class TestGetDocsSection:
 
         assert result["status"] == "ok"
         assert result["content"] == "hello"
+
+    def test_repo_root_outside_a_project_is_rejected(self, tmp_path):
+        """An unvalidated repo_root turns this into a read of any directory."""
+        docs_dir = tmp_path / "docs"
+        docs_dir.mkdir()
+        (docs_dir / "LLM-OPTIMIZED-REFERENCE.md").write_text(
+            '<section name="usage">secret</section>\n',
+            encoding="utf-8",
+        )
+
+        result = get_docs_section("usage", repo_root=str(tmp_path))
+
+        assert result["status"] == "error"
+        assert "secret" not in str(result)
 
     def test_section_not_found(self):
         result = get_docs_section("nonexistent-section")

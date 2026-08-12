@@ -86,6 +86,25 @@ def _assess(repo: Path) -> dict:
         store.close()
 
 
+def _assess_verified(repo: Path) -> dict:
+    """Assess with content verification uncapped, as session prepare does."""
+    store = GraphStore(str(repo / ".dagayn" / "graph.db"))
+    try:
+        return assess_graph_sync(store, repo, max_hash_candidates=None)
+    finally:
+        store.close()
+
+
+def _node_names(repo: Path) -> set[str]:
+    import sqlite3
+
+    conn = sqlite3.connect(repo / ".dagayn" / "graph.db")
+    try:
+        return {row[0] for row in conn.execute("SELECT name FROM nodes")}
+    finally:
+        conn.close()
+
+
 def _assert_structure_ready(result: dict, repo: Path) -> None:
     assert result["status"] == "ok", result
     assert is_structure_ready(result["sync"]), result["sync"]
@@ -716,3 +735,82 @@ class TestHookWiringFreshness:
         assert "dagayn session prepare" in content
         assert "checkout|switch|reset|pull|merge|rebase|cherry-pick" in content
         assert '"tool.execute.after"' in content
+
+
+class TestContentDriftConvergence:
+    """A state must be reachable *out of*, not just into.
+
+    ``worktree_behind`` proven by content verification used to be a fixed
+    point: the git diff that drives ``incremental_update`` cannot contain a
+    file whose on-disk bytes equal the base commit, so prepare re-ran forever,
+    reported "No changes detected", and the graph kept serving the wrong
+    content.
+    """
+
+    def test_discarded_edit_is_reindexed_by_prepare(self, main_repo: Path):
+        from dagayn.tools.build import build_or_update_graph
+
+        target = main_repo / "hello.py"
+        original = target.read_text(encoding="utf-8")
+        build_or_update_graph(
+            full_rebuild=True,
+            repo_root=str(main_repo),
+            postprocess="minimal",
+            local_embedding="none",
+        )
+
+        # An edit hook indexes an uncommitted edit, which is then discarded.
+        target.write_text("def discarded_edit():\n    return 2\n", encoding="utf-8")
+        build_or_update_graph(
+            full_rebuild=False,
+            repo_root=str(main_repo),
+            base="HEAD",
+            postprocess="minimal",
+            local_embedding="none",
+        )
+        target.write_text(original, encoding="utf-8")
+
+        before = _assess_verified(main_repo)
+        assert sync_state(before) == "worktree_behind"
+        assert before["pending_files"] == ["hello.py"]
+
+        session_prepare(repo_root=str(main_repo), budget_seconds=None)
+
+        after = _assess_verified(main_repo)
+        assert sync_state(after) == "commit_synced", after
+        assert "discarded_edit" not in _node_names(main_repo)
+
+    def test_unverified_content_is_not_reported_as_verified(self, main_repo: Path):
+        """The cheap cap must not let the dirty-only answer pass as verified.
+
+        A fresh worktree checkout moves every indexed file's mtime, so the cap
+        is hit on any real repository -- exactly where claiming ``commit_synced``
+        is least justified.
+        """
+        import os
+
+        from dagayn.tools.build import build_or_update_graph
+
+        build_or_update_graph(
+            full_rebuild=True,
+            repo_root=str(main_repo),
+            postprocess="minimal",
+            local_embedding="none",
+        )
+        # Move the mtime without touching the bytes, as a checkout would.
+        target = main_repo / "hello.py"
+        stat = target.stat()
+        os.utime(target, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000_000))
+
+        store = GraphStore(str(main_repo / ".dagayn" / "graph.db"))
+        try:
+            capped = assess_graph_sync(store, main_repo, max_hash_candidates=0)
+            uncapped = assess_graph_sync(store, main_repo, max_hash_candidates=None)
+        finally:
+            store.close()
+
+        assert capped["content_verified"] is False
+        assert capped["unverified_file_count"] >= 1
+        # Uncapped verification hashes the bytes and finds them unchanged.
+        assert uncapped["content_verified"] is True
+        assert sync_state(uncapped) == "commit_synced"

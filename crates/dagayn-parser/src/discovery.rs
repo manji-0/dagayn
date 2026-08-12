@@ -201,7 +201,10 @@ fn get_git_tracked_files(
         return None;
     }
     let mut cmd = Command::new("git");
-    cmd.arg("ls-files");
+    // `-z`: `core.quotePath` is on by default, so without it every non-ASCII
+    // path arrives C-quoted (`"caf\303\251.py"`), fails the `is_file()` check
+    // below, and the file is silently missing from the graph.
+    cmd.arg("ls-files").arg("-z");
     if recurse_submodules.unwrap_or(false) {
         cmd.arg("--recurse-submodules");
     }
@@ -212,9 +215,8 @@ fn get_git_tracked_files(
     let stdout = String::from_utf8_lossy(&output.stdout);
     Some(
         stdout
-            .lines()
-            .map(str::trim)
-            .filter(|line| !line.is_empty())
+            .split('\0')
+            .filter(|field| !field.is_empty())
             .map(str::to_string)
             .collect(),
     )

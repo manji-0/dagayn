@@ -389,3 +389,74 @@ def test_wiki_page_path_traversal_blocked(tmp_path: Path) -> None:
     # Attempt a path traversal — should return None
     result = get_wiki_page(str(wiki_dir), "../../etc/passwd")
     assert result is None
+
+
+def _indexed_files(store: GraphStore) -> set[str]:
+    return {
+        row[0]
+        for row in store._conn.execute("SELECT DISTINCT file_path FROM nodes WHERE file_path != ''")
+    }
+
+
+def test_committed_rename_prunes_the_old_path(git_repo: Path) -> None:
+    """``git diff --name-only`` reports a rename's destination only.
+
+    Rename detection is on by default, so the source path never entered the
+    changed set and its nodes were never removed -- the graph served the same
+    code under two paths forever.
+    """
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        db_path = f.name
+    try:
+        store = GraphStore(db_path)
+        full_build(git_repo, store)
+        assert "hello.py" in _indexed_files(store)
+
+        base = _git(git_repo, "rev-parse", "HEAD").stdout.strip()
+        _git(git_repo, "mv", "hello.py", "renamed.py")
+        _git(git_repo, "commit", "-m", "rename hello.py")
+
+        result = incremental_update(git_repo, store, base=base)
+        assert "hello.py" in result["changed_files"], result["changed_files"]
+        assert "renamed.py" in result["changed_files"], result["changed_files"]
+
+        indexed = _indexed_files(store)
+        assert "renamed.py" in indexed
+        assert "hello.py" not in indexed, "renamed-away path kept its nodes"
+        store.close()
+    finally:
+        Path(db_path).unlink(missing_ok=True)
+
+
+def test_non_ascii_filenames_are_indexed(git_repo: Path) -> None:
+    """``core.quotePath`` is on by default, so git C-quotes non-ASCII paths.
+
+    The quoted literal is not a path any ``open()`` resolves, so files with
+    Japanese or accented names were silently absent from the graph.
+    """
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        db_path = f.name
+    try:
+        (git_repo / "日本語.py").write_text("def greet_ja():\n    return 1\n", encoding="utf-8")
+        _git(git_repo, "add", "-A")
+        _git(git_repo, "commit", "-m", "add a non-ascii filename")
+
+        store = GraphStore(db_path)
+        full_build(git_repo, store)
+        assert "日本語.py" in _indexed_files(store)
+
+        # And the incremental path must agree with the full build.
+        base = _git(git_repo, "rev-parse", "HEAD").stdout.strip()
+        (git_repo / "日本語.py").write_text(
+            "def greet_ja():\n    return 2\n\ndef added():\n    return 3\n",
+            encoding="utf-8",
+        )
+        _git(git_repo, "add", "-A")
+        _git(git_repo, "commit", "-m", "edit the non-ascii file")
+        result = incremental_update(git_repo, store, base=base)
+        assert "日本語.py" in result["changed_files"], result["changed_files"]
+        names = {row[0] for row in store._conn.execute("SELECT name FROM nodes")}
+        assert "added" in names
+        store.close()
+    finally:
+        Path(db_path).unlink(missing_ok=True)

@@ -12,6 +12,7 @@ from ._common import (
     graph_answerability_summary,
     handle_tool_runtime_error,
     missingness_from_answerability,
+    resolve_contained_path,
 )
 from .review_helpers import (
     _is_low_confidence_unresolved_markdown_code_span,
@@ -146,8 +147,15 @@ def get_review_context(
         # Add source snippets for changed files
         if include_source:
             snippets = {}
+            out_of_repo: list[str] = []
             for rel_path in changed_files:
-                full_path = root / rel_path
+                full_path = resolve_contained_path(rel_path, root)
+                if full_path is None:
+                    # An absolute or ``..``-escaping entry would otherwise be
+                    # read and returned verbatim: ``changed_files`` is
+                    # caller-controlled over MCP.
+                    out_of_repo.append(rel_path)
+                    continue
                 if full_path.is_file():
                     try:
                         lines = full_path.read_text(errors="replace").splitlines()
@@ -166,6 +174,8 @@ def get_review_context(
                     except (OSError, UnicodeDecodeError):
                         snippets[rel_path] = "(could not read file)"
             context["source_snippets"] = snippets
+            if out_of_repo:
+                context["out_of_repo_files"] = out_of_repo
 
         # Generate review guidance
         guidance = _generate_review_guidance(impact, changed_files)

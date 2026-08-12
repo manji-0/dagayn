@@ -835,8 +835,17 @@ def incremental_update(
     store: GraphStore,
     base: str = "HEAD~1",
     changed_files: list[str] | None = None,
+    extra_files: list[str] | None = None,
 ) -> dict:
-    """Incremental update: re-parse changed + dependent files only."""
+    """Incremental update: re-parse changed + dependent files only.
+
+    *extra_files* are re-indexed on top of whatever the git diff reports. A
+    file whose on-disk content matches ``base`` cannot appear in that diff, so
+    content drift found by the diff tier of ``assess_graph_sync`` (a phantom
+    node inherited from a seeded worktree, or an edit indexed and then
+    discarded) is otherwise unreachable from here: the state that prescribes an
+    update is one the update itself can never clear.
+    """
     repo_root = repo_root.resolve()
     store.set_metadata("repo_root", str(repo_root))
     ignore_patterns = _load_ignore_patterns(repo_root)
@@ -850,6 +859,12 @@ def incremental_update(
         diff_covers_graph = _diff_covers_graph_commit(repo_root, store, base)
     else:
         change_file_sources = {"files": changed_files, "explicit": changed_files}
+    if extra_files:
+        forced = [path for path in dict.fromkeys(extra_files) if path not in set(changed_files)]
+        if forced:
+            changed_files = [*changed_files, *forced]
+            change_file_sources["files"] = changed_files
+            change_file_sources["content_drift"] = forced
 
     def _record_head_when_verified() -> None:
         """Stamp ``git_head_sha`` = HEAD, but only if the diff really covered it.

@@ -277,3 +277,76 @@ class TestNativeStoreClosesConnection:
         assert store.get_metadata("cycle") == "x"
         store._leases = 1
         store.close()
+
+
+class TestCacheSeesOtherProcessWrites:
+    """The cache must not outlive another connection's commit.
+
+    ``st_mtime`` was the only staleness signal, but the journal mode is WAL:
+    a commit lands in ``graph.db-wal`` and the main file's mtime does not move
+    until a checkpoint. A long-lived ``dagayn serve`` therefore kept answering
+    from a NetworkX snapshot taken before the write, indefinitely.
+    """
+
+    def _repo(self, tmp_path, monkeypatch):
+        """A repo whose graph.db already exists.
+
+        ``_get_store`` only caches once the file is there -- without this the
+        first call returns an uncached transient store and every assertion
+        about cache identity passes for the wrong reason.
+        """
+        repo = tmp_path / "repo"
+        (repo / ".dagayn").mkdir(parents=True)
+        (repo / ".git").mkdir()
+        monkeypatch.setenv("CRG_DATA_DIR", str(tmp_path / "data"))
+        _evict_store_cache()
+        bootstrap, _ = _get_store(str(repo))
+        bootstrap.set_metadata("seed", "1")
+        bootstrap.commit()
+        bootstrap.close()
+        _evict_store_cache()
+        return repo
+
+    def test_external_commit_invalidates_the_cached_store(self, tmp_path, monkeypatch):
+        import sqlite3
+
+        from dagayn.paths import get_db_path
+
+        repo = self._repo(tmp_path, monkeypatch)
+        first, _ = _get_store(str(repo))
+        assert first._pinned, "precondition: the first store must be the cached one"
+        db_path = get_db_path(repo)
+        mtime_before = db_path.stat().st_mtime
+
+        # A separate connection stands in for another process.
+        writer = sqlite3.connect(db_path)
+        try:
+            writer.execute(
+                "INSERT INTO metadata (key, value) VALUES ('from_other_process', 'yes') "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+            )
+            writer.commit()
+        finally:
+            writer.close()
+
+        second, _ = _get_store(str(repo))
+        try:
+            assert second is not first, "cached store survived another connection's commit"
+            assert second.get_metadata("from_other_process") == "yes"
+            # Guard the premise: if this ever becomes True the mtime check
+            # alone would have been enough and this test proves nothing.
+            assert db_path.stat().st_mtime == mtime_before
+        finally:
+            _evict_store_cache()
+
+    def test_unchanged_db_still_reuses_the_cached_store(self, tmp_path, monkeypatch):
+        """The stricter staleness check must not defeat the cache entirely."""
+        repo = self._repo(tmp_path, monkeypatch)
+        first, _ = _get_store(str(repo))
+        try:
+            second, _ = _get_store(str(repo))
+            assert second is first, "cache is not caching"
+            third, _ = _get_store(str(repo))
+            assert third is first
+        finally:
+            _evict_store_cache()

@@ -264,15 +264,45 @@ def _validate_repo_root(path: Path) -> Path:
     return resolved
 
 
+def resolve_contained_path(rel_path: str, repo_root: Path) -> Path | None:
+    """Resolve *rel_path* under *repo_root*, or ``None`` when it escapes.
+
+    Caller-supplied file lists (``changed_files`` on the review tools) reach
+    the filesystem, so they need the same containment guarantee the edit path
+    in :func:`dagayn.refactor.apply.apply_refactor` has. ``root / rel_path``
+    alone provides none: ``Path.__truediv__`` discards ``root`` when the right
+    operand is absolute, and ``..`` segments are not normalised until
+    ``resolve()``.
+    """
+    candidate = Path(rel_path)
+    if not candidate.is_absolute():
+        candidate = repo_root / candidate
+    try:
+        resolved = candidate.resolve()
+    except OSError:
+        return None
+    root = repo_root.resolve()
+    if resolved != root and not resolved.is_relative_to(root):
+        return None
+    return resolved
+
+
 # --- Process-level GraphStore cache (Section 2.3 in PERFORMANCE-IMPROVEMENTS) -
 #
 # Read-only MCP tool calls reuse a single :class:`GraphStore` instance per
 # database file across invocations.  The cache key is the resolved
-# :class:`Path` to the SQLite file; staleness is detected via ``st_mtime``
-# (which changes on every WAL commit).  When the file mtime no longer
-# matches what we cached, the previous instance is force-closed and a fresh
-# one is created so that any mutation done by another connection (e.g. a
-# write tool, the watch daemon, ``dagayn build``) is reflected.
+# :class:`Path` to the SQLite file; staleness is detected via
+# ``(st_mtime, PRAGMA data_version)``.  When either moves, the previous
+# instance is force-closed and a fresh one is created so that any mutation
+# done by another connection (e.g. a write tool, the watch daemon,
+# ``dagayn build``) is reflected -- including the derived caches
+# (``_nxg_cache``, hub/bridge scores) that only a new instance resets.
+#
+# ``st_mtime`` alone was the original check and is not sufficient: the
+# journal_mode is WAL, so another process's commit lands in ``graph.db-wal``
+# and leaves the main file's mtime untouched until a checkpoint.  A long-lived
+# ``dagayn serve`` therefore answered impact/topology questions from a
+# NetworkX snapshot taken before the write, indefinitely.
 #
 # Cached stores have ``_pinned = True``; their :meth:`GraphStore.close`
 # becomes a no-op so existing ``finally: store.close()`` blocks in tool
@@ -282,7 +312,7 @@ def _validate_repo_root(path: Path) -> Path:
 # ``cached=False``) to disable this and revert to a fresh ``GraphStore``
 # per call — primarily useful for write tools (``build``, incremental
 # update) that already manage their own short-lived connection.
-_store_cache: dict[Path, tuple[GraphStore, float]] = {}
+_store_cache: dict[Path, tuple[GraphStore, tuple[float, int | None]]] = {}
 _store_lock = threading.Lock()
 
 
@@ -320,6 +350,26 @@ def _evict_store_cache(db_path: Path | None = None) -> None:
             # else: last close() will call _force_close when _leases reaches 0.
 
 
+def _data_version(store: Any) -> int | None:
+    """Return SQLite's ``data_version`` for *store*'s connection.
+
+    ``PRAGMA data_version`` increments whenever *another* connection commits to
+    the database, which is exactly the signal the cache needs and the one the
+    file mtime does not give: in WAL mode a commit is written to ``-wal`` and
+    the main database file's mtime does not move until a checkpoint.
+    """
+    conn = getattr(store, "_conn", None)
+    if conn is None:
+        return None
+    try:
+        row = conn.execute("PRAGMA data_version").fetchone()
+    except sqlite3.Error:
+        return None
+    if row is None:
+        return None
+    return int(row[0])
+
+
 def _get_store(
     repo_root: str | None = None,
     *,
@@ -351,8 +401,13 @@ def _get_store(
     with _store_lock:
         entry = _store_cache.get(db_path)
         if entry is not None:
-            cached_store, cached_mtime = entry
-            if cached_mtime == mtime:
+            cached_store, cached_token = entry
+            cached_mtime, cached_version = cached_token
+            # mtime alone misses WAL commits (see :func:`_data_version`); it is
+            # still checked because a replaced file (worktree seeding) gives the
+            # open handle no new data_version at all.
+            current_version = _data_version(cached_store)
+            if cached_mtime == mtime and cached_version == current_version:
                 # Acquire a lease atomically while holding the lock so
                 # a concurrent _evict_store_cache cannot race between
                 # the lookup and the increment.
@@ -371,7 +426,7 @@ def _get_store(
         store = store_cls(db_path)
         store._pinned = True
         store._leases = 1  # set inside the lock before inserting into cache
-        _store_cache[db_path] = (store, mtime)
+        _store_cache[db_path] = (store, (mtime, _data_version(store)))
     return store, root
 
 
@@ -470,6 +525,45 @@ def guidance_actions_to_hints(guidance: list[dict[str, Any]], *, limit: int = 3)
         if len(next_steps) >= limit:
             break
     return {"next_steps": next_steps, "related": [], "warnings": warnings}
+
+
+def _freshness_reason_codes(store: Any) -> tuple[list[str], dict[str, Any]]:
+    """Return freshness reason codes for the graph behind *store*.
+
+    A graph that answers for the wrong commit, or that predates the edits in
+    the working tree, produces confidently wrong answers -- ``callers_of`` on a
+    new symbol returns "not found in the current graph", and a blast radius is
+    computed from stale line ranges. Neither was visible on any read tool
+    before: freshness lived only in ``session prepare`` and
+    ``get_minimal_context``.
+    """
+    try:
+        root = store.get_repo_root()
+    except Exception:  # noqa: BLE001 — disclosure must never break a response
+        return [], {}
+    if root is None:
+        return [], {}
+    try:
+        from .sync_status import commit_tier_freshness
+
+        freshness = commit_tier_freshness(store, root)
+    except Exception:  # noqa: BLE001
+        return [], {}
+
+    state = freshness.get("state")
+    if state is None:
+        return [], {}
+    codes: list[str] = []
+    if state == "commit_drift":
+        codes.append("graph_describes_another_commit")
+    elif freshness.get("worktree_dirty"):
+        codes.append("uncommitted_changes_may_be_unindexed")
+    counts = {
+        "graph_head_sha": freshness.get("git_head_sha"),
+        "current_head_sha": freshness.get("current_head_sha"),
+        "worktree_dirty": bool(freshness.get("worktree_dirty")),
+    }
+    return codes, counts
 
 
 def graph_answerability_summary(store: Any, stats: Any | None = None) -> dict[str, Any]:
@@ -579,6 +673,10 @@ def graph_answerability_summary(store: Any, stats: Any | None = None) -> dict[st
     if stale_flow_membership_count > 0 or unassigned_node_count > 0:
         reason_codes.append("stale_derived_structures")
         score -= 0.15
+    freshness_codes, freshness_counts = _freshness_reason_codes(store)
+    for code in freshness_codes:
+        reason_codes.append(code)
+        score -= 0.25 if code == "graph_describes_another_commit" else 0.1
 
     score = max(0.0, round(score, 4))
     status = "ok" if score >= 0.75 else "degraded" if score > 0 else "empty"
@@ -604,6 +702,7 @@ def graph_answerability_summary(store: Any, stats: Any | None = None) -> dict[st
             ),
             "stale_flow_memberships": stale_flow_membership_count,
             "unassigned_nodes": unassigned_node_count,
+            **freshness_counts,
         },
     }
     if reportable_unresolved_cross_artifact_count:
@@ -667,6 +766,17 @@ def missingness_from_answerability(answerability: dict[str, Any]) -> list[dict[s
         "missing_cross_artifact_edges": "medium",
         "answerability_unavailable": "medium",
         "stale_derived_structures": "medium",
+        "graph_describes_another_commit": "high",
+        "uncommitted_changes_may_be_unindexed": "medium",
+    }
+    claim_effect_by_code = {
+        "graph_describes_another_commit": (
+            "the graph answers for a different commit -- absence, line numbers and blast"
+            " radius may all be wrong; run dagayn update before concluding anything"
+        ),
+        "uncommitted_changes_may_be_unindexed": (
+            "working-tree edits may not be indexed -- a symbol reported missing may exist on disk"
+        ),
     }
     items: list[dict[str, Any]] = []
     for code in answerability.get("reason_codes", []):
@@ -676,8 +786,9 @@ def missingness_from_answerability(answerability: dict[str, Any]) -> list[dict[s
                 {
                     "reason_code": str(code),
                     "severity": severity,
-                    "claim_effect": (
-                        "claims should be treated as graph-limited until this is resolved"
+                    "claim_effect": claim_effect_by_code.get(
+                        str(code),
+                        "claims should be treated as graph-limited until this is resolved",
                     ),
                 }
             )

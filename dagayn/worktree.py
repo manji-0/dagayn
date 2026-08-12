@@ -274,30 +274,31 @@ def _copy_graph_db(source: Path, dest: Path, repo_root: Path) -> None:
     reader never sees a partial database.
     """
     tmp = dest.with_name(f"{dest.name}.seed-{os.getpid()}.tmp")
-    src_conn = sqlite3.connect(f"file:{source}?mode=ro", uri=True)
+    # ``finally`` covers the whole body: a failure inside ``backup()`` or the
+    # metadata upsert used to leave a full-size copy of the graph behind on
+    # every retry.
     try:
-        dst_conn = sqlite3.connect(str(tmp))
+        src_conn = sqlite3.connect(f"file:{source}?mode=ro", uri=True)
         try:
-            src_conn.backup(dst_conn)
-            # The graph stores repo-relative paths, but metadata records the
-            # absolute root. Re-root it so the worktree copy is self-describing
-            # even before the first update runs.
-            dst_conn.execute(
-                "INSERT INTO metadata (key, value) VALUES ('repo_root', ?) "
-                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                (str(repo_root),),
-            )
-            dst_conn.commit()
+            dst_conn = sqlite3.connect(str(tmp))
+            try:
+                src_conn.backup(dst_conn)
+                # The graph stores repo-relative paths, but metadata records the
+                # absolute root. Re-root it so the worktree copy is
+                # self-describing even before the first update runs.
+                dst_conn.execute(
+                    "INSERT INTO metadata (key, value) VALUES ('repo_root', ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    (str(repo_root),),
+                )
+                dst_conn.commit()
+            finally:
+                dst_conn.close()
         finally:
-            dst_conn.close()
-    finally:
-        src_conn.close()
-
-    try:
+            src_conn.close()
         os.replace(tmp, dest)
-    except OSError:
+    finally:
         tmp.unlink(missing_ok=True)
-        raise
 
 
 def seed_worktree_graph(repo_root: Path) -> SeedResult:
@@ -336,7 +337,10 @@ def seed_worktree_graph(repo_root: Path) -> SeedResult:
         return SeedResult("skipped", "worktree already has a graph", dest=dest)
 
     source = get_db_path(main)
-    if not source.exists():
+    if not graph_has_nodes(source):
+        # Existence is not having a graph: ``dagayn status``/``serve`` leave a
+        # schema-only 0-node stub behind. Seeding one produced a worktree graph
+        # that held nothing yet was then stamped as describing HEAD.
         return SeedResult(
             "skipped",
             f"main checkout has no graph at {source} — run 'dagayn build' there first",
