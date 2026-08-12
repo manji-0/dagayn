@@ -496,6 +496,35 @@ class TestFlows:
         abs_entries = {f["entry_point_id"] for f in result_abs["affected_flows"]}
         assert abs_entries == rel_entries
 
+    def test_get_affected_flows_ignores_unrelated_dangling_memberships(self):
+        """Dangling rows on other flows must not mark every query as affected."""
+        self._add_func("main_fn", path="a.py")
+        self._add_func("other_fn", path="b.py")
+        self._add_call("a.py::main_fn", "b.py::other_fn", "a.py")
+
+        main_flows = trace_flows(self.store)
+        store_flows(self.store, main_flows)
+        main_flow = get_flows(self.store)[0]
+
+        # Corrupt a second flow with a dangling membership unrelated to a.py.
+        self.store._conn.execute(
+            "INSERT INTO flows (name, entry_point_id, path_json, node_count, depth, file_count, criticality) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ("xmain", 999999, "[]", 0, 0, 0, 0.0),
+        )
+        orphan_flow_id = self.store._conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        self.store._conn.execute(
+            "INSERT INTO flow_memberships (flow_id, node_id, position) VALUES (?, ?, ?)",
+            (orphan_flow_id, 999999, 0),
+        )
+        self.store.commit()
+
+        result = get_affected_flows(self.store, ["a.py"])
+        affected_ids = {flow["id"] for flow in result["affected_flows"]}
+
+        assert main_flow["id"] in affected_ids
+        assert orphan_flow_id not in affected_ids
+
     def test_get_node_ids_by_files_absolute_path(self, tmp_path):
         """get_node_ids_by_files accepts absolute paths when repo_root is set."""
         repo = tmp_path / "repo"

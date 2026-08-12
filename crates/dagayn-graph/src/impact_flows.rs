@@ -86,15 +86,6 @@ impl GraphStore {
             affected.insert(row?);
         }
 
-        let dangling_sql = "SELECT DISTINCT fm.flow_id FROM flow_memberships fm \
-                            LEFT JOIN nodes n ON n.id = fm.node_id \
-                            WHERE n.id IS NULL";
-        let mut stmt = self.conn.prepare(dangling_sql)?;
-        let rows = stmt.query_map([], |row| row.get(0))?;
-        for row in rows {
-            affected.insert(row?);
-        }
-
         let path_sql = format!(
             "SELECT DISTINCT f.id FROM flows f, json_each(f.path_json) AS je \
              JOIN nodes n ON n.id = CAST(je.value AS INTEGER) \
@@ -106,13 +97,26 @@ impl GraphStore {
             affected.insert(row?);
         }
 
-        let dangling_entry_sql = "SELECT f.id FROM flows f \
+        let dangling_entry_sql = "SELECT f.id, f.name FROM flows f \
                                   LEFT JOIN nodes n ON n.id = f.entry_point_id \
                                   WHERE n.id IS NULL";
         let mut stmt = self.conn.prepare(dangling_entry_sql)?;
-        let rows = stmt.query_map([], |row| row.get(0))?;
-        for row in rows {
-            affected.insert(row?);
+        let dangling_rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?;
+        for row in dangling_rows {
+            let (flow_id, flow_name) = row?;
+            let match_sql = format!(
+                "SELECT 1 FROM nodes WHERE file_path IN ({placeholders}) AND name = ? LIMIT 1"
+            );
+            let matched = self.conn.query_row(
+                &match_sql,
+                rusqlite::params_from_iter(file_keys.iter().chain(std::iter::once(&flow_name))),
+                |_| Ok(()),
+            );
+            if matched.is_ok() {
+                affected.insert(flow_id);
+            }
         }
 
         let mut changed_qnames = HashSet::new();

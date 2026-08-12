@@ -545,13 +545,6 @@ def _get_affected_flow_ids(store: GraphStore, changed_files: list[str]) -> list[
     ):
         affected.add(int(row[0]))
 
-    for row in conn.execute(
-        "SELECT DISTINCT fm.flow_id FROM flow_memberships fm "
-        "LEFT JOIN nodes n ON n.id = fm.node_id "
-        "WHERE n.id IS NULL"
-    ):
-        affected.add(int(row[0]))
-
     for row in conn.execute(  # nosec B608
         f"SELECT DISTINCT f.id FROM flows f, json_each(f.path_json) AS je "
         f"JOIN nodes n ON n.id = CAST(je.value AS INTEGER) "
@@ -561,11 +554,18 @@ def _get_affected_flow_ids(store: GraphStore, changed_files: list[str]) -> list[
         affected.add(int(row[0]))
 
     for row in conn.execute(
-        "SELECT f.id FROM flows f "
+        "SELECT f.id, f.name FROM flows f "
         "LEFT JOIN nodes n ON n.id = f.entry_point_id "
         "WHERE n.id IS NULL"
     ):
-        affected.add(int(row[0]))
+        flow_id = int(row[0])
+        flow_name = row[1]
+        match = conn.execute(  # nosec B608
+            f"SELECT 1 FROM nodes WHERE file_path IN ({placeholders}) AND name = ? LIMIT 1",
+            (*lookup_files, flow_name),
+        ).fetchone()
+        if match is not None:
+            affected.add(flow_id)
 
     changed_qnames = {
         row["qualified_name"]

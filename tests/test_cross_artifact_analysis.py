@@ -452,6 +452,25 @@ class TestCrossArtifactHelpers:
         assert not is_reportable_bridge(low)
         assert is_low_confidence_bridge(low)
 
+    def test_resolved_implicit_markdown_code_span_is_low_confidence(self):
+        edge = _EdgeView(
+            _bridge(
+                source="docs/api.md::Api",
+                target="app.py::handler",
+                file_path="docs/api.md",
+                tier="MEDIUM",
+                confidence=0.4,
+            )
+        )
+        edge.extra = {
+            **edge.extra,
+            "relationship_role": "describes_symbol",
+            "evidence_kind": "markdown_code_span",
+            "evidence_source": "code_span",
+        }
+        assert not is_reportable_bridge(edge)
+        assert is_low_confidence_bridge(edge)
+
     def test_column_tier_preferred_over_extra(self):
         """Parity with Rust: non-reportable column tier must not be overridden by extra."""
         edge = _EdgeView(

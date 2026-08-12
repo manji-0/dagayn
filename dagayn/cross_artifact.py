@@ -67,6 +67,22 @@ def is_low_confidence_unresolved_markdown_code_span(edge: Any) -> bool:
     )
 
 
+def is_low_confidence_resolved_implicit_markdown_code_span(edge: Any) -> bool:
+    """True for resolved implicit Markdown code-span bridges capped at MEDIUM."""
+    if not is_cross_artifact(edge):
+        return False
+    if is_unresolved_target(edge):
+        return False
+    extra = edge_extra(edge)
+    if extra.get("relationship_role") != "describes_symbol":
+        return False
+    if extra.get("evidence_kind") != "markdown_code_span":
+        return False
+    if extra.get("evidence_source") != "code_span":
+        return False
+    return confidence_tier_of(edge) == "MEDIUM"
+
+
 def is_low_confidence_bridge(edge: Any) -> bool:
     """True when a CROSS_ARTIFACT edge must not be treated as a hard claim."""
     if not is_cross_artifact(edge):
@@ -74,6 +90,8 @@ def is_low_confidence_bridge(edge: Any) -> bool:
     if is_unresolved_target(edge):
         return True
     if is_low_confidence_unresolved_markdown_code_span(edge):
+        return True
+    if is_low_confidence_resolved_implicit_markdown_code_span(edge):
         return True
     tier = confidence_tier_of(edge)
     if tier == "LOW" or not tier:
