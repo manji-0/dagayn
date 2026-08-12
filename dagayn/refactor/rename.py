@@ -56,8 +56,7 @@ def _import_statement_mentions_symbol(
         if 0 <= idx < len(lines):
             return bool(pattern.search(lines[idx]))
 
-    # Graph-only fallback: include file-level import edges when source is unavailable.
-    return True
+    return False
 
 
 def _append_edit(

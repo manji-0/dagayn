@@ -280,8 +280,8 @@ class TestRenamePreview:
         result = rename_preview(self.store, "helper", "new_helper")
         assert result is not None
         edits = result["edits"]
-        # Should have at least: 1 definition + 1 call + 1 import = 3
-        assert len(edits) >= 3
+        # Should have at least: 1 definition + 1 call
+        assert len(edits) >= 2
         files = {e["file"] for e in edits}
         assert "/repo/utils.py" in files  # definition
         assert "/repo/main.py" in files  # call site + import site
@@ -325,14 +325,52 @@ class TestRenamePreview:
         reason_codes = {item["reason_code"] for item in result["missingness"]}
         assert "rename_edits_graph_limited" in reason_codes
 
-    def test_rename_import_resolves_by_defining_file(self):
+    def test_rename_import_resolves_by_defining_file(self, tmp_path):
         """IMPORTS_FROM lookup uses defining file path, not symbol qualified name."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / "main.py").write_text("from utils import helper\n", encoding="utf-8")
+        (repo / "utils.py").write_text("def helper():\n    return 1\n", encoding="utf-8")
+        self.store.set_metadata("repo_root", str(tmp_path.resolve()))
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="IMPORTS_FROM",
+                source="repo/main.py",
+                target="/repo/utils.py",
+                file_path="repo/main.py",
+                line=1,
+            )
+        )
+        self.store.commit()
+
         result = rename_preview(self.store, "helper", "new_helper")
         assert result is not None
         import_edits = [e for e in result["edits"] if e["source"] == "import"]
         assert len(import_edits) == 1
-        assert import_edits[0]["file"] == "/repo/main.py"
+        assert import_edits[0]["file"] == "repo/main.py"
         assert import_edits[0]["line"] == 1
+
+    def test_rename_import_skips_unverified_source_lines(self, tmp_path):
+        """Do not emit high-confidence import edits when source cannot be verified."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / "main.py").write_text("from utils import other_thing\n", encoding="utf-8")
+        self.store.set_metadata("repo_root", str(tmp_path.resolve()))
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="IMPORTS_FROM",
+                source="repo/main.py",
+                target="/repo/utils.py",
+                file_path="repo/main.py",
+                line=1,
+            )
+        )
+        self.store.commit()
+
+        result = rename_preview(self.store, "helper", "new_helper")
+        assert result is not None
+        import_edits = [e for e in result["edits"] if e["source"] == "import"]
+        assert import_edits == []
 
 
 class TestFindDeadCode:
