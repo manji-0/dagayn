@@ -44,11 +44,23 @@ def detect_fts_segmenter() -> str:
     return "bigram"
 
 
-def segment_cjk_identifier_tokens(text: str) -> str:
-    """Bigram-segment CJK runs for ``identifier_tokens`` indexing."""
+def segment_cjk_identifier_tokens(text: str, *, segmenter: str | None = None) -> str:
+    """Segment CJK runs for ``identifier_tokens`` indexing.
+
+    When a wakati tokenizer is active, index both tokenizer output and bigrams
+    so full-token and partial-prefix queries both remain findable.
+    """
     if not text or not contains_japanese(text):
         return ""
-    return _segment_bigram(text, cjk_only=True)
+    resolved = segmenter or detect_fts_segmenter()
+    bigram = _segment_bigram(text, cjk_only=True)
+    if resolved == "bigram":
+        return bigram
+    wakati = segment_japanese_fts_text(text, segmenter=resolved)
+    tokens: list[str] = []
+    for part in (wakati, bigram):
+        tokens.extend(part.split())
+    return " ".join(dict.fromkeys(tokens))
 
 
 def segment_japanese_fts_text(text: str, *, segmenter: str | None = None) -> str:

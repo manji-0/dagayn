@@ -39,8 +39,8 @@ def _most_selective_segment(segments: list[str]) -> str:
     return max(
         segments,
         key=lambda segment: (
-            len(segment),
             segment not in _COMMON_FTS_SEGMENTS,
+            len(segment),
             segment,
         ),
     )

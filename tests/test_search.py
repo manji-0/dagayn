@@ -287,6 +287,43 @@ class TestHybridSearch:
         self.store.fts_query("自然言語検索")
         assert calls == ["bigram"]
 
+    def test_cjk_identifier_tokens_include_wakati_when_segmenter_pinned(self, monkeypatch):
+        """Wakati-indexed identifier_tokens must still answer wakati-shaped queries."""
+        from dagayn.graph import _fts_content as fts_content
+        from dagayn.graph import _fts_tokenize as fts_tokenize
+
+        def fake_wakati(text: str) -> str:
+            if text == "ユーザー取得":
+                return "ユーザー 取得"
+            return text
+
+        monkeypatch.setattr(fts_tokenize, "detect_fts_segmenter", lambda: "fugashi")
+        monkeypatch.setattr(fts_tokenize, "_get_wakati", lambda _name: fake_wakati)
+
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="ユーザー取得",
+                file_path="jp.py",
+                line_start=1,
+                line_end=5,
+                language="python",
+            ),
+            file_hash="abc123",
+        )
+        self.store.commit()
+        rebuild_fts_index(self.store)
+
+        row = self.store._conn.execute(
+            "SELECT identifier_tokens FROM nodes_fts WHERE name = ?",
+            ("ユーザー取得",),
+        ).fetchone()
+        assert "ユーザー" in row["identifier_tokens"]
+        assert "取得" in row["identifier_tokens"]
+
+        fts = self.store.fts_query("ユーザー")
+        assert fts.hits
+
     # --- Kind boosting ---
 
     def test_kind_boost_pascal_case(self):
@@ -521,6 +558,27 @@ class TestHybridSearch:
 
         hs = hybrid_search(self.store, "totally.bogus.alpha")
         assert not any(r["name"] == "alpha" for r in hs["results"])
+
+    def test_junk_short_unique_segment_does_not_anchor_on_common_src(self):
+        """OR fallback must anchor on uncommon segments, not longest common ones."""
+        for path, name in [("src/a.py", "alpha"), ("lib/b.py", "beta")]:
+            self.store.upsert_node(
+                NodeInfo(
+                    kind="Function",
+                    name=name,
+                    file_path=path,
+                    line_start=1,
+                    line_end=5,
+                    language="python",
+                ),
+                file_hash="abc123",
+            )
+        self.store.commit()
+        rebuild_fts_index(self.store)
+
+        fts = self.store.fts_query("src/x.py")
+        assert fts.hits == []
+        assert fts.match_mode == "none"
 
     def test_kind_filter_with_small_limit_finds_class(self):
         """Issue #40: kind filter must not hide matches behind candidate truncation."""
