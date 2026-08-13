@@ -3,7 +3,7 @@ use crate::*;
 
 impl GraphStore {
     pub(crate) fn compute_community_summaries(&mut self) -> Result<()> {
-        let tx = self.conn.transaction()?;
+        let tx = write_tx(&mut self.conn)?;
         tx.execute("DELETE FROM community_summaries", [])?;
 
         let mut edge_counts: HashMap<String, i64> = HashMap::new();

@@ -1,3 +1,4 @@
+use crate::helpers::write_tx;
 use super::*;
 
 use serde_json::json;
@@ -927,7 +928,7 @@ fn stores_file_batch_edge_metadata_once_per_call_site() {
         extra: json!({"confidence": 0.42, "confidence_tier": "low", "role": "contract"}),
     };
 
-    let tx = store.conn.transaction().unwrap();
+    let tx = write_tx(&mut store.conn).unwrap();
     store_file_batch_tx(
         &tx,
         &[(
@@ -1008,7 +1009,7 @@ fn stores_compact_json_batch_edge_metadata() {
                 ]"#,
     )
     .unwrap();
-    let tx = store.conn.transaction().unwrap();
+    let tx = write_tx(&mut store.conn).unwrap();
     store_raw_compact_file_batch_tx(&tx, &compact, false).unwrap();
     tx.commit().unwrap();
 
@@ -2188,7 +2189,7 @@ fn flow_helpers_store_and_read_flow_rows_with_sanitized_json() {
     let entry_id = store.get_node("app.py::entry<script>").unwrap().unwrap().id;
     let callee_id = store.get_node("app.py::callee").unwrap().unwrap().id;
     {
-        let tx = store.conn.transaction().unwrap();
+        let tx = write_tx(&mut store.conn).unwrap();
         store_flows_tx(
             &tx,
             &[FlowInput {

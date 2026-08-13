@@ -390,11 +390,32 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
 LATEST_VERSION = max(MIGRATIONS.keys())
 
 
+def _db_path_for(conn: sqlite3.Connection) -> str | None:
+    """Return the main database file for *conn*, or ``None`` for in-memory."""
+    try:
+        for _seq, name, path in conn.execute("PRAGMA database_list").fetchall():
+            if name == "main":
+                return str(path) or None
+    except sqlite3.Error:  # pragma: no cover - diagnostics only
+        return None
+    return None
+
+
 def run_migrations(conn: sqlite3.Connection) -> None:
     """Run all pending migrations in order.
 
-    Each migration runs in its own transaction. The schema_version metadata
-    entry is updated after each successful migration.
+    Each migration runs in an explicit ``BEGIN IMMEDIATE``/``COMMIT``. The
+    connection is opened with ``isolation_level=None``, so there was no open
+    transaction and the ``rollback()`` in the failure path reverted nothing: a
+    migration failing partway left its DDL applied while ``schema_version``
+    stayed at the old value. Most migrations happen to be idempotent, which is
+    the only reason this was survivable.
+
+    The whole sequence is also held under the cross-process write lock. Two
+    concurrent first-opens of an old database could otherwise interleave
+    ``_migrate_v13``'s ``DROP TABLE nodes_fts`` / ``CREATE`` / ``INSERT`` such
+    that one process dropped the table the other had just populated, leaving an
+    empty FTS index at the newest ``schema_version``.
     """
     current = get_schema_version(conn)
     if current > LATEST_VERSION:
@@ -413,16 +434,50 @@ def run_migrations(conn: sqlite3.Connection) -> None:
 
     logger.info("Schema version %d -> %d: running migrations", current, LATEST_VERSION)
 
+    db_path = _db_path_for(conn)
+    if db_path is None:
+        # In-memory database: no other process can reach it.
+        _apply_pending_migrations(conn, current)
+        return
+
+    from .write_lock import graph_write_lock
+
+    with graph_write_lock(db_path):
+        # Re-read under the lock: another process may have migrated while we
+        # waited, in which case there is nothing left to do.
+        _apply_pending_migrations(conn, get_schema_version(conn))
+
+
+def _apply_pending_migrations(conn: sqlite3.Connection, current: int) -> None:
+    """Apply migrations above *current*, one atomic transaction each."""
     for version in sorted(MIGRATIONS.keys()):
         if version <= current:
             continue
         logger.info("Running migration v%d", version)
         try:
+            conn.execute("BEGIN IMMEDIATE")
+        except sqlite3.Error:
+            # Already inside a transaction (a caller opened one): run without
+            # nesting rather than failing the open outright.
             MIGRATIONS[version](conn)
             _set_schema_version(conn, version)
-            conn.commit()
+            continue
+        try:
+            MIGRATIONS[version](conn)
+            _set_schema_version(conn, version)
+            if conn.in_transaction:
+                conn.execute("COMMIT")
+            else:
+                # The migration committed internally (``ensure_edge_target_name_column``
+                # does), so its own writes are already durable and the version
+                # bump above needs its own commit.
+                conn.commit()
         except sqlite3.Error:
-            conn.rollback()
+            if conn.in_transaction:
+                try:
+                    conn.execute("ROLLBACK")
+                except sqlite3.Error:  # pragma: no cover - nothing to roll back
+                    pass
             logger.error("Migration v%d failed, rolling back", version, exc_info=True)
             raise
 

@@ -54,7 +54,7 @@ impl GraphStore {
     }
 
     pub fn store_flows(&mut self, flows: &[FlowInput]) -> Result<i64> {
-        let tx = self.conn.transaction()?;
+        let tx = write_tx(&mut self.conn)?;
         tx.execute("DELETE FROM flow_snapshots", [])?;
         tx.execute("DELETE FROM flow_memberships", [])?;
         tx.execute("DELETE FROM flows", [])?;
@@ -70,7 +70,7 @@ impl GraphStore {
 
     pub fn insert_flows_json(&mut self, flows_json: &str) -> Result<i64> {
         let flows: Vec<FlowInput> = serde_json::from_str(flows_json)?;
-        let tx = self.conn.transaction()?;
+        let tx = write_tx(&mut self.conn)?;
         delete_flows_for_entry_point_ids(&tx, &flows)?;
         store_flows_tx(&tx, &flows)?;
         tx.commit()?;

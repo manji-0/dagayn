@@ -21,7 +21,7 @@ impl GraphStore {
 
     pub fn store_file_batch(&mut self, batch: &[FileBatchItem]) -> Result<()> {
         let suspend_indexes = !self.bulk_load_indexes_suspended;
-        let tx = self.conn.transaction()?;
+        let tx = write_tx(&mut self.conn)?;
         store_file_batch_tx(&tx, batch, suspend_indexes)?;
         tx.commit()?;
         Ok(())
@@ -30,7 +30,7 @@ impl GraphStore {
     pub fn store_file_batch_json(&mut self, batch_json: &str) -> Result<()> {
         let compact: Vec<RawCompactFileBatchItem> = serde_json::from_str(batch_json)?;
         let suspend_indexes = !self.bulk_load_indexes_suspended;
-        let tx = self.conn.transaction()?;
+        let tx = write_tx(&mut self.conn)?;
         store_raw_compact_file_batch_tx(&tx, &compact, suspend_indexes)?;
         tx.commit()?;
         Ok(())
@@ -40,7 +40,7 @@ impl GraphStore {
         if self.bulk_load_indexes_suspended {
             return Ok(());
         }
-        let tx = self.conn.transaction()?;
+        let tx = write_tx(&mut self.conn)?;
         drop_graph_write_indexes(&tx)?;
         tx.commit()?;
         self.bulk_load_indexes_suspended = true;
@@ -51,7 +51,7 @@ impl GraphStore {
         if !self.bulk_load_indexes_suspended {
             return Ok(());
         }
-        let tx = self.conn.transaction()?;
+        let tx = write_tx(&mut self.conn)?;
         create_graph_write_indexes(&tx)?;
         tx.commit()?;
         self.bulk_load_indexes_suspended = false;
@@ -158,7 +158,7 @@ impl GraphStore {
         if updates.is_empty() {
             return Ok(());
         }
-        let tx = self.conn.transaction()?;
+        let tx = write_tx(&mut self.conn)?;
         {
             let mut stmt = tx.prepare("UPDATE nodes SET mtime_ns = ? WHERE file_path = ?")?;
             for (file_path, mtime_ns) in updates {

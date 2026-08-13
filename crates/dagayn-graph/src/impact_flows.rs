@@ -33,7 +33,7 @@ impl GraphStore {
             }
         }
 
-        let tx = self.conn.transaction()?;
+        let tx = write_tx(&mut self.conn)?;
         {
             let mut delete_snapshot = tx.prepare("DELETE FROM flow_snapshots WHERE flow_id = ?")?;
             let mut delete_membership =

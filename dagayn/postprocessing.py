@@ -23,7 +23,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from .graph import GraphStore
+from .graph import GraphStore, store_write_transaction
 from .graph._sql import _edge_target_name
 from .state_types import (
     DroppedMarkdownArtifactResolution,
@@ -459,11 +459,7 @@ def _apply_manifest_bridges(
 
         sql_store, owns_sql_store = _sql_capable_store(store, repo_root)
         conn = sql_store._conn
-        if conn.in_transaction:
-            logger.warning("Rolling back uncommitted transaction before manifest bridge refresh")
-            conn.rollback()
-        conn.execute("BEGIN IMMEDIATE")
-        try:
+        with store_write_transaction(sql_store):
             conn.execute(
                 "DELETE FROM edges WHERE kind='CROSS_ARTIFACT' AND extra LIKE ?",
                 (f'%"extractor": "{EXTRACTOR_ID}"%',),
@@ -483,13 +479,6 @@ def _apply_manifest_bridges(
                 nodes_upserted += 1
             for edge in discovered.edges:
                 sql_store.upsert_edge(edge)
-            conn.commit()
-        except BaseException:
-            conn.rollback()
-            invalidate = getattr(sql_store, "_invalidate_cache", None)
-            if callable(invalidate):
-                invalidate()
-            raise
         invalidate = getattr(sql_store, "_invalidate_cache", None)
         if callable(invalidate):
             invalidate()

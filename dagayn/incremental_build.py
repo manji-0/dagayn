@@ -582,6 +582,22 @@ def _split_rust_parser_files(
     return rust_files, python_files
 
 
+def store_phase_failures(errors: list[dict[str, str]] | None) -> list[str]:
+    """Return files that failed to be *stored* (not merely to parse).
+
+    A parse failure is a fact about one file and does not invalidate the rest of
+    the run. A store failure means the graph is missing content it was asked to
+    hold, so it must not be described as covering HEAD.
+    """
+    if not errors:
+        return []
+    return [
+        str(entry.get("file", ""))
+        for entry in errors
+        if isinstance(entry, dict) and entry.get("phase") == "store"
+    ]
+
+
 def _store_rust_parse_batches(
     repo_root: Path,
     store: GraphStore,
@@ -602,7 +618,16 @@ def _store_rust_parse_batches(
                     chunk,
                 )
             except (RuntimeError, TypeError, ValueError) as exc:
-                errors.extend({"file": rel_path, "error": str(exc)} for rel_path in chunk)
+                # A whole chunk (up to _RUST_PARSE_BATCH_SIZE files) failed to
+                # *store* — e.g. `database is locked` surfaced as RuntimeError
+                # by PyO3. Tagged so the caller can refuse to stamp HEAD: with
+                # these recorded as ordinary parse errors, the update returned
+                # ok, claimed to describe HEAD, and later diffs started from
+                # HEAD, so the dropped files were never revisited.
+                logger.error("Failed to store %d file(s): %s", len(chunk), exc)
+                errors.extend(
+                    {"file": rel_path, "error": str(exc), "phase": "store"} for rel_path in chunk
+                )
                 continue
             total_nodes += int(node_count)
             total_edges += int(edge_count)
@@ -808,15 +833,28 @@ def full_build(
 
         store.set_metadata("last_updated", time.strftime("%Y-%m-%dT%H:%M:%S"))
         store.set_metadata("last_build_type", "full")
-        _store_vcs_metadata(repo_root, store)
+        full_store_failures = store_phase_failures(errors)
+        if full_store_failures:
+            # A graph missing files it was asked to hold must not claim to
+            # describe HEAD: later incremental runs diff from there.
+            logger.error(
+                "Not recording git_head_sha: %d file(s) failed to store",
+                len(full_store_failures),
+            )
+        else:
+            _store_vcs_metadata(repo_root, store)
         store.commit()
 
-    return {
+    result = {
         "files_parsed": len(files),
         "total_nodes": total_nodes,
         "total_edges": total_edges,
         "errors": errors,
     }
+    if full_store_failures:
+        result["store_failed_files"] = full_store_failures
+        result["status"] = "partial"
+    return result
 
 
 def _diff_covers_graph_commit(repo_root: Path, store: GraphStore, base: str) -> bool:
@@ -877,6 +915,8 @@ def incremental_update(
             change_file_sources["files"] = changed_files
             change_file_sources["content_drift"] = forced
 
+    store_failures: list[str] = []
+
     def _record_head_when_verified() -> None:
         """Stamp ``git_head_sha`` = HEAD, but only if the diff really covered it.
 
@@ -896,6 +936,13 @@ def incremental_update(
         prepare on every session start that can never clear it.
         """
         if not diff_covers_graph:
+            return
+        if store_failures:
+            logger.error(
+                "Not recording git_head_sha: %d file(s) failed to store, so the graph "
+                "does not describe HEAD",
+                len(store_failures),
+            )
             return
         _store_vcs_metadata(repo_root, store)
         store.commit()
@@ -1148,13 +1195,17 @@ def incremental_update(
 
     store.set_metadata("last_updated", time.strftime("%Y-%m-%dT%H:%M:%S"))
     store.set_metadata("last_build_type", "incremental")
-    if diff_covers_graph:
+    store_failures.extend(store_phase_failures(errors))
+    if diff_covers_graph and not store_failures:
         # Same contract as the no-op paths: only a diff that reached the graph's
-        # own commit proves the graph now describes HEAD.
+        # own commit proves the graph now describes HEAD -- and only if every
+        # file it named actually landed in the graph.
         _store_vcs_metadata(repo_root, store)
+    elif store_failures:
+        logger.error("Not recording git_head_sha: %d file(s) failed to store", len(store_failures))
     store.commit()
 
-    return {
+    result = {
         "files_updated": len(all_files),
         "total_nodes": total_nodes,
         "total_edges": total_edges,
@@ -1163,6 +1214,10 @@ def incremental_update(
         "dependent_files": list(dependent_files),
         "errors": errors,
     }
+    if store_failures:
+        result["store_failed_files"] = store_failures
+        result["status"] = "partial"
+    return result
 
 
 # ---------------------------------------------------------------------------

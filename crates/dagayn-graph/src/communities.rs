@@ -4,7 +4,7 @@ use crate::*;
 impl GraphStore {
     pub fn store_communities_json(&mut self, communities_json: &str) -> Result<i64> {
         let communities: Vec<CommunityInput> = serde_json::from_str(communities_json)?;
-        let tx = self.conn.transaction()?;
+        let tx = write_tx(&mut self.conn)?;
         tx.execute("DELETE FROM community_summaries", [])?;
         tx.execute("DELETE FROM communities", [])?;
         tx.execute("UPDATE nodes SET community_id = NULL", [])?;

@@ -15,6 +15,7 @@ _LAZY_EXPORTS = {
     "_sanitize_name": (".helpers", "_sanitize_name"),
     "edge_to_dict": (".helpers", "edge_to_dict"),
     "node_to_dict": (".helpers", "node_to_dict"),
+    "store_write_transaction": (".helpers", "store_write_transaction"),
 }
 
 
@@ -40,4 +41,5 @@ __all__ = [
     "_sanitize_name",
     "edge_to_dict",
     "node_to_dict",
+    "store_write_transaction",
 ]

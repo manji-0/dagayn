@@ -1,8 +1,9 @@
+use crate::helpers::write_tx;
 use crate::*;
 
 impl GraphStore {
     pub(crate) fn compute_risk_index(&mut self) -> Result<()> {
-        let tx = self.conn.transaction()?;
+        let tx = write_tx(&mut self.conn)?;
         tx.execute("DELETE FROM risk_index", [])?;
 
         let mut caller_counts: HashMap<String, i64> = HashMap::new();

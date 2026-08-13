@@ -1,3 +1,4 @@
+use crate::helpers::write_tx;
 use crate::*;
 
 enum MarkdownArtifactResolution {
@@ -71,7 +72,7 @@ fn markdown_artifact_resolution(
 
 impl GraphStore {
     pub fn resolve_markdown_artifact_refs(&mut self) -> Result<(i64, i64, i64, i64)> {
-        let tx = self.conn.transaction()?;
+        let tx = write_tx(&mut self.conn)?;
         let rows = {
             let mut stmt = tx.prepare(
                 "SELECT id, target_qualified, extra FROM edges \

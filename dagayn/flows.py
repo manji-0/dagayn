@@ -15,7 +15,13 @@ from collections import deque
 from typing import Any, Optional
 
 from .constants import SECURITY_KEYWORDS as _SECURITY_KEYWORDS
-from .graph import FlowAdjacency, GraphNode, GraphStore, _sanitize_name
+from .graph import (
+    FlowAdjacency,
+    GraphNode,
+    GraphStore,
+    _sanitize_name,
+    store_write_transaction,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -390,13 +396,9 @@ def store_flows(store: GraphStore, flows: list[dict]) -> int:
     # tightly coupled to the DB transaction lifecycle.
     conn = store._conn
 
-    if conn.in_transaction:
-        logger.warning("Rolling back uncommitted transaction before BEGIN IMMEDIATE")
-        conn.rollback()
     # Wrap the full DELETE + INSERT sequence in an explicit transaction
     # so partial writes cannot occur if an exception interrupts the loop.
-    conn.execute("BEGIN IMMEDIATE")
-    try:
+    with store_write_transaction(store):
         conn.execute("DELETE FROM flow_memberships")
         conn.execute("DELETE FROM flows")
 
@@ -440,10 +442,6 @@ def store_flows(store: GraphStore, flows: list[dict]) -> int:
                 all_memberships,
             )
 
-        conn.commit()
-    except BaseException:
-        conn.rollback()
-        raise
     return count
 
 
@@ -617,10 +615,7 @@ def _delete_flows_by_ids(store: GraphStore, flow_ids: list[int]) -> set[int]:
     ):
         entry_point_ids.add(int(row[0]))
 
-    if conn.in_transaction:
-        conn.commit()
-    conn.execute("BEGIN IMMEDIATE")
-    try:
+    with store_write_transaction(store):
         _batch_size = 450
         for i in range(0, len(flow_ids), _batch_size):
             chunk = flow_ids[i : i + _batch_size]
@@ -637,10 +632,6 @@ def _delete_flows_by_ids(store: GraphStore, flow_ids: list[int]) -> set[int]:
                 f"DELETE FROM flows WHERE id IN ({placeholders})",
                 chunk,
             )
-        conn.commit()
-    except BaseException:
-        conn.rollback()
-        raise
     return entry_point_ids
 
 

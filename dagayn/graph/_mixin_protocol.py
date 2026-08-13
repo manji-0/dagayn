@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional, Protocol
 
@@ -14,6 +15,9 @@ if TYPE_CHECKING:
 
 class GraphStoreMixinProtocol(Protocol):
     _conn: sqlite3.Connection
+    #: Serializes explicit BEGIN IMMEDIATE regions; the connection is
+    #: shared across threads (``check_same_thread=False``).
+    _write_lock: threading.RLock
     _repo_root_cache: Any
 
     def _normalize_file_path_key(self, file_path: str | Path) -> str: ...

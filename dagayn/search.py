@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
-from .graph import GraphStore, _sanitize_name
+from .graph import GraphStore, _sanitize_name, store_write_transaction
 from .graph._fts_sync import fts_index_health, rebuild_fts_index_tx
 
 if TYPE_CHECKING:
@@ -128,18 +128,10 @@ def rebuild_fts_index(store: GraphStore) -> int:
     # Wrap the full DROP + CREATE + INSERT sequence in an explicit transaction
     # so a crash mid-rebuild cannot leave the DB without an FTS table at all
     # (DROP succeeded but CREATE/INSERT didn't).  See #259.
-    if conn.in_transaction:
-        logger.warning("Rolling back uncommitted transaction before BEGIN IMMEDIATE")
-        conn.rollback()
-    conn.execute("BEGIN IMMEDIATE")
-    try:
+    with store_write_transaction(store):
         repo_root_value = getattr(store, "get_metadata", lambda _key: None)("repo_root")
         repo_root = Path(repo_root_value) if repo_root_value else None
         count = rebuild_fts_index_tx(conn, repo_root)
-        conn.commit()
-    except BaseException:
-        conn.rollback()
-        raise
 
     logger.info("FTS index rebuilt: %d rows indexed", count)
     return count

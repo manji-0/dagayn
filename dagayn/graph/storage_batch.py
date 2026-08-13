@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from ._edge_records import edge_insert_values
 from ._fts_sync import delete_fts_for_file_paths, set_fts_watermark, sync_fts_for_file_paths
 from ._mixin_protocol import GraphStoreMixinProtocol
+from .helpers import store_write_transaction
 
 if TYPE_CHECKING:
     from ..parser._base.types import EdgeInfo, NodeInfo
@@ -125,19 +126,11 @@ class GraphStoreStorageBatchMixin(GraphStoreMixinProtocol):
         mtime_ns: int = 0,
     ) -> None:
         """Atomically replace all data for a file."""
-        if self._conn.in_transaction:
-            logger.warning("Rolling back uncommitted transaction before BEGIN IMMEDIATE")
-            self._conn.rollback()
-        self._conn.execute("BEGIN IMMEDIATE")
-        try:
+        with store_write_transaction(self):
             self.remove_file_data(file_path, invalidate=False)
             self._bulk_insert_nodes(nodes, fhash, mtime_ns)
             self._bulk_insert_edges(edges)
             sync_fts_for_file_paths(self._conn, [file_path], self.get_repo_root())
-            self._conn.commit()
-        except BaseException:
-            self._conn.rollback()
-            raise
         self._invalidate_cache()
 
     def store_file_batch(
@@ -148,11 +141,7 @@ class GraphStoreStorageBatchMixin(GraphStoreMixinProtocol):
         Each tuple is ``(file_path, nodes, edges, fhash, mtime_ns)``.
         Pass ``mtime_ns=0`` when not available.
         """
-        if self._conn.in_transaction:
-            logger.warning("Rolling back uncommitted transaction before BEGIN IMMEDIATE")
-            self._conn.rollback()
-        self._conn.execute("BEGIN IMMEDIATE")
-        try:
+        with store_write_transaction(self):
             file_paths: list[str] = []
             all_nodes: list[tuple[NodeInfo, str, int]] = []
             all_edges: list[EdgeInfo] = []
@@ -169,8 +158,4 @@ class GraphStoreStorageBatchMixin(GraphStoreMixinProtocol):
             self._bulk_insert_nodes_with_meta(all_nodes)
             self._bulk_insert_edges(all_edges)
             sync_fts_for_file_paths(self._conn, file_paths, self.get_repo_root())
-            self._conn.commit()
-        except BaseException:
-            self._conn.rollback()
-            raise
         self._invalidate_cache()

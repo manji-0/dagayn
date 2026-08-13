@@ -69,7 +69,7 @@ impl GraphStore {
         }
         bridges.sort_by(|a, b| b.4.total_cmp(&a.4).then_with(|| a.0.cmp(&b.0)));
 
-        let tx = self.conn.transaction()?;
+        let tx = write_tx(&mut self.conn)?;
         tx.execute("DELETE FROM hub_scores", [])?;
         tx.execute("DELETE FROM bridge_scores", [])?;
         {

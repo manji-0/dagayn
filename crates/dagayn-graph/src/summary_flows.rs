@@ -1,8 +1,9 @@
+use crate::helpers::write_tx;
 use crate::*;
 
 impl GraphStore {
     pub(crate) fn compute_flow_snapshots(&mut self) -> Result<()> {
-        let tx = self.conn.transaction()?;
+        let tx = write_tx(&mut self.conn)?;
         tx.execute("DELETE FROM flow_snapshots", [])?;
 
         let flow_rows = {

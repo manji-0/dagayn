@@ -1,6 +1,19 @@
 use crate::*;
 use serde::Serialize;
 
+/// Begin a write transaction that takes the write lock up front.
+///
+/// rusqlite's `transaction()` is `BEGIN DEFERRED`, which acquires a *read*
+/// snapshot first. Any of our write paths that reads before writing then has to
+/// upgrade, and if another connection committed in between, the upgrade fails
+/// **immediately** with `SQLITE_BUSY` — `busy_timeout` does not apply to a
+/// read-to-write upgrade, so the 5 s we configure was never spent. `IMMEDIATE`
+/// takes the write lock at `BEGIN`, where `busy_timeout` does apply, which is
+/// also what the Python backend has always done.
+pub(crate) fn write_tx(conn: &mut Connection) -> Result<Transaction<'_>> {
+    Ok(conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?)
+}
+
 pub(crate) fn now_seconds() -> Result<f64> {
     let duration = SystemTime::now()
         .duration_since(UNIX_EPOCH)

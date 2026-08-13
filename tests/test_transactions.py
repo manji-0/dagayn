@@ -1,6 +1,5 @@
 """Tests for SQLite transaction robustness and nesting scenarios."""
 
-import logging
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -25,36 +24,37 @@ def store():
 
 
 class TestTransactionRobustness:
-    def test_nested_transaction_guard_in_store_file(self, store, caplog):
-        """Test that store_file_nodes_edges handles an already open transaction."""
-        # Manually open a transaction
+    def test_store_file_joins_an_open_transaction(self, store):
+        """An already-open transaction is joined, not discarded.
+
+        This used to roll back "whatever transaction is open" before starting
+        its own. The connection is shared across threads
+        (``check_same_thread=False``), so that recovery destroyed another
+        thread's in-flight work -- watch mode's delete handler and its debounced
+        flush hit exactly this. The write lock now guarantees any open
+        transaction belongs to this thread, so the correct move is to join it.
+        """
         store._conn.execute("BEGIN")
         store._conn.execute("INSERT INTO metadata (key, value) VALUES (?, ?)", ("test", "val"))
         assert store._conn.in_transaction
 
-        # This should trigger the guard, rollback the uncommitted insert,
-        # and start a new transaction.
-        with caplog.at_level(logging.WARNING):
-            store.store_file_nodes_edges("test.py", [], [])
+        store.store_file_nodes_edges("test.py", [], [])
 
-        assert "Rolling back uncommitted transaction before BEGIN IMMEDIATE" in caplog.text
-        assert not store._conn.in_transaction
-
-        # Verify the "val" was rolled back
-        assert store.get_metadata("test") is None
+        # The write completed and the caller's work was preserved, not dropped.
+        assert store.get_metadata("test") == "val"
 
     def test_atomic_community_storage(self, store):
         """Test that store_communities is atomic and handles existing transactions."""
         communities = [{"name": "comm1", "size": 1, "members": ["node1"]}]
 
-        # Leave a transaction open
+        # Leave a transaction open: it is joined, not discarded (see
+        # test_store_file_joins_an_open_transaction).
         store._conn.execute("BEGIN")
         store._conn.execute("INSERT INTO metadata (key, value) VALUES ('leak', 'stale')")
 
-        # Should rollback the 'leak' and successfully store communities
         store_communities(store, communities)
 
-        assert store.get_metadata("leak") is None
+        assert store.get_metadata("leak") == "stale"
 
         # Verify communities table
         count = store._conn.execute("SELECT count(*) FROM communities").fetchone()[0]
@@ -74,14 +74,13 @@ class TestTransactionRobustness:
             }
         ]
 
-        # Leave a transaction open
+        # Leave a transaction open: it is joined, not discarded.
         store._conn.execute("BEGIN")
         store._conn.execute("INSERT INTO metadata (key, value) VALUES ('leak', 'stale')")
 
-        # Should rollback and store flows
         store_flows(store, flows)
 
-        assert store.get_metadata("leak") is None
+        assert store.get_metadata("leak") == "stale"
         count = store._conn.execute("SELECT count(*) FROM flows").fetchone()[0]
         assert count == 1
 

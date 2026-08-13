@@ -13,7 +13,7 @@ import re
 from collections import Counter, defaultdict
 from typing import Any
 
-from .graph import GraphEdge, GraphNode, GraphStore, _sanitize_name
+from .graph import GraphEdge, GraphNode, GraphStore, _sanitize_name, store_write_transaction
 
 logger = logging.getLogger(__name__)
 
@@ -851,13 +851,11 @@ def store_communities(store: GraphStore, communities: list[dict[str, Any]]) -> i
     # that are tightly coupled to the DB transaction lifecycle.
     conn = store._conn
 
-    if conn.in_transaction:
-        logger.warning("Rolling back uncommitted transaction before BEGIN IMMEDIATE")
-        conn.rollback()
     # Wrap in explicit transaction so the DELETE + INSERT + UPDATE
-    # sequence is atomic — no partial community data on crash.
-    conn.execute("BEGIN IMMEDIATE")
-    try:
+    # sequence is atomic — no partial community data on crash. The helper holds
+    # the store's write lock instead of rolling back whatever another thread
+    # had open.
+    with store_write_transaction(store):
         conn.execute("DELETE FROM communities")
         conn.execute("UPDATE nodes SET community_id = NULL")
 
@@ -923,10 +921,6 @@ def store_communities(store: GraphStore, communities: list[dict[str, Any]]) -> i
             )
             conn.execute("DROP TABLE IF EXISTS _community_assign")
 
-        conn.commit()
-    except BaseException:
-        conn.rollback()
-        raise
     return count
 
 

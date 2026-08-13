@@ -39,11 +39,37 @@ def _handle_start(args: argparse.Namespace) -> None:
 
     config = load_config()
     daemon = WatchDaemon(config=config)
-    daemon.start()
 
+    # Fork *before* building any state. ``start()`` spawns ``dagayn watch``
+    # children via subprocess and starts the config-watcher and health-checker
+    # threads; ``fork()`` keeps only the calling thread, so doing it the other
+    # way round left both threads dead in the surviving daemon (config edits
+    # ignored, dead watchers never restarted) and reparented the children away
+    # from it — ``Popen.poll()`` then returned 0 through the ECHILD path, so
+    # ``stop`` cleared the pidfile while every watcher kept running, writing to
+    # the graph and invisible to ``status``.
     if not args.foreground:
+        # Said here rather than after ``start()``: past the fork, stdout is the
+        # daemon log, so this is the last chance to tell the terminal anything.
+        log_path = config.log_dir / "daemon.log"
+        print(  # noqa: T201
+            f"Starting daemon '{config.session_name}' for {len(config.repos)} repo(s) "
+            f"in the background; progress goes to {log_path}"
+        )
+        # Flush before forking: an unflushed buffer is duplicated into both
+        # children, which then each print it again on exit.
+        sys.stdout.flush()
+        sys.stderr.flush()
         daemon.daemonize()
 
+    try:
+        daemon.start()
+    except BaseException:
+        # A stale pidfile would make every later ``start`` refuse to run.
+        from .daemon import clear_pid
+
+        clear_pid()
+        raise
     daemon.run_forever()
 
 

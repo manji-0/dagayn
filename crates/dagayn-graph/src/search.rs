@@ -9,7 +9,7 @@ impl GraphStore {
     }
 
     pub fn compute_missing_signatures(&mut self) -> Result<i64> {
-        let tx = self.conn.transaction()?;
+        let tx = write_tx(&mut self.conn)?;
         tx.execute(
             "UPDATE nodes \
              SET signature = CASE \

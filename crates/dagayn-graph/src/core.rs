@@ -83,14 +83,14 @@ impl GraphStore {
     }
 
     pub fn remove_file_data(&mut self, file_path: &str) -> Result<()> {
-        let tx = self.conn.transaction()?;
+        let tx = write_tx(&mut self.conn)?;
         remove_file_data_tx(&tx, file_path)?;
         tx.commit()?;
         Ok(())
     }
 
     pub fn remove_files_data(&mut self, file_paths: &[String]) -> Result<()> {
-        let tx = self.conn.transaction()?;
+        let tx = write_tx(&mut self.conn)?;
         remove_files_data_tx(&tx, file_paths)?;
         tx.commit()?;
         Ok(())

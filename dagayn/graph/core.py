@@ -93,6 +93,13 @@ class GraphStore(
         migrations.ensure_edge_target_name_column(self._conn)
         self._nxg_cache: nx.DiGraph | None = None
         self._cache_lock = threading.Lock()
+        # Serializes the explicit BEGIN IMMEDIATE ... COMMIT regions on this
+        # connection. ``check_same_thread=False`` lets several threads share it
+        # -- watch mode's observer thread deletes while its debounce timer
+        # flushes -- and two ``BEGIN IMMEDIATE`` on one connection is an error.
+        # Recovery code also used to roll back "whatever transaction is open",
+        # which destroyed the other thread's in-flight work.
+        self._write_lock = threading.RLock()
         # Cached ``repo_root`` metadata — avoids one SELECT per path
         # normalization during batch deletes (see ``remove_files_data``).
         # ``False`` means unset; ``None`` means metadata has no repo_root.

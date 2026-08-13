@@ -12,7 +12,9 @@ from pathlib import Path
 from typing import Any
 
 from ..incremental import full_build, incremental_update
-from ._common import _evict_store_cache, _get_store
+from ..paths import get_db_path
+from ..write_lock import WriteLockUnavailableError, graph_write_lock
+from ._common import _evict_store_cache, _get_store, _validate_repo_root
 
 logger = logging.getLogger(__name__)
 
@@ -107,48 +109,18 @@ def _hook_update_requested() -> bool:
     return os.environ.get(_HOOK_UPDATE_ENV, "").strip().lower() in {"1", "true", "yes"}
 
 
-def _acquire_hook_update_lock(root: Path, enabled: bool):
-    """Skip overlapping hook-triggered update runs for the same repository."""
-    if not enabled:
-        return None, True
+def _resolve_write_root(repo_root: str | None) -> Path:
+    """Resolve the repository root before any store is opened.
 
-    lock_dir = root / ".dagayn"
-    lock_dir.mkdir(parents=True, exist_ok=True)
-    lock_path = lock_dir / "hook-update.lock"
-    lock_file = lock_path.open("a+", encoding="utf-8")
-    try:
-        try:
-            import fcntl
+    The write lock has to be keyed on the database path, and the database path
+    needs the root -- but taking the lock only makes sense *before* opening the
+    store, so this cannot come from the store itself.
+    """
+    from ..incremental import find_project_root
 
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            lock_file.close()
-            return None, False
-        except (ImportError, OSError):
-            lock_file.close()
-            return None, True
-        lock_file.seek(0)
-        lock_file.truncate()
-        lock_file.write(f"{os.getpid()}\n")
-        lock_file.flush()
-        return lock_file, True
-    except Exception:
-        lock_file.close()
-        raise
-
-
-def _release_hook_update_lock(lock_file: Any) -> None:
-    if lock_file is None:
-        return
-    try:
-        try:
-            import fcntl
-
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-        except (ImportError, OSError):
-            pass
-    finally:
-        lock_file.close()
+    if repo_root:
+        return _validate_repo_root(Path(repo_root))
+    return Path(find_project_root())
 
 
 def _run_local_embedding(
@@ -821,28 +793,52 @@ def build_or_update_graph(
     # Build/update is a write workload — opt out of the read-only store
     # cache so we don't hold a stale connection open across mutations.
     _evict_store_cache()
-    store, root = _get_store(repo_root, cached=False, use_backend_default=True)
+    root_path = _resolve_write_root(repo_root)
+    db_path = get_db_path(root_path)
     hook_update = _hook_update_requested() and not full_rebuild
-    hook_lock, lock_acquired = _acquire_hook_update_lock(Path(root), hook_update)
-    if not lock_acquired:
-        store.close()
+    # The lock is taken *before* the store is opened, so the migrations and
+    # column backfills that opening performs are inside it too. Hook-triggered
+    # runs stay non-blocking: overlapping hook updates should skip rather than
+    # queue. Everything else waits, because failing on a busy database is the
+    # behaviour this replaces.
+    try:
+        write_lock = graph_write_lock(db_path, blocking=not hook_update)
+        write_lock.__enter__()
+    except WriteLockUnavailableError as exc:
+        if hook_update:
+            return {
+                "status": "ok",
+                "build_type": "incremental",
+                "files_updated": 0,
+                "total_nodes": 0,
+                "total_edges": 0,
+                "postprocess_level": postprocess,
+                "skipped": True,
+                "skip_reason": "hook_update_already_running",
+                "summary": "Skipped: another hook-triggered dagayn update is already running.",
+            }
         return {
-            "status": "ok",
-            "build_type": "incremental",
+            "status": "error",
+            "build_type": "full" if full_rebuild else "incremental",
             "files_updated": 0,
             "total_nodes": 0,
             "total_edges": 0,
             "postprocess_level": postprocess,
             "skipped": True,
-            "skip_reason": "hook_update_already_running",
-            "summary": "Skipped: another hook-triggered dagayn update is already running.",
+            "skip_reason": "write_lock_unavailable",
+            "summary": f"Skipped: {exc}",
+            "errors": [str(exc)],
         }
+    store, root = _get_store(repo_root, cached=False, use_backend_default=True)
     try:
         pre_affected_communities = 0
         if full_rebuild:
             result = full_build(root, store, recurse_submodules)
             build_result = {
-                "status": "ok",
+                # ``partial`` when files failed to *store*: the graph is missing
+                # content it was asked to hold, and callers must not treat it as
+                # a complete description of HEAD.
+                "status": result.get("status", "ok"),
                 "build_type": "full",
                 "summary": (
                     f"Full build complete: parsed {result['files_parsed']} files, "
@@ -889,7 +885,7 @@ def build_or_update_graph(
                         )
                 return build_result
             build_result = {
-                "status": "ok",
+                "status": result.get("status", "ok"),
                 "build_type": "incremental",
                 "summary": (
                     f"Incremental update: {result['files_updated']} files re-parsed, "
@@ -1037,7 +1033,6 @@ def build_or_update_graph(
             )
         return build_result
     finally:
-        _release_hook_update_lock(hook_lock)
         store.close()
         if postprocess != "none":
             # After close: embeddings share the SQLite file, so a second writer
@@ -1048,6 +1043,7 @@ def build_or_update_graph(
                 build_result["warnings"] = (
                     [*existing, *emb_warnings] if isinstance(existing, list) else emb_warnings
                 )
+        write_lock.__exit__(None, None, None)
 
 
 def run_postprocess(
