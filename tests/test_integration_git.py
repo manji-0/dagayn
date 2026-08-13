@@ -460,3 +460,41 @@ def test_non_ascii_filenames_are_indexed(git_repo: Path) -> None:
         store.close()
     finally:
         Path(db_path).unlink(missing_ok=True)
+
+
+def test_content_change_with_restored_mtime_is_detected(git_repo: Path) -> None:
+    """An mtime equal to the stored one is not proof the content is unchanged.
+
+    ``cp -p`` / ``rsync -a`` / ``tar x`` restore mtimes, and coarse filesystem
+    granularity hides two writes in one tick. Both classifiers short-circuited on
+    mtime equality without hashing, so the file was skipped forever -- the stored
+    hash stayed stale too, so no later run noticed either.
+    """
+    import os
+
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        db_path = f.name
+    try:
+        store = GraphStore(db_path)
+        full_build(git_repo, store)
+        assert "farewell" in {row[0] for row in store._conn.execute("SELECT name FROM nodes")}
+
+        base = _git(git_repo, "rev-parse", "HEAD").stdout.strip()
+        target = git_repo / "hello.py"
+        stat_before = target.stat()
+        target.write_text(
+            target.read_text(encoding="utf-8") + "\n\ndef added_later():\n    return 42\n",
+            encoding="utf-8",
+        )
+        os.utime(target, ns=(stat_before.st_atime_ns, stat_before.st_mtime_ns))
+        _git(git_repo, "add", "-A")
+        _git(git_repo, "commit", "-m", "edit with a restored mtime")
+        assert target.stat().st_mtime_ns == stat_before.st_mtime_ns, "premise: mtime unchanged"
+
+        result = incremental_update(git_repo, store, base=base)
+        assert result["files_updated"] >= 1, result
+        names = {row[0] for row in store._conn.execute("SELECT name FROM nodes")}
+        assert "added_later" in names
+        store.close()
+    finally:
+        Path(db_path).unlink(missing_ok=True)

@@ -985,3 +985,96 @@ class TestCommunities:
 
         overview = get_architecture_overview(self.store)
         assert any("stored size" in warning for warning in overview["warnings"])
+
+
+class TestDuplicateCommunityNames:
+    """Two communities that generate the same name must stay two.
+
+    ``_generate_community_name`` is ``{parent-dir}-{top-keyword}`` and is not
+    unique. Ids used to be looked up by name after a batch insert, so the second
+    community overwrote the first in the mapping: community #1 got zero members
+    and community #2 was assigned everyone. The next build's
+    ``refresh_community_stats`` then deleted the member-less one, permanently
+    merging two distinct communities.
+    """
+
+    def setup_method(self):
+        self.tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self.store = GraphStore(self.tmp.name)
+
+    def teardown_method(self):
+        self.store.close()
+        Path(self.tmp.name).unlink(missing_ok=True)
+
+    def _node(self, name: str, line: int) -> None:
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name=name,
+                file_path="svc/user.py",
+                line_start=line,
+                line_end=line + 1,
+                language="python",
+            )
+        )
+
+    def test_same_name_communities_keep_their_own_members(self):
+        for i in range(8):
+            self._node(f"fn{i}", i * 10 + 1)
+        self.store.commit()
+
+        first = [f"svc/user.py::fn{i}" for i in range(4)]
+        second = [f"svc/user.py::fn{i}" for i in range(4, 8)]
+        count = store_communities(
+            self.store,
+            [
+                {"name": "svc-user", "size": 4, "cohesion": 0.5, "members": first},
+                {"name": "svc-user", "size": 4, "cohesion": 0.5, "members": second},
+            ],
+        )
+        assert count == 2
+
+        rows = self.store._conn.execute("SELECT id, name FROM communities ORDER BY id").fetchall()
+        assert len(rows) == 2
+        # Names are disambiguated so a by-name lookup is unambiguous.
+        assert {row["name"] for row in rows} == {"svc-user", "svc-user-2"}
+
+        by_community = {}
+        for row in self.store._conn.execute(
+            "SELECT community_id, qualified_name FROM nodes WHERE community_id IS NOT NULL"
+        ):
+            by_community.setdefault(row["community_id"], set()).add(row["qualified_name"])
+
+        assert len(by_community) == 2, f"members collapsed into {by_community}"
+        assert set(by_community[rows[0]["id"]]) == set(first)
+        assert set(by_community[rows[1]["id"]]) == set(second)
+
+    def test_refresh_stats_does_not_delete_either_community(self):
+        for i in range(8):
+            self._node(f"fn{i}", i * 10 + 1)
+        self.store.commit()
+        store_communities(
+            self.store,
+            [
+                {
+                    "name": "svc-user",
+                    "size": 4,
+                    "cohesion": 0.5,
+                    "members": [f"svc/user.py::fn{i}" for i in range(4)],
+                },
+                {
+                    "name": "svc-user",
+                    "size": 4,
+                    "cohesion": 0.5,
+                    "members": [f"svc/user.py::fn{i}" for i in range(4, 8)],
+                },
+            ],
+        )
+        refresh_community_stats(self.store)
+        self.store.commit()
+
+        remaining = self.store._conn.execute(
+            "SELECT name, size FROM communities ORDER BY id"
+        ).fetchall()
+        assert len(remaining) == 2, f"a community was pruned away: {remaining}"
+        assert [row["size"] for row in remaining] == [4, 4]

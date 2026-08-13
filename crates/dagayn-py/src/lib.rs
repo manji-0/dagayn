@@ -861,12 +861,13 @@ fn changed_rust_owned_file_source(
             return None;
         }
     };
-    if file_meta
-        .get(file_path)
-        .is_some_and(|(_, stored_mtime_ns)| *stored_mtime_ns == mtime_ns)
-    {
-        return None;
-    }
+    // No mtime short-circuit here: these paths come from `git diff`/`git
+    // status`, which has already reported them changed. An mtime can be equal
+    // for a file whose bytes differ (`cp -p`/`rsync -a`/`tar x` restore it, and
+    // coarse filesystem granularity hides two writes in one tick), and skipping
+    // on that basis left the file un-indexed forever, because the stored hash
+    // stayed stale too. The hash comparison below still avoids re-parsing when
+    // the content really is unchanged.
     let source = match std::fs::read(&full_path) {
         Ok(source) => source,
         Err(err) => {
@@ -887,10 +888,14 @@ fn changed_rust_owned_file_source(
 
 fn file_mtime_ns(path: &std::path::Path) -> std::io::Result<i64> {
     let modified = std::fs::metadata(path)?.modified()?;
-    Ok(modified
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_nanos().min(i64::MAX as u128) as i64)
-        .unwrap_or(0))
+    // A pre-1970 mtime makes `duration_since(UNIX_EPOCH)` fail. Returning 0
+    // there disagreed with Python's `st_mtime_ns`, which returns the negative
+    // offset — so the same file got different metadata depending on which
+    // backend indexed it, and the mtime fast paths compare exactly that value.
+    Ok(match modified.duration_since(std::time::UNIX_EPOCH) {
+        Ok(duration) => duration.as_nanos().min(i64::MAX as u128) as i64,
+        Err(err) => -(err.duration().as_nanos().min(i64::MAX as u128) as i64),
+    })
 }
 
 fn parsed_node_to_input(node: dagayn_core::parser::ParsedNode) -> NodeInput {

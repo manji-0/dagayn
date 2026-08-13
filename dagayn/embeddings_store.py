@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import re
 import sqlite3
 import struct
 import sys
@@ -16,6 +17,7 @@ from .embeddings_providers import (
     EmbeddingProvider,
     _embedding_provider_key,
     embedding_provider_lookup_candidates,
+    strip_provider_dimension_suffix,
 )
 from .embeddings_text import (
     _build_graph_facts_by_qualified_name,
@@ -28,6 +30,38 @@ from .graph import GraphNode, GraphStore
 from .state_types import seal_embedding_status
 
 _EMBED_PROVIDER_ERRORS = (OSError, RuntimeError, ValueError, TypeError, sqlite3.Error)
+
+#: Captures the value of a ``#dim=N`` segment in a persisted provider key.
+_PROVIDER_DIM_VALUE_RE = re.compile(r"#dim=(\d+)")
+
+_HTTP_STATUS_RE = re.compile(r"HTTP (\d{3})")
+#: Statuses that say nothing about the *inputs*: auth, quota, rate limiting and
+#: server-side failures apply to the whole request.
+_BATCH_INDEPENDENT_HTTP_STATUSES = frozenset({401, 402, 403, 408, 429, 500, 502, 503, 504})
+
+
+def _failure_could_be_one_bad_input(error: Exception) -> bool:
+    """True when retrying a failed batch node-by-node could plausibly help.
+
+    Per-node isolation exists to find the one oversized or malformed input in a
+    batch. For a rate limit, an exhausted quota or an unreachable endpoint it
+    only multiplies the damage: with ``preferred_batch_size=100`` one failed
+    batch became 100 further calls, each with its own retries and backoff
+    sleeps, and then raised anyway.
+    """
+    if isinstance(error, OSError) and not isinstance(error, TimeoutError):
+        # urllib raises URLError (an OSError) for connectivity failures. A
+        # timeout is deliberately excluded: one oversized text in a large batch
+        # is a plausible cause, so isolating it is worth the calls.
+        return False
+    match = _HTTP_STATUS_RE.search(str(error))
+    if match:
+        return int(match.group(1)) not in _BATCH_INDEPENDENT_HTTP_STATUSES
+    # Unclassifiable: keep the isolating behaviour rather than aborting a run
+    # that a single bad input would have explained.
+    return True
+
+
 _EMBEDDING_SEARCH_BACKENDS = {"auto", "rust", "python"}
 
 if TYPE_CHECKING:
@@ -688,20 +722,74 @@ class EmbeddingStore:
         except sqlite3.Error:
             logger.debug("Could not checkpoint embedding writes", exc_info=True)
 
+    def _persisted_key_for_same_identity(self) -> str | None:
+        """Return the persisted provider key that differs only by ``#dim=``.
+
+        The dimension is unknown until the provider's first response, so the
+        identity held at lookup time is the dim-less form while the rows on disk
+        carry ``#dim=N``. ``embedding_provider_lookup_candidates`` only ever
+        *strips* the suffix, never adds it, so nothing matched and every node
+        looked un-embedded. Reconciling on the dim-stripped identity is the same
+        thing :func:`dagayn.search.embedding_health` already does for its
+        dimension fallback.
+        """
+        if not self.provider:
+            return None
+        wanted = strip_provider_dimension_suffix(self.provider_key or self.provider.name).casefold()
+        rows = self._conn.execute(
+            "SELECT provider, COUNT(*) AS n FROM embeddings GROUP BY provider ORDER BY n DESC"
+        ).fetchall()
+        for row in rows:
+            persisted = row["provider"] if hasattr(row, "keys") else row[0]
+            # Case-insensitive: a model ID re-spelled between runs is the same
+            # model, not a reason to re-embed into a second partition.
+            if persisted and strip_provider_dimension_suffix(str(persisted)).casefold() == wanted:
+                return str(persisted)
+        return None
+
+    def _seed_provider_dimension_from_store(self) -> None:
+        """Adopt the dimension recorded in a persisted key of the same identity.
+
+        Without this the provider only learns its dimension from a live
+        response, which is *after* the existing-hash lookup and after the
+        active-provider metadata is written -- so a fresh process re-embedded
+        the whole corpus and left the metadata pointer naming a partition with
+        no rows.
+        """
+        provider = self.provider
+        if provider is None or getattr(provider, "_dimension", None) is not None:
+            return
+        persisted = self._persisted_key_for_same_identity()
+        if persisted is None:
+            return
+        match = _PROVIDER_DIM_VALUE_RE.search(persisted)
+        if match:
+            setattr(provider, "_dimension", int(match.group(1)))  # noqa: B010
+
     def _provider_key_for_lookup(self) -> str | None:
         """Prefer mode-partitioned rows, falling back to legacy provider rows."""
         if not self.provider:
             return None
+        self._seed_provider_dimension_from_store()
         for candidate in embedding_provider_lookup_candidates(
             self.provider_key,
             self.provider.name,
         ):
-            count = self._conn.execute(
-                "SELECT COUNT(*) FROM embeddings WHERE provider = ?",
+            # ``COLLATE NOCASE`` so a model ID re-spelled between runs reuses the
+            # existing partition instead of re-embedding the corpus into a second
+            # one, and the *persisted* spelling is returned so writes land there
+            # too. A different ``#dim=`` is more than a case difference and still
+            # misses, which is what forces the re-embed a dimension change needs.
+            row = self._conn.execute(
+                "SELECT provider FROM embeddings WHERE provider = ? COLLATE NOCASE LIMIT 1",
                 (candidate,),
-            ).fetchone()[0]
-            if count:
-                return candidate
+            ).fetchone()
+            if row and row[0]:
+                return str(row[0])
+        # Deliberately *not* falling back to `_persisted_key_for_same_identity`
+        # here: that key is only a source for the unknown dimension (seeded
+        # above). Adopting it as the read/write identity would make a genuine
+        # dimension change look already-embedded and skip the re-embed it needs.
         return self.provider_key or self.provider.name
 
     def embed_nodes(
@@ -770,7 +858,7 @@ class EmbeddingStore:
             try:
                 vectors = self.provider.embed(batch_texts)
             except _EMBED_PROVIDER_ERRORS as e:
-                if len(batch) > 1:
+                if len(batch) > 1 and _failure_could_be_one_bad_input(e):
                     embedded += self._embed_nodes_individually_after_batch_failure(
                         batch,
                         provider_name=provider_name,
@@ -1098,7 +1186,6 @@ def embed_all_nodes(
         {node.qualified_name for node in all_nodes},
         all_providers=True,
     )
-    embedding_store.persist_active_provider_metadata()
 
     if embedding_store.source_root is None:
         get_repo_root = getattr(graph_store, "get_repo_root", None)
@@ -1113,4 +1200,10 @@ def embed_all_nodes(
     else:
         embedding_store.graph_facts_by_qualified_name = {}
 
-    return embedding_store.embed_nodes(all_nodes, show_progress=show_progress)
+    embedded = embedding_store.embed_nodes(all_nodes, show_progress=show_progress)
+    # Written *after* the run, so the pointer names the key rows actually landed
+    # under. Writing it first recorded the dim-less identity (the dimension is
+    # only known after the first response) and left a pointer to a partition
+    # with zero rows whenever the run failed outright.
+    embedding_store.persist_active_provider_metadata()
+    return embedded

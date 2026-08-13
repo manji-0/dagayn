@@ -248,6 +248,45 @@ def _prune_orphaned_structures(store: Any, build_result: dict[str, Any]) -> list
     return warnings
 
 
+def _prune_orphaned_embeddings(repo_root: Path, build_result: dict[str, Any]) -> list[str]:
+    """Delete vectors for nodes the graph no longer has.
+
+    ``remove_orphans`` used to be reachable only from ``embed_all_nodes``, so
+    updating after a deletion *without* embeddings enabled left the deleted
+    nodes' vectors in place. They then won top-k slots in semantic search and
+    were dropped when their nodes could not be resolved, silently returning
+    fewer results than the caller asked for. Pruning needs no provider and makes
+    no API calls.
+
+    Must run with the graph store closed: embeddings live in the same SQLite
+    file, and opening a second writer alongside the native store's own
+    connection corrupted the database.
+    """
+    warnings: list[str] = []
+    try:
+        from ..embeddings_store import EmbeddingStore
+        from ..graph import GraphStore
+        from ..paths import get_db_path
+
+        db_path = get_db_path(repo_root)
+        graph = GraphStore(db_path)
+        try:
+            live = {node.qualified_name for node in graph.get_all_nodes(exclude_files=True)}
+        finally:
+            graph.close()
+        emb_store = EmbeddingStore(db_path)
+        try:
+            removed = emb_store.remove_orphans(live, all_providers=True)
+        finally:
+            emb_store.close()
+        if removed:
+            build_result["embedding_orphans_pruned"] = removed
+    except (sqlite3.Error, OSError, RuntimeError, TypeError, AttributeError) as e:
+        logger.warning("Orphaned embedding pruning failed: %s", e)
+        warnings.append(f"Orphaned embedding pruning failed: {type(e).__name__}: {e}")
+    return warnings
+
+
 def _run_postprocess(
     store: Any,
     build_result: dict[str, Any],
@@ -1000,6 +1039,15 @@ def build_or_update_graph(
     finally:
         _release_hook_update_lock(hook_lock)
         store.close()
+        if postprocess != "none":
+            # After close: embeddings share the SQLite file, so a second writer
+            # alongside the native store's connection corrupts it.
+            emb_warnings = _prune_orphaned_embeddings(Path(root), build_result)
+            if emb_warnings:
+                existing = build_result.get("warnings")
+                build_result["warnings"] = (
+                    [*existing, *emb_warnings] if isinstance(existing, list) else emb_warnings
+                )
 
 
 def run_postprocess(

@@ -70,6 +70,14 @@ def _project_dependency_graph(
     return g
 
 
+#: Elementary cycles are enumerated, and their count is combinatorial in a
+#: densely mutually-importing package graph: 12 fully mutually-importing
+#: packages yield 36,018,884 cycles (~106 s and many GB). This is a read path
+#: (``architecture_analysis_tool``) and also runs inside ``generate_wiki``, so
+#: one such subsystem hung both. Enumeration stops here and says it stopped.
+_MAX_ADP_CYCLES = 5000
+
+
 def find_adp_violations(
     store: GraphStore,
     granularity: Literal["file", "package"] = "package",
@@ -77,6 +85,7 @@ def find_adp_violations(
     max_cycle_length: int = 10,
     artifact_scope: ArtifactScope = "code",
     dependency_profile: DependencyProfile = "strict_static",
+    max_cycles: int = _MAX_ADP_CYCLES,
 ) -> list[dict]:
     """Find cyclic dependencies (ADP violations).
 
@@ -84,6 +93,10 @@ def find_adp_violations(
     (IMPORTS_FROM, DEPENDS_ON, INHERITS, IMPLEMENTS). Each result includes the
     nodes in the cycle, its length, total edge weight, and a severity score
     (length × edge_weight).
+
+    Enumeration stops after *max_cycles* cycles; when it does, the last entry
+    carries ``truncated: True`` alongside ``cycles_examined`` so callers can say
+    the list is partial rather than presenting it as exhaustive.
 
     Returns list of dicts sorted by severity descending.
     """
@@ -98,9 +111,19 @@ def find_adp_violations(
     if g.number_of_nodes() == 0:
         return []
 
-    violations = []
+    violations: list[dict] = []
+    truncated = False
+    examined = 0
     try:
         for cycle in nx.simple_cycles(g, length_bound=max_cycle_length):
+            examined += 1
+            if len(violations) >= max_cycles:
+                truncated = True
+                logger.warning(
+                    "ADP cycle enumeration stopped at %d cycles; the graph has more",
+                    max_cycles,
+                )
+                break
             if len(cycle) < min_cycle_size:
                 continue
             edge_weight = sum(
@@ -120,7 +143,12 @@ def find_adp_violations(
     except (nx.NetworkXError, RuntimeError, ValueError, RecursionError, MemoryError) as exc:
         logger.warning("Cycle detection failed: %s", exc)
 
-    violations.sort(key=lambda x: x["severity"], reverse=True)
+    # Deterministic tie-break: severity ties are common and callers truncate.
+    violations.sort(key=lambda x: (-x["severity"], tuple(x["nodes"])))
+    if truncated and violations:
+        violations[-1]["truncated"] = True
+        violations[-1]["cycles_examined"] = examined
+        violations[-1]["cycle_limit"] = max_cycles
     return violations
 
 

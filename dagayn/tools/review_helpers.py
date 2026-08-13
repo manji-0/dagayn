@@ -762,16 +762,39 @@ def _stability_contracts(
         missing_tests = [qn for qn in changed_qns if qn not in changed_with_tests and qn in gap_qns]
         missing_docs = [qn for qn in changed_qns if qn not in changed_with_docs]
 
-        observed_test_density = float(density.get("direct_test_density", 0.0) or 0.0)
-        observed_heuristic_test_density = float(density.get("heuristic_test_density", 0.0) or 0.0)
-        observed_transitive_test_density = float(density.get("transitive_test_density", 0.0) or 0.0)
-        observed_doc_density = float(density.get("documentation_density", 0.0) or 0.0)
+        # A scope with no density entry was never measured. Defaulting the
+        # observed values to 0.0 published an unmeasured scope as one with no
+        # coverage, and unconditionally appended the low-density reason code.
+        density_measured = bool(density)
+        supplemental_evaluated = bool(density.get("supplemental_test_density_evaluated"))
+        observed_test_density = (
+            float(density.get("direct_test_density", 0.0) or 0.0) if density_measured else None
+        )
+        # The supplemental pass only runs at detail_level="verbose"; without it
+        # these are 0/prod_count = 0.0, indistinguishable from a measured zero.
+        observed_heuristic_test_density = (
+            float(density.get("heuristic_test_density", 0.0) or 0.0)
+            if supplemental_evaluated
+            else None
+        )
+        observed_transitive_test_density = (
+            float(density.get("transitive_test_density", 0.0) or 0.0)
+            if supplemental_evaluated
+            else None
+        )
+        observed_doc_density = (
+            float(density.get("documentation_density", 0.0) or 0.0) if density_measured else None
+        )
         expected_test_density = float(profile.get("expected_test_density", 0.5) or 0.5)
         expected_doc_density = float(profile.get("expected_doc_density", 0.25) or 0.25)
         reason_codes = list(profile.get("reason_codes", []))
-        if observed_test_density < expected_test_density:
+        if observed_test_density is not None and observed_test_density < expected_test_density:
             reason_codes.append("stable_component_low_test_density")
-        if observed_doc_density < expected_doc_density or missing_docs:
+        elif observed_test_density is None:
+            reason_codes.append("stable_component_test_density_unmeasured")
+        if (
+            observed_doc_density is not None and observed_doc_density < expected_doc_density
+        ) or missing_docs:
             reason_codes.append("stable_component_missing_documentation")
 
         status = (
@@ -790,6 +813,7 @@ def _stability_contracts(
                 "observed_direct_test_density": observed_test_density,
                 "observed_heuristic_test_density": observed_heuristic_test_density,
                 "observed_transitive_test_density": observed_transitive_test_density,
+                "supplemental_test_density_evaluated": supplemental_evaluated,
                 "expected_doc_density": expected_doc_density,
                 "observed_documentation_density": observed_doc_density,
                 "changed_production_node_count": len(changed_qns),

@@ -3118,3 +3118,50 @@ class TestReviewDispatcher:
 
         assert result["status"] == "ok"
         assert observed["detail_level"] == "verbose"
+
+
+class TestSearchLimitValidation:
+    """An out-of-range limit must not become a claim about the graph."""
+
+    def test_zero_limit_is_an_input_error(self):
+        from dagayn.tools.query import semantic_search_nodes
+
+        result = semantic_search_nodes("anything", limit=0, repo_root=None)
+        assert result["status"] == "error"
+        assert "limit" in result["error"]
+
+    def test_negative_limit_is_an_input_error(self):
+        from dagayn.tools.query import semantic_search_nodes
+
+        result = semantic_search_nodes("anything", limit=-1, repo_root=None)
+        assert result["status"] == "error"
+
+    def test_bool_is_not_an_acceptable_limit(self):
+        from dagayn.tools.query import semantic_search_nodes
+
+        assert semantic_search_nodes("anything", limit=True, repo_root=None)["status"] == "error"
+
+
+class TestRenameIdentifierValidation:
+    """A rename preview must not offer to write code that does not parse."""
+
+    def test_invalid_identifier_is_rejected(self):
+        from dagayn.tools.refactor_tools import refactor_func
+
+        result = refactor_func(mode="rename", old_name="beta", new_name="1 bad name")
+        assert result["status"] == "error"
+        assert "identifier" in result["error"]
+
+    def test_hyphen_is_rejected(self):
+        from dagayn.tools.refactor_tools import refactor_func
+
+        result = refactor_func(mode="rename", old_name="beta", new_name="has-dash")
+        assert result["status"] == "error"
+
+    def test_valid_identifier_is_not_rejected_by_validation(self):
+        from dagayn.tools.refactor_tools import refactor_func
+
+        result = refactor_func(mode="rename", old_name="beta", new_name="renamed_beta")
+        # May legitimately be not_found (no such symbol here); it must not be
+        # rejected as a malformed identifier.
+        assert result["status"] != "error" or "identifier" not in result.get("error", "")

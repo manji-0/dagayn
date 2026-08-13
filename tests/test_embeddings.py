@@ -2679,3 +2679,185 @@ class TestVectorDimensionIdentity:
         assert p4.name != p8.name
         assert p4.name.endswith("#dim=4")
         assert p8.name.endswith("#dim=8")
+
+
+class TestProviderKeyReuse:
+    """A dim-less lookup identity must still find dim-suffixed rows.
+
+    The dimension is unknown until the provider's first response, so lookups
+    used the dim-less key while rows were written with `#dim=N`. Nothing
+    matched, so every build re-embedded the whole corpus while `INSERT OR
+    REPLACE` kept the row count stable and hid it.
+    """
+
+    class _LateDimProvider:
+        """Mirrors OpenAIEmbeddingProvider: dimension learned from the response."""
+
+        preferred_batch_size = 100
+
+        def __init__(self, model: str = "qwen", dim: int = 8) -> None:
+            self._model = model
+            self._dim = dim
+            self._dimension: int | None = None
+            self.calls = 0
+
+        @property
+        def dimension(self) -> int:
+            return self._dimension or self._dim
+
+        @property
+        def name(self) -> str:
+            suffix = f"#dim={self._dimension}" if self._dimension else ""
+            return f"openai:{self._model}@http://127.0.0.1:18080/v1{suffix}"
+
+        def embed(self, texts: list[str]) -> list[list[float]]:
+            self.calls += len(texts)
+            return [[0.5] * self._dim for _ in texts]
+
+        def embed_query(self, text: str) -> list[float]:
+            return [0.5] * self._dim
+
+    def _node(self, name: str, line: int) -> GraphNode:
+        return GraphNode(
+            id=line,
+            kind="Function",
+            name=name,
+            qualified_name=f"file.py::{name}",
+            file_path="file.py",
+            line_start=line,
+            line_end=line,
+            language="python",
+            parent_name=None,
+            params=None,
+            return_type=None,
+            is_test=False,
+            file_hash=None,
+            extra={},
+            signature=None,
+        )
+
+    def test_second_process_does_not_re_embed(self, tmp_path):
+        db = tmp_path / "embeddings.db"
+        nodes = [self._node(f"fn{i}", i + 1) for i in range(5)]
+
+        first = self._LateDimProvider()
+        store = EmbeddingStore(db, provider_instance=first)
+        assert store.embed_nodes(nodes) == 5
+        store.close()
+
+        # A fresh process: the provider has not seen a response yet.
+        second = self._LateDimProvider()
+        store = EmbeddingStore(db, provider_instance=second)
+        try:
+            assert store.embed_nodes(nodes) == 0
+            assert second.calls == 0, "re-embedded an unchanged corpus"
+        finally:
+            store.close()
+
+    def test_re_spelled_model_reuses_the_existing_partition(self, tmp_path):
+        db = tmp_path / "embeddings.db"
+        nodes = [self._node("fn0", 1)]
+
+        store = EmbeddingStore(db, provider_instance=self._LateDimProvider(model="qwen"))
+        assert store.embed_nodes(nodes) == 1
+        store.close()
+
+        restyled = self._LateDimProvider(model="Qwen")
+        store = EmbeddingStore(db, provider_instance=restyled)
+        try:
+            assert store.embed_nodes(nodes) == 0
+            assert restyled.calls == 0
+            partitions = [
+                row[0] for row in store._conn.execute("SELECT DISTINCT provider FROM embeddings")
+            ]
+            assert len(partitions) == 1, partitions
+        finally:
+            store.close()
+
+    def test_active_provider_metadata_names_a_partition_with_rows(self, tmp_path):
+        from dagayn.embeddings_store import embed_all_nodes
+        from dagayn.graph import GraphStore
+        from dagayn.parser import NodeInfo
+
+        # One file for both, as production does: the pointer lives in the
+        # graph's ``metadata`` table.
+        db = tmp_path / "graph.db"
+        graph = GraphStore(db)
+        graph.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="fn0",
+                file_path="file.py",
+                line_start=1,
+                line_end=2,
+                language="python",
+            )
+        )
+        graph.commit()
+
+        store = EmbeddingStore(db, provider_instance=self._LateDimProvider())
+        try:
+            assert embed_all_nodes(graph, store) == 1
+            pointer = store._conn.execute(
+                "SELECT value FROM metadata WHERE key = 'embedding_provider'"
+            ).fetchone()
+            assert pointer is not None, "no active-provider pointer written"
+            rows = store._conn.execute(
+                "SELECT COUNT(*) FROM embeddings WHERE provider = ?", (pointer[0],)
+            ).fetchone()[0]
+            assert rows > 0, f"pointer {pointer[0]!r} names a partition with no rows"
+        finally:
+            store.close()
+            graph.close()
+
+
+class TestBatchFailureFanOut:
+    def test_rate_limit_aborts_without_per_node_retries(self, tmp_path):
+        """429 says nothing about the inputs; isolating multiplies the damage."""
+
+        class RateLimited:
+            name = "fake"
+            preferred_batch_size = 3
+
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def embed(self, texts):
+                self.calls += 1
+                raise RuntimeError("OpenAI API HTTP 429: rate limit exceeded")
+
+            def embed_query(self, text):
+                return [1.0]
+
+            @property
+            def dimension(self):
+                return 1
+
+        provider = RateLimited()
+        nodes = [
+            GraphNode(
+                id=i,
+                kind="Function",
+                name=f"fn{i}",
+                qualified_name=f"file.py::fn{i}",
+                file_path="file.py",
+                line_start=i,
+                line_end=i,
+                language="python",
+                parent_name=None,
+                params=None,
+                return_type=None,
+                is_test=False,
+                file_hash=None,
+                extra={},
+                signature=None,
+            )
+            for i in range(1, 4)
+        ]
+        store = EmbeddingStore(tmp_path / "e.db", provider_instance=provider)
+        try:
+            with pytest.raises(RuntimeError, match="429"):
+                store.embed_nodes(nodes)
+            assert provider.calls == 1, f"fanned out into {provider.calls} calls"
+        finally:
+            store.close()

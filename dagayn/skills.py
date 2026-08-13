@@ -1819,7 +1819,11 @@ def ensure_worktree_include(
         start = existing.index(_WORKTREEINCLUDE_START)
         end_marker = existing.find(_WORKTREEINCLUDE_END, start)
         if end_marker == -1:
-            updated = existing[:start] + block
+            # No end marker (hand-edited or a partially-written file). Replacing
+            # everything from the start marker onward silently discarded the
+            # user's own patterns below it; keep the remainder instead.
+            remainder = existing[start + len(_WORKTREEINCLUDE_START) :]
+            updated = existing[:start] + block.rstrip("\n") + "\n" + remainder.lstrip("\n")
         else:
             end = end_marker + len(_WORKTREEINCLUDE_END)
             updated = existing[:start] + block.rstrip("\n") + existing[end:]

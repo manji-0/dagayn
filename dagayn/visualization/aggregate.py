@@ -99,12 +99,24 @@ def _aggregate_community(data: dict) -> dict:
     for qn, cid in qn_to_cid.items():
         cid_members_set[cid].add(qn)
 
-    for cid, member_qns in cid_members_set.items():
-        detail_nodes = [n for n in nodes if n["qualified_name"] in member_qns]
-        detail_edges = [e for e in edges if e["source"] in member_qns and e["target"] in member_qns]
+    # One pass over nodes and one over edges, bucketed by community, instead of
+    # a full scan of both per community: the nested form scaled 4x per 2x input
+    # (0.35 s at 33.6k nodes / 400 communities, ~100x that on a 300k-node repo).
+    detail_nodes_by_cid: dict[int, list[dict]] = defaultdict(list)
+    for node in nodes:
+        cid = qn_to_cid.get(node["qualified_name"])
+        if cid is not None:
+            detail_nodes_by_cid[cid].append(node)
+    detail_edges_by_cid: dict[int, list[dict]] = defaultdict(list)
+    for edge in edges:
+        source_cid = qn_to_cid.get(edge["source"])
+        if source_cid is not None and source_cid == qn_to_cid.get(edge["target"]):
+            detail_edges_by_cid[source_cid].append(edge)
+
+    for cid in cid_members_set:
         community_details[cid] = {
-            "nodes": detail_nodes,
-            "edges": detail_edges,
+            "nodes": detail_nodes_by_cid.get(cid, []),
+            "edges": detail_edges_by_cid.get(cid, []),
         }
 
     return {
@@ -144,6 +156,20 @@ def _aggregate_file(data: dict) -> dict:
         if n.get("language"):
             file_languages[fp] = n["language"]
 
+    # Recover each file's community from the majority of its symbols, in one
+    # pass. The previous form rescanned every node per file (quadratic) and,
+    # despite the comment, took the *first* symbol with a community rather than
+    # the majority.
+    community_votes: dict[str, Counter[int]] = defaultdict(Counter)
+    for n in nodes:
+        fp = n.get("file_path", "")
+        cid = n.get("community_id")
+        if fp and cid is not None:
+            community_votes[fp][cid] += 1
+    file_community: dict[str, int] = {
+        fp: votes.most_common(1)[0][0] for fp, votes in community_votes.items() if votes
+    }
+
     # Build file nodes
     file_nodes = []
     for fp, count in file_symbol_count.items():
@@ -151,12 +177,7 @@ def _aggregate_file(data: dict) -> dict:
         short = parts[-1] if parts else fp
         parent = parts[-2] if len(parts) >= 2 else ""
         label = f"{parent}/{short}" if parent else short
-        # Recover community_id from the majority of symbols in this file
-        cid = None
-        for n in nodes:
-            if n.get("file_path") == fp and n.get("community_id") is not None:
-                cid = n["community_id"]
-                break
+        cid = file_community.get(fp)
         file_nodes.append(
             {
                 "qualified_name": fp,

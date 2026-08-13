@@ -90,6 +90,29 @@ def _seed_worktree_if_needed(repo_root: Path, *, copy_config: bool = True) -> di
     return payload
 
 
+def _answerability_via_sqlite(root: Path, store: Any, stats: Any) -> dict[str, Any]:
+    """Compute the answerability summary through a SQL-capable store.
+
+    ``_get_store(..., use_backend_default=True)`` returns the native store,
+    which has no ``_conn``, so ``graph_answerability_summary`` bailed out with
+    ``status: unknown / score: 0.0 / no_sqlite_connection`` -- on the very tool
+    the default surface tells the agent to call first, and for both healthy and
+    broken graphs alike. The same repository scored 0.85 through
+    ``get_minimal_context``, which uses the sqlite store.
+    """
+    if hasattr(store, "_conn"):
+        return graph_answerability_summary(store, stats)
+    from ..graph import GraphStore
+
+    sql_store = GraphStore(get_db_path(root))
+    try:
+        return graph_answerability_summary(sql_store, sql_store.get_stats())
+    except Exception:  # noqa: BLE001 — health reporting must not fail prepare
+        return graph_answerability_summary(store, stats)
+    finally:
+        sql_store.close()
+
+
 def _resolve_repo(repo_root: str | None, *, from_hook: bool = False) -> Path:
     if from_hook and not repo_root:
         import sys
@@ -233,14 +256,20 @@ def session_prepare(
             # force with already-synced structure still allows embedding refresh below
             action = "noop"
             reason = "graph_ready"
+        elif sync_state(sync_before) == "worktree_ahead" or sync_before.get("worktree_dirty"):
+            # Skipping a dirty worktree is the policy (edit hooks index those,
+            # and re-preparing would re-hash the tree on every call) -- but
+            # reporting it as "graph_ready" told the caller the graph covers
+            # edits it may not have.
+            reason = "graph_ready_worktree_dirty"
 
     # Reassess after structure
     _evict_store_cache()
     store, _ = _get_store(str(root), cached=False, use_backend_default=True)
     try:
         sync_after = assess_graph_sync(store, root)
-        health = graph_answerability_summary(store, store.get_stats())
         stats = store.get_stats()
+        health = _answerability_via_sqlite(root, store, stats)
         db_path = get_db_path(root)
         emb_pending = sync_status_mod.embedding_needs_refresh(
             db_path, local_embedding=local_embedding

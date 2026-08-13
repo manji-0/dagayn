@@ -820,7 +820,7 @@ def get_flows(
 
     rust_get = getattr(store, "get_flows_json", None)
     if callable(rust_get):
-        return json.loads(rust_get(sort_by, limit))
+        return _annotate_flow_rows_liveness(store, json.loads(rust_get(sort_by, limit)))
 
     order = "DESC" if sort_by in ("criticality", "depth", "node_count", "file_count") else "ASC"
 
@@ -847,7 +847,37 @@ def get_flows(
                 "updated_at": row["updated_at"],
             }
         )
-    return results
+    return _annotate_flow_rows_liveness(store, results)
+
+
+def _annotate_flow_rows_liveness(store: GraphStore, flows: list[dict]) -> list[dict]:
+    """Add resolved/missing node counts to listed flows.
+
+    ``node_count``/``file_count`` are the values recorded when the flow was
+    traced. A flow whose nodes have since been deleted kept reporting them, so
+    the list API used by the wiki, the visualization payload and flow listings
+    presented stale counts as current -- ``_hydrate_flow_rows`` annotates this,
+    but nothing on this path did.
+    """
+    all_ids = {
+        node_id
+        for flow in flows
+        for node_id in (flow.get("path") or [])
+        if isinstance(node_id, int)
+    }
+    if not all_ids:
+        return flows
+    try:
+        live_ids = set(store.get_nodes_by_ids(sorted(all_ids)).keys())
+    except Exception:  # noqa: BLE001 — annotation must never break a listing
+        logger.debug("Could not resolve flow node liveness", exc_info=True)
+        return flows
+    for flow in flows:
+        path_ids = [node_id for node_id in (flow.get("path") or []) if isinstance(node_id, int)]
+        resolved = sum(1 for node_id in path_ids if node_id in live_ids)
+        flow["resolved_node_count"] = resolved
+        flow["missing_node_count"] = len(path_ids) - resolved
+    return flows
 
 
 def _collect_cross_artifact_edges_among(

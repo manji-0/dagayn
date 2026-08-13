@@ -326,8 +326,19 @@ def _classify_python_changed_files(
     repo_root: Path,
     file_paths: list[str],
     file_meta: dict[str, tuple[str, int]],
+    *,
+    trust_mtime: bool = True,
 ) -> tuple[list[str], list[tuple[int, str]]]:
-    """Return content-changed Python-owned files and mtime-only updates."""
+    """Return content-changed Python-owned files and mtime-only updates.
+
+    With *trust_mtime* false, a stored mtime equal to the current one is not
+    taken as proof the content is unchanged and the bytes are hashed anyway.
+    Callers that got their list from ``git diff``/``git status`` pass false:
+    git has already said the file changed, and an mtime can be equal for a
+    changed file (``cp -p``/``rsync -a``/``tar x`` restore it, and coarse
+    filesystem granularity can hide two writes in one tick). Trusting it there
+    skipped the file forever, since the stored hash also stayed stale.
+    """
     changed_files: list[str] = []
     mtime_only_updates: list[tuple[int, str]] = []
     for rel_path in file_paths:
@@ -335,7 +346,7 @@ def _classify_python_changed_files(
         try:
             cur_mtime_ns = int(abs_path.stat().st_mtime_ns)
             meta = file_meta.get(rel_path)
-            if meta and meta[1] == cur_mtime_ns:
+            if trust_mtime and meta and meta[1] == cur_mtime_ns:
                 continue
             raw = abs_path.read_bytes()
             fhash = hashlib.sha256(raw).hexdigest()
@@ -943,6 +954,8 @@ def incremental_update(
             repo_root,
             python_changed_candidates,
             changed_file_meta,
+            # These paths came from git, which already reported them changed.
+            trust_mtime=False,
         )
         content_changed_files.update(python_changed)
         mtime_only_updates.extend(python_mtime_updates)
@@ -993,11 +1006,15 @@ def incremental_update(
 
     for rel_path in python_candidates:
         abs_path = repo_root / rel_path
+        already_known_changed = rel_path in content_changed_files
         try:
             cur_mtime_ns = int(abs_path.stat().st_mtime_ns)
             meta = file_meta.get(rel_path)
-            if meta and meta[1] == cur_mtime_ns:
-                continue  # mtime unchanged → definitely same content, skip read
+            if not already_known_changed and meta and meta[1] == cur_mtime_ns:
+                # mtime unchanged and nothing else says otherwise — skip the read.
+                # Files already classified as content-changed above are exempt:
+                # their mtime can match while the bytes differ.
+                continue
             raw = abs_path.read_bytes()
             fhash = hashlib.sha256(raw).hexdigest()
             if meta and meta[0] == fhash:
@@ -1154,6 +1171,10 @@ def incremental_update(
 
 
 _DEBOUNCE_SECONDS = 0.3
+#: Upper bound on how long the debounce may be pushed out by further events.
+#: Without it, sustained churn reset the timer forever and the graph was never
+#: updated while writes kept arriving.
+_MAX_DEBOUNCE_SECONDS = float(os.environ.get("DAGAYN_WATCH_MAX_DEBOUNCE_SECONDS", "5"))
 
 
 def watch(
@@ -1188,6 +1209,7 @@ def watch(
             self._pending: set[str] = set()
             self._lock = threading.Lock()
             self._timer: threading.Timer | None = None
+            self._first_pending_at: float | None = None
 
         def _should_handle(self, path: str) -> bool:
             if Path(path).is_symlink():
@@ -1226,18 +1248,37 @@ def watch(
                 return
             try:
                 store.remove_file_data(rel)
+                # Derived rows are keyed on node ids, so dropping the nodes
+                # leaves flow memberships and community assignments dangling.
+                # Pruning only ran from ``dagayn build``, so under watch/serve a
+                # deleted package's communities survived with size N and zero
+                # assigned members until the next full build.
+                prune = getattr(store, "prune_orphaned_graph_structures", None)
+                if callable(prune):
+                    prune()
                 store.commit()
                 logger.info("Removed: %s", rel)
             except _GRAPH_STORE_ERRORS as e:
                 logger.error("Error removing %s: %s", rel, e)
 
         def _schedule(self, abs_path: str):
-            """Add file to pending set and reset the debounce timer."""
+            """Add file to pending set and reset the debounce timer.
+
+            The reset is capped by ``_MAX_DEBOUNCE_SECONDS`` from the *first*
+            pending event: with an uncapped reset, sustained churn (a large
+            ``git checkout``, a bundler write loop, a formatter pass) kept
+            pushing the deadline out and the graph was never updated.
+            """
             with self._lock:
+                now = time.monotonic()
+                if not self._pending:
+                    self._first_pending_at = now
                 self._pending.add(abs_path)
+                deadline = (self._first_pending_at or now) + _MAX_DEBOUNCE_SECONDS
+                delay = max(0.0, min(_DEBOUNCE_SECONDS, deadline - now))
                 if self._timer is not None:
                     self._timer.cancel()
-                self._timer = threading.Timer(_DEBOUNCE_SECONDS, self._flush)
+                self._timer = threading.Timer(delay, self._flush)
                 self._timer.start()
 
         def _flush(self):
@@ -1245,6 +1286,7 @@ def watch(
             with self._lock:
                 paths = list(self._pending)
                 self._pending.clear()
+                self._first_pending_at = None
                 self._timer = None
 
             rels: list[str] = []

@@ -29,7 +29,11 @@ def ensure_graph(
     Defaults for the compact MCP surface:
     - uses ``postprocess="minimal"`` (signatures + FTS only)
     - full rebuild only when the graph is empty
-    - refreshes when HEAD/worktree has drifted (even without ``force``)
+    - refreshes when the graph describes another commit, or holds content the
+      working tree no longer has, without ``force``
+    - does **not** auto-refresh merely because the worktree is dirty: edit
+      hooks index those, and re-preparing on every call would re-hash the
+      tree. The response says so via ``reason`` and a missingness item.
     - ``local_embedding`` defaults to ``"none"`` for direct callers; the MCP
       wrapper passes the active ``dagayn serve --local-embedding`` mode
     - ``force=True`` runs an incremental refresh when the graph already exists

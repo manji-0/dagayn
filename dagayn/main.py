@@ -293,9 +293,10 @@ async def ensure_graph_tool(
     """Ensure a usable+synced knowledge graph exists for analysis tools.
 
     Prefer this over ``build_or_update_graph_tool`` on the default MCP surface.
-    Empty graphs get a full parse with ``postprocess="minimal"``. Ready graphs
-    are refreshed when HEAD/worktree has drifted; ``force=True`` always runs
-    an incremental refresh. Local embedding mode inherits
+    Empty graphs get a full parse with ``postprocess="minimal"``. Graphs that
+    describe another commit, or that hold content the tree no longer has, are
+    refreshed. A merely dirty worktree is *not* auto-refreshed (edit hooks index
+    those); ``force=True`` always runs an incremental refresh. Local embedding mode inherits
     ``dagayn serve --local-embedding`` (explicit ``none`` remains an opt-out
     only via advanced build tools).
 

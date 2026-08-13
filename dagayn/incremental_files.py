@@ -434,9 +434,14 @@ def _should_ignore(path: str, patterns: list[str]) -> bool:
 
 
 def _is_binary(path: Path) -> bool:
-    """Quick heuristic: check if file appears to be binary."""
+    """Quick heuristic: check if file appears to be binary.
+
+    Reads a bounded prefix. ``read_bytes()[:8192]`` loaded the whole file into
+    memory first, and neither this path nor ``watch``'s flush caps file size.
+    """
     try:
-        chunk = path.read_bytes()[:8192]
+        with path.open("rb") as handle:
+            chunk = handle.read(8192)
         return b"\x00" in chunk
     except (OSError, PermissionError):
         return True
@@ -876,6 +881,15 @@ def collect_all_files(
         recurse_submodules: If True, include files from git submodules.
             When *None*, falls back to ``CRG_RECURSE_SUBMODULES`` env var.
     """
+    if recurse_submodules is None:
+        # Resolve the env default *before* crossing into Rust: the Rust side
+        # does `recurse_submodules.unwrap_or(false)` and never sees the env var,
+        # so CRG_RECURSE_SUBMODULES was silently ignored under the default
+        # backend (the fallback below is the only place that honoured it).
+        from . import incremental as inc
+
+        recurse_submodules = bool(inc._RECURSE_SUBMODULES)
+
     if _rust_backend_enabled() and detect_vcs(repo_root) != "svn":
         try:
             from dagayn._core import collect_parseable_files

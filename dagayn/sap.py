@@ -139,7 +139,10 @@ def compute_sap_metrics(
         all_scopes.add(tgt_scope)
 
     results = []
-    for sk in all_scopes:
+    # ``all_scopes`` is a set, and set iteration order over strings varies with
+    # PYTHONHASHSEED. Combined with a distance-only sort whose ties are common,
+    # every run reported a different arbitrary subset from any top-N truncation.
+    for sk in sorted(all_scopes):
         if filter_prefixes and not any(sk.startswith(p) for p in filter_prefixes):
             continue
 
@@ -196,7 +199,9 @@ def compute_sap_metrics(
             entry["notes"] = notes
         results.append(entry)
 
-    results.sort(key=lambda x: x["distance"], reverse=True)
+    # Deterministic tiebreaker: distances tie constantly, so scope order
+    # decides what a top-N truncation shows.
+    results.sort(key=lambda x: (-x["distance"], str(x.get("scope_key", ""))))
     return results
 
 

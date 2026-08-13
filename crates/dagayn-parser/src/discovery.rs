@@ -341,6 +341,13 @@ fn default_ignore_patterns() -> &'static [&'static str] {
         "build/**",
         ".next/**",
         "target/**",
+        // Kept in sync with DEFAULT_IGNORE_PATTERNS in dagayn/incremental_files.py;
+        // tests/test_incremental.py asserts the two lists match. They had
+        // diverged on these two entries, so vendored grammar files could be
+        // indexed by a (Rust) full build and then be neither updatable nor
+        // prunable by a (Python) incremental one.
+        "dagayn/_vendor_grammars/**",
+        ".hatch-vendor-grammars/**",
         "vendor/**",
         "bootstrap/cache/**",
         "public/build/**",

@@ -9,6 +9,7 @@ from typing import Any
 from ..graph import GraphStore
 from ..paths import get_db_path
 from ..search import hybrid_search
+from ..state_types import seal_missingness_item
 from ._common import handle_tool_runtime_error, make_response
 
 logger = logging.getLogger(__name__)
@@ -91,11 +92,21 @@ def cross_repo_search_func(
 
         all_results: list[dict[str, Any]] = []
         searched_repos: list[str] = []
+        # A repo that could not be searched used to vanish from the response
+        # entirely: repos_searched listed successes only and no warning was
+        # emitted, so reduced recall looked like an exhaustive answer.
+        skipped_repos: list[dict[str, str]] = []
+        repo_modes: dict[str, dict[str, Any]] = {}
 
         for repo_entry in repos:
             repo_path = Path(repo_entry["path"])
+            alias = repo_entry.get("alias", repo_path.name)
+            if not repo_path.is_dir():
+                skipped_repos.append({"repo": alias, "reason": "repository_path_missing"})
+                continue
             db_path = get_db_path(repo_path)
             if not db_path.exists():
+                skipped_repos.append({"repo": alias, "reason": "no_graph"})
                 continue
 
             try:
@@ -109,28 +120,76 @@ def cross_repo_search_func(
                         model=model,
                         provider=provider,
                     )
-                    alias = repo_entry.get("alias", repo_path.name)
                     for r in hs["results"]:
                         r["repo"] = alias
                         r["repo_path"] = str(repo_path)
                     all_results.extend(hs["results"])
                     searched_repos.append(alias)
+                    # Per-repo mode matters for interpreting merged scores: a
+                    # keyword-only fallback and a full hybrid arm are not on the
+                    # same scale.
+                    repo_modes[alias] = {
+                        "mode": hs.get("mode"),
+                        "embedding_health": hs.get("embedding_health") or {},
+                    }
                 finally:
                     store.close()
             except Exception as exc:
                 logger.warning("Search failed for %s: %s", repo_path, exc)
+                skipped_repos.append(
+                    {"repo": alias, "reason": f"search_failed: {type(exc).__name__}"}
+                )
 
         # Sort all results by score descending
         all_results.sort(key=lambda r: r.get("score", 0), reverse=True)
 
+        summary = (
+            f"Found {len(all_results)} result(s) across "
+            f"{len(searched_repos)} repo(s) for '{query}'."
+        )
+        missingness: list[dict[str, Any]] = []
+        if skipped_repos:
+            summary += (
+                f" {len(skipped_repos)} registered repo(s) could not be searched:"
+                " recall is reduced, not exhaustive."
+            )
+            missingness.append(
+                seal_missingness_item(
+                    {
+                        "reason_code": "registered_repos_not_searched",
+                        "severity": "high",
+                        "claim_effect": (
+                            "results omit these repositories entirely, so absence is not"
+                            " evidence the symbol does not exist there"
+                        ),
+                        "details": {"skipped_repos": skipped_repos[:20]},
+                    }
+                )
+            )
+        mixed_modes = {info.get("mode") for info in repo_modes.values()}
+        if len(mixed_modes) > 1:
+            missingness.append(
+                seal_missingness_item(
+                    {
+                        "reason_code": "mixed_search_modes_across_repos",
+                        "severity": "medium",
+                        "claim_effect": (
+                            "scores come from different search arms and are not directly"
+                            " comparable across repositories"
+                        ),
+                        "details": {"modes": sorted(str(m) for m in mixed_modes)},
+                    }
+                )
+            )
+
         return make_response(
             "ok",
-            (
-                f"Found {len(all_results)} result(s) across "
-                f"{len(searched_repos)} repo(s) for '{query}'."
-            ),
+            summary,
             results=all_results[:limit],
             repos_searched=searched_repos,
+            repos_skipped=skipped_repos,
+            repo_search_modes=repo_modes,
+            missingness=missingness,
             next_tool_suggestions=[
                 "list_repos_tool -- inspect the registered repositories",
                 "semantic_search_nodes_tool -- search within the current repository only",

@@ -51,8 +51,14 @@ def _format_openai_identity_suffixes(*, max_length: int | None, dimension: int |
 
 
 def _openai_provider_names_match(persisted: str, computed: str) -> bool:
-    """Return True when *computed* matches *persisted*, including legacy names."""
-    if persisted == computed:
+    """Return True when *computed* matches *persisted*, including legacy names.
+
+    Comparison is case-insensitive: a model ID spelled ``Qwen`` in one run and
+    ``qwen`` in the next is the same model, and treating them as two identities
+    silently re-embedded the whole corpus into a second partition. The persisted
+    string keeps its original case so existing rows stay addressable.
+    """
+    if persisted.casefold() == computed.casefold():
         return True
     if "#dim=" in persisted:
         return False
@@ -323,7 +329,9 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
     ) -> None:
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
-        self._model = model
+        # Surrounding whitespace in CRG_OPENAI_MODEL is always accidental, and
+        # it would otherwise partition the embeddings table.
+        self._model = model.strip()
         self._dimension = dimension
         self._timeout = timeout
         self._batch_size = batch_size or self._DEFAULT_BATCH_SIZE

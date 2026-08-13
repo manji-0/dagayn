@@ -1118,3 +1118,34 @@ class TestMultiHopDependents:
             )
         finally:
             store.close()
+
+
+class TestIgnorePatternParity:
+    """The Python and Rust default-ignore lists must not drift apart.
+
+    The full build discovers files through the Rust list while incremental
+    passes the Python one, so an entry present in only one of them means a file
+    can be indexed by a build and then be neither updatable nor prunable
+    incrementally (or the reverse).
+    """
+
+    def _rust_patterns(self) -> list[str]:
+        import re as _re
+        from pathlib import Path as _Path
+
+        source = _Path(__file__).resolve().parents[1] / "crates/dagayn-parser/src/discovery.rs"
+        text = source.read_text(encoding="utf-8")
+        start = text.index("fn default_ignore_patterns()")
+        body = text[start : text.index("\n}", start)]
+        # Only string literals, so the explanatory comments do not leak in.
+        return _re.findall(r'"([^"]+)"', body)
+
+    def test_lists_match(self):
+        from dagayn.incremental_files import DEFAULT_IGNORE_PATTERNS
+
+        rust = self._rust_patterns()
+        assert rust, "could not extract the Rust ignore list"
+        python_only = sorted(set(DEFAULT_IGNORE_PATTERNS) - set(rust))
+        rust_only = sorted(set(rust) - set(DEFAULT_IGNORE_PATTERNS))
+        assert not python_only, f"missing from the Rust list: {python_only}"
+        assert not rust_only, f"missing from the Python list: {rust_only}"

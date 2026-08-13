@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 import re
 from collections import Counter, defaultdict
 from typing import Any
@@ -27,6 +28,24 @@ try:
 except ImportError:
     ig: Any | None = None
     IGRAPH_AVAILABLE = False
+
+#: Leiden is randomized. Unseeded, the same graph produced a different partition
+#: on every run, so community ids were not stable identifiers and every derived
+#: artifact keyed on them (wiki pages, architecture coupling, visualization
+#: drill-down, enrich labels) churned on every rebuild, making caching and
+#: diffing useless.
+_LEIDEN_RANDOM_SEED = 20260813
+
+
+def _seed_leiden_rng() -> None:
+    """Make community detection reproducible for a given graph."""
+    if not IGRAPH_AVAILABLE or ig is None:
+        return
+    try:
+        ig.set_random_number_generator(random.Random(_LEIDEN_RANDOM_SEED))
+    except (AttributeError, TypeError):  # pragma: no cover - older igraph
+        random.seed(_LEIDEN_RANDOM_SEED)
+
 
 # ---------------------------------------------------------------------------
 # Edge weight mapping
@@ -329,6 +348,7 @@ def _detect_leiden(
         g.ecount(),
     )
 
+    _seed_leiden_rng()
     partition = g.community_leiden(
         objective_function="modularity",
         weights="weight",
@@ -536,6 +556,7 @@ def _split_oversized(
                 directed=False,
             )
             g.es["weight"] = ig_weights
+            _seed_leiden_rng()
             partition = g.community_leiden(
                 objective_function="modularity",
                 weights="weight",
@@ -560,7 +581,9 @@ def _split_oversized(
                     "parent_id": parent_id,
                     "members": sub_members,
                     "size": len(sub_members),
+                    # Measured by _backfill_split_cohesion before returning.
                     "cohesion": 0.0,
+                    "_cohesion_unmeasured": True,
                     "dominant_language": comm.get("dominant_language"),
                     "description": (f"Split from {comm_name}"),
                 }
@@ -581,7 +604,26 @@ def _split_oversized(
             )
             result.append(comm)
 
+    _backfill_split_cohesion(result, edges)
     return result
+
+
+def _backfill_split_cohesion(communities: list[dict], edges: list[GraphEdge]) -> None:
+    """Measure cohesion for sub-communities instead of publishing 0.0.
+
+    ``_split_oversized`` hardcoded ``cohesion: 0.0``, and its output goes
+    straight to callers and to ``store_communities`` — so the largest
+    communities in a graph reported zero internal cohesion as if it had been
+    measured. Only a later ``refresh_community_stats`` at build-prune time
+    corrected it.
+    """
+    pending = [c for c in communities if c.get("cohesion") is None or c.get("_cohesion_unmeasured")]
+    if not pending:
+        return
+    cohesions = _compute_cohesion_batch([set(c.get("members", [])) for c in pending], edges)
+    for community, cohesion in zip(pending, cohesions, strict=True):
+        community["cohesion"] = cohesion
+        community.pop("_cohesion_unmeasured", None)
 
 
 # ---------------------------------------------------------------------------
@@ -756,6 +798,25 @@ def incremental_detect_communities(
     return store_communities(store, communities)
 
 
+def _disambiguate_community_names(communities: list[dict[str, Any]]) -> list[str]:
+    """Return per-community names with duplicates suffixed.
+
+    ``_generate_community_name`` is ``{parent-dir}-{top-keyword}`` and is not
+    unique: two disconnected communities in one directory that share a top
+    keyword produce the same name. Ids are no longer keyed on the name, but
+    consumers that look a community up *by* name would still get an arbitrary
+    one of the two.
+    """
+    seen: dict[str, int] = {}
+    names: list[str] = []
+    for community in communities:
+        base = str(community.get("name") or "community")
+        count = seen.get(base, 0)
+        seen[base] = count + 1
+        names.append(base if count == 0 else f"{base}-{count + 1}")
+    return names
+
+
 def store_communities(store: GraphStore, communities: list[dict[str, Any]]) -> int:
     """Store detected communities in the database.
 
@@ -800,6 +861,8 @@ def store_communities(store: GraphStore, communities: list[dict[str, Any]]) -> i
         conn.execute("DELETE FROM communities")
         conn.execute("UPDATE nodes SET community_id = NULL")
 
+        unique_names = _disambiguate_community_names(communities)
+
         # Insert all communities in one batch
         conn.executemany(
             """INSERT INTO communities
@@ -807,29 +870,38 @@ def store_communities(store: GraphStore, communities: list[dict[str, Any]]) -> i
                VALUES (?, ?, ?, ?, ?, ?)""",
             [
                 (
-                    c["name"],
+                    name,
                     c.get("level", 0),
                     c.get("cohesion", 0.0),
                     c["size"],
                     c.get("dominant_language", ""),
                     c.get("description", ""),
                 )
-                for c in communities
+                for name, c in zip(unique_names, communities, strict=True)
             ],
         )
         count = len(communities)
 
-        # Fetch the freshly-inserted IDs keyed by name (one SELECT instead of K)
-        id_by_name: dict[str, int] = {}
-        for row in conn.execute("SELECT id, name FROM communities").fetchall():
-            id_by_name[row["name"]] = row["id"]
+        # Map communities to ids by *insertion order*, not by name. Generated
+        # names ({parent-dir}-{top-keyword}) are not unique, so keying on the
+        # name made two disconnected communities collide: the second overwrote
+        # the first, which then had zero members and was deleted by the next
+        # build's refresh_community_stats — permanently merging them.
+        # ``executemany`` does not report per-row ids, so read them back in the
+        # order they were assigned.
+        inserted_ids = [
+            int(row[0]) for row in conn.execute("SELECT id FROM communities ORDER BY id").fetchall()
+        ]
+        if len(inserted_ids) != count:
+            raise RuntimeError(
+                f"community insert accounted for {len(inserted_ids)} rows, expected {count}"
+            )
 
         # Collect all (community_id, qualified_name) pairs, then assign via a
         # temp-table JOIN (1 UPDATE) instead of one UPDATE per member.
         assignments: list[tuple[int, str]] = [
-            (id_by_name[c["name"]], qn)
-            for c in communities
-            if c["name"] in id_by_name
+            (community_id, qn)
+            for community_id, c in zip(inserted_ids, communities, strict=True)
             for qn in c.get("members", [])
         ]
         if assignments:

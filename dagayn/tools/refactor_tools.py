@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import Any, Literal, overload
 
@@ -26,6 +27,7 @@ from ..state_types import (
     seal_refactor_ok,
 )
 from ._common import (
+    _error_response,
     _get_store,
     _validate_repo_root,
     attach_answerability,
@@ -37,6 +39,18 @@ from ._common import (
 )
 
 logger = logging.getLogger(__name__)
+
+#: Conservative identifier shape shared by the languages dagayn parses: a
+#: leading letter or underscore followed by word characters. Language-specific
+#: extras (``$`` in JS, ``!``/``?`` in Ruby) are deliberately excluded -- a
+#: rejected valid name is a nuisance, an accepted invalid one writes code that
+#: does not parse.
+_IDENTIFIER_RE = re.compile(r"^[^\W\d]\w*$", re.UNICODE)
+
+
+def _is_valid_identifier(name: str | None) -> bool:
+    """True when *name* can be substituted into source as an identifier."""
+    return bool(name) and bool(_IDENTIFIER_RE.match(str(name)))
 
 
 def _apply_stability_policy_to_suggestions(
@@ -242,6 +256,16 @@ def refactor_func(
         answerability = graph_answerability_summary(store)
         missingness = missingness_from_answerability(answerability)
         if request.mode == "rename":
+            # Without this the preview happily produced edits turning
+            # ``def beta():`` into ``def 1 bad name():`` and a non-dry-run
+            # apply committed that to disk.
+            if not _is_valid_identifier(request.new_name):
+                return _error_response(
+                    f"new_name is not a valid identifier: {request.new_name!r}",
+                    status="error",
+                    old_name=request.old_name,
+                    new_name=request.new_name,
+                )
             preview = rename_preview(store, request.old_name, request.new_name)
             if preview is None:
                 return seal_refactor_not_found(

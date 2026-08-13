@@ -7,13 +7,16 @@ from typing import Any
 
 from ..graph import edge_to_dict, node_to_dict
 from ..incremental import get_changed_file_sources, get_staged_and_unstaged
+from ..state_types import seal_missingness_item
 from ._common import (
     _get_store,
+    apply_output_budget,
     graph_answerability_summary,
     handle_tool_runtime_error,
     missingness_from_answerability,
     resolve_contained_path,
 )
+from .query import _unmatched_changed_files
 from .review_helpers import (
     _is_low_confidence_unresolved_markdown_code_span,
     _relative_qualified_name,
@@ -53,6 +56,7 @@ def get_review_context(
     """
     store = None
     try:
+        max_lines_per_file = max(1, min(int(max_lines_per_file), MAX_LINES_PER_FILE_CEILING))
         store, root = _get_store(repo_root)
         answerability = graph_answerability_summary(store)
         missingness = missingness_from_answerability(answerability)
@@ -128,19 +132,34 @@ def get_review_context(
                 ],
             }
 
-        # Build review context
+        # Build review context. The graph lists are capped here because
+        # ``apply_output_budget`` only trims *top-level* list fields, so nesting
+        # them under ``graph`` put them beyond every budget: a single 40k-symbol
+        # file produced a 17 MB response.
+        changed_dicts = [node_to_dict(n) for n in impact["changed_nodes"]]
+        impacted_dicts = [node_to_dict(n) for n in impact["impacted_nodes"]]
+        edge_dicts = [
+            edge_to_dict(e)
+            for e in impact["edges"]
+            if not _is_low_confidence_unresolved_markdown_code_span(e)
+        ]
+        graph_truncation = {
+            field: {"kept": min(len(values), _MAX_GRAPH_ENTRIES), "total": len(values)}
+            for field, values in (
+                ("changed_nodes", changed_dicts),
+                ("impacted_nodes", impacted_dicts),
+                ("edges", edge_dicts),
+            )
+            if len(values) > _MAX_GRAPH_ENTRIES
+        }
         context: dict[str, Any] = {
             "changed_files": changed_files,
             "change_file_sources": change_file_sources,
             "impacted_files": impact["impacted_files"],
             "graph": {
-                "changed_nodes": [node_to_dict(n) for n in impact["changed_nodes"]],
-                "impacted_nodes": [node_to_dict(n) for n in impact["impacted_nodes"]],
-                "edges": [
-                    edge_to_dict(e)
-                    for e in impact["edges"]
-                    if not _is_low_confidence_unresolved_markdown_code_span(e)
-                ],
+                "changed_nodes": changed_dicts[:_MAX_GRAPH_ENTRIES],
+                "impacted_nodes": impacted_dicts[:_MAX_GRAPH_ENTRIES],
+                "edges": edge_dicts[:_MAX_GRAPH_ENTRIES],
             },
         }
 
@@ -181,6 +200,26 @@ def get_review_context(
         guidance = _generate_review_guidance(impact, changed_files)
         context["review_guidance"] = guidance
 
+        unmatched = _unmatched_changed_files(changed_files, impact["changed_nodes"], root)
+        if unmatched:
+            # Same accounting as the blast-radius path: a file the graph has
+            # never seen must not be presented as reviewed.
+            context["unmatched_changed_files"] = unmatched
+            missingness = [
+                *missingness,
+                seal_missingness_item(
+                    {
+                        "reason_code": "changed_files_not_in_graph",
+                        "severity": "high",
+                        "claim_effect": (
+                            "these files are absent from the graph, so their context and"
+                            " impact are unknown rather than empty"
+                        ),
+                        "details": {"unmatched_changed_files": unmatched[:20]},
+                    }
+                ),
+            ]
+
         summary_parts = [
             f"Review context for {len(changed_files)} changed file(s):",
             f"  - {len(impact['changed_nodes'])} directly changed nodes",
@@ -191,18 +230,94 @@ def get_review_context(
             guidance,
         ]
 
-        return {
+        payload = {
             "status": "ok",
             "summary": "\n".join(summary_parts),
             "context": context,
             "answerability": answerability,
             "missingness": missingness,
         }
+        # Source snippets are unbounded otherwise: max_lines_per_file has no
+        # ceiling and the file count is never capped, so a large PR (or one big
+        # file) produced multi-megabyte responses with no truncation flag.
+        apply_output_budget(
+            payload,
+            budget_tokens=8000,
+            list_priorities=["impacted_files", "changed_files"],
+        )
+        _budget_source_snippets(payload)
+        if graph_truncation:
+            payload["truncated"] = True
+            existing = payload.get("_truncation")
+            payload["_truncation"] = {
+                **(existing if isinstance(existing, dict) else {}),
+                **graph_truncation,
+            }
+        return payload
     except Exception as exc:
         return handle_tool_runtime_error(exc, logger=logger, context="get_review_context")
     finally:
         if store is not None:
             store.close()
+
+
+#: Ceiling on the bytes of source returned per ``review_tool(mode="context")``
+#: call. ``apply_output_budget`` only trims *lists*, and ``source_snippets`` is a
+#: dict of file -> text, so it slipped past every budget: measured 2.87 MB for
+#: one 2.4 MB file, and 1.9 MB for 300 changed files at the default line cap.
+_MAX_SNIPPET_BYTES = 120_000
+#: Ceiling on nodes/edges returned per graph section, for the same reason.
+_MAX_GRAPH_ENTRIES = 300
+#: Hard ceiling on ``max_lines_per_file``, which callers can otherwise set to
+#: any value (``10**9`` was accepted).
+MAX_LINES_PER_FILE_CEILING = 2000
+
+
+def _budget_source_snippets(payload: dict[str, Any]) -> None:
+    """Trim ``context.source_snippets`` to a byte budget, disclosing the cut."""
+    context = payload.get("context")
+    if not isinstance(context, dict):
+        return
+    snippets = context.get("source_snippets")
+    if not isinstance(snippets, dict) or not snippets:
+        return
+    kept: dict[str, str] = {}
+    used = 0
+    dropped: list[str] = []
+    clipped: list[str] = []
+    for rel_path, text in snippets.items():
+        body = str(text)
+        size = len(body.encode("utf-8", errors="replace"))
+        remaining = _MAX_SNIPPET_BYTES - used
+        if remaining <= 0:
+            dropped.append(rel_path)
+            continue
+        if size > remaining:
+            if kept:
+                dropped.append(rel_path)
+                continue
+            # First file and already over budget: clip it rather than admit a
+            # multi-megabyte body, which is what an uncapped
+            # ``max_lines_per_file`` on one large file produced.
+            body = body.encode("utf-8", errors="replace")[:remaining].decode(
+                "utf-8", errors="ignore"
+            )
+            body += "\n... (truncated)"
+            clipped.append(rel_path)
+            size = remaining
+        kept[rel_path] = body
+        used += size
+    if not dropped and not clipped:
+        return
+    context["source_snippets"] = kept
+    if dropped:
+        context["source_snippets_omitted"] = dropped
+    if clipped:
+        context["source_snippets_clipped"] = clipped
+    payload["truncated"] = True
+    truncation = payload.setdefault("_truncation", {})
+    if isinstance(truncation, dict):
+        truncation["source_snippets"] = {"kept": len(kept), "total": len(snippets)}
 
 
 def _extract_relevant_lines(lines: list[str], nodes: list, file_path: str) -> str:

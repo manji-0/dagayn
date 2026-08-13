@@ -249,3 +249,31 @@ class TestCrossRepoSearch:
         import shutil
 
         shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+class TestCaseVariantRegistration:
+    """One repository, one entry -- however the path is spelled.
+
+    ``Path.resolve()`` normalizes symlinks and trailing slashes but not case, so
+    on a case-insensitive filesystem the same repo registered as ``/x/MAIN`` and
+    ``/x/main`` produced two entries and (via the path-hashing ``repo_slug``) two
+    separate graphs.
+    """
+
+    def test_case_variant_path_is_the_same_repo(self, tmp_path):
+        import os
+
+        import pytest
+
+        repo = tmp_path / "MAIN"
+        (repo / ".git").mkdir(parents=True)
+        registry = Registry(path=tmp_path / "registry.json")
+
+        first = registry.register(str(repo))
+        variant = str(tmp_path / "main")
+        if not os.path.isdir(variant):
+            pytest.skip("case-sensitive filesystem: the two paths are different directories")
+        second = registry.register(variant)
+
+        assert len(registry.list_repos()) == 1, registry.list_repos()
+        assert first["path"] == second["path"]

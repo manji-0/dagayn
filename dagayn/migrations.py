@@ -397,7 +397,18 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     entry is updated after each successful migration.
     """
     current = get_schema_version(conn)
-    if current >= LATEST_VERSION:
+    if current > LATEST_VERSION:
+        # Written by a newer dagayn. Today's migrations are additive so this
+        # mostly works by accident; the first destructive or renaming migration
+        # would turn it into obscure OperationalErrors deep inside query paths.
+        logger.warning(
+            "Graph schema v%d was written by a newer dagayn (this build understands v%d). "
+            "Upgrade dagayn, or rebuild the graph, before relying on results.",
+            current,
+            LATEST_VERSION,
+        )
+        return
+    if current == LATEST_VERSION:
         return
 
     logger.info("Schema version %d -> %d: running migrations", current, LATEST_VERSION)

@@ -30,6 +30,7 @@ from ..state_types import (
 )
 from ._common import (
     _BUILTIN_CALL_NAMES,
+    _error_response,
     _get_store,
     apply_output_budget,
     graph_answerability_summary,
@@ -1134,6 +1135,11 @@ def query_graph(
 # ---------------------------------------------------------------------------
 
 
+#: Server-side ceiling for ``semantic_search_nodes``. Response size scales
+#: linearly with the graph, so an unbounded caller limit returns megabytes.
+_MAX_SEARCH_LIMIT = 200
+
+
 def semantic_search_nodes(
     query: str,
     kind: str | None = None,
@@ -1164,6 +1170,19 @@ def semantic_search_nodes(
     """
     store = None
     try:
+        # An out-of-range ``limit`` used to produce a *claim about the graph*:
+        # limit=0 returned zero_result_reason "not_found_in_current_graph", i.e.
+        # "this symbol is absent", caused purely by the caller's argument.
+        # limit=-1 dropped the last result via a negative slice while still
+        # reporting truncated=True.
+        if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
+            return _error_response(
+                f"limit must be an integer >= 1 (got {limit!r})",
+                status="error",
+                limit=limit,
+            )
+        if limit > _MAX_SEARCH_LIMIT:
+            limit = _MAX_SEARCH_LIMIT
         store, root = _get_store(repo_root)
         answerability = graph_answerability_summary(store)
         missingness = missingness_from_answerability(answerability)

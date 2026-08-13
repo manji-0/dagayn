@@ -190,8 +190,14 @@ def _format_node_context(
     context: dict[str, Any],
     repo_root: str,
 ) -> list[str]:
-    """Format a single node's structural context as plain text lines."""
-    from .graph import GraphNode
+    """Format a single node's structural context as plain text lines.
+
+    Every interpolated name goes through ``_sanitize_name``. Names come from
+    arbitrary source code, and this is the one path that feeds them *directly*
+    into the model's context (as ``hookSpecificOutput.additionalContext``) --
+    every other derived-layer module already sanitizes for exactly that reason.
+    """
+    from .graph import GraphNode, _sanitize_name
 
     assert isinstance(node, GraphNode)
 
@@ -200,12 +206,12 @@ def _format_node_context(
     if node.line_start:
         loc = f"{loc}:{node.line_start}"
 
-    header = f"{node.name} ({loc})"
+    header = f"{_sanitize_name(node.name)} ({loc})"
 
     # Community
     cname = context["community_names"].get(node.id)
     if cname:
-        header += f" [{cname}]"
+        header += f" [{_sanitize_name(cname)}]"
 
     lines = [header]
     incoming = context["incoming"].get(qn, [])
@@ -220,7 +226,7 @@ def _format_node_context(
             c = related_nodes.get(e.source_qualified)
             if c and c.name not in seen:
                 seen.add(c.name)
-                callers.append(c.name)
+                callers.append(_sanitize_name(c.name))
     if callers:
         lines.append(f"  Called by: {', '.join(callers)}")
 
@@ -232,14 +238,14 @@ def _format_node_context(
             c = related_nodes.get(e.target_qualified)
             if c and c.name not in seen:
                 seen.add(c.name)
-                callees.append(c.name)
+                callees.append(_sanitize_name(c.name))
     if callees:
         lines.append(f"  Calls: {', '.join(callees)}")
 
     # Execution flows
     flow_names = context["flow_names"].get(node.id, [])
     if flow_names:
-        lines.append(f"  Flows: {', '.join(flow_names)}")
+        lines.append(f"  Flows: {', '.join(_sanitize_name(f) for f in flow_names)}")
 
     # Tests
     tests: list[str] = []
@@ -247,7 +253,7 @@ def _format_node_context(
         if e.kind == "TESTED_BY" and len(tests) < 3:
             t = related_nodes.get(e.target_qualified)
             if t:
-                tests.append(t.name)
+                tests.append(_sanitize_name(t.name))
     if tests:
         lines.append(f"  Tests: {', '.join(tests)}")
 

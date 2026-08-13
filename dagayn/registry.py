@@ -7,12 +7,31 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import threading
 from pathlib import Path
 
 from dagayn.connection_pool import ConnectionPool
 
 logger = logging.getLogger(__name__)
+
+
+def _same_repo_path(left: str, right: str) -> bool:
+    """Return True when two resolved paths name the same directory.
+
+    ``os.path.normcase`` is not enough: it only folds case on Windows and is a
+    no-op on macOS, which is exactly where a case-insensitive filesystem makes
+    ``/x/MAIN`` and ``/x/main`` the same directory. ``samefile`` compares
+    ``st_dev``/``st_ino``, so it answers for the filesystem actually in use --
+    with a string comparison as the fallback for paths that no longer exist.
+    """
+    if os.path.normcase(left) == os.path.normcase(right):
+        return True
+    try:
+        return os.path.samefile(left, right)
+    except OSError:
+        return False
+
 
 __all__ = ["ConnectionPool", "Registry", "resolve_repo"]
 
@@ -78,10 +97,13 @@ class Registry:
             )
 
         with self._lock:
-            # Check for duplicate path
+            # Check for duplicate path. ``resolve()`` normalizes symlinks and
+            # trailing slashes but not case, so on APFS/NTFS the same repo
+            # registered as ``/x/MAIN`` and ``/x/main`` produced two entries --
+            # and, because ``repo_slug`` hashes the path string, two graphs.
             str_path = str(resolved)
             for entry in self._repos:
-                if entry["path"] == str_path:
+                if _same_repo_path(entry["path"], str_path):
                     # Update alias if provided
                     if alias:
                         entry["alias"] = alias

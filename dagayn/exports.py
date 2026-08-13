@@ -180,14 +180,22 @@ def export_obsidian_vault(store: GraphStore, output_dir: Path) -> Path:
 
     # Node name -> slug mapping
     slugs: dict[str, str] = {}
+    # Names like ``__init__`` / ``run`` / ``get`` collide constantly, so this has
+    # to be linear. The old form scanned ``slugs.values()`` (a linear view) per
+    # node *and* probed ``base-1, base-2, ...`` from 1 every time -- 4,000
+    # same-named nodes took 55 s. Resuming each base from its last counter keeps
+    # both the membership test and the probe O(1) amortised.
+    used_slugs: set[str] = set()
+    next_counter: dict[str, int] = {}
     for n in nodes:
-        slug = _obsidian_slug(n.get("name", n["qualified_name"]))
-        # Handle collisions
-        base_slug = slug
-        counter = 1
-        while slug in slugs.values():
+        base_slug = _obsidian_slug(n.get("name", n["qualified_name"]))
+        slug = base_slug
+        counter = next_counter.get(base_slug, 1)
+        while slug in used_slugs:
             slug = f"{base_slug}-{counter}"
             counter += 1
+        next_counter[base_slug] = counter
+        used_slugs.add(slug)
         slugs[n["qualified_name"]] = slug
 
     # Write node pages
@@ -335,11 +343,12 @@ def export_mermaid_c4(store: GraphStore, output_path: Path) -> Path:
         grouped_files[top_level].append(node)
 
     file_ids: dict[str, str] = {}
+    claimed_ids: dict[str, str] = {}
     for group in sorted(grouped_files):
         lines.append(f"  %% {group}")
         for node in grouped_files[group]:
             file_path = node.get("file_path", node["qualified_name"])
-            component_id = _mermaid_id(file_path, prefix="cmp")
+            component_id = _unique_mermaid_id(file_path, claimed_ids, prefix="cmp")
             file_ids[file_path] = component_id
             label = _mermaid_escape(file_path.rsplit("/", 1)[-1])
             technology = _mermaid_escape(node.get("language", "") or "source")
@@ -392,6 +401,29 @@ def _mermaid_id(value: str, prefix: str = "id") -> str:
     if slug[0].isdigit():
         slug = f"n_{slug}"
     return f"{prefix}_{slug}"
+
+
+def _unique_mermaid_id(value: str, used: dict[str, str], prefix: str = "id") -> str:
+    """Return a Mermaid id for *value*, unique within *used*.
+
+    The slug collapses every non-alphanumeric character to ``_``, so
+    ``pkg/a-b.py`` and ``pkg/a_b.py`` mapped to the same id: two ``Component``
+    declarations were emitted and every relation involving either file pointed
+    at whichever won the id map. Repos mix ``-`` and ``_`` routinely, JS/TS
+    especially. *used* maps id -> the value that claimed it, so an id is only
+    decorated when it genuinely collides with a *different* value.
+    """
+    base = _mermaid_id(value, prefix=prefix)
+    if used.get(base, value) == value:
+        used[base] = value
+        return base
+    counter = 2
+    while True:
+        candidate = f"{base}_{counter}"
+        if used.get(candidate, value) == value:
+            used[candidate] = value
+            return candidate
+        counter += 1
 
 
 def _mermaid_escape(value: str) -> str:
