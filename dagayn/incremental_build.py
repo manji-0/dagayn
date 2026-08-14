@@ -17,6 +17,7 @@ from .graph import GraphStore
 from .incremental_files import (
     _MAX_DEPENDENT_FILES,
     _MAX_DEPENDENT_HOPS,
+    _dedupe_preserve_order,
     _is_binary,
     _load_ignore_patterns,
     _make_repo_relative,
@@ -282,6 +283,66 @@ def _parse_single_python_file_compact(
         return (rel_path, [], [], str(e), "", 0)
 
 
+def _indexed_only(store: GraphStore, rel_paths: list[str]) -> list[str]:
+    """Restrict *rel_paths* to files the graph actually holds nodes for."""
+    if not rel_paths:
+        return []
+    getter = getattr(store, "get_file_meta_map", None)
+    if not callable(getter):
+        return rel_paths
+    try:
+        indexed = set(getter() or {})
+    except Exception:  # noqa: BLE001 — fall back to the unfiltered list
+        return rel_paths
+    return [rel_path for rel_path in rel_paths if rel_path in indexed]
+
+
+def _expand_changed_submodules(repo_root: Path, rel_paths: list[str]) -> list[str]:
+    """Replace changed-submodule directories with the files they track.
+
+    ``git status``/``git diff`` report a modified submodule as the bare
+    directory (`` M sub``). Expanding it costs one ``git ls-files`` per changed
+    submodule and makes the content-hash comparison downstream skip whatever is
+    genuinely unchanged, so the cost is bounded by the submodule's file count and
+    only paid when git says the submodule moved.
+    """
+    expanded: list[str] = []
+    for rel_path in rel_paths:
+        candidate = repo_root / rel_path
+        if not candidate.is_dir() or not (candidate / ".git").exists():
+            expanded.append(rel_path)
+            continue
+        inner = _submodule_tracked_files(candidate)
+        if not inner:
+            # Cannot enumerate it; keep the original entry rather than dropping
+            # the signal entirely.
+            expanded.append(rel_path)
+            continue
+        prefix = PurePosixPath(rel_path)
+        expanded.extend(str(prefix / name) for name in inner)
+        logger.info("Expanded changed submodule %s into %d tracked file(s)", rel_path, len(inner))
+    return _dedupe_preserve_order(expanded)
+
+
+def _submodule_tracked_files(submodule_root: Path) -> list[str]:
+    """Return the submodule's tracked files, relative to the submodule root."""
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", "-z"],
+            capture_output=True,
+            text=True,
+            cwd=str(submodule_root),
+            timeout=30,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return []
+    if result.returncode != 0:
+        return []
+    return [field for field in result.stdout.split("\0") if field]
+
+
 def _filter_incremental_candidates(
     repo_root: Path,
     rel_paths: set[str],
@@ -312,6 +373,19 @@ def _filter_incremental_candidates(
         if not abs_path.is_file():
             removed_files.append(rel_path)
             continue
+        # "Exists but is no longer indexable" is a removal, not a skip: a file
+        # that became a symlink or binary otherwise kept its previous nodes
+        # forever, while a full build's stale-file purge dropped them.
+        if abs_path.is_symlink() or _is_binary(abs_path):
+            removed_files.append(rel_path)
+            continue
+        # A case-only rename still answers is_file() under the old spelling on a
+        # case-insensitive filesystem, so the old path would be re-parsed rather
+        # than removed and the graph would hold two node sets for one file.
+        on_disk = _on_disk_spelling(repo_root, rel_path)
+        if on_disk is not None and on_disk != rel_path:
+            removed_files.append(rel_path)
+            continue
         existing_files.append(rel_path)
 
     parser = CodeParser()
@@ -319,7 +393,34 @@ def _filter_incremental_candidates(
     for rel_path in existing_files:
         if parser.detect_language(repo_root / rel_path) is not None:
             candidates.append(rel_path)
+        else:
+            removed_files.append(rel_path)
     return candidates, removed_files
+
+
+def _on_disk_spelling(repo_root: Path, rel_path: str) -> str | None:
+    """Return how the filesystem spells *rel_path*, when that differs.
+
+    Only the final component is checked; a case-only rename renames one entry
+    and scanning every parent for every candidate would cost more than the case
+    it guards. ``None`` means "same spelling, or undeterminable".
+    """
+    parent_rel, _, file_name = rel_path.rpartition("/")
+    parent_dir = repo_root / parent_rel if parent_rel else repo_root
+    try:
+        entries = list(parent_dir.iterdir())
+    except OSError:
+        return None
+    matched: str | None = None
+    for entry in entries:
+        name = entry.name
+        if name == file_name:
+            return None
+        if name.lower() == file_name.lower():
+            matched = name
+    if matched is None:
+        return None
+    return f"{parent_rel}/{matched}" if parent_rel else matched
 
 
 def _classify_python_changed_files(
@@ -963,6 +1064,13 @@ def incremental_update(
     errors = []
     mtime_only_updates: list[tuple[int, str]] = []  # (mtime_ns, file_path) pairs
 
+    # git names a changed submodule by its *directory*, which is not a file, so
+    # it used to land in removed_files as a no-op delete while the files inside
+    # were never re-parsed or pruned — submodule content was frozen after the
+    # first build.
+    changed_files = _expand_changed_submodules(repo_root, changed_files)
+    change_file_sources["files"] = changed_files
+
     # First classify the changed roots themselves. Touch-only changes only need
     # their stored mtime refreshed; they should not force dependent expansion.
     changed_candidates, removed_files = _filter_incremental_candidates(
@@ -970,6 +1078,12 @@ def incremental_update(
         set(changed_files),
         ignore_patterns,
     )
+    # Keep only removals the graph can act on. The candidate filter reports
+    # "not indexable" as a removal so a file that *became* binary/symlinked
+    # loses its stale nodes -- but a path that was never indexable (a committed
+    # .txt) has nothing to remove, and counting it would inflate files_updated
+    # and turn a genuine no-op into a reported update.
+    removed_files = _indexed_only(store, removed_files)
     rust_changed_candidates, python_changed_candidates = _split_rust_parser_files(
         changed_candidates,
         repo_root,
@@ -1025,6 +1139,7 @@ def incremental_update(
             all_files,
             ignore_patterns,
         )
+        removed_files = _indexed_only(store, removed_files)
     else:
         candidates = list(content_changed_files)
 

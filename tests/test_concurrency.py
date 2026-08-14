@@ -270,3 +270,31 @@ class TestDaemonForkOrder:
 
         source = inspect.getsource(daemon_cli._handle_start)
         assert source.index("sys.stdout.flush()") < source.index("daemon.daemonize()")
+
+
+class TestDaemonPidfileLiveness:
+    """#102: os.kill(pid, 0) says "some process has this id", not "our daemon"."""
+
+    def test_recycled_pid_is_not_reported_as_running(self, tmp_path):
+        import os
+
+        from dagayn.daemon import is_daemon_running
+
+        pid_path = tmp_path / "daemon.pid"
+        # A crashed daemon leaves the pidfile; the OS later hands that id to an
+        # unrelated process (here, this test's own).
+        pid_path.write_text(str(os.getpid()), encoding="utf-8")
+
+        assert is_daemon_running(pid_path) is False
+        assert not pid_path.exists(), "a stale pidfile should be cleaned up"
+
+    def test_held_lock_reports_running(self, tmp_path):
+        from dagayn.daemon import clear_pid, is_daemon_running, write_pid
+
+        pid_path = tmp_path / "daemon.pid"
+        write_pid(path=pid_path)
+        try:
+            assert is_daemon_running(pid_path) is True
+        finally:
+            clear_pid(pid_path)
+        assert is_daemon_running(pid_path) is False

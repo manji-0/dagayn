@@ -39,6 +39,10 @@ _GIT_TIMEOUT = 5
 
 #: Set to ``0``/``false``/``no``/``off`` to disable graph inheritance.
 SEED_ENV_VAR = "DAGAYN_WORKTREE_SEED"
+#: Metadata flag set on a seeded copy: its per-file mtimes came from the
+#: main checkout, so content must be verified once before the graph can be
+#: described as matching this worktree.
+SEEDED_NEEDS_VERIFY_KEY = "seeded_needs_content_verify"
 
 _FALSEY = frozenset({"0", "false", "no", "off"})
 
@@ -173,15 +177,27 @@ def main_worktree_root(repo_root: Path) -> Path | None:
     if common.name == ".git":
         return common.parent
 
-    # Bare repo, or a non-standard git dir location: ask git for the list.
+    # Bare repo, or a non-standard git dir location: ask git for the list. The
+    # first entry of a bare-backed repository is the bare git dir itself, which
+    # has no working tree — returning it contradicted this function's own
+    # contract, made a bare-repo worktree unable to inherit while telling the
+    # user to "build in the main checkout" that has no files, and (without
+    # CRG_DATA_DIR) created ``<repo>.git/.dagayn/`` inside the git directory.
     out = _git(repo_root, "worktree", "list", "--porcelain")
     if out:
         for line in out.splitlines():
-            if line.startswith("worktree "):
-                candidate = Path(line[len("worktree ") :].strip())
-                if candidate.is_dir():
-                    return candidate
-                break
+            if not line.startswith("worktree "):
+                continue
+            candidate = Path(line[len("worktree ") :].strip())
+            if not candidate.is_dir():
+                continue
+            if _same_path(candidate, common):
+                # The bare git dir listed as its own "worktree".
+                continue
+            if not (candidate / ".git").exists():
+                # No git link/dir of its own: not a working tree.
+                continue
+            return candidate
     return None
 
 
@@ -290,6 +306,18 @@ def _copy_graph_db(source: Path, dest: Path, repo_root: Path) -> None:
                     "INSERT INTO metadata (key, value) VALUES ('repo_root', ?) "
                     "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                     (str(repo_root),),
+                )
+                # The copy inherits whatever the parent held, including nodes an
+                # edit hook indexed from the parent's *uncommitted* files. The
+                # worktree starts on the same commit, so the catch-up diff
+                # ``base..HEAD`` is empty and nothing would ever remove those
+                # phantoms. This marker makes the first assessment verify content
+                # regardless of the usual hash-candidate cap (a fresh checkout
+                # moves every mtime, so the cap always bites there).
+                dst_conn.execute(
+                    "INSERT INTO metadata (key, value) VALUES (?, '1') "
+                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    (SEEDED_NEEDS_VERIFY_KEY,),
                 )
                 dst_conn.commit()
             finally:

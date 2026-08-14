@@ -317,6 +317,32 @@ def _server_command(
     return command
 
 
+#: Extra time granted whenever the child reports download progress. Keeps a
+#: first-run model fetch from being killed by the readiness timeout, while still
+#: bounding a server that has genuinely stalled.
+_MODEL_DOWNLOAD_GRACE_SECONDS = 120.0
+
+#: Substrings llama-server prints while fetching a model.
+_DOWNLOAD_MARKERS = ("download", "curl", "%|", "resolving", "fetching")
+
+
+def _stderr_size(stderr_file: IO[bytes] | None) -> int:
+    """Return the current stderr byte count, or 0 when unavailable."""
+    if stderr_file is None:
+        return 0
+    try:
+        stderr_file.flush()
+        return stderr_file.tell()
+    except OSError:
+        return 0
+
+
+def _looks_like_model_download(stderr_file: IO[bytes] | None) -> bool:
+    """True when the child's recent output looks like a model download."""
+    tail = _stderr_tail(stderr_file, limit=4000).lower()
+    return any(marker in tail for marker in _DOWNLOAD_MARKERS)
+
+
 def _stderr_tail(stderr_file: IO[bytes] | None, *, limit: int = 2000) -> str:
     """Return a decoded stderr tail for startup-failure diagnostics."""
     if stderr_file is None:
@@ -459,6 +485,14 @@ def local_embedding_server(
                 stderr=stderr_file,
             )
             deadline = time.monotonic() + startup_timeout
+            # A first run downloads the model (hundreds of MB for
+            # ``-hf gpustack/bge-m3-GGUF:Q8_0``) inside this same window. On a
+            # slow link the loop timed out, the ``finally`` below terminated the
+            # downloading child, and the error blamed ``/v1/embeddings`` without
+            # mentioning the download at all -- and retrying re-entered the same
+            # race. While the child reports progress the deadline is extended.
+            download_seen = False
+            last_progress_size = _stderr_size(stderr_file)
             while time.monotonic() < deadline:
                 if proc.poll() is not None:
                     detail = _stderr_tail(stderr_file)
@@ -488,12 +522,28 @@ def local_embedding_server(
                         "embedding endpoint: "
                         f"{probe.detail}. Command: {shlex.join(command)}"
                     )
+                current_size = _stderr_size(stderr_file)
+                if current_size != last_progress_size:
+                    last_progress_size = current_size
+                    if _looks_like_model_download(stderr_file):
+                        download_seen = True
+                        deadline = max(
+                            deadline,
+                            time.monotonic() + _MODEL_DOWNLOAD_GRACE_SECONDS,
+                        )
                 time.sleep(0.5)
             detail = _stderr_tail(stderr_file)
-            message = (
-                "Timed out waiting for local embedding server to expose /v1/embeddings. "
-                f"Command: {shlex.join(command)}"
-            )
+            if download_seen:
+                message = (
+                    "Local embedding server is still downloading its model and did not "
+                    "become ready in time. Re-run to resume the download, or pre-fetch "
+                    f"the model. Command: {shlex.join(command)}"
+                )
+            else:
+                message = (
+                    "Timed out waiting for local embedding server to expose /v1/embeddings. "
+                    f"Command: {shlex.join(command)}"
+                )
             if detail:
                 message = f"{message}\nstderr:\n{detail}"
             raise RuntimeError(message)

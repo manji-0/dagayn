@@ -42,7 +42,7 @@ def _seed_leiden_rng() -> None:
     if not IGRAPH_AVAILABLE or ig is None:
         return
     try:
-        ig.set_random_number_generator(random.Random(_LEIDEN_RANDOM_SEED))
+        ig.set_random_number_generator(random.Random(_LEIDEN_RANDOM_SEED))  # nosec B311
     except (AttributeError, TypeError):  # pragma: no cover - older igraph
         random.seed(_LEIDEN_RANDOM_SEED)
 

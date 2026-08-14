@@ -457,10 +457,29 @@ def generate_wiki(
         index_path.write_text(index_content, encoding="utf-8")
         pages_generated += 1
 
+    # Delete pages no longer backed by a community. Nothing removed them before,
+    # so every re-detect left a fresh generation of orphans (community sub-names
+    # are not stable), the directory grew without bound, and `get_wiki_page`
+    # happily served a page documenting deleted code.
+    written = {index_path.name, *(f"{slug}.md" for slug in used_slugs)}
+    pages_removed: list[str] = []
+    for existing in wiki_path.glob("*.md"):
+        if existing.name in written:
+            continue
+        try:
+            existing.unlink()
+        except OSError:
+            logger.warning("Could not remove orphaned wiki page %s", existing)
+            continue
+        pages_removed.append(existing.name)
+    if pages_removed:
+        logger.info("Removed %d orphaned wiki page(s)", len(pages_removed))
+
     return {
         "pages_generated": pages_generated,
         "pages_updated": pages_updated,
         "pages_unchanged": pages_unchanged,
+        "pages_removed": pages_removed,
     }
 
 
@@ -486,10 +505,7 @@ def get_wiki_page(wiki_dir: str | Path, page_name: str) -> str | None:
     if exact_path.is_file() and exact_path.is_relative_to(wiki_path.resolve()):
         return exact_path.read_text(encoding="utf-8", errors="replace")
 
-    # Fallback: search for partial match
-    if wiki_path.is_dir():
-        for p in wiki_path.iterdir():
-            if p.suffix == ".md" and slug in p.stem:
-                return p.read_text(encoding="utf-8", errors="replace")
-
+    # No substring fallback: ``slug in p.stem`` matched unrelated pages (a query
+    # for "auth" returning "auth-legacy-sub3"), which is worse than a miss --
+    # the caller cannot tell it got a different community's page.
     return None

@@ -498,3 +498,63 @@ def test_content_change_with_restored_mtime_is_detected(git_repo: Path) -> None:
         store.close()
     finally:
         Path(db_path).unlink(missing_ok=True)
+
+
+def test_file_that_stops_being_indexable_is_removed(git_repo: Path) -> None:
+    """Binary-ization and symlink replacement are removals, not skips.
+
+    Both used to `continue`, leaving the file's previous nodes in the graph
+    forever while a full build's stale-file purge dropped them -- so the two
+    paths disagreed about the same tree.
+    """
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        db_path = f.name
+    try:
+        (git_repo / "target.py").write_text("def target_fn():\n    return 1\n", encoding="utf-8")
+        (git_repo / "real.py").write_text("def real_fn():\n    return 1\n", encoding="utf-8")
+        _git(git_repo, "add", "-A")
+        _git(git_repo, "commit", "-m", "add target and real")
+
+        store = GraphStore(db_path)
+        full_build(git_repo, store)
+        assert "target.py" in _indexed_files(store)
+
+        base = _git(git_repo, "rev-parse", "HEAD").stdout.strip()
+        (git_repo / "target.py").write_bytes(b"def target_fn():\n    return 1\n\x00binary")
+        _git(git_repo, "add", "-A")
+        _git(git_repo, "commit", "-m", "make target binary")
+
+        incremental_update(git_repo, store, base=base)
+        assert "target.py" not in _indexed_files(store), "stale nodes kept for a binary file"
+        store.close()
+    finally:
+        Path(db_path).unlink(missing_ok=True)
+
+
+def test_case_only_rename_does_not_duplicate(git_repo: Path) -> None:
+    """On a case-insensitive filesystem is_file() still answers for the old name."""
+    import os
+
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        db_path = f.name
+    try:
+        (git_repo / "mod.py").write_text("def mod_fn():\n    return 1\n", encoding="utf-8")
+        _git(git_repo, "add", "-A")
+        _git(git_repo, "commit", "-m", "add mod")
+
+        store = GraphStore(db_path)
+        full_build(git_repo, store)
+        base = _git(git_repo, "rev-parse", "HEAD").stdout.strip()
+
+        _git(git_repo, "mv", "-f", "mod.py", "Mod.py")
+        _git(git_repo, "commit", "-m", "case-only rename")
+        if not os.path.exists(git_repo / "mod.py"):
+            pytest.skip(reason="case-sensitive filesystem: the old path really is gone")
+
+        incremental_update(git_repo, store, base=base)
+        indexed = _indexed_files(store)
+        assert "Mod.py" in indexed
+        assert "mod.py" not in indexed, f"case-only rename left a duplicate: {sorted(indexed)}"
+        store.close()
+    finally:
+        Path(db_path).unlink(missing_ok=True)
