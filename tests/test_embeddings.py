@@ -11,6 +11,7 @@ import pytest
 
 from dagayn.cli.commands.build import _print_embedding_status
 from dagayn.embeddings import (
+    EmbeddingProvider,
     EmbeddingStore,
     MiniMaxEmbeddingProvider,
     OpenAIEmbeddingProvider,
@@ -2554,7 +2555,7 @@ class TestVectorDimensionIdentity:
     def test_dimension_change_forces_reembed(self, tmp_path):
         db = tmp_path / "embeddings.db"
 
-        class DimProvider:
+        class DimProvider(EmbeddingProvider):
             def __init__(self, dim: int) -> None:
                 self._dim = dim
 
@@ -2728,7 +2729,7 @@ class TestVectorDimensionIdentity:
             ]
             assert [qn for qn, _ in rust_hits] == [qn for qn, _ in python_hits]
         except (ImportError, AttributeError):
-            pytest.skip("native embedding search extension unavailable")
+            pytest.skip("native embedding search extension unavailable")  # ty: ignore[too-many-positional-arguments]
         conn.close()
 
         assert python_hits == [("file.py::a", pytest.approx(1.0))]
@@ -2761,7 +2762,7 @@ class TestProviderKeyReuse:
     REPLACE` kept the row count stable and hid it.
     """
 
-    class _LateDimProvider:
+    class _LateDimProvider(EmbeddingProvider):
         """Mirrors OpenAIEmbeddingProvider: dimension learned from the response."""
 
         preferred_batch_size = 100
@@ -2886,7 +2887,7 @@ class TestBatchFailureFanOut:
     def test_rate_limit_aborts_without_per_node_retries(self, tmp_path):
         """429 says nothing about the inputs; isolating multiplies the damage."""
 
-        class RateLimited:
+        class RateLimited(EmbeddingProvider):
             name = "fake"
             preferred_batch_size = 3
 

@@ -331,6 +331,7 @@ mod tests {
                     file_count: 1,
                     criticality: 0.25,
                     path: vec![auth_id],
+                    ..Default::default()
                 },
                 FlowInput {
                     name: "helper flow".to_string(),
@@ -340,6 +341,7 @@ mod tests {
                     file_count: 1,
                     criticality: 0.75,
                     path: vec![helper_id],
+                    ..Default::default()
                 },
             ])
             .expect("store flows");

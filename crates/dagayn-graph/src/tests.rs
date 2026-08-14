@@ -1,5 +1,5 @@
-use crate::helpers::write_tx;
 use super::*;
+use crate::helpers::write_tx;
 
 use serde_json::json;
 use std::path::PathBuf;
@@ -21,6 +21,9 @@ fn creates_current_schema() {
     assert!(table_exists(&store.conn, "bridge_scores").unwrap());
     assert!(has_column(&store.conn, "edges", "confidence_tier").unwrap());
     assert!(has_column(&store.conn, "edges", "target_name").unwrap());
+    assert!(has_column(&store.conn, "flows", "kind").unwrap());
+    assert!(has_column(&store.conn, "flows", "truncated").unwrap());
+    assert!(has_column(&store.conn, "flows", "truncation_reason").unwrap());
     let _ = std::fs::remove_file(path);
 }
 
@@ -151,7 +154,9 @@ fn ensure_edge_target_name_backfills_legacy_edges_without_column() {
         .conn
         .prepare("SELECT target_qualified, target_name FROM edges ORDER BY id")
         .unwrap()
-        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
         .unwrap()
         .map(|row| row.unwrap())
         .collect::<Vec<_>>();
@@ -1779,6 +1784,7 @@ fn stores_flows_and_reads_flow_inputs() {
         file_count: 1,
         criticality: 0.25,
         path: vec![entry_id, callee_id],
+        ..Default::default()
     }];
     assert_eq!(store.store_flows(&flows).unwrap(), 1);
     assert_eq!(
@@ -2023,6 +2029,7 @@ fn analyze_changes_json_scores_range_limited_untested_security_changes() {
         file_count: 1,
         criticality: 0.25,
         path: vec![auth_id],
+        ..Default::default()
     }];
     assert_eq!(store.store_flows(&flows).unwrap(), 1);
 
@@ -2111,6 +2118,7 @@ fn store_flows_json_replaces_existing_flows_from_serialized_input() {
             file_count: 1,
             criticality: 0.1,
             path: vec![callee_id],
+            ..Default::default()
         }])
         .unwrap();
 
@@ -2122,6 +2130,7 @@ fn store_flows_json_replaces_existing_flows_from_serialized_input() {
         file_count: 1,
         criticality: 0.75,
         path: vec![entry_id, callee_id],
+        ..Default::default()
     }];
     assert_eq!(
         store
@@ -2142,6 +2151,83 @@ fn store_flows_json_replaces_existing_flows_from_serialized_input() {
         })
         .unwrap();
     assert_eq!(membership_count, 2);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn update_flow_criticalities_json_rewrites_scores() {
+    let path = temp_db("flow-crit-update");
+    let mut store = GraphStore::open(&path).expect("open graph store");
+    let entry = NodeInput {
+        kind: "Function".to_string(),
+        name: "entry".to_string(),
+        file_path: "app.py".to_string(),
+        line_start: 1,
+        line_end: 5,
+        language: "python".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: Value::Object(Default::default()),
+    };
+    let callee = NodeInput {
+        kind: "Function".to_string(),
+        name: "callee".to_string(),
+        file_path: "app.py".to_string(),
+        line_start: 6,
+        line_end: 10,
+        language: "python".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: Value::Object(Default::default()),
+    };
+    store
+        .store_file_batch(&[(
+            "app.py".to_string(),
+            vec![entry, callee],
+            vec![],
+            "hash".to_string(),
+            0,
+        )])
+        .unwrap();
+    let entry_id = store.get_node("app.py::entry").unwrap().unwrap().id;
+    let callee_id = store.get_node("app.py::callee").unwrap().unwrap().id;
+    store
+        .store_flows(&[FlowInput {
+            name: "entry".to_string(),
+            entry_point_id: entry_id,
+            depth: 1,
+            node_count: 2,
+            file_count: 1,
+            criticality: 0.25,
+            path: vec![entry_id, callee_id],
+            ..Default::default()
+        }])
+        .unwrap();
+    let flow_id: i64 = store
+        .conn
+        .query_row("SELECT id FROM flows", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(
+        store
+            .update_flow_criticalities_json(&format!("[[{flow_id}, 0.085]]"))
+            .unwrap(),
+        1
+    );
+    let criticality: f64 = store
+        .conn
+        .query_row(
+            "SELECT criticality FROM flows WHERE id = ?",
+            [flow_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!((criticality - 0.085).abs() < 1e-9);
     let _ = std::fs::remove_file(path);
 }
 
@@ -2200,6 +2286,7 @@ fn flow_helpers_store_and_read_flow_rows_with_sanitized_json() {
                 file_count: 1,
                 criticality: 0.4,
                 path: vec![entry_id, callee_id],
+                ..Default::default()
             }],
         )
         .unwrap();

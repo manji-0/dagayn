@@ -28,7 +28,8 @@ the selected embedding mode so bug searches balance semantic recall with speed.
    advanced MCP surface (or `dagayn tool`) exposes it.
 5. Use `flow_tool(mode="list", detail_level="minimal")` or
    `review_tool(mode="affected_flows")` to identify candidate flow names before
-   calling `flow_tool(mode="get")`.
+   calling `flow_tool(mode="get")`. A stored flow is a CALLS reachable set
+   (BFS visit order), not an ordered execution path; read `truncated`.
 6. If the suspected code point has documentation bridges, use
    `query_graph_tool(pattern="docs_for", target="<path::symbol>", detail_level="minimal")`
    to pull in linked specs, runbooks, explanations, and issue notes. If the bug

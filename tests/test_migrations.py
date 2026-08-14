@@ -73,6 +73,14 @@ class TestMigrations:
         columns = [row[1] if isinstance(row, tuple) else row["name"] for row in cursor]
         assert "target_name" in columns
 
+    def test_flow_kind_and_truncation_columns_exist_after_migration(self):
+        """The flows table records reachable-set kind and truncation disclosure."""
+        cursor = self.store._conn.execute("PRAGMA table_info(flows)")
+        columns = [row[1] if isinstance(row, tuple) else row["name"] for row in cursor]
+        assert "kind" in columns
+        assert "truncated" in columns
+        assert "truncation_reason" in columns
+
     def test_python_open_backfills_empty_target_name_at_schema_v14(self, tmp_path):
         """Python GraphStore open must heal Rust v14 DBs with empty target_name rows."""
         db_path = tmp_path / "graph.db"

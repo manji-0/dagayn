@@ -58,11 +58,11 @@ def _infer_persisted_local_embedding(repo_root: str | None):
         read_active_embedding_provider_metadata,
         resolve_active_embedding_provider,
     )
-    from ...incremental import get_db_path, resolve_cli_repo_root
+    from ...incremental import db_path_for, resolve_cli_repo_root
     from ...local_embeddings import infer_local_embedding_provider
 
     root = resolve_cli_repo_root(repo_root)
-    db_path = get_db_path(root)
+    db_path = db_path_for(root)
     provider_counts = get_embedding_provider_counts(db_path)
     preferred = read_active_embedding_provider_metadata(db_path)
     provider_name = resolve_active_embedding_provider(

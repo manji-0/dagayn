@@ -16,7 +16,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from ...paths import get_db_path
+from ...paths import db_path_for
 from ._shared import DEFAULT_LOCAL_EMBEDDING_BIN, _add_local_embedding_args
 
 
@@ -128,10 +128,10 @@ def _handle_info(args: argparse.Namespace) -> None:
     hooks_dir = git_hooks_dir(repo_root)
     print(f"Git hooks dir: {hooks_dir if hooks_dir else 'unknown'}")
 
-    graph = get_db_path(repo_root)
+    graph = db_path_for(repo_root)
     print(f"Graph: {'present' if graph.exists() else 'missing'} ({graph})")
     if linked and main is not None:
-        source = get_db_path(main)
+        source = db_path_for(main)
         print(f"Inheritable graph: {'present' if source.exists() else 'missing'} ({source})")
         if seeding_disabled():
             print("Graph inheritance: disabled by DAGAYN_WORKTREE_SEED")
@@ -141,7 +141,7 @@ def _graph_head_sha(repo_root: Path) -> str | None:
     """Return the commit an existing graph in *repo_root* was built at."""
     from ...worktree import read_graph_metadata
 
-    return read_graph_metadata(get_db_path(repo_root), "git_head_sha")
+    return read_graph_metadata(db_path_for(repo_root), "git_head_sha")
 
 
 def _handle_sync(args: argparse.Namespace) -> None:
@@ -171,7 +171,7 @@ def _handle_sync(args: argparse.Namespace) -> None:
     # A schema-only stub left by ``dagayn status``/``serve`` is not a graph:
     # treating it as one picked the incremental path with base=HEAD~1, indexing
     # the last commit only and then stamping that partial graph as HEAD-synced.
-    graph_exists = graph_has_nodes(get_db_path(repo_root))
+    graph_exists = graph_has_nodes(db_path_for(repo_root))
     if not graph_exists and not getattr(args, "build_if_missing", False):
         result = {
             "status": seed.status,

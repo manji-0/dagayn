@@ -74,7 +74,7 @@ _DEBUG_TOOL_SUGGESTIONS = ["semantic_search_nodes_tool", "query_graph_tool", "fl
 _FEATURE_TOOL_SUGGESTIONS = ["semantic_search_nodes_tool", "query_graph_tool", "review_tool"]
 _REFACTOR_TOOL_SUGGESTIONS = [
     "refactor_tool",
-    "find_large_functions_tool",
+    "query_graph_tool",
     "architecture_analysis_tool",
 ]
 _EXPLORE_TOOL_SUGGESTIONS = [
@@ -194,7 +194,7 @@ def _graph_answerability(store: Any, stats: Any) -> dict[str, Any]:
     """Summarize whether the graph can answer review/exploration questions."""
     summary = graph_answerability_summary(store, stats)
     # get_minimal_context has a strict compactness budget; detailed counts are
-    # available from list_graph_stats_tool and from non-minimal dispatcher calls.
+    # available from non-minimal dispatcher calls.
     summary.pop("counts", None)
     summary.pop("reason_codes", None)
     return summary
@@ -208,18 +208,22 @@ def _task_mentions(task: str, keywords: tuple[str, ...]) -> bool:
 
 def _suggest_tools_for_task(task: str) -> list[str]:
     """Choose next MCP tool suggestions from a natural-language task."""
+    from ..tool_surface import filter_tool_names
+
     workflow = _workflow_for_task(task)
     if workflow == "review":
-        return list(_REVIEW_TOOL_SUGGESTIONS)
-    if workflow == "debug":
-        return list(_DEBUG_TOOL_SUGGESTIONS)
-    if workflow == "refactor":
-        return list(_REFACTOR_TOOL_SUGGESTIONS)
-    if workflow == "explore":
-        return list(_EXPLORE_TOOL_SUGGESTIONS)
-    if workflow == "feature":
-        return list(_FEATURE_TOOL_SUGGESTIONS)
-    return list(_DEFAULT_TOOL_SUGGESTIONS)
+        names = list(_REVIEW_TOOL_SUGGESTIONS)
+    elif workflow == "debug":
+        names = list(_DEBUG_TOOL_SUGGESTIONS)
+    elif workflow == "refactor":
+        names = list(_REFACTOR_TOOL_SUGGESTIONS)
+    elif workflow == "explore":
+        names = list(_EXPLORE_TOOL_SUGGESTIONS)
+    elif workflow == "feature":
+        names = list(_FEATURE_TOOL_SUGGESTIONS)
+    else:
+        names = list(_DEFAULT_TOOL_SUGGESTIONS)
+    return filter_tool_names(names)
 
 
 def _workflow_for_task(task: str) -> str:

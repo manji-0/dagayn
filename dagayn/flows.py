@@ -1,9 +1,13 @@
-"""Execution flow detection, tracing, and criticality scoring.
+"""Entry-point reachable-set detection, tracing, and criticality scoring.
 
 Detects entry points in the codebase (functions with no incoming CALLS edges,
-framework-decorated handlers, and conventional name patterns), traces execution
-paths via forward BFS through CALLS edges, scores each flow for criticality,
-and persists results to the ``flows`` / ``flow_memberships`` tables.
+framework-decorated handlers, and conventional name patterns), traces the
+forward CALLS reachable set via BFS, scores each set for criticality, and
+persists results to the ``flows`` / ``flow_memberships`` tables.
+
+A stored flow is a **reachable set**, not an ordered execution path. ``path`` /
+``steps`` are BFS visit order of that set. Truncation at ``max_depth`` or
+``max_nodes`` is recorded on the flow.
 """
 
 from __future__ import annotations
@@ -24,6 +28,10 @@ from .graph import (
 )
 
 logger = logging.getLogger(__name__)
+
+FLOW_KIND_REACHABLE_SET = "reachable_set"
+DEFAULT_FLOW_MAX_DEPTH = 15
+DEFAULT_FLOW_MAX_NODES = 512
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -212,12 +220,14 @@ def detect_entry_points(
 def _trace_single_flow(
     adj: FlowAdjacency,
     ep: GraphNode,
-    max_depth: int = 15,
+    max_depth: int = DEFAULT_FLOW_MAX_DEPTH,
+    max_nodes: int = DEFAULT_FLOW_MAX_NODES,
 ) -> Optional[dict]:
-    """Trace a single execution flow from *ep* via forward BFS.
+    """Trace the CALLS reachable set from *ep* via forward BFS.
 
     Returns a flow dict (see :func:`trace_flows` for the schema) or ``None``
-    if the flow is trivial (single-node, no outgoing CALLS that resolve).
+    if the set is trivial (single-node, no outgoing CALLS that resolve).
+    ``path`` is BFS visit order of the reachable set, not a call sequence.
     """
     path_ids: list[int] = [ep.id]
     path_qnames: list[str] = [ep.qualified_name]
@@ -225,6 +235,8 @@ def _trace_single_flow(
     queue: deque[tuple[str, int]] = deque([(ep.qualified_name, 0)])
 
     actual_depth = 0
+    truncated = False
+    truncation_reason: str | None = None
     nodes_by_qn = adj.nodes_by_qn
     calls_out = adj.calls_out
 
@@ -233,6 +245,10 @@ def _trace_single_flow(
         if depth > actual_depth:
             actual_depth = depth
         if depth >= max_depth:
+            if calls_out.get(current_qn):
+                truncated = True
+                if truncation_reason is None:
+                    truncation_reason = "max_depth"
             continue
 
         for target_qn in calls_out.get(current_qn, ()):
@@ -241,6 +257,11 @@ def _trace_single_flow(
             target_node = nodes_by_qn.get(target_qn)
             if target_node is None:
                 continue
+            if len(path_ids) >= max_nodes:
+                truncated = True
+                truncation_reason = "max_nodes"
+                queue.clear()
+                break
             visited.add(target_qn)
             path_ids.append(target_node.id)
             path_qnames.append(target_qn)
@@ -256,11 +277,15 @@ def _trace_single_flow(
         "name": _sanitize_name(ep.name),
         "entry_point": ep.qualified_name,
         "entry_point_id": ep.id,
+        "kind": FLOW_KIND_REACHABLE_SET,
         "path": path_ids,
+        "members": list(path_ids),
         "depth": actual_depth,
         "node_count": len(path_ids),
         "file_count": len(files),
         "files": files,
+        "truncated": truncated,
+        "truncation_reason": truncation_reason,
         "criticality": 0.0,
     }
     flow["criticality"] = compute_criticality(flow, adj)
@@ -269,20 +294,23 @@ def _trace_single_flow(
 
 def trace_flows(
     store: GraphStore,
-    max_depth: int = 15,
+    max_depth: int = DEFAULT_FLOW_MAX_DEPTH,
     include_tests: bool = False,
+    max_nodes: int = DEFAULT_FLOW_MAX_NODES,
 ) -> list[dict]:
-    """Trace execution flows from every entry point via forward BFS.
+    """Trace reachable sets from every entry point via forward BFS.
 
     Returns a list of flow dicts, each containing:
       - name: human-readable flow name (entry point name)
       - entry_point: qualified name of the entry point
       - entry_point_id: node database id of the entry point
-      - path: ordered list of node IDs in the flow
+      - kind: ``reachable_set`` (not an ordered execution path)
+      - path / members: BFS visit order of reachable node IDs
       - depth: maximum BFS depth reached
-      - node_count: number of distinct nodes in the path
+      - node_count: number of distinct nodes in the set
       - file_count: number of distinct files touched
       - files: list of distinct file paths
+      - truncated / truncation_reason: ``max_depth`` or ``max_nodes`` when capped
       - criticality: computed criticality score (0.0-1.0)
     """
     entry_points = detect_entry_points(store, include_tests=include_tests)
@@ -293,7 +321,7 @@ def trace_flows(
     flows: list[dict] = []
 
     for ep in entry_points:
-        flow = _trace_single_flow(adj, ep, max_depth)
+        flow = _trace_single_flow(adj, ep, max_depth, max_nodes)
         if flow is not None:
             flows.append(flow)
 
@@ -377,9 +405,113 @@ def compute_criticality(flow: dict, adj: FlowAdjacency) -> float:
     return round(min(max(criticality, 0.0), 1.0), 4)
 
 
+def refresh_flow_criticality(store: GraphStore) -> int:
+    """Recompute stored flow criticality from current TESTED_BY / CALLS facts.
+
+    Incremental tracing only retraces flows whose path files changed. Adding a
+    test file that covers a flow member does not touch those files, so stored
+    criticality would otherwise stay stale. Recomputing scores is cheap relative
+    to tracing. See: #114
+    """
+    adj = store.load_flow_adjacency()
+    conn = getattr(store, "_conn", None)
+    rust_get = getattr(store, "get_flows_json", None)
+    rust_update = getattr(store, "update_flow_criticalities_json", None)
+
+    flows: list[dict[str, Any]]
+    if conn is not None:
+        rows = conn.execute("SELECT id, depth, path_json, criticality FROM flows").fetchall()
+        flows = [
+            {
+                "id": int(row["id"]),
+                "depth": row["depth"],
+                "path": json.loads(row["path_json"]),
+                "criticality": float(row["criticality"] or 0.0),
+            }
+            for row in rows
+        ]
+    elif callable(rust_get):
+        flows = json.loads(rust_get("criticality", 1_000_000))
+    else:
+        return 0
+
+    updates: list[tuple[int, float]] = []
+    for flow in flows:
+        path = flow.get("path") or []
+        recomputed = compute_criticality({"path": path, "depth": flow.get("depth", 0)}, adj)
+        previous = float(flow.get("criticality") or 0.0)
+        if abs(recomputed - previous) > 1e-9:
+            flow_id = flow.get("id")
+            if flow_id is None:
+                continue
+            updates.append((int(flow_id), recomputed))
+
+    if not updates:
+        return 0
+
+    if callable(rust_update):
+        payload = json.dumps([[flow_id, score] for flow_id, score in updates])
+        return int(rust_update(payload))
+
+    if conn is None:
+        logger.warning("Cannot refresh flow criticality: store has no SQL connection")
+        return 0
+
+    with store_write_transaction(store):
+        conn.executemany(
+            "UPDATE flows SET criticality = ? WHERE id = ?",
+            [(score, flow_id) for flow_id, score in updates],
+        )
+    return len(updates)
+
+
 # ---------------------------------------------------------------------------
 # Persistence
 # ---------------------------------------------------------------------------
+
+_FLOW_INSERT_SQL = """INSERT INTO flows
+               (name, entry_point_id, depth, node_count, file_count,
+                criticality, path_json, kind, truncated, truncation_reason)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+
+
+def _flow_insert_params(flow: dict) -> tuple:
+    """Values for :data:`_FLOW_INSERT_SQL`."""
+    return (
+        flow["name"],
+        flow["entry_point_id"],
+        flow["depth"],
+        flow["node_count"],
+        flow["file_count"],
+        flow["criticality"],
+        json.dumps(flow.get("path", [])),
+        flow.get("kind") or FLOW_KIND_REACHABLE_SET,
+        1 if flow.get("truncated") else 0,
+        flow.get("truncation_reason"),
+    )
+
+
+def _flow_disclosure_fields(row: Any, path_ids: list[int]) -> dict:
+    """Kind / truncation fields stored beside the membership path."""
+    kind = FLOW_KIND_REACHABLE_SET
+    truncated = False
+    truncation_reason = None
+    try:
+        raw_kind = row["kind"]
+        if raw_kind:
+            kind = str(raw_kind)
+        truncated = bool(row["truncated"])
+        reason = row["truncation_reason"]
+        if reason:
+            truncation_reason = str(reason)
+    except (KeyError, IndexError):
+        pass
+    return {
+        "kind": kind,
+        "truncated": truncated,
+        "truncation_reason": truncation_reason,
+        "members": list(path_ids),
+    }
 
 
 def store_flows(store: GraphStore, flows: list[dict]) -> int:
@@ -404,22 +536,8 @@ def store_flows(store: GraphStore, flows: list[dict]) -> int:
 
         # Batch-insert all flows in one executemany call
         conn.executemany(
-            """INSERT INTO flows
-               (name, entry_point_id, depth, node_count, file_count,
-                criticality, path_json)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            [
-                (
-                    f["name"],
-                    f["entry_point_id"],
-                    f["depth"],
-                    f["node_count"],
-                    f["file_count"],
-                    f["criticality"],
-                    json.dumps(f.get("path", [])),
-                )
-                for f in flows
-            ],
+            _FLOW_INSERT_SQL,
+            [_flow_insert_params(f) for f in flows],
         )
         count = len(flows)
 
@@ -673,6 +791,9 @@ def incremental_trace_flows(
     5. BFS-trace each relevant entry point via :func:`_trace_single_flow`.
     6. INSERT the new flows (without clearing unrelated flows), first deleting
        any stale flow that shares the same entry-point qualified name.
+    7. Recompute criticality for every remaining flow so TESTED_BY coverage
+       and unresolved-external facts stay current even when the changed files
+       are tests that are not on any flow path.
 
     Returns the number of re-traced flows that were stored.
     """
@@ -700,9 +821,11 @@ def incremental_trace_flows(
                 if flow is not None:
                     new_flows.append(flow)
 
-        if not new_flows:
-            return 0
-        return int(rust_insert(json.dumps(new_flows)))
+        count = 0
+        if new_flows:
+            count = int(rust_insert(json.dumps(new_flows)))
+        refresh_flow_criticality(store)
+        return count
 
     changed_file_set = set(changed_files)
 
@@ -743,22 +866,8 @@ def incremental_trace_flows(
 
         conn = store._conn
         conn.executemany(
-            """INSERT INTO flows
-               (name, entry_point_id, depth, node_count, file_count,
-                criticality, path_json)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            [
-                (
-                    f["name"],
-                    f["entry_point_id"],
-                    f["depth"],
-                    f["node_count"],
-                    f["file_count"],
-                    f["criticality"],
-                    json.dumps(f.get("path", [])),
-                )
-                for f in new_flows
-            ],
+            _FLOW_INSERT_SQL,
+            [_flow_insert_params(f) for f in new_flows],
         )
 
         # Map freshly-inserted flows back to IDs via entry_point_id (unique per flow)
@@ -785,6 +894,7 @@ def incremental_trace_flows(
 
     conn = store._conn
     conn.commit()
+    refresh_flow_criticality(store)
     return count
 
 
@@ -838,6 +948,7 @@ def get_flows(
                 "updated_at": row["updated_at"],
             }
         )
+        results[-1].update(_flow_disclosure_fields(row, results[-1]["path"]))
     return _annotate_flow_rows_liveness(store, results)
 
 
@@ -942,11 +1053,12 @@ def _annotate_flow_dict_bridges(store: GraphStore, flow: dict) -> dict:
 
 
 def get_flow_by_id(store: GraphStore, flow_id: int) -> Optional[dict]:
-    """Retrieve a single flow with full path details.
+    """Retrieve a single flow with reachable-set membership details.
 
     Returns a dict with the flow metadata plus a ``steps`` list containing
-    each node's name, kind, file, and line info. Bridge arrivals among path
-    nodes are marked with ``step_kind="bridge"``.
+    each member node's name, kind, file, and line info in BFS visit order.
+    That list is not a call sequence. Bridge arrivals among members are
+    marked with ``step_kind="bridge"``.
     """
     rust_get = getattr(store, "get_flow_by_id_json", None)
     if callable(rust_get):
@@ -1027,24 +1139,24 @@ def _hydrate_flow_rows(
         steps = annotate_flow_steps_with_bridges(steps, bridge_edges)
         bridge_step_count = sum(1 for step in steps if step.get("is_bridge_step"))
 
-        out.append(
-            {
-                "id": row["id"],
-                "name": _sanitize_name(row["name"]),
-                "entry_point_id": row["entry_point_id"],
-                "depth": row["depth"],
-                "node_count": row["node_count"],
-                "file_count": row["file_count"],
-                "criticality": row["criticality"],
-                "path": path_ids,
-                "steps": steps,
-                "resolved_step_count": resolved_step_count,
-                "missing_step_count": missing_step_count,
-                "bridge_step_count": bridge_step_count,
-                "created_at": row["created_at"],
-                "updated_at": row["updated_at"],
-            }
-        )
+        payload = {
+            "id": row["id"],
+            "name": _sanitize_name(row["name"]),
+            "entry_point_id": row["entry_point_id"],
+            "depth": row["depth"],
+            "node_count": row["node_count"],
+            "file_count": row["file_count"],
+            "criticality": row["criticality"],
+            "path": path_ids,
+            "steps": steps,
+            "resolved_step_count": resolved_step_count,
+            "missing_step_count": missing_step_count,
+            "bridge_step_count": bridge_step_count,
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+        payload.update(_flow_disclosure_fields(row, path_ids))
+        out.append(payload)
     return out
 
 

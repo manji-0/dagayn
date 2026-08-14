@@ -27,8 +27,9 @@ the selected embedding mode so exploration chooses the right search strategy.
   traversal.
 - Architecture health or structural risk: use
   `architecture_analysis_tool(mode="overview")` before metric drill-downs.
-- Execution path: use `flow_tool(mode="list")`, then `flow_tool(mode="get")`
-  only after choosing a concrete flow.
+- Reachable-set flow: use `flow_tool(mode="list")`, then `flow_tool(mode="get")`
+  only after choosing a concrete flow. Treat `path` / `steps` as BFS visit
+  order, not a runtime call sequence, and read `truncated` / `truncation_reason`.
 - Neighborhood exploration: use `traverse_graph_tool` only after choosing a
   concrete start node, only when a specific relationship query would be too
   narrow, and only when the advanced MCP surface (or `dagayn tool`) exposes it.
@@ -49,7 +50,7 @@ the selected embedding mode so exploration chooses the right search strategy.
      `architecture_analysis_tool(mode="overview", detail_level="minimal")`.
      Read `architecture_health` first; use the Architecture Analysis skill for
      drill-down mode selection.
-   - Execution path → `flow_tool(mode="list", detail_level="minimal")`, then
+   - Reachable-set flow → `flow_tool(mode="list", detail_level="minimal")`, then
      `flow_tool(mode="get")` only after choosing a concrete flow name.
 3. After you have a concrete node, use `query_graph_tool` patterns such as
    `callers_of`, `callees_of`, `imports_of`, `docs_for`, or `implementations_of`

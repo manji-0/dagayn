@@ -63,6 +63,17 @@ class TestFlows:
         self.store.upsert_edge(edge)
         self.store.commit()
 
+    def _add_tested_by(self, source_qn: str, test_qn: str, path: str) -> None:
+        edge = EdgeInfo(
+            kind="TESTED_BY",
+            source=source_qn,
+            target=test_qn,
+            file_path=path,
+            line=1,
+        )
+        self.store.upsert_edge(edge)
+        self.store.commit()
+
     # ---------------------------------------------------------------
     # detect_entry_points
     # ---------------------------------------------------------------
@@ -247,7 +258,11 @@ class TestFlows:
         # entry should produce a flow with 3 nodes.
         entry_flows = [f for f in flows if f["entry_point"] == "app.py::entry"]
         assert len(entry_flows) == 1
+        assert entry_flows[0]["kind"] == "reachable_set"
         assert entry_flows[0]["node_count"] == 3
+        assert entry_flows[0]["members"] == entry_flows[0]["path"]
+        assert entry_flows[0]["truncated"] is False
+        assert entry_flows[0]["truncation_reason"] is None
         assert entry_flows[0]["depth"] >= 1
 
     def test_trace_flow_cycle_detection(self):
@@ -281,6 +296,38 @@ class TestFlows:
         assert len(entry_flow) == 1
         # With max_depth=3, we should see at most 4 nodes (entry + 3 levels).
         assert entry_flow[0]["node_count"] <= 4
+        assert entry_flow[0]["kind"] == "reachable_set"
+        assert entry_flow[0]["truncated"] is True
+        assert entry_flow[0]["truncation_reason"] == "max_depth"
+
+    def test_trace_flow_max_nodes(self):
+        """Caps a hub's reachable set and discloses max_nodes truncation."""
+        self._add_func("handle_hub")
+        for i in range(600):
+            self._add_func(f"callee_{i}")
+            self._add_call("app.py::handle_hub", f"app.py::callee_{i}")
+
+        flows = trace_flows(self.store, max_nodes=512)
+        hub_flows = [f for f in flows if f["entry_point"] == "app.py::handle_hub"]
+        assert len(hub_flows) == 1
+        assert hub_flows[0]["node_count"] == 512
+        assert hub_flows[0]["truncated"] is True
+        assert hub_flows[0]["truncation_reason"] == "max_nodes"
+        assert hub_flows[0]["kind"] == "reachable_set"
+        assert hub_flows[0]["members"] == hub_flows[0]["path"]
+
+        store_flows(self.store, hub_flows)
+        stored = get_flows(self.store)
+        assert stored[0]["kind"] == "reachable_set"
+        assert stored[0]["truncated"] is True
+        assert stored[0]["truncation_reason"] == "max_nodes"
+        assert stored[0]["members"] == stored[0]["path"]
+        detail = get_flow_by_id(self.store, stored[0]["id"])
+        assert detail is not None
+        assert detail["truncated"] is True
+        assert detail["truncation_reason"] == "max_nodes"
+        assert detail["kind"] == "reachable_set"
+        assert len(detail["steps"]) == 512
 
     def test_trace_flow_skips_trivial(self):
         """Flows with only a single node (no outgoing calls leading to graph nodes)
@@ -387,6 +434,9 @@ class TestFlows:
         assert "criticality" in flow
         assert "path" in flow
         assert isinstance(flow["path"], list)
+        assert flow["kind"] == "reachable_set"
+        assert flow["truncated"] is False
+        assert flow["members"] == flow["path"]
 
     def test_store_flows_clears_old(self):
         """Calling store_flows replaces all previous flow data."""
@@ -659,6 +709,39 @@ class TestFlows:
         # Original flows unchanged.
         assert len(get_flows(self.store)) == initial_count
 
+    def test_incremental_trace_flows_refreshes_criticality_when_tests_change(self):
+        """TESTED_BY edges from a new test file must lower stored criticality. See: #114."""
+        self._add_func("handler", path="routes.py")
+        self._add_func("service", path="services.py")
+        self._add_call("routes.py::handler", "services.py::service", "routes.py")
+
+        flows = trace_flows(self.store)
+        store_flows(self.store, flows)
+        before = [f for f in get_flows(self.store) if f["name"] == "handler"]
+        assert len(before) == 1
+        stale = before[0]["criticality"]
+
+        self._add_func("test_handler", path="test_routes.py", is_test=True)
+        self._add_func("test_service", path="test_routes.py", is_test=True)
+        self._add_tested_by("routes.py::handler", "test_routes.py::test_handler", "test_routes.py")
+        self._add_tested_by(
+            "services.py::service",
+            "test_routes.py::test_service",
+            "test_routes.py",
+        )
+
+        count = incremental_trace_flows(self.store, ["test_routes.py"])
+        assert count == 0
+
+        after = [f for f in get_flows(self.store) if f["name"] == "handler"]
+        assert len(after) == 1
+        assert after[0]["criticality"] < stale
+        fully_traced = [
+            f for f in trace_flows(self.store) if f["entry_point"] == "routes.py::handler"
+        ]
+        assert len(fully_traced) == 1
+        assert after[0]["criticality"] == fully_traced[0]["criticality"]
+
     def test_incremental_trace_flows_delete_is_atomic(self):
         """Regression test for #258: the DELETE loop in incremental_trace_flows
         must be wrapped in a transaction so a crash mid-loop cannot leave
@@ -779,6 +862,7 @@ class TestFlows:
         main_flows = [f for f in get_flows(self.store) if f["name"] == "main"]
         assert len(main_flows) == 1
         detail = get_flow_by_id(self.store, main_flows[0]["id"])
+        assert detail is not None
         assert "extra" in {step["name"] for step in detail["steps"]}
 
     def test_incremental_retrace_entry_file_no_duplicate_flows(self):

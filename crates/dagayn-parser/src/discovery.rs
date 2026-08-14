@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::path::Path;
 use std::process::Command;
@@ -195,7 +195,7 @@ fn on_disk_spelling(repo_root: &Path, rel_path: &str) -> Option<String> {
 pub fn collect_parseable_files(repo_root: &Path, recurse_submodules: Option<bool>) -> Vec<String> {
     let ignore_patterns = load_ignore_patterns(repo_root);
     let globset = build_globset(&ignore_patterns);
-    let candidates = get_git_tracked_files(repo_root, recurse_submodules)
+    let candidates = get_git_indexable_files(repo_root, recurse_submodules)
         .filter(|files| !files.is_empty())
         .unwrap_or_else(|| walk_files(repo_root, &ignore_patterns, globset.as_ref()));
     filter_parseable_files(repo_root, &candidates, &ignore_patterns)
@@ -246,24 +246,15 @@ pub(crate) fn load_ignore_patterns(repo_root: &Path) -> Vec<String> {
     patterns
 }
 
-fn get_git_tracked_files(
-    repo_root: &Path,
-    recurse_submodules: Option<bool>,
-) -> Option<Vec<String>> {
-    if !repo_root.join(".git").exists() {
-        return None;
-    }
+fn git_ls_files(repo_root: &Path, extra_args: &[&str]) -> Option<Vec<String>> {
     let mut cmd = Command::new("git");
     // `-z`: `core.quotePath` is on by default, so without it every non-ASCII
     // path arrives C-quoted (`"caf\303\251.py"`), fails the `is_file()` check
     // below, and the file is silently missing from the graph.
-    cmd.arg("ls-files").arg("-z");
-    if recurse_submodules.unwrap_or(false) {
-        cmd.arg("--recurse-submodules");
-    }
+    cmd.arg("ls-files").arg("-z").args(extra_args);
     let output = cmd.current_dir(repo_root).output().ok()?;
     if !output.status.success() {
-        return Some(Vec::new());
+        return None;
     }
     let stdout = String::from_utf8_lossy(&output.stdout);
     Some(
@@ -273,6 +264,29 @@ fn get_git_tracked_files(
             .map(str::to_string)
             .collect(),
     )
+}
+
+fn get_git_indexable_files(
+    repo_root: &Path,
+    recurse_submodules: Option<bool>,
+) -> Option<Vec<String>> {
+    if !repo_root.join(".git").exists() {
+        return None;
+    }
+    let mut cached_args = vec!["--cached"];
+    if recurse_submodules.unwrap_or(false) {
+        cached_args.push("--recurse-submodules");
+    }
+    let cached = git_ls_files(repo_root, &cached_args)?;
+    let others = git_ls_files(repo_root, &["--others", "--exclude-standard"]).unwrap_or_default();
+    let mut seen = HashSet::new();
+    let mut out = Vec::with_capacity(cached.len() + others.len());
+    for path in cached.into_iter().chain(others) {
+        if seen.insert(path.clone()) {
+            out.push(path);
+        }
+    }
+    Some(out)
 }
 
 pub(crate) fn walk_files(
