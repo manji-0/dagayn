@@ -36,7 +36,7 @@ advanced/maintenance tools.
 | `get_minimal_context_tool` | Start here: graph freshness, risk, communities, next tools |
 | `ensure_graph_tool` | Empty or missing graph; safe bootstrap without embeddings |
 | `review_tool` | Primary change review and review drill-down dispatcher |
-| `flow_tool` | Execution-flow lists and step-by-step flow paths |
+| `flow_tool` | Reachable-set flow lists and BFS membership (not call sequences) |
 | `architecture_analysis_tool` | Primary architecture review and drill-down dispatcher |
 | `refactor_tool` | Planning renames, finding dead code, and evidence-ranked refactor suggestions |
 | `query_graph_tool` | Tracing callers, callees, imports, tests, dependencies |

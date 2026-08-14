@@ -4,6 +4,15 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Fixes
+
+- Stored flows are disclosed as CALLS reachable sets (`kind: reachable_set`),
+  not ordered execution paths. `path` / `steps` / `members` are BFS visit
+  order. Tracing caps at depth 15 and 512 members and records `truncated` /
+  `truncation_reason` (`max_depth` or `max_nodes`). Schema v16 adds those
+  columns. `flow_tool` marks truncated flows `degraded` and adds
+  `truncated_flow` missingness.
+
 ## 4.8.2 — 2026-08-10
 
 ### Fixes

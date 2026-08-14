@@ -32,11 +32,12 @@ def list_flows(
     kind: str | None = None,
     detail_level: str = "standard",
 ) -> dict[str, Any]:
-    """List execution flows in the codebase, sorted by criticality.
+    """List reachable-set flows in the codebase, sorted by criticality.
 
-    [EXPLORE] Retrieves stored execution flows from the knowledge graph.
-    Each flow represents a call chain starting from an entry point
-    (e.g. HTTP handler, CLI command, test function).
+    [EXPLORE] Retrieves stored flows from the knowledge graph. Each flow is the
+    CALLS reachable set from an entry point (e.g. HTTP handler, CLI command),
+    not an ordered execution path. ``path`` / ``steps`` are BFS visit order.
+    Truncation is disclosed via ``truncated`` / ``truncation_reason``.
 
     Args:
         repo_root: Repository root path. Auto-detected if omitted.
@@ -76,19 +77,26 @@ def list_flows(
                     "name": f["name"],
                     "criticality": f["criticality"],
                     "node_count": f["node_count"],
+                    "kind": f.get("kind") or "reachable_set",
+                    "truncated": bool(f.get("truncated")),
                 }
                 for f in flows
             ]
 
+        truncated_count = sum(1 for f in flows if f.get("truncated"))
         result: dict[str, object] = {
             "status": "ok",
-            "summary": f"Found {len(flows)} execution flow(s)",
+            "summary": (
+                f"Found {len(flows)} reachable-set flow(s)"
+                + (f" ({truncated_count} truncated)" if truncated_count else "")
+            ),
             "flows": flows,
             "flow_coverage": {
                 "source": "stored_flow_extraction",
                 "returned_flow_count": len(flows),
                 "limit": limit,
                 "kind_filter": kind,
+                "truncated_count": truncated_count,
                 "coverage_guarantee": False,
             },
             "answerability": answerability,
@@ -99,14 +107,28 @@ def list_flows(
                     "severity": "low",
                     "claim_effect": "flow ranking is not a coverage guarantee",
                 },
+                *(
+                    [
+                        {
+                            "reason_code": "truncated_flow",
+                            "severity": "medium",
+                            "claim_effect": (
+                                "one or more reachable sets were capped; "
+                                "omitted callees are not absent from the program"
+                            ),
+                        }
+                    ]
+                    if truncated_count
+                    else []
+                ),
             ],
         }
         flow_guidance = [
             make_guidance_item(
                 claim=(
-                    f"Returned {len(flows)} ranked execution flow(s) from stored flow extraction."
+                    f"Returned {len(flows)} ranked reachable-set flow(s) from stored flow extraction."
                     if flows
-                    else "No execution flows matched the current filters."
+                    else "No flows matched the current filters."
                 ),
                 evidence={
                     "type": "computed",
@@ -124,7 +146,7 @@ def list_flows(
                     }
                 ],
                 action=(
-                    'flow_tool mode="get" -- inspect a specific flow path'
+                    'flow_tool mode="get" -- inspect a specific reachable set'
                     if flows
                     else 'flow_tool mode="list" -- broaden kind filter or increase limit'
                 ),
@@ -156,11 +178,12 @@ def get_flow(
     include_source: bool = False,
     repo_root: str | None = None,
 ) -> dict[str, Any]:
-    """Get details of a single execution flow.
+    """Get details of a single reachable-set flow.
 
-    [EXPLORE] Retrieves full path details for a flow, including each step's
-    function name, file, and line numbers.  Optionally includes source
-    snippets for every step in the path.
+    [EXPLORE] Retrieves membership details for a flow, including each member's
+    function name, file, and line numbers in BFS visit order. That list is not
+    a call sequence. Optionally includes source snippets for every member.
+    Truncation is disclosed on the flow as ``truncated`` / ``truncation_reason``.
 
     Args:
         flow_id: Database ID of the flow (from list_flows).
@@ -207,6 +230,8 @@ def get_flow(
         missing_step_count = int(flow.get("missing_step_count") or 0)
         stored_node_count = int(flow.get("node_count") or resolved_step_count)
         is_stale_flow = missing_step_count > 0
+        is_truncated = bool(flow.get("truncated"))
+        truncation_reason = flow.get("truncation_reason")
 
         _source_max_chars = 2000
         # Optionally include source snippets for each step
@@ -233,16 +258,18 @@ def get_flow(
 
         if is_stale_flow:
             summary = (
-                f"Flow '{flow['name']}': {resolved_step_count}/{stored_node_count} steps "
+                f"Flow '{flow['name']}': {resolved_step_count}/{stored_node_count} members "
                 f"resolved ({missing_step_count} missing), depth {flow['depth']}, "
                 f"criticality {flow['criticality']:.4f}"
             )
         else:
             summary = (
-                f"Flow '{flow['name']}': {stored_node_count} nodes, "
+                f"Flow '{flow['name']}' (reachable_set): {stored_node_count} members, "
                 f"depth {flow['depth']}, "
                 f"criticality {flow['criticality']:.4f}"
             )
+        if is_truncated:
+            summary += f" [truncated:{truncation_reason or 'unspecified'}]"
 
         stale_missingness = (
             [
@@ -250,16 +277,31 @@ def get_flow(
                     "reason_code": "stale_flow",
                     "severity": "medium",
                     "claim_effect": (
-                        f"{missing_step_count} stored step(s) no longer resolve to live graph nodes"
+                        f"{missing_step_count} stored member(s) no longer resolve to live graph nodes"
                     ),
                 }
             ]
             if is_stale_flow
             else []
         )
+        truncated_missingness = (
+            [
+                {
+                    "reason_code": "truncated_flow",
+                    "severity": "medium",
+                    "claim_effect": (
+                        "reachable set was capped"
+                        + (f" ({truncation_reason})" if truncation_reason else "")
+                        + "; omitted callees are not absent from the program"
+                    ),
+                }
+            ]
+            if is_truncated
+            else []
+        )
 
         result: dict[str, Any] = {
-            "status": "degraded" if is_stale_flow else "ok",
+            "status": "degraded" if (is_stale_flow or is_truncated) else "ok",
             "summary": summary,
             "flow": flow,
             "flow_coverage": {
@@ -268,13 +310,15 @@ def get_flow(
                 "stored_node_count": stored_node_count,
                 "resolved_step_count": resolved_step_count,
                 "missing_step_count": missing_step_count,
-                "truncated": bool(flow.get("truncated", False)),
+                "truncated": is_truncated,
+                "truncation_reason": truncation_reason,
                 "coverage_guarantee": False,
             },
             "answerability": answerability,
             "missingness": [
                 *missingness_from_answerability(answerability),
                 *stale_missingness,
+                *truncated_missingness,
                 {
                     "reason_code": "source_inclusion_explicit",
                     "severity": "low",
@@ -316,10 +360,11 @@ def get_flow(
                 confidence="medium" if not is_stale_flow else "low",
                 missingness=[
                     *stale_missingness,
+                    *truncated_missingness,
                     {
                         "reason_code": "flow_path_is_stored_extraction",
                         "severity": "low",
-                        "claim_effect": "flow steps are graph-derived, not runtime-proven",
+                        "claim_effect": "flow members are a BFS reachable set, not a runtime call sequence",
                     },
                     *(
                         [
@@ -344,8 +389,9 @@ def get_flow(
                         'query_graph_tool pattern="docs_for" -- follow bridge docs when present'
                     )
                 ),
-                reason_codes=["stored_flow_extraction"]
+                reason_codes=["stored_flow_extraction", "reachable_set"]
                 + (["stale_flow"] if is_stale_flow else [])
+                + (["truncated_flow"] if is_truncated else [])
                 + (
                     ["cross_artifact_bridge_step"]
                     if int(flow.get("bridge_step_count") or 0)

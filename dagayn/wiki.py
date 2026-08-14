@@ -213,7 +213,7 @@ def _generate_community_page(
     """Build markdown content for a single community.
 
     Includes: heading, overview (size, cohesion, language), members table
-    (top 50), execution flows through the community, and dependencies.
+    (top 50), reachable-set flows through the community, and dependencies.
 
     Args:
         store: The graph store.
@@ -282,8 +282,13 @@ def _generate_community_page(
         lines.append("No members found.")
     lines.append("")
 
-    # Execution flows through community
+    # Reachable-set flows through community
     lines.append("## Execution Flows")
+    lines.append("")
+    lines.append(
+        "Each listed flow is the CALLS reachable set from an entry point "
+        "(BFS visit order), not a runtime call sequence."
+    )
     lines.append("")
     member_set = set(member_qns)
     try:
@@ -303,14 +308,21 @@ def _generate_community_page(
                 flow_name = _sanitize_name(flow.get("name", "unnamed"))
                 criticality = flow.get("criticality", 0.0)
                 depth = flow.get("depth", 0)
-                lines.append(f"- **{flow_name}** (criticality: {criticality:.2f}, depth: {depth})")
+                truncated_note = ""
+                if flow.get("truncated"):
+                    reason = flow.get("truncation_reason") or "unspecified"
+                    truncated_note = f", truncated:{reason}"
+                lines.append(
+                    f"- **{flow_name}** (criticality: {criticality:.2f}, "
+                    f"depth: {depth}{truncated_note})"
+                )
             if len(community_flows) > 10:
                 lines.append(f"- *... and {len(community_flows) - 10} more flows.*")
         else:
-            lines.append("No execution flows pass through this community.")
+            lines.append("No reachable-set flows pass through this community.")
     except sqlite3.OperationalError as exc:
         logger.debug("wiki: flows table unavailable: %s", exc)
-        lines.append("Execution flow data not available.")
+        lines.append("Reachable-set flow data not available.")
     lines.append("")
 
     # Dependencies (cross-community edges)
