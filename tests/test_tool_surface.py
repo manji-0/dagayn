@@ -30,16 +30,12 @@ class TestToolSurfaceFilter:
 
     def test_cli_suggestions_remain_callable(self):
         set_active_tool_surface({"refactor_tool"})
-        assert suggestion_is_callable(
-            "dagayn tool apply_refactor_tool --arg refactor_id='x'"
-        )
+        assert suggestion_is_callable("dagayn tool apply_refactor_tool --arg refactor_id='x'")
         assert suggestion_is_callable("Run: dagayn register /path")
 
     def test_filter_tool_names_and_suggestions(self):
         set_active_tool_surface({"review_tool", "flow_tool"})
-        assert filter_tool_names(["review_tool", "find_large_functions_tool"]) == [
-            "review_tool"
-        ]
+        assert filter_tool_names(["review_tool", "find_large_functions_tool"]) == ["review_tool"]
         assert filter_suggestions(
             [
                 "review_tool -- inspect changes",
