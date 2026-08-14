@@ -80,3 +80,39 @@ If you update features, command names, integrations, or supported languages, upd
 <!-- derived-from ~/.pi/agent/AGENTS.md -->
 
 Subagent delegation rules are maintained in the global `~/.pi/agent/AGENTS.md`. See that file for the current agent roster, models, use-when rules, and tool constraints.
+
+## Cursor Cloud specific instructions
+
+This repo ships two products: the primary `dagayn` CLI/MCP server (Python package
+with a PyO3 Rust core, `dagayn._core`) and the secondary `dagayn-vscode` editor
+extension (Node/pnpm). The Rust toolchain (1.92), Node 22, and pnpm are preinstalled;
+`uv` is installed to `~/.local/bin` (already on the default login-shell `PATH`).
+
+Standard lint/test/build/run commands are already documented — see `CONTRIBUTING.md`
+(verification commands + VS Code extension), `README.md`, and `docs/USAGE.md`. The
+notes below only capture the non-obvious, environment-specific gotchas.
+
+- Setup is `uv sync --extra dev` (the update script runs this). It builds the PyO3
+  extension and, as a side effect of `crates/dagayn-grammars/build.rs`, vendors the
+  pinned tree-sitter grammars into the gitignored `dagayn/_vendor_grammars/`. Because
+  of this, no separate `python -m dagayn.vendor_grammars` prefetch is needed after a
+  successful `uv sync`. The first build fetches grammars over the network.
+- Python is pinned to 3.14 via `.python-version`; `uv` downloads/manages it. Always
+  invoke Python tooling through `uv run ...` so the built `dagayn._core` extension and
+  the correct interpreter are used.
+- Running the full `pytest` suite: the environment's global git config enables SSH
+  commit signing (`commit.gpgsign=true` via a Cursor helper). Under full-suite load the
+  git-backed tests (`tests/test_worktree.py`, `tests/test_integration_git.py`) can hit
+  10s `git commit` timeouts. Run the suite with signing disabled per-invocation (no
+  config files touched):
+  `GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=commit.gpgsign GIT_CONFIG_VALUE_0=false uv run pytest --tb=short -q`.
+  Tests pass individually without this; it only matters for the concurrent full run.
+- Rust workspace checks (`cargo test --workspace`, `cargo clippy --workspace -- -D warnings`):
+  the pure-Rust crates build as-is, but the `dagayn-py` pyo3 crate fails to link
+  (`unable to find library -lpython3.12`) unless pointed at a Python with a shared
+  `libpython`. Export `PYO3_PYTHON="$(uv run python -c 'import sys; print(sys.executable)')"`
+  first (uv's CPython 3.14 ships `libpython3.14.so`). Not needed for the Python-side
+  `uv sync`/pytest flow, which uses maturin.
+- `dagayn-vscode` `pnpm test` runs plain mocha via ts-node (`.mocharc.json`), not the
+  Electron/`@vscode/test-electron` runner, so it needs no display. Install its deps with
+  `pnpm -C dagayn-vscode install --frozen-lockfile` (not part of the update script).
