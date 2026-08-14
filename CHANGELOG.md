@@ -4,6 +4,8 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+## 4.8.3 — 2026-08-14
+
 ### Fixes
 
 - Local embedding probes refuse a server whose `/v1/models` catalog (or
