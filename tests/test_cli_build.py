@@ -139,7 +139,7 @@ def test_update_parser_accepts_local_embedding_options():
     assert args.command == "update"
     assert args.local_embedding == "low"
     assert args.local_embedding_mode is None
-    assert args.local_embedding_port == 18080
+    assert args.local_embedding_port is None
     assert args.local_embedding_bin == "auto"
     assert args.keep_local_embedding_server is False
     assert args.local_embedding_timeout == 300
@@ -296,7 +296,7 @@ def test_handle_runs_full_build_without_postprocess(tmp_path, monkeypatch, capsy
             "postprocess": "none",
             "local_embedding": "none",
             "local_embedding_mode": None,
-            "local_embedding_port": 18080,
+            "local_embedding_port": None,
             "local_embedding_bin": "auto",
             "keep_local_embedding_server": False,
             "local_embedding_timeout": 300,

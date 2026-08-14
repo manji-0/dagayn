@@ -139,7 +139,7 @@ def session_prepare(
     force: bool = False,
     local_embedding: str | None = "none",
     local_embedding_mode: str | None = None,
-    local_embedding_port: int = 18080,
+    local_embedding_port: int | None = None,
     local_embedding_bin: str = "auto",
     keep_local_embedding_server: bool = False,
     local_embedding_timeout: int = 300,

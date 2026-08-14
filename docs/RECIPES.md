@@ -152,7 +152,7 @@ llama.cpp` or build from source). See
 | --- | --- | --- |
 | `Could not find 'llama-server'` | Sidecar binary missing | Install llama.cpp, or pass `--local-embedding-bin /path/to/llama-server` |
 | `unknown value for --flash-attn: '--cache-type-k'` | llama.cpp too old for `--flash-attn on\|off\|auto` | Upgrade llama.cpp, or start the server manually with a supported `--flash-attn` flag |
-| Port / incompatible endpoint on `127.0.0.1:18080` | Wrong process, or server not OpenAI `/v1/embeddings` | Stop the other listener, change `--local-embedding-port`, or fix the endpoint |
+| Port / incompatible endpoint on `127.0.0.1:18080` / `18081` | Wrong process, wrong preset on a shared port, or server not OpenAI `/v1/embeddings` | Stop the other listener, use the preset default port, pass `--local-embedding-port`, or fix the endpoint |
 | Sidecar start timeout | First-run GGUF download or slow host | Raise `--local-embedding-timeout` (default 300), or start `llama-server` manually and watch progress |
 | Session prepare skips / defers embeddings | `--budget-seconds` exhausted (`skipped_budget` / `pending`) | Raise budget, use `--embedding inline`, or let MCP `ensure_graph_tool` finish Phase 2 later |
 | `cross_repo_search` returns nothing for a repo | Repo not registered, or missing `.dagayn/graph.db` | `dagayn register …`, then `dagayn build --repo …` |

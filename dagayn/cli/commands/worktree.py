@@ -213,7 +213,7 @@ def _handle_sync(args: argparse.Namespace) -> None:
         postprocess="minimal",
         local_embedding=getattr(args, "local_embedding", "none"),
         local_embedding_mode=getattr(args, "local_embedding_mode", None),
-        local_embedding_port=getattr(args, "local_embedding_port", 18080),
+        local_embedding_port=getattr(args, "local_embedding_port", None),
         local_embedding_bin=getattr(args, "local_embedding_bin", DEFAULT_LOCAL_EMBEDDING_BIN),
         keep_local_embedding_server=getattr(args, "keep_local_embedding_server", False),
         local_embedding_timeout=getattr(args, "local_embedding_timeout", 300),

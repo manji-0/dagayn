@@ -68,7 +68,12 @@ server startup timeout and each embedding request timeout are separate knobs:
 `--local-embedding-request-timeout` controls a single `/v1/embeddings` call.
 Managed sidecar requests use `--local-embedding-batch-size 1` by default,
 regardless of any ambient `CRG_OPENAI_BATCH_SIZE`. `--local-embedding-bin auto`
-selects `llama-server`.
+selects `llama-server`. Default sidecar ports are 18080 for BGE-M3 and 18081
+for Qwen (`low` / `--mode llama-qwen3`); a server whose `/v1/models` catalog
+does not name the requested alias is refused even when the vector length
+matches. After a model switch, search keeps ranking in the new partition
+(reporting `partial_coverage` / `degraded` until the corpus is fully
+re-embedded) and a completed `embed_all_nodes` run deletes retired partitions.
 
 ### Analysis and review
 

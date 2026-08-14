@@ -128,7 +128,7 @@ def _run_local_embedding(
     *,
     local_embedding: str,
     local_embedding_mode: str | None = None,
-    local_embedding_port: int,
+    local_embedding_port: int | None,
     local_embedding_bin: str,
     keep_local_embedding_server: bool,
     local_embedding_timeout: int,
@@ -137,14 +137,15 @@ def _run_local_embedding(
 ) -> dict[str, Any]:
     """Run graph embedding through the selected local embedding mode."""
     mode = _resolve_local_embedding_mode(local_embedding, local_embedding_mode)
-    from dagayn.local_embeddings import local_embedding_server
+    from dagayn.local_embeddings import local_embedding_server, resolve_local_embedding_port
     from dagayn.tools.docs import embed_graph
 
     preset_level = _LOCAL_EMBEDDING_BGE if mode == _LOCAL_EMBEDDING_BGE else "low"
+    port = resolve_local_embedding_port(local_embedding_port, preset_level)
 
     with local_embedding_server(
         preset_level,
-        port=local_embedding_port,
+        port=port,
         binary=local_embedding_bin,
         keep_running=keep_local_embedding_server,
         startup_timeout=local_embedding_timeout,
@@ -744,7 +745,7 @@ def build_or_update_graph(
     recurse_submodules: bool | None = None,
     local_embedding: str | None = None,
     local_embedding_mode: str | None = None,
-    local_embedding_port: int = 18080,
+    local_embedding_port: int | None = None,
     local_embedding_bin: str = "auto",
     keep_local_embedding_server: bool = False,
     local_embedding_timeout: int = 300,
@@ -776,7 +777,8 @@ def build_or_update_graph(
             ``"bge-m3"`` or ``"llama-qwen3"``.
             ``None`` / ``"none"`` skips embeddings.
         local_embedding_port: localhost port for the OpenAI-compatible local
-            embedding endpoint.
+            embedding endpoint. ``None`` selects the preset default (18080 for
+            bge-m3, 18081 for low).
         local_embedding_bin: executable name/path, or ``"auto"`` for the
             preset default.
         keep_local_embedding_server: Leave a dagayn-started server running

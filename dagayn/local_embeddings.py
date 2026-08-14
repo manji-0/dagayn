@@ -30,6 +30,10 @@ LocalEmbeddingRuntime = Literal["llama"]
 EmbeddingTextMode = Literal["metadata", "body", "material"]
 
 DEFAULT_LOCAL_EMBEDDING_PORT = 18080
+DEFAULT_LOCAL_EMBEDDING_PORTS: dict[LocalEmbeddingLevel, int] = {
+    "bge-m3": 18080,
+    "low": 18081,
+}
 DEFAULT_LOCAL_EMBEDDING_BIN = "auto"
 DEFAULT_LOCAL_EMBEDDING_TIMEOUT = 300
 _DEFAULT_LOCAL_EMBEDDING_BINARIES: dict[LocalEmbeddingRuntime, str] = {
@@ -47,6 +51,7 @@ class LocalEmbeddingPreset:
     quant: str | None
     model: str
     dimension: int
+    default_port: int = DEFAULT_LOCAL_EMBEDDING_PORT
     text_mode: EmbeddingTextMode = "metadata"
     batch: int | None = None
     ubatch: int | None = None
@@ -108,6 +113,7 @@ LOCAL_EMBEDDING_PRESETS: dict[
             quant="Q8_0",
             model="bge-m3-gguf-q8_0",
             dimension=1024,
+            default_port=DEFAULT_LOCAL_EMBEDDING_PORTS["bge-m3"],
             text_mode="material",
             batch=8192,
             ubatch=8192,
@@ -125,6 +131,7 @@ LOCAL_EMBEDDING_PRESETS: dict[
             quant="Q8_0",
             model="qwen3-embedding-0.6b-gguf-q8_0",
             dimension=1024,
+            default_port=DEFAULT_LOCAL_EMBEDDING_PORTS["low"],
             text_mode="material",
             batch=8192,
             ubatch=8192,
@@ -176,6 +183,23 @@ def local_embedding_base_url(port: int) -> str:
     return f"http://127.0.0.1:{port}/v1"
 
 
+def resolve_local_embedding_port(port: int | None, level: str | None = None) -> int:
+    """Return *port*, or the preset default when the caller did not set one.
+
+    Presets share neither a process nor a default port: ``bge-m3`` listens on
+    18080 and ``low`` on 18081, so ``--keep-local-embedding-server`` cannot
+    hand a Qwen build the BGE-M3 weights still sitting on 18080.
+    """
+    if port is not None:
+        return port
+    if level and level.strip().lower() not in {"", "none"}:
+        try:
+            return get_local_embedding_preset(level).default_port
+        except ValueError:
+            pass
+    return DEFAULT_LOCAL_EMBEDDING_PORT
+
+
 def infer_local_embedding_provider(
     provider_name: str,
 ) -> PersistedLocalEmbeddingProvider | None:
@@ -219,39 +243,140 @@ def infer_local_embedding_provider(
     return None
 
 
-def _probe_embedding_server(
-    base_url: str,
-    model: str,
-    expected_dimension: int,
-    timeout: float = 2.0,
-) -> _ProbeResult:
-    """Probe an OpenAI-compatible embeddings endpoint."""
-    payload = json.dumps({"model": model, "input": ["dagayn local embedding probe"]}).encode(
-        "utf-8"
-    )
-    req = urllib.request.Request(
-        f"{base_url.rstrip('/')}/embeddings",
-        data=payload,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": "Bearer dagayn-local",
-        },
-    )
+def _model_id_matches(served: str, expected: str) -> bool:
+    """Return True when a served model id names the expected alias."""
+    served_n = served.strip().casefold()
+    expected_n = expected.strip().casefold()
+    if not served_n or not expected_n:
+        return False
+    if served_n == expected_n:
+        return True
+    served_name = Path(served_n).name
+    if served_name == expected_n or Path(served_name).stem == expected_n:
+        return True
+    return served_n.endswith("/" + expected_n)
+
+
+def _extract_model_ids(body: object) -> list[str]:
+    """Collect ``id`` values from an OpenAI ``/v1/models`` payload.
+
+    Embedding-shaped ``data`` rows (vectors, no ``id``) are ignored so a probe
+    mock or a confused reverse-proxy cannot be mistaken for a model catalog.
+    """
+    if not isinstance(body, dict):
+        return []
+    data = body.get("data")
+    if not isinstance(data, list):
+        return []
+    ids: list[str] = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        model_id = item.get("id")
+        if isinstance(model_id, str) and model_id.strip() and "embedding" not in item:
+            ids.append(model_id.strip())
+    return ids
+
+
+def _probe_http_json(
+    url: str,
+    *,
+    data: bytes | None = None,
+    timeout: float,
+) -> tuple[_ProbeResult | None, object | None]:
+    """GET or POST JSON. On failure return ``(probe, None)``; else ``(None, body)``."""
+    headers = {"Authorization": "Bearer dagayn-local"}
+    if data is not None:
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=data, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310
-            body = json.loads(resp.read().decode("utf-8"))
+            return None, json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         try:
             detail = exc.read().decode("utf-8", errors="replace")
         except (OSError, UnicodeDecodeError):
             detail = str(exc)
         if exc.code == 429 or 500 <= exc.code < 600:
-            return _ProbeResult("not_ready", f"HTTP {exc.code}: {detail}")
-        return _ProbeResult("incompatible", f"HTTP {exc.code}: {detail}")
+            return _ProbeResult("not_ready", f"HTTP {exc.code}: {detail}"), None
+        return _ProbeResult("incompatible", f"HTTP {exc.code}: {detail}"), None
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        return _ProbeResult("unreachable", str(exc))
+        return _ProbeResult("unreachable", str(exc)), None
     except json.JSONDecodeError as exc:
-        return _ProbeResult("incompatible", f"invalid JSON response: {exc}")
+        return _ProbeResult("incompatible", f"invalid JSON response: {exc}"), None
+
+
+def _probe_served_model_identity(
+    base_url: str,
+    expected_model: str,
+    timeout: float,
+) -> tuple[_ProbeResult | None, bool]:
+    """Compare ``GET /v1/models`` against *expected_model*.
+
+    Returns ``(incompatible_probe, False)`` on a confirmed mismatch. Returns
+    ``(None, True)`` when the catalog names the expected model. Returns
+    ``(None, False)`` when identity cannot be verified (404, empty catalog,
+    unreachable) so the embeddings probe can still classify the endpoint.
+    """
+    error, body = _probe_http_json(f"{base_url.rstrip('/')}/models", timeout=timeout)
+    if error is not None:
+        if error.status in {"not_ready", "unreachable"}:
+            return None, False
+        if error.status == "incompatible" and "HTTP 404" in error.detail:
+            return None, False
+        return error, False
+    ids = _extract_model_ids(body)
+    if not ids:
+        return None, False
+    if any(_model_id_matches(model_id, expected_model) for model_id in ids):
+        return None, True
+    served = ", ".join(ids)
+    return (
+        _ProbeResult(
+            "incompatible",
+            f"server is running {served!r}, not the requested model {expected_model!r}",
+        ),
+        False,
+    )
+
+
+def _probe_embedding_server(
+    base_url: str,
+    model: str,
+    expected_dimension: int,
+    timeout: float = 2.0,
+) -> _ProbeResult:
+    """Probe an OpenAI-compatible embeddings endpoint.
+
+    Reachability and vector length are not enough: both local presets are
+    1024-dim, and llama-server may ignore the request ``model`` field and
+    embed with whatever weights are loaded. A catalog mismatch is a hard fail.
+    """
+    identity_error, catalog_confirmed = _probe_served_model_identity(base_url, model, timeout)
+    if identity_error is not None:
+        return identity_error
+
+    payload = json.dumps({"model": model, "input": ["dagayn local embedding probe"]}).encode(
+        "utf-8"
+    )
+    error, body = _probe_http_json(
+        f"{base_url.rstrip('/')}/embeddings",
+        data=payload,
+        timeout=timeout,
+    )
+    if error is not None:
+        return error
+    if body is None:
+        return _ProbeResult("incompatible", "empty embeddings response")
+
+    if not catalog_confirmed:
+        echoed = body.get("model") if isinstance(body, dict) else None
+        if isinstance(echoed, str) and echoed.strip() and not _model_id_matches(echoed, model):
+            return _ProbeResult(
+                "incompatible",
+                f"embeddings response model {echoed.strip()!r} did not match "
+                f"requested model {model!r}",
+            )
 
     data = body.get("data") if isinstance(body, dict) else None
     if isinstance(data, list) and data:
@@ -409,7 +534,7 @@ def local_embedding_server(
     level: str,
     *,
     runtime: str | None = None,
-    port: int = DEFAULT_LOCAL_EMBEDDING_PORT,
+    port: int | None = None,
     binary: str = DEFAULT_LOCAL_EMBEDDING_BIN,
     keep_running: bool = False,
     startup_timeout: int = DEFAULT_LOCAL_EMBEDDING_TIMEOUT,
@@ -419,9 +544,11 @@ def local_embedding_server(
     If a compatible server is already listening on *port*, it is reused and
     never terminated by dagayn. Otherwise dagayn starts the selected local
     model server and, unless *keep_running* is true, stops it when the context
-    exits.
+    exits. When *port* is omitted, the preset's default port is used so two
+    kept-alive sidecars do not share 18080.
     """
     preset = get_local_embedding_preset(level, runtime=runtime)
+    port = resolve_local_embedding_port(port, preset.level)
     base_url = local_embedding_base_url(port)
     probe = _probe_embedding_server(base_url, preset.model, preset.dimension)
     if probe.ready:

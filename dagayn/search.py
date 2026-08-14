@@ -622,6 +622,8 @@ def _attach_embedding_coverage(health: dict[str, Any], store: Any) -> None:
     health["embedding_coverage"] = round(coverage, 4)
     if coverage < PARTIAL_EMBEDDING_COVERAGE_THRESHOLD:
         health["partial_coverage"] = True
+        if health.get("status") == "available":
+            health["status"] = "degraded"
 
 
 def _embedding_search_with_health(
@@ -809,7 +811,7 @@ def embedding_health_available(health: dict[str, Any] | None) -> bool:
     if not health:
         return True
     status = health.get("status")
-    return status in (None, "available", "not_requested")
+    return status in (None, "available", "degraded", "not_requested")
 
 
 def _empty_embedding_health() -> dict[str, Any]:

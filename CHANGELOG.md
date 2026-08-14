@@ -6,6 +6,12 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixes
 
+- Local embedding probes refuse a server whose `/v1/models` catalog (or
+  embeddings `model` field) does not match the requested preset, instead of
+  accepting any 1024-dim listener on the port. `bge-m3` defaults to port 18080
+  and `low` to 18081. After a model switch, search stays on the new partition
+  even when it has fewer rows (`degraded` / `partial_coverage`) and a completed
+  embed run deletes retired provider partitions. See: #76, #71
 - Stored flows are disclosed as CALLS reachable sets (`kind: reachable_set`),
   not ordered execution paths. `path` / `steps` / `members` are BFS visit
   order. Tracing caps at depth 15 and 512 members and records `truncated` /

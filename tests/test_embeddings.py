@@ -223,6 +223,36 @@ class TestEmbeddingStatus:
 
         assert resolved == "openai:big#text=material"
 
+    def test_resolve_active_provider_prefers_metadata_over_row_count(self):
+        counts = {"openai:old": 1000, "openai:new": 30}
+
+        resolved = resolve_active_embedding_provider(
+            counts,
+            preferred_provider="openai:new",
+        )
+
+        assert resolved == "openai:new"
+
+    def test_resolve_active_provider_keeps_preferred_with_zero_rows(self):
+        counts = {"openai:old": 1000}
+
+        resolved = resolve_active_embedding_provider(
+            counts,
+            preferred_provider="openai:new",
+        )
+
+        assert resolved == "openai:new"
+
+    def test_resolve_active_provider_matches_dim_suffix_preferred(self):
+        counts = {"openai:new#dim=1024": 30, "openai:old": 1000}
+
+        resolved = resolve_active_embedding_provider(
+            counts,
+            preferred_provider="openai:new",
+        )
+
+        assert resolved == "openai:new#dim=1024"
+
 
 class TestCosineSimilarity:
     def test_identical_vectors(self):
@@ -687,6 +717,47 @@ class TestEmbeddingStore:
             ).fetchall()
             assert [(row["qualified_name"], row["provider"]) for row in rows] == [
                 ("file.py::live", "fake"),
+            ]
+            store.close()
+
+    def test_remove_inactive_provider_partitions_keeps_active_identity(self, tmp_path):
+        db = tmp_path / "embeddings.db"
+
+        class FakeProvider:
+            name = "fake"
+            preferred_batch_size = 1
+
+            def embed(self, texts):
+                return [[1.0] for _ in texts]
+
+            def embed_query(self, text):
+                return [1.0]
+
+            @property
+            def dimension(self):
+                return 1
+
+        with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
+            store = EmbeddingStore(db)
+            store._conn.executemany(
+                """INSERT INTO embeddings (qualified_name, vector, text_hash, provider)
+                   VALUES (?, ?, ?, ?)""",
+                [
+                    ("file.py::live", _encode_vector([1.0]), "h1", "fake"),
+                    ("file.py::same", _encode_vector([1.5]), "h1b", "fake#dim=1"),
+                    ("file.py::retired", _encode_vector([2.0]), "h2", "other"),
+                ],
+            )
+            store._conn.commit()
+
+            assert store.remove_inactive_provider_partitions() == 1
+
+            rows = store._conn.execute(
+                "SELECT qualified_name, provider FROM embeddings ORDER BY qualified_name"
+            ).fetchall()
+            assert [(row["qualified_name"], row["provider"]) for row in rows] == [
+                ("file.py::live", "fake"),
+                ("file.py::same", "fake#dim=1"),
             ]
             store.close()
 

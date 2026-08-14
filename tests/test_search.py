@@ -47,6 +47,7 @@ def test_fts_tokenize_shim_reexports_graph_impl():
 
 def test_embedding_health_available_uses_status_field():
     assert embedding_health_available({"status": "available"}) is True
+    assert embedding_health_available({"status": "degraded"}) is True
     assert embedding_health_available({"status": "provider_unavailable"}) is False
     assert embedding_health_available({"status": "not_requested"}) is True
     assert embedding_health_available(None) is True
@@ -757,7 +758,8 @@ class TestHybridSearch:
 
         assert hs["mode"] == "hybrid"
         assert hs["rerank_intent"] == "purpose"
-        assert hs["embedding_health"]["status"] == "available"
+        assert embedding_health_available(hs["embedding_health"])
+        assert hs["embedding_health"]["status"] in {"available", "degraded"}
         assert hs["embedding_health"]["resolved_provider"] == provider_name
         assert hs["embedding_health"]["auto_resolved_provider"] == provider_name
         assert any(r["qualified_name"] == "auth.py::authenticate" for r in hs["results"])
@@ -802,7 +804,8 @@ class TestHybridSearch:
         # arm is legitimately empty and the semantic arm answers alone. What
         # this test is about is which provider got resolved.
         assert hs["mode"] in {"hybrid", "embedding_only"}
-        assert hs["embedding_health"]["status"] == "available"
+        assert embedding_health_available(hs["embedding_health"])
+        assert hs["embedding_health"]["status"] in {"available", "degraded"}
         assert hs["embedding_health"]["matching_vector_count"] == 3
         assert hs["embedding_health"]["resolved_provider"] == dominant
         assert hs["embedding_health"]["auto_resolved_provider"] == dominant
