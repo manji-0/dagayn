@@ -1087,7 +1087,7 @@ class TestEmbeddingStore:
         import dagayn.embeddings_store as emb_store
 
         if not emb._NUMPY_AVAILABLE:
-            pytest.skip(reason="numpy fast path is optional")
+            pytest.skip("numpy fast path is optional")
 
         db = tmp_path / "embeddings.db"
         vectors = [
@@ -1184,7 +1184,7 @@ class TestEmbeddingStore:
         import dagayn.embeddings_store as emb_store
 
         if not emb._NUMPY_AVAILABLE:
-            pytest.skip(reason="numpy fast path is optional")
+            pytest.skip("numpy fast path is optional")
 
         # Query [1,0]; cosine equals the first component for these rows.
         # Ranked: best, second, third, fourth(near-miss). limit=3 must keep third.
@@ -1231,7 +1231,7 @@ class TestEmbeddingStore:
         import dagayn.embeddings as emb
 
         if not emb._NUMPY_AVAILABLE:
-            pytest.skip(reason="numpy fast path is optional")
+            pytest.skip("numpy fast path is optional")
 
         db = tmp_path / "embeddings.db"
 
@@ -1288,7 +1288,7 @@ class TestEmbeddingStore:
         import dagayn.embeddings_store as emb_store
 
         if not emb._NUMPY_AVAILABLE:
-            pytest.skip(reason="numpy fast path is optional")
+            pytest.skip("numpy fast path is optional")
 
         rows = 4000
         dim = 96
@@ -2658,7 +2658,7 @@ class TestVectorDimensionIdentity:
             ]
             assert [qn for qn, _ in rust_hits] == [qn for qn, _ in python_hits]
         except (ImportError, AttributeError):
-            pytest.skip(reason="native embedding search extension unavailable")
+            pytest.skip("native embedding search extension unavailable")  # ty: ignore[too-many-positional-arguments]
         conn.close()
 
         assert python_hits == [("file.py::a", pytest.approx(1.0))]
