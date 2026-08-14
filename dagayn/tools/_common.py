@@ -249,17 +249,20 @@ _BUILTIN_CALL_NAMES: set[str] = {
 def _validate_repo_root(path: Path) -> Path:
     """Validate that a path is a plausible project root.
 
-    Ensures the path is an existing directory that contains a ``.git``
-    or ``.dagayn`` directory, preventing arbitrary file-system
-    traversal via the ``repo_root`` parameter.
+    Ensures the path is an existing directory that contains a ``.git`` /
+    ``.svn`` checkout or a ``.dagayn/graph.db`` graph, preventing arbitrary
+    file-system traversal via the ``repo_root`` parameter. An empty
+    ``.dagayn`` directory is not enough. See: #127
     """
+    from ..paths import is_project_root
+
     resolved = path.resolve()
     if not resolved.is_dir():
         raise ValueError(f"repo_root is not an existing directory: {resolved}")
-    if not (resolved / ".git").exists() and not (resolved / ".dagayn").exists():
+    if not is_project_root(resolved):
         raise ValueError(
             f"repo_root does not look like a project root (no .git or "
-            f".dagayn directory found): {resolved}"
+            f".dagayn/graph.db found): {resolved}"
         )
     return resolved
 

@@ -19,9 +19,13 @@ from .parser._base.types import EdgeInfo, NodeInfo
 
 # Re-exported: these used to live here, and ``dagayn.incremental`` publishes
 # them from this module.
+from .paths import data_dir_for as data_dir_for
+from .paths import db_path_for as db_path_for
 from .paths import get_data_dir as get_data_dir
 from .paths import get_db_path as get_db_path
+from .paths import is_project_root as is_project_root
 from .paths import repo_slug as repo_slug
+from .paths import same_repo_path as same_repo_path
 
 logger = logging.getLogger(__name__)
 
