@@ -126,7 +126,8 @@ def list_flows(
         flow_guidance = [
             make_guidance_item(
                 claim=(
-                    f"Returned {len(flows)} ranked reachable-set flow(s) from stored flow extraction."
+                    f"Returned {len(flows)} ranked reachable-set flow(s) "
+                    "from stored flow extraction."
                     if flows
                     else "No flows matched the current filters."
                 ),
@@ -277,7 +278,8 @@ def get_flow(
                     "reason_code": "stale_flow",
                     "severity": "medium",
                     "claim_effect": (
-                        f"{missing_step_count} stored member(s) no longer resolve to live graph nodes"
+                        f"{missing_step_count} stored member(s) no longer "
+                        "resolve to live graph nodes"
                     ),
                 }
             ]
@@ -364,7 +366,9 @@ def get_flow(
                     {
                         "reason_code": "flow_path_is_stored_extraction",
                         "severity": "low",
-                        "claim_effect": "flow members are a BFS reachable set, not a runtime call sequence",
+                        "claim_effect": (
+                            "flow members are a BFS reachable set, not a runtime call sequence"
+                        ),
                     },
                     *(
                         [

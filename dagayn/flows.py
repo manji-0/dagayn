@@ -1074,21 +1074,21 @@ def _hydrate_flow_rows(
         bridge_step_count = sum(1 for step in steps if step.get("is_bridge_step"))
 
         payload = {
-                "id": row["id"],
-                "name": _sanitize_name(row["name"]),
-                "entry_point_id": row["entry_point_id"],
-                "depth": row["depth"],
-                "node_count": row["node_count"],
-                "file_count": row["file_count"],
-                "criticality": row["criticality"],
-                "path": path_ids,
-                "steps": steps,
-                "resolved_step_count": resolved_step_count,
-                "missing_step_count": missing_step_count,
-                "bridge_step_count": bridge_step_count,
-                "created_at": row["created_at"],
-                "updated_at": row["updated_at"],
-            }
+            "id": row["id"],
+            "name": _sanitize_name(row["name"]),
+            "entry_point_id": row["entry_point_id"],
+            "depth": row["depth"],
+            "node_count": row["node_count"],
+            "file_count": row["file_count"],
+            "criticality": row["criticality"],
+            "path": path_ids,
+            "steps": steps,
+            "resolved_step_count": resolved_step_count,
+            "missing_step_count": missing_step_count,
+            "bridge_step_count": bridge_step_count,
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
         payload.update(_flow_disclosure_fields(row, path_ids))
         out.append(payload)
     return out
