@@ -2206,6 +2206,7 @@ fn update_flow_criticalities_json_rewrites_scores() {
             file_count: 1,
             criticality: 0.25,
             path: vec![entry_id, callee_id],
+            ..Default::default()
         }])
         .unwrap();
     let flow_id: i64 = store
