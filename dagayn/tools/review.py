@@ -15,7 +15,9 @@ from ..changes import (  # noqa: F401
 from ..coverage import infer_tests_for_node
 from ..hints import generate_hints, get_session
 from ..incremental import get_changed_file_sources, get_staged_and_unstaged
+from ..state_types import seal_missingness_item
 from ._common import (
+    _error_response,
     _get_store,
     apply_output_budget,
     graph_answerability_summary,
@@ -113,6 +115,36 @@ def detect_changes_func(
         abs_files = [str(root / f) for f in changed_files]
 
         diff_result = parse_diff_result(str(root), base)
+        if diff_result.status == "base_unresolved":
+            # The git diff failed; ``changed_files`` above is a worktree-wide
+            # listing and every node-level count collapses to 0, which reads as
+            # "no code changed". Only ``diff_parse_status`` disclosed it, so the
+            # summary, status and missingness all looked clean.
+            return _error_response(
+                (
+                    f"Could not resolve the diff base {base!r} in {root}. "
+                    "Pass a reachable ref (the default HEAD~1 does not exist in a "
+                    "single-commit repository, and a rebase or gc can make a "
+                    "recorded sha unreachable)."
+                ),
+                status="error",
+                base=base,
+                diff_parse_status=diff_result.status,
+                answerability=answerability,
+                missingness=[
+                    *missingness,
+                    seal_missingness_item(
+                        {
+                            "reason_code": "diff_base_unreachable",
+                            "severity": "high",
+                            "claim_effect": (
+                                "no diff could be computed, so nothing here describes what"
+                                " actually changed"
+                            ),
+                        }
+                    ),
+                ],
+            )
         abs_ranges: dict[str, list[tuple[int, int]]] = {}
         for rel_path, ranges in diff_result.ranges.items():
             abs_path = str(root / rel_path)
