@@ -43,7 +43,7 @@ Current Rust-owned GraphStore responsibilities include batch file storage, Rust-
 Optional post-processing layers add:
 
 - communities
-- execution flows
+- execution flows (CALLS reachable sets from entry points; `path` / `steps` are BFS visit order, not a call sequence; truncation is disclosed)
 - search indexes (FTS5 virtual table `nodes_fts`, always available after `build`)
 - embedding store (`.dagayn/embeddings.db`, populated by `embed_graph_tool` or `--local-embedding`)
 - persisted centrality tables (`hub_scores`, `bridge_scores`) used by architecture analysis after post-processing

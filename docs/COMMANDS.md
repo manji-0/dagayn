@@ -184,7 +184,8 @@ Jupyter / Databricks notebooks are supported as graph inputs rather than report
 output formats.
 
 `dagayn wiki` writes Markdown pages under `.dagayn/wiki/` from detected graph
-communities. Each community page includes members, execution flows,
+communities. Each community page includes members, reachable-set execution
+flows (BFS visit order from an entry point, not a runtime call sequence),
 cross-community dependencies, and code-scoped package-level ADP/SDP/SAP
 architecture metrics filtered to the scopes represented by that community.
 

@@ -1383,7 +1383,7 @@ def list_graph_stats(repo_root: str | None = None) -> dict[str, Any]:
             embeddings_count=emb_count,
             next_tool_suggestions=[
                 'architecture_analysis_tool mode="communities" -- inspect structure',
-                'flow_tool mode="list" -- inspect critical execution paths',
+                'flow_tool mode="list" -- inspect critical reachable-set flows',
                 "semantic_search_nodes_tool -- search for specific entities",
             ],
         )

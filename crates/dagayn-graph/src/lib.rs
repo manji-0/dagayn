@@ -9,7 +9,7 @@ use serde_json::value::RawValue;
 use serde_json::{json, Value};
 use thiserror::Error;
 
-const LATEST_VERSION: i64 = 15;
+const LATEST_VERSION: i64 = 16;
 const MAX_INSERT_PARAMS: usize = 30_000;
 const NODE_INSERT_PARAM_COUNT: usize = 16;
 const EDGE_INSERT_PARAM_COUNT: usize = 10;
@@ -328,7 +328,11 @@ pub struct GraphStats {
     pub last_updated: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+fn default_flow_kind() -> String {
+    "reachable_set".to_string()
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct FlowInput {
     pub name: String,
     pub entry_point_id: i64,
@@ -338,6 +342,12 @@ pub struct FlowInput {
     pub criticality: f64,
     #[serde(default)]
     pub path: Vec<i64>,
+    #[serde(default = "default_flow_kind")]
+    pub kind: String,
+    #[serde(default)]
+    pub truncated: bool,
+    #[serde(default)]
+    pub truncation_reason: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

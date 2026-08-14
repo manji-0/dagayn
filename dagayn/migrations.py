@@ -366,6 +366,19 @@ def _migrate_v15(conn: sqlite3.Connection) -> None:
         )
 
 
+def _migrate_v16(conn: sqlite3.Connection) -> None:
+    """v16: Record that a flow is a reachable set and whether tracing truncated."""
+    if not _table_exists(conn, "flows"):
+        return
+    if not _has_column(conn, "flows", "kind"):
+        conn.execute("ALTER TABLE flows ADD COLUMN kind TEXT NOT NULL DEFAULT 'reachable_set'")
+    if not _has_column(conn, "flows", "truncated"):
+        conn.execute("ALTER TABLE flows ADD COLUMN truncated INTEGER NOT NULL DEFAULT 0")
+    if not _has_column(conn, "flows", "truncation_reason"):
+        conn.execute("ALTER TABLE flows ADD COLUMN truncation_reason TEXT")
+    logger.info("Migration v16: added flow kind/truncation columns")
+
+
 # ---------------------------------------------------------------------------
 # Migration registry
 # ---------------------------------------------------------------------------
@@ -385,6 +398,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     13: _migrate_v13,
     14: _migrate_v14,
     15: _migrate_v15,
+    16: _migrate_v16,
 }
 
 LATEST_VERSION = max(MIGRATIONS.keys())

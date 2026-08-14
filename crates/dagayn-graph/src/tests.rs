@@ -21,6 +21,9 @@ fn creates_current_schema() {
     assert!(table_exists(&store.conn, "bridge_scores").unwrap());
     assert!(has_column(&store.conn, "edges", "confidence_tier").unwrap());
     assert!(has_column(&store.conn, "edges", "target_name").unwrap());
+    assert!(has_column(&store.conn, "flows", "kind").unwrap());
+    assert!(has_column(&store.conn, "flows", "truncated").unwrap());
+    assert!(has_column(&store.conn, "flows", "truncation_reason").unwrap());
     let _ = std::fs::remove_file(path);
 }
 
@@ -1781,6 +1784,7 @@ fn stores_flows_and_reads_flow_inputs() {
         file_count: 1,
         criticality: 0.25,
         path: vec![entry_id, callee_id],
+        ..Default::default()
     }];
     assert_eq!(store.store_flows(&flows).unwrap(), 1);
     assert_eq!(
@@ -2025,6 +2029,7 @@ fn analyze_changes_json_scores_range_limited_untested_security_changes() {
         file_count: 1,
         criticality: 0.25,
         path: vec![auth_id],
+        ..Default::default()
     }];
     assert_eq!(store.store_flows(&flows).unwrap(), 1);
 
@@ -2113,6 +2118,7 @@ fn store_flows_json_replaces_existing_flows_from_serialized_input() {
             file_count: 1,
             criticality: 0.1,
             path: vec![callee_id],
+            ..Default::default()
         }])
         .unwrap();
 
@@ -2124,6 +2130,7 @@ fn store_flows_json_replaces_existing_flows_from_serialized_input() {
         file_count: 1,
         criticality: 0.75,
         path: vec![entry_id, callee_id],
+        ..Default::default()
     }];
     assert_eq!(
         store
@@ -2199,6 +2206,7 @@ fn update_flow_criticalities_json_rewrites_scores() {
             file_count: 1,
             criticality: 0.25,
             path: vec![entry_id, callee_id],
+            ..Default::default()
         }])
         .unwrap();
     let flow_id: i64 = store
@@ -2278,6 +2286,7 @@ fn flow_helpers_store_and_read_flow_rows_with_sanitized_json() {
                 file_count: 1,
                 criticality: 0.4,
                 path: vec![entry_id, callee_id],
+                ..Default::default()
             }],
         )
         .unwrap();

@@ -220,6 +220,29 @@ impl GraphStore {
         Ok(())
     }
 
+    pub(crate) fn migrate_v16(&self) -> Result<()> {
+        if !table_exists(&self.conn, "flows")? {
+            return Ok(());
+        }
+        if !has_column(&self.conn, "flows", "kind")? {
+            self.conn.execute(
+                "ALTER TABLE flows ADD COLUMN kind TEXT NOT NULL DEFAULT 'reachable_set'",
+                [],
+            )?;
+        }
+        if !has_column(&self.conn, "flows", "truncated")? {
+            self.conn.execute(
+                "ALTER TABLE flows ADD COLUMN truncated INTEGER NOT NULL DEFAULT 0",
+                [],
+            )?;
+        }
+        if !has_column(&self.conn, "flows", "truncation_reason")? {
+            self.conn
+                .execute("ALTER TABLE flows ADD COLUMN truncation_reason TEXT", [])?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn ensure_edge_target_name_column(&self) -> Result<()> {
         if !has_column(&self.conn, "edges", "target_name")? {
             self.conn.execute(

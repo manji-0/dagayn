@@ -106,7 +106,7 @@ def debug_issue_prompt(description: str = "") -> list[dict]:
                 "3. For the top 1-2 results, call "
                 '`query_graph_tool(pattern="callers_of", target=<name>, '
                 'detail_level="minimal")`.\n'
-                "4. If the issue involves execution flow: call "
+                "4. If the issue involves a reachable set from an entry point: call "
                 '`flow_tool(mode="get", flow_name=<relevant flow>)` for the single most '
                 "relevant flow.\n"
                 '5. Only call `review_tool(mode="context")` or `review_tool(mode="impact")` '

@@ -176,7 +176,7 @@ _WORKFLOW: dict[str, list[dict[str, str]]] = {
         },
         {
             "tool": "review_tool",
-            "suggestion": 'Inspect affected execution paths with mode="affected_flows"',
+            "suggestion": 'Inspect affected reachable-set flows with mode="affected_flows"',
         },
         {
             "tool": "review_tool",

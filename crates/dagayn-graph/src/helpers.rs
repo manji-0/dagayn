@@ -367,14 +367,20 @@ pub(crate) fn delete_flows_for_entry_point_ids(
 pub(crate) fn store_flows_tx(tx: &Transaction<'_>, flows: &[FlowInput]) -> Result<()> {
     let mut insert_flow = tx.prepare(
         "INSERT INTO flows \
-         (name, entry_point_id, depth, node_count, file_count, criticality, path_json) \
-         VALUES (?, ?, ?, ?, ?, ?, ?)",
+         (name, entry_point_id, depth, node_count, file_count, criticality, path_json, \
+          kind, truncated, truncation_reason) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )?;
     let mut insert_membership = tx.prepare(
         "INSERT OR IGNORE INTO flow_memberships (flow_id, node_id, position) \
          VALUES (?, ?, ?)",
     )?;
     for flow in flows {
+        let kind = if flow.kind.is_empty() {
+            "reachable_set"
+        } else {
+            flow.kind.as_str()
+        };
         insert_flow.execute(params![
             flow.name,
             flow.entry_point_id,
@@ -383,6 +389,9 @@ pub(crate) fn store_flows_tx(tx: &Transaction<'_>, flows: &[FlowInput]) -> Resul
             flow.file_count,
             flow.criticality,
             serde_json::to_string(&flow.path)?,
+            kind,
+            if flow.truncated { 1 } else { 0 },
+            flow.truncation_reason.as_deref(),
         ])?;
         let flow_id = tx.last_insert_rowid();
         for (position, node_id) in flow.path.iter().enumerate() {
@@ -401,7 +410,11 @@ struct FlowJson<'a> {
     node_count: i64,
     file_count: i64,
     criticality: f64,
+    kind: String,
+    truncated: bool,
+    truncation_reason: Option<String>,
     path: &'a [i64],
+    members: &'a [i64],
     created_at: String,
     updated_at: String,
 }
@@ -468,6 +481,12 @@ pub(crate) fn flow_json_value_from_parts(
     name: &str,
     path: &[i64],
 ) -> rusqlite::Result<Value> {
+    let kind: String = row
+        .get::<_, Option<String>>("kind")?
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "reachable_set".to_string());
+    let truncated = row.get::<_, Option<i64>>("truncated")?.unwrap_or(0) != 0;
+    let truncation_reason: Option<String> = row.get("truncation_reason")?;
     Ok(json!(FlowJson {
         id: row.get::<_, i64>("id")?,
         name: sanitize_name(name),
@@ -476,7 +495,11 @@ pub(crate) fn flow_json_value_from_parts(
         node_count: row.get::<_, i64>("node_count")?,
         file_count: row.get::<_, i64>("file_count")?,
         criticality: row.get::<_, f64>("criticality")?,
+        kind,
+        truncated,
+        truncation_reason,
         path,
+        members: path,
         created_at: row.get::<_, String>("created_at")?,
         updated_at: row.get::<_, String>("updated_at")?,
     }))

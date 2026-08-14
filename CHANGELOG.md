@@ -6,6 +6,12 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixes
 
+- Stored flows are disclosed as CALLS reachable sets (`kind: reachable_set`),
+  not ordered execution paths. `path` / `steps` / `members` are BFS visit
+  order. Tracing caps at depth 15 and 512 members and records `truncated` /
+  `truncation_reason` (`max_depth` or `max_nodes`). Schema v16 adds those
+  columns. `flow_tool` marks truncated flows `degraded` and adds
+  `truncated_flow` missingness. See: #113
 - Full build, incremental update, and watch share git's indexable file set:
   tracked plus untracked, excluding gitignored. `.dagaynignore` remains an extra
   restriction. Untracked source is no longer dropped on the next `build`,

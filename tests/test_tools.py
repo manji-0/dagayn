@@ -1132,7 +1132,7 @@ class TestFlowTools:
     def test_list_flows_summary(self):
         result = list_flows(repo_root=str(self.root))
         assert "Found" in result["summary"]
-        assert "execution flow" in result["summary"]
+        assert "reachable-set flow" in result["summary"]
 
     def test_list_flows_sort_by_depth(self):
         result = list_flows(repo_root=str(self.root), sort_by="depth")
@@ -1292,9 +1292,11 @@ class TestFlowTools:
         flows_result = list_flows(repo_root=str(self.root))
         fid = flows_result["flows"][0]["id"]
         result = get_flow(flow_id=fid, repo_root=str(self.root))
-        assert "nodes" in result["summary"]
+        assert "members" in result["summary"]
         assert "depth" in result["summary"]
         assert "criticality" in result["summary"]
+        assert result["flow"]["kind"] == "reachable_set"
+        assert result["flow"]["truncated"] is False
 
     def test_get_flow_degrades_when_stored_steps_are_missing(self, monkeypatch):
         from dagayn.tools import flows_tools
@@ -1326,6 +1328,52 @@ class TestFlowTools:
         assert result["flow_coverage"]["missing_step_count"] == len(path_ids) - 1
         assert any(item.get("reason_code") == "stale_flow" for item in result["missingness"])
         assert "missing" in result["summary"]
+
+    def test_get_flow_degrades_when_truncated(self, monkeypatch):
+        from dagayn.tools import flows_tools
+
+        flow_id = list_flows(repo_root=str(self.root))["flows"][0]["id"]
+        self.store._conn.execute(
+            "UPDATE flows SET truncated = 1, truncation_reason = 'max_nodes' WHERE id = ?",
+            (flow_id,),
+        )
+        self.store.commit()
+
+        monkeypatch.setattr(flows_tools, "_get_store", lambda repo_root: (self.store, self.root))
+        self.store.close = lambda: None
+
+        result = flows_tools.get_flow(flow_id=flow_id, repo_root=str(self.root))
+
+        assert result["status"] == "degraded"
+        assert result["flow"]["kind"] == "reachable_set"
+        assert result["flow"]["truncated"] is True
+        assert result["flow"]["truncation_reason"] == "max_nodes"
+        assert result["flow_coverage"]["truncated"] is True
+        assert result["flow_coverage"]["truncation_reason"] == "max_nodes"
+        assert any(item.get("reason_code") == "truncated_flow" for item in result["missingness"])
+        assert "truncated:max_nodes" in result["summary"]
+
+    def test_list_flows_discloses_truncated(self, monkeypatch):
+        from dagayn.tools import flows_tools
+
+        flow_id = list_flows(repo_root=str(self.root))["flows"][0]["id"]
+        self.store._conn.execute(
+            "UPDATE flows SET truncated = 1, truncation_reason = 'max_depth' WHERE id = ?",
+            (flow_id,),
+        )
+        self.store.commit()
+
+        monkeypatch.setattr(flows_tools, "_get_store", lambda repo_root: (self.store, self.root))
+        self.store.close = lambda: None
+
+        result = flows_tools.list_flows(repo_root=str(self.root), detail_level="minimal")
+
+        assert result["status"] == "ok"
+        assert "truncated" in result["summary"]
+        assert result["flow_coverage"]["truncated_count"] >= 1
+        assert any(item.get("reason_code") == "truncated_flow" for item in result["missingness"])
+        assert result["flows"][0]["kind"] == "reachable_set"
+        assert result["flows"][0]["truncated"] is True
 
     def test_get_affected_flows_with_changed_file(self):
         result = get_affected_flows_func(changed_files=["auth.py"], repo_root=str(self.root))

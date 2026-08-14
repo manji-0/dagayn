@@ -206,7 +206,8 @@ high-confidence CROSS_ARTIFACT traceability; the default `strict_static` profile
 keeps design-principle metrics on static dependency edges.
 Architecture and flow outputs are calibrated leads: `architecture_health`
 reports formulas, thresholds, and stable-component policy; `flow_tool` reports
-whether source snippets were included and reminds clients that criticality is a
+a CALLS reachable set (not an ordered execution path), discloses truncation via
+`truncated` / `truncation_reason`, and reminds clients that criticality is a
 ranking signal, not a coverage guarantee.
 Tool responses also include `_runtime` metadata (`version`, `pid`, `python`,
 and `package_root`) so you can spot when a long-lived MCP server is still
