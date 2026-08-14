@@ -63,6 +63,17 @@ class TestFlows:
         self.store.upsert_edge(edge)
         self.store.commit()
 
+    def _add_tested_by(self, source_qn: str, test_qn: str, path: str) -> None:
+        edge = EdgeInfo(
+            kind="TESTED_BY",
+            source=source_qn,
+            target=test_qn,
+            file_path=path,
+            line=1,
+        )
+        self.store.upsert_edge(edge)
+        self.store.commit()
+
     # ---------------------------------------------------------------
     # detect_entry_points
     # ---------------------------------------------------------------
@@ -659,6 +670,39 @@ class TestFlows:
         # Original flows unchanged.
         assert len(get_flows(self.store)) == initial_count
 
+    def test_incremental_trace_flows_refreshes_criticality_when_tests_change(self):
+        """TESTED_BY edges from a new test file must lower stored criticality. See: #114."""
+        self._add_func("handler", path="routes.py")
+        self._add_func("service", path="services.py")
+        self._add_call("routes.py::handler", "services.py::service", "routes.py")
+
+        flows = trace_flows(self.store)
+        store_flows(self.store, flows)
+        before = [f for f in get_flows(self.store) if f["name"] == "handler"]
+        assert len(before) == 1
+        stale = before[0]["criticality"]
+
+        self._add_func("test_handler", path="test_routes.py", is_test=True)
+        self._add_func("test_service", path="test_routes.py", is_test=True)
+        self._add_tested_by("routes.py::handler", "test_routes.py::test_handler", "test_routes.py")
+        self._add_tested_by(
+            "services.py::service",
+            "test_routes.py::test_service",
+            "test_routes.py",
+        )
+
+        count = incremental_trace_flows(self.store, ["test_routes.py"])
+        assert count == 0
+
+        after = [f for f in get_flows(self.store) if f["name"] == "handler"]
+        assert len(after) == 1
+        assert after[0]["criticality"] < stale
+        fully_traced = [
+            f for f in trace_flows(self.store) if f["entry_point"] == "routes.py::handler"
+        ]
+        assert len(fully_traced) == 1
+        assert after[0]["criticality"] == fully_traced[0]["criticality"]
+
     def test_incremental_trace_flows_delete_is_atomic(self):
         """Regression test for #258: the DELETE loop in incremental_trace_flows
         must be wrapped in a transaction so a crash mid-loop cannot leave
@@ -779,6 +823,7 @@ class TestFlows:
         main_flows = [f for f in get_flows(self.store) if f["name"] == "main"]
         assert len(main_flows) == 1
         detail = get_flow_by_id(self.store, main_flows[0]["id"])
+        assert detail is not None
         assert "extra" in {step["name"] for step in detail["steps"]}
 
     def test_incremental_retrace_entry_file_no_duplicate_flows(self):

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from ..graph import GraphStore
-from ..paths import get_db_path
+from ..paths import db_path_for
 from ..search import hybrid_search
 from ..state_types import seal_missingness_item
 from ._common import handle_tool_runtime_error, make_response
@@ -102,9 +102,9 @@ def cross_repo_search_func(
             repo_path = Path(repo_entry["path"])
             alias = repo_entry.get("alias", repo_path.name)
             if not repo_path.is_dir():
-                skipped_repos.append({"repo": alias, "reason": "repository_path_missing"})
+                skipped_repos.append({"repo": alias, "reason": "stale_registry_entry"})
                 continue
-            db_path = get_db_path(repo_path)
+            db_path = db_path_for(repo_path)
             if not db_path.exists():
                 skipped_repos.append({"repo": alias, "reason": "no_graph"})
                 continue

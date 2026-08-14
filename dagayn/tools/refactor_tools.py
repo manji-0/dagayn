@@ -291,17 +291,20 @@ def refactor_func(
                 "status": "ok",
                 "summary": (
                     f"Rename preview: {request.old_name} -> {request.new_name}, "
-                    f"{len(preview['edits'])} edit(s). "
-                    f"Use apply_refactor_tool(refactor_id="
-                    f"'{preview['refactor_id']}') to apply."
+                    f"{len(preview['edits'])} edit(s). Apply with "
+                    f"`dagayn tool apply_refactor_tool` "
+                    f"(or `dagayn serve --tools all`) using refactor_id="
+                    f"'{preview['refactor_id']}'."
                 ),
                 **preview,
                 "answerability": answerability,
                 "missingness": [*missingness, *preview.get("missingness", [])],
                 "next_tool_suggestions": [
-                    f"apply_refactor_tool(refactor_id='{preview['refactor_id']}', dry_run=True)"
+                    "dagayn tool apply_refactor_tool --arg refactor_id="
+                    f"'{preview['refactor_id']}' --arg dry_run=true"
                     " -- preview unified diff before writing files",
-                    f"apply_refactor_tool(refactor_id='{preview['refactor_id']}')"
+                    "dagayn tool apply_refactor_tool --arg refactor_id="
+                    f"'{preview['refactor_id']}'"
                     " -- apply the rename",
                 ],
             }

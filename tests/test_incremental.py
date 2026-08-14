@@ -25,6 +25,7 @@ from dagayn.incremental import (
     get_staged_and_unstaged,
     get_vcs_indexable_files,
     incremental_update,
+    is_project_root,
     watch,
 )
 from dagayn.parser import EdgeInfo, NodeInfo
@@ -242,6 +243,77 @@ class TestGetDbPath:
         get_db_path(tmp_path)
         for suffix in ("-wal", "-shm", "-journal"):
             assert not (tmp_path / f".dagayn.db{suffix}").exists()
+
+    def test_db_path_for_does_not_create_directories(self, tmp_path, monkeypatch):
+        """Lookup must not resurrect a deleted or never-built repo. See: #90."""
+        monkeypatch.delenv("CRG_DATA_DIR", raising=False)
+        from dagayn.paths import db_path_for
+
+        gone = tmp_path / "deleted-repo"
+        gone.mkdir()
+        db_path = db_path_for(gone)
+        assert db_path == gone / ".dagayn" / "graph.db"
+        assert not (gone / ".dagayn").exists()
+
+
+class TestProjectRoot:
+    def test_empty_dagayn_is_not_a_project_root(self, tmp_path):
+        from dagayn.paths import is_project_root
+
+        (tmp_path / ".dagayn").mkdir()
+        assert not is_project_root(tmp_path)
+
+    def test_git_dir_is_a_project_root(self, tmp_path):
+        (tmp_path / ".git").mkdir()
+        assert is_project_root(tmp_path)
+
+    def test_graph_db_without_git_is_a_project_root(self, tmp_path):
+        dagayn = tmp_path / ".dagayn"
+        dagayn.mkdir()
+        (dagayn / "graph.db").write_text("graph")
+        assert is_project_root(tmp_path)
+
+    def test_validate_repo_root_rejects_empty_dagayn(self, tmp_path):
+        from dagayn.tools._common import _validate_repo_root
+
+        (tmp_path / ".dagayn").mkdir()
+        import pytest
+
+        with pytest.raises(ValueError, match="does not look like a project root"):
+            _validate_repo_root(tmp_path)
+
+
+class TestRepoSlug:
+    def test_case_variants_share_a_slug_on_case_insensitive_fs(self, tmp_path):
+        import os
+
+        import pytest
+
+        from dagayn.paths import repo_slug
+
+        repo = tmp_path / "MAIN"
+        repo.mkdir()
+        variant = tmp_path / "main"
+        if not os.path.isdir(variant):
+            pytest.skip("case-sensitive filesystem")  # ty: ignore[too-many-positional-arguments]
+        if not os.path.samefile(repo, variant):
+            pytest.skip("case-sensitive filesystem")  # ty: ignore[too-many-positional-arguments]
+        assert repo_slug(repo) == repo_slug(variant)
+
+    def test_get_data_dir_adopts_legacy_path_hash_slug(self, tmp_path, monkeypatch):
+        from dagayn.paths import _legacy_repo_slug, get_data_dir, repo_slug
+
+        external = tmp_path / "external"
+        repo = tmp_path / "project"
+        repo.mkdir()
+        monkeypatch.setenv("CRG_DATA_DIR", str(external))
+        legacy = external / _legacy_repo_slug(repo)
+        legacy.mkdir(parents=True)
+        (legacy / "graph.db").write_text("kept")
+        result = get_data_dir(repo)
+        assert result == external.resolve() / repo_slug(repo)
+        assert (result / "graph.db").read_text() == "kept"
+        assert not legacy.exists()
 
 
 class TestEnsureRepoGitignoreExcludesCrg:

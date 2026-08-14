@@ -48,7 +48,7 @@ pub fn embedding_search(
         .map(|value| value / query_norm)
         .collect::<Vec<_>>();
 
-    let vector_bytes = query_vec.len() * std::mem::size_of::<f32>();
+    let vector_bytes = std::mem::size_of_val(query_vec);
     let matrix = load_embedding_matrix_cached(db_path.as_ref(), provider, vector_bytes)?;
     if matrix.names.is_empty() || matrix.dim != query.len() {
         return Ok(Vec::new());
