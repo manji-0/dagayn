@@ -190,3 +190,17 @@ class TestGlobalSession:
         hints = generate_hints("architecture_analysis", result, session)
         assert any("High coupling" in w for w in hints["warnings"])
         assert any("Circular dependency" in w for w in hints["warnings"])
+
+    def test_next_steps_omit_tools_outside_active_surface(self):
+        """Hints must not recommend MCP tools the current allow-list removed. See: #107."""
+        from dagayn.tool_surface import set_active_tool_surface
+
+        session = SessionState()
+        set_active_tool_surface({"flow_tool", "review_tool"})
+        try:
+            hints = generate_hints("flow", {"status": "ok"}, session)
+        finally:
+            set_active_tool_surface(None)
+        suggested = {step["tool"] for step in hints["next_steps"]}
+        assert "architecture_analysis_tool" not in suggested
+        assert suggested <= {"flow_tool", "review_tool"}
