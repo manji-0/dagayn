@@ -1599,7 +1599,8 @@ advanced/maintenance tools.
    and read `architecture_health` first. Use the Architecture Analysis skill to
    choose drill-down modes only when the health summary identifies a concrete risk.
 5. For refactors, use `refactor_tool(mode=\"suggest\")` first, then preview
-   renames with `refactor_tool(mode=\"rename\")` and `apply_refactor_tool(dry_run=True)`.
+   renames with `refactor_tool(mode=\"rename\")`. Apply with
+   `dagayn tool apply_refactor_tool` (advanced MCP surface: `dagayn serve --tools all`).
 """
 
 

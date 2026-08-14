@@ -292,8 +292,8 @@ async def ensure_graph_tool(
 ) -> dict:
     """Ensure a usable+synced knowledge graph exists for analysis tools.
 
-    Prefer this over ``build_or_update_graph_tool`` on the default MCP surface.
-    Empty graphs get a full parse with ``postprocess="minimal"``. Graphs that
+    Prefer this for bootstrap on the default MCP surface. Full rebuilds use
+    ``dagayn build``. Empty graphs get a full parse with ``postprocess="minimal"``. Graphs that
     describe another commit, or that hold content the tree no longer has, are
     refreshed. A merely dirty worktree is *not* auto-refreshed (edit hooks index
     those); ``force=True`` always runs an incremental refresh. Local embedding mode inherits
@@ -436,12 +436,11 @@ def semantic_search_nodes_tool(
 ) -> dict:
     """Search for code entities by name, keyword, or semantic similarity.
 
-    Uses vector embeddings for semantic search when available (run embed_graph_tool
-    first, with an OpenAI-compatible endpoint such as dagayn's managed
-    ``--local-embedding`` llama-server sidecar, or with "openai" / "google" /
-    "minimax" provider credentials). Falls back
-    to FTS5 / keyword matching when no matching embeddings exist for the given
-    provider.
+    Uses vector embeddings for semantic search when available. Embeddings come
+    from ``dagayn serve --local-embedding``, ``dagayn build --local-embedding``,
+    or an OpenAI-compatible "openai" / "google" / "minimax" provider configured
+    on the server. Falls back to FTS5 / keyword matching when no matching
+    embeddings exist for the given provider.
 
     Args:
         query: Search string to match against node names.
@@ -711,8 +710,9 @@ def refactor_tool(
     refactoring suggestions.
 
     Modes:
-    - rename: Preview renaming a symbol. Returns an edit list and a refactor_id
-      to pass to apply_refactor_tool. Requires old_name and new_name.
+    - rename: Preview renaming a symbol. Returns an edit list and a refactor_id.
+      Apply with ``dagayn tool apply_refactor_tool`` (advanced MCP surface:
+      ``dagayn serve --tools all``). Requires old_name and new_name.
     - dead_code: Find unreferenced functions/classes (no callers, tests, or
       importers, and not entry points).
     - suggest: Get graph-backed refactoring suggestions, including remove,
@@ -1076,7 +1076,11 @@ def _apply_tool_filter(tools: str | None = None) -> None:
         dagayn serve --tools all
     """
 
+    from .tool_surface import set_active_tool_surface
+
     allowed = _resolve_tool_allow_list(tools=tools)
+    # ``None`` means the full registered surface is exposed.
+    set_active_tool_surface(allowed)
     if not allowed:
         return
     registered = _registered_tool_names()

@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .paths import get_db_path
+from .paths import db_path_for, is_project_root
 
 logger = logging.getLogger(__name__)
 
@@ -119,9 +119,9 @@ def load_config(path: Path | None = None) -> DaemonConfig:
             logger.warning("Skipping repo %s — directory does not exist", repo_path)
             continue
 
-        if not (repo_path / ".git").exists() and not (repo_path / ".dagayn").exists():
+        if not is_project_root(repo_path):
             logger.warning(
-                "Skipping repo %s — no .git or .dagayn directory found",
+                "Skipping repo %s — no .git or .dagayn/graph.db found",
                 repo_path,
             )
             continue
@@ -211,8 +211,8 @@ def add_repo_to_config(
     if not resolved.is_dir():
         raise ValueError(f"Not a directory: {resolved}")
 
-    if not (resolved / ".git").exists() and not (resolved / ".dagayn").exists():
-        raise ValueError(f"No .git or .dagayn directory in {resolved}")
+    if not is_project_root(resolved):
+        raise ValueError(f"No .git or .dagayn/graph.db in {resolved}")
 
     effective_alias = alias or resolved.name
 
@@ -584,7 +584,7 @@ class WatchDaemon:
 
         # Build initial graph for repos that lack a database
         for repo in self._config.repos:
-            db_path = get_db_path(Path(repo.path))
+            db_path = db_path_for(Path(repo.path))
             if not db_path.exists():
                 self._initial_build(repo)
 
@@ -655,7 +655,7 @@ class WatchDaemon:
             for alias in to_add | to_update:
                 repo = desired[alias]
                 registry.register(repo.path, alias=repo.alias)
-                db_path = get_db_path(Path(repo.path))
+                db_path = db_path_for(Path(repo.path))
                 if not db_path.exists():
                     repos_needing_build.append(repo)
 

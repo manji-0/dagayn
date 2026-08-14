@@ -183,6 +183,10 @@ class TestSeedWorktreeGraph:
         result = seed_worktree_graph(linked_worktree)
         assert result.status == "skipped"
         assert "no graph" in result.reason
+        assert not (linked_worktree / ".dagayn").exists()
+        main = main_worktree_root(linked_worktree)
+        assert main is not None
+        assert not (main / ".dagayn").exists()
 
     def test_env_var_disables_inheritance(self, main_repo, linked_worktree, monkeypatch):
         _write_graph_db(main_repo / ".dagayn" / "graph.db", head_sha="abc", repo_root=main_repo)

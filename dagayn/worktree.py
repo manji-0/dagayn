@@ -344,7 +344,7 @@ def seed_worktree_graph(repo_root: Path) -> SeedResult:
     re-computes every embedding. Inheriting the main graph turns that into a
     copy plus an incremental update over the branch diff.
 
-    Both paths come from :func:`~dagayn.paths.get_db_path`, so this works under
+    Both paths come from :func:`~dagayn.paths.db_path_for`, so this works under
     ``CRG_DATA_DIR`` too. That used to be skipped, because the variable was
     honored verbatim and the worktree therefore *shared* the main checkout's
     graph file; now each gets its own subdirectory and has to be seeded.
@@ -358,13 +358,13 @@ def seed_worktree_graph(repo_root: Path) -> SeedResult:
     if _same_path(main, repo_root):
         return SeedResult("skipped", "already in the main checkout")
 
-    from .paths import get_db_path
+    from .paths import db_path_for, get_db_path
 
-    dest = get_db_path(repo_root)
+    dest = db_path_for(repo_root)
     if graph_has_nodes(dest):
         return SeedResult("skipped", "worktree already has a graph", dest=dest)
 
-    source = get_db_path(main)
+    source = db_path_for(main)
     if not graph_has_nodes(source):
         # Existence is not having a graph: ``dagayn status``/``serve`` leave a
         # schema-only 0-node stub behind. Seeding one produced a worktree graph
@@ -378,6 +378,7 @@ def seed_worktree_graph(repo_root: Path) -> SeedResult:
 
     base_sha = read_graph_metadata(source, "git_head_sha")
     try:
+        dest = get_db_path(repo_root)
         dest.parent.mkdir(parents=True, exist_ok=True)
         _copy_graph_db(source, dest, repo_root)
     except (OSError, sqlite3.Error) as exc:

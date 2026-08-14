@@ -37,6 +37,8 @@ from .incremental_files import (
     _should_ignore,
     _svn_revision_info,
     collect_all_files,
+    data_dir_for,
+    db_path_for,
     detect_vcs,
     ensure_repo_gitignore_excludes_crg,
     find_project_root,
@@ -48,9 +50,12 @@ from .incremental_files import (
     get_data_dir,
     get_db_path,
     get_staged_and_unstaged,
+    get_vcs_indexable_files,
+    is_project_root,
     is_unresolved_path_placeholder,
     repo_slug,
     resolve_cli_repo_root,
+    same_repo_path,
 )
 
 _incremental_files.subprocess = subprocess
@@ -76,6 +81,8 @@ __all__ = [
     "_single_hop_dependents",
     "_svn_revision_info",
     "collect_all_files",
+    "data_dir_for",
+    "db_path_for",
     "detect_vcs",
     "ensure_repo_gitignore_excludes_crg",
     "find_dependents",
@@ -90,9 +97,12 @@ __all__ = [
     "get_data_dir",
     "get_db_path",
     "get_staged_and_unstaged",
+    "get_vcs_indexable_files",
     "incremental_update",
+    "is_project_root",
     "is_unresolved_path_placeholder",
     "repo_slug",
     "resolve_cli_repo_root",
+    "same_repo_path",
     "watch",
 ]

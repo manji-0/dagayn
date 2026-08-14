@@ -6,7 +6,7 @@ detail_level="minimal" first patterns with get_minimal_context_tool entry point.
 1. review_changes   - pre-commit review using review_tool
 2. architecture_map - architecture docs using communities, flows, Mermaid
 3. debug_issue      - guided debugging using search, flow tracing
-4. onboard_developer - new dev orientation using stats, architecture, flows
+4. onboard_developer - new dev orientation using architecture and flows
 5. pre_merge_check  - PR readiness with risk scoring, test gaps, dead code
 """
 
@@ -125,15 +125,14 @@ def onboard_developer_prompt() -> list[dict]:
                 f"{_TOKEN_EFFICIENCY_PREAMBLE}\n"
                 "## Onboarding Workflow\n"
                 '1. Call `get_minimal_context_tool(task="onboard developer")`.\n'
-                "2. Call `list_graph_stats_tool()` for technology overview.\n"
-                '3. Call `architecture_analysis_tool(mode="overview", '
+                '2. Call `architecture_analysis_tool(mode="overview", '
                 'detail_level="minimal")` for the 30-second mental model.\n'
-                '4. Call `architecture_analysis_tool(mode="communities", '
+                '3. Call `architecture_analysis_tool(mode="communities", '
                 'detail_level="minimal")` — '
                 "present as a table of module names + sizes.\n"
-                '5. Call `flow_tool(mode="list", detail_level="minimal")` — highlight '
+                '4. Call `flow_tool(mode="list", detail_level="minimal")` — highlight '
                 "the top 3 critical flows.\n"
-                "6. Only drill into a specific community or flow if the "
+                "5. Only drill into a specific community or flow if the "
                 "developer asks."
             ),
         }
@@ -163,7 +162,7 @@ def pre_merge_check_prompt(base: str = "HEAD~1") -> list[dict]:
                 "for up to 3 functions.\n"
                 '5. Call `refactor_tool(mode="dead_code", '
                 'detail_level="minimal")` to check for newly dead code.\n'
-                '6. Only call `find_large_functions_tool` or `review_tool(mode="impact")` '
+                '6. Only call `refactor_tool(mode="suggest")` or `review_tool(mode="impact")` '
                 "if risk > 0.7.\n"
                 "7. Output: GO/NO-GO recommendation with 1-sentence "
                 "justification + list of required follow-ups."

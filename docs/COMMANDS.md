@@ -17,7 +17,11 @@ scratch. It removes the existing `graph.db` plus SQLite sidecar files before
 running the normal full parse. `--force` is accepted as a shorter alias.
 `dagayn update` detects tracked diffs, staged changes, unstaged changes, and
 untracked files together, so new files do not need to be staged before an
-incremental graph refresh can parse them. Incremental results include
+incremental graph refresh can parse them. `dagayn build`, `dagayn update`, and
+`dagayn watch` share one file-scope authority: git's indexable set (tracked plus
+untracked, excluding gitignored). `.dagaynignore` is an extra restriction on
+that set, not a replacement for `.gitignore`. A file that becomes gitignored
+after it was indexed is removed on the next update or build. Incremental results include
 `change_file_sources` so base-ref diffs remain distinguishable from local
 worktree changes. Its diff base defaults to the commit the graph was built at
 (`git_head_sha`), falling back to `HEAD~1` for a graph that has none: a
@@ -356,10 +360,15 @@ integrations. Set `DAGAYN_WORKTREE_SEED=0` to disable graph inheritance.
 
 `CRG_DATA_DIR` keeps graph data outside the working tree. Each repository —
 and each worktree — gets its own subdirectory of it,
-`<CRG_DATA_DIR>/<name>-<path digest>`: the variable used to be honored
-verbatim, so every checkout that saw it shared a single `graph.db` and one
-project's nodes silently mixed into another's. Because each worktree now has
-its own graph, inheritance applies under `CRG_DATA_DIR` too. A pre-existing
+`<CRG_DATA_DIR>/<name>-<identity digest>`: the digest is the directory's
+inode identity (falling back to a case-folded path), so one checkout maps to
+one graph even when the path is spelled with different case on macOS/Windows.
+Looking up where a graph would live (`db_path_for`) creates nothing; a stale
+registry entry for a deleted or moved repo is reported as stale instead of
+resurrecting `<gone>/.dagayn`. The variable used to be honored verbatim, so
+every checkout that saw it shared a single `graph.db` and one project's nodes
+silently mixed into another's. Because each worktree now has its own graph,
+inheritance applies under `CRG_DATA_DIR` too. A pre-existing
 `<CRG_DATA_DIR>/graph.db` moves into the subdirectory when its `repo_root`
 metadata names that repository, so a single-repository setup keeps its graph;
 a graph belonging to another repository is left untouched.
@@ -441,6 +450,11 @@ Default tool names are:
 - `query_graph_tool`
 - `semantic_search_nodes_tool`
 - `get_docs_section_tool`
+
+`refactor_tool(mode="rename")` returns a `refactor_id` and an edit list. Apply
+the preview with `dagayn tool apply_refactor_tool` (or expose it on MCP via
+`dagayn serve --tools all`). Prompts, hints, and next-step suggestions on the
+default surface name only default-surface tools.
 
 `ensure_graph_tool` bootstraps an empty graph, or refreshes when HEAD/worktree
 has drifted (and always with `force=True`), using `postprocess="minimal"`.
