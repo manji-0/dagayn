@@ -4,6 +4,14 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Fixes
+
+- Full build, incremental update, and watch share git's indexable file set:
+  tracked plus untracked, excluding gitignored. `.dagaynignore` remains an extra
+  restriction. Untracked source is no longer dropped on the next `build`,
+  newly-ignored files are pruned on `update`, and watch no longer indexes
+  gitignored generated code.
+
 ## 4.8.2 — 2026-08-10
 
 ### Fixes

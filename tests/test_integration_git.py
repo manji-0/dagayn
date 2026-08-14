@@ -24,6 +24,7 @@ from dagayn.incremental import (
     get_all_tracked_files,
     get_changed_file_sources,
     get_changed_files,
+    get_vcs_indexable_files,
     incremental_update,
 )
 from dagayn.wiki import get_wiki_page
@@ -555,6 +556,75 @@ def test_case_only_rename_does_not_duplicate(git_repo: Path) -> None:
         indexed = _indexed_files(store)
         assert "Mod.py" in indexed
         assert "mod.py" not in indexed, f"case-only rename left a duplicate: {sorted(indexed)}"
+        store.close()
+    finally:
+        Path(db_path).unlink(missing_ok=True)
+
+
+def test_indexable_set_includes_untracked_and_excludes_gitignored(git_repo: Path) -> None:
+    """Working-tree source after gitignore is in scope; gitignored files are not."""
+    (git_repo / "scratch.py").write_text("def scratch():\n    return 1\n", encoding="utf-8")
+    (git_repo / "generated.py").write_text("def generated():\n    return 1\n", encoding="utf-8")
+    (git_repo / ".gitignore").write_text("generated.py\n", encoding="utf-8")
+
+    indexable = get_vcs_indexable_files(git_repo)
+    assert "hello.py" in indexable
+    assert "scratch.py" in indexable
+    assert "generated.py" not in indexable
+
+    parseable = collect_all_files(git_repo)
+    assert "hello.py" in parseable
+    assert "scratch.py" in parseable
+    assert "generated.py" not in parseable
+
+
+def test_dagaynignore_is_an_extra_restriction_on_indexable_files(git_repo: Path) -> None:
+    (git_repo / "scratch.py").write_text("def scratch():\n    return 1\n", encoding="utf-8")
+    (git_repo / ".dagaynignore").write_text("scratch.py\n", encoding="utf-8")
+
+    assert "scratch.py" in get_vcs_indexable_files(git_repo)
+    assert "scratch.py" not in collect_all_files(git_repo)
+
+
+def test_full_build_indexes_untracked_and_skips_gitignored(git_repo: Path) -> None:
+    (git_repo / "scratch.py").write_text("def scratch():\n    return 1\n", encoding="utf-8")
+    (git_repo / "generated.py").write_text("def generated():\n    return 1\n", encoding="utf-8")
+    (git_repo / ".gitignore").write_text("generated.py\n", encoding="utf-8")
+
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as handle:
+        db_path = handle.name
+    try:
+        store = GraphStore(db_path)
+        result = full_build(git_repo, store)
+        assert result["errors"] == []
+        indexed = _indexed_files(store)
+        assert "scratch.py" in indexed
+        assert "generated.py" not in indexed
+        store.close()
+    finally:
+        Path(db_path).unlink(missing_ok=True)
+
+
+def test_incremental_update_removes_newly_ignored_indexed_file(git_repo: Path) -> None:
+    (git_repo / "keep.py").write_text("def keep():\n    return 1\n", encoding="utf-8")
+    _git(git_repo, "add", "keep.py")
+    _git(git_repo, "commit", "-m", "add keep")
+
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as handle:
+        db_path = handle.name
+    try:
+        store = GraphStore(db_path)
+        full_build(git_repo, store)
+        assert "keep.py" in _indexed_files(store)
+
+        _git(git_repo, "rm", "--cached", "keep.py")
+        (git_repo / ".gitignore").write_text("keep.py\n", encoding="utf-8")
+        _git(git_repo, "add", ".gitignore")
+        _git(git_repo, "commit", "-m", "ignore keep.py")
+
+        incremental_update(git_repo, store, base="HEAD~1")
+        assert "keep.py" not in _indexed_files(store)
+        assert (git_repo / "keep.py").is_file()
         store.close()
     finally:
         Path(db_path).unlink(missing_ok=True)

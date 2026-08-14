@@ -17,7 +17,11 @@ scratch. It removes the existing `graph.db` plus SQLite sidecar files before
 running the normal full parse. `--force` is accepted as a shorter alias.
 `dagayn update` detects tracked diffs, staged changes, unstaged changes, and
 untracked files together, so new files do not need to be staged before an
-incremental graph refresh can parse them. Incremental results include
+incremental graph refresh can parse them. `dagayn build`, `dagayn update`, and
+`dagayn watch` share one file-scope authority: git's indexable set (tracked plus
+untracked, excluding gitignored). `.dagaynignore` is an extra restriction on
+that set, not a replacement for `.gitignore`. A file that becomes gitignored
+after it was indexed is removed on the next update or build. Incremental results include
 `change_file_sources` so base-ref diffs remain distinguishable from local
 worktree changes. Its diff base defaults to the commit the graph was built at
 (`git_head_sha`), falling back to `HEAD~1` for a graph that has none: a

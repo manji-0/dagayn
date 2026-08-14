@@ -30,6 +30,9 @@ from .incremental_files import (
 )
 from .parser import CodeParser
 from .parser.dispatch import detect_language as _detect_parser_language
+from .worktree import is_gitignored
+
+_IGNORE_SCOPE_NAMES = frozenset({".gitignore", ".dagaynignore"})
 
 
 def _changed_file_sources(repo_root: Path, base: str = "HEAD~1") -> dict[str, list[str]]:
@@ -295,6 +298,27 @@ def _indexed_only(store: GraphStore, rel_paths: list[str]) -> list[str]:
     except Exception:  # noqa: BLE001 — fall back to the unfiltered list
         return rel_paths
     return [rel_path for rel_path in rel_paths if rel_path in indexed]
+
+
+def _is_ignore_scope_file(rel_path: str) -> bool:
+    """Return True for gitignore / dagaynignore files that redefine graph scope."""
+    return Path(rel_path).name in _IGNORE_SCOPE_NAMES
+
+
+def _indexable_scope(
+    repo_root: Path,
+    store: GraphStore,
+    recurse_submodules: bool | None = None,
+) -> tuple[set[str], list[str]]:
+    """Return ``(parseable_indexable, graph_files_outside_that_set)``."""
+    indexable = set(collect_all_files(repo_root, recurse_submodules))
+    try:
+        graph_files = set(store.get_all_files() or [])
+    except Exception:  # noqa: BLE001 — never block an update on a listing failure
+        logger.debug("Could not list graph files for scope prune", exc_info=True)
+        return indexable, []
+    stale = [path for path in graph_files if path not in indexable]
+    return indexable, stale
 
 
 def _expand_changed_submodules(repo_root: Path, rel_paths: list[str]) -> list[str]:
@@ -1017,6 +1041,7 @@ def incremental_update(
             change_file_sources["content_drift"] = forced
 
     store_failures: list[str] = []
+    indexable, stale_scope = _indexable_scope(repo_root, store)
 
     def _record_head_when_verified() -> None:
         """Stamp ``git_head_sha`` = HEAD, but only if the diff really covered it.
@@ -1048,7 +1073,7 @@ def incremental_update(
         _store_vcs_metadata(repo_root, store)
         store.commit()
 
-    if not changed_files:
+    if not changed_files and not stale_scope:
         _record_head_when_verified()
         return {
             "files_updated": 0,
@@ -1078,12 +1103,18 @@ def incremental_update(
         set(changed_files),
         ignore_patterns,
     )
+    # Gitignored / .dagaynignore-excluded files are out of scope even when git
+    # status or watch still names them. Drop them from parse candidates and
+    # treat previously indexed ones as removals.
+    changed_candidates = [path for path in changed_candidates if path in indexable]
+    removed_files.extend(path for path in changed_files if path not in indexable)
     # Keep only removals the graph can act on. The candidate filter reports
     # "not indexable" as a removal so a file that *became* binary/symlinked
     # loses its stale nodes -- but a path that was never indexable (a committed
     # .txt) has nothing to remove, and counting it would inflate files_updated
     # and turn a genuine no-op into a reported update.
     removed_files = _indexed_only(store, removed_files)
+    removed_files = _dedupe_preserve_order([*removed_files, *stale_scope])
     rust_changed_candidates, python_changed_candidates = _split_rust_parser_files(
         changed_candidates,
         repo_root,
@@ -1134,14 +1165,17 @@ def incremental_update(
     # When there are no dependent files, the content-changed roots were already
     # filtered as parseable above, so avoid running candidate detection twice.
     if dependent_files:
-        candidates, removed_files = _filter_incremental_candidates(
+        candidates, extra_removed = _filter_incremental_candidates(
             repo_root,
             all_files,
             ignore_patterns,
         )
-        removed_files = _indexed_only(store, removed_files)
+        candidates = [path for path in candidates if path in indexable]
+        extra_removed.extend(path for path in all_files if path not in indexable)
+        extra_removed = _indexed_only(store, extra_removed)
+        removed_files = _dedupe_preserve_order([*removed_files, *extra_removed])
     else:
-        candidates = list(content_changed_files)
+        candidates = [path for path in content_changed_files if path in indexable]
 
     store.remove_files_data(removed_files)
 
@@ -1372,7 +1406,7 @@ def watch(
     parser = CodeParser()
     repo_root = repo_root.resolve()
     store.set_metadata("repo_root", str(repo_root))
-    ignore_patterns = _load_ignore_patterns(repo_root)
+    scope = {"ignore_patterns": _load_ignore_patterns(repo_root)}
 
     class GraphUpdateHandler(FileSystemEventHandler):
         def __init__(self):
@@ -1388,7 +1422,11 @@ def watch(
                 rel = str(Path(path).relative_to(repo_root))
             except ValueError:
                 return False
-            if _should_ignore(rel, ignore_patterns):
+            if _is_ignore_scope_file(rel):
+                return True
+            if is_gitignored(repo_root, rel):
+                return False
+            if _should_ignore(rel, scope["ignore_patterns"]):
                 return False
             if parser.detect_language(Path(path)) is None:
                 return False
@@ -1409,12 +1447,16 @@ def watch(
         def on_deleted(self, event):
             if event.is_directory:
                 return
-            # Only handle files we would normally track
             try:
                 rel = str(Path(event.src_path).relative_to(repo_root))
             except ValueError:
                 return
-            if _should_ignore(rel, ignore_patterns):
+            if _is_ignore_scope_file(rel):
+                self._schedule(event.src_path)
+                return
+            if is_gitignored(repo_root, rel):
+                return
+            if _should_ignore(rel, scope["ignore_patterns"]):
                 return
             try:
                 store.remove_file_data(rel)
@@ -1462,13 +1504,19 @@ def watch(
             rels: list[str] = []
             for abs_path in paths:
                 path = Path(abs_path)
-                if not path.is_file() or path.is_symlink() or _is_binary(path):
-                    continue
                 try:
-                    rels.append(str(path.relative_to(repo_root)))
+                    rel = str(path.relative_to(repo_root))
                 except ValueError:
                     continue
+                if _is_ignore_scope_file(rel):
+                    rels.append(rel)
+                    continue
+                if not path.is_file() or path.is_symlink() or _is_binary(path):
+                    continue
+                rels.append(rel)
             rels = sorted(set(rels))
+            if any(_is_ignore_scope_file(rel) for rel in rels):
+                scope["ignore_patterns"] = _load_ignore_patterns(repo_root)
             updated = 0
             if rels:
                 try:
