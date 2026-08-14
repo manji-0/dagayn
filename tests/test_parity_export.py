@@ -45,7 +45,7 @@ def test_export_matches_snapshot(name, parity_fixture_dbs):
             f"  uv run python tools/parity_export.py tests/fixtures/parity/{name} "
             f"--out tests/fixtures/parity/__snapshots__/{name}.json"
         )
-        pytest.skip(reason=msg)
+        pytest.skip(msg)  # ty: ignore[too-many-positional-arguments]
 
     actual = export_db(parity_fixture_dbs[name])
     expected = snapshot_path.read_text(encoding="utf-8")

@@ -232,7 +232,7 @@ class TestNativeStoreClosesConnection:
         try:
             from dagayn._core import GraphStore as NativeGraphStore
         except ImportError:  # pragma: no cover - wheel without the extension
-            pytest.skip(reason="native extension not built")
+            pytest.skip("native extension not built")  # ty: ignore[too-many-positional-arguments]
         return NativeGraphStore
 
     def test_close_releases_the_connection(self, tmp_path):
