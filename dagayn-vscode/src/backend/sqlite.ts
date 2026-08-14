@@ -240,7 +240,7 @@ export class SqliteReader {
         if (row) {
           const version = parseInt(row.value, 10);
           // Must match LATEST_VERSION in dagayn/migrations.py
-          const SUPPORTED_SCHEMA_VERSION = 14;
+          const SUPPORTED_SCHEMA_VERSION = 15;
           if (!Number.isNaN(version) && version > SUPPORTED_SCHEMA_VERSION) {
             return `Database was created with a newer version (schema v${version}). Update the extension.`;
           }

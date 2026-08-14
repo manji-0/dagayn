@@ -41,7 +41,7 @@ def test_get_affected_flows_absolute_path_matches_rust_backend(tmp_path):
     try:
         from dagayn._core import GraphStore as RustGraphStore
     except ImportError as exc:
-        pytest.skip(f"Rust extension is not available: {exc}")  # ty: ignore[too-many-positional-arguments]
+        pytest.skip(reason=f"Rust extension is not available: {exc}")
 
     from dagayn.flows import get_affected_flows, store_flows, trace_flows
     from dagayn.graph import GraphStore as PythonGraphStore
@@ -147,7 +147,7 @@ def test_rust_backend_matches_python_parity_snapshots(name, tmp_path_factory, mo
     try:
         from dagayn._core import GraphStore
     except ImportError as exc:
-        pytest.skip(f"Rust extension is not available: {exc}")  # ty: ignore[too-many-positional-arguments]
+        pytest.skip(reason=f"Rust extension is not available: {exc}")
 
     monkeypatch.setenv("DAGAYN_BACKEND", "rust")
     source = PARITY_FIXTURE_DIR / name
@@ -171,7 +171,7 @@ def test_rust_backend_populates_edge_target_name(tmp_path, monkeypatch):
     try:
         from dagayn._core import GraphStore as RustGraphStore
     except ImportError as exc:
-        pytest.skip(f"Rust extension is not available: {exc}")  # ty: ignore[too-many-positional-arguments]
+        pytest.skip(reason=f"Rust extension is not available: {exc}")
 
     monkeypatch.setenv("DAGAYN_BACKEND", "rust")
     repo = tmp_path / "repo"
@@ -220,7 +220,7 @@ def test_rust_backend_incremental_touch_updates_mtime_without_reparse(
     try:
         from dagayn._core import GraphStore
     except ImportError as exc:
-        pytest.skip(f"Rust extension is not available: {exc}")  # ty: ignore[too-many-positional-arguments]
+        pytest.skip(reason=f"Rust extension is not available: {exc}")
 
     monkeypatch.setenv("DAGAYN_BACKEND", "rust")
     source = PARITY_FIXTURE_DIR / "markdown_only"
@@ -250,7 +250,7 @@ def test_rust_graph_store_persists_centrality_scores(tmp_path):
     try:
         from dagayn._core import GraphStore as RustGraphStore
     except ImportError as exc:
-        pytest.skip(f"Rust extension is not available: {exc}")  # ty: ignore[too-many-positional-arguments]
+        pytest.skip(reason=f"Rust extension is not available: {exc}")
 
     from dagayn.analysis import persist_centrality_scores
 
@@ -281,7 +281,7 @@ def test_rust_graph_store_generates_suggested_questions(tmp_path):
     try:
         from dagayn._core import GraphStore as RustGraphStore
     except ImportError as exc:
-        pytest.skip(f"Rust extension is not available: {exc}")  # ty: ignore[too-many-positional-arguments]
+        pytest.skip(reason=f"Rust extension is not available: {exc}")
 
     from dagayn.analysis import generate_suggested_questions, persist_centrality_scores
 
@@ -315,7 +315,7 @@ def test_rust_backend_routes_databricks_py_exports(tmp_path, monkeypatch):
     try:
         from dagayn._core import GraphStore
     except ImportError as exc:
-        pytest.skip(f"Rust extension is not available: {exc}")  # ty: ignore[too-many-positional-arguments]
+        pytest.skip(reason=f"Rust extension is not available: {exc}")
 
     monkeypatch.setenv("DAGAYN_BACKEND", "rust")
     repo = tmp_path / "repo"
@@ -354,7 +354,7 @@ def test_rust_owned_parser_matches_python_parser(fixture):
     try:
         from dagayn._core import parse_rust_owned_files_compact_json
     except ImportError as exc:
-        pytest.skip(f"Rust extension is not available: {exc}")  # ty: ignore[too-many-positional-arguments]
+        pytest.skip(reason=f"Rust extension is not available: {exc}")
 
     rel_path = f"tests/fixtures/{fixture}"
     source = Path(rel_path).read_bytes()
@@ -391,7 +391,7 @@ def test_rust_owned_c_header_parser_matches_python_parser(tmp_path):
     try:
         from dagayn._core import parse_rust_owned_files_compact_json
     except ImportError as exc:
-        pytest.skip(f"Rust extension is not available: {exc}")  # ty: ignore[too-many-positional-arguments]
+        pytest.skip(reason=f"Rust extension is not available: {exc}")
 
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -444,7 +444,7 @@ def test_rust_owned_extensionless_shebang_parser_matches_python_parser(tmp_path,
     try:
         from dagayn._core import parse_rust_owned_files_compact_json
     except ImportError as exc:
-        pytest.skip(f"Rust extension is not available: {exc}")  # ty: ignore[too-many-positional-arguments]
+        pytest.skip(reason=f"Rust extension is not available: {exc}")
 
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -504,7 +504,7 @@ def test_rust_owned_svelte_parser_matches_python_parser(tmp_path):
     try:
         from dagayn._core import parse_rust_owned_files_compact_json
     except ImportError as exc:
-        pytest.skip(f"Rust extension is not available: {exc}")  # ty: ignore[too-many-positional-arguments]
+        pytest.skip(reason=f"Rust extension is not available: {exc}")
 
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -558,7 +558,7 @@ def test_rust_owned_astro_parser_matches_python_parser(tmp_path):
     try:
         from dagayn._core import parse_rust_owned_files_compact_json
     except ImportError as exc:
-        pytest.skip(f"Rust extension is not available: {exc}")  # ty: ignore[too-many-positional-arguments]
+        pytest.skip(reason=f"Rust extension is not available: {exc}")
 
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -603,7 +603,7 @@ def test_rust_owned_zig_parser_matches_python_parser(tmp_path):
     try:
         from dagayn._core import parse_rust_owned_files_compact_json
     except ImportError as exc:
-        pytest.skip(f"Rust extension is not available: {exc}")  # ty: ignore[too-many-positional-arguments]
+        pytest.skip(reason=f"Rust extension is not available: {exc}")
 
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -648,7 +648,7 @@ def test_rust_owned_powershell_parser_matches_python_parser(tmp_path):
     try:
         from dagayn._core import parse_rust_owned_files_compact_json
     except ImportError as exc:
-        pytest.skip(f"Rust extension is not available: {exc}")  # ty: ignore[too-many-positional-arguments]
+        pytest.skip(reason=f"Rust extension is not available: {exc}")
 
     repo = tmp_path / "repo"
     repo.mkdir()

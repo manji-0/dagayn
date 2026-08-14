@@ -96,7 +96,7 @@ impl GraphStore {
         )?;
         for (community_id, name, size, dominant_language) in community_rows {
             let mut members = nodes_by_comm.remove(&community_id).unwrap_or_default();
-            members.sort_by(|left, right| right.1.cmp(&left.1));
+            members.sort_by_key(|right| std::cmp::Reverse(right.1));
             let key_symbols = members
                 .into_iter()
                 .take(5)
