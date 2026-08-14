@@ -36,6 +36,10 @@ _emb_cache: dict[
 _emb_lock = threading.Lock()
 _emb_failure_cache: dict[str, tuple[float, str]] = {}
 _EMBEDDING_FAILURE_TTL_SECONDS = 30.0
+#: Below this fraction of embeddable nodes carrying a vector, semantic
+#: ranking covers so little of the graph that callers must be told rather
+#: than shown a confident "available".
+PARTIAL_EMBEDDING_COVERAGE_THRESHOLD = 0.9
 
 
 def _get_cached_emb_store(
@@ -595,6 +599,31 @@ def _largest_populated_text_mode_partition(
     return max(candidates, key=lambda item: item[1])
 
 
+def _attach_embedding_coverage(health: dict[str, Any], store: Any) -> None:
+    """Record how much of the graph is actually embedded.
+
+    ``matching_vector_count > 0`` was the only thing health distinguished, so a
+    5%-embedded corpus (an interrupted run commits per batch and then raises)
+    reported ``status: available`` and the 95% of unembedded nodes were
+    indistinguishable from "not semantically relevant".
+    """
+    try:
+        embeddable = int(
+            store._conn.execute("SELECT COUNT(*) FROM nodes WHERE kind != 'File'").fetchone()[0]
+        )
+    except Exception:  # noqa: BLE001 — disclosure must not break search
+        return
+    if embeddable <= 0:
+        return
+    indexed = int(health.get("matching_vector_count") or 0)
+    health["embeddable_node_count"] = embeddable
+    health["missing_embedding_count"] = max(0, embeddable - indexed)
+    coverage = min(1.0, indexed / embeddable) if embeddable else 0.0
+    health["embedding_coverage"] = round(coverage, 4)
+    if coverage < PARTIAL_EMBEDDING_COVERAGE_THRESHOLD:
+        health["partial_coverage"] = True
+
+
 def _embedding_search_with_health(
     store: GraphStore,
     query: str,
@@ -746,6 +775,7 @@ def _embedding_search_with_health(
             if node:
                 id_scores.append((node.id, score))
         health["status"] = "available"
+        _attach_embedding_coverage(health, store)
         _emb_failure_cache.pop(provider_key, None)
         return id_scores, health
     except ValueError as e:

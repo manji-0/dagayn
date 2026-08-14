@@ -128,15 +128,68 @@ pub fn filter_incremental_candidates(
             removed_files.push(candidate.clone());
             continue;
         }
+        // "Exists but is no longer indexable" is a removal, not a skip. These
+        // three `continue`s used to leave the file's previous nodes in the graph
+        // forever, so a consumer kept seeing content that no longer exists —
+        // while a full build (whose stale-file purge does drop them) disagreed.
         if full_path.is_symlink() {
+            removed_files.push(candidate.clone());
             continue;
         }
         if detect_language(&full_path).is_none() || is_binary(&full_path) {
+            removed_files.push(candidate.clone());
             continue;
+        }
+        // A case-only rename on a case-insensitive filesystem (APFS, NTFS)
+        // still answers `is_file()` under the *old* spelling, so without this
+        // the old path is re-parsed instead of removed and the graph ends up
+        // holding two node sets for one file.
+        if let Some(on_disk) = on_disk_spelling(repo_root, rel_path) {
+            if on_disk != rel_path {
+                removed_files.push(candidate.clone());
+                continue;
+            }
         }
         parseable_files.push(candidate.clone());
     }
     (parseable_files, removed_files)
+}
+
+/// Return the path as the filesystem actually spells it, when that differs.
+///
+/// Only the final component is checked: a case-only rename renames one entry,
+/// and reading every parent directory for every candidate would cost more than
+/// the case it guards against. Returns `None` when the spelling cannot be
+/// determined (unreadable parent, no matching entry), so callers fall back to
+/// treating the candidate as-is.
+fn on_disk_spelling(repo_root: &Path, rel_path: &str) -> Option<String> {
+    let (parent_rel, file_name) = match rel_path.rsplit_once('/') {
+        Some((parent, name)) => (parent, name),
+        None => ("", rel_path),
+    };
+    let parent_dir = if parent_rel.is_empty() {
+        repo_root.to_path_buf()
+    } else {
+        repo_root.join(parent_rel)
+    };
+    let mut matched: Option<String> = None;
+    for entry in std::fs::read_dir(parent_dir).ok()? {
+        let entry = entry.ok()?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name == file_name {
+            // Exact match: nothing to report.
+            return None;
+        }
+        if name.eq_ignore_ascii_case(file_name) {
+            matched = Some(name);
+        }
+    }
+    let actual = matched?;
+    if parent_rel.is_empty() {
+        Some(actual)
+    } else {
+        Some(format!("{parent_rel}/{actual}"))
+    }
 }
 
 pub fn collect_parseable_files(repo_root: &Path, recurse_submodules: Option<bool>) -> Vec<String> {

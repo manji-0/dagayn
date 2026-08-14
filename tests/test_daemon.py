@@ -266,20 +266,34 @@ class TestPIDManagement:
         clear_pid(pid_path)
         assert not pid_path.exists()
 
-    @patch("os.kill")
-    def test_is_daemon_running_alive(self, mock_kill, pid_path):
-        """os.kill(pid, 0) succeeds — daemon is running."""
-        write_pid(1234, pid_path)
-        mock_kill.return_value = None  # no exception = process exists
-        assert is_daemon_running(pid_path) is True
-        mock_kill.assert_called_once_with(1234, 0)
+    def test_is_daemon_running_alive(self, pid_path):
+        """A held lock on the PID file means a daemon owns it.
 
-    @patch("os.kill", side_effect=ProcessLookupError)
-    def test_is_daemon_running_dead(self, mock_kill, pid_path):
-        """ProcessLookupError clears stale PID and returns False."""
-        write_pid(9999, pid_path)
+        Liveness no longer infers from the PID's existence: ``os.kill(pid, 0)``
+        only says *some* process has that id, so after a crash a recycled id
+        read as a running daemon (``start`` refused, ``stop`` signalled a
+        stranger). ``write_pid`` holds a lock for the daemon's lifetime and that
+        lock is the answer.
+        """
+        write_pid(1234, pid_path)
+        try:
+            assert is_daemon_running(pid_path) is True
+        finally:
+            clear_pid(pid_path)
+
+    def test_is_daemon_running_unlocked_pidfile_is_stale(self, pid_path):
+        """An unlocked PID file is stale, whatever the pid inside says."""
+        pid_path.write_text("9999", encoding="utf-8")
         assert is_daemon_running(pid_path) is False
-        # Stale PID file should be cleaned up
+        assert not pid_path.exists(), "a stale PID file should be cleaned up"
+
+    @patch("dagayn.daemon._pidfile_lock_is_held", return_value=None)
+    @patch("os.kill", side_effect=ProcessLookupError)
+    def test_is_daemon_running_falls_back_to_signal(self, mock_kill, _mock_lock, pid_path):
+        """Without working file locks, fall back to the signal check."""
+        pid_path.write_text("9999", encoding="utf-8")
+        assert is_daemon_running(pid_path) is False
+        mock_kill.assert_called_once_with(9999, 0)
         assert not pid_path.exists()
 
 

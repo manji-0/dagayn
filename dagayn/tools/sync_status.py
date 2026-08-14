@@ -221,6 +221,31 @@ def commit_tier_freshness(store: Any, repo_root: str | Path) -> dict[str, Any]:
     }
 
 
+def _seed_needs_verification(store: Any) -> bool:
+    """True when this graph was seeded from another checkout and not yet checked."""
+    try:
+        from ..worktree import SEEDED_NEEDS_VERIFY_KEY
+
+        return str(store.get_metadata(SEEDED_NEEDS_VERIFY_KEY) or "") == "1"
+    except Exception:  # noqa: BLE001 — assessment must never raise
+        return False
+
+
+def _clear_seed_verification_flag(store: Any) -> None:
+    """Drop the seed marker once content has been verified."""
+    try:
+        from ..worktree import SEEDED_NEEDS_VERIFY_KEY
+
+        setter = getattr(store, "set_metadata", None)
+        if callable(setter):
+            setter(SEEDED_NEEDS_VERIFY_KEY, "0")
+            commit = getattr(store, "commit", None)
+            if callable(commit):
+                commit()
+    except Exception:  # noqa: BLE001 — best effort; a stale flag only costs a re-verify
+        logger.debug("Could not clear the seed verification flag", exc_info=True)
+
+
 def assess_graph_sync(
     store: Any,
     repo_root: str | Path,
@@ -253,6 +278,14 @@ def assess_graph_sync(
     commit_drift = bool(vcs == "git" and current_sha and stored_sha != current_sha)
     undated = bool(not last_updated and not graph_empty)
 
+    if _seed_needs_verification(store):
+        # A seeded worktree graph carries the parent's per-file mtimes, so a
+        # fresh checkout always exceeds the hash-candidate cap and verification
+        # would be skipped exactly where it matters most: the copy may hold
+        # nodes an edit hook indexed from the parent's uncommitted files, and the
+        # catch-up diff cannot see them. Pay for the one full verification.
+        max_hash_candidates = None
+
     extra: dict[str, Any] = {}
     state: GraphSyncStateName
     if graph_empty:
@@ -272,6 +305,9 @@ def assess_graph_sync(
         elif state == "worktree_ahead":
             extra["indexed_files"] = evidence
         extra.update(verification)
+        if verification.get("content_verified") is not False:
+            # Verified once; the stored mtimes now describe this worktree.
+            _clear_seed_verification_flag(store)
 
     return seal_graph_sync_state(
         {
