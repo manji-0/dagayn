@@ -15,6 +15,9 @@ All notable changes to `dagayn` are documented here.
   path) so one repository maps to one graph on case-insensitive filesystems.
   Existing `CRG_DATA_DIR` subdirectories from the old path-hash slug are
   adopted. See: #87
+- Incremental flow tracing recomputes stored criticality after each pass, so
+  adding TESTED_BY coverage (a test file that is not on the flow path) lowers
+  review ranking instead of leaving a stale score. See: #114
 
 ## 4.8.2 — 2026-08-10
 

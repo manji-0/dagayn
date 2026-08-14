@@ -77,6 +77,22 @@ impl GraphStore {
         Ok(flows.len() as i64)
     }
 
+    pub fn update_flow_criticalities_json(&mut self, updates_json: &str) -> Result<i64> {
+        let updates: Vec<(i64, f64)> = serde_json::from_str(updates_json)?;
+        if updates.is_empty() {
+            return Ok(0);
+        }
+        let tx = write_tx(&mut self.conn)?;
+        {
+            let mut stmt = tx.prepare("UPDATE flows SET criticality = ?1 WHERE id = ?2")?;
+            for (id, criticality) in &updates {
+                stmt.execute(rusqlite::params![criticality, id])?;
+            }
+        }
+        tx.commit()?;
+        Ok(updates.len() as i64)
+    }
+
     pub fn get_flows_json(&self, sort_by: &str, limit: i64) -> Result<String> {
         let sort_by = FlowSortBy::from_raw(sort_by);
         let sql = format!(
