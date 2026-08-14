@@ -293,9 +293,9 @@ class TestRepoSlug:
         repo.mkdir()
         variant = tmp_path / "main"
         if not os.path.isdir(variant):
-            pytest.skip("case-sensitive filesystem")
+            pytest.skip("case-sensitive filesystem")  # ty: ignore[too-many-positional-arguments]
         if not os.path.samefile(repo, variant):
-            pytest.skip("case-sensitive filesystem")
+            pytest.skip("case-sensitive filesystem")  # ty: ignore[too-many-positional-arguments]
         assert repo_slug(repo) == repo_slug(variant)
 
     def test_get_data_dir_adopts_legacy_path_hash_slug(self, tmp_path, monkeypatch):
