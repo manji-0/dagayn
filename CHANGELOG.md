@@ -4,6 +4,18 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Fixes
+
+- Path lookup no longer creates `.dagayn` as a side effect. `db_path_for` /
+  `data_dir_for` are read-only; stale registry entries are reported as
+  `stale_registry_entry` instead of resurrecting a deleted checkout. Project-root
+  validation requires `.git`/`.svn` or a `.dagayn/graph.db`, so an empty
+  `.dagayn` leftover cannot grant `repo_root` forever. See: #90, #127
+- `repo_slug` identifies a checkout by inode (falling back to a case-folded
+  path) so one repository maps to one graph on case-insensitive filesystems.
+  Existing `CRG_DATA_DIR` subdirectories from the old path-hash slug are
+  adopted. See: #87
+
 ## 4.8.2 — 2026-08-10
 
 ### Fixes

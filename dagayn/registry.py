@@ -7,30 +7,18 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import threading
 from pathlib import Path
 
 from dagayn.connection_pool import ConnectionPool
+from dagayn.paths import is_project_root, same_repo_path
 
 logger = logging.getLogger(__name__)
 
 
 def _same_repo_path(left: str, right: str) -> bool:
-    """Return True when two resolved paths name the same directory.
-
-    ``os.path.normcase`` is not enough: it only folds case on Windows and is a
-    no-op on macOS, which is exactly where a case-insensitive filesystem makes
-    ``/x/MAIN`` and ``/x/main`` the same directory. ``samefile`` compares
-    ``st_dev``/``st_ino``, so it answers for the filesystem actually in use --
-    with a string comparison as the fallback for paths that no longer exist.
-    """
-    if os.path.normcase(left) == os.path.normcase(right):
-        return True
-    try:
-        return os.path.samefile(left, right)
-    except OSError:
-        return False
+    """Return True when two resolved paths name the same directory."""
+    return same_repo_path(left, right)
 
 
 __all__ = ["ConnectionPool", "Registry", "resolve_repo"]
@@ -75,8 +63,8 @@ class Registry:
     def register(self, path: str, alias: str | None = None) -> dict[str, str]:
         """Register a repository path.
 
-        Validates that the path contains a ``.git`` or ``.dagayn``
-        directory.
+        Validates that the path contains a ``.git`` / ``.svn`` checkout or a
+        ``.dagayn/graph.db`` graph.
 
         Args:
             path: Absolute or relative path to the repository root.
@@ -91,9 +79,9 @@ class Registry:
         resolved = Path(path).resolve()
         if not resolved.is_dir():
             raise ValueError(f"Path is not a directory: {resolved}")
-        if not (resolved / ".git").exists() and not (resolved / ".dagayn").exists():
+        if not is_project_root(resolved):
             raise ValueError(
-                f"Path does not look like a repository (no .git or .dagayn): {resolved}"
+                f"Path does not look like a repository (no .git or .dagayn/graph.db): {resolved}"
             )
 
         with self._lock:

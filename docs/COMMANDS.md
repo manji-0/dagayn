@@ -355,10 +355,15 @@ integrations. Set `DAGAYN_WORKTREE_SEED=0` to disable graph inheritance.
 
 `CRG_DATA_DIR` keeps graph data outside the working tree. Each repository —
 and each worktree — gets its own subdirectory of it,
-`<CRG_DATA_DIR>/<name>-<path digest>`: the variable used to be honored
-verbatim, so every checkout that saw it shared a single `graph.db` and one
-project's nodes silently mixed into another's. Because each worktree now has
-its own graph, inheritance applies under `CRG_DATA_DIR` too. A pre-existing
+`<CRG_DATA_DIR>/<name>-<identity digest>`: the digest is the directory's
+inode identity (falling back to a case-folded path), so one checkout maps to
+one graph even when the path is spelled with different case on macOS/Windows.
+Looking up where a graph would live (`db_path_for`) creates nothing; a stale
+registry entry for a deleted or moved repo is reported as stale instead of
+resurrecting `<gone>/.dagayn`. The variable used to be honored verbatim, so
+every checkout that saw it shared a single `graph.db` and one project's nodes
+silently mixed into another's. Because each worktree now has its own graph,
+inheritance applies under `CRG_DATA_DIR` too. A pre-existing
 `<CRG_DATA_DIR>/graph.db` moves into the subdirectory when its `repo_root`
 metadata names that repository, so a single-repository setup keeps its graph;
 a graph belonging to another repository is left untouched.

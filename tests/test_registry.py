@@ -28,6 +28,7 @@ class TestRegistry:
         self.repo2 = Path(self.tmp_dir) / "repo2"
         self.repo2.mkdir()
         (self.repo2 / ".dagayn").mkdir()
+        (self.repo2 / ".dagayn" / "graph.db").write_text("graph")
 
     def teardown_method(self):
         import shutil
@@ -62,13 +63,23 @@ class TestRegistry:
             self.registry.register("/nonexistent/path/repo")
 
     def test_register_not_a_repo(self):
-        """Registering a dir without .git or .dagayn raises ValueError."""
+        """Registering a dir without .git or .dagayn/graph.db raises ValueError."""
         import pytest
 
         bare_dir = Path(self.tmp_dir) / "bare"
         bare_dir.mkdir()
         with pytest.raises(ValueError, match="does not look like a repository"):
             self.registry.register(str(bare_dir))
+
+    def test_register_empty_dagayn_is_not_a_repo(self):
+        """An empty .dagayn leftover from path lookup is not a repository. See: #127."""
+        import pytest
+
+        leftover = Path(self.tmp_dir) / "leftover"
+        leftover.mkdir()
+        (leftover / ".dagayn").mkdir()
+        with pytest.raises(ValueError, match="does not look like a repository"):
+            self.registry.register(str(leftover))
 
     def test_unregister_by_path(self):
         """Unregister a repo by path."""
@@ -249,6 +260,24 @@ class TestCrossRepoSearch:
         import shutil
 
         shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    def test_cross_repo_search_stale_entry_does_not_create_dirs(self, tmp_path):
+        """A deleted registry path must stay gone. See: #90."""
+        from dagayn.tools import cross_repo_search_func
+
+        gone = tmp_path / "moved-away"
+        with patch("dagayn.registry.Registry") as mock_registry_cls:
+            mock_instance = MagicMock()
+            mock_instance.list_repos.return_value = [
+                {"path": str(gone), "alias": "gone"},
+            ]
+            mock_registry_cls.return_value = mock_instance
+            result = cross_repo_search_func(query="test")
+
+        assert result["status"] == "ok"
+        assert result["repos_skipped"] == [{"repo": "gone", "reason": "stale_registry_entry"}]
+        assert not gone.exists()
+        assert not (gone / ".dagayn").exists()
 
 
 class TestCaseVariantRegistration:
