@@ -71,7 +71,7 @@ def test_serve_local_embedding_sets_search_default_to_openai(monkeypatch):
     assert calls[0]["embedding_provider"] == "openai"
     assert calls[0]["embedding_model"] == "qwen3-embedding-0.6b-gguf-q8_0"
     assert calls[0]["local_embedding"] == "low"
-    assert calls[0]["local_embedding_port"] == 18080
+    assert calls[0]["local_embedding_port"] == 18081
     assert calls[0]["local_embedding_bin"] == "auto"
     assert calls[0]["keep_local_embedding_server"] is False
     assert calls[0]["local_embedding_timeout"] == 300

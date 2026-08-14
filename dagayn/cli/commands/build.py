@@ -513,7 +513,7 @@ def handle(args: argparse.Namespace) -> None:
                 postprocess=pp,
                 local_embedding=getattr(args, "local_embedding", "none"),
                 local_embedding_mode=getattr(args, "local_embedding_mode", None),
-                local_embedding_port=getattr(args, "local_embedding_port", 18080),
+                local_embedding_port=getattr(args, "local_embedding_port", None),
                 local_embedding_bin=getattr(
                     args,
                     "local_embedding_bin",
@@ -564,7 +564,7 @@ def handle(args: argparse.Namespace) -> None:
                 postprocess=pp,
                 local_embedding=getattr(args, "local_embedding", "none"),
                 local_embedding_mode=getattr(args, "local_embedding_mode", None),
-                local_embedding_port=getattr(args, "local_embedding_port", 18080),
+                local_embedding_port=getattr(args, "local_embedding_port", None),
                 local_embedding_bin=getattr(
                     args,
                     "local_embedding_bin",

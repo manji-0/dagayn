@@ -200,9 +200,13 @@ def handle(args: argparse.Namespace, serve_parser: argparse.ArgumentParser) -> N
 
     if _local_embedding_requested(local_embedding):
         mode = _resolve_local_embedding_mode(local_embedding, local_embedding_mode)
-        from ...local_embeddings import local_embedding_server
+        from ...local_embeddings import local_embedding_server, resolve_local_embedding_port
 
         preset_level = "bge-m3" if mode == "bge-m3" else "low"
+        effective_local_embedding_port = resolve_local_embedding_port(
+            effective_local_embedding_port,
+            preset_level,
+        )
 
         with local_embedding_server(
             preset_level,

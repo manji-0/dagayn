@@ -4,6 +4,15 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Fixes
+
+- Local embedding probes refuse a server whose `/v1/models` catalog (or
+  embeddings `model` field) does not match the requested preset, instead of
+  accepting any 1024-dim listener on the port. `bge-m3` defaults to port 18080
+  and `low` to 18081. After a model switch, search stays on the new partition
+  even when it has fewer rows (`degraded` / `partial_coverage`) and a completed
+  embed run deletes retired provider partitions. See: #76 #71
+
 ## 4.8.2 — 2026-08-10
 
 ### Fixes

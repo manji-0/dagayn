@@ -77,8 +77,9 @@ uv run python tools/embedding_search_benchmark.py \
 
 The Qwen3 Embedding series is published as `0.6B`, `4B`, and `8B` embedding
 models. The local preset uses the 0.6B 8-bit GGUF variant through
-`llama-server`. `DAGAYN_LOCAL_EMBEDDING_RUNTIME=llama` is accepted for
-explicit configuration; other runtime values are rejected.
+`llama-server` on port **18081** by default (`bge-m3` uses **18080**).
+`DAGAYN_LOCAL_EMBEDDING_RUNTIME=llama` is accepted for explicit
+configuration; other runtime values are rejected.
 
 ## Qwen Sidecar Setup
 
@@ -120,14 +121,14 @@ llama-server \
   -b 8192 \
   -ub 8192 \
   --host 127.0.0.1 \
-  --port 18080 \
+  --port 18081 \
   --alias qwen3-embedding-0.6b-gguf-q8_0
 ```
 
 Verify the GGUF endpoint:
 
 ```bash
-curl http://127.0.0.1:18080/v1/embeddings \
+curl http://127.0.0.1:18081/v1/embeddings \
   -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer dagayn-local' \
   -d '{"model":"qwen3-embedding-0.6b-gguf-q8_0","input":["dagayn local embedding test"]}'
@@ -165,18 +166,20 @@ Reserve `dagayn build --force-full-build --local-embedding` for explicit
 embedding-quality or end-to-end maintenance work after stating why the embedding
 refresh itself is required.
 
-For Qwen sidecar mode, if no compatible server is already listening on `127.0.0.1:18080`, dagayn
+For Qwen sidecar mode, if no compatible server is already listening on `127.0.0.1:18081`, dagayn
 starts `llama-server` for the duration of the command. By default, dagayn stops
 that subprocess when embedding finishes. Managed starts are serialized per port
 with a lock under `~/.dagayn/`, so concurrent dagayn processes do not launch
-multiple `llama-server` subprocesses for the same localhost port.
+multiple `llama-server` subprocesses for the same localhost port. A probe that
+finds a 1024-dim server on the port still refuses it when `GET /v1/models` (or
+the embeddings `model` field) names a different alias than the requested preset.
 
 Useful Qwen sidecar options:
 
 ```bash
 dagayn build \
   --local-embedding --mode llama-qwen3 \
-  --local-embedding-port 18080 \
+  --local-embedding-port 18081 \
   --local-embedding-bin auto \
   --local-embedding-timeout 300 \
   --local-embedding-request-timeout 60 \
@@ -310,12 +313,15 @@ local embedding no longer requires or installs a Python ML stack.
   a `llama-server` that accepts `--flash-attn on|off|auto`. Upgrade llama.cpp,
   or start the server manually with `--flash-attn on`.
 - Port already in use: either stop the process on that port or use
-  `--local-embedding-port`.
+  `--local-embedding-port`. Default ports are 18080 (`bge-m3`) and 18081
+  (`low` / llama-qwen3) so a kept-alive sidecar is not reused as the other
+  model.
 - Timeout while starting: the first run may download the GGUF model from
   Hugging Face; increase `--local-embedding-timeout` or run the local server
   manually to watch progress.
 - Incompatible endpoint: dagayn found something on the port, but it did not
-  return an OpenAI-compatible embedding response from `/v1/embeddings`.
+  return an OpenAI-compatible embedding response from `/v1/embeddings`, or
+  `GET /v1/models` named a different model than the requested preset.
 
 References:
 

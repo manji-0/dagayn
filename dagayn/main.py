@@ -110,7 +110,7 @@ _default_repo_root: str | None = None
 _default_embedding_provider: str | None = None
 _default_embedding_model: str | None = None
 _default_local_embedding: str | None = None
-_default_local_embedding_port: int = 18080
+_default_local_embedding_port: int | None = None
 _default_local_embedding_bin: str = "auto"
 _default_keep_local_embedding_server: bool = False
 _default_local_embedding_timeout: int = 300
@@ -219,7 +219,7 @@ async def build_or_update_graph_tool(
     postprocess: str = "full",
     recurse_submodules: Optional[bool] = None,
     local_embedding: Optional[str] = None,
-    local_embedding_port: int = 18080,
+    local_embedding_port: Optional[int] = None,
     local_embedding_bin: str = "auto",
     keep_local_embedding_server: bool = False,
     local_embedding_timeout: int = 300,
@@ -1091,7 +1091,7 @@ def main(
     embedding_provider: str | None = None,
     embedding_model: str | None = None,
     local_embedding: str | None = None,
-    local_embedding_port: int = 18080,
+    local_embedding_port: int | None = None,
     local_embedding_bin: str = "auto",
     keep_local_embedding_server: bool = False,
     local_embedding_timeout: int = 300,

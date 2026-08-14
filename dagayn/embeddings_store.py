@@ -16,7 +16,9 @@ from typing import TYPE_CHECKING, Any
 from .embeddings_providers import (
     EmbeddingProvider,
     _embedding_provider_key,
+    embedding_provider_base_name,
     embedding_provider_lookup_candidates,
+    embedding_provider_text_mode,
     strip_provider_dimension_suffix,
 )
 from .embeddings_text import (
@@ -178,17 +180,61 @@ def _provider_candidates(
     return legacy or provider_counts
 
 
+def _provider_identity_key(provider_name: str) -> str:
+    """Case-folded model identity, ignoring ``#text=`` and ``#dim=`` suffixes."""
+    base = embedding_provider_base_name(provider_name)
+    return strip_provider_dimension_suffix(base).casefold()
+
+
+def _match_preferred_provider(
+    preferred_provider: str,
+    provider_counts: dict[str, int],
+) -> str | None:
+    """Return the counts key that is the same identity as *preferred_provider*."""
+    if preferred_provider in provider_counts:
+        return preferred_provider
+    wanted = _provider_identity_key(preferred_provider)
+    preferred_mode = embedding_provider_text_mode(preferred_provider)
+    matches = [
+        name
+        for name in provider_counts
+        if _provider_identity_key(name) == wanted
+        and (not preferred_mode or embedding_provider_text_mode(name) in {None, preferred_mode})
+    ]
+    if len(matches) == 1:
+        return matches[0]
+    if matches:
+        return max(matches, key=lambda name: (provider_counts[name], name))
+
+    from .embeddings_providers import _openai_provider_names_match
+
+    for name in provider_counts:
+        if _openai_provider_names_match(name, preferred_provider) or _openai_provider_names_match(
+            preferred_provider, name
+        ):
+            return name
+    return None
+
+
 def resolve_active_embedding_provider(
     provider_counts: dict[str, int],
     *,
     text_mode: str | None = None,
     preferred_provider: str | None = None,
 ) -> str | None:
-    """Pick the persisted provider key to use when the caller did not specify one."""
+    """Pick the persisted provider key to use when the caller did not specify one.
+
+    A stored preferred provider always wins, even when it has fewer rows than a
+    retired partition (or none yet). Falling back to max row count is how a
+    half-finished model switch silently ranked the old vector space.
+    """
+    if preferred_provider:
+        matched = _match_preferred_provider(preferred_provider, provider_counts)
+        if matched:
+            return matched
+        return preferred_provider
     if not provider_counts:
         return None
-    if preferred_provider and preferred_provider in provider_counts:
-        return preferred_provider
 
     candidates = _provider_candidates(provider_counts, text_mode=text_mode)
     if not candidates:
@@ -1110,6 +1156,32 @@ class EmbeddingStore:
             _invalidate_np_vec_cache(self.db_path)
         return deleted
 
+    def remove_inactive_provider_partitions(self) -> int:
+        """Delete embedding rows whose provider is not the active identity.
+
+        Called after a completed model switch so retired partitions cannot win
+        a later max-count fallback. Same-identity keys (``#dim=`` variants of
+        the active provider) are kept.
+        """
+        active = self._provider_key_for_lookup()
+        if active is None:
+            return 0
+        rows = self._conn.execute("SELECT DISTINCT provider FROM embeddings").fetchall()
+        deleted = 0
+        for row in rows:
+            provider = str(row["provider"] if hasattr(row, "keys") else row[0])
+            if _provider_identity_key(provider) == _provider_identity_key(active):
+                continue
+            cursor = self._conn.execute(
+                "DELETE FROM embeddings WHERE provider = ?",
+                (provider,),
+            )
+            deleted += cursor.rowcount if cursor.rowcount is not None else 0
+        if deleted:
+            self._conn.commit()
+            _invalidate_np_vec_cache(self.db_path)
+        return deleted
+
     def persist_active_provider_metadata(self) -> None:
         """Record the configured provider key as the active embedding provider."""
         provider_name = self._provider_key_for_lookup()
@@ -1182,6 +1254,9 @@ def embed_all_nodes(
         return 0
 
     all_nodes = graph_store.get_all_nodes(exclude_files=True)
+    # Point search at this provider before any rows land, so an interrupted
+    # switch cannot silently rank a retired, still-larger partition.
+    embedding_store.persist_active_provider_metadata()
     embedding_store.last_orphans_removed = embedding_store.remove_orphans(
         {node.qualified_name for node in all_nodes},
         all_providers=True,
@@ -1201,9 +1276,8 @@ def embed_all_nodes(
         embedding_store.graph_facts_by_qualified_name = {}
 
     embedded = embedding_store.embed_nodes(all_nodes, show_progress=show_progress)
-    # Written *after* the run, so the pointer names the key rows actually landed
-    # under. Writing it first recorded the dim-less identity (the dimension is
-    # only known after the first response) and left a pointer to a partition
-    # with zero rows whenever the run failed outright.
+    # Written again after the run so the pointer names the key rows actually
+    # landed under (dimension is only known after the first response).
     embedding_store.persist_active_provider_metadata()
+    embedding_store.remove_inactive_provider_partitions()
     return embedded

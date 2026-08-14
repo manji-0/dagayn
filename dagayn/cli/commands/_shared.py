@@ -59,8 +59,8 @@ def _add_local_embedding_args(
     cmd.add_argument(
         "--local-embedding-port",
         type=int,
-        default=18080,
-        help="Local embedding server port (default: 18080)",
+        default=None,
+        help=("Local embedding server port (default: 18080 for bge-m3, 18081 for low)"),
     )
     cmd.add_argument(
         "--local-embedding-bin",

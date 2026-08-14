@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 import urllib.error
 from email.message import Message
@@ -13,6 +14,7 @@ from dagayn.local_embeddings import (
     infer_local_embedding_provider,
     local_embedding_base_url,
     local_embedding_server,
+    resolve_local_embedding_port,
 )
 
 
@@ -50,6 +52,7 @@ def test_local_embedding_llama_preset_is_stable():
     assert low.flash_attention is True
     assert low.cache_type_k == "f16"
     assert low.cache_type_v == "f16"
+    assert low.default_port == 18081
     assert low.default_binary == "llama-server"
 
 
@@ -67,6 +70,7 @@ def test_local_embedding_bge_preset_is_stable():
     assert bge.flash_attention is True
     assert bge.cache_type_k == "f16"
     assert bge.cache_type_v == "f16"
+    assert bge.default_port == 18080
     assert bge.default_binary == "llama-server"
 
 
@@ -81,6 +85,7 @@ def test_local_embedding_llama_preset_is_default_on_apple_silicon(monkeypatch):
     assert low.model == "qwen3-embedding-0.6b-gguf-q8_0"
     assert low.dimension == 1024
     assert low.request_max_length is None
+    assert low.default_port == 18081
     assert low.default_binary == "llama-server"
 
 
@@ -321,3 +326,107 @@ def test_local_embedding_server_rejects_incompatible_existing_port(monkeypatch):
     with pytest.raises(RuntimeError, match="not a compatible embedding endpoint"):
         with local_embedding_server("low", runtime="llama"):
             pass
+
+
+class _JsonResponse:
+    def __init__(self, payload: bytes) -> None:
+        self._payload = payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        return None
+
+    def read(self):
+        return self._payload
+
+
+def _urlopen_by_path(*, models: bytes, embeddings: bytes):
+    def urlopen(req, timeout=None):
+        url = getattr(req, "full_url", str(req))
+        if str(url).rstrip("/").endswith("/models"):
+            return _JsonResponse(models)
+        return _JsonResponse(embeddings)
+
+    return urlopen
+
+
+def test_resolve_local_embedding_port_uses_preset_defaults():
+    assert resolve_local_embedding_port(None, "bge-m3") == 18080
+    assert resolve_local_embedding_port(None, "low") == 18081
+    assert resolve_local_embedding_port(19090, "low") == 19090
+    assert resolve_local_embedding_port(None, None) == 18080
+
+
+def test_local_embedding_server_low_defaults_to_preset_port(monkeypatch):
+    monkeypatch.setattr(
+        "dagayn.local_embeddings._probe_embedding_server",
+        lambda base_url, model, expected_dimension: _ProbeResult("ready"),
+    )
+    monkeypatch.setattr("dagayn.local_embeddings.subprocess.Popen", lambda *a, **k: None)
+
+    with local_embedding_server("low", runtime="llama") as server:
+        assert server.base_url == "http://127.0.0.1:18081/v1"
+        assert server.started is False
+
+
+def _embedding_payload(model: str, dimension: int = 1024) -> bytes:
+    return json.dumps({"model": model, "data": [{"embedding": [0.0] * dimension}]}).encode()
+
+
+def test_probe_rejects_catalog_model_mismatch(monkeypatch):
+    monkeypatch.setattr(
+        "dagayn.local_embeddings.urllib.request.urlopen",
+        _urlopen_by_path(
+            models=b'{"data":[{"id":"bge-m3-gguf-q8_0"}]}',
+            embeddings=_embedding_payload("qwen3-embedding-0.6b-gguf-q8_0"),
+        ),
+    )
+
+    result = _probe_embedding_server(
+        "http://127.0.0.1:18080/v1",
+        "qwen3-embedding-0.6b-gguf-q8_0",
+        1024,
+    )
+
+    assert result.status == "incompatible"
+    assert "bge-m3-gguf-q8_0" in result.detail
+    assert "qwen3-embedding-0.6b-gguf-q8_0" in result.detail
+
+
+def test_probe_rejects_echoed_model_mismatch_when_catalog_missing(monkeypatch):
+    monkeypatch.setattr(
+        "dagayn.local_embeddings.urllib.request.urlopen",
+        _urlopen_by_path(
+            models=b'{"data":[]}',
+            embeddings=_embedding_payload("bge-m3-gguf-q8_0"),
+        ),
+    )
+
+    result = _probe_embedding_server(
+        "http://127.0.0.1:18080/v1",
+        "qwen3-embedding-0.6b-gguf-q8_0",
+        1024,
+    )
+
+    assert result.status == "incompatible"
+    assert "bge-m3-gguf-q8_0" in result.detail
+
+
+def test_probe_accepts_matching_catalog_and_dimension(monkeypatch):
+    monkeypatch.setattr(
+        "dagayn.local_embeddings.urllib.request.urlopen",
+        _urlopen_by_path(
+            models=b'{"data":[{"id":"qwen3-embedding-0.6b-gguf-q8_0"}]}',
+            embeddings=_embedding_payload("qwen3-embedding-0.6b-gguf-q8_0"),
+        ),
+    )
+
+    result = _probe_embedding_server(
+        "http://127.0.0.1:18081/v1",
+        "qwen3-embedding-0.6b-gguf-q8_0",
+        1024,
+    )
+
+    assert result.status == "ready"
