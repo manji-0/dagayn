@@ -549,7 +549,7 @@ def test_case_only_rename_does_not_duplicate(git_repo: Path) -> None:
         _git(git_repo, "mv", "-f", "mod.py", "Mod.py")
         _git(git_repo, "commit", "-m", "case-only rename")
         if not os.path.exists(git_repo / "mod.py"):
-            pytest.skip(reason="case-sensitive filesystem: the old path really is gone")
+            pytest.skip("case-sensitive filesystem: the old path really is gone")  # ty: ignore[too-many-positional-arguments]
 
         incremental_update(git_repo, store, base=base)
         indexed = _indexed_files(store)
