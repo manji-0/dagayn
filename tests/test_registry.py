@@ -301,7 +301,7 @@ class TestCaseVariantRegistration:
         first = registry.register(str(repo))
         variant = str(tmp_path / "main")
         if not os.path.isdir(variant):
-            pytest.skip(reason="case-sensitive filesystem: the two paths are different directories")
+            pytest.skip("case-sensitive filesystem: the two paths are different directories")  # ty: ignore[too-many-positional-arguments]
         second = registry.register(variant)
 
         assert len(registry.list_repos()) == 1, registry.list_repos()
