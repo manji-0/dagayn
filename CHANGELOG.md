@@ -4,6 +4,12 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Fixes
+
+- Incremental flow tracing recomputes stored criticality after each pass, so
+  adding TESTED_BY coverage (a test file that is not on the flow path) lowers
+  review ranking instead of leaving a stale score. See: #114
+
 ## 4.8.2 — 2026-08-10
 
 ### Fixes

@@ -512,6 +512,10 @@ impl PyGraphStore {
         self.with_store_mut(|store| store.insert_flows_json(flows_json))
     }
 
+    fn update_flow_criticalities_json(&self, updates_json: &str) -> PyResult<i64> {
+        self.with_store_mut(|store| store.update_flow_criticalities_json(updates_json))
+    }
+
     #[pyo3(signature = (sort_by = "criticality", limit = 50))]
     fn get_flows_json(&self, sort_by: &str, limit: i64) -> PyResult<String> {
         self.with_store(|store| store.get_flows_json(sort_by, limit))

@@ -377,6 +377,66 @@ def compute_criticality(flow: dict, adj: FlowAdjacency) -> float:
     return round(min(max(criticality, 0.0), 1.0), 4)
 
 
+def refresh_flow_criticality(store: GraphStore) -> int:
+    """Recompute stored flow criticality from current TESTED_BY / CALLS facts.
+
+    Incremental tracing only retraces flows whose path files changed. Adding a
+    test file that covers a flow member does not touch those files, so stored
+    criticality would otherwise stay stale. Recomputing scores is cheap relative
+    to tracing. See: #114
+    """
+    adj = store.load_flow_adjacency()
+    conn = getattr(store, "_conn", None)
+    rust_get = getattr(store, "get_flows_json", None)
+    rust_update = getattr(store, "update_flow_criticalities_json", None)
+
+    flows: list[dict[str, Any]]
+    if conn is not None:
+        rows = conn.execute("SELECT id, depth, path_json, criticality FROM flows").fetchall()
+        flows = [
+            {
+                "id": int(row["id"]),
+                "depth": row["depth"],
+                "path": json.loads(row["path_json"]),
+                "criticality": float(row["criticality"] or 0.0),
+            }
+            for row in rows
+        ]
+    elif callable(rust_get):
+        flows = json.loads(rust_get("criticality", 1_000_000))
+    else:
+        return 0
+
+    updates: list[tuple[int, float]] = []
+    for flow in flows:
+        path = flow.get("path") or []
+        recomputed = compute_criticality({"path": path, "depth": flow.get("depth", 0)}, adj)
+        previous = float(flow.get("criticality") or 0.0)
+        if abs(recomputed - previous) > 1e-9:
+            flow_id = flow.get("id")
+            if flow_id is None:
+                continue
+            updates.append((int(flow_id), recomputed))
+
+    if not updates:
+        return 0
+
+    if callable(rust_update):
+        payload = json.dumps([[flow_id, score] for flow_id, score in updates])
+        return int(rust_update(payload))
+
+    if conn is None:
+        logger.warning("Cannot refresh flow criticality: store has no SQL connection")
+        return 0
+
+    with store_write_transaction(store):
+        conn.executemany(
+            "UPDATE flows SET criticality = ? WHERE id = ?",
+            [(score, flow_id) for flow_id, score in updates],
+        )
+    return len(updates)
+
+
 # ---------------------------------------------------------------------------
 # Persistence
 # ---------------------------------------------------------------------------
@@ -673,6 +733,9 @@ def incremental_trace_flows(
     5. BFS-trace each relevant entry point via :func:`_trace_single_flow`.
     6. INSERT the new flows (without clearing unrelated flows), first deleting
        any stale flow that shares the same entry-point qualified name.
+    7. Recompute criticality for every remaining flow so TESTED_BY coverage
+       and unresolved-external facts stay current even when the changed files
+       are tests that are not on any flow path.
 
     Returns the number of re-traced flows that were stored.
     """
@@ -700,9 +763,11 @@ def incremental_trace_flows(
                 if flow is not None:
                     new_flows.append(flow)
 
-        if not new_flows:
-            return 0
-        return int(rust_insert(json.dumps(new_flows)))
+        count = 0
+        if new_flows:
+            count = int(rust_insert(json.dumps(new_flows)))
+        refresh_flow_criticality(store)
+        return count
 
     changed_file_set = set(changed_files)
 
@@ -785,6 +850,7 @@ def incremental_trace_flows(
 
     conn = store._conn
     conn.commit()
+    refresh_flow_criticality(store)
     return count
 
 
