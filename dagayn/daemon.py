@@ -266,11 +266,76 @@ def remove_repo_from_config(
 # ---------------------------------------------------------------------------
 
 
+#: Held for the daemon's lifetime so liveness is a fact, not an inference.
+_pidfile_handle: Any = None
+
+
 def write_pid(pid: int | None = None, path: Path | None = None) -> None:
-    """Write the current (or given) PID to the PID file."""
+    """Write the current (or given) PID and hold a lock on the PID file.
+
+    The lock is what makes :func:`is_daemon_running` reliable: a bare
+    ``os.kill(pid, 0)`` says "some process has this id", so after a crash the
+    OS recycling that id read as "the daemon is running" -- ``start`` refused
+    and ``stop`` sent SIGTERM to an unrelated process.
+    """
+    global _pidfile_handle
     pid_path = path or PID_PATH
     pid_path.parent.mkdir(parents=True, exist_ok=True)
-    pid_path.write_text(str(pid or os.getpid()), encoding="utf-8")
+    if _pidfile_handle is not None:
+        # Replacing the handle without closing it would leak the fd and keep the
+        # old lock held for the life of the process.
+        try:
+            _pidfile_handle.close()
+        except OSError:  # pragma: no cover - best effort
+            pass
+        _pidfile_handle = None
+    handle = pid_path.open("a+", encoding="utf-8")
+    try:
+        import fcntl
+
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except ImportError:  # pragma: no cover - POSIX only in practice
+        pass
+    except (BlockingIOError, OSError):
+        # Someone already holds it, or the filesystem cannot lock. Fall back to
+        # writing the pid; is_daemon_running degrades to the signal check.
+        handle.close()
+        pid_path.write_text(str(pid or os.getpid()), encoding="utf-8")
+        return
+    handle.seek(0)
+    handle.truncate()
+    handle.write(str(pid or os.getpid()))
+    handle.flush()
+    _pidfile_handle = handle
+
+
+def _pidfile_lock_is_held(pid_path: Path) -> bool | None:
+    """True/False when the lock answers, ``None`` when it cannot.
+
+    Probes by trying to take the lock: success means nobody holds it, so no
+    daemon is alive. The probe releases immediately.
+    """
+    if not pid_path.exists():
+        return False
+    try:
+        import fcntl
+    except ImportError:  # pragma: no cover - POSIX only in practice
+        return None
+    try:
+        handle = pid_path.open("a+", encoding="utf-8")
+    except OSError:
+        return None
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return True
+    except OSError:
+        return None
+    else:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        return False
+    finally:
+        handle.close()
 
 
 def read_pid(path: Path | None = None) -> int | None:
@@ -285,7 +350,14 @@ def read_pid(path: Path | None = None) -> int | None:
 
 
 def clear_pid(path: Path | None = None) -> None:
-    """Remove the PID file."""
+    """Remove the PID file and release the lock this process holds on it."""
+    global _pidfile_handle
+    if _pidfile_handle is not None:
+        try:
+            _pidfile_handle.close()
+        except OSError:  # pragma: no cover - best effort
+            pass
+        _pidfile_handle = None
     pid_path = path or PID_PATH
     try:
         pid_path.unlink(missing_ok=True)
@@ -294,10 +366,26 @@ def clear_pid(path: Path | None = None) -> None:
 
 
 def is_daemon_running(path: Path | None = None) -> bool:
-    """Check whether a daemon process is alive."""
+    """Check whether a daemon process is alive.
+
+    Prefers the lock the daemon holds on its PID file over the PID's mere
+    existence: a recycled PID used to read as a running daemon.
+    """
+    pid_path = path or PID_PATH
     pid = read_pid(path)
     if pid is None:
         return False
+
+    locked = _pidfile_lock_is_held(pid_path)
+    if locked is False:
+        # Nobody holds the lock, so no daemon owns this file.
+        clear_pid(path)
+        return False
+    if locked is True:
+        return True
+
+    # Locking unavailable (no fcntl, or a filesystem without it): fall back to
+    # the signal check, which is what this used to do unconditionally.
     try:
         os.kill(pid, 0)  # signal 0 = existence check
         return True

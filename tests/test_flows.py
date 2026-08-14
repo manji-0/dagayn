@@ -823,6 +823,7 @@ class TestFlows:
         main_flows = [f for f in get_flows(self.store) if f["name"] == "main"]
         assert len(main_flows) == 1
         detail = get_flow_by_id(self.store, main_flows[0]["id"])
+        assert detail is not None
         assert "extra" in {step["name"] for step in detail["steps"]}
 
     def test_incremental_retrace_entry_file_no_duplicate_flows(self):

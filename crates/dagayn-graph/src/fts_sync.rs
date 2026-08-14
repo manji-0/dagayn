@@ -12,7 +12,7 @@ pub(crate) fn set_fts_watermark_tx(tx: &Transaction<'_>, node_count: Option<i64>
     let count = match node_count {
         Some(count) => count,
         None => {
-            if table_exists(&tx, "nodes_fts")? {
+            if table_exists(tx, "nodes_fts")? {
                 tx.query_row("SELECT count(*) FROM nodes_fts", [], |row| row.get(0))?
             } else {
                 0
@@ -33,7 +33,7 @@ pub(crate) fn set_fts_watermark_tx(tx: &Transaction<'_>, node_count: Option<i64>
 
 pub(crate) fn fts_index_counts_tx(tx: &Transaction<'_>) -> Result<(i64, i64)> {
     let nodes_count: i64 = tx.query_row("SELECT count(*) FROM nodes", [], |row| row.get(0))?;
-    let fts_count = if table_exists(&tx, "nodes_fts")? {
+    let fts_count = if table_exists(tx, "nodes_fts")? {
         tx.query_row("SELECT count(*) FROM nodes_fts", [], |row| row.get(0))?
     } else {
         0
@@ -42,7 +42,7 @@ pub(crate) fn fts_index_counts_tx(tx: &Transaction<'_>) -> Result<(i64, i64)> {
 }
 
 pub(crate) fn delete_fts_for_node_ids_tx(tx: &Transaction<'_>, node_ids: &[i64]) -> Result<()> {
-    if node_ids.is_empty() || !table_exists(&tx, "nodes_fts")? {
+    if node_ids.is_empty() || !table_exists(tx, "nodes_fts")? {
         return Ok(());
     }
     for node_id in node_ids {
@@ -52,7 +52,7 @@ pub(crate) fn delete_fts_for_node_ids_tx(tx: &Transaction<'_>, node_ids: &[i64])
 }
 
 pub(crate) fn delete_fts_for_file_paths_tx(tx: &Transaction<'_>, file_paths: &[String]) -> Result<()> {
-    if file_paths.is_empty() || !table_exists(&tx, "nodes_fts")? {
+    if file_paths.is_empty() || !table_exists(tx, "nodes_fts")? {
         return Ok(());
     }
     for chunk in file_paths.chunks(450) {
@@ -78,6 +78,7 @@ pub(crate) fn delete_fts_for_file_paths_tx(tx: &Transaction<'_>, file_paths: &[S
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn build_node_fts_values(
     repo_root: Option<&Path>,
     kind: &str,
@@ -94,7 +95,7 @@ pub(crate) fn build_node_fts_values(
         .and_then(Value::as_str)
         .unwrap_or("");
     let identifier_tokens =
-        identifier_search_text([&name, &qualified_name, &file_path, display_name]);
+        identifier_search_text([name, qualified_name, file_path, display_name]);
     let source_excerpt =
         read_node_source_excerpt(repo_root, kind, file_path, line_start, line_end);
     let structured_description = structured_code_reference_text(
@@ -134,7 +135,7 @@ pub(crate) fn sync_fts_for_file_paths_tx(
     if file_paths.is_empty() {
         return Ok(0);
     }
-    if !table_exists(&tx, "nodes_fts")? {
+    if !table_exists(tx, "nodes_fts")? {
         tx.execute_batch(
             r#"
             CREATE VIRTUAL TABLE nodes_fts USING fts5(
@@ -257,7 +258,7 @@ pub(crate) fn rebuild_fts_index_tx(conn: &Connection, repo_root: Option<&Path>) 
              signature, extra FROM nodes",
         )?;
         let mut count = 0_i64;
-        let mut rows = stmt.query_map([], |row| {
+        let rows = stmt.query_map([], |row| {
             Ok((
                 row.get::<_, i64>("node_rowid")?,
                 row.get::<_, String>("kind")?,
@@ -270,7 +271,7 @@ pub(crate) fn rebuild_fts_index_tx(conn: &Connection, repo_root: Option<&Path>) 
                 row.get::<_, Option<String>>("extra")?,
             ))
         })?;
-        while let Some(row) = rows.next() {
+        for row in rows {
             let (
                 rowid,
                 kind,
@@ -321,7 +322,7 @@ pub(crate) fn fts_needs_rebuild_tx(tx: &Transaction<'_>) -> Result<bool> {
     if nodes_count != fts_count {
         return Ok(true);
     }
-    if !table_exists(&tx, "nodes_fts")? || nodes_count == 0 {
+    if !table_exists(tx, "nodes_fts")? || nodes_count == 0 {
         return Ok(false);
     }
     let empty_generated: i64 = tx.query_row(

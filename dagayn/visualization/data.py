@@ -51,36 +51,42 @@ def _resolve_target(
     source: str,
     seen_qn: set[str],
     name_index: dict[str, list[str]],
-) -> str | None:
+) -> tuple[str | None, int]:
     """Try to resolve an unqualified edge target to a full qualified name.
 
-    Returns the resolved qualified name, or None if unresolvable.
+    Returns ``(qualified_name_or_None, candidate_count)``. The count lets the
+    caller mark an arbitrarily-chosen endpoint as inferred: picking the first of
+    several same-named candidates produced an edge that does not exist (and a
+    duplicate of the real one when both were present), and every consumer --
+    GraphML, Cypher, Obsidian, Mermaid C4, SVG, the visualization payload --
+    inherited it with nothing saying it was a guess.
     """
     # Already fully qualified
     if target in seen_qn:
-        return target
+        return target, 1
 
     candidates = name_index.get(target)
     if not candidates:
-        return None
+        return None, 0
 
     if len(candidates) == 1:
-        return candidates[0]
+        return candidates[0], 1
 
     # Disambiguate: prefer node in the same file as the source
     src_file = source.split("::")[0] if "::" in source else source
     same_file = [c for c in candidates if c.startswith(src_file)]
     if len(same_file) == 1:
-        return same_file[0]
+        return same_file[0], 1
 
     # Prefer node in the same top-level directory
     src_parts = src_file.rsplit("/", 1)[0] if "/" in src_file else ""
     same_dir = [c for c in candidates if c.startswith(src_parts)]
     if len(same_dir) == 1:
-        return same_dir[0]
+        return same_dir[0], 1
 
-    # Ambiguous — pick first match rather than dropping the edge
-    return candidates[0]
+    # Still ambiguous. Keep the edge (dropping it loses a real relationship) but
+    # report how many candidates there were so the caller can label it.
+    return candidates[0], len(candidates)
 
 
 def export_graph_data(store: GraphStore) -> dict:
@@ -112,13 +118,25 @@ def export_graph_data(store: GraphStore) -> dict:
     # Resolve short/unqualified edge targets to full qualified names,
     # then drop edges that still can't be resolved (external/stdlib calls).
     edges = []
+    seen_edge_keys: set[tuple[str, str, str]] = set()
     for e in all_edges:
-        src = _resolve_target(e["source"], e["source"], seen_qn, name_index)
-        tgt = _resolve_target(e["target"], e["source"], seen_qn, name_index)
-        if src and tgt:
-            e["source"] = src
-            e["target"] = tgt
-            edges.append(e)
+        src, src_candidates = _resolve_target(e["source"], e["source"], seen_qn, name_index)
+        tgt, tgt_candidates = _resolve_target(e["target"], e["source"], seen_qn, name_index)
+        if not src or not tgt:
+            continue
+        e["source"] = src
+        e["target"] = tgt
+        ambiguous = max(src_candidates, tgt_candidates)
+        if ambiguous > 1:
+            # Marked, not silently presented as fact.
+            e["resolution"] = "ambiguous"
+            e["resolution_candidate_count"] = ambiguous
+        key = (src, tgt, str(e.get("kind", "")))
+        if key in seen_edge_keys:
+            # An arbitrary pick can collapse onto an edge that already exists.
+            continue
+        seen_edge_keys.add(key)
+        edges.append(e)
 
     stats = store.get_stats()
 

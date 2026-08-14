@@ -134,6 +134,36 @@ def _is_unresolved_import_target(store: Any, target: str, root: Path) -> bool:
     return len(store.get_nodes_by_file(abs_target)) == 0
 
 
+def _partial_coverage_missingness(
+    embedding_health: Mapping[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Disclose that semantic ranking only covers part of the graph.
+
+    An interrupted embedding run commits per batch and then raises, so the rows
+    that finished are durable. Health only distinguished 0 vs >0 matching
+    vectors, so a 5%-embedded corpus reported "available" and the unembedded
+    95% looked like "not semantically relevant".
+    """
+    if not embedding_health or not embedding_health.get("partial_coverage"):
+        return None
+    coverage = embedding_health.get("embedding_coverage")
+    missing = embedding_health.get("missing_embedding_count")
+    return seal_missingness_item(
+        {
+            "reason_code": "partial_embeddings",
+            "severity": "medium",
+            "claim_effect": (
+                "semantic ranking covers only part of the graph, so a node's absence"
+                " from these results is not evidence it is irrelevant"
+            ),
+            "details": {
+                "embedding_coverage": coverage,
+                "missing_embedding_count": missing,
+            },
+        }
+    )
+
+
 def _query_zero_result_fields(
     *,
     results: list[dict],
@@ -372,6 +402,9 @@ def _semantic_search_guidance(
                 "claim_effect": "semantic ranking may be keyword-only",
             }
         )
+    partial = _partial_coverage_missingness(embedding_health)
+    if partial is not None:
+        missingness_items.append(partial)
     if result_count:
         return [
             make_guidance_item(
@@ -1208,6 +1241,9 @@ def semantic_search_nodes(
                     "claim_effect": "semantic ranking may be keyword-only",
                 }
             )
+        partial_coverage = _partial_coverage_missingness(embedding_health)
+        if partial_coverage is not None:
+            missingness.append(partial_coverage)
 
         summary = f"Found {len(results)} node(s) matching '{query}'" + (
             f" (kind={kind})" if kind else ""

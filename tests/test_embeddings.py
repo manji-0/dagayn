@@ -11,6 +11,7 @@ import pytest
 
 from dagayn.cli.commands.build import _print_embedding_status
 from dagayn.embeddings import (
+    EmbeddingProvider,
     EmbeddingStore,
     MiniMaxEmbeddingProvider,
     OpenAIEmbeddingProvider,
@@ -1086,7 +1087,7 @@ class TestEmbeddingStore:
         import dagayn.embeddings_store as emb_store
 
         if not emb._NUMPY_AVAILABLE:
-            pytest.skip("numpy fast path is optional")
+            pytest.skip(reason="numpy fast path is optional")
 
         db = tmp_path / "embeddings.db"
         vectors = [
@@ -1183,7 +1184,7 @@ class TestEmbeddingStore:
         import dagayn.embeddings_store as emb_store
 
         if not emb._NUMPY_AVAILABLE:
-            pytest.skip("numpy fast path is optional")
+            pytest.skip(reason="numpy fast path is optional")
 
         # Query [1,0]; cosine equals the first component for these rows.
         # Ranked: best, second, third, fourth(near-miss). limit=3 must keep third.
@@ -1230,7 +1231,7 @@ class TestEmbeddingStore:
         import dagayn.embeddings as emb
 
         if not emb._NUMPY_AVAILABLE:
-            pytest.skip("numpy fast path is optional")
+            pytest.skip(reason="numpy fast path is optional")
 
         db = tmp_path / "embeddings.db"
 
@@ -1287,7 +1288,7 @@ class TestEmbeddingStore:
         import dagayn.embeddings_store as emb_store
 
         if not emb._NUMPY_AVAILABLE:
-            pytest.skip("numpy fast path is optional")
+            pytest.skip(reason="numpy fast path is optional")
 
         rows = 4000
         dim = 96
@@ -2483,7 +2484,7 @@ class TestVectorDimensionIdentity:
     def test_dimension_change_forces_reembed(self, tmp_path):
         db = tmp_path / "embeddings.db"
 
-        class DimProvider:
+        class DimProvider(EmbeddingProvider):
             def __init__(self, dim: int) -> None:
                 self._dim = dim
 
@@ -2657,7 +2658,7 @@ class TestVectorDimensionIdentity:
             ]
             assert [qn for qn, _ in rust_hits] == [qn for qn, _ in python_hits]
         except (ImportError, AttributeError):
-            pytest.skip("native embedding search extension unavailable")
+            pytest.skip(reason="native embedding search extension unavailable")
         conn.close()
 
         assert python_hits == [("file.py::a", pytest.approx(1.0))]
@@ -2690,7 +2691,7 @@ class TestProviderKeyReuse:
     REPLACE` kept the row count stable and hid it.
     """
 
-    class _LateDimProvider:
+    class _LateDimProvider(EmbeddingProvider):
         """Mirrors OpenAIEmbeddingProvider: dimension learned from the response."""
 
         preferred_batch_size = 100
@@ -2815,7 +2816,7 @@ class TestBatchFailureFanOut:
     def test_rate_limit_aborts_without_per_node_retries(self, tmp_path):
         """429 says nothing about the inputs; isolating multiplies the damage."""
 
-        class RateLimited:
+        class RateLimited(EmbeddingProvider):
             name = "fake"
             preferred_batch_size = 3
 
