@@ -524,6 +524,9 @@ class TestApplyToolFilter:
         original = crg_main._snapshot_components()
         yield
         crg_main._restore_components(original)
+        from dagayn.tool_surface import set_active_tool_surface
+
+        set_active_tool_surface(None)
 
     @pytest.fixture(autouse=True)
     def _clean_env(self, monkeypatch):
@@ -553,6 +556,19 @@ class TestApplyToolFilter:
         crg_main._apply_tool_filter(keep)
         remaining = _tool_names()
         assert remaining == {"query_graph_tool", "semantic_search_nodes_tool"}
+
+    def test_filter_records_active_tool_surface(self):
+        """Hints/prompts consult the allow-list that serve just applied. See: #107."""
+        from dagayn.tool_surface import active_tool_surface, tool_is_exposed
+
+        crg_main._apply_tool_filter("query_graph_tool")
+        assert active_tool_surface() == {"query_graph_tool"}
+        assert tool_is_exposed("query_graph_tool")
+        assert not tool_is_exposed("apply_refactor_tool")
+
+        crg_main._apply_tool_filter("all")
+        assert active_tool_surface() is None
+        assert tool_is_exposed("apply_refactor_tool")
 
     def test_all_sentinel_via_argument_keeps_all_registered_tools(self):
         """The ``all`` sentinel preserves the full advanced tool surface."""

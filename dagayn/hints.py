@@ -12,6 +12,8 @@ import time
 from collections import deque
 from typing import Any
 
+from .tool_surface import tool_is_exposed
+
 # ---- intent categories and their characteristic tool names ----
 
 _INTENT_TOOLS: dict[str, set[str]] = {
@@ -377,7 +379,7 @@ def _build_next_steps(tool_name: str, session: SessionState) -> list[dict[str, s
     candidates = _WORKFLOW.get(tool_name, [])
     out: list[dict[str, str]] = []
     for c in candidates:
-        if c["tool"] not in called:
+        if c["tool"] not in called and tool_is_exposed(c["tool"]):
             out.append(c)
     return out
 

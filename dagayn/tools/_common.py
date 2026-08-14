@@ -461,8 +461,10 @@ def _hints_from_next_tool_suggestions(
     if not next_tool_suggestions:
         return None
 
+    from ..tool_surface import filter_suggestions
+
     next_steps: list[dict[str, str]] = []
-    for suggestion in next_tool_suggestions[:3]:
+    for suggestion in filter_suggestions(next_tool_suggestions)[:3]:
         head, _, tail = suggestion.partition(" -- ")
         tool = head.split(" ", 1)[0].split("(", 1)[0]
         next_steps.append(
@@ -818,7 +820,9 @@ def make_response(
     elif next_tool_suggestions:
         resp["_hints"] = _hints_from_next_tool_suggestions(next_tool_suggestions)
     if next_tool_suggestions:
-        resp["next_tool_suggestions"] = next_tool_suggestions[:3]
+        from ..tool_surface import filter_suggestions
+
+        resp["next_tool_suggestions"] = filter_suggestions(next_tool_suggestions)[:3]
     return resp
 
 
@@ -964,8 +968,11 @@ def compact_response(
     if flows_affected:
         resp["flows_affected"] = flows_affected[:5]
     if next_tool_suggestions:
-        resp["next_tool_suggestions"] = next_tool_suggestions[:3]
-        resp["_hints"] = _hints_from_next_tool_suggestions(next_tool_suggestions)
+        from ..tool_surface import filter_suggestions
+
+        filtered = filter_suggestions(next_tool_suggestions)
+        resp["next_tool_suggestions"] = filtered[:3]
+        resp["_hints"] = _hints_from_next_tool_suggestions(filtered)
     if detail_level != "minimal" and data:
         resp["data"] = data
     return resp

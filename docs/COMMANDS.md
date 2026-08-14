@@ -446,6 +446,11 @@ Default tool names are:
 - `semantic_search_nodes_tool`
 - `get_docs_section_tool`
 
+`refactor_tool(mode="rename")` returns a `refactor_id` and an edit list. Apply
+the preview with `dagayn tool apply_refactor_tool` (or expose it on MCP via
+`dagayn serve --tools all`). Prompts, hints, and next-step suggestions on the
+default surface name only default-surface tools.
+
 `ensure_graph_tool` bootstraps an empty graph, or refreshes when HEAD/worktree
 has drifted (and always with `force=True`), using `postprocess="minimal"`.
 Local embedding mode inherits `dagayn serve --local-embedding`. Prefer it on

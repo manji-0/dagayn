@@ -15,6 +15,11 @@ All notable changes to `dagayn` are documented here.
   path) so one repository maps to one graph on case-insensitive filesystems.
   Existing `CRG_DATA_DIR` subdirectories from the old path-hash slug are
   adopted. See: #87
+- Default MCP prompts, tool docstrings, and next-step hints no longer name
+  tools that are missing from the compact surface (`apply_refactor_tool`,
+  `embed_graph_tool`, `list_graph_stats_tool`, `find_large_functions_tool`).
+  Rename apply is `dagayn tool apply_refactor_tool`; suggestions are filtered
+  through the active `--tools` / `CRG_TOOLS` allow-list. See: #107
 - Incremental flow tracing recomputes stored criticality after each pass, so
   adding TESTED_BY coverage (a test file that is not on the flow path) lowers
   review ranking instead of leaving a stale score. See: #114
