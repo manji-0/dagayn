@@ -31,7 +31,8 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_BACKEND = "rust"
 
-# Default ignore patterns (in addition to .gitignore).
+# Default ignore patterns applied after git's indexable set (tracked +
+# untracked, excluding gitignored). ``.dagaynignore`` is an extra restriction.
 #
 # `<dir>/**` patterns are matched at any depth by _should_ignore, so
 # `node_modules/**` also excludes `packages/app/node_modules/react/index.js`
@@ -793,6 +794,22 @@ def get_staged_and_unstaged(repo_root: Path) -> list[str]:
     return _get_git_worktree_change_sources(repo_root)["worktree"]
 
 
+def _git_ls_files(repo_root: Path, extra_args: list[str]) -> list[str]:
+    """Run ``git ls-files -z`` with *extra_args* and split the NUL payload."""
+    cmd = ["git", "ls-files", "-z", *extra_args]
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            cwd=str(repo_root),
+            timeout=_GIT_TIMEOUT,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return []
+    return _nul_fields(result.stdout)
+
+
 def get_all_tracked_files(
     repo_root: Path,
     recurse_submodules: bool | None = None,
@@ -815,24 +832,39 @@ def get_all_tracked_files(
 
         recurse_submodules = bool(inc._RECURSE_SUBMODULES)
 
-    # ``-z``: without it ``core.quotePath`` (on by default) C-quotes any
-    # non-ASCII path, and the quoted literal fails ``is_file()`` -- files with
-    # Japanese or accented names were silently absent from the graph.
-    cmd = ["git", "ls-files", "-z"]
+    extra: list[str] = []
     if recurse_submodules:
-        cmd.append("--recurse-submodules")
+        extra.append("--recurse-submodules")
+    return _git_ls_files(repo_root, extra)
 
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            cwd=str(repo_root),
-            timeout=_GIT_TIMEOUT,
-        )
-        return _nul_fields(result.stdout)
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return []
+
+def get_vcs_indexable_files(
+    repo_root: Path,
+    recurse_submodules: bool | None = None,
+) -> list[str]:
+    """Return git-indexable paths: tracked plus untracked, excluding gitignored.
+
+    This is the working-tree source set for ``build``, ``update``, and
+    ``watch``. ``.dagaynignore`` is applied later by :func:`collect_all_files`.
+    SVN working copies stay tracked-only.
+
+    ``git ls-files --recurse-submodules`` only supports ``--cached``, so
+    untracked files are collected from the superproject only.
+    """
+    if detect_vcs(repo_root) == "svn":
+        return _get_svn_all_tracked_files(repo_root)
+
+    if recurse_submodules is None:
+        from . import incremental as inc
+
+        recurse_submodules = bool(inc._RECURSE_SUBMODULES)
+
+    cached_args = ["--cached"]
+    if recurse_submodules:
+        cached_args.append("--recurse-submodules")
+    cached = _git_ls_files(repo_root, cached_args)
+    others = _git_ls_files(repo_root, ["--others", "--exclude-standard"])
+    return _dedupe_preserve_order(cached + others)
 
 
 def _get_svn_all_tracked_files(repo_root: Path) -> list[str]:
@@ -878,7 +910,11 @@ def collect_all_files(
     repo_root: Path,
     recurse_submodules: bool | None = None,
 ) -> list[str]:
-    """Collect all parseable files in the repo, respecting ignore patterns.
+    """Collect parseable files in the git-indexable set, then apply ``.dagaynignore``.
+
+    Git scope is tracked plus untracked, excluding gitignored. ``.dagaynignore``
+    and :data:`DEFAULT_IGNORE_PATTERNS` are extra restrictions on that set.
+    SVN working copies stay tracked-only.
 
     Args:
         repo_root: Repository root directory.
@@ -908,10 +944,10 @@ def collect_all_files(
     ignore_patterns = _load_ignore_patterns(repo_root)
     parser = CodeParser()
     files = []
-    # Prefer git ls-files for tracked files
-    tracked = get_all_tracked_files(repo_root, recurse_submodules)
-    if tracked:
-        candidates = tracked
+    # Prefer git's indexable set (tracked + untracked, excluding gitignored).
+    indexable = get_vcs_indexable_files(repo_root, recurse_submodules)
+    if indexable:
+        candidates = indexable
     else:
         # Fallback: walk directory
         candidates = [str(p.relative_to(repo_root)) for p in repo_root.rglob("*") if p.is_file()]

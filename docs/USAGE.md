@@ -73,6 +73,10 @@ dagayn status
 ```
 
 Use `build` the first time, `update` for change-driven refreshes, and `watch` during active development.
+`build`, `update`, and `watch` index the same git-indexable set: tracked plus
+untracked working-tree files, excluding gitignored paths, then apply
+`.dagaynignore`. Gitignored generated code is out of scope for watch as well as
+for a full rebuild.
 See [RECIPES.md](./RECIPES.md#single-repo-watch--session-prepare) for session
 prepare and MCP serve variants.
 Use `dagayn build --force-full-build` (or `--force`) to delete the existing

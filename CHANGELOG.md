@@ -6,6 +6,11 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixes
 
+- Full build, incremental update, and watch share git's indexable file set:
+  tracked plus untracked, excluding gitignored. `.dagaynignore` remains an extra
+  restriction. Untracked source is no longer dropped on the next `build`,
+  newly-ignored files are pruned on `update`, and watch no longer indexes
+  gitignored generated code. See: #83
 - Path lookup no longer creates `.dagayn` as a side effect. `db_path_for` /
   `data_dir_for` are read-only; stale registry entries are reported as
   `stale_registry_entry` instead of resurrecting a deleted checkout. Project-root

@@ -1,6 +1,7 @@
 """Tests for the incremental graph update module."""
 
 import subprocess
+from pathlib import Path
 from unittest.mock import MagicMock, patch  # noqa: F401 – patch used in tests
 
 from dagayn.graph import GraphStore
@@ -22,6 +23,7 @@ from dagayn.incremental import (
     get_changed_files,
     get_db_path,
     get_staged_and_unstaged,
+    get_vcs_indexable_files,
     incremental_update,
     is_project_root,
     watch,
@@ -742,6 +744,34 @@ class TestGitOperations:
         cmd = mock_run.call_args[0][0]
         assert "--recurse-submodules" not in cmd
 
+    @patch("dagayn.incremental.subprocess.run")
+    def test_get_vcs_indexable_files_includes_untracked(self, mock_run, tmp_path):
+        mock_run.side_effect = [
+            MagicMock(returncode=0, stdout="tracked.py\0"),
+            MagicMock(returncode=0, stdout="scratch.py\0"),
+        ]
+        result = get_vcs_indexable_files(tmp_path)
+        assert result == ["tracked.py", "scratch.py"]
+        cached_cmd, others_cmd = (call[0][0] for call in mock_run.call_args_list)
+        assert cached_cmd[:3] == ["git", "ls-files", "-z"]
+        assert "--cached" in cached_cmd
+        assert "--others" in others_cmd
+        assert "--exclude-standard" in others_cmd
+        assert "--recurse-submodules" not in cached_cmd
+        assert "--recurse-submodules" not in others_cmd
+
+    @patch("dagayn.incremental.subprocess.run")
+    def test_get_vcs_indexable_files_recurse_only_on_cached(self, mock_run, tmp_path):
+        mock_run.side_effect = [
+            MagicMock(returncode=0, stdout="a.py\0sub/b.py\0"),
+            MagicMock(returncode=0, stdout="scratch.py\0"),
+        ]
+        result = get_vcs_indexable_files(tmp_path, recurse_submodules=True)
+        assert result == ["a.py", "sub/b.py", "scratch.py"]
+        cached_cmd, others_cmd = (call[0][0] for call in mock_run.call_args_list)
+        assert "--recurse-submodules" in cached_cmd
+        assert "--recurse-submodules" not in others_cmd
+
 
 class TestFullBuild:
     def test_full_build_parses_files(self, tmp_path):
@@ -888,6 +918,111 @@ class TestIncrementalUpdate:
 
         assert calls == [(tmp_path.resolve(), store, ["a.py", "b.py"])]
         assert callbacks == [store]
+
+    def test_watch_skips_gitignored_generated_files(self, tmp_path, monkeypatch):
+        (tmp_path / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
+        (tmp_path / "generated.py").write_text("def gen():\n    return 1\n", encoding="utf-8")
+        store = GraphStore(tmp_path / "watch-ignore.db")
+        calls = []
+        timers = []
+
+        class FakeTimer:
+            def __init__(self, _seconds, function):
+                self.function = function
+                timers.append(self)
+
+            def start(self):
+                pass
+
+            def cancel(self):
+                pass
+
+        class FakeObserver:
+            def schedule(self, handler, _path, recursive=True):
+                self.handler = handler
+
+            def start(self):
+                event_a = MagicMock(is_directory=False, src_path=str(tmp_path / "a.py"))
+                event_gen = MagicMock(is_directory=False, src_path=str(tmp_path / "generated.py"))
+                self.handler.on_modified(event_a)
+                self.handler.on_modified(event_gen)
+                timers[-1].function()
+
+            def stop(self):
+                pass
+
+            def join(self):
+                pass
+
+        monkeypatch.setattr("threading.Timer", FakeTimer)
+        monkeypatch.setattr("watchdog.observers.Observer", FakeObserver)
+        monkeypatch.setattr(
+            "dagayn.incremental_build.is_gitignored",
+            lambda _root, rel: Path(rel).name == "generated.py",
+        )
+        monkeypatch.setattr(
+            "dagayn.incremental.incremental_update",
+            lambda repo_root, passed_store, changed_files=None: (
+                calls.append(list(changed_files or [])) or {"files_updated": 1}
+            ),
+        )
+        monkeypatch.setattr("time.sleep", lambda _seconds: (_ for _ in ()).throw(KeyboardInterrupt))
+
+        try:
+            watch(tmp_path, store)
+        finally:
+            store.close()
+
+        assert calls == [["a.py"]]
+
+    def test_watch_schedules_gitignore_changes(self, tmp_path, monkeypatch):
+        (tmp_path / ".gitignore").write_text("generated.py\n", encoding="utf-8")
+        store = GraphStore(tmp_path / "watch-gitignore.db")
+        calls = []
+        timers = []
+
+        class FakeTimer:
+            def __init__(self, _seconds, function):
+                self.function = function
+                timers.append(self)
+
+            def start(self):
+                pass
+
+            def cancel(self):
+                pass
+
+        class FakeObserver:
+            def schedule(self, handler, _path, recursive=True):
+                self.handler = handler
+
+            def start(self):
+                event = MagicMock(is_directory=False, src_path=str(tmp_path / ".gitignore"))
+                self.handler.on_modified(event)
+                timers[-1].function()
+
+            def stop(self):
+                pass
+
+            def join(self):
+                pass
+
+        monkeypatch.setattr("threading.Timer", FakeTimer)
+        monkeypatch.setattr("watchdog.observers.Observer", FakeObserver)
+        monkeypatch.setattr(
+            "dagayn.incremental.incremental_update",
+            lambda repo_root, passed_store, changed_files=None: (
+                calls.append(list(changed_files or [])) or {"files_updated": 1}
+            ),
+        )
+        monkeypatch.setattr("time.sleep", lambda _seconds: (_ for _ in ()).throw(KeyboardInterrupt))
+
+        try:
+            watch(tmp_path, store)
+        finally:
+            store.close()
+
+        assert calls == [[".gitignore"]]
 
 
 class TestParallelParsing:
