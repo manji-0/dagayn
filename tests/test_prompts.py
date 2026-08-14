@@ -1,5 +1,7 @@
 """Tests for MCP prompt templates."""
 
+import re
+
 from dagayn.prompts import (
     architecture_map_prompt,
     debug_issue_prompt,
@@ -109,9 +111,10 @@ class TestOnboardDeveloperPrompt:
             assert "content" in msg
             assert msg["role"] == "user"
 
-    def test_mentions_stats(self):
+    def test_mentions_architecture_overview(self):
         result = onboard_developer_prompt()
-        assert "list_graph_stats_tool" in result[0]["content"]
+        assert "architecture_analysis_tool" in result[0]["content"]
+        assert "list_graph_stats_tool" not in result[0]["content"]
 
     def test_mentions_architecture(self):
         result = onboard_developer_prompt()
@@ -158,6 +161,35 @@ class TestPreMergeCheckPrompt:
     def test_mentions_dead_code(self):
         result = pre_merge_check_prompt()
         assert "dead_code" in result[0]["content"]
+
+    def test_does_not_name_advanced_only_tools(self):
+        result = pre_merge_check_prompt()
+        assert "find_large_functions_tool" not in result[0]["content"]
+        assert "apply_refactor_tool(" not in result[0]["content"]
+
+
+class TestPromptsStayOnDefaultSurface:
+    """Prompts must not tell the agent to call tools missing from the default MCP surface.
+
+    See: #107
+    """
+
+    _MCP_TOOL_SPAN = re.compile(r"`([a-z][a-z0-9_]*_tool)(?:`|\()")
+
+    def test_prompt_mcp_invocations_are_default_surface_tools(self):
+        from dagayn.main import _DEFAULT_MCP_TOOL_NAMES
+
+        prompts = [
+            review_changes_prompt(),
+            architecture_map_prompt(),
+            debug_issue_prompt(),
+            onboard_developer_prompt(),
+            pre_merge_check_prompt(),
+        ]
+        for messages in prompts:
+            named = set(self._MCP_TOOL_SPAN.findall(messages[0]["content"]))
+            extra = named - set(_DEFAULT_MCP_TOOL_NAMES)
+            assert not extra, extra
 
 
 class TestTokenEfficiencyPreamble:

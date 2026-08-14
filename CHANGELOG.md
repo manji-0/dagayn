@@ -4,6 +4,14 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Fixes
+
+- Default MCP prompts, tool docstrings, and next-step hints no longer name
+  tools that are missing from the compact surface (`apply_refactor_tool`,
+  `embed_graph_tool`, `list_graph_stats_tool`, `find_large_functions_tool`).
+  Rename apply is `dagayn tool apply_refactor_tool`; suggestions are filtered
+  through the active `--tools` / `CRG_TOOLS` allow-list. See: #107
+
 ## 4.8.2 — 2026-08-10
 
 ### Fixes
