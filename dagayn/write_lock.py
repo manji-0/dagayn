@@ -31,10 +31,10 @@ from __future__ import annotations
 import logging
 import os
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import IO, Any
+from typing import IO, Protocol
 
 logger = logging.getLogger(__name__)
 
@@ -374,7 +374,18 @@ def drop_store_read_locks(store: object) -> None:
         unbind_store_read_lock(store)
 
 
-def wrap_store_close_to_unbind(store: Any) -> None:
+class _CloseableStore(Protocol):
+    """The narrow shape ``wrap_store_close_to_unbind`` needs from a store.
+
+    Both the Python ``GraphStore`` and the PyO3 native store expose ``close``;
+    only the Python one accepts the attribute assignment (the native store
+    raises and the wrapper falls back to a warning).
+    """
+
+    close: Callable[..., object]
+
+
+def wrap_store_close_to_unbind(store: _CloseableStore) -> None:
     """Ensure a non-Python GraphStore still releases a bound read lock."""
     inner_close = store.close
 

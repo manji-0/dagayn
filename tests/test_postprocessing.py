@@ -894,12 +894,14 @@ class TestNativeStoreStaysOnOneConnection:
         from dagayn.graph.core import GraphStore as PyGraphStore
         from dagayn.postprocessing import run_post_processing
 
-        constructed: list[object] = []
+        constructed: list[str | Path] = []
         original_init = PyGraphStore.__init__
 
-        def tracking_init(self, *args, **kwargs):
-            constructed.append(args[0] if args else kwargs.get("db_path"))
-            original_init(self, *args, **kwargs)
+        def tracking_init(self, *args: object, **kwargs: object) -> None:
+            db_path = args[0] if args else kwargs.get("db_path")
+            if isinstance(db_path, (str, Path)):
+                constructed.append(db_path)
+                original_init(self, db_path)
 
         db = tmp_path / "graph.db"
         store = NativeGraphStore(db)
