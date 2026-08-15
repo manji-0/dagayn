@@ -34,7 +34,7 @@ import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import IO
+from typing import IO, Any
 
 logger = logging.getLogger(__name__)
 
@@ -374,7 +374,7 @@ def drop_store_read_locks(store: object) -> None:
         unbind_store_read_lock(store)
 
 
-def wrap_store_close_to_unbind(store: object) -> None:
+def wrap_store_close_to_unbind(store: Any) -> None:
     """Ensure a non-Python GraphStore still releases a bound read lock."""
     inner_close = store.close
 

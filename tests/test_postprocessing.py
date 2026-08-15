@@ -889,7 +889,7 @@ class TestNativeStoreStaysOnOneConnection:
         except ImportError:
             import pytest
 
-            pytest.skip("native extension not built")
+            pytest.skip("native extension not built")  # ty: ignore[too-many-positional-arguments]
 
         from dagayn.graph.core import GraphStore as PyGraphStore
         from dagayn.postprocessing import run_post_processing

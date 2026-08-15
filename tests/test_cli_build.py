@@ -382,8 +382,6 @@ def test_handle_postprocess_does_not_open_a_cli_graph_store(tmp_path, monkeypatc
 def test_handle_update_closes_metadata_peek_before_rebuild(tmp_path, monkeypatch):
     from dagayn.tools import build as build_tools
 
-    open_stores: list[object] = []
-
     class PeekStore:
         def __init__(self, *_args, **_kwargs):
             self.closed = False
@@ -395,6 +393,8 @@ def test_handle_update_closes_metadata_peek_before_rebuild(tmp_path, monkeypatch
 
         def close(self) -> None:
             self.closed = True
+
+    open_stores: list[PeekStore] = []
 
     def fake_build_or_update_graph(**kwargs):
         assert open_stores, "update should peek git_head_sha"
