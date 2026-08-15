@@ -485,6 +485,7 @@ mod helpers;
 mod impact;
 mod impact_flows;
 mod impact_support;
+mod postprocess_bridges;
 mod query;
 mod relationship_edges;
 mod relationship_traversal;

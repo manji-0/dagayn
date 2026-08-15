@@ -32,32 +32,35 @@ def handle(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     db_path = get_db_path(repo_root)
-    store = GraphStore(db_path)
+    from ...write_lock import graph_read_lock
 
-    try:
-        from ...changes import analyze_changes
-        from ...incremental import get_changed_file_sources, get_staged_and_unstaged
+    with graph_read_lock(db_path):
+        store = GraphStore(db_path)
 
-        base = args.base
-        change_file_sources = get_changed_file_sources(repo_root, base)
-        changed = change_file_sources["files"]
-        if not changed:
-            changed = get_staged_and_unstaged(repo_root)
-            change_file_sources = {"files": changed, "worktree": changed}
+        try:
+            from ...changes import analyze_changes
+            from ...incremental import get_changed_file_sources, get_staged_and_unstaged
 
-        if not changed:
-            print("No changes detected.")
-        else:
-            result = analyze_changes(
-                store,
-                changed,
-                repo_root=str(repo_root),
-                base=base,
-            )
-            result["change_file_sources"] = change_file_sources
-            if args.brief:
-                print(result.get("summary", "No summary available."))
+            base = args.base
+            change_file_sources = get_changed_file_sources(repo_root, base)
+            changed = change_file_sources["files"]
+            if not changed:
+                changed = get_staged_and_unstaged(repo_root)
+                change_file_sources = {"files": changed, "worktree": changed}
+
+            if not changed:
+                print("No changes detected.")
             else:
-                print(json.dumps(result, indent=2, default=str))
-    finally:
-        store.close()
+                result = analyze_changes(
+                    store,
+                    changed,
+                    repo_root=str(repo_root),
+                    base=base,
+                )
+                result["change_file_sources"] = change_file_sources
+                if args.brief:
+                    print(result.get("summary", "No summary available."))
+                else:
+                    print(json.dumps(result, indent=2, default=str))
+        finally:
+            store.close()

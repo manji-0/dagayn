@@ -28,20 +28,23 @@ def handle(args: argparse.Namespace) -> None:
 
     repo_root = Path(args.repo) if args.repo else find_project_root()
     db_path = get_db_path(repo_root)
-    store = GraphStore(db_path)
+    from ...write_lock import graph_read_lock
 
-    try:
-        from ...wiki import generate_wiki
+    with graph_read_lock(db_path):
+        store = GraphStore(db_path)
 
-        wiki_dir = get_data_dir(repo_root) / "wiki"
-        result = generate_wiki(store, wiki_dir, force=args.force)
-        total = result["pages_generated"] + result["pages_updated"] + result["pages_unchanged"]
-        print(
-            f"Wiki: {result['pages_generated']} new, "
-            f"{result['pages_updated']} updated, "
-            f"{result['pages_unchanged']} unchanged "
-            f"({total} total pages)"
-        )
-        print(f"Output: {wiki_dir}")
-    finally:
-        store.close()
+        try:
+            from ...wiki import generate_wiki
+
+            wiki_dir = get_data_dir(repo_root) / "wiki"
+            result = generate_wiki(store, wiki_dir, force=args.force)
+            total = result["pages_generated"] + result["pages_updated"] + result["pages_unchanged"]
+            print(
+                f"Wiki: {result['pages_generated']} new, "
+                f"{result['pages_updated']} updated, "
+                f"{result['pages_unchanged']} unchanged "
+                f"({total} total pages)"
+            )
+            print(f"Output: {wiki_dir}")
+        finally:
+            store.close()

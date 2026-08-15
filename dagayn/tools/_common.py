@@ -26,6 +26,13 @@ from ..state_types import (
     seal_guidance_item,
     seal_missingness_item,
 )
+from ..write_lock import (
+    acquire_graph_lock,
+    bind_store_read_lock,
+    release_graph_lock,
+    wrap_store_close_to_unbind,
+    write_lock_is_held,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -292,10 +299,10 @@ def resolve_contained_path(rel_path: str, repo_root: Path) -> Path | None:
 
 # --- Process-level GraphStore cache (Section 2.3 in PERFORMANCE-IMPROVEMENTS) -
 #
-# Read-only MCP tool calls reuse a single :class:`GraphStore` instance per
-# database file across invocations.  The cache key is the resolved
-# :class:`Path` to the SQLite file; staleness is detected via
-# ``(st_mtime, PRAGMA data_version)``.  When either moves, the previous
+# Concurrent read-only MCP tool calls reuse a single :class:`GraphStore`
+# instance per database file while any of them still holds a lease.  The cache
+# key is the resolved :class:`Path` to the SQLite file; staleness is detected
+# via ``(st_mtime, PRAGMA data_version)``.  When either moves, the previous
 # instance is force-closed and a fresh one is created so that any mutation
 # done by another connection (e.g. a write tool, the watch daemon,
 # ``dagayn build``) is reflected -- including the derived caches
@@ -307,9 +314,10 @@ def resolve_contained_path(rel_path: str, repo_root: Path) -> Path | None:
 # ``dagayn serve`` therefore answered impact/topology questions from a
 # NetworkX snapshot taken before the write, indefinitely.
 #
-# Cached stores have ``_pinned = True``; their :meth:`GraphStore.close`
-# becomes a no-op so existing ``finally: store.close()`` blocks in tool
-# handlers continue to work but no longer destroy the connection.
+# The last ``close()`` (leases → 0) closes the SQLite connection and drops the
+# shared flock. Idle MCP must not keep a reader handle open: that is what
+# overlapped ``dagayn build`` and tore ``sqlite_master`` under mmap+WAL.
+# Concurrent overlapping ``_get_store`` calls still share one connection.
 #
 # Set ``DAGAYN_DISABLE_STORE_CACHE=1`` (or call :func:`_get_store` with
 # ``cached=False``) to disable this and revert to a fresh ``GraphStore``
@@ -382,6 +390,34 @@ def _get_store(
     """Resolve repo root and return a (possibly cached) graph store."""
     root = _validate_repo_root(Path(repo_root)) if repo_root else find_project_root()
     db_path = get_db_path(root)
+    owns_read_lock = not write_lock_is_held(db_path)
+    if owns_read_lock:
+        acquire_graph_lock(db_path, exclusive=False)
+    try:
+        store, root = _open_store(
+            root,
+            db_path,
+            cached=cached,
+            use_backend_default=use_backend_default,
+        )
+    except BaseException:
+        if owns_read_lock:
+            release_graph_lock(db_path)
+        raise
+    if owns_read_lock:
+        bind_store_read_lock(store, db_path)
+        if not hasattr(store, "_conn"):
+            wrap_store_close_to_unbind(store)
+    return store, root
+
+
+def _open_store(
+    root: Path,
+    db_path: Path,
+    *,
+    cached: bool,
+    use_backend_default: bool,
+) -> tuple[GraphStore, Path]:
     store_cls = _selected_graph_store(use_backend_default=use_backend_default)
     if store_cls is not GraphStore:
         return store_cls(db_path), root
@@ -410,13 +446,17 @@ def _get_store(
             # still checked because a replaced file (worktree seeding) gives the
             # open handle no new data_version at all.
             current_version = _data_version(cached_store)
-            if cached_mtime == mtime and cached_version == current_version:
+            if (
+                cached_store._leases > 0
+                and cached_mtime == mtime
+                and cached_version == current_version
+            ):
                 # Acquire a lease atomically while holding the lock so
                 # a concurrent _evict_store_cache cannot race between
                 # the lookup and the increment.
                 cached_store._leases += 1
                 return cached_store, root
-            # Stale: drop and re-open.
+            # Stale or idle: drop and re-open.
             cached_store._pinned = False
             if cached_store._leases == 0:
                 try:

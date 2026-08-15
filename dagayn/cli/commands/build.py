@@ -441,27 +441,22 @@ def handle(args: argparse.Namespace) -> None:
 
     if args.command == "postprocess":
         repo_root = Path(args.repo) if args.repo else find_project_root()
-        db_path = get_db_path(repo_root)
-        store = GraphStore(db_path)
-        try:
-            from ...tools.build import run_postprocess
+        from ...tools.build import run_postprocess
 
-            result = run_postprocess(
-                flows=not getattr(args, "no_flows", False),
-                communities=not getattr(args, "no_communities", False),
-                fts=not getattr(args, "no_fts", False),
-                repo_root=str(repo_root),
-            )
-            parts = []
-            if result.get("flows_detected"):
-                parts.append(f"{result['flows_detected']} flows")
-            if result.get("communities_detected"):
-                parts.append(f"{result['communities_detected']} communities")
-            if result.get("fts_indexed"):
-                parts.append(f"{result['fts_indexed']} FTS entries")
-            print(f"Post-processing: {', '.join(parts) or 'done'}")
-        finally:
-            store.close()
+        result = run_postprocess(
+            flows=not getattr(args, "no_flows", False),
+            communities=not getattr(args, "no_communities", False),
+            fts=not getattr(args, "no_fts", False),
+            repo_root=str(repo_root),
+        )
+        parts = []
+        if result.get("flows_detected"):
+            parts.append(f"{result['flows_detected']} flows")
+        if result.get("communities_detected"):
+            parts.append(f"{result['communities_detected']} communities")
+        if result.get("fts_indexed"):
+            parts.append(f"{result['fts_indexed']} FTS entries")
+        print(f"Post-processing: {', '.join(parts) or 'done'}")
         return
 
     if args.command == "update":
@@ -496,106 +491,125 @@ def handle(args: argparse.Namespace) -> None:
         _evict_store_cache(db_path)
         _remove_existing_graph_database(db_path)
 
+    # build / update open their own backend store. Holding a second mmap'd
+    # GraphStore here used to corrupt sqlite_master during postprocess.
+    if args.command == "build":
+        pp = (
+            "none"
+            if getattr(args, "skip_postprocess", False)
+            else ("minimal" if getattr(args, "skip_flows", False) else "full")
+        )
+        from ...tools.build import build_or_update_graph
+
+        result = build_or_update_graph(
+            full_rebuild=True,
+            repo_root=str(repo_root),
+            postprocess=pp,
+            local_embedding=getattr(args, "local_embedding", "none"),
+            local_embedding_mode=getattr(args, "local_embedding_mode", None),
+            local_embedding_port=getattr(args, "local_embedding_port", None),
+            local_embedding_bin=getattr(
+                args,
+                "local_embedding_bin",
+                DEFAULT_LOCAL_EMBEDDING_BIN,
+            ),
+            keep_local_embedding_server=getattr(
+                args,
+                "keep_local_embedding_server",
+                False,
+            ),
+            local_embedding_timeout=getattr(args, "local_embedding_timeout", 300),
+            local_embedding_request_timeout=getattr(
+                args,
+                "local_embedding_request_timeout",
+                60,
+            ),
+            local_embedding_batch_size=getattr(args, "local_embedding_batch_size", 1),
+        )
+        parsed = result.get("files_parsed", 0)
+        nodes = result.get("total_nodes", 0)
+        edges = result.get("total_edges", 0)
+        print(f"Full build: {parsed} files, {nodes} nodes, {edges} edges (postprocess={pp})")
+        if result.get("errors"):
+            print(f"Errors: {len(result['errors'])}")
+        _print_local_embedding_summary(result)
+        if pp != "none":
+            _print_postprocess_summary(result)
+        return
+
+    if args.command == "update":
+        pp = (
+            "none"
+            if getattr(args, "skip_postprocess", False)
+            else ("minimal" if getattr(args, "skip_flows", False) else "full")
+        )
+        from ...tools.build import build_or_update_graph
+
+        # Diff against the commit the graph actually describes — the same
+        # base order as ``session prepare`` / ``worktree sync``. Defaulting
+        # to HEAD~1 silently skipped every commit in between: an edit hook
+        # firing after a multi-commit ``git pull`` would index only the last
+        # commit's files and then stamp the new HEAD as the graph's commit.
+        base = args.base
+        if base is None:
+            from ...write_lock import graph_read_lock
+
+            with graph_read_lock(db_path):
+                peek = GraphStore(db_path)
+                try:
+                    base = peek.get_metadata("git_head_sha") or "HEAD~1"
+                finally:
+                    peek.close()
+
+        result = build_or_update_graph(
+            full_rebuild=False,
+            repo_root=str(repo_root),
+            base=base,
+            postprocess=pp,
+            local_embedding=getattr(args, "local_embedding", "none"),
+            local_embedding_mode=getattr(args, "local_embedding_mode", None),
+            local_embedding_port=getattr(args, "local_embedding_port", None),
+            local_embedding_bin=getattr(
+                args,
+                "local_embedding_bin",
+                DEFAULT_LOCAL_EMBEDDING_BIN,
+            ),
+            keep_local_embedding_server=getattr(
+                args,
+                "keep_local_embedding_server",
+                False,
+            ),
+            local_embedding_timeout=getattr(args, "local_embedding_timeout", 300),
+            local_embedding_request_timeout=getattr(
+                args,
+                "local_embedding_request_timeout",
+                60,
+            ),
+            local_embedding_batch_size=getattr(args, "local_embedding_batch_size", 1),
+        )
+        updated = result.get("files_updated", 0)
+        nodes = result.get("total_nodes", 0)
+        edges = result.get("total_edges", 0)
+        print(
+            f"Incremental: {updated} files updated, {nodes} nodes, {edges} edges (postprocess={pp})"
+        )
+        _print_local_embedding_summary(result)
+        if pp != "none" and result.get("files_updated", 0) > 0:
+            _print_postprocess_summary(result)
+        return
+
+    # status / visualize / architecture reads share the graph lock with MCP
+    # so they wait for ``dagayn build`` and vice versa. ``watch`` keeps this
+    # store open for the session and takes the write lock per update instead.
+    from ...write_lock import graph_read_lock
+
+    read_lock = graph_read_lock(db_path) if args.command != "watch" else None
+    if read_lock is not None:
+        read_lock.__enter__()
     store = GraphStore(db_path)
 
     try:
-        if args.command == "build":
-            pp = (
-                "none"
-                if getattr(args, "skip_postprocess", False)
-                else ("minimal" if getattr(args, "skip_flows", False) else "full")
-            )
-            from ...tools.build import build_or_update_graph
-
-            result = build_or_update_graph(
-                full_rebuild=True,
-                repo_root=str(repo_root),
-                postprocess=pp,
-                local_embedding=getattr(args, "local_embedding", "none"),
-                local_embedding_mode=getattr(args, "local_embedding_mode", None),
-                local_embedding_port=getattr(args, "local_embedding_port", None),
-                local_embedding_bin=getattr(
-                    args,
-                    "local_embedding_bin",
-                    DEFAULT_LOCAL_EMBEDDING_BIN,
-                ),
-                keep_local_embedding_server=getattr(
-                    args,
-                    "keep_local_embedding_server",
-                    False,
-                ),
-                local_embedding_timeout=getattr(args, "local_embedding_timeout", 300),
-                local_embedding_request_timeout=getattr(
-                    args,
-                    "local_embedding_request_timeout",
-                    60,
-                ),
-                local_embedding_batch_size=getattr(args, "local_embedding_batch_size", 1),
-            )
-            parsed = result.get("files_parsed", 0)
-            nodes = result.get("total_nodes", 0)
-            edges = result.get("total_edges", 0)
-            print(f"Full build: {parsed} files, {nodes} nodes, {edges} edges (postprocess={pp})")
-            if result.get("errors"):
-                print(f"Errors: {len(result['errors'])}")
-            _print_local_embedding_summary(result)
-            if pp != "none":
-                _print_postprocess_summary(result)
-
-        elif args.command == "update":
-            pp = (
-                "none"
-                if getattr(args, "skip_postprocess", False)
-                else ("minimal" if getattr(args, "skip_flows", False) else "full")
-            )
-            from ...tools.build import build_or_update_graph
-
-            # Diff against the commit the graph actually describes — the same
-            # base order as ``session prepare`` / ``worktree sync``. Defaulting
-            # to HEAD~1 silently skipped every commit in between: an edit hook
-            # firing after a multi-commit ``git pull`` would index only the last
-            # commit's files and then stamp the new HEAD as the graph's commit.
-            base = args.base or store.get_metadata("git_head_sha") or "HEAD~1"
-
-            result = build_or_update_graph(
-                full_rebuild=False,
-                repo_root=str(repo_root),
-                base=base,
-                postprocess=pp,
-                local_embedding=getattr(args, "local_embedding", "none"),
-                local_embedding_mode=getattr(args, "local_embedding_mode", None),
-                local_embedding_port=getattr(args, "local_embedding_port", None),
-                local_embedding_bin=getattr(
-                    args,
-                    "local_embedding_bin",
-                    DEFAULT_LOCAL_EMBEDDING_BIN,
-                ),
-                keep_local_embedding_server=getattr(
-                    args,
-                    "keep_local_embedding_server",
-                    False,
-                ),
-                local_embedding_timeout=getattr(args, "local_embedding_timeout", 300),
-                local_embedding_request_timeout=getattr(
-                    args,
-                    "local_embedding_request_timeout",
-                    60,
-                ),
-                local_embedding_batch_size=getattr(args, "local_embedding_batch_size", 1),
-            )
-            updated = result.get("files_updated", 0)
-            nodes = result.get("total_nodes", 0)
-            edges = result.get("total_edges", 0)
-            print(
-                f"Incremental: {updated} files updated, "
-                f"{nodes} nodes, {edges} edges"
-                f" (postprocess={pp})"
-            )
-            _print_local_embedding_summary(result)
-            if pp != "none" and result.get("files_updated", 0) > 0:
-                _print_postprocess_summary(result)
-
-        elif args.command == "status":
+        if args.command == "status":
             stats = store.get_stats()
             print(f"Nodes: {stats.total_nodes}")
             print(f"Edges: {stats.total_edges}")
@@ -826,3 +840,5 @@ def handle(args: argparse.Namespace) -> None:
 
     finally:
         store.close()
+        if read_lock is not None:
+            read_lock.__exit__(None, None, None)

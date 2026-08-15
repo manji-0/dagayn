@@ -17,7 +17,9 @@ impl GraphStore {
         conn.pragma_update(None, "busy_timeout", 5000)?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
         conn.pragma_update(None, "cache_size", -64000)?;
-        conn.pragma_update(None, "mmap_size", 268435456)?;
+        // mmap + WAL corrupts sqlite_master when another connection
+        // checkpoints (CLI Python store overlapping this backend).
+        conn.pragma_update(None, "mmap_size", 0)?;
         conn.pragma_update(None, "temp_store", "MEMORY")?;
         let store = Self {
             conn,

@@ -10,6 +10,7 @@ from ..graph import GraphStore
 from ..paths import db_path_for
 from ..search import hybrid_search
 from ..state_types import seal_missingness_item
+from ..write_lock import graph_read_lock
 from ._common import handle_tool_runtime_error, make_response
 
 logger = logging.getLogger(__name__)
@@ -110,30 +111,31 @@ def cross_repo_search_func(
                 continue
 
             try:
-                store = GraphStore(str(db_path))
-                try:
-                    hs = hybrid_search(
-                        store,
-                        query,
-                        kind=kind,
-                        limit=limit,
-                        model=model,
-                        provider=provider,
-                    )
-                    for r in hs["results"]:
-                        r["repo"] = alias
-                        r["repo_path"] = str(repo_path)
-                    all_results.extend(hs["results"])
-                    searched_repos.append(alias)
-                    # Per-repo mode matters for interpreting merged scores: a
-                    # keyword-only fallback and a full hybrid arm are not on the
-                    # same scale.
-                    repo_modes[alias] = {
-                        "mode": hs.get("mode"),
-                        "embedding_health": hs.get("embedding_health") or {},
-                    }
-                finally:
-                    store.close()
+                with graph_read_lock(db_path):
+                    store = GraphStore(str(db_path))
+                    try:
+                        hs = hybrid_search(
+                            store,
+                            query,
+                            kind=kind,
+                            limit=limit,
+                            model=model,
+                            provider=provider,
+                        )
+                        for r in hs["results"]:
+                            r["repo"] = alias
+                            r["repo_path"] = str(repo_path)
+                        all_results.extend(hs["results"])
+                        searched_repos.append(alias)
+                        # Per-repo mode matters for interpreting merged scores: a
+                        # keyword-only fallback and a full hybrid arm are not on the
+                        # same scale.
+                        repo_modes[alias] = {
+                            "mode": hs.get("mode"),
+                            "embedding_health": hs.get("embedding_health") or {},
+                        }
+                    finally:
+                        store.close()
             except Exception as exc:
                 logger.warning("Search failed for %s: %s", repo_path, exc)
                 skipped_repos.append(

@@ -1829,6 +1829,21 @@ class TestBuildPostprocess:
             def resolve_markdown_artifact_refs(self):
                 return (0, 0)
 
+            def demote_unresolved_endpoint_edges(self):
+                return 0
+
+            def resolve_terraform_artifact_refs(self):
+                return (0, 0)
+
+            def resolve_bare_call_targets(self):
+                return 0
+
+            def resolve_bare_inheritance_targets(self):
+                return 0
+
+            def replace_manifest_bridges_json(self, *_args):
+                return 0
+
         store = FakeRustStore()
         selected, should_close = _postprocess_store(store, self.root, "minimal")
 
@@ -1999,6 +2014,73 @@ class TestBuildPostprocess:
         assert result["summary"] == "No changes detected. Graph is up to date."
         assert result["local_embedding_skipped"]["reason"] == "hook_update_no_changes"
         run.assert_not_called()
+
+    def test_local_embedding_runs_after_graph_store_close(self, monkeypatch):
+        import sqlite3
+        from unittest.mock import patch
+
+        from dagayn.tools.build import _get_store, build_or_update_graph
+
+        monkeypatch.setenv("DAGAYN_BACKEND", "python")
+        embed_result = {
+            "status": "ok",
+            "preset": "low",
+            "model": "qwen3-embedding-0.6b-gguf-q8_0",
+            "dimension": 1024,
+            "newly_embedded": 0,
+            "total_embeddings": 0,
+        }
+        stores: list = []
+
+        def tracking_get_store(*args, **kwargs):
+            store, root = _get_store(*args, **kwargs)
+            stores.append(store)
+            return store, root
+
+        def fake_embed(*_args, **_kwargs):
+            assert stores, "build never opened a graph store"
+            with pytest.raises((sqlite3.ProgrammingError, sqlite3.Error)):
+                stores[0]._conn.execute("SELECT 1")
+            return embed_result
+
+        with (
+            patch(
+                "dagayn.incremental.get_all_tracked_files",
+                return_value=["sample.py"],
+            ),
+            patch("dagayn.tools.build._get_store", side_effect=tracking_get_store),
+            patch("dagayn.tools.build._run_local_embedding", side_effect=fake_embed) as run,
+        ):
+            result = build_or_update_graph(
+                full_rebuild=True,
+                repo_root=str(self.root),
+                postprocess="minimal",
+                local_embedding="low",
+            )
+
+        assert result["local_embedding"] == embed_result
+        run.assert_called_once()
+
+    def test_run_postprocess_takes_write_lock(self, monkeypatch):
+        from unittest.mock import MagicMock, patch
+
+        from dagayn.tools.build import run_postprocess
+
+        monkeypatch.setenv("DAGAYN_BACKEND", "python")
+        lock = MagicMock()
+        lock.__enter__ = MagicMock(return_value=lock)
+        lock.__exit__ = MagicMock(return_value=False)
+        with patch("dagayn.tools.build.graph_write_lock", return_value=lock) as locked:
+            result = run_postprocess(
+                flows=False,
+                communities=False,
+                fts=False,
+                repo_root=str(self.root),
+            )
+        assert result["status"] == "ok"
+        locked.assert_called_once()
+        lock.__enter__.assert_called_once()
+        lock.__exit__.assert_called_once()
 
     def test_run_local_embedding_uses_separate_request_timeout(self, monkeypatch):
         from contextlib import contextmanager

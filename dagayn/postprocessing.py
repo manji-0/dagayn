@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -45,23 +46,32 @@ _NODE_QUALIFIED_EDGE_KINDS = (
 )
 
 
+def _native_method(store: GraphStore, name: str) -> Any | None:
+    """Return a native GraphStore method when the current connection exposes it."""
+    method = getattr(store, name, None)
+    return method if callable(method) else None
+
+
 def _demote_unresolved_endpoint_edges(
     store: GraphStore,
     result: dict[str, Any],
     warnings: list[str],
 ) -> None:
     """Lower confidence on edges whose node-qualified endpoints are absent."""
-    sql_store = store
-    owns_sql_store = False
+    native = _native_method(store, "demote_unresolved_endpoint_edges")
+    if native is not None:
+        try:
+            result["unresolved_endpoint_edges_demoted"] = int(native())
+        except (OSError, RuntimeError, TypeError, ValueError) as e:
+            logger.warning("Unresolved endpoint demotion failed: %s", e)
+            warnings.append(f"Unresolved endpoint demotion failed: {type(e).__name__}: {e}")
+        return
     if not hasattr(store, "_conn"):
-        repo_root = _store_repo_root(store)
-        if repo_root is None:
-            result["unresolved_endpoint_edges_demoted"] = 0
-            return
-        sql_store, owns_sql_store = _sql_capable_store(store, repo_root)
+        result["unresolved_endpoint_edges_demoted"] = 0
+        return
 
     try:
-        conn = sql_store._conn
+        conn = store._conn
         placeholders = ", ".join("?" for _ in _NODE_QUALIFIED_EDGE_KINDS)
         updated = conn.execute(
             f"""
@@ -84,21 +94,13 @@ def _demote_unresolved_endpoint_edges(
             _NODE_QUALIFIED_EDGE_KINDS,
         ).rowcount
         conn.commit()
-        invalidate = getattr(sql_store, "_invalidate_cache", None)
+        invalidate = getattr(store, "_invalidate_cache", None)
         if callable(invalidate):
             invalidate()
-        invalidate_primary = getattr(store, "_invalidate_cache", None)
-        if callable(invalidate_primary) and store is not sql_store:
-            invalidate_primary()
         result["unresolved_endpoint_edges_demoted"] = int(updated)
     except (sqlite3.OperationalError, OSError, RuntimeError, TypeError, ValueError) as e:
         logger.warning("Unresolved endpoint demotion failed: %s", e)
         warnings.append(f"Unresolved endpoint demotion failed: {type(e).__name__}: {e}")
-    finally:
-        if owns_sql_store and sql_store is not None:
-            closer = getattr(sql_store, "_force_close", None) or getattr(sql_store, "close", None)
-            if callable(closer):
-                closer()
 
 
 def run_post_processing(store: GraphStore) -> dict[str, Any]:
@@ -412,20 +414,6 @@ def _store_repo_root(store: GraphStore) -> Path | None:
     return None
 
 
-def _sql_capable_store(store: GraphStore, repo_root: Path) -> tuple[GraphStore, bool]:
-    """Return a store with ``_conn`` for transactional SQL.
-
-    The default Rust GraphStore does not expose sqlite handles. Open a short-lived
-    Python GraphStore on the same DB path when needed (WAL + busy_timeout).
-    """
-    if hasattr(store, "_conn"):
-        return store, False
-    from .graph.core import GraphStore as PyGraphStore
-    from .incremental_files import get_db_path
-
-    return PyGraphStore(get_db_path(repo_root)), True
-
-
 def _apply_manifest_bridges(
     store: GraphStore,
     result: dict[str, Any],
@@ -438,8 +426,6 @@ def _apply_manifest_bridges(
     ``BEGIN IMMEDIATE`` transaction.  Failure leaves prior bridges intact.
     Existing parser ``File`` rows are left untouched so hash/mtime survive.
     """
-    sql_store: GraphStore | None = None
-    owns_sql_store = False
     try:
         from .parser.manifest_bridges import (
             EXTRACTOR_ID,
@@ -457,49 +443,55 @@ def _apply_manifest_bridges(
         discovered = discover_manifest_bridges(repo_root)
         refine_node_line_ends(repo_root, discovered.nodes)
 
-        sql_store, owns_sql_store = _sql_capable_store(store, repo_root)
-        conn = sql_store._conn
-        with store_write_transaction(sql_store):
+        native = _native_method(store, "replace_manifest_bridges_json")
+        if native is not None:
+            nodes_upserted = int(
+                native(
+                    EXTRACTOR_ID,
+                    json.dumps([asdict(node) for node in discovered.nodes]),
+                    json.dumps([asdict(edge) for edge in discovered.edges]),
+                )
+            )
+            result["manifest_bridges_edges"] = discovered.edge_count
+            result["manifest_bridges_nodes"] = nodes_upserted
+            return
+
+        if not hasattr(store, "_conn"):
+            result["manifest_bridges_edges"] = 0
+            result["manifest_bridges_nodes"] = 0
+            return
+
+        conn = store._conn
+        with store_write_transaction(store):
             conn.execute(
-                "DELETE FROM edges WHERE kind='CROSS_ARTIFACT' AND extra LIKE ?",
-                (f'%"extractor": "{EXTRACTOR_ID}"%',),
+                "DELETE FROM edges WHERE kind='CROSS_ARTIFACT' "
+                "AND json_extract(extra, '$.extractor') = ?",
+                (EXTRACTOR_ID,),
             )
             conn.execute(
-                "DELETE FROM nodes WHERE kind='File' AND extra LIKE ?",
-                (f'%"extractor": "{EXTRACTOR_ID}"%',),
+                "DELETE FROM nodes WHERE kind='File' AND json_extract(extra, '$.extractor') = ?",
+                (EXTRACTOR_ID,),
             )
 
             nodes_upserted = 0
             for node in discovered.nodes:
                 # Skip existing File rows (typically parser-owned) so we do not
                 # clobber file_hash / mtime_ns / extra used by incremental skip.
-                if node.kind == "File" and sql_store.get_node(node.file_path) is not None:
+                if node.kind == "File" and store.get_node(node.file_path) is not None:
                     continue
-                sql_store.upsert_node(node)
+                store.upsert_node(node)
                 nodes_upserted += 1
             for edge in discovered.edges:
-                sql_store.upsert_edge(edge)
-        invalidate = getattr(sql_store, "_invalidate_cache", None)
+                store.upsert_edge(edge)
+        invalidate = getattr(store, "_invalidate_cache", None)
         if callable(invalidate):
             invalidate()
-        # Rust callers hold a separate connection; drop process caches if present.
-        invalidate_primary = getattr(store, "_invalidate_cache", None)
-        if callable(invalidate_primary) and store is not sql_store:
-            invalidate_primary()
 
         result["manifest_bridges_edges"] = discovered.edge_count
         result["manifest_bridges_nodes"] = nodes_upserted
     except (sqlite3.OperationalError, OSError, RuntimeError, TypeError, ValueError) as e:
         logger.warning("Manifest bridge extraction failed: %s", e)
         warnings.append(f"Manifest bridge extraction failed: {type(e).__name__}: {e}")
-    finally:
-        if owns_sql_store and sql_store is not None:
-            closer = getattr(sql_store, "_force_close", None) or getattr(sql_store, "close", None)
-            if callable(closer):
-                try:
-                    closer()
-                except Exception:  # noqa: BLE001 — defensive cleanup  # nosec B110
-                    pass
 
 
 def _resolve_terraform_artifact_refs(
@@ -514,24 +506,25 @@ def _resolve_terraform_artifact_refs(
     non-Markdown Function/Test named ``attr`` whose file stem is ``module``.
     Path-based Terraform bridges are already concrete and left untouched.
     """
+    native = _native_method(store, "resolve_terraform_artifact_refs")
+    if native is not None:
+        try:
+            resolved, still_unresolved = native()
+            result["terraform_artifact_refs_resolved"] = int(resolved)
+            result["terraform_artifact_refs_still_unresolved"] = int(still_unresolved)
+        except (OSError, RuntimeError, TypeError, ValueError) as e:
+            logger.warning("Terraform artifact ref resolution failed: %s", e)
+            warnings.append(f"Terraform artifact ref resolution failed: {type(e).__name__}: {e}")
+        return
+    if not hasattr(store, "_conn"):
+        result["terraform_artifact_refs_resolved"] = 0
+        result["terraform_artifact_refs_still_unresolved"] = 0
+        return
+
     resolved = 0
     still_unresolved = 0
-    # The default Rust store exposes no sqlite handle; borrow a short-lived
-    # Python store on the same database, as the manifest bridge path does.
-    # Reaching for ``store._conn`` directly made every build and update on the
-    # default backend fail in post-processing.
-    sql_store: GraphStore = store
-    owns_sql_store = False
-    if not hasattr(store, "_conn"):
-        repo_root = _store_repo_root(store)
-        if repo_root is None:
-            result["terraform_artifact_refs_resolved"] = 0
-            result["terraform_artifact_refs_still_unresolved"] = 0
-            return
-        sql_store, owns_sql_store = _sql_capable_store(store, repo_root)
-
     try:
-        rows = sql_store._conn.execute(
+        rows = store._conn.execute(
             "SELECT id, target_qualified, extra "
             "FROM edges "
             "WHERE kind='CROSS_ARTIFACT' AND extra LIKE '%original_symbol_name%'"
@@ -561,7 +554,7 @@ def _resolve_terraform_artifact_refs(
 
         to_update: list[tuple[Any, ...]] = []
         for edge_id, current_target, sym, extra in edge_data:
-            match = _resolve_terraform_entrypoint_symbol(sql_store, sym)
+            match = _resolve_terraform_entrypoint_symbol(store, sym)
             if match is None:
                 still_unresolved += 1
                 continue
@@ -578,31 +571,19 @@ def _resolve_terraform_artifact_refs(
             resolved += 1
 
         if to_update:
-            sql_store._conn.executemany(
+            store._conn.executemany(
                 "UPDATE edges "
                 "SET target_qualified=?, target_name=?, extra=?, confidence=?, confidence_tier=? "
                 "WHERE id=?",
                 to_update,
             )
-            sql_store.commit()
-            # A Rust caller holds its own connection; drop its process caches.
-            invalidate_primary = getattr(store, "_invalidate_cache", None)
-            if callable(invalidate_primary) and store is not sql_store:
-                invalidate_primary()
+            store.commit()
 
         result["terraform_artifact_refs_resolved"] = resolved
         result["terraform_artifact_refs_still_unresolved"] = still_unresolved
     except (sqlite3.OperationalError, RuntimeError) as e:
         logger.warning("Terraform artifact ref resolution failed: %s", e)
         warnings.append(f"Terraform artifact ref resolution failed: {type(e).__name__}: {e}")
-    finally:
-        if owns_sql_store:
-            closer = getattr(sql_store, "_force_close", None) or getattr(sql_store, "close", None)
-            if callable(closer):
-                try:
-                    closer()
-                except Exception:  # noqa: BLE001 — defensive cleanup  # nosec B110
-                    pass
 
 
 def _resolve_terraform_entrypoint_symbol(
@@ -717,32 +698,32 @@ def _resolve_bare_name_edges(
     warnings: list[str],
 ) -> None:
     """Resolve bare-name CALLS and INHERITS/IMPLEMENTS edges using import context."""
-    sql_store = store
-    owns_sql_store = False
-    try:
-        if not hasattr(store, "_conn"):
-            repo_root = _store_repo_root(store)
-            if repo_root is None:
-                return
-            sql_store, owns_sql_store = _sql_capable_store(store, repo_root)
+    native_calls = _native_method(store, "resolve_bare_call_targets")
+    native_inherits = _native_method(store, "resolve_bare_inheritance_targets")
+    if native_calls is not None and native_inherits is not None:
+        try:
+            result["bare_call_targets_resolved"] = int(native_calls())
+            result["bare_inheritance_targets_resolved"] = int(native_inherits())
+        except (OSError, RuntimeError, TypeError, AttributeError) as e:
+            logger.warning("Bare-name edge resolution failed: %s", e)
+            warnings.append(f"Bare-name edge resolution failed: {type(e).__name__}: {e}")
+        return
+    if not hasattr(store, "_conn"):
+        result["bare_call_targets_resolved"] = 0
+        result["bare_inheritance_targets_resolved"] = 0
+        return
 
+    try:
         from .bare_name_resolution import (
             resolve_bare_call_targets,
             resolve_bare_inheritance_targets,
         )
 
-        result["bare_call_targets_resolved"] = int(resolve_bare_call_targets(sql_store))
-        result["bare_inheritance_targets_resolved"] = int(
-            resolve_bare_inheritance_targets(sql_store)
-        )
+        result["bare_call_targets_resolved"] = int(resolve_bare_call_targets(store))
+        result["bare_inheritance_targets_resolved"] = int(resolve_bare_inheritance_targets(store))
     except (sqlite3.OperationalError, RuntimeError, TypeError, AttributeError) as e:
         logger.warning("Bare-name edge resolution failed: %s", e)
         warnings.append(f"Bare-name edge resolution failed: {type(e).__name__}: {e}")
-    finally:
-        if owns_sql_store and sql_store is not None:
-            closer = getattr(sql_store, "_force_close", None) or getattr(sql_store, "close", None)
-            if callable(closer):
-                closer()
 
 
 def _trace_flows(

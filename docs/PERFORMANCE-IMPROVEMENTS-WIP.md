@@ -166,7 +166,7 @@ Because `_nxg_cache` is an **instance variable**, it is discarded every time `st
 
 ### 2.3 Fix A — process-level store cache ✅ Shipped
 
-**Status:** Shipped. `dagayn/tools/_common.py:234-320` implements `_store_cache` (dict keyed on `db_path`) + `_store_lock`, with `mtime`-based staleness detection, `_pinned` / `_leases` reference counting, and a `DAGAYN_DISABLE_STORE_CACHE` escape hatch. Write tools open their own transient `GraphStore` and do not touch the cache.
+**Status:** Shipped. `dagayn/tools/_common.py` implements `_store_cache` (dict keyed on `db_path`) + `_store_lock`, with `mtime`/`data_version` staleness detection, `_leases` reference counting, and a `DAGAYN_DISABLE_STORE_CACHE` escape hatch. Concurrent overlapping reads share one connection; the last `close()` drops the handle and the shared flock so a writer can proceed. Write tools open their own transient `GraphStore` under an exclusive lock.
 
 ~~Original proposed sketch (for reference):~~
 
@@ -329,10 +329,13 @@ Items below were identified in a follow-up audit. Several have since shipped
 
 - `synchronous=NORMAL` — WAL does not need `FULL` fsync; reduces write overhead.
 - `cache_size=-64000` — 64 MB page cache (was the SQLite default of ~2 MB).
-- `mmap_size=268435456` — 256 MB memory-mapped I/O for read-heavy queries.
+- `mmap_size=0` — mmap was 256 MB, then disabled: WAL plus a second GraphStore
+  (CLI overlapping the Rust backend) tore `sqlite_master` on checkpoint
+  (`malformed database schema (<community-name>)`). Postprocess no longer opens
+  a sidecar Python GraphStore on the same file.
 - `temp_store=MEMORY` — temp tables go to RAM instead of disk.
 
-Same set of PRAGMAs added to `EmbeddingStore` (32 MB / 128 MB).
+Same set of PRAGMAs added to `EmbeddingStore` (32 MB cache; mmap also off).
 
 ### 4.2 CodeParser singleton per worker (quick win — shipped)
 

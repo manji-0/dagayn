@@ -15,6 +15,11 @@
 Use `dagayn build --force-full-build` when you need a clean graph rebuild from
 scratch. It removes the existing `graph.db` plus SQLite sidecar files before
 running the normal full parse. `--force` is accepted as a shorter alias.
+The CLI does not keep a second GraphStore open across that rebuild: a leftover
+WAL+mmap connection used to corrupt `sqlite_master` during postprocess.
+Postprocess SQL stays on the build store's connection; local embeddings start
+only after that store is closed. Graph reads (MCP tools, `dagayn status`) take
+a shared lock and writes take an exclusive lock, so the two do not overlap.
 `dagayn update` detects tracked diffs, staged changes, unstaged changes, and
 untracked files together, so new files do not need to be staged before an
 incremental graph refresh can parse them. `dagayn build`, `dagayn update`, and

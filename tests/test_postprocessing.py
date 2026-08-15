@@ -880,3 +880,35 @@ class TestPostprocessLevelMetadata:
                 store.close()
         finally:
             Path(db_path).unlink(missing_ok=True)
+
+
+class TestNativeStoreStaysOnOneConnection:
+    def test_rust_postprocess_does_not_construct_python_graph_store(self, monkeypatch, tmp_path):
+        try:
+            from dagayn._core import GraphStore as NativeGraphStore
+        except ImportError:
+            import pytest
+
+            pytest.skip("native extension not built")
+
+        from dagayn.graph.core import GraphStore as PyGraphStore
+        from dagayn.postprocessing import run_post_processing
+
+        constructed: list[object] = []
+        original_init = PyGraphStore.__init__
+
+        def tracking_init(self, *args, **kwargs):
+            constructed.append(args[0] if args else kwargs.get("db_path"))
+            original_init(self, *args, **kwargs)
+
+        db = tmp_path / "graph.db"
+        store = NativeGraphStore(db)
+        store.set_metadata("repo_root", str(tmp_path))
+        monkeypatch.setattr(PyGraphStore, "__init__", tracking_init)
+        try:
+            result = run_post_processing(store)
+        finally:
+            store.close()
+
+        assert constructed == []
+        assert "warnings" not in result or result.get("warnings") == []

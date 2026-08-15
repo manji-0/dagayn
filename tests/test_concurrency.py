@@ -20,6 +20,8 @@ from dagayn.graph import GraphStore
 from dagayn.parser import NodeInfo
 from dagayn.write_lock import (
     WriteLockUnavailableError,
+    graph_lock_is_held,
+    graph_read_lock,
     graph_write_lock,
     write_lock_is_held,
 )
@@ -110,6 +112,132 @@ class TestGraphWriteLock:
         with graph_write_lock(first), graph_write_lock(second, blocking=False):
             assert write_lock_is_held(first)
             assert write_lock_is_held(second)
+
+
+class TestGraphReadWriteLock:
+    """Readers and writers must not overlap on the same graph.db."""
+
+    def test_writer_waits_for_reader(self, tmp_path):
+        db = tmp_path / "graph.db"
+        db.touch()
+        holder = (
+            "import sys, time\n"
+            "from dagayn.write_lock import graph_read_lock\n"
+            "with graph_read_lock(sys.argv[1]):\n"
+            "    print('held', flush=True)\n"
+            "    time.sleep(1.5)\n"
+        )
+        proc = subprocess.Popen(
+            [sys.executable, "-c", holder, str(db)],
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            assert proc.stdout is not None
+            assert proc.stdout.readline().strip() == "held"
+            started = time.monotonic()
+            with graph_write_lock(db, timeout=30):
+                waited = time.monotonic() - started
+            assert waited > 0.5, f"writer did not wait for reader ({waited:.2f}s)"
+        finally:
+            proc.wait(timeout=30)
+
+    def test_reader_waits_for_writer(self, tmp_path):
+        db = tmp_path / "graph.db"
+        db.touch()
+        holder = (
+            "import sys, time\n"
+            "from dagayn.write_lock import graph_write_lock\n"
+            "with graph_write_lock(sys.argv[1]):\n"
+            "    print('held', flush=True)\n"
+            "    time.sleep(1.5)\n"
+        )
+        proc = subprocess.Popen(
+            [sys.executable, "-c", holder, str(db)],
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            assert proc.stdout is not None
+            assert proc.stdout.readline().strip() == "held"
+            started = time.monotonic()
+            with graph_read_lock(db, timeout=30):
+                waited = time.monotonic() - started
+            assert waited > 0.5, f"reader did not wait for writer ({waited:.2f}s)"
+        finally:
+            proc.wait(timeout=30)
+
+    def test_two_readers_do_not_block_each_other(self, tmp_path):
+        db = tmp_path / "graph.db"
+        db.touch()
+        holder = (
+            "import sys, time\n"
+            "from dagayn.write_lock import graph_read_lock\n"
+            "with graph_read_lock(sys.argv[1]):\n"
+            "    print('held', flush=True)\n"
+            "    time.sleep(1.5)\n"
+        )
+        proc = subprocess.Popen(
+            [sys.executable, "-c", holder, str(db)],
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            assert proc.stdout is not None
+            assert proc.stdout.readline().strip() == "held"
+            started = time.monotonic()
+            with graph_read_lock(db, timeout=30, blocking=False):
+                waited = time.monotonic() - started
+            assert waited < 0.5, f"second reader blocked ({waited:.2f}s)"
+        finally:
+            proc.wait(timeout=30)
+
+    def test_nested_read_during_write_does_not_deadlock(self, tmp_path):
+        db = tmp_path / "graph.db"
+        db.touch()
+        with graph_write_lock(db):
+            assert write_lock_is_held(db)
+            with graph_read_lock(db):
+                assert write_lock_is_held(db)
+            assert write_lock_is_held(db)
+        assert not write_lock_is_held(db)
+
+    def test_nested_write_during_read_does_not_deadlock(self, tmp_path):
+        db = tmp_path / "graph.db"
+        db.touch()
+        started = time.monotonic()
+        with graph_read_lock(db):
+            with graph_write_lock(db):
+                assert write_lock_is_held(db)
+            assert graph_lock_is_held(db)
+            assert not write_lock_is_held(db)
+        assert time.monotonic() - started < 2.0
+
+    def test_store_open_under_read_lock_migrates_without_deadlock(self, tmp_path):
+        db = tmp_path / "graph.db"
+        started = time.monotonic()
+        with graph_read_lock(db):
+            store = GraphStore(db)
+            store.close()
+        assert time.monotonic() - started < 5.0
+
+    def test_get_store_releases_read_lock_on_close(self, tmp_path):
+        from dagayn.graph import GraphStore as PyGraphStore
+        from dagayn.tools._common import _evict_store_cache, _get_store
+        from dagayn.write_lock import graph_lock_is_held
+
+        db = tmp_path / ".dagayn" / "graph.db"
+        db.parent.mkdir(parents=True)
+        PyGraphStore(db).close()
+        _evict_store_cache()
+        store, _ = _get_store(str(tmp_path))
+        assert graph_lock_is_held(db)
+        store.close()
+        assert not graph_lock_is_held(db)
+        started = time.monotonic()
+        with graph_write_lock(db, blocking=False):
+            waited = time.monotonic() - started
+        assert waited < 0.5
 
 
 class TestSharedConnectionThreadSafety:

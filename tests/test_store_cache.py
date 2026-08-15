@@ -30,14 +30,15 @@ class TestGraphStoreLease:
         with pytest.raises(Exception):  # closed connection raises on use
             store._conn.execute("SELECT 1")
 
-    def test_pinned_store_survives_close(self, tmp_path):
-        """A pinned (cached) store ignores close() calls."""
+    def test_pinned_store_closes_when_idle(self, tmp_path):
+        """Idle cached stores close so a writer does not overlap a leftover reader."""
         db = tmp_path / "g.db"
         store = GraphStore(db)
         store._pinned = True
         store._leases = 1
-        store.close()  # lease 1→0, but _pinned keeps connection open
-        store._conn.execute("SELECT 1")  # must still work
+        store.close()  # lease 1→0; connection must close even though pinned
+        with pytest.raises(Exception):  # closed connection raises on use
+            store._conn.execute("SELECT 1")
 
     def test_evicted_store_with_lease_survives_close(self, tmp_path):
         """After eviction (pinned=False) a store with leases>0 stays open."""
@@ -244,15 +245,15 @@ class TestNativeStoreClosesConnection:
         with pytest.raises(RuntimeError, match="closed"):
             store.get_metadata("repo_root")
 
-    def test_pinned_store_survives_close(self, tmp_path):
+    def test_pinned_store_closes_when_idle(self, tmp_path):
         store_cls = self._native_store_cls()
         store = store_cls(tmp_path / "g.db")
         store._pinned = True
         store._leases = 1
         store.close()
 
-        store.set_metadata("probe", "1")
-        assert store.get_metadata("probe") == "1"
+        with pytest.raises(RuntimeError, match="closed"):
+            store.get_metadata("repo_root")
 
     def test_force_close_releases_regardless_of_leases(self, tmp_path):
         store_cls = self._native_store_cls()
@@ -350,3 +351,66 @@ class TestCacheSeesOtherProcessWrites:
             assert third is first
         finally:
             _evict_store_cache()
+
+
+class TestSqliteMmapDisabled:
+    def test_python_graph_store_disables_mmap(self, tmp_path):
+        store = GraphStore(tmp_path / "g.db")
+        try:
+            mmap_size = store._conn.execute("PRAGMA mmap_size").fetchone()[0]
+            assert mmap_size == 0
+        finally:
+            store.close()
+
+    def test_python_and_rust_writers_leave_sqlite_master_intact(self, tmp_path):
+        """CLI-shaped dual open + postprocess writes must not corrupt schema.
+
+        The failure mode was ``malformed database schema (skills)``: a community
+        name leaking into sqlite_master after FTS rebuild / community store.
+        """
+        try:
+            from dagayn._core import GraphStore as NativeGraphStore
+        except ImportError:  # pragma: no cover - wheel without the extension
+            pytest.skip("native extension not built")  # ty: ignore[too-many-positional-arguments]
+
+        import json
+        import sqlite3
+
+        db = tmp_path / "graph.db"
+        python_store = GraphStore(db)
+        rust_store = NativeGraphStore(db)
+        try:
+            rust_store.rebuild_fts_index()
+            rust_store.store_communities_json(
+                json.dumps(
+                    [
+                        {
+                            "name": "skills",
+                            "level": 0,
+                            "cohesion": 1.0,
+                            "size": 1,
+                            "dominant_language": "python",
+                            "description": "probe",
+                            "members": [],
+                        }
+                    ]
+                )
+            )
+            python_store.set_metadata("probe", "1")
+        finally:
+            rust_store.close()
+            python_store.close()
+
+        conn = sqlite3.connect(db)
+        try:
+            names = [
+                row[0]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type IN ('table', 'view')"
+                )
+            ]
+            assert "nodes" in names
+            assert "skills" not in names
+            assert conn.execute("SELECT name FROM communities").fetchone()[0] == "skills"
+        finally:
+            conn.close()

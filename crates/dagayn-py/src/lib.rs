@@ -492,6 +492,37 @@ impl PyGraphStore {
         self.with_store_mut(|store| store.resolve_markdown_artifact_refs())
     }
 
+    fn demote_unresolved_endpoint_edges(&self) -> PyResult<i64> {
+        self.with_store_mut(|store| store.demote_unresolved_endpoint_edges())
+    }
+
+    fn resolve_terraform_artifact_refs(&self) -> PyResult<(i64, i64)> {
+        self.with_store_mut(|store| store.resolve_terraform_artifact_refs())
+    }
+
+    fn resolve_bare_call_targets(&self) -> PyResult<i64> {
+        self.with_store_mut(|store| store.resolve_bare_call_targets())
+    }
+
+    fn resolve_bare_inheritance_targets(&self) -> PyResult<i64> {
+        self.with_store_mut(|store| store.resolve_bare_inheritance_targets())
+    }
+
+    fn import_targets_by_file(&self) -> PyResult<std::collections::HashMap<String, Vec<String>>> {
+        self.with_store(|store| store.import_targets_by_file())
+    }
+
+    fn replace_manifest_bridges_json(
+        &self,
+        extractor_id: &str,
+        nodes_json: &str,
+        edges_json: &str,
+    ) -> PyResult<i64> {
+        self.with_store_mut(|store| {
+            store.replace_manifest_bridges_json(extractor_id, nodes_json, edges_json)
+        })
+    }
+
     fn persist_centrality_scores(&self) -> PyResult<std::collections::HashMap<String, i64>> {
         self.with_store_mut(|store| store.persist_centrality_scores())
     }
@@ -556,10 +587,9 @@ impl PyGraphStore {
 
     /// Release one lease, closing the connection once nothing holds it.
     ///
-    /// A pinned store is one the Python-side cache owns; its `close()` stays a
-    /// no-op so `finally: store.close()` in tool handlers cannot destroy a
-    /// shared connection. `_evict_store_cache` unpins first, so the last
-    /// outstanding `close()` performs the real cleanup.
+    /// Idle stores close even when `_pinned` is set: a leftover reader
+    /// connection overlapping a writer used to tear `sqlite_master`. Concurrent
+    /// overlapping leases still share the handle until the last `close()`.
     fn close(&self) -> PyResult<()> {
         let remaining = {
             let mut leases = self
@@ -571,7 +601,7 @@ impl PyGraphStore {
             }
             *leases
         };
-        if remaining > 0 || self.get_pinned()? {
+        if remaining > 0 {
             return Ok(());
         }
         self._force_close()

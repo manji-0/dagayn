@@ -32,6 +32,11 @@ def _can_run_minimal_postprocess(store: Any) -> bool:
             "compute_missing_signatures",
             "rebuild_fts_index",
             "resolve_markdown_artifact_refs",
+            "demote_unresolved_endpoint_edges",
+            "resolve_terraform_artifact_refs",
+            "resolve_bare_call_targets",
+            "resolve_bare_inheritance_targets",
+            "replace_manifest_bridges_json",
         )
     )
 
@@ -832,6 +837,8 @@ def build_or_update_graph(
             "errors": [str(exc)],
         }
     store, root = _get_store(repo_root, cached=False, use_backend_default=True)
+    build_result: dict[str, Any] = {}
+    run_embedding = False
     try:
         pre_affected_communities = 0
         if full_rebuild:
@@ -874,17 +881,7 @@ def build_or_update_graph(
                             "reason": "hook_update_no_changes",
                         }
                     else:
-                        build_result["local_embedding"] = _run_local_embedding(
-                            root,
-                            local_embedding=local_embedding or "none",
-                            local_embedding_mode=local_embedding_mode,
-                            local_embedding_port=local_embedding_port,
-                            local_embedding_bin=local_embedding_bin,
-                            keep_local_embedding_server=keep_local_embedding_server,
-                            local_embedding_timeout=local_embedding_timeout,
-                            local_embedding_request_timeout=local_embedding_request_timeout,
-                            local_embedding_batch_size=local_embedding_batch_size,
-                        )
+                        run_embedding = True
                 return build_result
             build_result = {
                 "status": result.get("status", "ok"),
@@ -1022,30 +1019,36 @@ def build_or_update_graph(
         if warnings:
             build_result["warnings"] = warnings
         if _local_embedding_requested(local_embedding):
-            build_result["local_embedding"] = _run_local_embedding(
-                root,
-                local_embedding=local_embedding or "none",
-                local_embedding_mode=local_embedding_mode,
-                local_embedding_port=local_embedding_port,
-                local_embedding_bin=local_embedding_bin,
-                keep_local_embedding_server=keep_local_embedding_server,
-                local_embedding_timeout=local_embedding_timeout,
-                local_embedding_request_timeout=local_embedding_request_timeout,
-                local_embedding_batch_size=local_embedding_batch_size,
-            )
+            run_embedding = True
         return build_result
     finally:
         store.close()
-        if postprocess != "none":
-            # After close: embeddings share the SQLite file, so a second writer
-            # alongside the native store's connection corrupts it.
-            emb_warnings = _prune_orphaned_embeddings(Path(root), build_result)
-            if emb_warnings:
-                existing = build_result.get("warnings")
-                build_result["warnings"] = (
-                    [*existing, *emb_warnings] if isinstance(existing, list) else emb_warnings
+        try:
+            if run_embedding:
+                # Embeddings share graph.db. Run only after this store's
+                # connection is gone so a second writer cannot tear WAL pages.
+                build_result["local_embedding"] = _run_local_embedding(
+                    root,
+                    local_embedding=local_embedding or "none",
+                    local_embedding_mode=local_embedding_mode,
+                    local_embedding_port=local_embedding_port,
+                    local_embedding_bin=local_embedding_bin,
+                    keep_local_embedding_server=keep_local_embedding_server,
+                    local_embedding_timeout=local_embedding_timeout,
+                    local_embedding_request_timeout=local_embedding_request_timeout,
+                    local_embedding_batch_size=local_embedding_batch_size,
                 )
-        write_lock.__exit__(None, None, None)
+        finally:
+            if postprocess != "none":
+                # After close: embeddings share the SQLite file, so a second writer
+                # alongside the native store's connection corrupts it.
+                emb_warnings = _prune_orphaned_embeddings(Path(root), build_result)
+                if emb_warnings:
+                    existing = build_result.get("warnings")
+                    build_result["warnings"] = (
+                        [*existing, *emb_warnings] if isinstance(existing, list) else emb_warnings
+                    )
+            write_lock.__exit__(None, None, None)
 
 
 def run_postprocess(
@@ -1072,6 +1075,19 @@ def run_postprocess(
     # Postprocess writes to flows / communities / FTS — bypass the
     # read-only store cache for the duration of this call.
     _evict_store_cache()
+    root_path = _resolve_write_root(repo_root)
+    db_path = get_db_path(root_path)
+    try:
+        write_lock = graph_write_lock(db_path, blocking=True)
+        write_lock.__enter__()
+    except WriteLockUnavailableError as exc:
+        return {
+            "status": "error",
+            "skipped": True,
+            "skip_reason": "write_lock_unavailable",
+            "summary": f"Skipped: {exc}",
+            "errors": [str(exc)],
+        }
     store, _root = _get_store(repo_root, cached=False)
     result: dict[str, Any] = {"status": "ok"}
     warnings: list[str] = []
@@ -1159,3 +1175,4 @@ def run_postprocess(
         return result
     finally:
         store.close()
+        write_lock.__exit__(None, None, None)

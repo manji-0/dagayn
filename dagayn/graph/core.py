@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Optional
 import networkx as nx
 
 from ..state_types import normalize_confidence_tier
+from ..write_lock import drop_store_read_locks, unbind_store_read_lock
 from ._sql import _SCHEMA_SQL
 from .access import GraphStoreAccessMixin
 from .analysis import GraphStoreAnalysisMixin
@@ -78,7 +79,10 @@ class GraphStore(
         self._conn.execute("PRAGMA busy_timeout=5000")
         self._conn.execute("PRAGMA synchronous=NORMAL")
         self._conn.execute("PRAGMA cache_size=-64000")  # 64 MB page cache
-        self._conn.execute("PRAGMA mmap_size=268435456")  # 256 MB memory-mapped I/O
+        # mmap + WAL is unsafe once a second connection checkpoints (CLI
+        # GraphStore overlapping the Rust backend). A torn sqlite_master page
+        # then surfaces as ``malformed database schema (<community-name>)``.
+        self._conn.execute("PRAGMA mmap_size=0")
         self._conn.execute("PRAGMA temp_store=MEMORY")
         self._init_schema()
         # Ensure schema_version is set, then run pending migrations
@@ -104,17 +108,15 @@ class GraphStore(
         # normalization during batch deletes (see ``remove_files_data``).
         # ``False`` means unset; ``None`` means metadata has no repo_root.
         self._repo_root_cache: Optional[Path] | bool = False
-        # When *True*, :meth:`close` becomes a no-op so that the
-        # process-level store cache in ``dagayn.tools._common`` can
-        # keep the underlying ``sqlite3.Connection`` alive across
-        # tool invocations.  Use :meth:`_force_close` to actually
-        # close the connection.
+        # Cache ownership flag used while leases > 0. Idle (leases == 0)
+        # connections always close so a writer is not blocked by a leftover
+        # reader mmap/WAL handle.
         self._pinned: bool = False
         # Counts outstanding borrows issued by ``_get_store()``.  Incremented
         # atomically (under ``_store_lock``) when the cache returns this
-        # instance; decremented by :meth:`close`.  When ``_pinned`` is
-        # cleared by eviction and ``_leases`` drops to zero the connection
-        # is closed so in-flight callers finish cleanly.
+        # instance; decremented by :meth:`close`.  When ``_leases`` drops to
+        # zero the connection is closed so a writer can take the exclusive
+        # lock without overlapping an idle reader.
         self._leases: int = 0
 
     def __enter__(self) -> "GraphStore":
@@ -137,17 +139,20 @@ class GraphStore(
     def close(self) -> None:
         if self._leases > 0:
             self._leases -= 1
-        if self._pinned:
-            # Still held by the process-level cache; keep the connection alive.
-            return
-        if self._leases > 0:
-            # Evicted but other callers still hold leases; the last one closes.
-            return
-        self._conn.close()
+        try:
+            if self._leases > 0:
+                # Other callers still hold leases; the last one closes.
+                return
+            self._conn.close()
+        finally:
+            unbind_store_read_lock(self)
 
     def _force_close(self) -> None:
         """Close the underlying sqlite connection, ignoring ``_pinned``."""
-        self._conn.close()
+        try:
+            self._conn.close()
+        finally:
+            drop_store_read_locks(self)
 
     def get_repo_root(self) -> Optional[Path]:
         cached = self._repo_root_cache

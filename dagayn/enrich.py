@@ -263,88 +263,92 @@ def _format_node_context(
 def enrich_search(pattern: str, repo_root: str) -> str:
     """Search the graph for pattern and return enriched context."""
     from .graph import GraphStore
+    from .write_lock import graph_read_lock
 
     db_path = get_db_path(Path(repo_root))
     if not db_path.exists():
         return ""
 
-    store = GraphStore(db_path)
-    try:
-        conn = store._conn
+    with graph_read_lock(db_path):
+        store = GraphStore(db_path)
+        try:
+            conn = store._conn
 
-        fts_results = store.fts_query(pattern, limit=8)
-        if not fts_results.hits:
-            return ""
+            fts_results = store.fts_query(pattern, limit=8)
+            if not fts_results.hits:
+                return ""
 
-        nodes_by_id = store.get_nodes_by_ids([node_id for node_id, _score in fts_results.hits])
-        selected = []
-        for node_id, _score in fts_results.hits:
-            if len(selected) >= 5:
-                break
-            node = nodes_by_id.get(node_id)
-            if node and not node.is_test:
-                selected.append(node)
+            nodes_by_id = store.get_nodes_by_ids([node_id for node_id, _score in fts_results.hits])
+            selected = []
+            for node_id, _score in fts_results.hits:
+                if len(selected) >= 5:
+                    break
+                node = nodes_by_id.get(node_id)
+                if node and not node.is_test:
+                    selected.append(node)
 
-        if not selected:
-            return ""
+            if not selected:
+                return ""
 
-        context = _prepare_context_for_nodes(selected, store, conn)
-        all_lines: list[str] = []
-        for node in selected:
-            node_lines = _format_node_context(node, context, repo_root)
-            all_lines.extend(node_lines)
-            all_lines.append("")
-        count = len(selected)
+            context = _prepare_context_for_nodes(selected, store, conn)
+            all_lines: list[str] = []
+            for node in selected:
+                node_lines = _format_node_context(node, context, repo_root)
+                all_lines.extend(node_lines)
+                all_lines.append("")
+            count = len(selected)
 
-        if not all_lines:
-            return ""
+            if not all_lines:
+                return ""
 
-        header = f'[dagayn] {count} symbol(s) matching "{pattern}":\n'
-        return header + "\n".join(all_lines)
-    finally:
-        store.close()
+            header = f'[dagayn] {count} symbol(s) matching "{pattern}":\n'
+            return header + "\n".join(all_lines)
+        finally:
+            store.close()
 
 
 def enrich_file_read(file_path: str, repo_root: str) -> str:
     """Enrich a file read with structural context for functions in that file."""
     from .graph import GraphStore
+    from .write_lock import graph_read_lock
 
     db_path = get_db_path(Path(repo_root))
     if not db_path.exists():
         return ""
 
-    store = GraphStore(db_path)
-    try:
-        conn = store._conn
-        nodes = store.get_nodes_by_file(file_path)
-        if not nodes:
-            # Try with resolved path
-            try:
-                resolved = str(Path(file_path).resolve())
-                nodes = store.get_nodes_by_file(resolved)
-            except (OSError, ValueError):
-                pass
-        if not nodes:
-            return ""
+    with graph_read_lock(db_path):
+        store = GraphStore(db_path)
+        try:
+            conn = store._conn
+            nodes = store.get_nodes_by_file(file_path)
+            if not nodes:
+                # Try with resolved path
+                try:
+                    resolved = str(Path(file_path).resolve())
+                    nodes = store.get_nodes_by_file(resolved)
+                except (OSError, ValueError):
+                    pass
+            if not nodes:
+                return ""
 
-        # Filter to functions/classes/types (skip File nodes), limit to 10
-        interesting = [n for n in nodes if n.kind in ("Function", "Class", "Type", "Test")][:10]
+            # Filter to functions/classes/types (skip File nodes), limit to 10
+            interesting = [n for n in nodes if n.kind in ("Function", "Class", "Type", "Test")][:10]
 
-        if not interesting:
-            return ""
+            if not interesting:
+                return ""
 
-        all_lines: list[str] = []
-        context = _prepare_context_for_nodes(interesting, store, conn)
-        for node in interesting:
-            node_lines = _format_node_context(node, context, repo_root)
-            all_lines.extend(node_lines)
-            all_lines.append("")
+            all_lines: list[str] = []
+            context = _prepare_context_for_nodes(interesting, store, conn)
+            for node in interesting:
+                node_lines = _format_node_context(node, context, repo_root)
+                all_lines.extend(node_lines)
+                all_lines.append("")
 
-        rel_path = _make_relative(file_path, repo_root)
-        header = f"[dagayn] {len(interesting)} symbol(s) in {rel_path}:\n"
-        return header + "\n".join(all_lines)
-    finally:
-        store.close()
+            rel_path = _make_relative(file_path, repo_root)
+            header = f"[dagayn] {len(interesting)} symbol(s) in {rel_path}:\n"
+            return header + "\n".join(all_lines)
+        finally:
+            store.close()
 
 
 def run_hook() -> None:

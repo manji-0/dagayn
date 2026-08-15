@@ -337,3 +337,77 @@ def test_handle_prints_build_postprocess_result_without_rerunning(tmp_path, monk
     assert "FTS indexed: 11 nodes" in out
     assert "Flows: 2" in out
     assert "Communities: 4" in out
+
+
+def test_handle_build_does_not_open_a_cli_graph_store(tmp_path, monkeypatch):
+    """build_or_update_graph owns the connection; a CLI GraphStore corrupts WAL."""
+    from dagayn.tools import build as build_tools
+
+    def fake_build_or_update_graph(**_kwargs):
+        return {
+            "files_parsed": 1,
+            "total_nodes": 1,
+            "total_edges": 0,
+            "errors": [],
+        }
+
+    def boom(*_args, **_kwargs):
+        raise AssertionError("CLI build must not open GraphStore")
+
+    monkeypatch.setattr(build_tools, "build_or_update_graph", fake_build_or_update_graph)
+    monkeypatch.setattr("dagayn.graph.GraphStore", boom)
+
+    args = _parser().parse_args(
+        ["build", "--repo", str(tmp_path), "--force-full-build", "--skip-postprocess"]
+    )
+    handle(args)
+
+
+def test_handle_postprocess_does_not_open_a_cli_graph_store(tmp_path, monkeypatch):
+    from dagayn.tools import build as build_tools
+
+    def fake_run_postprocess(**_kwargs):
+        return {"flows_detected": 0, "communities_detected": 0, "fts_indexed": 0}
+
+    def boom(*_args, **_kwargs):
+        raise AssertionError("CLI postprocess must not open GraphStore")
+
+    monkeypatch.setattr(build_tools, "run_postprocess", fake_run_postprocess)
+    monkeypatch.setattr("dagayn.graph.GraphStore", boom)
+
+    args = _parser().parse_args(["postprocess", "--repo", str(tmp_path)])
+    handle(args)
+
+
+def test_handle_update_closes_metadata_peek_before_rebuild(tmp_path, monkeypatch):
+    from dagayn.tools import build as build_tools
+
+    open_stores: list[object] = []
+
+    class PeekStore:
+        def __init__(self, *_args, **_kwargs):
+            self.closed = False
+            open_stores.append(self)
+
+        def get_metadata(self, key: str) -> str | None:
+            assert key == "git_head_sha"
+            return "abc123"
+
+        def close(self) -> None:
+            self.closed = True
+
+    def fake_build_or_update_graph(**kwargs):
+        assert open_stores, "update should peek git_head_sha"
+        assert open_stores[0].closed, "peek store must close before rebuild"
+        assert kwargs["base"] == "abc123"
+        return {
+            "files_updated": 0,
+            "total_nodes": 0,
+            "total_edges": 0,
+        }
+
+    monkeypatch.setattr("dagayn.graph.GraphStore", PeekStore)
+    monkeypatch.setattr(build_tools, "build_or_update_graph", fake_build_or_update_graph)
+
+    args = _parser().parse_args(["update", "--repo", str(tmp_path)])
+    handle(args)

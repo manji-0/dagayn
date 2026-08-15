@@ -263,23 +263,13 @@ def _filter_bare_name_fallback_edges(
     if not edges or target_node is None:
         return edges
 
-    sql_store = store
-    owns_sql_store = False
-    try:
-        if not hasattr(store, "_conn"):
-            from dagayn.postprocessing import _sql_capable_store, _store_repo_root
-
-            repo_root = _store_repo_root(store)
-            if repo_root is None:
-                return edges
-            sql_store, owns_sql_store = _sql_capable_store(store, repo_root)
-
-        import_targets = build_import_targets(sql_store._conn)
-    finally:
-        if owns_sql_store and sql_store is not None:
-            closer = getattr(sql_store, "_force_close", None) or getattr(sql_store, "close", None)
-            if callable(closer):
-                closer()
+    native = getattr(store, "import_targets_by_file", None)
+    if callable(native):
+        import_targets = {file_path: set(targets) for file_path, targets in native().items()}
+    elif hasattr(store, "_conn"):
+        import_targets = build_import_targets(store._conn)
+    else:
+        return edges
 
     target_file = target_node.file_path
     return [

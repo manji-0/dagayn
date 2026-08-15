@@ -731,7 +731,8 @@ class EmbeddingStore:
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA synchronous=NORMAL")
         self._conn.execute("PRAGMA cache_size=-32000")  # 32 MB page cache
-        self._conn.execute("PRAGMA mmap_size=134217728")  # 128 MB memory-mapped I/O
+        # Same WAL file as GraphStore; mmap here would race a graph checkpoint.
+        self._conn.execute("PRAGMA mmap_size=0")
         self._conn.execute("PRAGMA temp_store=MEMORY")
         self._conn.executescript(_EMBEDDINGS_SCHEMA)
         _ensure_embeddings_schema(self._conn)

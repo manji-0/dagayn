@@ -128,7 +128,7 @@ fn load_embedding_matrix(
         db_path,
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )?;
-    conn.pragma_update(None, "mmap_size", 268_435_456_i64)?;
+    conn.pragma_update(None, "mmap_size", 0_i64)?;
     conn.pragma_update(None, "temp_store", "MEMORY")?;
 
     let has_embeddings = conn
@@ -680,7 +680,11 @@ mod tests {
             &db_path,
             &[
                 ("four-dim", &[1.0, 0.0, 0.0, 0.0], "fake"),
-                ("eight-dim", &[1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "fake"),
+                (
+                    "eight-dim",
+                    &[1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                    "fake",
+                ),
             ],
         );
 
@@ -688,9 +692,13 @@ mod tests {
         assert_eq!(four_dim_hits.len(), 1);
         assert_eq!(four_dim_hits[0].0, "four-dim");
 
-        let eight_dim_hits =
-            embedding_search(&db_path, "fake", &[1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 5)
-                .unwrap();
+        let eight_dim_hits = embedding_search(
+            &db_path,
+            "fake",
+            &[1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            5,
+        )
+        .unwrap();
         assert_eq!(eight_dim_hits.len(), 1);
         assert_eq!(eight_dim_hits[0].0, "eight-dim");
 

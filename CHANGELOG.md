@@ -4,6 +4,24 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Fixes
+
+- Default Rust-backend `--force-full-build` no longer corrupts `sqlite_master`
+  during postprocess (`malformed database schema (<community-name>)`). CLI
+  `build` / `update` / `postprocess` no longer hold a second GraphStore while
+  the backend writes. Postprocess and query stay on the open store's connection
+  (Rust methods instead of a sidecar Python GraphStore). Local embeddings and
+  orphan-vector prune run only after that store is closed. WAL connections
+  disable `mmap_size` so a checkpoint cannot tear schema pages. `run_postprocess`
+  takes the same exclusive `graph_write_lock` as build/update. MCP queries and
+  CLI reads (`status`, `wiki`, `detect-changes`), hook enrich, and
+  cross-repo search take a shared `graph_read_lock` on the same lock file, so a
+  reader waits for a writer and a writer waits for in-flight reads. Nested
+  schema migration during a read upgrades the shared flock in one blocking
+  `LOCK_EX` (non-blocking upgrade deadlocked against the process's own lock).
+  Idle MCP no longer keeps a leftover GraphStore connection open between tool
+  calls.
+
 ## 4.8.3 — 2026-08-14
 
 ### Fixes

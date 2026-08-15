@@ -81,6 +81,9 @@ See [RECIPES.md](./RECIPES.md#single-repo-watch--session-prepare) for session
 prepare and MCP serve variants.
 Use `dagayn build --force-full-build` (or `--force`) to delete the existing
 graph database and SQLite sidecar files before running a clean full parse.
+Do not keep another GraphStore open across that rebuild. Postprocess uses the
+same connection; embeddings run after it is closed. MCP queries wait for an
+in-flight build, and a build waits for in-flight MCP queries.
 `dagayn status` also reports embedding coverage from the current graph database,
 including provider counts, missing embeddable nodes, and orphaned embedding rows.
 When VCS metadata is present, it warns if the working copy branch/commit (git)
