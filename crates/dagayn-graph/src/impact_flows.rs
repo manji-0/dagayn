@@ -120,9 +120,8 @@ impl GraphStore {
         }
 
         let mut changed_qnames = HashSet::new();
-        let qn_sql = format!(
-            "SELECT qualified_name FROM nodes WHERE file_path IN ({placeholders})"
-        );
+        let qn_sql =
+            format!("SELECT qualified_name FROM nodes WHERE file_path IN ({placeholders})");
         let mut stmt = self.conn.prepare(&qn_sql)?;
         let rows = stmt.query_map(rusqlite::params_from_iter(&file_keys), |row| {
             row.get::<_, String>(0)

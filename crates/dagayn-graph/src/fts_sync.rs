@@ -5,7 +5,8 @@ pub(crate) const FTS_COUNT_KEY: &str = "fts_indexed_node_count";
 pub(crate) const FTS_BUILT_AT_KEY: &str = "fts_indexed_at";
 
 const FTS_DELETE_SQL: &str = "DELETE FROM nodes_fts WHERE rowid = ?";
-const FTS_INSERT_SQL: &str = "INSERT INTO nodes_fts(rowid, name, qualified_name, file_path, signature, \
+const FTS_INSERT_SQL: &str =
+    "INSERT INTO nodes_fts(rowid, name, qualified_name, file_path, signature, \
     identifier_tokens, doc_text) VALUES (?, ?, ?, ?, ?, ?, ?)";
 
 pub(crate) fn set_fts_watermark_tx(tx: &Transaction<'_>, node_count: Option<i64>) -> Result<()> {
@@ -51,7 +52,10 @@ pub(crate) fn delete_fts_for_node_ids_tx(tx: &Transaction<'_>, node_ids: &[i64])
     Ok(())
 }
 
-pub(crate) fn delete_fts_for_file_paths_tx(tx: &Transaction<'_>, file_paths: &[String]) -> Result<()> {
+pub(crate) fn delete_fts_for_file_paths_tx(
+    tx: &Transaction<'_>,
+    file_paths: &[String],
+) -> Result<()> {
     if file_paths.is_empty() || !table_exists(tx, "nodes_fts")? {
         return Ok(());
     }
@@ -68,7 +72,9 @@ pub(crate) fn delete_fts_for_file_paths_tx(tx: &Transaction<'_>, file_paths: &[S
              WHERE n.file_path IN ({placeholders})"
         );
         let mut stmt = tx.prepare(&sql)?;
-        let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| row.get::<_, i64>(0))?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
+            row.get::<_, i64>(0)
+        })?;
         let mut node_ids = Vec::new();
         for row in rows {
             node_ids.push(row?);
@@ -94,10 +100,8 @@ pub(crate) fn build_node_fts_values(
         .get("display_name")
         .and_then(Value::as_str)
         .unwrap_or("");
-    let identifier_tokens =
-        identifier_search_text([name, qualified_name, file_path, display_name]);
-    let source_excerpt =
-        read_node_source_excerpt(repo_root, kind, file_path, line_start, line_end);
+    let identifier_tokens = identifier_search_text([name, qualified_name, file_path, display_name]);
+    let source_excerpt = read_node_source_excerpt(repo_root, kind, file_path, line_start, line_end);
     let structured_description = structured_code_reference_text(
         kind,
         name,

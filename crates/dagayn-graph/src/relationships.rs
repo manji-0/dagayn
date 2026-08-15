@@ -198,9 +198,9 @@ impl GraphStore {
             return Ok(community_ids.len() as i64);
         }
 
-        let community_count: i64 = self
-            .conn
-            .query_row("SELECT COUNT(*) FROM communities", [], |row| row.get(0))?;
+        let community_count: i64 =
+            self.conn
+                .query_row("SELECT COUNT(*) FROM communities", [], |row| row.get(0))?;
         if community_count == 0 {
             return Ok(0);
         }
@@ -217,11 +217,9 @@ impl GraphStore {
                  WHERE community_id IS NULL AND kind != 'File' \
                  AND file_path IN ({placeholders})"
             );
-            let count: i64 = self.conn.query_row(
-                &sql,
-                rusqlite::params_from_iter(chunk),
-                |row| row.get(0),
-            )?;
+            let count: i64 =
+                self.conn
+                    .query_row(&sql, rusqlite::params_from_iter(chunk), |row| row.get(0))?;
             if count > 0 {
                 return Ok(1);
             }

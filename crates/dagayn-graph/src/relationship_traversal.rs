@@ -158,10 +158,7 @@ impl GraphStore {
                     .push(qualified_name.clone());
             }
         }
-        let bare_targets = bare_target_to_originals
-            .keys()
-            .cloned()
-            .collect::<Vec<_>>();
+        let bare_targets = bare_target_to_originals.keys().cloned().collect::<Vec<_>>();
         for (source, test_target) in self.get_test_targets_by_sources(&bare_targets)? {
             if let Some(originals) = bare_target_to_originals.get(&source) {
                 for original in originals {

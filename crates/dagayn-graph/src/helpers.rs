@@ -838,7 +838,10 @@ pub(crate) fn normalize_edge_confidence(
     confidence_tier: ConfidenceTier,
 ) -> (f64, ConfidenceTier) {
     if (source.starts_with("<unresolved:") || target.starts_with("<unresolved:"))
-        && matches!(confidence_tier, ConfidenceTier::Extracted | ConfidenceTier::Unknown)
+        && matches!(
+            confidence_tier,
+            ConfidenceTier::Extracted | ConfidenceTier::Unknown
+        )
     {
         return (confidence.min(0.2), ConfidenceTier::Low);
     }

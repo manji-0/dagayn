@@ -254,7 +254,9 @@ impl GraphStore {
             "SELECT id, target_qualified FROM edges WHERE target_name = '' OR target_name IS NULL",
         )?;
         let rows = stmt
-            .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))?
+            .query_map([], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         if !rows.is_empty() {
             let mut update = self
