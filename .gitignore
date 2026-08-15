@@ -50,6 +50,13 @@ pnpm-debug.log*
 .claude/
 .claude-plugin/
 
+# Local AI tooling configs (per-machine, not shared)
+.kiro/
+.pi/
+.opencode.json
+.windsurfrules
+.mcp.json
+
 # Qoder
 .qoder/
 QODER.md
