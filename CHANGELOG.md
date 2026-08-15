@@ -4,6 +4,11 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Changed
+
+- Pre-push pytest runs tests related to the files being pushed instead of the
+  full suite, so `git push` stays a local gate without waiting on CI's job.
+
 ### Fixes
 
 - Default Rust-backend `--force-full-build` no longer corrupts `sqlite_master`

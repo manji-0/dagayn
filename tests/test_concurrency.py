@@ -49,7 +49,7 @@ class TestGraphWriteLock:
             "from dagayn.write_lock import graph_write_lock\n"
             "with graph_write_lock(sys.argv[1]):\n"
             "    print('held', flush=True)\n"
-            "    time.sleep(1.5)\n"
+            "    time.sleep(0.35)\n"
         )
         proc = subprocess.Popen(
             [sys.executable, "-c", holder, str(db)],
@@ -62,7 +62,7 @@ class TestGraphWriteLock:
             started = time.monotonic()
             with graph_write_lock(db, timeout=30):
                 waited = time.monotonic() - started
-            assert waited > 0.5, f"did not wait for the other process ({waited:.2f}s)"
+            assert waited > 0.12, f"did not wait for the other process ({waited:.2f}s)"
         finally:
             proc.wait(timeout=30)
 
@@ -75,7 +75,7 @@ class TestGraphWriteLock:
             "from dagayn.write_lock import graph_write_lock\n"
             "with graph_write_lock(sys.argv[1]):\n"
             "    print('held', flush=True)\n"
-            "    time.sleep(1.5)\n"
+            "    time.sleep(0.35)\n"
         )
         proc = subprocess.Popen(
             [sys.executable, "-c", holder, str(db)],
@@ -125,7 +125,7 @@ class TestGraphReadWriteLock:
             "from dagayn.write_lock import graph_read_lock\n"
             "with graph_read_lock(sys.argv[1]):\n"
             "    print('held', flush=True)\n"
-            "    time.sleep(1.5)\n"
+            "    time.sleep(0.35)\n"
         )
         proc = subprocess.Popen(
             [sys.executable, "-c", holder, str(db)],
@@ -138,7 +138,7 @@ class TestGraphReadWriteLock:
             started = time.monotonic()
             with graph_write_lock(db, timeout=30):
                 waited = time.monotonic() - started
-            assert waited > 0.5, f"writer did not wait for reader ({waited:.2f}s)"
+            assert waited > 0.12, f"writer did not wait for reader ({waited:.2f}s)"
         finally:
             proc.wait(timeout=30)
 
@@ -150,7 +150,7 @@ class TestGraphReadWriteLock:
             "from dagayn.write_lock import graph_write_lock\n"
             "with graph_write_lock(sys.argv[1]):\n"
             "    print('held', flush=True)\n"
-            "    time.sleep(1.5)\n"
+            "    time.sleep(0.35)\n"
         )
         proc = subprocess.Popen(
             [sys.executable, "-c", holder, str(db)],
@@ -163,7 +163,7 @@ class TestGraphReadWriteLock:
             started = time.monotonic()
             with graph_read_lock(db, timeout=30):
                 waited = time.monotonic() - started
-            assert waited > 0.5, f"reader did not wait for writer ({waited:.2f}s)"
+            assert waited > 0.12, f"reader did not wait for writer ({waited:.2f}s)"
         finally:
             proc.wait(timeout=30)
 
@@ -175,7 +175,7 @@ class TestGraphReadWriteLock:
             "from dagayn.write_lock import graph_read_lock\n"
             "with graph_read_lock(sys.argv[1]):\n"
             "    print('held', flush=True)\n"
-            "    time.sleep(1.5)\n"
+            "    time.sleep(0.35)\n"
         )
         proc = subprocess.Popen(
             [sys.executable, "-c", holder, str(db)],

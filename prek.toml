@@ -72,10 +72,18 @@ priority = 0
 
 [[repos.hooks]]
 id = "pytest"
-name = "pytest"
+name = "pytest (changed files)"
 language = "system"
-entry = "uv run pytest --tb=short -q"
-pass_filenames = false
-always_run = true
+entry = "uv run python scripts/pytest_prepush.py"
+pass_filenames = true
+always_run = false
+files = { glob = [
+    "dagayn/**/*.py",
+    "tests/**/*.py",
+    "scripts/**/*.py",
+    "crates/**/*.rs",
+    "pyproject.toml",
+    "hatch_build.py",
+] }
 stages = ["pre-push"]
 priority = 10

@@ -16,6 +16,8 @@ Do not file sensitive vulnerabilities as public issues. Follow `SECURITY.md`.
 
 ## Development setup (maintainers)
 
+<!-- constrained-by ./prek.toml -->
+
 ```bash
 uv sync
 uv tool install prek
@@ -43,8 +45,10 @@ pnpm test
 pnpm test:compile
 ```
 
-The `prek` pre-commit hooks (configured in `prek.toml`) run these same checks
-when files under `dagayn-vscode/` change. To auto-fix formatting:
+The `prek` hooks (configured in `prek.toml`) run ruff/ty on Python changes and
+the VS Code checks when files under `dagayn-vscode/` change. Pre-push pytest
+runs tests related to the files being pushed, not the full suite. CI still
+runs `uv run pytest --tb=short -q`. To auto-fix VS Code formatting:
 
 ```bash
 cd dagayn-vscode && pnpm fmt
