@@ -4,6 +4,8 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+## 4.8.4 — 2026-08-15
+
 ### Changed
 
 - Pre-push pytest runs tests related to the files being pushed instead of the
@@ -26,6 +28,15 @@ All notable changes to `dagayn` are documented here.
   `LOCK_EX` (non-blocking upgrade deadlocked against the process's own lock).
   Idle MCP no longer keeps a leftover GraphStore connection open between tool
   calls.
+- Graph bootstrap refuses roots that are not a git/svn repository. MCP
+  auto-prepare can resolve the root to a non-repo directory (e.g. `$HOME`
+  when Cursor spawns the global server outside the project), where an empty
+  leftover `.dagayn/graph.db` passed project-root validation and triggered a
+  full build of the entire non-repo tree. `assess_graph_sync` now reports
+  `vcs`; `needs_mcp_auto_prepare` and the `get_minimal_context` embedding
+  trigger refuse `vcs == "none"`. `session_prepare` / `ensure_graph` return
+  `reason="not_vcs_repo"` without touching `.dagayn/`, and sync payloads carry
+  `vcs` so agents can tell a non-repo root apart from an unbuilt graph.
 
 ## 4.8.3 — 2026-08-14
 
