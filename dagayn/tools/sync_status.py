@@ -314,6 +314,7 @@ def assess_graph_sync(
             "state": state,
             "status": LEGACY_STATUS_BY_STATE[state],
             "repo_root": str(root),
+            "vcs": vcs,
             "git_head_sha": stored_sha,
             "current_head_sha": current_sha or None,
             "current_branch": current_branch or None,
@@ -356,9 +357,16 @@ def needs_mcp_auto_prepare(sync: dict[str, Any], *, force: bool = False) -> bool
     Only ``unbuilt`` / ``commit_drift`` block analysis against the wrong or
     missing commit. A dirty tree is HEAD-aligned; ongoing dirty indexing is left
     to session-start prepare and edit hooks (``dagayn update --skip-flows``).
+
+    A root outside any repository (``vcs == "none"`` — typically a misdetected
+    root like ``$HOME``) is never auto-prepared: bootstrapping there would scan
+    the whole non-repo tree. Legacy sync dicts without a ``vcs`` key keep the
+    old behavior.
     """
     if force:
         return True
+    if sync.get("vcs") == "none":
+        return False
     return sync_state(sync) in _MCP_AUTO_PREPARE_STATES
 
 

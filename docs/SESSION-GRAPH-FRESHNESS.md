@@ -28,6 +28,16 @@ only bootstraps on `unbuilt` / `commit_drift` (`needs_mcp_auto_prepare`) so a
 dirty tree does not re-prepare on every tool call; ongoing dirty indexing is
 UC-E1 (`update --skip-flows`).
 
+**Non-repo roots are never bootstrapped (UC-M3).** A root outside any git/svn
+repository (`sync.vcs == "none"`, typically a misdetected root such as `$HOME`
+when an editor spawns the MCP server outside the project) must not trigger a
+build — bootstrapping there would scan the entire non-repo tree.
+`needs_mcp_auto_prepare` returns `False` for it, `get_minimal_context` skips the
+auto-prepare block, and `session_prepare` / `ensure_graph` refuse outright with
+`reason == "not_vcs_repo"` without touching `.dagayn/`. The root still resolves
+for graph reading when a leftover `.dagayn/graph.db` exists, and explicit
+`dagayn build --repo` on a non-repo directory remains available.
+
 `session_prepare` / `ensure_graph` may return `status=partial` when the wall-clock
 budget or a hook lock leaves structure **not** ready (`unbuilt` / `commit_drift`), or
 when embeddings stay deferred while structure is ready. Callers must retry
@@ -187,6 +197,7 @@ flowchart TD
 | UC-A1 | Subagent / parallel agent | Worktree create + MCP in that tree | Seed alone is not enough; `get_minimal_context(auto_prepare=True)` or `session prepare` catch-up → structure ready |
 | UC-M1 | MCP first tool | `get_minimal_context_tool` | `auto_prepare` on `unbuilt`/`commit_drift` (300s); dirty does not loop |
 | UC-M2 | MCP explicit sync | `ensure_graph_tool` | Same prepare path with MCP budget; retry after `partial` until structure ready |
+| UC-M3 | Misdetected root | MCP first tool / `session prepare` on a non-repo root | `vcs == "none"` → never auto-prepare; `session_prepare`/`ensure_graph` refuse with `reason == "not_vcs_repo"` (no `.dagayn/` created) |
 | UC-E1 | File edit (ongoing) | `dagayn update --skip-flows` | Out of bootstrap scope — keeps graph current during a session, not a start gate |
 
 Platform notes: Codex installs without the Claude `EnterWorktree` matcher

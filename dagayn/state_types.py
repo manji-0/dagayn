@@ -200,6 +200,10 @@ class _GraphSyncBase(BaseModel):
     #: Legacy 4-value ``status`` kept for MCP clients and hook scripts that
     #: predate ``state``. Derived, never a second source of truth.
     status: Literal["empty", "git_drift", "dirty_worktree", "synced"]
+    #: VCS kind at the resolved root: ``"none"`` when it is not inside a
+    #: repository (a misdetected root such as ``$HOME``), so auto-bootstrap
+    #: callers can refuse to build a non-repo tree.
+    vcs: Literal["git", "svn", "none"] = "none"
     git_head_sha: str | None = None
     current_head_sha: str | None = None
     current_branch: str | None = None

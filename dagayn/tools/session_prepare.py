@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 from typing import Any, Literal
 
+from ..incremental import detect_vcs
 from ..paths import get_db_path
 from . import sync_status as sync_status_mod
 from ._common import (
@@ -172,6 +173,38 @@ def session_prepare(
     embedding_result: dict[str, Any] | None = None
     action = "noop"
     reason = "graph_ready"
+
+    if detect_vcs(root) == "none":
+        # Refuse to bootstrap a non-repo tree. MCP auto-prepare can misresolve
+        # the root (e.g. to $HOME when the editor spawns the server outside the
+        # project), and a full build there would scan the entire non-repo
+        # directory. Explicit `dagayn build --repo` remains available.
+        return make_response(
+            status="ok",
+            summary=(
+                f"session prepare ({action}); root {root} is not inside a git/svn "
+                "repository; nothing to build"
+            ),
+            action=action,
+            reason="not_vcs_repo",
+            total_nodes=0,
+            total_edges=0,
+            files_count=0,
+            last_updated=None,
+            graph_health=None,
+            sync={"state": None, "vcs": "none", "repo_root": str(root)},
+            phases=phases,
+            budget_seconds=budget_seconds,
+            elapsed_seconds=round(time.monotonic() - started, 3),
+            local_embedding=local_embedding,
+            embedding_policy=embedding_policy,
+            repo_root=str(root),
+            next_tool_suggestions=[
+                "get_minimal_context_tool",
+                "review_tool",
+                "query_graph_tool",
+            ],
+        )
 
     if seed_worktree:
         remaining = _remaining_seconds(deadline)

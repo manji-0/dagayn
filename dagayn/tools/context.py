@@ -292,7 +292,9 @@ def get_minimal_context(
 
         # Bootstrap only on unbuilt/commit_drift (or deferred embeddings). Dirty
         # worktrees are HEAD-aligned; re-preparing on every tool call loops.
-        if needs_mcp_auto_prepare(sync) or emb_pending:
+        # A non-repo root (misdetected, e.g. $HOME) is never bootstrapped:
+        # preparing would scan the whole non-repo tree.
+        if (needs_mcp_auto_prepare(sync) or emb_pending) and sync.get("vcs") != "none":
             prepare_result = session_prepare(
                 repo_root=str(probe_root),
                 local_embedding=local_embedding,
@@ -430,8 +432,13 @@ def get_minimal_context(
         response["confidence"] = guidance["confidence"]
         response["graph_health"] = graph_health
         # Keep sync compact: the state name alone stays within the ~800-char
-        # budget. ``status`` rides along for pre-``state`` MCP clients.
-        response["sync"] = {"state": sync_state(sync), "status": sync.get("status")}
+        # budget. ``status`` rides along for pre-``state`` MCP clients, and
+        # ``vcs`` tells the agent when the root is not a repository at all.
+        response["sync"] = {
+            "state": sync_state(sync),
+            "status": sync.get("status"),
+            "vcs": sync.get("vcs"),
+        }
         if prepare_result is not None:
             response["prepare"] = {
                 "status": prepare_result.get("status"),

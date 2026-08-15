@@ -13,6 +13,7 @@ Use-case catalog: docs/SESSION-GRAPH-FRESHNESS.md
 | UC-A1 | serve seed alone insufficient; auto_prepare catch-up |
 | UC-M1 | auto_prepare on drift; no dirty loop |
 | UC-M2 | ensure_graph MCP budget; retry after partial |
+| UC-M3 | non-repo root: MCP auto_prepare and session_prepare refuse to build |
 | UC-E1 | documented only (ongoing update, not bootstrap) |
 """
 
@@ -122,6 +123,21 @@ class TestAssessGraphSyncContract:
         assert needs_structure_prepare(sync) is True
         assert needs_mcp_auto_prepare(sync) is True
         assert is_structure_ready(sync) is False
+
+    def test_non_git_root_assessed_as_none_and_never_auto_prepares(self, tmp_path: Path):
+        """UC-M3: sync assessment carries vcs; non-repo roots never bootstrap."""
+        db = tmp_path / ".dagayn" / "graph.db"
+        GraphStore(str(db)).close()
+        sync = _assess(tmp_path)
+        assert sync["vcs"] == "none"
+        assert sync["state"] == "unbuilt"
+        assert sync["status"] == "empty"
+        assert needs_mcp_auto_prepare(sync) is False
+        # Structure prepare remains the explicit/session-start path; the
+        # session_prepare guard below is what stops the build.
+        assert needs_structure_prepare(sync) is True
+        # Legacy dicts without vcs keep the old behavior.
+        assert needs_mcp_auto_prepare({"state": "unbuilt", "status": "empty"}) is True
 
     def test_git_drift_when_head_differs(self, main_repo: Path):
         _seed_store(main_repo, head_sha="0" * 40)
@@ -446,6 +462,54 @@ class TestMinimalContextAutoPrepare:
         prepare.assert_not_called()
         assert result["sync"]["status"] == "dirty_worktree"
         assert "ensure_graph_tool" not in result.get("recommended_action", "")
+
+    def test_uc_m3_non_git_root_never_auto_prepares(self, tmp_path: Path):
+        """UC-M3: a misdetected non-repo root (e.g. $HOME) must not bootstrap.
+
+        A leftover empty ``.dagayn/graph.db`` at a non-repo root previously
+        passed the project-root validation and triggered a full build of the
+        whole non-repo tree. It now reports the sync state with
+        ``vcs == "none"`` and leaves the graph untouched.
+        """
+        GraphStore(str(tmp_path / ".dagayn" / "graph.db")).close()
+        with patch("dagayn.tools.session_prepare.session_prepare") as prepare:
+            result = get_minimal_context(
+                task="explore codebase",
+                repo_root=str(tmp_path),
+                auto_prepare=True,
+                local_embedding="none",
+                prepare_budget_seconds=60,
+            )
+        prepare.assert_not_called()
+        assert result["sync"]["vcs"] == "none"
+        assert result["sync"]["state"] == "unbuilt"
+
+
+class TestSessionPrepareNonGitRoot:
+    """UC-M3: session_prepare refuses to bootstrap a non-repo root."""
+
+    def test_session_prepare_skips_non_git_root(self, tmp_path: Path):
+        result = session_prepare(
+            repo_root=str(tmp_path),
+            local_embedding="none",
+            embedding_policy="skip",
+            budget_seconds=60,
+        )
+        assert result["reason"] == "not_vcs_repo"
+        assert result["action"] == "noop"
+        assert result["phases"]["structure"] == "noop"
+        assert not (tmp_path / ".dagayn" / "graph.db").exists()
+
+    def test_ensure_graph_skips_non_git_root(self, tmp_path: Path):
+        from dagayn.tools.ensure import ensure_graph
+
+        result = ensure_graph(
+            repo_root=str(tmp_path),
+            local_embedding="none",
+            budget_seconds=60,
+        )
+        assert result["reason"] == "not_vcs_repo"
+        assert not (tmp_path / ".dagayn" / "graph.db").exists()
 
 
 class TestWorktreeFreshnessIntegration:
