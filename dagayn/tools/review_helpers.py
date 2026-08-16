@@ -845,8 +845,12 @@ def _hotspot_proximity(
     try:
         from ..analysis import find_bridge_nodes, find_hub_nodes
 
-        hubs = find_hub_nodes(store, top_n=top_n)
-        bridges = find_bridge_nodes(store, top_n=top_n)
+        hubs = find_hub_nodes(
+            store, top_n=top_n, artifact_scope="code", include_tests=False
+        )
+        bridges = find_bridge_nodes(
+            store, top_n=top_n, artifact_scope="code", include_tests=False
+        )
     except Exception:  # pragma: no cover - defensive for backend parity drift
         hubs = []
         bridges = []

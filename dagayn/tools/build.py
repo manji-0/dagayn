@@ -276,6 +276,7 @@ def _run_postprocess(
     skip_flow_steps: bool = False,
     skip_community_steps: bool = False,
     skip_summary_steps: bool = False,
+    skip_centrality_steps: bool = False,
     skip_orphan_prune: bool = False,
 ) -> list[str]:
     """Run post-build steps based on *postprocess* level.
@@ -405,6 +406,14 @@ def _run_postprocess(
         except (sqlite3.OperationalError, ImportError) as e:
             logger.warning("Manifest bridge extraction failed: %s", e)
             warnings.append(f"Manifest bridge extraction failed: {type(e).__name__}: {e}")
+
+    if postprocess != "none" and not skip_centrality_steps:
+        # File re-parses invalidate hub_scores / bridge_scores wholesale (see
+        # remove_files_data_tx), so every non-none postprocess level must
+        # recompute them or the tables stay empty after skip-flows updates.
+        from dagayn.postprocessing import _persist_centrality_scores
+
+        _persist_centrality_scores(store, build_result, warnings)
 
     if postprocess == "minimal":
         if not skip_orphan_prune:
@@ -939,6 +948,7 @@ def build_or_update_graph(
                 full_rebuild=full_rebuild,
                 changed_files=changed,
                 pre_affected_communities=pre_affected_communities,
+                skip_centrality_steps=True,
                 skip_orphan_prune=True,
             )
             if can_trace_rust_flows:

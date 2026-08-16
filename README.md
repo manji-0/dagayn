@@ -234,10 +234,10 @@ dagayn serve
 
 <!-- derived-from ./docs/COMMANDS.md#mcp-tool-surface -->
 
-`dagayn serve` exposes every public MCP main tool by default. Workflow-specific
-analysis is routed through dispatcher tools such as `review_tool`,
-`flow_tool`, and `architecture_analysis_tool`, so routine sessions no longer
-need named server profiles.
+`dagayn serve` exposes a compact default workflow surface: the main tools plus
+dispatcher tools such as `review_tool`, `flow_tool`, and
+`architecture_analysis_tool`, so routine sessions no longer need named server
+profiles.
 
 ```bash
 dagayn serve

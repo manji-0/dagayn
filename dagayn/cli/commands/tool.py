@@ -143,6 +143,31 @@ def _tool_kwargs(args: argparse.Namespace) -> dict[str, Any]:
     return kwargs
 
 
+def _validate_kwargs(func: Callable[..., Any], kwargs: dict[str, Any]) -> None:
+    """Reject unknown kwargs with the accepted parameter names."""
+    try:
+        params = inspect.signature(func).parameters
+    except (TypeError, ValueError):
+        return
+    if any(param.kind is inspect.Parameter.VAR_KEYWORD for param in params.values()):
+        return
+    accepted = {
+        name
+        for name, param in params.items()
+        if param.kind
+        in (
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            inspect.Parameter.KEYWORD_ONLY,
+        )
+    }
+    unknown = sorted(set(kwargs) - accepted)
+    if unknown:
+        raise ValueError(
+            f"unknown argument(s) {', '.join(unknown)} for {func.__name__}; "
+            f"accepted: {', '.join(sorted(accepted)) or '(none)'}"
+        )
+
+
 def _inject_repo_arg(func: Callable[..., Any], kwargs: dict[str, Any], repo: str | None) -> None:
     if not repo or "repo_root" in kwargs:
         return
@@ -240,6 +265,7 @@ def handle(args: argparse.Namespace) -> None:
     try:
         func = _load_tool(args.tool_name)
         kwargs = _tool_kwargs(args)
+        _validate_kwargs(func, kwargs)
         _inject_repo_arg(func, kwargs, args.repo)
         with _maybe_local_embedding_server(args.tool_name, kwargs):
             result = func(**kwargs)

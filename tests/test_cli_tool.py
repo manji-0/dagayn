@@ -181,6 +181,40 @@ def test_handle_skips_local_embedding_for_explicit_cloud_provider(monkeypatch):
     assert calls == [{"provider": "google"}]
 
 
+def test_handle_rejects_unknown_kwarg_with_accepted_names(monkeypatch, capsys):
+    def fake_tool(pattern, target, repo_root=None):
+        return {"status": "ok"}
+
+    monkeypatch.setattr(tool, "_load_tool", lambda name: fake_tool)
+
+    args = _parser().parse_args(
+        ["tool", "query_graph_tool", "--arg", "pattern=x", "--arg", "target=y", "--arg", "bogus=1"]
+    )
+    with pytest.raises(SystemExit) as excinfo:
+        tool.handle(args)
+    assert excinfo.value.code == 2
+    err = capsys.readouterr().err
+    assert "unknown argument(s) bogus" in err
+    assert "accepted: pattern, repo_root, target" in err
+
+
+def test_handle_allows_kwargs_only_tool(monkeypatch):
+    calls: list[dict] = []
+
+    def fake_tool(**kwargs):
+        calls.append(kwargs)
+        return {"status": "ok"}
+
+    monkeypatch.setattr(tool, "_load_tool", lambda name: fake_tool)
+
+    args = _parser().parse_args(
+        ["tool", "semantic_search_nodes_tool", "--arg", "provider=google"]
+    )
+    tool.handle(args)
+
+    assert calls == [{"provider": "google"}]
+
+
 def test_handle_caches_local_embedding_start_failure(monkeypatch, capsys):
     from dagayn.search import _emb_failure_cache
 

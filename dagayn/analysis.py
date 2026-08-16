@@ -1033,7 +1033,13 @@ def generate_suggested_questions(
     snapshot = build_graph_snapshot(store)
 
     # Bridge node questions
-    bridges = find_bridge_nodes(store, top_n=3, snapshot=snapshot)
+    bridges = find_bridge_nodes(
+        store,
+        top_n=3,
+        snapshot=snapshot,
+        artifact_scope="code",
+        include_tests=False,
+    )
     for b in bridges:
         questions.append(
             {
@@ -1049,7 +1055,13 @@ def generate_suggested_questions(
         )
 
     # Hub risk questions
-    hubs = find_hub_nodes(store, top_n=3, snapshot=snapshot)
+    hubs = find_hub_nodes(
+        store,
+        top_n=3,
+        snapshot=snapshot,
+        artifact_scope="code",
+        include_tests=False,
+    )
     tested = snapshot.tested_sources
     for h in hubs:
         if h["qualified_name"] not in tested:
