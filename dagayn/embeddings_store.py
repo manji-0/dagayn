@@ -489,7 +489,7 @@ _np_vec_cache: dict[tuple[str, str, int, int], tuple[Any, list[str], Any]] = {}
 
 def _file_mtime_ns(path: Path) -> int:
     try:
-        return int(path.stat().st_mtime_ns)
+        return path.stat().st_mtime_ns
     except OSError:
         return 0
 
@@ -666,7 +666,7 @@ def _native_embedding_search(
     from dagayn import _core
 
     return [
-        (str(qualified_name), float(score))
+        (qualified_name, score)
         for qualified_name, score in _core.embedding_search(
             db_path,
             provider_name,
@@ -692,7 +692,7 @@ def _native_embedding_search_prewarm(db_path: str | Path, provider_name: str) ->
     """Preload the native Rust embedding-search matrix cache."""
     from dagayn import _core
 
-    return int(_core.embedding_search_prewarm(db_path, provider_name))
+    return _core.embedding_search_prewarm(db_path, provider_name)
 
 
 def _native_embedding_search_prewarm_for_search(db_path: str | Path, provider_name: str) -> int:

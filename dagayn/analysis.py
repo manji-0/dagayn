@@ -253,7 +253,7 @@ def persist_centrality_scores(store: GraphStore) -> dict[str, int]:
     rust_persist = getattr(store, "persist_centrality_scores", None)
     if callable(rust_persist) and not hasattr(store, "_conn"):
         scores = cast(Callable[[], dict[str, int]], rust_persist)()
-        return {key: int(value) for key, value in scores.items()}
+        return {key: value for key, value in scores.items()}
 
     _ensure_centrality_score_tables(store)
     snapshot = build_graph_snapshot(store)

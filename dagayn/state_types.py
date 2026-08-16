@@ -434,7 +434,7 @@ def seal_dispatcher_ok(payload: dict[str, Any]) -> dict[str, Any]:
 
 def format_validation_error(exc: ValidationError) -> str:
     """Return a single-line validation message suitable for tool errors."""
-    messages = [str(error["msg"]) for error in exc.errors()]
+    messages = [error["msg"] for error in exc.errors()]
     return messages[0] if len(messages) == 1 else "; ".join(messages)
 
 

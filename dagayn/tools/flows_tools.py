@@ -307,7 +307,7 @@ def get_flow(
             "summary": summary,
             "flow": flow,
             "flow_coverage": {
-                "source_included": bool(include_source),
+                "source_included": include_source,
                 "step_count": resolved_step_count,
                 "stored_node_count": stored_node_count,
                 "resolved_step_count": resolved_step_count,
@@ -324,7 +324,7 @@ def get_flow(
                 {
                     "reason_code": "source_inclusion_explicit",
                     "severity": "low",
-                    "claim_effect": f"source snippets included: {bool(include_source)}",
+                    "claim_effect": f"source snippets included: {include_source}",
                 },
             ],
         }
@@ -357,7 +357,7 @@ def get_flow(
                     "depth": flow.get("depth"),
                     "criticality": flow.get("criticality"),
                     "bridge_step_count": flow.get("bridge_step_count", 0),
-                    "source_included": bool(include_source),
+                    "source_included": include_source,
                 },
                 confidence="medium" if not is_stale_flow else "low",
                 missingness=[

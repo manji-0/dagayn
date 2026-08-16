@@ -152,4 +152,6 @@ dev = [
     "pytest>=8.4.2",
     "pytest-cov>=7.1.0",
     "pyrefly>=0.33.0",
+    "types-networkx>=3.6,<4",
+    "types-PyYAML>=6.0.12,<7",
 ]

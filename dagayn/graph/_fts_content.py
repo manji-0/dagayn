@@ -92,8 +92,8 @@ def read_node_source_excerpt(
 
     start_line = line_start or 1
     end_line = line_end or start_line
-    start = max(int(start_line) - 1, 0)
-    end = min(max(int(end_line), int(start_line)), len(lines))
+    start = max(start_line - 1, 0)
+    end = min(max(end_line, start_line), len(lines))
 
     if kind == "DocSection":
         level = None

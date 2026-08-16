@@ -830,7 +830,7 @@ def get_all_tracked_files(
     if recurse_submodules is None:
         from . import incremental as inc
 
-        recurse_submodules = bool(inc._RECURSE_SUBMODULES)
+        recurse_submodules = inc._RECURSE_SUBMODULES
 
     extra: list[str] = []
     if recurse_submodules:
@@ -857,7 +857,7 @@ def get_vcs_indexable_files(
     if recurse_submodules is None:
         from . import incremental as inc
 
-        recurse_submodules = bool(inc._RECURSE_SUBMODULES)
+        recurse_submodules = inc._RECURSE_SUBMODULES
 
     cached_args = ["--cached"]
     if recurse_submodules:
@@ -928,7 +928,7 @@ def collect_all_files(
         # backend (the fallback below is the only place that honoured it).
         from . import incremental as inc
 
-        recurse_submodules = bool(inc._RECURSE_SUBMODULES)
+        recurse_submodules = inc._RECURSE_SUBMODULES
 
     if _rust_backend_enabled() and detect_vcs(repo_root) != "svn":
         try:

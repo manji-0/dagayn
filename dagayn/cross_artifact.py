@@ -163,7 +163,7 @@ def annotate_flow_steps_with_bridges(
         return steps
 
     path_qns = {
-        str(step.get("qualified_name"))
+        step.get("qualified_name")
         for step in steps
         if isinstance(step.get("qualified_name"), str)
     }

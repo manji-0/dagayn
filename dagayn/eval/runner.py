@@ -13,7 +13,7 @@ from dagayn.eval.git_utils import checkout_config_ref, run_git
 from dagayn.eval.semantics import decorate_rows
 
 try:
-    import yaml  # type: ignore[import-untyped]
+    import yaml
 except ImportError:
     yaml: Any | None = None
 

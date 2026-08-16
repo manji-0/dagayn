@@ -33,7 +33,7 @@ class TestMigrations:
         self.store.close()
 
         # Manually create a v1 database (base schema only, version=1)
-        conn = sqlite3.connect(str(self.tmp.name))
+        conn = sqlite3.connect(self.tmp.name)
         conn.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES ('schema_version', '1')")
         conn.commit()
         # Drop migration artifacts to simulate v1

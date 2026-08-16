@@ -56,7 +56,7 @@ def get_review_context(
     """
     store = None
     try:
-        max_lines_per_file = max(1, min(int(max_lines_per_file), MAX_LINES_PER_FILE_CEILING))
+        max_lines_per_file = max(1, min(max_lines_per_file, MAX_LINES_PER_FILE_CEILING))
         store, root = _get_store(repo_root)
         answerability = graph_answerability_summary(store)
         missingness = missingness_from_answerability(answerability)

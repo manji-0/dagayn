@@ -451,7 +451,7 @@ def refresh_flow_criticality(store: GraphStore) -> int:
 
     if callable(rust_update):
         payload = json.dumps([[flow_id, score] for flow_id, score in updates])
-        return int(cast(Callable[[str], int], rust_update)(payload))
+        return cast(Callable[[str], int], rust_update)(payload)
 
     if conn is None:
         logger.warning("Cannot refresh flow criticality: store has no SQL connection")
@@ -521,7 +521,7 @@ def store_flows(store: GraphStore, flows: list[dict]) -> int:
     """
     rust_store = getattr(store, "store_flows_json", None)
     if callable(rust_store):
-        return int(cast(Callable[[str], int], rust_store)(json.dumps(flows)))
+        return cast(Callable[[str], int], rust_store)(json.dumps(flows))
 
     # NOTE: store_flows uses _conn directly because it performs
     # multi-statement batch writes (DELETE + INSERT loop) that are
@@ -805,7 +805,7 @@ def incremental_trace_flows(
     if callable(rust_delete) and callable(rust_insert):
         changed_file_set = set(changed_files)
         deleted_ids = cast(Callable[[list[str]], list[int]], rust_delete)(changed_files)
-        entry_point_ids = {int(node_id) for node_id in deleted_ids}
+        entry_point_ids = set(deleted_ids)
 
         entry_points = detect_entry_points(store)
         relevant_eps = [
@@ -824,7 +824,7 @@ def incremental_trace_flows(
 
         count = 0
         if new_flows:
-            count = int(cast(Callable[[str], int], rust_insert)(json.dumps(new_flows)))
+            count = cast(Callable[[str], int], rust_insert)(json.dumps(new_flows))
         refresh_flow_criticality(store)
         return count
 

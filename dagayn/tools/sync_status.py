@@ -144,7 +144,7 @@ def _classify_diff_tier(
         suspect: list[str] = []
         for rel_path, (_stored_hash, stored_mtime_ns) in indexed.items():
             try:
-                current_mtime_ns = int((root / rel_path).stat().st_mtime_ns)
+                current_mtime_ns = (root / rel_path).stat().st_mtime_ns
             except OSError:
                 stale.append(rel_path)
                 continue
@@ -276,7 +276,7 @@ def assess_graph_sync(
 
     graph_empty = _graph_is_empty(stats)
     commit_drift = bool(vcs == "git" and current_sha and stored_sha != current_sha)
-    undated = bool(not last_updated and not graph_empty)
+    undated = not last_updated and not graph_empty
 
     if _seed_needs_verification(store):
         # A seeded worktree graph carries the parent's per-file mtimes, so a

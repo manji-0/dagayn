@@ -1848,7 +1848,7 @@ class TestBuildPostprocess:
         selected, should_close = _postprocess_store(store, self.root, "minimal")
 
         assert selected is store
-        assert should_close is False
+        assert not should_close
 
     def test_postprocess_full_does_not_reopen_python_store_for_rust(self):
         from dagayn.tools.build import _postprocess_store

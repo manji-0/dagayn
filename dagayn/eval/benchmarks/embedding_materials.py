@@ -441,7 +441,7 @@ def _relevance_grade(qualified_name: str, relevance: dict[str, int]) -> int:
     grade = 0
     for target, target_grade in relevance.items():
         if _matches_expected(qualified_name, target):
-            grade = max(grade, int(target_grade))
+            grade = max(grade, target_grade)
     return grade
 
 
@@ -455,9 +455,9 @@ def _best_unseen_relevance_target(
     for target, target_grade in relevance.items():
         if target in seen_targets:
             continue
-        if _matches_expected(qualified_name, target) and int(target_grade) > best_grade:
+        if _matches_expected(qualified_name, target) and target_grade > best_grade:
             best_target = target
-            best_grade = int(target_grade)
+            best_grade = target_grade
     return best_target, best_grade
 
 

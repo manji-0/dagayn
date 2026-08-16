@@ -259,13 +259,13 @@ def _resolve_markdown_artifact_refs(
             resolve = cast(Callable[[], tuple[int, int, int, int]], rust_resolve)
             rust_result = resolve()
             resolved, dropped = rust_result[:2]
-            result["markdown_artifact_refs_resolved"] = int(resolved)
-            result["markdown_artifact_refs_dropped"] = int(dropped)
+            result["markdown_artifact_refs_resolved"] = resolved
+            result["markdown_artifact_refs_dropped"] = dropped
             result["markdown_artifact_refs_re_resolved"] = (
-                int(rust_result[2]) if len(rust_result) > 2 else 0
+                rust_result[2] if len(rust_result) > 2 else 0
             )
             result["markdown_artifact_refs_still_unresolved"] = (
-                int(rust_result[3]) if len(rust_result) > 3 else 0
+                rust_result[3] if len(rust_result) > 3 else 0
             )
             return
 
@@ -647,7 +647,7 @@ def _compute_signatures(
     try:
         rust_compute = getattr(store, "compute_missing_signatures", None)
         if callable(rust_compute):
-            result["signatures_computed"] = int(cast(Callable[[], int], rust_compute)())
+            result["signatures_computed"] = cast(Callable[[], int], rust_compute)()
             return
 
         rows = store.get_nodes_without_signature()
@@ -720,8 +720,8 @@ def _resolve_bare_name_edges(
             resolve_bare_inheritance_targets,
         )
 
-        result["bare_call_targets_resolved"] = int(resolve_bare_call_targets(store))
-        result["bare_inheritance_targets_resolved"] = int(resolve_bare_inheritance_targets(store))
+        result["bare_call_targets_resolved"] = resolve_bare_call_targets(store)
+        result["bare_inheritance_targets_resolved"] = resolve_bare_inheritance_targets(store)
     except (sqlite3.OperationalError, RuntimeError, TypeError, AttributeError) as e:
         logger.warning("Bare-name edge resolution failed: %s", e)
         warnings.append(f"Bare-name edge resolution failed: {type(e).__name__}: {e}")

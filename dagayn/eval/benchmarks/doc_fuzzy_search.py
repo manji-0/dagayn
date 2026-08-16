@@ -234,7 +234,7 @@ def _relevance_grade(qualified_name: str, relevance: dict[str, int]) -> int:
     grade = 0
     for target, target_grade in relevance.items():
         if _matches(qualified_name, target):
-            grade = max(grade, int(target_grade))
+            grade = max(grade, target_grade)
     return grade
 
 

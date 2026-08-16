@@ -16,7 +16,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -538,7 +538,7 @@ def local_embedding_server(
     binary: str = DEFAULT_LOCAL_EMBEDDING_BIN,
     keep_running: bool = False,
     startup_timeout: int = DEFAULT_LOCAL_EMBEDDING_TIMEOUT,
-) -> Iterator[LocalEmbeddingServer]:
+) -> Generator[LocalEmbeddingServer, None, None]:
     """Ensure a local embedding server is ready for one build/update run.
 
     If a compatible server is already listening on *port*, it is reused and

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from typing import Any
 
@@ -16,7 +16,7 @@ _FALLBACK_WRITE_LOCK = threading.RLock()
 
 
 @contextmanager
-def store_write_transaction(store: Any) -> Iterator[Any]:
+def store_write_transaction(store: Any) -> Generator[Any, None, None]:
     """Run an explicit ``BEGIN IMMEDIATE`` region on *store*'s connection.
 
     Holds the store's write lock for the whole region. Several call sites used

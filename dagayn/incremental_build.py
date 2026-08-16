@@ -236,7 +236,7 @@ def _parse_single_file(
     rel_path, repo_root_str = args
     abs_path = Path(repo_root_str) / rel_path
     try:
-        mtime_ns = int(abs_path.stat().st_mtime_ns)
+        mtime_ns = abs_path.stat().st_mtime_ns
         raw = abs_path.read_bytes()
         fhash = hashlib.sha256(raw).hexdigest()
         rust_parsed = _parse_with_rust_if_enabled(rel_path, raw)
@@ -257,7 +257,7 @@ def _parse_single_python_file(
     rel_path, repo_root_str = args
     abs_path = Path(repo_root_str) / rel_path
     try:
-        mtime_ns = int(abs_path.stat().st_mtime_ns)
+        mtime_ns = abs_path.stat().st_mtime_ns
         raw = abs_path.read_bytes()
         fhash = hashlib.sha256(raw).hexdigest()
         parser = _worker_parser if _worker_parser is not None else CodeParser()
@@ -274,7 +274,7 @@ def _parse_single_python_file_compact(
     rel_path, repo_root_str = args
     abs_path = Path(repo_root_str) / rel_path
     try:
-        mtime_ns = int(abs_path.stat().st_mtime_ns)
+        mtime_ns = abs_path.stat().st_mtime_ns
         raw = abs_path.read_bytes()
         fhash = hashlib.sha256(raw).hexdigest()
         parser = _worker_parser if _worker_parser is not None else CodeParser()
@@ -471,7 +471,7 @@ def _classify_python_changed_files(
     for rel_path in file_paths:
         abs_path = repo_root / rel_path
         try:
-            cur_mtime_ns = int(abs_path.stat().st_mtime_ns)
+            cur_mtime_ns = abs_path.stat().st_mtime_ns
             meta = file_meta.get(rel_path)
             if trust_mtime and meta and meta[1] == cur_mtime_ns:
                 continue
@@ -719,7 +719,7 @@ def store_phase_failures(errors: list[dict[str, str]] | None) -> list[str]:
     if not errors:
         return []
     return [
-        str(entry.get("file", ""))
+        entry.get("file", "")
         for entry in errors
         if isinstance(entry, dict) and entry.get("phase") == "store"
     ]
@@ -914,7 +914,7 @@ def full_build(
                     i = len(rust_files) + offset
                     full_path = repo_root / rel_path
                     try:
-                        mtime_ns = int(full_path.stat().st_mtime_ns)
+                        mtime_ns = full_path.stat().st_mtime_ns
                         source = full_path.read_bytes()
                         fhash = hashlib.sha256(source).hexdigest()
                         nodes, edges = parser.parse_bytes(full_path, source)
@@ -1193,7 +1193,7 @@ def incremental_update(
             continue
         abs_path = repo_root / rel_path
         try:
-            cur_mtime_ns = int(abs_path.stat().st_mtime_ns)
+            cur_mtime_ns = abs_path.stat().st_mtime_ns
         except (OSError, PermissionError):
             to_parse_rust_checked.append(rel_path)
             continue
@@ -1206,7 +1206,7 @@ def incremental_update(
         abs_path = repo_root / rel_path
         already_known_changed = rel_path in content_changed_files
         try:
-            cur_mtime_ns = int(abs_path.stat().st_mtime_ns)
+            cur_mtime_ns = abs_path.stat().st_mtime_ns
             meta = file_meta.get(rel_path)
             if not already_known_changed and meta and meta[1] == cur_mtime_ns:
                 # mtime unchanged and nothing else says otherwise — skip the read.

@@ -89,7 +89,7 @@ def review_func(
                 base=request.base,
                 changed_files=request.changed_files,
                 include_source=(
-                    bool(request.include_source) if request.include_source is not None else False
+                    request.include_source if request.include_source is not None else False
                 ),
                 max_depth=request.max_depth,
                 repo_root=request.repo_root,

@@ -120,7 +120,7 @@ def rebuild_fts_index(store: GraphStore) -> int:
     """
     rust_rebuild = getattr(store, "rebuild_fts_index", None)
     if callable(rust_rebuild):
-        count = int(cast(Callable[[], int], rust_rebuild)())
+        count = cast(Callable[[], int], rust_rebuild)()
         logger.info("FTS index rebuilt: %d rows indexed", count)
         return count
 

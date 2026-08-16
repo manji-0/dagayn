@@ -113,7 +113,7 @@ def compute_precision_at_k(
     Returns:
         Dict with precision_at_k, hits, k, returned, and relevant.
     """
-    cutoff = max(1, int(k))
+    cutoff = max(1, k)
     returned = [item for item in predicted[:cutoff] if item]
     if not returned and not actual and perfect_empty:
         precision = 1.0
@@ -167,10 +167,10 @@ class IdentifierMatcher:
         self.allow_basename = allow_basename
         self.aliases: dict[str, set[str]] = {}
         for target, values in (aliases or {}).items():
-            target_s = str(target)
-            self.aliases.setdefault(target_s, set()).update(str(value) for value in values)
+            target_s = target
+            self.aliases.setdefault(target_s, set()).update(value for value in values)
             for value in values:
-                self.aliases.setdefault(str(value), set()).add(target_s)
+                self.aliases.setdefault(value, set()).add(target_s)
 
     @classmethod
     def from_config(cls, config: dict[str, Any] | None) -> "IdentifierMatcher":

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .graph import GraphNode, node_to_dict
 
@@ -211,8 +211,8 @@ def _build_import_edges_by_source(store: Any, candidate_keys: list[str]) -> dict
     """
     if not candidate_keys:
         return {}
-    get_by_kind = getattr(store, "get_edges_by_kind", None)
-    if callable(get_by_kind):
+    get_by_kind: Callable[[str], list[Any]] | None = getattr(store, "get_edges_by_kind", None)
+    if get_by_kind is not None:
         try:
             edges = get_by_kind("IMPORTS_FROM")
         except Exception:  # pragma: no cover - defensive for backend parity drift

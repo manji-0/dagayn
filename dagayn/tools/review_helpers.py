@@ -557,7 +557,7 @@ def _documentation_update_candidates(
     stability_profiles: dict[str, dict[str, Any]] | None = None,
     include_heuristic_docs: bool = False,
 ) -> list[dict[str, Any]]:
-    changed_set = {str(path) for path in changed_files}
+    changed_set = set(changed_files)
     code_changed = any(not _is_markdown_path(path) for path in changed_files)
     if not code_changed:
         return []
@@ -571,7 +571,7 @@ def _documentation_update_candidates(
         if isinstance(qn, str) and qn
     ]
     source_by_qn = {
-        str(func.get("qualified_name")): func
+        func.get("qualified_name"): func
         for func in changed_functions
         if isinstance(func.get("qualified_name"), str)
     }
@@ -755,7 +755,7 @@ def _stability_contracts(
             continue
         density = component_density.get(scope_key, {})
         changed_qns = [
-            str(func.get("qualified_name"))
+            func.get("qualified_name")
             for func in funcs
             if isinstance(func.get("qualified_name"), str)
         ]
@@ -907,7 +907,7 @@ def _cross_artifact_proximity(
 ) -> dict[str, Any]:
     """Surface reportable CROSS_ARTIFACT bridges near the change as review leads."""
     seed_qns = {
-        str(func.get("qualified_name"))
+        func.get("qualified_name")
         for func in changed_functions
         if isinstance(func.get("qualified_name"), str)
     }

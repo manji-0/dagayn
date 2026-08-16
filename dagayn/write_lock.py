@@ -31,7 +31,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import IO, Protocol
@@ -295,7 +295,7 @@ def graph_write_lock(
     *,
     blocking: bool = True,
     timeout: float = DEFAULT_WRITE_LOCK_TIMEOUT,
-) -> Iterator[None]:
+) -> Generator[None, None, None]:
     """Serialize writes to the graph at *db_path* across processes and threads.
 
     With ``blocking=False`` a lock already held elsewhere raises
@@ -315,7 +315,7 @@ def graph_read_lock(
     *,
     blocking: bool = True,
     timeout: float = DEFAULT_IO_LOCK_TIMEOUT,
-) -> Iterator[None]:
+) -> Generator[None, None, None]:
     """Hold a shared lock so writers wait, while other readers may proceed."""
     acquire_graph_lock(db_path, exclusive=False, blocking=blocking, timeout=timeout)
     try:
@@ -328,7 +328,7 @@ def write_lock_is_held(db_path: str | Path) -> bool:
     """True when this process already holds an exclusive lock for *db_path*."""
     with _registry_lock:
         held = _file_locks.get(_lock_path_for(db_path))
-        return bool(held is not None and any(held.modes))
+        return held is not None and any(held.modes)
 
 
 def graph_lock_is_held(db_path: str | Path) -> bool:

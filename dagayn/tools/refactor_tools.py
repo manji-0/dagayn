@@ -50,7 +50,7 @@ _IDENTIFIER_RE = re.compile(r"^[^\W\d]\w*$", re.UNICODE)
 
 def _is_valid_identifier(name: str | None) -> bool:
     """True when *name* can be substituted into source as an identifier."""
-    return bool(name) and bool(_IDENTIFIER_RE.match(str(name)))
+    return bool(name) and bool(_IDENTIFIER_RE.match(name))
 
 
 def _apply_stability_policy_to_suggestions(

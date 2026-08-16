@@ -694,7 +694,7 @@ def count_affected_communities(store: GraphStore, changed_files: list[str]) -> i
 
     rust_count = getattr(store, "count_affected_communities", None)
     if callable(rust_count):
-        return int(cast(Callable[[list[str]], int], rust_count)(changed_files))
+        return cast(Callable[[list[str]], int], rust_count)(changed_files)
 
     conn = store._conn
     placeholders = ",".join("?" * len(changed_files))
@@ -844,7 +844,7 @@ def store_communities(store: GraphStore, communities: list[dict[str, Any]]) -> i
             }
             for comm in communities
         ]
-        return int(cast(Callable[[str], int], rust_store)(json.dumps(payload)))
+        return cast(Callable[[str], int], rust_store)(json.dumps(payload))
 
     # NOTE: store_communities uses _conn directly because it performs
     # multi-statement batch writes (DELETE + INSERT loop + UPDATE loop)
