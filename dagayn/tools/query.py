@@ -448,9 +448,7 @@ def query_graph(
         if pattern not in QUERY_PATTERNS:
             return {
                 "status": "error",
-                "error": (
-                    f"Unknown pattern '{pattern}'. Available: {list(QUERY_PATTERNS.keys())}"
-                ),
+                "error": (f"Unknown pattern '{pattern}'. Available: {list(QUERY_PATTERNS.keys())}"),
             }
 
         # For callers_of, skip common builtins early (bare names only)
