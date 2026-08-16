@@ -2674,6 +2674,29 @@ class TestGetMinimalContext:
         assert result["graph_health"]["status"] in {"ok", "degraded", "empty"}
         assert "answerability" in result["graph_health"]
 
+    def test_retries_once_on_sqlite_corrupt(self, monkeypatch):
+        import sqlite3
+
+        from dagayn.graph.core import GraphStore as GraphStoreCls
+        from dagayn.tools.context import get_minimal_context
+
+        calls = {"n": 0}
+        original = GraphStoreCls.get_stats
+
+        def flaky(self):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise sqlite3.DatabaseError("database disk image is malformed")
+            return original(self)
+
+        monkeypatch.setattr(GraphStoreCls, "get_stats", flaky)
+        result = get_minimal_context(
+            task="explore codebase",
+            repo_root=str(self.root),
+        )
+        assert result["status"] == "ok"
+        assert calls["n"] >= 2
+
     def test_graph_health_excludes_unresolved_markdown_code_span_candidates(self):
         from dagayn.tools.context import get_minimal_context
 

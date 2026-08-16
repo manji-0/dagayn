@@ -15,6 +15,12 @@ from pathlib import Path
 from typing import Any
 
 from ..graph import GraphStore
+from ..graph.sqlite_errors import (
+    close_live_stores_for,
+    is_sqlite_corrupt_error,
+    probe_graph_database,
+    register_live_store,
+)
 from ..incremental import (
     _backend_selection,
     _rust_backend_explicitly_requested,
@@ -420,7 +426,9 @@ def _open_store(
 ) -> tuple[GraphStore, Path]:
     store_cls = _selected_graph_store(use_backend_default=use_backend_default)
     if store_cls is not GraphStore:
-        return store_cls(db_path), root
+        store = store_cls(db_path)
+        register_live_store(store, db_path)
+        return store, root
 
     if not cached or _cache_disabled():
         store = store_cls(db_path)
@@ -866,13 +874,73 @@ def make_response(
     return resp
 
 
+def _db_path_for_repo(repo_root: str | Path | None) -> Path:
+    """Resolve ``graph.db`` for *repo_root*, falling back to the process root."""
+    root = Path(repo_root) if repo_root else find_project_root()
+    return get_db_path(root)
+
+
+def recover_corrupt_graph(db_path: str | Path | None = None) -> bool:
+    """Drop cached / leaked SQLite handles so the next open is a new connection.
+
+    ``SQLITE_CORRUPT`` sticks to a connection. Long-lived MCP processes also
+    leak fds onto unlinked WAL generations; a fresh CLI process can read the
+    same path while the server keeps failing. Closing every live handle on
+    that path (or every handle, when *db_path* is omitted) is the recovery.
+
+    Returns True when a brand-new connection can ``quick_check`` the file.
+    """
+    path = Path(db_path) if db_path is not None else None
+    _evict_store_cache(path)
+    close_live_stores_for(path)
+    if path is None or str(path) == ":memory:":
+        return True
+    return probe_graph_database(path)
+
+
 def handle_tool_runtime_error(
     exc: BaseException,
     *,
     logger: logging.Logger,
     context: str,
+    repo_root: str | Path | None = None,
 ) -> dict[str, Any]:
     """Convert a tool failure into a structured MCP error envelope."""
+    corrupt = is_sqlite_corrupt_error(exc)
+    if corrupt:
+        db_path = _db_path_for_repo(repo_root) if repo_root else None
+        recovered = recover_corrupt_graph(db_path)
+        logger.warning(
+            "%s failed with sqlite corrupt (%s); closed live stores, file_ok=%s",
+            context,
+            exc,
+            recovered,
+        )
+        reason_code = "sqlite_corrupt"
+        next_action = (
+            "Retry the tool. If it still fails, restart `dagayn serve` / reload "
+            "the MCP server so leftover WAL handles are dropped. Rebuild with "
+            "`dagayn build --local-embedding none` only when `PRAGMA quick_check` "
+            "on `.dagayn/graph.db` is not ok."
+        )
+        claim_effect = (
+            "graph queries are unavailable until poisoned SQLite connections "
+            "are closed; the on-disk file may still be healthy"
+        )
+        payload: dict[str, Any] = {
+            "status": "error",
+            "error": str(exc),
+            "file_ok": recovered,
+            "next_action": next_action,
+            "missingness": [
+                {
+                    "reason_code": reason_code,
+                    "severity": "high",
+                    "claim_effect": claim_effect,
+                }
+            ],
+        }
+        return payload
     if isinstance(exc, _TOOL_RUNTIME_ERRORS):
         logger.warning("%s failed: %s", context, exc)
         reason_code = "tool_runtime_error"

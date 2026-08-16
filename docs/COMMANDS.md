@@ -449,6 +449,12 @@ managed OpenAI-compatible Qwen endpoint. Either path makes `semantic_search_node
 `traverse_graph`, and `cross_repo_search` run hybrid FTS + embedding retrieval
 unless the client explicitly passes another provider or model.
 
+A long-lived `dagayn serve` that hits SQLite `SQLITE_CORRUPT` (`database disk
+image is malformed`) closes live graph handles and retries the tool once.
+Restart the MCP server if the retry still fails; rebuild the graph only when
+`PRAGMA quick_check` on `.dagayn/graph.db` is not `ok`. See
+[TROUBLESHOOTING.md](./TROUBLESHOOTING.md#mcp-tools-report-database-disk-image-is-malformed).
+
 Default tool names are:
 
 - `get_minimal_context_tool`

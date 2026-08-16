@@ -9,12 +9,15 @@ import sqlite3
 from types import SimpleNamespace
 from typing import Any
 
+from dagayn.graph import GraphStore
+from dagayn.graph.sqlite_errors import is_sqlite_corrupt_error
 from dagayn.tools._common import (
     apply_output_budget,
     attach_answerability,
     compact_response,
     graph_answerability_summary,
     guidance_actions_to_hints,
+    handle_tool_runtime_error,
     make_guidance_item,
     make_response,
     missingness_from_answerability,
@@ -316,3 +319,36 @@ class TestCompactResponse:
         )
         assert r["top_flows"] == ["checkout", "login", "search"]
         assert r["flows_affected"] == ["login"]
+
+
+class TestSqliteCorruptHelpers:
+    def test_detects_malformed_disk_image(self) -> None:
+        err = sqlite3.DatabaseError("database disk image is malformed")
+        assert is_sqlite_corrupt_error(err)
+
+    def test_detects_torn_schema_message(self) -> None:
+        err = RuntimeError("malformed database schema (skills)")
+        assert is_sqlite_corrupt_error(err)
+
+    def test_ignores_unrelated_errors(self) -> None:
+        assert not is_sqlite_corrupt_error(sqlite3.OperationalError("database is locked"))
+        assert not is_sqlite_corrupt_error(ValueError("nope"))
+
+    def test_handle_tool_runtime_error_recovers_corrupt(self, tmp_path, monkeypatch) -> None:
+        import logging
+
+        (tmp_path / ".git").mkdir()
+        (tmp_path / ".dagayn").mkdir()
+        GraphStore(tmp_path / ".dagayn" / "graph.db").close()
+        monkeypatch.chdir(tmp_path)
+
+        payload = handle_tool_runtime_error(
+            sqlite3.DatabaseError("database disk image is malformed"),
+            logger=logging.getLogger("test"),
+            context="query_graph",
+            repo_root=str(tmp_path),
+        )
+        assert payload["status"] == "error"
+        assert payload["missingness"][0]["reason_code"] == "sqlite_corrupt"
+        assert payload["file_ok"] is True
+        assert "Restart" in payload["next_action"] or "restart" in payload["next_action"]

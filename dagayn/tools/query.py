@@ -30,15 +30,18 @@ from ..state_types import (
 )
 from ._common import (
     _BUILTIN_CALL_NAMES,
+    _db_path_for_repo,
     _error_response,
     _get_store,
     apply_output_budget,
     graph_answerability_summary,
     guidance_actions_to_hints,
     handle_tool_runtime_error,
+    is_sqlite_corrupt_error,
     make_guidance_item,
     make_response,
     missingness_from_answerability,
+    recover_corrupt_graph,
 )
 
 logger = logging.getLogger(__name__)
@@ -697,7 +700,9 @@ def get_impact_radius(
         )
         return payload
     except Exception as exc:
-        return handle_tool_runtime_error(exc, logger=logger, context="get_impact_radius")
+        return handle_tool_runtime_error(
+            exc, logger=logger, context="get_impact_radius", repo_root=repo_root
+        )
     finally:
         if store is not None:
             store.close()
@@ -713,6 +718,8 @@ def query_graph(
     target: str,
     repo_root: str | None = None,
     detail_level: str = "standard",
+    *,
+    _corrupt_retried: bool = False,
 ) -> dict[str, Any]:
     """Run a predefined graph query.
 
@@ -1147,7 +1154,25 @@ def query_graph(
         apply_output_budget(payload, budget_tokens=8000, list_priorities=["results", "edges"])
         return payload
     except Exception as exc:
-        return handle_tool_runtime_error(exc, logger=logger, context="query_graph")
+        if is_sqlite_corrupt_error(exc) and not _corrupt_retried:
+            recover_corrupt_graph(_db_path_for_repo(repo_root))
+            logger.warning(
+                "query_graph: sqlite corrupt (%s); retrying after closing live stores",
+                exc,
+            )
+            return query_graph(
+                pattern,
+                target,
+                repo_root,
+                detail_level,
+                _corrupt_retried=True,
+            )
+        return handle_tool_runtime_error(
+            exc,
+            logger=logger,
+            context="query_graph",
+            repo_root=repo_root,
+        )
     finally:
         if store is not None:
             store.close()
@@ -1324,7 +1349,9 @@ def semantic_search_nodes(
         )
         return result
     except Exception as exc:
-        return handle_tool_runtime_error(exc, logger=logger, context="semantic_search_nodes")
+        return handle_tool_runtime_error(
+            exc, logger=logger, context="semantic_search_nodes", repo_root=repo_root
+        )
     finally:
         if store is not None:
             store.close()
@@ -1378,7 +1405,9 @@ def list_graph_stats(repo_root: str | None = None) -> dict[str, Any]:
             ],
         )
     except Exception as exc:
-        return handle_tool_runtime_error(exc, logger=logger, context="list_graph_stats")
+        return handle_tool_runtime_error(
+            exc, logger=logger, context="list_graph_stats", repo_root=repo_root
+        )
     finally:
         if store is not None:
             store.close()
@@ -1462,7 +1491,9 @@ def find_large_functions(
             "results": results,
         }
     except Exception as exc:
-        return handle_tool_runtime_error(exc, logger=logger, context="find_large_functions")
+        return handle_tool_runtime_error(
+            exc, logger=logger, context="find_large_functions", repo_root=repo_root
+        )
     finally:
         if store is not None:
             store.close()
@@ -1720,7 +1751,9 @@ def traverse_graph_func(
             ],
         )
     except Exception as exc:
-        return handle_tool_runtime_error(exc, logger=logger, context="traverse_graph")
+        return handle_tool_runtime_error(
+            exc, logger=logger, context="traverse_graph", repo_root=repo_root
+        )
     finally:
         if store is not None:
             store.close()

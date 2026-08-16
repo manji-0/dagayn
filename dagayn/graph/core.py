@@ -95,6 +95,9 @@ class GraphStore(
             self._conn.commit()
         migrations.run_migrations(self._conn)
         migrations.ensure_edge_target_name_column(self._conn)
+        from .sqlite_errors import register_live_store
+
+        register_live_store(self, self.db_path)
         self._nxg_cache: nx.DiGraph | None = None
         self._cache_lock = threading.Lock()
         # Serializes the explicit BEGIN IMMEDIATE ... COMMIT regions on this
@@ -143,13 +146,22 @@ class GraphStore(
             if self._leases > 0:
                 # Other callers still hold leases; the last one closes.
                 return
+            self._checkpoint_wal_on_close()
             self._conn.close()
         finally:
             unbind_store_read_lock(self)
 
+    def _checkpoint_wal_on_close(self) -> None:
+        """Flush this connection's WAL so idle MCP does not keep a generation."""
+        try:
+            self._conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
+        except sqlite3.Error:
+            logger.debug("WAL checkpoint on close failed", exc_info=True)
+
     def _force_close(self) -> None:
         """Close the underlying sqlite connection, ignoring ``_pinned``."""
         try:
+            self._checkpoint_wal_on_close()
             self._conn.close()
         finally:
             drop_store_read_locks(self)

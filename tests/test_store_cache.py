@@ -12,7 +12,7 @@ import threading
 import pytest
 
 from dagayn.graph import GraphStore
-from dagayn.tools._common import _evict_store_cache, _get_store
+from dagayn.tools._common import _evict_store_cache, _get_store, recover_corrupt_graph
 
 # ---------------------------------------------------------------------------
 # Unit tests: GraphStore.close() state machine
@@ -414,3 +414,33 @@ class TestSqliteMmapDisabled:
             assert conn.execute("SELECT name FROM communities").fetchone()[0] == "skills"
         finally:
             conn.close()
+
+
+class TestCorruptRecovery:
+    """SQLITE_CORRUPT must drop leaked handles so a later open can succeed."""
+
+    def test_recover_force_closes_leaked_store(self, tmp_path):
+        db = tmp_path / ".dagayn" / "graph.db"
+        db.parent.mkdir()
+        leaked = GraphStore(db)
+        leaked._conn.execute("SELECT 1")
+
+        assert recover_corrupt_graph(db) is True
+
+        with pytest.raises(Exception):
+            leaked._conn.execute("SELECT 1")
+
+        fresh = GraphStore(db)
+        try:
+            fresh._conn.execute("SELECT 1")
+        finally:
+            fresh.close()
+        _evict_store_cache()
+
+    def test_idle_close_checkpoints_without_raising(self, tmp_path):
+        db = tmp_path / "g.db"
+        store = GraphStore(db)
+        store._leases = 1
+        store.close()
+        with pytest.raises(Exception):
+            store._conn.execute("SELECT 1")

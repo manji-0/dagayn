@@ -9,6 +9,7 @@ by default).
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import sys
 from importlib import import_module
@@ -197,8 +198,48 @@ def _resolve_local_embedding(local_embedding: Optional[str]) -> Optional[str]:
 
 
 def _tool(name: str) -> Any:
-    """Resolve a tool implementation lazily to keep package imports acyclic."""
-    return getattr(import_module("dagayn.tools"), name)
+    """Resolve a tool implementation lazily to keep package imports acyclic.
+
+    Uncaught ``SQLITE_CORRUPT`` is recovered once by closing live graph
+    handles and retrying. A poisoned connection in a long-lived ``serve``
+    process otherwise fails every subsequent call even when the file is healthy.
+    """
+    impl = getattr(import_module("dagayn.tools"), name)
+
+    def wrapped(*args: Any, **kwargs: Any) -> Any:
+        from .tools._common import (
+            _db_path_for_repo,
+            handle_tool_runtime_error,
+            is_sqlite_corrupt_error,
+            recover_corrupt_graph,
+        )
+
+        try:
+            return impl(*args, **kwargs)
+        except BaseException as exc:
+            if not is_sqlite_corrupt_error(exc):
+                raise
+            repo_root = kwargs.get("repo_root")
+            recover_corrupt_graph(_db_path_for_repo(repo_root) if repo_root else None)
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                "MCP tool %s: sqlite corrupt (%s); retrying after closing live stores",
+                name,
+                exc,
+            )
+            try:
+                return impl(*args, **kwargs)
+            except BaseException as exc2:
+                if is_sqlite_corrupt_error(exc2):
+                    return handle_tool_runtime_error(
+                        exc2,
+                        logger=logger,
+                        context=name,
+                        repo_root=kwargs.get("repo_root"),
+                    )
+                raise
+
+    return wrapped
 
 
 mcp = FastMCP(

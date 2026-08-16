@@ -19,6 +19,10 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixes
 
+- MCP tools recover from `SQLITE_CORRUPT` (`database disk image is malformed`)
+  by closing leaked graph connections and retrying once. Idle `GraphStore.close()`
+  now issues `PRAGMA wal_checkpoint(PASSIVE)` so a long-lived `dagayn serve`
+  does not keep leftover WAL generations. See `docs/TROUBLESHOOTING.md`.
 - Production Terraform `check` blocks are no longer classified as tests
   (`is_test`), so plan/apply health checks stay in review and gap analysis.
   See: #136

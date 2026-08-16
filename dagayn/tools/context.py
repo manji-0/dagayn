@@ -9,7 +9,15 @@ from pathlib import Path
 from typing import Any
 
 from ..paths import get_db_path
-from ._common import _get_store, compact_response, graph_answerability_summary
+from ._common import (
+    _db_path_for_repo,
+    _get_store,
+    compact_response,
+    graph_answerability_summary,
+    handle_tool_runtime_error,
+    is_sqlite_corrupt_error,
+    recover_corrupt_graph,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -273,6 +281,47 @@ def get_minimal_context(
         prepare_budget_seconds: Wall-clock budget for auto-prepare.
     """
     _ = detail_level
+    attempted_recover = False
+    while True:
+        try:
+            return _get_minimal_context_body(
+                task=task,
+                changed_files=changed_files,
+                repo_root=repo_root,
+                base=base,
+                auto_prepare=auto_prepare,
+                local_embedding=local_embedding,
+                prepare_budget_seconds=prepare_budget_seconds,
+            )
+        except Exception as exc:
+            if is_sqlite_corrupt_error(exc) and not attempted_recover:
+                recover_corrupt_graph(_db_path_for_repo(repo_root))
+                attempted_recover = True
+                logger.warning(
+                    "get_minimal_context: sqlite corrupt (%s); retrying after closing live stores",
+                    exc,
+                )
+                continue
+            if is_sqlite_corrupt_error(exc) or isinstance(exc, sqlite3.Error):
+                return handle_tool_runtime_error(
+                    exc,
+                    logger=logger,
+                    context="get_minimal_context",
+                    repo_root=repo_root,
+                )
+            raise
+
+
+def _get_minimal_context_body(
+    *,
+    task: str,
+    changed_files: list[str] | None,
+    repo_root: str | None,
+    base: str,
+    auto_prepare: bool,
+    local_embedding: str | None,
+    prepare_budget_seconds: int | None,
+) -> dict[str, Any]:
     prepare_result: dict[str, Any] | None = None
     if auto_prepare:
         from .session_prepare import session_prepare
