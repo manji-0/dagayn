@@ -4,6 +4,8 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+## 4.9.0 — 2026-08-16
+
 ### Features
 
 - Rust file discovery now indexes compound Terraform extensions
