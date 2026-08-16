@@ -13,7 +13,7 @@ from typing import Any, Callable, cast
 
 from ..incremental import full_build, incremental_update
 from ..paths import get_db_path
-from ..state_types import PostprocessResult
+from ..state_types import BuildResult, build_result_payload
 from ..write_lock import WriteLockUnavailableError, graph_write_lock
 from ._common import _evict_store_cache, _get_store, _validate_repo_root
 
@@ -211,23 +211,23 @@ def _run_local_embedding(
     }
 
 
-def _prune_orphaned_structures(store: Any, build_result: dict[str, Any]) -> list[str]:
+def _prune_orphaned_structures(store: Any, build_result: BuildResult) -> list[str]:
     """Prune derived rows orphaned by a re-parse; return warning strings."""
     warnings: list[str] = []
     try:
         prune = getattr(store, "prune_orphaned_graph_structures", None)
         if callable(prune):
-            pruned = prune()
+            pruned = cast(Callable[[], dict[str, int]], prune)()
             store.commit()
             if pruned:
-                build_result["orphans_pruned"] = pruned
+                build_result.orphans_pruned = pruned
     except (sqlite3.OperationalError, RuntimeError, TypeError) as e:
         logger.warning("Orphaned structure pruning failed: %s", e)
         warnings.append(f"Orphaned structure pruning failed: {type(e).__name__}: {e}")
     return warnings
 
 
-def _prune_orphaned_embeddings(repo_root: Path, build_result: dict[str, Any]) -> list[str]:
+def _prune_orphaned_embeddings(repo_root: Path, build_result: BuildResult) -> list[str]:
     """Delete vectors for nodes the graph no longer has.
 
     ``remove_orphans`` used to be reachable only from ``embed_all_nodes``, so
@@ -259,7 +259,7 @@ def _prune_orphaned_embeddings(repo_root: Path, build_result: dict[str, Any]) ->
         finally:
             emb_store.close()
         if removed:
-            build_result["embedding_orphans_pruned"] = removed
+            build_result.embedding_orphans_pruned = removed
     except (sqlite3.Error, OSError, RuntimeError, TypeError, AttributeError) as e:
         logger.warning("Orphaned embedding pruning failed: %s", e)
         warnings.append(f"Orphaned embedding pruning failed: {type(e).__name__}: {e}")
@@ -268,7 +268,7 @@ def _prune_orphaned_embeddings(repo_root: Path, build_result: dict[str, Any]) ->
 
 def _run_postprocess(
     store: Any,
-    build_result: dict[str, Any],
+    build_result: BuildResult,
     postprocess: str,
     full_rebuild: bool = False,
     changed_files: list[str] | None = None,
@@ -288,12 +288,12 @@ def _run_postprocess(
     Returns a list of warning strings (empty on success).
     """
     warnings: list[str] = []
-    build_result["postprocess_level"] = postprocess
+    build_result.postprocess_level = postprocess
 
     if postprocess == "none":
         return warnings
 
-    post_result = PostprocessResult()
+    post_result = build_result.postprocess
 
     if not skip_minimal_steps:
         # -- Signatures + FTS (fast, always run unless "none") --
@@ -323,7 +323,7 @@ def _run_postprocess(
                         sig = name
                     store.update_node_signature(node_id, sig[:512])
                 store.commit()
-            build_result["signatures_updated"] = True
+            build_result.signatures_updated = True
         except (sqlite3.OperationalError, RuntimeError, TypeError, KeyError) as e:
             logger.warning("Signature computation failed: %s", e)
             warnings.append(f"Signature computation failed: {type(e).__name__}: {e}")
@@ -332,8 +332,8 @@ def _run_postprocess(
             from dagayn.search import rebuild_fts_index
 
             fts_count = rebuild_fts_index(store)
-            build_result["fts_indexed"] = fts_count
-            build_result["fts_rebuilt"] = True
+            build_result.fts_indexed = fts_count
+            build_result.fts_rebuilt = True
         except (sqlite3.OperationalError, ImportError) as e:
             logger.warning("FTS index rebuild failed: %s", e)
             warnings.append(f"FTS index rebuild failed: {type(e).__name__}: {e}")
@@ -386,36 +386,6 @@ def _run_postprocess(
 
         _persist_centrality_scores(store, post_result, warnings)
 
-    build_result["bare_call_targets_resolved"] = post_result.bare_call_targets_resolved or 0
-    build_result["bare_inheritance_targets_resolved"] = (
-        post_result.bare_inheritance_targets_resolved or 0
-    )
-    build_result["unresolved_endpoint_edges_demoted"] = (
-        post_result.unresolved_endpoint_edges_demoted or 0
-    )
-    build_result["markdown_artifact_refs_resolved"] = (
-        post_result.markdown_artifact_refs_resolved or 0
-    )
-    build_result["markdown_artifact_refs_dropped"] = post_result.markdown_artifact_refs_dropped or 0
-    build_result["markdown_artifact_refs_re_resolved"] = (
-        post_result.markdown_artifact_refs_re_resolved or 0
-    )
-    build_result["markdown_artifact_refs_still_unresolved"] = (
-        post_result.markdown_artifact_refs_still_unresolved or 0
-    )
-    build_result["terraform_artifact_refs_resolved"] = (
-        post_result.terraform_artifact_refs_resolved or 0
-    )
-    build_result["terraform_artifact_refs_still_unresolved"] = (
-        post_result.terraform_artifact_refs_still_unresolved or 0
-    )
-    build_result["manifest_bridges_edges"] = post_result.manifest_bridges_edges or 0
-    build_result["manifest_bridges_nodes"] = post_result.manifest_bridges_nodes or 0
-    build_result["hub_scores_persisted"] = post_result.hub_scores_persisted or 0
-    build_result["bridge_scores_persisted"] = post_result.bridge_scores_persisted or 0
-    build_result["hub_scores_code_persisted"] = post_result.hub_scores_code_persisted or 0
-    build_result["bridge_scores_code_persisted"] = post_result.bridge_scores_code_persisted or 0
-
     if postprocess == "minimal":
         if not skip_orphan_prune:
             warnings.extend(_prune_orphaned_structures(store, build_result))
@@ -442,7 +412,7 @@ def _run_postprocess(
 
                 flows = _trace_flows(store)
                 count = _store_flows(store, flows)
-            build_result["flows_detected"] = count
+            post_result.flows_detected = count
         except (sqlite3.OperationalError, RuntimeError, ImportError) as e:
             logger.warning("Flow detection failed: %s", e)
             warnings.append(f"Flow detection failed: {type(e).__name__}: {e}")
@@ -454,12 +424,12 @@ def _run_postprocess(
                     pruned = cast(Callable[[], dict[str, int]], prune)()
                     store.commit()
                     if pruned:
-                        existing = build_result.get("orphans_pruned")
-                        if isinstance(existing, dict):
+                        existing = build_result.orphans_pruned
+                        if existing is not None:
                             for key, value in pruned.items():
                                 existing[key] = existing.get(key, 0) + value
                         else:
-                            build_result["orphans_pruned"] = pruned
+                            build_result.orphans_pruned = pruned
             except (sqlite3.OperationalError, RuntimeError, TypeError) as e:
                 logger.warning("Post-flow orphan pruning failed: %s", e)
                 warnings.append(f"Post-flow orphan pruning failed: {type(e).__name__}: {e}")
@@ -486,7 +456,7 @@ def _run_postprocess(
 
                 comms = _detect_communities(store)
                 count = _store_communities(store, comms)
-            build_result["communities_detected"] = count
+            post_result.communities_detected = count
         except (sqlite3.OperationalError, RuntimeError, ImportError) as e:
             logger.warning("Community detection failed: %s", e)
             warnings.append(f"Community detection failed: {type(e).__name__}: {e}")
@@ -498,7 +468,7 @@ def _run_postprocess(
         # -- Compute pre-computed summary tables --
         try:
             _compute_summaries(store)
-            build_result["summaries_computed"] = True
+            build_result.summaries_computed = True
         except (sqlite3.OperationalError, RuntimeError, Exception) as e:
             logger.warning("Summary computation failed: %s", e)
             warnings.append(f"Summary computation failed: {type(e).__name__}: {e}")
@@ -823,49 +793,58 @@ def build_or_update_graph(
         write_lock.__enter__()
     except WriteLockUnavailableError as exc:
         if hook_update:
-            return {
-                "status": "ok",
-                "build_type": "incremental",
-                "files_updated": 0,
-                "total_nodes": 0,
-                "total_edges": 0,
-                "postprocess_level": postprocess,
-                "skipped": True,
-                "skip_reason": "hook_update_already_running",
-                "summary": "Skipped: another hook-triggered dagayn update is already running.",
-            }
-        return {
-            "status": "error",
-            "build_type": "full" if full_rebuild else "incremental",
-            "files_updated": 0,
-            "total_nodes": 0,
-            "total_edges": 0,
-            "postprocess_level": postprocess,
-            "skipped": True,
-            "skip_reason": "write_lock_unavailable",
-            "summary": f"Skipped: {exc}",
-            "errors": [str(exc)],
-        }
+            return build_result_payload(
+                BuildResult(
+                    status="ok",
+                    build_type="incremental",
+                    files_updated=0,
+                    total_nodes=0,
+                    total_edges=0,
+                    postprocess_level=postprocess,
+                    skipped=True,
+                    skip_reason="hook_update_already_running",
+                    summary="Skipped: another hook-triggered dagayn update is already running.",
+                )
+            )
+        return build_result_payload(
+            BuildResult(
+                status="error",
+                build_type="full" if full_rebuild else "incremental",
+                files_updated=0,
+                total_nodes=0,
+                total_edges=0,
+                postprocess_level=postprocess,
+                skipped=True,
+                skip_reason="write_lock_unavailable",
+                summary=f"Skipped: {exc}",
+                errors=[{"file": "", "error": str(exc)}],
+            )
+        )
     store, root = _get_store(repo_root, cached=False, use_backend_default=True)
-    build_result: dict[str, Any] = {}
+    build_result = BuildResult()
     run_embedding = False
+    no_changes = False
     try:
         pre_affected_communities = 0
         if full_rebuild:
             result = full_build(root, store, recurse_submodules)
-            build_result = {
+            build_result = BuildResult(
                 # ``partial`` when files failed to *store*: the graph is missing
                 # content it was asked to hold, and callers must not treat it as
                 # a complete description of HEAD.
-                "status": result.get("status", "ok"),
-                "build_type": "full",
-                "summary": (
+                status=str(result.get("status", "ok")),
+                build_type="full",
+                summary=(
                     f"Full build complete: parsed {result['files_parsed']} files, "
                     f"created {result['total_nodes']} nodes and "
                     f"{result['total_edges']} edges."
                 ),
-                **result,
-            }
+                files_parsed=result["files_parsed"],
+                total_nodes=result["total_nodes"],
+                total_edges=result["total_edges"],
+                errors=result["errors"],
+                store_failed_files=result.get("store_failed_files"),
+            )
         else:
             from dagayn.communities import count_affected_communities
             from dagayn.incremental import get_changed_files
@@ -878,167 +857,186 @@ def build_or_update_graph(
                 pre_affected_communities = count_affected_communities(store, preview_changed)
             result = incremental_update(root, store, base=base, extra_files=extra_files)
             if result["files_updated"] == 0:
-                build_result = {
-                    "status": "ok",
-                    "build_type": "incremental",
-                    "summary": "No changes detected. Graph is up to date.",
-                    "postprocess_level": postprocess,
-                    **result,
-                }
+                build_result = BuildResult(
+                    status="ok",
+                    build_type="incremental",
+                    summary="No changes detected. Graph is up to date.",
+                    postprocess_level=postprocess,
+                    files_updated=result["files_updated"],
+                    total_nodes=result["total_nodes"],
+                    total_edges=result["total_edges"],
+                    errors=result.get("errors"),
+                    changed_files=result.get("changed_files"),
+                    change_file_sources=result.get("change_file_sources"),
+                    dependent_files=result.get("dependent_files"),
+                    store_failed_files=result.get("store_failed_files"),
+                )
                 if _local_embedding_requested(local_embedding):
                     if hook_update:
-                        build_result["local_embedding_skipped"] = {
+                        build_result.local_embedding_skipped = {
                             "reason": "hook_update_no_changes",
                         }
                     else:
                         run_embedding = True
-                return build_result
-            build_result = {
-                "status": result.get("status", "ok"),
-                "build_type": "incremental",
-                "summary": (
-                    f"Incremental update: {result['files_updated']} files re-parsed, "
-                    f"{result['total_nodes']} nodes and "
-                    f"{result['total_edges']} edges updated. "
-                    f"Changed: {result['changed_files']}. "
-                    f"Dependents also updated: {result['dependent_files']}."
-                ),
-                **result,
-            }
+                no_changes = True
+            else:
+                build_result = BuildResult(
+                    status=str(result.get("status", "ok")),
+                    build_type="incremental",
+                    summary=(
+                        f"Incremental update: {result['files_updated']} files re-parsed, "
+                        f"{result['total_nodes']} nodes and "
+                        f"{result['total_edges']} edges updated. "
+                        f"Changed: {result['changed_files']}. "
+                        f"Dependents also updated: {result['dependent_files']}."
+                    ),
+                    files_updated=result["files_updated"],
+                    total_nodes=result["total_nodes"],
+                    total_edges=result["total_edges"],
+                    errors=result.get("errors"),
+                    changed_files=result.get("changed_files"),
+                    change_file_sources=result.get("change_file_sources"),
+                    dependent_files=result.get("dependent_files"),
+                    store_failed_files=result.get("store_failed_files"),
+                )
 
         # Pass changed_files for incremental flow/community detection.
         changed = result.get("changed_files") if not full_rebuild else None
-        if postprocess == "none":
-            warnings = _run_postprocess(
-                store,
-                build_result,
-                postprocess,
-                full_rebuild=full_rebuild,
-                changed_files=changed,
-                pre_affected_communities=pre_affected_communities,
-            )
-        elif (
-            postprocess == "full"
-            and not hasattr(store, "_conn")
-            and _can_run_minimal_postprocess(store)
-        ):
-            can_compute_rust_summaries = hasattr(store, "compute_summaries")
-            can_trace_rust_flows = (full_rebuild and _can_trace_full_flows(store)) or (
-                not full_rebuild and _can_trace_incremental_flows(store)
-            )
-            can_detect_rust_communities = (
-                full_rebuild and _can_detect_full_communities(store)
-            ) or (not full_rebuild and _can_detect_incremental_communities(store))
-            missing = []
-            if not can_trace_rust_flows:
-                missing.append("flow tracing")
-            if not can_detect_rust_communities:
-                missing.append("community detection")
-            if not can_compute_rust_summaries:
-                missing.append("summary computation")
-            if missing:
-                raise RuntimeError(
-                    "Rust post-processing is missing support for "
-                    + ", ".join(missing)
-                    + ". Install a wheel with the native extension or rebuild from source."
-                )
-            warnings = _run_postprocess(
-                store,
-                build_result,
-                "minimal",
-                full_rebuild=full_rebuild,
-                changed_files=changed,
-                pre_affected_communities=pre_affected_communities,
-                skip_centrality_steps=True,
-                skip_orphan_prune=True,
-            )
-            if can_trace_rust_flows:
-                try:
-                    if full_rebuild:
-                        from dagayn.flows import store_flows as _store_flows
-                        from dagayn.flows import trace_flows as _trace_flows
-
-                        traced = _trace_flows(store)
-                        build_result["flows_detected"] = _store_flows(store, traced)
-                    else:
-                        from dagayn.flows import incremental_trace_flows
-
-                        build_result["flows_detected"] = incremental_trace_flows(
-                            store, changed or []
-                        )
-                except (sqlite3.OperationalError, RuntimeError, ImportError) as e:
-                    logger.warning("Flow detection failed: %s", e)
-                    warnings.append(f"Flow detection failed: {type(e).__name__}: {e}")
-            if can_detect_rust_communities:
-                try:
-                    if full_rebuild:
-                        from dagayn.communities import (
-                            detect_communities as _detect_communities,
-                        )
-                        from dagayn.communities import (
-                            store_communities as _store_communities,
-                        )
-
-                        comms = _detect_communities(store)
-                        build_result["communities_detected"] = _store_communities(store, comms)
-                    else:
-                        from dagayn.communities import incremental_detect_communities
-
-                        build_result["communities_detected"] = incremental_detect_communities(
-                            store,
-                            changed or [],
-                            pre_affected_count=pre_affected_communities or None,
-                        )
-                except (sqlite3.OperationalError, RuntimeError, ImportError) as e:
-                    logger.warning("Community detection failed: %s", e)
-                    warnings.append(f"Community detection failed: {type(e).__name__}: {e}")
-
-            try:
-                _compute_summaries(store)
-                build_result["summaries_computed"] = True
-            except (sqlite3.OperationalError, RuntimeError, Exception) as e:
-                logger.warning("Summary computation failed: %s", e)
-                warnings.append(f"Summary computation failed: {type(e).__name__}: {e}")
-            warnings.extend(
-                _run_postprocess(
+        if not no_changes:
+            if postprocess == "none":
+                warnings = _run_postprocess(
                     store,
                     build_result,
                     postprocess,
                     full_rebuild=full_rebuild,
                     changed_files=changed,
                     pre_affected_communities=pre_affected_communities,
-                    skip_minimal_steps=True,
-                    skip_flow_steps=True,
-                    skip_community_steps=True,
-                    skip_summary_steps=True,
                 )
-            )
-        else:
-            pp_store, close_pp_store = _postprocess_store(store, root, postprocess)
-            try:
+            elif (
+                postprocess == "full"
+                and not hasattr(store, "_conn")
+                and _can_run_minimal_postprocess(store)
+            ):
+                can_compute_rust_summaries = hasattr(store, "compute_summaries")
+                can_trace_rust_flows = (full_rebuild and _can_trace_full_flows(store)) or (
+                    not full_rebuild and _can_trace_incremental_flows(store)
+                )
+                can_detect_rust_communities = (
+                    full_rebuild and _can_detect_full_communities(store)
+                ) or (not full_rebuild and _can_detect_incremental_communities(store))
+                missing = []
+                if not can_trace_rust_flows:
+                    missing.append("flow tracing")
+                if not can_detect_rust_communities:
+                    missing.append("community detection")
+                if not can_compute_rust_summaries:
+                    missing.append("summary computation")
+                if missing:
+                    raise RuntimeError(
+                        "Rust post-processing is missing support for "
+                        + ", ".join(missing)
+                        + ". Install a wheel with the native extension or rebuild from source."
+                    )
                 warnings = _run_postprocess(
-                    pp_store,
+                    store,
                     build_result,
-                    postprocess,
+                    "minimal",
                     full_rebuild=full_rebuild,
                     changed_files=changed,
                     pre_affected_communities=pre_affected_communities,
+                    skip_centrality_steps=True,
+                    skip_orphan_prune=True,
                 )
-            finally:
-                if close_pp_store:
-                    pp_store.close()
-        if warnings:
-            build_result["warnings"] = warnings
-        if _local_embedding_requested(local_embedding):
-            run_embedding = True
-        return build_result
+                if can_trace_rust_flows:
+                    try:
+                        if full_rebuild:
+                            from dagayn.flows import store_flows as _store_flows
+                            from dagayn.flows import trace_flows as _trace_flows
+
+                            traced = _trace_flows(store)
+                            build_result.postprocess.flows_detected = _store_flows(store, traced)
+                        else:
+                            from dagayn.flows import incremental_trace_flows
+
+                            build_result.postprocess.flows_detected = incremental_trace_flows(
+                                store, changed or []
+                            )
+                    except (sqlite3.OperationalError, RuntimeError, ImportError) as e:
+                        logger.warning("Flow detection failed: %s", e)
+                        warnings.append(f"Flow detection failed: {type(e).__name__}: {e}")
+                if can_detect_rust_communities:
+                    try:
+                        if full_rebuild:
+                            from dagayn.communities import (
+                                detect_communities as _detect_communities,
+                            )
+                            from dagayn.communities import (
+                                store_communities as _store_communities,
+                            )
+
+                            comms = _detect_communities(store)
+                            build_result.postprocess.communities_detected = _store_communities(
+                                store, comms
+                            )
+                        else:
+                            from dagayn.communities import incremental_detect_communities
+
+                            build_result.postprocess.communities_detected = (
+                                incremental_detect_communities(
+                                    store,
+                                    changed or [],
+                                    pre_affected_count=pre_affected_communities or None,
+                                )
+                            )
+                    except (sqlite3.OperationalError, RuntimeError, ImportError) as e:
+                        logger.warning("Community detection failed: %s", e)
+                        warnings.append(f"Community detection failed: {type(e).__name__}: {e}")
+
+                try:
+                    _compute_summaries(store)
+                    build_result.summaries_computed = True
+                except (sqlite3.OperationalError, RuntimeError, Exception) as e:
+                    logger.warning("Summary computation failed: %s", e)
+                    warnings.append(f"Summary computation failed: {type(e).__name__}: {e}")
+                warnings.extend(
+                    _run_postprocess(
+                        store,
+                        build_result,
+                        postprocess,
+                        full_rebuild=full_rebuild,
+                        changed_files=changed,
+                        pre_affected_communities=pre_affected_communities,
+                        skip_minimal_steps=True,
+                        skip_flow_steps=True,
+                        skip_community_steps=True,
+                        skip_summary_steps=True,
+                    )
+                )
+            else:
+                pp_store, close_pp_store = _postprocess_store(store, root, postprocess)
+                try:
+                    warnings = _run_postprocess(
+                        pp_store,
+                        build_result,
+                        postprocess,
+                        full_rebuild=full_rebuild,
+                        changed_files=changed,
+                        pre_affected_communities=pre_affected_communities,
+                    )
+                finally:
+                    if close_pp_store:
+                        pp_store.close()
+            if warnings:
+                build_result.warnings = warnings
+            if _local_embedding_requested(local_embedding):
+                run_embedding = True
     finally:
         store.close()
         try:
             if run_embedding:
                 # Embeddings share graph.db. Run only after this store's
                 # connection is gone so a second writer cannot tear WAL pages.
-                build_result["local_embedding"] = _run_local_embedding(
+                build_result.local_embedding = _run_local_embedding(
                     root,
                     local_embedding=local_embedding or "none",
                     local_embedding_mode=local_embedding_mode,
@@ -1055,11 +1053,12 @@ def build_or_update_graph(
                 # alongside the native store's connection corrupts it.
                 emb_warnings = _prune_orphaned_embeddings(Path(root), build_result)
                 if emb_warnings:
-                    existing = build_result.get("warnings")
-                    build_result["warnings"] = (
-                        [*existing, *emb_warnings] if isinstance(existing, list) else emb_warnings
-                    )
+                    build_result.warnings = [
+                        *(build_result.warnings or []),
+                        *emb_warnings,
+                    ]
             write_lock.__exit__(None, None, None)
+    return build_result_payload(build_result)
 
 
 def run_postprocess(
@@ -1092,15 +1091,17 @@ def run_postprocess(
         write_lock = graph_write_lock(db_path, blocking=True)
         write_lock.__enter__()
     except WriteLockUnavailableError as exc:
-        return {
-            "status": "error",
-            "skipped": True,
-            "skip_reason": "write_lock_unavailable",
-            "summary": f"Skipped: {exc}",
-            "errors": [str(exc)],
-        }
+        return build_result_payload(
+            BuildResult(
+                status="error",
+                skipped=True,
+                skip_reason="write_lock_unavailable",
+                summary=f"Skipped: {exc}",
+                errors=[{"file": "", "error": str(exc)}],
+            )
+        )
     store, _root = _get_store(repo_root, cached=False)
-    result: dict[str, Any] = {"status": "ok"}
+    result = BuildResult(status="ok")
     warnings: list[str] = []
 
     try:
@@ -1130,7 +1131,7 @@ def run_postprocess(
                         sig = name
                     store.update_node_signature(node_id, sig[:512])
                 store.commit()
-            result["signatures_updated"] = True
+            result.signatures_updated = True
         except (sqlite3.OperationalError, RuntimeError, TypeError, KeyError) as e:
             logger.warning("Signature computation failed: %s", e)
             warnings.append(f"Signature computation failed: {type(e).__name__}: {e}")
@@ -1140,7 +1141,7 @@ def run_postprocess(
                 from dagayn.search import rebuild_fts_index
 
                 fts_count = rebuild_fts_index(store)
-                result["fts_indexed"] = fts_count
+                result.fts_indexed = fts_count
             except (sqlite3.OperationalError, ImportError) as e:
                 store.rollback()
                 logger.warning("FTS index rebuild failed: %s", e)
@@ -1153,7 +1154,7 @@ def run_postprocess(
 
                 traced = _trace_flows(store)
                 count = _store_flows(store, traced)
-                result["flows_detected"] = count
+                result.postprocess.flows_detected = count
             except (sqlite3.OperationalError, ImportError) as e:
                 store.rollback()
                 logger.warning("Flow detection failed: %s", e)
@@ -1170,7 +1171,7 @@ def run_postprocess(
 
                 comms = _detect_communities(store)
                 count = _store_communities(store, comms)
-                result["communities_detected"] = count
+                result.postprocess.communities_detected = count
             except (sqlite3.OperationalError, ImportError) as e:
                 store.rollback()
                 logger.warning("Community detection failed: %s", e)
@@ -1180,10 +1181,10 @@ def run_postprocess(
             "last_postprocessed_at",
             time.strftime("%Y-%m-%dT%H:%M:%S"),
         )
-        result["summary"] = "Post-processing complete."
+        result.summary = "Post-processing complete."
         if warnings:
-            result["warnings"] = warnings
-        return result
+            result.warnings = warnings
+        return build_result_payload(result)
     finally:
         store.close()
         write_lock.__exit__(None, None, None)

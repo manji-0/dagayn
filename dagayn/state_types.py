@@ -433,6 +433,58 @@ class PostprocessResult(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class BuildResult(BaseModel):
+    """Typed aggregate produced by :func:`dagayn.tools.build.build_or_update_graph`.
+
+    Post-processing step counters live on ``postprocess`` and are flattened
+    into the wire payload by :func:`build_result_payload` so the historical
+    flat dict contract consumed by CLI/MCP callers is unchanged.  Fields are
+    ``None`` until the corresponding code path sets them, so
+    ``model_dump(exclude_none=True)`` reproduces the sparse result shape.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: str | None = None
+    build_type: Literal["full", "incremental"] | None = None
+    summary: str | None = None
+    files_parsed: int | None = None
+    files_updated: int | None = None
+    total_nodes: int | None = None
+    total_edges: int | None = None
+    errors: list[dict[str, str]] | None = None
+    warnings: list[str] | None = None
+    changed_files: list[str] | None = None
+    change_file_sources: dict[str, list[str]] | None = None
+    dependent_files: list[str] | None = None
+    store_failed_files: list[str] | None = None
+    postprocess_level: str | None = None
+    skipped: bool | None = None
+    skip_reason: str | None = None
+    signatures_updated: bool | None = None
+    fts_rebuilt: bool | None = None
+    summaries_computed: bool | None = None
+    fts_indexed: int | None = None
+    orphans_pruned: dict[str, int] | None = None
+    embedding_orphans_pruned: int | None = None
+    local_embedding_skipped: dict[str, Any] | None = None
+    local_embedding: dict[str, Any] | None = None
+    postprocess: PostprocessResult = Field(default_factory=PostprocessResult)
+
+
+def build_result_payload(result: BuildResult) -> dict[str, Any]:
+    """Flatten a :class:`BuildResult` to the wire dict for CLI/MCP consumers.
+
+    Post-processing step counters stored on ``result.postprocess`` are
+    promoted to top-level keys, matching the pre-model build result shape.
+    """
+    payload = result.model_dump(exclude_none=True)
+    postprocess = payload.pop("postprocess", None)
+    if postprocess:
+        payload.update(postprocess)
+    return payload
+
+
 class DispatcherErrorResponse(BaseModel):
     """Shared error envelope for mode-based tool dispatchers."""
 

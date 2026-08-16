@@ -13,7 +13,7 @@ from dagayn.postprocessing import (
     _resolve_markdown_artifact_refs,
     run_post_processing,
 )
-from dagayn.state_types import PostprocessResult
+from dagayn.state_types import BuildResult, PostprocessResult
 
 
 def _get_signature(store, qualified_name):
@@ -846,10 +846,10 @@ class TestTerraformArtifactResolver:
         self.store.upsert_edge(self._handler_edge("hello.main"))
         self.store.commit()
 
-        build_result: dict = {}
+        build_result = BuildResult()
         warnings = _run_postprocess(self.store, build_result, "minimal", full_rebuild=True)
         assert warnings == []
-        assert build_result["terraform_artifact_refs_resolved"] == 1
+        assert build_result.postprocess.terraform_artifact_refs_resolved == 1
 
         row = self.store._conn.execute(
             "SELECT target_qualified, target_name, confidence_tier FROM edges "
@@ -872,7 +872,7 @@ class TestPostprocessLevelMetadata:
             store = GraphStore(db_path)
             try:
                 store.set_metadata("postprocess_level", "full")
-                _run_postprocess(store, {}, "minimal", full_rebuild=True)
+                _run_postprocess(store, BuildResult(), "minimal", full_rebuild=True)
                 # Returning early used to leave the previous level in place, so
                 # a graph whose flows were never computed advertised "full".
                 assert store.get_metadata("postprocess_level") == "minimal"
