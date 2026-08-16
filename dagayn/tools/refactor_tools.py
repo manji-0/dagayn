@@ -11,12 +11,6 @@ from pydantic import ValidationError
 
 from ..hints import generate_hints, get_session
 from ..incremental import find_project_root
-from ..refactor import (
-    apply_refactor,
-    find_dead_code,
-    rename_preview,
-    suggest_refactorings,
-)
 from ..stability_policy import component_stability_profiles, scope_key_for_file
 from ..state_types import (
     RefactorMode,
@@ -256,6 +250,8 @@ def refactor_func(
         answerability = graph_answerability_summary(store)
         missingness = missingness_from_answerability(answerability)
         if request.mode == "rename":
+            from ..refactor import rename_preview
+
             # Without this the preview happily produced edits turning
             # ``def beta():`` into ``def 1 bad name():`` and a non-dry-run
             # apply committed that to disk.
@@ -312,6 +308,8 @@ def refactor_func(
             return seal_refactor_ok(result)
 
         if request.mode == "dead_code":
+            from ..refactor import find_dead_code
+
             dead = find_dead_code(
                 store,
                 kind=request.kind,
@@ -342,6 +340,8 @@ def refactor_func(
             }
             result["_hints"] = generate_hints("refactor", result, get_session())
             return seal_refactor_ok(result)
+
+        from ..refactor import suggest_refactorings
 
         suggestions = suggest_refactorings(store)
         suggestions = _apply_stability_policy_to_suggestions(
@@ -420,6 +420,8 @@ def apply_refactor_func(
         root = _validate_repo_root(Path(repo_root)) if repo_root else find_project_root()
     except (RuntimeError, ValueError) as exc:
         return {"status": "error", "error": str(exc)}
+
+    from ..refactor import apply_refactor
 
     result = apply_refactor(refactor_id, root, dry_run=dry_run)
     return result

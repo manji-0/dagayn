@@ -5,15 +5,8 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Callable, cast
+from typing import Any
 
-from ..bare_name_resolution import (
-    build_import_targets,
-    is_plausible_bare_edge,
-    looks_like_file_target,
-    node_file_from_qualified,
-)
-from ..coverage import infer_tests_for_node
 from ..cross_artifact import (
     is_low_confidence_unresolved_markdown_code_span,
 )
@@ -43,98 +36,19 @@ from ._common import (
     missingness_from_answerability,
     recover_corrupt_graph,
 )
+from .query_graph_dispatch import (
+    QueryGraphState,
+    build_query_graph_response,
+    execute_query_pattern,
+    resolve_query_target,
+)
+from .query_graph_support import QUERY_PATTERNS, exactness_action, result_evidence_type
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Tool 2: get_impact_radius
 # ---------------------------------------------------------------------------
-
-_QUERY_PATTERNS = {
-    "callers_of": "Find all functions that call a given function",
-    "callees_of": "Find all functions called by a given function",
-    "imports_of": "Find all imports of a given file or module",
-    "importers_of": "Find all files that import a given file or module",
-    "docs_for": "Find documentation linked to a code, Terraform, or artifact node",
-    "implementations_of": "Find implementation artifacts linked to a document node",
-    "bridges_from": (
-        "Find high-confidence CROSS_ARTIFACT bridges from a node "
-        "(Terraform maps_entrypoint / invokes_binary, and similar)"
-    ),
-    "children_of": "Find all nodes contained in a file or class",
-    "tests_for": "Find all tests for a given function or class",
-    "inheritors_of": "Find all classes that inherit from a given class",
-    "file_summary": "Get a summary of all nodes in a file",
-}
-
-_DOC_TO_ARTIFACT_ROLES = {
-    "implemented_by": "implements_contract",
-    "describes_symbol": "described_by",
-    "discusses_artifact": "discussed_by",
-    "raises_issue_for": "has_issue_note",
-}
-
-_ARTIFACT_TO_DOC_ROLES = {
-    "implements_contract": "implemented_by",
-    "explained_by": "explains",
-    "has_runbook": "runbook_for",
-    "problem_described_by": "describes_problem_in",
-    "discussed_by": "discusses",
-}
-
-_INFRA_TO_CODE_BRIDGE_ROLES = {
-    "maps_entrypoint": "entrypoint_for",
-    "invokes_binary": "invoked_by",
-}
-
-
-def _merge_unresolved_targets(
-    accumulated: list[str],
-    new_targets: list[str],
-) -> list[str]:
-    seen = set(accumulated)
-    for target in new_targets:
-        if target not in seen:
-            accumulated.append(target)
-            seen.add(target)
-    return accumulated
-
-
-def _node_dicts_for_edges(
-    store: Any,
-    edges: list[Any],
-    *,
-    qualified_attr: str,
-) -> tuple[list[dict[str, Any]], list[str]]:
-    """Batch-resolve edge endpoints to node dicts while preserving edge order."""
-    if not edges:
-        return [], []
-
-    qualified_names = [getattr(edge, qualified_attr) for edge in edges]
-    nodes_by_qn = store.get_nodes_by_qualified_names(qualified_names)
-    results: list[dict[str, Any]] = []
-    unresolved_targets: list[str] = []
-    seen_unresolved: set[str] = set()
-    for edge in edges:
-        qn = getattr(edge, qualified_attr)
-        node = nodes_by_qn.get(qn)
-        if node is not None:
-            results.append(node_to_dict(node))
-        elif qn not in seen_unresolved:
-            unresolved_targets.append(qn)
-            seen_unresolved.add(qn)
-    return results, unresolved_targets
-
-
-def _is_unresolved_import_target(store: Any, target: str, root: Path) -> bool:
-    if target.startswith("<unresolved:"):
-        return True
-    abs_target = (
-        str((root / target).resolve())
-        if not Path(target).is_absolute()
-        else str(Path(target).resolve())
-    )
-    return len(store.get_nodes_by_file(abs_target)) == 0
 
 
 def _partial_coverage_missingness(
@@ -167,217 +81,8 @@ def _partial_coverage_missingness(
     )
 
 
-def _query_zero_result_fields(
-    *,
-    results: list[dict],
-    unresolved_targets: list[str],
-) -> dict[str, Any]:
-    if results:
-        return {
-            "confidence": "medium",
-            "zero_result_reason": None,
-        }
-    if unresolved_targets:
-        return {
-            "confidence": "medium",
-            "zero_result_reason": "unresolved_endpoints_only",
-        }
-    return {
-        "confidence": "low",
-        "zero_result_reason": "not_found_in_current_graph",
-    }
-
-
-def _cross_artifact_role(edge: Any) -> str | None:
-    if edge.kind != "CROSS_ARTIFACT":
-        return None
-    extra = edge.extra if isinstance(edge.extra, dict) else {}
-    role = extra.get("relationship_role")
-    return role if isinstance(role, str) else None
-
-
 def _is_low_confidence_unresolved_markdown_code_span(edge: Any) -> bool:
     return is_low_confidence_unresolved_markdown_code_span(edge)
-
-
-def _documentation_result(edge: Any, *, endpoint: str, inverse_label: str | None = None) -> dict:
-    role = _cross_artifact_role(edge)
-    confidence_tier = str(edge.confidence_tier or "").upper()
-    evidence_type = "authored" if role in {"implements_contract", "implemented_by"} else "extracted"
-    if role not in {"implements_contract", "implemented_by"} and confidence_tier not in {
-        "EXTRACTED",
-        "HIGH",
-    }:
-        evidence_type = "heuristic_reachable"
-    result = {
-        "source": edge.source_qualified,
-        "target": edge.target_qualified,
-        "matched_endpoint": endpoint,
-        "relationship_role": role,
-        "evidence_type": evidence_type,
-        "file": edge.file_path,
-        "line": edge.line,
-        "confidence": edge.confidence,
-        "confidence_tier": edge.confidence_tier,
-    }
-    if inverse_label:
-        result["inverse_label"] = inverse_label
-    return result
-
-
-def _result_evidence_type(result: dict[str, Any]) -> str:
-    if result.get("evidence_type"):
-        return str(result["evidence_type"])
-    kind = str(result.get("kind", ""))
-    file_path = str(result.get("file_path") or result.get("file") or "")
-    if kind.startswith("Doc") or file_path.lower().endswith((".md", ".markdown", ".mdx")):
-        return "authored"
-    return "extracted"
-
-
-def _exactness_action(query: str, exact_count: int, result_count: int) -> dict[str, Any]:
-    if exact_count == 1:
-        return {
-            "tool": "query_graph_tool",
-            "suggestion": "inspect callers_of/callees_of for the exact qualified match",
-        }
-    if exact_count > 1:
-        return {
-            "tool": "semantic_search_nodes_tool",
-            "suggestion": f"choose one qualified name before querying relationships for '{query}'",
-        }
-    if result_count:
-        return {
-            "tool": "query_graph_tool",
-            "suggestion": "confirm the best candidate with file_summary or callers_of",
-        }
-    return {
-        "tool": "semantic_search_nodes_tool",
-        "suggestion": "broaden the query or verify the graph is up to date",
-    }
-
-
-def _filter_bare_name_fallback_edges(
-    store: Any,
-    edges: list[Any],
-    target_node: Any,
-) -> list[Any]:
-    """Keep bare-name fallback edges only when import context supports them."""
-    if not edges or target_node is None:
-        return edges
-
-    native = getattr(store, "import_targets_by_file", None)
-    if callable(native):
-        native_map = cast(Callable[[], dict[str, list[str]]], native)()
-        import_targets = {file_path: set(targets) for file_path, targets in native_map.items()}
-    elif hasattr(store, "_conn"):
-        import_targets = build_import_targets(store._conn)
-    else:
-        return edges
-
-    target_file = target_node.file_path
-    return [
-        edge
-        for edge in edges
-        if is_plausible_bare_edge(
-            node_file_from_qualified(edge.source_qualified, edge.file_path),
-            target_file,
-            import_targets,
-        )
-    ]
-
-
-def _annotate_bare_name_edges(edges_out: list[dict[str, Any]]) -> None:
-    for edge in edges_out:
-        if "::" not in str(edge.get("target", "")):
-            edge["match"] = "bare_name"
-            edge["confidence_tier"] = "MEDIUM"
-            edge["confidence"] = 0.6
-
-
-def _file_path_candidates(root: Path, target: str) -> list[str]:
-    """Return absolute file paths to try for file_summary lookups."""
-    candidates = [str(root / target)]
-    resolved = (root / target).resolve()
-    candidates.append(str(resolved))
-    if target.startswith("/"):
-        candidates.append(target)
-    seen: set[str] = set()
-    ordered: list[str] = []
-    for path in candidates:
-        if path not in seen:
-            seen.add(path)
-            ordered.append(path)
-    return ordered
-
-
-def _file_is_indexed(store: Any, root: Path, target: str) -> bool:
-    for abs_path in _file_path_candidates(root, target):
-        if store.get_nodes_by_file(abs_path):
-            return True
-        if store.get_node(abs_path) is not None:
-            return True
-    return False
-
-
-def _query_graph_guidance(
-    *,
-    pattern: str,
-    target: str,
-    result_count: int,
-    exact_count: int,
-) -> list[dict[str, Any]]:
-    if result_count:
-        return [
-            make_guidance_item(
-                claim=(
-                    f"Graph query '{pattern}' returned {result_count} related node(s) "
-                    f"for '{target}'."
-                ),
-                evidence={
-                    "type": "computed",
-                    "pattern": pattern,
-                    "target": target,
-                    "result_count": result_count,
-                    "exact_match_count": exact_count,
-                },
-                confidence="medium",
-                missingness=[
-                    {
-                        "reason_code": "relationship_query_not_runtime_proof",
-                        "severity": "low",
-                        "claim_effect": ("graph edges are static extraction, not runtime traces"),
-                    }
-                ],
-                action=f'query_graph_tool pattern="{pattern}" -- drill into a relationship',
-                reason_codes=["graph_relationship_query"],
-                counts={"result_count": result_count},
-            )
-        ]
-    return [
-        make_guidance_item(
-            claim=f"No graph relationships matched '{pattern}' for '{target}'.",
-            evidence={
-                "type": "computed",
-                "pattern": pattern,
-                "target": target,
-                "result_count": 0,
-            },
-            confidence="low",
-            missingness=[
-                {
-                    "reason_code": "not_found_in_current_graph",
-                    "severity": "medium",
-                    "claim_effect": (
-                        "absence is graph-limited, not proof the relationship does not exist"
-                    ),
-                }
-            ],
-            action="semantic_search_nodes_tool -- verify the target and refresh the graph",
-            reason_codes=["zero_result"],
-            counts={"result_count": 0},
-        )
-    ]
 
 
 def _semantic_search_guidance(
@@ -740,17 +445,11 @@ def query_graph(
         store, root = _get_store(repo_root)
         answerability = graph_answerability_summary(store)
         missingness = missingness_from_answerability(answerability)
-        if pattern not in _QUERY_PATTERNS:
+        if pattern not in QUERY_PATTERNS:
             return {
                 "status": "error",
-                "error": (
-                    f"Unknown pattern '{pattern}'. Available: {list(_QUERY_PATTERNS.keys())}"
-                ),
+                "error": (f"Unknown pattern '{pattern}'. Available: {list(QUERY_PATTERNS.keys())}"),
             }
-
-        results: list[dict] = []
-        edges_out: list[dict] = []
-        unresolved_targets: list[str] = []
 
         # For callers_of, skip common builtins early (bare names only)
         # "Who calls .map()?" returns hundreds of useless hits.
@@ -760,7 +459,7 @@ def query_graph(
                 "status": "ok",
                 "pattern": pattern,
                 "target": target,
-                "description": _QUERY_PATTERNS[pattern],
+                "description": QUERY_PATTERNS[pattern],
                 "summary": (f"'{target}' is a common builtin — callers_of skipped to avoid noise."),
                 "results": [],
                 "edges": [],
@@ -768,392 +467,28 @@ def query_graph(
                 "missingness": missingness,
             }
 
-        original_target = target
-        resolution = "exact"
-        resolved_target: str | None = None
-
-        # Resolve target - try as-is, then as absolute path, then fuzzy search
-        node = store.get_node(target)
-        if not node:
-            abs_target = str(root / target)
-            node = store.get_node(abs_target)
-        if not node and pattern == "file_summary" and looks_like_file_target(target):
-            if not _file_is_indexed(store, root, target):
-                guidance = _query_graph_guidance(
-                    pattern=pattern,
-                    target=target,
-                    result_count=0,
-                    exact_count=0,
-                )
-                return {
-                    "status": "not_found",
-                    "pattern": pattern,
-                    "target": target,
-                    "description": _QUERY_PATTERNS[pattern],
-                    "summary": f"No indexed file found matching '{target}' in the current graph.",
-                    "result_count": 0,
-                    "results": [],
-                    "zero_result_reason": "target_not_found_in_graph",
-                    "next_action": _exactness_action(target, 0, 0),
-                    "answerability": answerability,
-                    "missingness": [
-                        *missingness,
-                        {
-                            "reason_code": "target_not_found_in_graph",
-                            "severity": "medium",
-                            "claim_effect": (
-                                "absence is graph-limited, not proof the file does not exist"
-                            ),
-                        },
-                    ],
-                    "guidance": guidance,
-                    "_hints": guidance_actions_to_hints(guidance),
-                }
-        elif not node and not looks_like_file_target(target):
-            candidates = store.search_nodes(target, limit=5)
-            if len(candidates) == 1:
-                node = candidates[0]
-                resolved_target = node.qualified_name
-                target = resolved_target
-                resolution = "fuzzy"
-            elif len(candidates) > 1:
-                return {
-                    "status": "ambiguous",
-                    "pattern": pattern,
-                    "target": original_target,
-                    "summary": (
-                        f"Multiple matches for '{original_target}'. Please use a qualified name."
-                    ),
-                    "result_count": 0,
-                    "results": [],
-                    "candidates": [node_to_dict(c) for c in candidates],
-                    "candidates_truncated": len(candidates) >= 5,
-                    "answerability": answerability,
-                    "missingness": [
-                        *missingness,
-                        {
-                            "reason_code": "ambiguous_target",
-                            "severity": "medium",
-                            "claim_effect": "relationship query was not run for a unique node",
-                        },
-                    ],
-                }
-
-        if not node and pattern != "file_summary":
-            guidance = _query_graph_guidance(
-                pattern=pattern,
-                target=target,
-                result_count=0,
-                exact_count=0,
-            )
-            return {
-                "status": "not_found",
-                "summary": f"No node found matching '{target}' in the current graph.",
-                "result_count": 0,
-                "results": [],
-                "zero_result_reason": "target_not_found_in_graph",
-                "next_action": _exactness_action(target, 0, 0),
-                "answerability": answerability,
-                "missingness": [
-                    *missingness,
-                    {
-                        "reason_code": "target_not_found_in_graph",
-                        "severity": "medium",
-                        "claim_effect": (
-                            "absence is graph-limited, not proof the symbol does not exist"
-                        ),
-                    },
-                ],
-                "guidance": guidance,
-                "_hints": guidance_actions_to_hints(guidance),
-            }
-
-        qn = node.qualified_name if node else target
-
-        if pattern == "callers_of":
-            call_edges = [e for e in store.get_edges_by_target(qn) if e.kind == "CALLS"]
-            caller_nodes, caller_unresolved = _node_dicts_for_edges(
-                store, call_edges, qualified_attr="source_qualified"
-            )
-            results.extend(caller_nodes)
-            _merge_unresolved_targets(unresolved_targets, caller_unresolved)
-            edges_out.extend(edge_to_dict(e) for e in call_edges)
-            # Fallback: CALLS edges store unqualified target names
-            # (e.g. "generateTestCode") while qn is fully qualified
-            # (e.g. "file.ts::generateTestCode"). Search by plain name too.
-            if not results and node:
-                fallback_edges = _filter_bare_name_fallback_edges(
-                    store,
-                    store.search_edges_by_target_name(node.name),
-                    node,
-                )
-                fallback_nodes, fallback_unresolved = _node_dicts_for_edges(
-                    store,
-                    fallback_edges,
-                    qualified_attr="source_qualified",
-                )
-                results.extend(fallback_nodes)
-                _merge_unresolved_targets(unresolved_targets, fallback_unresolved)
-                edges_out.extend(edge_to_dict(e) for e in fallback_edges)
-                _annotate_bare_name_edges(edges_out)
-
-        elif pattern == "callees_of":
-            call_edges = [e for e in store.get_edges_by_source(qn) if e.kind == "CALLS"]
-            callee_nodes, callee_unresolved = _node_dicts_for_edges(
-                store, call_edges, qualified_attr="target_qualified"
-            )
-            results.extend(callee_nodes)
-            _merge_unresolved_targets(unresolved_targets, callee_unresolved)
-            edges_out.extend(edge_to_dict(e) for e in call_edges)
-
-        elif pattern == "imports_of":
-            for e in store.get_edges_by_source(qn):
-                if e.kind == "IMPORTS_FROM":
-                    results.append(
-                        {
-                            "import_target": e.target_qualified,
-                            "unresolved": _is_unresolved_import_target(
-                                store,
-                                e.target_qualified,
-                                root,
-                            ),
-                        }
-                    )
-                    edges_out.append(edge_to_dict(e))
-                    if results[-1]["unresolved"]:
-                        _merge_unresolved_targets(unresolved_targets, [e.target_qualified])
-
-        elif pattern == "importers_of":
-            # Find edges where target matches this file.
-            # Use resolve() to canonicalize the path, matching how
-            # _resolve_module_to_file stores edge targets.
-            abs_target = str((root / target).resolve()) if node is None else node.file_path
-            for e in store.get_edges_by_target(abs_target):
-                if e.kind == "IMPORTS_FROM":
-                    results.append(
-                        {
-                            "importer": e.source_qualified,
-                            "file": e.file_path,
-                        }
-                    )
-                    edges_out.append(edge_to_dict(e))
-
-        elif pattern == "docs_for":
-            for e in store.get_edges_by_source(qn):
-                if _is_low_confidence_unresolved_markdown_code_span(e):
-                    continue
-                role = _cross_artifact_role(e)
-                if role in _ARTIFACT_TO_DOC_ROLES:
-                    results.append(
-                        _documentation_result(
-                            e,
-                            endpoint=e.target_qualified,
-                            inverse_label=_ARTIFACT_TO_DOC_ROLES[role],
-                        )
-                    )
-                    edges_out.append(edge_to_dict(e))
-            for e in store.get_edges_by_target(qn):
-                if _is_low_confidence_unresolved_markdown_code_span(e):
-                    continue
-                role = _cross_artifact_role(e)
-                if role in _DOC_TO_ARTIFACT_ROLES:
-                    results.append(
-                        _documentation_result(
-                            e,
-                            endpoint=e.source_qualified,
-                            inverse_label=_DOC_TO_ARTIFACT_ROLES[role],
-                        )
-                    )
-                    edges_out.append(edge_to_dict(e))
-
-        elif pattern == "implementations_of":
-            for e in store.get_edges_by_source(qn):
-                if _is_low_confidence_unresolved_markdown_code_span(e):
-                    continue
-                role = _cross_artifact_role(e)
-                if role == "implemented_by":
-                    results.append(_documentation_result(e, endpoint=e.target_qualified))
-                    edges_out.append(edge_to_dict(e))
-            for e in store.get_edges_by_target(qn):
-                if _is_low_confidence_unresolved_markdown_code_span(e):
-                    continue
-                role = _cross_artifact_role(e)
-                if role == "implements_contract":
-                    results.append(
-                        _documentation_result(
-                            e,
-                            endpoint=e.source_qualified,
-                            inverse_label="implemented_by",
-                        )
-                    )
-                    edges_out.append(edge_to_dict(e))
-
-        elif pattern == "bridges_from":
-            for e in store.get_edges_by_source(qn):
-                if e.kind != "CROSS_ARTIFACT":
-                    continue
-                if _is_low_confidence_unresolved_markdown_code_span(e):
-                    continue
-                role = _cross_artifact_role(e)
-                if role not in _INFRA_TO_CODE_BRIDGE_ROLES:
-                    continue
-                tier = str(getattr(e, "confidence_tier", "") or "").upper()
-                if not tier and isinstance(getattr(e, "extra", None), dict):
-                    tier = str(e.extra.get("confidence_tier", "")).upper()
-                if tier not in {"EXACT", "HIGH", "EXTRACTED"}:
-                    continue
-                results.append(
-                    _documentation_result(
-                        e,
-                        endpoint=e.target_qualified,
-                        inverse_label=_INFRA_TO_CODE_BRIDGE_ROLES[role],
-                    )
-                )
-                edges_out.append(edge_to_dict(e))
-
-        elif pattern == "children_of":
-            child_edges = [e for e in store.get_edges_by_source(qn) if e.kind == "CONTAINS"]
-            child_nodes, child_unresolved = _node_dicts_for_edges(
-                store, child_edges, qualified_attr="target_qualified"
-            )
-            results.extend(child_nodes)
-            _merge_unresolved_targets(unresolved_targets, child_unresolved)
-
-        elif pattern == "tests_for":
-            if node is not None:
-                results.extend(infer_tests_for_node(store, node))
-                test_edges = [e for e in store.get_edges_by_source(qn) if e.kind == "TESTED_BY"]
-                edges_out.extend(edge_to_dict(e) for e in test_edges)
-
-        elif pattern == "inheritors_of":
-            inherit_edges = [
-                e for e in store.get_edges_by_target(qn) if e.kind in ("INHERITS", "IMPLEMENTS")
-            ]
-            inheritor_nodes, inheritor_unresolved = _node_dicts_for_edges(
-                store, inherit_edges, qualified_attr="source_qualified"
-            )
-            results.extend(inheritor_nodes)
-            _merge_unresolved_targets(unresolved_targets, inheritor_unresolved)
-            edges_out.extend(edge_to_dict(e) for e in inherit_edges)
-            # Fallback: INHERITS/IMPLEMENTS edges store unqualified base names
-            # (e.g. "Animal") while qn is fully qualified
-            # (e.g. "sample.dart::Animal"). Search by plain name too. See: #87
-            if not results and node:
-                fallback_edges = []
-                for kind in ("INHERITS", "IMPLEMENTS"):
-                    fallback_edges.extend(
-                        _filter_bare_name_fallback_edges(
-                            store,
-                            store.search_edges_by_target_name(node.name, kind=kind),
-                            node,
-                        )
-                    )
-                fallback_nodes, fallback_unresolved = _node_dicts_for_edges(
-                    store,
-                    fallback_edges,
-                    qualified_attr="source_qualified",
-                )
-                results.extend(fallback_nodes)
-                _merge_unresolved_targets(unresolved_targets, fallback_unresolved)
-                edges_out.extend(edge_to_dict(e) for e in fallback_edges)
-                _annotate_bare_name_edges(edges_out)
-
-        elif pattern == "file_summary":
-            file_nodes: list[Any] = []
-            for abs_path in _file_path_candidates(root, target):
-                file_nodes = store.get_nodes_by_file(abs_path)
-                if file_nodes:
-                    break
-            for n in file_nodes:
-                results.append(node_to_dict(n))
-
-        summary = f"Found {len(results)} result(s) for {pattern}('{target}')"
-        exact_count = 1 if resolution == "exact" and node is not None else 0
-        resolution_payload: dict[str, Any] = {
-            "resolution": resolution,
-            "exact_match_count": exact_count,
-        }
-        if resolved_target is not None:
-            resolution_payload["resolved_target"] = resolved_target
-        if resolution == "fuzzy":
-            resolution_payload["original_target"] = original_target
-        zero_result_fields = _query_zero_result_fields(
-            results=results,
-            unresolved_targets=unresolved_targets,
-        )
-
-        if detail_level == "minimal":
-            minimal_results = [
-                {
-                    k: r[k]
-                    for k in ("name", "kind", "file_path", "confidence", "coverage_source")
-                    + (
-                        "source",
-                        "target",
-                        "matched_endpoint",
-                        "relationship_role",
-                        "inverse_label",
-                        "evidence_type",
-                        "file",
-                    )
-                    if k in r
-                }
-                for r in results[:5]
-            ]
-            for item in minimal_results:
-                item["evidence_type"] = _result_evidence_type(item)
-            guidance = _query_graph_guidance(
-                pattern=pattern,
-                target=target,
-                result_count=len(results),
-                exact_count=exact_count,
-            )
-            return {
-                "status": "ok",
-                "pattern": pattern,
-                "target": target,
-                "description": _QUERY_PATTERNS[pattern],
-                "summary": summary,
-                "result_count": len(results),
-                "unresolved_count": len(unresolved_targets),
-                "unresolved_targets": unresolved_targets,
-                **zero_result_fields,
-                "next_action": _exactness_action(target, exact_count, len(results)),
-                **resolution_payload,
-                "answerability": answerability,
-                "missingness": missingness,
-                "results": minimal_results,
-                "guidance": guidance,
-                "_hints": guidance_actions_to_hints(guidance),
-            }
-
-        guidance = _query_graph_guidance(
+        state = QueryGraphState(
+            store=store,
+            root=root,
             pattern=pattern,
+            original_target=target,
             target=target,
-            result_count=len(results),
-            exact_count=exact_count,
         )
-        payload = {
-            "status": "ok",
-            "pattern": pattern,
-            "target": target,
-            "description": _QUERY_PATTERNS[pattern],
-            "summary": summary,
-            "result_count": len(results),
-            "unresolved_count": len(unresolved_targets),
-            "unresolved_targets": unresolved_targets,
-            **zero_result_fields,
-            "next_action": _exactness_action(target, exact_count, len(results)),
-            **resolution_payload,
-            "answerability": answerability,
-            "missingness": missingness,
-            "results": results,
-            "edges": edges_out,
-            "guidance": guidance,
-            "_hints": guidance_actions_to_hints(guidance),
-        }
-        apply_output_budget(payload, budget_tokens=8000, list_priorities=["results", "edges"])
-        return payload
+        early_response = resolve_query_target(
+            state,
+            answerability=answerability,
+            missingness=missingness,
+        )
+        if early_response is not None:
+            return early_response
+
+        execute_query_pattern(state)
+        return build_query_graph_response(
+            state,
+            detail_level=detail_level,
+            answerability=answerability,
+            missingness=missingness,
+        )
     except Exception as exc:
         if is_sqlite_corrupt_error(exc) and not _corrupt_retried:
             recover_corrupt_graph(_db_path_for_repo(repo_root))
@@ -1273,7 +608,7 @@ def semantic_search_nodes(
             if query in {str(r.get("name", "")), str(r.get("qualified_name", ""))}
         ]
         ambiguity = "multiple_exact_matches" if len(exact_matches) > 1 else None
-        next_action = _exactness_action(query, len(exact_matches), len(results))
+        next_action = exactness_action(query, len(exact_matches), len(results))
         guidance = _semantic_search_guidance(
             query=query,
             result_count=result_count,
@@ -1285,7 +620,7 @@ def semantic_search_nodes(
             minimal_results = [
                 {
                     **{k: r[k] for k in ("name", "kind", "file_path", "score") if k in r},
-                    "evidence_type": _result_evidence_type(r),
+                    "evidence_type": result_evidence_type(r),
                 }
                 for r in results[:5]
             ]
