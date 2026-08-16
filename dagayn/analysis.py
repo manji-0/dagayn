@@ -16,7 +16,7 @@ from typing import Any, Callable, cast
 
 from ._scope import ArtifactScope, node_matches_artifact_scope
 from .cross_artifact import is_reportable_bridge
-from .flows import _has_framework_decorator, _matches_entry_name
+from .entry_point_heuristics import has_framework_decorator, matches_entry_name
 from .graph import GraphEdge, GraphNode, GraphStore, _sanitize_name
 
 logger = logging.getLogger(__name__)
@@ -872,7 +872,7 @@ def _low_signal_isolated_reason(
     store: GraphStore, node: GraphNode, source_cache: dict[str, list[str]]
 ) -> str | None:
     """Classify isolated nodes that are expected to have few internal graph edges."""
-    if _matches_entry_name(node) or _has_framework_decorator(node):
+    if matches_entry_name(node) or has_framework_decorator(node):
         return "entry_point"
     lines = _load_source_lines_for_node(store, node.file_path, source_cache)
     line = _source_line(lines, node.line_start)
