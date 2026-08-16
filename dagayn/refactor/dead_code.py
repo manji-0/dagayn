@@ -522,8 +522,19 @@ class _DeadCodeLookups:
         base_nodes_map: dict[str, Any],
         unresolved_entrypoint_by_name: dict[str, list[Any]],
     ) -> None:
-        for key in self.__slots__:
-            setattr(self, key, locals()[key])
+        self.surviving = surviving
+        self.class_bases = class_bases
+        self.class_inherits_targets = class_inherits_targets
+        self.importer_files = importer_files
+        self.name_counts = name_counts
+        self.incoming_by_qn = incoming_by_qn
+        self.tested_by_source_qn = tested_by_source_qn
+        self.bare_calls_by_name = bare_calls_by_name
+        self.bare_tested_by_name = bare_tested_by_name
+        self.bare_inherits_by_name = bare_inherits_by_name
+        self.suffix_calls_by_name = suffix_calls_by_name
+        self.base_nodes_map = base_nodes_map
+        self.unresolved_entrypoint_by_name = unresolved_entrypoint_by_name
 
 
 def _collect_dead_code_context(
