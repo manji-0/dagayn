@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from typing import Iterable, Literal, Optional
+from typing import Any, Iterable, Literal, Optional
 
 from ._scope import ArtifactScope, build_node_scope_maps
 from .dependency_profiles import (
@@ -64,6 +64,7 @@ def compute_sap_metrics(
     unit_filter: Optional[Iterable[str]] = None,
     artifact_scope: ArtifactScope = "code",
     dependency_profile: DependencyProfile = "strict_static",
+    snapshot: Any | None = None,
 ) -> list[dict]:
     """Compute SAP metrics for each scope.
 
@@ -89,6 +90,8 @@ def compute_sap_metrics(
             Markdown documentation dependencies out of code SAP counts.
         dependency_profile: Dependency edge profile. ``strict_static`` is the
             default and preserves the historical edge set.
+        snapshot: Optional shared graph snapshot whose node/edge lists replace
+            fresh table reads when several analyses run together.
     """
     dependency_profile = validate_dependency_profile(dependency_profile)
     filter_prefixes = list(unit_filter) if unit_filter else None
@@ -97,13 +100,17 @@ def compute_sap_metrics(
         store,
         scope_kind,
         artifact_scope=artifact_scope,
+        nodes=getattr(snapshot, "all_nodes", None),
     )
 
     scope_na: dict[str, int] = defaultdict(int)
     scope_nt: dict[str, int] = defaultdict(int)
     scope_member_count: dict[str, int] = defaultdict(int)
 
-    for node in store.get_all_nodes(exclude_files=False):
+    all_nodes = getattr(snapshot, "all_nodes", None)
+    if all_nodes is None:
+        all_nodes = store.get_all_nodes(exclude_files=False)
+    for node in all_nodes:
         sk = qualified_to_scope.get(node.qualified_name)
         if sk is None:
             continue
@@ -123,7 +130,10 @@ def compute_sap_metrics(
     dep_graph: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     all_scopes: set[str] = set(scope_member_count.keys())
 
-    for edge in store.get_all_edges():
+    edges = getattr(snapshot, "edges", None)
+    if edges is None:
+        edges = store.get_all_edges()
+    for edge in edges:
         if not edge_matches_dependency_profile(edge, dependency_profile):
             continue
         src_scope = qualified_to_scope.get(edge.source_qualified)
@@ -211,6 +221,7 @@ def find_sap_violations(
     min_distance: float = 0.5,
     artifact_scope: ArtifactScope = "code",
     dependency_profile: DependencyProfile = "strict_static",
+    snapshot: Any | None = None,
 ) -> list[dict]:
     """Find scopes whose distance from the main sequence exceeds min_distance.
 
@@ -221,6 +232,7 @@ def find_sap_violations(
         artifact_scope: "code" (default), "docs", or "all".
         dependency_profile: Dependency edge profile. ``strict_static`` is the
             default and preserves the historical edge set.
+        snapshot: Optional shared graph snapshot to skip fresh table reads.
 
     Test and fixture scopes are excluded from the violation list because their
     A/I/D positions are usually harness noise rather than actionable product
@@ -233,6 +245,7 @@ def find_sap_violations(
         scope_kind=scope_kind,
         artifact_scope=artifact_scope,
         dependency_profile=dependency_profile,
+        snapshot=snapshot,
     )
     violations = [
         m

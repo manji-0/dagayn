@@ -138,6 +138,13 @@ class GraphStore(
             self._nxg_cache = None
         self._conn.execute("DELETE FROM hub_scores")
         self._conn.execute("DELETE FROM bridge_scores")
+        # Code-scope score tables are created lazily by analysis; older DBs may
+        # not have them yet, so tolerate the missing-table case here.
+        try:
+            self._conn.execute("DELETE FROM hub_scores_code")
+            self._conn.execute("DELETE FROM bridge_scores_code")
+        except sqlite3.OperationalError:
+            pass
 
     def close(self) -> None:
         if self._leases > 0:

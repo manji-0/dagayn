@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Literal
+from typing import Any, Literal
 
 import networkx as nx
 
@@ -23,6 +23,7 @@ def _project_dependency_graph(
     granularity: Literal["file", "package"] = "package",
     artifact_scope: ArtifactScope = "code",
     dependency_profile: DependencyProfile = "strict_static",
+    snapshot: Any | None = None,
 ) -> nx.DiGraph:
     """Build a directed dependency graph from dependency edges.
 
@@ -40,6 +41,9 @@ def _project_dependency_graph(
 
     For granularity="package", nodes are aggregated by directory prefix.
     Self-loops are removed. Edge weight holds the aggregated edge count.
+
+    ``snapshot`` may supply the full node/edge lists to skip re-reading the
+    graph tables when several analyses run together.
     """
     dependency_profile = validate_dependency_profile(dependency_profile)
     g: nx.DiGraph = nx.DiGraph()
@@ -48,9 +52,13 @@ def _project_dependency_graph(
         store,
         granularity,
         artifact_scope=artifact_scope,
+        nodes=getattr(snapshot, "all_nodes", None),
     )
 
-    for e in store.get_all_edges():
+    edges = getattr(snapshot, "edges", None)
+    if edges is None:
+        edges = store.get_all_edges()
+    for e in edges:
         if not edge_matches_dependency_profile(e, dependency_profile):
             continue
         src = qualified_to_scope.get(e.source_qualified)
@@ -86,6 +94,7 @@ def find_adp_violations(
     artifact_scope: ArtifactScope = "code",
     dependency_profile: DependencyProfile = "strict_static",
     max_cycles: int = _MAX_ADP_CYCLES,
+    snapshot: Any | None = None,
 ) -> list[dict]:
     """Find cyclic dependencies (ADP violations).
 
@@ -98,6 +107,9 @@ def find_adp_violations(
     carries ``truncated: True`` alongside ``cycles_examined`` so callers can say
     the list is partial rather than presenting it as exhaustive.
 
+    ``snapshot`` may supply the shared node/edge lists to skip re-reading the
+    graph tables.
+
     Returns list of dicts sorted by severity descending.
     """
     dependency_profile = validate_dependency_profile(dependency_profile)
@@ -106,6 +118,7 @@ def find_adp_violations(
         granularity=granularity,
         artifact_scope=artifact_scope,
         dependency_profile=dependency_profile,
+        snapshot=snapshot,
     )
 
     if g.number_of_nodes() == 0:
@@ -157,6 +170,7 @@ def compute_sdp_metrics(
     granularity: Literal["file", "package"] = "package",
     artifact_scope: ArtifactScope = "code",
     dependency_profile: DependencyProfile = "strict_static",
+    snapshot: Any | None = None,
 ) -> list[dict]:
     """Compute SDP instability metrics for each module/package.
 
@@ -168,8 +182,10 @@ def compute_sdp_metrics(
     Isolated nodes (Ca + Ce = 0) are assigned I = 0.
 
     ``artifact_scope`` keeps code and Markdown documentation dependencies from
-    contributing to each other's Ca/Ce counts. Returns list of dicts sorted by
-    instability descending.
+    contributing to each other's Ca/Ce counts. ``snapshot`` may supply the
+    shared node/edge lists to skip re-reading the graph tables.
+
+    Returns list of dicts sorted by instability descending.
     """
     dependency_profile = validate_dependency_profile(dependency_profile)
     g = _project_dependency_graph(
@@ -177,6 +193,7 @@ def compute_sdp_metrics(
         granularity=granularity,
         artifact_scope=artifact_scope,
         dependency_profile=dependency_profile,
+        snapshot=snapshot,
     )
 
     if g.number_of_nodes() == 0:
@@ -208,11 +225,15 @@ def find_sdp_violations(
     min_delta: float = 0.1,
     artifact_scope: ArtifactScope = "code",
     dependency_profile: DependencyProfile = "strict_static",
+    snapshot: Any | None = None,
 ) -> list[dict]:
     """Find SDP violations: dependencies pointing toward instability.
 
     An edge A -> B violates SDP when I(A) < I(B) - min_delta, i.e., a more
     stable module depends on a less stable one.
+
+    ``snapshot`` may supply the shared node/edge lists to skip re-reading the
+    graph tables.
 
     Returns list of dicts sorted by delta descending.
     """
@@ -222,6 +243,7 @@ def find_sdp_violations(
         granularity=granularity,
         artifact_scope=artifact_scope,
         dependency_profile=dependency_profile,
+        snapshot=snapshot,
     )
 
     if g.number_of_nodes() == 0:

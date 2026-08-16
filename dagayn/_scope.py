@@ -57,6 +57,7 @@ def build_node_scope_maps(
     store: "GraphStore",
     scope_kind: str,
     artifact_scope: ArtifactScope = "all",
+    nodes: list["GraphNode"] | None = None,
 ) -> tuple[dict[str, str], dict[str, str]]:
     """Return (qualified_to_scope, name_to_scope).
 
@@ -66,11 +67,14 @@ def build_node_scope_maps(
     Used as a two-stage fallback: try qualified_name first, then bare name.
     ``artifact_scope`` can restrict the map to code nodes, Markdown
     documentation nodes, or the legacy mixed graph.
+    ``nodes`` may be supplied by a shared graph snapshot to avoid re-reading
+    the full node table when multiple analyses run together.
     """
     qualified_to_scope: dict[str, str] = {}
     name_scopes: dict[str, set[str]] = defaultdict(set)
 
-    for node in store.get_all_nodes(exclude_files=False):
+    node_list = nodes if nodes is not None else store.get_all_nodes(exclude_files=False)
+    for node in node_list:
         if not node_matches_artifact_scope(node, artifact_scope):
             continue
         sk = node_file_to_scope_key(node.file_path, scope_kind)

@@ -195,9 +195,11 @@ def _rank_test_gaps(test_gaps: list[dict[str, Any]], *, limit: int = 5) -> dict[
     }
 
 
-def _component_stability_profiles(store: Any) -> dict[str, dict[str, Any]]:
+def _component_stability_profiles(
+    store: Any, *, snapshot: Any | None = None
+) -> dict[str, dict[str, Any]]:
     """Return package-level stability expectations from Clean Architecture metrics."""
-    return component_stability_profiles(store)
+    return component_stability_profiles(store, snapshot=snapshot)
 
 
 def _component_density_by_scope(
@@ -841,12 +843,25 @@ def _hotspot_proximity(
     *,
     top_n: int = 25,
     limit: int = 5,
+    snapshot: Any | None = None,
 ) -> dict[str, Any]:
     try:
         from ..analysis import find_bridge_nodes, find_hub_nodes
 
-        hubs = find_hub_nodes(store, top_n=top_n, artifact_scope="code", include_tests=False)
-        bridges = find_bridge_nodes(store, top_n=top_n, artifact_scope="code", include_tests=False)
+        hubs = find_hub_nodes(
+            store,
+            top_n=top_n,
+            artifact_scope="code",
+            include_tests=False,
+            snapshot=snapshot,
+        )
+        bridges = find_bridge_nodes(
+            store,
+            top_n=top_n,
+            artifact_scope="code",
+            include_tests=False,
+            snapshot=snapshot,
+        )
     except Exception:  # pragma: no cover - defensive for backend parity drift
         hubs = []
         bridges = []
@@ -961,6 +976,7 @@ def _architecture_delta_summary(
     changed_files: list[str],
     *,
     limit: int = 5,
+    snapshot: Any | None = None,
 ) -> dict[str, Any]:
     """Summarize current architecture risks in scopes touched by the change."""
     scopes = _changed_scope_keys(changed_files)
@@ -977,9 +993,9 @@ def _architecture_delta_summary(
         from ..architecture import find_adp_violations, find_sdp_violations
         from ..sap import find_sap_violations
 
-        adp = find_adp_violations(store, granularity="package")
-        sdp = find_sdp_violations(store, granularity="package")
-        sap = find_sap_violations(store, scope_kind="package")
+        adp = find_adp_violations(store, granularity="package", snapshot=snapshot)
+        sdp = find_sdp_violations(store, granularity="package", snapshot=snapshot)
+        sap = find_sap_violations(store, scope_kind="package", snapshot=snapshot)
     except Exception:  # pragma: no cover - defensive for backend parity drift
         adp = []
         sdp = []
@@ -1338,7 +1354,13 @@ def _change_analysis_summary(
     changed_functions = list(analysis.get("changed_functions", []))
     risk = _risk_level(risk_score)
 
-    stability_profiles = _component_stability_profiles(store)
+    # One shared snapshot for every downstream sub-analysis (stability
+    # profiles, hotspot proximity, architecture delta). Each helper otherwise
+    # re-reads the full edge table on its own (~0.3 s per call).
+    from ..analysis import build_graph_snapshot
+
+    snapshot = build_graph_snapshot(store)
+    stability_profiles = _component_stability_profiles(store, snapshot=snapshot)
     changed_scopes = {
         scope_key
         for scope_key in (_scope_key_for_record(func) for func in changed_functions)
@@ -1363,9 +1385,9 @@ def _change_analysis_summary(
         stability_profiles=stability_profiles,
         include_heuristic_docs=detail_level == "verbose",
     )
-    hotspots = _hotspot_proximity(store, impact)
+    hotspots = _hotspot_proximity(store, impact, snapshot=snapshot)
     cross_artifact = _cross_artifact_proximity(store, impact, changed_functions)
-    architecture_delta = _architecture_delta_summary(store, changed_files)
+    architecture_delta = _architecture_delta_summary(store, changed_files, snapshot=snapshot)
     test_gap_ranking = _rank_test_gaps(test_gaps)
     stability_contracts = _stability_contracts(
         changed_functions,

@@ -56,6 +56,7 @@ class GraphSnapshot:
     in_degree: Counter[str]
     out_degree: Counter[str]
     tested_sources: set[str]
+    all_nodes: list[GraphNode] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -73,6 +74,7 @@ def build_graph_snapshot(store: GraphStore) -> GraphSnapshot:
     """Build a :class:`GraphSnapshot` with one read of edges/nodes/communities."""
     edges = store.get_all_edges()
     nodes = store.get_all_nodes(exclude_files=True)
+    all_nodes = store.get_all_nodes(exclude_files=False)
     community_map = store.get_all_community_ids()
     in_degree: Counter[str] = Counter()
     out_degree: Counter[str] = Counter()
@@ -89,6 +91,7 @@ def build_graph_snapshot(store: GraphStore) -> GraphSnapshot:
         in_degree=in_degree,
         out_degree=out_degree,
         tested_sources=tested_sources,
+        all_nodes=all_nodes,
     )
 
 
@@ -106,8 +109,8 @@ def find_hub_nodes(
     Returns list of dicts with: name, qualified_name, kind, file,
     in_degree, out_degree, total_degree, community_id
     """
-    if use_persisted and artifact_scope == "all" and include_tests:
-        persisted = _load_persisted_hub_scores(store, top_n=top_n)
+    if use_persisted and _persisted_scope_matches(artifact_scope, include_tests):
+        persisted = _load_persisted_hub_scores(store, top_n=top_n, artifact_scope=artifact_scope)
         if persisted:
             return persisted
 
@@ -165,8 +168,8 @@ def find_bridge_nodes(
     Returns list of dicts with: name, qualified_name, kind, file,
     betweenness, community_id
     """
-    if use_persisted and artifact_scope == "all" and include_tests:
-        persisted = _load_persisted_bridge_scores(store, top_n=top_n)
+    if use_persisted and _persisted_scope_matches(artifact_scope, include_tests):
+        persisted = _load_persisted_bridge_scores(store, top_n=top_n, artifact_scope=artifact_scope)
         if persisted:
             return persisted
 
@@ -222,12 +225,30 @@ def find_bridge_nodes(
     return results[:top_n]
 
 
+def _persisted_scope_matches(artifact_scope: ArtifactScope, include_tests: bool) -> bool:
+    """Whether persisted hub/bridge scores cover this analysis scope.
+
+    The persistence pass stores an all-scope variant (tests included) and a
+    code-scope variant (tests excluded); other scope combinations (docs, or
+    all/code with the opposite test setting) must be computed on demand.
+    """
+    return (artifact_scope == "all" and include_tests) or (
+        artifact_scope == "code" and not include_tests
+    )
+
+
 def persist_centrality_scores(store: GraphStore) -> dict[str, int]:
     """Compute and persist hub / bridge scores for query-time analysis.
 
     Bridge centrality is the expensive part of architecture analysis. Persisting
     the values during post-processing keeps MCP calls on the read path unless a
     graph write invalidates the score tables.
+
+    Two variants are persisted: the all-scope ranking (tests included, used by
+    ``artifact_scope="all"`` queries) and the code-scope ranking (tests and
+    Markdown excluded, used by the default ``artifact_scope="code"`` tool
+    calls). Each lands in its own table so loaders can pick the matching
+    ranking without re-computing betweenness.
     """
     rust_persist = getattr(store, "persist_centrality_scores", None)
     if callable(rust_persist) and not hasattr(store, "_conn"):
@@ -242,10 +263,28 @@ def persist_centrality_scores(store: GraphStore) -> dict[str, int]:
     bridges = find_bridge_nodes(
         store, top_n=10**9, snapshot=snapshot, use_persisted=False, artifact_scope="all"
     )
+    hubs_code = find_hub_nodes(
+        store,
+        top_n=10**9,
+        snapshot=snapshot,
+        use_persisted=False,
+        artifact_scope="code",
+        include_tests=False,
+    )
+    bridges_code = find_bridge_nodes(
+        store,
+        top_n=10**9,
+        snapshot=snapshot,
+        use_persisted=False,
+        artifact_scope="code",
+        include_tests=False,
+    )
     now = time.time()
     with store._conn:
         store._conn.execute("DELETE FROM hub_scores")
         store._conn.execute("DELETE FROM bridge_scores")
+        store._conn.execute("DELETE FROM hub_scores_code")
+        store._conn.execute("DELETE FROM bridge_scores_code")
         store._conn.executemany(
             "INSERT INTO hub_scores "
             "(qualified_name, name, kind, file_path, in_degree, out_degree, total_degree, "
@@ -283,7 +322,49 @@ def persist_centrality_scores(store: GraphStore) -> dict[str, int]:
                 for b in bridges
             ],
         )
-    return {"hub_scores_persisted": len(hubs), "bridge_scores_persisted": len(bridges)}
+        store._conn.executemany(
+            "INSERT INTO hub_scores_code "
+            "(qualified_name, name, kind, file_path, in_degree, out_degree, total_degree, "
+            "community_id, computed_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    h["qualified_name"],
+                    h["name"],
+                    h["kind"],
+                    h["file"],
+                    int(h["in_degree"]),
+                    int(h["out_degree"]),
+                    int(h["total_degree"]),
+                    h.get("community_id"),
+                    now,
+                )
+                for h in hubs_code
+            ],
+        )
+        store._conn.executemany(
+            "INSERT INTO bridge_scores_code "
+            "(qualified_name, name, kind, file_path, betweenness, community_id, computed_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    b["qualified_name"],
+                    b["name"],
+                    b["kind"],
+                    b["file"],
+                    float(b["betweenness"]),
+                    b.get("community_id"),
+                    now,
+                )
+                for b in bridges_code
+            ],
+        )
+    return {
+        "hub_scores_persisted": len(hubs),
+        "bridge_scores_persisted": len(bridges),
+        "hub_scores_code_persisted": len(hubs_code),
+        "bridge_scores_code_persisted": len(bridges_code),
+    }
 
 
 def _ensure_centrality_score_tables(store: GraphStore) -> None:
@@ -313,17 +394,44 @@ def _ensure_centrality_score_tables(store: GraphStore) -> None:
             ON hub_scores(total_degree DESC);
         CREATE INDEX IF NOT EXISTS idx_bridge_scores_betweenness
             ON bridge_scores(betweenness DESC);
+        CREATE TABLE IF NOT EXISTS hub_scores_code (
+            qualified_name TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            in_degree INTEGER NOT NULL,
+            out_degree INTEGER NOT NULL,
+            total_degree INTEGER NOT NULL,
+            community_id INTEGER,
+            computed_at REAL NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS bridge_scores_code (
+            qualified_name TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            betweenness REAL NOT NULL,
+            community_id INTEGER,
+            computed_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_hub_scores_code_total_degree
+            ON hub_scores_code(total_degree DESC);
+        CREATE INDEX IF NOT EXISTS idx_bridge_scores_code_betweenness
+            ON bridge_scores_code(betweenness DESC);
         """
     )
 
 
-def _load_persisted_hub_scores(store: GraphStore, top_n: int) -> list[dict]:
+def _load_persisted_hub_scores(
+    store: GraphStore, top_n: int, *, artifact_scope: ArtifactScope = "all"
+) -> list[dict]:
+    table = "hub_scores_code" if artifact_scope == "code" else "hub_scores"
     try:
         _ensure_centrality_score_tables(store)
         rows = store._conn.execute(
-            "SELECT name, qualified_name, kind, file_path, in_degree, out_degree, "
-            "total_degree, community_id "
-            "FROM hub_scores ORDER BY total_degree DESC, qualified_name LIMIT ?",
+            f"SELECT name, qualified_name, kind, file_path, in_degree, out_degree, "
+            f"total_degree, community_id "
+            f"FROM {table} ORDER BY total_degree DESC, qualified_name LIMIT ?",  # noqa: S608
             (top_n,),
         ).fetchall()
     except sqlite3.OperationalError:
@@ -344,12 +452,15 @@ def _load_persisted_hub_scores(store: GraphStore, top_n: int) -> list[dict]:
     ]
 
 
-def _load_persisted_bridge_scores(store: GraphStore, top_n: int) -> list[dict]:
+def _load_persisted_bridge_scores(
+    store: GraphStore, top_n: int, *, artifact_scope: ArtifactScope = "all"
+) -> list[dict]:
+    table = "bridge_scores_code" if artifact_scope == "code" else "bridge_scores"
     try:
         _ensure_centrality_score_tables(store)
         rows = store._conn.execute(
-            "SELECT name, qualified_name, kind, file_path, betweenness, community_id "
-            "FROM bridge_scores ORDER BY betweenness DESC, qualified_name LIMIT ?",
+            f"SELECT name, qualified_name, kind, file_path, betweenness, community_id "
+            f"FROM {table} ORDER BY betweenness DESC, qualified_name LIMIT ?",  # noqa: S608
             (top_n,),
         ).fetchall()
     except sqlite3.OperationalError:

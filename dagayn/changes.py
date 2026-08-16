@@ -18,7 +18,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Literal, cast
 
 from .constants import SECURITY_KEYWORDS as _SECURITY_KEYWORDS
-from .coverage import has_coverage_evidence
+from .coverage import build_scan_state, has_coverage_evidence
 from .flows import get_affected_flows
 from .graph import GraphEdge, GraphNode, GraphStore, _sanitize_name, edge_to_dict, node_to_dict
 from .parser import CodeParser
@@ -1068,6 +1068,17 @@ def analyze_changes(
     test_gaps: list[dict[str, Any]] = []
     heuristic_gap_checks = 0
     heuristic_gap_eligible_count = 0
+    # One shared candidate scan per analysis pass: has_coverage_evidence used
+    # to re-scan every Test/Function/Class node per changed function, which
+    # made review cost scale as N-changed × full-graph.
+    coverage_scan_state = None
+    if include_heuristic_test_gap_evidence and any(
+        not n.is_test and n.language != "markdown" for n in changed_funcs
+    ):
+        try:
+            coverage_scan_state = build_scan_state(store)
+        except Exception:  # pragma: no cover - defensive for backend parity drift
+            coverage_scan_state = None
     for node in changed_funcs:
         if node.is_test:
             continue
@@ -1083,7 +1094,11 @@ def analyze_changes(
         )
         if can_check_heuristic_gap:
             heuristic_gap_checks += 1
-            has_heuristic_coverage = has_coverage_evidence(store, node)
+            has_heuristic_coverage = has_coverage_evidence(
+                store,
+                node,
+                _scan_state=coverage_scan_state,
+            )
         if not has_direct_coverage and not has_heuristic_coverage:
             test_gaps.append(
                 {

@@ -21,14 +21,25 @@ def scope_key_for_file(file_path: str | None) -> str | None:
     return node_file_to_scope_key(file_path, "package")
 
 
-def component_stability_profiles(store: Any) -> dict[str, dict[str, Any]]:
-    """Return package-level stability expectations from SDP/SAP metrics."""
+def component_stability_profiles(
+    store: Any, snapshot: Any | None = None
+) -> dict[str, dict[str, Any]]:
+    """Return package-level stability expectations from SDP/SAP metrics.
+
+    ``snapshot`` may supply the shared node/edge lists so the underlying SDP
+    and SAP metric computations skip fresh table reads when several analyses
+    run together.
+    """
     try:
         from .architecture import compute_sdp_metrics
         from .sap import compute_sap_metrics
 
-        sdp_metrics = compute_sdp_metrics(store, granularity="package", artifact_scope="code")
-        sap_metrics = compute_sap_metrics(store, scope_kind="package", artifact_scope="code")
+        sdp_metrics = compute_sdp_metrics(
+            store, granularity="package", artifact_scope="code", snapshot=snapshot
+        )
+        sap_metrics = compute_sap_metrics(
+            store, scope_kind="package", artifact_scope="code", snapshot=snapshot
+        )
     except Exception:  # pragma: no cover - defensive for backend parity drift
         return {}
 

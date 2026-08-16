@@ -29,6 +29,7 @@ def _architecture_health_summary(
     *,
     top_n: int,
     artifact_scope: ArtifactScope,
+    snapshot: Any | None = None,
 ) -> dict[str, Any]:
     """Compose specialized architecture signals into one bounded report."""
     example_limit = min(max(top_n, 1), 5)
@@ -36,6 +37,7 @@ def _architecture_health_summary(
 
     try:
         from ..analysis import (
+            build_graph_snapshot,
             find_bridge_nodes,
             find_hub_nodes,
             find_knowledge_gaps,
@@ -44,44 +46,57 @@ def _architecture_health_summary(
         from ..architecture import find_adp_violations, find_sdp_violations
         from ..sap import find_sap_violations
 
+        # One snapshot shared by every sub-analysis below. Each find_* helper
+        # otherwise re-reads and JSON-parses the full edge table on its own
+        # (~0.3 s per call on a 70k-edge graph), which dominated this tool.
+        if snapshot is None:
+            snapshot = build_graph_snapshot(store)
+
         hubs = find_hub_nodes(
             store,
             top_n=example_limit,
             artifact_scope=artifact_scope,
             include_tests=include_tests,
+            snapshot=snapshot,
         )
         bridges = find_bridge_nodes(
             store,
             top_n=example_limit,
             artifact_scope=artifact_scope,
             include_tests=include_tests,
+            snapshot=snapshot,
         )
         gaps = find_knowledge_gaps(
             store,
             top_n=example_limit,
             artifact_scope=artifact_scope,
             include_tests=include_tests,
+            snapshot=snapshot,
         )
         surprises = find_surprising_connections(
             store,
             top_n=example_limit,
             artifact_scope=artifact_scope,
             include_tests=include_tests,
+            snapshot=snapshot,
         )
         adp = find_adp_violations(
             store,
             granularity="package",
             artifact_scope=artifact_scope,
+            snapshot=snapshot,
         )[:example_limit]
         sdp = find_sdp_violations(
             store,
             granularity="package",
             artifact_scope=artifact_scope,
+            snapshot=snapshot,
         )[:example_limit]
         sap = find_sap_violations(
             store,
             scope_kind="package",
             artifact_scope=artifact_scope,
+            snapshot=snapshot,
         )[:example_limit]
     except Exception as exc:  # pragma: no cover - defensive for backend parity drift
         return {
@@ -562,14 +577,18 @@ def get_architecture_overview_func(
             "artifact_scope": artifact_scope,
             **overview,
         }
+        from ..analysis import build_graph_snapshot
+
+        snapshot = build_graph_snapshot(store)
         result["architecture_health"] = _architecture_health_summary(
             store,
             overview,
             top_n=top_n,
             artifact_scope=artifact_scope,
+            snapshot=snapshot,
         )
         result["stable_component_policy"] = stability_policy_summary(
-            component_stability_profiles(store),
+            component_stability_profiles(store, snapshot=snapshot),
             limit=min(max(top_n, 1), 5),
         )
         result["answerability"] = answerability

@@ -8,14 +8,14 @@ from dagayn.stability_policy import component_stability_profiles
 def test_component_stability_profiles_reason_codes_and_density_policy(monkeypatch):
     monkeypatch.setattr(
         "dagayn.architecture.compute_sdp_metrics",
-        lambda store, granularity, artifact_scope: [
+        lambda store, granularity, artifact_scope, **kwargs: [
             {"name": "core", "ca": 4, "ce": 1, "instability": 0.2},
             {"name": "service", "ca": 2, "ce": 1, "instability": 0.4},
         ],
     )
     monkeypatch.setattr(
         "dagayn.sap.compute_sap_metrics",
-        lambda store, scope_kind, artifact_scope: [
+        lambda store, scope_kind, artifact_scope, **kwargs: [
             {"scope_key": "core", "abstractness": 0.0, "distance": 0.8},
             {"scope_key": "service", "abstractness": 0.0, "distance": 0.1},
             {

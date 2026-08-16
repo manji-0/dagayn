@@ -393,6 +393,11 @@ def _get_minimal_context_body(
                     abs_files,
                     repo_root=str(root),
                     base=base,
+                    # The heuristic coverage scan re-scores every test-like
+                    # node per changed function; bound it like review does so
+                    # a large diff cannot turn minimal-context into a full
+                    # graph scan.
+                    heuristic_test_gap_node_limit=10,
                 )
                 review_priority_score = analysis.get(
                     "review_priority_score",

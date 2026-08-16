@@ -138,6 +138,16 @@ class GraphStoreAccessMixin(GraphStoreMixinProtocol):
                 out.append(self._row_to_edge(row))
         return out
 
+    def get_edges_by_kind(self, kind: str) -> list[GraphEdge]:
+        """Return all edges of one kind.
+
+        Used by coverage heuristics that scan candidate import edges without
+        re-parsing every edge kind (the kind-filtered query only returns the
+        rows the caller needs).
+        """
+        rows = self._conn.execute("SELECT * FROM edges WHERE kind = ?", (kind,)).fetchall()
+        return [self._row_to_edge(r) for r in rows]
+
     def get_edges_by_target(self, qualified_name: str) -> list[GraphEdge]:
         normalized = self._normalize_qualified_key(qualified_name)
         seen_ids: set[int] = set()
