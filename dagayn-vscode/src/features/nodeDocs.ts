@@ -95,3 +95,35 @@ export function registerNodeDocsCommand(
     }),
   );
 }
+
+/**
+ * Register an editor hover provider that shows a graph node's documentation
+ * when the cursor hovers over a symbol known to the graph database.
+ */
+export function registerNodeHover(
+  context: vscode.ExtensionContext,
+  getReader: () => SqliteReader | undefined,
+): void {
+  context.subscriptions.push(
+    vscode.languages.registerHoverProvider("*", {
+      provideHover(document, position): vscode.Hover | null {
+        const reader = getReader();
+        if (!reader) {
+          return null;
+        }
+
+        const node = reader.getNodeAtCursor(document.uri.fsPath, position.line + 1);
+        if (!node) {
+          return null;
+        }
+
+        const docs = getNodeDocumentation(node);
+        if (docs.length === 0) {
+          return null;
+        }
+
+        return new vscode.Hover(formatNodeDocumentationMarkdown(node));
+      },
+    }),
+  );
+}

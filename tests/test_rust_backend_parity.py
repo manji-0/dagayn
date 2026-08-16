@@ -102,6 +102,43 @@ def test_rust_backend_is_default_when_extension_is_available(monkeypatch):
     assert _rust_backend_enabled() is True
 
 
+def test_rust_file_discovery_includes_compound_terraform_extensions(tmp_path):
+    """Rust file discovery keeps .tftest.hcl family files (regression for #135)."""
+    try:
+        from dagayn._core import collect_parseable_files
+    except ImportError as exc:
+        pytest.skip(f"Rust extension is not available: {exc}")  # ty: ignore[too-many-positional-arguments]
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    (repo / "main.tf").write_text('resource "a" "b" {}\n')
+    (repo / "main.tftest.hcl").write_text('run "basic" {\n  command = apply\n}\n')
+    (repo / "plain.hcl").write_text('something = "x"\n')
+
+    files = collect_parseable_files(str(repo), False)
+    assert "main.tf" in files
+    assert "main.tftest.hcl" in files
+    assert "plain.hcl" not in files
+
+
+def test_rust_incremental_candidates_keep_compound_terraform_extensions(tmp_path):
+    """filter_incremental_candidates does not mark .tftest.hcl as removed (#135)."""
+    try:
+        from dagayn._core import filter_incremental_candidates
+    except ImportError as exc:
+        pytest.skip(f"Rust extension is not available: {exc}")  # ty: ignore[too-many-positional-arguments]
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    (repo / "main.tftest.hcl").write_text('run "basic" {}\n')
+
+    parseable, removed = filter_incremental_candidates(str(repo), ["main.tftest.hcl"], [])
+    assert parseable == ["main.tftest.hcl"]
+    assert removed == []
+
+
 def test_python_backend_can_be_forced(monkeypatch):
     monkeypatch.setenv("DAGAYN_BACKEND", "python")
     monkeypatch.setattr("dagayn.incremental._rust_backend_available", lambda: True)

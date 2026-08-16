@@ -86,6 +86,7 @@ class TestNotebookParsing:
         assert edges == []
 
     def test_non_python_kernel(self):
+        """Unsupported kernels keep a File node so the file stays discoverable (#137)."""
         nb = {
             "cells": [
                 {"cell_type": "code", "source": ['println("hello")'], "outputs": []},
@@ -98,7 +99,10 @@ class TestNotebookParsing:
             Path("scala_notebook.ipynb"),
             source,
         )
-        assert nodes == []
+        assert len(nodes) == 1
+        assert nodes[0].kind == "File"
+        assert nodes[0].language == "scala"
+        assert nodes[0].name == "scala_notebook.ipynb"
         assert edges == []
 
     def test_malformed_json(self):

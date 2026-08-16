@@ -136,7 +136,15 @@ def build_node_fts_values(
     display_name = str(extra_data.get("display_name", "") or "")
     signature_value = signature or ""
     identifier_tokens = identifier_search_text(name, qualified_name, file_path, display_name)
-    cjk_tokens = segment_cjk_identifier_tokens(name)
+    cjk_tokens = " ".join(
+        part
+        for part in (
+            segment_cjk_identifier_tokens(name),
+            segment_cjk_identifier_tokens(qualified_name),
+            segment_cjk_identifier_tokens(file_path),
+        )
+        if part
+    )
     if cjk_tokens:
         identifier_tokens = " ".join(part for part in (identifier_tokens, cjk_tokens) if part)
     source_excerpt = read_node_source_excerpt(

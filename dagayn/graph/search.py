@@ -174,20 +174,33 @@ class GraphStoreSearchMixin(GraphStoreMixinProtocol):
         """AND-of-words LIKE fallback. Returns (node_id, score) with 3/2/1 scoring.
 
         Used only when FTS5 is unavailable (index not yet built).
+
+        SQLite's ``LOWER()`` and ``LIKE`` only fold ASCII, so non-ASCII
+        identifiers (e.g. Greek/Cyrillic uppercase, accented letters) would
+        never match a ``LOWER(name) LIKE`` clause. We therefore fold case in
+        Python; SQL is used only as a cheap pre-filter for pure-ASCII words,
+        while queries with non-ASCII words scan rows in Python so
+        case/accent variants match.
         """
         words = query.lower().split()
         if not words:
             return []
 
-        conditions: list[str] = []
-        params: list[str | int] = []
-        for word in words:
-            conditions.append("(LOWER(name) LIKE ? OR LOWER(qualified_name) LIKE ?)")
-            params.extend([f"%{word}%", f"%{word}%"])
-
-        where = " AND ".join(conditions)
-        params.append(limit)
-        sql = f"SELECT id, name FROM nodes WHERE {where} LIMIT ?"  # nosec B608
+        if all(word.isascii() for word in words):
+            conditions: list[str] = []
+            params: list[str | int] = []
+            for word in words:
+                conditions.append("(name LIKE ? OR qualified_name LIKE ?)")
+                params.extend([f"%{word}%", f"%{word}%"])
+            where = " AND ".join(conditions)
+            params.append(limit * 4)
+            sql = f"SELECT id, name FROM nodes WHERE {where} LIMIT ?"  # nosec B608
+        else:
+            # SQLite LIKE/LOWER are ASCII-only: a non-ASCII query cannot be
+            # narrowed in SQL without dropping case/accent variants, so scan
+            # names directly (this is a fallback path only).
+            sql = "SELECT id, name FROM nodes"  # nosec B608
+            params = []
 
         try:
             rows = self._conn.execute(sql, params).fetchall()
@@ -198,6 +211,8 @@ class GraphStoreSearchMixin(GraphStoreMixinProtocol):
         results: list[tuple[int, float]] = []
         for row in rows:
             name_lower = row["name"].lower()
+            if not all(word in name_lower for word in words):
+                continue
             if name_lower == q_lower:
                 score = 3.0
             elif name_lower.startswith(q_lower):
@@ -207,7 +222,7 @@ class GraphStoreSearchMixin(GraphStoreMixinProtocol):
             results.append((row["id"], score))
 
         results.sort(key=lambda x: x[1], reverse=True)
-        return results
+        return results[:limit]
 
     def search_nodes(self, query: str, limit: int = 20) -> list[GraphNode]:
         """Keyword search across node names.

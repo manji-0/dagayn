@@ -5,6 +5,7 @@ import {
   formatNodeDocumentationMarkdown,
   NO_DOCUMENTATION_MESSAGE,
   registerNodeDocsCommand,
+  registerNodeHover,
 } from "../src/features/nodeDocs";
 import type { GraphNode } from "../src/backend/sqlite";
 import type { SqliteReader } from "../src/backend/sqlite";
@@ -12,6 +13,13 @@ import type { SqliteReader } from "../src/backend/sqlite";
 const window = vscode.window as typeof vscode.window & {
   __createdWebviewPanels: unknown[];
   __clearCreatedWebviewPanels: () => void;
+};
+
+const languages = vscode.languages as typeof vscode.languages & {
+  __hoverProviders: Array<{
+    provideHover: (document: unknown, position: { line: number }) => unknown;
+  }>;
+  __clearHoverProviders: () => void;
 };
 
 describe("getNodeDocumentation", () => {
@@ -201,3 +209,53 @@ function makeEditor() {
     },
   } as unknown as typeof vscode.window.activeTextEditor;
 }
+
+describe("registerNodeHover", () => {
+  beforeEach(() => {
+    languages.__clearHoverProviders();
+  });
+
+  it("returns a hover with the docstring for a known node", () => {
+    const node = makeNode({ docstring: "Authenticate a user." });
+    const reader = makeReader(node);
+    const context = { extensionUri: vscode.Uri.file("/extension"), subscriptions: [] };
+
+    registerNodeHover(context as unknown as vscode.ExtensionContext, () => reader);
+
+    assert.strictEqual(languages.__hoverProviders.length, 1);
+    const hover = languages.__hoverProviders[0]!.provideHover(
+      { uri: vscode.Uri.file("/workspace/a.py") },
+      { line: 9 },
+    ) as vscode.Hover | null;
+    assert.ok(hover, "expected a hover result");
+    const content = Array.isArray(hover.contents) ? hover.contents[0] : hover.contents;
+    const md = content as vscode.MarkdownString;
+    assert.ok(md.value.includes("Authenticate a user."));
+  });
+
+  it("returns null when the node has no documentation", () => {
+    const node = makeNode({});
+    const reader = makeReader(node);
+    const context = { extensionUri: vscode.Uri.file("/extension"), subscriptions: [] };
+
+    registerNodeHover(context as unknown as vscode.ExtensionContext, () => reader);
+
+    const hover = languages.__hoverProviders[0]!.provideHover(
+      { uri: vscode.Uri.file("/workspace/a.py") },
+      { line: 9 },
+    );
+    assert.strictEqual(hover, null);
+  });
+
+  it("returns null without a reader", () => {
+    const context = { extensionUri: vscode.Uri.file("/extension"), subscriptions: [] };
+
+    registerNodeHover(context as unknown as vscode.ExtensionContext, () => undefined);
+
+    const hover = languages.__hoverProviders[0]!.provideHover(
+      { uri: vscode.Uri.file("/workspace/a.py") },
+      { line: 9 },
+    );
+    assert.strictEqual(hover, null);
+  });
+});

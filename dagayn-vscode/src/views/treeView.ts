@@ -116,7 +116,7 @@ export class CodeGraphTreeProvider implements vscode.TreeDataProvider<vscode.Tre
   private nodesForFile(reader: SqliteReader, filePath: string): SymbolTreeItem[] {
     const nodes = reader.getNodesByFile(filePath);
     return nodes
-      .filter((n) => n.kind !== "File")
+      .filter((n) => n.kind !== "File" && this.kindIsVisible(n.kind))
       .sort((a, b) => (a.lineStart ?? 0) - (b.lineStart ?? 0))
       .map(
         (n) =>
@@ -130,6 +130,25 @@ export class CodeGraphTreeProvider implements vscode.TreeDataProvider<vscode.Tre
             n.extra,
           ),
       );
+  }
+
+  /**
+   * Map the `dagayn.treeView.show*` settings onto a node kind. Unknown kinds
+   * (e.g. future parser kinds) default to visible so new data is not hidden.
+   */
+  private kindIsVisible(kind: string): boolean {
+    const setting: Record<string, string> = {
+      Function: "treeView.showFunctions",
+      Class: "treeView.showClasses",
+      File: "treeView.showFiles",
+      Type: "treeView.showTypes",
+      Test: "treeView.showTests",
+    };
+    const key = setting[kind];
+    if (!key) {
+      return true;
+    }
+    return vscode.workspace.getConfiguration("dagayn").get<boolean>(key) ?? true;
   }
 
   // -- Symbol level: outgoing + incoming edges (skip CONTAINS) --------------

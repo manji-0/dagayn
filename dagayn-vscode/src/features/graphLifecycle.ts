@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { CliWrapper } from "../backend/cli";
+import { CliWrapper, type WatchProcess } from "../backend/cli";
 import { WorkspaceGraphRegistry } from "../backend/registry";
 import { pickFolderForGlobalOp, pickFolderForBuild } from "../backend/folderPicker";
 
@@ -64,12 +64,14 @@ export function registerGraphLifecycleCommands(
       } else {
         const msg =
           result.errorKind === "enoent"
-            ? "Install embeddings support: pip install dagayn[embeddings]"
+            ? "dagayn CLI not found. Install it first (see the dagayn docs for pip/pipx/uv instructions)."
             : `Embedding failed: ${result.stderr}`;
         vscode.window.showErrorMessage(`Code Graph: ${msg}`);
       }
     }),
   );
+
+  let watchProcess: WatchProcess | null = null;
 
   context.subscriptions.push(
     vscode.commands.registerCommand("dagayn.watchGraph", async () => {
@@ -78,11 +80,19 @@ export function registerGraphLifecycleCommands(
         vscode.window.showErrorMessage("No workspace folder is open.");
         return;
       }
-      vscode.window.showInformationMessage("Code Graph: Watch mode started.");
-      const result = await cli.watchGraph(folder);
-      if (!result.success) {
-        vscode.window.showErrorMessage(`Code Graph: Watch failed. ${result.stderr}`);
+      if (watchProcess?.running) {
+        vscode.window.showInformationMessage("Code Graph: Watch mode is already running.");
+        return;
       }
+      watchProcess = cli.spawnWatch(folder, (code, stderr) => {
+        vscode.window.showErrorMessage(
+          `Code Graph: Watch mode stopped (exit code ${code ?? "unknown"}). ${stderr}`,
+        );
+      });
+      context.subscriptions.push({
+        dispose: () => watchProcess?.dispose(),
+      });
+      vscode.window.showInformationMessage("Code Graph: Watch mode started.");
     }),
   );
 }

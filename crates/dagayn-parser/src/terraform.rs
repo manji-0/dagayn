@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use serde_json::json;
+use serde_json::{json, Value};
 
 use super::documentation_directives::{
     extract_line_comment_dagayn_directives, nearest_documentation_source,
@@ -15,6 +15,188 @@ use super::types::{ParsedEdge, ParsedNode};
 use super::util::{dedupe_edges, is_test_file, line_count};
 
 pub(super) fn parse_terraform_with_parser(
+    file_path: &str,
+    source: &[u8],
+    parser: Option<&mut tree_sitter::Parser>,
+) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    if file_path.ends_with(".tf.json") || file_path.ends_with(".tfvars.json") {
+        return parse_terraform_json(file_path, source);
+    }
+    parse_terraform_hcl(file_path, source, parser)
+}
+
+/// Parse Terraform JSON syntax (`.tf.json` / `.tfvars.json`) directly from the
+/// JSON document; the tree-sitter grammar only understands HCL.
+fn parse_terraform_json(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let Ok(value) = serde_json::from_slice::<Value>(source) else {
+        return (Vec::new(), Vec::new());
+    };
+    let line_end = line_count(source);
+    let mut nodes = vec![ParsedNode {
+        kind: crate::core::types::NodeKind::File.as_str().to_string(),
+        name: file_path.to_string(),
+        file_path: file_path.to_string(),
+        line_start: 1,
+        line_end,
+        language: "terraform".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: is_test_file(file_path),
+        extra: json!({}),
+    }];
+    let mut edges = Vec::new();
+
+    let Some(root) = value.as_object() else {
+        return (nodes, edges);
+    };
+    for (kind, value) in root {
+        let Some(entries) = value.as_object() else {
+            continue;
+        };
+        match kind.as_str() {
+            "resource" | "data" | "ephemeral" => {
+                for (block_type, names) in entries {
+                    let Some(names) = names.as_object() else {
+                        continue;
+                    };
+                    for name in names.keys() {
+                        let node_name = format!("{kind}.{block_type}.{name}");
+                        push_terraform_node(
+                            file_path,
+                            &mut nodes,
+                            &mut edges,
+                            TerraformNodeSpec {
+                                kind: "Class",
+                                name: &node_name,
+                                line_start: 1,
+                                line_end,
+                                is_test: false,
+                                terraform_kind: kind,
+                            },
+                        );
+                    }
+                }
+            }
+            "variable" | "output" | "check" => {
+                for (name, _) in entries {
+                    let label = if kind == "variable" {
+                        format!("var.{name}")
+                    } else {
+                        format!("{kind}.{name}")
+                    };
+                    let node_kind = if kind == "variable" || kind == "output" {
+                        "Function"
+                    } else {
+                        "Class"
+                    };
+                    push_terraform_node(
+                        file_path,
+                        &mut nodes,
+                        &mut edges,
+                        TerraformNodeSpec {
+                            kind: node_kind,
+                            name: &label,
+                            line_start: 1,
+                            line_end,
+                            // Production `check` blocks run during plan/apply (#136).
+                            is_test: false,
+                            terraform_kind: kind,
+                        },
+                    );
+                }
+            }
+            "module" => {
+                for (name, body) in entries {
+                    let node_name = format!("module.{name}");
+                    push_terraform_node(
+                        file_path,
+                        &mut nodes,
+                        &mut edges,
+                        TerraformNodeSpec {
+                            kind: "Class",
+                            name: &node_name,
+                            line_start: 1,
+                            line_end,
+                            is_test: false,
+                            terraform_kind: "module",
+                        },
+                    );
+                    if let Some(source) = body
+                        .as_object()
+                        .and_then(|attrs| attrs.get("source"))
+                        .and_then(Value::as_str)
+                    {
+                        edges.push(ParsedEdge {
+                            kind: crate::core::types::EdgeKind::ImportsFrom
+                                .as_str()
+                                .to_string(),
+                            source: terraform_qualified(file_path, &node_name),
+                            target: source.to_string(),
+                            file_path: file_path.to_string(),
+                            line: 1,
+                            extra: json!({}),
+                        });
+                    }
+                }
+            }
+            "provider" => {
+                for name in entries.keys() {
+                    let node_name = format!("provider.{name}");
+                    push_terraform_node(
+                        file_path,
+                        &mut nodes,
+                        &mut edges,
+                        TerraformNodeSpec {
+                            kind: "Class",
+                            name: &node_name,
+                            line_start: 1,
+                            line_end,
+                            is_test: false,
+                            terraform_kind: "provider",
+                        },
+                    );
+                }
+            }
+            "locals" => {
+                for name in entries.keys() {
+                    let node_name = format!("local.{name}");
+                    push_terraform_node(
+                        file_path,
+                        &mut nodes,
+                        &mut edges,
+                        TerraformNodeSpec {
+                            kind: "Function",
+                            name: &node_name,
+                            line_start: 1,
+                            line_end,
+                            is_test: false,
+                            terraform_kind: "local",
+                        },
+                    );
+                }
+            }
+            "terraform" => push_terraform_node(
+                file_path,
+                &mut nodes,
+                &mut edges,
+                TerraformNodeSpec {
+                    kind: "Class",
+                    name: "terraform",
+                    line_start: 1,
+                    line_end,
+                    is_test: false,
+                    terraform_kind: "terraform",
+                },
+            ),
+            _ => {}
+        }
+    }
+    (nodes, edges)
+}
+
+fn parse_terraform_hcl(
     file_path: &str,
     source: &[u8],
     parser: Option<&mut tree_sitter::Parser>,
@@ -89,8 +271,11 @@ pub(super) fn parse_terraform_with_parser(
         let terraform_kind = terraform_kind_for_block(block);
         let (kind, is_test) = match block.kind.as_str() {
             "variable" | "output" | "publish_output" | "upstream_input" => ("Function", false),
-            "check" | "run" | "mock_provider" | "variables" | "override_resource"
-            | "override_data" | "override_module" => ("Test", true),
+            // `check` is a top-level production block (Terraform 1.5+ health
+            // checks executed during plan/apply), not a .tftest.hcl construct.
+            "check" => ("Class", false),
+            "run" | "mock_provider" | "variables" | "override_resource" | "override_data"
+            | "override_module" => ("Test", true),
             _ => ("Class", false),
         };
         push_terraform_node(

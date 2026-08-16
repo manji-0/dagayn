@@ -201,7 +201,29 @@ pub fn collect_parseable_files(repo_root: &Path, recurse_submodules: Option<bool
     filter_parseable_files(repo_root, &candidates, &ignore_patterns)
 }
 
+/// Compound file extensions whose final component alone would misclassify the
+/// file (e.g. `main.tftest.hcl` → `.hcl`). Mirrors the Python parser's
+/// `_COMPOUND_EXTENSIONS` in `dagayn/parser/dispatch.py`.
+static COMPOUND_EXTENSIONS: &[(&str, &str)] = &[
+    (".tftest.hcl", "terraform"),
+    (".tfcomponent.hcl", "terraform"),
+    (".tfdeploy.hcl", "terraform"),
+    (".tfquery.hcl", "terraform"),
+    (".tf.json", "terraform"),
+    (".tfvars.json", "terraform"),
+];
+
 pub fn detect_language(path: &Path) -> Option<&'static str> {
+    let name_lower = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+    for (compound_ext, language) in COMPOUND_EXTENSIONS {
+        if name_lower.ends_with(compound_ext) {
+            return Some(language);
+        }
+    }
     let suffix = path
         .extension()
         .and_then(|ext| ext.to_str())

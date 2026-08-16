@@ -14,6 +14,45 @@ class TestTerraformParsing:
         assert self.parser.detect_language(Path("main.tf")) == "terraform"
         assert self.parser.detect_language(Path("terraform.tfvars")) == "terraform"
 
+    def test_detects_compound_terraform_extensions(self):
+        for name in (
+            "main.tftest.hcl",
+            "component.tfcomponent.hcl",
+            "deploy.tfdeploy.hcl",
+            "query.tfquery.hcl",
+            "main.tf.json",
+            "terraform.tfvars.json",
+        ):
+            assert self.parser.detect_language(Path(name)) == "terraform"
+        assert self.parser.detect_language(Path("plain.hcl")) is None
+
+    def test_parses_terraform_json_syntax(self):
+        nodes, edges = self.parser.parse_bytes(
+            Path("main.tf.json"),
+            b"""{
+  "resource": { "aws_vpc": { "main": { "cidr_block": "10.0.0.0/16" } } },
+  "variable": { "region": { "default": "us-east-1" } },
+  "module": { "network": { "source": "./modules/network" } },
+  "output": { "vpc_id": { "value": "${aws_vpc.main.id}" } }
+}""",
+        )
+        names = {node.name for node in nodes}
+        assert "resource.aws_vpc.main" in names
+        assert "var.region" in names
+        assert "module.network" in names
+        assert "output.vpc_id" in names
+        assert any(e.kind == "IMPORTS_FROM" and e.target == "./modules/network" for e in edges)
+
+    def test_tfvars_json_keeps_file_node(self):
+        nodes, edges = self.parser.parse_bytes(
+            Path("terraform.tfvars.json"),
+            b"""{ "region": "us-east-1" }""",
+        )
+        assert len(nodes) == 1
+        assert nodes[0].kind == "File"
+        assert nodes[0].language == "terraform"
+        assert edges == []
+
     def test_finds_terraform_nodes(self):
         names = {node.name for node in self.nodes}
         assert "terraform" in names
@@ -25,6 +64,12 @@ class TestTerraformParsing:
         assert "resource.aws_vpc.main" in names
         assert "output.vpc_id" in names
         assert "check.vpc_ready" in names
+
+    def test_production_check_block_is_not_a_test(self):
+        """Terraform 1.5+ `check` blocks run during plan/apply (#136)."""
+        check = next(node for node in self.nodes if node.name == "check.vpc_ready")
+        assert check.kind == "Class"
+        assert check.is_test is False
 
     def test_extracts_dependency_and_module_edges(self):
         depends_on = [edge for edge in self.edges if edge.kind == "DEPENDS_ON"]

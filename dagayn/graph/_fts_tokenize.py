@@ -12,9 +12,9 @@ logger = logging.getLogger(__name__)
 
 FTS_SEGMENTER_METADATA_KEY = "fts_segmenter"
 
-_JAPANESE_CHAR_RE = re.compile(r"[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff]")
+_JAPANESE_CHAR_RE = re.compile(r"[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff\uac00-\ud7af]")
 _FALLBACK_CHUNK_RE = re.compile(
-    r"[A-Za-z0-9_]+|[\u3040-\u309f]+|[\u30a0-\u30ff]+|[\u3400-\u9fff\uf900-\ufaff]+"
+    r"[A-Za-z0-9_]+|[\u3040-\u309f]+|[\u30a0-\u30ff]+|[\u3400-\u9fff\uf900-\ufaff]+|[\uac00-\ud7af]+"
 )
 
 _WAKATI_MISSING = object()

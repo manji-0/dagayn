@@ -39,11 +39,11 @@ export class Installer {
       terminal.show();
       terminal.sendText('echo "=== Dagayn - Manual Installation ==="');
       terminal.sendText('echo ""');
-      terminal.sendText('echo "Option 1: Install with pip"');
-      terminal.sendText('echo "  pip install dagayn"');
+      terminal.sendText('echo "Option 1: Install with uv"');
+      terminal.sendText('echo "  uv pip install git+https://github.com/manji-0/dagayn.git"');
       terminal.sendText('echo ""');
       terminal.sendText('echo "Option 2: Install with pipx (recommended)"');
-      terminal.sendText('echo "  pipx install dagayn"');
+      terminal.sendText('echo "  pipx install git+https://github.com/manji-0/dagayn.git"');
       terminal.sendText('echo ""');
       terminal.sendText('echo "After installation, reload the VS Code window."');
       return false;
@@ -102,7 +102,7 @@ export class Installer {
     vscode.window.showErrorMessage(
       `Failed to install dagayn via ${installer}. ` +
         "Check the terminal output for details or try installing manually: " +
-        `\`${installer} install dagayn\``,
+        "`uv pip install git+https://github.com/manji-0/dagayn.git`",
     );
 
     return false;

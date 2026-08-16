@@ -85,17 +85,34 @@ export class GraphWebviewPanel {
     // Listen for theme changes
     this.disposables.push(
       vscode.window.onDidChangeActiveColorTheme((theme) => {
-        const themeKind =
-          theme.kind === vscode.ColorThemeKind.Light ||
-          theme.kind === vscode.ColorThemeKind.HighContrastLight
-            ? "light"
-            : "dark";
-        this.panel.webview.postMessage({
-          command: "setTheme",
-          theme: themeKind,
-        });
+        void theme;
+        this.postTheme();
       }),
     );
+  }
+
+  /**
+   * Resolve the effective graph theme from the `dagayn.graphTheme` setting.
+   * `auto` follows the active VS Code theme; `light`/`dark` force a theme.
+   */
+  private resolveTheme(): "light" | "dark" {
+    const configured = vscode.workspace
+      .getConfiguration("dagayn")
+      .get<string>("graphTheme", "auto");
+    if (configured === "light" || configured === "dark") {
+      return configured;
+    }
+    const kind = vscode.window.activeColorTheme.kind;
+    return kind === vscode.ColorThemeKind.Light || kind === vscode.ColorThemeKind.HighContrastLight
+      ? "light"
+      : "dark";
+  }
+
+  private postTheme(): void {
+    this.panel.webview.postMessage({
+      command: "setTheme",
+      theme: this.resolveTheme(),
+    });
   }
 
   static createOrShow(
@@ -339,6 +356,12 @@ export class GraphWebviewPanel {
       nodes = truncated ? nodesPlus.slice(0, configuredMaxNodes) : nodesPlus;
       const nodeQns = new Set(nodes.map((n) => n.qualifiedName));
       edges = this.reader.getEdgesForNodes(nodeQns);
+      // Honour the dagayn.graph.defaultEdges setting in symbol mode.
+      const defaultEdges = config.get<string[]>("graph.defaultEdges", []);
+      if (defaultEdges.length > 0) {
+        const allowed = new Set(defaultEdges);
+        edges = edges.filter((e) => allowed.has(e.kind));
+      }
     }
 
     // Enforce maxNodes setting in symbol/impact mode only (module graphs are small).
@@ -358,16 +381,8 @@ export class GraphWebviewPanel {
       maxNodes,
     });
 
-    // Send theme
-    const themeKind =
-      vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Light ||
-      vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.HighContrastLight
-        ? "light"
-        : "dark";
-    this.panel.webview.postMessage({
-      command: "setTheme",
-      theme: themeKind,
-    });
+    // Send theme (honours the dagayn.graphTheme setting)
+    this.postTheme();
 
     // Highlight node if requested
     const highlightQualifiedName = this.pendingHighlight;

@@ -54,11 +54,11 @@ Line numbers were last verified against the codebase state at 2026-04-30. Shippe
 
 ---
 
-#### `get_affected_flows` / `get_flow_by_id` — `dagayn/flows.py:645, 641` ⚠️ Partial
+#### `get_affected_flows` / `get_flow_by_id` — `dagayn/flows.py:645, 641` ✅ Shipped
 
-**Status:** Partially shipped. `get_affected_flows` now routes through `_hydrate_flow_rows` (`flows.py:686`), which bulk-fetches all path nodes via `get_nodes_by_ids` in one query. The `get_affected_flows` call path is no longer quadratic.
+**Status:** Shipped. `get_affected_flows` routes through `_hydrate_flow_rows` (`flows.py:1074`), which bulk-fetches all path nodes via `get_nodes_by_ids` in one query. `get_flow_by_id` also hydrates through `_hydrate_flow_rows`, so the per-path-step `get_node_by_id` call is gone.
 
-`get_flow_by_id` called directly (outside `get_affected_flows`) still issues one `store.get_node_by_id` per path step. This is an infrequent path and remains a minor outstanding item.
+~~Original problem:~~ `get_affected_flows` issued one `store.get_node_by_id` per path step; the call path was quadratic.
 
 ---
 
@@ -205,7 +205,7 @@ CREATE TABLE IF NOT EXISTS bridge_scores (
 with the Rust graph store. The native path returns the final question list as
 JSON instead of materializing a full Python `GraphSnapshot`.
 
-Invalidation: postprocess is re-run on `dagayn build` and `dagayn update --post`. The `computed_at` column allows the tool to warn if scores are stale relative to the graph's last modification time.
+Invalidation: postprocess is re-run on `dagayn build` and on `dagayn update` (unless `--skip-postprocess` is passed; there is no `--post` flag). The `computed_at` column allows the tool to warn if scores are stale relative to the graph's last modification time.
 
 **Relation to Rust migration:** `RUST-CORE-MIGRATION-WIP.md` targets postprocessing as Phase 2 of the migration. Rust centrality persistence is available through the native graph backend; large-graph approximation samples sources by stable hash so it does not overfit to sorted-name prefixes.
 
@@ -227,10 +227,16 @@ Invalidation: postprocess is re-run on `dagayn build` and `dagayn update --post`
 - `dagayn/eval/benchmarks/nplusone_count.py` — SQL statement counter with established baselines ✅ Shipped
 - `dagayn/eval/benchmarks/search_quality.py`
 - `dagayn/eval/benchmarks/token_efficiency.py`
+- `dagayn/eval/benchmarks/mcp_latency.py` — per-MCP-tool wall-clock latency ✅ Shipped
+- `dagayn/eval/benchmarks/guidance_precision.py` ✅ Shipped
+- `dagayn/eval/benchmarks/doc_fuzzy_search.py` ✅ Shipped
+- `dagayn/eval/benchmarks/embedding_text_modes.py` ✅ Shipped
+- `dagayn/eval/benchmarks/embedding_materials.py` ✅ Shipped
+- `dagayn/eval/benchmarks/recent_changes_effects.py` ✅ Shipped
+- `dagayn/eval/benchmarks/fts_quality.py` ✅ Shipped
 
 Still missing:
 
-- Per-MCP-tool wall-clock latency measurement (`mcp_latency.py` — not yet created)
 - CI regression gates
 
 ### 3.2 Proposed additions
@@ -424,26 +430,19 @@ SELECT + INSERT per node in `embed_nodes`.
 ### 4.6 Missing indexes (partial)
 
 - `idx_nodes_parent_name(parent_name, name)` — added in `migrations.py:241` ✅ Shipped. Covers `WHERE name = ?` calls in `dead_code.py:328-332` and `postprocessing.py:93-99`.
-- Suffix LIKE on `edges.target_qualified` (`dead_code.py:276`, `flows.py:749`) cannot use any index. Long-term: normalise to equality match or add a `target_name` column. **Not yet implemented.**
+- Suffix LIKE on `edges.target_qualified` ✅ Shipped. Normalised by adding a `target_name` column (`migrations.py:302-326`) with `idx_edges_target_name_kind`; `dead_code.py:625-637` now uses equality matches on `target_name`. The only remaining LIKE is a prefix match on `<unresolved:%` (`dead_code.py:656`), which is a different concern.
 
-### 4.7 mtime-based incremental skip (not yet implemented)
+### 4.7 mtime-based incremental skip ✅ Shipped
 
-`incremental_update` (`incremental.py:963-969`) reads all file bytes and computes sha256
-before comparing against the stored `file_hash`, even when `st_mtime` has not changed.
+Migration v11 adds `mtime_ns INTEGER` to the `nodes` table. `_classify_python_changed_files` (`dagayn/incremental_build.py:450-484`) skips sha256 when the stored mtime matches the current file mtime. Note: the sole caller currently passes `trust_mtime=False` (`incremental_build.py:1145-1151`), so the default path still hashes every candidate — deciding whether to trust mtime by default is an open follow-up.
 
-Fix: add `mtime_ns INTEGER` to the `nodes` table (migration v9); skip sha256 when mtime matches.
-
-### 4.8 Other small items (not yet implemented)
+### 4.8 Other small items
 
 - `traverse_graph` DFS path calls `get_nodes_by_qualified_names([qn])` and
-  `get_edges_by_endpoints([qn])` with a size-1 list per node. BFS is frontier-batched; DFS is not.
-- `get_impact_radius` calls `get_edges_among(all_qns)` after the recursive CTE already
-  enumerated the full impacted set. The CTE could return edge rows directly.
-- `parse_diff_ranges` shells out to `git diff` on every call; called independently by
-  `detect_changes`, `get_impact_radius`, and `get_affected_flows` in sequence.
-  Wrap with `functools.lru_cache(maxsize=64)` keyed on `(repo_root, base)`.
-- `provider.embed_query` result is not cached; an `lru_cache` on `(provider_name, query_text)`
-  makes repeated `semantic_search_nodes` calls free.
+  `get_edges_by_endpoints([qn])` with a size-1 list per node (`dagayn/tools/query.py:1501,1506`). BFS is frontier-batched; DFS is **not yet batched** — still outstanding.
+- `get_impact_radius` edge fetch ✅ Shipped on the default SQL path (`dagayn/graph/analysis_impact.py:194-201` uses a single temp-table JOIN); the NetworkX fallback still calls `get_edges_among` and remains a minor outstanding item.
+- `parse_diff_ranges` ✅ Shipped. `dagayn/changes.py:347-352` wraps the diff parse in `functools.lru_cache(maxsize=64)` keyed on `(repo_root, base)`, invalidated by an mtime stamp (`_diff_ranges_cache_stamp`, `changes.py:333`).
+- `provider.embed_query` ✅ Shipped. `dagayn/embeddings_text.py:613-614` caches query vectors with `functools.lru_cache(maxsize=256)`, used at `embeddings_store.py:1059`.
 
 ---
 

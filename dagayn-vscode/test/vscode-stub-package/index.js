@@ -467,6 +467,17 @@ exports.commands = {
     },
     __calls: commandCalls,
 };
+const hoverProviders = [];
+exports.languages = {
+    registerHoverProvider: (_selector, provider) => {
+        hoverProviders.push(provider);
+        return noopDisposable;
+    },
+    __hoverProviders: hoverProviders,
+    __clearHoverProviders: () => {
+        hoverProviders.length = 0;
+    },
+};
 exports.env = {
     clipboard: {
         writeText: async () => { },
@@ -500,3 +511,12 @@ class MarkdownString {
     }
 }
 exports.MarkdownString = MarkdownString;
+class Hover {
+    contents;
+    range;
+    constructor(contents, range) {
+        this.contents = contents;
+        this.range = range;
+    }
+}
+exports.Hover = Hover;

@@ -45,6 +45,14 @@ def test_fts_tokenize_shim_reexports_graph_impl():
     assert fts_tokenize.contains_japanese is graph_fts_tokenize.contains_japanese
 
 
+def test_contains_japanese_includes_hangul():
+    """Hangul syllables are segmented like CJK (regression for #139)."""
+    assert graph_fts_tokenize.contains_japanese("안녕하세요") is True
+    assert graph_fts_tokenize.contains_japanese("Hello") is False
+    tokens = graph_fts_tokenize.segment_cjk_identifier_tokens("안녕하세요")
+    assert tokens == "안녕 녕하 하세 세요"
+
+
 def test_embedding_health_available_uses_status_field():
     assert embedding_health_available({"status": "available"}) is True
     assert embedding_health_available({"status": "degraded"}) is True
@@ -947,6 +955,48 @@ class TestGraphStoreProtocolMethods:
         assert len(results) > 0
         scores = {score for _, score in results}
         assert 3.0 in scores
+
+    def test_keyword_query_matches_non_ascii_uppercase(self):
+        """keyword_query folds case in Python so Greek/Cyrillic matches.
+
+        SQLite's LOWER() is ASCII-only; an uppercase Greek identifier must
+        still be found by its lowercase spelling.
+        """
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="\u03a0\u03b1\u03c1\u03ac\u03b4\u03b5\u03b9\u03b3\u03bc\u03b1",  # Παράδειγμα
+                file_path="el.py",
+                line_start=1,
+                line_end=10,
+                language="python",
+            ),
+            file_hash="abc",
+        )
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="\u039f\u03c3\u03bf",  # Οσο
+                file_path="el2.py",
+                line_start=1,
+                line_end=10,
+                language="python",
+            ),
+            file_hash="abc",
+        )
+        self.store._conn.commit()
+        try:
+            self.store._conn.execute("DROP TABLE IF EXISTS nodes_fts")
+            self.store._conn.commit()
+        except Exception:
+            pass
+
+        results = self.store.keyword_query(
+            "\u03c0\u03b1\u03c1\u03ac\u03b4\u03b5\u03b9\u03b3\u03bc\u03b1"
+        )  # παράδειγμα
+        hit_ids = {nid for nid, _ in results}
+        names = {n.name for n in self.store.get_all_nodes(exclude_files=False) if n.id in hit_ids}
+        assert "\u03a0\u03b1\u03c1\u03ac\u03b4\u03b5\u03b9\u03b3\u03bc\u03b1" in names
 
     def test_get_nodes_by_ids_roundtrip(self):
         """get_nodes_by_ids retrieves nodes matching the given IDs."""

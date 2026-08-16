@@ -8,6 +8,115 @@ fn detects_extensions_and_shebangs() {
 }
 
 #[test]
+fn detects_compound_terraform_extensions() {
+    assert_eq!(
+        detect_language(Path::new("main.tftest.hcl")),
+        Some("terraform")
+    );
+    assert_eq!(
+        detect_language(Path::new("main.TFTEST.HCL")),
+        Some("terraform")
+    );
+    assert_eq!(
+        detect_language(Path::new("component.tfcomponent.hcl")),
+        Some("terraform")
+    );
+    assert_eq!(
+        detect_language(Path::new("deploy.tfdeploy.hcl")),
+        Some("terraform")
+    );
+    assert_eq!(
+        detect_language(Path::new("query.tfquery.hcl")),
+        Some("terraform")
+    );
+    assert_eq!(detect_language(Path::new("plain.hcl")), None);
+    assert_eq!(detect_language(Path::new("main.tf")), Some("terraform"));
+}
+
+#[test]
+fn parses_terraform_json_syntax() {
+    let source = br#"{
+  "resource": {
+    "aws_vpc": { "main": { "cidr_block": "10.0.0.0/16" } }
+  },
+  "variable": {
+    "region": { "default": "us-east-1" }
+  },
+  "module": {
+    "network": { "source": "./modules/network" }
+  },
+  "output": {
+    "vpc_id": { "value": "${aws_vpc.main.id}" }
+  },
+  "check": {
+    "vpc_ready": { "assert": [] }
+  }
+}"#;
+    let (nodes, edges) = parse_terraform("main.tf.json", source);
+    let names = nodes
+        .iter()
+        .map(|node| node.name.as_str())
+        .collect::<Vec<_>>();
+    assert!(names.contains(&"resource.aws_vpc.main"));
+    assert!(names.contains(&"var.region"));
+    assert!(names.contains(&"module.network"));
+    assert!(names.contains(&"output.vpc_id"));
+    assert!(names.contains(&"check.vpc_ready"));
+    let check = nodes
+        .iter()
+        .find(|node| node.name == "check.vpc_ready")
+        .expect("check node exists");
+    assert!(!check.is_test, "production `check` block must not be a test");
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "IMPORTS_FROM"
+            && edge.source == "main.tf.json::module.network"
+            && edge.target == "./modules/network"
+    }));
+}
+
+#[test]
+fn parses_terraform_json_vars_file() {
+    let source = br#"{ "region": "us-east-1", "tags": { "env": "prod" } }"#;
+    let (nodes, edges) = parse_terraform("terraform.tfvars.json", source);
+    assert_eq!(nodes.len(), 1, "tfvars.json keeps only the File node");
+    assert_eq!(nodes[0].kind, "File");
+    assert_eq!(nodes[0].language, "terraform");
+    assert!(edges.is_empty());
+}
+
+#[test]
+fn compound_terraform_files_survive_incremental_filtering() {
+    let repo_root = std::env::temp_dir().join(format!(
+        "dagayn-parser-tftest-filter-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&repo_root).expect("create temp repo");
+    std::fs::write(
+        repo_root.join("main.tftest.hcl"),
+        b"run \"basic\" {\n  command = apply\n}\n",
+    )
+    .expect("write tftest file");
+    std::fs::write(repo_root.join("main.tf"), b"resource \"a\" \"b\" {}\n")
+        .expect("write tf file");
+
+    let candidates = vec!["main.tf".to_string(), "main.tftest.hcl".to_string()];
+    let (parseable, removed) = filter_incremental_candidates(&repo_root, &candidates, &[]);
+    let mut sorted = parseable.clone();
+    sorted.sort();
+    assert_eq!(sorted, vec!["main.tf".to_string(), "main.tftest.hcl".to_string()]);
+    assert!(removed.is_empty());
+
+    let collected = collect_parseable_files(&repo_root, Some(false));
+    assert!(collected.iter().any(|p| p == "main.tftest.hcl"));
+
+    std::fs::remove_dir_all(&repo_root).expect("clean up temp repo");
+}
+
+#[test]
 fn nested_dir_ignore_matches_python_behavior() {
     let patterns = vec!["node_modules/**".to_string()];
     assert!(should_ignore(
@@ -161,6 +270,12 @@ output "vpc_id" {
     assert!(names.contains(&"data.aws_caller_identity.current"));
     assert!(names.contains(&"resource.aws_vpc.main"));
     assert!(names.contains(&"check.vpc_ready"));
+    let check_node = nodes
+        .iter()
+        .find(|node| node.name == "check.vpc_ready")
+        .expect("check node exists");
+    assert!(!check_node.is_test, "production `check` block must not be a test");
+    assert_eq!(check_node.kind, "Class");
     assert!(names.contains(&"output.vpc_id"));
     assert!(edges.iter().any(|edge| {
         edge.kind == "DEPENDS_ON"

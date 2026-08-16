@@ -141,6 +141,47 @@ describe("GraphWebviewPanel", () => {
     }
   });
 
+  it("honours dagayn.graph.defaultEdges in symbol mode", async () => {
+    const extensionUri = makeExtensionUri(tmpDir);
+    // The fixture DB only has CALLS edges; restricting to DEPENDS_ON must
+    // drop them all (and NOT fall back to an unfiltered edge list).
+    await vscode.workspace.getConfiguration("dagayn").update("graph.defaultEdges", ["DEPENDS_ON"]);
+    GraphWebviewPanel.createOrShow(extensionUri, reader, "test");
+
+    const panel = windowWithStubs.__createdWebviewPanels[0];
+    assert.ok(panel);
+
+    await GraphWebviewPanel.__handleMessageForTests({ command: "ready" });
+
+    const setData = panel.webview.__messages.find((m) => m.command === "setData") as
+      | { command: string; edges: Array<{ kind: string }> }
+      | undefined;
+    assert.ok(setData, "expected a setData message");
+    assert.strictEqual(setData.edges.length, 0, "CALLS-only edges must be filtered out");
+  });
+
+  it("honours dagayn.graphTheme forced theme", async () => {
+    const extensionUri = makeExtensionUri(tmpDir);
+    windowWithStubs.activeColorTheme = { kind: vscode.ColorThemeKind.Dark };
+    await vscode.workspace.getConfiguration("dagayn").update("graphTheme", "light");
+    GraphWebviewPanel.createOrShow(extensionUri, reader, "test");
+
+    const panel = windowWithStubs.__createdWebviewPanels[0];
+    assert.ok(panel);
+
+    await GraphWebviewPanel.__handleMessageForTests({ command: "ready" });
+
+    const setTheme = panel.webview.__messages.find((m) => m.command === "setTheme") as
+      | { command: string; theme: string }
+      | undefined;
+    assert.ok(setTheme, "expected a setTheme message");
+    assert.strictEqual(
+      setTheme.theme,
+      "light",
+      "forced light theme should override dark active theme",
+    );
+  });
+
   it("handleMessage isolates errors and keeps the panel responsive", async () => {
     const extensionUri = makeExtensionUri(tmpDir);
     GraphWebviewPanel.createOrShow(extensionUri, reader, "test");

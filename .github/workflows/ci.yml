@@ -155,6 +155,8 @@ jobs:
         run: pnpm test
       - name: Type-check tests
         run: pnpm test:compile
+      - name: Package VSIX
+        run: pnpm package
 
   install-smoke:
     runs-on: macos-latest

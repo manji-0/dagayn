@@ -80,7 +80,12 @@ The graph database is stored locally at `.dagayn/graph.db` and updates automatic
 | `dagayn.blastRadiusDepth`           | `2`                 | Max traversal depth for blast radius (1--10).                            |
 | `dagayn.graphTheme`                 | `"auto"`            | Graph color theme: `auto`, `light`, or `dark`.                           |
 | `dagayn.graph.maxNodes`             | `500`               | Max nodes in the graph visualization (10--5000).                         |
-| `dagayn.graph.defaultEdges`         | All except CONTAINS | Edge types shown by default.                                             |
+| `dagayn.graph.defaultEdges`         | All except CONTAINS | Edge types shown by default in the symbol graph view.                    |
+| `dagayn.treeView.showFunctions`     | `true`              | Show function nodes in the tree view.                                    |
+| `dagayn.treeView.showClasses`       | `true`              | Show class nodes in the tree view.                                       |
+| `dagayn.treeView.showFiles`         | `true`              | Show file nodes in the tree view.                                        |
+| `dagayn.treeView.showTypes`         | `true`              | Show type nodes in the tree view.                                        |
+| `dagayn.treeView.showTests`         | `true`              | Show test nodes in the tree view.                                        |
 
 ## Refactoring Support: Blast Radius Snapshots
 

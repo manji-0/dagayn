@@ -104,7 +104,23 @@ pub(super) fn parse_notebook_with_parser(
         return (Vec::new(), Vec::new());
     };
     let Some(default_language) = notebook_kernel_language(&notebook) else {
-        return (Vec::new(), Vec::new());
+        // Kernel language is not natively parsed (Julia, Scala, SQL, ...).
+        // Keep the file discoverable instead of silently dropping it: an
+        // empty parse causes the store to delete the file's previous nodes.
+        let kernel = notebook
+            .pointer("/metadata/kernelspec/language")
+            .and_then(Value::as_str)
+            .unwrap_or("notebook");
+        return (
+            vec![notebook_file_node(
+                file_path,
+                1,
+                kernel,
+                is_test_file(file_path),
+                None,
+            )],
+            Vec::new(),
+        );
     };
     let cells = collect_notebook_cells(&notebook, default_language);
     if cells.is_empty() {

@@ -52,6 +52,8 @@ pub(super) fn rust_owned_path_kind(file_path: &str) -> RustOwnedPathKind {
         || ends_with_ascii_ignore_case(file_path, ".tfcomponent.hcl")
         || ends_with_ascii_ignore_case(file_path, ".tfdeploy.hcl")
         || ends_with_ascii_ignore_case(file_path, ".tfquery.hcl")
+        || ends_with_ascii_ignore_case(file_path, ".tf.json")
+        || ends_with_ascii_ignore_case(file_path, ".tfvars.json")
     {
         RustOwnedPathKind::Terraform
     } else if ends_with_ascii_ignore_case(file_path, ".rs") {

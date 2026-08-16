@@ -417,8 +417,8 @@
   "scripts": {
     "compile": "node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
-    "package": "vsce package",
-    "lint": "tsc --noEmit",
+    "package": "node scripts/package.mjs",
+    "lint": "tsc --noEmit && tsc -p tsconfig.webview.json --noEmit",
     "fmt": "biome check --write --unsafe .",
     "fmt:check": "biome check .",
     "test": "mocha",
@@ -434,6 +434,7 @@
     "@types/vscode": "^1.85.0",
     "@vscode/test-electron": "^2.3.8",
     "@vscode/vsce": "^2.22.0",
+    "d3": "^7.9.0",
     "esbuild": "^0.20.0",
     "markdown-it": "^14.2.0",
     "mocha": "^10.2.0",
@@ -442,8 +443,7 @@
     "vscode": "file:./test/vscode-stub-package"
   },
   "dependencies": {
-    "better-sqlite3": "^12.4.1",
-    "d3": "^7.9.0"
+    "better-sqlite3": "^12.4.1"
   },
   "packageManager": "pnpm@11.6.0"
 }

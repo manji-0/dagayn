@@ -1,6 +1,5 @@
 src/**
 test/**
-node_modules/**
 .vscode/**
 *.ts
 !*.d.ts

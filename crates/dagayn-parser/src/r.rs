@@ -64,12 +64,12 @@ fn r_walk_children(
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         match child.kind() {
-            "binary_operator" => {
-                if r_handle_binary_operator(child, context, enclosing_class, nodes, edges) {
-                    continue;
-                }
+            "binary_operator"
+                if r_handle_binary_operator(child, context, enclosing_class, nodes, edges) =>
+            {
+                continue;
             }
-            "call" => {
+            "call"
                 if r_handle_call(
                     child,
                     context,
@@ -77,9 +77,9 @@ fn r_walk_children(
                     enclosing_func,
                     nodes,
                     edges,
-                ) {
-                    continue;
-                }
+                ) =>
+            {
+                continue;
             }
             _ => {}
         }

@@ -4,8 +4,9 @@
     "rootDir": ".",
     "types": ["node", "mocha"],
     "noUncheckedIndexedAccess": false,
-    "noEmit": true
+    "noEmit": true,
+    "lib": ["ES2022", "DOM"]
   },
   "include": ["src/**/*.ts", "test/**/*.ts"],
-  "exclude": ["node_modules", "dist", "src/webview"]
+  "exclude": ["node_modules", "dist"]
 }

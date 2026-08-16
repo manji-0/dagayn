@@ -17,7 +17,7 @@ import { registerModuleDependenciesCommand } from "./features/moduleDependencies
 import { registerBlastRadiusCommand } from "./features/blastRadius";
 import { registerBlastRadiusSnapshotCommands } from "./features/blastRadiusSnapshot";
 import { registerNavigationCommands } from "./features/navigation";
-import { registerNodeDocsCommand } from "./features/nodeDocs";
+import { registerNodeDocsCommand, registerNodeHover } from "./features/nodeDocs";
 import { registerSearchCommand } from "./features/search";
 import { registerReviewCommand } from "./features/reviewAssistant";
 import { AutoUpdateController } from "./features/autoUpdate";
@@ -95,6 +95,7 @@ function registerCommands(context: vscode.ExtensionContext, cli: CliWrapper): vo
   registerBlastRadiusSnapshotCommands(context, registry, () => blastRadiusProvider);
   registerNavigationCommands(context, () => registry?.getReaderForActiveEditor());
   registerNodeDocsCommand(context, () => registry?.getReaderForActiveEditor());
+  registerNodeHover(context, () => registry?.getReaderForActiveEditor());
   registerSearchCommand(context, registry);
   registerReviewCommand(context, registry, () => scmDecorationProvider);
 }
@@ -162,6 +163,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   registry = new WorkspaceGraphRegistry();
 
   registerCommands(context, cli);
+
+  // Prompt for backend installation when the CLI is missing, but only after
+  // the rest of the extension is wired so commands still work if the user
+  // dismisses the prompt.
+  void installer.checkAndPrompt();
 
   const foldersWithGraph = registry.foldersWithGraph();
   if (foldersWithGraph.length > 0) {

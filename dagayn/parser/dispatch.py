@@ -89,6 +89,8 @@ _COMPOUND_EXTENSIONS: tuple[tuple[str, str], ...] = (
     (".tfcomponent.hcl", "terraform"),
     (".tfdeploy.hcl", "terraform"),
     (".tfquery.hcl", "terraform"),
+    (".tf.json", "terraform"),
+    (".tfvars.json", "terraform"),
 )
 
 

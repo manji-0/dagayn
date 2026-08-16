@@ -4,6 +4,54 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Features
+
+- Rust file discovery now indexes compound Terraform extensions
+  (`.tftest.hcl`, `.tfcomponent.hcl`, `.tfdeploy.hcl`, `.tfquery.hcl`) so the
+  default backend stops dropping them from full builds and stops deleting their
+  nodes on incremental updates. See: #135
+- Terraform JSON syntax (`.tf.json` / `.tfvars.json`) is now detected and
+  parsed on both backends: resource/data/module/variable/output/check blocks
+  are extracted directly from the JSON document, and tfvars files keep a File
+  node. See: #138
+- Notebooks with non-python/r kernels (Julia, Scala, SQL, Databricks) keep a
+  File node instead of vanishing from the graph. See: #137
+
+### Fixes
+
+- Production Terraform `check` blocks are no longer classified as tests
+  (`is_test`), so plan/apply health checks stay in review and gap analysis.
+  See: #136
+- FTS keyword search folds case in Python for non-ASCII identifiers
+  (Greek/Cyrillic uppercase no longer fails the LIKE fallback) and Hangul text
+  is bigram-segmented like CJK; qualified_name/file_path are bigrammed too.
+  See: #139
+- `dagayn-vscode` watch mode no longer dies after 60 s: the watcher is spawned
+  without a timeout, tracked, and killed on extension deactivate. See: #141
+- `dagayn-vscode` can now be packaged as a VSIX under pnpm: a staging script
+  installs production deps with npm (vsce requires `npm list`) and bundles the
+  better-sqlite3 native module pinned to VS Code's Node 22 ABI. CI validates
+  the package. See: #142
+- `dagayn-vscode` settings are wired: `dagayn.graphTheme` and
+  `dagayn.graph.defaultEdges` apply to the symbol graph webview, and
+  `dagayn.treeView.show*` filters the tree view. See: #143
+- `dagayn-vscode` registers an editor hover provider so symbol docstrings are
+  shown on hover as the README advertises. See: #144
+- `dagayn-vscode` backend onboarding now runs on activate and installs the
+  fork from GitHub (not PyPI); the embed-failure hint no longer names the
+  nonexistent `dagayn[embeddings]` extra. See: #145
+- `dagayn-vscode` `buildGraph({fullRebuild})` passes `--force-full-build`
+  instead of the nonexistent `--full`. See: #146
+- `dagayn-vscode` webview (`src/webview/graph.ts`) is now covered by TypeScript
+  checking via a dedicated `tsconfig.webview.json`. See: #147
+
+### Documentation
+
+- `docs/PERFORMANCE-IMPROVEMENTS-WIP.md` status markers updated: shipped items
+  (§4.6 target-name index, §4.7 mtime skip, §4.8 caches, §3.1 mcp_latency)
+  are no longer marked "not yet implemented", and the nonexistent
+  `dagayn update --post` flag reference was corrected. See: #140
+
 ## 4.8.4 — 2026-08-15
 
 ### Changed

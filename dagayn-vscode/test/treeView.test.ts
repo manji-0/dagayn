@@ -126,6 +126,54 @@ describe("CodeGraphTreeProvider", () => {
     assert.strictEqual(files!.length, 1);
     assert.ok(files![0] instanceof FileTreeItem);
   });
+
+  it("filters symbol kinds via dagayn.treeView.show* settings", async () => {
+    const nodes: GraphNode[] = [
+      {
+        id: 1,
+        kind: "Function",
+        name: "doThing",
+        qualifiedName: "/workspace/a.py::doThing",
+        filePath: "/workspace/a.py",
+        lineStart: 10,
+        lineEnd: 20,
+        language: "python",
+        parentName: null,
+        params: null,
+        returnType: null,
+        modifiers: null,
+        isTest: false,
+        fileHash: null,
+        extra: {},
+      },
+      {
+        id: 2,
+        kind: "Test",
+        name: "test_thing",
+        qualifiedName: "/workspace/a.py::test_thing",
+        filePath: "/workspace/a.py",
+        lineStart: 21,
+        lineEnd: 25,
+        language: "python",
+        parentName: null,
+        params: null,
+        returnType: null,
+        modifiers: null,
+        isTest: true,
+        fileHash: null,
+        extra: {},
+      },
+    ];
+    await vscode.workspace.getConfiguration("dagayn").update("treeView.showTests", false);
+    const registry = makeRegistry([{ folder: "/workspace", files: ["/workspace/a.py"], nodes }]);
+    const provider = new CodeGraphTreeProvider(() => registry);
+
+    const fileItem = (await provider.getChildren())![0] as FileTreeItem;
+    const children = await provider.getChildren(fileItem);
+    assert.ok(children);
+    assert.strictEqual(children!.length, 1, "Test nodes must be hidden by the setting");
+    assert.strictEqual((children![0] as SymbolTreeItem).kind, "Function");
+  });
 });
 
 describe("EdgeTreeItem", () => {

@@ -7,7 +7,6 @@ import {
   DEFAULT_MODULE_EDGE_KINDS,
   type ModuleGraph,
 } from "../backend/moduleAggregation";
-import type { EdgeKind } from "../backend/sqlite";
 
 export function registerModuleDependenciesCommand(
   context: vscode.ExtensionContext,
@@ -24,11 +23,9 @@ export function registerModuleDependenciesCommand(
       }
       const { reader, folder } = resolved;
 
-      const config = vscode.workspace.getConfiguration("dagayn");
-      const defaultEdges = config.get<EdgeKind[]>("graph.defaultEdges", DEFAULT_MODULE_EDGE_KINDS);
-      const allowedKinds = new Set(DEFAULT_MODULE_EDGE_KINDS);
-      const kinds = defaultEdges.filter((k) => allowedKinds.has(k));
-      const edgeKinds = kinds.length > 0 ? kinds : DEFAULT_MODULE_EDGE_KINDS;
+      // Module edges are aggregated from a fixed set of directory-relevant
+      // kinds; `dagayn.graph.defaultEdges` governs the symbol graph view only.
+      const edgeKinds = DEFAULT_MODULE_EDGE_KINDS;
 
       const graph: ModuleGraph = aggregateModules(reader, edgeKinds);
 

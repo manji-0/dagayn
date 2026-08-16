@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import * as vscode from "vscode";
 
@@ -12,6 +12,15 @@ export type CliErrorKind = "enoent" | "timeout" | "exec";
 export type CliResult =
   | { success: true; stdout: string; stderr: string }
   | { success: false; stdout: string; stderr: string; errorKind: CliErrorKind };
+
+export interface WatchProcess {
+  /** Kill the watcher process (no-op after exit). */
+  dispose: () => void;
+  /** True while the process is still running. */
+  readonly running: boolean;
+}
+
+const WATCH_STDERR_TAIL_MAX = 4_000;
 
 export class CliWrapper {
   private readonly cliPath: string;
@@ -56,7 +65,7 @@ export class CliWrapper {
   async buildGraph(workspaceRoot: string, options?: { fullRebuild?: boolean }): Promise<CliResult> {
     const args = ["build"];
     if (options?.fullRebuild) {
-      args.push("--full");
+      args.push("--force-full-build");
     }
 
     return vscode.window.withProgress(
@@ -78,9 +87,49 @@ export class CliWrapper {
 
   /**
    * Start the watch daemon for continuous file monitoring.
+   *
+   * ``dagayn watch`` is a long-running process that only exits on error, so
+   * this must NOT go through ``exec`` (a 60s timeout would kill the watcher).
+   * The returned handle owns the child process; call ``dispose`` on extension
+   * deactivate or when the user stops watching.
    */
-  async watchGraph(workspaceRoot: string): Promise<CliResult> {
-    return this.exec(["watch"], workspaceRoot);
+  spawnWatch(
+    workspaceRoot: string,
+    onExit: (code: number | null, stderr: string) => void,
+  ): WatchProcess {
+    const child = spawn(this.cliPath, ["watch"], { cwd: workspaceRoot });
+    let stderrTail = "";
+    let exited = false;
+
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderrTail = (stderrTail + chunk.toString()).slice(-WATCH_STDERR_TAIL_MAX);
+    });
+    const notifyExit = (code: number | null): void => {
+      if (!exited) {
+        exited = true;
+        onExit(code, stderrTail);
+      }
+    };
+    child.on("error", (err: NodeJS.ErrnoException) => {
+      const msg =
+        err.code === "ENOENT" ? "CLI binary not found. Is dagayn installed?" : err.message;
+      stderrTail = stderrTail ? `${stderrTail}\n${msg}` : msg;
+      notifyExit(null);
+    });
+    child.on("exit", (code) => {
+      notifyExit(code);
+    });
+
+    return {
+      dispose: () => {
+        if (child.exitCode === null && child.signalCode === null) {
+          child.kill();
+        }
+      },
+      get running() {
+        return child.exitCode === null && child.signalCode === null;
+      },
+    };
   }
 
   /**
@@ -125,12 +174,16 @@ export class CliWrapper {
 
   /**
    * Install the `dagayn` package using the specified installer.
+   *
+   * Installs from the fork's GitHub repository (matching the README and the
+   * walkthrough), not from PyPI, which hosts an unrelated package.
    */
   async installBackend(installer: "uv" | "pipx" | "pip"): Promise<CliResult> {
+    const source = "git+https://github.com/manji-0/dagayn.git";
     const commandMap: Record<typeof installer, { bin: string; args: string[] }> = {
-      uv: { bin: "uv", args: ["pip", "install", "dagayn"] },
-      pipx: { bin: "pipx", args: ["install", "dagayn"] },
-      pip: { bin: "pip3", args: ["install", "dagayn"] },
+      uv: { bin: "uv", args: ["pip", "install", source] },
+      pipx: { bin: "pipx", args: ["install", source] },
+      pip: { bin: "pip3", args: ["install", source] },
     };
 
     const { bin, args } = commandMap[installer];
