@@ -486,33 +486,56 @@ def _has_callers_via_base_method(
     return False
 
 
-def find_dead_code(
+class _DeadCodeLookups:
+    """Batched reference preloads shared by the dead-code analysis pass."""
+
+    __slots__ = (
+        "surviving",
+        "class_bases",
+        "class_inherits_targets",
+        "importer_files",
+        "name_counts",
+        "incoming_by_qn",
+        "tested_by_source_qn",
+        "bare_calls_by_name",
+        "bare_tested_by_name",
+        "bare_inherits_by_name",
+        "suffix_calls_by_name",
+        "base_nodes_map",
+        "unresolved_entrypoint_by_name",
+    )
+
+    def __init__(
+        self,
+        *,
+        surviving: list[Any],
+        class_bases: dict[str, list[str]],
+        class_inherits_targets: dict[str, list[str]],
+        importer_files: dict[str, set[str]],
+        name_counts: dict[str, int],
+        incoming_by_qn: dict[str, list[Any]],
+        tested_by_source_qn: dict[str, list[Any]],
+        bare_calls_by_name: dict[str, list[Any]],
+        bare_tested_by_name: dict[str, list[Any]],
+        bare_inherits_by_name: dict[str, list[Any]],
+        suffix_calls_by_name: dict[str, list[Any]],
+        base_nodes_map: dict[str, Any],
+        unresolved_entrypoint_by_name: dict[str, list[Any]],
+    ) -> None:
+        for key in self.__slots__:
+            setattr(self, key, locals()[key])
+
+
+def _collect_dead_code_context(
     store: GraphStore,
-    kind: Optional[str] = None,
-    file_pattern: Optional[str] = None,
-) -> list[dict[str, Any]]:
-    """Find functions/classes with no callers, no test refs, no importers, and no references.
+    kind: Optional[str],
+    file_pattern: Optional[str],
+) -> _DeadCodeLookups:
+    """Collect candidate nodes and batch-preload every lookup the analysis needs.
 
-    Entry points (functions matching framework decorators or conventional name
-    patterns like ``main``, ``test_*``, ``handle_*``) are excluded.
-
-    .. note::
-
-        **Caveats — dynamic dispatch patterns.**  Static analysis cannot track
-        all runtime-determined call patterns.  Functions registered via fully
-        dynamic keys (``map[computedKey()] = fn``), ``Reflect.apply``, or
-        runtime ``require()`` may still appear as dead code.  Treat results as
-        hints, especially for TypeScript projects that use map-based dispatch,
-        plugin registries, or dynamic requires.
-
-    Args:
-        store: The GraphStore instance.
-        kind: Optional filter (e.g. ``"Function"`` or ``"Class"``).
-        file_pattern: Optional file-path substring filter.
-
-    Returns:
-        List of dead-code dicts with name, qualified_name, kind, file, line,
-        and a top-level ``caveats`` note.
+    Keeps all SQL out of the per-node analysis loop: node-level filters,
+    incoming edge maps, bare-name edges, base-method nodes, and unresolved
+    entrypoint edges are loaded once up front.
     """
     candidates = store.get_nodes_by_kind(
         kinds=[kind] if kind else ["Function", "Class"],
@@ -520,7 +543,6 @@ def find_dead_code(
     )
 
     type_ref_names = _collect_type_referenced_names(store)
-    source_cache: dict[str, list[str]] = {}
 
     class_bases: dict[str, list[str]] = {}
     class_inherits_targets: dict[str, list[str]] = {}
@@ -664,101 +686,145 @@ def find_dead_code(
         key = sym.rpartition(".")[2] if "." in sym else sym
         unresolved_entrypoint_by_name.setdefault(key, []).append(edge)
 
-    # ---------------------------------------------------------------------------
-    # Pass 2: main dead-code analysis using preloaded data (no SQL in the loop)
-    # ---------------------------------------------------------------------------
-    dead: list[dict[str, Any]] = []
+    return _DeadCodeLookups(
+        surviving=surviving,
+        class_bases=class_bases,
+        class_inherits_targets=class_inherits_targets,
+        importer_files=importer_files,
+        name_counts=name_counts,
+        incoming_by_qn=incoming_by_qn,
+        tested_by_source_qn=tested_by_source_qn,
+        bare_calls_by_name=bare_calls_by_name,
+        bare_tested_by_name=bare_tested_by_name,
+        bare_inherits_by_name=bare_inherits_by_name,
+        suffix_calls_by_name=suffix_calls_by_name,
+        base_nodes_map=base_nodes_map,
+        unresolved_entrypoint_by_name=unresolved_entrypoint_by_name,
+    )
 
-    for node in surviving:
-        # Abstractmethod-in-base check: uses class_inherits_targets + preloaded nodes
-        if node.kind == "Function" and node.parent_name:
-            parent_qn = node.qualified_name.rsplit(".", 1)[0]
-            base_class_names = class_inherits_targets.get(parent_qn, [])
-            for base_name in base_class_names:
-                base_method_qn = f"{base_name}.{node.name}"
-                base_node = base_nodes_map.get(base_method_qn)
-                if base_node is None:
-                    base_method_qn2 = f"{node.file_path}::{base_name}.{node.name}"
-                    base_node = base_nodes_map.get(base_method_qn2)
-                if base_node is not None:
-                    base_decos = base_node.extra.get("decorators", ())
-                    if isinstance(base_decos, (list, tuple)) and any(
-                        "abstractmethod" in d for d in base_decos
-                    ):
-                        break
-            else:
-                base_name = None
-            if base_name is not None:
-                continue
 
-        incoming = list(incoming_by_qn.get(node.qualified_name, []))
-        if not any(e.kind == "CALLS" for e in incoming) and node.parent_name:
-            class_qn = f"{node.parent_name}::{node.name}"
-            incoming = incoming + incoming_by_qn.get(class_qn, [])
-        if not any(e.kind == "CALLS" for e in incoming):
-            all_bare = bare_calls_by_name.get(node.name, []) + suffix_calls_by_name.get(
-                node.name, []
-            )
-            all_bare = [
-                e
-                for e in all_bare
-                if _is_plausible_caller(
-                    e.file_path, node.file_path, node.name, importer_files, name_counts
-                )
-            ]
-            incoming = incoming + all_bare
-        tested_by_edges = list(tested_by_source_qn.get(node.qualified_name, []))
-        if node.parent_name:
-            class_qn = f"{node.parent_name}::{node.name}"
-            tested_by_edges.extend(tested_by_source_qn.get(class_qn, []))
-        if not tested_by_edges:
-            bare_tb = [
-                e
-                for e in bare_tested_by_name.get(node.name, [])
-                if _is_plausible_caller(
-                    e.file_path, node.file_path, node.name, importer_files, name_counts
-                )
-            ]
-            tested_by_edges.extend(bare_tb)
-        if node.kind == "Class" and not any(e.kind == "INHERITS" for e in incoming):
-            incoming = incoming + bare_inherits_by_name.get(node.name, [])
+def _node_dead_code_evidence(
+    store: GraphStore,
+    node: Any,
+    lookups: _DeadCodeLookups,
+    source_cache: dict[str, list[str]],
+) -> Optional[dict[str, Any]]:
+    """Resolve every reference kind for one survivor node.
 
-        has_callers = any(e.kind == "CALLS" for e in incoming)
-        has_test_refs = bool(tested_by_edges)
-        has_importers = any(e.kind == "IMPORTS_FROM" for e in incoming)
-        has_references = any(e.kind == "REFERENCES" for e in incoming)
-        has_subclasses = any(e.kind == "INHERITS" for e in incoming)
-        caller_count = sum(1 for e in incoming if e.kind == "CALLS")
-        test_ref_count = len(tested_by_edges)
-        importer_count = sum(1 for e in incoming if e.kind == "IMPORTS_FROM")
-        reference_count = sum(1 for e in incoming if e.kind == "REFERENCES")
-        subclass_count = sum(1 for e in incoming if e.kind == "INHERITS")
-        has_reportable_cross_artifact, has_unresolved_entrypoint = (
-            _incoming_cross_artifact_reachability(
-                incoming,
-                unresolved_entrypoints=unresolved_entrypoint_by_name.get(node.name, []),
-                node=node,
-            )
+    Returns the ``_dead_code_record`` kwargs when the node has no reference
+    at all, or ``None`` when the node is reachable. Pure decision logic: no
+    SQL is issued here except the Class member-call and base-method checks.
+    """
+    conn = store._conn
+
+    # Abstractmethod-in-base check: uses class_inherits_targets + preloaded nodes
+    if node.kind == "Function" and node.parent_name:
+        parent_qn = node.qualified_name.rsplit(".", 1)[0]
+        base_class_names = lookups.class_inherits_targets.get(parent_qn, [])
+        for base_name in base_class_names:
+            base_method_qn = f"{base_name}.{node.name}"
+            base_node = lookups.base_nodes_map.get(base_method_qn)
+            if base_node is None:
+                base_method_qn2 = f"{node.file_path}::{base_name}.{node.name}"
+                base_node = lookups.base_nodes_map.get(base_method_qn2)
+            if base_node is not None:
+                base_decos = base_node.extra.get("decorators", ())
+                if isinstance(base_decos, (list, tuple)) and any(
+                    "abstractmethod" in d for d in base_decos
+                ):
+                    break
+        else:
+            base_name = None
+        if base_name is not None:
+            return None
+
+    incoming = list(lookups.incoming_by_qn.get(node.qualified_name, []))
+    if not any(e.kind == "CALLS" for e in incoming) and node.parent_name:
+        class_qn = f"{node.parent_name}::{node.name}"
+        incoming = incoming + lookups.incoming_by_qn.get(class_qn, [])
+    if not any(e.kind == "CALLS" for e in incoming):
+        all_bare = lookups.bare_calls_by_name.get(node.name, []) + lookups.suffix_calls_by_name.get(
+            node.name, []
         )
-        if has_reportable_cross_artifact:
-            has_references = True
-            reference_count += sum(
-                1 for e in incoming if is_cross_artifact(e) and is_reportable_bridge(e)
+        all_bare = [
+            e
+            for e in all_bare
+            if _is_plausible_caller(
+                e.file_path,
+                node.file_path,
+                node.name,
+                lookups.importer_files,
+                lookups.name_counts,
             )
+        ]
+        incoming = incoming + all_bare
+    tested_by_edges = list(lookups.tested_by_source_qn.get(node.qualified_name, []))
+    if node.parent_name:
+        class_qn = f"{node.parent_name}::{node.name}"
+        tested_by_edges.extend(lookups.tested_by_source_qn.get(class_qn, []))
+    if not tested_by_edges:
+        bare_tb = [
+            e
+            for e in lookups.bare_tested_by_name.get(node.name, [])
+            if _is_plausible_caller(
+                e.file_path,
+                node.file_path,
+                node.name,
+                lookups.importer_files,
+                lookups.name_counts,
+            )
+        ]
+        tested_by_edges.extend(bare_tb)
+    if node.kind == "Class" and not any(e.kind == "INHERITS" for e in incoming):
+        incoming = incoming + lookups.bare_inherits_by_name.get(node.name, [])
 
-        no_refs = not (
-            has_callers
-            or has_test_refs
-            or has_importers
-            or has_references
-            or has_subclasses
-            or has_unresolved_entrypoint
+    has_callers = any(e.kind == "CALLS" for e in incoming)
+    has_test_refs = bool(tested_by_edges)
+    has_importers = any(e.kind == "IMPORTS_FROM" for e in incoming)
+    has_references = any(e.kind == "REFERENCES" for e in incoming)
+    has_subclasses = any(e.kind == "INHERITS" for e in incoming)
+    caller_count = sum(1 for e in incoming if e.kind == "CALLS")
+    test_ref_count = len(tested_by_edges)
+    importer_count = sum(1 for e in incoming if e.kind == "IMPORTS_FROM")
+    reference_count = sum(1 for e in incoming if e.kind == "REFERENCES")
+    subclass_count = sum(1 for e in incoming if e.kind == "INHERITS")
+    has_reportable_cross_artifact, has_unresolved_entrypoint = (
+        _incoming_cross_artifact_reachability(
+            incoming,
+            unresolved_entrypoints=lookups.unresolved_entrypoint_by_name.get(node.name, []),
+            node=node,
         )
-        if node.kind == "Class" and no_refs:
-            bare_prefix = node.name + "."
-            member_calls = store.count_edges_by_target_name_prefix(bare_prefix, kind="CALLS")
-            if member_calls > 0:
-                has_callers = True
+    )
+    if has_reportable_cross_artifact:
+        has_references = True
+        reference_count += sum(
+            1 for e in incoming if is_cross_artifact(e) and is_reportable_bridge(e)
+        )
+
+    no_refs = not (
+        has_callers
+        or has_test_refs
+        or has_importers
+        or has_references
+        or has_subclasses
+        or has_unresolved_entrypoint
+    )
+    if node.kind == "Class" and no_refs:
+        bare_prefix = node.name + "."
+        member_calls = store.count_edges_by_target_name_prefix(bare_prefix, kind="CALLS")
+        if member_calls > 0:
+            has_callers = True
+
+    if not (
+        has_callers
+        or has_test_refs
+        or has_importers
+        or has_references
+        or has_subclasses
+        or has_unresolved_entrypoint
+    ):
+        if not has_callers and _has_callers_via_base_method(conn, node, lookups.class_bases):
+            has_callers = True
 
         if not (
             has_callers
@@ -768,36 +834,72 @@ def find_dead_code(
             or has_subclasses
             or has_unresolved_entrypoint
         ):
-            if not has_callers and _has_callers_via_base_method(conn, node, class_bases):
-                has_callers = True
+            lines = source_cache.setdefault(
+                node.file_path, _load_source_lines(store, node.file_path)
+            )
+            source_available = bool(lines)
+            public_api_candidate = _is_public_api_candidate(node, lines)
+            return {
+                "caller_count": caller_count,
+                "test_ref_count": test_ref_count,
+                "importer_count": importer_count,
+                "reference_count": reference_count,
+                "subclass_count": subclass_count,
+                "public_api_candidate": public_api_candidate,
+                "name_definition_count": lookups.name_counts.get(node.name, 0),
+                "source_available": source_available,
+                "reachable_via_cross_artifact": has_unresolved_entrypoint,
+            }
 
-            if not (
-                has_callers
-                or has_test_refs
-                or has_importers
-                or has_references
-                or has_subclasses
-                or has_unresolved_entrypoint
-            ):
-                lines = source_cache.setdefault(
-                    node.file_path, _load_source_lines(store, node.file_path)
-                )
-                source_available = bool(lines)
-                public_api_candidate = _is_public_api_candidate(node, lines)
-                dead.append(
-                    _dead_code_record(
-                        node,
-                        caller_count=caller_count,
-                        test_ref_count=test_ref_count,
-                        importer_count=importer_count,
-                        reference_count=reference_count,
-                        subclass_count=subclass_count,
-                        public_api_candidate=public_api_candidate,
-                        name_definition_count=name_counts.get(node.name, 0),
-                        source_available=source_available,
-                        reachable_via_cross_artifact=has_unresolved_entrypoint,
-                    )
-                )
+    return None
+
+
+def find_dead_code(
+    store: GraphStore,
+    kind: Optional[str] = None,
+    file_pattern: Optional[str] = None,
+) -> list[dict[str, Any]]:
+    """Find functions/classes with no callers, no test refs, no importers, and no references.
+
+    Entry points (functions matching framework decorators or conventional name
+    patterns like ``main``, ``test_*``, ``handle_*``) are excluded.
+
+    .. note::
+
+        **Caveats — dynamic dispatch patterns.**  Static analysis cannot track
+        all runtime-determined call patterns.  Functions registered via fully
+        dynamic keys (``map[computedKey()] = fn``), ``Reflect.apply``, or
+        runtime ``require()`` may still appear as dead code.  Treat results as
+        hints, especially for TypeScript projects that use map-based dispatch,
+        plugin registries, or dynamic requires.
+
+    Args:
+        store: The GraphStore instance.
+        kind: Optional filter (e.g. ``"Function"`` or ``"Class"``).
+        file_pattern: Optional file-path substring filter.
+
+    Returns:
+        List of dead-code dicts with name, qualified_name, kind, file, line,
+        and a top-level ``caveats`` note.
+    """
+    lookups = _collect_dead_code_context(store, kind, file_pattern)
+
+    # ---------------------------------------------------------------------------
+    # Pass 2: main dead-code analysis using preloaded data (no SQL in the loop)
+    # ---------------------------------------------------------------------------
+    dead: list[dict[str, Any]] = []
+    source_cache: dict[str, list[str]] = {}
+
+    for node in lookups.surviving:
+        evidence = _node_dead_code_evidence(store, node, lookups, source_cache)
+        if evidence is None:
+            continue
+        dead.append(
+            _dead_code_record(
+                node,
+                **evidence,
+            )
+        )
 
     logger.info("find_dead_code: found %d dead symbols", len(dead))
     return dead

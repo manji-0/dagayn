@@ -256,7 +256,7 @@ regression が現れない限り、これらを新しい improvement candidate �
 
 ### 優先度 3: `find_dead_code` を分解する
 
-対象: `dagayn/refactor/dead_code.py::find_dead_code`
+**済（2026-08-16）**: `dagayn/refactor/dead_code.py` で `_DeadCodeLookups` / `_collect_dead_code_context`（candidate collection + 全プリロード）/ `_node_dead_code_evidence`（call/reference resolution）を抽出し、`find_dead_code` を薄いオーケストレータ化。挙動は保存（`tests/test_refactor.py` 79件 + 関連223件がパス、dead-code 出力 516件で一致）。
 
 根拠:
 
