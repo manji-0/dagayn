@@ -2724,8 +2724,7 @@ class TestVectorDimensionIdentity:
             from dagayn import _core
 
             rust_hits = [
-                (name, score)
-                for name, score in _core.embedding_search(db, provider, query, 5)
+                (name, score) for name, score in _core.embedding_search(db, provider, query, 5)
             ]
             assert [qn for qn, _ in rust_hits] == [qn for qn, _ in python_hits]
         except (ImportError, AttributeError):

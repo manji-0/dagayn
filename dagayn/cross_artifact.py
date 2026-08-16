@@ -163,9 +163,7 @@ def annotate_flow_steps_with_bridges(
         return steps
 
     path_qns = {
-        step.get("qualified_name")
-        for step in steps
-        if isinstance(step.get("qualified_name"), str)
+        step.get("qualified_name") for step in steps if isinstance(step.get("qualified_name"), str)
     }
     arrivals: dict[str, dict[str, Any]] = {}
     for edge in edges:

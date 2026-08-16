@@ -13,6 +13,7 @@ from dagayn.postprocessing import (
     _resolve_markdown_artifact_refs,
     run_post_processing,
 )
+from dagayn.state_types import PostprocessResult
 
 
 def _get_signature(store, qualified_name):
@@ -170,7 +171,7 @@ class TestRunPostProcessing:
 
         result = run_post_processing(self.store)
 
-        assert result["signatures_computed"] > 0
+        assert (result.signatures_computed or 0) > 0
         remaining = self.store.get_nodes_without_signature()
         assert len(remaining) == 0
 
@@ -196,8 +197,8 @@ class TestRunPostProcessing:
     def test_rebuilds_fts_index(self):
         result = run_post_processing(self.store)
 
-        assert "fts_indexed" in result
-        assert result["fts_indexed"] > 0
+        assert result.fts_indexed is not None
+        assert result.fts_indexed > 0
 
     def test_fts_search_works_after_post_processing(self):
         run_post_processing(self.store)
@@ -211,27 +212,27 @@ class TestRunPostProcessing:
     def test_detects_flows(self):
         result = run_post_processing(self.store)
 
-        assert "flows_detected" in result
-        assert result["flows_detected"] >= 0
+        assert result.flows_detected is not None
+        assert result.flows_detected >= 0
 
     def test_detects_communities(self):
         result = run_post_processing(self.store)
 
-        assert "communities_detected" in result
-        assert result["communities_detected"] >= 0
+        assert result.communities_detected is not None
+        assert result.communities_detected >= 0
 
     def test_no_warnings_on_healthy_store(self):
         result = run_post_processing(self.store)
 
-        assert "warnings" not in result
+        assert not result.warnings
 
     def test_empty_store_no_crash(self):
         empty_tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
         empty_store = GraphStore(empty_tmp.name)
         try:
             result = run_post_processing(empty_store)
-            assert result["signatures_computed"] == 0
-            assert result["fts_indexed"] == 0
+            assert result.signatures_computed == 0
+            assert result.fts_indexed == 0
         finally:
             empty_store.close()
             Path(empty_tmp.name).unlink(missing_ok=True)
@@ -240,8 +241,8 @@ class TestRunPostProcessing:
         first = run_post_processing(self.store)
         second = run_post_processing(self.store)
 
-        assert second["fts_indexed"] == first["fts_indexed"]
-        assert second["signatures_computed"] == 0
+        assert (second.fts_indexed or 0) == (first.fts_indexed or 0)
+        assert second.signatures_computed == 0
 
     def test_signature_truncated_at_512(self):
         self.store.upsert_node(
@@ -290,10 +291,10 @@ class TestPostProcessingStepIsolation:
         ):
             result = run_post_processing(self.store)
 
-        assert "flows_detected" in result
-        assert "communities_detected" in result
-        assert "warnings" in result
-        assert any("FTS" in w for w in result["warnings"])
+        assert result.flows_detected is not None
+        assert result.communities_detected is not None
+        assert result.warnings
+        assert any("FTS" in w for w in result.warnings)
 
     def test_flow_failure_does_not_block_communities(self):
         with patch(
@@ -302,9 +303,9 @@ class TestPostProcessingStepIsolation:
         ):
             result = run_post_processing(self.store)
 
-        assert "communities_detected" in result
-        assert "warnings" in result
-        assert any("Flow" in w for w in result["warnings"])
+        assert result.communities_detected is not None
+        assert result.warnings
+        assert any("Flow" in w for w in result.warnings)
 
     def test_community_failure_still_has_signatures(self):
         with patch(
@@ -313,9 +314,9 @@ class TestPostProcessingStepIsolation:
         ):
             result = run_post_processing(self.store)
 
-        assert result["signatures_computed"] > 0
-        assert "warnings" in result
-        assert any("Community" in w for w in result["warnings"])
+        assert (result.signatures_computed or 0) > 0
+        assert result.warnings
+        assert any("Community" in w for w in result.warnings)
 
 
 class TestToolBuildUsesSharedPipeline:
@@ -442,11 +443,11 @@ class TestMarkdownArtifactResolver:
         self.store.upsert_edge(self._unresolved_edge("BridgePattern"))
         self.store.commit()
 
-        result: dict = {}
+        result = PostprocessResult()
         _resolve_markdown_artifact_refs(self.store, result, [])
 
-        assert result["markdown_artifact_refs_resolved"] == 1
-        assert result["markdown_artifact_refs_dropped"] == 0
+        assert result.markdown_artifact_refs_resolved == 1
+        assert result.markdown_artifact_refs_dropped == 0
 
         row = self.store._conn.execute(
             "SELECT target_qualified, target_name, confidence_tier, extra FROM edges "
@@ -474,10 +475,10 @@ class TestMarkdownArtifactResolver:
         self.store.upsert_edge(self._directive_edge("BridgePattern"))
         self.store.commit()
 
-        result: dict = {}
+        result = PostprocessResult()
         _resolve_markdown_artifact_refs(self.store, result, [])
 
-        assert result["markdown_artifact_refs_resolved"] == 1
+        assert result.markdown_artifact_refs_resolved == 1
         row = self.store._conn.execute(
             "SELECT target_qualified, target_name, confidence_tier, extra FROM edges "
             "WHERE kind='CROSS_ARTIFACT'"
@@ -504,12 +505,12 @@ class TestMarkdownArtifactResolver:
         self.store.upsert_edge(self._unresolved_edge("Foo"))
         self.store.commit()
 
-        result: dict = {}
+        result = PostprocessResult()
         _resolve_markdown_artifact_refs(self.store, result, [])
 
-        assert result["markdown_artifact_refs_resolved"] == 0
-        assert result["markdown_artifact_refs_dropped"] == 1
-        assert result["markdown_artifact_refs_still_unresolved"] == 0
+        assert result.markdown_artifact_refs_resolved == 0
+        assert result.markdown_artifact_refs_dropped == 1
+        assert result.markdown_artifact_refs_still_unresolved == 0
         count = self.store._conn.execute(
             "SELECT COUNT(*) FROM edges WHERE kind='CROSS_ARTIFACT'"
         ).fetchone()[0]
@@ -520,12 +521,12 @@ class TestMarkdownArtifactResolver:
         self.store.upsert_edge(self._unresolved_edge("NonexistentSymbolXYZ"))
         self.store.commit()
 
-        result: dict = {}
+        result = PostprocessResult()
         _resolve_markdown_artifact_refs(self.store, result, [])
 
-        assert result["markdown_artifact_refs_resolved"] == 0
-        assert result["markdown_artifact_refs_dropped"] == 1
-        assert result["markdown_artifact_refs_still_unresolved"] == 0
+        assert result.markdown_artifact_refs_resolved == 0
+        assert result.markdown_artifact_refs_dropped == 1
+        assert result.markdown_artifact_refs_still_unresolved == 0
         count = self.store._conn.execute(
             "SELECT COUNT(*) FROM edges WHERE kind='CROSS_ARTIFACT'"
         ).fetchone()[0]
@@ -536,12 +537,12 @@ class TestMarkdownArtifactResolver:
         self.store.upsert_edge(self._directive_edge("NonexistentSymbolXYZ"))
         self.store.commit()
 
-        result: dict = {}
+        result = PostprocessResult()
         _resolve_markdown_artifact_refs(self.store, result, [])
 
-        assert result["markdown_artifact_refs_resolved"] == 0
-        assert result["markdown_artifact_refs_dropped"] == 0
-        assert result["markdown_artifact_refs_still_unresolved"] == 1
+        assert result.markdown_artifact_refs_resolved == 0
+        assert result.markdown_artifact_refs_dropped == 0
+        assert result.markdown_artifact_refs_still_unresolved == 1
         count = self.store._conn.execute(
             "SELECT COUNT(*) FROM edges WHERE kind='CROSS_ARTIFACT'"
         ).fetchone()[0]
@@ -562,12 +563,12 @@ class TestMarkdownArtifactResolver:
         self.store.upsert_edge(self._unresolved_edge("MySection"))
         self.store.commit()
 
-        result: dict = {}
+        result = PostprocessResult()
         _resolve_markdown_artifact_refs(self.store, result, [])
 
-        assert result["markdown_artifact_refs_still_unresolved"] == 0
-        assert result["markdown_artifact_refs_dropped"] == 1
-        assert result["markdown_artifact_refs_resolved"] == 0
+        assert result.markdown_artifact_refs_still_unresolved == 0
+        assert result.markdown_artifact_refs_dropped == 1
+        assert result.markdown_artifact_refs_resolved == 0
 
     def test_idempotent_second_run_no_ops(self):
         self.store.upsert_node(
@@ -583,14 +584,14 @@ class TestMarkdownArtifactResolver:
         self.store.upsert_edge(self._unresolved_edge("helper"))
         self.store.commit()
 
-        result1: dict = {}
+        result1 = PostprocessResult()
         _resolve_markdown_artifact_refs(self.store, result1, [])
-        assert result1["markdown_artifact_refs_resolved"] == 1
+        assert result1.markdown_artifact_refs_resolved == 1
 
-        result2: dict = {}
+        result2 = PostprocessResult()
         _resolve_markdown_artifact_refs(self.store, result2, [])
-        assert result2["markdown_artifact_refs_resolved"] == 0
-        assert result2["markdown_artifact_refs_dropped"] == 0
+        assert result2.markdown_artifact_refs_resolved == 0
+        assert result2.markdown_artifact_refs_dropped == 0
 
     def test_run_post_processing_includes_resolver(self):
         self.store.upsert_node(
@@ -608,7 +609,7 @@ class TestMarkdownArtifactResolver:
 
         result = run_post_processing(self.store)
 
-        assert result.get("markdown_artifact_refs_resolved") == 1
+        assert result.markdown_artifact_refs_resolved == 1
         row = self.store._conn.execute(
             "SELECT target_qualified FROM edges WHERE kind='CROSS_ARTIFACT'"
         ).fetchone()
@@ -660,13 +661,13 @@ class TestTerraformArtifactResolver:
         self.store.upsert_edge(self._handler_edge("hello.main"))
         self.store.commit()
 
-        result: dict = {}
+        result = PostprocessResult()
         warnings: list[str] = []
         from dagayn.postprocessing import _resolve_terraform_artifact_refs
 
         _resolve_terraform_artifact_refs(self.store, result, warnings)
         assert warnings == []
-        assert result["terraform_artifact_refs_resolved"] == 1
+        assert result.terraform_artifact_refs_resolved == 1
 
         row = self.store._conn.execute(
             "SELECT target_qualified, target_name, confidence_tier, extra FROM edges "
@@ -706,7 +707,7 @@ class TestTerraformArtifactResolver:
             with patch("dagayn.incremental_build.collect_all_files", return_value=tracked):
                 full_build(tmp_path, store)
             result = run_post_processing(store)
-            assert not result.get("warnings")
+            assert not result.warnings
 
             rows = store._conn.execute(
                 "SELECT source_qualified, target_qualified, extra FROM edges "
@@ -767,9 +768,9 @@ class TestTerraformArtifactResolver:
         self.store.commit()
 
         result = run_post_processing(self.store)
-        assert not result.get("warnings")
-        assert result.get("markdown_artifact_refs_resolved", 0) == 0
-        assert result.get("terraform_artifact_refs_resolved") == 1
+        assert not result.warnings
+        assert (result.markdown_artifact_refs_resolved or 0) == 0
+        assert result.terraform_artifact_refs_resolved == 1
 
         row = self.store._conn.execute(
             "SELECT target_qualified, target_name, confidence_tier, extra FROM edges "
@@ -818,10 +819,10 @@ class TestTerraformArtifactResolver:
         self.store.commit()
 
         result = run_post_processing(self.store)
-        assert not result.get("warnings")
-        assert result.get("markdown_artifact_refs_resolved", 0) == 0
-        assert result.get("terraform_artifact_refs_resolved", 0) == 0
-        assert result.get("terraform_artifact_refs_still_unresolved") == 1
+        assert not result.warnings
+        assert (result.markdown_artifact_refs_resolved or 0) == 0
+        assert (result.terraform_artifact_refs_resolved or 0) == 0
+        assert result.terraform_artifact_refs_still_unresolved == 1
 
         row = self.store._conn.execute(
             "SELECT target_qualified, confidence_tier FROM edges WHERE kind='CROSS_ARTIFACT'"
@@ -913,4 +914,4 @@ class TestNativeStoreStaysOnOneConnection:
             store.close()
 
         assert constructed == []
-        assert "warnings" not in result or result.get("warnings") == []
+        assert not result.warnings or result.warnings == []

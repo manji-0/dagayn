@@ -15,6 +15,7 @@ from dagayn.parser.manifest_bridges import (
     discover_manifest_bridges,
 )
 from dagayn.postprocessing import _apply_manifest_bridges, run_post_processing
+from dagayn.state_types import PostprocessResult
 
 FIXTURES = Path(__file__).parent / "fixtures" / "cross_artifact_manifest"
 
@@ -121,9 +122,9 @@ class TestApplyManifestBridges:
     def test_apply_persists_edges_and_stats(self):
         repo = FIXTURES / "py_rust"
         self.store.set_metadata("repo_root", str(repo.resolve()))
-        result: dict = {}
+        result = PostprocessResult()
         _apply_manifest_bridges(self.store, result, [])
-        assert result["manifest_bridges_edges"] == 1
+        assert result.manifest_bridges_edges == 1
 
         edges = _manifest_edges(self.store)
         assert len(edges) == 1
@@ -136,17 +137,17 @@ class TestApplyManifestBridges:
     def test_apply_is_idempotent(self):
         repo = FIXTURES / "generated_client"
         self.store.set_metadata("repo_root", str(repo.resolve()))
-        first: dict = {}
-        second: dict = {}
+        first = PostprocessResult()
+        second = PostprocessResult()
         _apply_manifest_bridges(self.store, first, [])
         _apply_manifest_bridges(self.store, second, [])
-        assert first["manifest_bridges_edges"] == second["manifest_bridges_edges"] == 2
+        assert first.manifest_bridges_edges == second.manifest_bridges_edges == 2
         assert len(_manifest_edges(self.store)) == 2
 
     def test_apply_rolls_back_when_upsert_fails(self, monkeypatch):
         repo = FIXTURES / "py_rust"
         self.store.set_metadata("repo_root", str(repo.resolve()))
-        _apply_manifest_bridges(self.store, {}, [])
+        _apply_manifest_bridges(self.store, PostprocessResult(), [])
         assert len(_manifest_edges(self.store)) == 1
         prior = _manifest_edges(self.store)
 
@@ -155,13 +156,13 @@ class TestApplyManifestBridges:
 
         monkeypatch.setattr(self.store, "upsert_edge", boom)
         warnings: list[str] = []
-        result: dict = {}
+        result = PostprocessResult()
         _apply_manifest_bridges(self.store, result, warnings)
 
         assert len(_manifest_edges(self.store)) == 1
         assert _manifest_edges(self.store) == prior
         assert any("Manifest bridge extraction failed" in w for w in warnings)
-        assert "manifest_bridges_edges" not in result
+        assert result.manifest_bridges_edges is None
 
     def test_apply_preserves_existing_file_hash_and_mtime(self):
         repo = FIXTURES / "py_rust"
@@ -180,7 +181,7 @@ class TestApplyManifestBridges:
         )
         self.store.commit()
 
-        _apply_manifest_bridges(self.store, {}, [])
+        _apply_manifest_bridges(self.store, PostprocessResult(), [])
 
         row = self.store._conn.execute(
             "SELECT file_hash, mtime_ns, extra FROM nodes WHERE qualified_name=?",
@@ -197,7 +198,7 @@ class TestApplyManifestBridges:
         repo = FIXTURES / "generated_client"
         full_build(repo, self.store)
         result = run_post_processing(self.store)
-        assert result.get("manifest_bridges_edges", 0) >= 2
+        assert (result.manifest_bridges_edges or 0) >= 2
 
         edges = _manifest_edges(self.store)
         roles = {e[2]["relationship_role"] for e in edges}

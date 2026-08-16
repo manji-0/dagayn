@@ -29,6 +29,7 @@ from .graph._sql import _edge_target_name
 from .state_types import (
     DroppedMarkdownArtifactResolution,
     MarkdownArtifactResolution,
+    PostprocessResult,
     ResolvedMarkdownArtifactResolution,
     build_markdown_artifact_resolution,
 )
@@ -54,20 +55,20 @@ def _native_method(store: GraphStore, name: str) -> Any | None:
 
 def _demote_unresolved_endpoint_edges(
     store: GraphStore,
-    result: dict[str, Any],
+    result: PostprocessResult,
     warnings: list[str],
 ) -> None:
     """Lower confidence on edges whose node-qualified endpoints are absent."""
     native = _native_method(store, "demote_unresolved_endpoint_edges")
     if native is not None:
         try:
-            result["unresolved_endpoint_edges_demoted"] = int(native())
+            result.unresolved_endpoint_edges_demoted = int(native())
         except (OSError, RuntimeError, TypeError, ValueError) as e:
             logger.warning("Unresolved endpoint demotion failed: %s", e)
             warnings.append(f"Unresolved endpoint demotion failed: {type(e).__name__}: {e}")
         return
     if not hasattr(store, "_conn"):
-        result["unresolved_endpoint_edges_demoted"] = 0
+        result.unresolved_endpoint_edges_demoted = 0
         return
 
     try:
@@ -97,13 +98,13 @@ def _demote_unresolved_endpoint_edges(
         invalidate = getattr(store, "_invalidate_cache", None)
         if callable(invalidate):
             invalidate()
-        result["unresolved_endpoint_edges_demoted"] = int(updated)
+        result.unresolved_endpoint_edges_demoted = int(updated)
     except (sqlite3.OperationalError, OSError, RuntimeError, TypeError, ValueError) as e:
         logger.warning("Unresolved endpoint demotion failed: %s", e)
         warnings.append(f"Unresolved endpoint demotion failed: {type(e).__name__}: {e}")
 
 
-def run_post_processing(store: GraphStore) -> dict[str, Any]:
+def run_post_processing(store: GraphStore) -> PostprocessResult:
     """Run all post-build steps on a populated graph.
 
     Each step is non-fatal: failures are logged and collected as warnings
@@ -113,10 +114,10 @@ def run_post_processing(store: GraphStore) -> dict[str, Any]:
         store: An open GraphStore with nodes and edges already populated.
 
     Returns:
-        Dict with keys for each step's result count and a ``warnings``
-        list (only present when at least one step failed).
+        Typed summary with a counter for each step that ran and a
+        ``warnings`` list (only populated when at least one step failed).
     """
-    result: dict[str, Any] = {}
+    result = PostprocessResult()
     warnings: list[str] = []
 
     _compute_signatures(store, result, warnings)
@@ -131,7 +132,7 @@ def run_post_processing(store: GraphStore) -> dict[str, Any]:
     _persist_centrality_scores(store, result, warnings)
 
     if warnings:
-        result["warnings"] = warnings
+        result.warnings = warnings
     return result
 
 
@@ -218,7 +219,7 @@ def _is_markdown_artifact_bridge(extra: dict[str, Any]) -> bool:
 
 def _resolve_markdown_artifact_refs(
     store: GraphStore,
-    result: dict[str, Any],
+    result: PostprocessResult,
     warnings: list[str],
 ) -> None:
     """Idempotently resolve/update Markdown→code CROSS_ARTIFACT edges.
@@ -259,12 +260,12 @@ def _resolve_markdown_artifact_refs(
             resolve = cast(Callable[[], tuple[int, int, int, int]], rust_resolve)
             rust_result = resolve()
             resolved, dropped = rust_result[:2]
-            result["markdown_artifact_refs_resolved"] = resolved
-            result["markdown_artifact_refs_dropped"] = dropped
-            result["markdown_artifact_refs_re_resolved"] = (
+            result.markdown_artifact_refs_resolved = resolved
+            result.markdown_artifact_refs_dropped = dropped
+            result.markdown_artifact_refs_re_resolved = (
                 rust_result[2] if len(rust_result) > 2 else 0
             )
-            result["markdown_artifact_refs_still_unresolved"] = (
+            result.markdown_artifact_refs_still_unresolved = (
                 rust_result[3] if len(rust_result) > 3 else 0
             )
             return
@@ -276,10 +277,10 @@ def _resolve_markdown_artifact_refs(
         ).fetchall()
 
         if not rows:
-            result["markdown_artifact_refs_resolved"] = 0
-            result["markdown_artifact_refs_dropped"] = 0
-            result["markdown_artifact_refs_re_resolved"] = 0
-            result["markdown_artifact_refs_still_unresolved"] = 0
+            result.markdown_artifact_refs_resolved = 0
+            result.markdown_artifact_refs_dropped = 0
+            result.markdown_artifact_refs_re_resolved = 0
+            result.markdown_artifact_refs_still_unresolved = 0
             return
 
         # Parse extras and collect unique symbol names in one pass
@@ -299,10 +300,10 @@ def _resolve_markdown_artifact_refs(
             symbols.add(sym)
 
         if not edge_data:
-            result["markdown_artifact_refs_resolved"] = 0
-            result["markdown_artifact_refs_dropped"] = 0
-            result["markdown_artifact_refs_re_resolved"] = 0
-            result["markdown_artifact_refs_still_unresolved"] = 0
+            result.markdown_artifact_refs_resolved = 0
+            result.markdown_artifact_refs_dropped = 0
+            result.markdown_artifact_refs_re_resolved = 0
+            result.markdown_artifact_refs_still_unresolved = 0
             return
 
         # Batch-fetch node matches for all unique symbols (1 query per 450 symbols)
@@ -391,10 +392,10 @@ def _resolve_markdown_artifact_refs(
             store._conn.executemany("DELETE FROM edges WHERE id=?", to_delete)
 
         store.commit()
-        result["markdown_artifact_refs_resolved"] = resolved
-        result["markdown_artifact_refs_dropped"] = demoted
-        result["markdown_artifact_refs_re_resolved"] = re_resolved
-        result["markdown_artifact_refs_still_unresolved"] = still_unresolved
+        result.markdown_artifact_refs_resolved = resolved
+        result.markdown_artifact_refs_dropped = demoted
+        result.markdown_artifact_refs_re_resolved = re_resolved
+        result.markdown_artifact_refs_still_unresolved = still_unresolved
     except (sqlite3.OperationalError, RuntimeError) as e:
         logger.warning("Markdown artifact ref resolution failed: %s", e)
         warnings.append(f"Markdown artifact ref resolution failed: {type(e).__name__}: {e}")
@@ -417,7 +418,7 @@ def _store_repo_root(store: GraphStore) -> Path | None:
 
 def _apply_manifest_bridges(
     store: GraphStore,
-    result: dict[str, Any],
+    result: PostprocessResult,
     warnings: list[str],
 ) -> None:
     """Idempotently extract Layer-2 manifest-backed CROSS_ARTIFACT bridges.
@@ -436,8 +437,8 @@ def _apply_manifest_bridges(
 
         repo_root = _store_repo_root(store)
         if repo_root is None or not repo_root.is_dir():
-            result["manifest_bridges_edges"] = 0
-            result["manifest_bridges_nodes"] = 0
+            result.manifest_bridges_edges = 0
+            result.manifest_bridges_nodes = 0
             return
 
         # Discover before mutating so a scan failure cannot wipe prior bridges.
@@ -453,13 +454,13 @@ def _apply_manifest_bridges(
                     json.dumps([asdict(edge) for edge in discovered.edges]),
                 )
             )
-            result["manifest_bridges_edges"] = discovered.edge_count
-            result["manifest_bridges_nodes"] = nodes_upserted
+            result.manifest_bridges_edges = discovered.edge_count
+            result.manifest_bridges_nodes = nodes_upserted
             return
 
         if not hasattr(store, "_conn"):
-            result["manifest_bridges_edges"] = 0
-            result["manifest_bridges_nodes"] = 0
+            result.manifest_bridges_edges = 0
+            result.manifest_bridges_nodes = 0
             return
 
         conn = store._conn
@@ -488,8 +489,8 @@ def _apply_manifest_bridges(
         if callable(invalidate):
             invalidate()
 
-        result["manifest_bridges_edges"] = discovered.edge_count
-        result["manifest_bridges_nodes"] = nodes_upserted
+        result.manifest_bridges_edges = discovered.edge_count
+        result.manifest_bridges_nodes = nodes_upserted
     except (sqlite3.OperationalError, OSError, RuntimeError, TypeError, ValueError) as e:
         logger.warning("Manifest bridge extraction failed: %s", e)
         warnings.append(f"Manifest bridge extraction failed: {type(e).__name__}: {e}")
@@ -497,7 +498,7 @@ def _apply_manifest_bridges(
 
 def _resolve_terraform_artifact_refs(
     store: GraphStore,
-    result: dict[str, Any],
+    result: PostprocessResult,
     warnings: list[str],
 ) -> None:
     """Resolve Terraform entrypoint CROSS_ARTIFACT edges to unique code symbols.
@@ -511,15 +512,15 @@ def _resolve_terraform_artifact_refs(
     if native is not None:
         try:
             resolved, still_unresolved = native()
-            result["terraform_artifact_refs_resolved"] = int(resolved)
-            result["terraform_artifact_refs_still_unresolved"] = int(still_unresolved)
+            result.terraform_artifact_refs_resolved = int(resolved)
+            result.terraform_artifact_refs_still_unresolved = int(still_unresolved)
         except (OSError, RuntimeError, TypeError, ValueError) as e:
             logger.warning("Terraform artifact ref resolution failed: %s", e)
             warnings.append(f"Terraform artifact ref resolution failed: {type(e).__name__}: {e}")
         return
     if not hasattr(store, "_conn"):
-        result["terraform_artifact_refs_resolved"] = 0
-        result["terraform_artifact_refs_still_unresolved"] = 0
+        result.terraform_artifact_refs_resolved = 0
+        result.terraform_artifact_refs_still_unresolved = 0
         return
 
     resolved = 0
@@ -549,8 +550,8 @@ def _resolve_terraform_artifact_refs(
             edge_data.append((row["id"], row["target_qualified"], sym, extra))
 
         if not edge_data:
-            result["terraform_artifact_refs_resolved"] = 0
-            result["terraform_artifact_refs_still_unresolved"] = 0
+            result.terraform_artifact_refs_resolved = 0
+            result.terraform_artifact_refs_still_unresolved = 0
             return
 
         to_update: list[tuple[Any, ...]] = []
@@ -580,8 +581,8 @@ def _resolve_terraform_artifact_refs(
             )
             store.commit()
 
-        result["terraform_artifact_refs_resolved"] = resolved
-        result["terraform_artifact_refs_still_unresolved"] = still_unresolved
+        result.terraform_artifact_refs_resolved = resolved
+        result.terraform_artifact_refs_still_unresolved = still_unresolved
     except (sqlite3.OperationalError, RuntimeError) as e:
         logger.warning("Terraform artifact ref resolution failed: %s", e)
         warnings.append(f"Terraform artifact ref resolution failed: {type(e).__name__}: {e}")
@@ -640,14 +641,14 @@ def _terraform_module_matches_file(module: str, file_path: str) -> bool:
 
 def _compute_signatures(
     store: GraphStore,
-    result: dict[str, Any],
+    result: PostprocessResult,
     warnings: list[str],
 ) -> None:
     """Compute human-readable signatures for nodes that lack one."""
     try:
         rust_compute = getattr(store, "compute_missing_signatures", None)
         if callable(rust_compute):
-            result["signatures_computed"] = cast(Callable[[], int], rust_compute)()
+            result.signatures_computed = cast(Callable[[], int], rust_compute)()
             return
 
         rows = store.get_nodes_without_signature()
@@ -671,7 +672,7 @@ def _compute_signatures(
                 sig = name
             store.update_node_signature(node_id, sig[:512])
         store.commit()
-        result["signatures_computed"] = len(rows)
+        result.signatures_computed = len(rows)
     except (sqlite3.OperationalError, RuntimeError, TypeError, KeyError) as e:
         logger.warning("Signature computation failed: %s", e)
         warnings.append(f"Signature computation failed: {type(e).__name__}: {e}")
@@ -679,7 +680,7 @@ def _compute_signatures(
 
 def _rebuild_fts_index(
     store: GraphStore,
-    result: dict[str, Any],
+    result: PostprocessResult,
     warnings: list[str],
 ) -> None:
     """Rebuild the FTS5 full-text search index."""
@@ -687,7 +688,7 @@ def _rebuild_fts_index(
         from .search import rebuild_fts_index
 
         fts_count = rebuild_fts_index(store)
-        result["fts_indexed"] = fts_count
+        result.fts_indexed = fts_count
     except (sqlite3.OperationalError, ImportError) as e:
         logger.warning("FTS index rebuild failed: %s", e)
         warnings.append(f"FTS index rebuild failed: {type(e).__name__}: {e}")
@@ -695,7 +696,7 @@ def _rebuild_fts_index(
 
 def _resolve_bare_name_edges(
     store: GraphStore,
-    result: dict[str, Any],
+    result: PostprocessResult,
     warnings: list[str],
 ) -> None:
     """Resolve bare-name CALLS and INHERITS/IMPLEMENTS edges using import context."""
@@ -703,15 +704,15 @@ def _resolve_bare_name_edges(
     native_inherits = _native_method(store, "resolve_bare_inheritance_targets")
     if native_calls is not None and native_inherits is not None:
         try:
-            result["bare_call_targets_resolved"] = int(native_calls())
-            result["bare_inheritance_targets_resolved"] = int(native_inherits())
+            result.bare_call_targets_resolved = int(native_calls())
+            result.bare_inheritance_targets_resolved = int(native_inherits())
         except (OSError, RuntimeError, TypeError, AttributeError) as e:
             logger.warning("Bare-name edge resolution failed: %s", e)
             warnings.append(f"Bare-name edge resolution failed: {type(e).__name__}: {e}")
         return
     if not hasattr(store, "_conn"):
-        result["bare_call_targets_resolved"] = 0
-        result["bare_inheritance_targets_resolved"] = 0
+        result.bare_call_targets_resolved = 0
+        result.bare_inheritance_targets_resolved = 0
         return
 
     try:
@@ -720,8 +721,8 @@ def _resolve_bare_name_edges(
             resolve_bare_inheritance_targets,
         )
 
-        result["bare_call_targets_resolved"] = resolve_bare_call_targets(store)
-        result["bare_inheritance_targets_resolved"] = resolve_bare_inheritance_targets(store)
+        result.bare_call_targets_resolved = resolve_bare_call_targets(store)
+        result.bare_inheritance_targets_resolved = resolve_bare_inheritance_targets(store)
     except (sqlite3.OperationalError, RuntimeError, TypeError, AttributeError) as e:
         logger.warning("Bare-name edge resolution failed: %s", e)
         warnings.append(f"Bare-name edge resolution failed: {type(e).__name__}: {e}")
@@ -729,7 +730,7 @@ def _resolve_bare_name_edges(
 
 def _trace_flows(
     store: GraphStore,
-    result: dict[str, Any],
+    result: PostprocessResult,
     warnings: list[str],
 ) -> None:
     """Trace execution flows from entry points."""
@@ -738,7 +739,7 @@ def _trace_flows(
 
         flows = trace_flows(store)
         count = store_flows(store, flows)
-        result["flows_detected"] = count
+        result.flows_detected = count
     except (sqlite3.OperationalError, ImportError) as e:
         logger.warning("Flow detection failed: %s", e)
         warnings.append(f"Flow detection failed: {type(e).__name__}: {e}")
@@ -746,7 +747,7 @@ def _trace_flows(
 
 def _detect_communities(
     store: GraphStore,
-    result: dict[str, Any],
+    result: PostprocessResult,
     warnings: list[str],
 ) -> None:
     """Detect code communities via Leiden algorithm or file grouping."""
@@ -755,7 +756,7 @@ def _detect_communities(
 
         comms = detect_communities(store)
         count = store_communities(store, comms)
-        result["communities_detected"] = count
+        result.communities_detected = count
     except (sqlite3.OperationalError, ImportError) as e:
         logger.warning("Community detection failed: %s", e)
         warnings.append(f"Community detection failed: {type(e).__name__}: {e}")
@@ -763,7 +764,7 @@ def _detect_communities(
 
 def _persist_centrality_scores(
     store: GraphStore,
-    result: dict[str, Any],
+    result: PostprocessResult,
     warnings: list[str],
 ) -> None:
     """Persist query-time hub / bridge scores after graph post-processing."""
@@ -771,7 +772,10 @@ def _persist_centrality_scores(
         from .analysis import persist_centrality_scores
 
         counts = persist_centrality_scores(store)
-        result.update(counts)
+        result.hub_scores_persisted = counts.get("hub_scores_persisted", 0)
+        result.bridge_scores_persisted = counts.get("bridge_scores_persisted", 0)
+        result.hub_scores_code_persisted = counts.get("hub_scores_code_persisted", 0)
+        result.bridge_scores_code_persisted = counts.get("bridge_scores_code_persisted", 0)
     except (sqlite3.OperationalError, ImportError, RuntimeError) as e:
         logger.warning("Centrality score persistence failed: %s", e)
         warnings.append(f"Centrality score persistence failed: {type(e).__name__}: {e}")

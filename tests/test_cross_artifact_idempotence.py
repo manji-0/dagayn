@@ -13,6 +13,7 @@ from pathlib import Path
 from dagayn.graph import GraphStore
 from dagayn.parser.types import EdgeInfo, NodeInfo
 from dagayn.postprocessing import _resolve_markdown_artifact_refs
+from dagayn.state_types import PostprocessResult
 
 
 def _make_store() -> tuple[GraphStore, Path]:
@@ -97,18 +98,18 @@ class TestResolveToDemote:
         self.store.commit()
 
         # Symbol still exists — no change
-        result: dict = {}
+        result = PostprocessResult()
         _resolve_markdown_artifact_refs(self.store, result, [])
-        assert result["markdown_artifact_refs_resolved"] == 0
-        assert result["markdown_artifact_refs_dropped"] == 0
+        assert result.markdown_artifact_refs_resolved == 0
+        assert result.markdown_artifact_refs_dropped == 0
 
         # Now remove the symbol (simulate rename/delete in Python)
         self.store._conn.execute("DELETE FROM nodes WHERE name='compute_foo'")
         self.store.commit()
 
-        result2: dict = {}
+        result2 = PostprocessResult()
         _resolve_markdown_artifact_refs(self.store, result2, [])
-        assert result2["markdown_artifact_refs_dropped"] == 1
+        assert result2.markdown_artifact_refs_dropped == 1
 
         count = self.store._conn.execute(
             "SELECT COUNT(*) FROM edges WHERE kind='CROSS_ARTIFACT'"
@@ -130,11 +131,11 @@ class TestUnresolvedToResolved:
         self.store.upsert_edge(_ca_edge("new_bar"))
         self.store.commit()
 
-        result1: dict = {}
+        result1 = PostprocessResult()
         _resolve_markdown_artifact_refs(self.store, result1, [])
-        assert result1["markdown_artifact_refs_resolved"] == 0
-        assert result1["markdown_artifact_refs_still_unresolved"] == 0
-        assert result1["markdown_artifact_refs_dropped"] == 1
+        assert result1.markdown_artifact_refs_resolved == 0
+        assert result1.markdown_artifact_refs_still_unresolved == 0
+        assert result1.markdown_artifact_refs_dropped == 1
 
         count = self.store._conn.execute(
             "SELECT COUNT(*) FROM edges WHERE kind='CROSS_ARTIFACT'"
@@ -158,11 +159,11 @@ class TestAmbiguousToUnique:
         self.store.upsert_edge(_ca_edge("Quux"))
         self.store.commit()
 
-        result1: dict = {}
+        result1 = PostprocessResult()
         _resolve_markdown_artifact_refs(self.store, result1, [])
-        assert result1["markdown_artifact_refs_resolved"] == 0
-        assert result1["markdown_artifact_refs_still_unresolved"] == 0
-        assert result1["markdown_artifact_refs_dropped"] == 1
+        assert result1.markdown_artifact_refs_resolved == 0
+        assert result1.markdown_artifact_refs_still_unresolved == 0
+        assert result1.markdown_artifact_refs_dropped == 1
 
         count = self.store._conn.execute(
             "SELECT COUNT(*) FROM edges WHERE kind='CROSS_ARTIFACT'"
@@ -185,17 +186,17 @@ class TestUniqueToAmbiguous:
         self.store.upsert_edge(_ca_edge("Zap"))
         self.store.commit()
 
-        result1: dict = {}
+        result1 = PostprocessResult()
         _resolve_markdown_artifact_refs(self.store, result1, [])
-        assert result1["markdown_artifact_refs_resolved"] == 1
+        assert result1.markdown_artifact_refs_resolved == 1
 
         # Add a duplicate in another file
         self.store.upsert_node(_py_node("Zap", "/repo/b.py"))
         self.store.commit()
 
-        result2: dict = {}
+        result2 = PostprocessResult()
         _resolve_markdown_artifact_refs(self.store, result2, [])
-        assert result2["markdown_artifact_refs_dropped"] == 1
+        assert result2.markdown_artifact_refs_dropped == 1
 
         count = self.store._conn.execute(
             "SELECT COUNT(*) FROM edges WHERE kind='CROSS_ARTIFACT'"
@@ -218,40 +219,40 @@ class TestIdempotence:
         self.store.upsert_edge(_ca_edge("steady_fn"))
         self.store.commit()
 
-        result1: dict = {}
+        result1 = PostprocessResult()
         _resolve_markdown_artifact_refs(self.store, result1, [])
-        assert result1["markdown_artifact_refs_resolved"] == 1
+        assert result1.markdown_artifact_refs_resolved == 1
 
-        result2: dict = {}
+        result2 = PostprocessResult()
         _resolve_markdown_artifact_refs(self.store, result2, [])
-        assert result2["markdown_artifact_refs_resolved"] == 0
-        assert result2["markdown_artifact_refs_dropped"] == 0
-        assert result2["markdown_artifact_refs_re_resolved"] == 0
+        assert result2.markdown_artifact_refs_resolved == 0
+        assert result2.markdown_artifact_refs_dropped == 0
+        assert result2.markdown_artifact_refs_re_resolved == 0
 
     def test_double_run_unresolved_code_span_stays_pruned(self):
         self.store.upsert_edge(_ca_edge("missing_sym"))
         self.store.commit()
 
-        result1: dict = {}
+        result1 = PostprocessResult()
         _resolve_markdown_artifact_refs(self.store, result1, [])
-        assert result1["markdown_artifact_refs_still_unresolved"] == 0
-        assert result1["markdown_artifact_refs_dropped"] == 1
+        assert result1.markdown_artifact_refs_still_unresolved == 0
+        assert result1.markdown_artifact_refs_dropped == 1
 
-        result2: dict = {}
+        result2 = PostprocessResult()
         _resolve_markdown_artifact_refs(self.store, result2, [])
-        assert result2["markdown_artifact_refs_still_unresolved"] == 0
-        assert result2["markdown_artifact_refs_resolved"] == 0
+        assert result2.markdown_artifact_refs_still_unresolved == 0
+        assert result2.markdown_artifact_refs_resolved == 0
 
     def test_explicit_directive_unresolved_no_changes(self):
         self.store.upsert_edge(_directive_edge("missing_sym"))
         self.store.commit()
 
-        result1: dict = {}
+        result1 = PostprocessResult()
         _resolve_markdown_artifact_refs(self.store, result1, [])
-        assert result1["markdown_artifact_refs_still_unresolved"] == 1
-        assert result1["markdown_artifact_refs_dropped"] == 0
+        assert result1.markdown_artifact_refs_still_unresolved == 1
+        assert result1.markdown_artifact_refs_dropped == 0
 
-        result2: dict = {}
+        result2 = PostprocessResult()
         _resolve_markdown_artifact_refs(self.store, result2, [])
-        assert result2["markdown_artifact_refs_still_unresolved"] == 1
-        assert result2["markdown_artifact_refs_resolved"] == 0
+        assert result2.markdown_artifact_refs_still_unresolved == 1
+        assert result2.markdown_artifact_refs_resolved == 0

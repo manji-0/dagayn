@@ -271,7 +271,7 @@ def test_postprocess_demotes_edges_with_missing_endpoints(store: GraphStore):
 
     result = run_post_processing(store)
 
-    assert result["unresolved_endpoint_edges_demoted"] == 1
+    assert result.unresolved_endpoint_edges_demoted == 1
     edge = store.get_edges_by_source("/repo/app.py::run")[0]
     assert edge.confidence == 0.2
     assert edge.confidence_tier == "LOW"

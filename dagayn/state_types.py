@@ -399,6 +399,40 @@ def build_markdown_artifact_resolution(**payload: Any) -> MarkdownArtifactResolu
     return _MARKDOWN_RESOLUTION_ADAPTER.validate_python(payload)
 
 
+class PostprocessResult(BaseModel):
+    """Typed summary of one post-processing pipeline run.
+
+    Each step counter stays ``None`` until the corresponding step writes it,
+    so ``model_dump(exclude_none=True)`` reproduces the historical sparse
+    dict shape consumed by build and CLI callers.  ``warnings`` mirrors the
+    historical behaviour of only being populated when at least one step
+    failed.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    signatures_computed: int | None = None
+    fts_indexed: int | None = None
+    bare_call_targets_resolved: int | None = None
+    bare_inheritance_targets_resolved: int | None = None
+    unresolved_endpoint_edges_demoted: int | None = None
+    markdown_artifact_refs_resolved: int | None = None
+    markdown_artifact_refs_dropped: int | None = None
+    markdown_artifact_refs_re_resolved: int | None = None
+    markdown_artifact_refs_still_unresolved: int | None = None
+    terraform_artifact_refs_resolved: int | None = None
+    terraform_artifact_refs_still_unresolved: int | None = None
+    manifest_bridges_edges: int | None = None
+    manifest_bridges_nodes: int | None = None
+    hub_scores_persisted: int | None = None
+    bridge_scores_persisted: int | None = None
+    hub_scores_code_persisted: int | None = None
+    bridge_scores_code_persisted: int | None = None
+    flows_detected: int | None = None
+    communities_detected: int | None = None
+    warnings: list[str] = Field(default_factory=list)
+
+
 class DispatcherErrorResponse(BaseModel):
     """Shared error envelope for mode-based tool dispatchers."""
 

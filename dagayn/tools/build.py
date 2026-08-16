@@ -13,6 +13,7 @@ from typing import Any, Callable, cast
 
 from ..incremental import full_build, incremental_update
 from ..paths import get_db_path
+from ..state_types import PostprocessResult
 from ..write_lock import WriteLockUnavailableError, graph_write_lock
 from ._common import _evict_store_cache, _get_store, _validate_repo_root
 
@@ -292,6 +293,8 @@ def _run_postprocess(
     if postprocess == "none":
         return warnings
 
+    post_result = PostprocessResult()
+
     if not skip_minimal_steps:
         # -- Signatures + FTS (fast, always run unless "none") --
         try:
@@ -338,14 +341,7 @@ def _run_postprocess(
         try:
             from dagayn.postprocessing import _resolve_bare_name_edges
 
-            _bare_result: dict[str, Any] = {}
-            _resolve_bare_name_edges(store, _bare_result, warnings)
-            build_result["bare_call_targets_resolved"] = _bare_result.get(
-                "bare_call_targets_resolved", 0
-            )
-            build_result["bare_inheritance_targets_resolved"] = _bare_result.get(
-                "bare_inheritance_targets_resolved", 0
-            )
+            _resolve_bare_name_edges(store, post_result, warnings)
         except (sqlite3.OperationalError, ImportError) as e:
             logger.warning("Bare-name edge resolution failed: %s", e)
             warnings.append(f"Bare-name edge resolution failed: {type(e).__name__}: {e}")
@@ -353,11 +349,7 @@ def _run_postprocess(
         try:
             from dagayn.postprocessing import _demote_unresolved_endpoint_edges
 
-            _demote_result: dict[str, Any] = {}
-            _demote_unresolved_endpoint_edges(store, _demote_result, warnings)
-            build_result["unresolved_endpoint_edges_demoted"] = _demote_result.get(
-                "unresolved_endpoint_edges_demoted", 0
-            )
+            _demote_unresolved_endpoint_edges(store, post_result, warnings)
         except (sqlite3.OperationalError, ImportError) as e:
             logger.warning("Unresolved endpoint demotion failed: %s", e)
             warnings.append(f"Unresolved endpoint demotion failed: {type(e).__name__}: {e}")
@@ -365,14 +357,7 @@ def _run_postprocess(
         try:
             from dagayn.postprocessing import _resolve_markdown_artifact_refs
 
-            _result: dict[str, Any] = {}
-            _resolve_markdown_artifact_refs(store, _result, warnings)
-            build_result["markdown_artifact_refs_resolved"] = _result.get(
-                "markdown_artifact_refs_resolved", 0
-            )
-            build_result["markdown_artifact_refs_dropped"] = _result.get(
-                "markdown_artifact_refs_dropped", 0
-            )
+            _resolve_markdown_artifact_refs(store, post_result, warnings)
         except (sqlite3.OperationalError, ImportError) as e:
             logger.warning("Markdown artifact ref resolution failed: %s", e)
             warnings.append(f"Markdown artifact ref resolution failed: {type(e).__name__}: {e}")
@@ -380,14 +365,7 @@ def _run_postprocess(
         try:
             from dagayn.postprocessing import _resolve_terraform_artifact_refs
 
-            _tf_result: dict[str, Any] = {}
-            _resolve_terraform_artifact_refs(store, _tf_result, warnings)
-            build_result["terraform_artifact_refs_resolved"] = _tf_result.get(
-                "terraform_artifact_refs_resolved", 0
-            )
-            build_result["terraform_artifact_refs_still_unresolved"] = _tf_result.get(
-                "terraform_artifact_refs_still_unresolved", 0
-            )
+            _resolve_terraform_artifact_refs(store, post_result, warnings)
         except (sqlite3.OperationalError, ImportError) as e:
             logger.warning("Terraform artifact ref resolution failed: %s", e)
             warnings.append(f"Terraform artifact ref resolution failed: {type(e).__name__}: {e}")
@@ -395,14 +373,7 @@ def _run_postprocess(
         try:
             from dagayn.postprocessing import _apply_manifest_bridges
 
-            _manifest_result: dict[str, Any] = {}
-            _apply_manifest_bridges(store, _manifest_result, warnings)
-            build_result["manifest_bridges_edges"] = _manifest_result.get(
-                "manifest_bridges_edges", 0
-            )
-            build_result["manifest_bridges_nodes"] = _manifest_result.get(
-                "manifest_bridges_nodes", 0
-            )
+            _apply_manifest_bridges(store, post_result, warnings)
         except (sqlite3.OperationalError, ImportError) as e:
             logger.warning("Manifest bridge extraction failed: %s", e)
             warnings.append(f"Manifest bridge extraction failed: {type(e).__name__}: {e}")
@@ -413,7 +384,37 @@ def _run_postprocess(
         # recompute them or the tables stay empty after skip-flows updates.
         from dagayn.postprocessing import _persist_centrality_scores
 
-        _persist_centrality_scores(store, build_result, warnings)
+        _persist_centrality_scores(store, post_result, warnings)
+
+    build_result["bare_call_targets_resolved"] = post_result.bare_call_targets_resolved or 0
+    build_result["bare_inheritance_targets_resolved"] = (
+        post_result.bare_inheritance_targets_resolved or 0
+    )
+    build_result["unresolved_endpoint_edges_demoted"] = (
+        post_result.unresolved_endpoint_edges_demoted or 0
+    )
+    build_result["markdown_artifact_refs_resolved"] = (
+        post_result.markdown_artifact_refs_resolved or 0
+    )
+    build_result["markdown_artifact_refs_dropped"] = post_result.markdown_artifact_refs_dropped or 0
+    build_result["markdown_artifact_refs_re_resolved"] = (
+        post_result.markdown_artifact_refs_re_resolved or 0
+    )
+    build_result["markdown_artifact_refs_still_unresolved"] = (
+        post_result.markdown_artifact_refs_still_unresolved or 0
+    )
+    build_result["terraform_artifact_refs_resolved"] = (
+        post_result.terraform_artifact_refs_resolved or 0
+    )
+    build_result["terraform_artifact_refs_still_unresolved"] = (
+        post_result.terraform_artifact_refs_still_unresolved or 0
+    )
+    build_result["manifest_bridges_edges"] = post_result.manifest_bridges_edges or 0
+    build_result["manifest_bridges_nodes"] = post_result.manifest_bridges_nodes or 0
+    build_result["hub_scores_persisted"] = post_result.hub_scores_persisted or 0
+    build_result["bridge_scores_persisted"] = post_result.bridge_scores_persisted or 0
+    build_result["hub_scores_code_persisted"] = post_result.hub_scores_code_persisted or 0
+    build_result["bridge_scores_code_persisted"] = post_result.bridge_scores_code_persisted or 0
 
     if postprocess == "minimal":
         if not skip_orphan_prune:
