@@ -51,12 +51,12 @@ def run(repo_path: Path, store, config: dict) -> list[dict]:
             )
             # Extract files from changed_functions and affected_flows
             predicted = set(changed)
-            for f in analysis.get("changed_functions", []):
+            for f in analysis.changed_functions:
                 if isinstance(f, dict) and "file_path" in f:
                     predicted.add(f["file_path"])
                 elif isinstance(f, dict) and "file" in f:
                     predicted.add(f["file"])
-            for flow in analysis.get("affected_flows", []):
+            for flow in analysis.affected_flows:
                 if isinstance(flow, dict):
                     for node in flow.get("nodes", []):
                         if isinstance(node, dict) and "file_path" in node:

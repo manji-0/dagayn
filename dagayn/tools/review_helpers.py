@@ -20,6 +20,7 @@ from ..cross_artifact import (
     is_low_confidence_unresolved_markdown_code_span as _shared_low_conf_code_span,
 )
 from ..stability_policy import component_stability_profiles, scope_key_for_file
+from ..state_types import ChangeAnalysisResult
 from ._common import make_guidance_item
 
 logger = logging.getLogger(__name__)
@@ -1342,16 +1343,16 @@ def _review_guidance_items(
 
 def _change_analysis_summary(
     store: Any,
-    analysis: dict[str, Any],
+    analysis: ChangeAnalysisResult,
     impact: dict[str, Any],
     changed_files: list[str],
     *,
     detail_level: str = "standard",
 ) -> dict[str, Any]:
-    risk_score = float(analysis.get("risk_score", 0.0) or 0.0)
-    affected_flows = list(analysis.get("affected_flows", []))
-    test_gaps = list(analysis.get("test_gaps", []))
-    changed_functions = list(analysis.get("changed_functions", []))
+    risk_score = analysis.risk_score or 0.0
+    affected_flows = list(analysis.affected_flows)
+    test_gaps = list(analysis.test_gaps)
+    changed_functions = list(analysis.changed_functions)
     risk = _risk_level(risk_score)
 
     # One shared snapshot for every downstream sub-analysis (stability
@@ -1399,16 +1400,16 @@ def _change_analysis_summary(
     )
 
     reason_codes: list[str] = []
-    attribution = analysis.get("attribution") or {}
+    attribution = analysis.attribution or {}
     for code in attribution.get("reason_codes", []):
         if code not in reason_codes:
             reason_codes.append(code)
     if (
-        analysis.get("diff_parse_status") == "base_unresolved"
+        analysis.diff_parse_status == "base_unresolved"
         and "diff_base_unreachable" not in reason_codes
     ):
         reason_codes.append("diff_base_unreachable")
-    if analysis.get("unmapped_changed_files") and "unmapped_changed_files" not in reason_codes:
+    if analysis.unmapped_changed_files and "unmapped_changed_files" not in reason_codes:
         reason_codes.append("unmapped_changed_files")
     if risk == "high":
         reason_codes.append("high_risk_score")

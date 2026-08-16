@@ -14,6 +14,7 @@ from dagayn.cross_artifact import (
 from dagayn.flows import _hydrate_flow_rows, get_affected_flows, store_flows, trace_flows
 from dagayn.graph import GraphStore
 from dagayn.parser.types import EdgeInfo, NodeInfo
+from dagayn.state_types import ChangeAnalysisResult
 from dagayn.tools import query as query_module
 from dagayn.tools.review_helpers import (
     _change_analysis_summary,
@@ -369,12 +370,10 @@ class TestCrossArtifactReviewGuidance:
 
         summary = _change_analysis_summary(
             store,
-            {
-                "risk_score": 0.4,
-                "affected_flows": [],
-                "test_gaps": [],
-                "changed_functions": changed_functions,
-            },
+            ChangeAnalysisResult(
+                risk_score=0.4,
+                changed_functions=changed_functions,
+            ),
             impact,
             [paths["wrapper"]],
         )

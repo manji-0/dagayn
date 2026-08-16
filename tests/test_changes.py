@@ -26,6 +26,7 @@ from dagayn.changes import (
 from dagayn.flows import store_flows, trace_flows
 from dagayn.graph import GraphStore
 from dagayn.parser import EdgeInfo, NodeInfo
+from dagayn.state_types import ChangeAnalysisResult
 
 
 class TestChanges:
@@ -342,8 +343,8 @@ class TestChanges:
             repo_root=str(repo),
             base="HEAD~1",
         )
-        assert result["unmapped_changed_files"] == []
-        assert any(func["name"] == "alpha" for func in result["changed_functions"])
+        assert result.unmapped_changed_files == []
+        assert any(func["name"] == "alpha" for func in result.changed_functions)
 
     def test_analyze_changes_marks_base_unresolved(self, tmp_path):
         repo = tmp_path / "repo"
@@ -360,12 +361,12 @@ class TestChanges:
             repo_root=str(repo),
             base="origin/nonexistent",
         )
-        assert result["diff_parse_status"] == "base_unresolved"
-        assert result["change_entity_summary"]["base"] is None
-        assert result["changed_functions"] == []
-        assert result["unmapped_changed_files"] == ["app.py"]
-        assert "diff_base_unreachable" in result["attribution"]["reason_codes"]
-        assert all(func.get("change_status") != "added" for func in result["changed_functions"])
+        assert result.diff_parse_status == "base_unresolved"
+        assert result.change_entity_summary["base"] is None
+        assert result.changed_functions == []
+        assert result.unmapped_changed_files == ["app.py"]
+        assert "diff_base_unreachable" in result.attribution["reason_codes"]
+        assert all(func.get("change_status") != "added" for func in result.changed_functions)
 
     def test_analyze_changes_reports_unmapped_changed_files(self):
         result = analyze_changes(
@@ -373,8 +374,8 @@ class TestChanges:
             changed_files=["missing.py"],
             changed_ranges={"missing.py": [(1, 5)]},
         )
-        assert result["unmapped_changed_files"] == ["missing.py"]
-        assert "unmapped_changed_files" in result["attribution"]["reason_codes"]
+        assert result.unmapped_changed_files == ["missing.py"]
+        assert "unmapped_changed_files" in result.attribution["reason_codes"]
 
     def test_parse_diff_ranges_invalidates_when_worktree_changes(self, tmp_path):
         """Cached diff ranges must refresh after local edits in a long-lived process."""
@@ -520,7 +521,7 @@ class TestChanges:
             changed_ranges={"dagayn/tools/context.py": [(1, 20)]},
         )
 
-        assert result["test_gaps"] == []
+        assert result.test_gaps == []
 
         direct_only = analyze_changes(
             self.store,
@@ -529,7 +530,7 @@ class TestChanges:
             include_heuristic_test_gap_evidence=False,
         )
 
-        assert [gap["qualified_name"] for gap in direct_only["test_gaps"]] == [
+        assert [gap["qualified_name"] for gap in direct_only.test_gaps] == [
             "dagayn/tools/context.py::get_minimal_context"
         ]
 
@@ -547,9 +548,9 @@ class TestChanges:
             heuristic_test_gap_node_limit=1,
         )
 
-        confidences = {gap["coverage_confidence"] for gap in result["test_gaps"]}
+        confidences = {gap["coverage_confidence"] for gap in result.test_gaps}
         assert "unchecked" in confidences
-        assert result["test_gap_evidence"]["heuristic_truncated"] is True
+        assert result.test_gap_evidence["heuristic_truncated"] is True
 
     def test_map_changes_to_nodes_different_files(self):
         """Maps changes across different files."""
@@ -693,12 +694,12 @@ class TestChanges:
             changed_files=["app.py"],
             changed_ranges={"app.py": [(1, 10)]},
         )
-        assert "summary" in result
-        assert "risk_score" in result
-        assert "changed_functions" in result
-        assert "affected_flows" in result
-        assert "test_gaps" in result
-        assert "review_priorities" in result
+        assert isinstance(result.summary, str)
+        assert isinstance(result.risk_score, float)
+        assert isinstance(result.changed_functions, list)
+        assert isinstance(result.affected_flows, list)
+        assert isinstance(result.test_gaps, list)
+        assert isinstance(result.review_priorities, list)
 
     def test_analyze_changes_includes_files_without_diff_ranges(self):
         """Untracked files without git diff hunks are treated as whole-file changes."""
@@ -711,7 +712,7 @@ class TestChanges:
             changed_ranges={"/repo/tracked.py": [(5, 8)]},
         )
 
-        names = {f["name"] for f in result["changed_functions"]}
+        names = {f["name"] for f in result.changed_functions}
         assert names == {"tracked_func", "untracked_func"}
 
     def test_analyze_changes_marks_added_and_existing_entities(self):
@@ -737,20 +738,18 @@ class TestChanges:
                 base="HEAD",
             )
 
-        node_status = {f["name"]: f["change_status"] for f in result["changed_functions"]}
-        edge_status = {
-            (e["source"], e["target"]): e["change_status"] for e in result["changed_edges"]
-        }
+        node_status = {f["name"]: f["change_status"] for f in result.changed_functions}
+        edge_status = {(e["source"], e["target"]): e["change_status"] for e in result.changed_edges}
         assert node_status["existing_func"] == "existing"
         assert node_status["new_func"] == "added"
         assert edge_status[("app.py::existing_func", "helper.py::helper")] == "existing"
         assert edge_status[("app.py::new_func", "helper.py::helper")] == "added"
-        assert result["change_entity_summary"]["nodes"] == {
+        assert result.change_entity_summary["nodes"] == {
             "existing": 1,
             "added": 1,
             "unknown": 0,
         }
-        assert result["change_entity_summary"]["edges"] == {
+        assert result.change_entity_summary["edges"] == {
             "existing": 1,
             "added": 1,
             "unknown": 0,
@@ -764,7 +763,7 @@ class TestChanges:
             changed_files=["app.py"],
             changed_ranges={"app.py": [(1, 10)]},
         )
-        assert 0.0 <= result["risk_score"] <= 1.0
+        assert 0.0 <= result.risk_score <= 1.0
 
     def test_analyze_detects_test_gaps(self):
         """Changed functions without TESTED_BY edges are flagged as test gaps."""
@@ -781,7 +780,7 @@ class TestChanges:
             changed_files=["app.py"],
             changed_ranges={"app.py": [(1, 40)]},
         )
-        gap_names = {g["name"] for g in result["test_gaps"]}
+        gap_names = {g["name"] for g in result.test_gaps}
         assert "untested_a" in gap_names
         assert "untested_b" in gap_names
         assert "tested_c" not in gap_names
@@ -809,7 +808,7 @@ class TestChanges:
             changed_files=["app.py"],
             changed_ranges={"app.py": [(1, 10)]},
         )
-        assert result["test_gaps"] == []
+        assert result.test_gaps == []
 
     def test_infer_tests_for_node_accepts_bare_tested_by_source(self):
         """Rust cross-file private helper calls may be stored as bare TESTED_BY sources."""
@@ -864,7 +863,7 @@ class TestChanges:
             changed_ranges={source_path: [(1, 10)]},
         )
 
-        assert result["test_gaps"] == []
+        assert result.test_gaps == []
 
     def test_get_review_context_minimal_uses_tested_by_source_as_covered_node(self):
         """Minimal review context should treat TESTED_BY as production -> test."""
@@ -1029,7 +1028,7 @@ class TestChanges:
             changed_files=["services.py"],
             changed_ranges={"services.py": [(1, 10)]},
         )
-        assert len(result["affected_flows"]) >= 1
+        assert len(result.affected_flows) >= 1
 
     def test_analyze_changes_review_priorities_ordered(self):
         """Review priorities are ordered by descending risk score."""
@@ -1042,7 +1041,7 @@ class TestChanges:
             changed_files=["app.py"],
             changed_ranges={"app.py": [(1, 20)]},
         )
-        priorities = result["review_priorities"]
+        priorities = result.review_priorities
         if len(priorities) >= 2:
             for i in range(len(priorities) - 1):
                 assert priorities[i]["risk_score"] >= priorities[i + 1]["risk_score"]
@@ -1058,7 +1057,7 @@ class TestChanges:
             changed_ranges=None,
         )
         # Should still find functions even without ranges.
-        assert len(result["changed_functions"]) >= 1
+        assert len(result.changed_functions) >= 1
 
     # ---------------------------------------------------------------
     # detect_changes_func (integration)
@@ -1345,18 +1344,22 @@ class TestChanges:
             patch("dagayn.tools.review.parse_diff_result", return_value=DiffParseResult({}, "ok")),
             patch(
                 "dagayn.tools.review.analyze_changes",
-                return_value={
-                    "summary": "large diff",
-                    "risk_score": 0.9,
-                    "changed_functions": huge_functions,
-                    "affected_flows": [
-                        {"name": f"flow_{i}", "payload": "y" * 300} for i in range(50)
-                    ],
-                    "test_gaps": [{"name": f"gap_{i}", "payload": "z" * 300} for i in range(50)],
-                    "review_priorities": [
-                        {"name": f"prio_{i}", "payload": "w" * 300} for i in range(20)
-                    ],
-                },
+                return_value=ChangeAnalysisResult.model_validate(
+                    {
+                        "summary": "large diff",
+                        "risk_score": 0.9,
+                        "changed_functions": huge_functions,
+                        "affected_flows": [
+                            {"name": f"flow_{i}", "payload": "y" * 300} for i in range(50)
+                        ],
+                        "test_gaps": [
+                            {"name": f"gap_{i}", "payload": "z" * 300} for i in range(50)
+                        ],
+                        "review_priorities": [
+                            {"name": f"prio_{i}", "payload": "w" * 300} for i in range(20)
+                        ],
+                    }
+                ),
             ),
         ):
             mock_get_store.return_value = (self.store, Path("/fake/repo"))

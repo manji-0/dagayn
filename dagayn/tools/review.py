@@ -171,7 +171,7 @@ def detect_changes_func(
         )
 
         if include_source:
-            for func in analysis.get("changed_functions", []):
+            for func in analysis.changed_functions:
                 fp = func.get("file_path")
                 ls = func.get("line_start")
                 le = func.get("line_end")
@@ -191,30 +191,26 @@ def detect_changes_func(
                             func["source"] = "(could not read file)"
 
         if detail_level == "minimal":
-            priorities = analysis.get("review_priorities", [])
+            priorities = analysis.review_priorities
             top_priorities = [p.get("name", p.get("qualified_name", "")) for p in priorities[:3]]
             result: dict[str, Any] = {
                 "status": "ok",
-                "summary": analysis.get("summary", ""),
-                "risk_score": analysis.get("risk_score", 0.0),
-                "review_priority_score": analysis.get(
-                    "review_priority_score",
-                    analysis.get("risk_score", 0.0),
-                ),
-                "score_semantics": analysis.get(
-                    "score_semantics",
-                    analysis_summary.get("score_semantics", {}),
+                "summary": analysis.summary,
+                "risk_score": analysis.risk_score,
+                "review_priority_score": analysis.review_priority_score,
+                "score_semantics": (
+                    analysis.score_semantics or analysis_summary.get("score_semantics", {})
                 ),
                 "risk_level": analysis_summary["risk_level"],
                 "reason_codes": analysis_summary["reason_codes"],
                 "changed_file_count": len(changed_files),
                 "change_file_sources": change_file_sources,
-                "change_entity_summary": analysis.get("change_entity_summary", {}),
+                "change_entity_summary": analysis.change_entity_summary,
                 "changed_node_count": analysis_summary["changed_node_count"],
                 "impacted_node_count": analysis_summary["impacted_node_count"],
                 "impacted_file_count": analysis_summary["impacted_file_count"],
-                "test_gap_count": len(analysis.get("test_gaps", [])),
-                "test_gap_evidence": analysis.get("test_gap_evidence", {}),
+                "test_gap_count": len(analysis.test_gaps),
+                "test_gap_evidence": analysis.test_gap_evidence,
                 "test_gap_ranking": analysis_summary["test_gap_ranking"],
                 "signal_quality": analysis_summary["signal_quality"],
                 "recommended_tests": analysis_summary["recommended_tests"][:5],
@@ -242,7 +238,7 @@ def detect_changes_func(
                 "status": "ok",
                 "changed_files": changed_files,
                 "change_file_sources": change_file_sources,
-                **analysis,
+                **analysis.model_dump(),
                 "analysis_summary": analysis_summary,
                 "answerability": answerability,
                 "missingness": missingness,

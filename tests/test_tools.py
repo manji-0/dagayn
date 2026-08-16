@@ -10,7 +10,7 @@ import pytest
 
 from dagayn.graph import GraphStore, _sanitize_name, node_to_dict
 from dagayn.parser import EdgeInfo, NodeInfo
-from dagayn.state_types import BuildResult
+from dagayn.state_types import BuildResult, ChangeAnalysisResult
 from dagayn.tools import (
     get_affected_flows_func,
     get_architecture_overview_func,
@@ -2802,19 +2802,21 @@ class TestGetMinimalContext:
         monkeypatch.setattr(
             changes,
             "analyze_changes",
-            lambda *args, **kwargs: {
-                "risk_score": 0.8,
-                "changed_functions": [{"name": "low-priority"}],
-                "review_priorities": [
-                    {"name": "highest-priority"},
-                    {"name": "second-priority"},
-                ],
-                "affected_flows": [
-                    {"name": "login-flow"},
-                    {"name": "signup-flow"},
-                ],
-                "test_gaps": [{"name": "missing-test"}],
-            },
+            lambda *args, **kwargs: ChangeAnalysisResult.model_validate(
+                {
+                    "risk_score": 0.8,
+                    "changed_functions": [{"name": "low-priority"}],
+                    "review_priorities": [
+                        {"name": "highest-priority"},
+                        {"name": "second-priority"},
+                    ],
+                    "affected_flows": [
+                        {"name": "login-flow"},
+                        {"name": "signup-flow"},
+                    ],
+                    "test_gaps": [{"name": "missing-test"}],
+                }
+            ),
         )
 
         result = get_minimal_context(

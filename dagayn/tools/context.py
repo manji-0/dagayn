@@ -399,23 +399,20 @@ def _get_minimal_context_body(
                     # graph scan.
                     heuristic_test_gap_node_limit=10,
                 )
-                review_priority_score = analysis.get(
-                    "review_priority_score",
-                    analysis.get("risk_score", 0.0),
-                )
+                review_priority_score = analysis.review_priority_score
                 risk_score: float = (
                     review_priority_score if review_priority_score is not None else 0.0
                 )
                 risk = "high" if risk_score > 0.7 else "medium" if risk_score > 0.4 else "low"
-                priorities = analysis.get("review_priorities", [])
+                priorities = analysis.review_priorities
                 if not priorities:
-                    priorities = analysis.get("changed_functions", [])
+                    priorities = analysis.changed_functions
                 top_affected = _names_from_items(priorities, limit=5)
                 affected_flows = _names_from_items(
-                    analysis.get("affected_flows", []),
+                    analysis.affected_flows,
                     limit=5,
                 )
-                test_gap_count = len(analysis.get("test_gaps", []))
+                test_gap_count = len(analysis.test_gaps)
             except (
                 ImportError,
                 OSError,

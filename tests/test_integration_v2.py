@@ -414,14 +414,14 @@ class TestV2Integration:
             repo_root=None,
             base="HEAD~1",
         )
-        assert "summary" in change_result
-        assert "risk_score" in change_result
-        assert "changed_functions" in change_result
-        assert "test_gaps" in change_result
-        assert isinstance(change_result["risk_score"], (int, float))
+        assert change_result.summary
+        assert change_result.risk_score is not None
+        assert change_result.changed_functions is not None
+        assert change_result.test_gaps is not None
+        assert isinstance(change_result.risk_score, (int, float))
         # auth.py has verify_token, logout -- logout should be a test gap
         # (login has a TESTED_BY edge)
-        gap_names = [g["name"] for g in change_result["test_gaps"]]
+        gap_names = [g["name"] for g in change_result.test_gaps]
         assert "verify_token" in gap_names or "logout" in gap_names, (
             f"Expected at least one test gap in auth.py, got: {gap_names}"
         )
@@ -447,7 +447,7 @@ class TestV2Integration:
         session = get_session()
         hints = generate_hints(
             "detect_changes",
-            change_result,
+            change_result.model_dump(),
             session,
         )
         assert "next_steps" in hints

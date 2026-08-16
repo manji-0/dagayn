@@ -485,6 +485,33 @@ def build_result_payload(result: BuildResult) -> dict[str, Any]:
     return payload
 
 
+class ChangeAnalysisResult(BaseModel):
+    """Typed output of :func:`dagayn.changes.analyze_changes`.
+
+    ``changed_functions`` / ``changed_edges`` / ``test_gaps`` /
+    ``review_priorities`` items are JSON-ish node/edge dicts kept as
+    ``dict[str, Any]`` because callers enrich them in place (e.g. review
+    tools attach ``source`` snippets); their top-level shape is stable.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    summary: str = ""
+    risk_score: float = 0.0
+    review_priority_score: float = 0.0
+    score_semantics: dict[str, str] = Field(default_factory=dict)
+    changed_functions: list[dict[str, Any]] = Field(default_factory=list)
+    changed_edges: list[dict[str, Any]] = Field(default_factory=list)
+    change_entity_summary: dict[str, Any] = Field(default_factory=dict)
+    diff_parse_status: str | None = None
+    unmapped_changed_files: list[str] = Field(default_factory=list)
+    attribution: dict[str, Any] = Field(default_factory=dict)
+    affected_flows: list[dict[str, Any]] = Field(default_factory=list)
+    test_gaps: list[dict[str, Any]] = Field(default_factory=list)
+    test_gap_evidence: dict[str, Any] = Field(default_factory=dict)
+    review_priorities: list[dict[str, Any]] = Field(default_factory=list)
+
+
 class DispatcherErrorResponse(BaseModel):
     """Shared error envelope for mode-based tool dispatchers."""
 

@@ -145,11 +145,11 @@ def test_analyze_changes_real_git_marks_added_and_existing_nodes(git_repo: Path)
             base="HEAD~1",
         )
 
-        statuses = {node["name"]: node["change_status"] for node in result["changed_functions"]}
+        statuses = {node["name"]: node["change_status"] for node in result.changed_functions}
         assert statuses["greet"] == "existing"
         assert statuses["farewell"] == "added"
-        assert result["change_entity_summary"]["nodes"]["existing"] >= 1
-        assert result["change_entity_summary"]["nodes"]["added"] >= 1
+        assert result.change_entity_summary["nodes"]["existing"] >= 1
+        assert result.change_entity_summary["nodes"]["added"] >= 1
         store.close()
     finally:
         Path(db_path).unlink(missing_ok=True)

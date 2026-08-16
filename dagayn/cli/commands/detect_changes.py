@@ -51,15 +51,16 @@ def handle(args: argparse.Namespace) -> None:
             if not changed:
                 print("No changes detected.")
             else:
-                result = analyze_changes(
+                analysis = analyze_changes(
                     store,
                     changed,
                     repo_root=str(repo_root),
                     base=base,
                 )
+                result = analysis.model_dump()
                 result["change_file_sources"] = change_file_sources
                 if args.brief:
-                    print(result.get("summary", "No summary available."))
+                    print(analysis.summary or "No summary available.")
                 else:
                     print(json.dumps(result, indent=2, default=str))
         finally:

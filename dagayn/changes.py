@@ -23,6 +23,7 @@ from .flows import get_affected_flows
 from .graph import GraphEdge, GraphNode, GraphStore, _sanitize_name, edge_to_dict, node_to_dict
 from .parser import CodeParser
 from .parser._base.types import EdgeInfo, NodeInfo
+from .state_types import ChangeAnalysisResult
 
 logger = logging.getLogger(__name__)
 
@@ -854,24 +855,20 @@ def compute_risk_score(
     return round(min(max(score, 0.0), 1.0), 4)
 
 
-def _annotate_review_priority_semantics(result: dict[str, Any]) -> dict[str, Any]:
+def _annotate_review_priority_semantics(result: ChangeAnalysisResult) -> ChangeAnalysisResult:
     """Add explicit review-priority aliases while preserving risk_score fields."""
-    score = result.get("risk_score", 0.0)
-    result.setdefault("review_priority_score", score)
-    result.setdefault(
-        "score_semantics",
-        {
-            "risk_score": "legacy alias for review_priority_score",
-            "review_priority_score": (
-                "review triage ranking that combines flows, callers, tests, "
-                "security keywords, and community crossing; not a changeability score"
-            ),
-        },
-    )
-    for item in result.get("changed_functions", []) or []:
+    result.review_priority_score = result.risk_score
+    result.score_semantics = {
+        "risk_score": "legacy alias for review_priority_score",
+        "review_priority_score": (
+            "review triage ranking that combines flows, callers, tests, "
+            "security keywords, and community crossing; not a changeability score"
+        ),
+    }
+    for item in result.changed_functions:
         if isinstance(item, dict) and "risk_score" in item:
             item.setdefault("review_priority_score", item["risk_score"])
-    for item in result.get("review_priorities", []) or []:
+    for item in result.review_priorities:
         if isinstance(item, dict) and "risk_score" in item:
             item.setdefault("review_priority_score", item["risk_score"])
     return result
@@ -891,7 +888,7 @@ def analyze_changes(
     include_heuristic_test_gap_evidence: bool = True,
     heuristic_test_gap_node_limit: int | None = None,
     diff_parse_status: DiffParseStatus | None = None,
-) -> dict[str, Any]:
+) -> ChangeAnalysisResult:
     """Analyze changes and produce risk-scored review guidance.
 
     Args:
@@ -933,7 +930,9 @@ def analyze_changes(
         try:
             analyze = cast(Callable[[list[str], str], str], rust_analyze)
             return _annotate_review_priority_semantics(
-                json.loads(analyze(changed_files, json.dumps(changed_ranges or {})))
+                ChangeAnalysisResult.model_validate(
+                    json.loads(analyze(changed_files, json.dumps(changed_ranges or {})))
+                )
             )
         except (RuntimeError, ValueError, TypeError, json.JSONDecodeError) as exc:
             raise RuntimeError("Rust change analysis failed") from exc
@@ -1176,28 +1175,27 @@ def analyze_changes(
         )
 
     return _annotate_review_priority_semantics(
-        {
-            "summary": "\n".join(summary_parts),
-            "risk_score": overall_risk,
-            "review_priority_score": overall_risk,
-            "changed_functions": node_risks,
-            "changed_edges": changed_edges,
-            "change_entity_summary": {
+        ChangeAnalysisResult(
+            summary="\n".join(summary_parts),
+            risk_score=overall_risk,
+            changed_functions=node_risks,
+            changed_edges=changed_edges,
+            change_entity_summary={
                 "nodes": node_status_counts,
                 "edges": edge_status_counts,
                 "base": base if has_base_snapshot else None,
             },
-            "diff_parse_status": diff_parse_status,
-            "unmapped_changed_files": unmapped_changed_files,
-            "attribution": {
+            diff_parse_status=diff_parse_status,
+            unmapped_changed_files=unmapped_changed_files,
+            attribution={
                 "stale_line_range_files": [
                     _repo_relative_path(path, repo_root) for path in mapping.stale_line_range_files
                 ],
                 "reason_codes": attribution_reason_codes,
             },
-            "affected_flows": affected["affected_flows"],
-            "test_gaps": test_gaps,
-            "test_gap_evidence": {
+            affected_flows=affected["affected_flows"],
+            test_gaps=test_gaps,
+            test_gap_evidence={
                 "direct_tested_by_edges": True,
                 "heuristic_suppression_enabled": include_heuristic_test_gap_evidence,
                 "heuristic_checked_node_count": heuristic_gap_checks,
@@ -1208,6 +1206,6 @@ def analyze_changes(
                     and heuristic_gap_checks < heuristic_gap_eligible_count
                 ),
             },
-            "review_priorities": review_priorities,
-        }
+            review_priorities=review_priorities,
+        )
     )
