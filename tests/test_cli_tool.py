@@ -207,9 +207,7 @@ def test_handle_allows_kwargs_only_tool(monkeypatch):
 
     monkeypatch.setattr(tool, "_load_tool", lambda name: fake_tool)
 
-    args = _parser().parse_args(
-        ["tool", "semantic_search_nodes_tool", "--arg", "provider=google"]
-    )
+    args = _parser().parse_args(["tool", "semantic_search_nodes_tool", "--arg", "provider=google"])
     tool.handle(args)
 
     assert calls == [{"provider": "google"}]
