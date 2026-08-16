@@ -30,6 +30,7 @@ from .incremental_files import (
 )
 from .parser import CodeParser
 from .parser.dispatch import detect_language as _detect_parser_language
+from .state_types import BuildResult
 from .worktree import is_gitignored
 
 _IGNORE_SCOPE_NAMES = frozenset({".gitignore", ".dagaynignore"})
@@ -48,7 +49,7 @@ def _run_incremental_update(
     *,
     changed_files: list[str] | None = None,
     base: str = "HEAD~1",
-) -> dict:
+) -> BuildResult:
     """Run incremental_update through the public incremental shim."""
     from . import incremental as inc
 
@@ -863,7 +864,7 @@ def full_build(
     repo_root: Path,
     store: GraphStore,
     recurse_submodules: bool | None = None,
-) -> dict:
+) -> BuildResult:
     """Full rebuild of the entire graph.
 
     Args:
@@ -972,15 +973,15 @@ def full_build(
             _store_vcs_metadata(repo_root, store)
         store.commit()
 
-    result: dict[str, Any] = {
-        "files_parsed": len(files),
-        "total_nodes": total_nodes,
-        "total_edges": total_edges,
-        "errors": errors,
-    }
+    result = BuildResult(
+        files_parsed=len(files),
+        total_nodes=total_nodes,
+        total_edges=total_edges,
+        errors=errors,
+    )
     if full_store_failures:
-        result["store_failed_files"] = full_store_failures
-        result["status"] = "partial"
+        result.store_failed_files = full_store_failures
+        result.status = "partial"
     return result
 
 
@@ -1012,7 +1013,7 @@ def incremental_update(
     base: str = "HEAD~1",
     changed_files: list[str] | None = None,
     extra_files: list[str] | None = None,
-) -> dict:
+) -> BuildResult:
     """Incremental update: re-parse changed + dependent files only.
 
     *extra_files* are re-indexed on top of whatever the git diff reports. A
@@ -1077,14 +1078,14 @@ def incremental_update(
 
     if not changed_files and not stale_scope:
         _record_head_when_verified()
-        return {
-            "files_updated": 0,
-            "total_nodes": 0,
-            "total_edges": 0,
-            "changed_files": [],
-            "change_file_sources": change_file_sources,
-            "dependent_files": [],
-        }
+        return BuildResult(
+            files_updated=0,
+            total_nodes=0,
+            total_edges=0,
+            changed_files=[],
+            change_file_sources=change_file_sources,
+            dependent_files=[],
+        )
 
     total_nodes = 0
     total_edges = 0
@@ -1246,15 +1247,15 @@ def incremental_update(
         and not to_parse
     ):
         _record_head_when_verified()
-        return {
-            "files_updated": len(all_files),
-            "total_nodes": total_nodes,
-            "total_edges": total_edges,
-            "changed_files": list(changed_files),
-            "change_file_sources": change_file_sources,
-            "dependent_files": list(dependent_files),
-            "errors": errors,
-        }
+        return BuildResult(
+            files_updated=len(all_files),
+            total_nodes=total_nodes,
+            total_edges=total_edges,
+            changed_files=list(changed_files),
+            change_file_sources=change_file_sources,
+            dependent_files=list(dependent_files),
+            errors=errors,
+        )
 
     use_serial = os.environ.get("CRG_SERIAL_PARSE", "") == "1"
     to_parse_mtime = dict(to_parse)
@@ -1356,18 +1357,18 @@ def incremental_update(
         logger.error("Not recording git_head_sha: %d file(s) failed to store", len(store_failures))
     store.commit()
 
-    result = {
-        "files_updated": len(all_files),
-        "total_nodes": total_nodes,
-        "total_edges": total_edges,
-        "changed_files": list(changed_files),
-        "change_file_sources": change_file_sources,
-        "dependent_files": list(dependent_files),
-        "errors": errors,
-    }
+    result = BuildResult(
+        files_updated=len(all_files),
+        total_nodes=total_nodes,
+        total_edges=total_edges,
+        changed_files=list(changed_files),
+        change_file_sources=change_file_sources,
+        dependent_files=list(dependent_files),
+        errors=errors,
+    )
     if store_failures:
-        result["store_failed_files"] = store_failures
-        result["status"] = "partial"
+        result.store_failed_files = store_failures
+        result.status = "partial"
     return result
 
 
@@ -1527,7 +1528,7 @@ def watch(
                         store,
                         changed_files=rels,
                     )
-                    updated = int(result.get("files_updated", 0))
+                    updated = result.files_updated or 0
                 except _GRAPH_STORE_ERRORS as e:
                     logger.error("Error updating watched files %s: %s", rels, e)
 

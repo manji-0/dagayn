@@ -31,8 +31,8 @@ def run(repo_path: Path, store, config: dict) -> list[dict]:
             total_ms = (time.perf_counter() - started) * 1000.0
             stats = build_store.get_stats()
             timings.append(total_ms)
-            files_parsed = int(build_result.get("files_parsed", stats.files_count) or 0)
-            errors_count = len(build_result.get("errors", []) or [])
+            files_parsed = build_result.files_parsed or stats.files_count or 0
+            errors_count = len(build_result.errors or [])
             rows.append(
                 {
                     "benchmark": "build_performance",

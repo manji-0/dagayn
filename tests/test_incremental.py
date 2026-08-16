@@ -29,6 +29,7 @@ from dagayn.incremental import (
     watch,
 )
 from dagayn.parser import EdgeInfo, NodeInfo
+from dagayn.state_types import BuildResult
 
 
 class TestFindRepoRoot:
@@ -786,9 +787,9 @@ class TestFullBuild:
             mock_target = "dagayn.incremental.get_all_tracked_files"
             with patch(mock_target, return_value=["sample.py"]):
                 result = full_build(tmp_path, store)
-            assert result["files_parsed"] == 1
-            assert result["total_nodes"] > 0
-            assert result["errors"] == []
+            assert result.files_parsed == 1
+            assert (result.total_nodes or 0) > 0
+            assert result.errors == []
             assert store.get_metadata("last_build_type") == "full"
         finally:
             store.close()
@@ -800,7 +801,7 @@ class TestIncrementalUpdate:
         store = GraphStore(db_path)
         try:
             result = incremental_update(tmp_path, store, changed_files=[])
-            assert result["files_updated"] == 0
+            assert result.files_updated == 0
         finally:
             store.close()
 
@@ -812,8 +813,8 @@ class TestIncrementalUpdate:
         store = GraphStore(db_path)
         try:
             result = incremental_update(tmp_path, store, changed_files=["mod.py"])
-            assert result["files_updated"] >= 1
-            assert result["total_nodes"] > 0
+            assert (result.files_updated or 0) >= 1
+            assert (result.total_nodes or 0) > 0
         finally:
             store.close()
 
@@ -834,10 +835,10 @@ class TestIncrementalUpdate:
                 },
             ):
                 result = incremental_update(tmp_path, store)
-            assert "new_mod.py" in result["changed_files"]
-            assert result["change_file_sources"]["base_diff"] == ["tracked.py"]
-            assert result["change_file_sources"]["untracked"] == ["new_mod.py"]
-            assert result["files_updated"] >= 1
+            assert "new_mod.py" in (result.changed_files or [])
+            assert (result.change_file_sources or {})["base_diff"] == ["tracked.py"]
+            assert (result.change_file_sources or {})["untracked"] == ["new_mod.py"]
+            assert (result.files_updated or 0) >= 1
             assert store.get_nodes_by_file(str(py_file))
         finally:
             store.close()
@@ -850,7 +851,7 @@ class TestIncrementalUpdate:
             py_file = tmp_path / "old.py"
             py_file.write_text("x = 1\n")
             result = incremental_update(tmp_path, store, changed_files=["old.py"])
-            assert result["total_nodes"] > 0
+            assert (result.total_nodes or 0) > 0
 
             # Now delete the file and run incremental
             py_file.unlink()
@@ -900,7 +901,7 @@ class TestIncrementalUpdate:
 
         def fake_incremental_update(repo_root, passed_store, changed_files=None):
             calls.append((repo_root, passed_store, list(changed_files or [])))
-            return {"files_updated": len(changed_files or [])}
+            return BuildResult(files_updated=len(changed_files or []))
 
         monkeypatch.setattr("threading.Timer", FakeTimer)
         monkeypatch.setattr("watchdog.observers.Observer", FakeObserver)
@@ -963,7 +964,7 @@ class TestIncrementalUpdate:
         monkeypatch.setattr(
             "dagayn.incremental.incremental_update",
             lambda repo_root, passed_store, changed_files=None: (
-                calls.append(list(changed_files or [])) or {"files_updated": 1}
+                calls.append(list(changed_files or [])) or BuildResult(files_updated=1)
             ),
         )
         monkeypatch.setattr("time.sleep", lambda _seconds: (_ for _ in ()).throw(KeyboardInterrupt))
@@ -1012,7 +1013,7 @@ class TestIncrementalUpdate:
         monkeypatch.setattr(
             "dagayn.incremental.incremental_update",
             lambda repo_root, passed_store, changed_files=None: (
-                calls.append(list(changed_files or [])) or {"files_updated": 1}
+                calls.append(list(changed_files or [])) or BuildResult(files_updated=1)
             ),
         )
         monkeypatch.setattr("time.sleep", lambda _seconds: (_ for _ in ()).throw(KeyboardInterrupt))
@@ -1062,9 +1063,9 @@ class TestParallelParsing:
             with patch(mock_target, return_value=tracked):
                 with patch.dict("os.environ", {"CRG_SERIAL_PARSE": "1"}):
                     result_serial = full_build(tmp_path, store_serial)
-            serial_nodes = result_serial["total_nodes"]
-            serial_edges = result_serial["total_edges"]
-            serial_files = result_serial["files_parsed"]
+            serial_nodes = result_serial.total_nodes
+            serial_edges = result_serial.total_edges
+            serial_files = result_serial.files_parsed
         finally:
             store_serial.close()
 
@@ -1075,9 +1076,9 @@ class TestParallelParsing:
             with patch(mock_target, return_value=tracked):
                 with patch.dict("os.environ", {"CRG_SERIAL_PARSE": ""}):
                     result_parallel = full_build(tmp_path, store_parallel)
-            parallel_nodes = result_parallel["total_nodes"]
-            parallel_edges = result_parallel["total_edges"]
-            parallel_files = result_parallel["files_parsed"]
+            parallel_nodes = result_parallel.total_nodes
+            parallel_edges = result_parallel.total_edges
+            parallel_files = result_parallel.files_parsed
         finally:
             store_parallel.close()
 

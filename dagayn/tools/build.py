@@ -827,23 +827,16 @@ def build_or_update_graph(
     try:
         pre_affected_communities = 0
         if full_rebuild:
-            result = full_build(root, store, recurse_submodules)
-            build_result = BuildResult(
-                # ``partial`` when files failed to *store*: the graph is missing
-                # content it was asked to hold, and callers must not treat it as
-                # a complete description of HEAD.
-                status=str(result.get("status", "ok")),
-                build_type="full",
-                summary=(
-                    f"Full build complete: parsed {result['files_parsed']} files, "
-                    f"created {result['total_nodes']} nodes and "
-                    f"{result['total_edges']} edges."
-                ),
-                files_parsed=result["files_parsed"],
-                total_nodes=result["total_nodes"],
-                total_edges=result["total_edges"],
-                errors=result["errors"],
-                store_failed_files=result.get("store_failed_files"),
+            build_result = full_build(root, store, recurse_submodules)
+            # ``partial`` when files failed to *store*: the graph is missing
+            # content it was asked to hold, and callers must not treat it as
+            # a complete description of HEAD.
+            build_result.status = build_result.status or "ok"
+            build_result.build_type = "full"
+            build_result.summary = (
+                f"Full build complete: parsed {build_result.files_parsed} files, "
+                f"created {build_result.total_nodes} nodes and "
+                f"{build_result.total_edges} edges."
             )
         else:
             from dagayn.communities import count_affected_communities
@@ -855,22 +848,12 @@ def build_or_update_graph(
                 preview_changed = list(dict.fromkeys([*preview_changed, *extra_files]))
             if preview_changed:
                 pre_affected_communities = count_affected_communities(store, preview_changed)
-            result = incremental_update(root, store, base=base, extra_files=extra_files)
-            if result["files_updated"] == 0:
-                build_result = BuildResult(
-                    status="ok",
-                    build_type="incremental",
-                    summary="No changes detected. Graph is up to date.",
-                    postprocess_level=postprocess,
-                    files_updated=result["files_updated"],
-                    total_nodes=result["total_nodes"],
-                    total_edges=result["total_edges"],
-                    errors=result.get("errors"),
-                    changed_files=result.get("changed_files"),
-                    change_file_sources=result.get("change_file_sources"),
-                    dependent_files=result.get("dependent_files"),
-                    store_failed_files=result.get("store_failed_files"),
-                )
+            build_result = incremental_update(root, store, base=base, extra_files=extra_files)
+            if build_result.files_updated == 0:
+                build_result.status = "ok"
+                build_result.build_type = "incremental"
+                build_result.summary = "No changes detected. Graph is up to date."
+                build_result.postprocess_level = postprocess
                 if _local_embedding_requested(local_embedding):
                     if hook_update:
                         build_result.local_embedding_skipped = {
@@ -880,28 +863,18 @@ def build_or_update_graph(
                         run_embedding = True
                 no_changes = True
             else:
-                build_result = BuildResult(
-                    status=str(result.get("status", "ok")),
-                    build_type="incremental",
-                    summary=(
-                        f"Incremental update: {result['files_updated']} files re-parsed, "
-                        f"{result['total_nodes']} nodes and "
-                        f"{result['total_edges']} edges updated. "
-                        f"Changed: {result['changed_files']}. "
-                        f"Dependents also updated: {result['dependent_files']}."
-                    ),
-                    files_updated=result["files_updated"],
-                    total_nodes=result["total_nodes"],
-                    total_edges=result["total_edges"],
-                    errors=result.get("errors"),
-                    changed_files=result.get("changed_files"),
-                    change_file_sources=result.get("change_file_sources"),
-                    dependent_files=result.get("dependent_files"),
-                    store_failed_files=result.get("store_failed_files"),
+                build_result.status = build_result.status or "ok"
+                build_result.build_type = "incremental"
+                build_result.summary = (
+                    f"Incremental update: {build_result.files_updated} files re-parsed, "
+                    f"{build_result.total_nodes} nodes and "
+                    f"{build_result.total_edges} edges updated. "
+                    f"Changed: {build_result.changed_files}. "
+                    f"Dependents also updated: {build_result.dependent_files}."
                 )
 
         # Pass changed_files for incremental flow/community detection.
-        changed = result.get("changed_files") if not full_rebuild else None
+        changed = build_result.changed_files if not full_rebuild else None
         if not no_changes:
             if postprocess == "none":
                 warnings = _run_postprocess(

@@ -14,6 +14,7 @@ from dagayn.eval.reporter import (
     generate_markdown_report,
     generate_readme_tables,
 )
+from dagayn.state_types import BuildResult
 
 try:
     import yaml as _yaml  # noqa: F401
@@ -699,7 +700,7 @@ def test_build_performance_times_full_build(monkeypatch, tmp_path):
 
     def fake_full_build(_repo_path, _store):
         calls.append(1)
-        return {"files_parsed": 2, "errors": []}
+        return BuildResult(files_parsed=2, errors=[])
 
     monkeypatch.setattr("dagayn.graph.GraphStore", FakeStore)
     monkeypatch.setattr("dagayn.incremental.full_build", fake_full_build)

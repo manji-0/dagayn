@@ -162,8 +162,8 @@ def test_python_store_uses_python_parser_when_rust_is_default(tmp_path, monkeypa
     finally:
         store.close()
 
-    assert result["errors"] == []
-    assert result["files_parsed"] == 1
+    assert result.errors == []
+    assert result.files_parsed == 1
 
 
 def _copy_fixture(source: Path, dest: Path) -> None:
@@ -275,9 +275,9 @@ def test_rust_backend_incremental_touch_updates_mtime_without_reparse(
         os.utime(target, ns=(new_mtime_ns, new_mtime_ns))
 
         result = incremental_update(repo, store, changed_files=["api.md"])
-        assert result["total_nodes"] == 0
-        assert result["total_edges"] == 0
-        assert result["errors"] == []
+        assert result.total_nodes == 0
+        assert result.total_edges == 0
+        assert result.errors == []
         assert store.get_file_meta_map()["api.md"][1] == new_mtime_ns
     finally:
         store.close()
@@ -367,7 +367,7 @@ def test_rust_backend_routes_databricks_py_exports(tmp_path, monkeypatch):
     finally:
         store.close()
 
-    assert result["errors"] == []
+    assert result.errors == []
     exported = json.loads(export_db(db_path))
     file_nodes = [node for node in exported["nodes"] if node["kind"] == "File"]
     assert file_nodes[0]["extra"].get("notebook_format") == "databricks_py"

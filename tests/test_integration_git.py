@@ -177,8 +177,8 @@ def test_incremental_update_real_git(git_repo: Path) -> None:
         # Move back to tip (second commit) and do incremental update
         _git(git_repo, "checkout", "-")
         result = incremental_update(git_repo, store, changed_files=["hello.py"])
-        assert result["files_updated"] >= 1
-        assert "hello.py" in result["changed_files"]
+        assert (result.files_updated or 0) >= 1
+        assert "hello.py" in (result.changed_files or [])
 
         # The graph should now contain more nodes (farewell function added)
         assert store.get_stats().total_nodes >= initial_nodes
@@ -212,7 +212,7 @@ def test_incremental_update_noop_advances_head_sha(git_repo: Path) -> None:
         assert head != base
 
         result = incremental_update(git_repo, store, base=base)
-        assert result["files_updated"] == 0
+        assert result.files_updated == 0
         assert store.get_metadata("git_head_sha") == head
         store.close()
     finally:
@@ -271,7 +271,7 @@ def test_incremental_update_noop_keeps_head_sha_when_base_unresolvable(
         store.commit()
 
         result = incremental_update(git_repo, store, base="0" * 40)
-        assert result["files_updated"] == 0
+        assert result.files_updated == 0
         assert store.get_metadata("git_head_sha") == "0" * 40
         store.close()
     finally:
@@ -367,8 +367,8 @@ def test_full_build_with_recurse_submodules(
     store = GraphStore(db_path)
     try:
         result = full_build(git_repo_with_submodule, store, recurse_submodules=True)
-        assert result["files_parsed"] >= 2  # main.py + lib/util.py
-        assert result["errors"] == []
+        assert (result.files_parsed or 0) >= 2  # main.py + lib/util.py
+        assert result.errors == []
 
         # Verify both parent and submodule nodes exist
         parent_nodes = store.get_nodes_by_file(str(git_repo_with_submodule / "main.py"))
@@ -418,8 +418,8 @@ def test_committed_rename_prunes_the_old_path(git_repo: Path) -> None:
         _git(git_repo, "commit", "-m", "rename hello.py")
 
         result = incremental_update(git_repo, store, base=base)
-        assert "hello.py" in result["changed_files"], result["changed_files"]
-        assert "renamed.py" in result["changed_files"], result["changed_files"]
+        assert "hello.py" in (result.changed_files or []), result.changed_files
+        assert "renamed.py" in (result.changed_files or []), result.changed_files
 
         indexed = _indexed_files(store)
         assert "renamed.py" in indexed
@@ -455,7 +455,7 @@ def test_non_ascii_filenames_are_indexed(git_repo: Path) -> None:
         _git(git_repo, "add", "-A")
         _git(git_repo, "commit", "-m", "edit the non-ascii file")
         result = incremental_update(git_repo, store, base=base)
-        assert "日本語.py" in result["changed_files"], result["changed_files"]
+        assert "日本語.py" in (result.changed_files or []), result.changed_files
         names = {row[0] for row in store._conn.execute("SELECT name FROM nodes")}
         assert "added" in names
         store.close()
@@ -493,7 +493,7 @@ def test_content_change_with_restored_mtime_is_detected(git_repo: Path) -> None:
         assert target.stat().st_mtime_ns == stat_before.st_mtime_ns, "premise: mtime unchanged"
 
         result = incremental_update(git_repo, store, base=base)
-        assert result["files_updated"] >= 1, result
+        assert (result.files_updated or 0) >= 1, result
         names = {row[0] for row in store._conn.execute("SELECT name FROM nodes")}
         assert "added_later" in names
         store.close()
@@ -596,7 +596,7 @@ def test_full_build_indexes_untracked_and_skips_gitignored(git_repo: Path) -> No
     try:
         store = GraphStore(db_path)
         result = full_build(git_repo, store)
-        assert result["errors"] == []
+        assert result.errors == []
         indexed = _indexed_files(store)
         assert "scratch.py" in indexed
         assert "generated.py" not in indexed

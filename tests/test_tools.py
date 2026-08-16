@@ -10,6 +10,7 @@ import pytest
 
 from dagayn.graph import GraphStore, _sanitize_name, node_to_dict
 from dagayn.parser import EdgeInfo, NodeInfo
+from dagayn.state_types import BuildResult
 from dagayn.tools import (
     get_affected_flows_func,
     get_architecture_overview_func,
@@ -1965,11 +1966,11 @@ class TestBuildPostprocess:
             "newly_embedded": 0,
             "total_embeddings": 9,
         }
-        update_result = {
-            "files_updated": 0,
-            "total_nodes": 0,
-            "total_edges": 0,
-        }
+        update_result = BuildResult(
+            files_updated=0,
+            total_nodes=0,
+            total_edges=0,
+        )
 
         with (
             patch("dagayn.tools.build.incremental_update", return_value=update_result),
@@ -1994,11 +1995,11 @@ class TestBuildPostprocess:
         from dagayn.tools.build import build_or_update_graph
 
         monkeypatch.setenv("DAGAYN_HOOK_UPDATE", "1")
-        update_result = {
-            "files_updated": 0,
-            "total_nodes": 0,
-            "total_edges": 0,
-        }
+        update_result = BuildResult(
+            files_updated=0,
+            total_nodes=0,
+            total_edges=0,
+        )
 
         with (
             patch("dagayn.tools.build.incremental_update", return_value=update_result),

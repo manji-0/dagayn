@@ -1780,7 +1780,7 @@ class TestMixedMonorepoBuild(_TempRepoBuildMixin):
             ).fetchall()
         }
         assert {"markdown", "python", "terraform"} <= langs
-        assert result["files_parsed"] >= 5
+        assert (result.files_parsed or 0) >= 5
 
         imports = cur.execute(
             "SELECT target_qualified FROM edges WHERE kind='IMPORTS_FROM' AND file_path=?",
