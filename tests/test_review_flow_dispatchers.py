@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import subprocess
 from typing import cast
 
 from dagayn import main as crg_main
@@ -235,3 +236,94 @@ def test_architecture_dispatcher_preserves_guidance_hints(monkeypatch) -> None:
 
     assert result["_hints"] == expected_hints
     assert "answerability" in result
+
+
+def _init_single_commit_repo(tmp_path) -> str:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    app_py = repo / "app.py"
+    app_py.write_text("def alpha():\n    return 1\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=repo, check=True, capture_output=True)
+    app_py.write_text("def alpha():\n    return 2\n", encoding="utf-8")
+    return str(repo)
+
+
+def test_review_changes_single_commit_repo_returns_graceful_error(tmp_path) -> None:
+    repo_root = _init_single_commit_repo(tmp_path)
+
+    result = review_dispatcher.review_func(mode="changes", repo_root=repo_root)
+
+    assert result["status"] == "error"
+    assert result["mode"] == "changes"
+    assert result["called_subtool"] == "detect_changes_func"
+    assert "HEAD~1" in result["summary"]
+    reason_codes = [item["reason_code"] for item in result["missingness"]]
+    assert "diff_base_unreachable" in reason_codes
+
+
+def test_review_dispatcher_routes_subtool_error_envelopes(monkeypatch) -> None:
+    monkeypatch.setattr(
+        review_dispatcher,
+        "detect_changes_func",
+        lambda **_kwargs: {
+            "status": "error",
+            "summary": "Could not resolve the diff base 'HEAD~1'.",
+            "error": "Could not resolve the diff base 'HEAD~1'.",
+        },
+    )
+
+    result = review_dispatcher.review_func(mode="changes", repo_root="/repo")
+
+    assert result["status"] == "error"
+    assert result["mode"] == "changes"
+    assert result["called_subtool"] == "detect_changes_func"
+    assert "HEAD~1" in result["error"]
+    assert "answerability" in result
+
+
+def test_flow_dispatcher_routes_subtool_error_envelopes(monkeypatch) -> None:
+    monkeypatch.setattr(
+        flow_dispatcher,
+        "get_flow",
+        lambda **_kwargs: {"status": "error", "summary": "flow exploded", "error": "flow exploded"},
+    )
+
+    result = flow_dispatcher.flow_func(mode="get", flow_name="nope", repo_root="/repo")
+
+    assert result["status"] == "error"
+    assert result["mode"] == "get"
+    assert result["called_subtool"] == "get_flow"
+    assert result["error"] == "flow exploded"
+
+
+def test_architecture_dispatcher_routes_subtool_error_envelopes(monkeypatch) -> None:
+    monkeypatch.setattr(
+        architecture_analysis,
+        "get_architecture_overview_func",
+        lambda **_kwargs: {
+            "status": "error",
+            "summary": "overview exploded",
+            "error": "overview exploded",
+        },
+    )
+
+    result = architecture_analysis.architecture_analysis_func(mode="overview", repo_root="/repo")
+
+    assert result["status"] == "error"
+    assert result["mode"] == "overview"
+    assert result["called_subtool"] == "get_architecture_overview_func"
+    assert result["error"] == "overview exploded"

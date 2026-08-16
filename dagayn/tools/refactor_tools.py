@@ -292,20 +292,20 @@ def refactor_func(
                 "summary": (
                     f"Rename preview: {request.old_name} -> {request.new_name}, "
                     f"{len(preview['edits'])} edit(s). Apply with "
-                    f"`dagayn tool apply_refactor_tool` "
-                    f"(or `dagayn serve --tools all`) using refactor_id="
-                    f"'{preview['refactor_id']}'."
+                    f"apply_refactor_tool in the same `dagayn serve` MCP session "
+                    f"(refactor_id is session-scoped, expires after 10 min) using "
+                    f"refactor_id='{preview['refactor_id']}'."
                 ),
                 **preview,
                 "answerability": answerability,
                 "missingness": [*missingness, *preview.get("missingness", [])],
                 "next_tool_suggestions": [
-                    "dagayn tool apply_refactor_tool --arg refactor_id="
-                    f"'{preview['refactor_id']}' --arg dry_run=true"
-                    " -- preview unified diff before writing files",
-                    "dagayn tool apply_refactor_tool --arg refactor_id="
-                    f"'{preview['refactor_id']}'"
-                    " -- apply the rename",
+                    "apply_refactor_tool(refactor_id='"
+                    f"{preview['refactor_id']}', dry_run=true)"
+                    " in the same session -- preview unified diff before writing files",
+                    "apply_refactor_tool(refactor_id='"
+                    f"{preview['refactor_id']}')"
+                    " in the same session -- apply the rename",
                 ],
             }
             result["_hints"] = generate_hints("refactor", result, get_session())

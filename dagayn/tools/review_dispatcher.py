@@ -34,6 +34,9 @@ def _with_dispatch_metadata(
     payload["mode"] = mode
     payload["called_subtool"] = called_subtool
     attach_answerability(payload, repo_root)
+    if payload.get("status") == "error":
+        payload.setdefault("error", payload["summary"])
+        return seal_dispatcher_error(payload)
     payload.setdefault("_hints", generate_hints("review", payload, get_session()))
     return seal_dispatcher_ok(payload)
 

@@ -751,9 +751,11 @@ def refactor_tool(
     refactoring suggestions.
 
     Modes:
-    - rename: Preview renaming a symbol. Returns an edit list and a refactor_id.
-      Apply with ``dagayn tool apply_refactor_tool`` (advanced MCP surface:
-      ``dagayn serve --tools all``). Requires old_name and new_name.
+    - rename: Preview renaming a symbol. Returns an edit list and a
+      session-scoped refactor_id (expires after 10 min). Apply it with
+      ``apply_refactor_tool`` in the same ``dagayn serve`` MCP session
+      (advanced MCP surface: ``dagayn serve --tools all``). Requires
+      old_name and new_name.
     - dead_code: Find unreferenced functions/classes (no callers, tests, or
       importers, and not entry points).
     - suggest: Get graph-backed refactoring suggestions, including remove,

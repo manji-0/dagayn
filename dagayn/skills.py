@@ -1600,7 +1600,8 @@ advanced/maintenance tools.
    choose drill-down modes only when the health summary identifies a concrete risk.
 5. For refactors, use `refactor_tool(mode=\"suggest\")` first, then preview
    renames with `refactor_tool(mode=\"rename\")`. Apply with
-   `dagayn tool apply_refactor_tool` (advanced MCP surface: `dagayn serve --tools all`).
+   `apply_refactor_tool` in the same `dagayn serve` MCP session
+   (refactor_id is session-scoped; advanced MCP surface: `dagayn serve --tools all`).
 """
 
 

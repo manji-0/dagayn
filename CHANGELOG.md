@@ -48,6 +48,15 @@ All notable changes to `dagayn` are documented here.
   instead of the nonexistent `--full`. See: #146
 - `dagayn-vscode` webview (`src/webview/graph.ts`) is now covered by TypeScript
   checking via a dedicated `tsconfig.webview.json`. See: #147
+- Dispatcher-wrapped MCP tools (`review_tool`, `flow_tool`,
+  `architecture_analysis_tool`) no longer crash with a pydantic
+  `DispatcherOkResponse` validation error when their subtool returns a
+  structured error envelope: `review_tool(mode="changes")` in a single-commit
+  repository (no `HEAD~1` diff base) now reports `status: "error"` with the
+  `diff_base_unreachable` reason code and actionable guidance instead of
+  failing. `refactor_tool(mode="rename")` apply guidance now states that
+  `refactor_id` is session-scoped (apply within the same `dagayn serve` MCP
+  session).
 
 ### Documentation
 
