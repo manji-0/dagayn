@@ -73,6 +73,15 @@ GraphSyncStateName: TypeAlias = Literal[
     "worktree_ahead",
 ]
 
+#: Legacy 4-value ``status`` kept for MCP clients and hook scripts that
+#: predate ``state``. Derived, never a second source of truth.
+GraphSyncLegacyStatus: TypeAlias = Literal[
+    "empty",
+    "git_drift",
+    "dirty_worktree",
+    "synced",
+]
+
 TraversalMode: TypeAlias = Literal["bfs", "dfs"]
 ReachabilityState: TypeAlias = Literal["not_found", "complete", "truncated"]
 RefactorMode: TypeAlias = Literal["rename", "dead_code", "suggest"]
@@ -199,7 +208,7 @@ class _GraphSyncBase(BaseModel):
     repo_root: str
     #: Legacy 4-value ``status`` kept for MCP clients and hook scripts that
     #: predate ``state``. Derived, never a second source of truth.
-    status: Literal["empty", "git_drift", "dirty_worktree", "synced"]
+    status: GraphSyncLegacyStatus
     #: VCS kind at the resolved root: ``"none"`` when it is not inside a
     #: repository (a misdetected root such as ``$HOME``), so auto-bootstrap
     #: callers can refuse to build a non-repo tree.
@@ -223,7 +232,7 @@ class GraphSyncUnbuilt(_GraphSyncBase):
     """No graph yet: zero nodes or zero files. Nothing can be answered from it."""
 
     state: Literal["unbuilt"]
-    status: Literal["empty"] = "empty"
+    status: GraphSyncLegacyStatus = "empty"
     worktree_dirty: bool = False
 
 
@@ -236,7 +245,7 @@ class GraphSyncCommitDrift(_GraphSyncBase):
     """
 
     state: Literal["commit_drift"]
-    status: Literal["git_drift"] = "git_drift"
+    status: GraphSyncLegacyStatus = "git_drift"
     worktree_dirty: bool = False
 
 
@@ -248,7 +257,7 @@ class GraphSyncCommitSynced(_GraphSyncBase):
     """
 
     state: Literal["commit_synced"]
-    status: Literal["synced"] = "synced"
+    status: GraphSyncLegacyStatus = "synced"
     worktree_dirty: Literal[False] = False
 
 
@@ -263,7 +272,7 @@ class GraphSyncWorktreeBehind(_GraphSyncBase):
     """
 
     state: Literal["worktree_behind"]
-    status: Literal["dirty_worktree"] = "dirty_worktree"
+    status: GraphSyncLegacyStatus = "dirty_worktree"
     worktree_dirty: bool = True
     #: Files whose on-disk content the graph does not have (added, edited,
     #: reverted, or deleted while the graph still holds their nodes).
@@ -279,7 +288,7 @@ class GraphSyncWorktreeAhead(_GraphSyncBase):
     """
 
     state: Literal["worktree_ahead"]
-    status: Literal["dirty_worktree"] = "dirty_worktree"
+    status: GraphSyncLegacyStatus = "dirty_worktree"
     worktree_dirty: Literal[True] = True
     #: Dirty files already reflected in the graph, byte for byte.
     indexed_files: list[str] = Field(default_factory=list)

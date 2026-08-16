@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import abc
 import collections.abc
 import inspect
 import typing
@@ -32,7 +33,7 @@ def patch_collections_abc_bytestring_for_python314() -> None:
     if hasattr(collections.abc, "ByteString"):
         return
 
-    class ByteString(collections.abc.Sequence):
+    class ByteString(collections.abc.Sequence, metaclass=abc.ABCMeta):
         pass
 
     ByteString.register(bytes)

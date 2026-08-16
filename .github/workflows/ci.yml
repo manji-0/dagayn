@@ -37,13 +37,11 @@ jobs:
           enable-cache: true
       - name: Install dependencies (frozen)
         run: uv sync --frozen --extra dev
-      - name: Run ty
+      - name: Run pyrefly
         run: >
-          uv tool run ty check dagayn tests
-          --python-version 3.13
-          --ignore unresolved-import
+          uv run pyrefly check
           --output-format github
-          --no-progress
+          --progress-bar=no
 
   security:
     runs-on: ubuntu-latest

@@ -80,7 +80,7 @@ def node_to_dict(n: GraphNode) -> dict:
 
 
 def edge_to_dict(e: GraphEdge) -> dict:
-    payload = {
+    payload: dict[str, Any] = {
         "id": e.id,
         "kind": e.kind,
         "source": _sanitize_name(e.source_qualified),

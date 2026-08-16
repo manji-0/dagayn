@@ -219,6 +219,7 @@ class TestSeedWorktreeGraph:
         assert result.status == "seeded"
         assert result.source == source
         assert result.dest == get_db_path(linked_worktree)
+        assert result.dest is not None
         assert result.dest != source
         assert result.dest.exists()
 

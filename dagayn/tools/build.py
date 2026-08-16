@@ -9,7 +9,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, cast
 
 from ..incremental import full_build, incremental_update
 from ..paths import get_db_path
@@ -450,7 +450,7 @@ def _run_postprocess(
             try:
                 prune = getattr(store, "prune_orphaned_graph_structures", None)
                 if callable(prune):
-                    pruned = prune()
+                    pruned = cast(Callable[[], dict[str, int]], prune)()
                     store.commit()
                     if pruned:
                         existing = build_result.get("orphans_pruned")

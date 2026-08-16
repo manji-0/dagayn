@@ -347,7 +347,7 @@ def export_mermaid_c4(store: GraphStore, output_path: Path) -> Path:
     for group in sorted(grouped_files):
         lines.append(f"  %% {group}")
         for node in grouped_files[group]:
-            file_path = node.get("file_path", node["qualified_name"])
+            file_path = str(node.get("file_path") or node["qualified_name"])
             component_id = _unique_mermaid_id(file_path, claimed_ids, prefix="cmp")
             file_ids[file_path] = component_id
             label = _mermaid_escape(file_path.rsplit("/", 1)[-1])

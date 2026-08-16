@@ -27,9 +27,14 @@ prek install
 ```bash
 uv run ruff check .
 uv run ruff format --check .
-ty check dagayn --python-version 3.13 --ignore unresolved-import
+uv run pyrefly check
 uv run pytest --tb=short -q
 ```
+
+Type checking runs on Pyrefly, whose Pydantic integration (>= 0.33.0) applies
+Pydantic model semantics — `BaseModel`, `Field`, `ConfigDict`, and
+`pydantic_settings.BaseSettings` — statically, so schema violations in
+`dagayn/state_types.py` and the tool dispatchers surface as type errors.
 
 ### VS Code extension (`dagayn-vscode/`)
 
@@ -45,7 +50,7 @@ pnpm test
 pnpm test:compile
 ```
 
-The `prek` hooks (configured in `prek.toml`) run ruff/ty on Python changes and
+The `prek` hooks (configured in `prek.toml`) run ruff/pyrefly on Python changes and
 the VS Code checks when files under `dagayn-vscode/` change. Pre-push pytest
 runs tests related to the files being pushed, not the full suite. CI still
 runs `uv run pytest --tb=short -q`. To auto-fix VS Code formatting:

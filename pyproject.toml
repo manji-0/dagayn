@@ -136,15 +136,20 @@ testpaths = ["tests"]
 pythonpath = ["tests"]
 norecursedirs = ["tests/fixtures"]
 
-[tool.ty.environment]
+[tool.pyrefly]
 python-version = "3.13"
+project-includes = ["dagayn", "tests"]
+project-excludes = ["tests/fixtures/**"]
 
-[tool.ty.src]
-include = ["dagayn", "tests"]
-exclude = ["tests/fixtures/**"]
+[tool.pyrefly.errors]
+# dagayn._core is a compiled Rust extension and optional extras are not always
+# installed in type-checking environments; pyrefly >= 0.33.0 applies Pydantic
+# model semantics (BaseModel/Field/ConfigDict/BaseSettings) automatically.
+missing-import = false
 
 [dependency-groups]
 dev = [
     "pytest>=8.4.2",
     "pytest-cov>=7.1.0",
+    "pyrefly>=0.33.0",
 ]

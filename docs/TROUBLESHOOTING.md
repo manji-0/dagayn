@@ -75,12 +75,12 @@ uvx maturin develop --release
 
 ## Type checking fails locally but not in CI
 
-CI uses `ty` with Python 3.13 assumptions and ignores unresolved third-party imports. Runtime support currently starts at Python 3.12.
+CI uses `pyrefly` with Python 3.13 assumptions and ignores unresolved third-party imports (see `[tool.pyrefly]` in `pyproject.toml`). Runtime support currently starts at Python 3.12.
 
 Match that command locally:
 
 ```bash
-ty check dagayn --python-version 3.13 --ignore unresolved-import
+uv run pyrefly check
 ```
 
 ## Bandit warnings about comments or `nosec`

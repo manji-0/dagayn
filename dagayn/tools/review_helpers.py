@@ -215,7 +215,7 @@ def _component_density_by_scope(
     test_node_counts: dict[str, int] = defaultdict(int)
     for node in store.get_all_nodes(exclude_files=True):
         scope_key = _scope_key_for_file(str(getattr(node, "file_path", "")))
-        if scope_key not in scopes:
+        if scope_key is None or scope_key not in scopes:
             continue
         if _is_production_code_node(node):
             scope_nodes[scope_key].append(node)
@@ -845,12 +845,8 @@ def _hotspot_proximity(
     try:
         from ..analysis import find_bridge_nodes, find_hub_nodes
 
-        hubs = find_hub_nodes(
-            store, top_n=top_n, artifact_scope="code", include_tests=False
-        )
-        bridges = find_bridge_nodes(
-            store, top_n=top_n, artifact_scope="code", include_tests=False
-        )
+        hubs = find_hub_nodes(store, top_n=top_n, artifact_scope="code", include_tests=False)
+        bridges = find_bridge_nodes(store, top_n=top_n, artifact_scope="code", include_tests=False)
     except Exception:  # pragma: no cover - defensive for backend parity drift
         hubs = []
         bridges = []

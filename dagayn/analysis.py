@@ -12,7 +12,7 @@ import sqlite3
 import time
 from collections import Counter, defaultdict
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, Callable, cast
 
 from ._scope import ArtifactScope, node_matches_artifact_scope
 from .cross_artifact import is_reportable_bridge
@@ -231,7 +231,8 @@ def persist_centrality_scores(store: GraphStore) -> dict[str, int]:
     """
     rust_persist = getattr(store, "persist_centrality_scores", None)
     if callable(rust_persist) and not hasattr(store, "_conn"):
-        return {key: int(value) for key, value in dict(rust_persist()).items()}
+        scores = cast(Callable[[], dict[str, int]], rust_persist)()
+        return {key: int(value) for key, value in scores.items()}
 
     _ensure_centrality_score_tables(store)
     snapshot = build_graph_snapshot(store)
@@ -1137,7 +1138,7 @@ def _generate_suggested_questions_native(store: GraphStore) -> list[dict] | None
     if not callable(native_generate):
         return None
     try:
-        raw = native_generate()
+        raw = cast(Callable[[], str], native_generate)()
         decoded = json.loads(raw)
     except Exception:  # noqa: BLE001  # native acceleration must be optional
         logger.debug(

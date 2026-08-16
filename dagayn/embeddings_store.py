@@ -11,7 +11,7 @@ import struct
 import sys
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 from .embeddings_providers import (
     EmbeddingProvider,
@@ -1114,6 +1114,7 @@ class EmbeddingStore:
                 for row in rows
                 if row["qualified_name"] not in live_qualified_names
             ]
+            providers_to_clean = sorted({provider for _, provider in orphan_rows})
         else:
             if not self.provider:
                 return 0
@@ -1133,14 +1134,12 @@ class EmbeddingStore:
                 for row in rows
                 if row["qualified_name"] not in live_qualified_names
             ]
+            providers_to_clean = provider_names
         if not orphan_rows:
             return 0
 
         batch_size = 450
         deleted = 0
-        providers_to_clean = (
-            sorted({provider for _, provider in orphan_rows}) if all_providers else provider_names
-        )
         for provider_to_clean in providers_to_clean:
             names = [qn for qn, provider in orphan_rows if provider == provider_to_clean]
             for i in range(0, len(names), batch_size):
@@ -1266,7 +1265,9 @@ def embed_all_nodes(
     if embedding_store.source_root is None:
         get_repo_root = getattr(graph_store, "get_repo_root", None)
         if callable(get_repo_root):
-            embedding_store.source_root = get_repo_root()
+            root = cast(Callable[[], Path | None], get_repo_root)()
+            if root is not None:
+                embedding_store.source_root = root
 
     if embedding_store.text_mode == "narrative":
         embedding_store.graph_facts_by_qualified_name = _build_graph_facts_by_qualified_name(

@@ -157,7 +157,7 @@ class GoogleEmbeddingProvider(EmbeddingProvider):
         return results
 
     @staticmethod
-    def _call_with_retry(fn, max_retries: int = 3):
+    def _call_with_retry(fn, max_retries: int = 3) -> Any:
         """Call fn with exponential backoff on transient API errors."""
         for attempt in range(max_retries):
             try:

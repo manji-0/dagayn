@@ -22,7 +22,7 @@ import logging
 import sqlite3
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, cast
 
 from .graph import GraphStore, store_write_transaction
 from .graph._sql import _edge_target_name
@@ -256,7 +256,8 @@ def _resolve_markdown_artifact_refs(
     try:
         rust_resolve = getattr(store, "resolve_markdown_artifact_refs", None)
         if callable(rust_resolve):
-            rust_result = rust_resolve()
+            resolve = cast(Callable[[], tuple[int, int, int, int]], rust_resolve)
+            rust_result = resolve()
             resolved, dropped = rust_result[:2]
             result["markdown_artifact_refs_resolved"] = int(resolved)
             result["markdown_artifact_refs_dropped"] = int(dropped)
@@ -403,12 +404,12 @@ def _store_repo_root(store: GraphStore) -> Path | None:
     """Resolve ``repo_root`` from Python or Rust GraphStore bindings."""
     getter = getattr(store, "get_repo_root", None)
     if callable(getter):
-        root = getter()
+        root = cast(Callable[[], Path | None], getter)()
         if root is not None:
             return Path(root)
     get_meta = getattr(store, "get_metadata", None)
     if callable(get_meta):
-        raw = get_meta("repo_root")
+        raw = cast(Callable[[str], str | None], get_meta)("repo_root")
         if raw:
             return Path(raw)
     return None
@@ -646,7 +647,7 @@ def _compute_signatures(
     try:
         rust_compute = getattr(store, "compute_missing_signatures", None)
         if callable(rust_compute):
-            result["signatures_computed"] = int(rust_compute())
+            result["signatures_computed"] = int(cast(Callable[[], int], rust_compute)())
             return
 
         rows = store.get_nodes_without_signature()

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, cast
 
 from ..bare_name_resolution import (
     build_import_targets,
@@ -268,7 +268,8 @@ def _filter_bare_name_fallback_edges(
 
     native = getattr(store, "import_targets_by_file", None)
     if callable(native):
-        import_targets = {file_path: set(targets) for file_path, targets in native().items()}
+        native_map = cast(Callable[[], dict[str, list[str]]], native)()
+        import_targets = {file_path: set(targets) for file_path, targets in native_map.items()}
     elif hasattr(store, "_conn"):
         import_targets = build_import_targets(store._conn)
     else:

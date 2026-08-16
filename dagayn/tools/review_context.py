@@ -230,7 +230,7 @@ def get_review_context(
             guidance,
         ]
 
-        payload = {
+        payload: dict[str, Any] = {
             "status": "ok",
             "summary": "\n".join(summary_parts),
             "context": context,

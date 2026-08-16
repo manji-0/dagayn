@@ -15,7 +15,7 @@ import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import Any, Literal
+from typing import Any, Callable, Literal, cast
 
 from .constants import SECURITY_KEYWORDS as _SECURITY_KEYWORDS
 from .coverage import has_coverage_evidence
@@ -598,7 +598,7 @@ def _graph_line_ranges_stale(
     get_meta = getattr(store, "get_file_meta_for_files", None)
     if not callable(get_meta):
         return False
-    stored_meta = get_meta(graph_paths)
+    stored_meta = cast(Callable[[list[str]], dict[str, tuple[str, int]]], get_meta)(graph_paths)
     for graph_path in graph_paths:
         stored_hash = stored_meta.get(graph_path, ("", 0))[0]
         if stored_hash and stored_hash != current_hash:
@@ -676,7 +676,8 @@ def _get_nodes_for_files_boundary_aware(
 ) -> dict[str, list[GraphNode]]:
     rust_batch = getattr(store, "get_nodes_by_files", None)
     if callable(rust_batch) and type(store).__module__.startswith("dagayn._core"):
-        return rust_batch(file_paths)
+        batch = cast(Callable[[list[str]], dict[str, list[GraphNode]]], rust_batch)
+        return batch(file_paths)
     return {file_path: store.get_nodes_by_file(file_path) for file_path in file_paths}
 
 
@@ -930,8 +931,9 @@ def analyze_changes(
     rust_analyze = getattr(store, "analyze_changes_json", None)
     if callable(rust_analyze) and include_heuristic_test_gap_evidence and repo_root is None:
         try:
+            analyze = cast(Callable[[list[str], str], str], rust_analyze)
             return _annotate_review_priority_semantics(
-                json.loads(rust_analyze(changed_files, json.dumps(changed_ranges or {})))
+                json.loads(analyze(changed_files, json.dumps(changed_ranges or {})))
             )
         except (RuntimeError, ValueError, TypeError, json.JSONDecodeError) as exc:
             raise RuntimeError("Rust change analysis failed") from exc

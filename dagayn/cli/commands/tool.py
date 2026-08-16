@@ -11,7 +11,7 @@ import time
 from collections.abc import Callable
 from contextlib import contextmanager, nullcontext
 from importlib import import_module
-from typing import Any
+from typing import Any, Coroutine, cast
 
 TOOL_REGISTRY: dict[str, str] = {
     "apply_refactor_tool": "dagayn.tools.refactor_tools:apply_refactor_func",
@@ -272,7 +272,7 @@ def handle(args: argparse.Namespace) -> None:
             if inspect.isawaitable(result):
                 import asyncio
 
-                result = asyncio.run(result)
+                result = asyncio.run(cast(Coroutine[Any, Any, Any], result))
     except (KeyError, TypeError, ValueError) as exc:
         print(f"dagayn tool: {exc}", file=sys.stderr)
         sys.exit(2)

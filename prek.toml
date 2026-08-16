@@ -52,10 +52,10 @@ files = { glob = ["dagayn/**/*.py", "tests/**/*.py", "scripts/**/*.py", "main.py
 priority = 10
 
 [[repos.hooks]]
-id = "ty-check"
-name = "ty check"
+id = "pyrefly-check"
+name = "pyrefly check"
 language = "system"
-entry = "uv run ty check dagayn --python-version 3.13 --ignore unresolved-import"
+entry = "uv run pyrefly check"
 files = { glob = ["dagayn/**/*.py", "tests/**/*.py", "scripts/**/*.py", "main.py", "hatch_build.py"] }
 pass_filenames = false
 priority = 20

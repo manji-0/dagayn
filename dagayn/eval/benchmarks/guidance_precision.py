@@ -64,7 +64,7 @@ def _review_predictions(repo_path: Path, case: dict[str, Any]) -> dict[str, list
         base=str(case.get("base", "HEAD~1")),
         detail_level="standard",
     )
-    summary = result.get("analysis_summary", {}) if isinstance(result, dict) else {}
+    summary: dict[str, Any] = result.get("analysis_summary", {}) if isinstance(result, dict) else {}
     return {
         "recommended_tests": _ids_from_items(
             list(summary.get("recommended_tests", [])),
@@ -87,7 +87,9 @@ def _review_predictions(repo_path: Path, case: dict[str, Any]) -> dict[str, list
         ),
         "architecture_leads": [
             key
-            for key, value in dict(summary.get("architecture_delta", {}).get("counts", {})).items()
+            for key, value in dict(
+                summary.get("architecture_delta", {}).get("counts", {}) or {}
+            ).items()
             if value
         ],
         "answerability_warnings": _ids_from_items(
@@ -104,7 +106,7 @@ def _refactor_predictions(repo_path: Path, case: dict[str, Any]) -> list[str]:
     result = refactor_func(
         mode="suggest",
         repo_root=str(repo_path),
-        limit=int(case.get("limit", case.get("k", 5))),
+        limit=int(case.get("limit") or case.get("k") or 5),
     )
     suggestions = list(result.get("suggestions", [])) if isinstance(result, dict) else []
     out: list[str] = []

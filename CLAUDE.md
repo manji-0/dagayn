@@ -15,7 +15,7 @@ dagayn serve
 ```bash
 uv run ruff check .
 uv run ruff format --check .
-ty check dagayn --python-version 3.13 --ignore unresolved-import
+uv run pyrefly check
 uv run pytest --tb=short -q
 ```
 

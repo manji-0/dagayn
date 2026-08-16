@@ -13,7 +13,7 @@ import sqlite3
 import threading
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional, cast
 
 from .graph import GraphStore, _sanitize_name, store_write_transaction
 from .graph._fts_sync import fts_index_health, rebuild_fts_index_tx
@@ -120,7 +120,7 @@ def rebuild_fts_index(store: GraphStore) -> int:
     """
     rust_rebuild = getattr(store, "rebuild_fts_index", None)
     if callable(rust_rebuild):
-        count = int(rust_rebuild())
+        count = int(cast(Callable[[], int], rust_rebuild)())
         logger.info("FTS index rebuilt: %d rows indexed", count)
         return count
 

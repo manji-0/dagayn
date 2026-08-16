@@ -16,7 +16,7 @@ import json
 import logging
 import re
 from collections import deque
-from typing import Any, Optional
+from typing import Any, Callable, Optional, cast
 
 from .constants import SECURITY_KEYWORDS as _SECURITY_KEYWORDS
 from .graph import (
@@ -431,7 +431,7 @@ def refresh_flow_criticality(store: GraphStore) -> int:
             for row in rows
         ]
     elif callable(rust_get):
-        flows = json.loads(rust_get("criticality", 1_000_000))
+        flows = json.loads(cast(Callable[[str, int], str], rust_get)("criticality", 1_000_000))
     else:
         return 0
 
@@ -451,7 +451,7 @@ def refresh_flow_criticality(store: GraphStore) -> int:
 
     if callable(rust_update):
         payload = json.dumps([[flow_id, score] for flow_id, score in updates])
-        return int(rust_update(payload))
+        return int(cast(Callable[[str], int], rust_update)(payload))
 
     if conn is None:
         logger.warning("Cannot refresh flow criticality: store has no SQL connection")
@@ -521,7 +521,7 @@ def store_flows(store: GraphStore, flows: list[dict]) -> int:
     """
     rust_store = getattr(store, "store_flows_json", None)
     if callable(rust_store):
-        return int(rust_store(json.dumps(flows)))
+        return int(cast(Callable[[str], int], rust_store)(json.dumps(flows)))
 
     # NOTE: store_flows uses _conn directly because it performs
     # multi-statement batch writes (DELETE + INSERT loop) that are
@@ -804,7 +804,8 @@ def incremental_trace_flows(
     rust_insert = getattr(store, "insert_flows_json", None)
     if callable(rust_delete) and callable(rust_insert):
         changed_file_set = set(changed_files)
-        entry_point_ids = {int(node_id) for node_id in rust_delete(changed_files)}
+        deleted_ids = cast(Callable[[list[str]], list[int]], rust_delete)(changed_files)
+        entry_point_ids = {int(node_id) for node_id in deleted_ids}
 
         entry_points = detect_entry_points(store)
         relevant_eps = [
@@ -823,7 +824,7 @@ def incremental_trace_flows(
 
         count = 0
         if new_flows:
-            count = int(rust_insert(json.dumps(new_flows)))
+            count = int(cast(Callable[[str], int], rust_insert)(json.dumps(new_flows)))
         refresh_flow_criticality(store)
         return count
 
@@ -921,7 +922,8 @@ def get_flows(
 
     rust_get = getattr(store, "get_flows_json", None)
     if callable(rust_get):
-        return _annotate_flow_rows_liveness(store, json.loads(rust_get(sort_by, limit)))
+        rows_json = cast(Callable[[str, int], str], rust_get)(sort_by, limit)
+        return _annotate_flow_rows_liveness(store, json.loads(rows_json))
 
     order = "DESC" if sort_by in ("criticality", "depth", "node_count", "file_count") else "ASC"
 
@@ -992,11 +994,8 @@ def _collect_cross_artifact_edges_among(
     try:
         get_among = getattr(store, "get_edges_among", None)
         if callable(get_among):
-            return [
-                edge
-                for edge in get_among(path_qns)
-                if getattr(edge, "kind", None) == "CROSS_ARTIFACT"
-            ]
+            edges = cast(Callable[[set[str]], list[Any]], get_among)(path_qns)
+            return [edge for edge in edges if getattr(edge, "kind", None) == "CROSS_ARTIFACT"]
         outgoing, incoming = store.get_edges_by_endpoints(list(path_qns))
         bridge_edges: list[Any] = []
         seen: set[int] = set()
@@ -1062,7 +1061,7 @@ def get_flow_by_id(store: GraphStore, flow_id: int) -> Optional[dict]:
     """
     rust_get = getattr(store, "get_flow_by_id_json", None)
     if callable(rust_get):
-        raw = rust_get(flow_id)
+        raw = cast(Callable[[int], str | None], rust_get)(flow_id)
         if not raw:
             return None
         return _annotate_flow_dict_bridges(store, json.loads(raw))
@@ -1178,9 +1177,8 @@ def get_affected_flows(
 
     rust_get = getattr(store, "get_affected_flows_json", None)
     if callable(rust_get):
-        affected = [
-            _annotate_flow_dict_bridges(store, flow) for flow in json.loads(rust_get(changed_files))
-        ]
+        affected_json = cast(Callable[[list[str]], str], rust_get)(changed_files)
+        affected = [_annotate_flow_dict_bridges(store, flow) for flow in json.loads(affected_json)]
         return {"affected_flows": affected, "total": len(affected)}
 
     # Find flow IDs that touch changed files (including stale path_json).

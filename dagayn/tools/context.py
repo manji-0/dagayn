@@ -398,7 +398,9 @@ def _get_minimal_context_body(
                     "review_priority_score",
                     analysis.get("risk_score", 0.0),
                 )
-                risk_score = review_priority_score
+                risk_score: float = (
+                    review_priority_score if review_priority_score is not None else 0.0
+                )
                 risk = "high" if risk_score > 0.7 else "medium" if risk_score > 0.4 else "low"
                 priorities = analysis.get("review_priorities", [])
                 if not priorities:

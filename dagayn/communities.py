@@ -11,7 +11,7 @@ import logging
 import random
 import re
 from collections import Counter, defaultdict
-from typing import Any
+from typing import Any, Callable, cast
 
 from .graph import GraphEdge, GraphNode, GraphStore, _sanitize_name, store_write_transaction
 
@@ -694,7 +694,7 @@ def count_affected_communities(store: GraphStore, changed_files: list[str]) -> i
 
     rust_count = getattr(store, "count_affected_communities", None)
     if callable(rust_count):
-        return int(rust_count(changed_files))
+        return int(cast(Callable[[list[str]], int], rust_count)(changed_files))
 
     conn = store._conn
     placeholders = ",".join("?" * len(changed_files))
@@ -844,7 +844,7 @@ def store_communities(store: GraphStore, communities: list[dict[str, Any]]) -> i
             }
             for comm in communities
         ]
-        return int(rust_store(json.dumps(payload)))
+        return int(cast(Callable[[str], int], rust_store)(json.dumps(payload)))
 
     # NOTE: store_communities uses _conn directly because it performs
     # multi-statement batch writes (DELETE + INSERT loop + UPDATE loop)
@@ -943,7 +943,7 @@ def get_communities(
 
     rust_get = getattr(store, "get_communities_json", None)
     if callable(rust_get):
-        return json.loads(rust_get(sort_by, min_size))
+        return json.loads(cast(Callable[[str, int], str], rust_get)(sort_by, min_size))
 
     order = "DESC" if sort_by in ("size", "cohesion") else "ASC"
 

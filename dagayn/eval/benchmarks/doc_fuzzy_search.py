@@ -14,7 +14,7 @@ import time
 from collections import Counter, defaultdict
 from fnmatch import fnmatch
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, cast
 
 from dagayn.embeddings import EmbeddingProvider
 
@@ -193,7 +193,7 @@ def _doc_nodes(
 ) -> list[Any]:
     getter = getattr(store, "get_nodes_by_kind", None)
     if callable(getter):
-        nodes = list(getter(sorted(_DOC_KINDS)))
+        nodes = list(cast(Callable[[list[str]], list[Any]], getter)(sorted(_DOC_KINDS)))
     else:
         nodes = [node for node in store.get_all_nodes() if node.kind in _DOC_KINDS]
     include_paths = include_paths or []

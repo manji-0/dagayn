@@ -11,7 +11,7 @@ import os
 import sqlite3
 import time
 from pathlib import Path, PurePosixPath
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, cast
 
 from .graph import GraphStore
 from .incremental_files import (
@@ -101,7 +101,8 @@ def _batch_hop_dependents(store: GraphStore, frontier: set[str]) -> set[str]:
 
     rust_get = getattr(store, "get_direct_dependents", None)
     if callable(rust_get):
-        return set(rust_get(list(frontier))) - frontier
+        direct = cast(Callable[[list[str]], list[str]], rust_get)(list(frontier))
+        return set(direct) - frontier
 
     dependents: set[str] = set()
     # Include normalized path forms to match get_edges_by_target behavior.
@@ -294,7 +295,8 @@ def _indexed_only(store: GraphStore, rel_paths: list[str]) -> list[str]:
     if not callable(getter):
         return rel_paths
     try:
-        indexed = set(getter() or {})
+        meta_map = cast(Callable[[], dict[str, Any]], getter)() or {}
+        indexed = set(meta_map)
     except Exception:  # noqa: BLE001 — fall back to the unfiltered list
         return rel_paths
     return [rel_path for rel_path in rel_paths if rel_path in indexed]
@@ -970,7 +972,7 @@ def full_build(
             _store_vcs_metadata(repo_root, store)
         store.commit()
 
-    result = {
+    result: dict[str, Any] = {
         "files_parsed": len(files),
         "total_nodes": total_nodes,
         "total_edges": total_edges,
