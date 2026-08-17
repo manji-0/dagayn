@@ -22,9 +22,16 @@ from typing import Any
 
 import yaml
 
+from .atomic_write import write_text_atomic
+from .hook_guard import DEFAULT_HOOK_BUDGET_SECONDS
+
 logger = logging.getLogger(__name__)
 
-_UPDATE_HOOK_TIMEOUT_SECONDS = 300
+# Slightly above the budget ``dagayn update`` applies to itself for hook runs
+# (:data:`dagayn.hook_guard.DEFAULT_HOOK_BUDGET_SECONDS`), so the process stops
+# itself with a diagnostic instead of the editor abandoning it. An abandoned
+# hook shell leaves the dagayn child reparented to PID 1 and still running.
+_UPDATE_HOOK_TIMEOUT_SECONDS = DEFAULT_HOOK_BUDGET_SECONDS + 30
 _STATUS_HOOK_TIMEOUT_SECONDS = 60
 _SESSION_PREPARE_BUDGET_SECONDS = 45
 
@@ -304,7 +311,7 @@ def _merge_toml_mcp_server(
         if updated == existing:
             return False
         if not dry_run:
-            config_path.write_text(updated, encoding="utf-8")
+            write_text_atomic(config_path, updated, encoding="utf-8")
         return True
 
     if dry_run:
@@ -316,7 +323,7 @@ def _merge_toml_mcp_server(
         prefix = existing if existing.endswith("\n") else existing + "\n"
         if not prefix.endswith("\n\n"):
             prefix += "\n"
-    config_path.write_text(prefix + section, encoding="utf-8")
+    write_text_atomic(config_path, prefix + section, encoding="utf-8")
     return True
 
 
@@ -357,7 +364,7 @@ def _merge_yaml_mcp_server(
         return True
 
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(yaml.safe_dump(existing, sort_keys=False), encoding="utf-8")
+    write_text_atomic(config_path, yaml.safe_dump(existing, sort_keys=False), encoding="utf-8")
     return True
 
 
@@ -541,7 +548,7 @@ def install_platform_configs(
             print(f"  [dry-run] {plat['name']}: would write {config_path}")
         else:
             config_path.parent.mkdir(parents=True, exist_ok=True)
-            config_path.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
+            write_text_atomic(config_path, json.dumps(existing, indent=2) + "\n", encoding="utf-8")
             print(f"  {plat['name']}: configured {config_path}")
 
         configured.append(plat["name"])
@@ -608,7 +615,7 @@ def _sync_cursor_user_mcp(server_entry: dict[str, Any], *, dry_run: bool) -> Non
     servers["dagayn"] = updated
     existing["mcpServers"] = servers
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
+    write_text_atomic(config_path, json.dumps(existing, indent=2) + "\n", encoding="utf-8")
     print(f"  Cursor (user): configured {config_path}")
 
 
@@ -808,7 +815,7 @@ def generate_skills(
             embedding_preset=embedding_preset,
             embedding_provider=embedding_provider,
         )
-        target.write_text(content, encoding="utf-8")
+        write_text_atomic(target, content, encoding="utf-8")
         logger.info("Wrote skill: %s", target)
 
     return skills_dir
@@ -843,7 +850,8 @@ def _install_skill_tree(
             shutil.rmtree(destination)
         shutil.copytree(entry, destination)
         target_skill = destination / "SKILL.md"
-        target_skill.write_text(
+        write_text_atomic(
+            target_skill,
             _render_skill_content(
                 target_skill.read_text(encoding="utf-8"),
                 embedding_mode=embedding_mode,
@@ -974,7 +982,7 @@ def _write_hook_scripts(hooks_dir: Path, scripts: dict[str, str]) -> None:
     hooks_dir.mkdir(parents=True, exist_ok=True)
     for filename, content in scripts.items():
         script_path = hooks_dir / filename
-        script_path.write_text(content, encoding="utf-8")
+        write_text_atomic(script_path, content, encoding="utf-8")
         script_path.chmod(stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
 
 
@@ -1026,7 +1034,7 @@ def install_hermes_hooks(
     existing["hooks"] = _merge_hermes_hook_entries(existing_hooks, generate_hermes_hooks_config())
 
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(yaml.safe_dump(existing, sort_keys=False), encoding="utf-8")
+    write_text_atomic(config_path, yaml.safe_dump(existing, sort_keys=False), encoding="utf-8")
     return config_path
 
 
@@ -1076,7 +1084,7 @@ def install_pi_hooks(
     existing["hooks"] = _merge_pi_hook_entries(existing_hooks, generate_pi_hooks_config())
 
     hooks_path.parent.mkdir(parents=True, exist_ok=True)
-    hooks_path.write_text(yaml.safe_dump(existing, sort_keys=False), encoding="utf-8")
+    write_text_atomic(hooks_path, yaml.safe_dump(existing, sort_keys=False), encoding="utf-8")
     return hooks_path
 
 
@@ -1112,7 +1120,11 @@ def generate_hooks_config(
     )
     post_tool_use: list[dict[str, Any]] = [
         {
-            "matcher": "Edit|Write|Bash",
+            # Edit/Write only: Bash fires on every shell command, including the
+            # majority that touch no tracked file, so the graph was re-diffed
+            # constantly for nothing. Commits are covered by the pre-commit hook
+            # and HEAD moves by the relocate/session-prepare hooks.
+            "matcher": "Edit|Write",
             "hooks": [
                 {
                     "type": "command",
@@ -1238,7 +1250,7 @@ def _merge_dagayn_hook_entries(
 def _ensure_codex_hooks_feature(config_path: Path) -> None:
     """Enable Codex hooks in config.toml without clobbering settings."""
     if not config_path.exists():
-        config_path.write_text("[features]\nhooks = true\n", encoding="utf-8")
+        write_text_atomic(config_path, "[features]\nhooks = true\n", encoding="utf-8")
         return
 
     existing = config_path.read_text(encoding="utf-8", errors="replace")
@@ -1266,25 +1278,25 @@ def _ensure_codex_hooks_feature(config_path: Path) -> None:
         lines[hooks_index] = re.sub(r"=\s*.*$", "= true", lines[hooks_index], count=1)
         if codex_hooks_index is not None:
             del lines[codex_hooks_index]
-        config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        write_text_atomic(config_path, "\n".join(lines) + "\n", encoding="utf-8")
         return
 
     if codex_hooks_index is not None:
         lines[codex_hooks_index] = re.sub(
             r"codex_hooks\s*=\s*.*$", "hooks = true", lines[codex_hooks_index], count=1
         )
-        config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        write_text_atomic(config_path, "\n".join(lines) + "\n", encoding="utf-8")
         return
 
     if features_index is not None:
         lines.insert(features_index + 1, "hooks = true")
-        config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        write_text_atomic(config_path, "\n".join(lines) + "\n", encoding="utf-8")
         return
 
     prefix = existing if existing.endswith("\n") else existing + "\n"
     if not prefix.endswith("\n\n"):
         prefix += "\n"
-    config_path.write_text(prefix + "[features]\nhooks = true\n", encoding="utf-8")
+    write_text_atomic(config_path, prefix + "[features]\nhooks = true\n", encoding="utf-8")
 
 
 def install_codex_hooks(
@@ -1318,7 +1330,7 @@ def install_codex_hooks(
         existing_hooks = {}
 
     existing["hooks"] = _merge_dagayn_hook_entries(existing_hooks, hooks_config)
-    hooks_path.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
+    write_text_atomic(hooks_path, json.dumps(existing, indent=2) + "\n", encoding="utf-8")
     _ensure_codex_hooks_feature(codex_dir / "config.toml")
     logger.info("Wrote Codex hooks config: %s", hooks_path)
     return hooks_path
@@ -1334,9 +1346,9 @@ def _install_git_hook_script(hook_path: Path, script: str, marker: str) -> None:
         old_marker = "# Installed by dagayn. Remove this file to disable pre-commit graph checks."
         if old_marker in existing and "dagayn detect-changes" in existing:
             existing = existing[: existing.index(old_marker)].rstrip("\n")
-        hook_path.write_text(existing.rstrip("\n") + "\n" + script, encoding="utf-8")
+        write_text_atomic(hook_path, existing.rstrip("\n") + "\n" + script, encoding="utf-8")
     else:
-        hook_path.write_text(script, encoding="utf-8")
+        write_text_atomic(hook_path, script, encoding="utf-8")
 
     hook_path.chmod(0o755)
 
@@ -1443,7 +1455,7 @@ def install_hooks(
 
     existing["hooks"] = _merge_dagayn_hook_entries(existing_hooks, hooks_config)
 
-    settings_path.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
+    write_text_atomic(settings_path, json.dumps(existing, indent=2) + "\n", encoding="utf-8")
     logger.info("Wrote hooks config: %s", settings_path)
     return settings_path
 
@@ -1631,14 +1643,16 @@ def _inject_instructions(
         for marker_heading in _instruction_section_aliases(marker):
             if marker_heading in existing:
                 updated = existing.replace(marker_heading, f"{marker}\n{marker_heading}", 1)
-                file_path.write_text(updated, encoding="utf-8")
+                write_text_atomic(file_path, updated, encoding="utf-8")
                 logger.info("Added missing dagayn marker to %s", file_path)
                 return True
 
         separator = "\n" if existing and not existing.endswith("\n") else ""
         extra_newline = "\n" if existing else ""
         file_path.parent.mkdir(parents=True, exist_ok=True)
-        file_path.write_text(existing + separator + extra_newline + section, encoding="utf-8")
+        write_text_atomic(
+            file_path, existing + separator + extra_newline + section, encoding="utf-8"
+        )
     except OSError as exc:
         message = f"{file_path} ({exc})"
         if errors is not None:
@@ -1832,17 +1846,17 @@ def ensure_worktree_include(
         if updated == existing:
             return "unchanged"
         if not dry_run:
-            path.write_text(updated, encoding="utf-8")
+            write_text_atomic(path, updated, encoding="utf-8")
         return "updated"
 
     if not existing:
         if not dry_run:
-            path.write_text(block, encoding="utf-8")
+            write_text_atomic(path, block, encoding="utf-8")
         return "created"
 
     prefix = existing if existing.endswith("\n") else existing + "\n"
     if not dry_run:
-        path.write_text(prefix + block, encoding="utf-8")
+        write_text_atomic(path, prefix + block, encoding="utf-8")
     return "updated"
 
 
@@ -1922,7 +1936,7 @@ def install_cursor_worktree_setup(repo_root: Path, dry_run: bool = False) -> str
     state = "updated" if config_path.exists() else "created"
     if not dry_run:
         config_path.parent.mkdir(parents=True, exist_ok=True)
-        config_path.write_text(json.dumps(updated, indent=2) + "\n", encoding="utf-8")
+        write_text_atomic(config_path, json.dumps(updated, indent=2) + "\n", encoding="utf-8")
     return state
 
 
@@ -2206,7 +2220,8 @@ def install_cursor_hooks(extra_update_args: list[str] | None = None) -> Path:
     existing["hooks"] = existing_hooks
 
     cursor_dir.mkdir(parents=True, exist_ok=True)
-    hooks_json_path.write_text(
+    write_text_atomic(
+        hooks_json_path,
         json.dumps(existing, indent=2) + "\n",
         encoding="utf-8",
     )
@@ -2218,7 +2233,7 @@ def install_cursor_hooks(extra_update_args: list[str] | None = None) -> Path:
 
     for filename, content in scripts.items():
         script_path = hooks_script_dir / filename
-        script_path.write_text(content, encoding="utf-8")
+        write_text_atomic(script_path, content, encoding="utf-8")
         # Make executable (owner rwx, group rx, other rx)
         script_path.chmod(stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
         logger.info("Wrote Cursor hook script: %s", script_path)
@@ -2272,7 +2287,8 @@ def install_qoder_skills(
                     shutil.rmtree(target_dir)
                 shutil.copytree(skill_dir, target_dir)
                 target_skill = target_dir / "SKILL.md"
-                target_skill.write_text(
+                write_text_atomic(
+                    target_skill,
                     _render_skill_content(
                         target_skill.read_text(encoding="utf-8"),
                         embedding_mode=embedding_mode,
@@ -2463,7 +2479,7 @@ def install_opencode_plugin(extra_update_args: list[str] | None = None) -> Path:
     plugin_path = plugins_dir / "crg-plugin.ts"
 
     plugins_dir.mkdir(parents=True, exist_ok=True)
-    plugin_path.write_text(_opencode_plugin_content(extra_update_args), encoding="utf-8")
+    write_text_atomic(plugin_path, _opencode_plugin_content(extra_update_args), encoding="utf-8")
     logger.info("Wrote OpenCode plugin: %s", plugin_path)
 
     return plugin_path

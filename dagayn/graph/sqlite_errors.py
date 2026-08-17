@@ -10,7 +10,9 @@ next open is a new SQLite connection.
 from __future__ import annotations
 
 import logging
+import os
 import sqlite3
+import time
 import weakref
 from pathlib import Path
 from typing import Any
@@ -20,7 +22,11 @@ logger = logging.getLogger(__name__)
 _CORRUPT_MESSAGE_MARKERS = (
     "database disk image is malformed",
     "malformed database schema",
-    "file is encrypted or is not a database",
+    # SQLite words SQLITE_NOTADB either as "file is encrypted or is not a
+    # database" or, on newer builds, just "file is not a database". Matching the
+    # shared tail covers both; the long form alone let a truncated graph.db
+    # escape as a traceback out of the CLI.
+    "is not a database",
     "sqlite_corrupt",
 )
 
@@ -78,6 +84,53 @@ def close_live_stores_for(db_path: str | Path | None = None) -> int:
             logger.debug("force-close during corrupt recovery failed", exc_info=True)
         closed += 1
     return closed
+
+
+#: Suffix pattern for quarantined graph files. Kept on disk rather than deleted
+#: so a corrupt image can still be inspected (``sqlite3 .recover``) afterwards.
+CORRUPT_SUFFIX_FORMAT = ".corrupt-%Y%m%d%H%M%S"
+
+
+def quarantine_corrupt_database(db_path: str | Path) -> Path | None:
+    """Move a corrupt graph database (plus ``-wal`` / ``-shm``) aside.
+
+    A corrupt image cannot be repaired in place: every subsequent open keeps
+    raising ``database disk image is malformed``, so an unattended hook would
+    fail on every invocation forever. Renaming it lets the next
+    ``ensure_graph`` / ``build`` start from a clean file while keeping the
+    broken one for post-mortem.
+
+    Returns:
+        Path the database was moved to, or ``None`` when there was nothing to
+        move or the rename failed (a read-only directory, for instance).
+    """
+    path = Path(db_path)
+    if str(path) == ":memory:" or not path.exists():
+        return None
+
+    close_live_stores_for(path)
+
+    suffix = time.strftime(CORRUPT_SUFFIX_FORMAT)
+    dest = path.with_name(path.name + suffix)
+    try:
+        os.replace(path, dest)
+    except OSError:
+        logger.debug("could not quarantine corrupt database %s", path, exc_info=True)
+        return None
+
+    # -wal / -shm belong to the quarantined image. Leaving them next to a fresh
+    # database makes SQLite treat the new file as the same generation.
+    for sidecar_suffix in ("-wal", "-shm"):
+        sidecar = path.with_name(path.name + sidecar_suffix)
+        if not sidecar.exists():
+            continue
+        try:
+            os.replace(sidecar, dest.with_name(dest.name + sidecar_suffix))
+        except OSError:
+            logger.debug("could not quarantine %s", sidecar, exc_info=True)
+
+    logger.warning("Quarantined corrupt graph database: %s -> %s", path, dest)
+    return dest
 
 
 def probe_graph_database(db_path: str | Path) -> bool:

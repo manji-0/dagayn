@@ -6,6 +6,7 @@ import argparse
 import logging
 from pathlib import Path
 
+from ...hook_guard import DEFAULT_HOOK_BUDGET_SECONDS
 from ._shared import _add_local_embedding_args
 
 
@@ -216,6 +217,16 @@ def register_commands(sub: argparse._SubParsersAction) -> dict:
         "--skip-postprocess",
         action="store_true",
         help="Skip all post-processing (raw parse only)",
+    )
+    update_cmd.add_argument(
+        "--budget-seconds",
+        type=float,
+        default=None,
+        help=(
+            "Stop the update if it outlives this many seconds. Hook-triggered runs"
+            f" (DAGAYN_HOOK_UPDATE=1) default to {DEFAULT_HOOK_BUDGET_SECONDS}s;"
+            " manual runs are unbounded. Use 0 to disable."
+        ),
     )
     _add_local_embedding_args(update_cmd)
 

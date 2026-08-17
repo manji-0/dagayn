@@ -330,6 +330,14 @@ class TestSqliteCorruptHelpers:
         err = RuntimeError("malformed database schema (skills)")
         assert is_sqlite_corrupt_error(err)
 
+    def test_detects_both_wordings_of_notadb(self) -> None:
+        # SQLite reports SQLITE_NOTADB with either wording depending on build;
+        # the short form used to escape as a traceback out of the CLI.
+        assert is_sqlite_corrupt_error(sqlite3.DatabaseError("file is not a database"))
+        assert is_sqlite_corrupt_error(
+            sqlite3.DatabaseError("file is encrypted or is not a database")
+        )
+
     def test_ignores_unrelated_errors(self) -> None:
         assert not is_sqlite_corrupt_error(sqlite3.OperationalError("database is locked"))
         assert not is_sqlite_corrupt_error(ValueError("nope"))

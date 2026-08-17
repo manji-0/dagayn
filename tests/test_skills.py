@@ -11,6 +11,7 @@ from unittest.mock import patch
 import yaml
 
 import dagayn.skills as _skills_module
+from dagayn.hook_guard import DEFAULT_HOOK_BUDGET_SECONDS
 from dagayn.skills import (
     _CLAUDE_MD_SECTION_HEADING,
     _CLAUDE_MD_SECTION_MARKER,
@@ -708,11 +709,16 @@ class TestGenerateHooksConfig:
         config = generate_hooks_config(Path("/repo"))
         assert "PostToolUse" in config["hooks"]
         entry = config["hooks"]["PostToolUse"][0]
-        assert entry["matcher"] == "Edit|Write|Bash"
+        # Bash is deliberately excluded: it fires on shell commands that touch
+        # no tracked file, which re-diffed the graph for nothing.
+        assert entry["matcher"] == "Edit|Write"
         inner = entry["hooks"][0]
         assert inner["type"] == "command"
         assert "update" in inner["command"]
-        assert inner["timeout"] == 300
+        # Above dagayn's own budget so the process reports why it stopped
+        # instead of being abandoned by the editor.
+        assert inner["timeout"] == DEFAULT_HOOK_BUDGET_SECONDS + 30
+        assert inner["timeout"] > DEFAULT_HOOK_BUDGET_SECONDS
 
     def test_has_session_start(self):
         config = generate_hooks_config(Path("/repo"))
@@ -1405,6 +1411,39 @@ class TestInstructionFilesToModify:
         assert "~/.codex/AGENTS.md (new)" in targets
         assert "~/.config/opencode/AGENTS.md (new)" in targets
 
+    def test_existing_writable_file_is_previewed_as_append(self, tmp_path):
+        from dagayn.cli.commands.init import _instruction_files_to_modify
+
+        claude_md = tmp_path / ".claude" / "CLAUDE.md"
+        claude_md.parent.mkdir(parents=True)
+        claude_md.write_text("# mine\n", encoding="utf-8")
+
+        with patch("dagayn.cli.commands.init.Path.home", return_value=tmp_path):
+            targets = _instruction_files_to_modify(tmp_path, "claude")
+
+        assert targets == ["~/.claude/CLAUDE.md (append)"]
+
+    def test_read_only_file_is_previewed_as_skipped(self, tmp_path):
+        """home-manager/chezmoi symlinks cannot be injected — say so up front.
+
+        Promising the injection and then reporting it as skipped further down
+        the output is what actually confused a user.
+        """
+        from dagayn.cli.commands.init import _instruction_files_to_modify
+
+        claude_md = tmp_path / ".claude" / "CLAUDE.md"
+        claude_md.parent.mkdir(parents=True)
+        claude_md.write_text("# managed elsewhere\n", encoding="utf-8")
+        claude_md.chmod(0o444)
+
+        try:
+            with patch("dagayn.cli.commands.init.Path.home", return_value=tmp_path):
+                targets = _instruction_files_to_modify(tmp_path, "claude")
+        finally:
+            claude_md.chmod(0o644)
+
+        assert targets == ["~/.claude/CLAUDE.md (read-only — will be skipped)"]
+
 
 class TestInjectPlatformInstructionsFiltering:
     def test_all_writes_every_file(self, tmp_path):
@@ -1534,16 +1573,16 @@ class TestInjectPlatformInstructionsFiltering:
     def test_one_failed_instruction_file_does_not_stop_remaining_files(self, tmp_path):
         errors: list[str] = []
         blocked = tmp_path / ".codex" / "AGENTS.md"
-        original_write_text = Path.write_text
+        original_write = _skills_module.write_text_atomic
 
-        def write_text(path, *args, **kwargs):
-            if path == blocked:
+        def write_text_atomic(path, *args, **kwargs):
+            if Path(path) == blocked:
                 raise PermissionError("read-only")
-            return original_write_text(path, *args, **kwargs)
+            return original_write(path, *args, **kwargs)
 
         with (
             patch("dagayn.skills.Path.home", return_value=tmp_path),
-            patch("pathlib.Path.write_text", new=write_text),
+            patch.object(_skills_module, "write_text_atomic", new=write_text_atomic),
         ):
             updated = inject_platform_instructions(tmp_path, target="all", errors=errors)
 

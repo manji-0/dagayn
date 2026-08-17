@@ -132,7 +132,46 @@ def handle_build_command(args: argparse.Namespace, repo_root: Path) -> None:
         _print_postprocess_summary(result)
 
 
+def _hook_update_budget(args: argparse.Namespace) -> float | None:
+    """Wall-clock budget for this ``update``, or ``None`` for unbounded.
+
+    An explicit ``--budget-seconds`` always wins (``0`` disables the guard);
+    otherwise only hook-triggered runs are bounded, since those are the ones
+    nobody is watching.
+    """
+    from ...hook_guard import DEFAULT_HOOK_BUDGET_SECONDS, running_from_hook
+
+    explicit = getattr(args, "budget_seconds", None)
+    if explicit is not None:
+        return None if explicit <= 0 else float(explicit)
+    return float(DEFAULT_HOOK_BUDGET_SECONDS) if running_from_hook() else None
+
+
 def handle_update_command(
+    args: argparse.Namespace,
+    repo_root: Path,
+    db_path: Path,
+) -> None:
+    from ...hook_guard import (
+        HOOK_SKIP_MARKER,
+        hook_updates_disabled,
+        running_from_hook,
+        start_budget_watchdog,
+    )
+
+    if running_from_hook() and hook_updates_disabled(repo_root):
+        print(f"Skipped: .dagayn/{HOOK_SKIP_MARKER} disables hook-triggered updates here")
+        return
+
+    watchdog = start_budget_watchdog(_hook_update_budget(args))
+    try:
+        _run_update_command(args, repo_root, db_path)
+    finally:
+        if watchdog is not None:
+            watchdog.cancel()
+
+
+def _run_update_command(
     args: argparse.Namespace,
     repo_root: Path,
     db_path: Path,

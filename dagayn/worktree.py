@@ -280,6 +280,48 @@ def graph_has_nodes(db_path: Path) -> bool:
     return row is not None
 
 
+#: Temporary name used while seeding, ``<db>.seed-<pid>.tmp``.
+_SEED_TMP_GLOB = "*.seed-*.tmp"
+
+
+def _pid_is_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # Owned by another user, therefore still alive.
+        return True
+    except OSError:
+        return True
+    return True
+
+
+def _cleanup_stale_seed_tmp(directory: Path) -> None:
+    """Delete seed temporaries left behind by processes that no longer exist.
+
+    ``_copy_graph_db`` removes its own temporary in a ``finally``, but that
+    never runs when the process is killed outright — a hook run stopped by
+    :func:`dagayn.hook_guard.start_budget_watchdog`, or an editor tearing down
+    its hook shell. Those leftovers are full-size copies of the graph, so they
+    are worth reclaiming before writing another one.
+    """
+    for stale in directory.glob(_SEED_TMP_GLOB):
+        name = stale.name
+        try:
+            pid = int(name.rsplit(".seed-", 1)[1].removesuffix(".tmp"))
+        except (IndexError, ValueError):
+            continue
+        if pid == os.getpid() or _pid_is_alive(pid):
+            continue
+        try:
+            stale.unlink()
+        except OSError:
+            logger.debug("could not remove stale seed temporary %s", stale, exc_info=True)
+        else:
+            logger.debug("removed stale seed temporary %s", stale)
+
+
 def _copy_graph_db(source: Path, dest: Path, repo_root: Path) -> None:
     """Copy *source* to *dest* via the sqlite backup API, then re-root it.
 
@@ -289,6 +331,7 @@ def _copy_graph_db(source: Path, dest: Path, repo_root: Path) -> None:
     destination directory and moved into place so a crash or a concurrent
     reader never sees a partial database.
     """
+    _cleanup_stale_seed_tmp(dest.parent)
     tmp = dest.with_name(f"{dest.name}.seed-{os.getpid()}.tmp")
     # ``finally`` covers the whole body: a failure inside ``backup()`` or the
     # metadata upsert used to leave a full-size copy of the graph behind on
