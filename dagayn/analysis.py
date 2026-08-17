@@ -11,10 +11,12 @@ import re
 import sqlite3
 import time
 from collections import Counter, defaultdict
+from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
-from typing import Any, Callable, cast
+from typing import Callable, TypedDict, cast
 
 from ._scope import ArtifactScope, node_matches_artifact_scope
+from .communities import CommunityMetricsPayload
 from .cross_artifact import is_reportable_bridge
 from .flows import _has_framework_decorator, _matches_entry_name
 from .graph import GraphEdge, GraphNode, GraphStore, _sanitize_name
@@ -22,7 +24,7 @@ from .graph import GraphEdge, GraphNode, GraphStore, _sanitize_name
 logger = logging.getLogger(__name__)
 
 
-def _sort_key_int(item: dict[str, Any], field: str) -> int:
+def _sort_key_int(item: Mapping[str, object], field: str) -> int:
     value = item.get(field)
     if isinstance(value, bool):
         return int(value)
@@ -33,7 +35,7 @@ def _sort_key_int(item: dict[str, Any], field: str) -> int:
     return 0
 
 
-def _sort_key_float(item: dict[str, Any], field: str) -> float:
+def _sort_key_float(item: Mapping[str, object], field: str) -> float:
     value = item.get(field)
     if isinstance(value, (int, float)):
         return float(value)
@@ -68,6 +70,49 @@ class CommunityEdgeMetrics:
     external_degree: int
     cohesion: float
     external_edge_ratio: float
+
+
+class KnowledgeGapRecord(TypedDict, total=False):
+    """Node or community finding returned by :func:`find_knowledge_gaps`."""
+
+    name: str
+    qualified_name: str
+    kind: str
+    file: str
+    degree: int
+    hotspot_min_degree: int
+    community_id: int
+    size: int
+    internal_edges: int
+    external_edges: int
+    external_degree: int
+    cohesion: float
+    external_edge_ratio: float
+    classification: str
+    evidence: str
+
+
+class KnowledgeGapMeta(TypedDict):
+    thresholds: dict[str, int | float]
+    degree_distribution: dict[str, int]
+    artifact_scope: ArtifactScope
+    include_tests: bool
+    scoped_counts: dict[str, int]
+    top_n: int
+    raw_counts: dict[str, int]
+    returned_counts: dict[str, int]
+    truncated: bool
+    exclusions: dict[str, list[str]]
+    classified_noise_counts: dict[str, int]
+    classified_noise_examples: dict[str, list[KnowledgeGapRecord]]
+
+
+class KnowledgeGapsResult(TypedDict):
+    untested_hotspots: list[KnowledgeGapRecord]
+    single_file_communities: list[KnowledgeGapRecord]
+    isolated_nodes: list[KnowledgeGapRecord]
+    thin_communities: list[KnowledgeGapRecord]
+    _meta: KnowledgeGapMeta
 
 
 def build_graph_snapshot(store: GraphStore) -> GraphSnapshot:
@@ -486,7 +531,7 @@ def find_knowledge_gaps(
     snapshot: GraphSnapshot | None = None,
     artifact_scope: ArtifactScope = "all",
     include_tests: bool = True,
-) -> dict[str, Any]:
+) -> KnowledgeGapsResult:
     """Identify structural weaknesses in the codebase graph.
 
     Returns dict with categories:
@@ -537,12 +582,12 @@ def find_knowledge_gaps(
     )
 
     # 1. Isolated nodes (degree <= 1, not File)
-    isolated = []
-    low_signal_isolated = []
+    isolated: list[KnowledgeGapRecord] = []
+    low_signal_isolated: list[KnowledgeGapRecord] = []
     for n in nodes:
         d = degree.get(n.qualified_name, 0)
         if d <= 1:
-            item = {
+            item: KnowledgeGapRecord = {
                 "name": _sanitize_name(n.name),
                 "qualified_name": n.qualified_name,
                 "kind": n.kind,
@@ -569,15 +614,15 @@ def find_knowledge_gaps(
 
     # Thin communities (< 3 members)
     communities = store.get_communities_list()
-    thin = []
-    small_single_file_thin = []
+    thin: list[KnowledgeGapRecord] = []
+    small_single_file_thin: list[KnowledgeGapRecord] = []
     for c in communities:
         cid = int(c["id"])
         if cid not in comm_sizes:
             continue
         size = comm_sizes.get(cid, 0)
         if size < 3:
-            item = {
+            item: KnowledgeGapRecord = {
                 "community_id": cid,
                 "name": str(c["name"]),
                 "size": size,
@@ -597,7 +642,7 @@ def find_knowledge_gaps(
                 thin.append(item)
 
     # 3. Untested hotspots (p95 production-candidate degree, no TESTED_BY)
-    untested_hotspots = []
+    untested_hotspots: list[KnowledgeGapRecord] = []
     for n in nodes:
         d = full_degree.get(n.qualified_name, 0)
         if (
@@ -619,16 +664,13 @@ def find_knowledge_gaps(
                     ),
                 }
             )
-    untested_hotspots.sort(
-        key=lambda x: x.get("degree", 0),  # type: ignore[arg-type,return-value]
-        reverse=True,
-    )
+    untested_hotspots.sort(key=lambda x: _sort_key_int(x, "degree"), reverse=True)
 
     # 4. Single-file communities
-    single_file = []
-    natural_single_file = []
-    small_single_file = []
-    integrated_single_file = []
+    single_file: list[KnowledgeGapRecord] = []
+    natural_single_file: list[KnowledgeGapRecord] = []
+    small_single_file: list[KnowledgeGapRecord] = []
+    integrated_single_file: list[KnowledgeGapRecord] = []
     for c in communities:
         cid = int(c["id"])
         if cid not in comm_sizes:
@@ -638,7 +680,7 @@ def find_knowledge_gaps(
         if len(files) == 1 and size >= 3:
             file_path = next(iter(files))
             metrics = _community_metrics_payload(community_edge_metrics.get(cid))
-            item = {
+            item: KnowledgeGapRecord = {
                 "community_id": cid,
                 "name": str(c["name"]),
                 "size": size,
@@ -665,21 +707,23 @@ def find_knowledge_gaps(
                     }
                 )
 
-    raw_counts = {
+    raw_counts: dict[str, int] = {
         "untested_hotspots": len(untested_hotspots),
         "single_file_communities": len(single_file),
         "isolated_nodes": len(isolated),
         "thin_communities": len(thin),
     }
-    returned = {
+    returned_counts: dict[str, int] = {
+        "untested_hotspots": len(untested_hotspots[:top_n]),
+        "single_file_communities": len(single_file[:top_n]),
+        "isolated_nodes": len(isolated[:top_n]),
+        "thin_communities": len(thin[:top_n]),
+    }
+    result: KnowledgeGapsResult = {
         "untested_hotspots": untested_hotspots[:top_n],
         "single_file_communities": single_file[:top_n],
         "isolated_nodes": isolated[:top_n],
         "thin_communities": thin[:top_n],
-    }
-    returned_counts = {key: len(returned[key]) for key in category_keys}
-    return {
-        **returned,
         "_meta": {
             "thresholds": {
                 "isolated_max_degree": 1,
@@ -738,6 +782,7 @@ def find_knowledge_gaps(
             },
         },
     }
+    return result
 
 
 def _community_edge_metrics(
@@ -780,7 +825,9 @@ def _community_edge_metrics(
     return metrics
 
 
-def _community_metrics_payload(metrics: CommunityEdgeMetrics | None) -> dict[str, Any]:
+def _community_metrics_payload(
+    metrics: CommunityEdgeMetrics | None,
+) -> CommunityMetricsPayload:
     if metrics is None:
         return {
             "internal_edges": 0,

@@ -16,6 +16,7 @@ from ..graph import node_to_dict
 from ..hints import generate_hints, get_session
 from ..stability_policy import component_stability_profiles, stability_policy_summary
 from ._common import (
+    ToolPayload,
     _get_store,
     apply_output_budget,
     graph_answerability_summary,
@@ -35,13 +36,15 @@ def _architecture_health_summary(
     top_n: int,
     artifact_scope: ArtifactScope,
     snapshot: Any | None = None,
-) -> dict[str, Any]:
+) -> ToolPayload:
     """Compose specialized architecture signals into one bounded report."""
     example_limit = min(max(top_n, 1), 5)
     include_tests = artifact_scope != "code"
 
     try:
         from ..analysis import (
+            KnowledgeGapRecord,
+            KnowledgeGapsResult,
             build_graph_snapshot,
             find_bridge_nodes,
             find_hub_nodes,
@@ -71,7 +74,7 @@ def _architecture_health_summary(
             include_tests=include_tests,
             snapshot=snapshot,
         )
-        gaps = find_knowledge_gaps(
+        gaps: KnowledgeGapsResult = find_knowledge_gaps(
             store,
             top_n=example_limit,
             artifact_scope=artifact_scope,
@@ -142,9 +145,14 @@ def _architecture_health_summary(
         "isolated_nodes",
         "thin_communities",
     )
-    gap_meta = gaps.get("_meta", {})
-    raw_gap_counts = gap_meta.get("raw_counts", {})
-    gap_counts = {key: int(raw_gap_counts.get(key, len(gaps.get(key, [])))) for key in gap_keys}
+    gap_lists: dict[str, list[KnowledgeGapRecord]] = {
+        "untested_hotspots": gaps["untested_hotspots"],
+        "single_file_communities": gaps["single_file_communities"],
+        "isolated_nodes": gaps["isolated_nodes"],
+        "thin_communities": gaps["thin_communities"],
+    }
+    raw_gap_counts = gaps["_meta"]["raw_counts"]
+    gap_counts = {key: int(raw_gap_counts.get(key, len(gap_lists[key]))) for key in gap_keys}
 
     reason_codes: list[str] = []
     stale_communities = sum(
@@ -171,7 +179,7 @@ def _architecture_health_summary(
     if sap:
         reason_codes.append("sap_violations")
 
-    guidance: list[dict[str, Any]] = []
+    guidance: list[ToolPayload] = []
     if hubs:
         guidance.append(
             make_guidance_item(
@@ -328,7 +336,9 @@ def _architecture_health_summary(
         "top_examples": {
             "hub_nodes": hubs,
             "bridge_nodes": bridges,
-            "knowledge_gaps": {key: gaps.get(key, [])[: min(3, example_limit)] for key in gap_keys},
+            "knowledge_gaps": {
+                key: gap_lists[key][: min(3, example_limit)] for key in gap_keys
+            },
             "surprising_connections": surprises,
             "adp_violations": adp,
             "sdp_violations": sdp,
@@ -385,7 +395,7 @@ def list_communities_func(
     min_size: int = 0,
     detail_level: str = "standard",
     limit: int | None = None,
-) -> dict[str, Any]:
+) -> ToolPayload:
     """List detected code communities in the codebase.
 
     [EXPLORE] Retrieves stored communities from the knowledge graph.
@@ -430,7 +440,7 @@ def list_communities_func(
         total = len(communities)
         visible_communities = communities[:limit] if limit is not None else communities
         truncated = limit is not None and total > limit
-        result: dict[str, object] = {
+        result: ToolPayload = {
             "status": "ok",
             "summary": f"Found {total} communities"
             + (f". Showing first {limit}." if truncated else ""),
@@ -458,7 +468,7 @@ def get_community_func(
     community_id: int | None = None,
     include_members: bool = False,
     repo_root: str | None = None,
-) -> dict[str, Any]:
+) -> ToolPayload:
     """Get details of a single code community.
 
     [EXPLORE] Retrieves a community by its database ID or by name match.
@@ -510,12 +520,12 @@ def get_community_func(
                 members = [node_to_dict(n) for n in member_nodes]
                 community["member_details"] = members
                 apply_output_budget(
-                    cast(dict[str, Any], community),
+                    cast(ToolPayload, community),
                     budget_tokens=5000,
                     list_priorities=["member_details"],
                 )
 
-        result: dict[str, Any] = {
+        result: ToolPayload = {
             "status": "ok",
             "summary": (
                 f"Community '{community['name']}': "
@@ -525,7 +535,7 @@ def get_community_func(
             "community": community,
         }
         result["_hints"] = cast(
-            dict[str, Any], generate_hints("get_community", result, get_session())
+            ToolPayload, generate_hints("get_community", result, get_session())
         )
         return result
     except Exception as exc:
@@ -545,7 +555,7 @@ def get_architecture_overview_func(
     detail_level: str = "standard",
     top_n: int = 20,
     artifact_scope: ArtifactScope = "code",
-) -> dict[str, Any]:
+) -> ToolPayload:
     """Generate an architecture overview based on community structure.
 
     [EXPLORE] Builds a high-level view of the codebase architecture by
@@ -577,7 +587,7 @@ def get_architecture_overview_func(
         n_warnings = len(overview["warnings"])
         total_pairs = len(overview["cross_community_coupling"])
         shown_note = f" (top {total_pairs} shown)" if detail_level == "standard" else ""
-        result = {
+        result: ToolPayload = {
             "status": "ok",
             "summary": (
                 f"Architecture: {n_communities} communities, "

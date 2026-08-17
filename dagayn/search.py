@@ -12,6 +12,7 @@ import re
 import sqlite3
 import threading
 import time
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Optional, cast
 
@@ -22,6 +23,9 @@ if TYPE_CHECKING:
     from .embeddings import EmbeddingStore
 
 logger = logging.getLogger(__name__)
+
+type SearchValue = Any
+type SearchPayload = dict[str, SearchValue]
 
 _STORE_CLOSE_ERRORS = (OSError, sqlite3.Error, RuntimeError, AttributeError)
 _FTS_QUERY_ERRORS = (sqlite3.Error, TypeError, AttributeError, ValueError, RuntimeError)
@@ -599,7 +603,7 @@ def _largest_populated_text_mode_partition(
     return max(candidates, key=lambda item: item[1])
 
 
-def _attach_embedding_coverage(health: dict[str, Any], store: Any) -> None:
+def _attach_embedding_coverage(health: SearchPayload, store: Any) -> None:
     """Record how much of the graph is actually embedded.
 
     ``matching_vector_count > 0`` was the only thing health distinguished, so a
@@ -633,10 +637,10 @@ def _embedding_search_with_health(
     model: str | None = None,
     provider: str | None = None,
     text_mode: str | None = None,
-) -> tuple[list[tuple[int, float]], dict[str, Any]]:
+) -> tuple[list[tuple[int, float]], SearchPayload]:
     """Run vector search and return health metadata for fallback diagnosis."""
     provider_counts = _embedding_provider_counts(store.db_path)
-    health: dict[str, Any] = {
+    health: SearchPayload = {
         "status": "unknown",
         "requested_provider": provider,
         "requested_model": model,
@@ -806,7 +810,7 @@ def _embedding_search_with_health(
 # ---------------------------------------------------------------------------
 
 
-def embedding_health_available(health: dict[str, Any] | None) -> bool:
+def embedding_health_available(health: Mapping[str, object] | None) -> bool:
     """Return True when embedding search succeeded or was not requested."""
     if not health:
         return True
@@ -814,7 +818,7 @@ def embedding_health_available(health: dict[str, Any] | None) -> bool:
     return status in (None, "available", "degraded", "not_requested")
 
 
-def _empty_embedding_health() -> dict[str, Any]:
+def _empty_embedding_health() -> SearchPayload:
     return {"status": "not_requested"}
 
 
@@ -831,7 +835,7 @@ def hybrid_search(
     context_files: Optional[list[str]] = None,
     model: Optional[str] = None,
     provider: Optional[str] = None,
-) -> dict[str, Any]:
+) -> SearchPayload:
     """Hybrid search combining FTS5 BM25 and vector embeddings via RRF.
 
     Attempts FTS5 + embedding search first, falling back to FTS5-only,
@@ -878,7 +882,7 @@ def hybrid_search(
     query_tokens = _query_tokens(query)
     rerank_intent = _query_rerank_intent(query, query_tokens)
     embedding_text_mode = _embedding_text_mode_for_intent(rerank_intent)
-    embedding_health: dict[str, Any] = {}
+    embedding_health: SearchPayload = {}
 
     merged: list[tuple[int, float]] = []
     keyword_mode = False
@@ -1071,7 +1075,7 @@ def hybrid_search(
             continue
         eligible.append((node_id, final_score))
 
-    results: list[dict[str, Any]] = []
+    results: list[dict] = []
     for node_id, final_score in eligible[:limit]:
         node = node_map.get(node_id)
         if not node:
@@ -1108,7 +1112,7 @@ def hybrid_search(
         )
 
     total = len(eligible)
-    response: dict[str, Any] = {
+    response: SearchPayload = {
         "mode": mode,
         "results": results,
         "embedding_health": embedding_health,

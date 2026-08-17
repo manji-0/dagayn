@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal, overload
+from typing import Literal, cast, overload
 
 from pydantic import ValidationError
 
@@ -14,17 +14,17 @@ from ..state_types import (
     seal_dispatcher_error,
     seal_dispatcher_ok,
 )
-from ._common import attach_answerability
+from ._common import ToolPayload, attach_answerability
 from .flows_tools import get_flow, list_flows
 
 
 def _with_dispatch_metadata(
-    result: dict[str, Any],
+    result: ToolPayload,
     *,
     mode: str,
     called_subtool: str,
     repo_root: str | None,
-) -> dict[str, Any]:
+) -> ToolPayload:
     """Add dispatcher metadata without mutating the subtool response."""
     payload = dict(result)
     payload.setdefault("status", "ok")
@@ -34,23 +34,26 @@ def _with_dispatch_metadata(
     attach_answerability(payload, repo_root)
     if payload.get("status") == "error":
         payload.setdefault("error", payload["summary"])
-        return seal_dispatcher_error(payload)
+        return cast(ToolPayload, seal_dispatcher_error(payload))
     payload.setdefault("_hints", generate_hints("flow", payload, get_session()))
-    return seal_dispatcher_ok(payload)
+    return cast(ToolPayload, seal_dispatcher_ok(payload))
 
 
-def _error(message: str, *, mode: str, repo_root: str | None) -> dict[str, Any]:
-    return seal_dispatcher_error(
-        attach_answerability(
-            {
-                "status": "error",
-                "summary": message,
-                "error": message,
-                "mode": mode,
-                "called_subtool": None,
-            },
-            repo_root,
-        )
+def _error(message: str, *, mode: str, repo_root: str | None) -> ToolPayload:
+    return cast(
+        ToolPayload,
+        seal_dispatcher_error(
+            attach_answerability(
+                {
+                    "status": "error",
+                    "summary": message,
+                    "error": message,
+                    "mode": mode,
+                    "called_subtool": None,
+                },
+                repo_root,
+            )
+        ),
     )
 
 
@@ -65,7 +68,7 @@ def flow_func(
     flow_name: None = None,
     include_source: bool = False,
     repo_root: str | None = None,
-) -> dict[str, Any]: ...
+) -> ToolPayload: ...
 
 
 @overload
@@ -79,7 +82,7 @@ def flow_func(
     flow_name: str | None = None,
     include_source: bool = False,
     repo_root: str | None = None,
-) -> dict[str, Any]: ...
+) -> ToolPayload: ...
 
 
 def flow_func(
@@ -92,7 +95,7 @@ def flow_func(
     flow_name: str | None = None,
     include_source: bool = False,
     repo_root: str | None = None,
-) -> dict[str, Any]:
+) -> ToolPayload:
     """Run execution-flow analysis by dispatching to the requested internal mode."""
     try:
         request = parse_flow_request(

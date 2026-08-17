@@ -12,6 +12,9 @@ from dagayn.eval.semantics import (
     metric_specs_for_row,
 )
 
+type EvalValue = Any
+type EvalPayload = dict[str, EvalValue]
+
 PROFILES = {"search", "review", "architecture", "operability", "regression"}
 ERROR_STATUSES = {"error", "skipped"}
 
@@ -86,11 +89,11 @@ def _weighted_mean(components: dict[str, float], weights: dict[str, float]) -> f
     return round(total / denom, 4)
 
 
-def _eligible_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _eligible_rows(rows: list[EvalPayload]) -> list[EvalPayload]:
     return [row for row in rows if str(row.get("status", "ok")) not in ERROR_STATUSES]
 
 
-def _add_error_notes(summary: ProfileSummary, rows: list[dict[str, Any]]) -> None:
+def _add_error_notes(summary: ProfileSummary, rows: list[EvalPayload]) -> None:
     for row in rows:
         status = str(row.get("status", "ok"))
         if status == "error":
@@ -104,7 +107,7 @@ def _add_error_notes(summary: ProfileSummary, rows: list[dict[str, Any]]) -> Non
 
 
 def _explicit_metric_values(
-    rows: list[dict[str, Any]],
+    rows: list[EvalPayload],
     benchmark: str,
     metric: str,
 ) -> list[float]:
@@ -123,7 +126,7 @@ def _explicit_metric_values(
     return values
 
 
-def _search_profile(rows: list[dict[str, Any]]) -> ProfileSummary:
+def _search_profile(rows: list[EvalPayload]) -> ProfileSummary:
     summary = ProfileSummary(profile="search", status="ok", score=None)
     _add_error_notes(summary, rows)
     components = {
@@ -144,7 +147,7 @@ def _search_profile(rows: list[dict[str, Any]]) -> ProfileSummary:
     return summary
 
 
-def _review_profile(rows: list[dict[str, Any]]) -> ProfileSummary:
+def _review_profile(rows: list[EvalPayload]) -> ProfileSummary:
     summary = ProfileSummary(profile="review", status="ok", score=None)
     _add_error_notes(summary, rows)
     explicit_components = {
@@ -213,7 +216,7 @@ def _review_profile(rows: list[dict[str, Any]]) -> ProfileSummary:
     return summary
 
 
-def _architecture_profile(rows: list[dict[str, Any]]) -> ProfileSummary:
+def _architecture_profile(rows: list[EvalPayload]) -> ProfileSummary:
     summary = ProfileSummary(profile="architecture", status="ok", score=None)
     _add_error_notes(summary, rows)
     recall = _mean(_explicit_metric_values(rows, "flow_completeness", "recall"))
@@ -237,7 +240,7 @@ def _architecture_profile(rows: list[dict[str, Any]]) -> ProfileSummary:
     return summary
 
 
-def _operability_profile(rows: list[dict[str, Any]]) -> ProfileSummary:
+def _operability_profile(rows: list[EvalPayload]) -> ProfileSummary:
     summary = ProfileSummary(profile="operability", status="ok", score=None)
     _add_error_notes(summary, rows)
     components: dict[str, float] = {}
@@ -311,7 +314,7 @@ def _operability_profile(rows: list[dict[str, Any]]) -> ProfileSummary:
     return summary
 
 
-def _regression_profile(rows: list[dict[str, Any]]) -> ProfileSummary:
+def _regression_profile(rows: list[EvalPayload]) -> ProfileSummary:
     del rows
     return ProfileSummary(
         profile="regression",
@@ -321,7 +324,7 @@ def _regression_profile(rows: list[dict[str, Any]]) -> ProfileSummary:
     )
 
 
-def summarize_profile(rows: list[dict[str, Any]], profile: str) -> ProfileSummary:
+def summarize_profile(rows: list[EvalPayload], profile: str) -> ProfileSummary:
     """Summarize benchmark rows for one semantic profile."""
     if profile == "search":
         return _search_profile(rows)
@@ -336,16 +339,16 @@ def summarize_profile(rows: list[dict[str, Any]], profile: str) -> ProfileSummar
     raise ValueError(f"Unknown evaluation profile: {profile}")
 
 
-def summarize_all_profiles(rows: list[dict[str, Any]]) -> list[ProfileSummary]:
+def summarize_all_profiles(rows: list[EvalPayload]) -> list[ProfileSummary]:
     """Summarize all built-in profiles in stable order."""
     return [summarize_profile(rows, profile) for profile in sorted(PROFILES)]
 
 
-def profile_summary_as_dict(summary: ProfileSummary) -> dict[str, Any]:
+def profile_summary_as_dict(summary: ProfileSummary) -> EvalPayload:
     """Convert a profile summary to a JSON-ready dictionary."""
     return asdict(summary)
 
 
-def profile_summaries_as_dicts(summaries: list[ProfileSummary]) -> list[dict[str, Any]]:
+def profile_summaries_as_dicts(summaries: list[ProfileSummary]) -> list[EvalPayload]:
     """Convert profile summaries to JSON-ready dictionaries."""
     return [profile_summary_as_dict(summary) for summary in summaries]

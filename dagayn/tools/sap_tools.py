@@ -2,22 +2,33 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal, Optional
+from collections.abc import Mapping
+from typing import Literal, Optional
 
 from .._scope import ArtifactScope
 from ..dependency_profiles import DependencyProfile, validate_dependency_profile
 from ..sap import compute_sap_metrics, find_sap_violations
-from ._common import _error_response, _get_store, apply_output_budget, make_response
+from ._common import ToolPayload, _error_response, _get_store, apply_output_budget, make_response
 
 
-def _classify_sap_zone(violation: dict[str, Any]) -> str:
+def _classify_sap_zone(violation: Mapping[str, object]) -> str:
     """Classify a SAP violation into a coarse architectural zone."""
     zone = violation.get("zone")
     if isinstance(zone, str) and zone:
         return zone
 
-    abstractness = float(violation.get("abstractness", 0.0))
-    instability = float(violation.get("instability", 0.0))
+    abstractness_value = violation.get("abstractness", 0.0)
+    instability_value = violation.get("instability", 0.0)
+    abstractness = (
+        float(abstractness_value)
+        if isinstance(abstractness_value, (int, float, str))
+        else 0.0
+    )
+    instability = (
+        float(instability_value)
+        if isinstance(instability_value, (int, float, str))
+        else 0.0
+    )
     if abstractness <= 0.5 and instability <= 0.5:
         return "pain"
     if abstractness >= 0.5 and instability >= 0.5:
@@ -33,7 +44,7 @@ def compute_sap_metrics_func(
     artifact_scope: ArtifactScope = "code",
     detail_level: Literal["minimal", "standard", "verbose"] = "standard",
     dependency_profile: DependencyProfile = "strict_static",
-) -> dict[str, Any]:
+) -> ToolPayload:
     """Compute SAP abstractness, instability, and distance metrics per scope.
 
     For each scope, measures:
@@ -122,7 +133,7 @@ def detect_sap_violations_func(
     top_n: int = 30,
     artifact_scope: ArtifactScope = "code",
     dependency_profile: DependencyProfile = "strict_static",
-) -> dict[str, Any]:
+) -> ToolPayload:
     """Detect scopes that violate the Stable Abstractions Principle.
 
     A violation is a scope with D = |A + I - 1| > min_distance, meaning

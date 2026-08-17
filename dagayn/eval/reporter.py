@@ -20,6 +20,9 @@ from dagayn.eval.aggregate import (
 from dagayn.eval.runner import BENCHMARK_REGISTRY
 from dagayn.eval.semantics import decorate_rows, metric_specs_as_dicts
 
+type ReportValue = Any
+type ReportPayload = dict[str, ReportValue]
+
 
 def _escape_md_cell(value: Any) -> str:
     text = str(value)
@@ -32,7 +35,7 @@ def _escape_md_cell(value: Any) -> str:
     )
 
 
-def generate_markdown_report(results: list[dict[str, Any]]) -> str:
+def generate_markdown_report(results: list[ReportPayload]) -> str:
     """Generate a markdown report from benchmark results.
 
     Each result dict should contain at minimum a ``benchmark`` key identifying

@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
 
 from ..embeddings import EmbeddingStore, embed_all_nodes
 from ..incremental import get_db_path
 from ._common import (
+    ToolPayload,
     _error_response,
     _get_store,
     _validate_repo_root,
@@ -28,7 +28,7 @@ def embed_graph(
     provider: str | None = None,
     *,
     show_progress: bool = False,
-) -> dict[str, Any]:
+) -> ToolPayload:
     """Compute vector embeddings for all graph nodes to enable semantic search.
 
     Local embeddings use dagayn's managed llama-server sidecar
@@ -120,7 +120,7 @@ def get_docs_section(
     section_name: str,
     repo_root: str | None = None,
     max_chars: int = 4000,
-) -> dict[str, Any]:
+) -> ToolPayload:
     """Return a specific section from the LLM-optimized reference.
 
     Used by skills and Claude Code to load only the exact documentation
@@ -218,7 +218,7 @@ def get_docs_section(
 def generate_wiki_func(
     repo_root: str | None = None,
     force: bool = False,
-) -> dict[str, Any]:
+) -> ToolPayload:
     """Generate a markdown wiki from the community structure.
 
     [DOCS] Creates a wiki page for each detected community and an index
@@ -268,7 +268,7 @@ def generate_wiki_func(
 def get_wiki_page_func(
     community_name: str,
     repo_root: str | None = None,
-) -> dict[str, Any]:
+) -> ToolPayload:
     """Retrieve a specific wiki page by community name.
 
     [DOCS] Returns the markdown content of the wiki page for the given

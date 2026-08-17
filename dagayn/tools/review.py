@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
 
 from ..changes import (  # noqa: F401
     analyze_changes,
@@ -17,6 +16,7 @@ from ..hints import generate_hints, get_session
 from ..incremental import get_changed_file_sources, get_staged_and_unstaged
 from ..state_types import seal_missingness_item
 from ._common import (
+    ToolPayload,
     _error_response,
     _get_store,
     apply_output_budget,
@@ -60,7 +60,7 @@ def detect_changes_func(
     max_depth: int = 2,
     repo_root: str | None = None,
     detail_level: str = "standard",
-) -> dict[str, Any]:
+) -> ToolPayload:
     """Detect changes and produce risk-scored review guidance.
 
     [REVIEW] Primary tool for code review.  Maps git diffs to affected
@@ -193,7 +193,7 @@ def detect_changes_func(
         if detail_level == "minimal":
             priorities = analysis.review_priorities
             top_priorities = [p.get("name", p.get("qualified_name", "")) for p in priorities[:3]]
-            result: dict[str, Any] = {
+            result: ToolPayload = {
                 "status": "ok",
                 "summary": analysis.summary,
                 "risk_score": analysis.risk_score,

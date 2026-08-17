@@ -17,13 +17,34 @@ each state maps onto the lifecycle use cases.
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict, cast
 
 from ..incremental import _git_branch_info, detect_vcs, get_changed_file_sources
 from ..state_types import GraphSyncStateName, seal_graph_sync_state
 
 logger = logging.getLogger(__name__)
+
+
+class SyncPayload(TypedDict, total=False):
+    """Typed evidence envelope shared by sync assessment callers."""
+
+    state: GraphSyncStateName | None
+    status: str
+    repo_root: str
+    vcs: str
+    git_head_sha: str | None
+    current_head_sha: str | None
+    current_branch: str | None
+    worktree_dirty: bool
+    last_updated: str | None
+    total_nodes: int
+    files_count: int
+    content_verified: bool
+    unverified_file_count: int
+    pending_files: list[str]
+    indexed_files: list[str]
 
 #: Diff-tier verification stats every indexed file (cheap) but only hashes the
 #: ones whose mtime moved. Above this many hash candidates the verification is
@@ -76,7 +97,7 @@ def _graph_is_empty(stats: Any) -> bool:
     )
 
 
-def sync_state(sync: dict[str, Any]) -> GraphSyncStateName | None:
+def sync_state(sync: Mapping[str, object]) -> GraphSyncStateName | None:
     """Return the state name of an assessment, tolerating legacy dicts.
 
     Accepts payloads that only carry the pre-union ``status`` key so callers
@@ -105,7 +126,7 @@ def _classify_diff_tier(
     dirty_files: list[str],
     *,
     max_hash_candidates: int | None = _MAX_HASH_CANDIDATES,
-) -> tuple[GraphSyncStateName, list[str], dict[str, Any]]:
+) -> tuple[GraphSyncStateName, list[str], SyncPayload]:
     """Compare the graph's indexed content with the working tree.
 
     Every indexed file is checked, not just the files git calls dirty: the
@@ -192,7 +213,7 @@ def _classify_diff_tier(
     return dirty_state, sorted(candidates), {}
 
 
-def commit_tier_freshness(store: Any, repo_root: str | Path) -> dict[str, Any]:
+def commit_tier_freshness(store: Any, repo_root: str | Path) -> SyncPayload:
     """Return the cheap half of the freshness assessment.
 
     Only the commit tier plus git's own dirty flag: two ``git`` invocations and
@@ -251,7 +272,7 @@ def assess_graph_sync(
     repo_root: str | Path,
     *,
     max_hash_candidates: int | None = _MAX_HASH_CANDIDATES,
-) -> dict[str, Any]:
+) -> SyncPayload:
     """Return the graph sync state for *repo_root* relative to its working tree.
 
     The payload is a sealed :data:`~dagayn.state_types.GraphSyncState`: a
@@ -286,7 +307,7 @@ def assess_graph_sync(
         # catch-up diff cannot see them. Pay for the one full verification.
         max_hash_candidates = None
 
-    extra: dict[str, Any] = {}
+    extra: SyncPayload = {}
     state: GraphSyncStateName
     if graph_empty:
         state = "unbuilt"
@@ -309,21 +330,24 @@ def assess_graph_sync(
             # Verified once; the stored mtimes now describe this worktree.
             _clear_seed_verification_flag(store)
 
-    return seal_graph_sync_state(
-        {
-            "state": state,
-            "status": LEGACY_STATUS_BY_STATE[state],
-            "repo_root": str(root),
-            "vcs": vcs,
-            "git_head_sha": stored_sha,
-            "current_head_sha": current_sha or None,
-            "current_branch": current_branch or None,
-            "worktree_dirty": bool(dirty_files),
-            "last_updated": last_updated,
-            "total_nodes": int(getattr(stats, "total_nodes", 0) or 0),
-            "files_count": int(getattr(stats, "files_count", 0) or 0),
-            **extra,
-        }
+    return cast(
+        SyncPayload,
+        seal_graph_sync_state(
+            {
+                "state": state,
+                "status": LEGACY_STATUS_BY_STATE[state],
+                "repo_root": str(root),
+                "vcs": vcs,
+                "git_head_sha": stored_sha,
+                "current_head_sha": current_sha or None,
+                "current_branch": current_branch or None,
+                "worktree_dirty": bool(dirty_files),
+                "last_updated": last_updated,
+                "total_nodes": int(getattr(stats, "total_nodes", 0) or 0),
+                "files_count": int(getattr(stats, "files_count", 0) or 0),
+                **extra,
+            }
+        ),
     )
 
 
@@ -339,7 +363,7 @@ def embedding_needs_refresh(db_path: str | Path, *, local_embedding: str | None)
     return status in {"not_indexed", "empty", "partial", "stale", "unavailable"}
 
 
-def needs_structure_prepare(sync: dict[str, Any], *, force: bool = False) -> bool:
+def needs_structure_prepare(sync: Mapping[str, object], *, force: bool = False) -> bool:
     """True when Phase 1 (structure) should run.
 
     Includes ``worktree_behind`` so session-start / explicit prepare indexes
@@ -351,7 +375,7 @@ def needs_structure_prepare(sync: dict[str, Any], *, force: bool = False) -> boo
     return sync_state(sync) in _STRUCTURE_PREPARE_STATES
 
 
-def needs_mcp_auto_prepare(sync: dict[str, Any], *, force: bool = False) -> bool:
+def needs_mcp_auto_prepare(sync: Mapping[str, object], *, force: bool = False) -> bool:
     """True when MCP first-tool auto_prepare should bootstrap the graph.
 
     Only ``unbuilt`` / ``commit_drift`` block analysis against the wrong or
@@ -370,7 +394,7 @@ def needs_mcp_auto_prepare(sync: dict[str, Any], *, force: bool = False) -> bool
     return sync_state(sync) in _MCP_AUTO_PREPARE_STATES
 
 
-def is_structure_ready(sync: dict[str, Any]) -> bool:
+def is_structure_ready(sync: Mapping[str, object]) -> bool:
     """True when the graph is HEAD-aligned and usable for analysis.
 
     ``commit_synced``, ``worktree_behind`` and ``worktree_ahead`` all have a

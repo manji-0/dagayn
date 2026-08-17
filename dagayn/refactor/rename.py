@@ -16,6 +16,9 @@ from .pending import _cleanup_expired, _pending_refactors, _refactor_lock
 
 logger = logging.getLogger(__name__)
 
+type RenameValue = Any
+type RenamePayload = dict[str, RenameValue]
+
 _RENAME_GRAPH_LIMITED_MISSINGNESS = seal_missingness_item(
     {
         "reason_code": "rename_edits_graph_limited",
@@ -60,7 +63,7 @@ def _import_statement_mentions_symbol(
 
 
 def _append_edit(
-    edits: list[dict[str, Any]],
+    edits: list[RenamePayload],
     seen: set[tuple[str, int]],
     *,
     file: str,
@@ -74,7 +77,7 @@ def _append_edit(
     key = (file, line)
     if key in seen:
         return
-    edit: dict[str, Any] = {
+    edit: RenamePayload = {
         "file": file,
         "line": line,
         "old": old,
@@ -92,7 +95,7 @@ def rename_preview(
     store: GraphStore,
     old_name: str,
     new_name: str,
-) -> Optional[dict[str, Any]]:
+) -> Optional[RenamePayload]:
     """Build a rename edit list for *old_name* -> *new_name*.
 
     Finds the node via ``store.search_nodes(old_name)``, collects
@@ -115,7 +118,7 @@ def rename_preview(
         return None
     exact_candidates = [c for c in candidates if c.name == old_name]
 
-    edits: list[dict[str, Any]] = []
+    edits: list[RenamePayload] = []
     seen: set[tuple[str, int]] = set()
 
     _append_edit(
@@ -203,7 +206,7 @@ def rename_preview(
         stats[e["confidence"]] += 1
 
     refactor_id = uuid.uuid4().hex[:8]
-    preview: dict[str, Any] = {
+    preview: RenamePayload = {
         "refactor_id": refactor_id,
         "type": "rename",
         "old_name": _sanitize_name(old_name),

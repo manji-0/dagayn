@@ -12,6 +12,9 @@ from ._fts_tokenize import (
     segment_japanese_fts_text,
 )
 
+type FtsValue = Any
+type FtsPayload = dict[str, FtsValue]
+
 _IDENT_BOUNDARY_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 _IDENT_SPLIT_RE = re.compile(r"[^A-Za-z0-9]+")
 _MARKDOWN_HEADING_RE = re.compile(r"^(#{1,6})\s+")
@@ -120,7 +123,7 @@ def build_node_fts_values(
     line_start: int | None,
     line_end: int | None,
     signature: str | None,
-    extra: dict[str, Any] | str | None,
+    extra: FtsPayload | str | None,
     repo_root: Path | None,
     file_lines_cache: dict[Path, list[str] | None] | None = None,
 ) -> tuple[str, str, str, str, str, str]:

@@ -25,6 +25,9 @@ from .prompts import (
 )
 from .state_types import RefactorMode, TraversalMode
 
+type ComponentValue = Any
+type ComponentPayload = dict[str, ComponentValue]
+
 _patch_typing_eval_type_for_python314_beta = (
     _python314_compat.patch_typing_eval_type_for_python314_beta
 )
@@ -1015,7 +1018,7 @@ def pre_merge_check(base: str = "HEAD~1") -> list[dict]:
     return pre_merge_check_prompt(base=base)
 
 
-def _tool_components() -> dict[str, Any]:
+def _tool_components() -> ComponentPayload:
     """Return FastMCP's local component registry for registered tools/prompts."""
     provider = getattr(mcp, "_local_provider", None)
     components = getattr(provider, "_components", None)
@@ -1036,12 +1039,12 @@ def _registered_tool_names() -> list[str]:
     return names
 
 
-def _snapshot_components() -> dict[str, Any]:
+def _snapshot_components() -> ComponentPayload:
     """Copy the current FastMCP local component registry."""
     return dict(_tool_components())
 
 
-def _restore_components(snapshot: dict[str, Any]) -> None:
+def _restore_components(snapshot: ComponentPayload) -> None:
     """Restore the FastMCP local component registry from a snapshot."""
     components = _tool_components()
     components.clear()

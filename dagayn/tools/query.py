@@ -23,6 +23,7 @@ from ..hints import generate_hints, get_session
 from ..incremental import get_changed_files, get_db_path, get_staged_and_unstaged
 from ..search import embedding_health_available, hybrid_search
 from ..state_types import (
+    MissingnessRecord,
     TraversalEntry,
     TraversalMode,
     seal_missingness_item,
@@ -45,6 +46,9 @@ from ._common import (
 )
 
 logger = logging.getLogger(__name__)
+
+type QueryValue = Any
+type QueryPayload = dict[str, QueryValue]
 
 # ---------------------------------------------------------------------------
 # Tool 2: get_impact_radius
@@ -105,14 +109,14 @@ def _node_dicts_for_edges(
     edges: list[Any],
     *,
     qualified_attr: str,
-) -> tuple[list[dict[str, Any]], list[str]]:
+) -> tuple[list[QueryPayload], list[str]]:
     """Batch-resolve edge endpoints to node dicts while preserving edge order."""
     if not edges:
         return [], []
 
     qualified_names = [getattr(edge, qualified_attr) for edge in edges]
     nodes_by_qn = store.get_nodes_by_qualified_names(qualified_names)
-    results: list[dict[str, Any]] = []
+    results: list[QueryPayload] = []
     unresolved_targets: list[str] = []
     seen_unresolved: set[str] = set()
     for edge in edges:
@@ -139,7 +143,7 @@ def _is_unresolved_import_target(store: Any, target: str, root: Path) -> bool:
 
 def _partial_coverage_missingness(
     embedding_health: Mapping[str, Any] | None,
-) -> dict[str, Any] | None:
+) -> MissingnessRecord | None:
     """Disclose that semantic ranking only covers part of the graph.
 
     An interrupted embedding run commits per batch and then raises, so the rows
@@ -151,22 +155,19 @@ def _partial_coverage_missingness(
         return None
     coverage = embedding_health.get("embedding_coverage")
     missing = embedding_health.get("missing_embedding_count")
-    return cast(
-        dict[str, Any],
-        seal_missingness_item(
-            {
-                "reason_code": "partial_embeddings",
-                "severity": "medium",
-                "claim_effect": (
-                    "semantic ranking covers only part of the graph, so a node's absence"
-                    " from these results is not evidence it is irrelevant"
-                ),
-                "details": {
-                    "embedding_coverage": coverage,
-                    "missing_embedding_count": missing,
-                },
-            }
-        ),
+    return seal_missingness_item(
+        {
+            "reason_code": "partial_embeddings",
+            "severity": "medium",
+            "claim_effect": (
+                "semantic ranking covers only part of the graph, so a node's absence"
+                " from these results is not evidence it is irrelevant"
+            ),
+            "details": {
+                "embedding_coverage": coverage,
+                "missing_embedding_count": missing,
+            },
+        }
     )
 
 
@@ -174,7 +175,7 @@ def _query_zero_result_fields(
     *,
     results: list[dict],
     unresolved_targets: list[str],
-) -> dict[str, Any]:
+) -> QueryPayload:
     if results:
         return {
             "confidence": "medium",
@@ -228,7 +229,7 @@ def _documentation_result(edge: Any, *, endpoint: str, inverse_label: str | None
     return result
 
 
-def _result_evidence_type(result: dict[str, Any]) -> str:
+def _result_evidence_type(result: QueryPayload) -> str:
     if result.get("evidence_type"):
         return str(result["evidence_type"])
     kind = str(result.get("kind", ""))
@@ -238,7 +239,7 @@ def _result_evidence_type(result: dict[str, Any]) -> str:
     return "extracted"
 
 
-def _exactness_action(query: str, exact_count: int, result_count: int) -> dict[str, Any]:
+def _exactness_action(query: str, exact_count: int, result_count: int) -> QueryPayload:
     if exact_count == 1:
         return {
             "tool": "query_graph_tool",
@@ -290,7 +291,7 @@ def _filter_bare_name_fallback_edges(
     ]
 
 
-def _annotate_bare_name_edges(edges_out: list[dict[str, Any]]) -> None:
+def _annotate_bare_name_edges(edges_out: list[QueryPayload]) -> None:
     for edge in edges_out:
         if "::" not in str(edge.get("target", "")):
             edge["match"] = "bare_name"
@@ -329,7 +330,7 @@ def _query_graph_guidance(
     target: str,
     result_count: int,
     exact_count: int,
-) -> list[dict[str, Any]]:
+) -> list[QueryPayload]:
     if result_count:
         return [
             make_guidance_item(
@@ -388,9 +389,9 @@ def _semantic_search_guidance(
     query: str,
     result_count: int,
     search_mode: str,
-    embedding_health: dict[str, Any],
-) -> list[dict[str, Any]]:
-    missingness_items: list[dict[str, Any]] = []
+    embedding_health: QueryPayload,
+) -> list[QueryPayload]:
+    missingness_items: list[Mapping[str, object]] = []
     if embedding_health and not embedding_health_available(embedding_health):
         missingness_items.append(
             {
@@ -487,7 +488,7 @@ def get_impact_radius(
     repo_root: str | None = None,
     base: str = "HEAD~1",
     detail_level: str = "standard",
-) -> dict[str, Any]:
+) -> QueryPayload:
     """Analyze the blast radius of changed files.
 
     Args:
@@ -724,7 +725,7 @@ def query_graph(
     detail_level: str = "standard",
     *,
     _corrupt_retried: bool = False,
-) -> dict[str, Any]:
+) -> QueryPayload:
     """Run a predefined graph query.
 
     Args:
@@ -1024,7 +1025,7 @@ def query_graph(
 
         elif pattern == "tests_for":
             if node is not None:
-                results.extend(cast(list[dict[str, Any]], infer_tests_for_node(store, node)))
+                results.extend(cast(list[QueryPayload], infer_tests_for_node(store, node)))
                 test_edges = [e for e in store.get_edges_by_source(qn) if e.kind == "TESTED_BY"]
                 edges_out.extend(edge_to_dict(e) for e in test_edges)
 
@@ -1072,7 +1073,7 @@ def query_graph(
 
         summary = f"Found {len(results)} result(s) for {pattern}('{target}')"
         exact_count = 1 if resolution == "exact" and node is not None else 0
-        resolution_payload: dict[str, Any] = {
+        resolution_payload: QueryPayload = {
             "resolution": resolution,
             "exact_match_count": exact_count,
         }
@@ -1201,7 +1202,7 @@ def semantic_search_nodes(
     model: str | None = None,
     provider: str | None = None,
     detail_level: str = "standard",
-) -> dict[str, Any]:
+) -> QueryPayload:
     """Search for nodes by name, keyword, or semantic similarity.
 
     Uses hybrid search (FTS5 BM25 + vector embeddings merged via Reciprocal
@@ -1366,7 +1367,7 @@ def semantic_search_nodes(
 # ---------------------------------------------------------------------------
 
 
-def list_graph_stats(repo_root: str | None = None) -> dict[str, Any]:
+def list_graph_stats(repo_root: str | None = None) -> QueryPayload:
     """Get aggregate statistics about the knowledge graph.
 
     Args:
@@ -1428,7 +1429,7 @@ def find_large_functions(
     file_path_pattern: str | None = None,
     limit: int = 50,
     repo_root: str | None = None,
-) -> dict[str, Any]:
+) -> QueryPayload:
     """Find functions, classes, or files exceeding a line-count threshold.
 
     Useful for identifying decomposition targets, code-quality audits,
@@ -1591,7 +1592,7 @@ def traverse_graph_func(
     repo_root: str | None = None,
     model: str | None = None,
     provider: str | None = None,
-) -> dict[str, Any]:
+) -> QueryPayload:
     """BFS/DFS traversal from best-matching node.
 
     Args:
@@ -1614,7 +1615,7 @@ def traverse_graph_func(
             provider=provider,
         )["results"]
         if not results:
-            reachability: dict[str, Any] = seal_reachability_info(
+            reachability: QueryPayload = seal_reachability_info(
                 {
                     "state": "not_found",
                     "truncated": False,

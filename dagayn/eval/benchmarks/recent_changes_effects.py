@@ -21,6 +21,9 @@ from dagayn.parser import EdgeInfo, NodeInfo
 
 logger = logging.getLogger(__name__)
 
+type BenchmarkValue = Any
+type BenchmarkPayload = dict[str, BenchmarkValue]
+
 
 def _measure_ms(fn: Callable[[], Any], repeat: int = 1) -> tuple[float, Any]:
     timings: list[float] = []
@@ -149,11 +152,11 @@ def _eager_local_subgraph_dfs(
     start_qn: str,
     max_depth: int,
     token_budget: int,
-) -> tuple[dict[str, Any], list[dict], bool]:
+) -> tuple[BenchmarkPayload, list[dict], bool]:
     from dagayn.tools.query import _estimate_traversal_entry_tokens
 
     nodes_map, adj = store.get_local_subgraph(start_qn, max_depth)
-    visited: dict[str, Any] = {}
+    visited: dict[str, BenchmarkValue] = {}
     traversal: list[dict] = []
     approx_tokens = 0
     budget_exceeded = False

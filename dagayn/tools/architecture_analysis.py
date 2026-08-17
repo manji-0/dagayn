@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal, cast
+from typing import Literal, cast
 
 from pydantic import ValidationError
 
@@ -15,7 +15,7 @@ from ..state_types import (
     seal_dispatcher_error,
     seal_dispatcher_ok,
 )
-from ._common import attach_answerability
+from ._common import ToolPayload, attach_answerability
 from .analysis_tools import (
     get_bridge_nodes_func,
     get_hub_nodes_func,
@@ -36,12 +36,12 @@ from .sap_tools import compute_sap_metrics_func, detect_sap_violations_func
 
 
 def _with_dispatch_metadata(
-    result: dict[str, Any],
+    result: ToolPayload,
     *,
     mode: str,
     called_subtool: str,
     repo_root: str | None,
-) -> dict[str, Any]:
+) -> ToolPayload:
     """Add dispatcher metadata without mutating the subtool response."""
     payload = dict(result)
     payload.setdefault("status", "ok")
@@ -51,26 +51,29 @@ def _with_dispatch_metadata(
     attach_answerability(payload, repo_root)
     if payload.get("status") == "error":
         payload.setdefault("error", payload["summary"])
-        return seal_dispatcher_error(payload)
+        return cast(ToolPayload, seal_dispatcher_error(payload))
     payload.setdefault(
         "_hints",
         generate_hints("architecture_analysis", payload, get_session()),
     )
-    return seal_dispatcher_ok(payload)
+    return cast(ToolPayload, seal_dispatcher_ok(payload))
 
 
-def _error(message: str, *, mode: str, repo_root: str | None) -> dict[str, Any]:
-    return seal_dispatcher_error(
-        attach_answerability(
-            {
-                "status": "error",
-                "summary": message,
-                "error": message,
-                "mode": mode,
-                "called_subtool": None,
-            },
-            repo_root,
-        )
+def _error(message: str, *, mode: str, repo_root: str | None) -> ToolPayload:
+    return cast(
+        ToolPayload,
+        seal_dispatcher_error(
+            attach_answerability(
+                {
+                    "status": "error",
+                    "summary": message,
+                    "error": message,
+                    "mode": mode,
+                    "called_subtool": None,
+                },
+                repo_root,
+            )
+        ),
     )
 
 
@@ -98,7 +101,7 @@ def architecture_analysis_func(
         "infra_dataflow",
         "artifact_trace",
     ] = "strict_static",
-) -> dict[str, Any]:
+) -> ToolPayload:
     """Run architecture analysis by dispatching to the requested internal mode."""
     try:
         request = parse_architecture_analysis_request(

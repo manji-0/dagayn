@@ -18,8 +18,11 @@ from .pending import (
 
 logger = logging.getLogger(__name__)
 
+type ApplyValue = Any
+type ApplyPayload = dict[str, ApplyValue]
 
-def _empty_result(*, dry_run: bool) -> dict[str, Any]:
+
+def _empty_result(*, dry_run: bool) -> ApplyPayload:
     if dry_run:
         return {
             "status": "ok",
@@ -40,7 +43,7 @@ def _resolve_repo_path(path_str: str, repo_root: Path) -> Path:
     return path.resolve()
 
 
-def _get_valid_preview(refactor_id: str) -> tuple[dict[str, Any] | None, dict[str, str] | None]:
+def _get_valid_preview(refactor_id: str) -> tuple[ApplyPayload | None, dict[str, str] | None]:
     with _refactor_lock:
         _cleanup_expired()
         preview = _pending_refactors.get(refactor_id)
@@ -59,7 +62,7 @@ def _get_valid_preview(refactor_id: str) -> tuple[dict[str, Any] | None, dict[st
     return preview, None
 
 
-def _validate_edit_paths(edits: list[dict[str, Any]], repo_root: Path) -> dict[str, str] | None:
+def _validate_edit_paths(edits: list[ApplyPayload], repo_root: Path) -> dict[str, str] | None:
     for edit in edits:
         edit_path = _resolve_repo_path(edit["file"], repo_root)
         try:
@@ -118,7 +121,7 @@ def _identifier_spans(line: str, name: str) -> list[int]:
     return spans
 
 
-def _apply_edit(content: str, file_path: Path, edit: dict[str, Any]) -> tuple[str, str | None]:
+def _apply_edit(content: str, file_path: Path, edit: ApplyPayload) -> tuple[str, str | None]:
     """Apply one previewed edit. Returns ``(content, skip_reason)``.
 
     The edit is applied only at the line the preview recorded, and only to
@@ -161,23 +164,23 @@ def _apply_edit(content: str, file_path: Path, edit: dict[str, Any]) -> tuple[st
 
 
 def _plan_edits(
-    edits: list[dict[str, Any]],
+    edits: list[ApplyPayload],
     repo_root: Path,
-) -> tuple[dict[str, tuple[Path, str, str, int]], list[dict[str, Any]]]:
+) -> tuple[dict[str, tuple[Path, str, str, int]], list[ApplyPayload]]:
     """Return ``(planned_per_file, skipped_edits)``.
 
     Every edit that could not be applied where the preview said it would be is
     returned in *skipped* with a reason, so the caller can report it instead of
     counting it as applied.
     """
-    edits_by_file: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    edits_by_file: dict[str, list[ApplyPayload]] = defaultdict(list)
     for edit in edits:
         edits_by_file[edit["file"]].append(edit)
 
     planned: dict[str, tuple[Path, str, str, int]] = {}
-    skipped: list[dict[str, Any]] = []
+    skipped: list[ApplyPayload] = []
 
-    def _skip(edit: dict[str, Any], reason: str) -> None:
+    def _skip(edit: ApplyPayload, reason: str) -> None:
         skipped.append(
             {
                 "file": edit.get("file"),
@@ -224,8 +227,8 @@ def _plan_edits(
 def _build_dry_run_result(
     refactor_id: str,
     planned: dict[str, tuple[Path, str, str, int]],
-    skipped: list[dict[str, Any]] | None = None,
-) -> dict[str, Any]:
+    skipped: list[ApplyPayload] | None = None,
+) -> ApplyPayload:
     diffs: dict[str, str] = {}
     for file_str, (_file_path, original, new_content, _count) in planned.items():
         diff_lines = list(
@@ -281,7 +284,7 @@ def apply_refactor(
     refactor_id: str,
     repo_root: Path,
     dry_run: bool = False,
-) -> dict[str, Any]:
+) -> ApplyPayload:
     """Apply a previously previewed refactoring to source files.
 
     Validates the refactor_id, checks expiry, ensures all edit paths are

@@ -12,6 +12,8 @@ from collections.abc import Iterable, Mapping
 from pathlib import PurePosixPath
 from typing import Any
 
+type ScoreValue = Any
+type ScorePayload = dict[str, ScoreValue]
 
 def compute_token_efficiency(raw_tokens: int, graph_tokens: int) -> dict:
     """Compute token efficiency metrics.
@@ -139,7 +141,7 @@ def compute_precision_at_k(
     }
 
 
-def _aliases_from_config(config: dict[str, Any] | None) -> dict[str, set[str]]:
+def _aliases_from_config(config: ScorePayload | None) -> dict[str, set[str]]:
     aliases: dict[str, set[str]] = {}
     if not config:
         return aliases
@@ -173,7 +175,7 @@ class IdentifierMatcher:
                 self.aliases.setdefault(value, set()).add(target_s)
 
     @classmethod
-    def from_config(cls, config: dict[str, Any] | None) -> "IdentifierMatcher":
+    def from_config(cls, config: ScorePayload | None) -> "IdentifierMatcher":
         return cls(
             _aliases_from_config(config),
             allow_basename=bool((config or {}).get("allow_basename_match", False)),

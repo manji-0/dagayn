@@ -13,6 +13,9 @@ from contextlib import contextmanager, nullcontext
 from importlib import import_module
 from typing import Any, Coroutine, cast
 
+type ToolArgumentValue = Any
+type ToolArguments = dict[str, ToolArgumentValue]
+
 TOOL_REGISTRY: dict[str, str] = {
     "apply_refactor_tool": "dagayn.tools.refactor_tools:apply_refactor_func",
     "architecture_analysis_tool": "dagayn.tools.architecture_analysis:architecture_analysis_func",
@@ -127,8 +130,8 @@ def _parse_arg_pair(raw: str) -> tuple[str, Any]:
     return key.strip(), _parse_value(value.strip())
 
 
-def _tool_kwargs(args: argparse.Namespace) -> dict[str, Any]:
-    kwargs: dict[str, Any] = {}
+def _tool_kwargs(args: argparse.Namespace) -> ToolArguments:
+    kwargs: ToolArguments = {}
     if args.json_args:
         try:
             decoded = json.loads(args.json_args)
@@ -143,7 +146,7 @@ def _tool_kwargs(args: argparse.Namespace) -> dict[str, Any]:
     return kwargs
 
 
-def _validate_kwargs(func: Callable[..., Any], kwargs: dict[str, Any]) -> None:
+def _validate_kwargs(func: Callable[..., Any], kwargs: ToolArguments) -> None:
     """Reject unknown kwargs with the accepted parameter names."""
     try:
         params = inspect.signature(func).parameters
@@ -168,7 +171,7 @@ def _validate_kwargs(func: Callable[..., Any], kwargs: dict[str, Any]) -> None:
         )
 
 
-def _inject_repo_arg(func: Callable[..., Any], kwargs: dict[str, Any], repo: str | None) -> None:
+def _inject_repo_arg(func: Callable[..., Any], kwargs: ToolArguments, repo: str | None) -> None:
     if not repo or "repo_root" in kwargs:
         return
     try:
@@ -180,7 +183,7 @@ def _inject_repo_arg(func: Callable[..., Any], kwargs: dict[str, Any], repo: str
 
 
 @contextmanager
-def _maybe_local_embedding_server(tool_name: str, kwargs: dict[str, Any]):
+def _maybe_local_embedding_server(tool_name: str, kwargs: ToolArguments):
     """Ensure persisted localhost embeddings are queryable for CLI tool calls."""
     canonical = _canonical_tool_name(tool_name)
     if canonical not in _LOCAL_EMBEDDING_AWARE_TOOLS:

@@ -20,6 +20,9 @@ from ..graph import GraphStore, _sanitize_name
 
 logger = logging.getLogger(__name__)
 
+type DeadValue = Any
+type DeadPayload = dict[str, DeadValue]
+
 _FRAMEWORK_BASE_CLASSES = frozenset(
     {
         "Base",
@@ -227,7 +230,7 @@ def _is_structural_type_node(node: Any) -> bool:
     return False
 
 
-def _has_value_container_metadata(extra: dict[str, Any]) -> bool:
+def _has_value_container_metadata(extra: DeadPayload) -> bool:
     if extra.get("container_role") == "data_container":
         return True
     if extra.get("value_semantics") is True:
@@ -391,7 +394,7 @@ def _dead_code_record(
     name_definition_count: int,
     source_available: bool,
     reachable_via_cross_artifact: bool = False,
-) -> dict[str, Any]:
+) -> DeadPayload:
     reason_codes = []
     if caller_count == 0:
         reason_codes.append("no_callers")
@@ -519,7 +522,7 @@ class _DeadCodeLookups:
         bare_tested_by_name: dict[str, list[Any]],
         bare_inherits_by_name: dict[str, list[Any]],
         suffix_calls_by_name: dict[str, list[Any]],
-        base_nodes_map: dict[str, Any],
+        base_nodes_map: dict[str, DeadValue],
         unresolved_entrypoint_by_name: dict[str, list[Any]],
     ) -> None:
         self.surviving = surviving
@@ -678,7 +681,7 @@ def _collect_dead_code_context(
             for base_cls_qn in class_inherits_targets.get(parent_qn, []):
                 base_method_qns_set.add(f"{base_cls_qn}.{node.name}")
                 base_method_qns_set.add(f"{node.file_path}::{base_cls_qn}.{node.name}")
-    base_nodes_map: dict[str, Any] = {}
+    base_nodes_map: dict[str, DeadValue] = {}
     if base_method_qns_set:
         for qn, n in store.get_nodes_by_qualified_names(list(base_method_qns_set)).items():
             base_nodes_map[qn] = n
@@ -719,7 +722,7 @@ def _node_dead_code_evidence(
     node: Any,
     lookups: _DeadCodeLookups,
     source_cache: dict[str, list[str]],
-) -> Optional[dict[str, Any]]:
+) -> Optional[DeadPayload]:
     """Resolve every reference kind for one survivor node.
 
     Returns the ``_dead_code_record`` kwargs when the node has no reference
@@ -869,7 +872,7 @@ def find_dead_code(
     store: GraphStore,
     kind: Optional[str] = None,
     file_pattern: Optional[str] = None,
-) -> list[dict[str, Any]]:
+) -> list[DeadPayload]:
     """Find functions/classes with no callers, no test refs, no importers, and no references.
 
     Entry points (functions matching framework decorators or conventional name
@@ -898,7 +901,7 @@ def find_dead_code(
     # ---------------------------------------------------------------------------
     # Pass 2: main dead-code analysis using preloaded data (no SQL in the loop)
     # ---------------------------------------------------------------------------
-    dead: list[dict[str, Any]] = []
+    dead: list[DeadPayload] = []
     source_cache: dict[str, list[str]] = {}
 
     for node in lookups.surviving:

@@ -19,6 +19,9 @@ from .paths import get_db_path
 
 logger = logging.getLogger(__name__)
 
+type EnrichmentValue = Any
+type EnrichmentPayload = dict[str, EnrichmentValue]
+
 # Flags that consume the next token in grep/rg commands
 _RG_FLAGS_WITH_VALUES = frozenset(
     {
@@ -49,7 +52,7 @@ _RG_FLAGS_WITH_VALUES = frozenset(
 )
 
 
-def extract_pattern(tool_name: str, tool_input: dict[str, Any]) -> str | None:
+def extract_pattern(tool_name: str, tool_input: EnrichmentPayload) -> str | None:
     """Extract a search pattern from a tool call's input.
 
     Returns None if no meaningful pattern can be extracted.
@@ -161,7 +164,9 @@ def _get_flow_names_for_nodes(conn: Any, nodes: list[Any]) -> dict[int, list[str
     return out
 
 
-def _prepare_context_for_nodes(nodes: list[Any], store: Any, conn: Any) -> dict[str, Any]:
+def _prepare_context_for_nodes(
+    nodes: list[Any], store: Any, conn: Any
+) -> EnrichmentPayload:
     qns = [node.qualified_name for node in nodes]
     outgoing, incoming = store.get_edges_by_endpoints(qns)
 
@@ -187,7 +192,7 @@ def _prepare_context_for_nodes(nodes: list[Any], store: Any, conn: Any) -> dict[
 
 def _format_node_context(
     node: Any,
-    context: dict[str, Any],
+    context: EnrichmentPayload,
     repo_root: str,
 ) -> list[str]:
     """Format a single node's structural context as plain text lines.

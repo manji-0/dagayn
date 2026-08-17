@@ -23,6 +23,9 @@ from ._base.types import EdgeInfo, NodeInfo
 
 logger = logging.getLogger(__name__)
 
+type ManifestValue = Any
+type ManifestData = dict[str, ManifestValue]
+
 EXTRACTOR_ID = "manifest_bridges"
 
 # Confidence contract for Layer-2 manifest bridges (see docs/CROSS-ARTIFACT-EDGES-WIP.md).
@@ -386,7 +389,7 @@ def _extract_generated_client_consumers(
         return
 
     consumer_name = data.get("name") if isinstance(data.get("name"), str) else None
-    deps: dict[str, Any] = {}
+    deps: ManifestData = {}
     for key in ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies"):
         section = data.get(key)
         if isinstance(section, dict):
@@ -481,7 +484,7 @@ def _bridge_extra(
     target_language: str,
     confidence: float,
     confidence_tier: str,
-) -> dict[str, Any]:
+) -> ManifestData:
     return {
         "relationship_role": relationship_role,
         "bridge_kind": bridge_kind,
@@ -570,7 +573,7 @@ def _strip_quotes(value: str) -> str:
     return value
 
 
-def _load_toml(path: Path) -> dict[str, Any] | None:
+def _load_toml(path: Path) -> ManifestData | None:
     try:
         with path.open("rb") as fh:
             data = tomllib.load(fh)
@@ -580,7 +583,7 @@ def _load_toml(path: Path) -> dict[str, Any] | None:
     return data if isinstance(data, dict) else None
 
 
-def _load_json(path: Path) -> dict[str, Any] | None:
+def _load_json(path: Path) -> ManifestData | None:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:

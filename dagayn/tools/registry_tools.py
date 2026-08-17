@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, cast
 
 from ..graph import GraphStore
 from ..paths import db_path_for
 from ..search import hybrid_search
-from ..state_types import seal_missingness_item
+from ..state_types import MissingnessRecord, seal_missingness_item
 from ..write_lock import graph_read_lock
-from ._common import handle_tool_runtime_error, make_response
+from ._common import ToolPayload, handle_tool_runtime_error, make_response
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +20,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def list_repos_func() -> dict[str, Any]:
+def list_repos_func() -> ToolPayload:
     """List all registered repositories.
 
     [REGISTRY] Returns the list of repositories registered in the global
@@ -59,7 +58,7 @@ def cross_repo_search_func(
     limit: int = 20,
     model: str | None = None,
     provider: str | None = None,
-) -> dict[str, Any]:
+) -> ToolPayload:
     """Search across all registered repositories.
 
     [REGISTRY] Runs hybrid_search on each registered repo's graph database
@@ -91,13 +90,13 @@ def cross_repo_search_func(
                 ],
             )
 
-        all_results: list[dict[str, Any]] = []
+        all_results: list[dict] = []
         searched_repos: list[str] = []
         # A repo that could not be searched used to vanish from the response
         # entirely: repos_searched listed successes only and no warning was
         # emitted, so reduced recall looked like an exhaustive answer.
         skipped_repos: list[dict[str, str]] = []
-        repo_modes: dict[str, dict[str, Any]] = {}
+        repo_modes: dict[str, ToolPayload] = {}
 
         for repo_entry in repos:
             repo_path = Path(repo_entry["path"])
@@ -149,44 +148,38 @@ def cross_repo_search_func(
             f"Found {len(all_results)} result(s) across "
             f"{len(searched_repos)} repo(s) for '{query}'."
         )
-        missingness: list[dict[str, Any]] = []
+        missingness: list[MissingnessRecord] = []
         if skipped_repos:
             summary += (
                 f" {len(skipped_repos)} registered repo(s) could not be searched:"
                 " recall is reduced, not exhaustive."
             )
             missingness.append(
-                cast(
-                    dict[str, Any],
-                    seal_missingness_item(
-                        {
-                            "reason_code": "registered_repos_not_searched",
-                            "severity": "high",
-                            "claim_effect": (
-                                "results omit these repositories entirely, so absence is not"
-                                " evidence the symbol does not exist there"
-                            ),
-                            "details": {"skipped_repos": skipped_repos[:20]},
-                        }
-                    ),
+                seal_missingness_item(
+                    {
+                        "reason_code": "registered_repos_not_searched",
+                        "severity": "high",
+                        "claim_effect": (
+                            "results omit these repositories entirely, so absence is not"
+                            " evidence the symbol does not exist there"
+                        ),
+                        "details": {"skipped_repos": skipped_repos[:20]},
+                    }
                 )
             )
         mixed_modes = {info.get("mode") for info in repo_modes.values()}
         if len(mixed_modes) > 1:
             missingness.append(
-                cast(
-                    dict[str, Any],
-                    seal_missingness_item(
-                        {
-                            "reason_code": "mixed_search_modes_across_repos",
-                            "severity": "medium",
-                            "claim_effect": (
-                                "scores come from different search arms and are not directly"
-                                " comparable across repositories"
-                            ),
-                            "details": {"modes": sorted(str(m) for m in mixed_modes)},
-                        }
-                    ),
+                seal_missingness_item(
+                    {
+                        "reason_code": "mixed_search_modes_across_repos",
+                        "severity": "medium",
+                        "claim_effect": (
+                            "scores come from different search arms and are not directly"
+                            " comparable across repositories"
+                        ),
+                        "details": {"modes": sorted(str(m) for m in mixed_modes)},
+                    }
                 )
             )
 

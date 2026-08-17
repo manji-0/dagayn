@@ -10,7 +10,9 @@ from pathlib import Path
 from typing import Any
 
 from ..paths import get_db_path
+from ..state_types import AnswerabilityRecord
 from ._common import (
+    ToolPayload,
     _db_path_for_repo,
     _get_store,
     compact_response,
@@ -199,7 +201,7 @@ def _names_from_items(items: Sequence[Mapping[str, object]], *, limit: int) -> l
     return names
 
 
-def _graph_answerability(store: Any, stats: Any) -> dict[str, Any]:
+def _graph_answerability(store: Any, stats: Any) -> AnswerabilityRecord:
     """Summarize whether the graph can answer review/exploration questions."""
     summary = graph_answerability_summary(store, stats)
     # get_minimal_context has a strict compactness budget; detailed counts are
@@ -260,7 +262,7 @@ def get_minimal_context(
     auto_prepare: bool = False,
     local_embedding: str | None = "none",
     prepare_budget_seconds: int | None = 300,
-) -> dict[str, Any]:
+) -> ToolPayload:
     """Return minimum context an agent needs to start any task (~100 tokens).
 
     Combines graph stats, top communities, top flows, risk score,
@@ -322,8 +324,8 @@ def _get_minimal_context_body(
     auto_prepare: bool,
     local_embedding: str | None,
     prepare_budget_seconds: int | None,
-) -> dict[str, Any]:
-    prepare_result: dict[str, Any] | None = None
+) -> ToolPayload:
+    prepare_result: ToolPayload | None = None
     if auto_prepare:
         from .session_prepare import session_prepare
         from .sync_status import (

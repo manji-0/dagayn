@@ -24,6 +24,9 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
+type SkillValue = Any
+type SkillPayload = dict[str, SkillValue]
+
 _UPDATE_HOOK_TIMEOUT_SECONDS = 300
 _STATUS_HOOK_TIMEOUT_SECONDS = 60
 _SESSION_PREPARE_BUDGET_SECONDS = 45
@@ -38,7 +41,7 @@ def _zed_settings_path() -> Path:
     return Path.home() / ".config" / "zed" / "settings.json"
 
 
-PLATFORMS: dict[str, dict[str, Any]] = {
+PLATFORMS: dict[str, SkillPayload] = {
     "codex": {
         "name": "Codex",
         "config_path": lambda root: Path.home() / ".codex" / "config.toml",
@@ -244,15 +247,15 @@ def _detect_serve_command() -> tuple[str, list[str]]:
 
 
 def _build_server_entry(
-    plat: dict[str, Any],
+    plat: SkillPayload,
     key: str = "",
     extra_serve_args: list[str] | None = None,
-) -> dict[str, Any]:
+) -> SkillPayload:
     """Build the MCP server entry for a platform."""
     command, args = _detect_serve_command()
     if extra_serve_args:
         args = args + extra_serve_args
-    entry: dict[str, Any] = {"command": command, "args": args}
+    entry: SkillPayload = {"command": command, "args": args}
     if plat["needs_type"]:
         entry["type"] = "stdio"
     # Cursor launches user-level MCP with cwd=$HOME and does not reliably
@@ -282,7 +285,7 @@ def _format_toml_value(value: Any) -> str:
 def _merge_toml_mcp_server(
     config_path: Path,
     server_name: str,
-    server_entry: dict[str, Any],
+    server_entry: SkillPayload,
     dry_run: bool = False,
 ) -> bool:
     """Upsert a Codex MCP server section without clobbering the rest of the file."""
@@ -324,11 +327,11 @@ def _merge_yaml_mcp_server(
     config_path: Path,
     servers_key: str,
     server_name: str,
-    server_entry: dict[str, Any],
+    server_entry: SkillPayload,
     dry_run: bool = False,
 ) -> bool:
     """Upsert an MCP server entry in a YAML mapping."""
-    existing: dict[str, Any] = {}
+    existing: SkillPayload = {}
     if config_path.exists():
         try:
             loaded = yaml.safe_load(config_path.read_text(encoding="utf-8", errors="replace"))
@@ -362,9 +365,9 @@ def _merge_yaml_mcp_server(
 
 
 def _merge_hermes_hook_entries(
-    existing_hooks: dict[str, Any],
-    hooks_config: dict[str, Any],
-) -> dict[str, Any]:
+    existing_hooks: SkillPayload,
+    hooks_config: SkillPayload,
+) -> SkillPayload:
     """Merge Hermes hook config, replacing dagayn-managed commands."""
     merged_hooks = dict(existing_hooks)
     for hook_name, hook_entries in hooks_config.items():
@@ -388,7 +391,7 @@ def _merge_hermes_hook_entries(
 
 def _merge_pi_hook_entries(
     existing_hooks: list[Any],
-    hooks_config: list[dict[str, Any]],
+    hooks_config: list[SkillPayload],
 ) -> list[Any]:
     """Merge pi-yaml-hooks entries, replacing dagayn-managed bash actions."""
     kept_entries = []
@@ -488,7 +491,7 @@ def install_platform_configs(
             continue
 
         # Read existing config
-        existing: dict[str, Any] = {}
+        existing: SkillPayload = {}
         if config_path.exists():
             try:
                 existing = json.loads(config_path.read_text(encoding="utf-8", errors="replace"))
@@ -555,10 +558,10 @@ def install_platform_configs(
     return configured
 
 
-def _sync_cursor_user_mcp(server_entry: dict[str, Any], *, dry_run: bool) -> None:
+def _sync_cursor_user_mcp(server_entry: SkillPayload, *, dry_run: bool) -> None:
     """Merge the Cursor MCP server entry into ``~/.cursor/mcp.json``."""
     config_path = Path.home() / ".cursor" / "mcp.json"
-    existing: dict[str, Any] = {}
+    existing: SkillPayload = {}
     if config_path.exists():
         try:
             existing = json.loads(config_path.read_text(encoding="utf-8", errors="replace"))
@@ -978,7 +981,7 @@ def _write_hook_scripts(hooks_dir: Path, scripts: dict[str, str]) -> None:
         script_path.chmod(stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
 
 
-def generate_hermes_hooks_config() -> dict[str, Any]:
+def generate_hermes_hooks_config() -> SkillPayload:
     """Generate Hermes Agent shell hook entries for dagayn refreshes."""
     hooks_dir = str(Path.home() / ".hermes" / "agent-hooks")
     return {
@@ -1004,7 +1007,7 @@ def install_hermes_hooks(
     """Install Hermes Agent shell hooks in ``~/.hermes/config.yaml``."""
     hermes_dir = Path.home() / ".hermes"
     config_path = hermes_dir / "config.yaml"
-    existing: dict[str, Any] = {}
+    existing: SkillPayload = {}
     if config_path.exists():
         try:
             loaded = yaml.safe_load(config_path.read_text(encoding="utf-8", errors="replace"))
@@ -1030,7 +1033,7 @@ def install_hermes_hooks(
     return config_path
 
 
-def generate_pi_hooks_config() -> list[dict[str, Any]]:
+def generate_pi_hooks_config() -> list[SkillPayload]:
     """Generate pi-yaml-hooks entries for dagayn refreshes."""
     hooks_dir = str(Path.home() / ".pi" / "agent" / "hook")
     return [
@@ -1054,7 +1057,7 @@ def install_pi_hooks(
     """
     hook_dir = Path.home() / ".pi" / "agent" / "hook"
     hooks_path = hook_dir / "hooks.yaml"
-    existing: dict[str, Any] = {}
+    existing: SkillPayload = {}
     if hooks_path.exists():
         try:
             loaded = yaml.safe_load(hooks_path.read_text(encoding="utf-8", errors="replace"))
@@ -1085,7 +1088,7 @@ def generate_hooks_config(
     extra_update_args: list[str] | None = None,
     *,
     worktree_hook: bool = True,
-) -> dict[str, Any]:
+) -> SkillPayload:
     """Generate Claude Code hooks configuration.
 
     Hooks use the v1.x+ schema: each entry needs a ``matcher`` and a nested
@@ -1110,7 +1113,7 @@ def generate_hooks_config(
         'repo="$(git rev-parse --show-toplevel 2>/dev/null)"'
         ' || repo="${CLAUDE_PROJECT_DIR:-}"; [ -n "$repo" ]'
     )
-    post_tool_use: list[dict[str, Any]] = [
+    post_tool_use: list[SkillPayload] = [
         {
             "matcher": "Edit|Write|Bash",
             "hooks": [
@@ -1212,9 +1215,9 @@ def _is_dagayn_generated_hook_entry(hook_name: str, entry: Any) -> bool:
 
 
 def _merge_dagayn_hook_entries(
-    existing_hooks: dict[str, Any],
-    hooks_config: dict[str, Any],
-) -> dict[str, Any]:
+    existing_hooks: SkillPayload,
+    hooks_config: SkillPayload,
+) -> SkillPayload:
     """Merge hook config, replacing stale dagayn-generated entries in place."""
     merged_hooks = dict(existing_hooks)
     for hook_name, hook_entries in hooks_config.get("hooks", {}).items():
@@ -1296,7 +1299,7 @@ def install_codex_hooks(
     codex_dir.mkdir(parents=True, exist_ok=True)
 
     hooks_path = codex_dir / "hooks.json"
-    existing: dict[str, Any] = {}
+    existing: SkillPayload = {}
     if hooks_path.exists():
         try:
             existing = json.loads(hooks_path.read_text(encoding="utf-8", errors="replace"))
@@ -1425,7 +1428,7 @@ def install_hooks(
     settings_dir.mkdir(parents=True, exist_ok=True)
     settings_path = settings_dir / "settings.json"
 
-    existing: dict[str, Any] = {}
+    existing: SkillPayload = {}
     if settings_path.exists():
         try:
             existing = json.loads(settings_path.read_text(encoding="utf-8", errors="replace"))
@@ -1878,7 +1881,7 @@ def install_cursor_worktree_setup(repo_root: Path, dry_run: bool = False) -> str
     the existing config points at a setup script this cannot safely edit.
     """
     config_path = repo_root / ".cursor" / "worktrees.json"
-    existing: dict[str, Any] = {}
+    existing: SkillPayload = {}
     if config_path.exists():
         try:
             loaded = json.loads(config_path.read_text(encoding="utf-8", errors="replace"))
@@ -1946,7 +1949,7 @@ _CURSOR_COMMIT_HOOK_TIMEOUT_SECONDS = 120
 _CURSOR_RELOCATE_HOOK_TIMEOUT_SECONDS = 60
 
 
-def generate_cursor_hooks_config() -> dict[str, Any]:
+def generate_cursor_hooks_config() -> SkillPayload:
     """Generate Cursor hooks.json configuration.
 
     Returns a dict conforming to the Cursor hooks schema (version 1) with
@@ -2143,7 +2146,7 @@ def install_cursor_hooks(extra_update_args: list[str] | None = None) -> Path:
     hooks_script_dir = cursor_dir / "hooks"
 
     # --- Merge hooks.json ---
-    existing: dict[str, Any] = {}
+    existing: SkillPayload = {}
     if hooks_json_path.exists():
         try:
             existing = json.loads(hooks_json_path.read_text(encoding="utf-8"))

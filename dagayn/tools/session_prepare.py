@@ -9,8 +9,10 @@ from typing import Any, Literal
 
 from ..incremental import detect_vcs
 from ..paths import get_db_path
+from ..state_types import AnswerabilityRecord
 from . import sync_status as sync_status_mod
 from ._common import (
+    ToolPayload,
     _evict_store_cache,
     _get_store,
     graph_answerability_summary,
@@ -59,7 +61,7 @@ def _remaining_seconds(deadline: float | None) -> float | None:
     return max(0.0, deadline - time.monotonic())
 
 
-def _seed_worktree_if_needed(repo_root: Path, *, copy_config: bool = True) -> dict[str, Any]:
+def _seed_worktree_if_needed(repo_root: Path, *, copy_config: bool = True) -> ToolPayload:
     """Seed a linked worktree graph from the main checkout when needed."""
     from ..worktree import copy_worktree_config, is_linked_worktree, seed_worktree_graph
 
@@ -79,7 +81,7 @@ def _seed_worktree_if_needed(repo_root: Path, *, copy_config: bool = True) -> di
         copy_error = None
 
     seed = seed_worktree_graph(repo_root)
-    payload: dict[str, Any] = {
+    payload: ToolPayload = {
         "seeded": seed.status == "seeded",
         "status": seed.status,
         "reason": seed.reason,
@@ -91,7 +93,7 @@ def _seed_worktree_if_needed(repo_root: Path, *, copy_config: bool = True) -> di
     return payload
 
 
-def _answerability_via_sqlite(root: Path, store: Any, stats: Any) -> dict[str, Any]:
+def _answerability_via_sqlite(root: Path, store: Any, stats: Any) -> AnswerabilityRecord:
     """Compute the answerability summary through a SQL-capable store.
 
     ``_get_store(..., use_backend_default=True)`` returns the native store,
@@ -151,7 +153,7 @@ def session_prepare(
     from_hook: bool = False,
     build_if_missing: bool = True,
     seed_worktree: bool = True,
-) -> dict[str, Any]:
+) -> ToolPayload:
     """Ensure a usable+synced graph for the current repository root.
 
     Phase 1 refreshes structure (``postprocess=minimal``). Phase 2 optionally
@@ -168,9 +170,9 @@ def session_prepare(
         "structure": "noop",
         "embedding": "not_requested",
     }
-    seed_info: dict[str, Any] | None = None
-    build_result: dict[str, Any] | None = None
-    embedding_result: dict[str, Any] | None = None
+    seed_info: ToolPayload | None = None
+    build_result: ToolPayload | None = None
+    embedding_result: ToolPayload | None = None
     action = "noop"
     reason = "graph_ready"
 

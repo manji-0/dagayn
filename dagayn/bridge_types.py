@@ -38,3 +38,4 @@ class FlowStepRecord(TypedDict, total=False):
     step_kind: str
     transition: BridgeTransitionRecord
     is_bridge_step: bool
+    source: str

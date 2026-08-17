@@ -43,6 +43,7 @@ from dagayn.tools.session_prepare import (
     session_prepare,
 )
 from dagayn.tools.sync_status import (
+    SyncPayload,
     assess_graph_sync,
     is_structure_ready,
     needs_mcp_auto_prepare,
@@ -79,7 +80,7 @@ def _seed_store(repo: Path, *, head_sha: str | None = None) -> Path:
     return db
 
 
-def _assess(repo: Path) -> dict:
+def _assess(repo: Path) -> SyncPayload:
     store = GraphStore(str(repo / ".dagayn" / "graph.db"))
     try:
         return assess_graph_sync(store, repo)
@@ -87,7 +88,7 @@ def _assess(repo: Path) -> dict:
         store.close()
 
 
-def _assess_verified(repo: Path) -> dict:
+def _assess_verified(repo: Path) -> SyncPayload:
     """Assess with content verification uncapped, as session prepare does."""
     store = GraphStore(str(repo / ".dagayn" / "graph.db"))
     try:

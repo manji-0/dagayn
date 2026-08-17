@@ -18,6 +18,9 @@ from typing import Any, Callable, cast
 
 from dagayn.embeddings import EmbeddingProvider
 
+type BenchmarkValue = Any
+type BenchmarkPayload = dict[str, BenchmarkValue]
+
 _TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]*")
 _IDENT_BOUNDARY_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 _MARKDOWN_HEADING_RE = re.compile(r"^(#{1,6})\s+")
@@ -211,7 +214,7 @@ def _matches(qualified_name: str, expected: str) -> bool:
     return exp in qn or qn in exp or exp_name == qn_name
 
 
-def _relevance_targets(search_query: dict[str, Any]) -> dict[str, int]:
+def _relevance_targets(search_query: BenchmarkPayload) -> dict[str, int]:
     targets: dict[str, int] = {}
     expected = str(search_query["expected"])
     targets[expected] = _DEFAULT_RELEVANCE_GRADE
@@ -324,7 +327,7 @@ def _metric_row(
     provider: str,
     query_variant: str,
     effective_query: str,
-) -> dict[str, Any]:
+) -> BenchmarkPayload:
     rank, best_grade = _rank_relevant(ranked, relevance)
     ndcg_5 = _ndcg_at(ranked, relevance, 5)
     ndcg_20 = _ndcg_at(ranked, relevance, 20)
@@ -362,12 +365,12 @@ def _metric_row(
     }
 
 
-def _aggregate_rows(repo: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+def _aggregate_rows(repo: str, rows: list[BenchmarkPayload]) -> list[BenchmarkPayload]:
+    grouped: dict[str, list[BenchmarkPayload]] = defaultdict(list)
     for row in rows:
         grouped[str(row["mode"])].append(row)
 
-    aggregates: list[dict[str, Any]] = []
+    aggregates: list[BenchmarkPayload] = []
     for mode, mode_rows in sorted(grouped.items()):
         query_count = len(mode_rows)
         if query_count == 0:
@@ -427,7 +430,7 @@ def _aggregate_rows(repo: str, rows: list[dict[str, Any]]) -> list[dict[str, Any
     return aggregates
 
 
-def _embedding_query_variants(config: dict[str, Any]) -> list[tuple[str, str]]:
+def _embedding_query_variants(config: BenchmarkPayload) -> list[tuple[str, str]]:
     variants = [("embedding", "")]
     for item in config.get("doc_fuzzy_search_query_variants") or []:
         if isinstance(item, str):
@@ -441,7 +444,7 @@ def _embedding_query_variants(config: dict[str, Any]) -> list[tuple[str, str]]:
     return variants
 
 
-def run(repo_path: Path, store: Any, config: dict[str, Any]) -> list[dict[str, Any]]:
+def run(repo_path: Path, store: Any, config: BenchmarkPayload) -> list[BenchmarkPayload]:
     """Run fuzzy documentation retrieval for FTS and embedding-only modes."""
     queries = config.get("doc_fuzzy_search_queries") or []
     if not queries:
@@ -459,7 +462,7 @@ def run(repo_path: Path, store: Any, config: dict[str, Any]) -> list[dict[str, A
     vectors = provider.embed([_doc_text(repo_path, node) for node in nodes])
     embedding_index_ms = (time.perf_counter() - index_started) * 1000.0
 
-    rows: list[dict[str, Any]] = []
+    rows: list[BenchmarkPayload] = []
     repo_name = str(config["name"])
     for sq in queries:
         query = str(sq["query"])

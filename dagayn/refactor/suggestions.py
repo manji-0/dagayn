@@ -12,6 +12,9 @@ from .dead_code import find_dead_code
 
 logger = logging.getLogger(__name__)
 
+type SuggestionValue = Any
+type SuggestionPayload = dict[str, SuggestionValue]
+
 _PRODUCTION_LANGUAGES = frozenset(
     {
         "python",
@@ -96,7 +99,7 @@ def _is_test_file_path(file_path: str) -> bool:
     )
 
 
-def _is_test_artifact(record: dict[str, Any], lines: list[str]) -> bool:
+def _is_test_artifact(record: SuggestionPayload, lines: list[str]) -> bool:
     if record.get("is_test"):
         return True
     file_path = str(record.get("file", ""))
@@ -105,7 +108,7 @@ def _is_test_artifact(record: dict[str, Any], lines: list[str]) -> bool:
     return _is_rust_cfg_test_candidate(record, lines)
 
 
-def _is_source_public_api_candidate(record: dict[str, Any], lines: list[str]) -> bool:
+def _is_source_public_api_candidate(record: SuggestionPayload, lines: list[str]) -> bool:
     line = _source_line(lines, record.get("line"))
     if not line:
         return False
@@ -131,7 +134,7 @@ def _is_source_public_api_candidate(record: dict[str, Any], lines: list[str]) ->
     return False
 
 
-def _is_bridge_export_candidate(record: dict[str, Any], lines: list[str]) -> bool:
+def _is_bridge_export_candidate(record: SuggestionPayload, lines: list[str]) -> bool:
     language = str(record.get("language", ""))
     if language != "rust":
         return False
@@ -156,13 +159,13 @@ def _is_bridge_export_candidate(record: dict[str, Any], lines: list[str]) -> boo
     return False
 
 
-def _is_external_api_candidate(record: dict[str, Any], lines: list[str]) -> bool:
+def _is_external_api_candidate(record: SuggestionPayload, lines: list[str]) -> bool:
     return _is_source_public_api_candidate(record, lines) or _is_bridge_export_candidate(
         record, lines
     )
 
 
-def _is_rust_cfg_test_candidate(record: dict[str, Any], lines: list[str]) -> bool:
+def _is_rust_cfg_test_candidate(record: SuggestionPayload, lines: list[str]) -> bool:
     if record.get("language") != "rust":
         return False
     line_number = record.get("line")
@@ -186,7 +189,7 @@ def _is_rust_cfg_test_candidate(record: dict[str, Any], lines: list[str]) -> boo
     return False
 
 
-def _dead_code_category(record: dict[str, Any]) -> str:
+def _dead_code_category(record: SuggestionPayload) -> str:
     language = record.get("language")
     file_path = str(record.get("file", ""))
     if language == "markdown":
@@ -202,7 +205,7 @@ def _dead_code_category(record: dict[str, Any]) -> str:
     return "unknown"
 
 
-def _evidence_sort_value(suggestion: dict[str, Any]) -> float:
+def _evidence_sort_value(suggestion: SuggestionPayload) -> float:
     evidence = suggestion.get("evidence", {})
     if suggestion.get("type") == "split" and isinstance(evidence, dict):
         return -float(evidence.get("split_pressure", 0.0))
@@ -212,7 +215,7 @@ def _evidence_sort_value(suggestion: dict[str, Any]) -> float:
 
 
 def _suggestion_sort_key(
-    suggestion: dict[str, Any],
+    suggestion: SuggestionPayload,
 ) -> tuple[int, int, int, int, int, float, str]:
     category_rank = {
         "executable": 0,
@@ -239,7 +242,7 @@ def _suggestion_sort_key(
     )
 
 
-def _execution_plan_for_suggestion(suggestion: dict[str, Any]) -> dict[str, Any]:
+def _execution_plan_for_suggestion(suggestion: SuggestionPayload) -> SuggestionPayload:
     stype = str(suggestion.get("type", "unknown"))
     affected_files = [str(path) for path in suggestion.get("affected_files", [])]
     required_tests = [f"Run tests covering {path}" for path in affected_files[:3]] or [
@@ -346,9 +349,9 @@ def _execution_plan_for_suggestion(suggestion: dict[str, Any]) -> dict[str, Any]
 
 
 def _work_pack_for_suggestion(
-    suggestion: dict[str, Any],
-    execution_plan: dict[str, Any],
-) -> dict[str, Any]:
+    suggestion: SuggestionPayload,
+    execution_plan: SuggestionPayload,
+) -> SuggestionPayload:
     affected_files = [str(path) for path in suggestion.get("affected_files", [])]
     evidence = suggestion.get("evidence", {})
     split_pressure = (
@@ -403,7 +406,7 @@ def _work_pack_for_suggestion(
     }
 
 
-def _attach_execution_plan(suggestion: dict[str, Any]) -> dict[str, Any]:
+def _attach_execution_plan(suggestion: SuggestionPayload) -> SuggestionPayload:
     execution_plan = _execution_plan_for_suggestion(suggestion)
     enriched = {**suggestion, "execution_plan": execution_plan}
     return {**enriched, "work_pack": _work_pack_for_suggestion(enriched, execution_plan)}
@@ -425,8 +428,8 @@ def _split_metrics(
     length: int,
     branches: int,
     outgoing_calls: int,
-    concern_profile: dict[str, Any] | None = None,
-) -> dict[str, Any] | None:
+    concern_profile: SuggestionPayload | None = None,
+) -> SuggestionPayload | None:
     """Return split evidence when a code unit crosses kind-specific thresholds.
 
     Thresholds are intentionally kind-specific. Functions usually become hard to
@@ -505,13 +508,13 @@ def _structural_suggestions(
     excluded_qns: set[str],
     *,
     node_community: dict[str, int] | None = None,
-) -> list[dict[str, Any]]:
+) -> list[SuggestionPayload]:
     nodes = store.get_nodes_by_kind(["Function", "Class"])
     qns = [node.qualified_name for node in nodes]
     outgoing_by_qn, _ = store.get_edges_by_endpoints(qns)
     node_community = node_community or {}
     source_cache: dict[str, list[str]] = {}
-    suggestions: list[dict[str, Any]] = []
+    suggestions: list[SuggestionPayload] = []
 
     for node in nodes:
         if node.qualified_name in excluded_qns:
@@ -620,7 +623,7 @@ def _structural_suggestions(
     return suggestions
 
 
-def suggest_refactorings(store: GraphStore) -> list[dict[str, Any]]:
+def suggest_refactorings(store: GraphStore) -> list[SuggestionPayload]:
     """Produce community-driven refactoring suggestions.
 
     Currently four categories:
@@ -632,7 +635,7 @@ def suggest_refactorings(store: GraphStore) -> list[dict[str, Any]]:
     Returns:
         List of suggestion dicts with type, description, symbols, rationale.
     """
-    suggestions: list[dict[str, Any]] = []
+    suggestions: list[SuggestionPayload] = []
 
     community_rows = store.get_communities_list()
     node_community: dict[str, int] = {}

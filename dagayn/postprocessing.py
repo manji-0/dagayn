@@ -36,6 +36,9 @@ from .state_types import (
 
 logger = logging.getLogger(__name__)
 
+type PostprocessValue = Any
+type PostprocessPayload = dict[str, PostprocessValue]
+
 
 _NODE_QUALIFIED_EDGE_KINDS = (
     "CALLS",
@@ -144,7 +147,7 @@ def _markdown_artifact_resolution(
     edge_id: int,
     current_target: str,
     symbol: str,
-    extra: dict[str, Any],
+    extra: PostprocessPayload,
     matches: list[tuple[str, str]],
 ) -> MarkdownArtifactResolution:
     """Return the typed target state for one Markdown artifact edge."""
@@ -202,7 +205,7 @@ def _markdown_artifact_resolution(
     )
 
 
-def _is_markdown_artifact_bridge(extra: dict[str, Any]) -> bool:
+def _is_markdown_artifact_bridge(extra: PostprocessPayload) -> bool:
     """Return True for Markdown/documentation CROSS_ARTIFACT bridges only.
 
     Terraform ``handler`` / ``entry_point`` bridges also carry
@@ -532,7 +535,7 @@ def _resolve_terraform_artifact_refs(
             "WHERE kind='CROSS_ARTIFACT' AND extra LIKE '%original_symbol_name%'"
         ).fetchall()
 
-        edge_data: list[tuple[int, str, str, dict[str, Any]]] = []
+        edge_data: list[tuple[int, str, str, PostprocessPayload]] = []
         for row in rows:
             try:
                 extra = json.loads(row["extra"] or "{}")

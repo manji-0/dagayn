@@ -19,6 +19,9 @@ from ._common import _evict_store_cache, _get_store, _validate_repo_root
 
 logger = logging.getLogger(__name__)
 
+type BuildValue = Any
+type BuildPayload = dict[str, BuildValue]
+
 _LOCAL_EMBEDDING_DISABLED = {None, "", "none"}
 _LOCAL_EMBEDDING_BGE = "bge-m3"
 _LOCAL_EMBEDDING_LLAMA_QWEN3 = "llama-qwen3"
@@ -140,7 +143,7 @@ def _run_local_embedding(
     local_embedding_timeout: int,
     local_embedding_request_timeout: int,
     local_embedding_batch_size: int,
-) -> dict[str, Any]:
+) -> BuildPayload:
     """Run graph embedding through the selected local embedding mode."""
     mode = _resolve_local_embedding_mode(local_embedding, local_embedding_mode)
     from dagayn.local_embeddings import local_embedding_server, resolve_local_embedding_port
@@ -737,7 +740,7 @@ def build_or_update_graph(
     local_embedding_request_timeout: int = 60,
     local_embedding_batch_size: int = 1,
     extra_files: list[str] | None = None,
-) -> dict[str, Any]:
+) -> BuildPayload:
     """Build or incrementally update the code knowledge graph.
 
     Args:
@@ -1039,7 +1042,7 @@ def run_postprocess(
     communities: bool = True,
     fts: bool = True,
     repo_root: str | None = None,
-) -> dict[str, Any]:
+) -> BuildPayload:
     """Run post-processing steps on an existing graph.
 
     Useful for running expensive steps (flows, communities) separately

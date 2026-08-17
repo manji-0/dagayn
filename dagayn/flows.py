@@ -16,7 +16,8 @@ import json
 import logging
 import re
 from collections import deque
-from typing import Any, Callable, Optional, cast
+from collections.abc import Mapping, Sequence
+from typing import Any, Callable, Optional, TypedDict, cast
 
 from .bridge_types import FlowStepRecord
 from .constants import SECURITY_KEYWORDS as _SECURITY_KEYWORDS
@@ -30,6 +31,40 @@ from .graph import (
 from .state_types import AffectedFlowsResult, ChangeFlowRecord
 
 logger = logging.getLogger(__name__)
+
+
+class FlowCriticalityRecord(TypedDict):
+    id: int
+    depth: int
+    path: list[int]
+    criticality: float
+
+
+class FlowRecord(TypedDict, total=False):
+    """Reachable-set flow payload shared by tracing and query helpers."""
+
+    id: int
+    name: str
+    entry_point: str
+    entry_point_id: int
+    kind: str
+    path: list[int]
+    members: list[int]
+    depth: int
+    node_count: int
+    file_count: int
+    files: list[str]
+    truncated: bool
+    truncation_reason: str | None
+    criticality: float
+    steps: list[FlowStepRecord]
+    resolved_step_count: int
+    missing_step_count: int
+    bridge_step_count: int
+    resolved_node_count: int
+    missing_node_count: int
+    created_at: str | None
+    updated_at: str | None
 
 FLOW_KIND_REACHABLE_SET = "reachable_set"
 DEFAULT_FLOW_MAX_DEPTH = 15
@@ -224,7 +259,7 @@ def _trace_single_flow(
     ep: GraphNode,
     max_depth: int = DEFAULT_FLOW_MAX_DEPTH,
     max_nodes: int = DEFAULT_FLOW_MAX_NODES,
-) -> Optional[dict]:
+) -> Optional[FlowRecord]:
     """Trace the CALLS reachable set from *ep* via forward BFS.
 
     Returns a flow dict (see :func:`trace_flows` for the schema) or ``None``
@@ -275,7 +310,7 @@ def _trace_single_flow(
 
     files = list({n.file_path for qn in path_qnames if (n := nodes_by_qn.get(qn)) is not None})
 
-    flow: dict = {
+    flow: FlowRecord = {
         "name": _sanitize_name(ep.name),
         "entry_point": ep.qualified_name,
         "entry_point_id": ep.id,
@@ -299,7 +334,7 @@ def trace_flows(
     max_depth: int = DEFAULT_FLOW_MAX_DEPTH,
     include_tests: bool = False,
     max_nodes: int = DEFAULT_FLOW_MAX_NODES,
-) -> list[dict]:
+) -> list[FlowRecord]:
     """Trace reachable sets from every entry point via forward BFS.
 
     Returns a list of flow dicts, each containing:
@@ -320,7 +355,7 @@ def trace_flows(
         return []
 
     adj = store.load_flow_adjacency()
-    flows: list[dict] = []
+    flows: list[FlowRecord] = []
 
     for ep in entry_points:
         flow = _trace_single_flow(adj, ep, max_depth, max_nodes)
@@ -337,7 +372,7 @@ def trace_flows(
 # ---------------------------------------------------------------------------
 
 
-def compute_criticality(flow: dict, adj: FlowAdjacency) -> float:
+def compute_criticality(flow: FlowRecord, adj: FlowAdjacency) -> float:
     """Score a flow from 0.0 to 1.0 based on multiple weighted factors.
 
     Weights:
@@ -347,7 +382,7 @@ def compute_criticality(flow: dict, adj: FlowAdjacency) -> float:
       - Test coverage gap:   0.15
       - Depth:               0.10
     """
-    node_ids: list[int] = flow.get("path", [])
+    node_ids: list[int] = flow.get("path") or []
     if not node_ids:
         return 0.0
 
@@ -392,7 +427,7 @@ def compute_criticality(flow: dict, adj: FlowAdjacency) -> float:
     test_gap = 1.0 - coverage
 
     # --- Depth (0.0 - 1.0) ---
-    depth = flow.get("depth", 0)
+    depth = flow.get("depth") or 0
     # Normalize: 0 => 0.0, 10+ => 1.0
     depth_score = min(depth / 10.0, 1.0)
 
@@ -420,7 +455,7 @@ def refresh_flow_criticality(store: GraphStore) -> int:
     rust_get = getattr(store, "get_flows_json", None)
     rust_update = getattr(store, "update_flow_criticalities_json", None)
 
-    flows: list[dict[str, Any]]
+    flows: list[FlowCriticalityRecord]
     if conn is not None:
         rows = conn.execute("SELECT id, depth, path_json, criticality FROM flows").fetchall()
         flows = [
@@ -433,7 +468,10 @@ def refresh_flow_criticality(store: GraphStore) -> int:
             for row in rows
         ]
     elif callable(rust_get):
-        flows = json.loads(cast(Callable[[str, int], str], rust_get)("criticality", 1_000_000))
+        flows = cast(
+            list[FlowCriticalityRecord],
+            json.loads(cast(Callable[[str, int], str], rust_get)("criticality", 1_000_000)),
+        )
     else:
         return 0
 
@@ -477,7 +515,7 @@ _FLOW_INSERT_SQL = """INSERT INTO flows
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
 
 
-def _flow_insert_params(flow: dict) -> tuple:
+def _flow_insert_params(flow: FlowRecord) -> tuple[object, ...]:
     """Values for :data:`_FLOW_INSERT_SQL`."""
     return (
         flow["name"],
@@ -493,7 +531,7 @@ def _flow_insert_params(flow: dict) -> tuple:
     )
 
 
-def _flow_disclosure_fields(row: Any, path_ids: list[int]) -> dict:
+def _flow_disclosure_fields(row: Any, path_ids: list[int]) -> FlowRecord:
     """Kind / truncation fields stored beside the membership path."""
     kind = FLOW_KIND_REACHABLE_SET
     truncated = False
@@ -516,14 +554,15 @@ def _flow_disclosure_fields(row: Any, path_ids: list[int]) -> dict:
     }
 
 
-def store_flows(store: GraphStore, flows: list[dict]) -> int:
+def store_flows(store: GraphStore, flows: Sequence[Mapping[str, object]]) -> int:
     """Clear existing flows and persist new ones.
 
     Returns the number of flows stored.
     """
     rust_store = getattr(store, "store_flows_json", None)
+    typed_flows = [cast(FlowRecord, flow) for flow in flows]
     if callable(rust_store):
-        return cast(Callable[[str], int], rust_store)(json.dumps(flows))
+        return cast(Callable[[str], int], rust_store)(json.dumps(typed_flows))
 
     # NOTE: store_flows uses _conn directly because it performs
     # multi-statement batch writes (DELETE + INSERT loop) that are
@@ -539,9 +578,9 @@ def store_flows(store: GraphStore, flows: list[dict]) -> int:
         # Batch-insert all flows in one executemany call
         conn.executemany(
             _FLOW_INSERT_SQL,
-            [_flow_insert_params(f) for f in flows],
+            [_flow_insert_params(f) for f in typed_flows],
         )
-        count = len(flows)
+        count = len(typed_flows)
 
         # Fetch newly-inserted IDs keyed by entry_point_id (unique per flow)
         ep_to_flow_id: dict[int, int] = {}
@@ -551,7 +590,7 @@ def store_flows(store: GraphStore, flows: list[dict]) -> int:
         # Build all membership rows and insert in one executemany
         all_memberships: list[tuple[int, int, int]] = [
             (ep_to_flow_id[f["entry_point_id"]], node_id, position)
-            for f in flows
+            for f in typed_flows
             if f["entry_point_id"] in ep_to_flow_id
             for position, node_id in enumerate(f.get("path", []))
         ]
@@ -816,7 +855,7 @@ def incremental_trace_flows(
             if ep.file_path in changed_file_set or ep.id in entry_point_ids
         ]
 
-        new_flows: list[dict] = []
+        new_flows: list[FlowRecord] = []
         if relevant_eps:
             adj = store.load_flow_adjacency()
             for ep in relevant_eps:
@@ -849,7 +888,7 @@ def incremental_trace_flows(
     # ------------------------------------------------------------------
     # 5. BFS-trace each relevant entry point
     # ------------------------------------------------------------------
-    new_flows: list[dict] = []
+    new_flows: list[FlowRecord] = []
     if relevant_eps:
         adj = store.load_flow_adjacency()
         for ep in relevant_eps:
@@ -910,7 +949,7 @@ def get_flows(
     store: GraphStore,
     sort_by: str = "criticality",
     limit: int = 50,
-) -> list[dict]:
+) -> list[FlowRecord]:
     """Retrieve stored flows from the database.
 
     Args:
@@ -936,7 +975,7 @@ def get_flows(
         (limit,),
     ).fetchall()
 
-    results: list[dict] = []
+    results: list[FlowRecord] = []
     for row in rows:
         results.append(
             {
@@ -956,7 +995,9 @@ def get_flows(
     return _annotate_flow_rows_liveness(store, results)
 
 
-def _annotate_flow_rows_liveness(store: GraphStore, flows: list[dict]) -> list[dict]:
+def _annotate_flow_rows_liveness(
+    store: GraphStore, flows: list[FlowRecord]
+) -> list[FlowRecord]:
     """Add resolved/missing node counts to listed flows.
 
     ``node_count``/``file_count`` are the values recorded when the flow was
@@ -1018,7 +1059,7 @@ def _collect_cross_artifact_edges_among(
         return []
 
 
-def _annotate_flow_step_resolution(flow: dict) -> dict:
+def _annotate_flow_step_resolution(flow: FlowRecord) -> FlowRecord:
     """Add resolved/missing step counts for stored flow paths."""
     path_ids = flow.get("path") or []
     steps = flow.get("steps") or []
@@ -1028,13 +1069,13 @@ def _annotate_flow_step_resolution(flow: dict) -> dict:
     else:
         stored_node_count = int(flow.get("node_count") or resolved_step_count)
         missing_step_count = max(0, stored_node_count - resolved_step_count)
-    annotated = dict(flow)
+    annotated = cast(FlowRecord, dict(flow))
     annotated["resolved_step_count"] = resolved_step_count
     annotated["missing_step_count"] = missing_step_count
     return annotated
 
 
-def _annotate_flow_dict_bridges(store: GraphStore, flow: dict) -> dict:
+def _annotate_flow_dict_bridges(store: GraphStore, flow: FlowRecord) -> FlowRecord:
     """Mark bridge arrivals on a flow dict (shared by Rust and Python paths)."""
     from .cross_artifact import annotate_flow_steps_with_bridges
 
@@ -1045,7 +1086,7 @@ def _annotate_flow_dict_bridges(store: GraphStore, flow: dict) -> dict:
         if isinstance(step.get("qualified_name"), str)
     }
     bridge_edges = _collect_cross_artifact_edges_among(store, path_qns)
-    annotated = dict(flow)
+    annotated = cast(FlowRecord, dict(flow))
     annotated["steps"] = annotate_flow_steps_with_bridges(steps, bridge_edges)
     annotated["bridge_step_count"] = sum(
         1 for step in annotated["steps"] if step.get("is_bridge_step")
@@ -1053,7 +1094,7 @@ def _annotate_flow_dict_bridges(store: GraphStore, flow: dict) -> dict:
     return _annotate_flow_step_resolution(annotated)
 
 
-def get_flow_by_id(store: GraphStore, flow_id: int) -> Optional[dict]:
+def get_flow_by_id(store: GraphStore, flow_id: int) -> Optional[FlowRecord]:
     """Retrieve a single flow with reachable-set membership details.
 
     Returns a dict with the flow metadata plus a ``steps`` list containing
@@ -1078,7 +1119,7 @@ def get_flow_by_id(store: GraphStore, flow_id: int) -> Optional[dict]:
 def _hydrate_flow_rows(
     store: GraphStore,
     rows: list[Any],
-) -> list[dict]:
+) -> list[FlowRecord]:
     """Build full flow dicts (with ``steps``) for a list of flow rows.
 
     Issues two batched queries total instead of one per flow + one per
@@ -1102,7 +1143,7 @@ def _hydrate_flow_rows(
 
     nodes_by_id = store.get_nodes_by_ids(all_node_ids)
 
-    out: list[dict] = []
+    out: list[FlowRecord] = []
     for row in rows:
         path_ids = paths_by_flow[row["id"]]
         steps: list[FlowStepRecord] = []
@@ -1140,7 +1181,7 @@ def _hydrate_flow_rows(
         steps = annotate_flow_steps_with_bridges(steps, bridge_edges)
         bridge_step_count = sum(1 for step in steps if step.get("is_bridge_step"))
 
-        payload = {
+        payload: FlowRecord = {
             "id": row["id"],
             "name": _sanitize_name(row["name"]),
             "entry_point_id": row["entry_point_id"],

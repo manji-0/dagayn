@@ -7,8 +7,11 @@ from typing import Any
 
 from dagayn.eval.scorer import compute_precision_at_k, compute_precision_recall
 
+type BenchmarkValue = Any
+type BenchmarkPayload = dict[str, BenchmarkValue]
 
-def _ids_from_items(items: list[dict[str, Any]], *keys: str) -> list[str]:
+
+def _ids_from_items(items: list[BenchmarkPayload], *keys: str) -> list[str]:
     ids: list[str] = []
     for item in items:
         for key in keys:
@@ -30,7 +33,7 @@ _GUIDANCE_FIELDS = {
 }
 
 
-def _guidance_ids(items: list[dict[str, Any]]) -> list[str]:
+def _guidance_ids(items: list[BenchmarkPayload]) -> list[str]:
     ids: list[str] = []
     for item in items:
         ids.extend(str(code) for code in item.get("reason_codes", []) if code)
@@ -40,14 +43,14 @@ def _guidance_ids(items: list[dict[str, Any]]) -> list[str]:
     return ids
 
 
-def _field_coverage(items: list[dict[str, Any]]) -> float:
+def _field_coverage(items: list[BenchmarkPayload]) -> float:
     if not items:
         return 0.0
     covered = sum(1 for item in items if _GUIDANCE_FIELDS.issubset(item.keys()))
     return covered / len(items)
 
 
-def _review_cache_key(case: dict[str, Any]) -> tuple[tuple[str, ...], str, str]:
+def _review_cache_key(case: BenchmarkPayload) -> tuple[tuple[str, ...], str, str]:
     return (
         tuple(sorted(str(path) for path in case.get("changed_files", []))),
         str(case.get("base", "HEAD~1")),
@@ -55,7 +58,7 @@ def _review_cache_key(case: dict[str, Any]) -> tuple[tuple[str, ...], str, str]:
     )
 
 
-def _review_predictions(repo_path: Path, case: dict[str, Any]) -> dict[str, list[str]]:
+def _review_predictions(repo_path: Path, case: BenchmarkPayload) -> dict[str, list[str]]:
     from dagayn.tools.review import detect_changes_func
 
     result = detect_changes_func(
@@ -64,7 +67,9 @@ def _review_predictions(repo_path: Path, case: dict[str, Any]) -> dict[str, list
         base=str(case.get("base", "HEAD~1")),
         detail_level="standard",
     )
-    summary: dict[str, Any] = result.get("analysis_summary", {}) if isinstance(result, dict) else {}
+    summary: BenchmarkPayload = (
+        result.get("analysis_summary", {}) if isinstance(result, dict) else {}
+    )
     return {
         "recommended_tests": _ids_from_items(
             list(summary.get("recommended_tests", [])),
@@ -100,7 +105,7 @@ def _review_predictions(repo_path: Path, case: dict[str, Any]) -> dict[str, list
     }
 
 
-def _refactor_predictions(repo_path: Path, case: dict[str, Any]) -> list[str]:
+def _refactor_predictions(repo_path: Path, case: BenchmarkPayload) -> list[str]:
     from dagayn.tools.refactor_tools import refactor_func
 
     result = refactor_func(

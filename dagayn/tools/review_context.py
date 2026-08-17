@@ -24,6 +24,9 @@ from .review_helpers import (
 
 logger = logging.getLogger(__name__)
 
+type ReviewContextValue = Any
+type ReviewContextPayload = dict[str, ReviewContextValue]
+
 
 def get_review_context(
     changed_files: list[str] | None = None,
@@ -33,7 +36,7 @@ def get_review_context(
     repo_root: str | None = None,
     base: str = "HEAD~1",
     detail_level: str = "standard",
-) -> dict[str, Any]:
+) -> ReviewContextPayload:
     """Generate a focused review context from changed files.
 
     Builds a token-optimized subgraph + source snippets for code review.
@@ -152,7 +155,7 @@ def get_review_context(
             )
             if len(values) > _MAX_GRAPH_ENTRIES
         }
-        context: dict[str, Any] = {
+        context: ReviewContextPayload = {
             "changed_files": changed_files,
             "change_file_sources": change_file_sources,
             "impacted_files": impact["impacted_files"],
@@ -208,7 +211,7 @@ def get_review_context(
             missingness = [
                 *missingness,
                 cast(
-                    dict[str, Any],
+                    ReviewContextPayload,
                     seal_missingness_item(
                         {
                             "reason_code": "changed_files_not_in_graph",
@@ -233,7 +236,7 @@ def get_review_context(
             guidance,
         ]
 
-        payload: dict[str, Any] = {
+        payload: ReviewContextPayload = {
             "status": "ok",
             "summary": "\n".join(summary_parts),
             "context": context,
@@ -276,7 +279,7 @@ _MAX_GRAPH_ENTRIES = 300
 MAX_LINES_PER_FILE_CEILING = 2000
 
 
-def _budget_source_snippets(payload: dict[str, Any]) -> None:
+def _budget_source_snippets(payload: ReviewContextPayload) -> None:
     """Trim ``context.source_snippets`` to a byte budget, disclosing the cut."""
     context = payload.get("context")
     if not isinstance(context, dict):
