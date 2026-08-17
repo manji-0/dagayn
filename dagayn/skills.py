@@ -35,6 +35,21 @@ _UPDATE_HOOK_TIMEOUT_SECONDS = DEFAULT_HOOK_BUDGET_SECONDS + 30
 _STATUS_HOOK_TIMEOUT_SECONDS = 60
 _SESSION_PREPARE_BUDGET_SECONDS = 45
 
+
+def _embedding_hook_args(extra_update_args: list[str] | None) -> str:
+    """Shell fragment carrying the install's embedding flags, or ``""``.
+
+    Only ``session prepare`` gets these. Passing them to the edit-triggered
+    ``dagayn update`` re-embeds on every single file edit, which is far too
+    expensive to sit in that path — embeddings are refreshed at session start
+    and by explicit ``dagayn update --local-embedding`` / ``embed_graph_tool``
+    runs instead.
+    """
+    if not extra_update_args:
+        return ""
+    return " " + " ".join(shlex.quote(arg) for arg in extra_update_args)
+
+
 # --- Multi-platform MCP install ---
 
 
@@ -949,19 +964,18 @@ def install_hermes_skills(
 
 def _dagayn_hook_scripts(extra_update_args: list[str] | None = None) -> dict[str, str]:
     """Return shell scripts shared by hook integrations that expect JSON stdout."""
-    update_args = ""
-    if extra_update_args:
-        update_args = " " + " ".join(shlex.quote(arg) for arg in extra_update_args)
+    prepare_args = _embedding_hook_args(extra_update_args)
     return {
-        "dagayn-update.sh": f"""#!/usr/bin/env bash
+        "dagayn-update.sh": """#!/usr/bin/env bash
 # dagayn: auto-update graph after agent file/tool activity
+# Structure only — embeddings are refreshed by the session-start hook.
 set -u
 cat >/dev/null || true
 repo="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 if [ -n "$repo" ]; then
-  dagayn update --skip-flows{update_args} --repo "$repo" >/dev/null 2>&1 || true
+  DAGAYN_HOOK_UPDATE=1 dagayn update --skip-flows --repo "$repo" >/dev/null 2>&1 || true
 fi
-printf '{{}}\\n'
+printf '{}\\n'
 """,
         "dagayn-status.sh": f"""#!/usr/bin/env bash
 # dagayn: prepare a usable+synced graph at session start
@@ -970,7 +984,7 @@ cat >/dev/null || true
 repo="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 if [ -n "$repo" ]; then
   DAGAYN_HOOK_UPDATE=1 dagayn session prepare \\
-    --budget-seconds {_SESSION_PREPARE_BUDGET_SECONDS}{update_args} \\
+    --budget-seconds {_SESSION_PREPARE_BUDGET_SECONDS}{prepare_args} \\
     --repo "$repo" >/dev/null 2>&1 || true
 fi
 printf '{{}}\\n'
@@ -1102,15 +1116,14 @@ def generate_hooks_config(
 
     Args:
         repo_root: Unused; hooks resolve the active repository at runtime.
-        extra_update_args: Additional CLI args for the ``dagayn update`` hook.
+        extra_update_args: Embedding flags from the install, applied to
+            ``session prepare`` only (see :func:`_embedding_hook_args`).
         worktree_hook: Include the ``EnterWorktree`` / ``ExitWorktree``
             ``PostToolUse`` entry. Disable for hosts without those tools
             (Codex), where the entry would never match.
     """
     del repo_root  # Hooks are global; resolve the active repository at runtime.
-    update_args = ""
-    if extra_update_args:
-        update_args = " " + " ".join(shlex.quote(arg) for arg in extra_update_args)
+    prepare_args = _embedding_hook_args(extra_update_args)
     # ``git rev-parse`` first: hooks run in the session's working directory, so
     # in a worktree session it resolves to that worktree rather than the main
     # checkout. ``CLAUDE_PROJECT_DIR`` covers a cwd outside the repository.
@@ -1128,10 +1141,11 @@ def generate_hooks_config(
             "hooks": [
                 {
                     "type": "command",
+                    # Structure only: no embedding flags. Re-embedding on every
+                    # edit is far too expensive for this path.
                     "command": (
                         f"{repo_expr}"
                         f" && DAGAYN_HOOK_UPDATE=1 dagayn update --skip-flows"
-                        f"{update_args}"
                         ' --repo "$repo"'
                         " || true"
                     ),
@@ -1153,7 +1167,7 @@ def generate_hooks_config(
                         "command": (
                             f"DAGAYN_HOOK_UPDATE=1 dagayn session prepare --from-hook"
                             f" --budget-seconds {_SESSION_PREPARE_BUDGET_SECONDS}"
-                            f"{update_args} || true"
+                            f"{prepare_args} || true"
                         ),
                         "timeout": _UPDATE_HOOK_TIMEOUT_SECONDS,
                     },
@@ -1173,7 +1187,7 @@ def generate_hooks_config(
                                 f"{repo_expr}"
                                 f" && DAGAYN_HOOK_UPDATE=1 dagayn session prepare"
                                 f" --budget-seconds {_SESSION_PREPARE_BUDGET_SECONDS}"
-                                f"{update_args}"
+                                f"{prepare_args}"
                                 ' --repo "$repo"'
                                 " || echo 'Not a git repo, skipping'"
                             ),
@@ -2043,13 +2057,11 @@ def _cursor_hook_scripts(extra_update_args: list[str] | None = None) -> dict[str
     - Emit the JSON the corresponding Cursor hook event expects (when any)
 
     Args:
-        extra_update_args: Additional CLI args appended to ``dagayn update`` /
-            ``session prepare`` (e.g. ``["--local-embedding"]``) so hooks use
-            the same embedding configuration as the install.
+        extra_update_args: Embedding flags from the install (e.g.
+            ``["--local-embedding"]``), applied to ``session prepare`` only
+            (see :func:`_embedding_hook_args`).
     """
-    update_args = ""
-    if extra_update_args:
-        update_args = " " + " ".join(shlex.quote(arg) for arg in extra_update_args)
+    prepare_args = _embedding_hook_args(extra_update_args)
 
     update_script = f"""\
 #!/usr/bin/env bash
@@ -2058,9 +2070,12 @@ def _cursor_hook_scripts(extra_update_args: list[str] | None = None) -> dict[str
 {_CURSOR_HOOK_PROLOGUE}
 # afterFileEdit fires on every edit, so run detached: the editor never waits
 # and DAGAYN_HOOK_UPDATE makes concurrent updates skip instead of pile up.
+# Detaching means nothing here would ever kill a runaway update, so
+# DAGAYN_HOOK_UPDATE also arms dagayn's own budget watchdog.
+# Structure only: re-embedding on every edit is far too expensive.
 # afterFileEdit is observational — no output schema to satisfy.
 if [ -n "$repo" ]; then
-  ( DAGAYN_HOOK_UPDATE=1 dagayn update --skip-flows{update_args} \\
+  ( DAGAYN_HOOK_UPDATE=1 dagayn update --skip-flows \\
       --repo "$repo" >/dev/null 2>&1 & ) >/dev/null 2>&1
 fi
 
@@ -2078,7 +2093,7 @@ if [ -z "$repo" ]; then
 fi
 
 output="$(DAGAYN_HOOK_UPDATE=1 dagayn session prepare \\
-  --budget-seconds {_SESSION_PREPARE_BUDGET_SECONDS}{update_args} \\
+  --budget-seconds {_SESSION_PREPARE_BUDGET_SECONDS}{prepare_args} \\
   --repo "$repo" 2>&1)" \\
   || output="dagayn: session prepare failed — run 'dagayn session prepare'"
 
@@ -2100,7 +2115,8 @@ if [ -z "$repo" ]; then
 fi
 
 # Refresh the graph cheaply, then run detect-changes; swallow errors.
-dagayn update --skip-flows{update_args} --repo "$repo" >/dev/null 2>&1 || true
+# Structure only, and budget-bounded: the commit waits on this hook.
+DAGAYN_HOOK_UPDATE=1 dagayn update --skip-flows --repo "$repo" >/dev/null 2>&1 || true
 output="$(dagayn detect-changes --brief --repo "$repo" 2>&1)" || output=""
 
 # beforeShellExecution must return a permission decision; always allow and
@@ -2124,7 +2140,7 @@ fi
 
 # afterShellExecution is observational — no permission JSON required.
 DAGAYN_HOOK_UPDATE=1 dagayn session prepare \\
-  --budget-seconds {_SESSION_PREPARE_BUDGET_SECONDS}{update_args} \\
+  --budget-seconds {_SESSION_PREPARE_BUDGET_SECONDS}{prepare_args} \\
   --repo "$repo" >/dev/null 2>&1 || true
 
 exit 0
@@ -2332,9 +2348,7 @@ def _opencode_plugin_content(extra_update_args: list[str] | None = None) -> str:
     The plugin uses Bun's ``$`` shell API (provided by OpenCode's plugin
     context) for subprocess execution.
     """
-    update_args = ""
-    if extra_update_args:
-        update_args = " " + " ".join(shlex.quote(arg) for arg in extra_update_args)
+    prepare_args = _embedding_hook_args(extra_update_args)
     template = """\
 import type { Plugin } from "@opencode-ai/plugin"
 
@@ -2374,9 +2388,9 @@ export default (app: any) => {
     try {
       const repo = await resolveRepo($)
       if (repo) {
-        await $`dagayn update --skip-flows__DAGAYN_UPDATE_ARGS__ --repo ${repo}`.quiet()
+        await $`DAGAYN_HOOK_UPDATE=1 dagayn update --skip-flows --repo ${repo}`.quiet()
       } else {
-        await $`dagayn update --skip-flows__DAGAYN_UPDATE_ARGS__`.quiet()
+        await $`DAGAYN_HOOK_UPDATE=1 dagayn update --skip-flows`.quiet()
       }
     } catch {
       // Swallow — graph may not be built yet for this project.
@@ -2387,7 +2401,7 @@ export default (app: any) => {
   app.on("session.created", async ({ $ }: { $: any }) => {
     try {
       const prepare =
-        "DAGAYN_HOOK_UPDATE=1 dagayn session prepare --budget-seconds 45__DAGAYN_UPDATE_ARGS__"
+        "DAGAYN_HOOK_UPDATE=1 dagayn session prepare --budget-seconds 45__DAGAYN_PREPARE_ARGS__"
       const repo = await resolveRepo($)
       if (repo) {
         await $`${prepare} --repo ${repo}`.quiet()
@@ -2416,7 +2430,7 @@ export default (app: any) => {
       if (/(?:^|[\\/\\\\]|\\s)git(?:\\.exe)?\\s+commit\\b/i.test(cmd)) {
         const repo = await resolveRepo(ctx.$)
         if (repo) {
-          await ctx.$`dagayn update --skip-flows__DAGAYN_UPDATE_ARGS__ --repo ${repo}`.quiet()
+          await ctx.$`DAGAYN_HOOK_UPDATE=1 dagayn update --skip-flows --repo ${repo}`.quiet()
           const result =
             await ctx.$`dagayn detect-changes --brief --repo ${repo}`.quiet()
           const output = result.stdout?.toString().trim()
@@ -2424,7 +2438,7 @@ export default (app: any) => {
             console.log("[dagayn] Pre-commit analysis:\\n" + output)
           }
         } else {
-          await ctx.$`dagayn update --skip-flows__DAGAYN_UPDATE_ARGS__`.quiet()
+          await ctx.$`DAGAYN_HOOK_UPDATE=1 dagayn update --skip-flows`.quiet()
           const result =
             await ctx.$`dagayn detect-changes --brief`.quiet()
           const output = result.stdout?.toString().trim()
@@ -2449,7 +2463,7 @@ export default (app: any) => {
       ) {
         const repo = await resolveRepo(ctx.$)
         const prepare =
-          "DAGAYN_HOOK_UPDATE=1 dagayn session prepare --budget-seconds 45__DAGAYN_UPDATE_ARGS__"
+          "DAGAYN_HOOK_UPDATE=1 dagayn session prepare --budget-seconds 45__DAGAYN_PREPARE_ARGS__"
         if (repo) {
           await ctx.$`${prepare} --repo ${repo}`.quiet()
         } else {
@@ -2462,7 +2476,7 @@ export default (app: any) => {
   })
 }
 """
-    return template.replace("__DAGAYN_UPDATE_ARGS__", update_args)
+    return template.replace("__DAGAYN_PREPARE_ARGS__", prepare_args)
 
 
 def install_opencode_plugin(extra_update_args: list[str] | None = None) -> Path:
