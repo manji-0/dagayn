@@ -9,9 +9,16 @@ from the SQLite implementation details.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Optional, Protocol, runtime_checkable
 
-from .types import FlowAdjacency, GraphEdge, GraphNode, GraphStats
+from .types import (
+    FlowAdjacency,
+    GraphEdge,
+    GraphNode,
+    GraphStats,
+    ImpactRadiusResult,
+    SubgraphResult,
+)
 
 if TYPE_CHECKING:
     from ..parser._base.types import EdgeInfo, NodeInfo
@@ -104,14 +111,14 @@ class GraphQueryProtocol(Protocol):
         changed_files: list[str],
         max_depth: int = ...,
         max_nodes: int = ...,
-    ) -> dict[str, Any]: ...
+    ) -> ImpactRadiusResult: ...
 
     def get_impact_radius_sql(
         self,
         changed_files: list[str],
         max_depth: int = ...,
         max_nodes: int = ...,
-    ) -> dict[str, Any]: ...
+    ) -> ImpactRadiusResult: ...
 
     def get_transitive_tests(
         self,
@@ -123,7 +130,7 @@ class GraphQueryProtocol(Protocol):
 
     def resolve_bare_inheritance_targets(self) -> int: ...
 
-    def get_subgraph(self, qualified_names: list[str]) -> dict[str, Any]: ...
+    def get_subgraph(self, qualified_names: list[str]) -> SubgraphResult: ...
 
     def load_flow_adjacency(self) -> FlowAdjacency: ...
 

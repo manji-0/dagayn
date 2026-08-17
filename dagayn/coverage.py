@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, TypedDict
 
 from .graph import GraphNode, node_to_dict
+from .state_types import ChangeNodeRecord
 
 _TEST_FILE_PARTS = ("/tests/", "/test/", "/__tests__/")
 _TEST_FILE_SUFFIXES = (
@@ -34,6 +35,19 @@ _NON_TEST_HELPER_NAMES = {
     "tearDown".casefold(),
 }
 _MODULE_MARKER_SKIP = frozenset({"src", "lib", "pkg", "internal", "tests", "test"})
+
+
+class CoverageRecord(ChangeNodeRecord, total=False):
+    confidence: str
+    evidence: list[str]
+    coverage_source: str
+
+
+class ScanState(TypedDict):
+    candidates: list[tuple[GraphNode, str, str]]
+    import_edges_by_source: dict[str, list[Any]]
+    token_cache: dict[str, tuple[list[str], str]]
+    source_cache: dict[str, list[str]]
 
 
 def is_test_file_path(file_path: str) -> bool:
@@ -85,7 +99,7 @@ def _contains_word(haystack: str, needle: str) -> bool:
     return _word_boundary_pattern(needle).search(cf_haystack) is not None
 
 
-def build_scan_state(store: Any) -> dict[str, Any]:
+def build_scan_state(store: Any) -> ScanState:
     """Build a per-analysis candidate scan state.
 
     ``infer_tests_for_node`` / ``has_coverage_evidence`` used to re-fetch and
@@ -171,7 +185,7 @@ def _coverage_record(
     confidence: str,
     evidence: list[str],
     source: str,
-) -> dict[str, Any]:
+) -> CoverageRecord:
     return {
         **node_to_dict(node),
         "confidence": confidence,
@@ -424,8 +438,8 @@ def infer_tests_for_node(
     *,
     limit: int = 25,
     minimum_confidence: str = "medium",
-    _scan_state: dict[str, Any] | None = None,
-) -> list[dict[str, Any]]:
+    _scan_state: ScanState | None = None,
+) -> list[CoverageRecord]:
     """Infer tests for *target* from graph edges, names, and local test source.
 
     Direct ``TESTED_BY`` edges are treated as high-confidence facts. Naming and
@@ -439,7 +453,7 @@ def infer_tests_for_node(
     """
     min_rank = {"low": 0, "medium": 1, "high": 2}.get(minimum_confidence, 0)
     confidence_rank = {"low": 0, "medium": 1, "high": 2}
-    results: dict[str, tuple[int, dict[str, Any]]] = {}
+    results: dict[str, tuple[int, CoverageRecord]] = {}
 
     direct_edges = []
     seen_direct_edge_ids: set[int] = set()
@@ -537,7 +551,7 @@ def has_coverage_evidence(
     minimum_confidence: str = "medium",
     caller_depth: int = 2,
     _seen: set[str] | None = None,
-    _scan_state: dict[str, Any] | None = None,
+    _scan_state: ScanState | None = None,
 ) -> bool:
     """Return whether *target* has direct or credible heuristic test evidence.
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 from ..graph import edge_to_dict, node_to_dict
 from ..incremental import get_changed_file_sources, get_staged_and_unstaged
@@ -207,16 +207,19 @@ def get_review_context(
             context["unmatched_changed_files"] = unmatched
             missingness = [
                 *missingness,
-                seal_missingness_item(
-                    {
-                        "reason_code": "changed_files_not_in_graph",
-                        "severity": "high",
-                        "claim_effect": (
-                            "these files are absent from the graph, so their context and"
-                            " impact are unknown rather than empty"
-                        ),
-                        "details": {"unmatched_changed_files": unmatched[:20]},
-                    }
+                cast(
+                    dict[str, Any],
+                    seal_missingness_item(
+                        {
+                            "reason_code": "changed_files_not_in_graph",
+                            "severity": "high",
+                            "claim_effect": (
+                                "these files are absent from the graph, so their context and"
+                                " impact are unknown rather than empty"
+                            ),
+                            "details": {"unmatched_changed_files": unmatched[:20]},
+                        }
+                    ),
                 ),
             ]
 

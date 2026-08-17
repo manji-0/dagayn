@@ -160,8 +160,8 @@ def _handle_status(_args: argparse.Namespace) -> None:
         print(f"  {'Alias':<{alias_width}}  {'Status':<8}  {'PID':<8}  Path")
         print(f"  {'-' * alias_width}  {'-' * 8}  {'-' * 8}  {'-' * 40}")
         for repo in config.repos:
-            entry = state.get(repo.alias, {})
-            child_pid: int | None = entry.get("pid")
+            entry = state.get(repo.alias)
+            child_pid = entry["pid"] if entry is not None else None
             alive = False
             if child_pid is not None:
                 try:

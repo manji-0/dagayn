@@ -7,16 +7,18 @@ keeping low-confidence bridges as missingness/caveats rather than hard claims.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import Any
+from collections.abc import Mapping, Sequence
+from typing import Any, cast
+
+from .bridge_types import BridgeMissingnessRecord, BridgeTransitionRecord, FlowStepRecord
 
 # Tiers safe to treat as hard structural claims in impact/flow traversal.
 REPORTABLE_CONFIDENCE_TIERS: frozenset[str] = frozenset({"EXACT", "HIGH", "EXTRACTED"})
 
 
-def edge_extra(edge: Any) -> dict[str, Any]:
+def edge_extra(edge: Any) -> dict[str, object]:
     extra = getattr(edge, "extra", None)
-    return extra if isinstance(extra, dict) else {}
+    return cast(dict[str, object], extra) if isinstance(extra, dict) else {}
 
 
 def is_cross_artifact(edge: Any) -> bool:
@@ -111,26 +113,30 @@ def is_reportable_bridge(edge: Any) -> bool:
     return confidence_tier_of(edge) in REPORTABLE_CONFIDENCE_TIERS
 
 
-def bridge_transition_dict(edge: Any) -> dict[str, Any]:
+def bridge_transition_dict(edge: Any) -> BridgeTransitionRecord:
     """Explainable path payload for a CROSS_ARTIFACT hop."""
     extra = edge_extra(edge)
+
+    def _string(value: object) -> str | None:
+        return value if isinstance(value, str) else None
+
     return {
         "kind": "CROSS_ARTIFACT",
-        "source": getattr(edge, "source_qualified", None),
-        "target": getattr(edge, "target_qualified", None),
+        "source": _string(getattr(edge, "source_qualified", None)),
+        "target": _string(getattr(edge, "target_qualified", None)),
         "relationship_role": cross_artifact_role(edge),
-        "bridge_kind": extra.get("bridge_kind"),
-        "evidence_kind": extra.get("evidence_kind"),
-        "evidence_source": extra.get("evidence_source"),
+        "bridge_kind": _string(extra.get("bridge_kind")),
+        "evidence_kind": _string(extra.get("evidence_kind")),
+        "evidence_source": _string(extra.get("evidence_source")),
         "confidence": getattr(edge, "confidence", None),
         "confidence_tier": confidence_tier_of(edge) or None,
-        "file_path": getattr(edge, "file_path", None),
+        "file_path": _string(getattr(edge, "file_path", None)),
         "line": getattr(edge, "line", None),
         "claim_strength": "hard" if is_reportable_bridge(edge) else "caveat",
     }
 
 
-def low_confidence_bridge_missingness(edge: Any) -> dict[str, Any]:
+def low_confidence_bridge_missingness(edge: Any) -> BridgeMissingnessRecord:
     """Missingness item for a low-confidence bridge (caveat, not hard claim)."""
     meta = bridge_transition_dict(edge)
     return {
@@ -150,9 +156,9 @@ def low_confidence_bridge_missingness(edge: Any) -> dict[str, Any]:
 
 
 def annotate_flow_steps_with_bridges(
-    steps: list[dict[str, Any]],
+    steps: Sequence[Mapping[str, object]],
     edges: list[Any],
-) -> list[dict[str, Any]]:
+) -> list[FlowStepRecord]:
     """Mark flow steps that arrive via CROSS_ARTIFACT edges among path nodes.
 
     The stored flow path is BFS discovery order, so consecutive steps are not
@@ -160,12 +166,12 @@ def annotate_flow_steps_with_bridges(
     CROSS_ARTIFACT edges whose endpoints are both in the path.
     """
     if not steps:
-        return steps
+        return []
 
     path_qns = {
         step.get("qualified_name") for step in steps if isinstance(step.get("qualified_name"), str)
     }
-    arrivals: dict[str, dict[str, Any]] = {}
+    arrivals: dict[str, BridgeTransitionRecord] = {}
     for edge in edges:
         if not is_reportable_bridge(edge):
             continue
@@ -175,9 +181,9 @@ def annotate_flow_steps_with_bridges(
             continue
         arrivals[tgt] = bridge_transition_dict(edge)
 
-    annotated: list[dict[str, Any]] = []
+    annotated: list[FlowStepRecord] = []
     for index, step in enumerate(steps):
-        item = dict(step)
+        item = cast(FlowStepRecord, dict(step))
         qn = str(item.get("qualified_name") or "")
         if index == 0:
             item.setdefault("step_kind", "entry")
@@ -196,10 +202,10 @@ def collect_bridge_transitions(
     edges: list[Any],
     *,
     include_low_confidence: bool = False,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+) -> tuple[list[BridgeTransitionRecord], list[BridgeMissingnessRecord]]:
     """Split edges into reportable bridge transitions and low-confidence caveats."""
-    transitions: list[dict[str, Any]] = []
-    caveats: list[dict[str, Any]] = []
+    transitions: list[BridgeTransitionRecord] = []
+    caveats: list[BridgeMissingnessRecord] = []
     for edge in edges:
         if not is_cross_artifact(edge):
             continue

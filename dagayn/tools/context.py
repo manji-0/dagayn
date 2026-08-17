@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import sqlite3
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -186,7 +187,7 @@ def _names_from_rows(rows: list[Any], *, limit: int) -> list[str]:
     return names
 
 
-def _names_from_items(items: list[dict[str, Any]], *, limit: int) -> list[str]:
+def _names_from_items(items: Sequence[Mapping[str, object]], *, limit: int) -> list[str]:
     """Return up to *limit* non-empty names from tool payload items."""
     names: list[str] = []
     for item in items:

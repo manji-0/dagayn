@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from ..graph import GraphStore
 from ..paths import db_path_for
@@ -156,31 +156,37 @@ def cross_repo_search_func(
                 " recall is reduced, not exhaustive."
             )
             missingness.append(
-                seal_missingness_item(
-                    {
-                        "reason_code": "registered_repos_not_searched",
-                        "severity": "high",
-                        "claim_effect": (
-                            "results omit these repositories entirely, so absence is not"
-                            " evidence the symbol does not exist there"
-                        ),
-                        "details": {"skipped_repos": skipped_repos[:20]},
-                    }
+                cast(
+                    dict[str, Any],
+                    seal_missingness_item(
+                        {
+                            "reason_code": "registered_repos_not_searched",
+                            "severity": "high",
+                            "claim_effect": (
+                                "results omit these repositories entirely, so absence is not"
+                                " evidence the symbol does not exist there"
+                            ),
+                            "details": {"skipped_repos": skipped_repos[:20]},
+                        }
+                    ),
                 )
             )
         mixed_modes = {info.get("mode") for info in repo_modes.values()}
         if len(mixed_modes) > 1:
             missingness.append(
-                seal_missingness_item(
-                    {
-                        "reason_code": "mixed_search_modes_across_repos",
-                        "severity": "medium",
-                        "claim_effect": (
-                            "scores come from different search arms and are not directly"
-                            " comparable across repositories"
-                        ),
-                        "details": {"modes": sorted(str(m) for m in mixed_modes)},
-                    }
+                cast(
+                    dict[str, Any],
+                    seal_missingness_item(
+                        {
+                            "reason_code": "mixed_search_modes_across_repos",
+                            "severity": "medium",
+                            "claim_effect": (
+                                "scores come from different search arms and are not directly"
+                                " comparable across repositories"
+                            ),
+                            "details": {"modes": sorted(str(m) for m in mixed_modes)},
+                        }
+                    ),
                 )
             )
 

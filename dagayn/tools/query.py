@@ -151,19 +151,22 @@ def _partial_coverage_missingness(
         return None
     coverage = embedding_health.get("embedding_coverage")
     missing = embedding_health.get("missing_embedding_count")
-    return seal_missingness_item(
-        {
-            "reason_code": "partial_embeddings",
-            "severity": "medium",
-            "claim_effect": (
-                "semantic ranking covers only part of the graph, so a node's absence"
-                " from these results is not evidence it is irrelevant"
-            ),
-            "details": {
-                "embedding_coverage": coverage,
-                "missing_embedding_count": missing,
-            },
-        }
+    return cast(
+        dict[str, Any],
+        seal_missingness_item(
+            {
+                "reason_code": "partial_embeddings",
+                "severity": "medium",
+                "claim_effect": (
+                    "semantic ranking covers only part of the graph, so a node's absence"
+                    " from these results is not evidence it is irrelevant"
+                ),
+                "details": {
+                    "embedding_coverage": coverage,
+                    "missing_embedding_count": missing,
+                },
+            }
+        ),
     )
 
 
@@ -1021,7 +1024,7 @@ def query_graph(
 
         elif pattern == "tests_for":
             if node is not None:
-                results.extend(infer_tests_for_node(store, node))
+                results.extend(cast(list[dict[str, Any]], infer_tests_for_node(store, node)))
                 test_edges = [e for e in store.get_edges_by_source(qn) if e.kind == "TESTED_BY"]
                 edges_out.extend(edge_to_dict(e) for e in test_edges)
 

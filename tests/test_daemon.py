@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -296,6 +297,23 @@ class TestPIDManagement:
         mock_kill.assert_called_once_with(9999, 0)
         assert not pid_path.exists()
 
+
+class TestStatePersistence:
+    def test_load_state_filters_malformed_entries(self, tmp_path):
+        state_path = tmp_path / "daemon-state.json"
+        state_path.write_text(
+            json.dumps(
+                {
+                    "good": {"pid": 123, "path": "/repo"},
+                    "missing_pid": {"path": "/repo"},
+                    "boolean_pid": {"pid": True, "path": "/repo"},
+                    "wrong_shape": [123, "/repo"],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        assert load_state(state_path) == {"good": {"pid": 123, "path": "/repo"}}
 
 # ===========================================================================
 # WatchDaemon Tests (mock subprocess.Popen)

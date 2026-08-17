@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from ..bridge_types import BridgeTransitionRecord
 from ._mixin_protocol import GraphStoreMixinProtocol
 from .types import FlowAdjacency, GraphNode
 
@@ -171,7 +172,7 @@ class GraphStoreFlowMixin(GraphStoreMixinProtocol):
             nodes_by_id[node.id] = node
 
         calls_out: dict[str, list[str]] = {}
-        bridge_edges: dict[str, dict[str, dict]] = {}
+        bridge_edges: dict[str, dict[str, BridgeTransitionRecord]] = {}
         has_tested_by: set[str] = set()
         for row in self._conn.execute(
             "SELECT * FROM edges WHERE kind IN ('CALLS', 'TESTED_BY', 'CROSS_ARTIFACT')"

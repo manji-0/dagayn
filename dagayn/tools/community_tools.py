@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 from .._scope import ArtifactScope
-from ..communities import get_architecture_overview, get_communities
+from ..communities import (
+    ArchitectureOverviewResult,
+    CommunityRecord,
+    get_architecture_overview,
+    get_communities,
+)
 from ..graph import node_to_dict
 from ..hints import generate_hints, get_session
 from ..stability_policy import component_stability_profiles, stability_policy_summary
@@ -25,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 def _architecture_health_summary(
     store: Any,
-    overview: dict[str, Any],
+    overview: ArchitectureOverviewResult,
     *,
     top_n: int,
     artifact_scope: ArtifactScope,
@@ -472,7 +477,7 @@ def get_community_func(
     store = None
     try:
         store, root = _get_store(repo_root)
-        community: dict | None = None
+        community: CommunityRecord | None = None
         all_communities = get_communities(store)
 
         if community_id is not None:
@@ -495,8 +500,9 @@ def get_community_func(
         # member_qns is the full list of qualified names — trim when not requested
         if not include_members and "member_qns" in community:
             qns = community.pop("member_qns")
-            community["total_members"] = len(qns)
-            community["member_qns_sample"] = qns[:5]
+            qns_list = list(qns or [])
+            community["total_members"] = len(qns_list)
+            community["member_qns_sample"] = qns_list[:5]
         elif include_members:
             cid = community.get("id")
             if cid is not None:
@@ -504,10 +510,12 @@ def get_community_func(
                 members = [node_to_dict(n) for n in member_nodes]
                 community["member_details"] = members
                 apply_output_budget(
-                    community, budget_tokens=5000, list_priorities=["member_details"]
+                    cast(dict[str, Any], community),
+                    budget_tokens=5000,
+                    list_priorities=["member_details"],
                 )
 
-        result = {
+        result: dict[str, Any] = {
             "status": "ok",
             "summary": (
                 f"Community '{community['name']}': "
@@ -516,7 +524,9 @@ def get_community_func(
             ),
             "community": community,
         }
-        result["_hints"] = generate_hints("get_community", result, get_session())
+        result["_hints"] = cast(
+            dict[str, Any], generate_hints("get_community", result, get_session())
+        )
         return result
     except Exception as exc:
         return handle_tool_runtime_error(exc, logger=logger, context="get_community")

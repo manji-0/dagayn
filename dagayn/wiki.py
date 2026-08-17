@@ -15,7 +15,7 @@ from typing import Any
 
 from ._scope import build_node_scope_maps
 from .architecture import compute_sdp_metrics, find_adp_violations, find_sdp_violations
-from .communities import get_communities
+from .communities import CommunityRecord, get_communities
 from .flows import get_flows
 from .graph import GraphStore, _sanitize_name
 from .sap import compute_sap_metrics
@@ -77,7 +77,7 @@ def _sap_notes(metric: dict[str, Any]) -> str:
 
 
 def _community_package_scopes(
-    community: dict[str, Any],
+    community: CommunityRecord,
     metrics_context: dict[str, Any],
 ) -> list[str]:
     qualified_to_scope = metrics_context.get("qualified_to_scope", {})
@@ -87,7 +87,7 @@ def _community_package_scopes(
 
 
 def _render_architecture_metrics_section(
-    community: dict[str, Any],
+    community: CommunityRecord,
     metrics_context: dict[str, Any],
 ) -> list[str]:
     lines: list[str] = ["## Architecture Metrics", ""]
@@ -207,7 +207,7 @@ def _render_architecture_metrics_section(
 
 def _generate_community_page(
     store: GraphStore,
-    community: dict[str, Any],
+    community: CommunityRecord,
     metrics_context: dict[str, Any] | None = None,
 ) -> str:
     """Build markdown content for a single community.

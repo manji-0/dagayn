@@ -18,6 +18,7 @@ import re
 from collections import deque
 from typing import Any, Callable, Optional, cast
 
+from .bridge_types import FlowStepRecord
 from .constants import SECURITY_KEYWORDS as _SECURITY_KEYWORDS
 from .graph import (
     FlowAdjacency,
@@ -26,6 +27,7 @@ from .graph import (
     _sanitize_name,
     store_write_transaction,
 )
+from .state_types import AffectedFlowsResult, ChangeFlowRecord
 
 logger = logging.getLogger(__name__)
 
@@ -1103,7 +1105,7 @@ def _hydrate_flow_rows(
     out: list[dict] = []
     for row in rows:
         path_ids = paths_by_flow[row["id"]]
-        steps: list[dict] = []
+        steps: list[FlowStepRecord] = []
         path_qns: list[str] = []
         missing_step_count = 0
         for nid in path_ids:
@@ -1162,7 +1164,7 @@ def _hydrate_flow_rows(
 def get_affected_flows(
     store: GraphStore,
     changed_files: list[str],
-) -> dict:
+) -> AffectedFlowsResult:
     """Find flows that include nodes from the given changed files.
 
     Returns::
@@ -1178,7 +1180,10 @@ def get_affected_flows(
     rust_get = getattr(store, "get_affected_flows_json", None)
     if callable(rust_get):
         affected_json = cast(Callable[[list[str]], str], rust_get)(changed_files)
-        affected = [_annotate_flow_dict_bridges(store, flow) for flow in json.loads(affected_json)]
+        affected = cast(
+            list[ChangeFlowRecord],
+            [_annotate_flow_dict_bridges(store, flow) for flow in json.loads(affected_json)],
+        )
         return {"affected_flows": affected, "total": len(affected)}
 
     # Find flow IDs that touch changed files (including stale path_json).
@@ -1201,7 +1206,7 @@ def get_affected_flows(
             ).fetchall()
         )
 
-    affected = _hydrate_flow_rows(store, rows)
+    affected = cast(list[ChangeFlowRecord], _hydrate_flow_rows(store, rows))
 
     # Sort by criticality descending.
     affected.sort(key=lambda f: f.get("criticality", 0), reverse=True)

@@ -8,6 +8,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from typing import Any
 
+from ..state_types import ChangeEdgeRecord, ChangeNodeRecord
 from .types import GraphEdge, GraphNode
 
 logger = logging.getLogger(__name__)
@@ -64,7 +65,7 @@ def _sanitize_name(s: str, max_len: int = 256) -> str:
     return cleaned[:max_len]
 
 
-def node_to_dict(n: GraphNode) -> dict:
+def node_to_dict(n: GraphNode) -> ChangeNodeRecord:
     return {
         "id": n.id,
         "kind": n.kind,
@@ -79,8 +80,8 @@ def node_to_dict(n: GraphNode) -> dict:
     }
 
 
-def edge_to_dict(e: GraphEdge) -> dict:
-    payload: dict[str, Any] = {
+def edge_to_dict(e: GraphEdge) -> ChangeEdgeRecord:
+    payload: ChangeEdgeRecord = {
         "id": e.id,
         "kind": e.kind,
         "source": _sanitize_name(e.source_qualified),

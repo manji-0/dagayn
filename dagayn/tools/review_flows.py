@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 from ..flows import get_affected_flows as _get_affected_flows
 from ..hints import generate_hints, get_session
@@ -77,7 +77,9 @@ def get_affected_flows_func(
             "answerability": answerability,
             "missingness": missingness,
         }
-        out["_hints"] = generate_hints("get_affected_flows", out, get_session())
+        out["_hints"] = cast(
+            dict[str, Any], generate_hints("get_affected_flows", out, get_session())
+        )
         return out
     except Exception as exc:
         return handle_tool_runtime_error(exc, logger=logger, context="get_affected_flows")

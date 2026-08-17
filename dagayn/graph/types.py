@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, TypedDict
 
+from ..bridge_types import BridgeMissingnessRecord, BridgeTransitionRecord
 from ..state_types import ConfidenceTier
 
 
@@ -40,6 +41,22 @@ class GraphEdge:
     confidence_tier: ConfidenceTier = "EXTRACTED"
 
 
+class ImpactRadiusResult(TypedDict):
+    changed_nodes: list[GraphNode]
+    impacted_nodes: list[GraphNode]
+    impacted_files: list[str]
+    edges: list[GraphEdge]
+    bridge_transitions: list[BridgeTransitionRecord]
+    low_confidence_bridges: list[BridgeMissingnessRecord]
+    truncated: bool
+    total_impacted: int
+
+
+class SubgraphResult(TypedDict):
+    nodes: list[GraphNode]
+    edges: list[GraphEdge]
+
+
 @dataclass
 class FlowAdjacency:
     """In-memory adjacency structure for flow tracing.
@@ -56,7 +73,7 @@ class FlowAdjacency:
     has_tested_by: set[str]
     nodes_by_qn: dict[str, "GraphNode"]
     nodes_by_id: dict[int, "GraphNode"]
-    bridge_edges: dict[str, dict[str, dict]] | None = None
+    bridge_edges: dict[str, dict[str, BridgeTransitionRecord]] | None = None
 
 
 @dataclass(frozen=True)

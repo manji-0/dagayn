@@ -5,8 +5,9 @@ from __future__ import annotations
 import logging
 from collections import defaultdict
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
+from ..bridge_types import BridgeTransitionRecord
 from ..coverage import infer_tests_for_node, is_test_file_path
 from ..cross_artifact import (
     bridge_transition_dict,
@@ -19,6 +20,7 @@ from ..cross_artifact import (
 from ..cross_artifact import (
     is_low_confidence_unresolved_markdown_code_span as _shared_low_conf_code_span,
 )
+from ..graph.types import ImpactRadiusResult
 from ..stability_policy import component_stability_profiles, scope_key_for_file
 from ..state_types import ChangeAnalysisResult
 from ._common import make_guidance_item
@@ -550,7 +552,7 @@ def _directive_hint_for_role(role: str | None, *, direction: str) -> str:
 
 def _documentation_update_candidates(
     store: Any,
-    impact: dict[str, Any],
+    impact: ImpactRadiusResult,
     changed_functions: list[dict[str, Any]],
     changed_files: list[str],
     *,
@@ -840,7 +842,7 @@ def _stability_contracts(
 
 def _hotspot_proximity(
     store: Any,
-    impact: dict[str, Any],
+    impact: ImpactRadiusResult,
     *,
     top_n: int = 25,
     limit: int = 5,
@@ -901,7 +903,7 @@ DOC_FOLLOW_UPS = (
 
 def _cross_artifact_proximity(
     store: Any,
-    impact: dict[str, Any],
+    impact: ImpactRadiusResult,
     changed_functions: list[dict[str, Any]],
     *,
     limit: int = 8,
@@ -927,8 +929,8 @@ def _cross_artifact_proximity(
         }
 
     outgoing, incoming = store.get_edges_by_endpoints(list(seed_qns))
-    reportable: list[dict[str, Any]] = []
-    low_confidence: list[dict[str, Any]] = []
+    reportable: list[BridgeTransitionRecord] = []
+    low_confidence: list[BridgeTransitionRecord] = []
     seen: set[tuple[str, str]] = set()
     for edge_map in (outgoing, incoming):
         for edges in edge_map.values():
@@ -1344,15 +1346,15 @@ def _review_guidance_items(
 def _change_analysis_summary(
     store: Any,
     analysis: ChangeAnalysisResult,
-    impact: dict[str, Any],
+    impact: ImpactRadiusResult,
     changed_files: list[str],
     *,
     detail_level: str = "standard",
 ) -> dict[str, Any]:
     risk_score = analysis.risk_score or 0.0
-    affected_flows = list(analysis.affected_flows)
-    test_gaps = list(analysis.test_gaps)
-    changed_functions = list(analysis.changed_functions)
+    affected_flows = cast(list[dict[str, Any]], list(analysis.affected_flows))
+    test_gaps = cast(list[dict[str, Any]], list(analysis.test_gaps))
+    changed_functions = cast(list[dict[str, Any]], list(analysis.changed_functions))
     risk = _risk_level(risk_score)
 
     # One shared snapshot for every downstream sub-analysis (stability

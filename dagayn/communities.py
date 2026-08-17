@@ -11,11 +11,61 @@ import logging
 import random
 import re
 from collections import Counter, defaultdict
-from typing import Any, Callable, cast
+from typing import Any, Callable, TypedDict, cast
 
 from .graph import GraphEdge, GraphNode, GraphStore, _sanitize_name, store_write_transaction
 
 logger = logging.getLogger(__name__)
+
+
+class CommunityRecord(TypedDict, total=False):
+    id: int
+    name: str
+    level: int
+    size: int
+    cohesion: float
+    dominant_language: str
+    description: str
+    members: list[str]
+    member_qns: set[str] | list[str]
+    assigned_member_count: int
+    parent_id: int
+    _cohesion_unmeasured: bool
+    total_members: int
+    member_qns_sample: list[str]
+    member_details: list[dict[str, object]]
+
+
+class CommunityMetricsPayload(TypedDict):
+    internal_edges: int
+    external_edges: int
+    external_degree: int
+    cohesion: float
+    external_edge_ratio: float
+
+
+class CrossCommunityEdgeRecord(TypedDict):
+    source_community: int
+    target_community: int
+    edge_kind: str
+    source: str
+    target: str
+
+
+class CommunityCouplingRecord(TypedDict):
+    source_community_id: int
+    source_community_name: str
+    target_community_id: int
+    target_community_name: str
+    edge_count: int
+    edge_kinds: dict[str, int]
+
+
+class ArchitectureOverviewResult(TypedDict, total=False):
+    communities: list[CommunityRecord]
+    cross_community_coupling: list[CommunityCouplingRecord]
+    warnings: list[str]
+    cross_community_edges: list[CrossCommunityEdgeRecord]
 
 # ---------------------------------------------------------------------------
 # Optional igraph import
@@ -292,7 +342,7 @@ def _detect_leiden(
     edges: list[GraphEdge],
     min_size: int,
     adj: dict[str, list[str]] | None = None,
-) -> list[dict[str, Any]]:
+) -> list[CommunityRecord]:
     """Detect communities using Leiden algorithm via igraph.
 
     Caps Leiden at ``n_iterations=2`` (sufficient for code dependency graphs)
@@ -373,7 +423,7 @@ def _detect_leiden(
 
     cohesions = _compute_cohesion_batch([p[1] for p in pending], edges)
 
-    communities: list[dict[str, Any]] = []
+    communities: list[CommunityRecord] = []
     for (members, member_qns), cohesion in zip(pending, cohesions):
         lang_counts = Counter(m.language for m in members if m.language)
         dominant_lang = lang_counts.most_common(1)[0][0] if lang_counts else ""
@@ -406,7 +456,7 @@ def _detect_file_based(
     edges: list[GraphEdge],
     min_size: int,
     adj: dict[str, list[str]] | None = None,
-) -> list[dict[str, Any]]:
+) -> list[CommunityRecord]:
     """Group nodes by directory when Leiden is unavailable or over-fragments.
 
     Strips the longest common directory prefix from all file paths, then
@@ -467,7 +517,7 @@ def _detect_file_based(
 
     cohesions = _compute_cohesion_batch([p[2] for p in pending], edges)
 
-    communities: list[dict[str, Any]] = []
+    communities: list[CommunityRecord] = []
     for (dir_path, members, member_qns), cohesion in zip(pending, cohesions):
         lang_counts = Counter(m.language for m in members if m.language)
         dominant_lang = lang_counts.most_common(1)[0][0] if lang_counts else ""
@@ -495,12 +545,12 @@ def _detect_file_based(
 
 
 def _split_oversized(
-    communities: list[dict],
+    communities: list[CommunityRecord],
     nodes: list[GraphNode],
     edges: list[GraphEdge],
     threshold_pct: float = 0.25,
     min_split_size: int = 10,
-) -> list[dict]:
+) -> list[CommunityRecord]:
     """Recursively split communities that exceed threshold_pct of total.
 
     Uses Leiden on the subgraph of oversized communities. If igraph is
@@ -514,7 +564,7 @@ def _split_oversized(
         return communities
 
     threshold = max(int(total * threshold_pct), min_split_size)
-    result: list[dict] = []
+    result: list[CommunityRecord] = []
     next_id = max((c.get("id", 0) for c in communities), default=0) + 1
 
     for comm in communities:
@@ -574,7 +624,7 @@ def _split_oversized(
             parent_id = comm.get("id", 0)
             comm_name = comm.get("name", "")
             for sub_members in sub_communities.values():
-                sub_comm = {
+                sub_comm: CommunityRecord = {
                     "id": next_id,
                     "name": comm_name + f"-sub{next_id}",
                     "level": comm.get("level", 0) + 1,
@@ -584,7 +634,7 @@ def _split_oversized(
                     # Measured by _backfill_split_cohesion before returning.
                     "cohesion": 0.0,
                     "_cohesion_unmeasured": True,
-                    "dominant_language": comm.get("dominant_language"),
+                    "dominant_language": comm.get("dominant_language") or "",
                     "description": (f"Split from {comm_name}"),
                 }
                 result.append(sub_comm)
@@ -608,7 +658,7 @@ def _split_oversized(
     return result
 
 
-def _backfill_split_cohesion(communities: list[dict], edges: list[GraphEdge]) -> None:
+def _backfill_split_cohesion(communities: list[CommunityRecord], edges: list[GraphEdge]) -> None:
     """Measure cohesion for sub-communities instead of publishing 0.0.
 
     ``_split_oversized`` hardcoded ``cohesion: 0.0``, and its output goes
@@ -631,7 +681,7 @@ def _backfill_split_cohesion(communities: list[dict], edges: list[GraphEdge]) ->
 # ---------------------------------------------------------------------------
 
 
-def detect_communities(store: GraphStore, min_size: int = 2) -> list[dict[str, Any]]:
+def detect_communities(store: GraphStore, min_size: int = 2) -> list[CommunityRecord]:
     """Detect communities in the code graph.
 
     Uses the Leiden algorithm via igraph if available, otherwise falls back to
@@ -798,7 +848,7 @@ def incremental_detect_communities(
     return store_communities(store, communities)
 
 
-def _disambiguate_community_names(communities: list[dict[str, Any]]) -> list[str]:
+def _disambiguate_community_names(communities: list[CommunityRecord]) -> list[str]:
     """Return per-community names with duplicates suffixed.
 
     ``_generate_community_name`` is ``{parent-dir}-{top-keyword}`` and is not
@@ -817,7 +867,7 @@ def _disambiguate_community_names(communities: list[dict[str, Any]]) -> list[str
     return names
 
 
-def store_communities(store: GraphStore, communities: list[dict[str, Any]]) -> int:
+def store_communities(store: GraphStore, communities: list[CommunityRecord]) -> int:
     """Store detected communities in the database.
 
     Clears existing communities and community_id assignments, then inserts
@@ -926,7 +976,7 @@ def store_communities(store: GraphStore, communities: list[dict[str, Any]]) -> i
 
 def get_communities(
     store: GraphStore, sort_by: str = "size", min_size: int = 0
-) -> list[dict[str, Any]]:
+) -> list[CommunityRecord]:
     """Retrieve stored communities from the database.
 
     Args:
@@ -957,7 +1007,7 @@ def get_communities(
 
     members_by_id = store.get_all_community_member_qns()
 
-    communities: list[dict[str, Any]] = []
+    communities: list[CommunityRecord] = []
     for row in rows:
         live_member_qns = members_by_id.get(row["id"], [])
         member_qns = [_sanitize_name(qn) for qn in live_member_qns]
@@ -996,7 +1046,7 @@ def get_architecture_overview(
     store: GraphStore,
     detail_level: str = "standard",
     top_n: int = 20,
-) -> dict[str, Any]:
+) -> ArchitectureOverviewResult:
     """Generate an architecture overview based on community structure.
 
     Builds a node-to-community mapping, counts cross-community edges,
@@ -1026,7 +1076,7 @@ def get_architecture_overview(
     all_edges = store.get_all_edges()
     cross_counts: Counter[tuple[int, int]] = Counter()
     kind_counts: dict[tuple[int, int], Counter[str]] = defaultdict(Counter)
-    cross_edges: list[dict[str, Any]] = []
+    cross_edges: list[CrossCommunityEdgeRecord] = []
 
     for e in all_edges:
         # TESTED_BY edges are expected cross-community coupling (code → test),
@@ -1075,7 +1125,7 @@ def get_architecture_overview(
     # Build aggregated coupling list (edge_count desc, top_n in standard mode)
     pair_limit = None if detail_level == "verbose" else (5 if detail_level == "minimal" else top_n)
     sorted_pairs = cross_counts.most_common(pair_limit)
-    cross_community_coupling = [
+    cross_community_coupling: list[CommunityCouplingRecord] = [
         {
             "source_community_id": c1,
             "source_community_name": comm_name_map.get(c1, f"community-{c1}"),
@@ -1089,7 +1139,7 @@ def get_architecture_overview(
 
     # Strip members from communities unless verbose
     if detail_level == "minimal":
-        out_communities = [
+        out_communities: list[CommunityRecord] = [
             {
                 "name": c["name"],
                 "size": c["size"],
@@ -1101,9 +1151,12 @@ def get_architecture_overview(
     elif detail_level == "verbose":
         out_communities = communities
     else:
-        out_communities = [{k: v for k, v in c.items() if k != "members"} for c in communities]
+        out_communities = cast(
+            list[CommunityRecord],
+            [{k: v for k, v in c.items() if k != "members"} for c in communities],
+        )
 
-    result: dict[str, Any] = {
+    result: ArchitectureOverviewResult = {
         "communities": out_communities,
         "cross_community_coupling": cross_community_coupling,
         "warnings": warnings,

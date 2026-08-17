@@ -10,6 +10,7 @@ import logging
 import os
 import sqlite3
 import time
+from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Optional, cast
 
@@ -296,7 +297,7 @@ def _indexed_only(store: GraphStore, rel_paths: list[str]) -> list[str]:
     if not callable(getter):
         return rel_paths
     try:
-        meta_map = cast(Callable[[], dict[str, Any]], getter)() or {}
+        meta_map = cast(Callable[[], Mapping[str, object]], getter)() or {}
         indexed = set(meta_map)
     except Exception:  # noqa: BLE001 — fall back to the unfiltered list
         return rel_paths

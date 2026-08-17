@@ -8,10 +8,17 @@ import re
 import sys
 import time
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, TypedDict
 from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
+
+
+class EmbeddingRequestPayload(TypedDict, total=False):
+    model: str
+    input: list[str]
+    dimensions: int
+    max_length: int
 
 
 def _parse_openai_identity_suffixes(tail: str) -> tuple[str, int | None, int | None]:
@@ -421,7 +428,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         import urllib.error
         import urllib.request
 
-        body: dict[str, Any] = {"model": self._model, "input": texts}
+        body: EmbeddingRequestPayload = {"model": self._model, "input": texts}
         # OpenAI v3 models (text-embedding-3-*) support dimension reduction;
         # only forward the param when the user explicitly pinned one.
         if self._dimension is not None:

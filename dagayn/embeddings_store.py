@@ -29,7 +29,7 @@ from .embeddings_text import (
     _slow_embed_batch_seconds,
 )
 from .graph import GraphNode, GraphStore
-from .state_types import seal_embedding_status
+from .state_types import EmbeddingStatusRecord, seal_embedding_status
 
 _EMBED_PROVIDER_ERRORS = (OSError, RuntimeError, ValueError, TypeError, sqlite3.Error)
 
@@ -267,7 +267,7 @@ def _persist_active_embedding_provider_metadata(
 def get_embedding_status(
     db_path: str | Path,
     provider: str | None = None,
-) -> dict[str, Any]:
+) -> EmbeddingStatusRecord:
     """Return read-only embedding coverage for a graph database."""
     path = Path(db_path)
     try:
@@ -306,7 +306,7 @@ def get_embedding_status(
                 "SELECT provider, COUNT(*) AS count FROM embeddings GROUP BY provider"
             ).fetchall()
         }
-        status: dict[str, Any] = {
+        status: EmbeddingStatusRecord = {
             "status": "empty" if total_embeddings == 0 else "unknown",
             "total_embeddings": total_embeddings,
             "provider_counts": provider_counts,

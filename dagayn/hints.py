@@ -10,11 +10,23 @@ from __future__ import annotations
 
 import time
 from collections import deque
-from typing import Any
+from collections.abc import Mapping
+from typing import TypedDict
 
 from .tool_surface import tool_is_exposed
 
 # ---- intent categories and their characteristic tool names ----
+
+
+class HintStep(TypedDict):
+    tool: str
+    suggestion: str
+
+
+class Hints(TypedDict):
+    next_steps: list[HintStep]
+    related: list[str]
+    warnings: list[str]
 
 _INTENT_TOOLS: dict[str, set[str]] = {
     "reviewing": {
@@ -52,7 +64,7 @@ _INTENT_TOOLS: dict[str, set[str]] = {
 
 # ---- workflow adjacency: for each tool, which tools are useful next ----
 
-_WORKFLOW: dict[str, list[dict[str, str]]] = {
+_WORKFLOW: dict[str, list[HintStep]] = {
     "flow": [
         {
             "tool": "flow_tool",
@@ -310,9 +322,9 @@ def infer_intent(session: SessionState) -> str:
 
 def generate_hints(
     tool_name: str,
-    result: dict[str, Any],
+    result: Mapping[str, object],
     session: SessionState,
-) -> dict[str, Any]:
+) -> Hints:
     """Build context-aware hints for a tool response.
 
     Returns::
@@ -351,7 +363,7 @@ def generate_hints(
 # ---------------------------------------------------------------------------
 
 
-def _track_result(result: dict[str, Any], session: SessionState) -> None:
+def _track_result(result: Mapping[str, object], session: SessionState) -> None:
     """Extract node IDs and file paths from a tool result and record them."""
     # Files
     for key in ("changed_files", "impacted_files"):
@@ -373,25 +385,31 @@ def _track_result(result: dict[str, Any], session: SessionState) -> None:
         session.record_nodes(node_ids)
 
 
-def _build_next_steps(tool_name: str, session: SessionState) -> list[dict[str, str]]:
+def _build_next_steps(tool_name: str, session: SessionState) -> list[HintStep]:
     """Return next-step suggestions, filtering already-called tools."""
     called = set(session.tools_called)
     candidates = _WORKFLOW.get(tool_name, [])
-    out: list[dict[str, str]] = []
+    out: list[HintStep] = []
     for c in candidates:
         if c["tool"] not in called and tool_is_exposed(c["tool"]):
             out.append(c)
     return out
 
 
-def _extract_warnings(result: dict[str, Any]) -> list[str]:
+def _extract_warnings(result: Mapping[str, object]) -> list[str]:
     """Pull warning signals from a tool result."""
     warnings: list[str] = []
 
     # Test gaps
     test_gaps = result.get("test_gaps")
     if isinstance(test_gaps, list) and test_gaps:
-        names = [g.get("name", g) if isinstance(g, dict) else str(g) for g in test_gaps[:5]]
+        names: list[str] = []
+        for gap in test_gaps[:5]:
+            if isinstance(gap, Mapping):
+                name = gap.get("name")
+                names.append(name if isinstance(name, str) else str(gap))
+            else:
+                names.append(str(gap))
         warnings.append(f"Test coverage gaps: {', '.join(names)}")
 
     # High risk score
@@ -405,15 +423,17 @@ def _extract_warnings(result: dict[str, Any]) -> list[str]:
         for w in arch_warnings[:3]:
             if isinstance(w, str):
                 warnings.append(w)
-            elif isinstance(w, dict) and "message" in w:
-                warnings.append(w["message"])
+            elif isinstance(w, Mapping):
+                message = w.get("message")
+                if isinstance(message, str):
+                    warnings.append(message)
 
     return warnings
 
 
 def _build_related(
     tool_name: str,
-    result: dict[str, Any],
+    result: Mapping[str, object],
     session: SessionState,
 ) -> list[str]:
     """Suggest related node/file identifiers from the result."""
