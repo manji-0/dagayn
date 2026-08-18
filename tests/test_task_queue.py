@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import os
 import subprocess
+import threading
+import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -297,6 +299,109 @@ class TestRunWorker:
         probe = WorkerLock(worker_lock_path(tmp_path))
         assert probe.acquire() is True
         probe.release()
+
+
+class TestClaimRace:
+    """A claim in flight must not swallow work enqueued alongside it.
+
+    ``enqueue`` looks up its pending twin and then writes. If those two steps
+    do not serialize against ``claim``, the twin can flip to ``running`` in
+    between, the new work is folded into a task the worker has already read,
+    and it disappears when that task completes — the burst-tail staleness the
+    queue exists to prevent.
+    """
+
+    def test_enqueue_does_not_fold_into_a_task_being_claimed(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "task_queue.db"
+        writer = TaskQueue(db_path)
+        _, first_id = writer.enqueue("update", {"edit": 1})
+        holding = threading.Event()
+
+        def _hold_a_claim() -> None:
+            # A sqlite connection belongs to its creating thread, so the
+            # stand-in worker opens its own. It then holds exactly the write
+            # transaction ``claim`` takes, which is the window the enqueue used
+            # to slip into.
+            worker = TaskQueue(db_path)
+            worker._conn.execute("BEGIN IMMEDIATE")
+            worker._conn.execute("UPDATE tasks SET state = 'running' WHERE id = ?", (first_id,))
+            holding.set()
+            time.sleep(0.3)
+            worker._conn.commit()
+            worker.close()
+
+        thread = threading.Thread(target=_hold_a_claim)
+        thread.start()
+        try:
+            assert holding.wait(timeout=5)
+            action, task_id = writer.enqueue("update", {"edit": 2})
+        finally:
+            thread.join(timeout=5)
+
+        assert action == "added", "second edit was folded into a task already claimed"
+        assert task_id != first_id
+
+        # The worker finishing the claimed task deletes that row; the new work
+        # has to survive it.
+        row = writer._conn.execute("SELECT * FROM tasks WHERE id = ?", (first_id,)).fetchone()
+        writer.complete(dict(row))
+        assert writer.pending_kinds() == {"update"}
+        assert writer.claim() is not None
+
+        writer.close()
+
+
+class TestRequeueStale:
+    def test_running_task_is_requeued(self, queue: TaskQueue) -> None:
+        queue.enqueue("update")
+        claimed = queue.claim()
+        assert claimed is not None
+
+        assert queue.requeue_stale() == 1
+        assert queue.stats()["counts"] == {"pending": 1, "running": 0, "dead": 0}
+        assert queue.claim() is not None
+
+    def test_exhausted_task_is_parked_dead(self, queue: TaskQueue) -> None:
+        """A task that always kills its worker must not be recovered forever."""
+        queue.enqueue("update")
+        for _ in range(MAX_ATTEMPTS - 1):
+            assert queue.claim() is not None  # claimed, then the worker dies
+            assert queue.requeue_stale() == 1
+        assert queue.claim() is not None  # the attempt that spends the budget
+
+        assert queue.requeue_stale() == 1
+        assert queue.stats()["counts"]["dead"] == 1
+        assert queue.claim() is None
+
+    def test_no_running_tasks_is_a_noop(self, queue: TaskQueue) -> None:
+        queue.enqueue("update")
+        assert queue.requeue_stale() == 0
+        assert queue.stats()["counts"] == {"pending": 1, "running": 0, "dead": 0}
+
+    def test_worker_recovers_a_task_left_by_a_dead_worker(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls: list[str] = []
+
+        def executor(task: dict[str, Any], repo_root: Path) -> str | None:
+            calls.append(task["kind"])
+            return None
+
+        monkeypatch.setattr("dagayn.task_queue._TASK_EXECUTORS", {"update": executor})
+        queue = TaskQueue(queue_db_path(tmp_path))
+        queue.enqueue("update")
+        queue.claim()  # the worker dies here (os._exit), leaving the row running
+        queue.close()
+
+        executed = run_worker(tmp_path, idle_seconds=0.2)
+
+        assert executed == 1
+        assert calls == ["update"]
+        assert TaskQueue(queue_db_path(tmp_path)).stats()["counts"] == {
+            "pending": 0,
+            "running": 0,
+            "dead": 0,
+        }
 
 
 class TestEnsureWorker:

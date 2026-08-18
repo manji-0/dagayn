@@ -14,7 +14,8 @@ This module replaces that with a small SQLite task queue per repository:
   :func:`ensure_worker`, which spawns one detached worker when none is live;
 * the worker (:func:`run_worker`) drains the queue, re-running a kind while
   new work of that kind keeps arriving, and exits after the queue has been
-  empty for the idle window;
+  empty for the idle window. On startup it recovers tasks left ``running`` by
+  a worker that died mid-execution (:meth:`TaskQueue.requeue_stale`);
 * task execution reuses the existing building blocks —
   ``build_or_update_graph`` with hook-update lock semantics, the budget
   watchdog, and the ``.dagayn/hook-skip`` opt-out.
@@ -115,29 +116,40 @@ class TaskQueue:
         ``"coalesced"``. Coalescing merges payloads (newer keys win) and keeps
         the higher priority, so a burst of identical hook fires collapses to
         one task.
+
+        The lookup and the write share one ``BEGIN IMMEDIATE`` transaction so
+        they serialize against :meth:`claim`. Without it, the twin could be
+        claimed between the two statements and the new work would be folded
+        into a task the worker had already read — and then dropped when that
+        task completed, leaving the last edits of a burst unindexed.
         """
         if kind not in TASK_KINDS:
             raise ValueError(f"unknown task kind: {kind!r} (expected one of {TASK_KINDS})")
         now = _now()
-        row = self._conn.execute(
-            "SELECT id, payload, priority FROM tasks WHERE kind = ? AND state = 'pending'",
-            (kind,),
-        ).fetchone()
-        if row is not None:
-            merged = {**json.loads(row["payload"]), **(payload or {})}
-            self._conn.execute(
-                "UPDATE tasks SET payload = ?, priority = MAX(priority, ?), updated_at = ?"
-                " WHERE id = ?",
-                (json.dumps(merged), priority, now, row["id"]),
+        self._conn.execute("BEGIN IMMEDIATE")
+        try:
+            row = self._conn.execute(
+                "SELECT id, payload, priority FROM tasks WHERE kind = ? AND state = 'pending'",
+                (kind,),
+            ).fetchone()
+            if row is not None:
+                merged = {**json.loads(row["payload"]), **(payload or {})}
+                self._conn.execute(
+                    "UPDATE tasks SET payload = ?, priority = MAX(priority, ?), updated_at = ?"
+                    " WHERE id = ?",
+                    (json.dumps(merged), priority, now, row["id"]),
+                )
+                self._conn.commit()
+                return "coalesced", row["id"]
+            cur = self._conn.execute(
+                "INSERT INTO tasks (kind, priority, payload, state, created_at, updated_at)"
+                " VALUES (?, ?, ?, 'pending', ?, ?)",
+                (kind, priority, json.dumps(payload or {}), now, now),
             )
             self._conn.commit()
-            return "coalesced", row["id"]
-        cur = self._conn.execute(
-            "INSERT INTO tasks (kind, priority, payload, state, created_at, updated_at)"
-            " VALUES (?, ?, ?, 'pending', ?, ?)",
-            (kind, priority, json.dumps(payload or {}), now, now),
-        )
-        self._conn.commit()
+        except BaseException:
+            self._conn.rollback()
+            raise
         # sqlite3 types ``lastrowid`` as optional; after a successful INSERT on
         # a rowid table it is always set.
         task_id = cur.lastrowid
@@ -201,6 +213,40 @@ class TaskQueue:
     # ------------------------------------------------------------------
     # Inspection / maintenance
     # ------------------------------------------------------------------
+
+    def requeue_stale(self) -> int:
+        """Recover tasks abandoned by a worker that died mid-execution.
+
+        The budget watchdog stops an overrunning worker with ``os._exit``, and
+        a crash or a ``SIGKILL`` has the same effect: the row stays ``running``
+        and :meth:`claim` — which only looks at ``pending`` — would never touch
+        it again. Callers must hold the worker lock, which is what makes
+        ``running`` mean *orphaned*: no other worker can be executing anything.
+
+        A task whose ``attempts`` are already spent is parked ``dead`` instead
+        of requeued, so a task that reliably blows the budget cannot loop
+        forever. Returns how many rows were recovered (requeued or parked).
+        """
+        rows = self._conn.execute(
+            "SELECT id, kind, attempts FROM tasks WHERE state = 'running'"
+        ).fetchall()
+        for row in rows:
+            note = "worker exited mid-task"
+            if row["attempts"] >= MAX_ATTEMPTS:
+                self._log(row["id"], row["kind"], "dead", note)
+                self._conn.execute(
+                    "UPDATE tasks SET state = 'dead', last_error = ?, updated_at = ? WHERE id = ?",
+                    (note, _now(), row["id"]),
+                )
+            else:
+                self._log(row["id"], row["kind"], "requeued", note)
+                self._conn.execute(
+                    "UPDATE tasks SET state = 'pending', last_error = ?, updated_at = ?"
+                    " WHERE id = ?",
+                    (note, _now(), row["id"]),
+                )
+        self._conn.commit()
+        return len(rows)
 
     def pending_kinds(self) -> set[str]:
         rows = self._conn.execute(
@@ -517,6 +563,11 @@ def run_worker(
     executed = 0
     idle_since: float | None = None
     try:
+        # We hold the worker lock, so anything still ``running`` was left
+        # behind by a worker that died (budget watchdog, crash, SIGKILL).
+        recovered = queue.requeue_stale()
+        if recovered:
+            logger.info("queue worker: recovered %d task(s) from a dead worker", recovered)
         while True:
             task = queue.claim()
             if task is None:

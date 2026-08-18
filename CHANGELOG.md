@@ -4,6 +4,19 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Fixes
+
+- The hook task queue no longer loses the tail of an edit burst: `enqueue`
+  now looks up its pending twin and writes inside one `BEGIN IMMEDIATE`
+  transaction, so it serializes against `claim`. Previously the twin could be
+  claimed between the two statements, the new work was folded into a task the
+  worker had already read, and it vanished when that task completed.
+- The queue worker recovers tasks left `running` by a worker that died
+  mid-execution (budget watchdog `os._exit`, crash, `SIGKILL`). Such rows were
+  invisible to `claim` and stayed in the queue forever, permanently skewing
+  `dagayn queue status`. Tasks whose attempts are already spent are parked
+  `dead` instead of requeued.
+
 ## 4.9.0 — 2026-08-16
 
 ### Features
