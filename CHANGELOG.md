@@ -4,8 +4,41 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+## 4.10.0 — 2026-08-18
+
+### Features
+
+- Edit-triggered hooks enqueue a structure-only update on a per-repository
+  SQLite task queue (`dagayn queue add` / `run` / `status` / `clear`) instead of
+  spawning their own `dagayn update`. A burst of edits coalesces into one task
+  drained by a single detached worker, so the graph no longer re-diffs per
+  keystroke batch, and the last edit of a burst is no longer lost to a skipped
+  overlapping run. See `docs/COMMANDS.md`.
+
+### Performance
+
+- Tool latency cut by sharing one `GraphSnapshot` across sub-analyses,
+  persisting code-scope hub/bridge scores so `artifact_scope=code` queries skip
+  the betweenness recompute, and batching coverage scans instead of issuing
+  N+1 queries per changed function: `architecture_overview` 3.4s → 0.77s,
+  `review_changes` 2.8s → 1.5s, `get_minimal_context` 65s → 0.87s on large
+  diffs.
+
 ### Fixes
 
+- Hook-triggered updates can no longer run away. On a 153k-file monorepo one
+  could burn CPU for over an hour and grow the WAL to 9.1GB against a 514MB
+  graph, because neither Claude Code's hook timeout nor Cursor's detached
+  `afterFileEdit` kills dagayn itself. Hook updates now self-terminate after a
+  budget (120s by default, `--budget-seconds` to override), `journal_size_limit`
+  is set on every writing connection, the `PostToolUse` matcher no longer fires
+  on `Bash`, and `.dagayn/hook-skip` opts out of hook-triggered updates.
+- Config files (`~/.cursor/hooks.json`, `settings.json`, generated hook
+  scripts) are written atomically, so a concurrent editor write can no longer
+  leave them as invalid JSON. Externally managed read-only files and symlinks
+  (nix/home-manager) are refused instead of replaced.
+- The per-edit hook path no longer generates embeddings; the session-start hook
+  refreshes them instead.
 - The hook task queue no longer loses the tail of an edit burst: `enqueue`
   now looks up its pending twin and writes inside one `BEGIN IMMEDIATE`
   transaction, so it serializes against `claim`. Previously the twin could be
@@ -32,6 +65,15 @@ All notable changes to `dagayn` are documented here.
   not — it was ambiguous across a DST fold and not comparable between
   machines.
 - Removed `TaskQueue.pending_kinds()`, which no production code called.
+- pyrefly reports no errors for the project again; the type-check job was red.
+
+### Internal
+
+- Container payloads that were `dict[str, Any]` now carry real types (#150),
+  and post-processing, build, and change-analysis results are typed models.
+- Oversized modules are split and the `tools`/`refactor` import cycle is
+  broken (#148).
+- Agent instructions document the dagayn MCP tools.
 
 ## 4.9.0 — 2026-08-16
 
