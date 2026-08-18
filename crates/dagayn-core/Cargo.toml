@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = ["fts-wakati"]
+fts-wakati = ["dagayn-graph/fts-wakati"]
+
 [dependencies]
 dagayn-graph = { path = "../dagayn-graph" }
 dagayn-parser = { path = "../dagayn-parser" }

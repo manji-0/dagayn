@@ -13,8 +13,14 @@ enum BigramChunkKind {
 }
 
 pub(crate) fn detect_fts_segmenter() -> &'static str {
-    // Rust wheels do not bundle fugashi/mecab/janome; index/query with bigram.
-    "bigram"
+    #[cfg(feature = "fts-wakati")]
+    {
+        return crate::fts_wakati::detect_wakati_segmenter();
+    }
+    #[cfg(not(feature = "fts-wakati"))]
+    {
+        "bigram"
+    }
 }
 
 pub(crate) fn contains_japanese(text: &str) -> bool {
@@ -60,8 +66,38 @@ pub(crate) fn segment_japanese_fts_text(text: &str, segmenter: Option<&str>) -> 
     if resolved == "bigram" {
         return segment_bigram(text, false);
     }
-    // No wakati runtime in Rust; mirror Python fallback when tokenizer is unavailable.
+    if is_wakati_segmenter(resolved) {
+        if let Some(wakati) = segment_wakati_text(text) {
+            if !wakati.is_empty() {
+                return wakati;
+            }
+        }
+    }
     segment_bigram(text, false)
+}
+
+fn is_wakati_segmenter(segmenter: &str) -> bool {
+    #[cfg(feature = "fts-wakati")]
+    {
+        return crate::fts_wakati::is_wakati_segmenter(segmenter);
+    }
+    #[cfg(not(feature = "fts-wakati"))]
+    {
+        let _ = segmenter;
+        false
+    }
+}
+
+fn segment_wakati_text(text: &str) -> Option<String> {
+    #[cfg(feature = "fts-wakati")]
+    {
+        return crate::fts_wakati::segment_wakati_text(text);
+    }
+    #[cfg(not(feature = "fts-wakati"))]
+    {
+        let _ = text;
+        None
+    }
 }
 
 fn segment_bigram(text: &str, cjk_only: bool) -> String {
@@ -207,7 +243,28 @@ mod tests {
     }
 
     #[test]
-    fn detect_fts_segmenter_is_bigram() {
+    fn detect_fts_segmenter_reports_lindera_when_wakati_enabled() {
+        #[cfg(feature = "fts-wakati")]
+        assert_eq!(detect_fts_segmenter(), "lindera");
+        #[cfg(not(feature = "fts-wakati"))]
         assert_eq!(detect_fts_segmenter(), "bigram");
+    }
+
+    #[cfg(feature = "fts-wakati")]
+    #[test]
+    fn segment_japanese_uses_lindera_for_wakati_segmenter() {
+        let segmented = segment_japanese_fts_text("ユーザー取得", Some("lindera"));
+        assert!(segmented.contains(' '));
+        assert!(segmented.contains("ユーザー"));
+        assert!(segmented.contains("取得"));
+    }
+
+    #[cfg(feature = "fts-wakati")]
+    #[test]
+    fn segment_cjk_identifier_tokens_merges_wakati_and_bigram() {
+        let tokens = segment_cjk_identifier_tokens("ユーザー取得", Some("lindera"));
+        assert!(tokens.contains("ユーザー"));
+        assert!(tokens.contains("取得"));
+        assert!(tokens.contains("ユー"));
     }
 }

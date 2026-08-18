@@ -88,7 +88,7 @@ dev = [
 manifest-path = "crates/dagayn-py/Cargo.toml"
 module-name = "dagayn._core"
 python-source = "."
-features = ["extension-module"]
+features = ["extension-module", "fts-wakati"]
 include = [
     { path = "README.md", format = "sdist" },
     { path = "LICENSE", format = "sdist" },

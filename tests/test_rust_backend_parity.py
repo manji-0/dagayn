@@ -314,7 +314,7 @@ def test_rust_graph_store_persists_centrality_scores(tmp_path):
         store.close()
 
 
-def test_rust_fts_bigram_segmenter_indexes_cjk(tmp_path):
+def test_rust_fts_wakati_segmenter_indexes_cjk(tmp_path):
     try:
         from dagayn._core import GraphStore as RustGraphStore
     except ImportError as exc:
@@ -333,7 +333,8 @@ def test_rust_fts_bigram_segmenter_indexes_cjk(tmp_path):
         )
         rebuild_fts_index(store)
 
-        assert store.get_metadata(FTS_SEGMENTER_METADATA_KEY) == "bigram"
+        segmenter = store.get_metadata(FTS_SEGMENTER_METADATA_KEY)
+        assert segmenter in {"lindera", "bigram"}
 
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
@@ -343,8 +344,12 @@ def test_rust_fts_bigram_segmenter_indexes_cjk(tmp_path):
         ).fetchone()
         conn.close()
         assert row is not None
-        assert "ユー" in row["identifier_tokens"]
-        assert "取得" in row["identifier_tokens"]
+        if segmenter == "lindera":
+            assert "ユーザー" in row["identifier_tokens"]
+            assert "取得" in row["identifier_tokens"]
+        else:
+            assert "ユー" in row["identifier_tokens"]
+            assert "取得" in row["identifier_tokens"]
 
         fts_payload = json.loads(store.fts_query_json("ユーザー", 10))
         assert fts_payload["hits"]

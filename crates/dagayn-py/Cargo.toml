@@ -11,11 +11,12 @@ name = "_core"
 crate-type = ["cdylib", "rlib"]
 
 [features]
-default = []
+default = ["fts-wakati"]
 extension-module = ["pyo3/extension-module"]
+fts-wakati = ["dagayn-core/fts-wakati"]
 
 [dependencies]
-dagayn-core = { path = "../dagayn-core" }
+dagayn-core = { path = "../dagayn-core", default-features = false, features = ["fts-wakati"] }
 pyo3.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

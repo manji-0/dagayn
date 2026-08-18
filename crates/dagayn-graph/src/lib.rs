@@ -509,6 +509,8 @@ mod embeddings;
 mod flows;
 mod fts_sync;
 mod fts_tokenize;
+#[cfg(feature = "fts-wakati")]
+mod fts_wakati;
 mod helpers;
 mod impact;
 mod impact_flows;
