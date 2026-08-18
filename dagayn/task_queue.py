@@ -432,12 +432,35 @@ def worker_lock_path(repo_root: str | Path) -> Path:
     return get_data_dir(Path(repo_root)) / WORKER_LOCK_NAME
 
 
+def _worker_env() -> dict[str, str]:
+    """Environment for the worker: our own import location on ``PYTHONPATH``.
+
+    Paired with ``-P`` (see :func:`ensure_worker`), this makes the worker import
+    the same dagayn as the process spawning it, whether that is site-packages
+    or an uninstalled checkout.
+    """
+    env = dict(os.environ)
+    package_parent = str(Path(__file__).resolve().parent.parent)
+    existing = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = f"{package_parent}{os.pathsep}{existing}" if existing else package_parent
+    return env
+
+
 def ensure_worker(repo_root: str | Path, *, idle_seconds: float = DEFAULT_IDLE_SECONDS) -> bool:
     """Spawn a detached queue worker when one is not already running.
 
     Returns True when a worker was spawned. The probe and the spawn are not
     atomic: two concurrent ``queue add`` calls can both spawn, and the losing
     worker exits immediately when it cannot take the lock.
+
+    The worker must run *this* dagayn, not whatever happens to sit in the
+    hook's working directory. ``python -m`` prepends the cwd to ``sys.path``,
+    so a hook firing inside a checkout that has a ``dagayn/`` package (dagayn's
+    own repository, most obviously) made the worker import that source tree and
+    any stale compiled ``_core`` next to it, which then failed post-processing
+    with a confusing "requires dagayn._core support" error. ``-P`` drops the
+    cwd entry and ``PYTHONPATH`` carries the caller's own import location over
+    instead, so an uninstalled source checkout keeps working too.
     """
     lock = WorkerLock(worker_lock_path(repo_root))
     if not lock.acquire():
@@ -446,6 +469,7 @@ def ensure_worker(repo_root: str | Path, *, idle_seconds: float = DEFAULT_IDLE_S
     lock.release()
     cmd = [
         sys.executable,
+        "-P",
         "-m",
         "dagayn",
         "queue",
@@ -459,6 +483,7 @@ def ensure_worker(repo_root: str | Path, *, idle_seconds: float = DEFAULT_IDLE_S
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
+        env=_worker_env(),
     )
     if os.name == "posix":
         # Detach from the hook's process group: the editor reaps its own

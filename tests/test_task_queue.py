@@ -19,6 +19,7 @@ from typing import Any
 
 import pytest
 
+import dagayn.task_queue
 from dagayn.task_queue import (
     DEFAULT_PRIORITIES,
     LOG_RETENTION,
@@ -534,9 +535,50 @@ class TestEnsureWorker:
 
         assert len(spawned) == 1
         cmd, kwargs = spawned[0]
-        assert cmd[2:] == ["dagayn", "queue", "run", "--repo", str(tmp_path), "--idle-seconds", "5"]
+        assert cmd[3:] == ["dagayn", "queue", "run", "--repo", str(tmp_path), "--idle-seconds", "5"]
         if os.name == "posix":
             assert kwargs.get("start_new_session") is True
+
+    def test_worker_does_not_import_from_the_hooks_cwd(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A hook firing inside a checkout must not decide what the worker imports.
+
+        ``python -m`` prepends the cwd to ``sys.path``, so a repository with its
+        own ``dagayn/`` package (dagayn's own, most obviously) used to shadow the
+        installed one — including a stale compiled ``_core`` beside it.
+        """
+        spawned: list[Any] = []
+
+        class FakePopen:
+            def __init__(self, cmd: list[str], **kwargs: Any) -> None:
+                spawned.append((cmd, kwargs))
+
+        monkeypatch.setattr(subprocess, "Popen", FakePopen)
+        assert ensure_worker(tmp_path) is True
+
+        cmd, kwargs = spawned[0]
+        assert cmd[1] == "-P", "the worker must not get the cwd on sys.path"
+        # ...and it still has to find the dagayn that spawned it.
+        package_parent = str(Path(dagayn.task_queue.__file__).resolve().parent.parent)
+        assert kwargs["env"]["PYTHONPATH"].split(os.pathsep)[0] == package_parent
+
+    def test_worker_env_keeps_an_existing_pythonpath(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        spawned: list[Any] = []
+
+        class FakePopen:
+            def __init__(self, cmd: list[str], **kwargs: Any) -> None:
+                spawned.append((cmd, kwargs))
+
+        monkeypatch.setattr(subprocess, "Popen", FakePopen)
+        monkeypatch.setenv("PYTHONPATH", "/somewhere/else")
+        assert ensure_worker(tmp_path) is True
+
+        entries = spawned[0][1]["env"]["PYTHONPATH"].split(os.pathsep)
+        assert entries[-1] == "/somewhere/else"
+        assert len(entries) == 2
 
     def test_no_spawn_when_lock_held(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         held = WorkerLock(worker_lock_path(tmp_path))

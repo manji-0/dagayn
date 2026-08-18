@@ -4,6 +4,19 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+## 4.10.1 — 2026-08-18
+
+### Fixes
+
+- The queue worker no longer imports dagayn from the hook's working directory.
+  `python -m` prepends the cwd to `sys.path`, so a hook firing inside a
+  checkout that ships a `dagayn/` package (dagayn's own repository, most
+  obviously) made the worker load that source tree along with any stale
+  compiled `_core` beside it, and the task failed with a confusing
+  "Rust post-processing requires dagayn._core support" error. The worker is
+  now spawned with `-P` and inherits the caller's own import location via
+  `PYTHONPATH`, so an uninstalled source checkout keeps working too.
+
 ## 4.10.0 — 2026-08-18
 
 ### Features
