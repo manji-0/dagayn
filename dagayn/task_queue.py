@@ -20,6 +20,12 @@ This module replaces that with a small SQLite task queue per repository:
   ``build_or_update_graph`` with hook-update lock semantics, the budget
   watchdog, and the ``.dagayn/hook-skip`` opt-out.
 
+The worker is deliberately one serial lane: every kind ends up writing the
+graph, and the graph's write lock is the real serializer, so running kinds in
+parallel would only turn waiting into skipping. Ordering is therefore the only
+lever available (:data:`DEFAULT_PRIORITIES`), and it cannot preempt a task that
+is already running.
+
 The queue lives in the repository's data directory (``.dagayn`` or
 ``CRG_DATA_DIR``), next to ``graph.db``. It is deliberately a separate file:
 the graph's own write lock must stay the single serializer of graph writes,
@@ -35,6 +41,7 @@ import sqlite3
 import subprocess
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -43,8 +50,26 @@ logger = logging.getLogger(__name__)
 #: Task kinds the worker knows how to execute.
 TASK_KINDS = ("update", "embed", "postprocess")
 
+#: Default priority per kind, used when the caller does not pass one. The
+#: worker is a single serial lane (the graph write lock is the real
+#: serializer), so ordering is the only lever there is: an edit-triggered
+#: ``update`` must not sit behind a minutes-long ``embed`` that was queued
+#: first. This cannot preempt a task that is *already* running — an update
+#: enqueued mid-embed still waits for it, bounded by the embed budget.
+DEFAULT_PRIORITIES = {"update": 10, "embed": 0, "postprocess": 0}
+
 #: A failing task is retried this many times before it is parked as ``dead``.
 MAX_ATTEMPTS = 3
+
+#: Base delay before a failed task is retried, multiplied by the attempts
+#: already spent and capped. Retrying instantly three times just reproduces
+#: whatever transient state (a held lock, a busy disk) caused the failure.
+RETRY_BACKOFF_SECONDS = 1.0
+MAX_RETRY_BACKOFF_SECONDS = 10.0
+
+#: Keep the task log bounded: it is a diagnostic tail for ``queue status``,
+#: not an audit trail, and every task writes two or three rows to it.
+LOG_RETENTION = 200
 
 #: Seconds the worker keeps living after the queue has gone empty. Hook
 #: bursts are short; a long-lived idle worker would just hold the lock.
@@ -84,7 +109,14 @@ CREATE TABLE IF NOT EXISTS task_log (
 
 
 def _now() -> str:
-    return time.strftime("%Y-%m-%dT%H:%M:%S")
+    """Local time with its UTC offset.
+
+    Offset-naive local time is ambiguous across a DST fold and cannot be
+    compared between machines; keeping the offset costs six characters and
+    still reads as wall-clock time in ``queue status``. Row ordering never
+    depends on this — it uses ``id``.
+    """
+    return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
 class TaskQueue:
@@ -108,14 +140,15 @@ class TaskQueue:
         self,
         kind: str,
         payload: dict[str, Any] | None = None,
-        priority: int = 0,
+        priority: int | None = None,
     ) -> tuple[str, int]:
         """Add *kind* to the queue, coalescing with a pending twin.
 
         Returns ``(action, task_id)`` where *action* is ``"added"`` or
         ``"coalesced"``. Coalescing merges payloads (newer keys win) and keeps
         the higher priority, so a burst of identical hook fires collapses to
-        one task.
+        one task. ``priority`` defaults to the kind's entry in
+        :data:`DEFAULT_PRIORITIES`.
 
         The lookup and the write share one ``BEGIN IMMEDIATE`` transaction so
         they serialize against :meth:`claim`. Without it, the twin could be
@@ -125,6 +158,8 @@ class TaskQueue:
         """
         if kind not in TASK_KINDS:
             raise ValueError(f"unknown task kind: {kind!r} (expected one of {TASK_KINDS})")
+        if priority is None:
+            priority = DEFAULT_PRIORITIES.get(kind, 0)
         now = _now()
         self._conn.execute("BEGIN IMMEDIATE")
         try:
@@ -158,7 +193,21 @@ class TaskQueue:
         return "added", task_id
 
     def claim(self) -> dict[str, Any] | None:
-        """Atomically take the next pending task, or ``None`` when idle."""
+        """Atomically take the next pending task, or ``None`` when idle.
+
+        The idle poll runs twice a second for the whole idle window, so it
+        first asks a plain read whether there is anything to take. Opening
+        ``BEGIN IMMEDIATE`` unconditionally would grab the queue's write lock
+        ~120 times per idle minute and make hooks wait behind an empty poll.
+        The read is only a fast path: the transaction below re-selects, so a
+        task appearing in between is picked up on the next poll rather than
+        claimed twice.
+        """
+        if (
+            self._conn.execute("SELECT 1 FROM tasks WHERE state = 'pending' LIMIT 1").fetchone()
+            is None
+        ):
+            return None
         self._conn.execute("BEGIN IMMEDIATE")
         try:
             row = self._conn.execute(
@@ -248,12 +297,6 @@ class TaskQueue:
         self._conn.commit()
         return len(rows)
 
-    def pending_kinds(self) -> set[str]:
-        rows = self._conn.execute(
-            "SELECT DISTINCT kind FROM tasks WHERE state IN ('pending', 'running')"
-        ).fetchall()
-        return {row["kind"] for row in rows}
-
     def stats(self) -> dict[str, Any]:
         counts: dict[str, int] = {"pending": 0, "running": 0, "dead": 0}
         for row in self._conn.execute("SELECT state, COUNT(*) AS n FROM tasks GROUP BY state"):
@@ -294,10 +337,16 @@ class TaskQueue:
         }
 
     def _log(self, task_id: int, kind: str, state: str, note: str | None) -> None:
-        self._conn.execute(
+        cur = self._conn.execute(
             "INSERT INTO task_log (task_id, kind, state, note, at) VALUES (?, ?, ?, ?, ?)",
             (task_id, kind, state, note, _now()),
         )
+        # Trim as we go so a long session cannot grow the log without bound.
+        # Cheap: a rowid range delete that usually matches nothing.
+        if cur.lastrowid is not None:
+            self._conn.execute(
+                "DELETE FROM task_log WHERE id <= ?", (cur.lastrowid - LOG_RETENTION,)
+            )
 
     def _log_dict(self, row: sqlite3.Row) -> dict[str, Any]:
         return {
@@ -548,6 +597,7 @@ def run_worker(
     *,
     idle_seconds: float = DEFAULT_IDLE_SECONDS,
     max_tasks: int | None = None,
+    retry_backoff: bool = True,
 ) -> int:
     """Drain the queue until it has been empty for *idle_seconds*.
 
@@ -590,7 +640,16 @@ def run_worker(
             except Exception as exc:  # noqa: BLE001 - one bad task must not kill the worker
                 logger.exception("queue task %s failed", task["kind"])
                 note = f"failed: {type(exc).__name__}: {exc}"
-                queue.fail(task, note)
+                if queue.fail(task, note) and retry_backoff:
+                    # Back off before the retry is claimable again. This parks
+                    # the whole lane, which is the point: the usual transient
+                    # cause is something else holding a lock we need.
+                    time.sleep(
+                        min(
+                            MAX_RETRY_BACKOFF_SECONDS,
+                            RETRY_BACKOFF_SECONDS * task["attempts"],
+                        )
+                    )
             else:
                 queue.complete(task, note)
             executed += 1

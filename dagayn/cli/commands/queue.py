@@ -14,6 +14,7 @@ from pathlib import Path
 
 from ...task_queue import (
     DEFAULT_IDLE_SECONDS,
+    DEFAULT_PRIORITIES,
     TASK_KINDS,
     TaskQueue,
     ensure_worker,
@@ -40,8 +41,11 @@ def register_commands(sub: argparse._SubParsersAction) -> dict:
     add_cmd.add_argument(
         "--priority",
         type=int,
-        default=0,
-        help="Higher-priority tasks are claimed first (default: 0)",
+        default=None,
+        help=(
+            "Higher-priority tasks are claimed first; defaults to the kind's"
+            f" own priority ({DEFAULT_PRIORITIES})"
+        ),
     )
     add_cmd.add_argument(
         "--no-worker",

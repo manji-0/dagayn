@@ -16,6 +16,22 @@ All notable changes to `dagayn` are documented here.
   invisible to `claim` and stayed in the queue forever, permanently skewing
   `dagayn queue status`. Tasks whose attempts are already spent are parked
   `dead` instead of requeued.
+- The queue worker's idle poll no longer takes the queue write lock: it asks a
+  plain read whether anything is pending first, instead of opening
+  `BEGIN IMMEDIATE` ~120 times per idle minute and making `queue add` wait
+  behind an empty poll.
+- Task kinds carry a default priority (`update` 10, `embed`/`postprocess` 0),
+  so an edit-triggered update is claimed ahead of an `embed` that was queued
+  before it. `--priority` still overrides it. A running task is still not
+  preempted.
+- Failed tasks now back off before the retry (1s per attempt spent, capped at
+  10s) instead of re-running three times back to back.
+- `task_log` is trimmed to its last 200 rows as it is written, so a long
+  session cannot grow the queue database without bound.
+- Queue timestamps carry their UTC offset, which offset-naive local time did
+  not — it was ambiguous across a DST fold and not comparable between
+  machines.
+- Removed `TaskQueue.pending_kinds()`, which no production code called.
 
 ## 4.9.0 — 2026-08-16
 

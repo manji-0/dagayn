@@ -106,8 +106,15 @@ graph lock between bursts.
 
 Task kinds: `update` (structure-only incremental update — the hook path),
 `embed` (explicit embedding pass using the payload's local-embedding
-configuration), and `postprocess` (flows/communities/FTS). A failing task is
-retried up to 3 times before it is parked `dead`; `dagayn queue status`
+configuration), and `postprocess` (flows/communities/FTS). The worker is one
+serial lane, so kinds carry a default priority (`update` 10, `embed` and
+`postprocess` 0) and an edit-triggered update is claimed ahead of an `embed`
+queued before it; `--priority` overrides this. A task already running is not
+preempted, so an update enqueued mid-`embed` waits for it (bounded by the
+embed budget). A failing task is retried up to 3 times, waiting 1s longer per
+attempt spent, before it is parked `dead`. A worker that died mid-task (budget
+watchdog, crash) leaves its task `running`; the next worker requeues it, or
+parks it `dead` when its attempts are already spent. `dagayn queue status`
 shows pending/running/dead counts and the last 10 log entries (`--json` for
 machine output). The queue lives at `.dagayn/task_queue.db` (or the
 `CRG_DATA_DIR` location), deliberately separate from `graph.db` so it stays

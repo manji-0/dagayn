@@ -13,12 +13,15 @@ import subprocess
 import threading
 import time
 from collections.abc import Iterator
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from dagayn.task_queue import (
+    DEFAULT_PRIORITIES,
+    LOG_RETENTION,
     MAX_ATTEMPTS,
     TASK_KINDS,
     TaskQueue,
@@ -48,7 +51,7 @@ class TestEnqueue:
         action, second_id = queue.enqueue("update")
         assert action == "coalesced"
         assert second_id == first_id
-        assert len(queue.pending_kinds()) == 1
+        assert queue.stats()["counts"]["pending"] == 1
 
     def test_coalesce_merges_payload_newer_wins(self, queue: TaskQueue) -> None:
         queue.enqueue("embed", payload={"a": 1, "b": 1})
@@ -67,7 +70,7 @@ class TestEnqueue:
     def test_different_kinds_do_not_coalesce(self, queue: TaskQueue) -> None:
         queue.enqueue("update")
         queue.enqueue("postprocess")
-        assert queue.pending_kinds() == {"update", "postprocess"}
+        assert queue.stats()["counts"]["pending"] == 2
 
     def test_unknown_kind_rejected(self, queue: TaskQueue) -> None:
         with pytest.raises(ValueError):
@@ -79,9 +82,47 @@ class TestEnqueue:
             assert action == "added"
 
 
+class TestPriorities:
+    def test_update_outranks_an_already_queued_embed(self, queue: TaskQueue) -> None:
+        """An edit must not wait behind a minutes-long embed queued before it."""
+        queue.enqueue("embed")
+        queue.enqueue("update")
+        first = queue.claim()
+        assert first is not None and first["kind"] == "update"
+
+    def test_explicit_priority_still_wins(self, queue: TaskQueue) -> None:
+        queue.enqueue("embed", priority=DEFAULT_PRIORITIES["update"] + 1)
+        queue.enqueue("update")
+        first = queue.claim()
+        assert first is not None and first["kind"] == "embed"
+
+
 class TestClaim:
     def test_empty_queue_returns_none(self, queue: TaskQueue) -> None:
         assert queue.claim() is None
+
+    def test_idle_poll_does_not_take_the_write_lock(self, tmp_path: Path) -> None:
+        """An empty poll must not queue behind a writer — hooks write here too.
+
+        The worker polls twice a second for the whole idle window; if that poll
+        opened a write transaction it would contend with every ``queue add``.
+        """
+        db = tmp_path / "task_queue.db"
+        worker = TaskQueue(db)
+        writer = TaskQueue(db)
+        writer._conn.execute("BEGIN IMMEDIATE")
+        writer._conn.execute(
+            "INSERT INTO tasks (kind, state, created_at, updated_at)"
+            " VALUES ('update', 'x', 'now', 'now')"
+        )
+        try:
+            started = time.monotonic()
+            assert worker.claim() is None
+            assert time.monotonic() - started < 1.0, "the idle poll waited for the write lock"
+        finally:
+            writer._conn.rollback()
+            worker.close()
+            writer.close()
 
     def test_claim_marks_running_and_counts_attempt(self, queue: TaskQueue) -> None:
         queue.enqueue("update")
@@ -167,6 +208,25 @@ class TestInspection:
         assert stats["counts"]["pending"] == 1
         assert stats["counts"]["running"] == 1
         assert len(stats["recent"]) >= 1
+
+    def test_timestamps_carry_a_utc_offset(self, queue: TaskQueue) -> None:
+        queue.enqueue("update")
+        queue.claim()
+        at = queue.stats()["recent"][-1]["at"]
+        assert datetime.fromisoformat(at).tzinfo is not None
+
+    def test_task_log_stays_bounded(self, queue: TaskQueue) -> None:
+        """The log is a diagnostic tail, not an audit trail of a long session."""
+        for _ in range(LOG_RETENTION):
+            queue.enqueue("update")
+            task = queue.claim()
+            assert task is not None
+            queue.complete(task)
+
+        rows = queue._conn.execute("SELECT COUNT(*) AS n FROM task_log").fetchone()["n"]
+        assert rows <= LOG_RETENTION
+        # The tail that ``queue status`` shows must survive the trimming.
+        assert len(queue.stats()["recent"]) == 10
 
     def test_clear_removes_queued_tasks(self, queue: TaskQueue) -> None:
         queue.enqueue("update")
@@ -277,11 +337,66 @@ class TestRunWorker:
         queue.enqueue("update")
         queue.close()
 
-        executed = run_worker(tmp_path, idle_seconds=0.2)
+        executed = run_worker(tmp_path, idle_seconds=0.2, retry_backoff=False)
         assert executed == MAX_ATTEMPTS
         stats = TaskQueue(queue_db_path(tmp_path)).stats()
         assert stats["counts"]["dead"] == 1
         assert stats["counts"]["pending"] == 0
+
+    def _always_fails(self, task: dict[str, Any], repo_root: Path) -> str | None:
+        raise RuntimeError("always fails")
+
+    def test_retry_backs_off_between_attempts(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Retries wait, and the wait grows with the attempts already spent.
+
+        The delay is asserted as a lower bound on elapsed time rather than by
+        patching ``time.sleep``: that attribute is shared with every other
+        thread in the process, which made this test depend on what else the
+        suite happened to be running.
+        """
+        monkeypatch.setattr("dagayn.task_queue._TASK_EXECUTORS", {"update": self._always_fails})
+        monkeypatch.setattr("dagayn.task_queue.RETRY_BACKOFF_SECONDS", 0.05)
+        queue = TaskQueue(queue_db_path(tmp_path))
+        queue.enqueue("update")
+        queue.close()
+
+        started = time.monotonic()
+        executed = run_worker(tmp_path, idle_seconds=0.0)
+        elapsed = time.monotonic() - started
+
+        assert executed == MAX_ATTEMPTS
+        # One wait per requeue, growing with attempts; the last attempt is
+        # parked dead rather than retried, so it does not wait.
+        assert elapsed >= 0.05 + 0.10
+
+    def test_backoff_is_capped(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("dagayn.task_queue._TASK_EXECUTORS", {"update": self._always_fails})
+        monkeypatch.setattr("dagayn.task_queue.RETRY_BACKOFF_SECONDS", 5.0)
+        monkeypatch.setattr("dagayn.task_queue.MAX_RETRY_BACKOFF_SECONDS", 0.05)
+        queue = TaskQueue(queue_db_path(tmp_path))
+        queue.enqueue("update")
+        queue.close()
+
+        started = time.monotonic()
+        run_worker(tmp_path, idle_seconds=0.0)
+        elapsed = time.monotonic() - started
+
+        # Uncapped this would wait 5s then 10s.
+        assert elapsed < 1.0
+
+    def test_backoff_can_be_disabled(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("dagayn.task_queue._TASK_EXECUTORS", {"update": self._always_fails})
+        monkeypatch.setattr("dagayn.task_queue.RETRY_BACKOFF_SECONDS", 5.0)
+        queue = TaskQueue(queue_db_path(tmp_path))
+        queue.enqueue("update")
+        queue.close()
+
+        started = time.monotonic()
+        run_worker(tmp_path, idle_seconds=0.0, retry_backoff=False)
+
+        assert time.monotonic() - started < 1.0
 
     def test_second_worker_exits_immediately(self, tmp_path: Path) -> None:
         lock = WorkerLock(worker_lock_path(tmp_path))
@@ -345,7 +460,7 @@ class TestClaimRace:
         # has to survive it.
         row = writer._conn.execute("SELECT * FROM tasks WHERE id = ?", (first_id,)).fetchone()
         writer.complete(dict(row))
-        assert writer.pending_kinds() == {"update"}
+        assert writer.stats()["counts"] == {"pending": 1, "running": 0, "dead": 0}
         assert writer.claim() is not None
 
         writer.close()
