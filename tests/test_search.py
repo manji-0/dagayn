@@ -6,6 +6,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+
 from dagayn import fts_tokenize
 from dagayn.embeddings import _encode_vector
 from dagayn.graph import GraphStore
@@ -51,6 +53,21 @@ def test_contains_japanese_includes_hangul():
     assert graph_fts_tokenize.contains_japanese("Hello") is False
     tokens = graph_fts_tokenize.segment_cjk_identifier_tokens("안녕하세요")
     assert tokens == "안녕 녕하 하세 세요"
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("GraphStoreで自然言語検索", "GraphStore で 自然 然言 言語 語検 検索"),
+        ("안녕하세요", "안녕 녕하 하세 세요"),
+        ("ユーザー取得", "ユー ーザ ザー 取得"),
+    ],
+)
+def test_bigram_segmentation_reference_vectors(text, expected):
+    """Lock bigram tokenization used by both Python and Rust FTS paths."""
+    assert (
+        graph_fts_tokenize.segment_japanese_fts_text(text, segmenter="bigram") == expected
+    )
 
 
 def test_embedding_health_available_uses_status_field():

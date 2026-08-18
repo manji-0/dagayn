@@ -41,6 +41,13 @@ class GraphStore:
         provider: str = "",
         model: str = "",
     ) -> str: ...
+    def run_post_processing_json(
+        self,
+        manifest_extractor_id: str,
+        manifest_nodes_json: str,
+        manifest_edges_json: str,
+        min_community_size: int = 2,
+    ) -> str: ...
     def __getattr__(self, name: str) -> Any: ...
 
 def filter_incremental_candidates(

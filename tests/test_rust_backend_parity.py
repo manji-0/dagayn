@@ -314,6 +314,44 @@ def test_rust_graph_store_persists_centrality_scores(tmp_path):
         store.close()
 
 
+def test_rust_fts_bigram_segmenter_indexes_cjk(tmp_path):
+    try:
+        from dagayn._core import GraphStore as RustGraphStore
+    except ImportError as exc:
+        pytest.skip(f"Rust extension is not available: {exc}")  # ty: ignore[too-many-positional-arguments]
+
+    from dagayn.graph._fts_tokenize import FTS_SEGMENTER_METADATA_KEY
+    from dagayn.search import rebuild_fts_index
+
+    db_path = tmp_path / "graph.db"
+    store = RustGraphStore(db_path)
+    try:
+        store.store_file_nodes_edges(
+            "jp.py",
+            [NodeInfo("Function", "ユーザー取得", "jp.py", 1, 5, "python")],
+            [],
+        )
+        rebuild_fts_index(store)
+
+        assert store.get_metadata(FTS_SEGMENTER_METADATA_KEY) == "bigram"
+
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT identifier_tokens FROM nodes_fts WHERE name = ?",
+            ("ユーザー取得",),
+        ).fetchone()
+        conn.close()
+        assert row is not None
+        assert "ユー" in row["identifier_tokens"]
+        assert "取得" in row["identifier_tokens"]
+
+        fts_payload = json.loads(store.fts_query_json("ユーザー", 10))
+        assert fts_payload["hits"]
+    finally:
+        store.close()
+
+
 def test_rust_graph_store_generates_suggested_questions(tmp_path):
     try:
         from dagayn._core import GraphStore as RustGraphStore

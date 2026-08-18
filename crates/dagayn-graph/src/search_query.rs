@@ -1,7 +1,6 @@
+use crate::fts_tokenize::{segment_japanese_fts_text, FTS_SEGMENTER_METADATA_KEY};
 use crate::helpers::*;
 use crate::*;
-
-const FTS_SEGMENTER_METADATA_KEY: &str = "fts_segmenter";
 
 const COMMON_FTS_SEGMENTS: &[&str] = &[
     "py", "rs", "ts", "js", "go", "src", "test", "tests", "index", "main", "lib", "mod", "api",
@@ -141,8 +140,8 @@ impl GraphStore {
     }
 }
 
-fn segment_query_text(query: &str, _segmenter: Option<&str>) -> String {
-    segment_japanese_fts_text(query)
+fn segment_query_text(query: &str, segmenter: Option<&str>) -> String {
+    segment_japanese_fts_text(query, segmenter)
 }
 
 fn build_fts_match_queries(fts_query: &str) -> (String, String, &'static str) {

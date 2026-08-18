@@ -1,3 +1,7 @@
+use crate::fts_tokenize::{
+    build_identifier_tokens, detect_fts_segmenter, segment_japanese_fts_text,
+    FTS_SEGMENTER_METADATA_KEY,
+};
 use crate::helpers::*;
 use crate::*;
 
@@ -28,6 +32,10 @@ pub(crate) fn set_fts_watermark_tx(tx: &Transaction<'_>, node_count: Option<i64>
     tx.execute(
         "INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)",
         params![FTS_BUILT_AT_KEY, built_at],
+    )?;
+    tx.execute(
+        "INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)",
+        params![FTS_SEGMENTER_METADATA_KEY, detect_fts_segmenter()],
     )?;
     Ok(())
 }
@@ -100,7 +108,9 @@ pub(crate) fn build_node_fts_values(
         .get("display_name")
         .and_then(Value::as_str)
         .unwrap_or("");
-    let identifier_tokens = identifier_search_text([name, qualified_name, file_path, display_name]);
+    let segmenter = detect_fts_segmenter();
+    let identifier_tokens =
+        build_identifier_tokens(name, qualified_name, file_path, display_name, segmenter);
     let source_excerpt = read_node_source_excerpt(repo_root, kind, file_path, line_start, line_end);
     let structured_description = structured_code_reference_text(
         kind,
@@ -120,7 +130,7 @@ pub(crate) fn build_node_fts_values(
     .filter(|part| !part.is_empty())
     .collect::<Vec<_>>()
     .join(" ");
-    let doc_text = segment_japanese_fts_text(&doc_text);
+    let doc_text = segment_japanese_fts_text(&doc_text, Some(segmenter));
     (
         name.to_string(),
         qualified_name.to_string(),

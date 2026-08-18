@@ -187,6 +187,33 @@ CREATE TABLE IF NOT EXISTS bridge_scores (
 
 CREATE INDEX IF NOT EXISTS idx_hub_scores_total_degree ON hub_scores(total_degree DESC);
 CREATE INDEX IF NOT EXISTS idx_bridge_scores_betweenness ON bridge_scores(betweenness DESC);
+
+CREATE TABLE IF NOT EXISTS hub_scores_code (
+    qualified_name TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    in_degree INTEGER NOT NULL,
+    out_degree INTEGER NOT NULL,
+    total_degree INTEGER NOT NULL,
+    community_id INTEGER,
+    computed_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS bridge_scores_code (
+    qualified_name TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    betweenness REAL NOT NULL,
+    community_id INTEGER,
+    computed_at REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_hub_scores_code_total_degree
+    ON hub_scores_code(total_degree DESC);
+CREATE INDEX IF NOT EXISTS idx_bridge_scores_code_betweenness
+    ON bridge_scores_code(betweenness DESC);
 "#;
 
 #[derive(Debug, Error)]
@@ -481,6 +508,7 @@ mod edge_queries;
 mod embeddings;
 mod flows;
 mod fts_sync;
+mod fts_tokenize;
 mod helpers;
 mod impact;
 mod impact_flows;

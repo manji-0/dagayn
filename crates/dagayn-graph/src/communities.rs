@@ -1,9 +1,28 @@
 use crate::helpers::*;
 use crate::*;
 
+fn disambiguate_community_names(communities: &mut [CommunityInput]) {
+    let mut seen: HashMap<String, usize> = HashMap::new();
+    for community in communities {
+        let base = if community.name.is_empty() {
+            "community".to_string()
+        } else {
+            community.name.clone()
+        };
+        let count = seen.entry(base.clone()).or_insert(0);
+        community.name = if *count == 0 {
+            base
+        } else {
+            format!("{base}-{}", *count + 1)
+        };
+        *count += 1;
+    }
+}
+
 impl GraphStore {
     pub fn store_communities_json(&mut self, communities_json: &str) -> Result<i64> {
-        let communities: Vec<CommunityInput> = serde_json::from_str(communities_json)?;
+        let mut communities: Vec<CommunityInput> = serde_json::from_str(communities_json)?;
+        disambiguate_community_names(&mut communities);
         let tx = write_tx(&mut self.conn)?;
         tx.execute("DELETE FROM community_summaries", [])?;
         tx.execute("DELETE FROM communities", [])?;

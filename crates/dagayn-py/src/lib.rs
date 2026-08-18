@@ -7,6 +7,7 @@ use dagayn_core::{
     incremental_trace_flows_json as native_incremental_trace_flows_json,
     refresh_community_stats_json as native_refresh_community_stats_json,
     refresh_flow_criticalities as native_refresh_flow_criticalities,
+    run_post_processing_json as native_run_post_processing_json,
     trace_flows_json as native_trace_flows_json, EdgeInput, FileBatchItem, GraphEdge, GraphError,
     GraphNode, GraphStats, GraphStore as NativeGraphStore, NodeInput,
 };
@@ -531,6 +532,25 @@ impl PyGraphStore {
 
     fn persist_centrality_scores(&self) -> PyResult<std::collections::HashMap<String, i64>> {
         self.with_store_mut(|store| store.persist_centrality_scores())
+    }
+
+    #[pyo3(signature = (manifest_extractor_id, manifest_nodes_json, manifest_edges_json, min_community_size = 2))]
+    fn run_post_processing_json(
+        &self,
+        manifest_extractor_id: &str,
+        manifest_nodes_json: &str,
+        manifest_edges_json: &str,
+        min_community_size: i64,
+    ) -> PyResult<String> {
+        self.with_store_mut(|store| {
+            native_run_post_processing_json(
+                store,
+                manifest_extractor_id,
+                manifest_nodes_json,
+                manifest_edges_json,
+                min_community_size,
+            )
+        })
     }
 
     fn generate_suggested_questions_json(&self) -> PyResult<String> {

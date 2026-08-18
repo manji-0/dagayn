@@ -104,6 +104,19 @@ def _demote_unresolved_endpoint_edges(
         warnings.append(f"Unresolved endpoint demotion failed: {type(e).__name__}: {e}")
 
 
+def _discover_manifest_bridges(store: GraphStore):
+    """Discover manifest-backed bridge nodes/edges without mutating the graph."""
+    from .parser.manifest_bridges import discover_manifest_bridges, refine_node_line_ends
+
+    repo_root = _store_repo_root(store)
+    if repo_root is None or not repo_root.is_dir():
+        return None
+
+    discovered = discover_manifest_bridges(repo_root)
+    refine_node_line_ends(repo_root, discovered.nodes)
+    return discovered
+
+
 def run_post_processing(store: GraphStore) -> PostprocessResult:
     """Run all post-build steps on a populated graph.
 
@@ -117,6 +130,34 @@ def run_post_processing(store: GraphStore) -> PostprocessResult:
         Typed summary with a counter for each step that ran and a
         ``warnings`` list (only populated when at least one step failed).
     """
+    native = _native_method(store, "run_post_processing_json")
+    if native is not None:
+        from .parser.manifest_bridges import EXTRACTOR_ID
+
+        manifest_nodes: list[dict[str, Any]] = []
+        manifest_edges: list[dict[str, Any]] = []
+        discovered = _discover_manifest_bridges(store)
+        if discovered is not None:
+            manifest_nodes = [asdict(node) for node in discovered.nodes]
+            manifest_edges = [asdict(edge) for edge in discovered.edges]
+        try:
+            raw = cast(
+                Callable[..., str],
+                native,
+            )(
+                EXTRACTOR_ID,
+                json.dumps(manifest_nodes),
+                json.dumps(manifest_edges),
+            )
+            payload = json.loads(raw)
+            warnings = payload.pop("warnings", [])
+            result = PostprocessResult(**payload)
+            if warnings:
+                result.warnings = warnings
+            return result
+        except (OSError, RuntimeError, TypeError, ValueError, json.JSONDecodeError) as e:
+            logger.warning("Rust post-processing failed, falling back to Python: %s", e)
+
     result = PostprocessResult()
     warnings: list[str] = []
 
@@ -429,21 +470,18 @@ def _apply_manifest_bridges(
     Existing parser ``File`` rows are left untouched so hash/mtime survive.
     """
     try:
-        from .parser.manifest_bridges import (
-            EXTRACTOR_ID,
-            discover_manifest_bridges,
-            refine_node_line_ends,
-        )
+        from .parser.manifest_bridges import EXTRACTOR_ID
 
-        repo_root = _store_repo_root(store)
-        if repo_root is None or not repo_root.is_dir():
+        discovered = _discover_manifest_bridges(store)
+        if discovered is None:
             result.manifest_bridges_edges = 0
             result.manifest_bridges_nodes = 0
             return
 
-        # Discover before mutating so a scan failure cannot wipe prior bridges.
-        discovered = discover_manifest_bridges(repo_root)
-        refine_node_line_ends(repo_root, discovered.nodes)
+        if not discovered.nodes and not discovered.edges:
+            result.manifest_bridges_edges = 0
+            result.manifest_bridges_nodes = 0
+            return
 
         native = _native_method(store, "replace_manifest_bridges_json")
         if native is not None:
