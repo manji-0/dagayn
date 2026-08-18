@@ -105,6 +105,7 @@ def main() -> None:
     tool = _command_module("tool")
     worktree = _command_module("worktree")
     session = _command_module("session")
+    queue = _command_module("queue")
 
     ap = argparse.ArgumentParser(
         prog="dagayn",
@@ -126,6 +127,7 @@ def main() -> None:
     tool.register_command(sub)
     worktree_parsers = worktree.register_commands(sub)
     session_parsers = session.register_commands(sub)
+    queue_parsers = queue.register_commands(sub)
 
     args = ap.parse_args()
 
@@ -172,6 +174,8 @@ def main() -> None:
             worktree.handle_hook_repo(args)
         elif args.command == "session":
             session.handle(args, session_parsers["session"])
+        elif args.command == "queue":
+            queue.handle(args, queue_parsers["queue"])
     except sqlite3.DatabaseError as exc:
         if not is_sqlite_corrupt_error(exc):
             raise

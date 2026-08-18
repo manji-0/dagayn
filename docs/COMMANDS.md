@@ -80,6 +80,43 @@ matches. After a model switch, search keeps ranking in the new partition
 (reporting `partial_coverage` / `degraded` until the corpus is fully
 re-embedded) and a completed `embed_all_nodes` run deletes retired partitions.
 
+### Background task queue
+
+<!-- constrained-by ./SESSION-GRAPH-FRESHNESS.md#use-case-catalog -->
+
+- `dagayn queue add`
+- `dagayn queue run`
+- `dagayn queue status`
+- `dagayn queue clear`
+
+Per-repository task queue for background graph processing. The edit-triggered
+hooks (Claude `PostToolUse`, Cursor `afterFileEdit`, pi/hermes file-change,
+OpenCode `file.edited`) call `dagayn queue add update` instead of running
+`dagayn update` themselves: the add is a single SQLite insert that coalesces
+with an already-pending `update` task, then one detached worker per
+repository (spawned on demand, guarded by a flock) drains the queue. A burst
+of edits therefore collapses into one structure-only update
+(`postprocess=minimal`, no embeddings) instead of one `dagayn update` process
+per edit, and the last edit of a burst can no longer be left unindexed by a
+skipped overlapping run. The worker applies hook-update semantics to the task
+it executes (`DAGAYN_HOOK_UPDATE=1`: budget watchdog, non-blocking write
+lock) and honors the `.dagayn/hook-skip` opt-out. It exits after the queue
+has been empty for the idle window (default 60s), so it does not hold the
+graph lock between bursts.
+
+Task kinds: `update` (structure-only incremental update — the hook path),
+`embed` (explicit embedding pass using the payload's local-embedding
+configuration), and `postprocess` (flows/communities/FTS). A failing task is
+retried up to 3 times before it is parked `dead`; `dagayn queue status`
+shows pending/running/dead counts and the last 10 log entries (`--json` for
+machine output). The queue lives at `.dagayn/task_queue.db` (or the
+`CRG_DATA_DIR` location), deliberately separate from `graph.db` so it stays
+writable while a build holds the graph write lock. `dagayn queue clear`
+drops all queued tasks. The pre-commit paths (git hook, Cursor
+`beforeShellExecution`, OpenCode pre-commit) still run
+`dagayn update --skip-flows` synchronously, because `detect-changes` needs a
+fresh graph at commit time.
+
 ### Analysis and review
 
 - `dagayn detect-changes`
@@ -289,8 +326,9 @@ installed, the command prints a clear install hint and exits non-zero.
 
 `dagayn install --platform cursor` merges graph-refresh hooks into
 `~/.cursor/hooks.json` and writes scripts under `~/.cursor/hooks/`:
-`afterFileEdit` runs `dagayn update --skip-flows` detached so the editor never
-waits, `sessionStart` runs `dagayn session prepare --budget-seconds 45` and
+`afterFileEdit` enqueues a structure-only update (`dagayn queue add update`)
+so edit bursts coalesce into one worker pass, `sessionStart` runs
+`dagayn session prepare --budget-seconds 45` and
 returns the result as `additional_context`, `beforeShellExecution` matches bare
 or path-qualified `git commit` commands before running update +
 `detect-changes --brief`, and `afterShellExecution` matches HEAD-moving git
@@ -307,12 +345,13 @@ Codex skills, and writes global Codex hooks in `~/.codex/hooks.json` with the
 required `~/.codex/config.toml` feature flag. Claude hooks are written to
 `~/.claude/settings.json`. Git hooks installed by `dagayn install` refresh
 cheaply with `dagayn update --skip-flows` before commit-time checks and run a
-full `dagayn update` after a commit. Generated AI-tool update hooks use a
-300-second timeout to tolerate large documentation or mixed-language refreshes,
-mark hook-triggered runs with `DAGAYN_HOOK_UPDATE=1`, skip overlapping hook
-updates, and reuse local embedding sidecar arguments when a local embedding
-install mode is selected. Remote embedding modes are only baked into the MCP
-serve command.
+full `dagayn update` after a commit. Generated AI-tool edit hooks enqueue a
+structure-only update (`dagayn queue add update`) instead of running one
+inline; the queue worker marks the run it executes with
+`DAGAYN_HOOK_UPDATE=1` (budget watchdog, skip-when-busy write lock) and
+honors `.dagayn/hook-skip`. Local embedding sidecar arguments are applied to
+the session-start prepare only, and remote embedding modes are only baked
+into the MCP serve command.
 `--no-hooks` skips the hook files.
 
 Install embedding modes are baked into the generated MCP serve command:

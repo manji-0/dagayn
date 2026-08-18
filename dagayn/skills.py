@@ -44,10 +44,16 @@ def _embedding_hook_args(extra_update_args: list[str] | None) -> str:
     expensive to sit in that path — embeddings are refreshed at session start
     and by explicit ``dagayn update --local-embedding`` / ``embed_graph_tool``
     runs instead.
+
+    ``--keep-local-embedding-server`` is appended so a sidecar started by the
+    session-start prepare stays warm: the next embedding pass (MCP
+    ``ensure_graph_tool``, a manual ``dagayn update --local-embedding``) reuses
+    it via the port probe instead of paying the model-load cost again.
     """
     if not extra_update_args:
         return ""
-    return " " + " ".join(shlex.quote(arg) for arg in extra_update_args)
+    args = [*extra_update_args, "--keep-local-embedding-server"]
+    return " " + " ".join(shlex.quote(arg) for arg in args)
 
 
 # --- Multi-platform MCP install ---
@@ -968,12 +974,14 @@ def _dagayn_hook_scripts(extra_update_args: list[str] | None = None) -> dict[str
     return {
         "dagayn-update.sh": """#!/usr/bin/env bash
 # dagayn: auto-update graph after agent file/tool activity
-# Structure only — embeddings are refreshed by the session-start hook.
+# Enqueues a structure-only update; a single detached worker drains the
+# queue so edit bursts coalesce (see dagayn.task_queue). Embeddings are
+# refreshed by the session-start hook.
 set -u
 cat >/dev/null || true
 repo="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 if [ -n "$repo" ]; then
-  DAGAYN_HOOK_UPDATE=1 dagayn update --skip-flows --repo "$repo" >/dev/null 2>&1 || true
+  dagayn queue add update --repo "$repo" >/dev/null 2>&1 || true
 fi
 printf '{}\\n'
 """,
@@ -1141,14 +1149,12 @@ def generate_hooks_config(
             "hooks": [
                 {
                     "type": "command",
-                    # Structure only: no embedding flags. Re-embedding on every
-                    # edit is far too expensive for this path.
-                    "command": (
-                        f"{repo_expr}"
-                        f" && DAGAYN_HOOK_UPDATE=1 dagayn update --skip-flows"
-                        ' --repo "$repo"'
-                        " || true"
-                    ),
+                    # Enqueue a structure-only update instead of running one
+                    # inline: a burst of edits coalesces into a single task
+                    # drained by one detached worker (dagayn.task_queue), so
+                    # the graph no longer re-diffs per keystroke batch.
+                    # Embeddings stay out of this path entirely.
+                    "command": (f'{repo_expr} && dagayn queue add update --repo "$repo" || true'),
                     "timeout": _UPDATE_HOOK_TIMEOUT_SECONDS,
                 },
             ],
@@ -1208,6 +1214,7 @@ def generate_hooks_config(
 #: left running alongside ``dagayn session prepare``.
 _DAGAYN_HOOK_NEEDLES: dict[str, tuple[str, ...]] = {
     "PostToolUse": (
+        "dagayn queue add update",
         "dagayn update --skip-flows",
         "dagayn session prepare",
         # <= 4.8.2 wrote this for EnterWorktree/ExitWorktree.
@@ -2043,7 +2050,8 @@ def _cursor_hook_scripts(extra_update_args: list[str] | None = None) -> dict[str
     """Return a mapping of filename -> shell script content for Cursor hooks.
 
     Four scripts are generated:
-    - crg-update.sh: runs ``dagayn update --skip-flows`` after file edits
+    - crg-update.sh: enqueues a structure-only update (``dagayn queue add
+      update``) after file edits; a detached worker drains the queue
     - crg-session-start.sh: runs ``dagayn session prepare`` and reports status
     - crg-pre-commit.sh: runs ``dagayn update --skip-flows`` and
       ``dagayn detect-changes --brief`` before git commit commands
@@ -2068,15 +2076,13 @@ def _cursor_hook_scripts(extra_update_args: list[str] | None = None) -> dict[str
 # dagayn: auto-update graph after file edits (Cursor hook)
 # Fails gracefully — never blocks the editor.
 {_CURSOR_HOOK_PROLOGUE}
-# afterFileEdit fires on every edit, so run detached: the editor never waits
-# and DAGAYN_HOOK_UPDATE makes concurrent updates skip instead of pile up.
-# Detaching means nothing here would ever kill a runaway update, so
-# DAGAYN_HOOK_UPDATE also arms dagayn's own budget watchdog.
-# Structure only: re-embedding on every edit is far too expensive.
+# afterFileEdit fires on every edit, so enqueue instead of running an update:
+# a single detached worker drains the queue and edit bursts coalesce into one
+# structure-only pass (see dagayn.task_queue). The worker applies the
+# hook-update budget itself, so a runaway pass is still bounded.
 # afterFileEdit is observational — no output schema to satisfy.
 if [ -n "$repo" ]; then
-  ( DAGAYN_HOOK_UPDATE=1 dagayn update --skip-flows \\
-      --repo "$repo" >/dev/null 2>&1 & ) >/dev/null 2>&1
+  dagayn queue add update --repo "$repo" >/dev/null 2>&1 || true
 fi
 
 exit 0
@@ -2331,7 +2337,8 @@ def _opencode_plugin_content(extra_update_args: list[str] | None = None) -> str:
     The plugin hooks into four OpenCode events to mirror the Claude Code
     hook behaviors:
 
-    1. ``file.edited`` — runs ``dagayn update --skip-flows``
+    1. ``file.edited`` — enqueues a structure-only update
+       (``dagayn queue add update``); a detached worker drains the queue
     2. ``session.created`` — prepares a usable+synced graph, then status
     3. ``tool.execute.before`` — when the tool is a shell command starting
        with ``git commit``, runs ``dagayn update --skip-flows`` followed by
@@ -2383,14 +2390,16 @@ function shellCommand(ctx: any): string {
 }
 
 export default (app: any) => {
-  // 1. Auto-update graph after file edits
+  // 1. Auto-update graph after file edits. Enqueue instead of running the
+  // update inline: edit bursts coalesce into one structure-only pass drained
+  // by a detached worker (dagayn.task_queue).
   app.on("file.edited", async ({ $ }: { $: any }) => {
     try {
       const repo = await resolveRepo($)
       if (repo) {
-        await $`DAGAYN_HOOK_UPDATE=1 dagayn update --skip-flows --repo ${repo}`.quiet()
+        await $`dagayn queue add update --repo ${repo}`.quiet()
       } else {
-        await $`DAGAYN_HOOK_UPDATE=1 dagayn update --skip-flows`.quiet()
+        await $`dagayn queue add update`.quiet()
       }
     } catch {
       // Swallow — graph may not be built yet for this project.

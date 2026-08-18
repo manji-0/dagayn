@@ -72,7 +72,19 @@ class TestCorruptDatabaseReporting:
         assert not db.exists()
         assert list(db_dir.glob("graph.db.corrupt-*"))
 
-    def test_reports_even_without_a_resolvable_database(self, tmp_path, capsys) -> None:
+    def test_reports_even_without_a_resolvable_database(
+        self, capsys, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # With repo=None the path resolver falls back to the project root of
+        # the current working directory. Running from the dagayn checkout,
+        # that is the real repository — and the quarantine step would move the
+        # real graph.db aside. Pin the resolver to "unresolvable" so the test
+        # matches its premise.
+        monkeypatch.setattr(
+            "dagayn.incremental_files.find_project_root",
+            lambda *args, **kwargs: None,
+        )
+
         cli_app._report_corrupt_database(
             argparse.Namespace(command="update", repo=None),
             sqlite3.DatabaseError("database disk image is malformed"),

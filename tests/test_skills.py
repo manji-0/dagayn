@@ -752,7 +752,7 @@ class TestHookEmbeddingArgs:
     def test_update_hook_omits_embedding_flags(self):
         update, _ = self._commands(["--local-embedding", "low"])
         assert "--local-embedding" not in update
-        assert "dagayn update --skip-flows" in update
+        assert "dagayn queue add update" in update
 
     def test_session_start_keeps_embedding_flags(self):
         _, prepare = self._commands(["--local-embedding", "low"])
@@ -767,26 +767,44 @@ class TestHookEmbeddingArgs:
         assert "session prepare" in worktree
         assert "--local-embedding low" in worktree
 
-    def test_update_hook_arms_the_budget_watchdog(self):
+    def test_update_hook_enqueues_to_the_queue(self):
         update, _ = self._commands(None)
-        # Without this env var dagayn would not bound itself, and neither
-        # editor kills the process it started.
-        assert "DAGAYN_HOOK_UPDATE=1" in update
+        # The hook only enqueues; the detached worker arms DAGAYN_HOOK_UPDATE
+        # itself, so its update stays budget-bounded even though nothing in
+        # the editor kills it.
+        assert "dagayn queue add update" in update
+        assert "DAGAYN_HOOK_UPDATE" not in update
+
+    def test_prepare_hook_keeps_the_embedding_server_warm(self):
+        # A sidecar started by session-start prepare should survive so the
+        # next embedding pass reuses it instead of reloading the model.
+        update, prepare = self._commands(["--local-embedding", "low"])
+        assert "--keep-local-embedding-server" in prepare
+        assert "--keep-local-embedding-server" not in update
+
+    def test_no_embedding_args_means_no_keep_alive_flag(self):
+        _, prepare = self._commands(None)
+        assert "--keep-local-embedding-server" not in prepare
 
     def test_cursor_update_hook_omits_embedding_flags(self):
         scripts = _cursor_hook_scripts(["--local-embedding", "low"])
         assert "--local-embedding" not in scripts["crg-update.sh"]
-        # Detached, so dagayn's own watchdog is the only thing that can stop it.
-        assert "DAGAYN_HOOK_UPDATE=1" in scripts["crg-update.sh"]
+        assert "dagayn queue add update" in scripts["crg-update.sh"]
+        # The pre-commit update stays synchronous (detect-changes needs a
+        # fresh graph) and budget-bounded.
         assert "--local-embedding" not in scripts["crg-pre-commit.sh"]
         assert "DAGAYN_HOOK_UPDATE=1" in scripts["crg-pre-commit.sh"]
         assert "--local-embedding low" in scripts["crg-session-start.sh"]
         assert "--local-embedding low" in scripts["crg-relocate.sh"]
+        assert "--keep-local-embedding-server" in scripts["crg-session-start.sh"]
+        assert "--keep-local-embedding-server" in scripts["crg-relocate.sh"]
+        assert "--keep-local-embedding-server" not in scripts["crg-update.sh"]
+        assert "--keep-local-embedding-server" not in scripts["crg-pre-commit.sh"]
 
     def test_shared_hook_scripts_split_the_flags(self):
         scripts = _dagayn_hook_scripts(["--local-embedding", "low"])
         assert "--local-embedding" not in scripts["dagayn-update.sh"]
-        assert "DAGAYN_HOOK_UPDATE=1" in scripts["dagayn-update.sh"]
+        assert "dagayn queue add update" in scripts["dagayn-update.sh"]
         assert "--local-embedding low" in scripts["dagayn-status.sh"]
 
     def test_opencode_plugin_splits_the_flags(self):
@@ -840,7 +858,7 @@ class TestHookEmbeddingArgs:
         )
         post_cmd = config["hooks"]["PostToolUse"][0]["hooks"][0]["command"]
         start_cmd = config["hooks"]["SessionStart"][0]["hooks"][0]["command"]
-        assert 'dagayn update --skip-flows --repo "$repo"' in post_cmd
+        assert 'dagayn queue add update --repo "$repo"' in post_cmd
         assert "--local-embedding" not in post_cmd
         assert "--local-embedding low" in start_cmd
 
@@ -1080,9 +1098,7 @@ class TestInstallHooks:
         dagayn_hooks = [
             entry
             for entry in post_tool_hooks
-            if any(
-                "dagayn update --skip-flows" in hook.get("command", "") for hook in entry["hooks"]
-            )
+            if any("dagayn queue add update" in hook.get("command", "") for hook in entry["hooks"])
         ]
         assert len(dagayn_hooks) == 1
         # The entry is replaced rather than duplicated; embedding flags moved to
@@ -1202,7 +1218,7 @@ class TestInstallCodexHooks:
 
         data = json.loads(hooks_path.read_text())
         command = data["hooks"]["PostToolUse"][0]["hooks"][0]["command"]
-        assert "DAGAYN_HOOK_UPDATE=1" in command
+        assert "dagayn queue add update" in command
         assert "--local-embedding" not in command
         assert "--local-embedding low" in data["hooks"]["SessionStart"][0]["hooks"][0]["command"]
 
@@ -1219,9 +1235,7 @@ class TestInstallCodexHooks:
         dagayn_hooks = [
             entry
             for entry in post_tool_hooks
-            if any(
-                "dagayn update --skip-flows" in hook.get("command", "") for hook in entry["hooks"]
-            )
+            if any("dagayn queue add update" in hook.get("command", "") for hook in entry["hooks"])
         ]
         assert len(dagayn_hooks) == 1
         # The entry is replaced rather than duplicated; embedding flags moved to
@@ -2299,12 +2313,19 @@ class TestCursorHookScripts:
     def test_scripts_pass_repo_explicitly(self):
         scripts = _cursor_hook_scripts()
         for name, content in scripts.items():
-            if "dagayn update" in content or "dagayn session prepare" in content:
+            if (
+                "dagayn update" in content
+                or "dagayn queue add update" in content
+                or "dagayn session prepare" in content
+            ):
                 assert '--repo "$repo"' in content, f"{name} does not pass --repo"
 
-    def test_update_script_runs_update(self):
+    def test_update_script_enqueues_to_the_queue(self):
         scripts = _cursor_hook_scripts()
-        assert "dagayn update --skip-flows" in scripts["crg-update.sh"]
+        assert "dagayn queue add update" in scripts["crg-update.sh"]
+        # The queue worker is detached by dagayn itself; the hook no longer
+        # needs its own subshell detach.
+        assert "& )" not in scripts["crg-update.sh"]
 
     def test_extra_update_args_reach_prepare_scripts_only(self):
         scripts = _cursor_hook_scripts(["--local-embedding", "low"])
@@ -2774,7 +2795,7 @@ class TestOpenCodePluginContent:
     def test_hooks_file_edited_event(self):
         content = _opencode_plugin_content()
         assert '"file.edited"' in content
-        assert "dagayn update --skip-flows" in content
+        assert "dagayn queue add update" in content
 
     def test_hooks_session_created_event(self):
         content = _opencode_plugin_content()
