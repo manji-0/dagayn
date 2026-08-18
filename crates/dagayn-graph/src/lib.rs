@@ -493,6 +493,7 @@ mod relationships;
 mod schema;
 mod schema_migrations;
 mod search;
+mod search_query;
 mod search_markdown;
 mod summaries;
 mod summary_communities;
@@ -501,6 +502,7 @@ mod summary_risk;
 mod write;
 
 pub use embeddings::{embedding_search, embedding_search_prewarm};
+pub use search_query::FtsQueryResult;
 
 #[cfg(test)]
 use helpers::*;

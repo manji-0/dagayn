@@ -1,8 +1,14 @@
 use std::sync::Mutex;
 
 use dagayn_core::{
-    EdgeInput, FileBatchItem, GraphEdge, GraphNode, GraphStats, GraphStore as NativeGraphStore,
-    NodeInput,
+    detect_communities_json as native_detect_communities_json,
+    hybrid_search_json as native_hybrid_search_json,
+    incremental_detect_communities as native_incremental_detect_communities,
+    incremental_trace_flows_json as native_incremental_trace_flows_json,
+    refresh_community_stats_json as native_refresh_community_stats_json,
+    refresh_flow_criticalities as native_refresh_flow_criticalities,
+    trace_flows_json as native_trace_flows_json, EdgeInput, FileBatchItem, GraphEdge, GraphError,
+    GraphNode, GraphStats, GraphStore as NativeGraphStore, NodeInput,
 };
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -539,6 +545,33 @@ impl PyGraphStore {
         self.with_store_mut(|store| store.store_flows_json(flows_json))
     }
 
+    #[pyo3(signature = (max_depth = 15, include_tests = false, max_nodes = 512))]
+    fn trace_flows_json(
+        &self,
+        max_depth: i64,
+        include_tests: bool,
+        max_nodes: i64,
+    ) -> PyResult<String> {
+        self.with_store(|store| {
+            native_trace_flows_json(store, max_depth, include_tests, max_nodes)
+        })
+    }
+
+    #[pyo3(signature = (changed_files, max_depth = 15))]
+    fn incremental_trace_flows_json(
+        &self,
+        changed_files: Vec<String>,
+        max_depth: i64,
+    ) -> PyResult<i64> {
+        self.with_store_mut(|store| {
+            native_incremental_trace_flows_json(store, &changed_files, max_depth)
+        })
+    }
+
+    fn refresh_flow_criticalities(&self) -> PyResult<i64> {
+        self.with_store_mut(|store| native_refresh_flow_criticalities(store))
+    }
+
     fn insert_flows_json(&self, flows_json: &str) -> PyResult<i64> {
         self.with_store_mut(|store| store.insert_flows_json(flows_json))
     }
@@ -578,6 +611,88 @@ impl PyGraphStore {
 
     fn store_communities_json(&self, communities_json: &str) -> PyResult<i64> {
         self.with_store_mut(|store| store.store_communities_json(communities_json))
+    }
+
+    #[pyo3(signature = (min_size = 2))]
+    fn detect_communities_json(&self, min_size: i64) -> PyResult<String> {
+        self.with_store(|store| native_detect_communities_json(store, min_size))
+    }
+
+    #[pyo3(signature = (changed_files, min_size = 2, pre_affected_count = None))]
+    fn incremental_detect_communities(
+        &self,
+        changed_files: Vec<String>,
+        min_size: i64,
+        pre_affected_count: Option<i64>,
+    ) -> PyResult<i64> {
+        self.with_store_mut(|store| {
+            native_incremental_detect_communities(
+                store,
+                &changed_files,
+                min_size,
+                pre_affected_count,
+            )
+        })
+    }
+
+    fn refresh_community_stats_json(&self) -> PyResult<String> {
+        self.with_store_mut(|store| native_refresh_community_stats_json(store))
+    }
+
+    #[pyo3(signature = (query, limit = 50))]
+    fn fts_query_json(&self, query: &str, limit: i64) -> PyResult<String> {
+        self.with_store(|store| {
+            let result = store.fts_query(query, limit)?;
+            serde_json::to_string(&serde_json::json!({
+                "hits": result.hits,
+                "match_mode": result.match_mode,
+            }))
+            .map_err(|err| GraphError::Json(err))
+        })
+    }
+
+    #[pyo3(signature = (query, limit = 50))]
+    fn keyword_query_json(&self, query: &str, limit: i64) -> PyResult<String> {
+        self.with_store(|store| {
+            let hits = store.keyword_query(query, limit)?;
+            serde_json::to_string(&hits).map_err(|err| GraphError::Json(err))
+        })
+    }
+
+    #[pyo3(signature = (
+        query,
+        emb_hits_json,
+        embedding_health_json,
+        kind = "",
+        limit = 20,
+        context_files_json = "[]",
+        provider = "",
+        model = ""
+    ))]
+    fn hybrid_search_json(
+        &self,
+        query: &str,
+        emb_hits_json: &str,
+        embedding_health_json: &str,
+        kind: &str,
+        limit: i64,
+        context_files_json: &str,
+        provider: &str,
+        model: &str,
+    ) -> PyResult<String> {
+        self.with_store(|store| {
+            native_hybrid_search_json(
+                store,
+                query,
+                emb_hits_json,
+                embedding_health_json,
+                kind,
+                limit,
+                context_files_json,
+                provider,
+                model,
+            )
+        })
     }
 
     #[pyo3(signature = (sort_by = "size", min_size = 0))]

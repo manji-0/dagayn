@@ -8,6 +8,39 @@ class GraphStore:
     _leases: int
 
     def __init__(self, db_path: str | PathLike[str]) -> None: ...
+    def trace_flows_json(
+        self,
+        max_depth: int = 15,
+        include_tests: bool = False,
+        max_nodes: int = 512,
+    ) -> str: ...
+    def incremental_trace_flows_json(
+        self,
+        changed_files: list[str],
+        max_depth: int = 15,
+    ) -> int: ...
+    def refresh_flow_criticalities(self) -> int: ...
+    def detect_communities_json(self, min_size: int = 2) -> str: ...
+    def incremental_detect_communities(
+        self,
+        changed_files: list[str],
+        min_size: int = 2,
+        pre_affected_count: int | None = None,
+    ) -> int: ...
+    def refresh_community_stats_json(self) -> str: ...
+    def fts_query_json(self, query: str, limit: int = 50) -> str: ...
+    def keyword_query_json(self, query: str, limit: int = 50) -> str: ...
+    def hybrid_search_json(
+        self,
+        query: str,
+        emb_hits_json: str,
+        embedding_health_json: str,
+        kind: str = "",
+        limit: int = 20,
+        context_files_json: str = "[]",
+        provider: str = "",
+        model: str = "",
+    ) -> str: ...
     def __getattr__(self, name: str) -> Any: ...
 
 def filter_incremental_candidates(

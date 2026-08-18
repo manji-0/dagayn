@@ -1,7 +1,19 @@
-//! Rust post-processing crate.
-//!
-//! Phase 2 will move FTS rebuilds, flow derivation, community derivation, and
-//! traversal cache construction here as coarse operations over `dagayn-graph`.
+//! Rust post-processing: flow tracing, community detection, and future targets.
+
+mod communities;
+mod entry_points;
+mod flows;
+mod search;
+
+pub use communities::{
+    detect_communities, detect_communities_json, incremental_detect_communities,
+    refresh_community_stats_json, DetectedCommunity,
+};
+pub use flows::{
+    incremental_trace_flows_json, refresh_flow_criticalities, trace_flows, trace_flows_json,
+    TraceOptions, TracedFlow, DEFAULT_FLOW_MAX_DEPTH, DEFAULT_FLOW_MAX_NODES,
+};
+pub use search::{hybrid_search_json, rrf_merge};
 
 pub fn phase() -> u8 {
     2

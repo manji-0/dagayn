@@ -99,6 +99,31 @@ impl GraphStore {
         Ok(out)
     }
 
+    pub fn get_node_signatures_by_ids(
+        &self,
+        node_ids: &[i64],
+    ) -> Result<HashMap<i64, Option<String>>> {
+        let mut out = HashMap::new();
+        if node_ids.is_empty() {
+            return Ok(out);
+        }
+        for chunk in node_ids.chunks(450) {
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!("SELECT id, signature FROM nodes WHERE id IN ({placeholders})");
+            let mut stmt = self.conn.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?))
+            })?;
+            for row in rows {
+                let (node_id, signature) = row?;
+                out.insert(node_id, signature);
+            }
+        }
+        Ok(out)
+    }
+
     pub fn get_nodes_by_file(&self, file_path: &str) -> Result<Vec<GraphNode>> {
         let mut seen = std::collections::HashSet::<i64>::new();
         let mut nodes = Vec::new();

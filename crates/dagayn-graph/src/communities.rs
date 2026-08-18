@@ -142,4 +142,27 @@ impl GraphStore {
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(Into::into)
     }
+
+    pub fn update_community_stats(&mut self, community_id: i64, size: i64, cohesion: f64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE communities SET size = ?, cohesion = ? WHERE id = ?",
+            params![size, cohesion, community_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_community(&mut self, community_id: i64) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM communities WHERE id = ?", [community_id])?;
+        Ok(())
+    }
+
+    pub fn delete_orphan_communities(&mut self) -> Result<i64> {
+        let deleted = self.conn.execute(
+            "DELETE FROM communities WHERE NOT EXISTS \
+             (SELECT 1 FROM nodes n WHERE n.community_id = communities.id)",
+            [],
+        )?;
+        Ok(deleted as i64)
+    }
 }

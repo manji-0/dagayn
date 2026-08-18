@@ -210,6 +210,11 @@ def trace_flows(
       - truncated / truncation_reason: ``max_depth`` or ``max_nodes`` when capped
       - criticality: computed criticality score (0.0-1.0)
     """
+    native = getattr(store, "trace_flows_json", None)
+    if callable(native):
+        payload = cast(Callable[..., str], native)(max_depth, include_tests, max_nodes)
+        return json.loads(payload)
+
     entry_points = detect_entry_points(store, include_tests=include_tests)
     if not entry_points:
         return []
@@ -310,6 +315,10 @@ def refresh_flow_criticality(store: GraphStore) -> int:
     criticality would otherwise stay stale. Recomputing scores is cheap relative
     to tracing. See: #114
     """
+    native = getattr(store, "refresh_flow_criticalities", None)
+    if callable(native):
+        return cast(Callable[[], int], native)()
+
     adj = store.load_flow_adjacency()
     conn = getattr(store, "_conn", None)
     rust_get = getattr(store, "get_flows_json", None)
@@ -696,6 +705,10 @@ def incremental_trace_flows(
     """
     if not changed_files:
         return 0
+
+    native = getattr(store, "incremental_trace_flows_json", None)
+    if callable(native):
+        return cast(Callable[..., int], native)(changed_files, max_depth)
 
     rust_delete = getattr(store, "delete_affected_flows", None)
     rust_insert = getattr(store, "insert_flows_json", None)

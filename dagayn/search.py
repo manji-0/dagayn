@@ -7,6 +7,7 @@ boosting for relevance tuning.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import sqlite3
@@ -865,6 +866,30 @@ def hybrid_search(
             "truncated": False,
             "total": 0,
         }
+
+    native = getattr(store, "hybrid_search_json", None)
+    if callable(native):
+        emb_results, embedding_health = _embedding_search_with_health(
+            store,
+            query,
+            limit=limit * 12 if kind else limit * 3,
+            model=model,
+            provider=provider,
+            text_mode=_embedding_text_mode_for_intent(
+                _query_rerank_intent(query, _query_tokens(query))
+            ),
+        )
+        payload = cast(Callable[..., str], native)(
+            query,
+            json.dumps(emb_results),
+            json.dumps(embedding_health),
+            kind or "",
+            limit,
+            json.dumps(context_files or []),
+            provider or "",
+            model or "",
+        )
+        return json.loads(payload)
 
     fetch_multiplier = 12 if kind else 3
     max_fetch_multiplier = 48 if kind else 9
