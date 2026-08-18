@@ -191,7 +191,7 @@ fn load_embedding_matrix(
     })
 }
 
-fn embedding_row_shape_hint(conn: &Connection, provider: &str) -> Result<(usize, Option<usize>)> {
+pub(crate) fn embedding_row_shape_hint(conn: &Connection, provider: &str) -> Result<(usize, Option<usize>)> {
     let (count, min_len, max_len): (i64, Option<i64>, Option<i64>) = conn.query_row(
         "SELECT COUNT(*), MIN(length(vector)), MAX(length(vector)) FROM embeddings WHERE provider = ?",
         params![provider],

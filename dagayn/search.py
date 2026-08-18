@@ -770,6 +770,33 @@ def _embedding_search_with_health(
             health["error"] = failure
             return [], health
 
+        from .embeddings_store import _embed_query_cached
+
+        query_vec = _embed_query_cached(active_store.provider, query)
+        native_embedding = getattr(store, "embedding_search_json", None)
+        if callable(native_embedding):
+            payload = json.loads(
+                cast(Callable[..., str], native_embedding)(provider_key, query_vec, limit)
+            )
+            rust_health = payload.get("health", {})
+            for key in (
+                "status",
+                "matching_vector_count",
+                "embedding_coverage",
+                "missing_embedding_count",
+                "partial_coverage",
+                "stored_dimension",
+                "embeddable_node_count",
+            ):
+                if key in rust_health:
+                    health[key] = rust_health[key]
+            id_scores = [
+                (int(node_id), float(score)) for node_id, score in payload.get("hits", [])
+            ]
+            if health.get("status") in {"available", "degraded"}:
+                _emb_failure_cache.pop(provider_key, None)
+            return id_scores, health
+
         results = active_store.search(query, limit=limit)
         nodes_by_qn = store.get_nodes_by_qualified_names([qn for qn, _ in results])
         id_scores: list[tuple[int, float]] = []

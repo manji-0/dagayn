@@ -506,6 +506,7 @@ mod communities;
 mod core;
 mod edge_queries;
 mod embeddings;
+mod embedding_query;
 mod flows;
 mod fts_sync;
 mod fts_tokenize;

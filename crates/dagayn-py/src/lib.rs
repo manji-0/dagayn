@@ -679,6 +679,16 @@ impl PyGraphStore {
         })
     }
 
+    #[pyo3(signature = (provider_key, query_vec, limit = 50))]
+    fn embedding_search_json(
+        &self,
+        provider_key: &str,
+        query_vec: Vec<f32>,
+        limit: i64,
+    ) -> PyResult<String> {
+        self.with_store(|store| store.embedding_search_json(provider_key, &query_vec, limit))
+    }
+
     #[pyo3(signature = (
         query,
         emb_hits_json,

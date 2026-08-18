@@ -410,6 +410,69 @@ def test_rust_fts_identifier_tokens_match_python_builder(tmp_path):
         store.close()
 
 
+def test_rust_graph_store_embedding_search_json_returns_node_ids(tmp_path):
+    try:
+        from dagayn._core import GraphStore as RustGraphStore
+    except ImportError as exc:
+        pytest.skip(f"Rust extension is not available: {exc}")  # ty: ignore[too-many-positional-arguments]
+
+    from dagayn.embeddings_store import _encode_vector
+    from dagayn.parser import NodeInfo
+
+    db_path = tmp_path / "graph.db"
+    store = RustGraphStore(db_path)
+    try:
+        store.store_file_nodes_edges(
+            "file.py",
+            [
+                NodeInfo(
+                    "Function",
+                    "alpha",
+                    "file.py",
+                    1,
+                    1,
+                    "python",
+                )
+            ],
+            [],
+        )
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS embeddings (
+                qualified_name TEXT NOT NULL,
+                vector BLOB NOT NULL,
+                text_hash TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                PRIMARY KEY (qualified_name, provider)
+            )
+            """
+        )
+        conn.execute(
+            "INSERT INTO embeddings (qualified_name, vector, text_hash, provider) "
+            "VALUES (?, ?, ?, ?)",
+            (
+                "file.py::alpha",
+                _encode_vector([1.0, 0.0, 0.0, 0.0]),
+                "hash",
+                "fake#dim=4",
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+        payload = json.loads(
+            store.embedding_search_json("fake#dim=4", [1.0, 0.0, 0.0, 0.0], 5)
+        )
+        assert payload["health"]["status"] == "available"
+        assert payload["hits"]
+        node = store.get_node("file.py::alpha")
+        assert node is not None
+        assert payload["hits"][0][0] == node.id
+    finally:
+        store.close()
+
+
 def test_rust_graph_store_generates_suggested_questions(tmp_path):
     try:
         from dagayn._core import GraphStore as RustGraphStore
