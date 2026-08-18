@@ -10,6 +10,7 @@ from typing import Any
 type MetricValue = Any
 type MetricPayload = dict[str, MetricValue]
 
+
 def _enum_value(value: StrEnum) -> str:
     """Return the string value of a StrEnum in a type-checker-friendly way."""
     return str(value)

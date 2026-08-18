@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import os
 import subprocess
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, Generator
+from typing import Any
 
 import pytest
 
@@ -28,7 +29,7 @@ from dagayn.task_queue import (
 
 
 @pytest.fixture
-def queue(tmp_path: Path) -> Generator[TaskQueue, None, None]:
+def queue(tmp_path: Path) -> Iterator[TaskQueue]:
     q = TaskQueue(tmp_path / "task_queue.db")
     yield q
     q.close()

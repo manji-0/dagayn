@@ -28,6 +28,7 @@ class Hints(TypedDict):
     related: list[str]
     warnings: list[str]
 
+
 _INTENT_TOOLS: dict[str, set[str]] = {
     "reviewing": {
         "review",

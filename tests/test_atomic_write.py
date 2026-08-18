@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import stat
+from pathlib import Path
 
 import pytest
 
@@ -47,7 +48,9 @@ def test_preserves_the_executable_bit(tmp_path) -> None:
     assert script.read_text(encoding="utf-8") == "#!/bin/sh\nexit 1\n"
 
 
-def test_reader_never_sees_a_truncated_file(tmp_path) -> None:
+def test_reader_never_sees_a_truncated_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The old content stays readable and valid right up to the swap."""
     dest = tmp_path / "hooks.json"
     original = json.dumps({"hooks": {"afterFileEdit": [{"command": "old"}]}}, indent=2)
@@ -64,12 +67,9 @@ def test_reader_never_sees_a_truncated_file(tmp_path) -> None:
 
     import dagayn.atomic_write as module
 
-    original_replace = module.os.replace
-    setattr(module.os, "replace", _observing_replace)
-    try:
-        write_text_atomic(dest, json.dumps({"hooks": {"afterFileEdit": [{"command": "new"}]}}))
-    finally:
-        setattr(module.os, "replace", original_replace)
+    monkeypatch.setattr(module.os, "replace", _observing_replace)
+
+    write_text_atomic(dest, json.dumps({"hooks": {"afterFileEdit": [{"command": "new"}]}}))
 
     assert observed == [{"hooks": {"afterFileEdit": [{"command": "old"}]}}]
     assert json.loads(dest.read_text(encoding="utf-8")) == {

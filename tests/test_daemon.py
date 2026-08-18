@@ -315,6 +315,7 @@ class TestStatePersistence:
 
         assert load_state(state_path) == {"good": {"pid": 123, "path": "/repo"}}
 
+
 # ===========================================================================
 # WatchDaemon Tests (mock subprocess.Popen)
 # ===========================================================================

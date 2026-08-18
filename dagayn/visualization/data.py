@@ -16,9 +16,7 @@ type VisualizationRecord = dict[str, Any]
 type VisualizationPayload = dict[str, Any]
 
 
-def _build_name_index(
-    nodes: list[VisualizationRecord], seen_qn: set[str]
-) -> dict[str, list[str]]:
+def _build_name_index(nodes: list[VisualizationRecord], seen_qn: set[str]) -> dict[str, list[str]]:
     """Build a mapping from short/module-style names to qualified names.
 
     Returns ``{short_name: [qualified_name, ...]}``.

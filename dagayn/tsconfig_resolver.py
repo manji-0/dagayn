@@ -155,8 +155,10 @@ class TsconfigResolver:
         if isinstance(paths, dict):
             typed_paths: dict[str, list[str]] = {}
             for pattern, replacements in paths.items():
-                if isinstance(pattern, str) and isinstance(replacements, list) and all(
-                    isinstance(replacement, str) for replacement in replacements
+                if (
+                    isinstance(pattern, str)
+                    and isinstance(replacements, list)
+                    and all(isinstance(replacement, str) for replacement in replacements)
                 ):
                     typed_paths[pattern] = cast(list[str], replacements)
             result["paths"] = typed_paths

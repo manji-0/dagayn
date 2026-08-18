@@ -120,9 +120,7 @@ def load_config(path: Path | None = None) -> DaemonConfig:
 
     # -- [daemon] section ---------------------------------------------------
     raw_daemon_section = raw.get("daemon", {})
-    daemon_section = (
-        raw_daemon_section if isinstance(raw_daemon_section, Mapping) else {}
-    )
+    daemon_section = raw_daemon_section if isinstance(raw_daemon_section, Mapping) else {}
     raw_session_name = daemon_section.get("session_name", "crg-watch")
     session_name = raw_session_name if isinstance(raw_session_name, str) else "crg-watch"
     raw_log_dir = daemon_section.get("log_dir", str(DaemonConfig().log_dir))

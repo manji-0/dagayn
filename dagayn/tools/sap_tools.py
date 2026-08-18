@@ -20,14 +20,10 @@ def _classify_sap_zone(violation: Mapping[str, object]) -> str:
     abstractness_value = violation.get("abstractness", 0.0)
     instability_value = violation.get("instability", 0.0)
     abstractness = (
-        float(abstractness_value)
-        if isinstance(abstractness_value, (int, float, str))
-        else 0.0
+        float(abstractness_value) if isinstance(abstractness_value, (int, float, str)) else 0.0
     )
     instability = (
-        float(instability_value)
-        if isinstance(instability_value, (int, float, str))
-        else 0.0
+        float(instability_value) if isinstance(instability_value, (int, float, str)) else 0.0
     )
     if abstractness <= 0.5 and instability <= 0.5:
         return "pain"

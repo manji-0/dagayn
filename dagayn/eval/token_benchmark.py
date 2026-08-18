@@ -31,9 +31,7 @@ def estimate_tokens(obj: Any) -> int:
     return len(json.dumps(obj, default=str)) // 4
 
 
-def benchmark_review_workflow(
-    repo_root: str, base: str = "HEAD~1"
-) -> WorkflowBenchmarkRecord:
+def benchmark_review_workflow(repo_root: str, base: str = "HEAD~1") -> WorkflowBenchmarkRecord:
     """Simulate a review workflow and measure total tokens consumed."""
     from ..tools.context import get_minimal_context
     from ..tools.review import detect_changes_func
@@ -149,9 +147,7 @@ def benchmark_onboard_workflow(repo_root: str) -> WorkflowBenchmarkRecord:
     }
 
 
-def benchmark_pre_merge_workflow(
-    repo_root: str, base: str = "HEAD~1"
-) -> WorkflowBenchmarkRecord:
+def benchmark_pre_merge_workflow(repo_root: str, base: str = "HEAD~1") -> WorkflowBenchmarkRecord:
     """Simulate a pre-merge check workflow."""
     from ..tools.context import get_minimal_context
     from ..tools.review import detect_changes_func
@@ -186,9 +182,7 @@ ALL_WORKFLOWS: dict[str, Callable[..., WorkflowBenchmarkRecord]] = {
 }
 
 
-def run_all_benchmarks(
-    repo_root: str, base: str = "HEAD~1"
-) -> list[WorkflowBenchmarkRecord]:
+def run_all_benchmarks(repo_root: str, base: str = "HEAD~1") -> list[WorkflowBenchmarkRecord]:
     """Run all workflow benchmarks and return results."""
     results: list[WorkflowBenchmarkRecord] = []
     for name, fn in ALL_WORKFLOWS.items():

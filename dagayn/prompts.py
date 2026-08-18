@@ -19,6 +19,7 @@ class PromptMessage(TypedDict):
     role: Literal["user"]
     content: str
 
+
 _TOKEN_EFFICIENCY_PREAMBLE = (  # nosec B105 — prompt template, not a password
     """\
 ## Rules for Token-Efficient Graph Usage

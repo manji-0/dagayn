@@ -25,9 +25,7 @@ def scope_key_for_file(file_path: str | None) -> str | None:
     return node_file_to_scope_key(file_path, "package")
 
 
-def component_stability_profiles(
-    store: Any, snapshot: Any | None = None
-) -> StabilityProfiles:
+def component_stability_profiles(store: Any, snapshot: Any | None = None) -> StabilityProfiles:
     """Return package-level stability expectations from SDP/SAP metrics.
 
     ``snapshot`` may supply the shared node/edge lists so the underlying SDP

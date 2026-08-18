@@ -165,9 +165,7 @@ def _get_flow_names_for_nodes(conn: Any, nodes: list[GraphNode]) -> dict[int, li
     return out
 
 
-def _prepare_context_for_nodes(
-    nodes: list[GraphNode], store: Any, conn: Any
-) -> EnrichmentPayload:
+def _prepare_context_for_nodes(nodes: list[GraphNode], store: Any, conn: Any) -> EnrichmentPayload:
     qns = [node.qualified_name for node in nodes]
     outgoing, incoming = store.get_edges_by_endpoints(qns)
 

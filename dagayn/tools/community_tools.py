@@ -336,9 +336,7 @@ def _architecture_health_summary(
         "top_examples": {
             "hub_nodes": hubs,
             "bridge_nodes": bridges,
-            "knowledge_gaps": {
-                key: gap_lists[key][: min(3, example_limit)] for key in gap_keys
-            },
+            "knowledge_gaps": {key: gap_lists[key][: min(3, example_limit)] for key in gap_keys},
             "surprising_connections": surprises,
             "adp_violations": adp,
             "sdp_violations": sdp,
@@ -534,9 +532,7 @@ def get_community_func(
             ),
             "community": community,
         }
-        result["_hints"] = cast(
-            ToolPayload, generate_hints("get_community", result, get_session())
-        )
+        result["_hints"] = cast(ToolPayload, generate_hints("get_community", result, get_session()))
         return result
     except Exception as exc:
         return handle_tool_runtime_error(exc, logger=logger, context="get_community")

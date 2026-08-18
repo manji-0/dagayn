@@ -78,9 +78,7 @@ def get_affected_flows_func(
             "answerability": answerability,
             "missingness": missingness,
         }
-        out["_hints"] = cast(
-            ToolPayload, generate_hints("get_affected_flows", out, get_session())
-        )
+        out["_hints"] = cast(ToolPayload, generate_hints("get_affected_flows", out, get_session()))
         return out
     except Exception as exc:
         return handle_tool_runtime_error(exc, logger=logger, context="get_affected_flows")

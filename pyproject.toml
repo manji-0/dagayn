@@ -131,7 +131,6 @@ select = ["E", "F", "I", "N", "W"]
 skips = ["B101", "B404", "B603", "B607", "B608"]
 
 [tool.pytest.ini_options]
-asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["tests"]
 norecursedirs = ["tests/fixtures"]

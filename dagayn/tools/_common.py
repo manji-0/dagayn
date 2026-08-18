@@ -67,6 +67,7 @@ class ToolHintsRecord(TypedDict):
     related: list[object]
     warnings: list[str]
 
+
 _TOOL_RUNTIME_ERRORS: tuple[type[BaseException], ...] = (
     OSError,
     sqlite3.Error,
@@ -649,9 +650,7 @@ def _freshness_reason_codes(store: Any) -> tuple[list[str], ToolPayload]:
     return codes, counts
 
 
-def graph_answerability_summary(
-    store: Any, stats: Any | None = None
-) -> AnswerabilityRecord:
+def graph_answerability_summary(store: Any, stats: Any | None = None) -> AnswerabilityRecord:
     """Summarize whether the current graph can support calibrated claims."""
     if stats is None:
         try:

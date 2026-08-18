@@ -44,6 +44,7 @@ class SearchResult(TypedDict, total=False):
     source: str
     is_test: bool
 
+
 _STORE_CLOSE_ERRORS = (OSError, sqlite3.Error, RuntimeError, AttributeError)
 _FTS_QUERY_ERRORS = (sqlite3.Error, TypeError, AttributeError, ValueError, RuntimeError)
 _EMBEDDING_SEARCH_ERRORS = (OSError, sqlite3.Error, RuntimeError, TypeError, AttributeError)

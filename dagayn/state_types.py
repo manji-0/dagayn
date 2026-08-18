@@ -139,6 +139,7 @@ class ChangeTestGapEvidence(_OpenTypedDict, total=False):
     heuristic_eligible_node_count: int
     heuristic_truncated: bool
 
+
 CrossArtifactRole: TypeAlias = Literal[
     "implemented_by",
     "implements_contract",

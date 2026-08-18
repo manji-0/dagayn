@@ -69,6 +69,7 @@ class FlowRecord(TypedDict, total=False):
     created_at: str | None
     updated_at: str | None
 
+
 FLOW_KIND_REACHABLE_SET = "reachable_set"
 DEFAULT_FLOW_MAX_DEPTH = 15
 DEFAULT_FLOW_MAX_NODES = 512
@@ -894,9 +895,7 @@ def get_flows(
     return _annotate_flow_rows_liveness(store, results)
 
 
-def _annotate_flow_rows_liveness(
-    store: GraphStore, flows: list[FlowRecord]
-) -> list[FlowRecord]:
+def _annotate_flow_rows_liveness(store: GraphStore, flows: list[FlowRecord]) -> list[FlowRecord]:
     """Add resolved/missing node counts to listed flows.
 
     ``node_count``/``file_count`` are the values recorded when the flow was

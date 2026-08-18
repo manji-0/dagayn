@@ -67,6 +67,7 @@ class ArchitectureOverviewResult(TypedDict, total=False):
     warnings: list[str]
     cross_community_edges: list[CrossCommunityEdgeRecord]
 
+
 # ---------------------------------------------------------------------------
 # Optional igraph import
 # ---------------------------------------------------------------------------

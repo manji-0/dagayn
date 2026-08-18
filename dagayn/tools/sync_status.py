@@ -46,6 +46,7 @@ class SyncPayload(TypedDict, total=False):
     pending_files: list[str]
     indexed_files: list[str]
 
+
 #: Diff-tier verification stats every indexed file (cheap) but only hashes the
 #: ones whose mtime moved. Above this many hash candidates the verification is
 #: abandoned rather than paid for: a freshly seeded worktree has a graph whose
