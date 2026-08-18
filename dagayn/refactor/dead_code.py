@@ -16,7 +16,7 @@ from ..cross_artifact import (
     is_unresolved_target,
 )
 from ..flows import _has_framework_decorator, _matches_entry_name
-from ..graph import GraphStore, _sanitize_name
+from ..graph import GraphEdge, GraphNode, GraphStore, _sanitize_name
 
 logger = logging.getLogger(__name__)
 
@@ -288,10 +288,10 @@ def _maps_entrypoint_symbol_matches_node(edge: Any, node: Any) -> bool:
 
 
 def _incoming_cross_artifact_reachability(
-    incoming: list[Any],
+    incoming: list[GraphEdge],
     *,
-    unresolved_entrypoints: list[Any],
-    node: Any,
+    unresolved_entrypoints: list[GraphEdge],
+    node: GraphNode,
 ) -> tuple[bool, bool]:
     """Return ``(has_reportable_reference, has_unresolved_entrypoint_match)``."""
     has_reportable = False
@@ -511,19 +511,19 @@ class _DeadCodeLookups:
     def __init__(
         self,
         *,
-        surviving: list[Any],
+        surviving: list[GraphNode],
         class_bases: dict[str, list[str]],
         class_inherits_targets: dict[str, list[str]],
         importer_files: dict[str, set[str]],
         name_counts: dict[str, int],
-        incoming_by_qn: dict[str, list[Any]],
-        tested_by_source_qn: dict[str, list[Any]],
-        bare_calls_by_name: dict[str, list[Any]],
-        bare_tested_by_name: dict[str, list[Any]],
-        bare_inherits_by_name: dict[str, list[Any]],
-        suffix_calls_by_name: dict[str, list[Any]],
-        base_nodes_map: dict[str, DeadValue],
-        unresolved_entrypoint_by_name: dict[str, list[Any]],
+        incoming_by_qn: dict[str, list[GraphEdge]],
+        tested_by_source_qn: dict[str, list[GraphEdge]],
+        bare_calls_by_name: dict[str, list[GraphEdge]],
+        bare_tested_by_name: dict[str, list[GraphEdge]],
+        bare_inherits_by_name: dict[str, list[GraphEdge]],
+        suffix_calls_by_name: dict[str, list[GraphEdge]],
+        base_nodes_map: dict[str, GraphNode],
+        unresolved_entrypoint_by_name: dict[str, list[GraphEdge]],
     ) -> None:
         self.surviving = surviving
         self.class_bases = class_bases
@@ -587,7 +587,7 @@ def _collect_dead_code_context(
     # Collects candidates that survive all node-level exclusion rules so we
     # can batch-preload their incoming edges before the main analysis pass.
     # ---------------------------------------------------------------------------
-    surviving: list[Any] = []
+    surviving: list[GraphNode] = []
     for node in candidates:
         if _survives_dead_code_node_filters(node, type_ref_names, class_bases):
             surviving.append(node)
@@ -607,7 +607,7 @@ def _collect_dead_code_context(
             incoming_qns.append(f"{node.parent_name}::{node.name}")
 
     # Incoming edges indexed by target_qualified
-    incoming_by_qn: dict[str, list[Any]] = {}
+    incoming_by_qn: dict[str, list[GraphEdge]] = {}
     for i in range(0, len(incoming_qns), batch_size):
         chunk = incoming_qns[i : i + batch_size]
         placeholders = ",".join("?" for _ in chunk)
@@ -619,7 +619,7 @@ def _collect_dead_code_context(
             incoming_by_qn.setdefault(row["target_qualified"], []).append(edge)
 
     # TESTED_BY edges are directed from covered production symbol to test symbol.
-    tested_by_source_qn: dict[str, list[Any]] = {}
+    tested_by_source_qn: dict[str, list[GraphEdge]] = {}
     for i in range(0, len(incoming_qns), batch_size):
         chunk = incoming_qns[i : i + batch_size]
         placeholders = ",".join("?" for _ in chunk)
@@ -632,9 +632,9 @@ def _collect_dead_code_context(
             tested_by_source_qn.setdefault(row["source_qualified"], []).append(edge)
 
     # Bare-name edges for CALLS/TESTED_BY/INHERITS
-    bare_calls_by_name: dict[str, list[Any]] = {}
-    bare_tested_by_name: dict[str, list[Any]] = {}
-    bare_inherits_by_name: dict[str, list[Any]] = {}
+    bare_calls_by_name: dict[str, list[GraphEdge]] = {}
+    bare_tested_by_name: dict[str, list[GraphEdge]] = {}
+    bare_inherits_by_name: dict[str, list[GraphEdge]] = {}
     survivor_names_list = list(survivor_names_set)
     for i in range(0, len(survivor_names_list), batch_size):
         chunk = survivor_names_list[i : i + batch_size]
@@ -660,7 +660,7 @@ def _collect_dead_code_context(
 
     # Qualified CALLS edges indexed by normalized target_name. This replaces
     # suffix LIKE scans over target_qualified when matching by bare symbol name.
-    suffix_calls_by_name: dict[str, list[Any]] = {}
+    suffix_calls_by_name: dict[str, list[GraphEdge]] = {}
     for i in range(0, len(survivor_names_list), batch_size):
         chunk = survivor_names_list[i : i + batch_size]
         placeholders = ",".join("?" for _ in chunk)
@@ -681,12 +681,12 @@ def _collect_dead_code_context(
             for base_cls_qn in class_inherits_targets.get(parent_qn, []):
                 base_method_qns_set.add(f"{base_cls_qn}.{node.name}")
                 base_method_qns_set.add(f"{node.file_path}::{base_cls_qn}.{node.name}")
-    base_nodes_map: dict[str, DeadValue] = {}
+    base_nodes_map: dict[str, GraphNode] = {}
     if base_method_qns_set:
         for qn, n in store.get_nodes_by_qualified_names(list(base_method_qns_set)).items():
             base_nodes_map[qn] = n
 
-    unresolved_entrypoint_by_name: dict[str, list[Any]] = {}
+    unresolved_entrypoint_by_name: dict[str, list[GraphEdge]] = {}
     for row in conn.execute(
         "SELECT * FROM edges "
         "WHERE kind = 'CROSS_ARTIFACT' AND target_qualified LIKE '<unresolved:%'"
@@ -719,7 +719,7 @@ def _collect_dead_code_context(
 
 def _node_dead_code_evidence(
     store: GraphStore,
-    node: Any,
+    node: GraphNode,
     lookups: _DeadCodeLookups,
     source_cache: dict[str, list[str]],
 ) -> Optional[DeadPayload]:

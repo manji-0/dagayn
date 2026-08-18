@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Optional, TypedDict
 
 from ..bridge_types import BridgeMissingnessRecord, BridgeTransitionRecord
-from ..state_types import ConfidenceTier
+from ..state_types import ConfidenceTier, GraphExtra
 
 
 @dataclass
@@ -24,7 +24,7 @@ class GraphNode:
     return_type: Optional[str]
     is_test: bool
     file_hash: Optional[str]
-    extra: dict
+    extra: GraphExtra
     signature: Optional[str] = None
 
 
@@ -36,7 +36,7 @@ class GraphEdge:
     target_qualified: str
     file_path: str
     line: int
-    extra: dict
+    extra: GraphExtra
     confidence: float = 1.0
     confidence_tier: ConfidenceTier = "EXTRACTED"
 
@@ -55,6 +55,14 @@ class ImpactRadiusResult(TypedDict):
 class SubgraphResult(TypedDict):
     nodes: list[GraphNode]
     edges: list[GraphEdge]
+
+
+class TransitiveTestRecord(TypedDict):
+    name: str
+    qualified_name: str
+    file_path: str
+    kind: str
+    indirect: bool
 
 
 @dataclass

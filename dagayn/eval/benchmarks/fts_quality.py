@@ -90,7 +90,7 @@ def run(repo_path: Path, store, config: BenchmarkPayload) -> list[BenchmarkPaylo
     if not queries:
         return []
 
-    rows: list[dict] = []
+    rows: list[BenchmarkPayload] = []
     reciprocal_ranks: list[float] = []
     hits_at_1: list[int] = []
     hits_at_k: list[int] = []
@@ -108,7 +108,7 @@ def run(repo_path: Path, store, config: BenchmarkPayload) -> list[BenchmarkPaylo
 
         try:
             timings: list[float] = []
-            search_results: list[dict] = []
+            search_results: list[BenchmarkPayload] = []
             for idx in range(max(1, warmup + repeat)):
                 started = time.perf_counter()
                 fts_hits = store.fts_query(query, limit=20)

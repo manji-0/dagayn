@@ -42,7 +42,7 @@ def _speedup(before_ms: float, after_ms: float) -> float:
     return round(before_ms / after_ms, 2)
 
 
-def _scenario_diff_cache(config: dict) -> dict:
+def _scenario_diff_cache(config: BenchmarkPayload) -> BenchmarkPayload:
     from dagayn import changes
 
     repeat = int(config.get("effect_repeat", 1))
@@ -100,7 +100,7 @@ def _scenario_diff_cache(config: dict) -> dict:
     }
 
 
-def _scenario_centrality(store: Any, config: dict) -> dict:
+def _scenario_centrality(store: Any, config: BenchmarkPayload) -> BenchmarkPayload:
     from dagayn.analysis import find_bridge_nodes, persist_centrality_scores
 
     repeat = int(config.get("centrality_repeat", 1))
@@ -137,7 +137,7 @@ def _highest_degree_non_file_qn(store: Any) -> tuple[str | None, int]:
     return target, count
 
 
-def _bench_entry(node: Any, cur_depth: int) -> dict:
+def _bench_entry(node: Any, cur_depth: int) -> BenchmarkPayload:
     return {
         "name": node.name,
         "qualified_name": node.qualified_name,
@@ -152,12 +152,12 @@ def _eager_local_subgraph_dfs(
     start_qn: str,
     max_depth: int,
     token_budget: int,
-) -> tuple[BenchmarkPayload, list[dict], bool]:
+) -> tuple[BenchmarkPayload, list[BenchmarkPayload], bool]:
     from dagayn.tools.query import _estimate_traversal_entry_tokens
 
     nodes_map, adj = store.get_local_subgraph(start_qn, max_depth)
     visited: dict[str, BenchmarkValue] = {}
-    traversal: list[dict] = []
+    traversal: list[BenchmarkPayload] = []
     approx_tokens = 0
     budget_exceeded = False
     stack: list[tuple[str, int]] = [(start_qn, 0)]
@@ -185,7 +185,7 @@ def _eager_local_subgraph_dfs(
     return metadata, traversal, budget_exceeded
 
 
-def _scenario_dfs(store: Any, config: dict) -> dict:
+def _scenario_dfs(store: Any, config: BenchmarkPayload) -> BenchmarkPayload:
     depth = int(config.get("effect_dfs_depth", 3))
     token_budget = int(config.get("effect_dfs_token_budget", 2000))
     target, degree = _highest_degree_non_file_qn(store)
@@ -260,7 +260,7 @@ def _legacy_store_file_batch(
     store._invalidate_cache()
 
 
-def _scenario_batch_remove(config: dict) -> dict:
+def _scenario_batch_remove(config: BenchmarkPayload) -> BenchmarkPayload:
     file_count = int(config.get("effect_remove_files", 100))
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir)
@@ -284,7 +284,7 @@ def _scenario_batch_remove(config: dict) -> dict:
     }
 
 
-def _scenario_store_file_batch(config: dict) -> dict:
+def _scenario_store_file_batch(config: BenchmarkPayload) -> BenchmarkPayload:
     file_count = int(config.get("effect_store_files", 100))
     batch = _make_file_batch(file_count)
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -308,7 +308,9 @@ def _scenario_store_file_batch(config: dict) -> dict:
     }
 
 
-def _scenario_mcp_latency(repo_path: Path, store: Any, config: dict) -> list[dict]:
+def _scenario_mcp_latency(
+    repo_path: Path, store: Any, config: BenchmarkPayload
+) -> list[BenchmarkPayload]:
     mcp_latency = importlib.import_module("dagayn.eval.benchmarks.mcp_latency")
 
     rows = mcp_latency.run(
@@ -316,7 +318,7 @@ def _scenario_mcp_latency(repo_path: Path, store: Any, config: dict) -> list[dic
         store,
         {**config, "latency_repeat": int(config.get("latency_repeat", 1))},
     )
-    out = []
+    out: list[BenchmarkPayload] = []
     for row in rows:
         out.append(
             {
@@ -329,10 +331,10 @@ def _scenario_mcp_latency(repo_path: Path, store: Any, config: dict) -> list[dic
     return out
 
 
-def run(repo_path: Path, store: Any, config: dict) -> list[dict]:
+def run(repo_path: Path, store: Any, config: BenchmarkPayload) -> list[BenchmarkPayload]:
     """Run all recent-change effect measurements."""
-    results: list[dict] = []
-    scenarios: list[Callable[[], dict | list[dict]]] = [
+    results: list[BenchmarkPayload] = []
+    scenarios: list[Callable[[], BenchmarkPayload | list[BenchmarkPayload]]] = [
         lambda: _scenario_diff_cache(config),
         lambda: _scenario_centrality(store, config),
         lambda: _scenario_dfs(store, config),

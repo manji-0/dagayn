@@ -15,6 +15,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from .graph import GraphNode
 from .paths import get_db_path
 
 logger = logging.getLogger(__name__)
@@ -101,7 +102,7 @@ def _make_relative(file_path: str, repo_root: str) -> str:
         return file_path
 
 
-def _get_community_names_for_nodes(conn: Any, nodes: list[Any]) -> dict[int, str]:
+def _get_community_names_for_nodes(conn: Any, nodes: list[GraphNode]) -> dict[int, str]:
     """Fetch community names for a batch of nodes."""
     node_ids = [node.id for node in nodes]
     if not node_ids:
@@ -140,7 +141,7 @@ def _get_community_names_for_nodes(conn: Any, nodes: list[Any]) -> dict[int, str
     }
 
 
-def _get_flow_names_for_nodes(conn: Any, nodes: list[Any]) -> dict[int, list[str]]:
+def _get_flow_names_for_nodes(conn: Any, nodes: list[GraphNode]) -> dict[int, list[str]]:
     """Fetch up to three flow names for each node in a batch."""
     node_ids = [node.id for node in nodes]
     if not node_ids:
@@ -165,7 +166,7 @@ def _get_flow_names_for_nodes(conn: Any, nodes: list[Any]) -> dict[int, list[str
 
 
 def _prepare_context_for_nodes(
-    nodes: list[Any], store: Any, conn: Any
+    nodes: list[GraphNode], store: Any, conn: Any
 ) -> EnrichmentPayload:
     qns = [node.qualified_name for node in nodes]
     outgoing, incoming = store.get_edges_by_endpoints(qns)
@@ -191,7 +192,7 @@ def _prepare_context_for_nodes(
 
 
 def _format_node_context(
-    node: Any,
+    node: GraphNode,
     context: EnrichmentPayload,
     repo_root: str,
 ) -> list[str]:

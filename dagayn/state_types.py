@@ -27,6 +27,9 @@ ConfidenceTier: TypeAlias = Literal["EXACT", "EXTRACTED", "HIGH", "MEDIUM", "LOW
 type JsonScalar = str | int | float | bool | None
 type JsonValue = JsonScalar | list[JsonValue] | dict[str, JsonValue]
 type JsonObject = dict[str, JsonValue]
+# Parser metadata is JSON-shaped but intentionally open: language parsers add
+# extractor-specific values such as decorator payloads and native row fields.
+type GraphExtra = dict[str, Any]
 
 
 class _OpenTypedDict(TypedDict, total=False):

@@ -13,6 +13,7 @@ from typing import Any
 
 from dagayn.eval.aggregate import (
     PROFILES,
+    ProfileSummary,
     profile_summaries_as_dicts,
     summarize_all_profiles,
     summarize_profile,
@@ -138,7 +139,7 @@ def _reports_dir_for(results_dir: Path, reports_dir: str | Path | None) -> Path:
 
 
 def _write_semantic_json(
-    summaries: list[Any],
+    summaries: list[ProfileSummary],
     reports_dir: Path,
 ) -> None:
     reports_dir.mkdir(parents=True, exist_ok=True)

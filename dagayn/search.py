@@ -14,7 +14,7 @@ import threading
 import time
 from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Optional, cast
+from typing import TYPE_CHECKING, Any, Callable, Optional, TypedDict, cast
 
 from .graph import GraphStore, _sanitize_name, store_write_transaction
 from .graph._fts_sync import fts_index_health, rebuild_fts_index_tx
@@ -26,6 +26,23 @@ logger = logging.getLogger(__name__)
 
 type SearchValue = Any
 type SearchPayload = dict[str, SearchValue]
+
+
+class SearchResult(TypedDict, total=False):
+    name: str
+    qualified_name: str
+    kind: str
+    file_path: str
+    line_start: int
+    line_end: int
+    language: str
+    params: str | None
+    return_type: str | None
+    signature: str | None
+    score: float
+    rank: int
+    source: str
+    is_test: bool
 
 _STORE_CLOSE_ERRORS = (OSError, sqlite3.Error, RuntimeError, AttributeError)
 _FTS_QUERY_ERRORS = (sqlite3.Error, TypeError, AttributeError, ValueError, RuntimeError)
@@ -1075,7 +1092,7 @@ def hybrid_search(
             continue
         eligible.append((node_id, final_score))
 
-    results: list[dict] = []
+    results: list[SearchResult] = []
     for node_id, final_score in eligible[:limit]:
         node = node_map.get(node_id)
         if not node:

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from ..graph import GraphStore
 from ..paths import db_path_for
-from ..search import hybrid_search
+from ..search import SearchResult, hybrid_search
 from ..state_types import MissingnessRecord, seal_missingness_item
 from ..write_lock import graph_read_lock
 from ._common import ToolPayload, handle_tool_runtime_error, make_response
@@ -90,7 +90,7 @@ def cross_repo_search_func(
                 ],
             )
 
-        all_results: list[dict] = []
+        all_results: list[SearchResult] = []
         searched_repos: list[str] = []
         # A repo that could not be searched used to vanish from the response
         # entirely: repos_searched listed successes only and no warning was

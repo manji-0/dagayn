@@ -18,6 +18,7 @@ from .types import (
     GraphStats,
     ImpactRadiusResult,
     SubgraphResult,
+    TransitiveTestRecord,
 )
 
 if TYPE_CHECKING:
@@ -124,7 +125,7 @@ class GraphQueryProtocol(Protocol):
         self,
         qualified_name: str,
         max_depth: int = 1,
-    ) -> list[dict]: ...
+    ) -> list[TransitiveTestRecord]: ...
 
     def resolve_bare_call_targets(self) -> int: ...
 

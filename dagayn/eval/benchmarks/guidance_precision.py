@@ -122,7 +122,7 @@ def _refactor_predictions(repo_path: Path, case: BenchmarkPayload) -> list[str]:
     return out
 
 
-def run(repo_path: Path, store: Any, config: dict) -> list[dict]:
+def run(repo_path: Path, store: Any, config: BenchmarkPayload) -> list[BenchmarkPayload]:
     """Run configured guidance precision cases.
 
     Config shape:
@@ -147,7 +147,7 @@ def run(repo_path: Path, store: Any, config: dict) -> list[dict]:
             }
         ]
 
-    rows: list[dict] = []
+    rows: list[BenchmarkPayload] = []
     review_cache: dict[tuple[tuple[str, ...], str, str], dict[str, list[str]]] = {}
     for idx, case in enumerate(cases):
         kind = str(case.get("kind", "recommended_tests"))

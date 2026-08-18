@@ -5,9 +5,22 @@ from __future__ import annotations
 import inspect
 import json
 import logging
-from typing import Any, Callable
+from typing import Any, Callable, TypedDict
 
 logger = logging.getLogger(__name__)
+
+
+class WorkflowCallRecord(TypedDict):
+    tool: str
+    tokens: int
+
+
+class WorkflowBenchmarkRecord(TypedDict, total=False):
+    workflow: str
+    total_tokens: int
+    tool_calls: int
+    calls: list[WorkflowCallRecord]
+    error: str
 
 
 def estimate_tokens(obj: Any) -> int:
@@ -18,13 +31,15 @@ def estimate_tokens(obj: Any) -> int:
     return len(json.dumps(obj, default=str)) // 4
 
 
-def benchmark_review_workflow(repo_root: str, base: str = "HEAD~1") -> dict:
+def benchmark_review_workflow(
+    repo_root: str, base: str = "HEAD~1"
+) -> WorkflowBenchmarkRecord:
     """Simulate a review workflow and measure total tokens consumed."""
     from ..tools.context import get_minimal_context
     from ..tools.review import detect_changes_func
 
     total_tokens = 0
-    calls = []
+    calls: list[WorkflowCallRecord] = []
 
     # Step 1: get_minimal_context
     result = get_minimal_context(task="review changes", repo_root=repo_root, base=base)
@@ -46,14 +61,14 @@ def benchmark_review_workflow(repo_root: str, base: str = "HEAD~1") -> dict:
     }
 
 
-def benchmark_architecture_workflow(repo_root: str) -> dict:
+def benchmark_architecture_workflow(repo_root: str) -> WorkflowBenchmarkRecord:
     """Simulate an architecture exploration workflow."""
     from ..tools.community_tools import list_communities_func
     from ..tools.context import get_minimal_context
     from ..tools.flows_tools import list_flows
 
     total_tokens = 0
-    calls = []
+    calls: list[WorkflowCallRecord] = []
 
     result = get_minimal_context(task="map architecture", repo_root=repo_root)
     tokens = estimate_tokens(result)
@@ -78,13 +93,13 @@ def benchmark_architecture_workflow(repo_root: str) -> dict:
     }
 
 
-def benchmark_debug_workflow(repo_root: str) -> dict:
+def benchmark_debug_workflow(repo_root: str) -> WorkflowBenchmarkRecord:
     """Simulate a debug workflow."""
     from ..tools.context import get_minimal_context
     from ..tools.query import semantic_search_nodes
 
     total_tokens = 0
-    calls = []
+    calls: list[WorkflowCallRecord] = []
 
     result = get_minimal_context(task="debug login bug", repo_root=repo_root)
     tokens = estimate_tokens(result)
@@ -108,13 +123,13 @@ def benchmark_debug_workflow(repo_root: str) -> dict:
     }
 
 
-def benchmark_onboard_workflow(repo_root: str) -> dict:
+def benchmark_onboard_workflow(repo_root: str) -> WorkflowBenchmarkRecord:
     """Simulate an onboarding workflow."""
     from ..tools.context import get_minimal_context
     from ..tools.query import list_graph_stats
 
     total_tokens = 0
-    calls = []
+    calls: list[WorkflowCallRecord] = []
 
     result = get_minimal_context(task="onboard developer", repo_root=repo_root)
     tokens = estimate_tokens(result)
@@ -134,13 +149,15 @@ def benchmark_onboard_workflow(repo_root: str) -> dict:
     }
 
 
-def benchmark_pre_merge_workflow(repo_root: str, base: str = "HEAD~1") -> dict:
+def benchmark_pre_merge_workflow(
+    repo_root: str, base: str = "HEAD~1"
+) -> WorkflowBenchmarkRecord:
     """Simulate a pre-merge check workflow."""
     from ..tools.context import get_minimal_context
     from ..tools.review import detect_changes_func
 
     total_tokens = 0
-    calls = []
+    calls: list[WorkflowCallRecord] = []
 
     result = get_minimal_context(task="pre-merge check", repo_root=repo_root, base=base)
     tokens = estimate_tokens(result)
@@ -160,7 +177,7 @@ def benchmark_pre_merge_workflow(repo_root: str, base: str = "HEAD~1") -> dict:
     }
 
 
-ALL_WORKFLOWS: dict[str, Callable[..., dict]] = {
+ALL_WORKFLOWS: dict[str, Callable[..., WorkflowBenchmarkRecord]] = {
     "review": benchmark_review_workflow,
     "architecture": benchmark_architecture_workflow,
     "debug": benchmark_debug_workflow,
@@ -169,9 +186,11 @@ ALL_WORKFLOWS: dict[str, Callable[..., dict]] = {
 }
 
 
-def run_all_benchmarks(repo_root: str, base: str = "HEAD~1") -> list[dict]:
+def run_all_benchmarks(
+    repo_root: str, base: str = "HEAD~1"
+) -> list[WorkflowBenchmarkRecord]:
     """Run all workflow benchmarks and return results."""
-    results = []
+    results: list[WorkflowBenchmarkRecord] = []
     for name, fn in ALL_WORKFLOWS.items():
         try:
             if "base" in inspect.signature(fn).parameters:

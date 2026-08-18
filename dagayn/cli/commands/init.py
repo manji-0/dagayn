@@ -10,6 +10,7 @@ from ._shared import (
     _PLATFORM_CHOICES,
     _REMOTE_ENV_VARS,
     DEFAULT_LOCAL_EMBEDDING_BIN,
+    CommandRegistry,
     _add_local_embedding_args,
     _confirm_yes_no,
     _resolve_install_mode,
@@ -37,7 +38,7 @@ def _local_embedding_install_args(args: argparse.Namespace, mode: str) -> list[s
     return result
 
 
-def register_commands(sub: argparse._SubParsersAction) -> dict:
+def register_commands(sub: argparse._SubParsersAction) -> CommandRegistry:
     """Register install and init subcommands. Returns {cmd_name: subparser} dict."""
 
     def _add_common(p: argparse.ArgumentParser) -> None:

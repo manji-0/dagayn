@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Any
 
 from dagayn.eval.git_utils import ensure_parent_available, run_git
 from dagayn.eval.scorer import IdentifierMatcher
 
 logger = logging.getLogger(__name__)
+
+type BenchmarkValue = Any
+type BenchmarkPayload = dict[str, BenchmarkValue]
 
 
 def _get_changed_files(repo_path: Path, sha: str) -> list[str]:
@@ -17,9 +21,9 @@ def _get_changed_files(repo_path: Path, sha: str) -> list[str]:
     return [f.strip() for f in result.stdout.strip().splitlines() if f.strip()]
 
 
-def run(repo_path: Path, store, config: dict) -> list[dict]:
+def run(repo_path: Path, store: Any, config: BenchmarkPayload) -> list[BenchmarkPayload]:
     """Run impact accuracy benchmark."""
-    results = []
+    results: list[BenchmarkPayload] = []
     matcher = IdentifierMatcher.from_config(config)
     for tc in config.get("test_commits", []):
         sha = str(tc["sha"])

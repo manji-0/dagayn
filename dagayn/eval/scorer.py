@@ -10,12 +10,29 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from pathlib import PurePosixPath
-from typing import Any
+from typing import Any, TypedDict
 
 type ScoreValue = Any
 type ScorePayload = dict[str, ScoreValue]
 
-def compute_token_efficiency(raw_tokens: int, graph_tokens: int) -> dict:
+
+class WorkflowScoreRecord(TypedDict, total=False):
+    raw_tokens: int
+    graph_tokens: int
+    ratio: float
+    reduction_percent: float
+    precision: float | None
+    recall: float | None
+    f1: float | None
+    precision_at_k: float | None
+    hits: int
+    k: int
+    returned: int
+    relevant: int
+    status: str
+
+
+def compute_token_efficiency(raw_tokens: int, graph_tokens: int) -> WorkflowScoreRecord:
     """Compute token efficiency metrics.
 
     Args:
@@ -63,11 +80,11 @@ def compute_mrr(correct: str, results: list[str]) -> float:
 
 
 def compute_precision_recall(
-    predicted: set,
-    actual: set,
+    predicted: set[str],
+    actual: set[str],
     *,
     perfect_empty: bool = False,
-) -> dict:
+) -> WorkflowScoreRecord:
     """Compute precision, recall, and F1 score.
 
     Args:
@@ -104,7 +121,7 @@ def compute_precision_at_k(
     k: int = 5,
     *,
     perfect_empty: bool = False,
-) -> dict:
+) -> WorkflowScoreRecord:
     """Compute precision@k for ranked guidance outputs.
 
     Args:

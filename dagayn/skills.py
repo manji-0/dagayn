@@ -390,11 +390,11 @@ def _merge_hermes_hook_entries(
 
 
 def _merge_pi_hook_entries(
-    existing_hooks: list[Any],
+    existing_hooks: list[object],
     hooks_config: list[SkillPayload],
-) -> list[Any]:
+) -> list[object]:
     """Merge pi-yaml-hooks entries, replacing dagayn-managed bash actions."""
-    kept_entries = []
+    kept_entries: list[object] = []
     for entry in existing_hooks:
         if not isinstance(entry, dict):
             kept_entries.append(entry)
@@ -589,7 +589,7 @@ def _sync_cursor_user_mcp(server_entry: SkillPayload, *, dry_run: bool) -> None:
             updated.pop("env", None)
     args = updated.get("args")
     if isinstance(args, list):
-        cleaned: list[Any] = []
+        cleaned: list[object] = []
         skip_next = False
         for item in args:
             if skip_next:
@@ -1854,7 +1854,7 @@ _CURSOR_SETUP_KEYS = ("setup-worktree-unix", "setup-worktree-windows")
 _CURSOR_SETUP_FALLBACK_KEY = "setup-worktree"
 
 
-def _merge_cursor_setup_commands(commands: list[Any]) -> list[Any]:
+def _merge_cursor_setup_commands(commands: list[object]) -> list[object]:
     """Replace dagayn-managed setup commands, preserving the user's own."""
     kept = [
         command

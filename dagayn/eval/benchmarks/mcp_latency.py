@@ -16,6 +16,9 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+type BenchmarkValue = Any
+type BenchmarkPayload = dict[str, BenchmarkValue]
+
 
 def _time_call(fn: Callable[[], Any], repeat: int) -> tuple[float, float, float]:
     timings: list[float] = []
@@ -28,7 +31,7 @@ def _time_call(fn: Callable[[], Any], repeat: int) -> tuple[float, float, float]
     return timings[0], timings[len(timings) // 2], timings[p95_index]
 
 
-def _first_query(config: dict, default: str = "graph") -> str:
+def _first_query(config: BenchmarkPayload, default: str = "graph") -> str:
     queries = config.get("search_queries") or []
     if queries:
         return str(queries[0].get("query") or default)
@@ -43,7 +46,9 @@ def _first_node_target(store: Any) -> str:
     return nodes[0].qualified_name if nodes else ""
 
 
-def _scenarios(repo_path: Path, store: Any, config: dict) -> dict[str, Callable[[], Any]]:
+def _scenarios(
+    repo_path: Path, store: Any, config: BenchmarkPayload
+) -> dict[str, Callable[[], Any]]:
     from dagayn.tools.architecture_analysis import architecture_analysis_func
     from dagayn.tools.context import get_minimal_context
     from dagayn.tools.query import query_graph, semantic_search_nodes, traverse_graph_func
@@ -96,14 +101,14 @@ def _scenarios(repo_path: Path, store: Any, config: dict) -> dict[str, Callable[
     }
 
 
-def run(repo_path: Path, store: Any, config: dict) -> list[dict]:
+def run(repo_path: Path, store: Any, config: BenchmarkPayload) -> list[BenchmarkPayload]:
     """Run local per-tool latency measurements.
 
     Config keys:
       ``latency_repeat``: number of repeats per scenario (default 3).
     """
     repeat = int(config.get("latency_repeat", 3))
-    results: list[dict] = []
+    results: list[BenchmarkPayload] = []
     for name, fn in _scenarios(repo_path, store, config).items():
         try:
             best_ms, median_ms, p95_ms = _time_call(fn, repeat)

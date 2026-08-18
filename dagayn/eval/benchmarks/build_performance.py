@@ -6,18 +6,22 @@ import logging
 import statistics
 import time
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
+type BenchmarkValue = Any
+type BenchmarkPayload = dict[str, BenchmarkValue]
 
-def run(repo_path: Path, store, config: dict) -> list[dict]:
+
+def run(repo_path: Path, store: Any, config: BenchmarkPayload) -> list[BenchmarkPayload]:
     """Run build performance benchmark."""
     del store
     from dagayn.graph import GraphStore
     from dagayn.incremental import full_build
 
     repeats = max(1, int(config.get("build_performance_repeat", 1)))
-    rows: list[dict] = []
+    rows: list[BenchmarkPayload] = []
     timings: list[float] = []
     repo_name = str(config["name"])
     for idx in range(repeats):

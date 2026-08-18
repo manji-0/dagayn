@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, cast
 
@@ -20,7 +21,7 @@ from ..cross_artifact import (
 from ..cross_artifact import (
     is_low_confidence_unresolved_markdown_code_span as _shared_low_conf_code_span,
 )
-from ..graph.types import ImpactRadiusResult
+from ..graph.types import GraphNode, ImpactRadiusResult
 from ..stability_policy import component_stability_profiles, scope_key_for_file
 from ..state_types import ChangeAnalysisResult
 from ._common import make_guidance_item
@@ -219,7 +220,7 @@ def _component_density_by_scope(
     if not scopes:
         return {}
 
-    scope_nodes: dict[str, list[Any]] = defaultdict(list)
+    scope_nodes: dict[str, list[GraphNode]] = defaultdict(list)
     test_node_counts: dict[str, int] = defaultdict(int)
     for node in store.get_all_nodes(exclude_files=True):
         scope_key = _scope_key_for_file(str(getattr(node, "file_path", "")))
@@ -883,8 +884,10 @@ def _hotspot_proximity(
         if getattr(node, "qualified_name", "")
     }
 
-    def _matches(items: list[ReviewPayload], qns: set[str]) -> list[ReviewPayload]:
-        return [item for item in items if item.get("qualified_name") in qns][:limit]
+    def _matches(items: Sequence[Mapping[str, object]], qns: set[str]) -> list[ReviewPayload]:
+        return [cast(ReviewPayload, item) for item in items if item.get("qualified_name") in qns][
+            :limit
+        ]
 
     return {
         "changed_hubs": _matches(hubs, changed_qns),

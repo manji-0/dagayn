@@ -6,6 +6,7 @@ from typing import Optional
 
 from .._scope import ArtifactScope
 from ..analysis import (
+    SuggestedQuestionRecord,
     find_bridge_nodes,
     find_hub_nodes,
     find_knowledge_gaps,
@@ -344,7 +345,7 @@ def get_suggested_questions_func(
     try:
         answerability = graph_answerability_summary(store)
         questions = generate_suggested_questions(store)
-        by_priority: dict[str, list[dict]] = {
+        by_priority: dict[str, list[SuggestedQuestionRecord]] = {
             "high": [],
             "medium": [],
             "low": [],

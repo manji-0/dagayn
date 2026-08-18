@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from typing import Any, cast
 
-from ..graph import edge_to_dict, node_to_dict
+from ..graph import GraphNode, edge_to_dict, node_to_dict
 from ..incremental import get_changed_file_sources, get_staged_and_unstaged
 from ..state_types import seal_missingness_item
 from ._common import (
@@ -326,7 +327,7 @@ def _budget_source_snippets(payload: ReviewContextPayload) -> None:
         truncation["source_snippets"] = {"kept": len(kept), "total": len(snippets)}
 
 
-def _extract_relevant_lines(lines: list[str], nodes: list, file_path: str) -> str:
+def _extract_relevant_lines(lines: list[str], nodes: list[GraphNode], file_path: str) -> str:
     """Extract only the lines relevant to changed nodes."""
     ranges = []
     for n in nodes:
@@ -358,7 +359,7 @@ def _extract_relevant_lines(lines: list[str], nodes: list, file_path: str) -> st
     return "\n".join(parts)
 
 
-def _generate_review_guidance(impact: dict, changed_files: list[str]) -> str:
+def _generate_review_guidance(impact: Mapping[str, Any], changed_files: list[str]) -> str:
     """Generate review guidance based on the impact analysis."""
     guidance_parts = []
 

@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from dagayn.embeddings import EmbeddingProvider
+from dagayn.graph import GraphNode
 
 type BenchmarkValue = Any
 type BenchmarkPayload = dict[str, BenchmarkValue]
@@ -321,7 +322,7 @@ def _code_materials(repo_path: Path, node: Any, strategy: _Strategy) -> list[_Ma
 
 def _materials_for_strategy(
     repo_path: Path,
-    nodes: list[Any],
+    nodes: list[GraphNode],
     strategy: _Strategy,
     *,
     max_chars: int,

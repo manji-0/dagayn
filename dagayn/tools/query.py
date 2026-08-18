@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Callable, cast
 
@@ -18,7 +18,7 @@ from ..cross_artifact import (
     is_low_confidence_unresolved_markdown_code_span,
 )
 from ..embeddings import EmbeddingStore
-from ..graph import _sanitize_name, edge_to_dict, node_to_dict
+from ..graph import GraphEdge, GraphNode, _sanitize_name, edge_to_dict, node_to_dict
 from ..hints import generate_hints, get_session
 from ..incremental import get_changed_files, get_db_path, get_staged_and_unstaged
 from ..search import embedding_health_available, hybrid_search
@@ -106,7 +106,7 @@ def _merge_unresolved_targets(
 
 def _node_dicts_for_edges(
     store: Any,
-    edges: list[Any],
+    edges: Sequence[GraphEdge],
     *,
     qualified_attr: str,
 ) -> tuple[list[QueryPayload], list[str]]:
@@ -173,7 +173,7 @@ def _partial_coverage_missingness(
 
 def _query_zero_result_fields(
     *,
-    results: list[dict],
+    results: list[QueryPayload],
     unresolved_targets: list[str],
 ) -> QueryPayload:
     if results:
@@ -204,7 +204,12 @@ def _is_low_confidence_unresolved_markdown_code_span(edge: Any) -> bool:
     return is_low_confidence_unresolved_markdown_code_span(edge)
 
 
-def _documentation_result(edge: Any, *, endpoint: str, inverse_label: str | None = None) -> dict:
+def _documentation_result(
+    edge: GraphEdge,
+    *,
+    endpoint: str,
+    inverse_label: str | None = None,
+) -> QueryPayload:
     role = _cross_artifact_role(edge)
     confidence_tier = str(edge.confidence_tier or "").upper()
     evidence_type = "authored" if role in {"implements_contract", "implemented_by"} else "extracted"
@@ -263,9 +268,9 @@ def _exactness_action(query: str, exact_count: int, result_count: int) -> QueryP
 
 def _filter_bare_name_fallback_edges(
     store: Any,
-    edges: list[Any],
-    target_node: Any,
-) -> list[Any]:
+    edges: list[GraphEdge],
+    target_node: GraphNode | None,
+) -> list[GraphEdge]:
     """Keep bare-name fallback edges only when import context supports them."""
     if not edges or target_node is None:
         return edges
@@ -463,7 +468,7 @@ def _normalized_repo_path(value: str, root: Path) -> str:
 
 
 def _unmatched_changed_files(
-    changed_files: list[str], changed_nodes: list, root: Path
+    changed_files: list[str], changed_nodes: list[GraphNode], root: Path
 ) -> list[str]:
     """Return the changed files the graph holds no nodes for.
 
@@ -752,8 +757,8 @@ def query_graph(
                 ),
             }
 
-        results: list[dict] = []
-        edges_out: list[dict] = []
+        results: list[QueryPayload] = []
+        edges_out: list[QueryPayload] = []
         unresolved_targets: list[str] = []
 
         # For callers_of, skip common builtins early (bare names only)
@@ -1063,7 +1068,7 @@ def query_graph(
                 _annotate_bare_name_edges(edges_out)
 
         elif pattern == "file_summary":
-            file_nodes: list[Any] = []
+            file_nodes: list[GraphNode] = []
             for abs_path in _file_path_candidates(root, target):
                 file_nodes = store.get_nodes_by_file(abs_path)
                 if file_nodes:
@@ -1528,7 +1533,7 @@ def _traverse_dfs_lazy(
     unresolved_seen: set[str] = set()
     approx_tokens = 0
     budget_exceeded = False
-    node_cache: dict[str, Any | None] = {}
+    node_cache: dict[str, GraphNode | None] = {}
     neighbor_cache: dict[str, list[str]] = {}
     stack: list[tuple[str, int]] = [(start_qn, 0)]
 

@@ -82,7 +82,7 @@ class GraphStoreAnalysisMixin(GraphStoreMixinProtocol):
             "line_end IS NOT NULL",
             "(line_end - line_start + 1) >= ?",
         ]
-        params: list = [min_lines]
+        params: list[str | int] = [min_lines]
 
         if max_lines is not None:
             conditions.append("(line_end - line_start + 1) <= ?")

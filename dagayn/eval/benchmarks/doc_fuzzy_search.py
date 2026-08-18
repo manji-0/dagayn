@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Callable, cast
 
 from dagayn.embeddings import EmbeddingProvider
+from dagayn.graph import GraphNode
 
 type BenchmarkValue = Any
 type BenchmarkPayload = dict[str, BenchmarkValue]
@@ -124,7 +125,7 @@ def _read_line_span(repo_path: Path, node: Any, max_chars: int = 4096) -> str:
     return "\n".join(lines[start:end])[:max_chars]
 
 
-def _read_doc_section(repo_path: Path, node: Any, max_chars: int = 4096) -> str:
+def _read_doc_section(repo_path: Path, node: GraphNode, max_chars: int = 4096) -> str:
     if node.kind == "DocBody":
         return _read_line_span(repo_path, node, max_chars=max_chars)
 
@@ -155,7 +156,7 @@ def _read_doc_section(repo_path: Path, node: Any, max_chars: int = 4096) -> str:
     return "\n".join(lines[start:end])[:max_chars]
 
 
-def _doc_text(repo_path: Path, node: Any) -> str:
+def _doc_text(repo_path: Path, node: GraphNode) -> str:
     parts = [
         str(node.name),
         str(node.qualified_name),
@@ -193,10 +194,10 @@ def _doc_nodes(
     *,
     include_paths: list[str] | None = None,
     exclude_paths: list[str] | None = None,
-) -> list[Any]:
+) -> list[GraphNode]:
     getter = getattr(store, "get_nodes_by_kind", None)
     if callable(getter):
-        nodes = list(cast(Callable[[list[str]], list[Any]], getter)(sorted(_DOC_KINDS)))
+        nodes = list(cast(Callable[[list[str]], list[GraphNode]], getter)(sorted(_DOC_KINDS)))
     else:
         nodes = [node for node in store.get_all_nodes() if node.kind in _DOC_KINDS]
     include_paths = include_paths or []
@@ -299,7 +300,7 @@ def _fts_ranked_docs(
 
 
 def _embedding_ranked_docs(
-    nodes: list[Any],
+    nodes: list[GraphNode],
     vectors: list[list[float]],
     provider: _DocFuzzyEmbeddingProvider,
     query: str,

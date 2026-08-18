@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import threading
 import time
+from typing import Any
 
 _refactor_lock = threading.Lock()
-_pending_refactors: dict[str, dict] = {}
+type PendingRefactorPayload = dict[str, Any]
+_pending_refactors: dict[str, PendingRefactorPayload] = {}
 REFACTOR_EXPIRY_SECONDS = 600  # 10 minutes
 
 

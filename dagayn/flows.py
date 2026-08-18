@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import sqlite3
 from collections import deque
 from collections.abc import Mapping, Sequence
 from typing import Any, Callable, Optional, TypedDict, cast
@@ -23,6 +24,7 @@ from .bridge_types import FlowStepRecord
 from .constants import SECURITY_KEYWORDS as _SECURITY_KEYWORDS
 from .graph import (
     FlowAdjacency,
+    GraphEdge,
     GraphNode,
     GraphStore,
     _sanitize_name,
@@ -1030,17 +1032,17 @@ def _annotate_flow_rows_liveness(
 def _collect_cross_artifact_edges_among(
     store: GraphStore,
     path_qns: set[str],
-) -> list[Any]:
+) -> list[GraphEdge]:
     """Fetch CROSS_ARTIFACT edges whose endpoints are both in ``path_qns``."""
     if not path_qns:
         return []
     try:
         get_among = getattr(store, "get_edges_among", None)
         if callable(get_among):
-            edges = cast(Callable[[set[str]], list[Any]], get_among)(path_qns)
+            edges = cast(Callable[[set[str]], list[GraphEdge]], get_among)(path_qns)
             return [edge for edge in edges if getattr(edge, "kind", None) == "CROSS_ARTIFACT"]
         outgoing, incoming = store.get_edges_by_endpoints(list(path_qns))
-        bridge_edges: list[Any] = []
+        bridge_edges: list[GraphEdge] = []
         seen: set[int] = set()
         for edge_list in (*outgoing.values(), *incoming.values()):
             for edge in edge_list:
@@ -1118,7 +1120,7 @@ def get_flow_by_id(store: GraphStore, flow_id: int) -> Optional[FlowRecord]:
 
 def _hydrate_flow_rows(
     store: GraphStore,
-    rows: list[Any],
+    rows: list[sqlite3.Row],
 ) -> list[FlowRecord]:
     """Build full flow dicts (with ``steps``) for a list of flow rows.
 
@@ -1168,7 +1170,7 @@ def _hydrate_flow_rows(
             )
         resolved_step_count = len(steps)
 
-        bridge_edges: list[Any] = []
+        bridge_edges: list[GraphEdge] = []
         if path_qns:
             try:
                 bridge_edges = [
@@ -1235,7 +1237,7 @@ def get_affected_flows(
 
     # Batch-fetch all matching flow rows in one query (chunked to stay
     # within SQLite's IN(...) variable limit).
-    rows: list[Any] = []
+    rows: list[sqlite3.Row] = []
     batch_size = 450
     for i in range(0, len(flow_ids), batch_size):
         batch = flow_ids[i : i + batch_size]

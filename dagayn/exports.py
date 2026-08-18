@@ -8,13 +8,19 @@ import logging
 import re
 from collections import Counter, defaultdict
 from pathlib import Path
+from typing import Any, Mapping
 
 from .graph import GraphStore, _sanitize_name
 
 logger = logging.getLogger(__name__)
 
 
-def _export_graph_data(store: GraphStore) -> dict:
+type ExportRecord = dict[str, Any]
+type ExportPayload = dict[str, Any]
+type ExportNeighbor = dict[str, str]
+
+
+def _export_graph_data(store: GraphStore) -> ExportPayload:
     visualization_data = importlib.import_module("dagayn.visualization.data")
     return visualization_data.export_graph_data(store)
 
@@ -134,7 +140,7 @@ def _cypher_escape(s: str) -> str:
     return s.replace("\\", "\\\\").replace("'", "\\'")
 
 
-def _cypher_props(d: dict) -> str:
+def _cypher_props(d: Mapping[str, str | int | float | bool]) -> str:
     """Format a dict as Cypher property map."""
     parts = []
     for k, v in d.items():
@@ -170,7 +176,7 @@ def export_obsidian_vault(store: GraphStore, output_dir: Path) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Build adjacency for wikilinks
-    neighbors: dict[str, list[dict]] = {}
+    neighbors: dict[str, list[ExportNeighbor]] = {}
     for e in edges:
         src = e["source"]
         tgt = e["target"]
@@ -336,7 +342,7 @@ def export_mermaid_c4(store: GraphStore, output_path: Path) -> Path:
         'Container_Boundary(repo, "Repository") {',
     ]
 
-    grouped_files: dict[str, list[dict]] = defaultdict(list)
+    grouped_files: dict[str, list[ExportRecord]] = defaultdict(list)
     for node in file_nodes:
         file_path = node.get("file_path", node["qualified_name"])
         top_level = file_path.split("/", 1)[0] if "/" in file_path else "."

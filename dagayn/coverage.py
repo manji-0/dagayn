@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 from typing import Any, Callable, TypedDict
 
-from .graph import GraphNode, node_to_dict
+from .graph import GraphEdge, GraphNode, node_to_dict
 from .state_types import ChangeNodeRecord
 
 _TEST_FILE_PARTS = ("/tests/", "/test/", "/__tests__/")
@@ -45,7 +45,7 @@ class CoverageRecord(ChangeNodeRecord, total=False):
 
 class ScanState(TypedDict):
     candidates: list[tuple[GraphNode, str, str]]
-    import_edges_by_source: dict[str, list[Any]]
+    import_edges_by_source: dict[str, list[GraphEdge]]
     token_cache: dict[str, tuple[list[str], str]]
     source_cache: dict[str, list[str]]
 
@@ -214,7 +214,9 @@ def _target_module_markers(target: GraphNode) -> set[str]:
     return markers
 
 
-def _build_import_edges_by_source(store: Any, candidate_keys: list[str]) -> dict[str, list[Any]]:
+def _build_import_edges_by_source(
+    store: Any, candidate_keys: list[str]
+) -> dict[str, list[GraphEdge]]:
     """Batch-load IMPORTS_FROM edges for candidate source keys.
 
     The old per-candidate ``get_edges_by_source`` loop issued one SQL query
@@ -225,14 +227,14 @@ def _build_import_edges_by_source(store: Any, candidate_keys: list[str]) -> dict
     """
     if not candidate_keys:
         return {}
-    get_by_kind: Callable[[str], list[Any]] | None = getattr(store, "get_edges_by_kind", None)
+    get_by_kind: Callable[[str], list[GraphEdge]] | None = getattr(store, "get_edges_by_kind", None)
     if get_by_kind is not None:
         try:
             edges = get_by_kind("IMPORTS_FROM")
         except Exception:  # pragma: no cover - defensive for backend parity drift
             edges = []
         wanted = set(candidate_keys)
-        by_source: dict[str, list[Any]] = {}
+        by_source: dict[str, list[GraphEdge]] = {}
         for edge in edges:
             src = getattr(edge, "source_qualified", "")
             if src in wanted:
@@ -252,7 +254,7 @@ def _candidate_references_target_module(
     store: Any,
     target: GraphNode,
     candidate: GraphNode,
-    import_edges_by_source: dict[str, list[Any]] | None = None,
+    import_edges_by_source: dict[str, list[GraphEdge]] | None = None,
     *,
     target_markers: set[str] | None = None,
     target_stem: str | None = None,
@@ -365,7 +367,7 @@ def _candidate_score(
     candidate: GraphNode,
     target_tokens: list[str],
     target_squashed: str,
-    import_edges_by_source: dict[str, list[Any]] | None = None,
+    import_edges_by_source: dict[str, list[GraphEdge]] | None = None,
     source_cache: dict[str, list[str]] | None = None,
     token_cache: dict[str, tuple[list[str], str]] | None = None,
     *,

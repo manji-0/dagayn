@@ -115,6 +115,47 @@ class KnowledgeGapsResult(TypedDict):
     _meta: KnowledgeGapMeta
 
 
+class HubNodeRecord(TypedDict, total=False):
+    name: str
+    qualified_name: str
+    kind: str
+    file: str
+    in_degree: int
+    out_degree: int
+    total_degree: int
+    community_id: int | None
+    score_source: str
+
+
+class BridgeNodeRecord(TypedDict, total=False):
+    name: str
+    qualified_name: str
+    kind: str
+    file: str
+    betweenness: float
+    community_id: int | None
+    score_source: str
+
+
+class SurpriseConnectionRecord(TypedDict):
+    source: str
+    source_qualified: str
+    target: str
+    target_qualified: str
+    edge_kind: str
+    surprise_score: float
+    reasons: list[str]
+    source_community: int | None
+    target_community: int | None
+
+
+class SuggestedQuestionRecord(TypedDict):
+    category: str
+    question: str
+    target: str
+    priority: str
+
+
 def build_graph_snapshot(store: GraphStore) -> GraphSnapshot:
     """Build a :class:`GraphSnapshot` with one read of edges/nodes/communities."""
     edges = store.get_all_edges()
@@ -148,7 +189,7 @@ def find_hub_nodes(
     use_persisted: bool = True,
     artifact_scope: ArtifactScope = "all",
     include_tests: bool = True,
-) -> list[dict]:
+) -> list[HubNodeRecord]:
     """Find the most connected nodes (highest in+out degree), excluding File nodes.
 
     Returns list of dicts with: name, qualified_name, kind, file,
@@ -167,7 +208,7 @@ def find_hub_nodes(
     in_degree, out_degree = _degree_counters(scoped_edges)
     community_map = snapshot.community_map
 
-    scored = []
+    scored: list[HubNodeRecord] = []
     for n in nodes:
         qn = n.qualified_name
         ind = in_degree.get(qn, 0)
@@ -203,7 +244,7 @@ def find_bridge_nodes(
     use_persisted: bool = True,
     artifact_scope: ArtifactScope = "all",
     include_tests: bool = True,
-) -> list[dict]:
+) -> list[BridgeNodeRecord]:
     """Find nodes with highest betweenness centrality.
 
     These are architectural chokepoints that sit on shortest paths
@@ -245,7 +286,7 @@ def find_bridge_nodes(
 
     community_map = snapshot.community_map
 
-    results = []
+    results: list[BridgeNodeRecord] = []
     for qn, score in bc.items():
         if score <= 0 or qn not in node_map:
             continue
@@ -469,7 +510,7 @@ def _ensure_centrality_score_tables(store: GraphStore) -> None:
 
 def _load_persisted_hub_scores(
     store: GraphStore, top_n: int, *, artifact_scope: ArtifactScope = "all"
-) -> list[dict]:
+) -> list[HubNodeRecord]:
     table = "hub_scores_code" if artifact_scope == "code" else "hub_scores"
     try:
         _ensure_centrality_score_tables(store)
@@ -499,7 +540,7 @@ def _load_persisted_hub_scores(
 
 def _load_persisted_bridge_scores(
     store: GraphStore, top_n: int, *, artifact_scope: ArtifactScope = "all"
-) -> list[dict]:
+) -> list[BridgeNodeRecord]:
     table = "bridge_scores_code" if artifact_scope == "code" else "bridge_scores"
     try:
         _ensure_centrality_score_tables(store)
@@ -1005,7 +1046,7 @@ def find_surprising_connections(
     snapshot: GraphSnapshot | None = None,
     artifact_scope: ArtifactScope = "all",
     include_tests: bool = True,
-) -> list[dict]:
+) -> list[SurpriseConnectionRecord]:
     """Find edges with high surprise scores.
 
     Detects unexpected architectural coupling based on:
@@ -1047,7 +1088,7 @@ def find_surprising_connections(
             continue
         pair_counts[(min(src_cid, tgt_cid), max(src_cid, tgt_cid), e.kind)] += 1
 
-    scored_edges = []
+    scored_edges: list[SurpriseConnectionRecord] = []
     for e in edges:
         if e.kind == "CONTAINS":
             continue
@@ -1174,7 +1215,7 @@ def _degree_counters(edges: list[GraphEdge]) -> tuple[Counter[str], Counter[str]
 
 def generate_suggested_questions(
     store: GraphStore,
-) -> list[dict]:
+) -> list[SuggestedQuestionRecord]:
     """Auto-generate review questions from graph analysis.
 
     Categories:
@@ -1188,7 +1229,7 @@ def generate_suggested_questions(
     if native_questions is not None:
         return native_questions
 
-    questions = []
+    questions: list[SuggestedQuestionRecord] = []
     snapshot = build_graph_snapshot(store)
 
     # Bridge node questions
@@ -1291,7 +1332,7 @@ def generate_suggested_questions(
     return questions
 
 
-def _generate_suggested_questions_native(store: GraphStore) -> list[dict] | None:
+def _generate_suggested_questions_native(store: GraphStore) -> list[SuggestedQuestionRecord] | None:
     native_generate = getattr(store, "generate_suggested_questions_json", None)
     if not callable(native_generate):
         return None
@@ -1304,6 +1345,6 @@ def _generate_suggested_questions_native(store: GraphStore) -> list[dict] | None
             exc_info=True,
         )
         return None
-    if not isinstance(decoded, list):
+    if not isinstance(decoded, list) or not all(isinstance(item, dict) for item in decoded):
         return None
-    return decoded
+    return cast(list[SuggestedQuestionRecord], decoded)

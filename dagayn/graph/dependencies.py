@@ -9,6 +9,7 @@ from ..bare_name_resolution import (
     resolve_bare_inheritance_targets as _resolve_bare_inheritance_targets,
 )
 from ._mixin_protocol import GraphStoreMixinProtocol
+from .types import TransitiveTestRecord
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +69,7 @@ class GraphStoreDependencyMixin(GraphStoreMixinProtocol):
         self,
         qualified_name: str,
         max_depth: int = 1,
-    ) -> list[dict]:
+    ) -> list[TransitiveTestRecord]:
         """Find tests covering a node, including indirect (transitive) coverage.
 
         1. Direct: TESTED_BY edges sourced from this node (bare-name fallback only
@@ -80,7 +81,7 @@ class GraphStoreDependencyMixin(GraphStoreMixinProtocol):
         """
         conn = self._conn
         seen: set[str] = set()
-        results: list[dict] = []
+        results: list[TransitiveTestRecord] = []
 
         # If the input is a class, expand to its methods first.
         input_qns = [qualified_name]
@@ -96,7 +97,7 @@ class GraphStoreDependencyMixin(GraphStoreMixinProtocol):
             ).fetchall():
                 input_qns.append(mrow["target_qualified"])
 
-        def _node_dict(qn: str, indirect: bool) -> dict | None:
+        def _node_dict(qn: str, indirect: bool) -> TransitiveTestRecord | None:
             row = conn.execute("SELECT * FROM nodes WHERE qualified_name = ?", (qn,)).fetchone()
             if not row:
                 return None

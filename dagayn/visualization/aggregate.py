@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from typing import Any
+
+type VisualizationRecord = dict[str, Any]
+type VisualizationPayload = dict[str, Any]
 
 
-def _aggregate_community(data: dict) -> dict:
+def _aggregate_community(data: VisualizationPayload) -> VisualizationPayload:
     """Aggregate full graph data into community-level super-nodes.
 
     Each community becomes a single node sized by member count.
@@ -36,7 +40,7 @@ def _aggregate_community(data: dict) -> dict:
             uncategorized_members.append(n["qualified_name"])
 
     # Build community info map (including the synthetic uncategorized one)
-    cid_info: dict[int, dict] = {}
+    cid_info: dict[int, VisualizationRecord] = {}
     for c in communities:
         cid_info[c["id"]] = c
     if uncategorized_members:
@@ -94,7 +98,7 @@ def _aggregate_community(data: dict) -> dict:
         )
 
     # Build per-community detail data for drill-down
-    community_details: dict[int, dict] = {}
+    community_details: dict[int, VisualizationPayload] = {}
     cid_members_set: dict[int, set[str]] = defaultdict(set)
     for qn, cid in qn_to_cid.items():
         cid_members_set[cid].add(qn)
@@ -102,12 +106,12 @@ def _aggregate_community(data: dict) -> dict:
     # One pass over nodes and one over edges, bucketed by community, instead of
     # a full scan of both per community: the nested form scaled 4x per 2x input
     # (0.35 s at 33.6k nodes / 400 communities, ~100x that on a 300k-node repo).
-    detail_nodes_by_cid: dict[int, list[dict]] = defaultdict(list)
+    detail_nodes_by_cid: dict[int, list[VisualizationRecord]] = defaultdict(list)
     for node in nodes:
         cid = qn_to_cid.get(node["qualified_name"])
         if cid is not None:
             detail_nodes_by_cid[cid].append(node)
-    detail_edges_by_cid: dict[int, list[dict]] = defaultdict(list)
+    detail_edges_by_cid: dict[int, list[VisualizationRecord]] = defaultdict(list)
     for edge in edges:
         source_cid = qn_to_cid.get(edge["source"])
         if source_cid is not None and source_cid == qn_to_cid.get(edge["target"]):
@@ -130,7 +134,7 @@ def _aggregate_community(data: dict) -> dict:
     }
 
 
-def _aggregate_file(data: dict) -> dict:
+def _aggregate_file(data: VisualizationPayload) -> VisualizationPayload:
     """Aggregate full graph data into file-level nodes.
 
     Each file becomes a node sized by symbol count.

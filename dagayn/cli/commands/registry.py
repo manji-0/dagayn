@@ -6,8 +6,10 @@ import argparse
 import logging
 import sys
 
+from ._shared import CommandRegistry
 
-def register_commands(sub: argparse._SubParsersAction) -> dict:
+
+def register_commands(sub: argparse._SubParsersAction) -> CommandRegistry:
     """Register register/unregister/repos subcommands. Returns {cmd_name: subparser} dict."""
 
     register_cmd = sub.add_parser(

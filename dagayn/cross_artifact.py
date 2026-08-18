@@ -157,7 +157,7 @@ def low_confidence_bridge_missingness(edge: Any) -> BridgeMissingnessRecord:
 
 def annotate_flow_steps_with_bridges(
     steps: Sequence[Mapping[str, object]],
-    edges: list[Any],
+    edges: Sequence[object],
 ) -> list[FlowStepRecord]:
     """Mark flow steps that arrive via CROSS_ARTIFACT edges among path nodes.
 
@@ -199,7 +199,7 @@ def annotate_flow_steps_with_bridges(
 
 
 def collect_bridge_transitions(
-    edges: list[Any],
+    edges: Sequence[object],
     *,
     include_low_confidence: bool = False,
 ) -> tuple[list[BridgeTransitionRecord], list[BridgeMissingnessRecord]]:

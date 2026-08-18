@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from typing import Any, Iterable, Literal, Optional
+from typing import Any, Iterable, Literal, Optional, TypedDict
 
 from ._scope import ArtifactScope, build_node_scope_maps
 from .dependency_profiles import (
@@ -44,6 +44,31 @@ _ELIGIBLE_ROLES: frozenset[str] = frozenset(
 _ABSTRACT_ROLES: frozenset[str] = frozenset(
     {"abstract_class", "interface", "protocol", "trait", "abstract_type"}
 )
+
+
+class SapDependencyRecord(TypedDict):
+    scope: str
+    count: int
+
+
+class SapMetricRecord(TypedDict, total=False):
+    scope_kind: str
+    scope_key: str
+    display_name: str
+    na: int
+    nt: int
+    ca: int
+    ce: int
+    abstractness: float
+    instability: float
+    distance: float
+    sap_applicable: bool
+    applicability_reason: str
+    dependency_profile: DependencyProfile
+    member_count: int
+    top_incoming_dependencies: list[SapDependencyRecord]
+    top_outgoing_dependencies: list[SapDependencyRecord]
+    notes: list[str]
 
 
 def _scope_analysis_notes(scope_key: str) -> list[str]:
@@ -65,7 +90,7 @@ def compute_sap_metrics(
     artifact_scope: ArtifactScope = "code",
     dependency_profile: DependencyProfile = "strict_static",
     snapshot: Any | None = None,
-) -> list[dict]:
+) -> list[SapMetricRecord]:
     """Compute SAP metrics for each scope.
 
     Returns list of dicts sorted by distance descending. Each dict contains:
@@ -148,7 +173,7 @@ def compute_sap_metrics(
         all_scopes.add(src_scope)
         all_scopes.add(tgt_scope)
 
-    results = []
+    results: list[SapMetricRecord] = []
     # ``all_scopes`` is a set, and set iteration order over strings varies with
     # PYTHONHASHSEED. Combined with a distance-only sort whose ties are common,
     # every run reported a different arbitrary subset from any top-N truncation.
@@ -187,7 +212,7 @@ def compute_sap_metrics(
         top_out = sorted(outgoing.items(), key=lambda x: x[1], reverse=True)[:5]
         top_in = sorted(incoming.items(), key=lambda x: x[1], reverse=True)[:5]
 
-        entry: dict = {
+        entry: SapMetricRecord = {
             "scope_kind": scope_kind,
             "scope_key": sk,
             "display_name": sk,
@@ -222,7 +247,7 @@ def find_sap_violations(
     artifact_scope: ArtifactScope = "code",
     dependency_profile: DependencyProfile = "strict_static",
     snapshot: Any | None = None,
-) -> list[dict]:
+) -> list[SapMetricRecord]:
     """Find scopes whose distance from the main sequence exceeds min_distance.
 
     Args:
