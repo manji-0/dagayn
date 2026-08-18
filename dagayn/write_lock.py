@@ -44,6 +44,14 @@ logger = logging.getLogger(__name__)
 DEFAULT_WRITE_LOCK_TIMEOUT = float(os.environ.get("DAGAYN_WRITE_LOCK_TIMEOUT", "120"))
 DEFAULT_IO_LOCK_TIMEOUT = DEFAULT_WRITE_LOCK_TIMEOUT
 
+#: How long an *interactive* reader waits — the MCP tool entry point. A tool
+#: call that inherits the 120 s budget goes silent for two minutes and then
+#: fails anyway, which is the worst of both outcomes for an agent waiting on it;
+#: reporting "a build is writing the graph" quickly lets the caller retry or
+#: move on. Batch readers (`dagayn detect-changes` at commit time, enrichment)
+#: keep the long timeout, because for them waiting *is* the useful behaviour.
+DEFAULT_READ_LOCK_TIMEOUT = float(os.environ.get("DAGAYN_READ_LOCK_TIMEOUT", "10"))
+
 _registry_lock = threading.Lock()
 #: One reentrant lock per database path, for threads inside this process.
 _thread_locks: dict[Path, threading.RLock] = {}
@@ -335,6 +343,23 @@ def graph_lock_is_held(db_path: str | Path) -> bool:
     """True when this process holds a shared or exclusive lock for *db_path*."""
     with _registry_lock:
         return _lock_path_for(db_path) in _file_locks
+
+
+def lock_holder_pid(db_path: str | Path) -> int | None:
+    """PID recorded in the lock file, for diagnostics only.
+
+    Whoever takes the lock writes its pid there (:func:`_write_pid`). It is a
+    hint, not a fact: the writer may have exited, and a shared lock has several
+    holders of which only the last one is recorded.
+    """
+    try:
+        text = _lock_file_path(_lock_path_for(db_path)).read_text(encoding="utf-8")
+    except OSError:
+        return None
+    try:
+        return int(text.strip().splitlines()[0])
+    except (IndexError, ValueError):
+        return None
 
 
 def bind_store_read_lock(store: object, db_path: str | Path) -> None:

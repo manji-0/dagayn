@@ -426,3 +426,75 @@ class TestDaemonPidfileLiveness:
         finally:
             clear_pid(pid_path)
         assert is_daemon_running(pid_path) is False
+
+
+class TestInteractiveReadTimeout:
+    """An MCP tool call must not go silent for the writer's whole budget.
+
+    A reader has to hold the shared lock for as long as its connection is open
+    (an open connection across a writer's WAL checkpoint is what tore
+    ``sqlite_master``), so it cannot simply skip the lock. What it can do is
+    stop waiting early and say why.
+    """
+
+    def test_reader_timeout_is_shorter_than_the_writer_budget(self):
+        from dagayn.write_lock import DEFAULT_READ_LOCK_TIMEOUT, DEFAULT_WRITE_LOCK_TIMEOUT
+
+        assert DEFAULT_READ_LOCK_TIMEOUT < DEFAULT_WRITE_LOCK_TIMEOUT
+
+    def test_tool_entry_reports_the_writer_instead_of_hanging(self, tmp_path, monkeypatch):
+        from dagayn.tools._common import _get_store
+
+        repo = tmp_path / "repo"
+        (repo / ".dagayn").mkdir(parents=True)
+        (repo / ".git").mkdir()
+        db = repo / ".dagayn" / "graph.db"
+        GraphStore(db).close()
+
+        # The writer has to be another process: a reader nested inside this
+        # process's own write lock deliberately skips the shared lock.
+        holder = (
+            "import sys, time\n"
+            "from dagayn.write_lock import graph_write_lock\n"
+            "with graph_write_lock(sys.argv[1]):\n"
+            "    print('held', flush=True)\n"
+            "    time.sleep(3)\n"
+        )
+        proc = subprocess.Popen(
+            [sys.executable, "-c", holder, str(db)],
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        monkeypatch.setattr("dagayn.tools._common.DEFAULT_READ_LOCK_TIMEOUT", 0.3)
+        try:
+            assert proc.stdout is not None
+            assert proc.stdout.readline().strip() == "held"
+            started = time.monotonic()
+            with pytest.raises(WriteLockUnavailableError) as excinfo:
+                _get_store(str(repo))
+            elapsed = time.monotonic() - started
+        finally:
+            proc.wait(timeout=30)
+
+        assert elapsed < 2.5, f"the tool entry outwaited its own read timeout ({elapsed:.2f}s)"
+        message = str(excinfo.value)
+        assert "being written" in message
+        assert f"pid {proc.pid}" in message, "the holder should be named"
+        assert "DAGAYN_READ_LOCK_TIMEOUT" in message, "the message should say how to wait longer"
+
+    def test_reader_still_gets_the_lock_when_no_writer_holds_it(self, tmp_path):
+        from dagayn.tools._common import _get_store
+        from dagayn.write_lock import graph_lock_is_held
+
+        repo = tmp_path / "repo"
+        (repo / ".dagayn").mkdir(parents=True)
+        (repo / ".git").mkdir()
+        db = repo / ".dagayn" / "graph.db"
+        GraphStore(db).close()
+
+        store, _root = _get_store(str(repo))
+        try:
+            assert graph_lock_is_held(db), "an open reader must hold the shared lock"
+        finally:
+            store.close()
+        assert not graph_lock_is_held(db), "closing the store must release it"

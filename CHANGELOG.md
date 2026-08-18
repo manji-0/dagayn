@@ -4,6 +4,18 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Fixes
+
+- MCP tool calls no longer go silent for two minutes when a build owns the
+  graph. The tool entry point kept the writer's 120 s budget while waiting for
+  the shared lock, so a call that collided with a build or an embedding pass
+  hung and then failed anyway. Readers opened for a tool call now wait
+  `DAGAYN_READ_LOCK_TIMEOUT` (default 10 s) and report which pid is writing and
+  how to wait longer. Batch readers (`detect-changes`, enrichment) keep the long
+  budget, because for them waiting is the useful behaviour. A reader still holds
+  the shared lock for as long as its connection is open — that invariant is what
+  keeps a writer's WAL checkpoint from tearing `sqlite_master`.
+
 ## 4.10.1 — 2026-08-18
 
 ### Fixes

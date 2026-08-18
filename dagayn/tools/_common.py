@@ -35,8 +35,11 @@ from ..state_types import (
     seal_missingness_item,
 )
 from ..write_lock import (
+    DEFAULT_READ_LOCK_TIMEOUT,
+    WriteLockUnavailableError,
     acquire_graph_lock,
     bind_store_read_lock,
+    lock_holder_pid,
     release_graph_lock,
     wrap_store_close_to_unbind,
     write_lock_is_held,
@@ -424,7 +427,21 @@ def _get_store(
     db_path = get_db_path(root)
     owns_read_lock = not write_lock_is_held(db_path)
     if owns_read_lock:
-        acquire_graph_lock(db_path, exclusive=False)
+        # A reader has to hold the shared lock for as long as its connection is
+        # open (a connection left open across a writer's WAL checkpoint is what
+        # tore sqlite_master), but it should not spend the writer's full budget
+        # finding out that a build owns the graph right now.
+        try:
+            acquire_graph_lock(db_path, exclusive=False, timeout=DEFAULT_READ_LOCK_TIMEOUT)
+        except WriteLockUnavailableError as exc:
+            holder = lock_holder_pid(db_path)
+            raise WriteLockUnavailableError(
+                f"the graph at {db_path} is being written"
+                f"{f' by pid {holder}' if holder else ''}"
+                f" and did not become readable within {DEFAULT_READ_LOCK_TIMEOUT:g}s."
+                " A build or embedding pass is in progress — retry shortly, or"
+                " raise DAGAYN_READ_LOCK_TIMEOUT to wait longer."
+            ) from exc
     try:
         store, root = _open_store(
             root,
