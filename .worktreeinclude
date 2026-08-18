@@ -4,5 +4,9 @@
 .mcp.json
 .claude/skills/**
 .cursor/mcp.json
+.opencode.json
+.kiro/settings/mcp.json
+.qoder/mcp.json
+.qoder/skills/**
 .pi/mcp.json
 # <<< dagayn worktree include
