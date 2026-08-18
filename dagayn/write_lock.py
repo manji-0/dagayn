@@ -31,6 +31,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from pathlib import Path
@@ -53,8 +54,160 @@ DEFAULT_IO_LOCK_TIMEOUT = DEFAULT_WRITE_LOCK_TIMEOUT
 DEFAULT_READ_LOCK_TIMEOUT = float(os.environ.get("DAGAYN_READ_LOCK_TIMEOUT", "10"))
 
 _registry_lock = threading.Lock()
-#: One reentrant lock per database path, for threads inside this process.
-_thread_locks: dict[Path, threading.RLock] = {}
+
+
+class _RWThreadLock:
+    """Reader/writer lock over one database path, for threads in this process.
+
+    This used to be a plain ``RLock``, which made two concurrent *read* calls
+    on the same graph serialize even though the flock they take is shared and
+    two separate processes read in parallel. For a long-lived ``dagayn serve``
+    that meant tool calls never overlapped, and with the short interactive read
+    timeout the second call could fail rather than wait its turn.
+
+    The flock is per process — one file handle per path — so something has to
+    keep a reader and a writer inside the same process from believing they hold
+    that one handle in different modes. That is this lock's job: readers run
+    together, a writer waits until every *other* thread's shared hold is gone.
+
+    Reentrancy matches what the callers rely on: nesting the same mode, taking
+    a read inside our own write, and upgrading our own read to a write. Two
+    threads that each hold a read and then both ask to upgrade cannot both win;
+    they wait, and the caller's timeout turns that into
+    :class:`WriteLockUnavailableError` rather than a hang.
+
+    Waiters are served in arrival order, with consecutive readers granted as a
+    batch. Mode preference in either direction starves the other side under
+    load — measured on an 8 s hammer with 6 readers and 3 writers: reader
+    preference gave 6783 reader acquisitions to 3 writer ones, writer
+    preference gave 12 to 904. FIFO keeps both sides moving, and it means the
+    queue worker's update cannot be shut out by a busy MCP server.
+    """
+
+    class _Waiter:
+        __slots__ = ("exclusive", "granted", "tid")
+
+        def __init__(self, tid: int, exclusive: bool) -> None:
+            self.tid = tid
+            self.exclusive = exclusive
+            self.granted = False
+
+    __slots__ = ("_cond", "_queue", "_shared", "_stacks", "_writer_count", "_writer_tid")
+
+    def __init__(self) -> None:
+        self._cond = threading.Condition()
+        #: thread id → number of shared holds
+        self._shared: dict[int, int] = {}
+        self._writer_tid: int | None = None
+        self._writer_count = 0
+        #: Waiters in arrival order.
+        self._queue: list[_RWThreadLock._Waiter] = []
+        #: thread id → modes granted, newest last, so ``release`` knows which
+        #: acquisition it is undoing (callers release without naming a mode).
+        self._stacks: dict[int, list[bool]] = {}
+
+    def acquire(self, *, exclusive: bool, blocking: bool, timeout: float) -> bool:
+        tid = threading.get_ident()
+        deadline: float | None = None
+        if blocking and timeout > 0:
+            deadline = time.monotonic() + timeout
+        with self._cond:
+            upgrading = exclusive and tid in self._shared
+            if self._writer_tid == tid or (tid in self._shared and not exclusive):
+                # Nesting on a hold we already have must never queue: a waiter
+                # ahead of us is waiting for that very hold to go away. An
+                # upgrade is not in this set — it has to wait for the *other*
+                # readers, so it goes through the queue below.
+                self._take(tid, exclusive)
+                return True
+            waiter = _RWThreadLock._Waiter(tid, exclusive)
+            if upgrading:
+                # Jump the queue: we are still holding the shared lock the
+                # waiters ahead of us are waiting to see gone, so taking our
+                # turn in order would deadlock against them. (Two threads
+                # upgrading at once still cannot both win; they time out.)
+                self._queue.insert(0, waiter)
+            else:
+                self._queue.append(waiter)
+            self._dispatch()
+            while not waiter.granted:
+                if not blocking:
+                    self._drop(waiter)
+                    return False
+                remaining = None
+                if deadline is not None:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        self._drop(waiter)
+                        return False
+                self._cond.wait(remaining)
+            # ``_dispatch`` already accounted for the hold; record the mode so
+            # ``release`` knows what to undo.
+            self._stacks.setdefault(tid, []).append(exclusive)
+            return True
+
+    def _drop(self, waiter: _RWThreadLock._Waiter) -> None:
+        """Give up a queued place, and let whoever we blocked move up."""
+        try:
+            self._queue.remove(waiter)
+        except ValueError:  # pragma: no cover - granted between wait and drop
+            return
+        self._dispatch()
+
+    def _dispatch(self) -> None:
+        """Grant what the head of the queue is entitled to."""
+        while self._queue:
+            head = self._queue[0]
+            if head.exclusive:
+                # A writer needs the field to itself, except for its own
+                # upgrade: our shared hold is the one it is replacing.
+                others = [tid for tid in self._shared if tid != head.tid]
+                if self._writer_tid is not None or others:
+                    return
+                self._writer_tid = head.tid
+                self._writer_count += 1
+            else:
+                if self._writer_tid is not None:
+                    return
+                self._shared[head.tid] = self._shared.get(head.tid, 0) + 1
+            self._queue.pop(0)
+            head.granted = True
+            self._cond.notify_all()
+
+    def _take(self, tid: int, exclusive: bool) -> None:
+        if exclusive:
+            self._writer_tid = tid
+            self._writer_count += 1
+        else:
+            self._shared[tid] = self._shared.get(tid, 0) + 1
+        self._stacks.setdefault(tid, []).append(exclusive)
+
+    def release(self) -> None:
+        tid = threading.get_ident()
+        with self._cond:
+            stack = self._stacks.get(tid)
+            if not stack:
+                raise RuntimeError("release of a graph lock this thread does not hold")
+            exclusive = stack.pop()
+            if not stack:
+                self._stacks.pop(tid, None)
+            if exclusive:
+                self._writer_count -= 1
+                if self._writer_count <= 0:
+                    self._writer_count = 0
+                    self._writer_tid = None
+            else:
+                remaining = self._shared.get(tid, 0) - 1
+                if remaining > 0:
+                    self._shared[tid] = remaining
+                else:
+                    self._shared.pop(tid, None)
+            self._dispatch()
+            self._cond.notify_all()
+
+
+#: One reader/writer lock per database path, for threads inside this process.
+_thread_locks: dict[Path, _RWThreadLock] = {}
 
 
 class _HeldFileLock:
@@ -86,11 +239,11 @@ def _lock_path_for(db_path: str | Path) -> Path:
     return resolved
 
 
-def _thread_lock_for(key: Path) -> threading.RLock:
+def _thread_lock_for(key: Path) -> _RWThreadLock:
     with _registry_lock:
         lock = _thread_locks.get(key)
         if lock is None:
-            lock = threading.RLock()
+            lock = _RWThreadLock()
             _thread_locks[key] = lock
         return lock
 
@@ -277,7 +430,7 @@ def acquire_graph_lock(
     """Acquire a shared (read) or exclusive (write) lock for *db_path*."""
     key = _lock_path_for(db_path)
     thread_lock = _thread_lock_for(key)
-    if not thread_lock.acquire(blocking=blocking, timeout=timeout if blocking else -1):
+    if not thread_lock.acquire(exclusive=exclusive, blocking=blocking, timeout=timeout):
         action = "write" if exclusive else "read"
         raise WriteLockUnavailableError(f"another thread is using {key} ({action})")
     try:

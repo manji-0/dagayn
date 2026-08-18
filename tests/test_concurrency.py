@@ -571,3 +571,192 @@ class TestEmbeddingLockScope:
         assert observed["locked_during_write"] is True, (
             "the database write ran without the lock that keeps checkpoints safe"
         )
+
+
+class TestInProcessReaderParallelism:
+    """Two reads on one graph must overlap inside a process, as they do across.
+
+    The per-path thread lock used to be an ``RLock``, so a long-lived
+    ``dagayn serve`` serialized tool calls on the same graph even though the
+    flock they take is shared. With the interactive read timeout that turned a
+    slow call into a *failed* neighbour rather than a queued one.
+    """
+
+    def _timed_reader(self, db, hold, results, name):
+        def run():
+            t0 = time.monotonic()
+            with graph_read_lock(db, timeout=30):
+                results[name] = time.monotonic() - t0
+                time.sleep(hold)
+
+        return run
+
+    def test_two_readers_overlap(self, tmp_path):
+        db = tmp_path / "graph.db"
+        db.touch()
+        results: dict[str, float] = {}
+        first = threading.Thread(target=self._timed_reader(db, 1.0, results, "first"))
+        second = threading.Thread(target=self._timed_reader(db, 0.0, results, "second"))
+        first.start()
+        time.sleep(0.2)
+        second.start()
+        for t in (first, second):
+            t.join(timeout=30)
+
+        assert results["second"] < 0.5, (
+            f"the second reader queued behind the first ({results['second']:.2f}s)"
+        )
+
+    def test_writer_waits_for_an_in_process_reader(self, tmp_path):
+        db = tmp_path / "graph.db"
+        db.touch()
+        results: dict[str, float] = {}
+        reader = threading.Thread(target=self._timed_reader(db, 0.6, results, "reader"))
+        reader.start()
+        time.sleep(0.2)
+
+        started = time.monotonic()
+        with graph_write_lock(db, timeout=30):
+            waited = time.monotonic() - started
+        reader.join(timeout=30)
+
+        assert waited > 0.2, f"the writer ran alongside a reader ({waited:.2f}s)"
+
+    def test_reader_waits_for_an_in_process_writer(self, tmp_path):
+        db = tmp_path / "graph.db"
+        db.touch()
+        released = threading.Event()
+
+        def writer():
+            with graph_write_lock(db, timeout=30):
+                time.sleep(0.5)
+            released.set()
+
+        t = threading.Thread(target=writer)
+        t.start()
+        time.sleep(0.2)
+        started = time.monotonic()
+        with graph_read_lock(db, timeout=30):
+            waited = time.monotonic() - started
+        t.join(timeout=30)
+
+        assert released.is_set()
+        assert waited > 0.1, f"the reader ran alongside a writer ({waited:.2f}s)"
+
+    def test_upgrade_waits_for_the_other_reader_then_succeeds(self, tmp_path):
+        db = tmp_path / "graph.db"
+        db.touch()
+        results: dict[str, float] = {}
+        other = threading.Thread(target=self._timed_reader(db, 0.6, results, "other"))
+        other.start()
+        time.sleep(0.2)
+
+        # Our own shared hold may be upgraded; the other thread's may not.
+        with graph_read_lock(db, timeout=30):
+            started = time.monotonic()
+            with graph_write_lock(db, timeout=30):
+                waited = time.monotonic() - started
+                assert write_lock_is_held(db)
+        other.join(timeout=30)
+
+        assert waited > 0.2, f"upgraded while another reader held it ({waited:.2f}s)"
+
+    def test_non_blocking_reader_reports_a_writer_immediately(self, tmp_path):
+        db = tmp_path / "graph.db"
+        db.touch()
+        started_holding = threading.Event()
+        release = threading.Event()
+
+        def writer():
+            with graph_write_lock(db, timeout=30):
+                started_holding.set()
+                release.wait(30)
+
+        t = threading.Thread(target=writer)
+        t.start()
+        try:
+            assert started_holding.wait(30)
+            started = time.monotonic()
+            with pytest.raises(WriteLockUnavailableError):
+                with graph_read_lock(db, blocking=False):
+                    pass
+            assert time.monotonic() - started < 1.0
+        finally:
+            release.set()
+            t.join(timeout=30)
+
+
+class TestLockFairness:
+    """Neither side may be starved: waiters are served in arrival order."""
+
+    def test_a_writer_is_not_shut_out_by_continuous_readers(self, tmp_path):
+        db = tmp_path / "graph.db"
+        db.touch()
+        stop = threading.Event()
+        reader_rounds = collections.Counter()
+
+        def reader(name):
+            while not stop.is_set():
+                with graph_read_lock(db, timeout=10):
+                    reader_rounds[name] += 1
+                    time.sleep(0.005)
+
+        readers = [threading.Thread(target=reader, args=(i,)) for i in range(4)]
+        for t in readers:
+            t.start()
+        try:
+            time.sleep(0.1)  # let the readers get going
+            writer_acquisitions = 0
+            deadline = time.monotonic() + 2.0
+            while time.monotonic() < deadline:
+                with graph_write_lock(db, timeout=10):
+                    writer_acquisitions += 1
+                time.sleep(0.005)
+        finally:
+            stop.set()
+            for t in readers:
+                t.join(timeout=30)
+
+        assert writer_acquisitions > 5, (
+            f"continuous readers starved the writer ({writer_acquisitions} acquisitions)"
+        )
+        assert sum(reader_rounds.values()) > 5, "the writer starved the readers"
+
+    def test_queued_reader_is_served_after_the_writer_ahead_of_it(self, tmp_path):
+        db = tmp_path / "graph.db"
+        db.touch()
+        order: list[str] = []
+        guard = threading.Lock()
+        holding = threading.Event()
+        release = threading.Event()
+
+        def first_reader():
+            with graph_read_lock(db, timeout=10):
+                holding.set()
+                release.wait(10)
+
+        def writer():
+            with graph_write_lock(db, timeout=10):
+                with guard:
+                    order.append("writer")
+                time.sleep(0.05)
+
+        def late_reader():
+            with graph_read_lock(db, timeout=10):
+                with guard:
+                    order.append("reader")
+
+        t0 = threading.Thread(target=first_reader)
+        t0.start()
+        assert holding.wait(10)
+        t1 = threading.Thread(target=writer)
+        t1.start()
+        time.sleep(0.15)  # the writer is queued, waiting for the first reader
+        t2 = threading.Thread(target=late_reader)
+        t2.start()
+        time.sleep(0.15)  # the late reader must not overtake the queued writer
+        release.set()
+        for t in (t0, t1, t2):
+            t.join(timeout=30)
+
+        assert order == ["writer", "reader"], f"served out of order: {order}"

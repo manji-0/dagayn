@@ -15,6 +15,16 @@ All notable changes to `dagayn` are documented here.
   budget, because for them waiting is the useful behaviour. A reader still holds
   the shared lock for as long as its connection is open — that invariant is what
   keeps a writer's WAL checkpoint from tearing `sqlite_master`.
+- Two read-only tool calls on one graph now overlap inside a single process.
+  The per-path thread lock was an `RLock`, so a long-lived `dagayn serve`
+  serialized every call on the same graph even though the flock they take is
+  shared and two separate processes read in parallel; with the interactive read
+  timeout above, a slow call made its neighbour fail rather than queue. The lock
+  is now a reader/writer lock that serves waiters in arrival order — mode
+  preference in either direction starves the other side, so FIFO keeps the queue
+  worker's update from being shut out by a busy MCP server. Readers and a writer
+  inside one process still never overlap, which is what keeps the single flock
+  handle from being held in two modes at once.
 - The embedding pass no longer holds the graph's exclusive lock while the local
   embedding sidecar starts and loads its model (up to `--local-embedding-timeout`
   seconds, 300 by default) — that time touches no sqlite, but every reader was
