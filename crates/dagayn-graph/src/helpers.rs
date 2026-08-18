@@ -1030,6 +1030,33 @@ pub(crate) fn push_identifier_parts(chunk: &str, tokens: &mut Vec<String>) {
     }
 }
 
+#[cfg(test)]
+mod identifier_search_tests {
+    use super::identifier_search_text;
+
+    #[test]
+    fn identifier_search_text_matches_python_reference_vectors() {
+        let cases = [
+            ("get_users", "get users"),
+            ("getUsers", "get users"),
+            ("api.py::get_users", "api py get users"),
+            (
+                "path/to/api.py::get_users",
+                "path to api py get users",
+            ),
+            ("GraphStore", "graph store"),
+            ("HTTPServer", "http server"),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(
+                identifier_search_text([input]),
+                expected,
+                "input={input:?}"
+            );
+        }
+    }
+}
+
 pub(crate) fn read_node_source_excerpt(
     repo_root: Option<&Path>,
     kind: &str,

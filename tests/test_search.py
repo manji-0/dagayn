@@ -70,6 +70,23 @@ def test_bigram_segmentation_reference_vectors(text, expected):
     )
 
 
+def test_lindera_segmenter_uses_available_wakati_backend(monkeypatch):
+    """Rust-built graphs record fts_segmenter=lindera; Python should still wakati-query."""
+    calls: list[str] = []
+
+    def fake_probe():
+        calls.append("probe")
+        return lambda text: "ユーザー 取得" if text == "ユーザー取得" else text
+
+    monkeypatch.setattr("dagayn.graph._fts_tokenize._probe_wakati", fake_probe)
+    segmented = graph_fts_tokenize.segment_japanese_fts_text(
+        "ユーザー取得",
+        segmenter="lindera",
+    )
+    assert calls == ["probe"]
+    assert segmented == "ユーザー 取得"
+
+
 def test_embedding_health_available_uses_status_field():
     assert embedding_health_available({"status": "available"}) is True
     assert embedding_health_available({"status": "degraded"}) is True

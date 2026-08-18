@@ -357,6 +357,59 @@ def test_rust_fts_wakati_segmenter_indexes_cjk(tmp_path):
         store.close()
 
 
+def test_rust_fts_identifier_tokens_match_python_builder(tmp_path):
+    try:
+        from dagayn._core import GraphStore as RustGraphStore
+    except ImportError as exc:
+        pytest.skip(f"Rust extension is not available: {exc}")  # ty: ignore[too-many-positional-arguments]
+
+    from dagayn.graph._fts_content import build_node_fts_values
+    from dagayn.search import rebuild_fts_index
+
+    db_path = tmp_path / "graph.db"
+    store = RustGraphStore(db_path)
+    try:
+        store.store_file_nodes_edges(
+            "api/get_users.py",
+            [
+                NodeInfo(
+                    "Function",
+                    "get_users",
+                    "api/get_users.py",
+                    1,
+                    10,
+                    "python",
+                )
+            ],
+            [],
+        )
+        rebuild_fts_index(store)
+
+        expected = build_node_fts_values(
+            kind="Function",
+            name="get_users",
+            qualified_name="api/get_users.py::get_users",
+            file_path="api/get_users.py",
+            line_start=1,
+            line_end=10,
+            signature="def get_users(db)",
+            extra={},
+            repo_root=None,
+        )[4]
+
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT identifier_tokens FROM nodes_fts WHERE name = ?",
+            ("get_users",),
+        ).fetchone()
+        conn.close()
+        assert row is not None
+        assert row["identifier_tokens"] == expected
+    finally:
+        store.close()
+
+
 def test_rust_graph_store_generates_suggested_questions(tmp_path):
     try:
         from dagayn._core import GraphStore as RustGraphStore

@@ -105,6 +105,8 @@ def _probe_wakati() -> Callable[[str], str] | None:
 def _get_wakati(segmenter: str) -> Callable[[str], str] | None:
     if segmenter == "bigram":
         return None
+    if segmenter == "lindera":
+        return _probe_wakati()
     if segmenter in _wakati_cache:
         cached = _wakati_cache[segmenter]
         return None if cached is _WAKATI_MISSING else cast(Callable[[str], str], cached)
