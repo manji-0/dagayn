@@ -10,7 +10,6 @@ import logging
 import os
 import sqlite3
 import time
-from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Optional, cast
 
@@ -21,7 +20,6 @@ from .incremental_files import (
     _dedupe_preserve_order,
     _is_binary,
     _load_ignore_patterns,
-    _make_repo_relative,
     _relativize_parsed_entities,
     _rust_backend_enabled,
     _should_ignore,
@@ -285,7 +283,11 @@ def _parse_single_python_file_compact(
         fhash = hashlib.sha256(raw).hexdigest()
         parser = _worker_parser if _worker_parser is not None else CodeParser()
         nodes, edges = parser.parse_bytes(abs_path, raw)
-        nodes, edges = _relativize_parsed_entities(nodes, edges, Path(repo_root_str))
+        nodes, edges = _relativize_parsed_entities(
+            cast(list[NodeInfo], nodes),
+            cast(list[EdgeInfo], edges),
+            Path(repo_root_str),
+        )
         nodes = _serialize_nodes(nodes)
         edges = _serialize_edges(edges)
         return (rel_path, nodes, edges, None, fhash, mtime_ns)
@@ -301,7 +303,7 @@ def _indexed_only(store: GraphStore, rel_paths: list[str]) -> list[str]:
     if not callable(getter):
         return rel_paths
     try:
-        meta_map = cast(Callable[[], Mapping[str, object]], getter)() or {}
+        meta_map = cast(Callable[[], dict[str, Any]], getter)() or {}
         indexed = set(meta_map)
     except Exception:  # noqa: BLE001 — fall back to the unfiltered list
         return rel_paths
@@ -924,7 +926,11 @@ def full_build(
                         source = full_path.read_bytes()
                         fhash = hashlib.sha256(source).hexdigest()
                         nodes, edges = parser.parse_bytes(full_path, source)
-                        nodes, edges = _relativize_parsed_entities(nodes, edges, repo_root)
+                        nodes, edges = _relativize_parsed_entities(
+                            cast(list[NodeInfo], nodes),
+                            cast(list[EdgeInfo], edges),
+                            repo_root,
+                        )
                         _queue_store_file(store, batch, rel_path, nodes, edges, fhash, mtime_ns)
                         total_nodes += len(nodes)
                         total_edges += len(edges)
@@ -1032,361 +1038,15 @@ def incremental_update(
     discarded) is otherwise unreachable from here: the state that prescribes an
     update is one the update itself can never clear.
     """
-    repo_root = repo_root.resolve()
-    store.set_metadata("repo_root", str(repo_root))
-    ignore_patterns = _load_ignore_patterns(repo_root)
+    from .incremental_update_pipeline import execute_incremental_update
 
-    # Determine changed files
-    change_file_sources: dict[str, list[str]]
-    diff_covers_graph = False
-    if changed_files is None:
-        change_file_sources = _changed_file_sources(repo_root, base)
-        changed_files = change_file_sources["files"]
-        diff_covers_graph = _diff_covers_graph_commit(repo_root, store, base)
-    else:
-        change_file_sources = {"files": changed_files, "explicit": changed_files}
-    if extra_files:
-        forced = [path for path in dict.fromkeys(extra_files) if path not in set(changed_files)]
-        if forced:
-            changed_files = [*changed_files, *forced]
-            change_file_sources["files"] = changed_files
-            change_file_sources["content_drift"] = forced
-
-    store_failures: list[str] = []
-    indexable, stale_scope = _indexable_scope(repo_root, store)
-
-    def _record_head_when_verified() -> None:
-        """Stamp ``git_head_sha`` = HEAD, but only if the diff really covered it.
-
-        Two failure modes this guards:
-
-        * The diff was empty because it failed, not because nothing changed
-          (unreachable base after a rebase, a shallow clone, a sha from another
-          checkout). Recording HEAD there would call an unexamined tree synced.
-        * The base did not reach the commit the graph describes, so the commits
-          in between were never parsed. ``dagayn update`` used to default to
-          ``HEAD~1``, which meant an edit hook firing after a multi-commit
-          ``git pull`` indexed the last commit only and then stamped HEAD —
-          leaving files silently missing from a graph that claimed to be synced.
-
-        Conversely, without any stamping the stored sha stays at the base commit
-        and ``assess_graph_sync`` reports ``commit_drift`` forever, re-running a
-        prepare on every session start that can never clear it.
-        """
-        if not diff_covers_graph:
-            return
-        if store_failures:
-            logger.error(
-                "Not recording git_head_sha: %d file(s) failed to store, so the graph "
-                "does not describe HEAD",
-                len(store_failures),
-            )
-            return
-        _store_vcs_metadata(repo_root, store)
-        store.commit()
-
-    if not changed_files and not stale_scope:
-        _record_head_when_verified()
-        return BuildResult(
-            files_updated=0,
-            total_nodes=0,
-            total_edges=0,
-            changed_files=[],
-            change_file_sources=change_file_sources,
-            dependent_files=[],
-        )
-
-    total_nodes = 0
-    total_edges = 0
-    errors = []
-    mtime_only_updates: list[tuple[int, str]] = []  # (mtime_ns, file_path) pairs
-
-    # git names a changed submodule by its *directory*, which is not a file, so
-    # it used to land in removed_files as a no-op delete while the files inside
-    # were never re-parsed or pruned — submodule content was frozen after the
-    # first build.
-    changed_files = _expand_changed_submodules(repo_root, changed_files)
-    change_file_sources["files"] = changed_files
-
-    # First classify the changed roots themselves. Touch-only changes only need
-    # their stored mtime refreshed; they should not force dependent expansion.
-    changed_candidates, removed_files = _filter_incremental_candidates(
-        repo_root,
-        set(changed_files),
-        ignore_patterns,
-    )
-    # Gitignored / .dagaynignore-excluded files are out of scope even when git
-    # status or watch still names them. Drop them from parse candidates and
-    # treat previously indexed ones as removals.
-    changed_candidates = [path for path in changed_candidates if path in indexable]
-    removed_files.extend(path for path in changed_files if path not in indexable)
-    # Keep only removals the graph can act on. The candidate filter reports
-    # "not indexable" as a removal so a file that *became* binary/symlinked
-    # loses its stale nodes -- but a path that was never indexable (a committed
-    # .txt) has nothing to remove, and counting it would inflate files_updated
-    # and turn a genuine no-op into a reported update.
-    removed_files = _indexed_only(store, removed_files)
-    removed_files = _dedupe_preserve_order([*removed_files, *stale_scope])
-    rust_changed_candidates, python_changed_candidates = _split_rust_parser_files(
-        changed_candidates,
+    return execute_incremental_update(
         repo_root,
         store,
+        base=base,
+        changed_files=changed_files,
+        extra_files=extra_files,
     )
-    content_changed_files: set[str] = set()
-    rust_content_changed_files: set[str] = set()
-
-    if rust_changed_candidates:
-        classify_changed_rust_owned_files = _callable_store_attr(
-            store, "classify_changed_rust_owned_files"
-        )
-        if classify_changed_rust_owned_files is not None:
-            rust_changed, raw_errors = classify_changed_rust_owned_files(
-                repo_root,
-                rust_changed_candidates,
-            )
-            rust_content_changed_files.update(rust_changed)
-            content_changed_files.update(rust_changed)
-            errors.extend(
-                {"file": str(file_path), "error": str(error)} for file_path, error in raw_errors
-            )
-        else:
-            content_changed_files.update(rust_changed_candidates)
-
-    if python_changed_candidates:
-        changed_file_meta = _get_file_meta_for_candidates(store, python_changed_candidates)
-        python_changed, python_mtime_updates = _classify_python_changed_files(
-            repo_root,
-            python_changed_candidates,
-            changed_file_meta,
-            # These paths came from git, which already reported them changed.
-            trust_mtime=False,
-        )
-        content_changed_files.update(python_changed)
-        mtime_only_updates.extend(python_mtime_updates)
-
-    dependency_roots = set(removed_files) | content_changed_files
-    dependent_files = {
-        _make_repo_relative(dep, repo_root)
-        for dep in find_dependents_for_files(store, dependency_roots)
-    }
-
-    # Combine real content changes, deleted files, and their dependents.
-    all_files = content_changed_files | set(removed_files) | dependent_files
-
-    # Separate deleted/unparseable files from files that need re-parsing.
-    # When there are no dependent files, the content-changed roots were already
-    # filtered as parseable above, so avoid running candidate detection twice.
-    if dependent_files:
-        candidates, extra_removed = _filter_incremental_candidates(
-            repo_root,
-            all_files,
-            ignore_patterns,
-        )
-        candidates = [path for path in candidates if path in indexable]
-        extra_removed.extend(path for path in all_files if path not in indexable)
-        extra_removed = _indexed_only(store, extra_removed)
-        removed_files = _dedupe_preserve_order([*removed_files, *extra_removed])
-    else:
-        candidates = [path for path in content_changed_files if path in indexable]
-
-    store.remove_files_data(removed_files)
-
-    file_meta = _get_file_meta_for_candidates(store, candidates)
-
-    rust_candidates, python_candidates = _split_rust_parser_files(candidates, repo_root, store)
-    to_parse_rust_forced: list[str] = []
-    to_parse_rust_checked: list[str] = []
-    to_parse: list[tuple[str, int]] = []
-    for rel_path in rust_candidates:
-        if rel_path in rust_content_changed_files:
-            to_parse_rust_forced.append(rel_path)
-            continue
-        abs_path = repo_root / rel_path
-        try:
-            cur_mtime_ns = abs_path.stat().st_mtime_ns
-        except (OSError, PermissionError):
-            to_parse_rust_checked.append(rel_path)
-            continue
-        meta = file_meta.get(rel_path)
-        if meta and meta[1] == cur_mtime_ns:
-            continue
-        to_parse_rust_checked.append(rel_path)
-
-    for rel_path in python_candidates:
-        abs_path = repo_root / rel_path
-        already_known_changed = rel_path in content_changed_files
-        try:
-            cur_mtime_ns = abs_path.stat().st_mtime_ns
-            meta = file_meta.get(rel_path)
-            if not already_known_changed and meta and meta[1] == cur_mtime_ns:
-                # mtime unchanged and nothing else says otherwise — skip the read.
-                # Files already classified as content-changed above are exempt:
-                # their mtime can match while the bytes differ.
-                continue
-            raw = abs_path.read_bytes()
-            fhash = hashlib.sha256(raw).hexdigest()
-            if meta and meta[0] == fhash:
-                # Content identical despite mtime change (e.g. 'touch') — only
-                # update the stored mtime so the fast path fires next time.
-                mtime_only_updates.append((cur_mtime_ns, rel_path))
-                continue
-        except (OSError, PermissionError):
-            cur_mtime_ns = 0
-        to_parse.append((rel_path, cur_mtime_ns))
-
-    # Persist deletions and mtime-only updates before store_file_nodes_edges()
-    # opens its own explicit transaction — avoids nested transaction errors.
-    if removed_files or mtime_only_updates:
-        if mtime_only_updates:
-            if hasattr(store, "update_file_mtimes"):
-                store.update_file_mtimes(mtime_only_updates)
-            elif hasattr(store, "update_file_mtime"):
-                for mtime_ns, file_path in mtime_only_updates:
-                    store.update_file_mtime(file_path, mtime_ns)
-            elif hasattr(store, "_conn"):
-                store._conn.executemany(
-                    "UPDATE nodes SET mtime_ns=? WHERE file_path=?", mtime_only_updates
-                )
-        store.commit()
-
-    if (
-        not removed_files
-        and not to_parse_rust_forced
-        and not to_parse_rust_checked
-        and not to_parse
-    ):
-        _record_head_when_verified()
-        return BuildResult(
-            files_updated=len(all_files),
-            total_nodes=total_nodes,
-            total_edges=total_edges,
-            changed_files=list(changed_files),
-            change_file_sources=change_file_sources,
-            dependent_files=list(dependent_files),
-            errors=errors,
-        )
-
-    use_serial = os.environ.get("CRG_SERIAL_PARSE", "") == "1"
-    to_parse_mtime = dict(to_parse)
-    store_changed_rust_owned_files = _callable_store_attr(store, "store_changed_rust_owned_files")
-    if to_parse_rust_forced:
-        if store_changed_rust_owned_files is not None:
-            rust_nodes, rust_edges, raw_errors = store_changed_rust_owned_files(
-                repo_root,
-                to_parse_rust_forced,
-            )
-            rust_errors = [
-                {"file": str(file_path), "error": str(error)} for file_path, error in raw_errors
-            ]
-        else:
-            rust_nodes, rust_edges, rust_errors = _store_rust_parse_batches(
-                repo_root,
-                store,
-                to_parse_rust_forced,
-            )
-        total_nodes += rust_nodes
-        total_edges += rust_edges
-        errors.extend(rust_errors)
-
-    if to_parse_rust_checked:
-        if store_changed_rust_owned_files is not None:
-            rust_nodes, rust_edges, raw_errors = store_changed_rust_owned_files(
-                repo_root,
-                to_parse_rust_checked,
-            )
-            rust_errors = [
-                {"file": str(file_path), "error": str(error)} for file_path, error in raw_errors
-            ]
-        else:
-            rust_nodes, rust_edges, rust_errors = _store_rust_parse_batches(
-                repo_root,
-                store,
-                to_parse_rust_checked,
-            )
-        total_nodes += rust_nodes
-        total_edges += rust_edges
-        errors.extend(rust_errors)
-
-    if use_serial or len(to_parse) < 8:
-        batch: StoreBatch = []
-        if to_parse:
-            parser = CodeParser()
-            for rel_path, _ in to_parse:
-                mtime_ns = to_parse_mtime.get(rel_path, 0)
-                abs_path = repo_root / rel_path
-                try:
-                    source = abs_path.read_bytes()
-                    fhash = hashlib.sha256(source).hexdigest()
-                    nodes, edges = parser.parse_bytes(abs_path, source)
-                    nodes, edges = _relativize_parsed_entities(
-                        cast(list[NodeInfo], nodes),
-                        cast(list[EdgeInfo], edges),
-                        repo_root,
-                    )
-                    _queue_store_file(store, batch, rel_path, nodes, edges, fhash, mtime_ns)
-                    total_nodes += len(nodes)
-                    total_edges += len(edges)
-                except _PARSE_FILE_ERRORS as e:
-                    logger.warning("Error parsing %s: %s", rel_path, e)
-                    errors.append({"file": rel_path, "error": str(e)})
-        _flush_store_batch(store, batch)
-    else:
-        args_list = [(rel_path, str(repo_root)) for rel_path, _ in to_parse]
-        batch: StoreBatch = []
-        parse_worker = (
-            _parse_single_python_file_compact
-            if _callable_store_attr(store, "store_file_batch_json") is not None
-            else _parse_single_python_file
-        )
-        with concurrent.futures.ProcessPoolExecutor(
-            max_workers=_MAX_PARSE_WORKERS,
-            initializer=_init_worker,
-        ) as executor:
-            for rel_path, nodes, edges, error, fhash, mtime_ns in executor.map(
-                parse_worker,
-                args_list,
-                chunksize=20,
-            ):
-                if error:
-                    logger.warning("Error parsing %s: %s", rel_path, error)
-                    errors.append({"file": rel_path, "error": error})
-                    continue
-                if not _uses_compact_entities(nodes, edges):
-                    nodes, edges = _relativize_parsed_entities(
-                        cast(list[NodeInfo], nodes),
-                        cast(list[EdgeInfo], edges),
-                        repo_root,
-                    )
-                _queue_store_file(store, batch, rel_path, nodes, edges, fhash, mtime_ns)
-                total_nodes += len(nodes)
-                total_edges += len(edges)
-        _flush_store_batch(store, batch)
-
-    store.set_metadata("last_updated", time.strftime("%Y-%m-%dT%H:%M:%S"))
-    store.set_metadata("last_build_type", "incremental")
-    store_failures.extend(store_phase_failures(errors))
-    if diff_covers_graph and not store_failures:
-        # Same contract as the no-op paths: only a diff that reached the graph's
-        # own commit proves the graph now describes HEAD -- and only if every
-        # file it named actually landed in the graph.
-        _store_vcs_metadata(repo_root, store)
-    elif store_failures:
-        logger.error("Not recording git_head_sha: %d file(s) failed to store", len(store_failures))
-    store.commit()
-
-    result = BuildResult(
-        files_updated=len(all_files),
-        total_nodes=total_nodes,
-        total_edges=total_edges,
-        changed_files=list(changed_files),
-        change_file_sources=change_file_sources,
-        dependent_files=list(dependent_files),
-        errors=errors,
-    )
-    if store_failures:
-        result.store_failed_files = store_failures
-        result.status = "partial"
-    return result
 
 
 # ---------------------------------------------------------------------------

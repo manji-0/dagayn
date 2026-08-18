@@ -15,7 +15,7 @@ from ..cross_artifact import (
     is_reportable_bridge,
     is_unresolved_target,
 )
-from ..flows import _has_framework_decorator, _matches_entry_name
+from ..entry_point_heuristics import has_framework_decorator, matches_entry_name
 from ..graph import GraphEdge, GraphNode, GraphStore, _sanitize_name
 
 logger = logging.getLogger(__name__)
@@ -170,9 +170,9 @@ def _collect_type_referenced_names(store: GraphStore) -> set[str]:
 
 
 def _is_entry_point(node: Any) -> bool:
-    if _has_framework_decorator(node):
+    if has_framework_decorator(node):
         return True
-    if _matches_entry_name(node):
+    if matches_entry_name(node):
         return True
     return False
 
@@ -337,7 +337,7 @@ def _survives_dead_code_node_filters(
         return False
     if node.kind == "Class" and node.name in type_ref_names:
         return False
-    if node.kind == "Class" and _has_framework_decorator(node):
+    if node.kind == "Class" and has_framework_decorator(node):
         return False
     if _is_structural_type_node(node):
         return False

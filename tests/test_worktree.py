@@ -10,6 +10,7 @@ logic is exercised against actual git behavior.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from pathlib import Path
 
@@ -32,6 +33,7 @@ from dagayn.skills import (
 )
 from dagayn.worktree import (
     SEED_ENV_VAR,
+    _cleanup_stale_seed_tmp,
     copy_worktree_config,
     ensure_worktree_graph,
     git_common_dir,
@@ -248,6 +250,57 @@ class TestSeedWorktreeGraph:
     def test_ensure_never_raises(self, tmp_path: Path):
         missing = tmp_path / "nope"
         assert ensure_worktree_graph(missing).status in ("skipped", "failed")
+
+
+class TestStaleSeedTemporaries:
+    """Seeding removes leftovers from processes that were killed mid-copy.
+
+    ``_copy_graph_db`` cleans up in a ``finally``, which never runs when the
+    process is killed — the budget watchdog does exactly that. The leftovers are
+    full-size copies of the graph, so they must not accumulate.
+    """
+
+    def test_removes_temporaries_from_dead_processes(self, tmp_path: Path):
+        # PID 1 always exists, so a made-up high PID stands in for a dead one.
+        dead = tmp_path / "graph.db.seed-4194303.tmp"
+        dead.write_bytes(b"leftover")
+
+        _cleanup_stale_seed_tmp(tmp_path)
+
+        assert not dead.exists()
+
+    def test_keeps_temporaries_from_live_processes(self, tmp_path: Path):
+        live = tmp_path / f"graph.db.seed-{os.getpid()}.tmp"
+        live.write_bytes(b"in flight")
+
+        _cleanup_stale_seed_tmp(tmp_path)
+
+        assert live.exists()
+
+    def test_ignores_unrelated_files(self, tmp_path: Path):
+        keep = tmp_path / "graph.db"
+        keep.write_bytes(b"real")
+        odd = tmp_path / "graph.db.seed-notanumber.tmp"
+        odd.write_bytes(b"?")
+
+        _cleanup_stale_seed_tmp(tmp_path)
+
+        assert keep.exists()
+        assert odd.exists()
+
+    def test_seeding_clears_leftovers(self, main_repo: Path, linked_worktree: Path):
+        head = _git(main_repo, "rev-parse", "HEAD").stdout.strip()
+        _write_graph_db(main_repo / ".dagayn" / "graph.db", head_sha=head, repo_root=main_repo)
+        dagayn_dir = linked_worktree / ".dagayn"
+        dagayn_dir.mkdir(parents=True, exist_ok=True)
+        leftover = dagayn_dir / "graph.db.seed-4194303.tmp"
+        leftover.write_bytes(b"leftover")
+
+        result = seed_worktree_graph(linked_worktree)
+
+        assert result.status == "seeded", result.reason
+        assert not leftover.exists()
+        assert not list(dagayn_dir.glob("*.seed-*.tmp"))
 
 
 class TestResolveHookRepo:

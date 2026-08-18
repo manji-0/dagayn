@@ -11,6 +11,7 @@ from unittest.mock import patch
 import yaml
 
 import dagayn.skills as _skills_module
+from dagayn.hook_guard import DEFAULT_HOOK_BUDGET_SECONDS
 from dagayn.skills import (
     _CLAUDE_MD_SECTION_HEADING,
     _CLAUDE_MD_SECTION_MARKER,
@@ -18,6 +19,7 @@ from dagayn.skills import (
     _MARKDOWN_POLICY_MARKER,
     PLATFORMS,
     _cursor_hook_scripts,
+    _dagayn_hook_scripts,
     _detect_serve_command,
     _has_instruction_section,
     _in_poetry_project,
@@ -708,11 +710,16 @@ class TestGenerateHooksConfig:
         config = generate_hooks_config(Path("/repo"))
         assert "PostToolUse" in config["hooks"]
         entry = config["hooks"]["PostToolUse"][0]
-        assert entry["matcher"] == "Edit|Write|Bash"
+        # Bash is deliberately excluded: it fires on shell commands that touch
+        # no tracked file, which re-diffed the graph for nothing.
+        assert entry["matcher"] == "Edit|Write"
         inner = entry["hooks"][0]
         assert inner["type"] == "command"
         assert "update" in inner["command"]
-        assert inner["timeout"] == 300
+        # Above dagayn's own budget so the process reports why it stopped
+        # instead of being abandoned by the editor.
+        assert inner["timeout"] == DEFAULT_HOOK_BUDGET_SECONDS + 30
+        assert inner["timeout"] > DEFAULT_HOOK_BUDGET_SECONDS
 
     def test_has_session_start(self):
         config = generate_hooks_config(Path("/repo"))
@@ -727,6 +734,91 @@ class TestGenerateHooksConfig:
     def test_does_not_emit_invalid_pre_commit_hook(self):
         config = generate_hooks_config(Path("/repo"))
         assert "PreCommit" not in config["hooks"]
+
+
+class TestHookEmbeddingArgs:
+    """Embedding flags belong to ``session prepare``, not to edit-triggered updates.
+
+    Re-embedding on every single file edit is far too expensive for a hook that
+    fires continuously; the session-start prepare covers it instead.
+    """
+
+    def _commands(self, extra):
+        config = generate_hooks_config(Path("/repo"), extra_update_args=extra)
+        update = config["hooks"]["PostToolUse"][0]["hooks"][0]["command"]
+        prepare = config["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+        return update, prepare
+
+    def test_update_hook_omits_embedding_flags(self):
+        update, _ = self._commands(["--local-embedding", "low"])
+        assert "--local-embedding" not in update
+        assert "dagayn queue add update" in update
+
+    def test_session_start_keeps_embedding_flags(self):
+        _, prepare = self._commands(["--local-embedding", "low"])
+        assert "--local-embedding low" in prepare
+
+    def test_worktree_hook_keeps_embedding_flags(self):
+        config = generate_hooks_config(
+            Path("/repo"),
+            extra_update_args=["--local-embedding", "low"],
+        )
+        worktree = config["hooks"]["PostToolUse"][1]["hooks"][0]["command"]
+        assert "session prepare" in worktree
+        assert "--local-embedding low" in worktree
+
+    def test_update_hook_enqueues_to_the_queue(self):
+        update, _ = self._commands(None)
+        # The hook only enqueues; the detached worker arms DAGAYN_HOOK_UPDATE
+        # itself, so its update stays budget-bounded even though nothing in
+        # the editor kills it.
+        assert "dagayn queue add update" in update
+        assert "DAGAYN_HOOK_UPDATE" not in update
+
+    def test_prepare_hook_keeps_the_embedding_server_warm(self):
+        # A sidecar started by session-start prepare should survive so the
+        # next embedding pass reuses it instead of reloading the model.
+        update, prepare = self._commands(["--local-embedding", "low"])
+        assert "--keep-local-embedding-server" in prepare
+        assert "--keep-local-embedding-server" not in update
+
+    def test_no_embedding_args_means_no_keep_alive_flag(self):
+        _, prepare = self._commands(None)
+        assert "--keep-local-embedding-server" not in prepare
+
+    def test_cursor_update_hook_omits_embedding_flags(self):
+        scripts = _cursor_hook_scripts(["--local-embedding", "low"])
+        assert "--local-embedding" not in scripts["crg-update.sh"]
+        assert "dagayn queue add update" in scripts["crg-update.sh"]
+        # The pre-commit update stays synchronous (detect-changes needs a
+        # fresh graph) and budget-bounded.
+        assert "--local-embedding" not in scripts["crg-pre-commit.sh"]
+        assert "DAGAYN_HOOK_UPDATE=1" in scripts["crg-pre-commit.sh"]
+        assert "--local-embedding low" in scripts["crg-session-start.sh"]
+        assert "--local-embedding low" in scripts["crg-relocate.sh"]
+        assert "--keep-local-embedding-server" in scripts["crg-session-start.sh"]
+        assert "--keep-local-embedding-server" in scripts["crg-relocate.sh"]
+        assert "--keep-local-embedding-server" not in scripts["crg-update.sh"]
+        assert "--keep-local-embedding-server" not in scripts["crg-pre-commit.sh"]
+
+    def test_shared_hook_scripts_split_the_flags(self):
+        scripts = _dagayn_hook_scripts(["--local-embedding", "low"])
+        assert "--local-embedding" not in scripts["dagayn-update.sh"]
+        assert "dagayn queue add update" in scripts["dagayn-update.sh"]
+        assert "--local-embedding low" in scripts["dagayn-status.sh"]
+
+    def test_opencode_plugin_splits_the_flags(self):
+        content = _opencode_plugin_content(["--local-embedding", "low"])
+        assert "__DAGAYN_PREPARE_ARGS__" not in content
+        assert "__DAGAYN_UPDATE_ARGS__" not in content
+        assert "DAGAYN_HOOK_UPDATE=1 dagayn update --skip-flows" in content
+        assert "session prepare --budget-seconds 45 --local-embedding low" in content
+
+    def test_no_embedding_args_leaves_commands_clean(self):
+        update, prepare = self._commands(None)
+        assert "--local-embedding" not in update
+        assert "--local-embedding" not in prepare
+        assert "--budget-seconds 45 --repo" in prepare
 
     def test_has_only_valid_hook_types(self):
         config = generate_hooks_config(Path("/repo"))
@@ -759,13 +851,16 @@ class TestGenerateHooksConfig:
         assert "/repo with spaces" not in post_cmd
         assert '--repo "$repo"' in post_cmd
 
-    def test_extra_update_args_are_added_to_update_hook(self):
+    def test_extra_update_args_reach_prepare_not_the_update_hook(self):
         config = generate_hooks_config(
             Path("/repo"),
             extra_update_args=["--local-embedding", "low"],
         )
         post_cmd = config["hooks"]["PostToolUse"][0]["hooks"][0]["command"]
-        assert 'dagayn update --skip-flows --local-embedding low --repo "$repo"' in post_cmd
+        start_cmd = config["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+        assert 'dagayn queue add update --repo "$repo"' in post_cmd
+        assert "--local-embedding" not in post_cmd
+        assert "--local-embedding low" in start_cmd
 
     def test_entries_use_claude_code_hook_schema(self):
         """Regression guard for the Claude Code hook schema.
@@ -931,8 +1026,12 @@ class TestInstallHooks:
             )
 
         data = json.loads(settings_path.read_text())
-        command = data["hooks"]["PostToolUse"][0]["hooks"][0]["command"]
-        assert "--local-embedding low" in command
+        # Embedding flags land on session prepare; the edit-triggered update
+        # stays structure-only.
+        update = data["hooks"]["PostToolUse"][0]["hooks"][0]["command"]
+        prepare = data["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+        assert "--local-embedding" not in update
+        assert "--local-embedding low" in prepare
 
     def test_reinstall_replaces_legacy_seed_only_hooks(self, tmp_path):
         """A pre-4.8.3 install left seed-only hooks that must not survive."""
@@ -999,12 +1098,14 @@ class TestInstallHooks:
         dagayn_hooks = [
             entry
             for entry in post_tool_hooks
-            if any(
-                "dagayn update --skip-flows" in hook.get("command", "") for hook in entry["hooks"]
-            )
+            if any("dagayn queue add update" in hook.get("command", "") for hook in entry["hooks"])
         ]
         assert len(dagayn_hooks) == 1
-        assert "--local-embedding low" in dagayn_hooks[0]["hooks"][0]["command"]
+        # The entry is replaced rather than duplicated; embedding flags moved to
+        # the session-start prepare.
+        assert "--local-embedding" not in dagayn_hooks[0]["hooks"][0]["command"]
+        session_cmd = data["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+        assert "--local-embedding low" in session_cmd
 
     def test_install_qoder_hooks(self, tmp_path):
         install_hooks(tmp_path, platform="qoder")
@@ -1117,8 +1218,9 @@ class TestInstallCodexHooks:
 
         data = json.loads(hooks_path.read_text())
         command = data["hooks"]["PostToolUse"][0]["hooks"][0]["command"]
-        assert "DAGAYN_HOOK_UPDATE=1" in command
-        assert "--local-embedding low" in command
+        assert "dagayn queue add update" in command
+        assert "--local-embedding" not in command
+        assert "--local-embedding low" in data["hooks"]["SessionStart"][0]["hooks"][0]["command"]
 
     def test_reinstall_updates_codex_hooks_when_extra_args_change(self, tmp_path):
         with patch("dagayn.skills.Path.home", return_value=tmp_path):
@@ -1133,12 +1235,14 @@ class TestInstallCodexHooks:
         dagayn_hooks = [
             entry
             for entry in post_tool_hooks
-            if any(
-                "dagayn update --skip-flows" in hook.get("command", "") for hook in entry["hooks"]
-            )
+            if any("dagayn queue add update" in hook.get("command", "") for hook in entry["hooks"])
         ]
         assert len(dagayn_hooks) == 1
-        assert "--local-embedding low" in dagayn_hooks[0]["hooks"][0]["command"]
+        # The entry is replaced rather than duplicated; embedding flags moved to
+        # the session-start prepare.
+        assert "--local-embedding" not in dagayn_hooks[0]["hooks"][0]["command"]
+        session_cmd = data["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+        assert "--local-embedding low" in session_cmd
 
     def test_generate_hermes_hooks_config(self, tmp_path):
         with patch("dagayn.skills.Path.home", return_value=tmp_path):
@@ -1169,7 +1273,10 @@ class TestInstallCodexHooks:
         script = hermes_dir / "agent-hooks" / "dagayn-update.sh"
         assert script.exists()
         assert os.access(script, os.X_OK)
-        assert "--local-embedding low" in script.read_text()
+        # Structure only here; the embedding flags belong to session prepare.
+        assert "--local-embedding" not in script.read_text()
+        status = hermes_dir / "agent-hooks" / "dagayn-status.sh"
+        assert "--local-embedding low" in status.read_text()
 
     def test_reinstall_hermes_hooks_deduplicates_dagayn_entries(self, tmp_path):
         with patch("dagayn.skills.Path.home", return_value=tmp_path):
@@ -1206,7 +1313,10 @@ class TestInstallCodexHooks:
         script = hook_dir / "dagayn-update.sh"
         assert script.exists()
         assert os.access(script, os.X_OK)
-        assert "--remote-embedding google" in script.read_text()
+        # Structure only here; the embedding flags belong to session prepare.
+        assert "--remote-embedding" not in script.read_text()
+        status = hook_dir / "dagayn-status.sh"
+        assert "--remote-embedding google" in status.read_text()
 
     def test_reinstall_pi_hooks_deduplicates_dagayn_entries(self, tmp_path):
         with patch("dagayn.skills.Path.home", return_value=tmp_path):
@@ -1405,6 +1515,39 @@ class TestInstructionFilesToModify:
         assert "~/.codex/AGENTS.md (new)" in targets
         assert "~/.config/opencode/AGENTS.md (new)" in targets
 
+    def test_existing_writable_file_is_previewed_as_append(self, tmp_path):
+        from dagayn.cli.commands.init import _instruction_files_to_modify
+
+        claude_md = tmp_path / ".claude" / "CLAUDE.md"
+        claude_md.parent.mkdir(parents=True)
+        claude_md.write_text("# mine\n", encoding="utf-8")
+
+        with patch("dagayn.cli.commands.init.Path.home", return_value=tmp_path):
+            targets = _instruction_files_to_modify(tmp_path, "claude")
+
+        assert targets == ["~/.claude/CLAUDE.md (append)"]
+
+    def test_read_only_file_is_previewed_as_skipped(self, tmp_path):
+        """home-manager/chezmoi symlinks cannot be injected — say so up front.
+
+        Promising the injection and then reporting it as skipped further down
+        the output is what actually confused a user.
+        """
+        from dagayn.cli.commands.init import _instruction_files_to_modify
+
+        claude_md = tmp_path / ".claude" / "CLAUDE.md"
+        claude_md.parent.mkdir(parents=True)
+        claude_md.write_text("# managed elsewhere\n", encoding="utf-8")
+        claude_md.chmod(0o444)
+
+        try:
+            with patch("dagayn.cli.commands.init.Path.home", return_value=tmp_path):
+                targets = _instruction_files_to_modify(tmp_path, "claude")
+        finally:
+            claude_md.chmod(0o644)
+
+        assert targets == ["~/.claude/CLAUDE.md (read-only — will be skipped)"]
+
 
 class TestInjectPlatformInstructionsFiltering:
     def test_all_writes_every_file(self, tmp_path):
@@ -1534,16 +1677,16 @@ class TestInjectPlatformInstructionsFiltering:
     def test_one_failed_instruction_file_does_not_stop_remaining_files(self, tmp_path):
         errors: list[str] = []
         blocked = tmp_path / ".codex" / "AGENTS.md"
-        original_write_text = Path.write_text
+        original_write = _skills_module.write_text_atomic
 
-        def write_text(path, *args, **kwargs):
-            if path == blocked:
+        def write_text_atomic(path, *args, **kwargs):
+            if Path(path) == blocked:
                 raise PermissionError("read-only")
-            return original_write_text(path, *args, **kwargs)
+            return original_write(path, *args, **kwargs)
 
         with (
             patch("dagayn.skills.Path.home", return_value=tmp_path),
-            patch("pathlib.Path.write_text", new=write_text),
+            patch.object(_skills_module, "write_text_atomic", new=write_text_atomic),
         ):
             updated = inject_platform_instructions(tmp_path, target="all", errors=errors)
 
@@ -2170,18 +2313,28 @@ class TestCursorHookScripts:
     def test_scripts_pass_repo_explicitly(self):
         scripts = _cursor_hook_scripts()
         for name, content in scripts.items():
-            if "dagayn update" in content or "dagayn session prepare" in content:
+            if (
+                "dagayn update" in content
+                or "dagayn queue add update" in content
+                or "dagayn session prepare" in content
+            ):
                 assert '--repo "$repo"' in content, f"{name} does not pass --repo"
 
-    def test_update_script_runs_update(self):
+    def test_update_script_enqueues_to_the_queue(self):
         scripts = _cursor_hook_scripts()
-        assert "dagayn update --skip-flows" in scripts["crg-update.sh"]
+        assert "dagayn queue add update" in scripts["crg-update.sh"]
+        # The queue worker is detached by dagayn itself; the hook no longer
+        # needs its own subshell detach.
+        assert "& )" not in scripts["crg-update.sh"]
 
-    def test_update_script_includes_extra_update_args(self):
+    def test_extra_update_args_reach_prepare_scripts_only(self):
         scripts = _cursor_hook_scripts(["--local-embedding", "low"])
-        assert "--local-embedding low" in scripts["crg-update.sh"]
+        # Edit- and commit-triggered updates stay structure-only; re-embedding
+        # on every edit is far too expensive.
+        assert "--local-embedding" not in scripts["crg-update.sh"]
+        assert "--local-embedding" not in scripts["crg-pre-commit.sh"]
         assert "--local-embedding low" in scripts["crg-session-start.sh"]
-        assert "--local-embedding low" in scripts["crg-pre-commit.sh"]
+        assert "--local-embedding low" in scripts["crg-relocate.sh"]
 
     def test_session_start_script_runs_status(self):
         scripts = _cursor_hook_scripts()
@@ -2642,7 +2795,7 @@ class TestOpenCodePluginContent:
     def test_hooks_file_edited_event(self):
         content = _opencode_plugin_content()
         assert '"file.edited"' in content
-        assert "dagayn update --skip-flows" in content
+        assert "dagayn queue add update" in content
 
     def test_hooks_session_created_event(self):
         content = _opencode_plugin_content()

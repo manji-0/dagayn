@@ -29,6 +29,7 @@ from .embeddings_text import (
     _slow_embed_batch_seconds,
 )
 from .graph import GraphNode, GraphStore
+from .sqlite_tuning import apply_wal_size_limit
 from .state_types import EmbeddingStatusRecord, seal_embedding_status
 
 _EMBED_PROVIDER_ERRORS = (OSError, RuntimeError, ValueError, TypeError, sqlite3.Error)
@@ -734,6 +735,7 @@ class EmbeddingStore:
         # Same WAL file as GraphStore; mmap here would race a graph checkpoint.
         self._conn.execute("PRAGMA mmap_size=0")
         self._conn.execute("PRAGMA temp_store=MEMORY")
+        apply_wal_size_limit(self._conn)
         self._conn.executescript(_EMBEDDINGS_SCHEMA)
         _ensure_embeddings_schema(self._conn)
         self.last_orphans_removed = 0

@@ -22,14 +22,42 @@ from typing import Any
 
 import yaml
 
+from .atomic_write import write_text_atomic
+from .hook_guard import DEFAULT_HOOK_BUDGET_SECONDS
+
 logger = logging.getLogger(__name__)
 
 type SkillValue = Any
 type SkillPayload = dict[str, SkillValue]
 
-_UPDATE_HOOK_TIMEOUT_SECONDS = 300
+# Slightly above the budget ``dagayn update`` applies to itself for hook runs
+# (:data:`dagayn.hook_guard.DEFAULT_HOOK_BUDGET_SECONDS`), so the process stops
+# itself with a diagnostic instead of the editor abandoning it. An abandoned
+# hook shell leaves the dagayn child reparented to PID 1 and still running.
+_UPDATE_HOOK_TIMEOUT_SECONDS = DEFAULT_HOOK_BUDGET_SECONDS + 30
 _STATUS_HOOK_TIMEOUT_SECONDS = 60
 _SESSION_PREPARE_BUDGET_SECONDS = 45
+
+
+def _embedding_hook_args(extra_update_args: list[str] | None) -> str:
+    """Shell fragment carrying the install's embedding flags, or ``""``.
+
+    Only ``session prepare`` gets these. Passing them to the edit-triggered
+    ``dagayn update`` re-embeds on every single file edit, which is far too
+    expensive to sit in that path — embeddings are refreshed at session start
+    and by explicit ``dagayn update --local-embedding`` / ``embed_graph_tool``
+    runs instead.
+
+    ``--keep-local-embedding-server`` is appended so a sidecar started by the
+    session-start prepare stays warm: the next embedding pass (MCP
+    ``ensure_graph_tool``, a manual ``dagayn update --local-embedding``) reuses
+    it via the port probe instead of paying the model-load cost again.
+    """
+    if not extra_update_args:
+        return ""
+    args = [*extra_update_args, "--keep-local-embedding-server"]
+    return " " + " ".join(shlex.quote(arg) for arg in args)
+
 
 # --- Multi-platform MCP install ---
 
@@ -307,7 +335,7 @@ def _merge_toml_mcp_server(
         if updated == existing:
             return False
         if not dry_run:
-            config_path.write_text(updated, encoding="utf-8")
+            write_text_atomic(config_path, updated, encoding="utf-8")
         return True
 
     if dry_run:
@@ -319,7 +347,7 @@ def _merge_toml_mcp_server(
         prefix = existing if existing.endswith("\n") else existing + "\n"
         if not prefix.endswith("\n\n"):
             prefix += "\n"
-    config_path.write_text(prefix + section, encoding="utf-8")
+    write_text_atomic(config_path, prefix + section, encoding="utf-8")
     return True
 
 
@@ -360,7 +388,7 @@ def _merge_yaml_mcp_server(
         return True
 
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(yaml.safe_dump(existing, sort_keys=False), encoding="utf-8")
+    write_text_atomic(config_path, yaml.safe_dump(existing, sort_keys=False), encoding="utf-8")
     return True
 
 
@@ -544,7 +572,7 @@ def install_platform_configs(
             print(f"  [dry-run] {plat['name']}: would write {config_path}")
         else:
             config_path.parent.mkdir(parents=True, exist_ok=True)
-            config_path.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
+            write_text_atomic(config_path, json.dumps(existing, indent=2) + "\n", encoding="utf-8")
             print(f"  {plat['name']}: configured {config_path}")
 
         configured.append(plat["name"])
@@ -611,7 +639,7 @@ def _sync_cursor_user_mcp(server_entry: SkillPayload, *, dry_run: bool) -> None:
     servers["dagayn"] = updated
     existing["mcpServers"] = servers
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
+    write_text_atomic(config_path, json.dumps(existing, indent=2) + "\n", encoding="utf-8")
     print(f"  Cursor (user): configured {config_path}")
 
 
@@ -811,7 +839,7 @@ def generate_skills(
             embedding_preset=embedding_preset,
             embedding_provider=embedding_provider,
         )
-        target.write_text(content, encoding="utf-8")
+        write_text_atomic(target, content, encoding="utf-8")
         logger.info("Wrote skill: %s", target)
 
     return skills_dir
@@ -846,7 +874,8 @@ def _install_skill_tree(
             shutil.rmtree(destination)
         shutil.copytree(entry, destination)
         target_skill = destination / "SKILL.md"
-        target_skill.write_text(
+        write_text_atomic(
+            target_skill,
             _render_skill_content(
                 target_skill.read_text(encoding="utf-8"),
                 embedding_mode=embedding_mode,
@@ -944,19 +973,20 @@ def install_hermes_skills(
 
 def _dagayn_hook_scripts(extra_update_args: list[str] | None = None) -> dict[str, str]:
     """Return shell scripts shared by hook integrations that expect JSON stdout."""
-    update_args = ""
-    if extra_update_args:
-        update_args = " " + " ".join(shlex.quote(arg) for arg in extra_update_args)
+    prepare_args = _embedding_hook_args(extra_update_args)
     return {
-        "dagayn-update.sh": f"""#!/usr/bin/env bash
+        "dagayn-update.sh": """#!/usr/bin/env bash
 # dagayn: auto-update graph after agent file/tool activity
+# Enqueues a structure-only update; a single detached worker drains the
+# queue so edit bursts coalesce (see dagayn.task_queue). Embeddings are
+# refreshed by the session-start hook.
 set -u
 cat >/dev/null || true
 repo="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 if [ -n "$repo" ]; then
-  dagayn update --skip-flows{update_args} --repo "$repo" >/dev/null 2>&1 || true
+  dagayn queue add update --repo "$repo" >/dev/null 2>&1 || true
 fi
-printf '{{}}\\n'
+printf '{}\\n'
 """,
         "dagayn-status.sh": f"""#!/usr/bin/env bash
 # dagayn: prepare a usable+synced graph at session start
@@ -965,7 +995,7 @@ cat >/dev/null || true
 repo="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 if [ -n "$repo" ]; then
   DAGAYN_HOOK_UPDATE=1 dagayn session prepare \\
-    --budget-seconds {_SESSION_PREPARE_BUDGET_SECONDS}{update_args} \\
+    --budget-seconds {_SESSION_PREPARE_BUDGET_SECONDS}{prepare_args} \\
     --repo "$repo" >/dev/null 2>&1 || true
 fi
 printf '{{}}\\n'
@@ -977,7 +1007,7 @@ def _write_hook_scripts(hooks_dir: Path, scripts: dict[str, str]) -> None:
     hooks_dir.mkdir(parents=True, exist_ok=True)
     for filename, content in scripts.items():
         script_path = hooks_dir / filename
-        script_path.write_text(content, encoding="utf-8")
+        write_text_atomic(script_path, content, encoding="utf-8")
         script_path.chmod(stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
 
 
@@ -1029,7 +1059,7 @@ def install_hermes_hooks(
     existing["hooks"] = _merge_hermes_hook_entries(existing_hooks, generate_hermes_hooks_config())
 
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(yaml.safe_dump(existing, sort_keys=False), encoding="utf-8")
+    write_text_atomic(config_path, yaml.safe_dump(existing, sort_keys=False), encoding="utf-8")
     return config_path
 
 
@@ -1079,7 +1109,7 @@ def install_pi_hooks(
     existing["hooks"] = _merge_pi_hook_entries(existing_hooks, generate_pi_hooks_config())
 
     hooks_path.parent.mkdir(parents=True, exist_ok=True)
-    hooks_path.write_text(yaml.safe_dump(existing, sort_keys=False), encoding="utf-8")
+    write_text_atomic(hooks_path, yaml.safe_dump(existing, sort_keys=False), encoding="utf-8")
     return hooks_path
 
 
@@ -1097,15 +1127,14 @@ def generate_hooks_config(
 
     Args:
         repo_root: Unused; hooks resolve the active repository at runtime.
-        extra_update_args: Additional CLI args for the ``dagayn update`` hook.
+        extra_update_args: Embedding flags from the install, applied to
+            ``session prepare`` only (see :func:`_embedding_hook_args`).
         worktree_hook: Include the ``EnterWorktree`` / ``ExitWorktree``
             ``PostToolUse`` entry. Disable for hosts without those tools
             (Codex), where the entry would never match.
     """
     del repo_root  # Hooks are global; resolve the active repository at runtime.
-    update_args = ""
-    if extra_update_args:
-        update_args = " " + " ".join(shlex.quote(arg) for arg in extra_update_args)
+    prepare_args = _embedding_hook_args(extra_update_args)
     # ``git rev-parse`` first: hooks run in the session's working directory, so
     # in a worktree session it resolves to that worktree rather than the main
     # checkout. ``CLAUDE_PROJECT_DIR`` covers a cwd outside the repository.
@@ -1115,17 +1144,20 @@ def generate_hooks_config(
     )
     post_tool_use: list[SkillPayload] = [
         {
-            "matcher": "Edit|Write|Bash",
+            # Edit/Write only: Bash fires on every shell command, including the
+            # majority that touch no tracked file, so the graph was re-diffed
+            # constantly for nothing. Commits are covered by the pre-commit hook
+            # and HEAD moves by the relocate/session-prepare hooks.
+            "matcher": "Edit|Write",
             "hooks": [
                 {
                     "type": "command",
-                    "command": (
-                        f"{repo_expr}"
-                        f" && DAGAYN_HOOK_UPDATE=1 dagayn update --skip-flows"
-                        f"{update_args}"
-                        ' --repo "$repo"'
-                        " || true"
-                    ),
+                    # Enqueue a structure-only update instead of running one
+                    # inline: a burst of edits coalesces into a single task
+                    # drained by one detached worker (dagayn.task_queue), so
+                    # the graph no longer re-diffs per keystroke batch.
+                    # Embeddings stay out of this path entirely.
+                    "command": (f'{repo_expr} && dagayn queue add update --repo "$repo" || true'),
                     "timeout": _UPDATE_HOOK_TIMEOUT_SECONDS,
                 },
             ],
@@ -1144,7 +1176,7 @@ def generate_hooks_config(
                         "command": (
                             f"DAGAYN_HOOK_UPDATE=1 dagayn session prepare --from-hook"
                             f" --budget-seconds {_SESSION_PREPARE_BUDGET_SECONDS}"
-                            f"{update_args} || true"
+                            f"{prepare_args} || true"
                         ),
                         "timeout": _UPDATE_HOOK_TIMEOUT_SECONDS,
                     },
@@ -1164,7 +1196,7 @@ def generate_hooks_config(
                                 f"{repo_expr}"
                                 f" && DAGAYN_HOOK_UPDATE=1 dagayn session prepare"
                                 f" --budget-seconds {_SESSION_PREPARE_BUDGET_SECONDS}"
-                                f"{update_args}"
+                                f"{prepare_args}"
                                 ' --repo "$repo"'
                                 " || echo 'Not a git repo, skipping'"
                             ),
@@ -1185,6 +1217,7 @@ def generate_hooks_config(
 #: left running alongside ``dagayn session prepare``.
 _DAGAYN_HOOK_NEEDLES: dict[str, tuple[str, ...]] = {
     "PostToolUse": (
+        "dagayn queue add update",
         "dagayn update --skip-flows",
         "dagayn session prepare",
         # <= 4.8.2 wrote this for EnterWorktree/ExitWorktree.
@@ -1241,7 +1274,7 @@ def _merge_dagayn_hook_entries(
 def _ensure_codex_hooks_feature(config_path: Path) -> None:
     """Enable Codex hooks in config.toml without clobbering settings."""
     if not config_path.exists():
-        config_path.write_text("[features]\nhooks = true\n", encoding="utf-8")
+        write_text_atomic(config_path, "[features]\nhooks = true\n", encoding="utf-8")
         return
 
     existing = config_path.read_text(encoding="utf-8", errors="replace")
@@ -1269,25 +1302,25 @@ def _ensure_codex_hooks_feature(config_path: Path) -> None:
         lines[hooks_index] = re.sub(r"=\s*.*$", "= true", lines[hooks_index], count=1)
         if codex_hooks_index is not None:
             del lines[codex_hooks_index]
-        config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        write_text_atomic(config_path, "\n".join(lines) + "\n", encoding="utf-8")
         return
 
     if codex_hooks_index is not None:
         lines[codex_hooks_index] = re.sub(
             r"codex_hooks\s*=\s*.*$", "hooks = true", lines[codex_hooks_index], count=1
         )
-        config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        write_text_atomic(config_path, "\n".join(lines) + "\n", encoding="utf-8")
         return
 
     if features_index is not None:
         lines.insert(features_index + 1, "hooks = true")
-        config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        write_text_atomic(config_path, "\n".join(lines) + "\n", encoding="utf-8")
         return
 
     prefix = existing if existing.endswith("\n") else existing + "\n"
     if not prefix.endswith("\n\n"):
         prefix += "\n"
-    config_path.write_text(prefix + "[features]\nhooks = true\n", encoding="utf-8")
+    write_text_atomic(config_path, prefix + "[features]\nhooks = true\n", encoding="utf-8")
 
 
 def install_codex_hooks(
@@ -1321,7 +1354,7 @@ def install_codex_hooks(
         existing_hooks = {}
 
     existing["hooks"] = _merge_dagayn_hook_entries(existing_hooks, hooks_config)
-    hooks_path.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
+    write_text_atomic(hooks_path, json.dumps(existing, indent=2) + "\n", encoding="utf-8")
     _ensure_codex_hooks_feature(codex_dir / "config.toml")
     logger.info("Wrote Codex hooks config: %s", hooks_path)
     return hooks_path
@@ -1337,9 +1370,9 @@ def _install_git_hook_script(hook_path: Path, script: str, marker: str) -> None:
         old_marker = "# Installed by dagayn. Remove this file to disable pre-commit graph checks."
         if old_marker in existing and "dagayn detect-changes" in existing:
             existing = existing[: existing.index(old_marker)].rstrip("\n")
-        hook_path.write_text(existing.rstrip("\n") + "\n" + script, encoding="utf-8")
+        write_text_atomic(hook_path, existing.rstrip("\n") + "\n" + script, encoding="utf-8")
     else:
-        hook_path.write_text(script, encoding="utf-8")
+        write_text_atomic(hook_path, script, encoding="utf-8")
 
     hook_path.chmod(0o755)
 
@@ -1446,7 +1479,7 @@ def install_hooks(
 
     existing["hooks"] = _merge_dagayn_hook_entries(existing_hooks, hooks_config)
 
-    settings_path.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
+    write_text_atomic(settings_path, json.dumps(existing, indent=2) + "\n", encoding="utf-8")
     logger.info("Wrote hooks config: %s", settings_path)
     return settings_path
 
@@ -1634,14 +1667,16 @@ def _inject_instructions(
         for marker_heading in _instruction_section_aliases(marker):
             if marker_heading in existing:
                 updated = existing.replace(marker_heading, f"{marker}\n{marker_heading}", 1)
-                file_path.write_text(updated, encoding="utf-8")
+                write_text_atomic(file_path, updated, encoding="utf-8")
                 logger.info("Added missing dagayn marker to %s", file_path)
                 return True
 
         separator = "\n" if existing and not existing.endswith("\n") else ""
         extra_newline = "\n" if existing else ""
         file_path.parent.mkdir(parents=True, exist_ok=True)
-        file_path.write_text(existing + separator + extra_newline + section, encoding="utf-8")
+        write_text_atomic(
+            file_path, existing + separator + extra_newline + section, encoding="utf-8"
+        )
     except OSError as exc:
         message = f"{file_path} ({exc})"
         if errors is not None:
@@ -1835,17 +1870,17 @@ def ensure_worktree_include(
         if updated == existing:
             return "unchanged"
         if not dry_run:
-            path.write_text(updated, encoding="utf-8")
+            write_text_atomic(path, updated, encoding="utf-8")
         return "updated"
 
     if not existing:
         if not dry_run:
-            path.write_text(block, encoding="utf-8")
+            write_text_atomic(path, block, encoding="utf-8")
         return "created"
 
     prefix = existing if existing.endswith("\n") else existing + "\n"
     if not dry_run:
-        path.write_text(prefix + block, encoding="utf-8")
+        write_text_atomic(path, prefix + block, encoding="utf-8")
     return "updated"
 
 
@@ -1925,7 +1960,7 @@ def install_cursor_worktree_setup(repo_root: Path, dry_run: bool = False) -> str
     state = "updated" if config_path.exists() else "created"
     if not dry_run:
         config_path.parent.mkdir(parents=True, exist_ok=True)
-        config_path.write_text(json.dumps(updated, indent=2) + "\n", encoding="utf-8")
+        write_text_atomic(config_path, json.dumps(updated, indent=2) + "\n", encoding="utf-8")
     return state
 
 
@@ -2018,7 +2053,8 @@ def _cursor_hook_scripts(extra_update_args: list[str] | None = None) -> dict[str
     """Return a mapping of filename -> shell script content for Cursor hooks.
 
     Four scripts are generated:
-    - crg-update.sh: runs ``dagayn update --skip-flows`` after file edits
+    - crg-update.sh: enqueues a structure-only update (``dagayn queue add
+      update``) after file edits; a detached worker drains the queue
     - crg-session-start.sh: runs ``dagayn session prepare`` and reports status
     - crg-pre-commit.sh: runs ``dagayn update --skip-flows`` and
       ``dagayn detect-changes --brief`` before git commit commands
@@ -2032,25 +2068,24 @@ def _cursor_hook_scripts(extra_update_args: list[str] | None = None) -> dict[str
     - Emit the JSON the corresponding Cursor hook event expects (when any)
 
     Args:
-        extra_update_args: Additional CLI args appended to ``dagayn update`` /
-            ``session prepare`` (e.g. ``["--local-embedding"]``) so hooks use
-            the same embedding configuration as the install.
+        extra_update_args: Embedding flags from the install (e.g.
+            ``["--local-embedding"]``), applied to ``session prepare`` only
+            (see :func:`_embedding_hook_args`).
     """
-    update_args = ""
-    if extra_update_args:
-        update_args = " " + " ".join(shlex.quote(arg) for arg in extra_update_args)
+    prepare_args = _embedding_hook_args(extra_update_args)
 
     update_script = f"""\
 #!/usr/bin/env bash
 # dagayn: auto-update graph after file edits (Cursor hook)
 # Fails gracefully — never blocks the editor.
 {_CURSOR_HOOK_PROLOGUE}
-# afterFileEdit fires on every edit, so run detached: the editor never waits
-# and DAGAYN_HOOK_UPDATE makes concurrent updates skip instead of pile up.
+# afterFileEdit fires on every edit, so enqueue instead of running an update:
+# a single detached worker drains the queue and edit bursts coalesce into one
+# structure-only pass (see dagayn.task_queue). The worker applies the
+# hook-update budget itself, so a runaway pass is still bounded.
 # afterFileEdit is observational — no output schema to satisfy.
 if [ -n "$repo" ]; then
-  ( DAGAYN_HOOK_UPDATE=1 dagayn update --skip-flows{update_args} \\
-      --repo "$repo" >/dev/null 2>&1 & ) >/dev/null 2>&1
+  dagayn queue add update --repo "$repo" >/dev/null 2>&1 || true
 fi
 
 exit 0
@@ -2067,7 +2102,7 @@ if [ -z "$repo" ]; then
 fi
 
 output="$(DAGAYN_HOOK_UPDATE=1 dagayn session prepare \\
-  --budget-seconds {_SESSION_PREPARE_BUDGET_SECONDS}{update_args} \\
+  --budget-seconds {_SESSION_PREPARE_BUDGET_SECONDS}{prepare_args} \\
   --repo "$repo" 2>&1)" \\
   || output="dagayn: session prepare failed — run 'dagayn session prepare'"
 
@@ -2089,7 +2124,8 @@ if [ -z "$repo" ]; then
 fi
 
 # Refresh the graph cheaply, then run detect-changes; swallow errors.
-dagayn update --skip-flows{update_args} --repo "$repo" >/dev/null 2>&1 || true
+# Structure only, and budget-bounded: the commit waits on this hook.
+DAGAYN_HOOK_UPDATE=1 dagayn update --skip-flows --repo "$repo" >/dev/null 2>&1 || true
 output="$(dagayn detect-changes --brief --repo "$repo" 2>&1)" || output=""
 
 # beforeShellExecution must return a permission decision; always allow and
@@ -2113,7 +2149,7 @@ fi
 
 # afterShellExecution is observational — no permission JSON required.
 DAGAYN_HOOK_UPDATE=1 dagayn session prepare \\
-  --budget-seconds {_SESSION_PREPARE_BUDGET_SECONDS}{update_args} \\
+  --budget-seconds {_SESSION_PREPARE_BUDGET_SECONDS}{prepare_args} \\
   --repo "$repo" >/dev/null 2>&1 || true
 
 exit 0
@@ -2209,7 +2245,8 @@ def install_cursor_hooks(extra_update_args: list[str] | None = None) -> Path:
     existing["hooks"] = existing_hooks
 
     cursor_dir.mkdir(parents=True, exist_ok=True)
-    hooks_json_path.write_text(
+    write_text_atomic(
+        hooks_json_path,
         json.dumps(existing, indent=2) + "\n",
         encoding="utf-8",
     )
@@ -2221,7 +2258,7 @@ def install_cursor_hooks(extra_update_args: list[str] | None = None) -> Path:
 
     for filename, content in scripts.items():
         script_path = hooks_script_dir / filename
-        script_path.write_text(content, encoding="utf-8")
+        write_text_atomic(script_path, content, encoding="utf-8")
         # Make executable (owner rwx, group rx, other rx)
         script_path.chmod(stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
         logger.info("Wrote Cursor hook script: %s", script_path)
@@ -2275,7 +2312,8 @@ def install_qoder_skills(
                     shutil.rmtree(target_dir)
                 shutil.copytree(skill_dir, target_dir)
                 target_skill = target_dir / "SKILL.md"
-                target_skill.write_text(
+                write_text_atomic(
+                    target_skill,
                     _render_skill_content(
                         target_skill.read_text(encoding="utf-8"),
                         embedding_mode=embedding_mode,
@@ -2302,7 +2340,8 @@ def _opencode_plugin_content(extra_update_args: list[str] | None = None) -> str:
     The plugin hooks into four OpenCode events to mirror the Claude Code
     hook behaviors:
 
-    1. ``file.edited`` — runs ``dagayn update --skip-flows``
+    1. ``file.edited`` — enqueues a structure-only update
+       (``dagayn queue add update``); a detached worker drains the queue
     2. ``session.created`` — prepares a usable+synced graph, then status
     3. ``tool.execute.before`` — when the tool is a shell command starting
        with ``git commit``, runs ``dagayn update --skip-flows`` followed by
@@ -2319,9 +2358,7 @@ def _opencode_plugin_content(extra_update_args: list[str] | None = None) -> str:
     The plugin uses Bun's ``$`` shell API (provided by OpenCode's plugin
     context) for subprocess execution.
     """
-    update_args = ""
-    if extra_update_args:
-        update_args = " " + " ".join(shlex.quote(arg) for arg in extra_update_args)
+    prepare_args = _embedding_hook_args(extra_update_args)
     template = """\
 import type { Plugin } from "@opencode-ai/plugin"
 
@@ -2356,14 +2393,16 @@ function shellCommand(ctx: any): string {
 }
 
 export default (app: any) => {
-  // 1. Auto-update graph after file edits
+  // 1. Auto-update graph after file edits. Enqueue instead of running the
+  // update inline: edit bursts coalesce into one structure-only pass drained
+  // by a detached worker (dagayn.task_queue).
   app.on("file.edited", async ({ $ }: { $: any }) => {
     try {
       const repo = await resolveRepo($)
       if (repo) {
-        await $`dagayn update --skip-flows__DAGAYN_UPDATE_ARGS__ --repo ${repo}`.quiet()
+        await $`dagayn queue add update --repo ${repo}`.quiet()
       } else {
-        await $`dagayn update --skip-flows__DAGAYN_UPDATE_ARGS__`.quiet()
+        await $`dagayn queue add update`.quiet()
       }
     } catch {
       // Swallow — graph may not be built yet for this project.
@@ -2374,7 +2413,7 @@ export default (app: any) => {
   app.on("session.created", async ({ $ }: { $: any }) => {
     try {
       const prepare =
-        "DAGAYN_HOOK_UPDATE=1 dagayn session prepare --budget-seconds 45__DAGAYN_UPDATE_ARGS__"
+        "DAGAYN_HOOK_UPDATE=1 dagayn session prepare --budget-seconds 45__DAGAYN_PREPARE_ARGS__"
       const repo = await resolveRepo($)
       if (repo) {
         await $`${prepare} --repo ${repo}`.quiet()
@@ -2403,7 +2442,7 @@ export default (app: any) => {
       if (/(?:^|[\\/\\\\]|\\s)git(?:\\.exe)?\\s+commit\\b/i.test(cmd)) {
         const repo = await resolveRepo(ctx.$)
         if (repo) {
-          await ctx.$`dagayn update --skip-flows__DAGAYN_UPDATE_ARGS__ --repo ${repo}`.quiet()
+          await ctx.$`DAGAYN_HOOK_UPDATE=1 dagayn update --skip-flows --repo ${repo}`.quiet()
           const result =
             await ctx.$`dagayn detect-changes --brief --repo ${repo}`.quiet()
           const output = result.stdout?.toString().trim()
@@ -2411,7 +2450,7 @@ export default (app: any) => {
             console.log("[dagayn] Pre-commit analysis:\\n" + output)
           }
         } else {
-          await ctx.$`dagayn update --skip-flows__DAGAYN_UPDATE_ARGS__`.quiet()
+          await ctx.$`DAGAYN_HOOK_UPDATE=1 dagayn update --skip-flows`.quiet()
           const result =
             await ctx.$`dagayn detect-changes --brief`.quiet()
           const output = result.stdout?.toString().trim()
@@ -2436,7 +2475,7 @@ export default (app: any) => {
       ) {
         const repo = await resolveRepo(ctx.$)
         const prepare =
-          "DAGAYN_HOOK_UPDATE=1 dagayn session prepare --budget-seconds 45__DAGAYN_UPDATE_ARGS__"
+          "DAGAYN_HOOK_UPDATE=1 dagayn session prepare --budget-seconds 45__DAGAYN_PREPARE_ARGS__"
         if (repo) {
           await ctx.$`${prepare} --repo ${repo}`.quiet()
         } else {
@@ -2449,7 +2488,7 @@ export default (app: any) => {
   })
 }
 """
-    return template.replace("__DAGAYN_UPDATE_ARGS__", update_args)
+    return template.replace("__DAGAYN_PREPARE_ARGS__", prepare_args)
 
 
 def install_opencode_plugin(extra_update_args: list[str] | None = None) -> Path:
@@ -2466,7 +2505,7 @@ def install_opencode_plugin(extra_update_args: list[str] | None = None) -> Path:
     plugin_path = plugins_dir / "crg-plugin.ts"
 
     plugins_dir.mkdir(parents=True, exist_ok=True)
-    plugin_path.write_text(_opencode_plugin_content(extra_update_args), encoding="utf-8")
+    write_text_atomic(plugin_path, _opencode_plugin_content(extra_update_args), encoding="utf-8")
     logger.info("Wrote OpenCode plugin: %s", plugin_path)
 
     return plugin_path

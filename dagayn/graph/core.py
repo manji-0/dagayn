@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Optional
 
 import networkx as nx
 
+from ..sqlite_tuning import apply_wal_size_limit
 from ..state_types import normalize_confidence_tier
 from ..write_lock import drop_store_read_locks, unbind_store_read_lock
 from ._sql import _SCHEMA_SQL
@@ -84,6 +85,7 @@ class GraphStore(
         # then surfaces as ``malformed database schema (<community-name>)``.
         self._conn.execute("PRAGMA mmap_size=0")
         self._conn.execute("PRAGMA temp_store=MEMORY")
+        apply_wal_size_limit(self._conn)
         self._init_schema()
         # Ensure schema_version is set, then run pending migrations
         migrations = import_module("dagayn.migrations")

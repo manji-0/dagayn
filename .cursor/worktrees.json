@@ -1,5 +1,5 @@
 {
   "setup-worktree": [
-    "dagayn worktree sync"
+    "dagayn session prepare --budget-seconds 45"
   ]
 }

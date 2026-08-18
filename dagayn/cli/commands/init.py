@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -129,6 +130,18 @@ def register_commands(sub: argparse._SubParsersAction) -> CommandRegistry:
     return {"install": install_cmd, "init": init_cmd}
 
 
+def _write_note(path: Path) -> str:
+    """Annotation for an existing instruction file in the install preview.
+
+    Files managed by nix/home-manager or chezmoi are read-only symlinks into a
+    store, so injection is refused. Saying so up front beats promising the
+    injection and then reporting it as skipped further down the output.
+    """
+    if not os.access(path, os.W_OK):
+        return "(read-only — will be skipped)"
+    return "(append)"
+
+
 def _instruction_files_to_modify(
     repo_root: Path,
     target: str,
@@ -159,7 +172,7 @@ def _instruction_files_to_modify(
         if claude_md.exists():
             content = claude_md.read_text(encoding="utf-8")
             if _needs_update(content):
-                targets.append("~/.claude/CLAUDE.md (append)")
+                targets.append(f"~/.claude/CLAUDE.md {_write_note(claude_md)}")
         else:
             targets.append("~/.claude/CLAUDE.md (new)")
 
@@ -176,7 +189,7 @@ def _instruction_files_to_modify(
             if path.exists():
                 content = path.read_text(encoding="utf-8")
                 if _needs_update(content):
-                    targets.append(f"{display_name} (append)")
+                    targets.append(f"{display_name} {_write_note(path)}")
             else:
                 targets.append(f"{display_name} (new)")
 
@@ -431,6 +444,9 @@ def handle(args: argparse.Namespace) -> None:
             if injected:
                 print(f"Injected graph instructions into: {', '.join(injected)}")
             if injection_errors:
+                # stderr is unbuffered while stdout is not, so without this the
+                # skip list can surface above the preview it belongs to.
+                sys.stdout.flush()
                 print("Skipped instruction injection for:", file=sys.stderr)
                 for error in dict.fromkeys(injection_errors):
                     print(f"  - {error}", file=sys.stderr)

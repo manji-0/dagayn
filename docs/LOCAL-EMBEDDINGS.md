@@ -250,6 +250,13 @@ Leave a dagayn-started server running for reuse:
 dagayn build --local-embedding --mode llama-qwen3 --keep-local-embedding-server
 ```
 
+Installed session-start hooks pass `--keep-local-embedding-server` to
+`dagayn session prepare` automatically when a local embedding install mode is
+selected: the sidecar started by the prepare stays warm, and the next
+embedding pass (MCP `ensure_graph_tool`, a manual `dagayn update
+--local-embedding`, or a queued `dagayn queue add embed`) reuses it via the
+port probe instead of paying the model-load cost again.
+
 ## Search quality
 
 The current hybrid search benchmark uses the real local BGE-M3 provider with

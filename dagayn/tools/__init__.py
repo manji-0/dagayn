@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from importlib import import_module
+from typing import Any
+
 # Re-export names that external code may patch via "dagayn.tools.*"
 from ..changes import parse_diff_ranges as parse_diff_ranges
 from ..changes import parse_git_diff_ranges as parse_git_diff_ranges
@@ -83,9 +86,6 @@ from .query import (
     traverse_graph_func,
 )
 
-# -- refactor_tools ---------------------------------------------------------
-from .refactor_tools import apply_refactor_func, refactor_func
-
 # -- registry_tools ---------------------------------------------------------
 from .registry_tools import cross_repo_search_func, list_repos_func
 
@@ -107,6 +107,22 @@ from .session_prepare import session_prepare
 
 # -- sync_status ------------------------------------------------------------
 from .sync_status import assess_graph_sync, is_structure_ready, sync_state
+
+# -- refactor_tools (lazy: breaks tools <-> refactor import cycle) -----------
+_LAZY_TOOL_EXPORTS = {
+    "apply_refactor_func": (".refactor_tools", "apply_refactor_func"),
+    "refactor_func": (".refactor_tools", "refactor_func"),
+}
+
+
+def __getattr__(name: str) -> Any:
+    if name in _LAZY_TOOL_EXPORTS:
+        module_path, attr_name = _LAZY_TOOL_EXPORTS[name]
+        value = getattr(import_module(module_path, __name__), attr_name)
+        globals()[name] = value
+        return value
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     # _common

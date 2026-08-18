@@ -26,7 +26,8 @@ in whether those edits are in the graph yet: session-start / explicit
 edit hook already indexed them. MCP `get_minimal_context(auto_prepare=True)`
 only bootstraps on `unbuilt` / `commit_drift` (`needs_mcp_auto_prepare`) so a
 dirty tree does not re-prepare on every tool call; ongoing dirty indexing is
-UC-E1 (`update --skip-flows`).
+UC-E1 (a structure-only update enqueued by the edit hook and drained by the
+queue worker).
 
 **Non-repo roots are never bootstrapped (UC-M3).** A root outside any git/svn
 repository (`sync.vcs == "none"`, typically a misdetected root such as `$HOME`
@@ -198,7 +199,7 @@ flowchart TD
 | UC-M1 | MCP first tool | `get_minimal_context_tool` | `auto_prepare` on `unbuilt`/`commit_drift` (300s); dirty does not loop |
 | UC-M2 | MCP explicit sync | `ensure_graph_tool` | Same prepare path with MCP budget; retry after `partial` until structure ready |
 | UC-M3 | Misdetected root | MCP first tool / `session prepare` on a non-repo root | `vcs == "none"` → never auto-prepare; `session_prepare`/`ensure_graph` refuse with `reason == "not_vcs_repo"` (no `.dagayn/` created) |
-| UC-E1 | File edit (ongoing) | `dagayn update --skip-flows` | Out of bootstrap scope — keeps graph current during a session, not a start gate |
+| UC-E1 | File edit (ongoing) | `dagayn queue add update` → detached queue worker (structure-only, `postprocess=minimal`) | Out of bootstrap scope — keeps graph current during a session, not a start gate. Edit bursts coalesce into one pending task; the worker re-runs while new work arrives and exits after the idle window |
 
 Platform notes: Codex installs without the Claude `EnterWorktree` matcher
 (`worktree_hook=False`). Cursor/Claude/OpenCode cover UC-W1 enter hooks;

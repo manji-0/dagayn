@@ -41,6 +41,56 @@ def _command_module(name: str):
     return import_module(f"dagayn.cli.commands.{name}")
 
 
+def _graph_db_path(args: argparse.Namespace):
+    """Best-effort graph database path for *args*, or ``None``.
+
+    Used only for corruption reporting, so every failure mode collapses to
+    ``None`` instead of masking the original SQLite error.
+    """
+    from pathlib import Path
+
+    try:
+        from ..incremental_files import find_project_root
+        from ..paths import get_db_path
+
+        repo = getattr(args, "repo", None)
+        repo_root = Path(repo) if repo else find_project_root()
+        if repo_root is None:
+            return None
+        return get_db_path(Path(repo_root))
+    except Exception:  # noqa: BLE001 — reporting must not raise
+        return None
+
+
+def _report_corrupt_database(args: argparse.Namespace, exc: BaseException) -> None:
+    """Quarantine a corrupt graph database and explain the next step.
+
+    Without this, an unattended hook (``PostToolUse``, Cursor's
+    ``afterFileEdit``) prints a full traceback on every single invocation and
+    never recovers, because the corrupt file stays in place.
+    """
+    from ..graph.sqlite_errors import quarantine_corrupt_database
+
+    db_path = _graph_db_path(args)
+    moved = quarantine_corrupt_database(db_path) if db_path is not None else None
+
+    print(f"dagayn: graph database is corrupt ({exc})", file=sys.stderr)
+    if moved is not None:
+        print(f"dagayn: moved the corrupt file aside: {moved}", file=sys.stderr)
+        print(
+            "dagayn: run 'dagayn build' to rebuild the graph"
+            " (or delete the .corrupt-* file once you no longer need it)",
+            file=sys.stderr,
+        )
+    elif db_path is not None:
+        print(
+            f"dagayn: could not move {db_path} aside; delete it and run 'dagayn build'",
+            file=sys.stderr,
+        )
+    else:
+        print("dagayn: delete .dagayn/graph.db and run 'dagayn build'", file=sys.stderr)
+
+
 def main() -> None:
     """Main CLI entry point."""
     init = _command_module("init")
@@ -55,6 +105,7 @@ def main() -> None:
     tool = _command_module("tool")
     worktree = _command_module("worktree")
     session = _command_module("session")
+    queue = _command_module("queue")
 
     ap = argparse.ArgumentParser(
         prog="dagayn",
@@ -76,6 +127,7 @@ def main() -> None:
     tool.register_command(sub)
     worktree_parsers = worktree.register_commands(sub)
     session_parsers = session.register_commands(sub)
+    queue_parsers = queue.register_commands(sub)
 
     args = ap.parse_args()
 
@@ -87,31 +139,45 @@ def main() -> None:
         _print_banner()
         return
 
-    if args.command in ("install", "init"):
-        init.handle(args)
-    elif args.command in _BUILD_COMMANDS:
-        build.handle(args)
-    elif args.command == "serve":
-        serve.handle(args, serve_parser)
-    elif args.command == "detect-changes":
-        detect_changes.handle(args)
-    elif args.command == "wiki":
-        wiki.handle(args)
-    elif args.command in ("register", "unregister", "repos"):
-        registry.handle(args)
-    elif args.command == "daemon":
-        daemon.handle(args, daemon_parser)
-    elif args.command == "eval":
-        eval_cmd.handle(args)
-    elif args.command == "profile":
-        rc = profile.handle(args)
-        if rc:
-            sys.exit(rc)
-    elif args.command in _TOOL_COMMANDS:
-        tool.handle(args)
-    elif args.command == "worktree":
-        worktree.handle(args, worktree_parsers["worktree"])
-    elif args.command == "hook-repo":
-        worktree.handle_hook_repo(args)
-    elif args.command == "session":
-        session.handle(args, session_parsers["session"])
+    # A corrupt graph image raises on every open, so an unattended hook would
+    # otherwise print a traceback on each edit forever. Quarantine and explain.
+    import sqlite3
+
+    from ..graph.sqlite_errors import is_sqlite_corrupt_error
+
+    try:
+        if args.command in ("install", "init"):
+            init.handle(args)
+        elif args.command in _BUILD_COMMANDS:
+            build.handle(args)
+        elif args.command == "serve":
+            serve.handle(args, serve_parser)
+        elif args.command == "detect-changes":
+            detect_changes.handle(args)
+        elif args.command == "wiki":
+            wiki.handle(args)
+        elif args.command in ("register", "unregister", "repos"):
+            registry.handle(args)
+        elif args.command == "daemon":
+            daemon.handle(args, daemon_parser)
+        elif args.command == "eval":
+            eval_cmd.handle(args)
+        elif args.command == "profile":
+            rc = profile.handle(args)
+            if rc:
+                sys.exit(rc)
+        elif args.command in _TOOL_COMMANDS:
+            tool.handle(args)
+        elif args.command == "worktree":
+            worktree.handle(args, worktree_parsers["worktree"])
+        elif args.command == "hook-repo":
+            worktree.handle_hook_repo(args)
+        elif args.command == "session":
+            session.handle(args, session_parsers["session"])
+        elif args.command == "queue":
+            queue.handle(args, queue_parsers["queue"])
+    except sqlite3.DatabaseError as exc:
+        if not is_sqlite_corrupt_error(exc):
+            raise
+        _report_corrupt_database(args, exc)
+        sys.exit(1)

@@ -1,6 +1,12 @@
 use crate::helpers::*;
 use crate::*;
 
+/// Upper bound for `graph.db-wal` after a checkpoint (256 MB).
+///
+/// Must match `WAL_SIZE_LIMIT_BYTES` in `dagayn/sqlite_tuning.py`: the Python
+/// and Rust backends take turns writing the same WAL file.
+const WAL_SIZE_LIMIT_BYTES: i64 = 256 * 1024 * 1024;
+
 impl GraphStore {
     pub fn open(db_path: impl AsRef<Path>) -> Result<Self> {
         let db_path = db_path.as_ref();
@@ -21,6 +27,12 @@ impl GraphStore {
         // checkpoints (CLI Python store overlapping this backend).
         conn.pragma_update(None, "mmap_size", 0)?;
         conn.pragma_update(None, "temp_store", "MEMORY")?;
+        // WAL grows without bound otherwise: auto-checkpoint copies pages back
+        // but never shrinks the file, and a long write transaction (full parse
+        // of a large monorepo) blocks checkpointing entirely. A 514 MB graph
+        // was seen with a 9.1 GB WAL, after which every read paged through it.
+        // Keep in sync with WAL_SIZE_LIMIT_BYTES in dagayn/sqlite_tuning.py.
+        conn.pragma_update(None, "journal_size_limit", WAL_SIZE_LIMIT_BYTES)?;
         let store = Self {
             conn,
             bulk_load_indexes_suspended: false,
@@ -96,5 +108,45 @@ impl GraphStore {
         remove_files_data_tx(&tx, file_paths)?;
         tx.commit()?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_db_path(name: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock before unix epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!("dagayn-{name}-{nonce}.db"))
+    }
+
+    /// `journal_size_limit` is per-connection, so it has to be read back on the
+    /// same handle that opened the store. Without it a long write transaction
+    /// leaves `graph.db-wal` at its peak size forever (9.1 GB was observed
+    /// against a 514 MB graph).
+    #[test]
+    fn open_bounds_the_wal_size() {
+        let db_path = temp_db_path("wal-limit");
+        let store = GraphStore::open(&db_path).expect("open store");
+
+        let limit: i64 = store
+            .conn
+            .query_row("PRAGMA journal_size_limit", [], |row| row.get(0))
+            .expect("read journal_size_limit");
+        assert_eq!(limit, WAL_SIZE_LIMIT_BYTES);
+
+        let mode: String = store
+            .conn
+            .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+            .expect("read journal_mode");
+        assert_eq!(mode, "wal");
+
+        drop(store);
+        let _ = std::fs::remove_file(&db_path);
     }
 }
