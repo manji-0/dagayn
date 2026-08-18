@@ -138,7 +138,12 @@ class TaskQueue:
             (kind, priority, json.dumps(payload or {}), now, now),
         )
         self._conn.commit()
-        return "added", int(cur.lastrowid)
+        # sqlite3 types ``lastrowid`` as optional; after a successful INSERT on
+        # a rowid table it is always set.
+        task_id = cur.lastrowid
+        if task_id is None:  # pragma: no cover - defensive
+            raise RuntimeError("INSERT into tasks did not produce a rowid")
+        return "added", task_id
 
     def claim(self) -> dict[str, Any] | None:
         """Atomically take the next pending task, or ``None`` when idle."""
