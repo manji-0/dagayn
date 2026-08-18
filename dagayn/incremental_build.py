@@ -28,6 +28,7 @@ from .incremental_files import (
     resolve_commit_sha,
 )
 from .parser import CodeParser
+from .parser._base.types import EdgeInfo, NodeInfo
 from .parser.dispatch import detect_language as _detect_parser_language
 from .state_types import BuildResult
 from .worktree import is_gitignored
@@ -73,7 +74,10 @@ _STORE_BATCH_SIZE = int(os.environ.get("DAGAYN_STORE_BATCH_SIZE", "128"))
 _RUST_PARSE_BATCH_SIZE = int(os.environ.get("DAGAYN_RUST_PARSE_BATCH_SIZE", "500"))
 _DEFAULT_BACKEND = "rust"
 
-StoreBatch = list[tuple[str, list[Any], list[Any], str, int]]
+type ParsedNodes = list[NodeInfo] | list[list[Any]]
+type ParsedEdges = list[EdgeInfo] | list[list[Any]]
+type WorkerParseResult = tuple[str, ParsedNodes, ParsedEdges, str | None, str, int]
+StoreBatch = list[tuple[str, ParsedNodes, ParsedEdges, str, int]]
 
 logger = logging.getLogger(__name__)
 
@@ -151,7 +155,7 @@ def _batch_hop_dependents(store: GraphStore, frontier: set[str]) -> set[str]:
     return dependents
 
 
-class DependentList(list):
+class DependentList(list[str]):
     """A ``list[str]`` with a ``.truncated`` flag.
 
     When :func:`find_dependents` hits ``_MAX_DEPENDENT_FILES`` it truncates
@@ -165,7 +169,7 @@ class DependentList(list):
 
     truncated: bool
 
-    def __init__(self, items: list, *, truncated: bool = False) -> None:
+    def __init__(self, items: list[str], *, truncated: bool = False) -> None:
         super().__init__(items)
         self.truncated = truncated
 
@@ -226,7 +230,7 @@ def find_dependents_for_files(
 
 def _parse_single_file(
     args: tuple[str, str],
-) -> tuple[str, list, list, str | None, str, int]:
+) -> WorkerParseResult:
     """Parse one file in a worker process.
 
     Returns ``(rel_path, nodes, edges, error_or_none, file_hash, mtime_ns)``.
@@ -252,7 +256,7 @@ def _parse_single_file(
 
 def _parse_single_python_file(
     args: tuple[str, str],
-) -> tuple[str, list, list, str | None, str, int]:
+) -> WorkerParseResult:
     """Parse one file known not to be owned by the Rust parser."""
     rel_path, repo_root_str = args
     abs_path = Path(repo_root_str) / rel_path
@@ -269,7 +273,7 @@ def _parse_single_python_file(
 
 def _parse_single_python_file_compact(
     args: tuple[str, str],
-) -> tuple[str, list, list, str | None, str, int]:
+) -> WorkerParseResult:
     """Parse one Python-owned file and return Rust compact store entities."""
     rel_path, repo_root_str = args
     abs_path = Path(repo_root_str) / rel_path
@@ -279,7 +283,11 @@ def _parse_single_python_file_compact(
         fhash = hashlib.sha256(raw).hexdigest()
         parser = _worker_parser if _worker_parser is not None else CodeParser()
         nodes, edges = parser.parse_bytes(abs_path, raw)
-        nodes, edges = _relativize_parsed_entities(nodes, edges, Path(repo_root_str))
+        nodes, edges = _relativize_parsed_entities(
+            cast(list[NodeInfo], nodes),
+            cast(list[EdgeInfo], edges),
+            Path(repo_root_str),
+        )
         nodes = _serialize_nodes(nodes)
         edges = _serialize_edges(edges)
         return (rel_path, nodes, edges, None, fhash, mtime_ns)
@@ -811,7 +819,7 @@ def _store_rust_parse_batches(
 def _parse_with_rust_if_enabled(
     rel_path: str,
     source: bytes,
-) -> tuple[list[Any], list[Any]] | None:
+) -> tuple[list[list[Any]], list[list[Any]]] | None:
     if not _rust_backend_enabled():
         return None
     lowered = rel_path.lower()
@@ -849,8 +857,8 @@ def _queue_store_file(
     store: GraphStore,
     batch: StoreBatch,
     rel_path: str,
-    nodes: list[Any],
-    edges: list[Any],
+    nodes: ParsedNodes,
+    edges: ParsedEdges,
     fhash: str,
     mtime_ns: int,
 ) -> None:
@@ -918,7 +926,11 @@ def full_build(
                         source = full_path.read_bytes()
                         fhash = hashlib.sha256(source).hexdigest()
                         nodes, edges = parser.parse_bytes(full_path, source)
-                        nodes, edges = _relativize_parsed_entities(nodes, edges, repo_root)
+                        nodes, edges = _relativize_parsed_entities(
+                            cast(list[NodeInfo], nodes),
+                            cast(list[EdgeInfo], edges),
+                            repo_root,
+                        )
                         _queue_store_file(store, batch, rel_path, nodes, edges, fhash, mtime_ns)
                         total_nodes += len(nodes)
                         total_edges += len(edges)
@@ -950,7 +962,11 @@ def full_build(
                             errors.append({"file": rel_path, "error": error})
                             continue
                         if not _uses_compact_entities(nodes, edges):
-                            nodes, edges = _relativize_parsed_entities(nodes, edges, repo_root)
+                            nodes, edges = _relativize_parsed_entities(
+                                cast(list[NodeInfo], nodes),
+                                cast(list[EdgeInfo], edges),
+                                repo_root,
+                            )
                         _queue_store_file(store, batch, rel_path, nodes, edges, fhash, mtime_ns)
                         total_nodes += len(nodes)
                         total_edges += len(edges)

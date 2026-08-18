@@ -15,7 +15,7 @@ import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import Any, Callable, Literal, cast
+from typing import Callable, Literal, cast
 
 from .constants import SECURITY_KEYWORDS as _SECURITY_KEYWORDS
 from .coverage import build_scan_state, has_coverage_evidence
@@ -23,7 +23,16 @@ from .flows import get_affected_flows
 from .graph import GraphEdge, GraphNode, GraphStore, _sanitize_name, edge_to_dict, node_to_dict
 from .parser import CodeParser
 from .parser._base.types import EdgeInfo, NodeInfo
-from .state_types import ChangeAnalysisResult
+from .state_types import (
+    ChangeAnalysisResult,
+    ChangeAttribution,
+    ChangeEdgeRecord,
+    ChangeEntitySummary,
+    ChangeNodeRecord,
+    ChangeStatusCounts,
+    ChangeTestGap,
+    ChangeTestGapEvidence,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1031,7 +1040,7 @@ def analyze_changes(
     )
 
     # Compute per-node risk scores.
-    node_risks: list[dict[str, Any]] = []
+    node_risks: list[ChangeNodeRecord] = []
     for node in changed_funcs:
         risk = compute_risk_score(
             store,
@@ -1064,7 +1073,7 @@ def analyze_changes(
     affected = get_affected_flows(store, changed_files)
 
     # Detect test gaps: reuse the inbound edges already fetched above.
-    test_gaps: list[dict[str, Any]] = []
+    test_gaps: list[ChangeTestGap] = []
     heuristic_gap_checks = 0
     heuristic_gap_eligible_count = 0
     # One shared candidate scan per analysis pass: has_coverage_evidence used
@@ -1119,7 +1128,7 @@ def analyze_changes(
                 }
             )
 
-    changed_edges = [
+    changed_edges: list[ChangeEdgeRecord] = [
         {
             **edge_to_dict(edge),
             "change_status": (
@@ -1132,19 +1141,23 @@ def analyze_changes(
         }
         for edge in relevant_edges
     ]
-    node_status_counts = {
+    node_status_counts: ChangeStatusCounts = {
         "existing": sum(1 for node in node_risks if node["change_status"] == "existing"),
         "added": sum(1 for node in node_risks if node["change_status"] == "added"),
         "unknown": sum(1 for node in node_risks if node["change_status"] == "unknown"),
     }
-    edge_status_counts = {
+    edge_status_counts: ChangeStatusCounts = {
         "existing": sum(1 for edge in changed_edges if edge["change_status"] == "existing"),
         "added": sum(1 for edge in changed_edges if edge["change_status"] == "added"),
         "unknown": sum(1 for edge in changed_edges if edge["change_status"] == "unknown"),
     }
 
     # Review priorities: top 10 by risk score.
-    review_priorities = sorted(node_risks, key=lambda x: x["risk_score"], reverse=True)[:10]
+    review_priorities: list[ChangeNodeRecord] = sorted(
+        node_risks,
+        key=lambda item: float(cast(float, item["risk_score"])),
+        reverse=True,
+    )[:10]
 
     # Build summary.
     summary_parts = [
@@ -1180,32 +1193,32 @@ def analyze_changes(
             risk_score=overall_risk,
             changed_functions=node_risks,
             changed_edges=changed_edges,
-            change_entity_summary={
-                "nodes": node_status_counts,
-                "edges": edge_status_counts,
-                "base": base if has_base_snapshot else None,
-            },
+            change_entity_summary=ChangeEntitySummary(
+                nodes=node_status_counts,
+                edges=edge_status_counts,
+                base=base if has_base_snapshot else None,
+            ),
             diff_parse_status=diff_parse_status,
             unmapped_changed_files=unmapped_changed_files,
-            attribution={
-                "stale_line_range_files": [
+            attribution=ChangeAttribution(
+                stale_line_range_files=[
                     _repo_relative_path(path, repo_root) for path in mapping.stale_line_range_files
                 ],
-                "reason_codes": attribution_reason_codes,
-            },
+                reason_codes=attribution_reason_codes,
+            ),
             affected_flows=affected["affected_flows"],
             test_gaps=test_gaps,
-            test_gap_evidence={
-                "direct_tested_by_edges": True,
-                "heuristic_suppression_enabled": include_heuristic_test_gap_evidence,
-                "heuristic_checked_node_count": heuristic_gap_checks,
-                "heuristic_eligible_node_count": heuristic_gap_eligible_count,
-                "heuristic_truncated": (
+            test_gap_evidence=ChangeTestGapEvidence(
+                direct_tested_by_edges=True,
+                heuristic_suppression_enabled=include_heuristic_test_gap_evidence,
+                heuristic_checked_node_count=heuristic_gap_checks,
+                heuristic_eligible_node_count=heuristic_gap_eligible_count,
+                heuristic_truncated=(
                     include_heuristic_test_gap_evidence
                     and heuristic_test_gap_node_limit is not None
                     and heuristic_gap_checks < heuristic_gap_eligible_count
                 ),
-            },
+            ),
             review_priorities=review_priorities,
         )
     )

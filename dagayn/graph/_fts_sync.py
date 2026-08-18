@@ -12,6 +12,9 @@ from ._fts_tokenize import FTS_SEGMENTER_METADATA_KEY, detect_fts_segmenter
 
 logger = logging.getLogger(__name__)
 
+type FtsHealthValue = Any
+type FtsHealthPayload = dict[str, FtsHealthValue]
+
 FTS_COUNT_KEY = "fts_indexed_node_count"
 FTS_BUILT_AT_KEY = "fts_indexed_at"
 _FTS_DDL = """
@@ -81,7 +84,7 @@ def fts_index_counts(conn: Any) -> tuple[int, int]:
     return nodes_count, fts_count
 
 
-def fts_index_health(conn: Any) -> dict[str, Any]:
+def fts_index_health(conn: Any) -> FtsHealthPayload:
     """Return FTS sync health metadata for search callers."""
     nodes_count, fts_count = fts_index_counts(conn)
     watermark_raw = _metadata_value(conn, FTS_COUNT_KEY)

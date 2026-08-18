@@ -4,6 +4,7 @@ import hashlib
 import subprocess
 import tempfile
 from pathlib import Path
+from typing import cast
 from unittest.mock import patch
 
 import pytest
@@ -25,6 +26,7 @@ from dagayn.changes import (
 )
 from dagayn.flows import store_flows, trace_flows
 from dagayn.graph import GraphStore
+from dagayn.graph.types import ImpactRadiusResult
 from dagayn.parser import EdgeInfo, NodeInfo
 from dagayn.state_types import ChangeAnalysisResult
 
@@ -925,9 +927,7 @@ class TestChanges:
                 "kind": "Function",
             }
         ]
-        impact = {
-            "impacted_nodes": [doc],
-        }
+        impact = cast(ImpactRadiusResult, {"impacted_nodes": [doc]})
 
         default_candidates = _documentation_update_candidates(
             self.store,

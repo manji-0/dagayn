@@ -5,6 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from ..graph import GraphEdge
+
+type ConcernValue = Any
+type ConcernPayload = dict[str, ConcernValue]
+
 _FUNCTION_BRANCH_THRESHOLD = 12
 _FUNCTION_CALL_THRESHOLD = 22
 _CONCERN_SPLIT_SCORE = 0.65
@@ -265,12 +270,12 @@ def _function_role(
 def function_concern_profile(
     node: Any,
     source_lines: list[str],
-    outgoing_edges: list[Any],
+    outgoing_edges: list[GraphEdge],
     *,
     node_community: dict[str, int] | None = None,
     branch_count_value: int | None = None,
     comment_line_count_value: int | None = None,
-) -> dict[str, Any]:
+) -> ConcernPayload:
     """Return role-aware concern-separation evidence for a function.
 
     The profile is a refactoring lead, not a proof of a design smell. It

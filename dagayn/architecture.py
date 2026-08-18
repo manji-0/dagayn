@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Literal
+from typing import Any, Literal, TypedDict
 
 import networkx as nx
 
@@ -16,6 +16,34 @@ from .dependency_profiles import (
 from .graph import GraphStore
 
 logger = logging.getLogger(__name__)
+
+
+class AdpViolationRecord(TypedDict, total=False):
+    nodes: list[str]
+    length: int
+    edge_weight: int
+    severity: int
+    dependency_profile: DependencyProfile
+    truncated: bool
+    cycles_examined: int
+    cycle_limit: int
+
+
+class SdpMetricRecord(TypedDict):
+    name: str
+    ca: int
+    ce: int
+    instability: float
+    dependency_profile: DependencyProfile
+
+
+class SdpViolationRecord(TypedDict):
+    source: str
+    target: str
+    source_instability: float
+    target_instability: float
+    delta: float
+    dependency_profile: DependencyProfile
 
 
 def _project_dependency_graph(
@@ -95,7 +123,7 @@ def find_adp_violations(
     dependency_profile: DependencyProfile = "strict_static",
     max_cycles: int = _MAX_ADP_CYCLES,
     snapshot: Any | None = None,
-) -> list[dict]:
+) -> list[AdpViolationRecord]:
     """Find cyclic dependencies (ADP violations).
 
     Uses nx.simple_cycles on the artifact-scoped dependency subgraph
@@ -124,7 +152,7 @@ def find_adp_violations(
     if g.number_of_nodes() == 0:
         return []
 
-    violations: list[dict] = []
+    violations: list[AdpViolationRecord] = []
     truncated = False
     examined = 0
     try:
@@ -146,7 +174,7 @@ def find_adp_violations(
             )
             violations.append(
                 {
-                    "nodes": cycle,
+                    "nodes": [str(node) for node in cycle],
                     "length": len(cycle),
                     "edge_weight": edge_weight,
                     "severity": len(cycle) * edge_weight,
@@ -171,7 +199,7 @@ def compute_sdp_metrics(
     artifact_scope: ArtifactScope = "code",
     dependency_profile: DependencyProfile = "strict_static",
     snapshot: Any | None = None,
-) -> list[dict]:
+) -> list[SdpMetricRecord]:
     """Compute SDP instability metrics for each module/package.
 
     Instability I = Ce / (Ca + Ce), where:
@@ -199,7 +227,7 @@ def compute_sdp_metrics(
     if g.number_of_nodes() == 0:
         return []
 
-    results = []
+    results: list[SdpMetricRecord] = []
     for node in g.nodes():
         ca = g.in_degree(node)
         ce = g.out_degree(node)
@@ -226,7 +254,7 @@ def find_sdp_violations(
     artifact_scope: ArtifactScope = "code",
     dependency_profile: DependencyProfile = "strict_static",
     snapshot: Any | None = None,
-) -> list[dict]:
+) -> list[SdpViolationRecord]:
     """Find SDP violations: dependencies pointing toward instability.
 
     An edge A -> B violates SDP when I(A) < I(B) - min_delta, i.e., a more
@@ -256,7 +284,7 @@ def find_sdp_violations(
         total = ca + ce
         instability[node] = ce / total if total > 0 else 0.0
 
-    violations = []
+    violations: list[SdpViolationRecord] = []
     for src, tgt in g.edges():
         i_src = instability[src]
         i_tgt = instability[tgt]

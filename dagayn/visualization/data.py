@@ -5,13 +5,18 @@ from __future__ import annotations
 import logging
 import sqlite3
 from dataclasses import asdict
+from typing import Any
 
 from ..graph import GraphStore, edge_to_dict, node_to_dict
 
 logger = logging.getLogger(__name__)
 
 
-def _build_name_index(nodes: list[dict], seen_qn: set[str]) -> dict[str, list[str]]:
+type VisualizationRecord = dict[str, Any]
+type VisualizationPayload = dict[str, Any]
+
+
+def _build_name_index(nodes: list[VisualizationRecord], seen_qn: set[str]) -> dict[str, list[str]]:
     """Build a mapping from short/module-style names to qualified names.
 
     Returns ``{short_name: [qualified_name, ...]}``.
@@ -89,7 +94,7 @@ def _resolve_target(
     return candidates[0], len(candidates)
 
 
-def export_graph_data(store: GraphStore) -> dict:
+def export_graph_data(store: GraphStore) -> VisualizationPayload:
     """Export all graph nodes and edges as a JSON-serializable dict.
 
     Returns ``{"nodes": [...], "edges": [...], "stats": {...},

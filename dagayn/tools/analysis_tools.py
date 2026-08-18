@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Optional
 
 from .._scope import ArtifactScope
 from ..analysis import (
+    SuggestedQuestionRecord,
     find_bridge_nodes,
     find_hub_nodes,
     find_knowledge_gaps,
@@ -13,6 +14,7 @@ from ..analysis import (
     generate_suggested_questions,
 )
 from ._common import (
+    ToolPayload,
     _get_store,
     apply_output_budget,
     graph_answerability_summary,
@@ -28,7 +30,7 @@ def get_hub_nodes_func(
     top_n: int = 10,
     artifact_scope: ArtifactScope = "all",
     include_tests: bool = True,
-) -> dict[str, Any]:
+) -> ToolPayload:
     """Find the most connected nodes in the codebase graph.
 
     Hub nodes have the highest total degree (in + out edges).
@@ -92,7 +94,7 @@ def get_bridge_nodes_func(
     top_n: int = 10,
     artifact_scope: ArtifactScope = "all",
     include_tests: bool = True,
-) -> dict[str, Any]:
+) -> ToolPayload:
     """Find architectural chokepoints via betweenness centrality.
 
     Bridge nodes sit on the shortest paths between many node
@@ -160,7 +162,7 @@ def get_knowledge_gaps_func(
     top_n: int = 20,
     artifact_scope: ArtifactScope = "all",
     include_tests: bool = True,
-) -> dict[str, Any]:
+) -> ToolPayload:
     """Identify structural weaknesses in the codebase.
 
     Finds: isolated nodes (disconnected), thin communities
@@ -263,7 +265,7 @@ def get_surprising_connections_func(
     top_n: int = 15,
     artifact_scope: ArtifactScope = "all",
     include_tests: bool = True,
-) -> dict[str, Any]:
+) -> ToolPayload:
     """Find unexpected architectural coupling in the codebase.
 
     Scores edges by surprise factors: cross-community,
@@ -328,7 +330,7 @@ def get_surprising_connections_func(
 def get_suggested_questions_func(
     repo_root: Optional[str] = None,
     top_n: int = 15,
-) -> dict[str, Any]:
+) -> ToolPayload:
     """Auto-generate review questions from graph analysis.
 
     Produces questions about: bridge nodes, untested hubs,
@@ -343,7 +345,7 @@ def get_suggested_questions_func(
     try:
         answerability = graph_answerability_summary(store)
         questions = generate_suggested_questions(store)
-        by_priority: dict[str, list[dict[str, Any]]] = {
+        by_priority: dict[str, list[SuggestedQuestionRecord]] = {
             "high": [],
             "medium": [],
             "low": [],

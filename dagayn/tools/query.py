@@ -11,11 +11,12 @@ from ..cross_artifact import (
     is_low_confidence_unresolved_markdown_code_span,
 )
 from ..embeddings import EmbeddingStore
-from ..graph import _sanitize_name, edge_to_dict, node_to_dict
+from ..graph import GraphNode, _sanitize_name, edge_to_dict, node_to_dict
 from ..hints import generate_hints, get_session
 from ..incremental import get_changed_files, get_db_path, get_staged_and_unstaged
 from ..search import embedding_health_available, hybrid_search
 from ..state_types import (
+    MissingnessRecord,
     TraversalEntry,
     TraversalMode,
     seal_missingness_item,
@@ -53,7 +54,7 @@ logger = logging.getLogger(__name__)
 
 def _partial_coverage_missingness(
     embedding_health: Mapping[str, Any] | None,
-) -> dict[str, Any] | None:
+) -> MissingnessRecord | None:
     """Disclose that semantic ranking only covers part of the graph.
 
     An interrupted embedding run commits per batch and then raises, so the rows
@@ -90,9 +91,9 @@ def _semantic_search_guidance(
     query: str,
     result_count: int,
     search_mode: str,
-    embedding_health: dict[str, Any],
+    embedding_health: Mapping[str, Any],
 ) -> list[dict[str, Any]]:
-    missingness_items: list[dict[str, Any]] = []
+    missingness_items: list[MissingnessRecord] = []
     if embedding_health and not embedding_health_available(embedding_health):
         missingness_items.append(
             {
@@ -164,7 +165,7 @@ def _normalized_repo_path(value: str, root: Path) -> str:
 
 
 def _unmatched_changed_files(
-    changed_files: list[str], changed_nodes: list, root: Path
+    changed_files: list[str], changed_nodes: list[GraphNode], root: Path
 ) -> list[str]:
     """Return the changed files the graph holds no nodes for.
 

@@ -12,7 +12,24 @@ if TYPE_CHECKING:
     from ..parser._base.types import EdgeInfo
 
 
-def edge_storage_metadata(edge: EdgeInfo) -> tuple[str, float, ConfidenceTier]:
+type EdgeStorageMetadata = tuple[str, float, ConfidenceTier]
+type EdgeInsertValues = tuple[str, str, str, str, str, int, str, float, ConfidenceTier, float]
+type EdgeUpdateValues = tuple[str, int, str, float, ConfidenceTier, float, int]
+type EdgeIdentityUpdateValues = tuple[
+    str,
+    str,
+    float,
+    ConfidenceTier,
+    float,
+    str,
+    str,
+    str,
+    str,
+    int,
+]
+
+
+def edge_storage_metadata(edge: EdgeInfo) -> EdgeStorageMetadata:
     """Return serialized edge metadata and normalized confidence fields."""
     extra = edge.extra or {}
     confidence = float(extra.get("confidence", 1.0))
@@ -30,7 +47,7 @@ def edge_storage_metadata(edge: EdgeInfo) -> tuple[str, float, ConfidenceTier]:
     )
 
 
-def edge_insert_values(edge: EdgeInfo, updated_at: float) -> tuple:
+def edge_insert_values(edge: EdgeInfo, updated_at: float) -> EdgeInsertValues:
     """Return the SQLite values used by edge INSERT statements."""
     extra, confidence, confidence_tier = edge_storage_metadata(edge)
     return (
@@ -47,7 +64,7 @@ def edge_insert_values(edge: EdgeInfo, updated_at: float) -> tuple:
     )
 
 
-def edge_update_values(edge: EdgeInfo, updated_at: float, edge_id: int) -> tuple:
+def edge_update_values(edge: EdgeInfo, updated_at: float, edge_id: int) -> EdgeUpdateValues:
     """Return the SQLite values used by id-keyed edge UPDATE statements."""
     extra, confidence, confidence_tier = edge_storage_metadata(edge)
     return (
@@ -61,7 +78,7 @@ def edge_update_values(edge: EdgeInfo, updated_at: float, edge_id: int) -> tuple
     )
 
 
-def edge_identity_update_values(edge: EdgeInfo, updated_at: float) -> tuple:
+def edge_identity_update_values(edge: EdgeInfo, updated_at: float) -> EdgeIdentityUpdateValues:
     """Return SET + WHERE values for identity-keyed UPDATE … RETURNING id.
 
     Identity key: ``(kind, source_qualified, target_qualified, file_path, line)``.

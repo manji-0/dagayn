@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
-
+from ._common import ToolPayload
 from .session_prepare import EmbeddingPolicy, default_prepare_budget_seconds, session_prepare
 
 _ENSURE_POSTPROCESS = "minimal"
@@ -23,7 +22,7 @@ def ensure_graph(
     local_embedding_batch_size: int = 1,
     budget_seconds: int | None = None,
     embedding_policy: EmbeddingPolicy = "auto",
-) -> dict[str, Any]:
+) -> ToolPayload:
     """Ensure a usable+synced code knowledge graph exists for analysis tools.
 
     Defaults for the compact MCP surface:

@@ -7,6 +7,8 @@ import sys
 
 from ...local_embeddings import DEFAULT_LOCAL_EMBEDDING_BIN
 
+type CommandRegistry = dict[str, argparse.ArgumentParser]
+
 _PLATFORM_CHOICES = [
     "codex",
     "claude",

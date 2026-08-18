@@ -20,10 +20,10 @@ import sys
 import threading
 import time
 import tomllib
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict, cast
 
 from .paths import db_path_for, is_project_root
 
@@ -71,6 +71,27 @@ class DaemonConfig:
     """Repositories the daemon watches."""
 
 
+class DaemonStateEntry(TypedDict):
+    pid: int
+    path: str
+
+
+type DaemonState = dict[str, DaemonStateEntry]
+
+
+class DaemonRepoStatus(TypedDict):
+    alias: str
+    path: str
+    alive: bool
+    pid: int | None
+
+
+class DaemonStatus(TypedDict):
+    session_name: str
+    running: bool
+    repos: list[DaemonRepoStatus]
+
+
 # ---------------------------------------------------------------------------
 # Loading
 # ---------------------------------------------------------------------------
@@ -95,20 +116,29 @@ def load_config(path: Path | None = None) -> DaemonConfig:
         return DaemonConfig()
 
     with open(config_path, "rb") as fh:
-        raw: dict[str, Any] = tomllib.load(fh)
+        raw = cast(Mapping[str, object], tomllib.load(fh))
 
     # -- [daemon] section ---------------------------------------------------
-    daemon_section: dict[str, Any] = raw.get("daemon", {})
-    session_name: str = daemon_section.get("session_name", "crg-watch")
-    log_dir = Path(daemon_section.get("log_dir", str(DaemonConfig().log_dir)))
+    raw_daemon_section = raw.get("daemon", {})
+    daemon_section = raw_daemon_section if isinstance(raw_daemon_section, Mapping) else {}
+    raw_session_name = daemon_section.get("session_name", "crg-watch")
+    session_name = raw_session_name if isinstance(raw_session_name, str) else "crg-watch"
+    raw_log_dir = daemon_section.get("log_dir", str(DaemonConfig().log_dir))
+    log_dir = Path(str(raw_log_dir))
     poll_interval: int = int(daemon_section.get("poll_interval", 2))
 
     # -- [[repos]] array ----------------------------------------------------
     repos: list[WatchRepo] = []
     seen_aliases: set[str] = set()
 
-    for entry in raw.get("repos", []):
-        repo_path_str: str = entry.get("path", "")
+    raw_repos = raw.get("repos", [])
+    repo_entries = raw_repos if isinstance(raw_repos, list) else []
+    for raw_entry in repo_entries:
+        if not isinstance(raw_entry, Mapping):
+            logger.warning("Skipping malformed repo entry")
+            continue
+        entry = raw_entry
+        repo_path_str = str(entry.get("path", ""))
         if not repo_path_str:
             logger.warning("Skipping repo entry with empty path")
             continue
@@ -126,7 +156,8 @@ def load_config(path: Path | None = None) -> DaemonConfig:
             )
             continue
 
-        alias: str = entry.get("alias", "") or repo_path.name
+        raw_alias = entry.get("alias", "")
+        alias = str(raw_alias or repo_path.name)
 
         if alias in seen_aliases:
             logger.warning("Skipping duplicate alias '%s' for repo %s", alias, repo_path)
@@ -402,19 +433,32 @@ def is_daemon_running(path: Path | None = None) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def load_state(path: Path | None = None) -> dict[str, Any]:
+def load_state(path: Path | None = None) -> DaemonState:
     """Load persisted child process state from disk.
 
-    Returns a dict mapping alias to ``{"pid": int, "path": str}``.
+    Returns a mapping from alias to ``{"pid": int, "path": str}``.
     Returns an empty dict if the file is missing or corrupt.
     """
     state_path = path or STATE_PATH
     if not state_path.exists():
         return {}
     try:
-        return json.loads(state_path.read_text(encoding="utf-8"))  # type: ignore[no-any-return]
+        raw = json.loads(state_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return {}
+    if not isinstance(raw, dict):
+        return {}
+
+    state: DaemonState = {}
+    for alias, raw_entry in raw.items():
+        if not isinstance(alias, str) or not isinstance(raw_entry, dict):
+            continue
+        pid = raw_entry.get("pid")
+        repo_path = raw_entry.get("path")
+        if isinstance(pid, bool) or not isinstance(pid, int) or not isinstance(repo_path, str):
+            continue
+        state[alias] = {"pid": pid, "path": repo_path}
+    return state
 
 
 def _is_pid_alive(pid: int) -> bool:
@@ -695,7 +739,7 @@ class WatchDaemon:
             len(to_update),
         )
 
-    def status(self) -> dict[str, Any]:
+    def status(self) -> DaemonStatus:
         """Return a summary of daemon state.
 
         When called from the daemon process itself, uses the in-memory
@@ -703,7 +747,7 @@ class WatchDaemon:
         CLI ``status`` command), falls back to the persisted state file and
         checks liveness via ``os.kill(pid, 0)``.
         """
-        repos: list[dict[str, Any]] = []
+        repos: list[DaemonRepoStatus] = []
         with self._lock:
             if self._children:
                 # In-process: we have live Popen handles
@@ -722,8 +766,8 @@ class WatchDaemon:
                 # Cross-process: read persisted state from disk
                 state = load_state(self._state_path)
                 for repo in self._config.repos:
-                    entry = state.get(repo.alias, {})
-                    pid: int | None = entry.get("pid")
+                    entry = state.get(repo.alias)
+                    pid = entry["pid"] if entry is not None else None
                     alive = pid is not None and _is_pid_alive(pid)
                     repos.append(
                         {
@@ -918,7 +962,7 @@ class WatchDaemon:
         Called after any mutation of ``_children`` so that ``status`` commands
         running in a separate process can determine which watchers are alive.
         """
-        state: dict[str, dict[str, Any]] = {}
+        state: DaemonState = {}
         for alias, proc in self._children.items():
             repo = self._current_repos.get(alias)
             state[alias] = {

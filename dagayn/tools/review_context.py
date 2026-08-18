@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from collections.abc import Mapping
+from typing import Any, cast
 
-from ..graph import edge_to_dict, node_to_dict
+from ..graph import GraphNode, edge_to_dict, node_to_dict
 from ..incremental import get_changed_file_sources, get_staged_and_unstaged
 from ..state_types import seal_missingness_item
 from ._common import (
@@ -24,6 +25,9 @@ from .review_helpers import (
 
 logger = logging.getLogger(__name__)
 
+type ReviewContextValue = Any
+type ReviewContextPayload = dict[str, ReviewContextValue]
+
 
 def get_review_context(
     changed_files: list[str] | None = None,
@@ -33,7 +37,7 @@ def get_review_context(
     repo_root: str | None = None,
     base: str = "HEAD~1",
     detail_level: str = "standard",
-) -> dict[str, Any]:
+) -> ReviewContextPayload:
     """Generate a focused review context from changed files.
 
     Builds a token-optimized subgraph + source snippets for code review.
@@ -152,7 +156,7 @@ def get_review_context(
             )
             if len(values) > _MAX_GRAPH_ENTRIES
         }
-        context: dict[str, Any] = {
+        context: ReviewContextPayload = {
             "changed_files": changed_files,
             "change_file_sources": change_file_sources,
             "impacted_files": impact["impacted_files"],
@@ -207,16 +211,19 @@ def get_review_context(
             context["unmatched_changed_files"] = unmatched
             missingness = [
                 *missingness,
-                seal_missingness_item(
-                    {
-                        "reason_code": "changed_files_not_in_graph",
-                        "severity": "high",
-                        "claim_effect": (
-                            "these files are absent from the graph, so their context and"
-                            " impact are unknown rather than empty"
-                        ),
-                        "details": {"unmatched_changed_files": unmatched[:20]},
-                    }
+                cast(
+                    ReviewContextPayload,
+                    seal_missingness_item(
+                        {
+                            "reason_code": "changed_files_not_in_graph",
+                            "severity": "high",
+                            "claim_effect": (
+                                "these files are absent from the graph, so their context and"
+                                " impact are unknown rather than empty"
+                            ),
+                            "details": {"unmatched_changed_files": unmatched[:20]},
+                        }
+                    ),
                 ),
             ]
 
@@ -230,7 +237,7 @@ def get_review_context(
             guidance,
         ]
 
-        payload: dict[str, Any] = {
+        payload: ReviewContextPayload = {
             "status": "ok",
             "summary": "\n".join(summary_parts),
             "context": context,
@@ -273,7 +280,7 @@ _MAX_GRAPH_ENTRIES = 300
 MAX_LINES_PER_FILE_CEILING = 2000
 
 
-def _budget_source_snippets(payload: dict[str, Any]) -> None:
+def _budget_source_snippets(payload: ReviewContextPayload) -> None:
     """Trim ``context.source_snippets`` to a byte budget, disclosing the cut."""
     context = payload.get("context")
     if not isinstance(context, dict):
@@ -320,7 +327,7 @@ def _budget_source_snippets(payload: dict[str, Any]) -> None:
         truncation["source_snippets"] = {"kept": len(kept), "total": len(snippets)}
 
 
-def _extract_relevant_lines(lines: list[str], nodes: list, file_path: str) -> str:
+def _extract_relevant_lines(lines: list[str], nodes: list[GraphNode], file_path: str) -> str:
     """Extract only the lines relevant to changed nodes."""
     ranges = []
     for n in nodes:
@@ -352,7 +359,7 @@ def _extract_relevant_lines(lines: list[str], nodes: list, file_path: str) -> st
     return "\n".join(parts)
 
 
-def _generate_review_guidance(impact: dict, changed_files: list[str]) -> str:
+def _generate_review_guidance(impact: Mapping[str, Any], changed_files: list[str]) -> str:
     """Generate review guidance based on the impact analysis."""
     guidance_parts = []
 

@@ -22,6 +22,9 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+type BenchmarkValue = Any
+type BenchmarkPayload = dict[str, BenchmarkValue]
+
 
 class SQLCounter:
     """Counts SQL statements executed against a sqlite3.Connection.
@@ -85,7 +88,7 @@ _BASELINES: dict[str, int] = {
 }
 
 
-def _scenario_list_communities(store: Any, _config: dict) -> int:
+def _scenario_list_communities(store: Any, _config: BenchmarkPayload) -> int:
     from dagayn.communities import get_communities
 
     with SQLCounter(store._conn) as c:
@@ -93,7 +96,7 @@ def _scenario_list_communities(store: Any, _config: dict) -> int:
     return c.count
 
 
-def _scenario_traverse_graph(_store: Any, config: dict) -> int:
+def _scenario_traverse_graph(_store: Any, config: BenchmarkPayload) -> int:
     from dagayn.tools._common import _get_store
     from dagayn.tools.query import traverse_graph_func
 
@@ -120,7 +123,7 @@ def _scenario_traverse_graph(_store: Any, config: dict) -> int:
     return c.count
 
 
-def _scenario_affected_flows(store: Any, config: dict) -> int:
+def _scenario_affected_flows(store: Any, config: BenchmarkPayload) -> int:
     from dagayn.flows import get_affected_flows
 
     sample_files = [
@@ -132,7 +135,7 @@ def _scenario_affected_flows(store: Any, config: dict) -> int:
     return c.count
 
 
-def _scenario_single_hop_dependents(store: Any, _config: dict) -> int:
+def _scenario_single_hop_dependents(store: Any, _config: BenchmarkPayload) -> int:
     from dagayn.incremental import _single_hop_dependents
 
     nodes = store.get_all_nodes(exclude_files=False)
@@ -144,7 +147,7 @@ def _scenario_single_hop_dependents(store: Any, _config: dict) -> int:
     return c.count
 
 
-_SCENARIOS: dict[str, Callable[[Any, dict], int]] = {
+_SCENARIOS: dict[str, Callable[[Any, BenchmarkPayload], int]] = {
     "list_communities": _scenario_list_communities,
     "traverse_graph_depth_3": _scenario_traverse_graph,
     "get_affected_flows_5_files": _scenario_affected_flows,
@@ -152,11 +155,11 @@ _SCENARIOS: dict[str, Callable[[Any, dict], int]] = {
 }
 
 
-def run(repo_path: Path, store: Any, config: dict) -> list[dict]:
+def run(repo_path: Path, store: Any, config: BenchmarkPayload) -> list[BenchmarkPayload]:
     """Run each scenario and report SQL counts vs. baseline."""
     config = {**config, "repo_path": repo_path}
     stats = store.get_stats()
-    results: list[dict] = []
+    results: list[BenchmarkPayload] = []
     for name, fn in _SCENARIOS.items():
         try:
             count = fn(store, config)

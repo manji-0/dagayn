@@ -6,6 +6,9 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+type GitConfigValue = Any
+type GitConfig = dict[str, GitConfigValue]
+
 
 def run_git(args: list[str], cwd: Path | str | None = None) -> subprocess.CompletedProcess[str]:
     """Run git with checked errors and readable diagnostics."""
@@ -38,7 +41,7 @@ def _remote_default_ref(repo_path: Path) -> str:
     return "origin/HEAD"
 
 
-def checkout_config_ref(config: dict[str, Any], repo_path: Path) -> str:
+def checkout_config_ref(config: GitConfig, repo_path: Path) -> str:
     """Checkout the configured ref and return its resolved commit SHA."""
     ref = str(config.get("commit", "HEAD"))
     moving_ref = ref == "HEAD"

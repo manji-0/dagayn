@@ -12,6 +12,14 @@ detail_level="minimal" first patterns with get_minimal_context_tool entry point.
 
 from __future__ import annotations
 
+from typing import Literal, TypedDict
+
+
+class PromptMessage(TypedDict):
+    role: Literal["user"]
+    content: str
+
+
 _TOKEN_EFFICIENCY_PREAMBLE = (  # nosec B105 — prompt template, not a password
     """\
 ## Rules for Token-Efficient Graph Usage
@@ -29,7 +37,7 @@ expand on high-risk items.
 )
 
 
-def review_changes_prompt(base: str = "HEAD~1") -> list[dict]:
+def review_changes_prompt(base: str = "HEAD~1") -> list[PromptMessage]:
     """Pre-commit review workflow.
 
     Args:
@@ -63,7 +71,7 @@ def review_changes_prompt(base: str = "HEAD~1") -> list[dict]:
     ]
 
 
-def architecture_map_prompt() -> list[dict]:
+def architecture_map_prompt() -> list[PromptMessage]:
     """Architecture documentation workflow."""
     return [
         {
@@ -86,7 +94,7 @@ def architecture_map_prompt() -> list[dict]:
     ]
 
 
-def debug_issue_prompt(description: str = "") -> list[dict]:
+def debug_issue_prompt(description: str = "") -> list[PromptMessage]:
     """Guided debugging workflow.
 
     Args:
@@ -116,7 +124,7 @@ def debug_issue_prompt(description: str = "") -> list[dict]:
     ]
 
 
-def onboard_developer_prompt() -> list[dict]:
+def onboard_developer_prompt() -> list[PromptMessage]:
     """New developer orientation workflow."""
     return [
         {
@@ -139,7 +147,7 @@ def onboard_developer_prompt() -> list[dict]:
     ]
 
 
-def pre_merge_check_prompt(base: str = "HEAD~1") -> list[dict]:
+def pre_merge_check_prompt(base: str = "HEAD~1") -> list[PromptMessage]:
     """PR readiness check workflow.
 
     Args:

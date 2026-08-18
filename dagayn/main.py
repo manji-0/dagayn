@@ -17,6 +17,7 @@ from typing import Any, Literal, Optional
 
 from . import _python314_compat
 from .prompts import (
+    PromptMessage,
     architecture_map_prompt,
     debug_issue_prompt,
     onboard_developer_prompt,
@@ -24,6 +25,9 @@ from .prompts import (
     review_changes_prompt,
 )
 from .state_types import RefactorMode, TraversalMode
+from .tools._common import ToolPayload
+
+type ComponentPayload = dict[str, object]
 
 _patch_typing_eval_type_for_python314_beta = (
     _python314_compat.patch_typing_eval_type_for_python314_beta
@@ -266,7 +270,7 @@ async def build_or_update_graph_tool(
     local_embedding_timeout: int = 300,
     local_embedding_request_timeout: int = 60,
     local_embedding_batch_size: int = 1,
-) -> dict:
+) -> ToolPayload:
     """Build or incrementally update the code knowledge graph.
 
     Call this first to initialize the graph, or after making changes.
@@ -330,7 +334,7 @@ async def build_or_update_graph_tool(
 async def ensure_graph_tool(
     repo_root: Optional[str] = None,
     force: bool = False,
-) -> dict:
+) -> ToolPayload:
     """Ensure a usable+synced knowledge graph exists for analysis tools.
 
     Prefer this for bootstrap on the default MCP surface. Full rebuilds use
@@ -372,7 +376,7 @@ async def run_postprocess_tool(
     communities: bool = True,
     fts: bool = True,
     repo_root: Optional[str] = None,
-) -> dict:
+) -> ToolPayload:
     """Run post-processing on existing graph (flows, communities, FTS index).
 
     Use after building with postprocess="none" or "minimal", or to re-run
@@ -403,7 +407,7 @@ def get_minimal_context_tool(
     changed_files: Optional[list[str]] = None,
     repo_root: Optional[str] = None,
     base: str = "HEAD~1",
-) -> dict:
+) -> ToolPayload:
     """Get ultra-compact context for any task (~100 tokens). Always call this first.
 
     Returns graph stats, risk score, top communities/flows, and suggested
@@ -436,7 +440,7 @@ def query_graph_tool(
     target: str,
     repo_root: Optional[str] = None,
     detail_level: str = "standard",
-) -> dict:
+) -> ToolPayload:
     """Run a predefined graph query to explore code relationships.
 
     Available patterns:
@@ -474,7 +478,7 @@ def semantic_search_nodes_tool(
     model: Optional[str] = None,
     provider: Optional[str] = None,
     detail_level: str = "standard",
-) -> dict:
+) -> ToolPayload:
     """Search for code entities by name, keyword, or semantic similarity.
 
     Uses vector embeddings for semantic search when available. Embeddings come
@@ -512,7 +516,7 @@ async def embed_graph_tool(
     repo_root: Optional[str] = None,
     model: Optional[str] = None,
     provider: Optional[str] = None,
-) -> dict:
+) -> ToolPayload:
     """Compute vector embeddings for all graph nodes to enable semantic search.
 
     Local embeddings are served by dagayn's managed llama-server sidecar
@@ -553,7 +557,7 @@ async def embed_graph_tool(
 @mcp.tool()
 def list_graph_stats_tool(
     repo_root: Optional[str] = None,
-) -> dict:
+) -> ToolPayload:
     """Get aggregate statistics about the code knowledge graph.
 
     Shows total nodes, edges, languages, files, and last update time.
@@ -570,7 +574,7 @@ def get_docs_section_tool(
     section_name: str,
     repo_root: Optional[str] = None,
     max_chars: int = 4000,
-) -> dict:
+) -> ToolPayload:
     """Get a specific section from the LLM-optimized documentation reference.
 
     Returns only the requested section content for minimal token usage.
@@ -598,7 +602,7 @@ def find_large_functions_tool(
     file_path_pattern: Optional[str] = None,
     limit: int = 50,
     repo_root: Optional[str] = None,
-) -> dict:
+) -> ToolPayload:
     """Find functions, classes, or files exceeding a line-count threshold.
 
     Useful for decomposition audits, code quality checks, and enforcing
@@ -658,7 +662,7 @@ def architecture_analysis_tool(
         "infra_dataflow",
         "artifact_trace",
     ] = "strict_static",
-) -> dict:
+) -> ToolPayload:
     """Run architecture analysis through a single mode-based dispatcher."""
     return _tool("architecture_analysis_func")(
         mode=mode,
@@ -693,7 +697,7 @@ async def review_tool(
     max_lines_per_file: int = 200,
     repo_root: Optional[str] = None,
     detail_level: Literal["minimal", "standard", "verbose"] = "standard",
-) -> dict:
+) -> ToolPayload:
     """Run review analysis through a single mode-based dispatcher."""
     return await asyncio.to_thread(
         _tool("review_func"),
@@ -720,7 +724,7 @@ def flow_tool(
     flow_name: Optional[str] = None,
     include_source: bool = False,
     repo_root: Optional[str] = None,
-) -> dict:
+) -> ToolPayload:
     """Run execution-flow analysis through a single mode-based dispatcher."""
     return _tool("flow_func")(
         mode=mode,
@@ -744,7 +748,7 @@ def refactor_tool(
     file_pattern: Optional[str] = None,
     limit: int = 50,
     repo_root: Optional[str] = None,
-) -> dict:
+) -> ToolPayload:
     """Graph-powered refactoring operations.
 
     Unified entry point for rename previews, dead code detection, and
@@ -787,7 +791,7 @@ def apply_refactor_tool(
     refactor_id: str,
     repo_root: Optional[str] = None,
     dry_run: bool = False,
-) -> dict:
+) -> ToolPayload:
     """Apply a previously previewed refactoring to source files.
 
     Takes a refactor_id from a prior refactor_tool(mode="rename") call and
@@ -817,7 +821,7 @@ def apply_refactor_tool(
 async def generate_wiki_tool(
     repo_root: Optional[str] = None,
     force: bool = False,
-) -> dict:
+) -> ToolPayload:
     """Generate a markdown wiki from the code community structure.
 
     Creates a wiki page for each detected community and an index page.
@@ -843,7 +847,7 @@ async def generate_wiki_tool(
 def get_wiki_page_tool(
     community_name: str,
     repo_root: Optional[str] = None,
-) -> dict:
+) -> ToolPayload:
     """Retrieve a specific wiki page by community name.
 
     Returns the markdown content of the wiki page for the given community.
@@ -863,7 +867,7 @@ def get_wiki_page_tool(
 def get_suggested_questions_tool(
     top_n: int = 15,
     repo_root: Optional[str] = None,
-) -> dict:
+) -> ToolPayload:
     """Auto-generate review questions from graph analysis.
 
     Produces prioritized questions about: bridge nodes needing tests,
@@ -889,7 +893,7 @@ def traverse_graph_tool(
     repo_root: Optional[str] = None,
     model: Optional[str] = None,
     provider: Optional[str] = None,
-) -> dict:
+) -> ToolPayload:
     """BFS/DFS traversal from best-matching node with token budget.
 
     Free-form graph exploration: finds the node best matching your
@@ -921,7 +925,7 @@ def traverse_graph_tool(
 
 
 @mcp.tool()
-def list_repos_tool() -> dict:
+def list_repos_tool() -> ToolPayload:
     """List all registered repositories in the multi-repo registry.
 
     Returns the list of repos registered at ~/.dagayn/registry.json.
@@ -937,7 +941,7 @@ def cross_repo_search_tool(
     limit: int = 20,
     model: Optional[str] = None,
     provider: Optional[str] = None,
-) -> dict:
+) -> ToolPayload:
     """Search for code entities across all registered repositories.
 
     Runs hybrid search on each registered repo's graph database and merges
@@ -962,7 +966,7 @@ def cross_repo_search_tool(
 
 
 @mcp.prompt()
-def review_changes(base: str = "HEAD~1") -> list[dict]:
+def review_changes(base: str = "HEAD~1") -> list[PromptMessage]:
     """Pre-commit review workflow using review_tool, affected flows, and test gaps.
 
     Produces a structured code review with risk levels and actionable findings.
@@ -974,7 +978,7 @@ def review_changes(base: str = "HEAD~1") -> list[dict]:
 
 
 @mcp.prompt()
-def architecture_map() -> list[dict]:
+def architecture_map() -> list[PromptMessage]:
     """Architecture documentation using communities, flows, and Mermaid diagrams.
 
     Generates a comprehensive architecture map with module summaries and coupling warnings.
@@ -983,7 +987,7 @@ def architecture_map() -> list[dict]:
 
 
 @mcp.prompt()
-def debug_issue(description: str = "") -> list[dict]:
+def debug_issue(description: str = "") -> list[PromptMessage]:
     """Guided debugging using search, flow tracing, and recent changes.
 
     Systematic debugging workflow that traces execution paths and identifies root causes.
@@ -995,7 +999,7 @@ def debug_issue(description: str = "") -> list[dict]:
 
 
 @mcp.prompt()
-def onboard_developer() -> list[dict]:
+def onboard_developer() -> list[PromptMessage]:
     """New developer orientation using stats, architecture, and critical flows.
 
     Creates an onboarding guide covering codebase structure, key modules, and patterns.
@@ -1004,7 +1008,7 @@ def onboard_developer() -> list[dict]:
 
 
 @mcp.prompt()
-def pre_merge_check(base: str = "HEAD~1") -> list[dict]:
+def pre_merge_check(base: str = "HEAD~1") -> list[PromptMessage]:
     """PR readiness check with risk scoring, test gaps, and dead code detection.
 
     Produces a merge readiness report with risk assessment and recommendations.
@@ -1015,7 +1019,7 @@ def pre_merge_check(base: str = "HEAD~1") -> list[dict]:
     return pre_merge_check_prompt(base=base)
 
 
-def _tool_components() -> dict[str, Any]:
+def _tool_components() -> ComponentPayload:
     """Return FastMCP's local component registry for registered tools/prompts."""
     provider = getattr(mcp, "_local_provider", None)
     components = getattr(provider, "_components", None)
@@ -1036,12 +1040,12 @@ def _registered_tool_names() -> list[str]:
     return names
 
 
-def _snapshot_components() -> dict[str, Any]:
+def _snapshot_components() -> ComponentPayload:
     """Copy the current FastMCP local component registry."""
     return dict(_tool_components())
 
 
-def _restore_components(snapshot: dict[str, Any]) -> None:
+def _restore_components(snapshot: ComponentPayload) -> None:
     """Restore the FastMCP local component registry from a snapshot."""
     components = _tool_components()
     components.clear()

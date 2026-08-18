@@ -6,10 +6,10 @@ import argparse
 import json
 import sys
 
-from ._shared import DEFAULT_LOCAL_EMBEDDING_BIN, _add_local_embedding_args
+from ._shared import DEFAULT_LOCAL_EMBEDDING_BIN, CommandRegistry, _add_local_embedding_args
 
 
-def register_commands(sub: argparse._SubParsersAction) -> dict:
+def register_commands(sub: argparse._SubParsersAction) -> CommandRegistry:
     """Register ``session`` subcommands."""
     session_cmd = sub.add_parser(
         "session",

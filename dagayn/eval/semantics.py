@@ -7,6 +7,9 @@ from dataclasses import asdict, dataclass
 from enum import StrEnum
 from typing import Any
 
+type MetricValue = Any
+type MetricPayload = dict[str, MetricValue]
+
 
 def _enum_value(value: StrEnum) -> str:
     """Return the string value of a StrEnum in a type-checker-friendly way."""
@@ -449,7 +452,7 @@ def metric_specs_for_benchmark(benchmark: str) -> list[MetricSpec]:
     )
 
 
-def metric_specs_for_row(row: dict[str, Any]) -> list[MetricSpec]:
+def metric_specs_for_row(row: MetricPayload) -> list[MetricSpec]:
     """Return specs for recognized metric columns present with non-empty values."""
     benchmark = str(row.get("benchmark", ""))
     specs: list[MetricSpec] = []
@@ -477,7 +480,7 @@ def _stable_metric_list(specs: list[MetricSpec]) -> str:
     return ";".join(spec.metric for spec in sorted(specs, key=lambda spec: spec.metric))
 
 
-def decorate_metric_row(row: dict[str, Any]) -> dict[str, Any]:
+def decorate_metric_row(row: MetricPayload) -> MetricPayload:
     """Add semantic metadata to a benchmark row without changing existing values."""
     out = dict(row)
     specs = metric_specs_for_row(out)
@@ -527,12 +530,12 @@ def decorate_metric_row(row: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def decorate_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def decorate_rows(rows: list[MetricPayload]) -> list[MetricPayload]:
     """Decorate benchmark rows with metric semantics."""
     return [decorate_metric_row(row) for row in rows]
 
 
-def metric_specs_as_dicts() -> list[dict[str, Any]]:
+def metric_specs_as_dicts() -> list[MetricPayload]:
     """Return the registry in stable, JSON-ready order."""
     records = []
     for spec in sorted(METRIC_SPECS.values(), key=lambda item: (item.benchmark, item.metric)):

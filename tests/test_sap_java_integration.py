@@ -29,7 +29,7 @@ import pytest
 from dagayn.architecture import compute_sdp_metrics
 from dagayn.graph import GraphStore
 from dagayn.parser import CodeParser
-from dagayn.sap import compute_sap_metrics, find_sap_violations
+from dagayn.sap import SapMetricRecord, compute_sap_metrics, find_sap_violations
 
 JAVA_FIXTURES = Path(__file__).parent / "fixtures" / "java_multipackage"
 
@@ -66,7 +66,7 @@ def _scope(pkg: str) -> str:
     return str(JAVA_FIXTURES / pkg)
 
 
-def _find(metrics: list[dict], pkg: str) -> dict | None:
+def _find(metrics: list[SapMetricRecord], pkg: str) -> SapMetricRecord | None:
     return next((m for m in metrics if m["scope_key"] == _scope(pkg)), None)
 
 

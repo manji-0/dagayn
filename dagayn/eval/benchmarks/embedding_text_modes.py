@@ -19,6 +19,9 @@ from typing import Any
 
 from dagayn.embeddings import EmbeddingProvider, EmbeddingStore, embed_all_nodes
 
+type BenchmarkValue = Any
+type BenchmarkPayload = dict[str, BenchmarkValue]
+
 _TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _IDENT_BOUNDARY_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 
@@ -67,13 +70,13 @@ def _matches_expected(qualified_name: str, expected: str) -> bool:
     return exp_lower in qn_lower or qn_lower in exp_lower or exp_name.lower() == qn_name.lower()
 
 
-def run(repo_path: Path, store, config: dict[str, Any]) -> list[dict[str, Any]]:
+def run(repo_path: Path, store, config: BenchmarkPayload) -> list[BenchmarkPayload]:
     """Run embedding-only search quality for configured node text modes."""
     queries = config.get("embedding_text_mode_queries") or config.get("search_queries", [])
     if not queries:
         return []
 
-    results: list[dict[str, Any]] = []
+    results: list[BenchmarkPayload] = []
     modes = config.get("embedding_text_modes") or ["metadata", "body", "structured", "narrative"]
     allowed_kinds = set(config.get("embedding_text_mode_result_kinds") or [])
     kind_by_qualified_name: dict[str, str] = {}

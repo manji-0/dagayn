@@ -11,7 +11,9 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TypedDict, cast
+
+from .state_types import JsonValue
 
 logger = logging.getLogger(__name__)
 
@@ -22,11 +24,19 @@ _PROBE_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".vue"]
 _TSCONFIG_NAMES = ["tsconfig.json", "tsconfig.app.json"]
 
 
+class TsconfigData(TypedDict, total=False):
+    extends: str
+    compilerOptions: dict[str, JsonValue]
+    baseUrl: str
+    paths: dict[str, list[str]]
+    _tsconfig_dir: str
+
+
 class TsconfigResolver:
     """Resolves TypeScript path aliases (e.g., @/ -> src/) using tsconfig.json."""
 
     def __init__(self) -> None:
-        self._cache: dict[str, Optional[dict]] = {}
+        self._cache: dict[str, TsconfigData | None] = {}
 
     # ------------------------------------------------------------------
     # Public API
@@ -64,7 +74,7 @@ class TsconfigResolver:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _load_tsconfig_for_file(self, file_path: str) -> Optional[dict]:
+    def _load_tsconfig_for_file(self, file_path: str) -> TsconfigData | None:
         """Find and load tsconfig.json for the given file."""
         start_dir = Path(file_path).parent.resolve()
         current = start_dir
@@ -96,12 +106,12 @@ class TsconfigResolver:
                 return None
             current = parent
 
-    def _parse_tsconfig(self, tsconfig_path: Path) -> dict:
+    def _parse_tsconfig(self, tsconfig_path: Path) -> TsconfigData:
         """Parse a tsconfig.json file (supports JSONC comments)."""
         seen: set[str] = set()
         return self._resolve_extends(tsconfig_path, seen)
 
-    def _resolve_extends(self, tsconfig_path: Path, seen: set[str]) -> dict:
+    def _resolve_extends(self, tsconfig_path: Path, seen: set[str]) -> TsconfigData:
         """Recursively resolve the tsconfig extends chain."""
         canonical = str(tsconfig_path.resolve())
         if canonical in seen:
@@ -117,12 +127,12 @@ class TsconfigResolver:
 
         stripped = self._strip_jsonc_comments(raw)
         try:
-            data: dict = json.loads(stripped)
+            data = cast(TsconfigData, json.loads(stripped))
         except json.JSONDecodeError:
             logger.debug("TsconfigResolver: invalid JSON in %s", tsconfig_path)
             return {}
 
-        result: dict = {}
+        result: TsconfigData = {}
 
         extends: Optional[str] = data.get("extends")
         if extends and isinstance(extends, str) and extends.startswith("."):
@@ -134,14 +144,24 @@ class TsconfigResolver:
                 parent_opts = parent_config.get("compilerOptions", {})
                 result.setdefault("compilerOptions", {}).update(parent_opts)
 
-        child_opts: dict = data.get("compilerOptions", {})
+        child_opts = data.get("compilerOptions", {})
         result.setdefault("compilerOptions", {}).update(child_opts)
 
         compiler_options = result.get("compilerOptions", {})
-        if "baseUrl" in compiler_options:
-            result["baseUrl"] = compiler_options["baseUrl"]
-        if "paths" in compiler_options:
-            result["paths"] = compiler_options["paths"]
+        base_url = compiler_options.get("baseUrl")
+        if isinstance(base_url, str):
+            result["baseUrl"] = base_url
+        paths = compiler_options.get("paths")
+        if isinstance(paths, dict):
+            typed_paths: dict[str, list[str]] = {}
+            for pattern, replacements in paths.items():
+                if (
+                    isinstance(pattern, str)
+                    and isinstance(replacements, list)
+                    and all(isinstance(replacement, str) for replacement in replacements)
+                ):
+                    typed_paths[pattern] = cast(list[str], replacements)
+            result["paths"] = typed_paths
 
         return result
 

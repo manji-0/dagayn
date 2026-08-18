@@ -6,6 +6,7 @@ from pydantic import ValidationError
 from dagayn.state_types import (
     AnswerabilitySummary,
     ArchitectureCommunityRequest,
+    ChangeAnalysisResult,
     DroppedMarkdownArtifactResolution,
     EmbeddingCoverageStatus,
     FlowGetRequest,
@@ -154,6 +155,55 @@ def test_dispatcher_envelopes_allow_extra_metadata() -> None:
     assert error["status"] == "error"
     assert "answerability" in ok
     assert "answerability" in error
+
+
+def test_change_analysis_records_keep_typed_fields_and_extensions() -> None:
+    result = ChangeAnalysisResult.model_validate(
+        {
+            "changed_functions": [
+                {
+                    "name": "run",
+                    "qualified_name": "pkg::run",
+                    "file_path": "src/pkg.py",
+                    "line_start": 1,
+                    "line_end": 2,
+                    "risk_score": 0.8,
+                    "payload": "forward-compatible",
+                }
+            ],
+            "changed_edges": [
+                {
+                    "source": "pkg::run",
+                    "target": "pkg::load",
+                    "change_status": "added",
+                }
+            ],
+            "change_entity_summary": {
+                "nodes": {"existing": 1, "added": 0, "unknown": 0},
+                "edges": {"existing": 0, "added": 1, "unknown": 0},
+            },
+            "affected_flows": [
+                {
+                    "name": "main",
+                    "steps": [
+                        {
+                            "name": "run",
+                            "qualified_name": "pkg::run",
+                            "node_id": 1,
+                        }
+                    ],
+                }
+            ],
+            "test_gaps": [{"name": "run", "coverage_confidence": "none"}],
+            "test_gap_evidence": {"direct_tested_by_edges": True},
+            "review_priorities": [{"name": "run", "risk_score": 0.8}],
+        }
+    )
+
+    assert result.model_dump()["changed_functions"][0]["payload"] == "forward-compatible"
+    assert result.changed_edges[0]["change_status"] == "added"
+    assert result.affected_flows[0]["steps"][0]["node_id"] == 1
+    assert result.test_gaps[0]["coverage_confidence"] == "none"
 
 
 def test_architecture_community_request_requires_selector() -> None:

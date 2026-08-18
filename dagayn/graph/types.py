@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, TypedDict
 
-from ..state_types import ConfidenceTier
+from ..bridge_types import BridgeMissingnessRecord, BridgeTransitionRecord
+from ..state_types import ConfidenceTier, GraphExtra
 
 
 @dataclass
@@ -23,7 +24,7 @@ class GraphNode:
     return_type: Optional[str]
     is_test: bool
     file_hash: Optional[str]
-    extra: dict
+    extra: GraphExtra
     signature: Optional[str] = None
 
 
@@ -35,9 +36,33 @@ class GraphEdge:
     target_qualified: str
     file_path: str
     line: int
-    extra: dict
+    extra: GraphExtra
     confidence: float = 1.0
     confidence_tier: ConfidenceTier = "EXTRACTED"
+
+
+class ImpactRadiusResult(TypedDict):
+    changed_nodes: list[GraphNode]
+    impacted_nodes: list[GraphNode]
+    impacted_files: list[str]
+    edges: list[GraphEdge]
+    bridge_transitions: list[BridgeTransitionRecord]
+    low_confidence_bridges: list[BridgeMissingnessRecord]
+    truncated: bool
+    total_impacted: int
+
+
+class SubgraphResult(TypedDict):
+    nodes: list[GraphNode]
+    edges: list[GraphEdge]
+
+
+class TransitiveTestRecord(TypedDict):
+    name: str
+    qualified_name: str
+    file_path: str
+    kind: str
+    indirect: bool
 
 
 @dataclass
@@ -56,7 +81,7 @@ class FlowAdjacency:
     has_tested_by: set[str]
     nodes_by_qn: dict[str, "GraphNode"]
     nodes_by_id: dict[int, "GraphNode"]
-    bridge_edges: dict[str, dict[str, dict]] | None = None
+    bridge_edges: dict[str, dict[str, BridgeTransitionRecord]] | None = None
 
 
 @dataclass(frozen=True)

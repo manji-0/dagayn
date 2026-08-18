@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import NamedTuple, Optional
 
+from ...state_types import GraphExtra
+
 
 class CellInfo(NamedTuple):
     """Represents a single cell in a notebook with its language."""
@@ -32,7 +34,7 @@ class NodeInfo:
     return_type: Optional[str] = None
     modifiers: Optional[str] = None
     is_test: bool = False
-    extra: dict = field(default_factory=dict)
+    extra: GraphExtra = field(default_factory=dict)
 
 
 @dataclass
@@ -44,7 +46,7 @@ class EdgeInfo:
     target: str  # qualified name or path
     file_path: str
     line: int = 0
-    extra: dict = field(default_factory=dict)
+    extra: GraphExtra = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

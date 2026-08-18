@@ -6,6 +6,10 @@ from typing import Any
 
 from ._scope import node_file_to_scope_key
 
+type StabilityValue = Any
+type StabilityProfile = dict[str, StabilityValue]
+type StabilityProfiles = dict[str, StabilityProfile]
+
 STABLE_INSTABILITY_MAX = 0.35
 SHOULD_BE_STABLE_CA_MIN = 3
 STABLE_TEST_DENSITY_TARGET = 0.8
@@ -21,9 +25,7 @@ def scope_key_for_file(file_path: str | None) -> str | None:
     return node_file_to_scope_key(file_path, "package")
 
 
-def component_stability_profiles(
-    store: Any, snapshot: Any | None = None
-) -> dict[str, dict[str, Any]]:
+def component_stability_profiles(store: Any, snapshot: Any | None = None) -> StabilityProfiles:
     """Return package-level stability expectations from SDP/SAP metrics.
 
     ``snapshot`` may supply the shared node/edge lists so the underlying SDP
@@ -43,7 +45,7 @@ def component_stability_profiles(
     except Exception:  # pragma: no cover - defensive for backend parity drift
         return {}
 
-    profiles: dict[str, dict[str, Any]] = {}
+    profiles: StabilityProfiles = {}
     thresholds = stability_thresholds()
     for metric in sdp_metrics:
         scope_key = str(metric.get("name", ""))
@@ -122,7 +124,7 @@ def component_stability_profiles(
     return profiles
 
 
-def stability_thresholds() -> dict[str, Any]:
+def stability_thresholds() -> StabilityProfile:
     """Expose the thresholds used by the shared stability policy."""
     return {
         "instability_max": STABLE_INSTABILITY_MAX,
@@ -135,10 +137,10 @@ def stability_thresholds() -> dict[str, Any]:
 
 
 def stability_policy_summary(
-    profiles: dict[str, dict[str, Any]],
+    profiles: StabilityProfiles,
     *,
     limit: int = 5,
-) -> dict[str, Any]:
+) -> StabilityProfile:
     """Summarize shared stability policy outcomes for user-facing tools."""
     stable = [item for item in profiles.values() if item.get("stable")]
     should = [item for item in profiles.values() if item.get("should_be_stable")]

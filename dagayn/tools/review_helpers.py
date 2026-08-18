@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
+from ..bridge_types import BridgeTransitionRecord
 from ..coverage import infer_tests_for_node, is_test_file_path
 from ..cross_artifact import (
     bridge_transition_dict,
@@ -19,11 +21,15 @@ from ..cross_artifact import (
 from ..cross_artifact import (
     is_low_confidence_unresolved_markdown_code_span as _shared_low_conf_code_span,
 )
+from ..graph.types import GraphNode, ImpactRadiusResult
 from ..stability_policy import component_stability_profiles, scope_key_for_file
 from ..state_types import ChangeAnalysisResult
 from ._common import make_guidance_item
 
 logger = logging.getLogger(__name__)
+
+type ReviewValue = Any
+type ReviewPayload = dict[str, ReviewValue]
 
 _ARTIFACT_TO_DOC_ROLES = {
     "implements_contract",
@@ -87,7 +93,7 @@ def _scope_key_for_file(file_path: str | None) -> str | None:
     return scope_key_for_file(file_path)
 
 
-def _scope_key_for_record(record: dict[str, Any]) -> str | None:
+def _scope_key_for_record(record: ReviewPayload) -> str | None:
     file_path = record.get("file_path") or record.get("file")
     return _scope_key_for_file(str(file_path)) if file_path else None
 
@@ -105,9 +111,9 @@ def _changed_scope_keys(changed_files: list[str]) -> set[str]:
     return scopes
 
 
-def _dedupe_dicts_by_key(items: list[dict[str, Any]], key: str, limit: int) -> list[dict[str, Any]]:
+def _dedupe_dicts_by_key(items: list[ReviewPayload], key: str, limit: int) -> list[ReviewPayload]:
     seen: set[str] = set()
-    out: list[dict[str, Any]] = []
+    out: list[ReviewPayload] = []
     for item in items:
         value = item.get(key)
         if not isinstance(value, str) or not value or value in seen:
@@ -168,7 +174,7 @@ def _is_production_code_node(node: Any) -> bool:
     return True
 
 
-def _classify_test_gap(gap: dict[str, Any]) -> str:
+def _classify_test_gap(gap: ReviewPayload) -> str:
     file_path = str(gap.get("file", ""))
     language = str(gap.get("language", ""))
     if _is_markdown_path(file_path) or language == "markdown":
@@ -179,7 +185,7 @@ def _classify_test_gap(gap: dict[str, Any]) -> str:
     return "actionable"
 
 
-def _rank_test_gaps(test_gaps: list[dict[str, Any]], *, limit: int = 5) -> dict[str, Any]:
+def _rank_test_gaps(test_gaps: list[ReviewPayload], *, limit: int = 5) -> ReviewPayload:
     buckets = {"actionable": [], "documentation": [], "test_artifact": []}
     for gap in test_gaps:
         bucket = _classify_test_gap(gap)
@@ -198,7 +204,7 @@ def _rank_test_gaps(test_gaps: list[dict[str, Any]], *, limit: int = 5) -> dict[
 
 def _component_stability_profiles(
     store: Any, *, snapshot: Any | None = None
-) -> dict[str, dict[str, Any]]:
+) -> dict[str, ReviewPayload]:
     """Return package-level stability expectations from Clean Architecture metrics."""
     return component_stability_profiles(store, snapshot=snapshot)
 
@@ -209,12 +215,12 @@ def _component_density_by_scope(
     *,
     include_supplemental_tests: bool = False,
     supplemental_test_density_node_limit: int = _SUPPLEMENTAL_TEST_DENSITY_NODE_LIMIT,
-) -> dict[str, dict[str, Any]]:
+) -> dict[str, ReviewPayload]:
     """Measure direct test and evidence-tiered documentation density for changed scopes."""
     if not scopes:
         return {}
 
-    scope_nodes: dict[str, list[Any]] = defaultdict(list)
+    scope_nodes: dict[str, list[GraphNode]] = defaultdict(list)
     test_node_counts: dict[str, int] = defaultdict(int)
     for node in store.get_all_nodes(exclude_files=True):
         scope_key = _scope_key_for_file(str(getattr(node, "file_path", "")))
@@ -227,7 +233,7 @@ def _component_density_by_scope(
 
     qns = [node.qualified_name for nodes in scope_nodes.values() for node in nodes]
     outgoing_by_qn, incoming_by_qn = store.get_edges_by_endpoints(qns)
-    densities: dict[str, dict[str, Any]] = {}
+    densities: dict[str, ReviewPayload] = {}
     for scope_key, nodes in scope_nodes.items():
         nodes = sorted(nodes, key=lambda node: node.qualified_name)
         supplemental_nodes = nodes
@@ -332,10 +338,10 @@ def _component_density_by_scope(
 
 def _review_signal_quality(
     reason_codes: list[str],
-    docs: list[dict[str, Any]],
-    test_gaps: list[dict[str, Any]],
-    stability_contracts: list[dict[str, Any]] | None = None,
-) -> dict[str, Any]:
+    docs: list[ReviewPayload],
+    test_gaps: list[ReviewPayload],
+    stability_contracts: list[ReviewPayload] | None = None,
+) -> ReviewPayload:
     uncertain = []
     if any(doc.get("evidence_level") == "heuristic_reachable" for doc in docs):
         uncertain.append("documentation candidates are graph-reachable markdown nodes")
@@ -383,14 +389,14 @@ def _review_signal_quality(
 
 def _recommend_tests(
     store: Any,
-    changed_functions: list[dict[str, Any]],
-    affected_flows: list[dict[str, Any]],
+    changed_functions: list[ReviewPayload],
+    affected_flows: list[ReviewPayload],
     *,
     limit: int = 10,
-    stability_profiles: dict[str, dict[str, Any]] | None = None,
-) -> list[dict[str, Any]]:
+    stability_profiles: dict[str, ReviewPayload] | None = None,
+) -> list[ReviewPayload]:
     """Recommend tests that directly or indirectly cover changed code."""
-    recommendations: list[dict[str, Any]] = []
+    recommendations: list[ReviewPayload] = []
     stability_profiles = stability_profiles or {}
 
     for func in changed_functions:
@@ -509,8 +515,8 @@ def _doc_evidence_type(role: str | None, confidence_tier: Any) -> str:
     return "heuristic_reachable"
 
 
-def _doc_missingness(role: str | None, confidence_tier: Any) -> list[dict[str, Any]]:
-    missing: list[dict[str, Any]] = []
+def _doc_missingness(role: str | None, confidence_tier: Any) -> list[ReviewPayload]:
+    missing: list[ReviewPayload] = []
     tier = str(confidence_tier or "").upper()
     if role not in _CONTRACT_DOC_ROLES:
         missing.append(
@@ -550,21 +556,21 @@ def _directive_hint_for_role(role: str | None, *, direction: str) -> str:
 
 def _documentation_update_candidates(
     store: Any,
-    impact: dict[str, Any],
-    changed_functions: list[dict[str, Any]],
+    impact: ImpactRadiusResult,
+    changed_functions: list[ReviewPayload],
     changed_files: list[str],
     *,
     limit: int = 10,
-    stability_profiles: dict[str, dict[str, Any]] | None = None,
+    stability_profiles: dict[str, ReviewPayload] | None = None,
     include_heuristic_docs: bool = False,
-) -> list[dict[str, Any]]:
+) -> list[ReviewPayload]:
     changed_set = set(changed_files)
     code_changed = any(not _is_markdown_path(path) for path in changed_files)
     if not code_changed:
         return []
 
     stability_profiles = stability_profiles or {}
-    candidates: list[dict[str, Any]] = []
+    candidates: list[ReviewPayload] = []
 
     source_qns = [
         qn
@@ -714,29 +720,29 @@ def _documentation_update_candidates(
 
 
 def _stability_contracts(
-    changed_functions: list[dict[str, Any]],
-    recommended_tests: list[dict[str, Any]],
-    docs: list[dict[str, Any]],
-    test_gaps: list[dict[str, Any]],
-    stability_profiles: dict[str, dict[str, Any]],
-    component_density: dict[str, dict[str, Any]],
+    changed_functions: list[ReviewPayload],
+    recommended_tests: list[ReviewPayload],
+    docs: list[ReviewPayload],
+    test_gaps: list[ReviewPayload],
+    stability_profiles: dict[str, ReviewPayload],
+    component_density: dict[str, ReviewPayload],
     *,
     limit: int = 10,
-) -> list[dict[str, Any]]:
-    tests_by_source: dict[str, list[dict[str, Any]]] = defaultdict(list)
+) -> list[ReviewPayload]:
+    tests_by_source: dict[str, list[ReviewPayload]] = defaultdict(list)
     for item in recommended_tests:
         source = item.get("source")
         if isinstance(source, str):
             tests_by_source[source].append(item)
 
-    docs_by_source: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    docs_by_source: dict[str, list[ReviewPayload]] = defaultdict(list)
     for item in docs:
         source = item.get("source")
         if isinstance(source, str):
             docs_by_source[source].append(item)
 
     gap_qns = {str(gap.get("qualified_name")) for gap in test_gaps if gap.get("qualified_name")}
-    changed_by_scope: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    changed_by_scope: dict[str, list[ReviewPayload]] = defaultdict(list)
     for func in changed_functions:
         if func.get("kind") not in {"Function", "Class"}:
             continue
@@ -747,7 +753,7 @@ def _stability_contracts(
         if scope_key:
             changed_by_scope[scope_key].append(func)
 
-    contracts: list[dict[str, Any]] = []
+    contracts: list[ReviewPayload] = []
     for scope_key, funcs in changed_by_scope.items():
         profile = stability_profiles.get(scope_key)
         if not profile:
@@ -840,12 +846,12 @@ def _stability_contracts(
 
 def _hotspot_proximity(
     store: Any,
-    impact: dict[str, Any],
+    impact: ImpactRadiusResult,
     *,
     top_n: int = 25,
     limit: int = 5,
     snapshot: Any | None = None,
-) -> dict[str, Any]:
+) -> ReviewPayload:
     try:
         from ..analysis import find_bridge_nodes, find_hub_nodes
 
@@ -878,8 +884,10 @@ def _hotspot_proximity(
         if getattr(node, "qualified_name", "")
     }
 
-    def _matches(items: list[dict[str, Any]], qns: set[str]) -> list[dict[str, Any]]:
-        return [item for item in items if item.get("qualified_name") in qns][:limit]
+    def _matches(items: Sequence[Mapping[str, object]], qns: set[str]) -> list[ReviewPayload]:
+        return [cast(ReviewPayload, item) for item in items if item.get("qualified_name") in qns][
+            :limit
+        ]
 
     return {
         "changed_hubs": _matches(hubs, changed_qns),
@@ -901,11 +909,11 @@ DOC_FOLLOW_UPS = (
 
 def _cross_artifact_proximity(
     store: Any,
-    impact: dict[str, Any],
-    changed_functions: list[dict[str, Any]],
+    impact: ImpactRadiusResult,
+    changed_functions: list[ReviewPayload],
     *,
     limit: int = 8,
-) -> dict[str, Any]:
+) -> ReviewPayload:
     """Surface reportable CROSS_ARTIFACT bridges near the change as review leads."""
     seed_qns = {
         func.get("qualified_name")
@@ -927,8 +935,8 @@ def _cross_artifact_proximity(
         }
 
     outgoing, incoming = store.get_edges_by_endpoints(list(seed_qns))
-    reportable: list[dict[str, Any]] = []
-    low_confidence: list[dict[str, Any]] = []
+    reportable: list[BridgeTransitionRecord] = []
+    low_confidence: list[BridgeTransitionRecord] = []
     seen: set[tuple[str, str]] = set()
     for edge_map in (outgoing, incoming):
         for edges in edge_map.values():
@@ -978,7 +986,7 @@ def _architecture_delta_summary(
     *,
     limit: int = 5,
     snapshot: Any | None = None,
-) -> dict[str, Any]:
+) -> ReviewPayload:
     """Summarize current architecture risks in scopes touched by the change."""
     scopes = _changed_scope_keys(changed_files)
     if not scopes:
@@ -1056,17 +1064,17 @@ def _review_guidance_items(
     risk: str,
     risk_score: float,
     reason_codes: list[str],
-    recommended_tests: list[dict[str, Any]],
-    docs: list[dict[str, Any]],
-    test_gap_ranking: dict[str, Any],
-    stability_contracts: list[dict[str, Any]],
-    affected_flow_rankings: list[dict[str, Any]],
-    hotspots: dict[str, Any],
-    architecture_delta: dict[str, Any],
-    signal_quality: dict[str, Any],
-    cross_artifact_proximity: dict[str, Any] | None = None,
-) -> list[dict[str, Any]]:
-    guidance: list[dict[str, Any]] = []
+    recommended_tests: list[ReviewPayload],
+    docs: list[ReviewPayload],
+    test_gap_ranking: ReviewPayload,
+    stability_contracts: list[ReviewPayload],
+    affected_flow_rankings: list[ReviewPayload],
+    hotspots: ReviewPayload,
+    architecture_delta: ReviewPayload,
+    signal_quality: ReviewPayload,
+    cross_artifact_proximity: ReviewPayload | None = None,
+) -> list[ReviewPayload]:
+    guidance: list[ReviewPayload] = []
     cross_artifact_proximity = cross_artifact_proximity or {}
     actionable_gap_count = int(test_gap_ranking.get("counts", {}).get("actionable", 0) or 0)
     if actionable_gap_count or recommended_tests:
@@ -1344,15 +1352,15 @@ def _review_guidance_items(
 def _change_analysis_summary(
     store: Any,
     analysis: ChangeAnalysisResult,
-    impact: dict[str, Any],
+    impact: ImpactRadiusResult,
     changed_files: list[str],
     *,
     detail_level: str = "standard",
-) -> dict[str, Any]:
+) -> ReviewPayload:
     risk_score = analysis.risk_score or 0.0
-    affected_flows = list(analysis.affected_flows)
-    test_gaps = list(analysis.test_gaps)
-    changed_functions = list(analysis.changed_functions)
+    affected_flows = cast(list[ReviewPayload], list(analysis.affected_flows))
+    test_gaps = cast(list[ReviewPayload], list(analysis.test_gaps))
+    changed_functions = cast(list[ReviewPayload], list(analysis.changed_functions))
     risk = _risk_level(risk_score)
 
     # One shared snapshot for every downstream sub-analysis (stability

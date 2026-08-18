@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -54,8 +55,8 @@ class QueryGraphState:
 def resolve_query_target(
     state: QueryGraphState,
     *,
-    answerability: dict[str, Any],
-    missingness: list[dict[str, Any]],
+    answerability: Mapping[str, Any],
+    missingness: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any] | None:
     """Resolve the query target to a graph node.
 
@@ -326,7 +327,7 @@ def _pattern_tests_for(state: QueryGraphState) -> None:
     if state.node is None:
         return
     qn = state.qualified_name
-    state.results.extend(infer_tests_for_node(state.store, state.node))
+    state.results.extend(dict(item) for item in infer_tests_for_node(state.store, state.node))
     test_edges = [edge for edge in state.store.get_edges_by_source(qn) if edge.kind == "TESTED_BY"]
     state.edges_out.extend(edge_to_dict(edge) for edge in test_edges)
 
@@ -399,8 +400,8 @@ def build_query_graph_response(
     state: QueryGraphState,
     *,
     detail_level: str,
-    answerability: dict[str, Any],
-    missingness: list[dict[str, Any]],
+    answerability: Mapping[str, Any],
+    missingness: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
     summary = f"Found {len(state.results)} result(s) for {state.pattern}('{state.target}')"
     exact_count = 1 if state.resolution == "exact" and state.node is not None else 0

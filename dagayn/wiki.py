@@ -15,12 +15,15 @@ from typing import Any
 
 from ._scope import build_node_scope_maps
 from .architecture import compute_sdp_metrics, find_adp_violations, find_sdp_violations
-from .communities import get_communities
-from .flows import get_flows
+from .communities import CommunityRecord, get_communities
+from .flows import FlowRecord, get_flows
 from .graph import GraphStore, _sanitize_name
 from .sap import compute_sap_metrics
 
 logger = logging.getLogger(__name__)
+
+type WikiValue = Any
+type WikiPayload = dict[str, WikiValue]
 
 
 def _slugify(name: str) -> str:
@@ -29,7 +32,7 @@ def _slugify(name: str) -> str:
     return slug[:80] or "unnamed"
 
 
-def _build_architecture_metrics_context(store: GraphStore) -> dict[str, Any]:
+def _build_architecture_metrics_context(store: GraphStore) -> WikiPayload:
     """Precompute package-level architecture metrics for wiki rendering."""
     qualified_to_scope, _name_to_scope = build_node_scope_maps(store, "package")
 
@@ -62,7 +65,7 @@ def _format_metric(value: Any) -> str:
     return str(value)
 
 
-def _sap_notes(metric: dict[str, Any]) -> str:
+def _sap_notes(metric: WikiPayload) -> str:
     notes = list(metric.get("notes", []))
     abstractness = metric.get("abstractness", 0.0)
     instability = metric.get("instability", 0.0)
@@ -77,8 +80,8 @@ def _sap_notes(metric: dict[str, Any]) -> str:
 
 
 def _community_package_scopes(
-    community: dict[str, Any],
-    metrics_context: dict[str, Any],
+    community: CommunityRecord,
+    metrics_context: WikiPayload,
 ) -> list[str]:
     qualified_to_scope = metrics_context.get("qualified_to_scope", {})
     member_qns = community.get("members", [])
@@ -87,8 +90,8 @@ def _community_package_scopes(
 
 
 def _render_architecture_metrics_section(
-    community: dict[str, Any],
-    metrics_context: dict[str, Any],
+    community: CommunityRecord,
+    metrics_context: WikiPayload,
 ) -> list[str]:
     lines: list[str] = ["## Architecture Metrics", ""]
 
@@ -207,8 +210,8 @@ def _render_architecture_metrics_section(
 
 def _generate_community_page(
     store: GraphStore,
-    community: dict[str, Any],
-    metrics_context: dict[str, Any] | None = None,
+    community: CommunityRecord,
+    metrics_context: WikiPayload | None = None,
 ) -> str:
     """Build markdown content for a single community.
 
@@ -296,7 +299,7 @@ def _generate_community_page(
         flow_qns_by_id = store.get_flow_qualified_names_for_flows(
             [int(flow["id"]) for flow in all_flows]
         )
-        community_flows: list[dict] = []
+        community_flows: list[FlowRecord] = []
         for flow in all_flows:
             # Check if this flow passes through any community member
             flow_qns = flow_qns_by_id.get(int(flow["id"]), set())
@@ -373,7 +376,7 @@ def generate_wiki(
     store: GraphStore,
     wiki_dir: str | Path,
     force: bool = False,
-) -> dict[str, Any]:
+) -> WikiPayload:
     """Generate a markdown wiki from the community structure.
 
     For each community, generates a markdown page. Also generates an

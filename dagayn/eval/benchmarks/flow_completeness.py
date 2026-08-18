@@ -4,13 +4,17 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Any
 
 from dagayn.eval.scorer import IdentifierMatcher
 
 logger = logging.getLogger(__name__)
 
+type BenchmarkValue = Any
+type BenchmarkPayload = dict[str, BenchmarkValue]
 
-def run(repo_path: Path, store, config: dict) -> list[dict]:
+
+def run(repo_path: Path, store: Any, config: BenchmarkPayload) -> list[BenchmarkPayload]:
     """Run flow completeness benchmark."""
     from dagayn.flows import store_flows, trace_flows
 

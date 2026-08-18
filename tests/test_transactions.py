@@ -2,11 +2,12 @@
 
 import tempfile
 from pathlib import Path
+from typing import cast
 from unittest.mock import patch
 
 import pytest
 
-from dagayn.communities import store_communities
+from dagayn.communities import CommunityRecord, store_communities
 from dagayn.flows import store_flows
 from dagayn.graph import GraphStore
 from dagayn.parser import NodeInfo
@@ -52,7 +53,7 @@ class TestTransactionRobustness:
         store._conn.execute("BEGIN")
         store._conn.execute("INSERT INTO metadata (key, value) VALUES ('leak', 'stale')")
 
-        store_communities(store, communities)
+        store_communities(store, cast(list[CommunityRecord], communities))
 
         assert store.get_metadata("leak") == "stale"
 

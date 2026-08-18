@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal, TypeAlias, TypedDict
+from collections.abc import Mapping
+from typing import Annotated, Any, Literal, TypeAlias, TypedDict, cast
 
 from pydantic import (
     BaseModel,
@@ -15,9 +16,130 @@ from pydantic import (
 )
 
 from . import _python314_compat  # noqa: F401
+from .bridge_types import FlowStepRecord
 from .dependency_profiles import DependencyProfile, validate_dependency_profile
 
 ConfidenceTier: TypeAlias = Literal["EXACT", "EXTRACTED", "HIGH", "MEDIUM", "LOW", "UNKNOWN"]
+
+# Tool responses cross a JSON boundary. Keep their recursive shape explicit
+# instead of using an untyped mapping and losing type information at every
+# nested field.
+type JsonScalar = str | int | float | bool | None
+type JsonValue = JsonScalar | list[JsonValue] | dict[str, JsonValue]
+type JsonObject = dict[str, JsonValue]
+# Parser metadata is JSON-shaped but intentionally open: language parsers add
+# extractor-specific values such as decorator payloads and native row fields.
+type GraphExtra = dict[str, Any]
+
+
+class _OpenTypedDict(TypedDict, total=False):
+    """TypedDict base that preserves forward-compatible JSON fields."""
+
+    __pydantic_config__ = ConfigDict(extra="allow")  # type: ignore[bad-class-definition]
+
+
+class ChangeNodeRecord(_OpenTypedDict, total=False):
+    """Graph node fields exposed by change analysis."""
+
+    id: int
+    kind: str
+    name: str
+    qualified_name: str
+    file_path: str
+    file: str
+    line_start: int
+    line_end: int
+    language: str
+    parent_name: str | None
+    is_test: bool
+    risk_score: float
+    review_priority_score: float
+    change_status: Literal["existing", "added", "unknown"]
+    source: str
+
+
+class ChangeEdgeRecord(_OpenTypedDict, total=False):
+    """Graph edge fields exposed by change analysis."""
+
+    id: int
+    kind: str
+    source: str
+    target: str
+    file_path: str
+    line: int
+    confidence: float
+    confidence_tier: ConfidenceTier
+    extra: JsonObject
+    change_status: Literal["existing", "added", "unknown"]
+
+
+class ChangeStatusCounts(_OpenTypedDict, total=False):
+    existing: int
+    added: int
+    unknown: int
+
+
+class ChangeEntitySummary(_OpenTypedDict, total=False):
+    nodes: ChangeStatusCounts
+    edges: ChangeStatusCounts
+    base: str | None
+
+
+class ChangeAttribution(_OpenTypedDict, total=False):
+    stale_line_range_files: list[str]
+    reason_codes: list[str]
+
+
+ChangeFlowStep: TypeAlias = FlowStepRecord
+
+
+class ChangeFlowRecord(_OpenTypedDict, total=False):
+    id: int
+    name: str
+    entry_point_id: int
+    depth: int
+    node_count: int
+    file_count: int
+    criticality: float
+    path: list[int]
+    nodes: list[ChangeNodeRecord]
+    steps: list[ChangeFlowStep]
+    resolved_step_count: int
+    missing_step_count: int
+    bridge_step_count: int
+    created_at: str | None
+    updated_at: str | None
+    kind: str
+    truncated: bool
+    truncation_reason: str | None
+    members: list[int]
+
+
+class AffectedFlowsResult(TypedDict):
+    affected_flows: list[ChangeFlowRecord]
+    total: int
+
+
+class ChangeTestGap(_OpenTypedDict, total=False):
+    name: str
+    qualified_name: str
+    file: str
+    kind: str
+    language: str
+    line_start: int
+    line_end: int
+    change_status: Literal["existing", "added", "unknown"]
+    coverage_confidence: str
+
+
+class ChangeTestGapEvidence(_OpenTypedDict, total=False):
+    direct_tested_by_edges: bool
+    heuristic_suppression_enabled: bool
+    heuristic_checked_node_count: int
+    heuristic_eligible_node_count: int
+    heuristic_truncated: bool
+
+
 CrossArtifactRole: TypeAlias = Literal[
     "implemented_by",
     "implements_contract",
@@ -116,6 +238,49 @@ MissingnessSeverity: TypeAlias = Literal["info", "low", "medium", "high"]
 AnswerabilityStatus: TypeAlias = Literal["ok", "degraded", "empty", "unknown"]
 
 
+class EmbeddingStatusRecord(_OpenTypedDict, total=False):
+    status: EmbeddingStatusCode
+    total_embeddings: int
+    provider_counts: dict[str, int]
+    error: str
+    active_provider: str
+    embeddable_nodes: int
+    indexed_embeddings: int
+    missing_embeddings: int
+    orphan_embeddings: int
+
+
+class GuidanceEvidenceRecord(_OpenTypedDict, total=False):
+    type: GuidanceEvidenceType
+
+
+class MissingnessRecord(_OpenTypedDict, total=False):
+    reason_code: str
+    severity: MissingnessSeverity
+    claim_effect: str | None
+    details: JsonObject
+    source: str
+
+
+class GuidanceRecord(_OpenTypedDict, total=False):
+    claim: str
+    evidence: list[GuidanceEvidenceRecord]
+    confidence: GuidanceConfidence
+    missingness: list[MissingnessRecord]
+    action: str | JsonObject
+    reason_codes: list[str]
+    counts: JsonObject
+
+
+class AnswerabilityRecord(_OpenTypedDict, total=False):
+    status: AnswerabilityStatus
+    score: float
+    reason_codes: list[str]
+    parse: list[JsonValue]
+    counts: JsonObject
+    answerability: list[JsonValue]
+
+
 class EmbeddingBasicStatus(BaseModel):
     """Embedding index state before full coverage metrics are available."""
 
@@ -148,9 +313,12 @@ EmbeddingStatus = Annotated[
 _EMBEDDING_STATUS_ADAPTER = TypeAdapter(EmbeddingStatus)
 
 
-def seal_embedding_status(payload: dict[str, Any]) -> dict[str, Any]:
+def seal_embedding_status(payload: Mapping[str, object]) -> EmbeddingStatusRecord:
     """Validate and normalize embedding coverage metadata."""
-    return _EMBEDDING_STATUS_ADAPTER.validate_python(payload).model_dump(exclude_none=True)
+    return cast(
+        EmbeddingStatusRecord,
+        _EMBEDDING_STATUS_ADAPTER.validate_python(payload).model_dump(exclude_none=True),
+    )
 
 
 class TraversalEntry(TypedDict):
@@ -195,7 +363,7 @@ ReachabilityInfo = Annotated[
 _REACHABILITY_INFO_ADAPTER = TypeAdapter(ReachabilityInfo)
 
 
-def seal_reachability_info(payload: dict[str, Any]) -> dict[str, Any]:
+def seal_reachability_info(payload: Mapping[str, object]) -> JsonObject:
     """Validate and normalize traversal reachability metadata."""
     return _REACHABILITY_INFO_ADAPTER.validate_python(payload).model_dump(exclude_none=True)
 
@@ -305,7 +473,7 @@ GraphSyncState = Annotated[
 _GRAPH_SYNC_STATE_ADAPTER = TypeAdapter(GraphSyncState)
 
 
-def seal_graph_sync_state(payload: dict[str, Any]) -> dict[str, Any]:
+def seal_graph_sync_state(payload: Mapping[str, object]) -> JsonObject:
     """Validate a graph sync assessment against its state contract."""
     return _GRAPH_SYNC_STATE_ADAPTER.validate_python(payload).model_dump()
 
@@ -334,7 +502,7 @@ class ResolvedMarkdownArtifactResolution(BaseModel):
     target_language: str
     confidence: float
     confidence_tier: ConfidenceTier
-    extra: dict[str, Any]
+    extra: JsonObject
 
 
 class DroppedMarkdownArtifactResolution(BaseModel):
@@ -347,7 +515,7 @@ class DroppedMarkdownArtifactResolution(BaseModel):
     target_qualified: str | None = None
     confidence: float | None = None
     confidence_tier: ConfidenceTier | None = None
-    extra: dict[str, Any] | None = None
+    extra: JsonObject | None = None
 
     @model_validator(mode="after")
     def validate_drop_shape(self) -> DroppedMarkdownArtifactResolution:
@@ -467,12 +635,12 @@ class BuildResult(BaseModel):
     fts_indexed: int | None = None
     orphans_pruned: dict[str, int] | None = None
     embedding_orphans_pruned: int | None = None
-    local_embedding_skipped: dict[str, Any] | None = None
-    local_embedding: dict[str, Any] | None = None
+    local_embedding_skipped: JsonObject | None = None
+    local_embedding: JsonObject | None = None
     postprocess: PostprocessResult = Field(default_factory=PostprocessResult)
 
 
-def build_result_payload(result: BuildResult) -> dict[str, Any]:
+def build_result_payload(result: BuildResult) -> JsonObject:
     """Flatten a :class:`BuildResult` to the wire dict for CLI/MCP consumers.
 
     Post-processing step counters stored on ``result.postprocess`` are
@@ -489,9 +657,8 @@ class ChangeAnalysisResult(BaseModel):
     """Typed output of :func:`dagayn.changes.analyze_changes`.
 
     ``changed_functions`` / ``changed_edges`` / ``test_gaps`` /
-    ``review_priorities`` items are JSON-ish node/edge dicts kept as
-    ``dict[str, Any]`` because callers enrich them in place (e.g. review
-    tools attach ``source`` snippets); their top-level shape is stable.
+    ``review_priorities`` items are JSON objects kept mutable because callers
+    enrich them in place (e.g. review tools attach ``source`` snippets).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -500,16 +667,16 @@ class ChangeAnalysisResult(BaseModel):
     risk_score: float = 0.0
     review_priority_score: float = 0.0
     score_semantics: dict[str, str] = Field(default_factory=dict)
-    changed_functions: list[dict[str, Any]] = Field(default_factory=list)
-    changed_edges: list[dict[str, Any]] = Field(default_factory=list)
-    change_entity_summary: dict[str, Any] = Field(default_factory=dict)
+    changed_functions: list[ChangeNodeRecord] = Field(default_factory=list)
+    changed_edges: list[ChangeEdgeRecord] = Field(default_factory=list)
+    change_entity_summary: ChangeEntitySummary = Field(default_factory=ChangeEntitySummary)
     diff_parse_status: str | None = None
     unmapped_changed_files: list[str] = Field(default_factory=list)
-    attribution: dict[str, Any] = Field(default_factory=dict)
-    affected_flows: list[dict[str, Any]] = Field(default_factory=list)
-    test_gaps: list[dict[str, Any]] = Field(default_factory=list)
-    test_gap_evidence: dict[str, Any] = Field(default_factory=dict)
-    review_priorities: list[dict[str, Any]] = Field(default_factory=list)
+    attribution: ChangeAttribution = Field(default_factory=ChangeAttribution)
+    affected_flows: list[ChangeFlowRecord] = Field(default_factory=list)
+    test_gaps: list[ChangeTestGap] = Field(default_factory=list)
+    test_gap_evidence: ChangeTestGapEvidence = Field(default_factory=ChangeTestGapEvidence)
+    review_priorities: list[ChangeNodeRecord] = Field(default_factory=list)
 
 
 class DispatcherErrorResponse(BaseModel):
@@ -535,12 +702,12 @@ class DispatcherOkResponse(BaseModel):
     summary: str
 
 
-def seal_dispatcher_error(payload: dict[str, Any]) -> dict[str, Any]:
+def seal_dispatcher_error(payload: Mapping[str, object]) -> JsonObject:
     """Validate and normalize a dispatcher error response."""
     return DispatcherErrorResponse.model_validate(payload).model_dump()
 
 
-def seal_dispatcher_ok(payload: dict[str, Any]) -> dict[str, Any]:
+def seal_dispatcher_ok(payload: Mapping[str, object]) -> JsonObject:
     """Validate and normalize a dispatcher success response."""
     return DispatcherOkResponse.model_validate(payload).model_dump()
 
@@ -594,9 +761,9 @@ class GuidanceItem(BaseModel):
     evidence: list[GuidanceEvidence] = Field(default_factory=list)
     confidence: GuidanceConfidence = "unknown"
     missingness: list[MissingnessItem] = Field(default_factory=list)
-    action: str | dict[str, Any]
+    action: str | JsonObject
     reason_codes: list[str] = Field(default_factory=list)
-    counts: dict[str, Any] = Field(default_factory=dict)
+    counts: JsonObject = Field(default_factory=dict)
 
     @field_validator("confidence", mode="before")
     @classmethod
@@ -624,23 +791,29 @@ class AnswerabilitySummary(BaseModel):
     status: AnswerabilityStatus
     score: float
     reason_codes: list[str] = Field(default_factory=list)
-    parse: list[Any] = Field(default_factory=list)
-    counts: dict[str, Any] = Field(default_factory=dict)
+    parse: list[JsonValue] = Field(default_factory=list)
+    counts: JsonObject = Field(default_factory=dict)
 
 
-def seal_guidance_item(payload: dict[str, Any]) -> dict[str, Any]:
+def seal_guidance_item(payload: Mapping[str, object]) -> GuidanceRecord:
     """Validate and normalize one guidance item."""
-    return GuidanceItem.model_validate(payload).model_dump(exclude_none=True)
+    return cast(GuidanceRecord, GuidanceItem.model_validate(payload).model_dump(exclude_none=True))
 
 
-def seal_answerability_summary(payload: dict[str, Any]) -> dict[str, Any]:
+def seal_answerability_summary(payload: Mapping[str, object]) -> AnswerabilityRecord:
     """Validate and normalize graph answerability metadata."""
-    return AnswerabilitySummary.model_validate(payload).model_dump(exclude_none=True)
+    return cast(
+        AnswerabilityRecord,
+        AnswerabilitySummary.model_validate(payload).model_dump(exclude_none=True),
+    )
 
 
-def seal_missingness_item(payload: dict[str, Any]) -> dict[str, Any]:
+def seal_missingness_item(payload: Mapping[str, object]) -> MissingnessRecord:
     """Validate and normalize one missingness item."""
-    return MissingnessItem.model_validate(payload).model_dump(exclude_none=True)
+    return cast(
+        MissingnessRecord,
+        MissingnessItem.model_validate(payload).model_dump(exclude_none=True),
+    )
 
 
 class _FlowRequestBase(BaseModel):
@@ -785,12 +958,12 @@ class RefactorNotFoundResponse(BaseModel):
     summary: str
 
 
-def seal_refactor_ok(payload: dict[str, Any]) -> dict[str, Any]:
+def seal_refactor_ok(payload: Mapping[str, object]) -> JsonObject:
     """Validate and normalize a refactor success response."""
     return RefactorOkResponse.model_validate(payload).model_dump()
 
 
-def seal_refactor_error(payload: dict[str, Any]) -> dict[str, Any]:
+def seal_refactor_error(payload: Mapping[str, object]) -> JsonObject:
     """Validate and normalize a refactor error response."""
     normalized = dict(payload)
     if "summary" not in normalized and "error" in normalized:
@@ -798,7 +971,7 @@ def seal_refactor_error(payload: dict[str, Any]) -> dict[str, Any]:
     return RefactorErrorResponse.model_validate(normalized).model_dump()
 
 
-def seal_refactor_not_found(payload: dict[str, Any]) -> dict[str, Any]:
+def seal_refactor_not_found(payload: Mapping[str, object]) -> JsonObject:
     """Validate and normalize a refactor not-found response."""
     return RefactorNotFoundResponse.model_validate(payload).model_dump()
 

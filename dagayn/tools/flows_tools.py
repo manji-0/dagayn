@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
 
-from ..flows import get_flow_by_id, get_flows
+from ..flows import FlowRecord, get_flow_by_id, get_flows
 from ..hints import generate_hints, get_session
 from ._common import (
+    ToolPayload,
     _get_store,
     apply_output_budget,
     graph_answerability_summary,
@@ -31,7 +31,7 @@ def list_flows(
     limit: int = 50,
     kind: str | None = None,
     detail_level: str = "standard",
-) -> dict[str, Any]:
+) -> ToolPayload:
     """List reachable-set flows in the codebase, sorted by criticality.
 
     [EXPLORE] Retrieves stored flows from the knowledge graph. Each flow is the
@@ -178,7 +178,7 @@ def get_flow(
     flow_name: str | None = None,
     include_source: bool = False,
     repo_root: str | None = None,
-) -> dict[str, Any]:
+) -> ToolPayload:
     """Get details of a single reachable-set flow.
 
     [EXPLORE] Retrieves membership details for a flow, including each member's
@@ -200,7 +200,7 @@ def get_flow(
     try:
         store, root = _get_store(repo_root)
         answerability = graph_answerability_summary(store)
-        flow: dict | None = None
+        flow: FlowRecord | None = None
 
         if flow_id is not None:
             flow = get_flow_by_id(store, flow_id)
@@ -302,7 +302,7 @@ def get_flow(
             else []
         )
 
-        result: dict[str, Any] = {
+        result: ToolPayload = {
             "status": "degraded" if (is_stale_flow or is_truncated) else "ok",
             "summary": summary,
             "flow": flow,

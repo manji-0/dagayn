@@ -8,11 +8,11 @@ import os
 import sqlite3
 import sys
 import threading
-from collections.abc import Mapping
+from collections.abc import Mapping, MutableMapping, Sequence
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as pkg_version
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict, cast
 
 from ..graph import GraphStore
 from ..graph.sqlite_errors import (
@@ -28,6 +28,8 @@ from ..incremental import (
     get_db_path,
 )
 from ..state_types import (
+    AnswerabilityRecord,
+    MissingnessRecord,
     seal_answerability_summary,
     seal_guidance_item,
     seal_missingness_item,
@@ -41,6 +43,30 @@ from ..write_lock import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+type DynamicValue = Any
+type ToolPayload = dict[str, DynamicValue]
+
+
+class RuntimeSummaryRecord(TypedDict):
+    package: str
+    version: str
+    pid: int
+    python: str
+    package_root: str
+
+
+class ToolHintStep(TypedDict):
+    tool: str
+    suggestion: str
+
+
+class ToolHintsRecord(TypedDict):
+    next_steps: list[ToolHintStep]
+    related: list[object]
+    warnings: list[str]
+
 
 _TOOL_RUNTIME_ERRORS: tuple[type[BaseException], ...] = (
     OSError,
@@ -56,12 +82,12 @@ def _error_response(
     message: str,
     status: str = "error",
     **extra: Any,
-) -> dict[str, Any]:
+) -> ToolPayload:
     """Build a standardised error response dict."""
     return {"status": status, "error": message, "summary": message, **extra}
 
 
-def tool_runtime_summary() -> dict[str, Any]:
+def tool_runtime_summary() -> RuntimeSummaryRecord:
     """Return compact runtime identity for comparing CLI and MCP responses."""
     try:
         version = pkg_version("dagayn")
@@ -78,7 +104,7 @@ def tool_runtime_summary() -> dict[str, Any]:
     }
 
 
-def attach_runtime_metadata(payload: dict[str, Any]) -> dict[str, Any]:
+def attach_runtime_metadata(payload: ToolPayload) -> ToolPayload:
     """Attach runtime identity without overriding explicit tool metadata."""
     payload.setdefault("_runtime", tool_runtime_summary())
     return payload
@@ -504,14 +530,14 @@ def _selected_graph_store(*, use_backend_default: bool = True) -> type:
 
 def _hints_from_next_tool_suggestions(
     next_tool_suggestions: list[str] | None,
-) -> dict[str, Any] | None:
+) -> ToolHintsRecord | None:
     """Build a minimal ``_hints`` payload from plain-text tool suggestions."""
     if not next_tool_suggestions:
         return None
 
     from ..tool_surface import filter_suggestions
 
-    next_steps: list[dict[str, str]] = []
+    next_steps: list[ToolHintStep] = []
     for suggestion in filter_suggestions(next_tool_suggestions)[:3]:
         head, _, tail = suggestion.partition(" -- ")
         tool = head.split(" ", 1)[0].split("(", 1)[0]
@@ -531,16 +557,16 @@ def _hints_from_next_tool_suggestions(
 def make_guidance_item(
     *,
     claim: str,
-    action: str | dict[str, Any],
-    evidence: list[dict[str, Any]] | dict[str, Any] | None = None,
+    action: str | Mapping[str, object],
+    evidence: Sequence[Mapping[str, object]] | Mapping[str, object] | None = None,
     confidence: str = "unknown",
-    missingness: list[dict[str, Any]] | dict[str, Any] | None = None,
+    missingness: Sequence[Mapping[str, object]] | Mapping[str, object] | None = None,
     reason_codes: list[str] | None = None,
-    counts: dict[str, Any] | None = None,
+    counts: Mapping[str, object] | None = None,
     **extra: Any,
-) -> dict[str, Any]:
+) -> ToolPayload:
     """Build and validate the shared guidance item shape used by workflow tools."""
-    item: dict[str, Any] = {
+    item: dict[str, object] = {
         "claim": claim,
         "evidence": evidence,
         "confidence": confidence,
@@ -550,12 +576,14 @@ def make_guidance_item(
         "counts": dict(counts or {}),
     }
     item.update(extra)
-    return seal_guidance_item(item)
+    return cast(ToolPayload, seal_guidance_item(item))
 
 
-def guidance_actions_to_hints(guidance: list[dict[str, Any]], *, limit: int = 3) -> dict[str, Any]:
+def guidance_actions_to_hints(
+    guidance: Sequence[Mapping[str, object]], *, limit: int = 3
+) -> ToolHintsRecord:
     """Convert guidance actions into the existing ``_hints.next_steps`` shape."""
-    next_steps: list[dict[str, str]] = []
+    next_steps: list[ToolHintStep] = []
     warnings: list[str] = []
     for item in guidance:
         action = item.get("action")
@@ -570,7 +598,10 @@ def guidance_actions_to_hints(guidance: list[dict[str, Any]], *, limit: int = 3)
         if not suggestion:
             continue
         next_steps.append({"tool": tool, "suggestion": suggestion})
-        for missing in item.get("missingness", []):
+        raw_missingness = item.get("missingness") or []
+        if isinstance(raw_missingness, Mapping):
+            raw_missingness = [raw_missingness]
+        for missing in cast(Sequence[Mapping[str, object]], raw_missingness):
             severity = str(missing.get("severity", "info"))
             code = missing.get("reason_code")
             if severity in {"medium", "high"} and code:
@@ -580,7 +611,7 @@ def guidance_actions_to_hints(guidance: list[dict[str, Any]], *, limit: int = 3)
     return {"next_steps": next_steps, "related": [], "warnings": warnings}
 
 
-def _freshness_reason_codes(store: Any) -> tuple[list[str], dict[str, Any]]:
+def _freshness_reason_codes(store: Any) -> tuple[list[str], ToolPayload]:
     """Return freshness reason codes for the graph behind *store*.
 
     A graph that answers for the wrong commit, or that predates the edits in
@@ -619,7 +650,7 @@ def _freshness_reason_codes(store: Any) -> tuple[list[str], dict[str, Any]]:
     return codes, counts
 
 
-def graph_answerability_summary(store: Any, stats: Any | None = None) -> dict[str, Any]:
+def graph_answerability_summary(store: Any, stats: Any | None = None) -> AnswerabilityRecord:
     """Summarize whether the current graph can support calibrated claims."""
     if stats is None:
         try:
@@ -764,13 +795,15 @@ def graph_answerability_summary(store: Any, stats: Any | None = None) -> dict[st
 
 
 def attach_answerability(
-    payload: dict[str, Any],
+    payload: ToolPayload,
     repo_root: str | None = None,
-) -> dict[str, Any]:
+) -> ToolPayload:
     """Ensure a tool response carries answerability and missingness metadata."""
     attach_runtime_metadata(payload)
     if "answerability" in payload and "missingness" in payload:
-        payload["answerability"] = seal_answerability_summary(payload["answerability"])
+        payload["answerability"] = seal_answerability_summary(
+            cast(Mapping[str, object], payload["answerability"])
+        )
         return payload
 
     try:
@@ -786,7 +819,10 @@ def attach_answerability(
         )
         if "answerability" not in payload:
             payload["answerability"] = answerability
-        payload.setdefault("missingness", missingness_from_answerability(answerability))
+        payload.setdefault(
+            "missingness",
+            missingness_from_answerability(answerability),
+        )
         return payload
 
     try:
@@ -797,12 +833,19 @@ def attach_answerability(
     if "answerability" not in payload:
         payload["answerability"] = answerability
     else:
-        payload["answerability"] = seal_answerability_summary(payload["answerability"])
-    payload.setdefault("missingness", missingness_from_answerability(payload["answerability"]))
+        payload["answerability"] = seal_answerability_summary(
+            cast(Mapping[str, object], payload["answerability"])
+        )
+    payload.setdefault(
+        "missingness",
+        missingness_from_answerability(cast(Mapping[str, object], payload["answerability"])),
+    )
     return payload
 
 
-def missingness_from_answerability(answerability: dict[str, Any]) -> list[dict[str, Any]]:
+def missingness_from_answerability(
+    answerability: Mapping[str, object],
+) -> list[MissingnessRecord]:
     """Convert answerability reason codes into response-level missingness items."""
     severity_by_code = {
         "empty_graph": "high",
@@ -831,8 +874,8 @@ def missingness_from_answerability(answerability: dict[str, Any]) -> list[dict[s
             "working-tree edits may not be indexed -- a symbol reported missing may exist on disk"
         ),
     }
-    items: list[dict[str, Any]] = []
-    for code in answerability.get("reason_codes", []):
+    items: list[MissingnessRecord] = []
+    for code in cast(Sequence[object], answerability.get("reason_codes") or []):
         severity = severity_by_code.get(str(code), "low")
         items.append(
             seal_missingness_item(
@@ -853,15 +896,15 @@ def make_response(
     status: str,
     summary: str,
     *,
-    hints: Any | None = None,
+    hints: object | None = None,
     next_tool_suggestions: list[str] | None = None,
-    **fields: Any,
-) -> dict[str, Any]:
+    **fields: object,
+) -> ToolPayload:
     """Standard envelope: status / summary / fields / _hints / next_tool_suggestions.
 
     Ensures status and summary are always present and consistently ordered.
     """
-    resp: dict[str, Any] = {"status": status, "summary": summary}
+    resp: ToolPayload = {"status": status, "summary": summary}
     resp.update(fields)
     if hints:
         resp["_hints"] = hints
@@ -904,7 +947,7 @@ def handle_tool_runtime_error(
     logger: logging.Logger,
     context: str,
     repo_root: str | Path | None = None,
-) -> dict[str, Any]:
+) -> ToolPayload:
     """Convert a tool failure into a structured MCP error envelope."""
     corrupt = is_sqlite_corrupt_error(exc)
     if corrupt:
@@ -927,7 +970,7 @@ def handle_tool_runtime_error(
             "graph queries are unavailable until poisoned SQLite connections "
             "are closed; the on-disk file may still be healthy"
         )
-        payload: dict[str, Any] = {
+        payload: ToolPayload = {
             "status": "error",
             "error": str(exc),
             "file_ok": recovered,
@@ -962,8 +1005,8 @@ def handle_tool_runtime_error(
     }
 
 
-def _get_path(container: dict[str, Any], path: str) -> tuple[dict[str, Any] | None, str]:
-    current: Any = container
+def _get_path(container: dict[str, object], path: str) -> tuple[dict[str, object] | None, str]:
+    current: object = container
     parts = path.split(".")
     for part in parts[:-1]:
         if not isinstance(current, dict):
@@ -973,10 +1016,10 @@ def _get_path(container: dict[str, Any], path: str) -> tuple[dict[str, Any] | No
 
 
 def apply_output_budget(
-    payload: dict[str, Any],
+    payload: MutableMapping[str, DynamicValue],
     budget_tokens: int = 5000,
     list_priorities: list[str] | None = None,
-) -> dict[str, Any]:
+) -> ToolPayload:
     """Trim list-valued fields until JSON size fits within budget_tokens.
 
     Mutates payload in-place. Sets payload["truncated"] = True and adds
@@ -986,53 +1029,57 @@ def apply_output_budget(
     Fields in list_priorities are trimmed last-to-first (lowest priority
     trimmed first). Fields not in list_priorities are never touched.
     """
+    mutable_payload = cast(dict[str, object], payload)
     if list_priorities is None:
         list_priorities = []
 
     def _est_tokens() -> int:
-        return len(json.dumps(payload, default=str)) // 4
+        return len(json.dumps(mutable_payload, default=str)) // 4
 
     if _est_tokens() <= budget_tokens:
-        return payload
+        return cast(ToolPayload, payload)
 
     truncation: dict[str, dict[str, int]] = {}
 
     for field in reversed(list_priorities):
-        parent, key = _get_path(payload, field)
-        if parent is None or key not in parent or not isinstance(parent[key], list):
+        parent, key = _get_path(mutable_payload, field)
+        if parent is None or key not in parent:
             continue
-        items = parent[key]
+        raw_items = parent[key]
+        if not isinstance(raw_items, list):
+            continue
+        items = raw_items
         total = len(items)
         while len(items) > 1 and _est_tokens() > budget_tokens:
             items = items[: len(items) // 2]
             parent[key] = items
         if len(items) == 0:
-            items = parent[key][:1]
+            items = items[:1]
         if len(items) < total:
             parent[key] = items
             truncation[field] = {"kept": len(items), "total": total}
-            payload["truncated"] = True
+            mutable_payload["truncated"] = True
         if _est_tokens() <= budget_tokens:
             break
 
     if truncation:
-        payload["_truncation"] = truncation
+        mutable_payload["_truncation"] = truncation
     elif _est_tokens() > budget_tokens:
         logger.warning(
             "apply_output_budget: payload still exceeds %d tokens after trimming all lists",
             budget_tokens,
         )
-        payload["truncated"] = True
+        mutable_payload["truncated"] = True
 
-    return payload
+    return cast(ToolPayload, payload)
 
 
 def projection_for_detail_level(
-    item: Mapping[str, Any],
+    item: Mapping[str, object],
     level: str,
     fields_minimal: list[str],
     fields_standard: list[str] | None = None,
-) -> dict[str, Any]:
+) -> dict[str, object]:
     """Return a subset of item's fields based on detail_level.
 
     - "minimal": only fields_minimal keys
@@ -1057,11 +1104,11 @@ def compact_response(
     top_flows: list[str] | None = None,
     flows_affected: list[str] | None = None,
     next_tool_suggestions: list[str] | None = None,
-    data: dict[str, Any] | None = None,
+    data: dict[str, object] | None = None,
     detail_level: str = "minimal",
-) -> dict[str, Any]:
+) -> ToolPayload:
     """Standard compact response format for token efficiency."""
-    resp: dict[str, Any] = {
+    resp: ToolPayload = {
         "status": "ok",
         "summary": summary,
     }

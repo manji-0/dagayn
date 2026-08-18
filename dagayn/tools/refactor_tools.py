@@ -34,6 +34,9 @@ from ._common import (
 
 logger = logging.getLogger(__name__)
 
+type RefactorValue = Any
+type RefactorPayload = dict[str, RefactorValue]
+
 #: Conservative identifier shape shared by the languages dagayn parses: a
 #: leading letter or underscore followed by word characters. Language-specific
 #: extras (``$`` in JS, ``!``/``?`` in Ruby) are deliberately excluded -- a
@@ -48,9 +51,9 @@ def _is_valid_identifier(name: str | None) -> bool:
 
 
 def _apply_stability_policy_to_suggestions(
-    suggestions: list[dict[str, Any]],
-    profiles: dict[str, dict[str, Any]],
-) -> list[dict[str, Any]]:
+    suggestions: list[RefactorPayload],
+    profiles: dict[str, RefactorPayload],
+) -> list[RefactorPayload]:
     for suggestion in suggestions:
         affected_files = [str(path) for path in suggestion.get("affected_files", [])]
         stable_profiles = [
@@ -90,11 +93,11 @@ def _apply_stability_policy_to_suggestions(
 
 
 def _refactor_guidance(
-    suggestions: list[dict[str, Any]],
+    suggestions: list[RefactorPayload],
     *,
     limit: int = 3,
-) -> list[dict[str, Any]]:
-    guidance: list[dict[str, Any]] = []
+) -> list[RefactorPayload]:
+    guidance: list[RefactorPayload] = []
     for suggestion in suggestions[:limit]:
         work_pack = suggestion.get("work_pack", {})
         evidence = suggestion.get("evidence", {})
@@ -165,7 +168,7 @@ def refactor_func(
     top_n: int | None = None,
     detail_level: str = "standard",
     repo_root: str | None = None,
-) -> dict[str, Any]: ...
+) -> RefactorPayload: ...
 
 
 @overload
@@ -179,7 +182,7 @@ def refactor_func(
     top_n: int | None = None,
     detail_level: str = "standard",
     repo_root: str | None = None,
-) -> dict[str, Any]: ...
+) -> RefactorPayload: ...
 
 
 def refactor_func(
@@ -192,7 +195,7 @@ def refactor_func(
     top_n: int | None = None,
     detail_level: str = "standard",
     repo_root: str | None = None,
-) -> dict[str, Any]:
+) -> RefactorPayload:
     """Unified refactoring entry point.
 
     [REFACTOR] Supports three modes:
@@ -283,7 +286,7 @@ def refactor_func(
                         ],
                     }
                 )
-            result: dict[str, Any] = {
+            result: RefactorPayload = {
                 "status": "ok",
                 "summary": (
                     f"Rename preview: {request.old_name} -> {request.new_name}, "
@@ -317,7 +320,7 @@ def refactor_func(
             )
             total = len(dead)
             truncated = total > request.limit
-            result: dict[str, Any] = {
+            result: RefactorPayload = {
                 "status": "ok",
                 "summary": f"Found {total} dead code symbol(s)."
                 + (f" Showing first {request.limit}." if truncated else ""),
@@ -354,7 +357,7 @@ def refactor_func(
         for suggestion in suggestions:
             stype = str(suggestion.get("type", "unknown"))
             counts_by_type[stype] = counts_by_type.get(stype, 0) + 1
-        result: dict[str, Any] = {
+        result: RefactorPayload = {
             "status": "ok",
             "summary": f"Generated {total} refactoring suggestion(s)."
             + (f" Showing first {request.limit}." if truncated else ""),
@@ -395,7 +398,7 @@ def apply_refactor_func(
     refactor_id: str,
     repo_root: str | None = None,
     dry_run: bool = False,
-) -> dict[str, Any]:
+) -> RefactorPayload:
     """Apply a previously previewed refactoring to source files.
 
     [REFACTOR] Validates the refactor_id, checks expiry, ensures all edit

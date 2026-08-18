@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import argparse
 import logging
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 from ...hook_guard import DEFAULT_HOOK_BUDGET_SECONDS
-from ._shared import _add_local_embedding_args
+from ._shared import CommandRegistry, _add_local_embedding_args
 
 
 def _remove_existing_graph_database(db_path: Path) -> list[Path]:
@@ -26,7 +28,7 @@ def _remove_existing_graph_database(db_path: Path) -> list[Path]:
     return removed
 
 
-def _print_local_embedding_summary(result: dict) -> None:
+def _print_local_embedding_summary(result: Mapping[str, Any]) -> None:
     emb = result.get("local_embedding")
     if not emb:
         return
@@ -175,7 +177,7 @@ def _print_sync_state(repo_root: Path, store: object) -> None:
         print(f"  Needs re-indexing: {shown}{more}")
 
 
-def register_commands(sub: argparse._SubParsersAction) -> dict:
+def register_commands(sub: argparse._SubParsersAction) -> CommandRegistry:
     """Register build/update/postprocess/watch/status/visualize subcommands."""
 
     # build
@@ -423,7 +425,7 @@ def register_commands(sub: argparse._SubParsersAction) -> dict:
     }
 
 
-def _print_postprocess_summary(result: dict) -> None:
+def _print_postprocess_summary(result: Mapping[str, Any]) -> None:
     """Print postprocess counts already returned by the build tool."""
     if result.get("signatures_computed"):
         print(f"Signatures: {result['signatures_computed']} nodes")

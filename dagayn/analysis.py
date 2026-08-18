@@ -11,10 +11,12 @@ import re
 import sqlite3
 import time
 from collections import Counter, defaultdict
+from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
-from typing import Any, Callable, cast
+from typing import Callable, TypedDict, cast
 
 from ._scope import ArtifactScope, node_matches_artifact_scope
+from .communities import CommunityMetricsPayload
 from .cross_artifact import is_reportable_bridge
 from .entry_point_heuristics import has_framework_decorator, matches_entry_name
 from .graph import GraphEdge, GraphNode, GraphStore, _sanitize_name
@@ -22,7 +24,7 @@ from .graph import GraphEdge, GraphNode, GraphStore, _sanitize_name
 logger = logging.getLogger(__name__)
 
 
-def _sort_key_int(item: dict[str, Any], field: str) -> int:
+def _sort_key_int(item: Mapping[str, object], field: str) -> int:
     value = item.get(field)
     if isinstance(value, bool):
         return int(value)
@@ -33,7 +35,7 @@ def _sort_key_int(item: dict[str, Any], field: str) -> int:
     return 0
 
 
-def _sort_key_float(item: dict[str, Any], field: str) -> float:
+def _sort_key_float(item: Mapping[str, object], field: str) -> float:
     value = item.get(field)
     if isinstance(value, (int, float)):
         return float(value)
@@ -70,6 +72,90 @@ class CommunityEdgeMetrics:
     external_edge_ratio: float
 
 
+class KnowledgeGapRecord(TypedDict, total=False):
+    """Node or community finding returned by :func:`find_knowledge_gaps`."""
+
+    name: str
+    qualified_name: str
+    kind: str
+    file: str
+    degree: int
+    hotspot_min_degree: int
+    community_id: int
+    size: int
+    internal_edges: int
+    external_edges: int
+    external_degree: int
+    cohesion: float
+    external_edge_ratio: float
+    classification: str
+    evidence: str
+
+
+class KnowledgeGapMeta(TypedDict):
+    thresholds: dict[str, int | float]
+    degree_distribution: dict[str, int]
+    artifact_scope: ArtifactScope
+    include_tests: bool
+    scoped_counts: dict[str, int]
+    top_n: int
+    raw_counts: dict[str, int]
+    returned_counts: dict[str, int]
+    truncated: bool
+    exclusions: dict[str, list[str]]
+    classified_noise_counts: dict[str, int]
+    classified_noise_examples: dict[str, list[KnowledgeGapRecord]]
+
+
+class KnowledgeGapsResult(TypedDict):
+    untested_hotspots: list[KnowledgeGapRecord]
+    single_file_communities: list[KnowledgeGapRecord]
+    isolated_nodes: list[KnowledgeGapRecord]
+    thin_communities: list[KnowledgeGapRecord]
+    _meta: KnowledgeGapMeta
+
+
+class HubNodeRecord(TypedDict, total=False):
+    name: str
+    qualified_name: str
+    kind: str
+    file: str
+    in_degree: int
+    out_degree: int
+    total_degree: int
+    community_id: int | None
+    score_source: str
+
+
+class BridgeNodeRecord(TypedDict, total=False):
+    name: str
+    qualified_name: str
+    kind: str
+    file: str
+    betweenness: float
+    community_id: int | None
+    score_source: str
+
+
+class SurpriseConnectionRecord(TypedDict):
+    source: str
+    source_qualified: str
+    target: str
+    target_qualified: str
+    edge_kind: str
+    surprise_score: float
+    reasons: list[str]
+    source_community: int | None
+    target_community: int | None
+
+
+class SuggestedQuestionRecord(TypedDict):
+    category: str
+    question: str
+    target: str
+    priority: str
+
+
 def build_graph_snapshot(store: GraphStore) -> GraphSnapshot:
     """Build a :class:`GraphSnapshot` with one read of edges/nodes/communities."""
     edges = store.get_all_edges()
@@ -103,7 +189,7 @@ def find_hub_nodes(
     use_persisted: bool = True,
     artifact_scope: ArtifactScope = "all",
     include_tests: bool = True,
-) -> list[dict]:
+) -> list[HubNodeRecord]:
     """Find the most connected nodes (highest in+out degree), excluding File nodes.
 
     Returns list of dicts with: name, qualified_name, kind, file,
@@ -122,7 +208,7 @@ def find_hub_nodes(
     in_degree, out_degree = _degree_counters(scoped_edges)
     community_map = snapshot.community_map
 
-    scored = []
+    scored: list[HubNodeRecord] = []
     for n in nodes:
         qn = n.qualified_name
         ind = in_degree.get(qn, 0)
@@ -158,7 +244,7 @@ def find_bridge_nodes(
     use_persisted: bool = True,
     artifact_scope: ArtifactScope = "all",
     include_tests: bool = True,
-) -> list[dict]:
+) -> list[BridgeNodeRecord]:
     """Find nodes with highest betweenness centrality.
 
     These are architectural chokepoints that sit on shortest paths
@@ -200,7 +286,7 @@ def find_bridge_nodes(
 
     community_map = snapshot.community_map
 
-    results = []
+    results: list[BridgeNodeRecord] = []
     for qn, score in bc.items():
         if score <= 0 or qn not in node_map:
             continue
@@ -424,7 +510,7 @@ def _ensure_centrality_score_tables(store: GraphStore) -> None:
 
 def _load_persisted_hub_scores(
     store: GraphStore, top_n: int, *, artifact_scope: ArtifactScope = "all"
-) -> list[dict]:
+) -> list[HubNodeRecord]:
     table = "hub_scores_code" if artifact_scope == "code" else "hub_scores"
     try:
         _ensure_centrality_score_tables(store)
@@ -454,7 +540,7 @@ def _load_persisted_hub_scores(
 
 def _load_persisted_bridge_scores(
     store: GraphStore, top_n: int, *, artifact_scope: ArtifactScope = "all"
-) -> list[dict]:
+) -> list[BridgeNodeRecord]:
     table = "bridge_scores_code" if artifact_scope == "code" else "bridge_scores"
     try:
         _ensure_centrality_score_tables(store)
@@ -486,7 +572,7 @@ def find_knowledge_gaps(
     snapshot: GraphSnapshot | None = None,
     artifact_scope: ArtifactScope = "all",
     include_tests: bool = True,
-) -> dict[str, Any]:
+) -> KnowledgeGapsResult:
     """Identify structural weaknesses in the codebase graph.
 
     Returns dict with categories:
@@ -537,12 +623,12 @@ def find_knowledge_gaps(
     )
 
     # 1. Isolated nodes (degree <= 1, not File)
-    isolated = []
-    low_signal_isolated = []
+    isolated: list[KnowledgeGapRecord] = []
+    low_signal_isolated: list[KnowledgeGapRecord] = []
     for n in nodes:
         d = degree.get(n.qualified_name, 0)
         if d <= 1:
-            item = {
+            item: KnowledgeGapRecord = {
                 "name": _sanitize_name(n.name),
                 "qualified_name": n.qualified_name,
                 "kind": n.kind,
@@ -569,15 +655,15 @@ def find_knowledge_gaps(
 
     # Thin communities (< 3 members)
     communities = store.get_communities_list()
-    thin = []
-    small_single_file_thin = []
+    thin: list[KnowledgeGapRecord] = []
+    small_single_file_thin: list[KnowledgeGapRecord] = []
     for c in communities:
         cid = int(c["id"])
         if cid not in comm_sizes:
             continue
         size = comm_sizes.get(cid, 0)
         if size < 3:
-            item = {
+            item: KnowledgeGapRecord = {
                 "community_id": cid,
                 "name": str(c["name"]),
                 "size": size,
@@ -597,7 +683,7 @@ def find_knowledge_gaps(
                 thin.append(item)
 
     # 3. Untested hotspots (p95 production-candidate degree, no TESTED_BY)
-    untested_hotspots = []
+    untested_hotspots: list[KnowledgeGapRecord] = []
     for n in nodes:
         d = full_degree.get(n.qualified_name, 0)
         if (
@@ -619,16 +705,13 @@ def find_knowledge_gaps(
                     ),
                 }
             )
-    untested_hotspots.sort(
-        key=lambda x: x.get("degree", 0),  # type: ignore[arg-type,return-value]
-        reverse=True,
-    )
+    untested_hotspots.sort(key=lambda x: _sort_key_int(x, "degree"), reverse=True)
 
     # 4. Single-file communities
-    single_file = []
-    natural_single_file = []
-    small_single_file = []
-    integrated_single_file = []
+    single_file: list[KnowledgeGapRecord] = []
+    natural_single_file: list[KnowledgeGapRecord] = []
+    small_single_file: list[KnowledgeGapRecord] = []
+    integrated_single_file: list[KnowledgeGapRecord] = []
     for c in communities:
         cid = int(c["id"])
         if cid not in comm_sizes:
@@ -638,7 +721,7 @@ def find_knowledge_gaps(
         if len(files) == 1 and size >= 3:
             file_path = next(iter(files))
             metrics = _community_metrics_payload(community_edge_metrics.get(cid))
-            item = {
+            item: KnowledgeGapRecord = {
                 "community_id": cid,
                 "name": str(c["name"]),
                 "size": size,
@@ -665,21 +748,23 @@ def find_knowledge_gaps(
                     }
                 )
 
-    raw_counts = {
+    raw_counts: dict[str, int] = {
         "untested_hotspots": len(untested_hotspots),
         "single_file_communities": len(single_file),
         "isolated_nodes": len(isolated),
         "thin_communities": len(thin),
     }
-    returned = {
+    returned_counts: dict[str, int] = {
+        "untested_hotspots": len(untested_hotspots[:top_n]),
+        "single_file_communities": len(single_file[:top_n]),
+        "isolated_nodes": len(isolated[:top_n]),
+        "thin_communities": len(thin[:top_n]),
+    }
+    result: KnowledgeGapsResult = {
         "untested_hotspots": untested_hotspots[:top_n],
         "single_file_communities": single_file[:top_n],
         "isolated_nodes": isolated[:top_n],
         "thin_communities": thin[:top_n],
-    }
-    returned_counts = {key: len(returned[key]) for key in category_keys}
-    return {
-        **returned,
         "_meta": {
             "thresholds": {
                 "isolated_max_degree": 1,
@@ -738,6 +823,7 @@ def find_knowledge_gaps(
             },
         },
     }
+    return result
 
 
 def _community_edge_metrics(
@@ -780,7 +866,9 @@ def _community_edge_metrics(
     return metrics
 
 
-def _community_metrics_payload(metrics: CommunityEdgeMetrics | None) -> dict[str, Any]:
+def _community_metrics_payload(
+    metrics: CommunityEdgeMetrics | None,
+) -> CommunityMetricsPayload:
     if metrics is None:
         return {
             "internal_edges": 0,
@@ -958,7 +1046,7 @@ def find_surprising_connections(
     snapshot: GraphSnapshot | None = None,
     artifact_scope: ArtifactScope = "all",
     include_tests: bool = True,
-) -> list[dict]:
+) -> list[SurpriseConnectionRecord]:
     """Find edges with high surprise scores.
 
     Detects unexpected architectural coupling based on:
@@ -1000,7 +1088,7 @@ def find_surprising_connections(
             continue
         pair_counts[(min(src_cid, tgt_cid), max(src_cid, tgt_cid), e.kind)] += 1
 
-    scored_edges = []
+    scored_edges: list[SurpriseConnectionRecord] = []
     for e in edges:
         if e.kind == "CONTAINS":
             continue
@@ -1127,7 +1215,7 @@ def _degree_counters(edges: list[GraphEdge]) -> tuple[Counter[str], Counter[str]
 
 def generate_suggested_questions(
     store: GraphStore,
-) -> list[dict]:
+) -> list[SuggestedQuestionRecord]:
     """Auto-generate review questions from graph analysis.
 
     Categories:
@@ -1141,7 +1229,7 @@ def generate_suggested_questions(
     if native_questions is not None:
         return native_questions
 
-    questions = []
+    questions: list[SuggestedQuestionRecord] = []
     snapshot = build_graph_snapshot(store)
 
     # Bridge node questions
@@ -1244,7 +1332,7 @@ def generate_suggested_questions(
     return questions
 
 
-def _generate_suggested_questions_native(store: GraphStore) -> list[dict] | None:
+def _generate_suggested_questions_native(store: GraphStore) -> list[SuggestedQuestionRecord] | None:
     native_generate = getattr(store, "generate_suggested_questions_json", None)
     if not callable(native_generate):
         return None
@@ -1257,6 +1345,6 @@ def _generate_suggested_questions_native(store: GraphStore) -> list[dict] | None
             exc_info=True,
         )
         return None
-    if not isinstance(decoded, list):
+    if not isinstance(decoded, list) or not all(isinstance(item, dict) for item in decoded):
         return None
-    return decoded
+    return cast(list[SuggestedQuestionRecord], decoded)

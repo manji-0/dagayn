@@ -36,6 +36,11 @@ from .state_types import (
 
 logger = logging.getLogger(__name__)
 
+type PostprocessValue = Any
+type PostprocessPayload = dict[str, PostprocessValue]
+type ArtifactEdgeData = tuple[int, str, str, PostprocessPayload]
+type EdgeUpdate = tuple[str, str, str, float | None, str | None, int]
+
 
 _NODE_QUALIFIED_EDGE_KINDS = (
     "CALLS",
@@ -144,7 +149,7 @@ def _markdown_artifact_resolution(
     edge_id: int,
     current_target: str,
     symbol: str,
-    extra: dict[str, Any],
+    extra: PostprocessPayload,
     matches: list[tuple[str, str]],
 ) -> MarkdownArtifactResolution:
     """Return the typed target state for one Markdown artifact edge."""
@@ -202,7 +207,7 @@ def _markdown_artifact_resolution(
     )
 
 
-def _is_markdown_artifact_bridge(extra: dict[str, Any]) -> bool:
+def _is_markdown_artifact_bridge(extra: PostprocessPayload) -> bool:
     """Return True for Markdown/documentation CROSS_ARTIFACT bridges only.
 
     Terraform ``handler`` / ``entry_point`` bridges also carry
@@ -284,7 +289,7 @@ def _resolve_markdown_artifact_refs(
             return
 
         # Parse extras and collect unique symbol names in one pass
-        edge_data: list[tuple[int, str, str, dict]] = []  # (id, current_target, sym, extra)
+        edge_data: list[ArtifactEdgeData] = []  # (id, current_target, sym, extra)
         symbols: set[str] = set()
         for row in rows:
             try:
@@ -324,9 +329,8 @@ def _resolve_markdown_artifact_refs(
                 )
 
         # Compute desired state; only UPDATE/DELETE rows where the state actually changes
-        to_update: list[
-            tuple
-        ] = []  # (new_target, target_name, new_extra_json, confidence, tier, edge_id)
+        # (new_target, target_name, new_extra_json, confidence, tier, edge_id)
+        to_update: list[EdgeUpdate] = []
         to_delete: list[tuple[int]] = []
 
         for edge_id, current_target, sym, extra in edge_data:
@@ -532,7 +536,7 @@ def _resolve_terraform_artifact_refs(
             "WHERE kind='CROSS_ARTIFACT' AND extra LIKE '%original_symbol_name%'"
         ).fetchall()
 
-        edge_data: list[tuple[int, str, str, dict[str, Any]]] = []
+        edge_data: list[tuple[int, str, str, PostprocessPayload]] = []
         for row in rows:
             try:
                 extra = json.loads(row["extra"] or "{}")
@@ -554,7 +558,7 @@ def _resolve_terraform_artifact_refs(
             result.terraform_artifact_refs_still_unresolved = 0
             return
 
-        to_update: list[tuple[Any, ...]] = []
+        to_update: list[EdgeUpdate] = []
         for edge_id, current_target, sym, extra in edge_data:
             match = _resolve_terraform_entrypoint_symbol(store, sym)
             if match is None:

@@ -23,6 +23,9 @@ from dagayn.eval.scorer import IdentifierMatcher
 
 logger = logging.getLogger(__name__)
 
+type BenchmarkValue = Any
+type BenchmarkPayload = dict[str, BenchmarkValue]
+
 _PRECISION_K = 5
 
 
@@ -42,7 +45,7 @@ def _result_qn(result: object) -> str:
     return str(getattr(result, "qualified_name", ""))
 
 
-def _relevance(sq: dict[str, Any], expected: str) -> dict[str, int]:
+def _relevance(sq: BenchmarkPayload, expected: str) -> dict[str, int]:
     relevant = {expected: 1} if expected else {}
     for item in sq.get("relevant") or []:
         if isinstance(item, dict):
@@ -68,7 +71,7 @@ def _ndcg(ranked: list[str], relevant: dict[str, int], matcher: IdentifierMatche
     return round(dcg / idcg, 4) if idcg else 0.0
 
 
-def run(repo_path: Path, store, config: dict[str, Any]) -> list[dict[str, Any]]:
+def run(repo_path: Path, store, config: BenchmarkPayload) -> list[BenchmarkPayload]:
     """Run FTS-only search quality benchmark.
 
     Args:
@@ -87,7 +90,7 @@ def run(repo_path: Path, store, config: dict[str, Any]) -> list[dict[str, Any]]:
     if not queries:
         return []
 
-    rows: list[dict] = []
+    rows: list[BenchmarkPayload] = []
     reciprocal_ranks: list[float] = []
     hits_at_1: list[int] = []
     hits_at_k: list[int] = []
@@ -105,7 +108,7 @@ def run(repo_path: Path, store, config: dict[str, Any]) -> list[dict[str, Any]]:
 
         try:
             timings: list[float] = []
-            search_results: list[dict] = []
+            search_results: list[BenchmarkPayload] = []
             for idx in range(max(1, warmup + repeat)):
                 started = time.perf_counter()
                 fts_hits = store.fts_query(query, limit=20)

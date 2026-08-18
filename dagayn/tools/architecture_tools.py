@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal, Optional
+from typing import Literal, Optional
 
 from .._scope import ArtifactScope
 from ..architecture import compute_sdp_metrics, find_adp_violations, find_sdp_violations
 from ..dependency_profiles import DependencyProfile, validate_dependency_profile
-from ._common import _error_response, _get_store, make_response
+from ._common import ToolPayload, _error_response, _get_store, make_response
 
 
 def detect_adp_violations_func(
@@ -18,7 +18,7 @@ def detect_adp_violations_func(
     top_n: int = 30,
     artifact_scope: ArtifactScope = "code",
     dependency_profile: DependencyProfile = "strict_static",
-) -> dict[str, Any]:
+) -> ToolPayload:
     """Detect cyclic dependencies (ADP violations).
 
     Finds cycles in the IMPORTS_FROM / DEPENDS_ON dependency graph.
@@ -74,7 +74,7 @@ def compute_sdp_metrics_func(
     top_n: int = 30,
     artifact_scope: ArtifactScope = "code",
     dependency_profile: DependencyProfile = "strict_static",
-) -> dict[str, Any]:
+) -> ToolPayload:
     """Compute SDP instability metrics for each module/package.
 
     Instability I = Ce / (Ca + Ce), where Ca = afferent couplings
@@ -124,7 +124,7 @@ def detect_sdp_violations_func(
     top_n: int = 30,
     artifact_scope: ArtifactScope = "code",
     dependency_profile: DependencyProfile = "strict_static",
-) -> dict[str, Any]:
+) -> ToolPayload:
     """Detect SDP violations: dependencies pointing toward instability.
 
     An edge A -> B violates SDP when I(A) < I(B) - min_delta, meaning

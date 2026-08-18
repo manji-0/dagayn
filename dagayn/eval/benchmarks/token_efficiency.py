@@ -5,11 +5,15 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+from typing import Any
 
 from dagayn.eval.git_utils import ensure_parent_available, run_git
 from dagayn.eval.token_counter import count_tokens
 
 logger = logging.getLogger(__name__)
+
+type BenchmarkValue = Any
+type BenchmarkPayload = dict[str, BenchmarkValue]
 
 
 def _count_tokens(text: str) -> int:
@@ -42,9 +46,9 @@ def _count_diff_tokens(repo_path: Path, sha: str) -> int:
     return count_tokens(result.stdout)[0]
 
 
-def run(repo_path: Path, store, config: dict) -> list[dict]:
+def run(repo_path: Path, store: Any, config: BenchmarkPayload) -> list[BenchmarkPayload]:
     """Run token efficiency benchmark."""
-    results = []
+    results: list[BenchmarkPayload] = []
     for tc in config.get("test_commits", []):
         sha = str(tc["sha"])
         base = {

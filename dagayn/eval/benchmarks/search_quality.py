@@ -15,6 +15,9 @@ from dagayn.eval.scorer import IdentifierMatcher
 
 logger = logging.getLogger(__name__)
 
+type BenchmarkValue = Any
+type BenchmarkPayload = dict[str, BenchmarkValue]
+
 
 def _result_qn(result: Any) -> str:
     if isinstance(result, dict):
@@ -35,9 +38,9 @@ def _ndcg_at(rank: int, k: int) -> float:
     return round(1.0 / math.log2(rank + 1), 4)
 
 
-def run(repo_path: Path, store, config: dict) -> list[dict]:
+def run(repo_path: Path, store: Any, config: BenchmarkPayload) -> list[BenchmarkPayload]:
     """Run search quality benchmark."""
-    results = []
+    results: list[BenchmarkPayload] = []
     matcher = IdentifierMatcher.from_config(config)
     repeat = int(config.get("latency_repeat", 5))
     warmup = int(config.get("latency_warmup", 1))

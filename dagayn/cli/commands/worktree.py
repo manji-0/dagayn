@@ -14,13 +14,14 @@ from __future__ import annotations
 
 import argparse
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 
 from ...paths import db_path_for
-from ._shared import DEFAULT_LOCAL_EMBEDDING_BIN, _add_local_embedding_args
+from ._shared import DEFAULT_LOCAL_EMBEDDING_BIN, CommandRegistry, _add_local_embedding_args
 
 
-def register_commands(sub: argparse._SubParsersAction) -> dict:
+def register_commands(sub: argparse._SubParsersAction) -> CommandRegistry:
     """Register the worktree and hook-repo subcommands."""
     worktree_cmd = sub.add_parser(
         "worktree",
@@ -101,7 +102,7 @@ def _resolve_repo(args: argparse.Namespace) -> Path | None:
     return find_repo_root()
 
 
-def _print_json(payload: dict) -> None:
+def _print_json(payload: Mapping[str, object]) -> None:
     import json
 
     print(json.dumps(payload))

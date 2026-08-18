@@ -20,6 +20,10 @@ from pathlib import Path
 from typing import Any
 
 from dagayn.embeddings import EmbeddingProvider
+from dagayn.graph import GraphNode
+
+type BenchmarkValue = Any
+type BenchmarkPayload = dict[str, BenchmarkValue]
 
 np: Any
 try:
@@ -318,7 +322,7 @@ def _code_materials(repo_path: Path, node: Any, strategy: _Strategy) -> list[_Ma
 
 def _materials_for_strategy(
     repo_path: Path,
-    nodes: list[Any],
+    nodes: list[GraphNode],
     strategy: _Strategy,
     *,
     max_chars: int,
@@ -335,7 +339,7 @@ def _materials_for_strategy(
     return [material for material in materials if material.text.strip()]
 
 
-def _strategies(config: dict[str, Any]) -> list[_Strategy]:
+def _strategies(config: BenchmarkPayload) -> list[_Strategy]:
     configured = config.get("embedding_material_strategies")
     if configured:
         strategies: list[_Strategy] = []
@@ -422,7 +426,7 @@ def _matches_expected(qualified_name: str, expected: str) -> bool:
     return exp_lower in qn_lower or qn_lower in exp_lower or exp_name.lower() == qn_name.lower()
 
 
-def _relevance_targets(search_query: dict[str, Any]) -> dict[str, int]:
+def _relevance_targets(search_query: BenchmarkPayload) -> dict[str, int]:
     expected = str(search_query.get("expected") or "")
     targets = {expected: _DEFAULT_RELEVANCE_GRADE} if expected else {}
     for item in search_query.get("relevant") or []:
@@ -535,7 +539,7 @@ def _metric_row(
     provider: str,
     false_positive_threshold: float | None,
     status: str,
-) -> dict[str, Any]:
+) -> BenchmarkPayload:
     rank, best_grade = _rank_relevant(ranked, relevance)
     top_score = ranked[0][1] if ranked else 0.0
     mean_top_5_score = (
@@ -592,13 +596,13 @@ def _metric_row(
     }
 
 
-def _aggregate_rows(repo: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+def _aggregate_rows(repo: str, rows: list[BenchmarkPayload]) -> list[BenchmarkPayload]:
+    grouped: dict[tuple[str, str], list[BenchmarkPayload]] = defaultdict(list)
     for row in rows:
         grouped[(str(row["strategy"]), f"aggregate_{row['query_type']}")].append(row)
         grouped[(str(row["strategy"]), str(row["label"]))].append(row)
 
-    aggregates: list[dict[str, Any]] = []
+    aggregates: list[BenchmarkPayload] = []
     for (strategy_name, label), group_rows in sorted(grouped.items()):
         if not group_rows:
             continue
@@ -656,8 +660,8 @@ def _aggregate_rows(repo: str, rows: list[dict[str, Any]]) -> list[dict[str, Any
     return aggregates
 
 
-def _queries(config: dict[str, Any]) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
+def _queries(config: BenchmarkPayload) -> list[BenchmarkPayload]:
+    rows: list[BenchmarkPayload] = []
     rows.extend(config.get("search_queries") or [])
     rows.extend(config.get("doc_fuzzy_search_queries") or [])
     for item in config.get("embedding_material_negative_queries") or []:
@@ -673,7 +677,7 @@ def _queries(config: dict[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
-def run(repo_path: Path, store: Any, config: dict[str, Any]) -> list[dict[str, Any]]:
+def run(repo_path: Path, store: Any, config: BenchmarkPayload) -> list[BenchmarkPayload]:
     """Run retrieval quality across generated embedding material strategies."""
     queries = _queries(config)
     if not queries:
@@ -687,7 +691,7 @@ def run(repo_path: Path, store: Any, config: dict[str, Any]) -> list[dict[str, A
     nodes = store.get_all_nodes(exclude_files=True)
     repo_name = str(config["name"])
 
-    rows: list[dict[str, Any]] = []
+    rows: list[BenchmarkPayload] = []
     strategies = _strategies(config)
     max_strategies = int(config.get("embedding_material_max_strategies", _DEFAULT_MAX_STRATEGIES))
     allow_exhaustive = bool(config.get("embedding_material_allow_exhaustive", False))

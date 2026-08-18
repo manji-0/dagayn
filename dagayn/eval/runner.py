@@ -19,6 +19,8 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+type EvalPayload = dict[str, Any]
+
 BENCHMARK_REGISTRY = {  # nosec B105 - benchmark names, not credentials
     "token_efficiency": "dagayn.eval.benchmarks.token_efficiency",
     "impact_accuracy": "dagayn.eval.benchmarks.impact_accuracy",
@@ -48,7 +50,7 @@ def _require_yaml() -> Any:
     return yaml
 
 
-def load_config(name: str) -> dict:
+def load_config(name: str) -> EvalPayload:
     """Load a single benchmark config by name."""
     yaml_mod = _require_yaml()
     path = CONFIGS_DIR / f"{name}.yaml"
@@ -56,7 +58,7 @@ def load_config(name: str) -> dict:
         return yaml_mod.safe_load(f)
 
 
-def load_all_configs() -> list[dict]:
+def load_all_configs() -> list[EvalPayload]:
     """Load all benchmark configs from the configs directory."""
     yaml_mod = _require_yaml()
     configs = []
@@ -66,7 +68,7 @@ def load_all_configs() -> list[dict]:
     return configs
 
 
-def clone_or_update(config: dict, repos_dir: Path | None = None) -> Path:
+def clone_or_update(config: EvalPayload, repos_dir: Path | None = None) -> Path:
     """Clone or update a repository for benchmarking."""
     repos_dir = repos_dir or DEFAULT_REPOS
     repos_dir.mkdir(parents=True, exist_ok=True)
@@ -94,14 +96,14 @@ _COMMON_CSV_KEYS = [
 ]
 
 
-def _csv_fieldnames(results: list[dict]) -> list[str]:
+def _csv_fieldnames(results: list[EvalPayload]) -> list[str]:
     keys = {key for row in results for key in row}
     common = [key for key in _COMMON_CSV_KEYS if key in keys]
     rest = sorted(keys - set(common))
     return common + rest
 
 
-def write_csv(results: list[dict], path: Path) -> None:
+def write_csv(results: list[EvalPayload], path: Path) -> None:
     """Write benchmark results to a CSV file."""
     if not results:
         return
@@ -123,7 +125,7 @@ def run_eval(
     repos: list[str] | None = None,
     benchmarks: list[str] | None = None,
     output_dir: str | Path | None = None,
-) -> dict[str, list[dict]]:
+) -> dict[str, list[EvalPayload]]:
     """Run evaluation benchmarks across repositories.
 
     Args:
@@ -143,7 +145,7 @@ def run_eval(
         configs = load_all_configs()
 
     benchmark_names = benchmarks or list(BENCHMARK_REGISTRY.keys())
-    all_results: dict[str, list[dict]] = {}
+    all_results: dict[str, list[EvalPayload]] = {}
     today = date.today().isoformat()
 
     for config in configs:

@@ -9,7 +9,7 @@ import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from .graph import GraphStore
 from .incremental_files import (
@@ -20,6 +20,7 @@ from .incremental_files import (
     _store_vcs_metadata,
 )
 from .parser import CodeParser
+from .parser._base.types import EdgeInfo, NodeInfo
 from .state_types import BuildResult
 
 logger = logging.getLogger(__name__)
@@ -370,7 +371,11 @@ def run_incremental_parsing(state: IncrementalUpdateState) -> None:
                     source = abs_path.read_bytes()
                     fhash = hashlib.sha256(source).hexdigest()
                     nodes, edges = parser.parse_bytes(abs_path, source)
-                    nodes, edges = _relativize_parsed_entities(nodes, edges, state.repo_root)
+                    nodes, edges = _relativize_parsed_entities(
+                        cast(list[NodeInfo], nodes),
+                        cast(list[EdgeInfo], edges),
+                        state.repo_root,
+                    )
                     _queue_store_file(
                         state.store,
                         batch,
@@ -409,7 +414,11 @@ def run_incremental_parsing(state: IncrementalUpdateState) -> None:
                 state.errors.append({"file": rel_path, "error": error})
                 continue
             if not _uses_compact_entities(nodes, edges):
-                nodes, edges = _relativize_parsed_entities(nodes, edges, state.repo_root)
+                nodes, edges = _relativize_parsed_entities(
+                    cast(list[NodeInfo], nodes),
+                    cast(list[EdgeInfo], edges),
+                    state.repo_root,
+                )
             _queue_store_file(state.store, batch, rel_path, nodes, edges, fhash, mtime_ns)
             state.total_nodes += len(nodes)
             state.total_edges += len(edges)

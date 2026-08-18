@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Mapping
 
+from ..bridge_types import BridgeMissingnessRecord
 from ..cross_artifact import (
     collect_bridge_transitions,
     is_low_confidence_bridge,
@@ -9,7 +10,7 @@ from ..cross_artifact import (
 )
 from ._mixin_protocol import GraphStoreMixinProtocol
 from ._sql import BFS_ENGINE, MAX_IMPACT_DEPTH, MAX_IMPACT_NODES
-from .types import GraphEdge
+from .types import GraphEdge, ImpactRadiusResult
 
 # SQL predicate: expand through non-bridge edges and reportable CROSS_ARTIFACT only.
 _REPORTABLE_BRIDGE_SQL = """
@@ -24,7 +25,11 @@ _REPORTABLE_BRIDGE_SQL = """
 """
 
 
-def _nx_edge_allows_impact(edge_data: dict[str, Any] | None, source: str, target: str) -> bool:
+def _nx_edge_allows_impact(
+    edge_data: Mapping[str, object] | None,
+    source: str,
+    target: str,
+) -> bool:
     """Match SQL/_REPORTABLE_BRIDGE_SQL: skip non-reportable CROSS_ARTIFACT hops."""
     data = edge_data or {}
     if data.get("kind") != "CROSS_ARTIFACT":
@@ -50,7 +55,7 @@ class GraphStoreImpactMixin(GraphStoreMixinProtocol):
         changed_files: list[str],
         max_depth: int = MAX_IMPACT_DEPTH,
         max_nodes: int = MAX_IMPACT_NODES,
-    ) -> dict[str, Any]:
+    ) -> ImpactRadiusResult:
         """BFS from changed files to find all impacted nodes within depth N.
 
         Delegates to ``get_impact_radius_sql()`` by default (faster for
@@ -82,7 +87,7 @@ class GraphStoreImpactMixin(GraphStoreMixinProtocol):
         changed_files: list[str],
         max_depth: int = MAX_IMPACT_DEPTH,
         max_nodes: int = MAX_IMPACT_NODES,
-    ) -> dict[str, Any]:
+    ) -> ImpactRadiusResult:
         """Impact radius via SQLite recursive CTE.
 
         Faster than NetworkX for large graphs because it avoids
@@ -92,7 +97,7 @@ class GraphStoreImpactMixin(GraphStoreMixinProtocol):
         hops. Low-confidence bridges are omitted from expansion and returned
         as caveats instead of hard impact claims.
         """
-        empty = {
+        empty: ImpactRadiusResult = {
             "changed_nodes": [],
             "impacted_nodes": [],
             "impacted_files": [],
@@ -214,12 +219,12 @@ class GraphStoreImpactMixin(GraphStoreMixinProtocol):
             "total_impacted": total_impacted,
         }
 
-    def _low_confidence_bridges_near_seeds(self, seeds: set[str]) -> list[dict[str, Any]]:
+    def _low_confidence_bridges_near_seeds(self, seeds: set[str]) -> list[BridgeMissingnessRecord]:
         """Collect low-confidence CROSS_ARTIFACT edges touching seed nodes as caveats."""
         if not seeds:
             return []
         seed_list = list(seeds)
-        caveats: list[dict[str, Any]] = []
+        caveats: list[BridgeMissingnessRecord] = []
         seen: set[tuple[str, str]] = set()
         batch_size = 450
         for i in range(0, len(seed_list), batch_size):
@@ -252,7 +257,7 @@ class GraphStoreImpactMixin(GraphStoreMixinProtocol):
         changed_files: list[str],
         max_depth: int = MAX_IMPACT_DEPTH,
         max_nodes: int = MAX_IMPACT_NODES,
-    ) -> dict[str, Any]:
+    ) -> ImpactRadiusResult:
         """BFS via NetworkX (legacy). Used when CRG_BFS_ENGINE=networkx."""
         nxg = self._build_networkx_graph()
 

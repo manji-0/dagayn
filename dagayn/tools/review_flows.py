@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import cast
 
 from ..flows import get_affected_flows as _get_affected_flows
 from ..hints import generate_hints, get_session
 from ..incremental import get_changed_file_sources, get_staged_and_unstaged
 from ._common import (
+    ToolPayload,
     _get_store,
     graph_answerability_summary,
     handle_tool_runtime_error,
@@ -22,7 +23,7 @@ def get_affected_flows_func(
     changed_files: list[str] | None = None,
     base: str = "HEAD~1",
     repo_root: str | None = None,
-) -> dict[str, Any]:
+) -> ToolPayload:
     """Find execution flows affected by changed files.
 
     [REVIEW] Identifies which execution flows pass through nodes in the
@@ -77,7 +78,7 @@ def get_affected_flows_func(
             "answerability": answerability,
             "missingness": missingness,
         }
-        out["_hints"] = generate_hints("get_affected_flows", out, get_session())
+        out["_hints"] = cast(ToolPayload, generate_hints("get_affected_flows", out, get_session()))
         return out
     except Exception as exc:
         return handle_tool_runtime_error(exc, logger=logger, context="get_affected_flows")
