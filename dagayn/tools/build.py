@@ -181,12 +181,19 @@ def _run_local_embedding(
                     os.environ.pop("CRG_OPENAI_MAX_LENGTH", None)
                 else:
                     os.environ["CRG_OPENAI_MAX_LENGTH"] = str(server.preset.request_max_length)
-                result = embed_graph(
-                    repo_root=str(root),
-                    provider="openai",
-                    model=server.preset.model,
-                    show_progress=sys.stderr.isatty(),
-                )
+                # The graph lock covers only the part that touches graph.db.
+                # Starting the sidecar and loading its model take up to
+                # ``local_embedding_timeout`` seconds without reading or
+                # writing the database, and holding the exclusive lock across
+                # that made every MCP tool call in the meantime wait (and then
+                # fail) for no reason.
+                with graph_write_lock(get_db_path(Path(root))):
+                    result = embed_graph(
+                        repo_root=str(root),
+                        provider="openai",
+                        model=server.preset.model,
+                        show_progress=sys.stderr.isatty(),
+                    )
             finally:
                 for key, value in old_env.items():
                     if value is None:
@@ -1008,10 +1015,14 @@ def build_or_update_graph(
                 run_embedding = True
     finally:
         store.close()
+        # Nothing of ours is open on graph.db from here on, so the structural
+        # build's lock can go back. The embedding pass and the orphan prune each
+        # take it again around their own database work: both spend most of their
+        # wall clock outside sqlite (sidecar startup, model load, HTTP batches),
+        # and holding the exclusive lock across that starves every reader.
+        write_lock.__exit__(None, None, None)
         try:
             if run_embedding:
-                # Embeddings share graph.db. Run only after this store's
-                # connection is gone so a second writer cannot tear WAL pages.
                 build_result.local_embedding = _run_local_embedding(
                     root,
                     local_embedding=local_embedding or "none",
@@ -1025,15 +1036,15 @@ def build_or_update_graph(
                 )
         finally:
             if postprocess != "none":
-                # After close: embeddings share the SQLite file, so a second writer
-                # alongside the native store's connection corrupts it.
-                emb_warnings = _prune_orphaned_embeddings(Path(root), build_result)
+                # Embeddings share the SQLite file, so this must not run
+                # alongside another writer or the native store's connection.
+                with graph_write_lock(db_path):
+                    emb_warnings = _prune_orphaned_embeddings(Path(root), build_result)
                 if emb_warnings:
                     build_result.warnings = [
                         *(build_result.warnings or []),
                         *emb_warnings,
                     ]
-            write_lock.__exit__(None, None, None)
     return build_result_payload(build_result)
 
 

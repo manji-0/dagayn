@@ -498,3 +498,76 @@ class TestInteractiveReadTimeout:
         finally:
             store.close()
         assert not graph_lock_is_held(db), "closing the store must release it"
+
+
+class TestEmbeddingLockScope:
+    """The embedding pass must hold the graph lock only for its database work.
+
+    Sidecar startup and model load take up to ``local_embedding_timeout``
+    seconds and touch no sqlite at all; holding the exclusive lock across that
+    made every concurrent MCP tool call wait out its own budget and fail.
+    """
+
+    def test_lock_is_free_during_sidecar_startup_and_held_for_the_write(
+        self, tmp_path, monkeypatch
+    ):
+        import contextlib
+        import types
+
+        from dagayn.paths import get_db_path
+        from dagayn.tools.build import _run_local_embedding
+        from dagayn.write_lock import graph_lock_is_held
+
+        repo = tmp_path / "repo"
+        (repo / ".dagayn").mkdir(parents=True)
+        (repo / ".git").mkdir()
+        db = get_db_path(repo)
+        GraphStore(db).close()
+
+        observed: dict[str, bool] = {}
+        preset = types.SimpleNamespace(
+            model="m",
+            text_mode="signature",
+            request_max_length=None,
+            level="bge-m3",
+            dimension=8,
+        )
+
+        @contextlib.contextmanager
+        def fake_server(*_args, **_kwargs):
+            # Stands in for starting the sidecar and loading the model.
+            observed["locked_during_startup"] = graph_lock_is_held(db)
+            yield types.SimpleNamespace(
+                preset=preset,
+                base_url="http://127.0.0.1:1",
+                started=True,
+                command=["fake"],
+            )
+
+        def fake_embed_graph(**_kwargs):
+            observed["locked_during_write"] = graph_lock_is_held(db)
+            return {"status": "ok"}
+
+        monkeypatch.setattr("dagayn.local_embeddings.local_embedding_server", fake_server)
+        monkeypatch.setattr(
+            "dagayn.local_embeddings.resolve_local_embedding_port", lambda *_a, **_k: 1
+        )
+        monkeypatch.setattr("dagayn.tools.docs.embed_graph", fake_embed_graph)
+
+        _run_local_embedding(
+            repo,
+            local_embedding="bge-m3",
+            local_embedding_port=None,
+            local_embedding_bin="auto",
+            keep_local_embedding_server=False,
+            local_embedding_timeout=1,
+            local_embedding_request_timeout=1,
+            local_embedding_batch_size=1,
+        )
+
+        assert observed["locked_during_startup"] is False, (
+            "the sidecar started while the exclusive lock was held"
+        )
+        assert observed["locked_during_write"] is True, (
+            "the database write ran without the lock that keeps checkpoints safe"
+        )

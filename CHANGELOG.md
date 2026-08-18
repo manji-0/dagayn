@@ -15,6 +15,12 @@ All notable changes to `dagayn` are documented here.
   budget, because for them waiting is the useful behaviour. A reader still holds
   the shared lock for as long as its connection is open — that invariant is what
   keeps a writer's WAL checkpoint from tearing `sqlite_master`.
+- The embedding pass no longer holds the graph's exclusive lock while the local
+  embedding sidecar starts and loads its model (up to `--local-embedding-timeout`
+  seconds, 300 by default) — that time touches no sqlite, but every reader was
+  locked out for it. The structural build now hands the lock back before the
+  embedding pass, and the pass takes it again around its database work; the
+  orphaned-embedding prune takes its own.
 
 ## 4.10.1 — 2026-08-18
 
