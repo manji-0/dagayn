@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from typing import Any
 
 from ._shared import DEFAULT_LOCAL_EMBEDDING_BIN, CommandRegistry, _add_local_embedding_args
 
@@ -74,13 +75,51 @@ def handle(args: argparse.Namespace, session_parser: argparse.ArgumentParser) ->
         session_parser.print_help()
         return
 
+    from ...hook_guard import start_budget_watchdog
+    from ...tools.session_prepare import (
+        default_prepare_budget_seconds,
+        prepare_hard_stop_seconds,
+    )
+
+    requested_budget = getattr(args, "budget_seconds", None)
+    budget = None if (requested_budget is not None and requested_budget <= 0) else requested_budget
+
+    # The budget inside session_prepare only gates *starting* a phase, so a
+    # single long phase can outlive it without limit. This process is a
+    # short-lived CLI invocation (the MCP path must never be killed this way),
+    # so a hard stop is safe here and is what keeps a runaway prepare from
+    # sitting on the graph's exclusive lock indefinitely.
+    #
+    # Derived from the *requested* value, not the normalized one: ``0`` documents
+    # "no limit", and normalizing it to None first makes it indistinguishable
+    # from "not given" -- which would arm a hard stop on the one input that asked
+    # for none.
+    effective_budget = (
+        requested_budget
+        if requested_budget is not None
+        else default_prepare_budget_seconds(mcp=False)
+    )
+    watchdog = start_budget_watchdog(
+        prepare_hard_stop_seconds(effective_budget),
+        label="session prepare",
+    )
+    try:
+        result = _run_session_prepare(args, budget)
+    finally:
+        if watchdog is not None:
+            watchdog.cancel()
+
+    if getattr(args, "as_json", False):
+        print(json.dumps(result))
+        return
+
+    _print_session_prepare_summary(result)
+
+
+def _run_session_prepare(args: argparse.Namespace, budget: int | None) -> dict[str, Any]:
     from ...tools.session_prepare import session_prepare
 
-    budget = getattr(args, "budget_seconds", None)
-    if budget is not None and budget <= 0:
-        budget = None
-
-    result = session_prepare(
+    return session_prepare(
         repo_root=getattr(args, "repo", None),
         force=bool(getattr(args, "force", False)),
         local_embedding=getattr(args, "local_embedding", "none"),
@@ -97,10 +136,8 @@ def handle(args: argparse.Namespace, session_parser: argparse.ArgumentParser) ->
         seed_worktree=not bool(getattr(args, "no_seed_worktree", False)),
     )
 
-    if getattr(args, "as_json", False):
-        print(json.dumps(result))
-        return
 
+def _print_session_prepare_summary(result: dict[str, Any]) -> None:
     summary = result.get("summary") or "session prepare complete"
     print(summary)
     sync = result.get("sync") or {}

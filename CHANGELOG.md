@@ -16,6 +16,16 @@ All notable changes to `dagayn` are documented here.
   would keep it held through the embedding pass too (the acquisition is
   reentrant, so the pass's own release would not free it) and lock out every
   reader for the duration.
+- `dagayn session prepare` can no longer run without limit. Its
+  `--budget-seconds` was only consulted between phases, to decide whether to
+  start the next one, and could not interrupt a phase already running: one run
+  took ~5 minutes against a 45 s budget, and another held the graph's exclusive
+  lock for 26 hours (21.5 h of CPU) — the stall every MCP tool call on that graph
+  was queued behind. The CLI now arms the same hard watchdog `dagayn update`
+  uses. The hard stop is 4× the advisory budget rather than the budget itself,
+  because killing at the budget would kill a phase that needs slightly longer on
+  every session start and the graph would never converge. `--budget-seconds 0`
+  stays unbounded, and the MCP path is never killed this way.
 - A `dagayn build` that failed now exits non-zero. Reporting `0 files, 0 nodes`
   and exiting 0 made a build that never ran indistinguishable from an empty
   repository.

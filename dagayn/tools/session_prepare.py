@@ -31,6 +31,27 @@ _DEFAULT_HOOK_BUDGET_SECONDS = 45
 _DEFAULT_MCP_BUDGET_SECONDS = 300
 _EMBEDDING_MIN_REMAINING_SECONDS = 15
 
+#: The budget above is advisory: it decides whether to *start* another phase and
+#: cannot interrupt one already running. A phase with no backstop at all held one
+#: repository's exclusive graph lock for 26 hours (21.5 h of CPU), which is the
+#: stall every MCP tool call on that graph was waiting behind. Killing at exactly
+#: the budget is the wrong backstop though -- a phase that needs slightly more
+#: than the budget would be killed on every session start and the graph would
+#: never finish updating -- so the hard stop is this multiple of the budget.
+PREPARE_BUDGET_HARD_STOP_FACTOR = 4
+
+
+def prepare_hard_stop_seconds(budget_seconds: int | None) -> float | None:
+    """Wall-clock limit after which a running prepare is killed outright.
+
+    ``None`` when the budget is disabled, matching the advisory budget: an
+    explicitly unbounded prepare stays unbounded.
+    """
+    if budget_seconds is None or budget_seconds <= 0:
+        return None
+    return float(budget_seconds) * PREPARE_BUDGET_HARD_STOP_FACTOR
+
+
 EmbeddingPolicy = Literal["auto", "defer", "skip", "inline"]
 
 PhaseState = Literal[

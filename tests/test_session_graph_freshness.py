@@ -23,6 +23,7 @@ import argparse
 import io
 import json
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 from worktree_fixtures import git
@@ -879,3 +880,117 @@ class TestContentDriftConvergence:
         # Uncapped verification hashes the bytes and finds them unchanged.
         assert uncapped["content_verified"] is True
         assert sync_state(uncapped) == "commit_synced"
+
+
+class TestSessionPrepareHardStop:
+    """A prepare phase already running must still be stoppable.
+
+    ``budget_seconds`` only gates whether the *next* phase starts, so a single
+    long phase outlives it without limit: one observed run took ~5 minutes
+    against a 45s budget, and another held the exclusive graph lock for 26 hours
+    (21.5 h of CPU) — the stall every MCP call on that graph waited behind.
+    """
+
+    def test_hard_stop_is_a_multiple_of_the_advisory_budget(self):
+        from dagayn.tools.session_prepare import (
+            PREPARE_BUDGET_HARD_STOP_FACTOR,
+            prepare_hard_stop_seconds,
+        )
+
+        # Killing at exactly the budget would kill a phase that needs slightly
+        # longer on every session start, and the graph would never converge.
+        assert PREPARE_BUDGET_HARD_STOP_FACTOR > 1
+        assert prepare_hard_stop_seconds(45) == 45 * PREPARE_BUDGET_HARD_STOP_FACTOR
+
+    def test_disabled_budget_stays_unbounded(self):
+        from dagayn.tools.session_prepare import prepare_hard_stop_seconds
+
+        assert prepare_hard_stop_seconds(None) is None
+        assert prepare_hard_stop_seconds(0) is None
+
+    def test_cli_arms_the_watchdog_with_the_hard_stop(self, monkeypatch, main_repo: Path):
+        from dagayn.cli.commands import session as session_cli
+        from dagayn.tools.session_prepare import PREPARE_BUDGET_HARD_STOP_FACTOR
+
+        armed: list[tuple[float | None, str]] = []
+        cancelled: list[bool] = []
+
+        class FakeTimer:
+            def cancel(self) -> None:
+                cancelled.append(True)
+
+        def fake_watchdog(budget, *, label="update"):
+            armed.append((budget, label))
+            return FakeTimer()
+
+        monkeypatch.setattr("dagayn.hook_guard.start_budget_watchdog", fake_watchdog)
+        monkeypatch.setattr(
+            session_cli,
+            "_run_session_prepare",
+            lambda _args, _budget: {"summary": "done", "phases": {}},
+        )
+
+        args = argparse.Namespace(
+            session_command="prepare",
+            repo=str(main_repo),
+            budget_seconds=30,
+            as_json=False,
+        )
+        session_cli.handle(args, argparse.ArgumentParser())
+
+        assert armed == [(30 * PREPARE_BUDGET_HARD_STOP_FACTOR, "session prepare")]
+        assert cancelled == [True], "the watchdog must be cancelled once prepare returns"
+
+    def test_cli_arms_the_watchdog_from_the_default_budget(self, monkeypatch, main_repo: Path):
+        from dagayn.cli.commands import session as session_cli
+        from dagayn.tools.session_prepare import (
+            PREPARE_BUDGET_HARD_STOP_FACTOR,
+            default_prepare_budget_seconds,
+        )
+
+        armed: list[tuple[float | None, str]] = []
+        monkeypatch.setattr(
+            "dagayn.hook_guard.start_budget_watchdog",
+            lambda budget, *, label="update": armed.append((budget, label)) or None,
+        )
+        monkeypatch.setattr(
+            session_cli,
+            "_run_session_prepare",
+            lambda _args, _budget: {"summary": "done", "phases": {}},
+        )
+
+        args = argparse.Namespace(
+            session_command="prepare",
+            repo=str(main_repo),
+            budget_seconds=None,
+            as_json=False,
+        )
+        session_cli.handle(args, argparse.ArgumentParser())
+
+        default_budget = default_prepare_budget_seconds(mcp=False)
+        assert default_budget is not None, "the hook default must be a real budget"
+        assert armed == [(default_budget * PREPARE_BUDGET_HARD_STOP_FACTOR, "session prepare")]
+
+    def test_explicitly_unbounded_budget_arms_nothing(self, monkeypatch, main_repo: Path):
+        from dagayn.cli.commands import session as session_cli
+
+        armed: list[Any] = []
+        monkeypatch.setattr(
+            "dagayn.hook_guard.start_budget_watchdog",
+            lambda budget, *, label="update": armed.append(budget) or None,
+        )
+        monkeypatch.setattr(
+            session_cli,
+            "_run_session_prepare",
+            lambda _args, _budget: {"summary": "done", "phases": {}},
+        )
+
+        args = argparse.Namespace(
+            session_command="prepare",
+            repo=str(main_repo),
+            budget_seconds=0,
+            as_json=False,
+        )
+        session_cli.handle(args, argparse.ArgumentParser())
+
+        assert armed == [None], "0 disables the budget, so nothing may be killed"
