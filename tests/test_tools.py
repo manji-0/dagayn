@@ -2226,6 +2226,7 @@ class TestBuildPostprocess:
                 captured["source_root"] = source_root
                 self.available = True
                 self.last_orphans_removed = 0
+                self.last_remaining = 0
                 self.text_mode = "metadata"
 
             def count(self):

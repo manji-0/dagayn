@@ -252,6 +252,13 @@ def _lock_file_path(key: Path) -> Path:
     return key.with_name(f"{key.name}.write.lock")
 
 
+#: Longest gap between ``LOCK_NB`` retries while waiting for the file lock.
+#: This is also the smallest lock gap a waiter can reliably notice, so a writer
+#: that releases and re-takes the lock (an embedding pass between slices) has to
+#: stay out at least this long for the handoff to happen.
+_MAX_POLL_INTERVAL = 0.1
+
+
 def _flock_wait(
     handle: IO[str],
     *,
@@ -294,7 +301,7 @@ def _flock_wait(
                 ) from None
             threading.Event().wait(interval)
             waited += interval
-            interval = min(interval * 2, 0.5)
+            interval = min(interval * 2, _MAX_POLL_INTERVAL)
         except OSError as exc:
             logger.debug("Could not flock %s (%s); proceeding unserialized", lock_file_path, exc)
             return

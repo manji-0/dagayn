@@ -82,6 +82,13 @@ DEFAULT_UPDATE_BUDGET_SECONDS = 120
 DEFAULT_EMBED_BUDGET_SECONDS = 600
 DEFAULT_POSTPROCESS_BUDGET_SECONDS = 600
 
+#: How much of the embed budget one task may spend embedding. The rest covers
+#: the structural update that precedes it and the orphan prune that follows.
+#: A corpus too large to embed inside this window stops at a slice boundary and
+#: re-queues itself, which is the difference between finishing eventually and
+#: being killed by the watchdog on every attempt until the task is parked dead.
+EMBED_PASS_SECONDS = DEFAULT_EMBED_BUDGET_SECONDS * 0.7
+
 QUEUE_DB_NAME = "task_queue.db"
 WORKER_LOCK_NAME = "queue_worker.lock"
 
@@ -582,15 +589,43 @@ def _execute_embed(task: dict[str, Any], repo_root: Path) -> str | None:
             local_embedding_timeout=int(payload.get("local_embedding_timeout", 300)),
             local_embedding_request_timeout=int(payload.get("local_embedding_request_timeout", 60)),
             local_embedding_batch_size=int(payload.get("local_embedding_batch_size", 1)),
+            embed_pass_seconds=EMBED_PASS_SECONDS,
         )
         if result.get("skipped"):
             return f"skipped: {result.get('skip_reason')}"
         if result.get("status") == "error":
             raise RuntimeError(result.get("summary") or "embedding pass failed")
-        return None
+        return _requeue_unfinished_embedding(repo_root, payload, result)
     finally:
         if watchdog is not None:
             watchdog.cancel()
+
+
+def _requeue_unfinished_embedding(
+    repo_root: Path,
+    payload: dict[str, Any],
+    result: dict[str, Any],
+) -> str | None:
+    """Queue a follow-up ``embed`` when the pass budget cut the run short.
+
+    Only re-queues when this pass actually embedded something: a corpus that
+    keeps reporting leftovers while making no progress (a node the provider
+    rejects every time) would otherwise loop forever, and ``MAX_ATTEMPTS`` does
+    not catch it because each pass *succeeds*.
+    """
+    embedding = result.get("local_embedding") or {}
+    if not isinstance(embedding, dict):
+        return None
+    remaining = int(embedding.get("embedding_remaining", 0) or 0)
+    embedded = int(embedding.get("newly_embedded", 0) or 0)
+    if remaining <= 0 or embedded <= 0:
+        return None
+    queue = TaskQueue(queue_db_path(repo_root))
+    try:
+        action, task_id = queue.enqueue("embed", dict(payload))
+    finally:
+        queue.close()
+    return f"embedded {embedded}, {remaining} left; {action} embed task {task_id}"
 
 
 def _execute_postprocess(task: dict[str, Any], repo_root: Path) -> str | None:

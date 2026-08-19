@@ -31,6 +31,29 @@ All notable changes to `dagayn` are documented here.
   locked out for it. The structural build now hands the lock back before the
   embedding pass, and the pass takes it again around its database work; the
   orphaned-embedding prune takes its own.
+- The embedding pass now runs as a series of time-bounded slices, taking the
+  graph lock once per slice instead of once for the whole corpus. Measured on a
+  710-node repository the pass held the lock for 22 s straight, and 2 of 6
+  concurrent MCP-style reads failed on the 10 s reader timeout; a slice is
+  capped at 4 s (`DAGAYN_EMBED_SLICE_SECONDS`, 0 restores one-shot behaviour),
+  so a reader or a queued update waits for one slice. Each provider batch was
+  already persisted, so slicing adds no new resumption risk; the whole-corpus
+  orphan and retired-partition sweeps still run once per pass. Re-measured on
+  the same repository: 167 of 167 reads succeeded, the longest waiting one slice
+  (4.6 s), and the pass itself took 20.7 s against 21.1 s unsliced — the slice
+  overhead was inside the noise. Waiters poll for the file lock rather than
+  queuing on it, so the pass also stays out of the lock briefly between slices
+  and the poll interval is capped at 0.1 s; without that, releasing and
+  instantly re-taking the lock handed over to nobody and reads still failed.
+- An embedding run too large for one queue budget now finishes instead of dying.
+  At the measured ~32 nodes/s the 600 s `embed` budget covers roughly 19,000
+  nodes, and anything beyond that was killed by the watchdog on every attempt
+  until the task was parked `dead` with embeddings permanently incomplete. A
+  queued `embed` now stops at a slice boundary once it has spent 70 % of the
+  budget and queues a follow-up for the rest, carrying the sidecar settings over
+  so the model is not reloaded. A pass that reports leftovers without embedding
+  anything does not re-queue, because it would otherwise spin forever on input
+  the provider keeps rejecting.
 
 ## 4.10.1 — 2026-08-18
 

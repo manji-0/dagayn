@@ -573,6 +573,180 @@ class TestEmbeddingLockScope:
         )
 
 
+class TestEmbeddingSlices:
+    """A long embedding pass must give the lock back between slices.
+
+    Embedding a large corpus in one lock acquisition outlasts the reader
+    timeout, so MCP tool calls fail for the whole run, and a queued update
+    waits it out. Slicing bounds both to a single slice, and the pass budget
+    keeps an oversized corpus from being killed by the watchdog every attempt.
+    """
+
+    @staticmethod
+    def _fake_env(tmp_path, monkeypatch, embed_graph):
+        """Wire ``_run_local_embedding`` to a fake sidecar and embed_graph.
+
+        Returns ``(repo, db, acquisitions)`` where *acquisitions* counts graph
+        lock acquisitions made by the embedding pass.
+        """
+        import contextlib
+        import types
+
+        from dagayn.paths import get_db_path
+        from dagayn.write_lock import graph_write_lock
+
+        repo = tmp_path / "repo"
+        (repo / ".dagayn").mkdir(parents=True)
+        (repo / ".git").mkdir()
+        db = get_db_path(repo)
+        GraphStore(db).close()
+
+        preset = types.SimpleNamespace(
+            model="m",
+            text_mode="signature",
+            request_max_length=None,
+            level="bge-m3",
+            dimension=8,
+        )
+
+        @contextlib.contextmanager
+        def fake_server(*_args, **_kwargs):
+            yield types.SimpleNamespace(
+                preset=preset,
+                base_url="http://127.0.0.1:1",
+                started=True,
+                command=["fake"],
+            )
+
+        acquisitions: list[int] = []
+
+        @contextlib.contextmanager
+        def counting_lock(*args, **kwargs):
+            acquisitions.append(1)
+            with graph_write_lock(*args, **kwargs):
+                yield
+
+        monkeypatch.setattr("dagayn.local_embeddings.local_embedding_server", fake_server)
+        monkeypatch.setattr(
+            "dagayn.local_embeddings.resolve_local_embedding_port", lambda *_a, **_k: 1
+        )
+        monkeypatch.setattr("dagayn.tools.docs.embed_graph", embed_graph)
+        monkeypatch.setattr("dagayn.tools.build.graph_write_lock", counting_lock)
+        return repo, db, acquisitions
+
+    @staticmethod
+    def _run(repo, **kwargs):
+        from dagayn.tools.build import _run_local_embedding
+
+        return _run_local_embedding(
+            repo,
+            local_embedding="bge-m3",
+            local_embedding_port=None,
+            local_embedding_bin="auto",
+            keep_local_embedding_server=True,
+            local_embedding_timeout=1,
+            local_embedding_request_timeout=1,
+            local_embedding_batch_size=1,
+            **kwargs,
+        )
+
+    def test_each_slice_takes_and_releases_the_lock(self, tmp_path, monkeypatch):
+        from dagayn.write_lock import graph_lock_is_held
+
+        calls: list[dict] = []
+
+        def fake_embed_graph(**kwargs):
+            calls.append(kwargs)
+            remaining = max(0, 3 - len(calls))
+            return {
+                "status": "ok",
+                "newly_embedded": 2,
+                "orphans_removed": 1 if len(calls) == 1 else 0,
+                "total_embeddings": 2 * len(calls),
+                "remaining": remaining,
+            }
+
+        repo, db, acquisitions = self._fake_env(tmp_path, monkeypatch, fake_embed_graph)
+        assert graph_lock_is_held(db) is False
+        result = self._run(repo)
+
+        assert len(calls) == 3
+        assert len(acquisitions) == 3, "the pass did not re-take the lock per slice"
+        assert graph_lock_is_held(db) is False
+        # Every slice is time-bounded, and the whole-corpus sweeps run once.
+        assert all(call["slice_seconds"] is not None for call in calls)
+        assert [call["prune_orphans"] for call in calls] == [True, False, False]
+        assert result["newly_embedded"] == 6
+        assert result["orphans_removed"] == 1
+        assert result["embedding_remaining"] == 0
+        assert result["embedding_slices"] == 3
+
+    def test_handoff_outlasts_the_lock_poll_interval(self):
+        from dagayn import write_lock as write_lock_module
+        from dagayn.tools.build import _EMBED_SLICE_HANDOFF_SECONDS
+
+        # Waiters poll for the file lock, so a writer that releases and
+        # immediately re-takes it hands over to nobody: measured on a 710-node
+        # repository, slicing without this pause still failed 2 of 165 reads.
+        assert _EMBED_SLICE_HANDOFF_SECONDS > write_lock_module._MAX_POLL_INTERVAL
+
+    def test_slicing_can_be_disabled(self, tmp_path, monkeypatch):
+        calls: list[dict] = []
+
+        def fake_embed_graph(**kwargs):
+            calls.append(kwargs)
+            return {"status": "ok", "newly_embedded": 5, "remaining": 0}
+
+        monkeypatch.setenv("DAGAYN_EMBED_SLICE_SECONDS", "0")
+        repo, _db, acquisitions = self._fake_env(tmp_path, monkeypatch, fake_embed_graph)
+        self._run(repo)
+
+        assert len(acquisitions) == 1
+        assert calls[0]["slice_seconds"] is None
+
+    def test_a_slice_making_no_progress_stops_the_pass(self, tmp_path, monkeypatch):
+        calls: list[dict] = []
+
+        def fake_embed_graph(**kwargs):
+            calls.append(kwargs)
+            # A node the provider rejects every time: leftovers, no progress.
+            return {"status": "ok", "newly_embedded": 0, "remaining": 7}
+
+        repo, _db, _acq = self._fake_env(tmp_path, monkeypatch, fake_embed_graph)
+        result = self._run(repo)
+
+        assert len(calls) == 1, "the pass spun on a slice that embedded nothing"
+        assert result["embedding_remaining"] == 7
+
+    def test_pass_budget_stops_at_a_slice_boundary(self, tmp_path, monkeypatch):
+        calls: list[dict] = []
+
+        def fake_embed_graph(**kwargs):
+            calls.append(kwargs)
+            time.sleep(0.05)
+            return {"status": "ok", "newly_embedded": 1, "remaining": 100}
+
+        repo, _db, _acq = self._fake_env(tmp_path, monkeypatch, fake_embed_graph)
+        result = self._run(repo, pass_seconds=0.04)
+
+        # One slice always runs; the budget is spent by the time it ends.
+        assert len(calls) == 1
+        assert result["embedding_remaining"] == 100
+        assert result["embedding_slices"] == 1
+
+    def test_failed_slice_is_reported_without_further_slices(self, tmp_path, monkeypatch):
+        calls: list[dict] = []
+
+        def fake_embed_graph(**kwargs):
+            calls.append(kwargs)
+            return {"status": "error", "error": "provider unreachable"}
+
+        repo, _db, _acq = self._fake_env(tmp_path, monkeypatch, fake_embed_graph)
+        with pytest.raises(RuntimeError, match="provider unreachable"):
+            self._run(repo)
+        assert len(calls) == 1
+
+
 class TestInProcessReaderParallelism:
     """Two reads on one graph must overlap inside a process, as they do across.
 

@@ -21,12 +21,15 @@ import pytest
 
 import dagayn.task_queue
 from dagayn.task_queue import (
+    DEFAULT_EMBED_BUDGET_SECONDS,
     DEFAULT_PRIORITIES,
+    EMBED_PASS_SECONDS,
     LOG_RETENTION,
     MAX_ATTEMPTS,
     TASK_KINDS,
     TaskQueue,
     WorkerLock,
+    _requeue_unfinished_embedding,
     ensure_worker,
     queue_db_path,
     run_worker,
@@ -617,3 +620,78 @@ class TestPaths:
         path = worker_lock_path(tmp_path)
         assert path.parent == tmp_path / ".dagayn"
         assert path.name == "queue_worker.lock"
+
+
+class TestUnfinishedEmbedding:
+    """A budget-capped embedding pass must queue the rest of the corpus.
+
+    Without this, a corpus too large to embed inside one budget is killed by
+    the watchdog on every attempt and ends up parked ``dead`` with the
+    embeddings permanently incomplete.
+    """
+
+    @staticmethod
+    def _result(*, remaining: int, embedded: int) -> dict[str, Any]:
+        return {
+            "status": "ok",
+            "local_embedding": {
+                "newly_embedded": embedded,
+                "embedding_remaining": remaining,
+            },
+        }
+
+    @staticmethod
+    def _claim_pending(repo: Path) -> dict[str, Any] | None:
+        q = TaskQueue(queue_db_path(repo))
+        try:
+            return q.claim()
+        finally:
+            q.close()
+
+    @staticmethod
+    def _pending_count(repo: Path) -> int:
+        q = TaskQueue(queue_db_path(repo))
+        try:
+            return int(q.stats()["counts"]["pending"])
+        finally:
+            q.close()
+
+    def test_leftovers_with_progress_are_requeued(self, tmp_path: Path) -> None:
+        payload = {"local_embedding": "bge-m3", "keep_local_embedding_server": True}
+        note = _requeue_unfinished_embedding(
+            tmp_path,
+            payload,
+            self._result(remaining=900, embedded=1200),
+        )
+        assert note is not None
+        assert "900 left" in note
+
+        assert self._pending_count(tmp_path) == 1
+        queued = self._claim_pending(tmp_path)
+        assert queued is not None
+        assert queued["kind"] == "embed"
+        # The follow-up must keep the sidecar settings, or each slice reloads
+        # the model and startup dominates the run.
+        assert queued["payload"] == payload
+
+    def test_finished_pass_is_not_requeued(self, tmp_path: Path) -> None:
+        note = _requeue_unfinished_embedding(tmp_path, {}, self._result(remaining=0, embedded=50))
+        assert note is None
+        assert self._pending_count(tmp_path) == 0
+
+    def test_pass_without_progress_is_not_requeued(self, tmp_path: Path) -> None:
+        # Leftovers the provider keeps rejecting: re-queueing would spin
+        # forever, and MAX_ATTEMPTS does not catch it because each pass is a
+        # success.
+        note = _requeue_unfinished_embedding(tmp_path, {}, self._result(remaining=7, embedded=0))
+        assert note is None
+        assert self._pending_count(tmp_path) == 0
+
+    def test_pass_budget_leaves_room_inside_the_watchdog_budget(self) -> None:
+        # The watchdog kills the task at DEFAULT_EMBED_BUDGET_SECONDS; the pass
+        # has to stop first so the leftovers get queued instead of lost.
+        assert 0 < EMBED_PASS_SECONDS < DEFAULT_EMBED_BUDGET_SECONDS
+
+    def test_missing_embedding_section_is_tolerated(self, tmp_path: Path) -> None:
+        assert _requeue_unfinished_embedding(tmp_path, {}, {"status": "ok"}) is None
+        assert self._pending_count(tmp_path) == 0

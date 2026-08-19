@@ -28,6 +28,30 @@ _LOCAL_EMBEDDING_LLAMA_QWEN3 = "llama-qwen3"
 _LOCAL_EMBEDDING_ENV_LOCK = threading.Lock()
 _HOOK_UPDATE_ENV = "DAGAYN_HOOK_UPDATE"
 
+#: How long one embedding slice may hold the exclusive graph lock. Kept well
+#: under ``DEFAULT_READ_LOCK_TIMEOUT`` (10s) so an MCP reader that arrives
+#: mid-run waits for one slice instead of timing out on the whole pass.
+_DEFAULT_EMBED_SLICE_SECONDS = 4.0
+
+
+#: How long the embedding pass stays out of the lock between slices. Waiters
+#: poll for the file lock, so releasing and immediately re-taking it hands over
+#: to nobody: this has to exceed ``write_lock._MAX_POLL_INTERVAL`` for a queued
+#: reader to actually get its turn.
+_EMBED_SLICE_HANDOFF_SECONDS = 0.25
+
+
+def _embed_slice_seconds() -> float | None:
+    """Seconds of embedding per lock acquisition; ``None`` disables slicing."""
+    raw = os.environ.get("DAGAYN_EMBED_SLICE_SECONDS")
+    if raw is None:
+        return _DEFAULT_EMBED_SLICE_SECONDS
+    try:
+        value = float(raw)
+    except ValueError:
+        return _DEFAULT_EMBED_SLICE_SECONDS
+    return None if value <= 0 else value
+
 
 def _can_run_minimal_postprocess(store: Any) -> bool:
     return all(
@@ -143,11 +167,18 @@ def _run_local_embedding(
     local_embedding_timeout: int,
     local_embedding_request_timeout: int,
     local_embedding_batch_size: int,
+    pass_seconds: float | None = None,
 ) -> BuildPayload:
-    """Run graph embedding through the selected local embedding mode."""
+    """Run graph embedding through the selected local embedding mode.
+
+    The pass runs as a series of time-bounded slices, each taking the graph
+    lock on its own, so readers and queued updates get a turn between slices
+    instead of waiting out the whole corpus. ``pass_seconds`` additionally caps
+    the total time spent here and reports what is left in
+    ``embedding_remaining``; the caller re-queues to finish the rest.
+    """
     mode = _resolve_local_embedding_mode(local_embedding, local_embedding_mode)
     from dagayn.local_embeddings import local_embedding_server, resolve_local_embedding_port
-    from dagayn.tools.docs import embed_graph
 
     preset_level = _LOCAL_EMBEDDING_BGE if mode == _LOCAL_EMBEDDING_BGE else "low"
     port = resolve_local_embedding_port(local_embedding_port, preset_level)
@@ -181,19 +212,17 @@ def _run_local_embedding(
                     os.environ.pop("CRG_OPENAI_MAX_LENGTH", None)
                 else:
                     os.environ["CRG_OPENAI_MAX_LENGTH"] = str(server.preset.request_max_length)
-                # The graph lock covers only the part that touches graph.db.
-                # Starting the sidecar and loading its model take up to
+                # The graph lock is taken inside, per slice. Starting the
+                # sidecar and loading its model take up to
                 # ``local_embedding_timeout`` seconds without reading or
                 # writing the database, and holding the exclusive lock across
                 # that made every MCP tool call in the meantime wait (and then
                 # fail) for no reason.
-                with graph_write_lock(get_db_path(Path(root))):
-                    result = embed_graph(
-                        repo_root=str(root),
-                        provider="openai",
-                        model=server.preset.model,
-                        show_progress=sys.stderr.isatty(),
-                    )
+                result = _embed_in_slices(
+                    root,
+                    model=server.preset.model,
+                    pass_seconds=pass_seconds,
+                )
             finally:
                 for key, value in old_env.items():
                     if value is None:
@@ -217,8 +246,89 @@ def _run_local_embedding(
         "newly_embedded": result.get("newly_embedded", 0),
         "orphans_removed": result.get("orphans_removed", 0),
         "total_embeddings": result.get("total_embeddings", 0),
+        "embedding_remaining": result.get("remaining", 0),
+        "embedding_slices": result.get("slices", 1),
         "summary": result.get("summary", ""),
     }
+
+
+def _embed_in_slices(
+    root: Any,
+    *,
+    model: str | None,
+    pass_seconds: float | None,
+) -> BuildPayload:
+    """Embed the graph in time-bounded slices, releasing the lock between them.
+
+    Aggregates the per-slice results into a single ``embed_graph``-shaped
+    payload. Stops early when a slice makes no progress, so a node the provider
+    keeps rejecting cannot spin here forever.
+    """
+    from dagayn.tools.docs import embed_graph
+
+    db_path = get_db_path(Path(root))
+    slice_seconds = _embed_slice_seconds()
+    deadline = None if pass_seconds is None else time.monotonic() + pass_seconds
+    newly_embedded = 0
+    orphans_removed = 0
+    slices = 0
+    result: BuildPayload = {}
+
+    while True:
+        with graph_write_lock(db_path):
+            result = embed_graph(
+                repo_root=str(root),
+                provider="openai",
+                model=model,
+                show_progress=sys.stderr.isatty(),
+                slice_seconds=slice_seconds,
+                # The orphan and retired-partition sweeps look at the whole
+                # corpus, so they belong to the run and not to every slice.
+                prune_orphans=slices == 0,
+            )
+        slices += 1
+        if result.get("status") != "ok":
+            return result
+        embedded_now = int(result.get("newly_embedded", 0) or 0)
+        newly_embedded += embedded_now
+        orphans_removed += int(result.get("orphans_removed", 0) or 0)
+        remaining = int(result.get("remaining", 0) or 0)
+        if remaining <= 0:
+            break
+        if embedded_now == 0:
+            logger.warning(
+                "Embedding slice %d made no progress with %d node(s) left; stopping.",
+                slices,
+                remaining,
+            )
+            break
+        if deadline is not None and time.monotonic() >= deadline:
+            logger.info(
+                "Embedding pass budget reached after %d slice(s); %d node(s) left.",
+                slices,
+                remaining,
+            )
+            break
+        time.sleep(_EMBED_SLICE_HANDOFF_SECONDS)
+
+    result = dict(result)
+    result["newly_embedded"] = newly_embedded
+    result["orphans_removed"] = orphans_removed
+    result["slices"] = slices
+    if slices > 1:
+        # The last slice's summary only describes that slice.
+        left = int(result.get("remaining", 0) or 0)
+        result["summary"] = (
+            f"Embedded {newly_embedded} new node(s) across {slices} slice(s). "
+            f"Removed {orphans_removed} orphan embedding(s). "
+            f"Total embeddings: {result.get('total_embeddings', 0)}. "
+            + (
+                f"{left} node(s) still queued for a later pass."
+                if left
+                else "Semantic search is now active."
+            )
+        )
+    return result
 
 
 def _prune_orphaned_structures(store: Any, build_result: BuildResult) -> list[str]:
@@ -747,6 +857,7 @@ def build_or_update_graph(
     local_embedding_request_timeout: int = 60,
     local_embedding_batch_size: int = 1,
     extra_files: list[str] | None = None,
+    embed_pass_seconds: float | None = None,
 ) -> BuildPayload:
     """Build or incrementally update the code knowledge graph.
 
@@ -783,6 +894,10 @@ def build_or_update_graph(
             HTTP request once the server is ready.
         local_embedding_batch_size: Texts to send in each local embedding
             HTTP request.
+        embed_pass_seconds: Cap on total time spent embedding. The pass stops
+            at a slice boundary once exceeded and reports
+            ``local_embedding.embedding_remaining`` so a scheduler can finish
+            the rest in a later run. ``None`` (default) embeds everything.
 
     Returns:
         Summary with files_parsed/updated, node/edge counts, and errors.
@@ -1033,6 +1148,7 @@ def build_or_update_graph(
                     local_embedding_timeout=local_embedding_timeout,
                     local_embedding_request_timeout=local_embedding_request_timeout,
                     local_embedding_batch_size=local_embedding_batch_size,
+                    pass_seconds=embed_pass_seconds,
                 )
         finally:
             if postprocess != "none":

@@ -837,6 +837,78 @@ class TestEmbeddingStore:
             assert store.count() == 1
             store.close()
 
+    @staticmethod
+    def _slow_provider(seconds):
+        class SlowProvider:
+            name = "fake"
+            preferred_batch_size = 1
+
+            def __init__(self):
+                self.calls = 0
+
+            def embed(self, texts):
+                self.calls += 1
+                time.sleep(seconds)
+                return [[float(i)] for i, _ in enumerate(texts)]
+
+            def embed_query(self, text):
+                return [1.0]
+
+            @property
+            def dimension(self):
+                return 1
+
+        return SlowProvider()
+
+    def test_embed_nodes_without_slice_budget_embeds_everything(self, tmp_path):
+        provider = self._slow_provider(0.0)
+        nodes = [self._make_node(f"func_{i}", i + 1) for i in range(4)]
+        with patch("dagayn.embeddings.get_provider", return_value=provider):
+            store = EmbeddingStore(tmp_path / "embeddings.db")
+            assert store.embed_nodes(nodes) == 4
+            assert store.last_remaining == 0
+            store.close()
+
+    def test_slice_budget_stops_early_and_reports_remaining(self, tmp_path):
+        provider = self._slow_provider(0.05)
+        nodes = [self._make_node(f"func_{i}", i + 1) for i in range(5)]
+        with patch("dagayn.embeddings.get_provider", return_value=provider):
+            store = EmbeddingStore(tmp_path / "embeddings.db")
+            embedded = store.embed_nodes(nodes, slice_seconds=0.04)
+            # One batch always runs; the budget is already spent after it.
+            assert embedded == 1
+            assert store.last_remaining == 4
+            assert store.count() == 1
+            store.close()
+
+    def test_slice_budget_of_zero_still_makes_progress(self, tmp_path):
+        provider = self._slow_provider(0.0)
+        nodes = [self._make_node(f"func_{i}", i + 1) for i in range(3)]
+        with patch("dagayn.embeddings.get_provider", return_value=provider):
+            store = EmbeddingStore(tmp_path / "embeddings.db")
+            assert store.embed_nodes(nodes, slice_seconds=0.0) == 1
+            assert store.last_remaining == 2
+            store.close()
+
+    def test_successive_slices_finish_the_corpus(self, tmp_path):
+        provider = self._slow_provider(0.0)
+        nodes = [self._make_node(f"func_{i}", i + 1) for i in range(4)]
+        with patch("dagayn.embeddings.get_provider", return_value=provider):
+            store = EmbeddingStore(tmp_path / "embeddings.db")
+            slices = 0
+            while True:
+                store.embed_nodes(nodes, slice_seconds=0.0)
+                slices += 1
+                if store.last_remaining == 0:
+                    break
+                assert slices < 10, "slicing did not converge"
+            assert slices == 4
+            assert store.count() == 4
+            # A finished run must not look like it has leftovers.
+            assert store.embed_nodes(nodes, slice_seconds=0.0) == 0
+            assert store.last_remaining == 0
+            store.close()
+
     def test_embed_nodes_honors_body_text_mode(self, tmp_path):
         db = tmp_path / "embeddings.db"
         source = tmp_path / "file.py"

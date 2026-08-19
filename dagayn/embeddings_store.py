@@ -739,6 +739,9 @@ class EmbeddingStore:
         self._conn.executescript(_EMBEDDINGS_SCHEMA)
         _ensure_embeddings_schema(self._conn)
         self.last_orphans_removed = 0
+        #: Nodes still needing embedding after the last :meth:`embed_nodes` call.
+        #: Non-zero only when a ``slice_seconds`` budget cut the pass short.
+        self.last_remaining = 0
 
         self._conn.commit()
 
@@ -846,8 +849,19 @@ class EmbeddingStore:
         nodes: list[GraphNode],
         *,
         show_progress: bool = False,
+        slice_seconds: float | None = None,
     ) -> int:
-        """Compute and store embeddings for a list of nodes."""
+        """Compute and store embeddings for a list of nodes.
+
+        ``slice_seconds`` stops the pass at the first provider batch boundary
+        past that many seconds and reports what is left in
+        :attr:`last_remaining`. Each batch is already persisted, so the caller
+        can release the graph lock and resume in a later slice -- which is what
+        keeps a long embedding run from blocking readers for its whole duration.
+        At least one batch always runs, so a slice can never make zero progress
+        just because the budget is small.
+        """
+        self.last_remaining = 0
         if not self.provider:
             return 0
 
@@ -898,7 +912,14 @@ class EmbeddingStore:
         embedded = 0
         slow_batch_seconds = _slow_embed_batch_seconds()
 
+        slice_deadline = None if slice_seconds is None else start_time + slice_seconds
+
         for i in range(0, total, api_batch):
+            if i and slice_deadline is not None and time.monotonic() >= slice_deadline:
+                self.last_remaining = total - i
+                if use_progress:
+                    _draw_embed_progress(i, total, time.monotonic() - start_time, end=True)
+                break
             batch = to_embed[i : i + api_batch]
             batch_texts = [t for _, t, _ in batch]
             batch_number = (i // api_batch) + 1
@@ -1250,8 +1271,16 @@ def embed_all_nodes(
     embedding_store: EmbeddingStore,
     *,
     show_progress: bool = False,
+    slice_seconds: float | None = None,
+    prune_orphans: bool = True,
 ) -> int:
-    """Embed all non-file nodes in the graph."""
+    """Embed all non-file nodes in the graph.
+
+    ``slice_seconds`` bounds one pass (see
+    :meth:`EmbeddingStore.embed_nodes`); ``prune_orphans=False`` skips the
+    orphan sweep and the retired-partition sweep, which only need to happen
+    once per logical embedding run rather than once per slice.
+    """
     if not embedding_store.available:
         return 0
 
@@ -1259,9 +1288,13 @@ def embed_all_nodes(
     # Point search at this provider before any rows land, so an interrupted
     # switch cannot silently rank a retired, still-larger partition.
     embedding_store.persist_active_provider_metadata()
-    embedding_store.last_orphans_removed = embedding_store.remove_orphans(
-        {node.qualified_name for node in all_nodes},
-        all_providers=True,
+    embedding_store.last_orphans_removed = (
+        embedding_store.remove_orphans(
+            {node.qualified_name for node in all_nodes},
+            all_providers=True,
+        )
+        if prune_orphans
+        else 0
     )
 
     if embedding_store.source_root is None:
@@ -1279,9 +1312,14 @@ def embed_all_nodes(
     else:
         embedding_store.graph_facts_by_qualified_name = {}
 
-    embedded = embedding_store.embed_nodes(all_nodes, show_progress=show_progress)
+    embedded = embedding_store.embed_nodes(
+        all_nodes,
+        show_progress=show_progress,
+        slice_seconds=slice_seconds,
+    )
     # Written again after the run so the pointer names the key rows actually
     # landed under (dimension is only known after the first response).
     embedding_store.persist_active_provider_metadata()
-    embedding_store.remove_inactive_provider_partitions()
+    if prune_orphans:
+        embedding_store.remove_inactive_provider_partitions()
     return embedded

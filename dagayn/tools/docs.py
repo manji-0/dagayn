@@ -28,6 +28,8 @@ def embed_graph(
     provider: str | None = None,
     *,
     show_progress: bool = False,
+    slice_seconds: float | None = None,
+    prune_orphans: bool = True,
 ) -> ToolPayload:
     """Compute vector embeddings for all graph nodes to enable semantic search.
 
@@ -51,9 +53,17 @@ def embed_graph(
                   CRG_OPENAI_API_KEY + CRG_OPENAI_MODEL env vars and accepts
                   any OpenAI-compatible endpoint (real OpenAI, Azure, new-api,
                   LiteLLM, vLLM, LocalAI, Ollama openai-mode, etc.).
+        slice_seconds: Stop after the first provider batch past this many
+                  seconds and report the rest in ``remaining``. Callers use
+                  this to bound how long they hold the graph lock; ``None``
+                  embeds everything in one pass.
+        prune_orphans: Sweep orphaned embeddings and retired provider
+                  partitions. Set False on follow-up slices of one run.
 
     Returns:
-        Number of nodes embedded and total embedding count.
+        Number of nodes embedded, total embedding count, and how many nodes
+        are still unembedded (``remaining``, non-zero only with
+        ``slice_seconds``).
     """
     store, root = _get_store(repo_root, cached=False)
     db_path = get_db_path(root)
@@ -84,8 +94,15 @@ def embed_graph(
                 )
             return {"status": "error", "error": err}
 
-        newly_embedded = embed_all_nodes(store, emb_store, show_progress=show_progress)
+        newly_embedded = embed_all_nodes(
+            store,
+            emb_store,
+            show_progress=show_progress,
+            slice_seconds=slice_seconds,
+            prune_orphans=prune_orphans,
+        )
         orphans_removed = emb_store.last_orphans_removed
+        remaining = emb_store.last_remaining
         if newly_embedded or orphans_removed:
             store.close()
             store_closed = True
@@ -98,11 +115,16 @@ def embed_graph(
                 f"Embedded {newly_embedded} new node(s). "
                 f"Removed {orphans_removed} orphan embedding(s). "
                 f"Total embeddings: {total}. "
-                "Semantic search is now active."
+                + (
+                    f"{remaining} node(s) still queued for a later slice."
+                    if remaining
+                    else "Semantic search is now active."
+                )
             ),
             "newly_embedded": newly_embedded,
             "orphans_removed": orphans_removed,
             "total_embeddings": total,
+            "remaining": remaining,
             "text_mode": emb_store.text_mode,
         }
     finally:
