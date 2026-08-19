@@ -2,7 +2,7 @@
 
 All notable changes to `dagayn` are documented here.
 
-## Unreleased
+## 4.10.3 — 2026-08-19
 
 ### Fixes
 
