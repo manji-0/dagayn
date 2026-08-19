@@ -34,6 +34,11 @@ from .state_types import EmbeddingStatusRecord, seal_embedding_status
 
 _EMBED_PROVIDER_ERRORS = (OSError, RuntimeError, ValueError, TypeError, sqlite3.Error)
 
+#: One node's embedding work: ``(qualified_name, text, text_hash)``. Deliberately
+#: not the ``GraphNode``: holding only this lets the write half of a pass run with
+#: no graph store open, which is what makes a sliced pass cheap.
+type EmbedWorkItem = tuple[str, str, str]
+
 #: Captures the value of a ``#dim=N`` segment in a persisted provider key.
 _PROVIDER_DIM_VALUE_RE = re.compile(r"#dim=(\d+)")
 
@@ -861,15 +866,24 @@ class EmbeddingStore:
         At least one batch always runs, so a slice can never make zero progress
         just because the budget is small.
         """
-        self.last_remaining = 0
-        if not self.provider:
-            return 0
+        work = self.prepare_embed_work(nodes)
+        return self.embed_prepared(work, show_progress=show_progress, slice_seconds=slice_seconds)
 
-        # Filter to nodes that need embedding
+    def prepare_embed_work(self, nodes: list[GraphNode]) -> list[EmbedWorkItem]:
+        """Return the ``(qualified_name, text, text_hash)`` items still to embed.
+
+        This is the expensive half of an embedding pass and it needs the graph
+        nodes; :meth:`embed_prepared` needs neither. Splitting them lets a caller
+        scan once and then write in several lock windows, instead of re-scanning
+        the whole corpus per window: on a 42k-node graph the scan is ~8 s against
+        4 s of embedding per slice, so re-scanning was two thirds of the cost.
+        """
+        if not self.provider:
+            return []
         provider_name = self._provider_key_for_lookup() or self.provider.name
         candidate_nodes = [n for n in nodes if n.kind != "File"]
         if not candidate_nodes:
-            return 0
+            return []
 
         # Batch-fetch existing hashes in one query instead of N individual SELECTs
         qns = [n.qualified_name for n in candidate_nodes]
@@ -887,7 +901,7 @@ class EmbeddingStore:
                 existing_hashes[r["qualified_name"]] = (r["text_hash"], r["provider"])
 
         scan_started = time.monotonic()
-        to_embed: list[tuple[GraphNode, str, str]] = []
+        to_embed: list[EmbedWorkItem] = []
         for node in candidate_nodes:
             text = _node_to_text(
                 node,
@@ -899,19 +913,34 @@ class EmbeddingStore:
             ex = existing_hashes.get(node.qualified_name)
             if ex and ex[0] == text_hash and ex[1] == provider_name:
                 continue
-            to_embed.append((node, text, text_hash))
+            to_embed.append((node.qualified_name, text, text_hash))
 
-        # This scan is redone by every slice, so on a large graph it is the
-        # dominant cost of a sliced pass, not the embedding itself.
         logger.info(
             "Embedding scan: %d candidate node(s) in %.1fs, %d need embedding",
             len(candidate_nodes),
             time.monotonic() - scan_started,
             len(to_embed),
         )
+        return to_embed
 
-        if not to_embed:
+    def embed_prepared(
+        self,
+        to_embed: list[EmbedWorkItem],
+        *,
+        show_progress: bool = False,
+        slice_seconds: float | None = None,
+    ) -> int:
+        """Embed items from :meth:`prepare_embed_work`; needs no graph store.
+
+        Returns how many items were embedded, counting from the front of
+        *to_embed*, and reports the rest in :attr:`last_remaining` so a caller
+        driving several slices can advance its own offset.
+        """
+        self.last_remaining = 0
+        if not self.provider or not to_embed:
             return 0
+
+        provider_name = self._provider_key_for_lookup() or self.provider.name
 
         # Encode and persist in provider-sized batches. Persisting each batch
         # makes long local embedding runs resumable if a later request stalls.
@@ -951,14 +980,14 @@ class EmbeddingStore:
                         elapsed = time.monotonic() - start_time
                         _draw_embed_progress(done, total, elapsed, end=(done >= total))
                     continue
-                first_qn = batch[0][0].qualified_name if batch else "<empty>"
+                first_qn = batch[0][0] if batch else "<empty>"
                 raise RuntimeError(
                     "Embedding batch "
                     f"{batch_number}/{batch_total} failed "
                     f"({len(batch_texts)} node(s), first={first_qn!r}): {e}"
                 ) from e
             if len(vectors) != len(batch):
-                first_qn = batch[0][0].qualified_name if batch else "<empty>"
+                first_qn = batch[0][0] if batch else "<empty>"
                 raise RuntimeError(
                     "Embedding batch "
                     f"{batch_number}/{batch_total} returned {len(vectors)} vector(s) "
@@ -977,20 +1006,20 @@ class EmbeddingStore:
                     batch_total,
                     elapsed_batch,
                     len(batch),
-                    batch[0][0].qualified_name,
-                    batch[-1][0].qualified_name,
+                    batch[0][0],
+                    batch[-1][0],
                 )
             self._conn.executemany(
                 """INSERT OR REPLACE INTO embeddings (qualified_name, vector, text_hash, provider)
                    VALUES (?, ?, ?, ?)""",
                 [
                     (
-                        node.qualified_name,
+                        qualified_name,
                         _encode_vector(vec),
                         text_hash,
                         self.provider_key or (provider.name if provider else ""),
                     )
-                    for (node, _text, text_hash), vec in zip(batch, vectors)
+                    for (qualified_name, _text, text_hash), vec in zip(batch, vectors)
                 ],
             )
             provider_name = self.provider_key or self.provider.name
@@ -1008,7 +1037,7 @@ class EmbeddingStore:
 
     def _embed_nodes_individually_after_batch_failure(
         self,
-        batch: list[tuple[GraphNode, str, str]],
+        batch: list[EmbedWorkItem],
         *,
         provider_name: str,
         batch_number: int,
@@ -1018,16 +1047,16 @@ class EmbeddingStore:
         """Retry a failed provider batch one node at a time to isolate bad inputs."""
         embedded = 0
         failures: list[tuple[str, str]] = []
-        for node, text, text_hash in batch:
+        for qualified_name, text, text_hash in batch:
             try:
                 vectors = self.provider.embed([text]) if self.provider else []
             except _EMBED_PROVIDER_ERRORS as e:
-                failures.append((node.qualified_name, str(e)))
+                failures.append((qualified_name, str(e)))
                 continue
             if len(vectors) != 1:
                 failures.append(
                     (
-                        node.qualified_name,
+                        qualified_name,
                         f"returned {len(vectors)} vector(s) for one node",
                     )
                 )
@@ -1041,7 +1070,7 @@ class EmbeddingStore:
                 """INSERT OR REPLACE INTO embeddings (qualified_name, vector, text_hash, provider)
                    VALUES (?, ?, ?, ?)""",
                 (
-                    node.qualified_name,
+                    qualified_name,
                     _encode_vector(vectors[0]),
                     text_hash,
                     self.provider_key or (provider.name if provider else ""),
@@ -1276,23 +1305,21 @@ def _draw_embed_progress(done: int, total: int, elapsed: float, *, end: bool = F
     print(line, end="\n" if end else "", flush=True, file=sys.stderr)
 
 
-def embed_all_nodes(
+def prepare_all_nodes(
     graph_store: GraphStore,
     embedding_store: EmbeddingStore,
     *,
-    show_progress: bool = False,
-    slice_seconds: float | None = None,
     prune_orphans: bool = True,
-) -> int:
-    """Embed all non-file nodes in the graph.
+) -> list[EmbedWorkItem]:
+    """Scan the graph for embedding work; the only half that needs the graph.
 
-    ``slice_seconds`` bounds one pass (see
-    :meth:`EmbeddingStore.embed_nodes`); ``prune_orphans=False`` skips the
-    orphan sweep and the retired-partition sweep, which only need to happen
-    once per logical embedding run rather than once per slice.
+    Once this has returned, :meth:`EmbeddingStore.embed_prepared` can finish the
+    run with the graph store closed — so a sliced pass pays this scan once per
+    pass instead of once per slice. ``prune_orphans=False`` skips the
+    whole-corpus orphan sweep for a resumed run that already did it.
     """
     if not embedding_store.available:
-        return 0
+        return []
 
     all_nodes = graph_store.get_all_nodes(exclude_files=True)
     # Point search at this provider before any rows land, so an interrupted
@@ -1322,14 +1349,48 @@ def embed_all_nodes(
     else:
         embedding_store.graph_facts_by_qualified_name = {}
 
-    embedded = embedding_store.embed_nodes(
-        all_nodes,
-        show_progress=show_progress,
-        slice_seconds=slice_seconds,
-    )
-    # Written again after the run so the pointer names the key rows actually
-    # landed under (dimension is only known after the first response).
+    return embedding_store.prepare_embed_work(all_nodes)
+
+
+def finalize_embedding_run(
+    embedding_store: EmbeddingStore,
+    *,
+    prune_orphans: bool = True,
+) -> None:
+    """Close out an embedding run after the last item has been written.
+
+    The provider pointer is written again here because the dimension is only
+    known after the first response, so the key the rows actually landed under is
+    not knowable before the run.
+    """
     embedding_store.persist_active_provider_metadata()
     if prune_orphans:
         embedding_store.remove_inactive_provider_partitions()
+
+
+def embed_all_nodes(
+    graph_store: GraphStore,
+    embedding_store: EmbeddingStore,
+    *,
+    show_progress: bool = False,
+    slice_seconds: float | None = None,
+    prune_orphans: bool = True,
+) -> int:
+    """Embed all non-file nodes in the graph in one go.
+
+    ``slice_seconds`` bounds the write half (see
+    :meth:`EmbeddingStore.embed_prepared`). A caller that wants several bounded
+    write windows without re-scanning per window should drive
+    :func:`prepare_all_nodes`, :meth:`EmbeddingStore.embed_prepared` and
+    :func:`finalize_embedding_run` itself.
+    """
+    if not embedding_store.available:
+        return 0
+    work = prepare_all_nodes(graph_store, embedding_store, prune_orphans=prune_orphans)
+    embedded = embedding_store.embed_prepared(
+        work,
+        show_progress=show_progress,
+        slice_seconds=slice_seconds,
+    )
+    finalize_embedding_run(embedding_store, prune_orphans=prune_orphans)
     return embedded

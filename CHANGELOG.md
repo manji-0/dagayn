@@ -40,6 +40,18 @@ All notable changes to `dagayn` are documented here.
   has no such boundary, and nothing prunes what an earlier version indexed that
   way.
 
+### Performance
+
+- A sliced embedding pass now scans the corpus once instead of once per slice.
+  Deciding what still needs embedding requires the graph store and costs ~8 s on
+  a 42k-node graph, while a slice embeds for 4 s — so two thirds of every pass
+  was spent re-deriving work it had already derived. The scan now produces a
+  `(qualified_name, text, text_hash)` work list and the write half runs with no
+  graph store open at all. Measured on that graph, one 420 s queue pass went from
+  6 slices / ~390 nodes to **85 slices / 4,801 nodes**, with per-slice wall time
+  down from 12.2 s to 4.1 s against a 4 s budget. The work list is held in memory
+  for the pass (~20 MB for 42k nodes), which is the cost of not re-scanning.
+
 ### Internal
 
 - The embedding pass logs each slice's wall time and each scan's candidate count

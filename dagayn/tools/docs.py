@@ -5,7 +5,13 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from ..embeddings import EmbeddingStore, embed_all_nodes
+from ..embeddings import (
+    EmbeddingStore,
+    embed_all_nodes,
+    finalize_embedding_run,
+    prepare_all_nodes,
+)
+from ..embeddings_store import EmbedWorkItem
 from ..incremental import get_db_path
 from ._common import (
     ToolPayload,
@@ -20,6 +26,108 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Tool 7: embed_graph
 # ---------------------------------------------------------------------------
+
+
+def _provider_unavailable_error(provider: str | None) -> str:
+    """Explain which embedding provider is missing and how to configure it."""
+    if provider == "local":
+        return (
+            "provider='local' sentence-transformers embeddings were removed. "
+            "Use dagayn build/update/serve --local-embedding for the managed "
+            "llama-server sidecar, or provider='openai' with a localhost "
+            "OpenAI-compatible endpoint."
+        )
+    if provider in ("openai", "google", "minimax"):
+        return (
+            f"The '{provider}' embedding provider is not available. "
+            "Check the required environment variables "
+            "(see README and `get_provider()` docstring) and that "
+            "the endpoint is reachable."
+        )
+    return (
+        "No embedding provider is configured. Use "
+        "dagayn build/update/serve --local-embedding for the managed "
+        "llama-server sidecar, or configure provider='openai', "
+        "'google', or 'minimax'."
+    )
+
+
+def scan_embed_work(
+    repo_root: str | None = None,
+    model: str | None = None,
+    provider: str | None = None,
+    *,
+    prune_orphans: bool = True,
+) -> tuple[ToolPayload, list[EmbedWorkItem]]:
+    """Scan for embedding work, then close the graph store.
+
+    The returned items can be written by :func:`write_embed_work` without any
+    graph store open, so a caller that wants several bounded lock windows pays
+    this scan once per pass instead of once per window. On a 42k-node graph the
+    scan is ~8 s while a window embeds for 4 s, so re-scanning per window was two
+    thirds of the run.
+    """
+    store, root = _get_store(repo_root, cached=False)
+    db_path = get_db_path(root)
+    emb_store = EmbeddingStore(db_path, provider=provider, model=model, source_root=root)
+    try:
+        if not emb_store.available:
+            return {"status": "error", "error": _provider_unavailable_error(provider)}, []
+        work = prepare_all_nodes(store, emb_store, prune_orphans=prune_orphans)
+        return (
+            {
+                "status": "ok",
+                "orphans_removed": emb_store.last_orphans_removed,
+                "pending": len(work),
+                "text_mode": emb_store.text_mode,
+            },
+            work,
+        )
+    finally:
+        emb_store.close()
+        store.close()
+
+
+def write_embed_work(
+    work: list[EmbedWorkItem],
+    repo_root: str | None = None,
+    model: str | None = None,
+    provider: str | None = None,
+    *,
+    show_progress: bool = False,
+    slice_seconds: float | None = None,
+    finalize: bool = False,
+) -> ToolPayload:
+    """Write embeddings for *work*, opening no graph store.
+
+    ``finalize=True`` closes the run out (provider pointer, retired-partition
+    sweep) and should be set on the window that drains the last item.
+    """
+    root = _validate_repo_root(Path(repo_root)) if repo_root else None
+    db_path = get_db_path(root) if root is not None else get_db_path(Path.cwd())
+    emb_store = EmbeddingStore(db_path, provider=provider, model=model, source_root=root)
+    try:
+        if not emb_store.available:
+            return {"status": "error", "error": _provider_unavailable_error(provider)}
+        embedded = emb_store.embed_prepared(
+            work,
+            show_progress=show_progress,
+            slice_seconds=slice_seconds,
+        )
+        remaining = emb_store.last_remaining
+        if finalize and remaining <= 0:
+            finalize_embedding_run(emb_store, prune_orphans=True)
+        if embedded:
+            emb_store.checkpoint_writes(truncate=True)
+        return {
+            "status": "ok",
+            "newly_embedded": embedded,
+            "remaining": remaining,
+            "total_embeddings": emb_store.count(),
+            "text_mode": emb_store.text_mode,
+        }
+    finally:
+        emb_store.close()
 
 
 def embed_graph(
@@ -71,28 +179,7 @@ def embed_graph(
     store_closed = False
     try:
         if not emb_store.available:
-            if provider == "local":
-                err = (
-                    "provider='local' sentence-transformers embeddings were removed. "
-                    "Use dagayn build/update/serve --local-embedding for the managed "
-                    "llama-server sidecar, or provider='openai' with a localhost "
-                    "OpenAI-compatible endpoint."
-                )
-            elif provider in ("openai", "google", "minimax"):
-                err = (
-                    f"The '{provider}' embedding provider is not available. "
-                    "Check the required environment variables "
-                    "(see README and `get_provider()` docstring) and that "
-                    "the endpoint is reachable."
-                )
-            else:
-                err = (
-                    "No embedding provider is configured. Use "
-                    "dagayn build/update/serve --local-embedding for the managed "
-                    "llama-server sidecar, or configure provider='openai', "
-                    "'google', or 'minimax'."
-                )
-            return {"status": "error", "error": err}
+            return {"status": "error", "error": _provider_unavailable_error(provider)}
 
         newly_embedded = embed_all_nodes(
             store,

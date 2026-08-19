@@ -544,15 +544,20 @@ class TestEmbeddingLockScope:
                 command=["fake"],
             )
 
-        def fake_embed_graph(**_kwargs):
+        def fake_scan(**_kwargs):
             observed["locked_during_write"] = graph_lock_is_held(db)
-            return {"status": "ok"}
+            return {"status": "ok", "orphans_removed": 0}, []
+
+        def fake_write(_work, **_kwargs):
+            observed["locked_during_write"] = graph_lock_is_held(db)
+            return {"status": "ok", "newly_embedded": 0, "remaining": 0}
 
         monkeypatch.setattr("dagayn.local_embeddings.local_embedding_server", fake_server)
         monkeypatch.setattr(
             "dagayn.local_embeddings.resolve_local_embedding_port", lambda *_a, **_k: 1
         )
-        monkeypatch.setattr("dagayn.tools.docs.embed_graph", fake_embed_graph)
+        monkeypatch.setattr("dagayn.tools.docs.scan_embed_work", fake_scan)
+        monkeypatch.setattr("dagayn.tools.docs.write_embed_work", fake_write)
 
         _run_local_embedding(
             repo,
@@ -583,11 +588,12 @@ class TestEmbeddingSlices:
     """
 
     @staticmethod
-    def _fake_env(tmp_path, monkeypatch, embed_graph):
-        """Wire ``_run_local_embedding`` to a fake sidecar and embed_graph.
+    def _fake_env(tmp_path, monkeypatch, write_work, *, pending=None, scan=None):
+        """Wire ``_run_local_embedding`` to a fake sidecar, scan and writer.
 
-        Returns ``(repo, db, acquisitions)`` where *acquisitions* counts graph
-        lock acquisitions made by the embedding pass.
+        *pending* is how many items the fake scan reports; *write_work* stands in
+        for one write window. Returns ``(repo, db, acquisitions)`` where
+        *acquisitions* counts graph lock acquisitions made by the pass.
         """
         import contextlib
         import types
@@ -626,11 +632,19 @@ class TestEmbeddingSlices:
             with graph_write_lock(*args, **kwargs):
                 yield
 
+        def default_scan(**_kwargs):
+            count = 3 if pending is None else pending
+            return (
+                {"status": "ok", "orphans_removed": 1, "text_mode": "material"},
+                [(f"qn{i}", "text", f"hash{i}") for i in range(count)],
+            )
+
         monkeypatch.setattr("dagayn.local_embeddings.local_embedding_server", fake_server)
         monkeypatch.setattr(
             "dagayn.local_embeddings.resolve_local_embedding_port", lambda *_a, **_k: 1
         )
-        monkeypatch.setattr("dagayn.tools.docs.embed_graph", embed_graph)
+        monkeypatch.setattr("dagayn.tools.docs.scan_embed_work", scan or default_scan)
+        monkeypatch.setattr("dagayn.tools.docs.write_embed_work", write_work)
         monkeypatch.setattr("dagayn.tools.build.graph_write_lock", counting_lock)
         return repo, db, acquisitions
 
@@ -655,27 +669,27 @@ class TestEmbeddingSlices:
 
         calls: list[dict] = []
 
-        def fake_embed_graph(**kwargs):
-            calls.append(kwargs)
-            remaining = max(0, 3 - len(calls))
+        def fake_write(work, **kwargs):
+            calls.append({"handed": len(work), **kwargs})
+            # Two of the six items per window, so the pass needs three windows.
             return {
                 "status": "ok",
                 "newly_embedded": 2,
-                "orphans_removed": 1 if len(calls) == 1 else 0,
+                "remaining": max(0, len(work) - 2),
                 "total_embeddings": 2 * len(calls),
-                "remaining": remaining,
             }
 
-        repo, db, acquisitions = self._fake_env(tmp_path, monkeypatch, fake_embed_graph)
+        repo, db, acquisitions = self._fake_env(tmp_path, monkeypatch, fake_write, pending=6)
         assert graph_lock_is_held(db) is False
         result = self._run(repo)
 
         assert len(calls) == 3
-        assert len(acquisitions) == 3, "the pass did not re-take the lock per slice"
+        # One for the scan, then one per write window.
+        assert len(acquisitions) == 4, "the pass did not re-take the lock per slice"
         assert graph_lock_is_held(db) is False
-        # Every slice is time-bounded, and the whole-corpus sweeps run once.
+        # The scan runs once; each window is handed only what is left.
+        assert [call["handed"] for call in calls] == [6, 4, 2]
         assert all(call["slice_seconds"] is not None for call in calls)
-        assert [call["prune_orphans"] for call in calls] == [True, False, False]
         assert result["newly_embedded"] == 6
         assert result["orphans_removed"] == 1
         assert result["embedding_remaining"] == 0
@@ -693,26 +707,28 @@ class TestEmbeddingSlices:
     def test_slicing_can_be_disabled(self, tmp_path, monkeypatch):
         calls: list[dict] = []
 
-        def fake_embed_graph(**kwargs):
+        def fake_write(work, **kwargs):
             calls.append(kwargs)
-            return {"status": "ok", "newly_embedded": 5, "remaining": 0}
+            return {"status": "ok", "newly_embedded": len(work), "remaining": 0}
 
         monkeypatch.setenv("DAGAYN_EMBED_SLICE_SECONDS", "0")
-        repo, _db, acquisitions = self._fake_env(tmp_path, monkeypatch, fake_embed_graph)
+        repo, _db, acquisitions = self._fake_env(tmp_path, monkeypatch, fake_write)
         self._run(repo)
 
-        assert len(acquisitions) == 1
+        # Scan plus a single unbounded write window.
+        assert len(acquisitions) == 2
         assert calls[0]["slice_seconds"] is None
 
     def test_a_slice_making_no_progress_stops_the_pass(self, tmp_path, monkeypatch):
         calls: list[dict] = []
 
-        def fake_embed_graph(**kwargs):
+        def fake_write(work, **kwargs):
             calls.append(kwargs)
-            # A node the provider rejects every time: leftovers, no progress.
-            return {"status": "ok", "newly_embedded": 0, "remaining": 7}
+            # An item the provider rejects every time: nothing consumed, no
+            # progress, and the same list handed back on a retry.
+            return {"status": "ok", "newly_embedded": 0, "remaining": len(work)}
 
-        repo, _db, _acq = self._fake_env(tmp_path, monkeypatch, fake_embed_graph)
+        repo, _db, _acq = self._fake_env(tmp_path, monkeypatch, fake_write, pending=7)
         result = self._run(repo)
 
         assert len(calls) == 1, "the pass spun on a slice that embedded nothing"
@@ -721,12 +737,12 @@ class TestEmbeddingSlices:
     def test_pass_budget_stops_at_a_slice_boundary(self, tmp_path, monkeypatch):
         calls: list[dict] = []
 
-        def fake_embed_graph(**kwargs):
+        def fake_write(work, **kwargs):
             calls.append(kwargs)
             time.sleep(0.05)
-            return {"status": "ok", "newly_embedded": 1, "remaining": 100}
+            return {"status": "ok", "newly_embedded": 1, "remaining": len(work) - 1}
 
-        repo, _db, _acq = self._fake_env(tmp_path, monkeypatch, fake_embed_graph)
+        repo, _db, _acq = self._fake_env(tmp_path, monkeypatch, fake_write, pending=101)
         result = self._run(repo, pass_seconds=0.04)
 
         # One slice always runs; the budget is spent by the time it ends.
@@ -737,14 +753,30 @@ class TestEmbeddingSlices:
     def test_failed_slice_is_reported_without_further_slices(self, tmp_path, monkeypatch):
         calls: list[dict] = []
 
-        def fake_embed_graph(**kwargs):
+        def fake_write(work, **kwargs):
             calls.append(kwargs)
             return {"status": "error", "error": "provider unreachable"}
 
-        repo, _db, _acq = self._fake_env(tmp_path, monkeypatch, fake_embed_graph)
+        repo, _db, _acq = self._fake_env(tmp_path, monkeypatch, fake_write)
         with pytest.raises(RuntimeError, match="provider unreachable"):
             self._run(repo)
         assert len(calls) == 1
+
+    def test_a_failed_scan_never_reaches_a_write(self, tmp_path, monkeypatch):
+        writes: list[int] = []
+
+        def fake_scan(**_kwargs):
+            return {"status": "error", "error": "no provider configured"}, []
+
+        repo, _db, _acq = self._fake_env(
+            tmp_path,
+            monkeypatch,
+            lambda work, **_kwargs: writes.append(len(work)),
+            scan=fake_scan,
+        )
+        with pytest.raises(RuntimeError, match="no provider configured"):
+            self._run(repo)
+        assert writes == []
 
 
 class TestInProcessReaderParallelism:

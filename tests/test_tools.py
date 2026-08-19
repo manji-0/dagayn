@@ -2105,15 +2105,18 @@ class TestBuildPostprocess:
                 command=[],
             )
 
-        def fake_embed_graph(**_kwargs):
+        def fake_scan(**_kwargs):
             assert os.environ["CRG_OPENAI_TIMEOUT"] == "17"
             assert os.environ["CRG_OPENAI_BATCH_SIZE"] == "8"
             assert os.environ["DAGAYN_EMBEDDING_TEXT_MODE"] == "material"
             assert os.environ.get("CRG_OPENAI_MAX_LENGTH") is None
+            return ({"status": "ok", "orphans_removed": 2}, [("qn", "text", "hash")])
+
+        def fake_write(_work, **_kwargs):
             return {
                 "status": "ok",
                 "newly_embedded": 1,
-                "orphans_removed": 2,
+                "remaining": 0,
                 "total_embeddings": 1,
             }
 
@@ -2122,7 +2125,8 @@ class TestBuildPostprocess:
         monkeypatch.setenv("DAGAYN_EMBEDDING_TEXT_MODE", "body")
         with (
             patch("dagayn.local_embeddings.local_embedding_server", fake_server),
-            patch("dagayn.tools.docs.embed_graph", side_effect=fake_embed_graph),
+            patch("dagayn.tools.docs.scan_embed_work", side_effect=fake_scan),
+            patch("dagayn.tools.docs.write_embed_work", side_effect=fake_write),
         ):
             result = _run_local_embedding(
                 self.root,
@@ -2167,21 +2171,30 @@ class TestBuildPostprocess:
                 command=[],
             )
 
-        def fake_embed_graph(**kwargs):
+        def fake_scan(**kwargs):
             assert kwargs["provider"] == "openai"
             assert kwargs["model"] == "bge-m3-gguf-q8_0"
             assert os.environ["DAGAYN_EMBEDDING_TEXT_MODE"] == "material"
+            return (
+                {"status": "ok", "orphans_removed": 1},
+                [(f"qn{i}", "text", "hash") for i in range(4)],
+            )
+
+        def fake_write(work, **kwargs):
+            assert kwargs["provider"] == "openai"
+            assert kwargs["model"] == "bge-m3-gguf-q8_0"
             return {
                 "status": "ok",
-                "newly_embedded": 4,
-                "orphans_removed": 1,
+                "newly_embedded": len(work),
+                "remaining": 0,
                 "total_embeddings": 10,
             }
 
         monkeypatch.setenv("DAGAYN_EMBEDDING_TEXT_MODE", "body")
         with (
             patch("dagayn.local_embeddings.local_embedding_server", fake_server),
-            patch("dagayn.tools.docs.embed_graph", side_effect=fake_embed_graph),
+            patch("dagayn.tools.docs.scan_embed_work", side_effect=fake_scan),
+            patch("dagayn.tools.docs.write_embed_work", side_effect=fake_write),
         ):
             result = _run_local_embedding(
                 self.root,

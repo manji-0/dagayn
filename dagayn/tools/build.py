@@ -260,83 +260,111 @@ def _embed_in_slices(
 ) -> BuildPayload:
     """Embed the graph in time-bounded slices, releasing the lock between them.
 
-    Aggregates the per-slice results into a single ``embed_graph``-shaped
-    payload. Stops early when a slice makes no progress, so a node the provider
-    keeps rejecting cannot spin here forever.
+    The corpus is scanned once, under the lock, and the resulting work list is
+    then written in bounded windows that need no graph store. Scanning per window
+    instead made the scan two thirds of the run: on a 42k-node graph it is ~8 s
+    against 4 s of embedding per window.
+
+    Stops early when a window makes no progress, so an item the provider keeps
+    rejecting cannot spin here forever.
     """
-    from dagayn.tools.docs import embed_graph
+    from dagayn.tools.docs import scan_embed_work, write_embed_work
 
     db_path = get_db_path(Path(root))
     slice_seconds = _embed_slice_seconds()
     deadline = None if pass_seconds is None else time.monotonic() + pass_seconds
+    show_progress = sys.stderr.isatty()
+
+    scan_started = time.monotonic()
+    with graph_write_lock(db_path):
+        scan, work = scan_embed_work(repo_root=str(root), provider="openai", model=model)
+    if scan.get("status") != "ok":
+        return scan
+    orphans_removed = int(scan.get("orphans_removed", 0) or 0)
+    pending = len(work)
+    logger.info(
+        "Embedding scan took %.1fs; %d node(s) to embed",
+        time.monotonic() - scan_started,
+        pending,
+    )
+
     newly_embedded = 0
-    orphans_removed = 0
     slices = 0
+    offset = 0
+    total_embeddings = 0
     result: BuildPayload = {}
 
+    # Runs at least once even with nothing to embed, so the run is still closed
+    # out (provider pointer, retired-partition sweep) and the total reported.
     while True:
         slice_started = time.monotonic()
         with graph_write_lock(db_path):
-            result = embed_graph(
+            result = write_embed_work(
+                work[offset:],
                 repo_root=str(root),
                 provider="openai",
                 model=model,
-                show_progress=sys.stderr.isatty(),
+                show_progress=show_progress,
                 slice_seconds=slice_seconds,
-                # The orphan and retired-partition sweeps look at the whole
-                # corpus, so they belong to the run and not to every slice.
-                prune_orphans=slices == 0,
+                finalize=True,
             )
         slices += 1
         if result.get("status") != "ok":
             return result
         embedded_now = int(result.get("newly_embedded", 0) or 0)
+        remaining_in_slice = int(result.get("remaining", 0) or 0)
+        total_embeddings = int(result.get("total_embeddings", 0) or 0)
+        # The window reports what is left of the list it was handed, so what it
+        # consumed is the rest -- including items it failed on, which must not be
+        # retried forever inside one pass.
+        consumed = (pending - offset) - remaining_in_slice
+        offset += max(consumed, 0)
+        newly_embedded += embedded_now
         logger.info(
             "Embedding slice %d: %.1fs wall for %d node(s) (%d left)",
             slices,
             time.monotonic() - slice_started,
             embedded_now,
-            int(result.get("remaining", 0) or 0),
+            pending - offset,
         )
-        newly_embedded += embedded_now
-        orphans_removed += int(result.get("orphans_removed", 0) or 0)
-        remaining = int(result.get("remaining", 0) or 0)
-        if remaining <= 0:
+        if offset >= pending:
             break
         if embedded_now == 0:
             logger.warning(
                 "Embedding slice %d made no progress with %d node(s) left; stopping.",
                 slices,
-                remaining,
+                pending - offset,
             )
             break
         if deadline is not None and time.monotonic() >= deadline:
             logger.info(
                 "Embedding pass budget reached after %d slice(s); %d node(s) left.",
                 slices,
-                remaining,
+                pending - offset,
             )
             break
         time.sleep(_EMBED_SLICE_HANDOFF_SECONDS)
 
-    result = dict(result)
-    result["newly_embedded"] = newly_embedded
-    result["orphans_removed"] = orphans_removed
-    result["slices"] = slices
-    if slices > 1:
-        # The last slice's summary only describes that slice.
-        left = int(result.get("remaining", 0) or 0)
-        result["summary"] = (
+    left = max(0, pending - offset)
+    return {
+        "status": "ok",
+        "summary": (
             f"Embedded {newly_embedded} new node(s) across {slices} slice(s). "
             f"Removed {orphans_removed} orphan embedding(s). "
-            f"Total embeddings: {result.get('total_embeddings', 0)}. "
+            f"Total embeddings: {total_embeddings}. "
             + (
                 f"{left} node(s) still queued for a later pass."
                 if left
                 else "Semantic search is now active."
             )
-        )
-    return result
+        ),
+        "newly_embedded": newly_embedded,
+        "orphans_removed": orphans_removed,
+        "total_embeddings": total_embeddings,
+        "remaining": left,
+        "slices": slices,
+        "text_mode": result.get("text_mode") or scan.get("text_mode"),
+    }
 
 
 def _prune_orphaned_structures(store: Any, build_result: BuildResult) -> list[str]:
