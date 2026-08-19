@@ -6,6 +6,19 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixes
 
+- `dagayn build --force-full-build` no longer deletes the graph it cannot
+  replace. The delete ran before anything took the write lock, so when the lock
+  turned out to be held the rebuild failed to acquire it and the old graph was
+  already gone — one repository lost a 21 GB graph this way to a holder that had
+  owned the lock for 26 hours. The delete now happens under the write lock and is
+  skipped, naming the holding pid, when the lock cannot be taken. The lock is
+  released again before the build, because holding it across the whole command
+  would keep it held through the embedding pass too (the acquisition is
+  reentrant, so the pass's own release would not free it) and lock out every
+  reader for the duration.
+- A `dagayn build` that failed now exits non-zero. Reporting `0 files, 0 nodes`
+  and exiting 0 made a build that never ran indistinguishable from an empty
+  repository.
 - Git worktrees checked out inside a repository (`.worktrees/`,
   `.claude/worktrees/`) are no longer indexed. A worktree is another checkout of
   the same history, so indexing them multiplies the graph by the worktree count:

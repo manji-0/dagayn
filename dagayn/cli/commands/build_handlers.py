@@ -102,12 +102,39 @@ def ensure_worktree_graph_if_needed(args: argparse.Namespace, repo_root: Path) -
 
 
 def prepare_force_full_build(args: argparse.Namespace, repo_root: Path) -> Path:
-    db_path = get_db_path(repo_root)
-    if args.command == "build" and getattr(args, "force_full_build", False):
-        from ...tools._common import _evict_store_cache
+    """Delete the graph for a forced rebuild, but only under the write lock.
 
-        _evict_store_cache(db_path)
-        _remove_existing_graph_database(db_path)
+    Deleting first and locking later loses the graph outright whenever the lock
+    turns out to be held: the build that was supposed to replace it fails to
+    acquire, and the old graph is already gone. Taking the lock for the delete
+    makes an unavailable lock a no-op instead of data loss.
+
+    The lock is released again before the build, which takes it itself: holding
+    it across the whole command would keep it held through the embedding pass
+    too (the acquisition is reentrant, so the pass's own release would not free
+    it), and locking every reader out for that is what the sliced embedding pass
+    exists to avoid.
+    """
+    db_path = get_db_path(repo_root)
+    if not (args.command == "build" and getattr(args, "force_full_build", False)):
+        return db_path
+
+    from ...tools._common import _evict_store_cache
+    from ...write_lock import WriteLockUnavailableError, graph_write_lock, lock_holder_pid
+
+    try:
+        with graph_write_lock(db_path):
+            _evict_store_cache(db_path)
+            _remove_existing_graph_database(db_path)
+    except WriteLockUnavailableError as exc:
+        holder = lock_holder_pid(db_path)
+        logging.error(
+            "Not deleting %s: %s%s",
+            db_path,
+            exc,
+            f" (held by pid {holder})" if holder else "",
+        )
+        sys.exit(1)
     return db_path
 
 
@@ -130,6 +157,13 @@ def handle_build_command(args: argparse.Namespace, repo_root: Path) -> None:
     _print_local_embedding_summary(result)
     if pp != "none":
         _print_postprocess_summary(result)
+    if result.get("status") == "error":
+        # A build that could not run is not a success. Reporting "0 files" and
+        # exiting 0 made a failed forced rebuild look like an empty repository,
+        # which is indistinguishable from the case where the graph was deleted
+        # and nothing replaced it.
+        logging.error("%s", result.get("summary") or "build failed")
+        sys.exit(1)
 
 
 def _hook_update_budget(args: argparse.Namespace) -> float | None:

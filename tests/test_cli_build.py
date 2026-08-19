@@ -411,3 +411,109 @@ def test_handle_update_closes_metadata_peek_before_rebuild(tmp_path, monkeypatch
 
     args = _parser().parse_args(["update", "--repo", str(tmp_path)])
     handle(args)
+
+
+class TestForcedFullBuildSafety:
+    """``--force-full-build`` must not lose the graph it cannot replace.
+
+    The delete used to happen before anything took the write lock, so a build
+    that then failed to acquire it left no graph at all. One real repository lost
+    a 21 GB graph this way to a stuck holder that had owned the lock for 26
+    hours.
+    """
+
+    @staticmethod
+    def _repo(tmp_path):
+        from dagayn.paths import get_db_path
+
+        (tmp_path / ".dagayn").mkdir(parents=True, exist_ok=True)
+        (tmp_path / ".git").mkdir(exist_ok=True)
+        db = get_db_path(tmp_path)
+        db.write_bytes(b"existing graph")
+        return db
+
+    def test_graph_survives_when_the_lock_is_held(self, tmp_path, monkeypatch):
+        import subprocess
+        import sys as _sys
+
+        from dagayn.cli.commands import build_handlers
+
+        db = self._repo(tmp_path)
+        holder = (
+            "import sys, time\n"
+            "from dagayn.write_lock import graph_write_lock\n"
+            "with graph_write_lock(sys.argv[1]):\n"
+            "    print('held', flush=True)\n"
+            "    time.sleep(30)\n"
+        )
+        proc = subprocess.Popen(
+            [_sys.executable, "-c", holder, str(db)],
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            assert proc.stdout is not None
+            assert proc.stdout.readline().strip() == "held"
+            # Waiting out the real 120s budget is right for an interactive
+            # rebuild but pointless here; the contention is still a real flock
+            # held by a real second process.
+            import dagayn.write_lock as write_lock_module
+
+            real_lock = write_lock_module.graph_write_lock
+
+            def briefly(path, *, blocking: bool = True, timeout: float = 1.0):
+                return real_lock(path, blocking=blocking, timeout=1.0)
+
+            monkeypatch.setattr(write_lock_module, "graph_write_lock", briefly)
+            args = _parser().parse_args(["build", "--repo", str(tmp_path), "--force-full-build"])
+            args.command = "build"
+            try:
+                build_handlers.prepare_force_full_build(args, tmp_path)
+            except SystemExit as exc:
+                assert exc.code == 1
+            else:  # pragma: no cover - must not silently continue
+                raise AssertionError("a held lock must stop the delete")
+            assert db.read_bytes() == b"existing graph", "the graph was deleted anyway"
+        finally:
+            proc.kill()
+            proc.wait(timeout=30)
+
+    def test_graph_is_deleted_when_the_lock_is_free(self, tmp_path):
+        from dagayn.cli.commands import build_handlers
+        from dagayn.write_lock import graph_lock_is_held
+
+        db = self._repo(tmp_path)
+        args = _parser().parse_args(["build", "--repo", str(tmp_path), "--force-full-build"])
+        args.command = "build"
+
+        assert build_handlers.prepare_force_full_build(args, tmp_path) == db
+        assert not db.exists()
+        # The build takes the lock itself, and holding it here would keep it
+        # held through the embedding pass as well.
+        assert graph_lock_is_held(db) is False
+
+    def test_failed_build_exits_non_zero(self, tmp_path, monkeypatch):
+        from dagayn.cli.commands import build_handlers
+        from dagayn.tools import build as build_tools
+
+        self._repo(tmp_path)
+        monkeypatch.setattr(
+            build_tools,
+            "build_or_update_graph",
+            lambda **_kwargs: {
+                "status": "error",
+                "summary": "timed out waiting to write",
+                "files_parsed": 0,
+                "total_nodes": 0,
+                "total_edges": 0,
+                "errors": [{"file": "", "error": "timed out waiting to write"}],
+            },
+        )
+        args = _parser().parse_args(["build", "--repo", str(tmp_path)])
+        args.command = "build"
+        try:
+            build_handlers.handle_build_command(args, tmp_path)
+        except SystemExit as exc:
+            assert exc.code == 1
+        else:  # pragma: no cover - a failed build must not look successful
+            raise AssertionError("a failed build must exit non-zero")
