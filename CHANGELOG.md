@@ -110,6 +110,14 @@ All notable changes to `dagayn` are documented here.
   so the model is not reloaded. A pass that reports leftovers without embedding
   anything does not re-queue, because it would otherwise spin forever on input
   the provider keeps rejecting.
+- A hook-triggered `dagayn update` no longer waits out a concurrent writer's
+  whole budget while resolving its diff base, then skips anyway. The CLI peeked
+  `git_head_sha` under the shared lock's full 120 s timeout before reaching the
+  non-blocking write lock, so an update fired while a build or an embedding pass
+  owned the graph hung the editor for up to two minutes. The base peek is now
+  non-blocking for hook runs (it prints that it is skipping and returns);
+  manual updates still wait. The queue worker's stored-`base` peek is bounded by
+  `DAGAYN_READ_LOCK_TIMEOUT` instead of the writer's budget.
 
 ## 4.10.1 — 2026-08-18
 

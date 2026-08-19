@@ -521,10 +521,16 @@ def _stored_base(repo_root: Path) -> str:
     if not db_path.exists():
         return "HEAD~1"
     from .graph import GraphStore
-    from .write_lock import graph_read_lock
+    from .write_lock import DEFAULT_READ_LOCK_TIMEOUT, graph_read_lock
 
     try:
-        with graph_read_lock(db_path):
+        # Bounded wait, not the writer's full 120 s budget: a writer (manual
+        # build, embedding pass) holding the lock makes this task's own write
+        # lock skip soon anyway, so there is no point stalling the worker for
+        # its whole budget just to peek the stored sha. After the wait we fall
+        # back to HEAD~1 and let the non-blocking write lock decide whether the
+        # task runs or is skipped with a note.
+        with graph_read_lock(db_path, timeout=DEFAULT_READ_LOCK_TIMEOUT):
             store = GraphStore(db_path)
             try:
                 return store.get_metadata("git_head_sha") or "HEAD~1"

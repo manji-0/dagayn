@@ -233,14 +233,30 @@ def _run_update_command(
     base = args.base
     if base is None:
         from ...graph import GraphStore
-        from ...write_lock import graph_read_lock
+        from ...hook_guard import running_from_hook
+        from ...write_lock import WriteLockUnavailableError, graph_read_lock
 
-        with graph_read_lock(db_path):
-            peek = GraphStore(db_path)
-            try:
-                base = peek.get_metadata("git_head_sha") or "HEAD~1"
-            finally:
-                peek.close()
+        # The base peek needs a live connection, so it must hold the shared
+        # lock. A hook run must not spend that lock's 120 s budget waiting for
+        # a writer: it is going to skip anyway (its write lock is non-blocking),
+        # so a blocking peek would turn a would-be skip into a silent hang and
+        # make the editor wait for nothing. Manual runs keep the blocking
+        # behaviour and benefit from the wait.
+        try:
+            with graph_read_lock(db_path, blocking=not running_from_hook()):
+                peek = GraphStore(db_path)
+                try:
+                    base = peek.get_metadata("git_head_sha") or "HEAD~1"
+                finally:
+                    peek.close()
+        except WriteLockUnavailableError:
+            if running_from_hook():
+                print(
+                    "Skipped: another process is writing the graph "
+                    "(hook update must not queue behind it)"
+                )
+                return
+            raise
 
     result = build_or_update_graph(
         full_rebuild=False,

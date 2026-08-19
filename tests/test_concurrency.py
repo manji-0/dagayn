@@ -966,3 +966,92 @@ class TestLockFairness:
             t.join(timeout=30)
 
         assert order == ["writer", "reader"], f"served out of order: {order}"
+
+
+class TestHookUpdateDoesNotWaitBehindWriter:
+    """A hook-triggered ``dagayn update`` must skip, not queue, behind a writer.
+
+    ``build_or_update_graph`` already takes its write lock non-blockingly for
+    hook runs, but the CLI resolved ``--base`` under a blocking shared read
+    lock (full 120 s budget) *before* that, so a hook update waited out the
+    writer's whole budget and then skipped anyway. The base peek must be
+    non-blocking for hook runs too; only manual updates may wait.
+    """
+
+    def _repo(self, tmp_path: Path) -> tuple[Path, Path]:
+        repo = tmp_path / "repo"
+        (repo / ".dagayn").mkdir(parents=True)
+        db = repo / ".dagayn" / "graph.db"
+        GraphStore(db).close()
+        subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+        return repo, db
+
+    def test_hook_update_skips_immediately_while_a_writer_holds_the_lock(
+        self,
+        tmp_path,
+    ):
+        repo, db = self._repo(tmp_path)
+        holder = (
+            "import sys, time\n"
+            "from dagayn.write_lock import graph_write_lock\n"
+            "with graph_write_lock(sys.argv[1]):\n"
+            "    print('held', flush=True)\n"
+            "    time.sleep(6)\n"
+        )
+        proc = subprocess.Popen(
+            [sys.executable, "-c", holder, str(db)],
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            assert proc.stdout is not None
+            assert proc.stdout.readline().strip() == "held"
+            started = time.monotonic()
+            env = {**__import__("os").environ, "DAGAYN_HOOK_UPDATE": "1"}
+            completed = subprocess.run(
+                [sys.executable, "-m", "dagayn", "update", "--skip-flows", "--repo", str(repo)],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=30,
+            )
+            elapsed = time.monotonic() - started
+        finally:
+            proc.wait(timeout=30)
+
+        assert elapsed < 5.0, f"hook update waited behind the writer ({elapsed:.2f}s)"
+        assert completed.returncode == 0, completed.stderr
+        assert "Skipped" in completed.stdout, (
+            f"hook update should report skipping, got: {completed.stdout!r}"
+        )
+
+    def test_manual_update_still_waits_for_the_writer(self, tmp_path):
+        repo, db = self._repo(tmp_path)
+        holder = (
+            "import sys, time\n"
+            "from dagayn.write_lock import graph_write_lock\n"
+            "with graph_write_lock(sys.argv[1]):\n"
+            "    print('held', flush=True)\n"
+            "    time.sleep(3)\n"
+        )
+        proc = subprocess.Popen(
+            [sys.executable, "-c", holder, str(db)],
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            assert proc.stdout is not None
+            assert proc.stdout.readline().strip() == "held"
+            started = time.monotonic()
+            completed = subprocess.run(
+                [sys.executable, "-m", "dagayn", "update", "--skip-flows", "--repo", str(repo)],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            elapsed = time.monotonic() - started
+        finally:
+            proc.wait(timeout=30)
+
+        assert elapsed > 2.0, f"manual update did not wait for the writer ({elapsed:.2f}s)"
+        assert completed.returncode == 0, completed.stderr
