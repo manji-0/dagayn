@@ -40,6 +40,15 @@ _DEFAULT_BACKEND = "rust"
 DEFAULT_IGNORE_PATTERNS = [
     ".dagayn/**",
     "node_modules/**",
+    # Git worktrees checked out inside the repository are additional copies of
+    # the same history, so indexing them multiplies the whole graph by the
+    # number of worktrees. `git ls-files --others` stops at the nested-repo
+    # boundary and reports the directory, which the is_file() checks already
+    # drop -- but the directory-walk fallback used when git returns nothing has
+    # no such boundary, and one such graph reached 1.6M nodes across 39
+    # worktrees against 30k for the repository itself.
+    ".worktrees/**",
+    ".claude/worktrees/**",
     ".git/**",
     ".svn/**",
     "__pycache__/**",

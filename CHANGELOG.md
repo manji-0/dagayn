@@ -2,6 +2,27 @@
 
 All notable changes to `dagayn` are documented here.
 
+## Unreleased
+
+### Fixes
+
+- Git worktrees checked out inside a repository (`.worktrees/`,
+  `.claude/worktrees/`) are no longer indexed. A worktree is another checkout of
+  the same history, so indexing them multiplies the graph by the worktree count:
+  one real graph held 1,651,932 nodes across 122,121 files, of which 98.2 %
+  (1,621,706 nodes / 39 worktrees) were duplicates of the 45,432 nodes the
+  repository itself contributes. `git ls-files --others` stops at the
+  nested-repo boundary and reports the directory, which the `is_file()` checks
+  already drop — but the directory-walk fallback used when git returns nothing
+  has no such boundary, and nothing prunes what an earlier version indexed that
+  way.
+
+### Internal
+
+- The embedding pass logs each slice's wall time and each scan's candidate count
+  at INFO. On a large graph the per-slice rescan, not the embedding, is what
+  dominates a sliced pass, and that was not visible from the outside.
+
 ## 4.10.2 — 2026-08-19
 
 ### Fixes

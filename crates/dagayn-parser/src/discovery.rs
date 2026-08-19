@@ -420,6 +420,13 @@ fn default_ignore_patterns() -> &'static [&'static str] {
     &[
         ".dagayn/**",
         "node_modules/**",
+        // Git worktrees inside the repository are copies of the same history:
+        // indexing them multiplies the graph by the worktree count. Only
+        // `walk_files` can reach them (git stops at the nested-repo boundary),
+        // and that is exactly the fallback that produced a 1.6M-node graph
+        // across 39 worktrees against 30k for the repository itself.
+        ".worktrees/**",
+        ".claude/worktrees/**",
         ".git/**",
         ".svn/**",
         "__pycache__/**",

@@ -275,6 +275,7 @@ def _embed_in_slices(
     result: BuildPayload = {}
 
     while True:
+        slice_started = time.monotonic()
         with graph_write_lock(db_path):
             result = embed_graph(
                 repo_root=str(root),
@@ -290,6 +291,13 @@ def _embed_in_slices(
         if result.get("status") != "ok":
             return result
         embedded_now = int(result.get("newly_embedded", 0) or 0)
+        logger.info(
+            "Embedding slice %d: %.1fs wall for %d node(s) (%d left)",
+            slices,
+            time.monotonic() - slice_started,
+            embedded_now,
+            int(result.get("remaining", 0) or 0),
+        )
         newly_embedded += embedded_now
         orphans_removed += int(result.get("orphans_removed", 0) or 0)
         remaining = int(result.get("remaining", 0) or 0)

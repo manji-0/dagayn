@@ -886,6 +886,7 @@ class EmbeddingStore:
             for r in rows:
                 existing_hashes[r["qualified_name"]] = (r["text_hash"], r["provider"])
 
+        scan_started = time.monotonic()
         to_embed: list[tuple[GraphNode, str, str]] = []
         for node in candidate_nodes:
             text = _node_to_text(
@@ -899,6 +900,15 @@ class EmbeddingStore:
             if ex and ex[0] == text_hash and ex[1] == provider_name:
                 continue
             to_embed.append((node, text, text_hash))
+
+        # This scan is redone by every slice, so on a large graph it is the
+        # dominant cost of a sliced pass, not the embedding itself.
+        logger.info(
+            "Embedding scan: %d candidate node(s) in %.1fs, %d need embedding",
+            len(candidate_nodes),
+            time.monotonic() - scan_started,
+            len(to_embed),
+        )
 
         if not to_embed:
             return 0

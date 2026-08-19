@@ -410,6 +410,23 @@ class TestIgnorePatterns:
         assert _should_ignore("coverage/lcov.info", patterns)
         assert _should_ignore(".cache/webpack/index.pack", patterns)
 
+    def test_should_ignore_nested_git_worktrees(self):
+        """A worktree inside the repo is the same code again, not new code.
+
+        One graph reached 1.6M nodes across 39 worktrees against 30k for the
+        repository itself. Git's own listing stops at the nested-repo boundary,
+        so only the directory-walk fallback can reach these -- which is the path
+        that produced that graph.
+        """
+        from dagayn.incremental import DEFAULT_IGNORE_PATTERNS
+
+        patterns = DEFAULT_IGNORE_PATTERNS
+        assert _should_ignore(".worktrees/feature-x/packages/app/src/index.ts", patterns)
+        assert _should_ignore(".claude/worktrees/task-1/dagayn/main.py", patterns)
+        # A source directory that merely mentions worktrees is still indexable.
+        assert not _should_ignore("docs/worktrees.md", patterns)
+        assert not _should_ignore("src/worktree_helper.py", patterns)
+
 
 class TestDataDir:
     """Tests for get_data_dir / CRG_DATA_DIR / CRG_REPO_ROOT (#155)."""
