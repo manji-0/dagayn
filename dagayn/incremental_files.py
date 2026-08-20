@@ -197,12 +197,31 @@ def _workspace_folder_candidates() -> list[Path]:
     return resolved
 
 
+def _contains_path(root: Path, path: Path | None) -> bool:
+    """Return True when *path* is *root* or lives under it."""
+    if path is None:
+        return False
+    try:
+        resolved = path.expanduser().resolve()
+        resolved_root = root.expanduser().resolve()
+    except (OSError, RuntimeError):
+        return False
+    return resolved == resolved_root or resolved.is_relative_to(resolved_root)
+
+
 def _pick_workspace_root(
     candidates: list[Path],
     *,
     stop_at: Path | None = None,
+    prefer: Path | None = None,
 ) -> Path | None:
-    """Choose the best IDE workspace root among multi-root candidates."""
+    """Choose the best IDE workspace root among multi-root candidates.
+
+    A root that contains *prefer* (the caller's start directory) wins outright:
+    graph mtime is only a tiebreaker for candidates that are equally plausible,
+    and on its own it answered multi-root workspaces with whichever repository
+    was built most recently rather than the one being worked in.
+    """
     scored: list[tuple[tuple[object, ...], Path]] = []
     for workspace in candidates:
         hinted = find_repo_root(workspace, stop_at=stop_at)
@@ -215,7 +234,8 @@ def _pick_workspace_root(
             mtime = graph.stat().st_mtime if has_graph else 0.0
         except OSError:
             mtime = 0.0
-        scored.append(((has_graph, mtime, (root / ".git").exists()), root))
+        holds_start = _contains_path(root, prefer)
+        scored.append(((holds_start, has_graph, mtime, (root / ".git").exists()), root))
     if not scored:
         return None
     scored.sort(key=lambda item: item[0], reverse=True)
@@ -266,12 +286,18 @@ def find_project_root(
        anyone scripting the CLI from outside the repo (CI jobs, daemons,
        multi-repo orchestrators). See: #155
     2. Git repository root via :func:`find_repo_root` from ``start``,
-       honoring ``stop_at`` if provided.
+       honoring ``stop_at`` if provided — but see rule 3.
     3. Workspace/IDE hints (``CURSOR_PROJECT_DIR``, ``CLAUDE_PROJECT_DIR``,
-       ``WORKSPACE_FOLDER_PATHS``) when the start path is not already inside
-       a git root — e.g. Cursor launching MCP with ``cwd=$HOME``. Multi-root
-       workspaces prefer the folder with the richest existing ``.dagayn``
-       graph.
+       ``WORKSPACE_FOLDER_PATHS``) when no git root was found — e.g. Cursor
+       launching MCP with ``cwd=$HOME`` — **or** when ``start`` was not given
+       and the git root found from the ambient cwd is unrelated to every
+       hinted workspace. The second case is a real wrong-repo source: an
+       editor that inherits its cwd from the shell it was launched in (or a
+       user-level MCP entry with no ``cwd``) otherwise answers every window
+       from whichever repository that shell happened to sit in. An explicit
+       ``start`` is a deliberate choice by the caller and still wins.
+       Multi-root workspaces prefer the folder holding ``start``, then the
+       one with the richest existing ``.dagayn`` graph.
     4. ``start`` itself (or cwd if no start given).
 
     ``stop_at`` is forwarded to :func:`find_repo_root` so callers that
@@ -285,12 +311,20 @@ def find_project_root(
             return p
 
     root = find_repo_root(start, stop_at=stop_at)
+    candidates = _workspace_folder_candidates()
+    if candidates and (root is None or start is None):
+        ambient = start or Path.cwd()
+        hinted_covers_root = any(
+            _contains_path(candidate, root) or _contains_path(root, candidate)
+            for candidate in candidates
+            if root is not None
+        )
+        if root is None or not hinted_covers_root:
+            picked = _pick_workspace_root(candidates, stop_at=stop_at, prefer=ambient)
+            if picked is not None:
+                return picked
     if root:
         return root
-
-    picked = _pick_workspace_root(_workspace_folder_candidates(), stop_at=stop_at)
-    if picked is not None:
-        return picked
 
     return start or Path.cwd()
 

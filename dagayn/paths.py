@@ -41,6 +41,64 @@ def same_repo_path(left: Path | str, right: Path | str) -> bool:
             return False
 
 
+#: Set to ``1``/``true``/``yes`` to allow the home directory (or a filesystem
+#: root) to be treated as a repository root anyway.
+ALLOW_WIDE_ROOT_ENV = "DAGAYN_ALLOW_WIDE_ROOT"
+
+
+def _wide_root_allowed() -> bool:
+    return os.environ.get(ALLOW_WIDE_ROOT_ENV, "").strip().lower() in {"1", "true", "yes"}
+
+
+def unsafe_root_reason(path: Path) -> str | None:
+    """Return why *path* must not be indexed as a repository, else ``None``.
+
+    The home directory and the filesystem root are never a project: resolving
+    one means the caller's ``cwd`` was ambient rather than meaningful. Cursor
+    launches user-level MCP servers with ``cwd=$HOME``, so a build there indexes
+    every checkout below it and every later search answers from the wrong
+    repository. Override with :data:`ALLOW_WIDE_ROOT_ENV` when that is genuinely
+    what you want.
+    """
+    if _wide_root_allowed():
+        return None
+    try:
+        resolved = Path(path).expanduser().resolve()
+    except (OSError, RuntimeError):
+        return None
+    if resolved == Path(resolved.anchor):
+        return "the filesystem root"
+    try:
+        home = Path.home().resolve()
+    except (OSError, RuntimeError):
+        return None
+    if same_repo_path(resolved, home):
+        return "your home directory"
+    return None
+
+
+def recorded_repo_root(db_path: Path) -> Path | None:
+    """Return the ``repo_root`` a graph records for itself, if it has one.
+
+    ``None`` covers every "cannot tell" case — missing file, unreadable graph,
+    pre-metadata schema — because callers use this to *detect* a wrong-repo
+    graph and must not turn an unknown into an accusation.
+    """
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    except sqlite3.Error:
+        return None
+    try:
+        row = conn.execute("SELECT value FROM metadata WHERE key = 'repo_root'").fetchone()
+    except sqlite3.Error:
+        return None
+    finally:
+        conn.close()
+    if not row or not row[0]:
+        return None
+    return Path(str(row[0]))
+
+
 def is_project_root(path: Path) -> bool:
     """Return True when *path* is a VCS checkout or already holds a graph.
 
@@ -222,20 +280,11 @@ def get_data_dir(repo_root: Path) -> Path:
 
 def _shared_graph_belongs_to(db_path: Path, repo_root: Path) -> bool:
     """Return True when *db_path* records *repo_root* as its repository."""
-    try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-    except sqlite3.Error:
+    recorded = recorded_repo_root(db_path)
+    if recorded is None:
         return False
     try:
-        row = conn.execute("SELECT value FROM metadata WHERE key = 'repo_root'").fetchone()
-    except sqlite3.Error:
-        return False
-    finally:
-        conn.close()
-    if not row or not row[0]:
-        return False
-    try:
-        return same_repo_path(Path(str(row[0])), repo_root)
+        return same_repo_path(recorded, repo_root)
     except (OSError, RuntimeError):
         return False
 

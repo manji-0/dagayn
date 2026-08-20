@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import os
@@ -27,6 +28,7 @@ from ..incremental import (
     find_project_root,
     get_db_path,
 )
+from ..paths import ALLOW_WIDE_ROOT_ENV, recorded_repo_root, same_repo_path, unsafe_root_reason
 from ..state_types import (
     AnswerabilityRecord,
     MissingnessRecord,
@@ -79,6 +81,93 @@ _TOOL_RUNTIME_ERRORS: tuple[type[BaseException], ...] = (
     TypeError,
     AttributeError,
 )
+
+
+class RepoContextRecord(TypedDict):
+    repo_root: str
+    db_path: str
+    source: str
+
+
+#: The repository a tool call actually read, recorded by :func:`_get_store` so
+#: the MCP layer can report it back. A ContextVar rather than a global: each
+#: ``asyncio.to_thread`` tool runs in its own copied context, so concurrent
+#: calls cannot overwrite each other's answer.
+_repo_context: contextvars.ContextVar[RepoContextRecord | None] = contextvars.ContextVar(
+    "dagayn_repo_context",
+    default=None,
+)
+
+
+class RepoRootMismatchError(ValueError):
+    """The graph opened for a repository says it describes a different one."""
+
+
+def set_repo_context(repo_root: Path, db_path: Path, *, explicit: bool) -> RepoContextRecord:
+    """Record which repository (and graph file) this tool call resolved to."""
+    record: RepoContextRecord = {
+        "repo_root": str(repo_root),
+        "db_path": str(db_path),
+        "source": "explicit" if explicit else "auto",
+    }
+    _repo_context.set(record)
+    return record
+
+
+def reset_repo_context() -> None:
+    """Forget the recorded repository so a later call cannot inherit it."""
+    _repo_context.set(None)
+
+
+def repo_context_snapshot() -> RepoContextRecord | None:
+    """Return the repository recorded during this call, if any."""
+    return _repo_context.get()
+
+
+def attach_repo_context(payload: ToolPayload) -> ToolPayload:
+    """Add ``_repo`` (root, graph path, how it was resolved) to a response.
+
+    Answering from the wrong repository used to be invisible: no response field
+    named the root, and nothing logged it, so a mis-resolved ``cwd`` looked like
+    an ordinary answer about someone else's code.
+    """
+    record = repo_context_snapshot()
+    if record is not None:
+        payload.setdefault("_repo", dict(record))
+    return payload
+
+
+def _assert_graph_matches_repo(db_path: Path, root: Path) -> None:
+    """Refuse to answer from a graph that records a different repository.
+
+    A graph whose recorded root no longer exists is treated as this
+    repository's: a moved or renamed checkout is the common cause and its graph
+    is still the right one. Only a recorded root that still exists *and* is a
+    different directory means the resolution went to the wrong repository.
+    """
+    recorded = recorded_repo_root(db_path)
+    if recorded is None:
+        return
+    try:
+        if same_repo_path(recorded, root):
+            return
+        if not recorded.exists():
+            logger.debug(
+                "graph %s records a repo_root that no longer exists (%s); treating it as %s",
+                db_path,
+                recorded,
+                root,
+            )
+            return
+    except (OSError, RuntimeError):
+        return
+    raise RepoRootMismatchError(
+        f"the graph at {db_path} describes {recorded}, not {root}, so its results would"
+        f" belong to a different repository. Pass repo_root explicitly (MCP tools), set"
+        f" CRG_REPO_ROOT, or give the MCP server entry a cwd/--repo for this project;"
+        f" editors that launch the server without one resolve the repository from an"
+        f" ambient working directory."
+    )
 
 
 def _error_response(
@@ -424,7 +513,24 @@ def _get_store(
 ) -> tuple[GraphStore, Path]:
     """Resolve repo root and return a (possibly cached) graph store."""
     root = _validate_repo_root(Path(repo_root)) if repo_root else find_project_root()
+    if not repo_root:
+        # Before ``get_db_path``, which would create ``.dagayn`` there.
+        reason = unsafe_root_reason(root)
+        if reason is not None:
+            raise ValueError(
+                f"auto-detected repo_root is {reason} ({root}). Pass repo_root explicitly,"
+                f" set CRG_REPO_ROOT, or give the MCP server entry a cwd/--repo for the"
+                f" project; set {ALLOW_WIDE_ROOT_ENV}=1 to index it anyway."
+            )
     db_path = get_db_path(root)
+    set_repo_context(root, db_path, explicit=bool(repo_root))
+    logger.debug(
+        "resolved repo_root=%s (%s) graph=%s",
+        root,
+        "explicit" if repo_root else "auto-detected",
+        db_path,
+    )
+    _assert_graph_matches_repo(db_path, root)
     owns_read_lock = not write_lock_is_held(db_path)
     if owns_read_lock:
         # A reader has to hold the shared lock for as long as its connection is

@@ -149,12 +149,13 @@ def _resolve_repo(repo_root: str | None, *, from_hook: bool = False) -> Path:
             return resolved
     if repo_root:
         return Path(repo_root).expanduser().resolve()
-    from ..incremental import find_repo_root
+    # ``find_project_root`` (not ``find_repo_root``) so the IDE workspace hints
+    # apply here too. Without them this resolved ``$HOME`` whenever the editor
+    # launched the server with ``cwd=$HOME`` and then *built a graph there*,
+    # indexing every checkout below it.
+    from ..incremental import find_project_root
 
-    found = find_repo_root()
-    if found is None:
-        return Path.cwd().resolve()
-    return Path(found).resolve()
+    return Path(find_project_root()).resolve()
 
 
 def session_prepare(

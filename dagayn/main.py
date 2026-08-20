@@ -213,13 +213,23 @@ def _tool(name: str) -> Any:
     def wrapped(*args: Any, **kwargs: Any) -> Any:
         from .tools._common import (
             _db_path_for_repo,
+            attach_repo_context,
             handle_tool_runtime_error,
             is_sqlite_corrupt_error,
             recover_corrupt_graph,
+            reset_repo_context,
         )
 
+        def _run() -> Any:
+            # Every response says which repository it came from, so a
+            # mis-resolved working directory is visible instead of looking like
+            # an ordinary answer about someone else's code.
+            reset_repo_context()
+            result = impl(*args, **kwargs)
+            return attach_repo_context(result) if isinstance(result, dict) else result
+
         try:
-            return impl(*args, **kwargs)
+            return _run()
         except BaseException as exc:
             if not is_sqlite_corrupt_error(exc):
                 raise
@@ -232,7 +242,7 @@ def _tool(name: str) -> Any:
                 exc,
             )
             try:
-                return impl(*args, **kwargs)
+                return _run()
             except BaseException as exc2:
                 if is_sqlite_corrupt_error(exc2):
                     return handle_tool_runtime_error(

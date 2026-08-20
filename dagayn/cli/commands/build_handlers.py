@@ -85,8 +85,25 @@ def resolve_repo_root(args: argparse.Namespace) -> Path:
             )
             logging.error("Use 'build' for a full parse, or run 'git init' first.")
             sys.exit(1)
+        return _reject_wide_root(repo_root, explicit=bool(args.repo))
+    if args.repo:
+        return Path(args.repo)
+    return _reject_wide_root(find_project_root(), explicit=False)
+
+
+def _reject_wide_root(repo_root: Path, *, explicit: bool) -> Path:
+    """Exit rather than index the home directory that was merely the cwd."""
+    if explicit:
         return repo_root
-    return Path(args.repo) if args.repo else find_project_root()
+    from ...paths import ALLOW_WIDE_ROOT_ENV, unsafe_root_reason
+
+    reason = unsafe_root_reason(repo_root)
+    if reason is None:
+        return repo_root
+    logging.error("Refusing to use %s (%s) as the repository root.", reason, repo_root)
+    logging.error("Run dagayn from inside the project, pass --repo, or set CRG_REPO_ROOT.")
+    logging.error("Set %s=1 to index it anyway.", ALLOW_WIDE_ROOT_ENV)
+    sys.exit(1)
 
 
 def ensure_worktree_graph_if_needed(args: argparse.Namespace, repo_root: Path) -> None:

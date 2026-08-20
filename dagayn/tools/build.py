@@ -150,10 +150,21 @@ def _resolve_write_root(repo_root: str | None) -> Path:
     store, so this cannot come from the store itself.
     """
     from ..incremental import find_project_root
+    from ..paths import ALLOW_WIDE_ROOT_ENV, unsafe_root_reason
 
     if repo_root:
         return _validate_repo_root(Path(repo_root))
-    return Path(find_project_root())
+    root = Path(find_project_root())
+    # Building an auto-detected ``$HOME`` indexes every checkout below it into
+    # one graph, after which every search answers from the wrong repository.
+    reason = unsafe_root_reason(root)
+    if reason is not None:
+        raise ValueError(
+            f"refusing to build a graph for {reason} ({root}): pass repo_root explicitly,"
+            f" set CRG_REPO_ROOT, or give the MCP server entry a cwd/--repo for the"
+            f" project; set {ALLOW_WIDE_ROOT_ENV}=1 to index it anyway."
+        )
+    return root
 
 
 def _run_local_embedding(

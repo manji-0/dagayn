@@ -28,6 +28,40 @@ dagayn build --local-embedding none
 `quick_check` returning `ok` means a rebuild will not help until the MCP
 process is restarted.
 
+## Search results come from a different repository
+
+Every MCP response carries `_repo` — the `repo_root` it answered from, the
+`db_path` it read, and whether that root was `explicit` (the client passed
+`repo_root`) or `auto` (resolved from the server's working directory). Check it
+first: `source: "auto"` with an unexpected `repo_root` means the server had no
+idea which project you meant.
+
+That happens when the MCP entry has neither `cwd` nor `--repo`, because the
+server then inherits a working directory from whatever launched it — Cursor
+launches user-level servers with `cwd=$HOME`, and an editor started from a
+terminal inherits that shell's directory. Fix it at the entry:
+
+```json
+{"mcpServers": {"dagayn": {"command": "dagayn", "args": ["serve", "--repo", "${workspaceFolder}"], "type": "stdio"}}}
+```
+
+`"cwd": "${workspaceFolder}"`, or `CRG_REPO_ROOT` in the entry's `env`, work
+equally well. Editors that export `CURSOR_PROJECT_DIR`, `CLAUDE_PROJECT_DIR`, or
+`WORKSPACE_FOLDER_PATHS` are now believed over an unrelated inherited directory,
+so upgrading may be enough.
+
+Two refusals back this up, both reported as tool errors rather than silently
+answering:
+
+- a graph whose recorded `repo_root` is a different existing directory is never
+  read (rebuild it, or point at the right root);
+- an auto-detected root that is your home directory or the filesystem root is
+  refused for reads and builds. Set `DAGAYN_ALLOW_WIDE_ROOT=1` if you really do
+  want to index it.
+
+If a stray `~/.dagayn/graph.db` already exists from an earlier run, delete that
+file (keep `~/.dagayn/registry.json`).
+
 ## The graph is empty or stale
 
 <!-- derived-from ./USAGE.md#build-and-refresh-the-graph -->
