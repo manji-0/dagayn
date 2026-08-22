@@ -210,14 +210,18 @@ def infer_local_embedding_provider(
     already contains local Qwen vectors, without ever guessing cloud providers.
     """
     prefix = "openai:"
+    from .embeddings_providers import (
+        _parse_openai_identity_suffixes,
+        embedding_provider_base_name,
+    )
+
+    provider_name = embedding_provider_base_name(provider_name)
     if not provider_name.startswith(prefix):
         return None
     try:
         model, base_url = provider_name[len(prefix) :].rsplit("@", 1)
     except ValueError:
         return None
-
-    from .embeddings_providers import _parse_openai_identity_suffixes
 
     base_url, _, _ = _parse_openai_identity_suffixes(base_url)
     parsed = urlparse(base_url)

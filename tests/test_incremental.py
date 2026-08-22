@@ -4,6 +4,8 @@ import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch  # noqa: F401 – patch used in tests
 
+import pytest
+
 from dagayn.graph import GraphStore
 from dagayn.incremental import (
     _is_binary,
@@ -182,8 +184,12 @@ class TestFindProjectRoot:
         monkeypatch.setenv("WORKSPACE_FOLDER_PATHS", str(repo))
         assert find_project_root(other) == repo.resolve()
 
-    def test_find_project_root_prefers_workspace_with_graph(self, tmp_path, monkeypatch):
-        """Multi-root WORKSPACE_FOLDER_PATHS prefers the folder with a graph."""
+    def test_find_project_root_does_not_rank_unrelated_hints_by_graph_mtime(
+        self, tmp_path, monkeypatch
+    ):
+        """Two hinted repos plus an unrelated start must not pick the newest graph."""
+        from dagayn.incremental_files import AmbiguousWorkspaceRootError
+
         first = tmp_path / "first"
         second = tmp_path / "second"
         (first / ".git").mkdir(parents=True)
@@ -200,7 +206,11 @@ class TestFindProjectRoot:
             "WORKSPACE_FOLDER_PATHS",
             f"{first},{second}",
         )
-        assert find_project_root(other) == second.resolve()
+        # Explicit start is a deliberate caller choice: keep it, do not guess.
+        assert find_project_root(other) == other.resolve()
+        monkeypatch.chdir(other)
+        with pytest.raises(AmbiguousWorkspaceRootError, match="more than one repository"):
+            find_project_root()
 
     def test_resolve_cli_repo_root_ignores_placeholder(self, tmp_path, monkeypatch):
         from dagayn.incremental import resolve_cli_repo_root

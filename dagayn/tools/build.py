@@ -179,6 +179,7 @@ def _run_local_embedding(
     local_embedding_request_timeout: int,
     local_embedding_batch_size: int,
     pass_seconds: float | None = None,
+    file_paths: list[str] | None = None,
 ) -> BuildPayload:
     """Run graph embedding through the selected local embedding mode.
 
@@ -233,6 +234,7 @@ def _run_local_embedding(
                     root,
                     model=server.preset.model,
                     pass_seconds=pass_seconds,
+                    file_paths=file_paths,
                 )
             finally:
                 for key, value in old_env.items():
@@ -268,6 +270,7 @@ def _embed_in_slices(
     *,
     model: str | None,
     pass_seconds: float | None,
+    file_paths: list[str] | None = None,
 ) -> BuildPayload:
     """Embed the graph in time-bounded slices, releasing the lock between them.
 
@@ -288,7 +291,13 @@ def _embed_in_slices(
 
     scan_started = time.monotonic()
     with graph_write_lock(db_path):
-        scan, work = scan_embed_work(repo_root=str(root), provider="openai", model=model)
+        scan, work = scan_embed_work(
+            repo_root=str(root),
+            provider="openai",
+            model=model,
+            prune_orphans=not file_paths,
+            file_paths=file_paths,
+        )
     if scan.get("status") != "ok":
         return scan
     orphans_removed = int(scan.get("orphans_removed", 0) or 0)
@@ -318,6 +327,8 @@ def _embed_in_slices(
                 show_progress=show_progress,
                 slice_seconds=slice_seconds,
                 finalize=True,
+                # A file-scoped pass must never prune: its keep-set is a subset.
+                prune_orphans=not file_paths,
             )
         slices += 1
         if result.get("status") != "ok":
@@ -905,6 +916,7 @@ def build_or_update_graph(
     local_embedding_batch_size: int = 1,
     extra_files: list[str] | None = None,
     embed_pass_seconds: float | None = None,
+    embed_files: list[str] | None = None,
 ) -> BuildPayload:
     """Build or incrementally update the code knowledge graph.
 
@@ -945,6 +957,11 @@ def build_or_update_graph(
             at a slice boundary once exceeded and reports
             ``local_embedding.embedding_remaining`` so a scheduler can finish
             the rest in a later run. ``None`` (default) embeds everything.
+        embed_files: If set, only these files' nodes are hash-checked and
+            (re)embedded. When omitted, an incremental update with file
+            changes scopes itself to ``changed_files`` plus
+            ``dependent_files``; a full rebuild or a no-change incremental
+            still scans the whole corpus.
 
     Returns:
         Summary with files_parsed/updated, node/edge counts, and errors.
@@ -1185,6 +1202,23 @@ def build_or_update_graph(
         write_lock.__exit__(None, None, None)
         try:
             if run_embedding:
+                scope = embed_files
+                if (
+                    scope is None
+                    and build_result.build_type == "incremental"
+                    and int(build_result.files_updated or 0) > 0
+                ):
+                    scope = (
+                        list(
+                            dict.fromkeys(
+                                [
+                                    *(build_result.changed_files or []),
+                                    *(build_result.dependent_files or []),
+                                ]
+                            )
+                        )
+                        or None
+                    )
                 build_result.local_embedding = _run_local_embedding(
                     root,
                     local_embedding=local_embedding or "none",
@@ -1196,6 +1230,7 @@ def build_or_update_graph(
                     local_embedding_request_timeout=local_embedding_request_timeout,
                     local_embedding_batch_size=local_embedding_batch_size,
                     pass_seconds=embed_pass_seconds,
+                    file_paths=scope,
                 )
         finally:
             if postprocess != "none":

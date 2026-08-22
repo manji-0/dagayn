@@ -98,7 +98,13 @@ repository (spawned on demand, guarded by a flock) drains the queue. A burst
 of edits therefore collapses into one structure-only update
 (`postprocess=minimal`, no embeddings) instead of one `dagayn update` process
 per edit, and the last edit of a burst can no longer be left unindexed by a
-skipped overlapping run. The worker applies hook-update semantics to the task
+skipped overlapping run. After that structure update, if the graph already
+holds a managed localhost-sidecar partition, the worker enqueues a
+file-scoped `embed` for the changed and dependent files (`text_hash` skip,
+no whole-corpus scan), inferring BGE-M3 vs Qwen from the stored provider.
+Two scoped `embed` tasks union their file lists when they coalesce; mixing a
+scoped task with a whole-corpus `embed` keeps the whole-corpus pass. The
+worker applies hook-update semantics to the task
 it executes (`DAGAYN_HOOK_UPDATE=1`: budget watchdog, non-blocking write
 lock) and honors the `.dagayn/hook-skip` opt-out. It exits after the queue
 has been empty for the idle window (default 60s), so it does not hold the

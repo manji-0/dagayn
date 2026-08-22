@@ -115,6 +115,31 @@ CREATE TABLE IF NOT EXISTS task_log (
 """
 
 
+def _merge_payloads(kind: str, old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
+    """Merge two pending-task payloads. Newer keys win, except ``files``.
+
+    An ``embed`` task without a ``files`` key means the whole corpus. Mixing
+    that with a scoped list must stay whole-corpus, otherwise a session-start
+    coverage backfill coalesced with an edit would silently shrink. Two
+    scoped lists union so a burst of edits still covers every touched file.
+    """
+    merged = {**old, **new}
+    if kind != "embed":
+        return merged
+    old_has = "files" in old
+    new_has = "files" in new
+    if not old_has or not new_has:
+        merged.pop("files", None)
+        return merged
+    old_files = old.get("files")
+    new_files = new.get("files")
+    if not isinstance(old_files, list) or not isinstance(new_files, list):
+        merged.pop("files", None)
+        return merged
+    merged["files"] = sorted({str(path) for path in [*old_files, *new_files]})
+    return merged
+
+
 def _now() -> str:
     """Local time with its UTC offset.
 
@@ -175,7 +200,7 @@ class TaskQueue:
                 (kind,),
             ).fetchone()
             if row is not None:
-                merged = {**json.loads(row["payload"]), **(payload or {})}
+                merged = _merge_payloads(kind, json.loads(row["payload"]), payload or {})
                 self._conn.execute(
                     "UPDATE tasks SET payload = ?, priority = MAX(priority, ?), updated_at = ?"
                     " WHERE id = ?",
@@ -521,10 +546,16 @@ def _stored_base(repo_root: Path) -> str:
     if not db_path.exists():
         return "HEAD~1"
     from .graph import GraphStore
-    from .write_lock import graph_read_lock
+    from .write_lock import DEFAULT_READ_LOCK_TIMEOUT, graph_read_lock
 
     try:
-        with graph_read_lock(db_path):
+        # Bounded wait, not the writer's full 120 s budget: a writer (manual
+        # build, embedding pass) holding the lock makes this task's own write
+        # lock skip soon anyway, so there is no point stalling the worker for
+        # its whole budget just to peek the stored sha. After the wait we fall
+        # back to HEAD~1 and let the non-blocking write lock decide whether the
+        # task runs or is skipped with a note.
+        with graph_read_lock(db_path, timeout=DEFAULT_READ_LOCK_TIMEOUT):
             store = GraphStore(db_path)
             try:
                 return store.get_metadata("git_head_sha") or "HEAD~1"
@@ -533,6 +564,41 @@ def _stored_base(repo_root: Path) -> str:
     except Exception:  # noqa: BLE001 - a bad peek must not kill the worker
         logger.warning("Could not read stored git_head_sha; falling back to HEAD~1")
         return "HEAD~1"
+
+
+def enqueue_embed_refresh(
+    repo_root: str | Path,
+    *,
+    files: list[str] | None = None,
+    spawn_worker: bool = True,
+    payload: dict[str, Any] | None = None,
+) -> tuple[str, int]:
+    """Enqueue an ``embed`` task, optionally scoped to *files*.
+
+    ``files=None`` means a whole-corpus hash-skip. ``spawn_worker=False`` is
+    for the queue worker itself: it is already draining, and the new task
+    will be claimed after the current one finishes.
+    """
+    root = Path(repo_root)
+    body = dict(payload or {})
+    if files:
+        body["files"] = sorted({str(path) for path in files if str(path)})
+    queue = TaskQueue(queue_db_path(root))
+    try:
+        action, task_id = queue.enqueue("embed", payload=body)
+    finally:
+        queue.close()
+    if spawn_worker:
+        ensure_worker(root)
+    return action, task_id
+
+
+def _embed_files_from_payload(payload: dict[str, Any]) -> list[str] | None:
+    files = payload.get("files")
+    if not isinstance(files, list):
+        return None
+    cleaned = [str(path) for path in files if str(path)]
+    return cleaned or None
 
 
 def _execute_update(task: dict[str, Any], repo_root: Path) -> str | None:
@@ -560,7 +626,8 @@ def _execute_update(task: dict[str, Any], repo_root: Path) -> str | None:
         )
         if result.get("skipped"):
             return f"skipped: {result.get('skip_reason')}"
-        return None
+        note = _enqueue_scoped_embed_after_update(repo_root, result)
+        return note
     finally:
         if watchdog is not None:
             watchdog.cancel()
@@ -590,6 +657,7 @@ def _execute_embed(task: dict[str, Any], repo_root: Path) -> str | None:
             local_embedding_request_timeout=int(payload.get("local_embedding_request_timeout", 60)),
             local_embedding_batch_size=int(payload.get("local_embedding_batch_size", 1)),
             embed_pass_seconds=EMBED_PASS_SECONDS,
+            embed_files=_embed_files_from_payload(payload),
         )
         if result.get("skipped"):
             return f"skipped: {result.get('skip_reason')}"
@@ -599,6 +667,38 @@ def _execute_embed(task: dict[str, Any], repo_root: Path) -> str | None:
     finally:
         if watchdog is not None:
             watchdog.cancel()
+
+
+def _enqueue_scoped_embed_after_update(repo_root: Path, result: dict[str, Any]) -> str | None:
+    """Queue a file-scoped embed when a structure update touched local vectors.
+
+    Comment-only edits keep coverage ``complete``, so session prepare will not
+    start the sidecar. The hash-skip for those files has to ride the edit
+    queue instead. Remote/cloud partitions are left alone.
+    """
+    files = list(
+        dict.fromkeys(
+            [
+                *(result.get("changed_files") or []),
+                *(result.get("dependent_files") or []),
+            ]
+        )
+    )
+    if not files:
+        return None
+    from .paths import get_db_path
+    from .tools.sync_status import sidecar_embed_payload
+
+    payload = sidecar_embed_payload(get_db_path(repo_root))
+    if payload is None:
+        return None
+    action, task_id = enqueue_embed_refresh(
+        repo_root,
+        files=files,
+        spawn_worker=False,
+        payload=payload,
+    )
+    return f"{action} embed task {task_id} for {len(files)} file(s)"
 
 
 def _requeue_unfinished_embedding(

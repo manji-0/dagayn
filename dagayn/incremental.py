@@ -28,6 +28,7 @@ from .incremental_build import (
 from .incremental_files import (
     _RECURSE_SUBMODULES,
     DEFAULT_IGNORE_PATTERNS,
+    AmbiguousWorkspaceRootError,
     _backend_selection,
     _git_branch_info,
     _is_binary,
@@ -61,6 +62,7 @@ from .incremental_files import (
 _incremental_files.subprocess = subprocess
 
 __all__ = [
+    "AmbiguousWorkspaceRootError",
     "DEFAULT_IGNORE_PATTERNS",
     "DependentList",
     "StoreBatch",

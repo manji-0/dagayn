@@ -58,6 +58,7 @@ def scan_embed_work(
     provider: str | None = None,
     *,
     prune_orphans: bool = True,
+    file_paths: list[str] | None = None,
 ) -> tuple[ToolPayload, list[EmbedWorkItem]]:
     """Scan for embedding work, then close the graph store.
 
@@ -66,6 +67,9 @@ def scan_embed_work(
     this scan once per pass instead of once per window. On a 42k-node graph the
     scan is ~8 s while a window embeds for 4 s, so re-scanning per window was two
     thirds of the run.
+
+    ``file_paths`` limits the scan to nodes in those files. Scoped runs never
+    prune orphans.
     """
     store, root = _get_store(repo_root, cached=False)
     db_path = get_db_path(root)
@@ -73,7 +77,14 @@ def scan_embed_work(
     try:
         if not emb_store.available:
             return {"status": "error", "error": _provider_unavailable_error(provider)}, []
-        work = prepare_all_nodes(store, emb_store, prune_orphans=prune_orphans)
+        if file_paths:
+            prune_orphans = False
+        work = prepare_all_nodes(
+            store,
+            emb_store,
+            prune_orphans=prune_orphans,
+            file_paths=file_paths,
+        )
         return (
             {
                 "status": "ok",
@@ -97,11 +108,14 @@ def write_embed_work(
     show_progress: bool = False,
     slice_seconds: float | None = None,
     finalize: bool = False,
+    prune_orphans: bool = True,
 ) -> ToolPayload:
     """Write embeddings for *work*, opening no graph store.
 
     ``finalize=True`` closes the run out (provider pointer, retired-partition
     sweep) and should be set on the window that drains the last item.
+    ``prune_orphans=False`` skips the retired-partition sweep on that close-out
+    (a file-scoped keep-set must not delete the rest of the corpus).
     """
     root = _validate_repo_root(Path(repo_root)) if repo_root else None
     db_path = get_db_path(root) if root is not None else get_db_path(Path.cwd())
@@ -116,7 +130,7 @@ def write_embed_work(
         )
         remaining = emb_store.last_remaining
         if finalize and remaining <= 0:
-            finalize_embedding_run(emb_store, prune_orphans=True)
+            finalize_embedding_run(emb_store, prune_orphans=prune_orphans)
         if embedded:
             emb_store.checkpoint_writes(truncate=True)
         return {
@@ -138,6 +152,7 @@ def embed_graph(
     show_progress: bool = False,
     slice_seconds: float | None = None,
     prune_orphans: bool = True,
+    file_paths: list[str] | None = None,
 ) -> ToolPayload:
     """Compute vector embeddings for all graph nodes to enable semantic search.
 
@@ -167,6 +182,8 @@ def embed_graph(
                   embeds everything in one pass.
         prune_orphans: Sweep orphaned embeddings and retired provider
                   partitions. Set False on follow-up slices of one run.
+        file_paths: If set, only nodes in these files are considered. Orphan
+                  pruning is skipped for a scoped pass.
 
     Returns:
         Number of nodes embedded, total embedding count, and how many nodes
@@ -187,6 +204,7 @@ def embed_graph(
             show_progress=show_progress,
             slice_seconds=slice_seconds,
             prune_orphans=prune_orphans,
+            file_paths=file_paths,
         )
         orphans_removed = emb_store.last_orphans_removed
         remaining = emb_store.last_remaining

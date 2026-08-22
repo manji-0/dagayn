@@ -77,6 +77,7 @@ def test_serve_local_embedding_sets_search_default_to_openai(monkeypatch):
     assert calls[0]["local_embedding_timeout"] == 300
     assert calls[0]["local_embedding_request_timeout"] == 60
     assert calls[0]["local_embedding_batch_size"] == 1
+    assert calls[0]["repo_root"] is None
     assert os.environ["CRG_OPENAI_MODEL"] == "qwen3-embedding-0.6b-gguf-q8_0"
     assert os.environ["DAGAYN_EMBEDDING_TEXT_MODE"] == "material"
     assert os.environ.get("CRG_OPENAI_MAX_LENGTH") is None
@@ -274,3 +275,36 @@ def test_serve_infers_bge_local_embedding_from_existing_graph(monkeypatch, tmp_p
     assert calls[0]["embedding_model"] == "bge-m3-gguf-q8_0"
     assert calls[0]["local_embedding"] == "bge-m3"
     assert calls[0]["local_embedding_port"] == 19093
+
+
+def test_serve_without_repo_does_not_pin_the_first_window(monkeypatch, tmp_path):
+    """User-level MCP has no --repo; freezing cwd at start is the wrong-repo bug."""
+    calls: list[dict] = []
+    inherited: list[str] = []
+    other = tmp_path / "other-checkout"
+    (other / ".git").mkdir(parents=True)
+    monkeypatch.chdir(other)
+    monkeypatch.setattr("dagayn.main.main", lambda **kwargs: calls.append(kwargs))
+    monkeypatch.setattr(
+        "dagayn.cli.commands.serve._inherit_worktree_graph",
+        lambda repo: inherited.append(repo),
+    )
+
+    parser = _parser()
+    args = parser.parse_args(["serve"])
+    handle(args, parser)
+
+    assert calls[0]["repo_root"] is None
+    assert inherited == []
+
+
+def test_serve_placeholder_repo_is_not_a_pin(monkeypatch):
+    calls: list[dict] = []
+    monkeypatch.setattr("dagayn.main.main", lambda **kwargs: calls.append(kwargs))
+    monkeypatch.setattr("dagayn.cli.commands.serve._inherit_worktree_graph", lambda *_a: None)
+
+    parser = _parser()
+    args = parser.parse_args(["serve", "--repo", "${workspaceFolder}"])
+    handle(args, parser)
+
+    assert calls[0]["repo_root"] is None

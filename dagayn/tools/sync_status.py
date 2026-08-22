@@ -17,9 +17,10 @@ each state maps onto the lifecycle use cases.
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, TypedDict, cast
+from typing import Any, Literal, TypedDict, cast
 
 from ..incremental import _git_branch_info, detect_vcs, get_changed_file_sources
 from ..state_types import GraphSyncStateName, seal_graph_sync_state
@@ -89,6 +90,14 @@ _STRUCTURE_PREPARE_STATES: frozenset[GraphSyncStateName] = frozenset(
 #: MCP first-tool auto_prepare only bootstraps when analysis would otherwise
 #: run against a missing or wrong commit; a dirty tree is left to prepare/hooks.
 _MCP_AUTO_PREPARE_STATES: frozenset[GraphSyncStateName] = frozenset({"unbuilt", "commit_drift"})
+
+#: Session/MCP may block on an embedding pass when this much of the embeddable
+#: corpus is missing. Below it, refresh is queued instead of starting the
+#: sidecar on the interactive path. Override with
+#: ``DAGAYN_EMBED_INLINE_MISSING_RATIO``.
+_DEFAULT_INLINE_MISSING_RATIO = 0.05
+
+EmbeddingRefreshAction = Literal["inline", "queue", "skip"]
 
 
 def _graph_is_empty(stats: Any) -> bool:
@@ -352,16 +361,88 @@ def assess_graph_sync(
     )
 
 
-def embedding_needs_refresh(db_path: str | Path, *, local_embedding: str | None) -> bool:
-    """True when serve/install embedding mode is on but the index is incomplete."""
+def _inline_missing_ratio() -> float:
+    raw = os.environ.get("DAGAYN_EMBED_INLINE_MISSING_RATIO")
+    if raw is not None and raw.strip() != "":
+        try:
+            return float(raw)
+        except ValueError:
+            return _DEFAULT_INLINE_MISSING_RATIO
+    return _DEFAULT_INLINE_MISSING_RATIO
+
+
+def sidecar_embed_payload(db_path: str | Path) -> dict[str, Any] | None:
+    """Queue payload that reuses the graph's stored localhost sidecar preset.
+
+    ``None`` when there is no managed sidecar partition (empty index, cloud
+    API, or an unrecognized localhost endpoint). Edit-triggered structure
+    updates must not spawn ``llama-server`` for those graphs, and a Qwen
+    partition must not be refreshed with the BGE-M3 default.
+    """
+    from ..embeddings_store import get_embedding_status
+    from ..local_embeddings import infer_local_embedding_provider
+
+    status = get_embedding_status(db_path)
+    inferred = infer_local_embedding_provider(str(status.get("active_provider") or ""))
+    if inferred is None:
+        return None
+    return {
+        "local_embedding": inferred.level,
+        "local_embedding_mode": "bge-m3" if inferred.level == "bge-m3" else "llama-qwen3",
+        "local_embedding_port": inferred.port,
+        "keep_local_embedding_server": True,
+    }
+
+
+def graph_uses_local_embedding_sidecar(db_path: str | Path) -> bool:
+    """True when stored vectors come from a managed localhost sidecar."""
+    return sidecar_embed_payload(db_path) is not None
+
+
+def embedding_refresh_action(
+    db_path: str | Path, *, local_embedding: str | None
+) -> EmbeddingRefreshAction:
+    """Decide whether to block, queue, or skip a local embedding refresh.
+
+    * ``inline`` — no vectors yet, or missing coverage is at/above
+      :func:`_inline_missing_ratio` (default 5%). Session prepare / MCP
+      first-tool may wait for the sidecar.
+    * ``queue`` — some embeddable nodes are missing, but not enough to block
+      the interactive path. A background ``embed`` task should hash-skip the
+      corpus (or the changed-file subset) instead.
+    * ``skip`` — embeddings are off, the index is complete, or only orphans
+      remain (structure updates already prune those without a provider).
+    """
     from .build import _local_embedding_requested
 
     if not _local_embedding_requested(local_embedding):
-        return False
+        return "skip"
     from ..embeddings_store import get_embedding_status
 
-    status = get_embedding_status(db_path).get("status")
-    return status in {"not_indexed", "empty", "partial", "stale", "unavailable"}
+    status = get_embedding_status(db_path)
+    state = status.get("status")
+    if state in {"not_indexed", "empty"}:
+        return "inline"
+    if state in {"unavailable", "unknown", None}:
+        return "skip"
+    missing = int(status.get("missing_embeddings") or 0)
+    if missing <= 0:
+        return "skip"
+    embeddable = int(status.get("embeddable_nodes") or 0)
+    if embeddable <= 0:
+        return "skip"
+    if missing / embeddable >= _inline_missing_ratio():
+        return "inline"
+    return "queue"
+
+
+def embedding_needs_refresh(db_path: str | Path, *, local_embedding: str | None) -> bool:
+    """True when an interactive path should run an embedding pass now.
+
+    Small residual holes (``queue``) no longer trip session/MCP blocking;
+    use :func:`embedding_refresh_action` when the caller can enqueue instead.
+    """
+    return embedding_refresh_action(db_path, local_embedding=local_embedding) == "inline"
 
 
 def needs_structure_prepare(sync: Mapping[str, object], *, force: bool = False) -> bool:

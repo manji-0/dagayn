@@ -16,7 +16,7 @@ moves, Subagent/parallel-agent launch, and MCP first-tool calls.
 | ----- | ---------- | -------------- |
 | **Structure** (required) | `is_structure_ready(sync)` — state is `commit_synced`, `worktree_behind`, or `worktree_ahead` (HEAD matches `git_head_sha`) | `unbuilt` or `commit_drift` |
 | **Worktree** | Linked worktree seeded (if needed) and catch-up so `git_head_sha` matches that worktree's HEAD | Graph missing, still describing main, or HEAD drifted |
-| **Embeddings** (best-effort) | Indexed when serve/install embedding mode is on | `pending` / `skipped_budget` — structure may still be ready; finish via MCP `ensure_graph_tool` / `get_minimal_context_tool` |
+| **Embeddings** (best-effort) | Indexed when serve/install embedding mode is on. Empty indexes (or missing coverage ≥ 5%) may refresh inline; smaller holes and comment-only edits are queued | `pending` / `skipped_budget` — structure may still be ready; finish via the queue worker, MCP `ensure_graph_tool`, or `get_minimal_context_tool` |
 
 `worktree_behind` / `worktree_ahead` both mean uncommitted edits exist on a
 HEAD-aligned graph, and both are **structure-ready** for analysis. They differ
@@ -170,6 +170,9 @@ record `postprocess_level` now, so a graph cannot claim a level it never got.
 
 ## Lifecycle flow
 
+<!-- dagayn: implemented-by dagayn/tools/sync_status.py::embedding_refresh_action -->
+<!-- derived-from #ready-to-work-definition -->
+
 ```mermaid
 flowchart TD
   trigger[LifecycleTrigger] --> resolve[resolve_repo_or_hook_repo]
@@ -178,11 +181,13 @@ flowchart TD
   seed -->|no| assess[assess_graph_sync]
   seedGraph --> assess
   assess -->|unbuilt_commit_drift_worktree_behind| structure[build_or_update_graph minimal]
-  assess -->|commit_synced_worktree_ahead| embedCheck{embedding_needs_refresh}
+  assess -->|commit_synced_worktree_ahead| embedCheck{embedding_refresh_action}
   structure --> embedCheck
-  embedCheck -->|yes_and_budget| embed[Phase2 embeddings]
-  embedCheck -->|no_or_defer| ready[structure ready]
+  embedCheck -->|inline_and_budget| embed[Phase2 embeddings]
+  embedCheck -->|queue_or_changed_files| queueEmbed[queue add embed]
+  embedCheck -->|skip| ready[structure ready]
   embed --> ready
+  queueEmbed --> ready
 ```
 
 ## Use-case catalog
@@ -196,10 +201,10 @@ flowchart TD
 | UC-W2 | Worktree switch / re-enter | EnterWorktree / `session prepare` in existing worktree | Seed skipped if graph exists; catch-up from stored `git_head_sha` |
 | UC-W3 | Worktree delete | `git worktree remove` (no dagayn hook) | Main checkout graph unchanged; orphaned worktree `.dagayn` discarded with the tree |
 | UC-A1 | Subagent / parallel agent | Worktree create + MCP in that tree | Seed alone is not enough; `get_minimal_context(auto_prepare=True)` or `session prepare` catch-up → structure ready |
-| UC-M1 | MCP first tool | `get_minimal_context_tool` | `auto_prepare` on `unbuilt`/`commit_drift` (300s); dirty does not loop |
+| UC-M1 | MCP first tool | `get_minimal_context_tool` | `auto_prepare` on `unbuilt`/`commit_drift` or an empty/large embedding hole (300s); dirty does not loop. A small missing-embedding tail is queued, not inlined |
 | UC-M2 | MCP explicit sync | `ensure_graph_tool` | Same prepare path with MCP budget; retry after `partial` until structure ready |
 | UC-M3 | Misdetected root | MCP first tool / `session prepare` on a non-repo root | `vcs == "none"` → never auto-prepare; `session_prepare`/`ensure_graph` refuse with `reason == "not_vcs_repo"` (no `.dagayn/` created) |
-| UC-E1 | File edit (ongoing) | `dagayn queue add update` → detached queue worker (structure-only, `postprocess=minimal`) | Out of bootstrap scope — keeps graph current during a session, not a start gate. Edit bursts coalesce into one pending task; the worker re-runs while new work arrives and exits after the idle window |
+| UC-E1 | File edit (ongoing) | `dagayn queue add update` → detached queue worker (structure-only, `postprocess=minimal`) | Out of bootstrap scope — keeps graph current during a session, not a start gate. Edit bursts coalesce into one pending task; the worker re-runs while new work arrives and exits after the idle window. After a structure update that touched files, the worker enqueues a file-scoped `embed` when the graph already has a managed localhost-sidecar partition (preset inferred from the stored provider) |
 
 Platform notes: Codex installs without the Claude `EnterWorktree` matcher
 (`worktree_hook=False`). Cursor/Claude/OpenCode cover UC-W1 enter hooks;

@@ -39,16 +39,31 @@ idea which project you meant.
 That happens when the MCP entry has neither `cwd` nor `--repo`, because the
 server then inherits a working directory from whatever launched it — Cursor
 launches user-level servers with `cwd=$HOME`, and an editor started from a
-terminal inherits that shell's directory. Fix it at the entry:
+terminal inherits that shell's directory.
+
+`dagayn serve` without an explicit `--repo` no longer freezes that guess into
+every later tool call. Each call re-resolves from IDE workspace hints
+(`WORKSPACE_FOLDER_PATHS`, `CURSOR_PROJECT_DIR`, `CLAUDE_PROJECT_DIR`). A
+single open folder still works when `cwd` is `$HOME`. Two or more unrelated
+hints, with `cwd` inside none of them, are an error rather than "whichever
+graph was built last".
+
+Project-level `.cursor/mcp.json` (written by `dagayn install`) sets
+`cwd` to `${workspaceFolder}` so that process starts in the repository.
+Do **not** put `cwd`/`--repo ${workspaceFolder}` on the user-level
+`~/.cursor/mcp.json` entry: there `${workspaceFolder}` is the folder
+containing that file, and pinning it indexes the wrong tree. The install
+strips those keys from the user copy on purpose.
+
+If a tool still needs a specific checkout, pass `repo_root` or pin the
+server:
 
 ```json
-{"mcpServers": {"dagayn": {"command": "dagayn", "args": ["serve", "--repo", "${workspaceFolder}"], "type": "stdio"}}}
+{"mcpServers": {"dagayn": {"command": "dagayn", "args": ["serve", "--repo", "${workspaceFolder}"], "cwd": "${workspaceFolder}", "type": "stdio"}}}
 ```
 
-`"cwd": "${workspaceFolder}"`, or `CRG_REPO_ROOT` in the entry's `env`, work
-equally well. Editors that export `CURSOR_PROJECT_DIR`, `CLAUDE_PROJECT_DIR`, or
-`WORKSPACE_FOLDER_PATHS` are now believed over an unrelated inherited directory,
-so upgrading may be enough.
+in **project-level** `.cursor/mcp.json` only. `"cwd": "${workspaceFolder}"`,
+or `CRG_REPO_ROOT` in that entry's `env`, work equally well.
 
 Two refusals back this up, both reported as tool errors rather than silently
 answering:

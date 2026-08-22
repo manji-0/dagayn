@@ -158,6 +158,61 @@ def _resolve_repo(repo_root: str | None, *, from_hook: bool = False) -> Path:
     return Path(find_project_root()).resolve()
 
 
+def _structure_embed_files(build_result: ToolPayload | None, pending_files: list[str]) -> list[str]:
+    """Files whose nodes should be hash-checked after a structure pass."""
+    if not build_result or build_result.get("skipped"):
+        return list(pending_files)
+    return list(
+        dict.fromkeys(
+            [
+                *(build_result.get("changed_files") or []),
+                *(build_result.get("dependent_files") or []),
+                *pending_files,
+            ]
+        )
+    )
+
+
+def _queue_embedding_refresh(
+    root: Path,
+    *,
+    files: list[str] | None,
+    local_embedding: str | None,
+    local_embedding_mode: str | None,
+    local_embedding_port: int | None,
+    local_embedding_bin: str,
+    keep_local_embedding_server: bool,
+    local_embedding_timeout: int,
+    local_embedding_request_timeout: int,
+    local_embedding_batch_size: int,
+) -> ToolPayload:
+    from ..task_queue import enqueue_embed_refresh
+
+    action, task_id = enqueue_embed_refresh(
+        root,
+        files=files,
+        spawn_worker=True,
+        payload={
+            "local_embedding": local_embedding,
+            "local_embedding_mode": local_embedding_mode,
+            "local_embedding_port": local_embedding_port,
+            "local_embedding_bin": local_embedding_bin,
+            "keep_local_embedding_server": keep_local_embedding_server,
+            "local_embedding_timeout": local_embedding_timeout,
+            "local_embedding_request_timeout": local_embedding_request_timeout,
+            "local_embedding_batch_size": local_embedding_batch_size,
+        },
+    )
+    return {
+        "status": "ok",
+        "queued": True,
+        "queue_action": action,
+        "task_id": task_id,
+        "files": files,
+        "summary": f"{action} embed task {task_id}",
+    }
+
+
 def session_prepare(
     repo_root: str | None = None,
     *,
@@ -195,6 +250,7 @@ def session_prepare(
     seed_info: ToolPayload | None = None
     build_result: ToolPayload | None = None
     embedding_result: ToolPayload | None = None
+    pending_files: list[str] = []
     action = "noop"
     reason = "graph_ready"
 
@@ -246,11 +302,11 @@ def session_prepare(
         # would silently skip verification on any fresh checkout.
         sync_before = assess_graph_sync(store, root, max_hash_candidates=None)
         db_path = get_db_path(root)
-        emb_pending = sync_status_mod.embedding_needs_refresh(
+        refresh_before = sync_status_mod.embedding_refresh_action(
             db_path, local_embedding=local_embedding
         )
         if _local_embedding_requested(local_embedding):
-            phases["embedding"] = "pending" if emb_pending else "done"
+            phases["embedding"] = "done" if refresh_before == "skip" else "pending"
     finally:
         store.close()
 
@@ -266,7 +322,11 @@ def session_prepare(
             action = "full" if needs_full else "incremental"
             if needs_full:
                 reason = "empty_graph"
-            elif force and state_before in {"commit_synced", "worktree_ahead"} and not emb_pending:
+            elif (
+                force
+                and state_before in {"commit_synced", "worktree_ahead"}
+                and refresh_before == "skip"
+            ):
                 reason = "forced_refresh"
             elif state_before == "commit_drift":
                 reason = "git_drift"
@@ -328,30 +388,27 @@ def session_prepare(
         stats = store.get_stats()
         health = _answerability_via_sqlite(root, store, stats)
         db_path = get_db_path(root)
-        emb_pending = sync_status_mod.embedding_needs_refresh(
-            db_path, local_embedding=local_embedding
-        )
+        refresh = sync_status_mod.embedding_refresh_action(db_path, local_embedding=local_embedding)
     finally:
         store.close()
+
+    structure_files = _structure_embed_files(build_result, pending_files)
 
     # --- Phase 2: embeddings ---
     if not _local_embedding_requested(local_embedding):
         phases["embedding"] = "not_requested"
     elif embedding_policy == "skip":
         phases["embedding"] = "not_requested"
-    elif embedding_policy == "defer":
-        phases["embedding"] = "pending" if emb_pending else "done"
-    elif not emb_pending and not force:
-        phases["embedding"] = "done"
     else:
         remaining = _remaining_seconds(deadline)
         allow_inline = embedding_policy == "inline" or (
             embedding_policy == "auto"
             and (remaining is None or remaining >= _EMBEDDING_MIN_REMAINING_SECONDS)
         )
-        if not allow_inline:
-            phases["embedding"] = "skipped_budget" if embedding_policy == "auto" else "pending"
-        else:
+        want_inline = (embedding_policy == "inline" and (refresh != "skip" or force)) or (
+            embedding_policy == "auto" and (refresh == "inline" or (force and refresh != "skip"))
+        )
+        if want_inline and allow_inline:
             try:
                 # Incremental path with local embedding refreshes vectors even
                 # when there are no file changes (non-hook callers).
@@ -367,6 +424,7 @@ def session_prepare(
                     local_embedding_timeout=local_embedding_timeout,
                     local_embedding_request_timeout=local_embedding_request_timeout,
                     local_embedding_batch_size=local_embedding_batch_size,
+                    embed_files=structure_files or None,
                 )
                 embedding_result = emb_build.get("local_embedding") or emb_build
                 if emb_build.get("status") == "error":
@@ -379,6 +437,34 @@ def session_prepare(
             except Exception as exc:
                 phases["embedding"] = "failed"
                 embedding_result = {"status": "error", "error": str(exc)}
+        elif (
+            (embedding_policy == "defer" and refresh != "skip")
+            or refresh == "queue"
+            or (want_inline and not allow_inline)
+            or (refresh == "skip" and structure_files)
+        ):
+            queue_files = None if refresh in {"inline", "queue"} else structure_files or None
+            queued = _queue_embedding_refresh(
+                root,
+                files=queue_files,
+                local_embedding=local_embedding,
+                local_embedding_mode=local_embedding_mode,
+                local_embedding_port=local_embedding_port,
+                local_embedding_bin=local_embedding_bin,
+                keep_local_embedding_server=keep_local_embedding_server,
+                local_embedding_timeout=local_embedding_timeout,
+                local_embedding_request_timeout=local_embedding_request_timeout,
+                local_embedding_batch_size=local_embedding_batch_size,
+            )
+            embedding_result = queued
+            phases["embedding"] = "pending"
+            if want_inline and not allow_inline:
+                phases["embedding"] = "skipped_budget"
+            if action == "noop" and queued:
+                action = "incremental"
+                reason = "embedding_queued"
+        else:
+            phases["embedding"] = "done"
 
     elapsed = time.monotonic() - started
     structure_skipped = bool(build_result and build_result.get("skipped"))

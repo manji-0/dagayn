@@ -2,6 +2,32 @@
 
 All notable changes to `dagayn` are documented here.
 
+## Unreleased
+
+### Changed
+
+- Local embedding refresh no longer starts the sidecar on every incomplete
+  coverage report. Session prepare and MCP first-tool inline the pass only
+  when the index is empty or missing coverage is at least 5%
+  (`DAGAYN_EMBED_INLINE_MISSING_RATIO`); smaller holes are queued. After a
+  structure-only edit-hook update, a file-scoped `embed` task hash-skips just
+  the changed and dependent files so comment-only edits (material `text_hash`
+  changes with `complete` coverage) catch up without a whole-corpus scan. The
+  queued pass infers the stored sidecar preset (BGE-M3 vs Qwen) so a Qwen
+  graph does not spawn the BGE-M3 default. Sidecar inference now strips the
+  `#text=` partition suffix so stored keys match `dagayn serve`.
+
+### Fixes
+
+- User-level `dagayn serve` no longer freezes the first resolved repository
+  into every later MCP tool call. An omitted `--repo` is resolved per call
+  from IDE workspace hints; two or more unrelated hints with `cwd` inside
+  none of them are an error instead of ranking graphs by mtime. Project-level
+  Cursor MCP config now sets `cwd` to `${workspaceFolder}` so that process
+  starts in the repo, while the user-level `~/.cursor/mcp.json` copy still
+  omits `cwd`/`--repo` (that variable is the folder containing the user
+  config, not the open project).
+
 ## 4.10.3 — 2026-08-19
 
 ### Fixes
@@ -110,6 +136,14 @@ All notable changes to `dagayn` are documented here.
   so the model is not reloaded. A pass that reports leftovers without embedding
   anything does not re-queue, because it would otherwise spin forever on input
   the provider keeps rejecting.
+- A hook-triggered `dagayn update` no longer waits out a concurrent writer's
+  whole budget while resolving its diff base, then skips anyway. The CLI peeked
+  `git_head_sha` under the shared lock's full 120 s timeout before reaching the
+  non-blocking write lock, so an update fired while a build or an embedding pass
+  owned the graph hung the editor for up to two minutes. The base peek is now
+  non-blocking for hook runs (it prints that it is skipping and returns);
+  manual updates still wait. The queue worker's stored-`base` peek is bounded by
+  `DAGAYN_READ_LOCK_TIMEOUT` instead of the writer's budget.
 
 ## 4.10.1 — 2026-08-18
 
