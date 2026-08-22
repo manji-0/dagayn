@@ -6,6 +6,12 @@ All notable changes to `dagayn` are documented here.
 
 ### Changed
 
+- Drop unused Python and Rust dependency declarations. The core install no
+  longer pins `mcp` (FastMCP already requires `mcp>=1.24,<2`), the empty
+  `communities` / `enrichment` / `wiki` extras and `pytest-asyncio` are gone,
+  and the unused `anyhow` workspace crate is gone. `dagayn[google-embeddings]`
+  now installs `google-genai`, which is the SDK `from google import genai`
+  actually imports.
 - Local embedding refresh no longer starts the sidecar on every incomplete
   coverage report. Session prepare and MCP first-tool inline the pass only
   when the index is empty or missing coverage is at least 5%

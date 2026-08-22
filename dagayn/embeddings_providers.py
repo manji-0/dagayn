@@ -143,7 +143,7 @@ class GoogleEmbeddingProvider(EmbeddingProvider):
             self._dimension: int | None = None
         except ImportError:
             raise ImportError(
-                'google-generativeai not installed. Run: pip install "dagayn[google-embeddings] @ git+https://github.com/manji-0/dagayn.git"'
+                'google-genai not installed. Run: pip install "dagayn[google-embeddings]"'
             )
 
     def embed(self, texts: list[str]) -> list[list[float]]:

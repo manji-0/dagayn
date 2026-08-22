@@ -21,7 +21,6 @@ strip = "symbols"
 panic = "abort"
 
 [workspace.dependencies]
-anyhow = "1"
 globset = "0.4"
 memchr = "2"
 pyo3 = "0.28"
