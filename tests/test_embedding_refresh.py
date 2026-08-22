@@ -113,8 +113,12 @@ class TestEmbeddingRefreshAction:
         )
         assert graph_uses_local_embedding_sidecar(local) is True
         assert graph_uses_local_embedding_sidecar(remote) is False
-        assert sidecar_embed_payload(local)["local_embedding"] == "bge-m3"
-        assert sidecar_embed_payload(qwen)["local_embedding"] == "low"
+        local_payload = sidecar_embed_payload(local)
+        qwen_payload = sidecar_embed_payload(qwen)
+        assert local_payload is not None
+        assert qwen_payload is not None
+        assert local_payload["local_embedding"] == "bge-m3"
+        assert qwen_payload["local_embedding"] == "low"
 
 
 class TestEnqueueAfterUpdate:
