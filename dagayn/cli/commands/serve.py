@@ -136,10 +136,16 @@ def handle(args: argparse.Namespace, serve_parser: argparse.ArgumentParser) -> N
         serve_parser.error("--local-embedding and --remote-embedding are mutually exclusive")
 
     # Must run before embedding inference below, which reads the graph.
-    from ...incremental import resolve_cli_repo_root
+    from ...incremental import is_unresolved_path_placeholder, resolve_cli_repo_root
 
-    resolved_repo = str(resolve_cli_repo_root(args.repo))
-    _inherit_worktree_graph(resolved_repo)
+    # A user-level MCP entry has no --repo. Resolving the repo at serve start
+    # froze the first window's (or the newest graph's) root into every later
+    # tool call. Per-call resolution in find_project_root handles that; only
+    # an explicit, existing --repo pins the server.
+    pinned_repo: str | None = None
+    if args.repo and not is_unresolved_path_placeholder(args.repo):
+        pinned_repo = str(resolve_cli_repo_root(args.repo))
+        _inherit_worktree_graph(pinned_repo)
 
     remote_embedding = args.remote_embedding if args.remote_embedding != "none" else None
     effective_local_embedding_port = args.local_embedding_port
@@ -155,7 +161,7 @@ def handle(args: argparse.Namespace, serve_parser: argparse.ArgumentParser) -> N
             host = args.host if args.host is not None else "127.0.0.1"
             port = args.port if args.port is not None else 5555
             serve_main(
-                repo_root=resolved_repo,
+                repo_root=pinned_repo,
                 transport="streamable-http",
                 host=host,
                 port=port,
@@ -172,7 +178,7 @@ def handle(args: argparse.Namespace, serve_parser: argparse.ArgumentParser) -> N
             )
         else:
             serve_main(
-                repo_root=resolved_repo,
+                repo_root=pinned_repo,
                 tools=args.tools,
                 embedding_provider=embedding_provider,
                 embedding_model=embedding_model,
@@ -188,8 +194,12 @@ def handle(args: argparse.Namespace, serve_parser: argparse.ArgumentParser) -> N
     inferred_local_embedding = None
     local_embedding = args.local_embedding
     local_embedding_mode = args.local_embedding_mode
-    if not _local_embedding_requested(local_embedding) and remote_embedding is None:
-        inferred_local_embedding = _infer_persisted_local_embedding(resolved_repo)
+    if (
+        pinned_repo is not None
+        and not _local_embedding_requested(local_embedding)
+        and remote_embedding is None
+    ):
+        inferred_local_embedding = _infer_persisted_local_embedding(pinned_repo)
         if inferred_local_embedding is not None:
             local_embedding = inferred_local_embedding.level
             local_embedding_mode = (

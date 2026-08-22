@@ -1310,6 +1310,7 @@ def prepare_all_nodes(
     embedding_store: EmbeddingStore,
     *,
     prune_orphans: bool = True,
+    file_paths: list[str] | None = None,
 ) -> list[EmbedWorkItem]:
     """Scan the graph for embedding work; the only half that needs the graph.
 
@@ -1317,11 +1318,27 @@ def prepare_all_nodes(
     run with the graph store closed — so a sliced pass pays this scan once per
     pass instead of once per slice. ``prune_orphans=False`` skips the
     whole-corpus orphan sweep for a resumed run that already did it.
+
+    ``file_paths`` limits the pass to nodes in those files. Scoped runs never
+    prune orphans: the keep-set would be the subset, and every other vector
+    would be deleted.
     """
     if not embedding_store.available:
         return []
 
-    all_nodes = graph_store.get_all_nodes(exclude_files=True)
+    if file_paths:
+        prune_orphans = False
+        by_file = graph_store.get_nodes_by_files(file_paths)
+        seen: set[str] = set()
+        all_nodes: list[GraphNode] = []
+        for nodes in by_file.values():
+            for node in nodes:
+                if node.qualified_name in seen:
+                    continue
+                seen.add(node.qualified_name)
+                all_nodes.append(node)
+    else:
+        all_nodes = graph_store.get_all_nodes(exclude_files=True)
     # Point search at this provider before any rows land, so an interrupted
     # switch cannot silently rank a retired, still-larger partition.
     embedding_store.persist_active_provider_metadata()
@@ -1375,6 +1392,7 @@ def embed_all_nodes(
     show_progress: bool = False,
     slice_seconds: float | None = None,
     prune_orphans: bool = True,
+    file_paths: list[str] | None = None,
 ) -> int:
     """Embed all non-file nodes in the graph in one go.
 
@@ -1383,10 +1401,19 @@ def embed_all_nodes(
     write windows without re-scanning per window should drive
     :func:`prepare_all_nodes`, :meth:`EmbeddingStore.embed_prepared` and
     :func:`finalize_embedding_run` itself.
+
+    ``file_paths`` limits the pass to nodes in those files.
     """
     if not embedding_store.available:
         return 0
-    work = prepare_all_nodes(graph_store, embedding_store, prune_orphans=prune_orphans)
+    if file_paths:
+        prune_orphans = False
+    work = prepare_all_nodes(
+        graph_store,
+        embedding_store,
+        prune_orphans=prune_orphans,
+        file_paths=file_paths,
+    )
     embedded = embedding_store.embed_prepared(
         work,
         show_progress=show_progress,

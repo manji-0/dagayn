@@ -64,6 +64,20 @@ class TestEnqueue:
         assert task is not None
         assert task["payload"] == {"a": 1, "b": 2}
 
+    def test_coalesce_unions_scoped_embed_files(self, queue: TaskQueue) -> None:
+        queue.enqueue("embed", payload={"files": ["a.py"], "local_embedding": "bge-m3"})
+        queue.enqueue("embed", payload={"files": ["b.py"], "local_embedding": "bge-m3"})
+        task = queue.claim()
+        assert task is not None
+        assert task["payload"]["files"] == ["a.py", "b.py"]
+
+    def test_coalesce_scoped_into_full_embed_stays_full(self, queue: TaskQueue) -> None:
+        queue.enqueue("embed", payload={"local_embedding": "bge-m3"})
+        queue.enqueue("embed", payload={"files": ["a.py"], "local_embedding": "bge-m3"})
+        task = queue.claim()
+        assert task is not None
+        assert "files" not in task["payload"]
+
     def test_coalesce_keeps_higher_priority(self, queue: TaskQueue) -> None:
         queue.enqueue("update", priority=5)
         queue.enqueue("update", priority=1)

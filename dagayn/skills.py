@@ -286,10 +286,14 @@ def _build_server_entry(
     entry: SkillPayload = {"command": command, "args": args}
     if plat["needs_type"]:
         entry["type"] = "stdio"
-    # Cursor launches user-level MCP with cwd=$HOME and does not reliably
-    # expand ${workspaceFolder} in ~/.cursor/mcp.json. Do not pin --repo to a
-    # template or absolute path; dagayn serve resolves the open workspace from
-    # WORKSPACE_FOLDER_PATHS (and related IDE env) at startup.
+    # Cursor launches user-level MCP with cwd=$HOME. ${workspaceFolder} in
+    # ~/.cursor/mcp.json is the folder containing that file, not the open
+    # project, so the user-level copy must not pin cwd/--repo. Project-level
+    # `.cursor/mcp.json` does: that process starts in the repository.
+    # `_sync_cursor_user_mcp` strips cwd/--repo from the user copy. Unpinned
+    # `dagayn serve` resolves the repo on each tool call from workspace hints.
+    if key == "cursor":
+        entry["cwd"] = "${workspaceFolder}"
     if key == "opencode":
         entry["env"] = []
     if key == "pi":

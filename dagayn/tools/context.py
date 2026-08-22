@@ -330,7 +330,7 @@ def _get_minimal_context_body(
         from .session_prepare import session_prepare
         from .sync_status import (
             assess_graph_sync,
-            embedding_needs_refresh,
+            embedding_refresh_action,
             needs_mcp_auto_prepare,
         )
 
@@ -338,15 +338,17 @@ def _get_minimal_context_body(
         try:
             sync = assess_graph_sync(probe_store, probe_root)
             db_path = get_db_path(Path(probe_root))
-            emb_pending = embedding_needs_refresh(db_path, local_embedding=local_embedding)
+            refresh = embedding_refresh_action(db_path, local_embedding=local_embedding)
         finally:
             probe_store.close()
 
-        # Bootstrap only on unbuilt/commit_drift (or deferred embeddings). Dirty
-        # worktrees are HEAD-aligned; re-preparing on every tool call loops.
-        # A non-repo root (misdetected, e.g. $HOME) is never bootstrapped:
-        # preparing would scan the whole non-repo tree.
-        if (needs_mcp_auto_prepare(sync) or emb_pending) and sync.get("vcs") != "none":
+        # Bootstrap only on unbuilt/commit_drift (or a hole large enough to
+        # inline-embed). Dirty worktrees are HEAD-aligned; re-preparing on
+        # every tool call loops. A small missing-embedding tail is queued
+        # instead of blocking the first tool. A non-repo root (misdetected,
+        # e.g. $HOME) is never bootstrapped: preparing would scan the whole
+        # non-repo tree.
+        if (needs_mcp_auto_prepare(sync) or refresh == "inline") and sync.get("vcs") != "none":
             prepare_result = session_prepare(
                 repo_root=str(probe_root),
                 local_embedding=local_embedding,
@@ -355,6 +357,17 @@ def _get_minimal_context_body(
                 seed_worktree=True,
             )
             repo_root = str(probe_root)
+        elif refresh == "queue" and sync.get("vcs") != "none":
+            from ..task_queue import enqueue_embed_refresh
+
+            enqueue_embed_refresh(
+                probe_root,
+                spawn_worker=True,
+                payload={
+                    "local_embedding": local_embedding,
+                    "keep_local_embedding_server": True,
+                },
+            )
 
     # Use a dedicated GraphStore connection for this tool to avoid sharing a
     # cached sqlite handle across concurrent MCP calls.

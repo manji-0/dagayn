@@ -2,6 +2,32 @@
 
 All notable changes to `dagayn` are documented here.
 
+## Unreleased
+
+### Changed
+
+- Local embedding refresh no longer starts the sidecar on every incomplete
+  coverage report. Session prepare and MCP first-tool inline the pass only
+  when the index is empty or missing coverage is at least 5%
+  (`DAGAYN_EMBED_INLINE_MISSING_RATIO`); smaller holes are queued. After a
+  structure-only edit-hook update, a file-scoped `embed` task hash-skips just
+  the changed and dependent files so comment-only edits (material `text_hash`
+  changes with `complete` coverage) catch up without a whole-corpus scan. The
+  queued pass infers the stored sidecar preset (BGE-M3 vs Qwen) so a Qwen
+  graph does not spawn the BGE-M3 default. Sidecar inference now strips the
+  `#text=` partition suffix so stored keys match `dagayn serve`.
+
+### Fixes
+
+- User-level `dagayn serve` no longer freezes the first resolved repository
+  into every later MCP tool call. An omitted `--repo` is resolved per call
+  from IDE workspace hints; two or more unrelated hints with `cwd` inside
+  none of them are an error instead of ranking graphs by mtime. Project-level
+  Cursor MCP config now sets `cwd` to `${workspaceFolder}` so that process
+  starts in the repo, while the user-level `~/.cursor/mcp.json` copy still
+  omits `cwd`/`--repo` (that variable is the folder containing the user
+  config, not the open project).
+
 ## 4.10.3 — 2026-08-19
 
 ### Fixes

@@ -127,6 +127,16 @@ def test_infer_bge_local_embedding_provider_from_persisted_name():
     assert inferred.port == 19093
 
 
+def test_infer_strips_text_mode_and_dim_suffixes():
+    inferred = infer_local_embedding_provider(
+        "openai:bge-m3-gguf-q8_0@http://127.0.0.1:18080/v1#dim=1024#text=material"
+    )
+
+    assert inferred is not None
+    assert inferred.level == "bge-m3"
+    assert inferred.port == 18080
+
+
 def test_infer_local_embedding_provider_refuses_cloud_endpoint():
     assert (
         infer_local_embedding_provider(

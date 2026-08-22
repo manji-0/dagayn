@@ -209,37 +209,72 @@ def _contains_path(root: Path, path: Path | None) -> bool:
     return resolved == resolved_root or resolved.is_relative_to(resolved_root)
 
 
+class AmbiguousWorkspaceRootError(ValueError):
+    """Workspace hints name more than one repository and cwd does not pick one.
+
+    A user-level MCP server started with ``cwd=$HOME`` and
+    ``WORKSPACE_FOLDER_PATHS`` listing every open window used to answer from
+    whichever hinted graph was built most recently. That is the other
+    repository, reported as a normal result.
+    """
+
+    def __init__(self, candidates: list[Path]) -> None:
+        self.candidates = [Path(path) for path in candidates]
+        listed = ", ".join(str(path) for path in self.candidates) or "(none)"
+        super().__init__(
+            "workspace hints name more than one repository "
+            f"({listed}) and the working directory is not inside any of them. "
+            "Pass repo_root on the tool call, start the MCP server with --repo, "
+            "or use a project-level .cursor/mcp.json with cwd=${workspaceFolder}."
+        )
+
+
+def _hinted_repo_roots(
+    candidates: list[Path],
+    *,
+    stop_at: Path | None = None,
+) -> list[Path]:
+    """Return unique git/graph roots implied by IDE workspace folder hints."""
+    roots: list[Path] = []
+    seen: set[Path] = set()
+    for workspace in candidates:
+        hinted = find_repo_root(workspace, stop_at=stop_at)
+        root = hinted or (workspace if (workspace / ".dagayn").is_dir() else None)
+        if root is None or root in seen:
+            continue
+        seen.add(root)
+        roots.append(root)
+    return roots
+
+
 def _pick_workspace_root(
     candidates: list[Path],
     *,
     stop_at: Path | None = None,
     prefer: Path | None = None,
 ) -> Path | None:
-    """Choose the best IDE workspace root among multi-root candidates.
+    """Choose the IDE workspace root, or None when the hints are ambiguous.
 
-    A root that contains *prefer* (the caller's start directory) wins outright:
-    graph mtime is only a tiebreaker for candidates that are equally plausible,
-    and on its own it answered multi-root workspaces with whichever repository
-    was built most recently rather than the one being worked in.
+    A root that contains *prefer* (the caller's start directory) wins. When no
+    candidate contains it, a single hinted repository is still used — that is
+    the user-level MCP case of ``cwd=$HOME`` plus one open folder. Two or more
+    unrelated hints are not ranked by graph mtime: that picked whichever
+    repository was built last.
     """
-    scored: list[tuple[tuple[object, ...], Path]] = []
-    for workspace in candidates:
-        hinted = find_repo_root(workspace, stop_at=stop_at)
-        root = hinted or (workspace if (workspace / ".dagayn").is_dir() else None)
-        if root is None:
-            continue
-        graph = root / ".dagayn" / "graph.db"
-        has_graph = graph.is_file()
-        try:
-            mtime = graph.stat().st_mtime if has_graph else 0.0
-        except OSError:
-            mtime = 0.0
-        holds_start = _contains_path(root, prefer)
-        scored.append(((holds_start, has_graph, mtime, (root / ".git").exists()), root))
-    if not scored:
-        return None
-    scored.sort(key=lambda item: item[0], reverse=True)
-    return scored[0][1]
+    holding: list[Path] = []
+    other: list[Path] = []
+    for root in _hinted_repo_roots(candidates, stop_at=stop_at):
+        if _contains_path(root, prefer):
+            holding.append(root)
+        else:
+            other.append(root)
+    if holding:
+        # Innermost wins when one workspace is nested in another.
+        holding.sort(key=lambda path: len(path.parts), reverse=True)
+        return holding[0]
+    if len(other) == 1:
+        return other[0]
+    return None
 
 
 _UNRESOLVED_PATH_PLACEHOLDER = re.compile(r"^\$\{[^}]+\}$")
@@ -296,8 +331,10 @@ def find_project_root(
        user-level MCP entry with no ``cwd``) otherwise answers every window
        from whichever repository that shell happened to sit in. An explicit
        ``start`` is a deliberate choice by the caller and still wins.
-       Multi-root workspaces prefer the folder holding ``start``, then the
-       one with the richest existing ``.dagayn`` graph.
+       Multi-root workspaces prefer the folder holding ``start``. A unique
+       hint is used even when ``start`` is unrelated (``cwd=$HOME``). Two or
+       more unrelated hints raise :class:`AmbiguousWorkspaceRootError` when
+       ``start`` was omitted, instead of ranking graphs by mtime.
     4. ``start`` itself (or cwd if no start given).
 
     ``stop_at`` is forwarded to :func:`find_repo_root` so callers that
@@ -323,6 +360,10 @@ def find_project_root(
             picked = _pick_workspace_root(candidates, stop_at=stop_at, prefer=ambient)
             if picked is not None:
                 return picked
+            if start is None:
+                hinted = _hinted_repo_roots(candidates, stop_at=stop_at)
+                if len(hinted) > 1:
+                    raise AmbiguousWorkspaceRootError(hinted)
     if root:
         return root
 

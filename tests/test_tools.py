@@ -1988,8 +1988,43 @@ class TestBuildPostprocess:
         run.assert_called_once()
         assert run.call_args.kwargs["local_embedding"] == "low"
         assert run.call_args.kwargs["local_embedding_mode"] is None
+        assert run.call_args.kwargs.get("file_paths") is None
 
-    def test_hook_update_skips_local_embedding_when_incremental_has_no_changes(self, monkeypatch):
+    def test_incremental_scopes_local_embedding_to_changed_files(self, monkeypatch):
+        from unittest.mock import patch
+
+        from dagayn.tools.build import build_or_update_graph
+
+        monkeypatch.setenv("DAGAYN_BACKEND", "python")
+        embed_result = {
+            "status": "ok",
+            "preset": "low",
+            "newly_embedded": 2,
+            "total_embeddings": 9,
+        }
+        update_result = BuildResult(
+            files_updated=1,
+            total_nodes=4,
+            total_edges=2,
+            changed_files=["a.py"],
+            dependent_files=["b.py"],
+        )
+
+        with (
+            patch("dagayn.tools.build.incremental_update", return_value=update_result),
+            patch("dagayn.incremental.get_changed_files", return_value=["a.py"]),
+            patch("dagayn.tools.build._run_postprocess", return_value=[]),
+            patch("dagayn.tools.build._run_local_embedding", return_value=embed_result) as run,
+        ):
+            result = build_or_update_graph(
+                full_rebuild=False,
+                repo_root=str(self.root),
+                postprocess="minimal",
+                local_embedding="low",
+            )
+
+        assert result["local_embedding"] == embed_result
+        assert run.call_args.kwargs["file_paths"] == ["a.py", "b.py"]
         from unittest.mock import patch
 
         from dagayn.tools.build import build_or_update_graph
@@ -3181,8 +3216,8 @@ class TestEnsureGraph:
             }
 
         monkeypatch.setattr(
-            "dagayn.tools.sync_status.embedding_needs_refresh",
-            lambda *_a, **_k: True,
+            "dagayn.tools.sync_status.embedding_refresh_action",
+            lambda *_a, **_k: "inline",
         )
         with patch("dagayn.tools.session_prepare.build_or_update_graph", side_effect=_fake_build):
             result = ensure_graph(
@@ -3202,9 +3237,14 @@ class TestEnsureGraph:
 
         self._seed_ready_graph()
         monkeypatch.setattr(
-            "dagayn.tools.sync_status.embedding_needs_refresh",
-            lambda *_a, **_k: True,
+            "dagayn.tools.sync_status.embedding_refresh_action",
+            lambda *_a, **_k: "inline",
         )
+        monkeypatch.setattr(
+            "dagayn.task_queue.enqueue_embed_refresh",
+            lambda *_a, **_k: ("added", 1),
+        )
+        monkeypatch.setattr("dagayn.task_queue.ensure_worker", lambda *_a, **_k: False)
         with patch("dagayn.tools.session_prepare.build_or_update_graph") as build:
             result = ensure_graph(
                 repo_root=str(self.root),

@@ -229,6 +229,34 @@ class TestFindProjectRootAmbientCwd:
 
         assert find_project_root() == quiet.resolve()
 
+    def test_ambient_multi_root_without_cwd_is_ambiguous(self, tmp_path, monkeypatch):
+        """cwd=$HOME plus two open folders must not answer from the newest graph."""
+        from dagayn.incremental_files import AmbiguousWorkspaceRootError
+
+        busy = _git_repo(tmp_path / "busy")
+        quiet = _git_repo(tmp_path / "quiet")
+        graph = busy / ".dagayn" / "graph.db"
+        graph.parent.mkdir(parents=True)
+        graph.write_bytes(b"sqlite")
+        home = tmp_path / "home"
+        home.mkdir()
+        monkeypatch.chdir(home)
+        monkeypatch.setenv("WORKSPACE_FOLDER_PATHS", f"{busy},{quiet}")
+
+        with pytest.raises(AmbiguousWorkspaceRootError) as excinfo:
+            find_project_root()
+        assert busy.resolve() in excinfo.value.candidates
+        assert quiet.resolve() in excinfo.value.candidates
+
+    def test_unique_workspace_hint_wins_when_cwd_is_home(self, tmp_path, monkeypatch):
+        workspace = _git_repo(tmp_path / "only")
+        home = tmp_path / "home"
+        home.mkdir()
+        monkeypatch.chdir(home)
+        monkeypatch.setenv("WORKSPACE_FOLDER_PATHS", str(workspace))
+
+        assert find_project_root() == workspace.resolve()
+
 
 class TestSessionPrepareResolution:
     def test_honors_workspace_hint_over_home_cwd(self, tmp_path, monkeypatch):

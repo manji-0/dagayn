@@ -1829,7 +1829,7 @@ class TestInstallPlatformConfigs:
         data = json.loads(config_path.read_text())
         entry = data["mcpServers"]["dagayn"]
         assert entry["type"] == "stdio"
-        assert "cwd" not in entry
+        assert entry["cwd"] == "${workspaceFolder}"
         assert "--repo" not in entry["args"]
 
         user_config = fake_home / ".cursor" / "mcp.json"

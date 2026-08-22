@@ -166,6 +166,14 @@ Reserve `dagayn build --force-full-build --local-embedding` for explicit
 embedding-quality or end-to-end maintenance work after stating why the embedding
 refresh itself is required.
 
+Session prepare and MCP first-tool only block on embeddings when the index is
+empty or at least 5% of embeddable nodes are missing
+(`DAGAYN_EMBED_INLINE_MISSING_RATIO`). Smaller holes, and comment-only edits
+that keep coverage `complete`, are queued as `dagayn queue add embed` and
+hash-checked against `text_hash` — incremental updates with file changes
+scope that pass to the changed and dependent files instead of the whole
+corpus. Edit hooks still never embed inline.
+
 For Qwen sidecar mode, if no compatible server is already listening on `127.0.0.1:18081`, dagayn
 starts `llama-server` for the duration of the command. By default, dagayn stops
 that subprocess when embedding finishes. Managed starts are serialized per port
