@@ -1054,3 +1054,128 @@ def test_run_all_benchmarks():
             if "error" not in r:
                 assert r["total_tokens"] >= 0
                 assert "calls" in r
+
+
+def test_scale_node_targets_defaults_to_10k():
+    from dagayn.eval.benchmarks.scale_performance import _node_targets
+
+    assert _node_targets({}) == [10_000]
+    assert _node_targets({"scale_node_targets": [60]}) == [60]
+    assert 100_000 in _node_targets({"scale_include_100k": "true"})
+
+
+def test_query_performance_skips_embeddings_and_records_p95(tmp_path):
+    from dagayn.eval.benchmarks import query_performance
+    from dagayn.graph import GraphStore
+    from dagayn.parser import EdgeInfo, NodeInfo
+
+    store = GraphStore(tmp_path / "graph.db")
+    try:
+        store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="main",
+                file_path="app.py",
+                line_start=1,
+                line_end=2,
+                language="python",
+            )
+        )
+        store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="helper",
+                file_path="app.py",
+                line_start=3,
+                line_end=4,
+                language="python",
+            )
+        )
+        store.upsert_edge(
+            EdgeInfo(
+                kind="CALLS",
+                source="app.py::main",
+                target="app.py::helper",
+                file_path="app.py",
+                line=1,
+            )
+        )
+        store.commit()
+        rows = query_performance.run(tmp_path, store, {"query_repeat": 1})
+    finally:
+        store.close()
+
+    assert any(row["scenario"] == "embedding" and row["status"] == "skipped" for row in rows)
+    assert any("p95_ms" in row for row in rows)
+
+
+def test_scale_performance_emits_four_axes(monkeypatch, tmp_path):
+    from dagayn.eval.benchmarks import scale_performance
+    from dagayn.eval.runner import BENCHMARK_REGISTRY
+    from dagayn.state_types import BuildResult
+
+    assert "scale_performance" in BENCHMARK_REGISTRY
+    assert "query_performance" in BENCHMARK_REGISTRY
+
+    class FakeStats:
+        total_nodes = 12
+        total_edges = 8
+
+    class FakeStore:
+        def __init__(self, _path):
+            pass
+
+        def get_stats(self):
+            return FakeStats()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(
+        "dagayn.tools._common._selected_graph_store",
+        lambda **_k: FakeStore,
+    )
+    monkeypatch.setattr(
+        "dagayn.incremental.full_build",
+        lambda *_a, **_k: BuildResult(files_parsed=2, total_nodes=12, total_edges=8, errors=[]),
+    )
+    monkeypatch.setattr(
+        "dagayn.incremental.incremental_update",
+        lambda *_a, **_k: BuildResult(files_parsed=1, total_nodes=3, errors=[]),
+    )
+    monkeypatch.setattr("dagayn.tools.build._run_postprocess", lambda *_a, **_k: [])
+    monkeypatch.setattr(
+        "dagayn.eval.benchmarks.scale_performance._init_git_repo", lambda _root: None
+    )
+    monkeypatch.setattr(
+        "dagayn.eval.benchmarks.query_performance.run",
+        lambda *_a, **_k: [
+            {
+                "benchmark": "query_performance",
+                "scenario": "traverse_graph_depth_1",
+                "status": "ok",
+                "p95_ms": 1.0,
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        "dagayn.eval.benchmarks.mcp_latency._scenarios",
+        lambda *_a, **_k: {"get_minimal_context": lambda: None},
+    )
+    monkeypatch.setattr(
+        "dagayn.eval.benchmarks.mcp_latency._time_call",
+        lambda _fn, _repeat: (1.0, 1.0, 1.2),
+    )
+
+    rows = scale_performance.run(tmp_path, None, {"name": "repo", "scale_node_targets": [40]})
+    scenarios = {row["scenario"] for row in rows}
+    assert "cold_build" in scenarios
+    assert "incremental_1_file" in scenarios
+    assert "embedding" in scenarios
+    cold = next(row for row in rows if row["scenario"] == "cold_build")
+    assert "edges_per_second" in cold
+    assert "nodes_per_second" in cold
+    assert "peak_rss_mb" in cold
+    assert any(row.get("axis") == "query" for row in rows)
+    assert any(row.get("axis") == "mcp" for row in rows)
+    assert any(row["scenario"] == "embedding" and row["status"] == "skipped" for row in rows)

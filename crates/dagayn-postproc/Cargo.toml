@@ -7,4 +7,8 @@ repository.workspace = true
 
 [dependencies]
 dagayn-graph = { path = "../dagayn-graph" }
-
+leiden-rs = { version = "0.8.1", default-features = false, features = ["petgraph"] }
+petgraph = "0.8.3"
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true

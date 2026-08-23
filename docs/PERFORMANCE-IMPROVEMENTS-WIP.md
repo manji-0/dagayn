@@ -7,7 +7,9 @@
 
 > **Status:** Implementation in progress — multiple items shipped, others still tracked. Last updated 2026-08-09.
 >
-> **Related:** `RUST-CORE-MIGRATION-WIP.md`, `DAEMON-CONFIG.md`, `ROADMAP.md`
+> **Related:** `RUST-CORE-MIGRATION-WIP.md`, `DAEMON-CONFIG.md`, `ROADMAP.md`,
+> [`GRAPH-EFFICIENCY-PLAN.md`](./GRAPH-EFFICIENCY-PLAN.md) (scale/query benches
+> and reverse-CALLS incremental flows)
 
 ## Purpose
 
@@ -23,7 +25,8 @@ These are **Python-layer improvements** that can be shipped independently of and
 
 - Full rewrites of any module
 - HNSW/FAISS-based ANN index (tracked separately as a stretch goal)
-- CI performance regression gates (noted as a future possibility, not required here)
+- CI performance regression gates beyond the 10k smoke + `nplusone_count`
+  ceiling — taken up in [`GRAPH-EFFICIENCY-PLAN.md`](./GRAPH-EFFICIENCY-PLAN.md)
 - Changes to the graph schema or MCP tool API surface
 
 ---
@@ -237,7 +240,8 @@ Invalidation: postprocess is re-run on `dagayn build` and on `dagayn update` (un
 
 Still missing:
 
-- CI regression gates
+- p95 20% regression comments on CI (tracked in
+  [`GRAPH-EFFICIENCY-PLAN.md`](./GRAPH-EFFICIENCY-PLAN.md); 10k smoke lives there)
 
 ### 3.2 Proposed additions
 
@@ -286,11 +290,13 @@ These are not hard acceptance criteria yet; they are a starting point for discus
 
 #### 3.2.4 Query performance (`eval/benchmarks/query_performance.py`)
 
-Extend the existing `build_performance.py` pattern with traversal-specific benchmarks:
-
-- `traverse_graph` at depth 1, 3, 6 — measure node count and wall time, assert sub-linear growth after batch fix
-- `get_impact_radius` at depth 1, 3, 6
-- `get_affected_flows` for 1, 5, 20 changed files
+**Status:** Implemented under
+[`GRAPH-EFFICIENCY-PLAN.md`](./GRAPH-EFFICIENCY-PLAN.md) (this section is
+superseded). `query_performance.py` and `scale_performance.py` cover
+`traverse_graph` / `get_impact_radius` / `get_affected_flows` p95 plus
+synthetic 10k/100k cold, incremental, query, and MCP axes with phase timers.
+Embedding rows are reported `skipped` so they stay out of graph-construction
+throughput.
 
 ### 3.3 Running the benchmarks
 
@@ -306,7 +312,10 @@ and produce a machine-readable JSON output alongside human-readable console outp
 
 ### 3.4 CI integration (future, not required now)
 
-A scheduled GitHub Actions job could run `dagayn eval --benchmark latency` against a fixed reference graph, compare against a stored baseline JSON, and post a PR comment if any p95 increases by more than 20%. This is not proposed for immediate implementation but is the natural next step once baselines are established.
+A scheduled GitHub Actions job could run `dagayn eval --benchmark query_performance`
+against a fixed reference graph, compare against a stored baseline JSON, and post a PR comment if any p95 increases by more than 20%. That comment gate is owned by
+[`GRAPH-EFFICIENCY-PLAN.md`](./GRAPH-EFFICIENCY-PLAN.md); this WIP no longer
+tracks it as unimplemented measurement infrastructure.
 
 ---
 
@@ -318,7 +327,10 @@ A scheduled GitHub Actions job could run `dagayn eval --benchmark latency` again
 
 3. **Snapshot injection API compatibility.** Adding an optional `snapshot` parameter to `find_hub_nodes` / `find_bridge_nodes` / etc. changes their signatures. This is backward-compatible for callers that pass positional arguments, but any callers using keyword arguments need auditing.
 
-4. **Benchmark reference graph.** The latency targets in section 3.2.3 should be calibrated against a specific graph. The dagayn repository itself (326 files, 4 223 nodes, 25 665 edges as of 2026-04-30) is the obvious candidate, but a larger synthetic graph may be needed to surface scaling issues.
+4. **Benchmark reference graph.** Scale and query measurement now use the
+   synthetic generator in `dagayn/eval/synthetic_repo.py` plus
+   `scale_performance` / `query_performance`. See
+   [`GRAPH-EFFICIENCY-PLAN.md`](./GRAPH-EFFICIENCY-PLAN.md).
 
 5. **Interaction with hub/bridge persistence and `_invalidate_cache`.** After Fix B (persist hub/bridge scores), `_invalidate_cache` should also mark the `hub_scores` / `bridge_scores` tables as stale. Whether this is a flag column, a `PRAGMA user_version` bump, or simply relying on `computed_at` vs. graph mtime needs to be decided.
 

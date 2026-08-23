@@ -112,40 +112,42 @@ def detect_entry_points(
     When *include_tests* is False (the default), Test nodes are excluded so
     that flow analysis focuses on production entry points.
     """
-    # Build a set of all qualified names that are CALLS targets. Exclude
-    # edges sourced at File nodes so that script-/notebook-/top-level-only
-    # callees (e.g. ``run_job()`` invoked from module scope, a top-level
-    # ``<App />`` render) remain detectable as entry points.
+    native = getattr(store, "detect_entry_points_json", None)
+    if callable(native):
+        try:
+            rows = json.loads(cast(Callable[[bool], str], native)(include_tests))
+            ids = [int(row["id"]) for row in rows if isinstance(row, dict) and "id" in row]
+            nodes_by_id = store.get_nodes_by_ids(ids)
+            return [nodes_by_id[node_id] for node_id in ids if node_id in nodes_by_id]
+        except Exception:  # noqa: BLE001 — native acceleration must be optional
+            logger.debug("Native entry-point detection failed; falling back", exc_info=True)
+
     called_qnames = store.get_all_call_targets(include_file_sources=False)
-
-    # Scan all nodes for entry-point candidates.
     candidate_nodes = store.get_nodes_by_kind(["Function", "Test"])
+    return _select_entry_points(candidate_nodes, called_qnames, include_tests=include_tests)
 
+
+def _select_entry_points(
+    candidate_nodes: list[GraphNode],
+    called_qnames: set[str],
+    *,
+    include_tests: bool,
+) -> list[GraphNode]:
     entry_points: list[GraphNode] = []
     seen_qn: set[str] = set()
-
     for node in candidate_nodes:
         if not include_tests and (node.is_test or _is_test_file(node.file_path)):
             continue
-
         is_entry = False
-
-        # True root: no one calls this function.
         if node.qualified_name not in called_qnames:
             is_entry = True
-
-        # Framework decorator match.
         if _has_framework_decorator(node):
             is_entry = True
-
-        # Conventional name match.
         if _matches_entry_name(node):
             is_entry = True
-
         if is_entry and node.qualified_name not in seen_qn:
             entry_points.append(node)
             seen_qn.add(node.qualified_name)
-
     return entry_points
 
 
@@ -267,6 +269,28 @@ def trace_flows(
     return flows
 
 
+def rebuild_stored_flows(
+    store: GraphStore,
+    *,
+    max_depth: int = DEFAULT_FLOW_MAX_DEPTH,
+    include_tests: bool = False,
+) -> int:
+    """Rebuild stored flows, keeping reachable-set tracing inside Rust when possible.
+
+    Returns the number of flows persisted. Python only materializes
+    ``GraphNode`` objects on the fallback path.
+    """
+    native = getattr(store, "rebuild_flows_json", None)
+    if callable(native):
+        try:
+            payload = json.loads(cast(Callable[[int, bool], str], native)(max_depth, include_tests))
+            return int(payload.get("count") or 0)
+        except Exception:  # noqa: BLE001 — native acceleration must be optional
+            logger.debug("Native flow rebuild failed; falling back", exc_info=True)
+    flows = trace_flows(store, max_depth=max_depth, include_tests=include_tests)
+    return store_flows(store, flows)
+
+
 # ---------------------------------------------------------------------------
 # Criticality scoring
 # ---------------------------------------------------------------------------
@@ -342,14 +366,20 @@ def compute_criticality(flow: FlowRecord, adj: FlowAdjacency) -> float:
     return round(min(max(criticality, 0.0), 1.0), 4)
 
 
-def refresh_flow_criticality(store: GraphStore) -> int:
+def refresh_flow_criticality(
+    store: GraphStore,
+    flow_ids: set[int] | None = None,
+) -> int:
     """Recompute stored flow criticality from current TESTED_BY / CALLS facts.
 
-    Incremental tracing only retraces flows whose path files changed. Adding a
-    test file that covers a flow member does not touch those files, so stored
-    criticality would otherwise stay stale. Recomputing scores is cheap relative
-    to tracing. See: #114
+    Incremental tracing only retraces flows whose CALLS reachability changed.
+    Adding a test file that covers a flow member does not touch those files, so
+    stored criticality would otherwise stay stale. Pass *flow_ids* to refresh
+    only the affected flows. See: #114
     """
+    if flow_ids is not None and not flow_ids:
+        return 0
+
     adj = store.load_flow_adjacency()
     conn = getattr(store, "_conn", None)
     rust_get = getattr(store, "get_flows_json", None)
@@ -366,12 +396,15 @@ def refresh_flow_criticality(store: GraphStore) -> int:
                 "criticality": float(row["criticality"] or 0.0),
             }
             for row in rows
+            if flow_ids is None or int(row["id"]) in flow_ids
         ]
     elif callable(rust_get):
-        flows = cast(
-            list[FlowCriticalityRecord],
-            json.loads(cast(Callable[[str, int], str], rust_get)("criticality", 1_000_000)),
-        )
+        loaded = json.loads(cast(Callable[[str, int], str], rust_get)("criticality", 1_000_000))
+        flows = [
+            cast(FlowCriticalityRecord, row)
+            for row in loaded
+            if flow_ids is None or int(row.get("id") or 0) in flow_ids
+        ]
     else:
         return 0
 
@@ -716,127 +749,201 @@ def _delete_flows_for_entry_qualified_names(
         _delete_flows_by_ids(store, sorted(flow_ids))
 
 
+def _existing_flow_entries(store: GraphStore) -> dict[str, tuple[int, int]]:
+    """Map entry qualified name to ``(flow_id, entry_point_id)``."""
+    conn = getattr(store, "_conn", None)
+    if conn is None:
+        return {}
+    rows = conn.execute(
+        "SELECT f.id, f.entry_point_id, n.qualified_name "
+        "FROM flows f JOIN nodes n ON n.id = f.entry_point_id"
+    ).fetchall()
+    return {
+        str(row["qualified_name"]): (int(row["id"]), int(row["entry_point_id"])) for row in rows
+    }
+
+
+def _reverse_call_entry_qns(
+    adj: FlowAdjacency,
+    changed_qns: set[str],
+    existing_entry_qns: set[str],
+) -> set[str]:
+    """Walk reverse CALLS from changed nodes to stored flow entry points."""
+    calls_in: dict[str, list[str]] = {}
+    for source, targets in adj.calls_out.items():
+        for target in targets:
+            calls_in.setdefault(target, []).append(source)
+    visited = set(changed_qns)
+    queue = deque(changed_qns)
+    affected: set[str] = set()
+    while queue:
+        qn = queue.popleft()
+        if qn in existing_entry_qns:
+            affected.add(qn)
+        for caller in calls_in.get(qn, ()):
+            if caller not in visited:
+                visited.add(caller)
+                queue.append(caller)
+    return affected
+
+
+def _changed_node_qns(store: GraphStore, changed_files: list[str]) -> set[str]:
+    conn = getattr(store, "_conn", None)
+    if conn is None:
+        nodes: set[str] = set()
+        for file_path in changed_files:
+            for node in store.get_nodes_by_file(file_path):
+                nodes.add(node.qualified_name)
+        return nodes
+    lookup_files = _normalize_changed_file_keys(store, changed_files)
+    if not lookup_files:
+        return set()
+    placeholders = ",".join("?" * len(lookup_files))
+    return {
+        str(row["qualified_name"])
+        for row in conn.execute(  # nosec B608
+            f"SELECT qualified_name FROM nodes WHERE file_path IN ({placeholders})",
+            lookup_files,
+        )
+    }
+
+
+def _entry_points_in_files(
+    store: GraphStore,
+    adj: FlowAdjacency,
+    changed_files: list[str],
+) -> list[GraphNode]:
+    lookup_files = set(_normalize_changed_file_keys(store, changed_files))
+    called = {target for targets in adj.calls_out.values() for target in targets}
+    candidates = [
+        node
+        for node in adj.nodes_by_qn.values()
+        if node.file_path in lookup_files and node.kind in {"Function", "Test"}
+    ]
+    return _select_entry_points(candidates, called, include_tests=False)
+
+
+def _flow_ids_for_tested_by_files(store: GraphStore, changed_files: list[str]) -> set[int]:
+    conn = getattr(store, "_conn", None)
+    if conn is None:
+        return set()
+    lookup_files = _normalize_changed_file_keys(store, changed_files)
+    if not lookup_files:
+        return set()
+    placeholders = ",".join("?" * len(lookup_files))
+    return {
+        int(row[0])
+        for row in conn.execute(  # nosec B608
+            "SELECT DISTINCT fm.flow_id "
+            "FROM edges e "
+            "JOIN nodes n ON n.qualified_name = e.source_qualified "
+            "JOIN flow_memberships fm ON fm.node_id = n.id "
+            f"WHERE e.kind = 'TESTED_BY' AND e.file_path IN ({placeholders})",
+            lookup_files,
+        )
+    }
+
+
 def incremental_trace_flows(
     store: GraphStore,
     changed_files: list[str],
     max_depth: int = 15,
 ) -> int:
-    """Re-trace only flows that touch *changed_files*.  Much faster than full trace.
+    """Re-trace flows whose reachable sets are affected by *changed_files*.
 
-    1. Find affected flows by qualified name, live memberships, dangling
-       memberships, or stale ``path_json`` node ids.
-    2. Collect the entry-point node IDs of those flows before deleting them.
-    3. Delete only the affected flows and their memberships.
-    4. Re-detect entry points, keeping those in *changed_files* **or** whose
-       node ID was an entry point of a deleted flow.
-    5. BFS-trace each relevant entry point via :func:`_trace_single_flow`.
-    6. INSERT the new flows (without clearing unrelated flows), first deleting
-       any stale flow that shares the same entry-point qualified name.
-    7. Recompute criticality for every remaining flow so TESTED_BY coverage
-       and unresolved-external facts stay current even when the changed files
-       are tests that are not on any flow path.
+    Affected entry points are the union of:
 
-    Returns the number of re-traced flows that were stored.
+    - reverse ``CALLS`` from changed nodes to stored flow entries
+    - new entry points discovered only in the changed files
+    - file-membership / stale-path fallbacks from :func:`_get_affected_flow_ids`
+
+    Full-graph :func:`detect_entry_points` is not used. Criticality is refreshed
+    only for retraced flows and flows whose members gained ``TESTED_BY`` edges.
     """
     if not changed_files:
         return 0
 
-    rust_delete = getattr(store, "delete_affected_flows", None)
-    rust_insert = getattr(store, "insert_flows_json", None)
-    if callable(rust_delete) and callable(rust_insert):
-        changed_file_set = set(changed_files)
-        deleted_ids = cast(Callable[[list[str]], list[int]], rust_delete)(changed_files)
-        entry_point_ids = set(deleted_ids)
+    native = getattr(store, "incremental_trace_flows_json", None)
+    if callable(native):
+        try:
+            payload = json.loads(
+                cast(Callable[[list[str], int], str], native)(changed_files, max_depth)
+            )
+            return int(payload.get("count") or 0)
+        except Exception:  # noqa: BLE001
+            logger.debug("Native incremental flow trace failed; falling back", exc_info=True)
 
-        entry_points = detect_entry_points(store)
-        relevant_eps = [
-            ep
-            for ep in entry_points
-            if ep.file_path in changed_file_set or ep.id in entry_point_ids
-        ]
+    adj = store.load_flow_adjacency()
+    existing = _existing_flow_entries(store)
+    changed_qns = _changed_node_qns(store, changed_files)
+    relevant_qns = _reverse_call_entry_qns(adj, changed_qns, set(existing))
+    relevant_qns.update(
+        ep.qualified_name for ep in _entry_points_in_files(store, adj, changed_files)
+    )
 
-        new_flows: list[FlowRecord] = []
-        if relevant_eps:
-            adj = store.load_flow_adjacency()
-            for ep in relevant_eps:
-                flow = _trace_single_flow(adj, ep, max_depth)
-                if flow is not None:
-                    new_flows.append(flow)
+    affected_ids = set(_get_affected_flow_ids(store, changed_files))
+    for qn, (flow_id, _entry_id) in existing.items():
+        if qn in relevant_qns:
+            affected_ids.add(flow_id)
 
-        count = 0
-        if new_flows:
-            count = cast(Callable[[str], int], rust_insert)(json.dumps(new_flows))
-        refresh_flow_criticality(store)
-        return count
+    _delete_flows_by_ids(store, sorted(affected_ids))
 
-    changed_file_set = set(changed_files)
-
-    # ------------------------------------------------------------------
-    # 1-3. Find and delete affected flows
-    # ------------------------------------------------------------------
-    affected_ids = _get_affected_flow_ids(store, changed_files)
-    entry_point_ids = _delete_flows_by_ids(store, affected_ids)
-
-    # ------------------------------------------------------------------
-    # 4. Re-detect entry points and filter to relevant ones
-    # ------------------------------------------------------------------
-    entry_points = detect_entry_points(store)
     relevant_eps = [
-        ep for ep in entry_points if ep.file_path in changed_file_set or ep.id in entry_point_ids
+        node
+        for qn in relevant_qns
+        if (node := adj.nodes_by_qn.get(qn)) is not None
+        and node.kind in {"Function", "Test"}
+        and not node.is_test
+        and not _is_test_file(node.file_path)
     ]
 
-    # ------------------------------------------------------------------
-    # 5. BFS-trace each relevant entry point
-    # ------------------------------------------------------------------
     new_flows: list[FlowRecord] = []
-    if relevant_eps:
-        adj = store.load_flow_adjacency()
-        for ep in relevant_eps:
-            flow = _trace_single_flow(adj, ep, max_depth)
-            if flow is not None:
-                new_flows.append(flow)
+    for ep in relevant_eps:
+        flow = _trace_single_flow(adj, ep, max_depth)
+        if flow is not None:
+            new_flows.append(flow)
 
-    # ------------------------------------------------------------------
-    # 6. INSERT new flows without clearing unrelated ones
-    # ------------------------------------------------------------------
     count = len(new_flows)
     if new_flows:
-        _delete_flows_for_entry_qualified_names(
-            store,
-            {flow["entry_point"] for flow in new_flows if flow.get("entry_point")},
-        )
-
-        conn = store._conn
-        conn.executemany(
-            _FLOW_INSERT_SQL,
-            [_flow_insert_params(f) for f in new_flows],
-        )
-
-        # Map freshly-inserted flows back to IDs via entry_point_id (unique per flow)
-        known_ep_ids = {f["entry_point_id"] for f in new_flows}
-        ep_ph = ",".join("?" * len(known_ep_ids))
-        ep_rows = conn.execute(  # nosec B608
-            f"SELECT id, entry_point_id FROM flows WHERE entry_point_id IN ({ep_ph})",
-            list(known_ep_ids),
-        ).fetchall()
-        ep_to_flow_id = {r["entry_point_id"]: r["id"] for r in ep_rows}
-
-        memberships: list[tuple[int, int, int]] = [
-            (ep_to_flow_id[f["entry_point_id"]], node_id, position)
-            for f in new_flows
-            if f["entry_point_id"] in ep_to_flow_id
-            for position, node_id in enumerate(f.get("path", []))
-        ]
-        if memberships:
-            conn.executemany(
-                "INSERT OR IGNORE INTO flow_memberships (flow_id, node_id, position) "
-                "VALUES (?, ?, ?)",
-                memberships,
+        rust_insert = getattr(store, "insert_flows_json", None)
+        if callable(rust_insert):
+            count = cast(Callable[[str], int], rust_insert)(json.dumps(new_flows))
+        else:
+            _delete_flows_for_entry_qualified_names(
+                store,
+                {flow["entry_point"] for flow in new_flows if flow.get("entry_point")},
             )
+            conn = store._conn
+            conn.executemany(
+                _FLOW_INSERT_SQL,
+                [_flow_insert_params(f) for f in new_flows],
+            )
+            known_ep_ids = {f["entry_point_id"] for f in new_flows}
+            ep_ph = ",".join("?" * len(known_ep_ids))
+            ep_rows = conn.execute(  # nosec B608
+                f"SELECT id, entry_point_id FROM flows WHERE entry_point_id IN ({ep_ph})",
+                list(known_ep_ids),
+            ).fetchall()
+            ep_to_flow_id = {r["entry_point_id"]: r["id"] for r in ep_rows}
+            memberships: list[tuple[int, int, int]] = [
+                (ep_to_flow_id[f["entry_point_id"]], node_id, position)
+                for f in new_flows
+                if f["entry_point_id"] in ep_to_flow_id
+                for position, node_id in enumerate(f.get("path", []))
+            ]
+            if memberships:
+                conn.executemany(
+                    "INSERT OR IGNORE INTO flow_memberships (flow_id, node_id, position) "
+                    "VALUES (?, ?, ?)",
+                    memberships,
+                )
+            conn.commit()
 
-    conn = store._conn
-    conn.commit()
-    refresh_flow_criticality(store)
+    refresh_ids = _flow_ids_for_tested_by_files(store, changed_files)
+    for qn, (flow_id, _entry_id) in _existing_flow_entries(store).items():
+        if qn in relevant_qns:
+            refresh_ids.add(flow_id)
+    refresh_flow_criticality(store, refresh_ids)
     return count
 
 

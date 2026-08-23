@@ -529,6 +529,10 @@ class _StoreBulkLoad:
             self._finish()
 
 
+#: Match the Rust writer: drop/rebuild indexes only for large file batches.
+BULK_LOAD_FILE_THRESHOLD = 64
+
+
 def _flush_store_batch(store: GraphStore, batch: StoreBatch) -> None:
     """Write parsed file results through one store call.
 

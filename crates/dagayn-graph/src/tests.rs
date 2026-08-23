@@ -2489,3 +2489,96 @@ fn reads_nodes_and_edges_for_incremental_dependents() {
     assert_eq!(outgoing[0].confidence, 0.75);
     let _ = std::fs::remove_file(path);
 }
+
+fn flow_test_node(kind: &str, name: &str, file: &str) -> NodeInput {
+    NodeInput {
+        kind: kind.to_string(),
+        name: name.to_string(),
+        file_path: file.to_string(),
+        line_start: 1,
+        line_end: 10,
+        language: "python".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: Value::Object(Default::default()),
+    }
+}
+
+fn flow_test_call(source: &str, target: &str, file: &str) -> EdgeInput {
+    EdgeInput {
+        kind: "CALLS".to_string(),
+        source: source.to_string(),
+        target: target.to_string(),
+        file_path: file.to_string(),
+        line: 2,
+        extra: Value::Object(Default::default()),
+    }
+}
+
+#[test]
+fn incremental_trace_flows_uses_reverse_calls_for_new_callee() {
+    let path = temp_db("incremental-reverse-calls");
+    let mut store = GraphStore::open(&path).expect("open graph store");
+    store
+        .store_file_batch(&[(
+            "a.py".to_string(),
+            vec![
+                flow_test_node("File", "a.py", "a.py"),
+                flow_test_node("Function", "entry", "a.py"),
+                flow_test_node("Function", "local", "a.py"),
+            ],
+            vec![
+                flow_test_call("a.py::entry", "a.py::local", "a.py"),
+                flow_test_call("a.py::entry", "b.py::new_helper", "a.py"),
+            ],
+            "hash-a".to_string(),
+            0,
+        )])
+        .unwrap();
+    store.rebuild_flows_json(15, false).unwrap();
+
+    let before: i64 = store
+        .conn
+        .query_row(
+            "SELECT node_count FROM flows f JOIN nodes n ON n.id = f.entry_point_id \
+             WHERE n.qualified_name = 'a.py::entry'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(before, 2);
+
+    store
+        .store_file_batch(&[(
+            "b.py".to_string(),
+            vec![
+                flow_test_node("File", "b.py", "b.py"),
+                flow_test_node("Function", "new_helper", "b.py"),
+            ],
+            vec![],
+            "hash-b".to_string(),
+            0,
+        )])
+        .unwrap();
+
+    let count = store
+        .incremental_trace_flows(&["b.py".to_string()], 15)
+        .unwrap();
+    assert!(count >= 1);
+
+    let members: i64 = store
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM flow_memberships fm \
+             JOIN nodes n ON n.id = fm.node_id \
+             WHERE n.qualified_name = 'b.py::new_helper'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(members > 0);
+    let _ = std::fs::remove_file(path);
+}

@@ -319,6 +319,20 @@ def apply_incremental_graph_mutations(state: IncrementalUpdateState) -> BuildRes
 
 def run_incremental_parsing(state: IncrementalUpdateState) -> None:
     """Parse rust and python file batches."""
+    from .incremental_build import BULK_LOAD_FILE_THRESHOLD, _StoreBulkLoad
+
+    parse_files = (
+        len(state.to_parse) + len(state.to_parse_rust_forced) + len(state.to_parse_rust_checked)
+    )
+    if parse_files >= BULK_LOAD_FILE_THRESHOLD:
+        with _StoreBulkLoad(state.store):
+            _run_incremental_parsing_body(state)
+        return
+    _run_incremental_parsing_body(state)
+
+
+def _run_incremental_parsing_body(state: IncrementalUpdateState) -> None:
+    """Parse rust and python file batches without toggling bulk-load."""
     from .incremental_build import (
         _MAX_PARSE_WORKERS,
         _PARSE_FILE_ERRORS,

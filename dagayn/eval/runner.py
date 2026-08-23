@@ -35,6 +35,8 @@ BENCHMARK_REGISTRY = {  # nosec B105 - benchmark names, not credentials
     "nplusone_count": "dagayn.eval.benchmarks.nplusone_count",
     "mcp_latency": "dagayn.eval.benchmarks.mcp_latency",
     "recent_changes_effects": "dagayn.eval.benchmarks.recent_changes_effects",
+    "query_performance": "dagayn.eval.benchmarks.query_performance",
+    "scale_performance": "dagayn.eval.benchmarks.scale_performance",
 }
 
 CONFIGS_DIR = Path(__file__).parent / "configs"

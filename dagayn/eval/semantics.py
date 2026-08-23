@@ -353,7 +353,7 @@ def _registry() -> dict[tuple[str, str], MetricSpec]:
                 MetricDirection.LOWER_IS_BETTER,
             )
         )
-    for metric in ("files_per_second", "nodes_per_second"):
+    for metric in ("files_per_second", "nodes_per_second", "edges_per_second"):
         specs.append(
             _spec(
                 "build_performance",
@@ -414,6 +414,51 @@ def _registry() -> dict[tuple[str, str], MetricSpec]:
                 MetricFamily.EFFICIENCY,
                 MetricRole.COST,
                 OracleType.SYNTHETIC,
+                Construct.QUERY_LATENCY,
+                AggregationPolicy.MEDIAN,
+                MetricDirection.LOWER_IS_BETTER,
+            )
+        )
+
+    for metric in (
+        "nodes_per_second",
+        "edges_per_second",
+        "sqlite_write_per_second",
+        "changed_node_per_second",
+    ):
+        specs.append(
+            _spec(
+                "scale_performance",
+                metric,
+                MetricFamily.EFFICIENCY,
+                MetricRole.DIAGNOSTIC,
+                OracleType.SYNTHETIC,
+                Construct.BUILD_OPERABILITY,
+                AggregationPolicy.EXCLUDED,
+                MetricDirection.HIGHER_IS_BETTER,
+            )
+        )
+    for metric in ("parse_write_ms", "postprocess_ms", "incremental_ms", "peak_rss_mb", "p95_ms"):
+        specs.append(
+            _spec(
+                "scale_performance",
+                metric,
+                MetricFamily.EFFICIENCY,
+                MetricRole.COST,
+                OracleType.SYNTHETIC,
+                Construct.QUERY_LATENCY if metric == "p95_ms" else Construct.BUILD_OPERABILITY,
+                AggregationPolicy.MEDIAN,
+                MetricDirection.LOWER_IS_BETTER,
+            )
+        )
+    for metric in ("best_ms", "median_ms", "p95_ms"):
+        specs.append(
+            _spec(
+                "query_performance",
+                metric,
+                MetricFamily.EFFICIENCY,
+                MetricRole.COST,
+                OracleType.NONE,
                 Construct.QUERY_LATENCY,
                 AggregationPolicy.MEDIAN,
                 MetricDirection.LOWER_IS_BETTER,

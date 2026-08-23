@@ -805,6 +805,35 @@ class TestFlows:
         violations = conn.execute("PRAGMA foreign_key_check").fetchall()
         assert len(violations) == 0
 
+    def test_incremental_trace_flows_reverse_calls_new_callee(self):
+        """Unchanged entry must retrace when a changed file adds a new callee.
+
+        File-centric membership misses this: the new node is not yet in
+        ``flow_memberships``. Reverse CALLS from the new callee reaches the
+        stored entry point.
+        """
+        self._add_func("entry", path="a.py")
+        self._add_func("local", path="a.py")
+        self._add_call("a.py::entry", "a.py::local", "a.py")
+
+        store_flows(self.store, trace_flows(self.store))
+        before = [flow for flow in get_flows(self.store) if flow["name"] == "entry"]
+        assert len(before) == 1
+        assert before[0]["node_count"] == 2
+
+        self._add_func("new_helper", path="b.py")
+        self._add_call("a.py::entry", "b.py::new_helper", "a.py")
+
+        count = incremental_trace_flows(self.store, ["b.py"])
+        assert count >= 1
+
+        after = [flow for flow in get_flows(self.store) if flow["name"] == "entry"]
+        assert len(after) == 1
+        detail = get_flow_by_id(self.store, after[0]["id"])
+        assert detail is not None
+        assert "new_helper" in {step["name"] for step in detail["steps"]}
+        assert after[0]["node_count"] == 3
+
     def test_incremental_retrace_after_reparse_middle_file(self):
         """Regression for #29: changed middle file must re-trace the flow."""
         self._add_func("main", path="pkg/a.py")

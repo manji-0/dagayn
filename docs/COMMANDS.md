@@ -167,6 +167,21 @@ symbol/comment materials. Configure unrelated calibration queries with
 `mean_top_5_score` so overconfident matches are visible even when no target is
 expected.
 
+#### Graph construction scale
+
+<!-- derived-from ./GRAPH-EFFICIENCY-PLAN.md -->
+
+`dagayn eval --benchmark query_performance` records p95 for `traverse_graph`
+(depth 1/3/6), `get_impact_radius`, and `get_affected_flows`. Embedding search
+is a skipped row; use `embedding_materials` for that axis.
+
+`dagayn eval --benchmark scale_performance` builds a synthetic Python graph
+(default ~10k nodes). Set `DAGAYN_SCALE_LARGE=1` or `scale_include_100k` for
+100k, and `DAGAYN_SCALE_1M=1` only for manual/nightly 1M runs. Rows split
+parse/write vs postprocess, report `nodes_per_second` / `edges_per_second` /
+peak RSS / incremental changed-node/sec, and attach query + MCP p95. Do not
+mix embedding generation into these numbers.
+
 `dagayn eval --benchmark guidance_precision` measures precision@k for
 review-guidance outputs such as recommended tests, documentation update
 candidates, refactor suggestions, calibrated `guidance` items, stable-contract

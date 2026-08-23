@@ -696,6 +696,25 @@ def detect_communities(store: GraphStore, min_size: int = 2) -> list[CommunityRe
         List of community dicts with keys: name, level, size, cohesion,
         dominant_language, description, members, member_qns.
     """
+    native = getattr(store, "detect_communities_json", None)
+    if callable(native):
+        payload = json.loads(native(min_size))
+        results: list[CommunityRecord] = []
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+            record: CommunityRecord = {
+                "name": str(item.get("name") or "community"),
+                "level": int(item.get("level") or 0),
+                "size": int(item.get("size") or 0),
+                "cohesion": float(item.get("cohesion") or 0.0),
+                "dominant_language": str(item.get("dominant_language") or ""),
+                "description": str(item.get("description") or ""),
+                "members": [str(member) for member in (item.get("members") or [])],
+            }
+            results.append(record)
+        return results
+
     # Gather all nodes (exclude File nodes to focus on code entities)
     all_edges = store.get_all_edges()
     unique_nodes = store.get_all_nodes(exclude_files=True)
@@ -834,6 +853,10 @@ def incremental_detect_communities(
     """
     if not changed_files:
         return 0
+
+    native = getattr(store, "incremental_detect_communities", None)
+    if callable(native):
+        return int(native(changed_files, min_size, pre_affected_count))
 
     affected_count = (
         pre_affected_count

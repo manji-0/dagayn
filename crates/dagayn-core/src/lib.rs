@@ -4,3 +4,7 @@ pub use dagayn_graph::{
 };
 pub use dagayn_parser as parser;
 pub use dagayn_postproc as postproc;
+pub use dagayn_postproc::{
+    detect_communities_json, incremental_detect_communities, refresh_community_stats_json,
+    run_post_processing_json,
+};

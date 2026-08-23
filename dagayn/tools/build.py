@@ -472,6 +472,40 @@ def _run_postprocess(
         return warnings
 
     post_result = build_result.postprocess
+    native_full = (
+        full_rebuild
+        and postprocess == "full"
+        and not skip_minimal_steps
+        and not skip_flow_steps
+        and not skip_community_steps
+        and not skip_centrality_steps
+        and callable(getattr(store, "run_post_processing_json", None))
+    )
+    if native_full:
+        from dagayn.postprocessing import run_post_processing
+
+        pp = run_post_processing(store)
+        dumped = pp.model_dump(exclude_none=True)
+        dumped.pop("warnings", None)
+        for name, value in dumped.items():
+            setattr(post_result, name, value)
+        warnings.extend(pp.warnings)
+        if pp.signatures_computed is not None:
+            build_result.signatures_updated = True
+        if pp.fts_indexed is not None:
+            build_result.fts_indexed = pp.fts_indexed
+            build_result.fts_rebuilt = True
+        if not skip_orphan_prune:
+            warnings.extend(_prune_orphaned_structures(store, build_result))
+        if not skip_summary_steps:
+            try:
+                _compute_summaries(store)
+                build_result.summaries_computed = True
+            except (sqlite3.OperationalError, RuntimeError, Exception) as e:
+                logger.warning("Summary computation failed: %s", e)
+                warnings.append(f"Summary computation failed: {type(e).__name__}: {e}")
+        _record_postprocess_level(store, postprocess)
+        return warnings
 
     if not skip_minimal_steps:
         # -- Signatures + FTS (fast, always run unless "none") --
@@ -585,11 +619,9 @@ def _run_postprocess(
 
                 count = incremental_trace_flows(store, changed_files or [])
             else:
-                from dagayn.flows import store_flows as _store_flows
-                from dagayn.flows import trace_flows as _trace_flows
+                from dagayn.flows import rebuild_stored_flows
 
-                flows = _trace_flows(store)
-                count = _store_flows(store, flows)
+                count = rebuild_stored_flows(store)
             post_result.flows_detected = count
         except (sqlite3.OperationalError, RuntimeError, ImportError) as e:
             logger.warning("Flow detection failed: %s", e)
@@ -1112,11 +1144,9 @@ def build_or_update_graph(
                 if can_trace_rust_flows:
                     try:
                         if full_rebuild:
-                            from dagayn.flows import store_flows as _store_flows
-                            from dagayn.flows import trace_flows as _trace_flows
+                            from dagayn.flows import rebuild_stored_flows
 
-                            traced = _trace_flows(store)
-                            build_result.postprocess.flows_detected = _store_flows(store, traced)
+                            build_result.postprocess.flows_detected = rebuild_stored_flows(store)
                         else:
                             from dagayn.flows import incremental_trace_flows
 
@@ -1334,11 +1364,9 @@ def run_postprocess(
 
         if flows:
             try:
-                from dagayn.flows import store_flows as _store_flows
-                from dagayn.flows import trace_flows as _trace_flows
+                from dagayn.flows import rebuild_stored_flows
 
-                traced = _trace_flows(store)
-                count = _store_flows(store, traced)
+                count = rebuild_stored_flows(store)
                 result.postprocess.flows_detected = count
             except (sqlite3.OperationalError, ImportError) as e:
                 store.rollback()

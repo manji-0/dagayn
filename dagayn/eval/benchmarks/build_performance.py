@@ -53,6 +53,7 @@ def run(repo_path: Path, store: Any, config: BenchmarkPayload) -> list[Benchmark
                     "errors_count": errors_count,
                     "files_per_second": round(files_parsed / max(total_ms / 1000.0, 0.001), 3),
                     "nodes_per_second": round(stats.total_nodes / max(total_ms / 1000.0, 0.001), 3),
+                    "edges_per_second": round(stats.total_edges / max(total_ms / 1000.0, 0.001), 3),
                 }
             )
         except Exception as exc:

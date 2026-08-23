@@ -1,8 +1,11 @@
 use std::sync::Mutex;
 
 use dagayn_core::{
-    EdgeInput, FileBatchItem, GraphEdge, GraphNode, GraphStats, GraphStore as NativeGraphStore,
-    NodeInput,
+    detect_communities_json as native_detect_communities_json,
+    incremental_detect_communities as native_incremental_detect_communities,
+    refresh_community_stats_json as native_refresh_community_stats_json,
+    run_post_processing_json as native_run_post_processing_json, EdgeInput, FileBatchItem,
+    GraphEdge, GraphNode, GraphStats, GraphStore as NativeGraphStore, NodeInput,
 };
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -527,6 +530,25 @@ impl PyGraphStore {
         self.with_store_mut(|store| store.persist_centrality_scores())
     }
 
+    #[pyo3(signature = (manifest_extractor_id, manifest_nodes_json, manifest_edges_json, min_community_size = 2))]
+    fn run_post_processing_json(
+        &self,
+        manifest_extractor_id: &str,
+        manifest_nodes_json: &str,
+        manifest_edges_json: &str,
+        min_community_size: i64,
+    ) -> PyResult<String> {
+        self.with_store_mut(|store| {
+            native_run_post_processing_json(
+                store,
+                manifest_extractor_id,
+                manifest_nodes_json,
+                manifest_edges_json,
+                min_community_size,
+            )
+        })
+    }
+
     fn generate_suggested_questions_json(&self) -> PyResult<String> {
         self.with_store(|store| store.generate_suggested_questions_json())
     }
@@ -572,12 +594,57 @@ impl PyGraphStore {
         self.with_store_mut(|store| store.delete_affected_flows(&changed_files))
     }
 
+    #[pyo3(signature = (include_tests = false))]
+    fn detect_entry_points_json(&self, include_tests: bool) -> PyResult<String> {
+        self.with_store(|store| store.detect_entry_points_json(include_tests))
+    }
+
+    #[pyo3(signature = (max_depth = 15, include_tests = false))]
+    fn rebuild_flows_json(&self, max_depth: i64, include_tests: bool) -> PyResult<String> {
+        self.with_store_mut(|store| store.rebuild_flows_json(max_depth, include_tests))
+    }
+
+    #[pyo3(signature = (changed_files, max_depth = 15))]
+    fn incremental_trace_flows_json(
+        &self,
+        changed_files: Vec<String>,
+        max_depth: i64,
+    ) -> PyResult<String> {
+        self.with_store_mut(|store| store.incremental_trace_flows_json(&changed_files, max_depth))
+    }
+
     fn get_node_kind_by_id(&self, node_id: i64) -> PyResult<Option<String>> {
         self.with_store(|store| store.get_node_kind_by_id(node_id))
     }
 
     fn store_communities_json(&self, communities_json: &str) -> PyResult<i64> {
         self.with_store_mut(|store| store.store_communities_json(communities_json))
+    }
+
+    #[pyo3(signature = (min_size = 2))]
+    fn detect_communities_json(&self, min_size: i64) -> PyResult<String> {
+        self.with_store(|store| native_detect_communities_json(store, min_size))
+    }
+
+    #[pyo3(signature = (changed_files, min_size = 2, pre_affected_count = None))]
+    fn incremental_detect_communities(
+        &self,
+        changed_files: Vec<String>,
+        min_size: i64,
+        pre_affected_count: Option<i64>,
+    ) -> PyResult<i64> {
+        self.with_store_mut(|store| {
+            native_incremental_detect_communities(
+                store,
+                &changed_files,
+                min_size,
+                pre_affected_count,
+            )
+        })
+    }
+
+    fn refresh_community_stats_json(&self) -> PyResult<String> {
+        self.with_store_mut(|store| native_refresh_community_stats_json(store))
     }
 
     #[pyo3(signature = (sort_by = "size", min_size = 0))]

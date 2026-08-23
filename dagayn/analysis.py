@@ -337,9 +337,14 @@ def persist_centrality_scores(store: GraphStore) -> dict[str, int]:
     ranking without re-computing betweenness.
     """
     rust_persist = getattr(store, "persist_centrality_scores", None)
-    if callable(rust_persist) and not hasattr(store, "_conn"):
-        scores = cast(Callable[[], dict[str, int]], rust_persist)()
-        return {key: value for key, value in scores.items()}
+    if callable(rust_persist):
+        try:
+            scores = cast(Callable[[], dict[str, int]], rust_persist)()
+            return {key: int(value) for key, value in scores.items()}
+        except Exception:  # noqa: BLE001 — native acceleration must be optional
+            if not hasattr(store, "_conn"):
+                raise
+            logger.debug("Native centrality persist failed; falling back", exc_info=True)
 
     _ensure_centrality_score_tables(store)
     snapshot = build_graph_snapshot(store)

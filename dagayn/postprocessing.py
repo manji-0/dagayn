@@ -24,6 +24,8 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Callable, cast
 
+from pydantic import ValidationError
+
 from .graph import GraphStore, store_write_transaction
 from .graph._sql import _edge_target_name
 from .state_types import (
@@ -109,6 +111,19 @@ def _demote_unresolved_endpoint_edges(
         warnings.append(f"Unresolved endpoint demotion failed: {type(e).__name__}: {e}")
 
 
+def _discover_manifest_bridges(store: GraphStore) -> Any | None:
+    """Discover manifest-backed bridge nodes/edges without mutating the graph."""
+    from .parser.manifest_bridges import discover_manifest_bridges, refine_node_line_ends
+
+    repo_root = _store_repo_root(store)
+    if repo_root is None or not repo_root.is_dir():
+        return None
+
+    discovered = discover_manifest_bridges(repo_root)
+    refine_node_line_ends(repo_root, discovered.nodes)
+    return discovered
+
+
 def run_post_processing(store: GraphStore) -> PostprocessResult:
     """Run all post-build steps on a populated graph.
 
@@ -122,6 +137,39 @@ def run_post_processing(store: GraphStore) -> PostprocessResult:
         Typed summary with a counter for each step that ran and a
         ``warnings`` list (only populated when at least one step failed).
     """
+    native = _native_method(store, "run_post_processing_json")
+    if native is not None:
+        from .parser.manifest_bridges import EXTRACTOR_ID
+
+        manifest_nodes: list[dict[str, Any]] = []
+        manifest_edges: list[dict[str, Any]] = []
+        discovered = _discover_manifest_bridges(store)
+        if discovered is not None:
+            manifest_nodes = [asdict(node) for node in discovered.nodes]
+            manifest_edges = [asdict(edge) for edge in discovered.edges]
+        try:
+            raw = cast(Callable[..., str], native)(
+                EXTRACTOR_ID,
+                json.dumps(manifest_nodes),
+                json.dumps(manifest_edges),
+                2,
+            )
+            payload = json.loads(raw)
+            native_warnings = payload.pop("warnings", []) or []
+            result = PostprocessResult(**payload)
+            if native_warnings:
+                result.warnings = list(native_warnings)
+            return result
+        except (
+            OSError,
+            RuntimeError,
+            TypeError,
+            ValueError,
+            json.JSONDecodeError,
+            ValidationError,
+        ) as e:
+            logger.warning("Rust post-processing failed, falling back to Python: %s", e)
+
     result = PostprocessResult()
     warnings: list[str] = []
 
@@ -739,10 +787,9 @@ def _trace_flows(
 ) -> None:
     """Trace execution flows from entry points."""
     try:
-        from .flows import store_flows, trace_flows
+        from .flows import rebuild_stored_flows
 
-        flows = trace_flows(store)
-        count = store_flows(store, flows)
+        count = rebuild_stored_flows(store)
         result.flows_detected = count
     except (sqlite3.OperationalError, ImportError) as e:
         logger.warning("Flow detection failed: %s", e)

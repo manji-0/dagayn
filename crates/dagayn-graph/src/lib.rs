@@ -480,6 +480,7 @@ mod core;
 mod edge_queries;
 mod embeddings;
 mod flows;
+mod flow_trace;
 mod fts_sync;
 mod helpers;
 mod impact;
