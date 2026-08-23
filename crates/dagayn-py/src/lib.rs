@@ -23,6 +23,7 @@ struct PyGraphStore {
     /// database mmap'd while another connection checkpoints and truncates the
     /// WAL underneath them.
     inner: Mutex<Option<NativeGraphStore>>,
+    db_path: String,
     pinned: Mutex<bool>,
     leases: Mutex<i64>,
     pending_rust_changed: Mutex<HashMap<String, CachedRustChangedFile>>,
@@ -56,13 +57,19 @@ impl PyGraphStore {
     fn new(py: Python<'_>, db_path: &Bound<'_, PyAny>) -> PyResult<Self> {
         let os = PyModule::import(py, "os")?;
         let db_path: String = os.getattr("fspath")?.call1((db_path,))?.extract()?;
-        let inner = NativeGraphStore::open(db_path).map_err(to_py_runtime_error)?;
+        let inner = NativeGraphStore::open(&db_path).map_err(to_py_runtime_error)?;
         Ok(Self {
             inner: Mutex::new(Some(inner)),
+            db_path,
             pinned: Mutex::new(false),
             leases: Mutex::new(0),
             pending_rust_changed: Mutex::new(HashMap::new()),
         })
+    }
+
+    #[getter]
+    fn db_path(&self) -> &str {
+        &self.db_path
     }
 
     #[getter(_pinned)]
@@ -316,6 +323,15 @@ impl PyGraphStore {
         let out = PyDict::new(py);
         for (community_id, qualified_names) in members {
             out.set_item(community_id, qualified_names)?;
+        }
+        Ok(out.unbind().into_any())
+    }
+
+    fn get_all_community_ids(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let community_ids = self.with_store(|store| store.get_all_community_ids())?;
+        let out = PyDict::new(py);
+        for (qualified_name, community_id) in community_ids {
+            out.set_item(qualified_name, community_id)?;
         }
         Ok(out.unbind().into_any())
     }

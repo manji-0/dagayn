@@ -13,6 +13,7 @@ from ..communities import (
     get_communities,
 )
 from ..graph import node_to_dict
+from ..graph.sqlite_errors import borrowed_sqlite_connection
 from ..hints import generate_hints, get_session
 from ..stability_policy import component_stability_profiles, stability_policy_summary
 from ._common import (
@@ -420,11 +421,12 @@ def list_communities_func(
             valid_sorts = {"size", "cohesion", "name"}
             sort = sort_by if sort_by in valid_sorts else "size"
             order = "DESC" if sort in ("size", "cohesion") else "ASC"
-            rows = store._conn.execute(
-                "SELECT name, size, cohesion FROM communities "
-                f"WHERE size >= ? ORDER BY {sort} {order}",  # nosec B608
-                (min_size,),
-            ).fetchall()
+            with borrowed_sqlite_connection(store) as conn:
+                rows = conn.execute(
+                    "SELECT name, size, cohesion FROM communities "
+                    f"WHERE size >= ? ORDER BY {sort} {order}",  # nosec B608
+                    (min_size,),
+                ).fetchall()
             communities = [
                 {
                     "name": row["name"],

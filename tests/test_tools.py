@@ -1772,7 +1772,7 @@ class TestBuildPostprocess:
         monkeypatch.setitem(sys.modules, "dagayn._core", None)
 
         with pytest.raises(RuntimeError, match="requires dagayn._core"):
-            _common._selected_graph_store(use_backend_default=True)
+            _common._selected_graph_store()
 
     def test_postprocess_none_produces_nodes_no_flows(self, monkeypatch):
         from unittest.mock import patch
@@ -2727,11 +2727,15 @@ class TestGetMinimalContext:
     def test_retries_once_on_sqlite_corrupt(self, monkeypatch):
         import sqlite3
 
-        from dagayn.graph.core import GraphStore as GraphStoreCls
         from dagayn.tools.context import get_minimal_context
 
+        try:
+            from dagayn._core import GraphStore as StoreCls
+        except ImportError:
+            from dagayn.graph.core import GraphStore as StoreCls
+
         calls = {"n": 0}
-        original = GraphStoreCls.get_stats
+        original = StoreCls.get_stats
 
         def flaky(self):
             calls["n"] += 1
@@ -2739,7 +2743,7 @@ class TestGetMinimalContext:
                 raise sqlite3.DatabaseError("database disk image is malformed")
             return original(self)
 
-        monkeypatch.setattr(GraphStoreCls, "get_stats", flaky)
+        monkeypatch.setattr(StoreCls, "get_stats", flaky)
         result = get_minimal_context(
             task="explore codebase",
             repo_root=str(self.root),

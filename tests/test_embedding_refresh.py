@@ -235,7 +235,7 @@ class TestSessionPrepareQueue:
                 lambda *_a, **_k: (_Store(), tmp_path),
             ),
             patch(
-                "dagayn.tools.session_prepare._answerability_via_sqlite",
+                "dagayn.tools.session_prepare.graph_answerability_summary",
                 lambda *_a, **_k: {"status": "ok", "score": 1.0},
             ),
             patch(

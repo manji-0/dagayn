@@ -1066,7 +1066,7 @@ def build_or_update_graph(
                 errors=[{"file": "", "error": str(exc)}],
             )
         )
-    store, root = _get_store(repo_root, cached=False, use_backend_default=True)
+    store, root = _get_store(repo_root, cached=False)
     build_result = BuildResult()
     run_embedding = False
     no_changes = False

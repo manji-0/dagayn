@@ -173,6 +173,17 @@ impl GraphStore {
         Ok(out)
     }
 
+    pub fn get_all_community_ids(&self) -> Result<HashMap<String, Option<i64>>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT qualified_name, community_id FROM nodes")?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?))
+        })?;
+        rows.collect::<std::result::Result<HashMap<_, _>, _>>()
+            .map_err(Into::into)
+    }
+
     pub fn count_affected_communities(&self, file_paths: &[String]) -> Result<i64> {
         let mut community_ids = HashSet::new();
         for chunk in file_paths.chunks(450) {

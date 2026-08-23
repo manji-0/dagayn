@@ -612,10 +612,6 @@ def _uses_compact_entities(nodes: list[Any], edges: list[Any]) -> bool:
     return _is_compact_entities(nodes) or _is_compact_entities(edges)
 
 
-def _rust_backend_explicitly_requested() -> bool:
-    return os.environ.get("DAGAYN_BACKEND", "").strip().lower() == "rust"
-
-
 def _rust_backend_available() -> bool:
     return importlib.util.find_spec("dagayn._core") is not None
 

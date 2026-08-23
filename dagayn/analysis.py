@@ -20,6 +20,7 @@ from .communities import CommunityMetricsPayload
 from .cross_artifact import is_reportable_bridge
 from .entry_point_heuristics import has_framework_decorator, matches_entry_name
 from .graph import GraphEdge, GraphNode, GraphStore, _sanitize_name
+from .graph.sqlite_errors import borrowed_sqlite_connection
 
 logger = logging.getLogger(__name__)
 
@@ -154,6 +155,15 @@ class SuggestedQuestionRecord(TypedDict):
     question: str
     target: str
     priority: str
+
+
+def _communities_list(store: GraphStore) -> list[sqlite3.Row]:
+    try:
+        with borrowed_sqlite_connection(store) as conn:
+            return conn.execute("SELECT id, name FROM communities").fetchall()
+    except sqlite3.OperationalError as exc:
+        logger.debug("Communities list unavailable (table missing): %s", exc)
+        return []
 
 
 def build_graph_snapshot(store: GraphStore) -> GraphSnapshot:
@@ -377,85 +387,86 @@ def persist_centrality_scores(
         include_tests=False,
     )
     now = time.time()
-    with store._conn:
-        store._conn.execute("DELETE FROM hub_scores")
-        store._conn.execute("DELETE FROM bridge_scores")
-        store._conn.execute("DELETE FROM hub_scores_code")
-        store._conn.execute("DELETE FROM bridge_scores_code")
-        store._conn.executemany(
-            "INSERT INTO hub_scores "
-            "(qualified_name, name, kind, file_path, in_degree, out_degree, total_degree, "
-            "community_id, computed_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [
-                (
-                    h["qualified_name"],
-                    h["name"],
-                    h["kind"],
-                    h["file"],
-                    int(h["in_degree"]),
-                    int(h["out_degree"]),
-                    int(h["total_degree"]),
-                    h.get("community_id"),
-                    now,
-                )
-                for h in hubs
-            ],
-        )
-        store._conn.executemany(
-            "INSERT INTO bridge_scores "
-            "(qualified_name, name, kind, file_path, betweenness, community_id, computed_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            [
-                (
-                    b["qualified_name"],
-                    b["name"],
-                    b["kind"],
-                    b["file"],
-                    float(b["betweenness"]),
-                    b.get("community_id"),
-                    now,
-                )
-                for b in bridges
-            ],
-        )
-        store._conn.executemany(
-            "INSERT INTO hub_scores_code "
-            "(qualified_name, name, kind, file_path, in_degree, out_degree, total_degree, "
-            "community_id, computed_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [
-                (
-                    h["qualified_name"],
-                    h["name"],
-                    h["kind"],
-                    h["file"],
-                    int(h["in_degree"]),
-                    int(h["out_degree"]),
-                    int(h["total_degree"]),
-                    h.get("community_id"),
-                    now,
-                )
-                for h in hubs_code
-            ],
-        )
-        store._conn.executemany(
-            "INSERT INTO bridge_scores_code "
-            "(qualified_name, name, kind, file_path, betweenness, community_id, computed_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            [
-                (
-                    b["qualified_name"],
-                    b["name"],
-                    b["kind"],
-                    b["file"],
-                    float(b["betweenness"]),
-                    b.get("community_id"),
-                    now,
-                )
-                for b in bridges_code
-            ],
-        )
+    with borrowed_sqlite_connection(store) as conn:
+        with conn:
+            conn.execute("DELETE FROM hub_scores")
+            conn.execute("DELETE FROM bridge_scores")
+            conn.execute("DELETE FROM hub_scores_code")
+            conn.execute("DELETE FROM bridge_scores_code")
+            conn.executemany(
+                "INSERT INTO hub_scores "
+                "(qualified_name, name, kind, file_path, in_degree, out_degree, total_degree, "
+                "community_id, computed_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (
+                        h["qualified_name"],
+                        h["name"],
+                        h["kind"],
+                        h["file"],
+                        int(h["in_degree"]),
+                        int(h["out_degree"]),
+                        int(h["total_degree"]),
+                        h.get("community_id"),
+                        now,
+                    )
+                    for h in hubs
+                ],
+            )
+            conn.executemany(
+                "INSERT INTO bridge_scores "
+                "(qualified_name, name, kind, file_path, betweenness, community_id, computed_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (
+                        b["qualified_name"],
+                        b["name"],
+                        b["kind"],
+                        b["file"],
+                        float(b["betweenness"]),
+                        b.get("community_id"),
+                        now,
+                    )
+                    for b in bridges
+                ],
+            )
+            conn.executemany(
+                "INSERT INTO hub_scores_code "
+                "(qualified_name, name, kind, file_path, in_degree, out_degree, total_degree, "
+                "community_id, computed_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (
+                        h["qualified_name"],
+                        h["name"],
+                        h["kind"],
+                        h["file"],
+                        int(h["in_degree"]),
+                        int(h["out_degree"]),
+                        int(h["total_degree"]),
+                        h.get("community_id"),
+                        now,
+                    )
+                    for h in hubs_code
+                ],
+            )
+            conn.executemany(
+                "INSERT INTO bridge_scores_code "
+                "(qualified_name, name, kind, file_path, betweenness, community_id, computed_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (
+                        b["qualified_name"],
+                        b["name"],
+                        b["kind"],
+                        b["file"],
+                        float(b["betweenness"]),
+                        b.get("community_id"),
+                        now,
+                    )
+                    for b in bridges_code
+                ],
+            )
     return {
         "hub_scores_persisted": len(hubs),
         "bridge_scores_persisted": len(bridges),
@@ -465,7 +476,8 @@ def persist_centrality_scores(
 
 
 def _ensure_centrality_score_tables(store: GraphStore) -> None:
-    store._conn.executescript(
+    with borrowed_sqlite_connection(store) as conn:
+        conn.executescript(
         """
         CREATE TABLE IF NOT EXISTS hub_scores (
             qualified_name TEXT PRIMARY KEY,
@@ -525,12 +537,13 @@ def _load_persisted_hub_scores(
     table = "hub_scores_code" if artifact_scope == "code" else "hub_scores"
     try:
         _ensure_centrality_score_tables(store)
-        rows = store._conn.execute(
-            f"SELECT name, qualified_name, kind, file_path, in_degree, out_degree, "
-            f"total_degree, community_id "
-            f"FROM {table} ORDER BY total_degree DESC, qualified_name LIMIT ?",  # noqa: S608
-            (top_n,),
-        ).fetchall()
+        with borrowed_sqlite_connection(store) as conn:
+            rows = conn.execute(
+                f"SELECT name, qualified_name, kind, file_path, in_degree, out_degree, "
+                f"total_degree, community_id "
+                f"FROM {table} ORDER BY total_degree DESC, qualified_name LIMIT ?",  # noqa: S608
+                (top_n,),
+            ).fetchall()
     except sqlite3.OperationalError:
         return []
     return [
@@ -555,11 +568,12 @@ def _load_persisted_bridge_scores(
     table = "bridge_scores_code" if artifact_scope == "code" else "bridge_scores"
     try:
         _ensure_centrality_score_tables(store)
-        rows = store._conn.execute(
-            f"SELECT name, qualified_name, kind, file_path, betweenness, community_id "
-            f"FROM {table} ORDER BY betweenness DESC, qualified_name LIMIT ?",  # noqa: S608
-            (top_n,),
-        ).fetchall()
+        with borrowed_sqlite_connection(store) as conn:
+            rows = conn.execute(
+                f"SELECT name, qualified_name, kind, file_path, betweenness, community_id "
+                f"FROM {table} ORDER BY betweenness DESC, qualified_name LIMIT ?",  # noqa: S608
+                (top_n,),
+            ).fetchall()
     except sqlite3.OperationalError:
         return []
     return [
@@ -665,7 +679,7 @@ def find_knowledge_gaps(
     community_edge_metrics = _community_edge_metrics(comm_sizes, qn_to_community, scoped_edges)
 
     # Thin communities (< 3 members)
-    communities = store.get_communities_list()
+    communities = _communities_list(store)
     thin: list[KnowledgeGapRecord] = []
     small_single_file_thin: list[KnowledgeGapRecord] = []
     for c in communities:

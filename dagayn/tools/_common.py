@@ -24,7 +24,6 @@ from ..graph.sqlite_errors import (
 )
 from ..incremental import (
     _backend_selection,
-    _rust_backend_explicitly_requested,
     find_project_root,
     get_db_path,
 )
@@ -509,7 +508,6 @@ def _get_store(
     repo_root: str | None = None,
     *,
     cached: bool = True,
-    use_backend_default: bool = False,
 ) -> tuple[GraphStore, Path]:
     """Resolve repo root and return a (possibly cached) graph store."""
     root = _validate_repo_root(Path(repo_root)) if repo_root else find_project_root()
@@ -553,7 +551,6 @@ def _get_store(
             root,
             db_path,
             cached=cached,
-            use_backend_default=use_backend_default,
         )
     except BaseException:
         if owns_read_lock:
@@ -571,9 +568,8 @@ def _open_store(
     db_path: Path,
     *,
     cached: bool,
-    use_backend_default: bool,
 ) -> tuple[GraphStore, Path]:
-    store_cls = _selected_graph_store(use_backend_default=use_backend_default)
+    store_cls = _selected_graph_store()
     if store_cls is not GraphStore:
         store = store_cls(db_path)
         register_live_store(store, db_path)
@@ -630,15 +626,12 @@ def _open_store(
     return store, root
 
 
-def _selected_graph_store(*, use_backend_default: bool = True) -> type:
-    """Return the graph store selected by DAGAYN_BACKEND.
+def _selected_graph_store() -> type:
+    """Return the graph store selected by ``DAGAYN_BACKEND``.
 
-    The Rust backend is the default for write-heavy tool flows. Source
-    checkouts require the native extension.
+    Rust is the default; source checkouts require the native extension.
     """
     if _backend_selection() != "rust":
-        return GraphStore
-    if not use_backend_default and not _rust_backend_explicitly_requested():
         return GraphStore
     try:
         from dagayn._core import GraphStore as RustGraphStore
@@ -649,6 +642,21 @@ def _selected_graph_store(*, use_backend_default: bool = True) -> type:
             "DAGAYN_BACKEND=rust requires dagayn._core. "
             "Install a wheel with the native extension or rebuild from source."
         ) from exc
+
+
+def _answerability_sqlite_connection(store: Any) -> tuple[sqlite3.Connection | None, bool]:
+    """Return a SQLite connection for answerability queries and whether to close it."""
+    conn = getattr(store, "_conn", None)
+    if conn is not None:
+        return conn, False
+    db_path = getattr(store, "db_path", None)
+    if db_path is None and type(store).__module__ == "builtins":
+        ctx = repo_context_snapshot()
+        if ctx is not None:
+            db_path = ctx.get("db_path")
+    if not db_path:
+        return None, False
+    return sqlite3.connect(str(db_path), timeout=30), True
 
 
 def _hints_from_next_tool_suggestions(
@@ -787,7 +795,7 @@ def graph_answerability_summary(store: Any, stats: Any | None = None) -> Answera
                     "parse": [0, 0, False],
                 }
             )
-    conn = getattr(store, "_conn", None)
+    conn, owns_conn = _answerability_sqlite_connection(store)
     if conn is None:
         return seal_answerability_summary(
             {
@@ -808,113 +816,117 @@ def graph_answerability_summary(store: Any, stats: Any | None = None) -> Answera
             return 0
         return int(row[0] if row else 0)
 
-    flow_count = _count("SELECT COUNT(*) FROM flows", failure_code="missing_flows_table")
-    community_count = _count(
-        "SELECT COUNT(*) FROM communities",
-        failure_code="missing_communities_table",
-    )
-    test_edge_count = int(stats.edges_by_kind.get("TESTED_BY", 0))
-    cross_artifact_count = int(stats.edges_by_kind.get("CROSS_ARTIFACT", 0))
-    unresolved_markdown_code_span_count = _count(
-        "SELECT COUNT(*) FROM edges "
-        "WHERE kind = 'CROSS_ARTIFACT' "
-        "AND target_qualified LIKE '<unresolved:%' "
-        "AND extra LIKE '%markdown_code_span%' "
-        "AND extra LIKE '%code_span%'",
-        failure_code="missing_cross_artifact_edge_metadata",
-    )
-    unresolved_cross_artifact_count = _count(
-        "SELECT COUNT(*) FROM edges "
-        "WHERE kind = 'CROSS_ARTIFACT' AND target_qualified LIKE '<unresolved:%'",
-        failure_code="missing_cross_artifact_edges",
-    )
-    reportable_cross_artifact_count = max(
-        0,
-        cross_artifact_count - unresolved_markdown_code_span_count,
-    )
-    reportable_unresolved_cross_artifact_count = max(
-        0,
-        unresolved_cross_artifact_count - unresolved_markdown_code_span_count,
-    )
-    unresolved_ratio = (
-        reportable_unresolved_cross_artifact_count / reportable_cross_artifact_count
-        if reportable_cross_artifact_count
-        else 0.0
-    )
+    try:
+        flow_count = _count("SELECT COUNT(*) FROM flows", failure_code="missing_flows_table")
+        community_count = _count(
+            "SELECT COUNT(*) FROM communities",
+            failure_code="missing_communities_table",
+        )
+        test_edge_count = int(stats.edges_by_kind.get("TESTED_BY", 0))
+        cross_artifact_count = int(stats.edges_by_kind.get("CROSS_ARTIFACT", 0))
+        unresolved_markdown_code_span_count = _count(
+            "SELECT COUNT(*) FROM edges "
+            "WHERE kind = 'CROSS_ARTIFACT' "
+            "AND target_qualified LIKE '<unresolved:%' "
+            "AND extra LIKE '%markdown_code_span%' "
+            "AND extra LIKE '%code_span%'",
+            failure_code="missing_cross_artifact_edge_metadata",
+        )
+        unresolved_cross_artifact_count = _count(
+            "SELECT COUNT(*) FROM edges "
+            "WHERE kind = 'CROSS_ARTIFACT' AND target_qualified LIKE '<unresolved:%'",
+            failure_code="missing_cross_artifact_edges",
+        )
+        reportable_cross_artifact_count = max(
+            0,
+            cross_artifact_count - unresolved_markdown_code_span_count,
+        )
+        reportable_unresolved_cross_artifact_count = max(
+            0,
+            unresolved_cross_artifact_count - unresolved_markdown_code_span_count,
+        )
+        unresolved_ratio = (
+            reportable_unresolved_cross_artifact_count / reportable_cross_artifact_count
+            if reportable_cross_artifact_count
+            else 0.0
+        )
 
-    stale_flow_membership_count = _count(
-        "SELECT COUNT(*) FROM flow_memberships fm "
-        "WHERE NOT EXISTS (SELECT 1 FROM nodes n WHERE n.id = fm.node_id)",
-        failure_code="missing_flow_memberships_table",
-    )
-    unassigned_node_count = _count(
-        "SELECT COUNT(*) FROM nodes n "
-        "WHERE n.community_id IS NULL AND n.kind != 'File' "
-        "AND EXISTS (SELECT 1 FROM communities LIMIT 1)",
-        failure_code="missing_community_assignment_metadata",
-    )
+        stale_flow_membership_count = _count(
+            "SELECT COUNT(*) FROM flow_memberships fm "
+            "WHERE NOT EXISTS (SELECT 1 FROM nodes n WHERE n.id = fm.node_id)",
+            failure_code="missing_flow_memberships_table",
+        )
+        unassigned_node_count = _count(
+            "SELECT COUNT(*) FROM nodes n "
+            "WHERE n.community_id IS NULL AND n.kind != 'File' "
+            "AND EXISTS (SELECT 1 FROM communities LIMIT 1)",
+            failure_code="missing_community_assignment_metadata",
+        )
 
-    reason_codes: list[str] = []
-    score = 1.0
-    if query_failures:
-        reason_codes.extend(dict.fromkeys(query_failures))
-        score -= 0.2
-    if stats.total_nodes == 0 or stats.files_count == 0:
-        reason_codes.append("empty_graph")
-        score = 0.0
-    if flow_count == 0:
-        reason_codes.append("missing_flows")
-        score -= 0.15
-    if community_count == 0:
-        reason_codes.append("missing_communities")
-        score -= 0.15
-    if test_edge_count == 0:
-        reason_codes.append("missing_test_edges")
-        score -= 0.1
-    if cross_artifact_count and unresolved_ratio > 0.35:
-        reason_codes.append("many_unresolved_cross_artifact_edges")
-        score -= 0.15
-    if not stats.last_updated:
-        reason_codes.append("missing_last_updated")
-        score -= 0.1
-    if stale_flow_membership_count > 0 or unassigned_node_count > 0:
-        reason_codes.append("stale_derived_structures")
-        score -= 0.15
-    freshness_codes, freshness_counts = _freshness_reason_codes(store)
-    for code in freshness_codes:
-        reason_codes.append(code)
-        score -= 0.25 if code == "graph_describes_another_commit" else 0.1
+        reason_codes: list[str] = []
+        score = 1.0
+        if query_failures:
+            reason_codes.extend(dict.fromkeys(query_failures))
+            score -= 0.2
+        if stats.total_nodes == 0 or stats.files_count == 0:
+            reason_codes.append("empty_graph")
+            score = 0.0
+        if flow_count == 0:
+            reason_codes.append("missing_flows")
+            score -= 0.15
+        if community_count == 0:
+            reason_codes.append("missing_communities")
+            score -= 0.15
+        if test_edge_count == 0:
+            reason_codes.append("missing_test_edges")
+            score -= 0.1
+        if cross_artifact_count and unresolved_ratio > 0.35:
+            reason_codes.append("many_unresolved_cross_artifact_edges")
+            score -= 0.15
+        if not stats.last_updated:
+            reason_codes.append("missing_last_updated")
+            score -= 0.1
+        if stale_flow_membership_count > 0 or unassigned_node_count > 0:
+            reason_codes.append("stale_derived_structures")
+            score -= 0.15
+        freshness_codes, freshness_counts = _freshness_reason_codes(store)
+        for code in freshness_codes:
+            reason_codes.append(code)
+            score -= 0.25 if code == "graph_describes_another_commit" else 0.1
 
-    score = max(0.0, round(score, 4))
-    status = "ok" if score >= 0.75 else "degraded" if score > 0 else "empty"
-    health = {
-        "status": status,
-        "score": score,
-        "reason_codes": reason_codes,
-        "parse": [stats.files_count, len(stats.languages), bool(stats.last_updated)],
-        "answerability": [
-            flow_count,
-            community_count,
-            test_edge_count,
-            reportable_cross_artifact_count,
-            round(unresolved_ratio, 4),
-        ],
-        "counts": {
-            "flows": flow_count,
-            "communities": community_count,
-            "test_edges": test_edge_count,
-            "reportable_cross_artifact_edges": reportable_cross_artifact_count,
-            "reportable_unresolved_cross_artifact_edges": (
-                reportable_unresolved_cross_artifact_count
-            ),
-            "stale_flow_memberships": stale_flow_membership_count,
-            "unassigned_nodes": unassigned_node_count,
-            **freshness_counts,
-        },
-    }
-    if reportable_unresolved_cross_artifact_count:
-        health["unresolved_edges"] = reportable_unresolved_cross_artifact_count
-    return seal_answerability_summary(health)
+        score = max(0.0, round(score, 4))
+        status = "ok" if score >= 0.75 else "degraded" if score > 0 else "empty"
+        health = {
+            "status": status,
+            "score": score,
+            "reason_codes": reason_codes,
+            "parse": [stats.files_count, len(stats.languages), bool(stats.last_updated)],
+            "answerability": [
+                flow_count,
+                community_count,
+                test_edge_count,
+                reportable_cross_artifact_count,
+                round(unresolved_ratio, 4),
+            ],
+            "counts": {
+                "flows": flow_count,
+                "communities": community_count,
+                "test_edges": test_edge_count,
+                "reportable_cross_artifact_edges": reportable_cross_artifact_count,
+                "reportable_unresolved_cross_artifact_edges": (
+                    reportable_unresolved_cross_artifact_count
+                ),
+                "stale_flow_memberships": stale_flow_membership_count,
+                "unassigned_nodes": unassigned_node_count,
+                **freshness_counts,
+            },
+        }
+        if reportable_unresolved_cross_artifact_count:
+            health["unresolved_edges"] = reportable_unresolved_cross_artifact_count
+        return seal_answerability_summary(health)
+    finally:
+        if owns_conn:
+            conn.close()
 
 
 def attach_answerability(

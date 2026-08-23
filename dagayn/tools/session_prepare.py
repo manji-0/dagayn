@@ -5,11 +5,10 @@ from __future__ import annotations
 import os
 import time
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 from ..incremental import detect_vcs
 from ..paths import get_db_path
-from ..state_types import AnswerabilityRecord
 from . import sync_status as sync_status_mod
 from ._common import (
     ToolPayload,
@@ -112,29 +111,6 @@ def _seed_worktree_if_needed(repo_root: Path, *, copy_config: bool = True) -> To
     if copy_error:
         payload["copy_error"] = copy_error
     return payload
-
-
-def _answerability_via_sqlite(root: Path, store: Any, stats: Any) -> AnswerabilityRecord:
-    """Compute the answerability summary through a SQL-capable store.
-
-    ``_get_store(..., use_backend_default=True)`` returns the native store,
-    which has no ``_conn``, so ``graph_answerability_summary`` bailed out with
-    ``status: unknown / score: 0.0 / no_sqlite_connection`` -- on the very tool
-    the default surface tells the agent to call first, and for both healthy and
-    broken graphs alike. The same repository scored 0.85 through
-    ``get_minimal_context``, which uses the sqlite store.
-    """
-    if hasattr(store, "_conn"):
-        return graph_answerability_summary(store, stats)
-    from ..graph import GraphStore
-
-    sql_store = GraphStore(get_db_path(root))
-    try:
-        return graph_answerability_summary(sql_store, sql_store.get_stats())
-    except Exception:  # noqa: BLE001 — health reporting must not fail prepare
-        return graph_answerability_summary(store, stats)
-    finally:
-        sql_store.close()
 
 
 def _resolve_repo(repo_root: str | None, *, from_hook: bool = False) -> Path:
@@ -294,7 +270,7 @@ def session_prepare(
             seed_info = _seed_worktree_if_needed(root)
 
     _evict_store_cache()
-    store, resolved_root = _get_store(str(root), cached=False, use_backend_default=True)
+    store, resolved_root = _get_store(str(root), cached=False)
     root = Path(resolved_root)
     try:
         # Unlimited content verification: prepare is the caller that can afford
@@ -382,11 +358,11 @@ def session_prepare(
 
     # Reassess after structure
     _evict_store_cache()
-    store, _ = _get_store(str(root), cached=False, use_backend_default=True)
+    store, _ = _get_store(str(root), cached=False)
     try:
         sync_after = assess_graph_sync(store, root)
         stats = store.get_stats()
-        health = _answerability_via_sqlite(root, store, stats)
+        health = graph_answerability_summary(store, stats)
         db_path = get_db_path(root)
         refresh = sync_status_mod.embedding_refresh_action(db_path, local_embedding=local_embedding)
     finally:

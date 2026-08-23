@@ -194,6 +194,25 @@ class TestAnswerability:
         missingness = missingness_from_answerability(answerability)
         assert any(item["reason_code"] == "stale_derived_structures" for item in missingness)
 
+    def test_answerability_uses_db_path_without_conn(self, tmp_path) -> None:
+        graph_db = tmp_path / "graph.db"
+        seed = GraphStore(graph_db)
+        seed.close()
+
+        class NativeLikeStore:
+            db_path = graph_db
+
+            def get_stats(self):
+                sql_store = GraphStore(self.db_path)
+                try:
+                    return sql_store.get_stats()
+                finally:
+                    sql_store.close()
+
+        native_store = NativeLikeStore()
+        answerability = graph_answerability_summary(native_store, native_store.get_stats())
+        assert answerability["reason_codes"] != ["no_sqlite_connection"]
+
     def test_attach_answerability_preserves_existing_missingness(self, monkeypatch) -> None:
         class Store:
             def get_stats(self):
@@ -211,6 +230,7 @@ class TestAnswerability:
                 pass
 
         monkeypatch.setattr("dagayn.tools._common._get_store", lambda _repo: (Store(), None))
+        monkeypatch.setattr("dagayn.tools._common.repo_context_snapshot", lambda: None)
         payload: dict[str, Any] = {"status": "ok", "summary": "x", "missingness": []}
 
         result = attach_answerability(payload, "/repo")

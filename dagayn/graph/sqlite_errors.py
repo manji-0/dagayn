@@ -14,6 +14,8 @@ import os
 import sqlite3
 import time
 import weakref
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +33,24 @@ _CORRUPT_MESSAGE_MARKERS = (
 )
 
 _live_stores: weakref.WeakKeyDictionary[Any, Path] = weakref.WeakKeyDictionary()
+
+
+@contextmanager
+def borrowed_sqlite_connection(store: Any) -> Iterator[sqlite3.Connection]:
+    """Yield a SQLite connection for *store*, opening an ephemeral one when needed."""
+    conn = getattr(store, "_conn", None)
+    if conn is not None:
+        yield conn
+        return
+    db_path = getattr(store, "db_path", None)
+    if db_path is None:
+        raise AttributeError(f"{type(store).__name__} has no sqlite connection")
+    ephemeral = sqlite3.connect(str(db_path), timeout=30)
+    ephemeral.row_factory = sqlite3.Row
+    try:
+        yield ephemeral
+    finally:
+        ephemeral.close()
 
 
 def is_sqlite_corrupt_error(exc: BaseException) -> bool:
