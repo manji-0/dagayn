@@ -138,6 +138,39 @@ class TestFTSSync:
         assert hs_alpha["results"] == []
         assert hs_alpha["mode"] in {"empty", "keyword_fallback"}
 
+    def test_sync_fts_for_changed_files_keeps_other_rows(self, store):
+        """Incremental FTS must not DROP/rebuild the whole nodes_fts table."""
+        alpha = NodeInfo(
+            kind="Function",
+            name="alpha_widget",
+            file_path="src/a.py",
+            line_start=1,
+            line_end=2,
+            language="python",
+        )
+        beta = NodeInfo(
+            kind="Function",
+            name="beta_gadget",
+            file_path="src/b.py",
+            line_start=1,
+            line_end=2,
+            language="python",
+        )
+        store.store_file_nodes_edges("src/a.py", [alpha], [])
+        store.store_file_nodes_edges("src/b.py", [beta], [])
+        rebuild_fts_index(store)
+
+        rust_sync = getattr(store, "sync_fts_for_file_paths", None)
+        if callable(rust_sync):
+            rust_sync(["src/a.py"])
+        else:
+            from dagayn.graph._fts_sync import sync_fts_for_file_paths
+
+            sync_fts_for_file_paths(store._conn, ["src/a.py"], None)
+
+        names = {row["name"] for row in store._conn.execute("SELECT name FROM nodes_fts")}
+        assert names >= {"alpha_widget", "beta_gadget"}
+
     def test_v13_migration_rebuilds_empty_generated_columns(self, tmp_path):
         """Upgrading through v13 must not leave empty identifier_tokens/doc_text."""
         db_path = tmp_path / "legacy.db"

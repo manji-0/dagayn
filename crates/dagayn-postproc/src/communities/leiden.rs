@@ -12,6 +12,11 @@ use super::DetectedCommunity;
 
 const LEIDEN_RANDOM_SEED: u64 = 20260813;
 
+pub(crate) fn leiden_resolution(node_count: usize) -> f64 {
+    let n_nodes = node_count.max(1) as f64;
+    (1.0_f64 / n_nodes.max(10.0_f64).log10()).max(0.05_f64)
+}
+
 const EDGE_WEIGHTS: &[(&str, f64)] = &[
     ("CALLS", 1.0),
     ("IMPORTS_FROM", 0.5),
@@ -77,8 +82,7 @@ pub(crate) fn detect_leiden(
         Err(_) => return detect_file_based(nodes, edges, min_size),
     };
 
-    let n_nodes = graph.node_count().max(1) as f64;
-    let resolution = (1.0_f64 / n_nodes.max(10.0_f64).log10()).max(0.05_f64);
+    let resolution = leiden_resolution(graph.node_count());
 
     let result = match Leiden::new(LeidenConfig {
         max_iterations: 2,
@@ -166,7 +170,30 @@ pub(crate) fn split_oversized(
         .map(|node| (node.qualified_name.as_str(), node))
         .collect();
 
-    for community in communities {
+    let mut qn_to_oversized: HashMap<&str, usize> = HashMap::new();
+    for (idx, community) in communities.iter().enumerate() {
+        if community.size > threshold {
+            for member in &community.members {
+                qn_to_oversized.insert(member.as_str(), idx);
+            }
+        }
+    }
+    let mut edges_by_community: HashMap<usize, Vec<&GraphEdge>> = HashMap::new();
+    if !qn_to_oversized.is_empty() {
+        for edge in edges {
+            let Some(&src_comm) = qn_to_oversized.get(edge.source_qualified.as_str()) else {
+                continue;
+            };
+            let Some(&tgt_comm) = qn_to_oversized.get(edge.target_qualified.as_str()) else {
+                continue;
+            };
+            if src_comm == tgt_comm {
+                edges_by_community.entry(src_comm).or_default().push(edge);
+            }
+        }
+    }
+
+    for (idx, community) in communities.into_iter().enumerate() {
         let members: HashSet<String> = community.members.iter().cloned().collect();
         if community.size <= threshold {
             result.push(community);
@@ -183,11 +210,10 @@ pub(crate) fn split_oversized(
             continue;
         }
 
-        let member_edges: Vec<GraphEdge> = edges
-            .iter()
-            .filter(|edge| {
-                members.contains(&edge.source_qualified) && members.contains(&edge.target_qualified)
-            })
+        let member_edges: Vec<GraphEdge> = edges_by_community
+            .remove(&idx)
+            .unwrap_or_default()
+            .into_iter()
             .cloned()
             .collect();
 
@@ -332,4 +358,114 @@ fn dominant_language(members: &[GraphNode]) -> String {
 
 fn round_cohesion(value: f64) -> f64 {
     (value * 10_000.0).round() / 10_000.0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use dagayn_graph::{ConfidenceTier, GraphEdge, GraphNode};
+    use serde_json::Value;
+
+    fn test_node(qualified_name: &str) -> GraphNode {
+        let (file_path, name) = qualified_name
+            .split_once("::")
+            .unwrap_or((qualified_name, qualified_name));
+        GraphNode {
+            id: 0,
+            kind: "Function".to_string(),
+            name: name.to_string(),
+            qualified_name: qualified_name.to_string(),
+            file_path: file_path.to_string(),
+            line_start: 1,
+            line_end: 2,
+            language: "python".to_string(),
+            parent_name: None,
+            params: None,
+            return_type: None,
+            is_test: false,
+            file_hash: None,
+            extra: Value::Null,
+        }
+    }
+
+    fn test_edge(source: &str, target: &str) -> GraphEdge {
+        GraphEdge {
+            id: 0,
+            kind: "CALLS".to_string(),
+            source_qualified: source.to_string(),
+            target_qualified: target.to_string(),
+            file_path: String::new(),
+            line: 1,
+            extra: Value::Null,
+            confidence: 1.0,
+            confidence_tier: ConfidenceTier::Exact,
+        }
+    }
+
+    #[test]
+    fn split_oversized_keeps_small_communities() {
+        let nodes = vec![
+            test_node("a.py::a1"),
+            test_node("a.py::a2"),
+            test_node("a.py::a3"),
+            test_node("a.py::a4"),
+            test_node("b.py::b1"),
+            test_node("c.py::only"),
+        ];
+        let edges = vec![
+            test_edge("a.py::a1", "a.py::a2"),
+            test_edge("a.py::a2", "a.py::a3"),
+            test_edge("a.py::a3", "a.py::a4"),
+            test_edge("b.py::b1", "c.py::only"),
+        ];
+        let communities = vec![
+            DetectedCommunity {
+                name: "big-a".to_string(),
+                level: 0,
+                size: 4,
+                cohesion: 0.0,
+                dominant_language: "python".to_string(),
+                description: String::new(),
+                members: vec![
+                    "a.py::a1".into(),
+                    "a.py::a2".into(),
+                    "a.py::a3".into(),
+                    "a.py::a4".into(),
+                ],
+            },
+            DetectedCommunity {
+                name: "tiny".to_string(),
+                level: 0,
+                size: 1,
+                cohesion: 0.0,
+                dominant_language: "python".to_string(),
+                description: String::new(),
+                members: vec!["c.py::only".into()],
+            },
+            DetectedCommunity {
+                name: "small-b".to_string(),
+                level: 0,
+                size: 1,
+                cohesion: 0.0,
+                dominant_language: "python".to_string(),
+                description: String::new(),
+                members: vec!["b.py::b1".into()],
+            },
+        ];
+
+        let result = split_oversized(communities, &nodes, &edges, 0.25, 2);
+        assert!(
+            result.iter().any(|community| community.name == "tiny"),
+            "communities under the size threshold must be kept as-is"
+        );
+        let member_count: usize = result.iter().map(|community| community.members.len()).sum();
+        assert_eq!(member_count, 6);
+    }
+
+    #[test]
+    fn leiden_resolution_stays_on_log10_heuristic() {
+        assert!((leiden_resolution(10) - 1.0).abs() < 1e-9);
+        assert!(leiden_resolution(1_000_000) >= 0.05);
+        assert!(leiden_resolution(100) < leiden_resolution(10));
+    }
 }

@@ -235,6 +235,30 @@ impl GraphStore {
             .map_err(Into::into)
     }
 
+    pub fn get_nodes_by_community_ids(&self, community_ids: &[i64]) -> Result<Vec<GraphNode>> {
+        let mut out = Vec::new();
+        if community_ids.is_empty() {
+            return Ok(out);
+        }
+        for chunk in community_ids.chunks(450) {
+            if chunk.is_empty() {
+                continue;
+            }
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!(
+                "SELECT * FROM nodes WHERE kind != 'File' AND community_id IN ({placeholders})"
+            );
+            let mut stmt = self.conn.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), node_from_row)?;
+            for row in rows {
+                out.push(row?);
+            }
+        }
+        Ok(out)
+    }
+
     pub fn get_all_edges(&self) -> Result<Vec<GraphEdge>> {
         let mut stmt = self.conn.prepare("SELECT * FROM edges")?;
         let rows = stmt.query_map([], edge_from_row)?;

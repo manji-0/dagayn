@@ -10,9 +10,10 @@
 This plan is the next efficiency wave after the shipped N+1 and batch-write
 work in [`PERFORMANCE-IMPROVEMENTS-WIP.md`](./PERFORMANCE-IMPROVEMENTS-WIP.md)
 and the Rust writer in [`RUST-CORE-MIGRATION-WIP.md`](./RUST-CORE-MIGRATION-WIP.md).
-It does not reopen those items. The remaining cost is in three places:
-unmeasured axes, Python materialization of huge `GraphNode` lists, and
-file-centric derived-graph incremental updates.
+It does not reopen those items. Waves 0–3 moved postprocess into Rust. The
+remaining cost is **derived-data recomputation strategy**: full FTS rebuilds,
+full Brandes, Leiden oversized splits that rescanned every edge, and
+file-centric incremental updates that still refreshed whole derived tables.
 
 ## Already shipped (do not re-propose)
 
@@ -114,6 +115,54 @@ Cold `full_build` already wraps `_StoreBulkLoad` (`begin_bulk_load` /
 batch is at least `BULK_LOAD_FILE_THRESHOLD` (64 files, matching the Rust
 index-suspend threshold). Thicken this path further only if Wave 0 still shows
 write as the dominant phase.
+
+## Wave 4 — dirty-set derived data
+
+<!-- derived-from #wave-1--compute-in-rust-return-json -->
+<!-- derived-from #wave-2--reverse-calls-incremental-flows -->
+
+Rustification of the pipeline is largely done. The next wins are algorithmic
+and dirty-set driven, not more Python-to-Rust ports.
+
+`run_post_processing_json(..., changed_files=None)` and `_run_postprocess`
+now split FTS:
+
+```text
+full build / empty changed_files
+    → rebuild_fts_index()          # DROP + scan all nodes
+
+incremental (changed_files set)
+    → sync_fts_for_file_paths()    # delete+reinsert those files only
+```
+
+If `nodes_fts` is missing, incremental sync falls back to a full rebuild so
+the rest of the corpus is not left unindexed. The native full pipeline is
+still used only when `full_rebuild` is true; 1-file updates keep reverse-CALLS
+flows and incremental communities rather than re-entering the full Leiden +
+Brandes pipeline.
+
+Shipped in this wave (do-now items):
+
+| Item | Change |
+| --- | --- |
+| FTS | Incremental postprocess is `O(nodes in changed files)`, not `O(N)` |
+| Centrality N+1 | One `get_community_ids_by_node_ids` batch instead of per-node SQL |
+| Brandes | `DenseGraph` (`Vec<Vec<usize>>`); generation-stamped `seen`; sample size `min(500, max(64, ceil(5√V)))` when `V > 5000` |
+| Incremental centrality | Recompute Brandes on changed community + neighbors; file deletes drop scores by `file_path` only |
+| Shared snapshot | Full pipeline loads nodes/edges once for Leiden + centrality |
+| Leiden `split_oversized` | One edge scan into `edges_by_community` (`O(E)` instead of `O(K×E)`) |
+| Incremental Leiden | Region detect + `replace_communities` when the dirty region is ≤ 50% of nodes |
+| Flow criticality | `SELECT ... FROM flows WHERE id IN (...)` when a dirty flow-id set is present |
+| Bare-name | One `name → qualified_name` index instead of a SQL lookup per unresolved edge |
+| Manifest bridges | Skip the repo-wide manifest walk when no `pyproject.toml` / `package.json` / `openapitools.json` changed |
+
+Sample policy for `V > 5000` is `min(500, max(64, ceil(5√V)))`. Leiden resolution stays `1/log10(N)` (floor 0.05); oversized split remains the quality safety net.
+
+Not in this wave:
+
+- Dynamic exact betweenness (community-local Brandes is the approximation)
+- Leiden `1/log10(N)` retune beyond the existing oversized-split safety net
+- 1M-node CI (manual / nightly via `DAGAYN_SCALE_1M`)
 
 ## Out of scope
 

@@ -150,6 +150,7 @@ pub(crate) fn sync_fts_for_file_paths_tx(
         )?;
     }
     delete_fts_for_file_paths_tx(tx, file_paths)?;
+    let mut indexed = 0_i64;
     for chunk in file_paths.chunks(450) {
         if chunk.is_empty() {
             continue;
@@ -212,10 +213,11 @@ pub(crate) fn sync_fts_for_file_paths_tx(
                     doc_text
                 ],
             )?;
+            indexed += 1;
         }
     }
     set_fts_watermark_tx(tx, None)?;
-    Ok(0)
+    Ok(indexed)
 }
 
 pub(crate) fn structured_code_reference_text(

@@ -79,7 +79,10 @@ impl GraphStore {
             relevant_qns.insert(node.qualified_name.clone());
         }
 
-        let mut flow_ids: HashSet<i64> = self.get_affected_flow_ids(changed_files)?.into_iter().collect();
+        let mut flow_ids: HashSet<i64> = self
+            .get_affected_flow_ids(changed_files)?
+            .into_iter()
+            .collect();
         for entry in &existing {
             if relevant_qns.contains(&entry.qualified_name) {
                 flow_ids.insert(entry.flow_id);
@@ -159,7 +162,8 @@ impl GraphStore {
             let placeholders = std::iter::repeat_n("?", chunk.len())
                 .collect::<Vec<_>>()
                 .join(",");
-            let sql = format!("SELECT qualified_name FROM nodes WHERE file_path IN ({placeholders})");
+            let sql =
+                format!("SELECT qualified_name FROM nodes WHERE file_path IN ({placeholders})");
             let mut stmt = self.conn.prepare(&sql)?;
             let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
                 row.get::<_, String>(0)
@@ -239,7 +243,9 @@ impl GraphStore {
                  WHERE e.kind = 'TESTED_BY' AND e.file_path IN ({placeholders})"
             );
             let mut stmt = self.conn.prepare(&sql)?;
-            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| row.get::<_, i64>(0))?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
+                row.get::<_, i64>(0)
+            })?;
             for row in rows {
                 let flow_id = row?;
                 if seen.insert(flow_id) {
@@ -255,27 +261,9 @@ impl GraphStore {
             return Ok(0);
         }
         let graph = self.load_trace_graph()?;
-        let rows: Vec<(i64, i64, String, f64)> = {
-            let mut stmt = self
-                .conn
-                .prepare("SELECT id, depth, path_json, criticality FROM flows")?;
-            let mapped = stmt.query_map([], |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, i64>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, f64>(3)?,
-                ))
-            })?;
-            mapped.collect::<std::result::Result<Vec<_>, _>>()?
-        };
+        let rows = self.load_flow_criticality_rows(flow_ids)?;
         let mut updates = Vec::new();
         for (flow_id, depth, path_json, previous) in rows {
-            if let Some(ids) = flow_ids {
-                if !ids.contains(&flow_id) {
-                    continue;
-                }
-            }
             let path: Vec<i64> = serde_json::from_str(&path_json).unwrap_or_default();
             let recomputed = compute_criticality(&graph, &path, depth);
             if (recomputed - previous).abs() > 1e-9 {
@@ -287,6 +275,59 @@ impl GraphStore {
         }
         let payload = serde_json::to_string(&updates)?;
         self.update_flow_criticalities_json(&payload)
+    }
+
+    fn load_flow_criticality_rows(
+        &self,
+        flow_ids: Option<&HashSet<i64>>,
+    ) -> Result<Vec<(i64, i64, String, f64)>> {
+        let mut out = Vec::new();
+        match flow_ids {
+            None => {
+                let mut stmt = self
+                    .conn
+                    .prepare("SELECT id, depth, path_json, criticality FROM flows")?;
+                let mapped = stmt.query_map([], |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, f64>(3)?,
+                    ))
+                })?;
+                for row in mapped {
+                    out.push(row?);
+                }
+            }
+            Some(ids) => {
+                let ids: Vec<i64> = ids.iter().copied().collect();
+                for chunk in ids.chunks(450) {
+                    if chunk.is_empty() {
+                        continue;
+                    }
+                    let placeholders = std::iter::repeat_n("?", chunk.len())
+                        .collect::<Vec<_>>()
+                        .join(",");
+                    let sql = format!(
+                        "SELECT id, depth, path_json, criticality FROM flows \
+                         WHERE id IN ({placeholders})"
+                    );
+                    let mut stmt = self.conn.prepare(&sql)?;
+                    let mapped = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
+                        Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, f64>(3)?,
+                        ))
+                    })?;
+                    for row in mapped {
+                        out.push(row?);
+                    }
+                }
+            }
+        }
+        Ok(out)
     }
 
     fn trace_reachable_sets(&self, max_depth: i64, include_tests: bool) -> Result<Vec<FlowInput>> {
@@ -418,7 +459,9 @@ fn has_framework_decorator(node: &GraphNode) -> bool {
 }
 
 fn matches_entry_name(name: &str) -> bool {
-    entry_name_res().iter().any(|pattern| pattern.is_match(name))
+    entry_name_res()
+        .iter()
+        .any(|pattern| pattern.is_match(name))
 }
 
 fn trace_single_flow(
@@ -445,7 +488,11 @@ fn trace_single_flow(
             actual_depth = depth;
         }
         if depth >= max_depth {
-            if graph.calls_out.get(&current_qn).is_some_and(|targets| !targets.is_empty()) {
+            if graph
+                .calls_out
+                .get(&current_qn)
+                .is_some_and(|targets| !targets.is_empty())
+            {
                 truncated = true;
                 if truncation_reason.is_none() {
                     truncation_reason = Some("max_depth".to_string());
@@ -476,7 +523,12 @@ fn trace_single_flow(
     }
     let files: HashSet<&str> = path_qns
         .iter()
-        .filter_map(|qn| graph.nodes_by_qn.get(qn).map(|node| node.file_path.as_str()))
+        .filter_map(|qn| {
+            graph
+                .nodes_by_qn
+                .get(qn)
+                .map(|node| node.file_path.as_str())
+        })
         .collect();
     let mut flow = FlowInput {
         name: sanitize_name(&entry.name),
@@ -514,7 +566,12 @@ fn compute_criticality(graph: &TraceGraph, path_ids: &[i64], depth: i64) -> f64 
     };
     let mut external_count = 0_i64;
     for node in &nodes {
-        for target in graph.calls_out.get(&node.qualified_name).into_iter().flatten() {
+        for target in graph
+            .calls_out
+            .get(&node.qualified_name)
+            .into_iter()
+            .flatten()
+        {
             if !graph.nodes_by_qn.contains_key(target) {
                 external_count += 1;
             }
@@ -538,16 +595,21 @@ fn compute_criticality(graph: &TraceGraph, path_ids: &[i64], depth: i64) -> f64 
         .count();
     let test_gap = 1.0 - (tested_count as f64 / nodes.len() as f64);
     let depth_score = (depth as f64 / 10.0).min(1.0);
-    let criticality =
-        file_spread * 0.30 + external_score * 0.20 + security_score * 0.25 + test_gap * 0.15 + depth_score * 0.10;
+    let criticality = file_spread * 0.30
+        + external_score * 0.20
+        + security_score * 0.25
+        + test_gap * 0.15
+        + depth_score * 0.10;
     (criticality.clamp(0.0, 1.0) * 10_000.0).round() / 10_000.0
 }
 
 fn test_file_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r"([\\/]__tests__[\\/]|\.spec\.[jt]sx?$|\.test\.[jt]sx?$|[\\/]test_[^/\\]*\.py$)")
-            .expect("test file regex")
+        Regex::new(
+            r"([\\/]__tests__[\\/]|\.spec\.[jt]sx?$|\.test\.[jt]sx?$|[\\/]test_[^/\\]*\.py$)",
+        )
+        .expect("test file regex")
     })
 }
 

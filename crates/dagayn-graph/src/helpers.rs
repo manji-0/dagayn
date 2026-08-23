@@ -46,6 +46,8 @@ pub(crate) fn edge_target_name(target_qualified: &str) -> String {
 
 pub(crate) fn remove_file_data_tx(tx: &Transaction<'_>, file_path: &str) -> Result<()> {
     crate::fts_sync::delete_fts_for_file_paths_tx(tx, &[file_path.to_string()])?;
+    tx.execute("DELETE FROM hub_scores WHERE file_path = ?", [file_path])?;
+    tx.execute("DELETE FROM bridge_scores WHERE file_path = ?", [file_path])?;
     tx.execute(
         "DELETE FROM risk_index WHERE node_id IN (SELECT id FROM nodes WHERE file_path = ?)",
         [file_path],
@@ -57,8 +59,6 @@ pub(crate) fn remove_file_data_tx(tx: &Transaction<'_>, file_path: &str) -> Resu
 }
 
 pub(crate) fn remove_files_data_tx(tx: &Transaction<'_>, file_paths: &[String]) -> Result<()> {
-    tx.execute("DELETE FROM hub_scores", [])?;
-    tx.execute("DELETE FROM bridge_scores", [])?;
     crate::fts_sync::delete_fts_for_file_paths_tx(tx, file_paths)?;
     for chunk in file_paths.chunks(450) {
         if chunk.is_empty() {
@@ -72,6 +72,10 @@ pub(crate) fn remove_files_data_tx(tx: &Transaction<'_>, file_paths: &[String]) 
              WHERE node_id IN (SELECT id FROM nodes WHERE file_path IN ({placeholders}))"
         );
         tx.execute(&risk_sql, rusqlite::params_from_iter(chunk))?;
+        let hub_sql = format!("DELETE FROM hub_scores WHERE file_path IN ({placeholders})");
+        tx.execute(&hub_sql, rusqlite::params_from_iter(chunk))?;
+        let bridge_sql = format!("DELETE FROM bridge_scores WHERE file_path IN ({placeholders})");
+        tx.execute(&bridge_sql, rusqlite::params_from_iter(chunk))?;
         let edges_sql = format!("DELETE FROM edges WHERE file_path IN ({placeholders})");
         tx.execute(&edges_sql, rusqlite::params_from_iter(chunk))?;
         let nodes_sql = format!("DELETE FROM nodes WHERE file_path IN ({placeholders})");
@@ -81,101 +85,160 @@ pub(crate) fn remove_files_data_tx(tx: &Transaction<'_>, file_paths: &[String]) 
     Ok(())
 }
 
+pub(crate) const BETWEENNESS_EXACT_LIMIT: usize = 5000;
+pub(crate) const BETWEENNESS_SAMPLE_CAP: usize = 500;
+pub(crate) const BETWEENNESS_SAMPLE_FLOOR: usize = 64;
+pub(crate) const BETWEENNESS_SAMPLE_SQRT_C: f64 = 5.0;
+
+/// Brandes source count: exact on small graphs, otherwise
+/// `min(500, max(64, ceil(5 * sqrt(V))))`.
+pub(crate) fn betweenness_sample_size(node_count: usize) -> usize {
+    if node_count <= BETWEENNESS_EXACT_LIMIT {
+        return node_count;
+    }
+    let scaled = (BETWEENNESS_SAMPLE_SQRT_C * (node_count as f64).sqrt()).ceil() as usize;
+    scaled
+        .clamp(BETWEENNESS_SAMPLE_FLOOR, BETWEENNESS_SAMPLE_CAP)
+        .min(node_count)
+}
+
+/// Integer-indexed directed graph used by Brandes (and reusable by other
+/// postprocess steps that need adjacency without `HashMap<String, …>`).
+pub(crate) struct DenseGraph {
+    pub names: Vec<String>,
+    pub adj: Vec<Vec<usize>>,
+}
+
+impl DenseGraph {
+    pub(crate) fn from_adjacency(
+        graph_nodes: &HashSet<String>,
+        adjacency: &HashMap<String, Vec<String>>,
+    ) -> Self {
+        let mut names = graph_nodes.iter().cloned().collect::<Vec<_>>();
+        names.sort();
+        let node_count = names.len();
+        let mut index_of = HashMap::<&str, usize>::with_capacity(node_count);
+        for (idx, name) in names.iter().enumerate() {
+            index_of.insert(name.as_str(), idx);
+        }
+        let mut adj = vec![Vec::<usize>::new(); node_count];
+        for (source, targets) in adjacency {
+            let Some(&src) = index_of.get(source.as_str()) else {
+                continue;
+            };
+            for target in targets {
+                if let Some(&tgt) = index_of.get(target.as_str()) {
+                    adj[src].push(tgt);
+                }
+            }
+        }
+        Self { names, adj }
+    }
+
+    pub(crate) fn betweenness(&self) -> HashMap<String, f64> {
+        betweenness_on_dense(self)
+    }
+}
+
 pub(crate) fn betweenness_centrality(
     graph_nodes: &HashSet<String>,
     adjacency: &HashMap<String, Vec<String>>,
 ) -> HashMap<String, f64> {
-    let mut nodes = graph_nodes.iter().cloned().collect::<Vec<_>>();
-    nodes.sort();
-    let node_count = nodes.len();
+    DenseGraph::from_adjacency(graph_nodes, adjacency).betweenness()
+}
+
+fn betweenness_on_dense(graph: &DenseGraph) -> HashMap<String, f64> {
+    let names = &graph.names;
+    let adj = &graph.adj;
+    let node_count = names.len();
     if node_count == 0 {
         return HashMap::new();
     }
-    let sources = if node_count > 5000 {
-        deterministic_centrality_sample(&nodes, 500)
+
+    let sample_size = betweenness_sample_size(node_count);
+    let sources: Vec<usize> = if sample_size >= node_count {
+        (0..node_count).collect()
     } else {
-        nodes.clone()
+        let mut index_of = HashMap::<&str, usize>::with_capacity(node_count);
+        for (idx, name) in names.iter().enumerate() {
+            index_of.insert(name.as_str(), idx);
+        }
+        deterministic_centrality_sample(names, sample_size)
+            .iter()
+            .filter_map(|name| index_of.get(name.as_str()).copied())
+            .collect()
     };
-    let scale = if node_count > 5000 {
-        node_count as f64 / sources.len() as f64
-    } else {
+    let scale = if sample_size >= node_count {
         1.0
+    } else {
+        node_count as f64 / sources.len().max(1) as f64
     };
 
-    let mut centrality = nodes
-        .iter()
-        .map(|node| (node.clone(), 0.0_f64))
-        .collect::<HashMap<_, _>>();
+    let mut centrality = vec![0.0_f64; node_count];
+    let mut sigma = vec![0.0_f64; node_count];
+    let mut distance = vec![-1_i32; node_count];
+    let mut dependency = vec![0.0_f64; node_count];
+    let mut predecessors = vec![Vec::<usize>::new(); node_count];
+    let mut seen = vec![0_u32; node_count];
+    let mut generation = 0_u32;
 
     for source in sources {
-        let mut stack = Vec::<String>::new();
-        let mut predecessors = nodes
-            .iter()
-            .map(|node| (node.clone(), Vec::<String>::new()))
-            .collect::<HashMap<_, _>>();
-        let mut sigma = nodes
-            .iter()
-            .map(|node| (node.clone(), 0.0_f64))
-            .collect::<HashMap<_, _>>();
-        let mut distance = nodes
-            .iter()
-            .map(|node| (node.clone(), -1_i64))
-            .collect::<HashMap<_, _>>();
-        sigma.insert(source.clone(), 1.0);
-        distance.insert(source.clone(), 0);
+        generation = generation.wrapping_add(1);
+        if generation == 0 {
+            seen.fill(0);
+            generation = 1;
+        }
 
-        let mut queue = VecDeque::from([source.clone()]);
+        let mut stack = Vec::<usize>::new();
+        seen[source] = generation;
+        sigma[source] = 1.0;
+        distance[source] = 0;
+        predecessors[source].clear();
+
+        let mut queue = VecDeque::from([source]);
         while let Some(vertex) = queue.pop_front() {
-            stack.push(vertex.clone());
-            let vertex_distance = *distance.get(&vertex).unwrap_or(&-1);
-            let vertex_sigma = *sigma.get(&vertex).unwrap_or(&0.0);
-            for successor in adjacency.get(&vertex).into_iter().flatten() {
-                if !distance.contains_key(successor) {
-                    continue;
+            stack.push(vertex);
+            let vertex_distance = distance[vertex];
+            let vertex_sigma = sigma[vertex];
+            for &successor in &adj[vertex] {
+                if seen[successor] != generation {
+                    seen[successor] = generation;
+                    distance[successor] = vertex_distance + 1;
+                    sigma[successor] = 0.0;
+                    predecessors[successor].clear();
+                    queue.push_back(successor);
                 }
-                if *distance.get(successor).unwrap_or(&-1) < 0 {
-                    queue.push_back(successor.clone());
-                    distance.insert(successor.clone(), vertex_distance + 1);
-                }
-                if *distance.get(successor).unwrap_or(&-1) == vertex_distance + 1 {
-                    *sigma.entry(successor.clone()).or_insert(0.0) += vertex_sigma;
-                    predecessors
-                        .entry(successor.clone())
-                        .or_default()
-                        .push(vertex.clone());
+                if distance[successor] == vertex_distance + 1 {
+                    sigma[successor] += vertex_sigma;
+                    predecessors[successor].push(vertex);
                 }
             }
         }
 
-        let mut dependency = nodes
-            .iter()
-            .map(|node| (node.clone(), 0.0_f64))
-            .collect::<HashMap<_, _>>();
+        for &vertex in &stack {
+            dependency[vertex] = 0.0;
+        }
         while let Some(w) = stack.pop() {
-            let sigma_w = *sigma.get(&w).unwrap_or(&0.0);
+            let sigma_w = sigma[w];
             if sigma_w != 0.0 {
-                for v in predecessors.get(&w).into_iter().flatten() {
-                    let sigma_v = *sigma.get(v).unwrap_or(&0.0);
-                    let delta_w = *dependency.get(&w).unwrap_or(&0.0);
-                    *dependency.entry(v.clone()).or_insert(0.0) +=
-                        (sigma_v / sigma_w) * (1.0 + delta_w);
+                for &v in &predecessors[w] {
+                    dependency[v] += (sigma[v] / sigma_w) * (1.0 + dependency[w]);
                 }
             }
             if w != source {
-                *centrality.entry(w.clone()).or_insert(0.0) +=
-                    *dependency.get(&w).unwrap_or(&0.0) * scale;
+                centrality[w] += dependency[w] * scale;
             }
         }
     }
 
     if node_count > 2 {
         let norm = 1.0 / ((node_count as f64 - 1.0) * (node_count as f64 - 2.0));
-        for value in centrality.values_mut() {
+        for value in &mut centrality {
             *value *= norm;
         }
     }
 
-    centrality
+    names.iter().cloned().zip(centrality).collect()
 }
 
 pub(crate) fn deterministic_centrality_sample(nodes: &[String], sample_size: usize) -> Vec<String> {

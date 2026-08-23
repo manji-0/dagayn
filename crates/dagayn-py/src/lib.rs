@@ -526,17 +526,28 @@ impl PyGraphStore {
         })
     }
 
-    fn persist_centrality_scores(&self) -> PyResult<std::collections::HashMap<String, i64>> {
-        self.with_store_mut(|store| store.persist_centrality_scores())
+    #[pyo3(signature = (changed_files = None))]
+    fn persist_centrality_scores(
+        &self,
+        changed_files: Option<Vec<String>>,
+    ) -> PyResult<std::collections::HashMap<String, i64>> {
+        self.with_store_mut(|store| {
+            store.persist_centrality_scores_filtered(changed_files.as_deref())
+        })
     }
 
-    #[pyo3(signature = (manifest_extractor_id, manifest_nodes_json, manifest_edges_json, min_community_size = 2))]
+    fn sync_fts_for_file_paths(&self, file_paths: Vec<String>) -> PyResult<i64> {
+        self.with_store_mut(|store| store.sync_fts_for_file_paths(&file_paths))
+    }
+
+    #[pyo3(signature = (manifest_extractor_id, manifest_nodes_json, manifest_edges_json, min_community_size = 2, changed_files = None))]
     fn run_post_processing_json(
         &self,
         manifest_extractor_id: &str,
         manifest_nodes_json: &str,
         manifest_edges_json: &str,
         min_community_size: i64,
+        changed_files: Option<Vec<String>>,
     ) -> PyResult<String> {
         self.with_store_mut(|store| {
             native_run_post_processing_json(
@@ -545,6 +556,7 @@ impl PyGraphStore {
                 manifest_nodes_json,
                 manifest_edges_json,
                 min_community_size,
+                changed_files.as_deref(),
             )
         })
     }

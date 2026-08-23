@@ -6,6 +6,16 @@ All notable changes to `dagayn` are documented here.
 
 ### Changed
 
+- Incremental post-process no longer rebuilds the whole FTS index. Changed
+  files call `sync_fts_for_file_paths`; a missing `nodes_fts` table still
+  falls back to a full rebuild. Brandes betweenness now uses a dense integer
+  graph, generation-stamped BFS, and `min(500, max(64, ceil(5√V)))` sampling
+  above 5000 nodes. Centrality community ids are loaded in one batch; dirty
+  updates recompute only changed communities plus neighbors. Leiden oversized
+  splits partition edges in `O(E)`, incremental Leiden replaces the dirty
+  region instead of the whole partition, flow criticality refresh queries only
+  dirty flow ids, bare-name resolution uses a name index, and manifest
+  extraction is skipped when no manifest files changed.
 - Drop unused Python and Rust dependency declarations. The core install no
   longer pins `mcp` (FastMCP already requires `mcp>=1.24,<2`), the empty
   `communities` / `enrichment` / `wiki` extras and `pytest-asyncio` are gone,

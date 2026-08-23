@@ -541,12 +541,32 @@ def _run_postprocess(
             warnings.append(f"Signature computation failed: {type(e).__name__}: {e}")
 
         try:
-            from dagayn.search import rebuild_fts_index
+            if changed_files and not full_rebuild:
+                rust_sync = getattr(store, "sync_fts_for_file_paths", None)
+                if callable(rust_sync):
+                    fts_count = int(cast(int, rust_sync(changed_files)))
+                elif hasattr(store, "_conn"):
+                    from dagayn.graph import store_write_transaction
+                    from dagayn.graph._fts_sync import sync_fts_for_file_paths
+                    from dagayn.postprocessing import _store_repo_root
 
-            fts_count = rebuild_fts_index(store)
+                    with store_write_transaction(store):
+                        fts_count = sync_fts_for_file_paths(
+                            store._conn,
+                            changed_files,
+                            _store_repo_root(store),
+                        )
+                else:
+                    from dagayn.search import rebuild_fts_index
+
+                    fts_count = rebuild_fts_index(store)
+            else:
+                from dagayn.search import rebuild_fts_index
+
+                fts_count = rebuild_fts_index(store)
             build_result.fts_indexed = fts_count
             build_result.fts_rebuilt = True
-        except (sqlite3.OperationalError, ImportError) as e:
+        except (sqlite3.OperationalError, ImportError, RuntimeError, TypeError) as e:
             logger.warning("FTS index rebuild failed: %s", e)
             warnings.append(f"FTS index rebuild failed: {type(e).__name__}: {e}")
 
@@ -585,7 +605,7 @@ def _run_postprocess(
         try:
             from dagayn.postprocessing import _apply_manifest_bridges
 
-            _apply_manifest_bridges(store, post_result, warnings)
+            _apply_manifest_bridges(store, post_result, warnings, changed_files)
         except (sqlite3.OperationalError, ImportError) as e:
             logger.warning("Manifest bridge extraction failed: %s", e)
             warnings.append(f"Manifest bridge extraction failed: {type(e).__name__}: {e}")
@@ -596,7 +616,12 @@ def _run_postprocess(
         # recompute them or the tables stay empty after skip-flows updates.
         from dagayn.postprocessing import _persist_centrality_scores
 
-        _persist_centrality_scores(store, post_result, warnings)
+        _persist_centrality_scores(
+            store,
+            post_result,
+            warnings,
+            changed_files if not full_rebuild else None,
+        )
 
     if postprocess == "minimal":
         if not skip_orphan_prune:

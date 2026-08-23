@@ -108,23 +108,27 @@ fn is_plausible_bare_edge(
             .is_some_and(|targets| targets.contains(target_file))
 }
 
-fn bare_name_candidates(
+fn load_bare_name_index(
     tx: &Transaction<'_>,
-    bare_name: &str,
     kinds: &[&str],
-) -> Result<Vec<String>> {
+) -> Result<HashMap<String, Vec<String>>> {
+    if kinds.is_empty() {
+        return Ok(HashMap::new());
+    }
     let placeholders = std::iter::repeat_n("?", kinds.len())
         .collect::<Vec<_>>()
         .join(",");
-    let sql =
-        format!("SELECT qualified_name FROM nodes WHERE name = ? AND kind IN ({placeholders})");
-    let mut params: Vec<SqlValue> = Vec::with_capacity(kinds.len() + 1);
-    params.push(SqlValue::Text(bare_name.to_string()));
-    params.extend(kinds.iter().map(|kind| SqlValue::Text((*kind).to_string())));
+    let sql = format!("SELECT name, qualified_name FROM nodes WHERE kind IN ({placeholders})");
     let mut stmt = tx.prepare(&sql)?;
-    let rows = stmt.query_map(rusqlite::params_from_iter(params), |row| row.get(0))?;
-    rows.collect::<std::result::Result<Vec<_>, _>>()
-        .map_err(Into::into)
+    let rows = stmt.query_map(rusqlite::params_from_iter(kinds), |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })?;
+    let mut index = HashMap::<String, Vec<String>>::new();
+    for row in rows {
+        let (name, qualified_name) = row?;
+        index.entry(name).or_default().push(qualified_name);
+    }
+    Ok(index)
 }
 
 fn resolve_via_imports(
@@ -275,6 +279,7 @@ impl GraphStore {
     pub fn resolve_bare_call_targets(&mut self) -> Result<i64> {
         let tx = write_tx(&mut self.conn)?;
         let import_targets = import_targets_tx(&tx)?;
+        let index = load_bare_name_index(&tx, &["Function", "Test", "Class"])?;
         let edges = {
             let mut stmt = tx.prepare(
                 "SELECT id, source_qualified, target_qualified, file_path \
@@ -295,8 +300,7 @@ impl GraphStore {
             if looks_like_file_target(&target_qualified) {
                 continue;
             }
-            let candidates =
-                bare_name_candidates(&tx, &target_qualified, &["Function", "Test", "Class"])?;
+            let candidates = index.get(&target_qualified).cloned().unwrap_or_default();
             if candidates.is_empty() {
                 continue;
             }
@@ -325,6 +329,7 @@ impl GraphStore {
     pub fn resolve_bare_inheritance_targets(&mut self) -> Result<i64> {
         let tx = write_tx(&mut self.conn)?;
         let import_targets = import_targets_tx(&tx)?;
+        let index = load_bare_name_index(&tx, &["Class"])?;
         let edges = {
             let mut stmt = tx.prepare(
                 "SELECT id, source_qualified, target_qualified, file_path, extra \
@@ -347,7 +352,7 @@ impl GraphStore {
             if looks_like_file_target(&target_qualified) {
                 continue;
             }
-            let candidates = bare_name_candidates(&tx, &target_qualified, &["Class"])?;
+            let candidates = index.get(&target_qualified).cloned().unwrap_or_default();
             let src_file = node_file_from_qualified(&source_qualified, &file_path);
             if let Some(qualified) = resolve_via_imports(&candidates, &src_file, &import_targets) {
                 tx.execute(

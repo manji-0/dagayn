@@ -323,7 +323,10 @@ def _persisted_scope_matches(artifact_scope: ArtifactScope, include_tests: bool)
     )
 
 
-def persist_centrality_scores(store: GraphStore) -> dict[str, int]:
+def persist_centrality_scores(
+    store: GraphStore,
+    changed_files: list[str] | None = None,
+) -> dict[str, int]:
     """Compute and persist hub / bridge scores for query-time analysis.
 
     Bridge centrality is the expensive part of architecture analysis. Persisting
@@ -339,7 +342,10 @@ def persist_centrality_scores(store: GraphStore) -> dict[str, int]:
     rust_persist = getattr(store, "persist_centrality_scores", None)
     if callable(rust_persist):
         try:
-            scores = cast(Callable[[], dict[str, int]], rust_persist)()
+            if changed_files:
+                scores = cast(Callable[..., dict[str, int]], rust_persist)(list(changed_files))
+            else:
+                scores = cast(Callable[..., dict[str, int]], rust_persist)()
             return {key: int(value) for key, value in scores.items()}
         except Exception:  # noqa: BLE001 — native acceleration must be optional
             if not hasattr(store, "_conn"):

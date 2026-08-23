@@ -4,7 +4,9 @@ use dagayn_graph::{GraphError, GraphStore, Result};
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::communities::detect_communities;
+use crate::communities::{
+    detect_communities, detect_communities_from, incremental_detect_communities,
+};
 
 const DEFAULT_FLOW_MAX_DEPTH: i64 = 15;
 
@@ -72,6 +74,7 @@ pub fn run_post_processing_json(
     manifest_nodes_json: &str,
     manifest_edges_json: &str,
     min_community_size: i64,
+    changed_files: Option<&[String]>,
 ) -> Result<String> {
     let mut result = PostprocessResult::default();
 
@@ -81,9 +84,16 @@ pub fn run_post_processing_json(
         result.signatures_computed = Some(count);
     }
 
-    if let Some(count) = record_step(&mut result.warnings, "FTS index rebuild", || {
-        store.rebuild_fts_index()
-    }) {
+    if let Some(count) =
+        record_step(
+            &mut result.warnings,
+            "FTS index rebuild",
+            || match changed_files {
+                Some(files) if !files.is_empty() => store.sync_fts_for_file_paths(files),
+                _ => store.rebuild_fts_index(),
+            },
+        )
+    {
         result.fts_indexed = Some(count);
     }
 
@@ -150,25 +160,65 @@ pub fn run_post_processing_json(
         result.manifest_bridges_nodes = Some(0);
     }
 
-    if let Some(raw) = record_step(&mut result.warnings, "Flow detection", || {
-        store.rebuild_flows_json(DEFAULT_FLOW_MAX_DEPTH, false)
-    }) {
-        result.flows_detected = serde_json::from_str::<Value>(&raw)
-            .ok()
-            .and_then(|payload| payload.get("count").and_then(Value::as_i64));
+    if let Some(count) = record_step(
+        &mut result.warnings,
+        "Flow detection",
+        || match changed_files {
+            Some(files) if !files.is_empty() => {
+                store.incremental_trace_flows(files, DEFAULT_FLOW_MAX_DEPTH)
+            }
+            _ => store
+                .rebuild_flows_json(DEFAULT_FLOW_MAX_DEPTH, false)
+                .map(|raw| {
+                    serde_json::from_str::<Value>(&raw)
+                        .ok()
+                        .and_then(|payload| payload.get("count").and_then(Value::as_i64))
+                        .unwrap_or(0)
+                }),
+        },
+    ) {
+        result.flows_detected = Some(count);
     }
 
-    if let Some(community_count) = record_step(&mut result.warnings, "Community detection", || {
-        let communities = detect_communities(store, min_community_size)?;
-        let payload = serde_json::to_string(&communities).map_err(GraphError::from)?;
-        store.store_communities_json(&payload)
-    }) {
+    let loaded = record_step(&mut result.warnings, "Load graph snapshot", || {
+        Ok((store.get_all_nodes_filtered(true)?, store.get_all_edges()?))
+    });
+
+    if let Some(community_count) =
+        record_step(
+            &mut result.warnings,
+            "Community detection",
+            || match changed_files {
+                Some(files) if !files.is_empty() => {
+                    incremental_detect_communities(store, files, min_community_size, None)
+                }
+                _ => {
+                    let communities = if let Some((nodes, edges)) = &loaded {
+                        detect_communities_from(nodes, edges, min_community_size)
+                    } else {
+                        detect_communities(store, min_community_size)?
+                    };
+                    let payload = serde_json::to_string(&communities).map_err(GraphError::from)?;
+                    store.store_communities_json(&payload)
+                }
+            },
+        )
+    {
         result.communities_detected = Some(community_count);
     }
 
-    if let Some(scores) = record_step(&mut result.warnings, "Centrality score persistence", || {
-        store.persist_centrality_scores()
-    }) {
+    if let Some(scores) =
+        record_step(
+            &mut result.warnings,
+            "Centrality score persistence",
+            || match &loaded {
+                Some((nodes, edges)) => {
+                    store.persist_centrality_from_graph(nodes, edges, changed_files)
+                }
+                None => store.persist_centrality_scores_filtered(changed_files),
+            },
+        )
+    {
         result.hub_scores_persisted = scores.get("hub_scores_persisted").copied();
         result.bridge_scores_persisted = scores.get("bridge_scores_persisted").copied();
         result.hub_scores_code_persisted = scores.get("hub_scores_code_persisted").copied();
@@ -242,12 +292,84 @@ mod tests {
             )])
             .unwrap();
 
-        let raw = run_post_processing_json(&mut store, "manifest_bridges", "[]", "[]", 2).unwrap();
+        let raw =
+            run_post_processing_json(&mut store, "manifest_bridges", "[]", "[]", 2, None).unwrap();
         let payload: serde_json::Value = serde_json::from_str(&raw).unwrap();
 
         assert!(payload.get("signatures_computed").is_some());
         assert!(payload.get("flows_detected").is_some());
         assert!(payload.get("communities_detected").is_some());
         assert!(payload.get("hub_scores_persisted").is_some());
+    }
+
+    #[test]
+    fn incremental_postprocess_fts_does_not_drop_unchanged_files() {
+        let path = temp_db("pipeline-fts");
+        let mut store = GraphStore::open(path.to_string_lossy().to_string()).unwrap();
+        let alpha = NodeInput {
+            kind: "Function".to_string(),
+            name: "alpha_widget".to_string(),
+            file_path: "src/a.py".to_string(),
+            line_start: 1,
+            line_end: 2,
+            language: "python".to_string(),
+            parent_name: None,
+            params: None,
+            return_type: None,
+            modifiers: None,
+            is_test: false,
+            extra: json!({}),
+        };
+        let beta = NodeInput {
+            kind: "Function".to_string(),
+            name: "beta_gadget".to_string(),
+            file_path: "src/b.py".to_string(),
+            line_start: 1,
+            line_end: 2,
+            language: "python".to_string(),
+            parent_name: None,
+            params: None,
+            return_type: None,
+            modifiers: None,
+            is_test: false,
+            extra: json!({}),
+        };
+        store
+            .store_file_batch(&[
+                (
+                    "src/a.py".to_string(),
+                    vec![alpha],
+                    vec![],
+                    "hash-a".to_string(),
+                    0,
+                ),
+                (
+                    "src/b.py".to_string(),
+                    vec![beta],
+                    vec![],
+                    "hash-b".to_string(),
+                    0,
+                ),
+            ])
+            .unwrap();
+        store.rebuild_fts_index().unwrap();
+
+        let changed = vec!["src/a.py".to_string()];
+        let raw = run_post_processing_json(
+            &mut store,
+            "manifest_bridges",
+            "[]",
+            "[]",
+            2,
+            Some(&changed),
+        )
+        .unwrap();
+        let payload: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(
+            payload.get("fts_indexed").and_then(|v| v.as_i64()),
+            Some(1),
+            "incremental FTS should reindex only nodes in changed files"
+        );
+        let _ = std::fs::remove_file(&path);
     }
 }

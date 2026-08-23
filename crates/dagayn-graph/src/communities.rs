@@ -158,6 +158,155 @@ impl GraphStore {
         Ok(deleted as i64)
     }
 
+    pub fn affected_community_id_set(&self, file_paths: &[String]) -> Result<HashSet<i64>> {
+        let mut community_ids = HashSet::new();
+        for chunk in file_paths.chunks(450) {
+            if chunk.is_empty() {
+                continue;
+            }
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!(
+                "SELECT DISTINCT community_id FROM nodes \
+                 WHERE community_id IS NOT NULL AND file_path IN ({placeholders})"
+            );
+            let mut stmt = self.conn.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
+                row.get::<_, i64>(0)
+            })?;
+            for row in rows {
+                community_ids.insert(row?);
+            }
+        }
+        Ok(community_ids)
+    }
+
+    pub fn expand_neighbor_community_ids(&self, ids: &HashSet<i64>) -> Result<HashSet<i64>> {
+        let mut expanded = ids.clone();
+        if ids.is_empty() {
+            return Ok(expanded);
+        }
+        let id_list: Vec<i64> = ids.iter().copied().collect();
+        for chunk in id_list.chunks(450) {
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let outbound = format!(
+                "SELECT DISTINCT n_tgt.community_id \
+                 FROM edges e \
+                 JOIN nodes n_src ON n_src.qualified_name = e.source_qualified \
+                 JOIN nodes n_tgt ON n_tgt.qualified_name = e.target_qualified \
+                 WHERE n_src.community_id IN ({placeholders}) \
+                   AND n_tgt.community_id IS NOT NULL"
+            );
+            let inbound = format!(
+                "SELECT DISTINCT n_src.community_id \
+                 FROM edges e \
+                 JOIN nodes n_src ON n_src.qualified_name = e.source_qualified \
+                 JOIN nodes n_tgt ON n_tgt.qualified_name = e.target_qualified \
+                 WHERE n_tgt.community_id IN ({placeholders}) \
+                   AND n_src.community_id IS NOT NULL"
+            );
+            for sql in [outbound, inbound] {
+                let mut stmt = self.conn.prepare(&sql)?;
+                let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
+                    row.get::<_, i64>(0)
+                })?;
+                for row in rows {
+                    expanded.insert(row?);
+                }
+            }
+        }
+        Ok(expanded)
+    }
+
+    pub(crate) fn community_region_qualified_names(
+        &self,
+        changed_files: &[String],
+    ) -> Result<Option<HashSet<String>>> {
+        let ids = self.affected_community_id_set(changed_files)?;
+        if ids.is_empty() {
+            return Ok(None);
+        }
+        let expanded = self.expand_neighbor_community_ids(&ids)?;
+        let id_vec: Vec<i64> = expanded.iter().copied().collect();
+        let members = self.get_community_member_qns_by_ids(&id_vec)?;
+        let mut qns = HashSet::new();
+        for names in members.values() {
+            qns.extend(names.iter().cloned());
+        }
+        let total: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM nodes WHERE kind != 'File'",
+            [],
+            |row| row.get(0),
+        )?;
+        if total > 0 && (qns.len() as f64) / (total as f64) > 0.5 {
+            return Ok(None);
+        }
+        Ok(Some(qns))
+    }
+
+    pub fn replace_communities(
+        &mut self,
+        replace_ids: &[i64],
+        communities: &[CommunityInput],
+    ) -> Result<i64> {
+        let tx = write_tx(&mut self.conn)?;
+        for chunk in replace_ids.chunks(450) {
+            if chunk.is_empty() {
+                continue;
+            }
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let summary_sql =
+                format!("DELETE FROM community_summaries WHERE community_id IN ({placeholders})");
+            tx.execute(&summary_sql, rusqlite::params_from_iter(chunk))?;
+            let clear_sql = format!(
+                "UPDATE nodes SET community_id = NULL WHERE community_id IN ({placeholders})"
+            );
+            tx.execute(&clear_sql, rusqlite::params_from_iter(chunk))?;
+            let delete_sql = format!("DELETE FROM communities WHERE id IN ({placeholders})");
+            tx.execute(&delete_sql, rusqlite::params_from_iter(chunk))?;
+        }
+        {
+            let mut insert = tx.prepare(
+                "INSERT INTO communities \
+                 (name, level, cohesion, size, dominant_language, description) \
+                 VALUES (?, ?, ?, ?, ?, ?)",
+            )?;
+            for community in communities {
+                insert.execute(params![
+                    community.name,
+                    community.level,
+                    community.cohesion,
+                    community.size,
+                    community.dominant_language,
+                    community.description
+                ])?;
+                let community_id = tx.last_insert_rowid();
+                for chunk in community.members.chunks(450) {
+                    if chunk.is_empty() {
+                        continue;
+                    }
+                    let placeholders = std::iter::repeat_n("?", chunk.len())
+                        .collect::<Vec<_>>()
+                        .join(",");
+                    let sql = format!(
+                        "UPDATE nodes SET community_id = ? WHERE qualified_name IN ({placeholders})"
+                    );
+                    let mut params = Vec::with_capacity(chunk.len() + 1);
+                    params.push(rusqlite::types::Value::Integer(community_id));
+                    params.extend(chunk.iter().cloned().map(rusqlite::types::Value::Text));
+                    tx.execute(&sql, rusqlite::params_from_iter(params))?;
+                }
+            }
+        }
+        tx.commit()?;
+        Ok(communities.len() as i64)
+    }
+
     pub(crate) fn get_test_targets_for_source(
         &self,
         source_qualified: &str,

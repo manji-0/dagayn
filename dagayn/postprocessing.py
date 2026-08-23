@@ -111,6 +111,16 @@ def _demote_unresolved_endpoint_edges(
         warnings.append(f"Unresolved endpoint demotion failed: {type(e).__name__}: {e}")
 
 
+_MANIFEST_FILENAMES = frozenset({"pyproject.toml", "package.json", "openapitools.json"})
+
+
+def _should_scan_manifests(changed_files: list[str] | None) -> bool:
+    """Return False when an incremental update touched no manifest files."""
+    if not changed_files:
+        return True
+    return any(Path(path).name in _MANIFEST_FILENAMES for path in changed_files)
+
+
 def _discover_manifest_bridges(store: GraphStore) -> Any | None:
     """Discover manifest-backed bridge nodes/edges without mutating the graph."""
     from .parser.manifest_bridges import discover_manifest_bridges, refine_node_line_ends
@@ -124,7 +134,10 @@ def _discover_manifest_bridges(store: GraphStore) -> Any | None:
     return discovered
 
 
-def run_post_processing(store: GraphStore) -> PostprocessResult:
+def run_post_processing(
+    store: GraphStore,
+    changed_files: list[str] | None = None,
+) -> PostprocessResult:
     """Run all post-build steps on a populated graph.
 
     Each step is non-fatal: failures are logged and collected as warnings
@@ -132,6 +145,9 @@ def run_post_processing(store: GraphStore) -> PostprocessResult:
 
     Args:
         store: An open GraphStore with nodes and edges already populated.
+        changed_files: When set, FTS, centrality, and manifest extraction
+            follow the dirty-set path (changed files / affected communities)
+            instead of rebuilding those derived tables for the whole graph.
 
     Returns:
         Typed summary with a counter for each step that ran and a
@@ -144,7 +160,7 @@ def run_post_processing(store: GraphStore) -> PostprocessResult:
         manifest_nodes: list[dict[str, Any]] = []
         manifest_edges: list[dict[str, Any]] = []
         discovered = _discover_manifest_bridges(store)
-        if discovered is not None:
+        if discovered is not None and _should_scan_manifests(changed_files):
             manifest_nodes = [asdict(node) for node in discovered.nodes]
             manifest_edges = [asdict(edge) for edge in discovered.edges]
         try:
@@ -153,6 +169,7 @@ def run_post_processing(store: GraphStore) -> PostprocessResult:
                 json.dumps(manifest_nodes),
                 json.dumps(manifest_edges),
                 2,
+                list(changed_files) if changed_files else None,
             )
             payload = json.loads(raw)
             native_warnings = payload.pop("warnings", []) or []
@@ -174,15 +191,15 @@ def run_post_processing(store: GraphStore) -> PostprocessResult:
     warnings: list[str] = []
 
     _compute_signatures(store, result, warnings)
-    _rebuild_fts_index(store, result, warnings)
+    _rebuild_fts_index(store, result, warnings, changed_files)
     _resolve_bare_name_edges(store, result, warnings)
     _resolve_markdown_artifact_refs(store, result, warnings)
     _resolve_terraform_artifact_refs(store, result, warnings)
     _demote_unresolved_endpoint_edges(store, result, warnings)
-    _apply_manifest_bridges(store, result, warnings)
+    _apply_manifest_bridges(store, result, warnings, changed_files)
     _trace_flows(store, result, warnings)
     _detect_communities(store, result, warnings)
-    _persist_centrality_scores(store, result, warnings)
+    _persist_centrality_scores(store, result, warnings, changed_files)
 
     if warnings:
         result.warnings = warnings
@@ -472,6 +489,7 @@ def _apply_manifest_bridges(
     store: GraphStore,
     result: PostprocessResult,
     warnings: list[str],
+    changed_files: list[str] | None = None,
 ) -> None:
     """Idempotently extract Layer-2 manifest-backed CROSS_ARTIFACT bridges.
 
@@ -479,6 +497,7 @@ def _apply_manifest_bridges(
     ``extractor=manifest_bridges`` edges/nodes inside an explicit
     ``BEGIN IMMEDIATE`` transaction.  Failure leaves prior bridges intact.
     Existing parser ``File`` rows are left untouched so hash/mtime survive.
+    Incremental updates that did not touch a known manifest skip the scan.
     """
     try:
         from .parser.manifest_bridges import (
@@ -486,6 +505,9 @@ def _apply_manifest_bridges(
             discover_manifest_bridges,
             refine_node_line_ends,
         )
+
+        if not _should_scan_manifests(changed_files):
+            return
 
         repo_root = _store_repo_root(store)
         if repo_root is None or not repo_root.is_dir():
@@ -734,14 +756,34 @@ def _rebuild_fts_index(
     store: GraphStore,
     result: PostprocessResult,
     warnings: list[str],
+    changed_files: list[str] | None = None,
 ) -> None:
-    """Rebuild the FTS5 full-text search index."""
+    """Rebuild FTS, or refresh only *changed_files* when that set is non-empty."""
     try:
-        from .search import rebuild_fts_index
+        if changed_files:
+            rust_sync = getattr(store, "sync_fts_for_file_paths", None)
+            if callable(rust_sync):
+                fts_count = int(cast(int, rust_sync(changed_files)))
+            elif hasattr(store, "_conn"):
+                from dagayn.graph import store_write_transaction
+                from dagayn.graph._fts_sync import sync_fts_for_file_paths
 
-        fts_count = rebuild_fts_index(store)
+                with store_write_transaction(store):
+                    fts_count = sync_fts_for_file_paths(
+                        store._conn,
+                        changed_files,
+                        _store_repo_root(store),
+                    )
+            else:
+                from .search import rebuild_fts_index
+
+                fts_count = rebuild_fts_index(store)
+        else:
+            from .search import rebuild_fts_index
+
+            fts_count = rebuild_fts_index(store)
         result.fts_indexed = fts_count
-    except (sqlite3.OperationalError, ImportError) as e:
+    except (sqlite3.OperationalError, ImportError, RuntimeError, TypeError) as e:
         logger.warning("FTS index rebuild failed: %s", e)
         warnings.append(f"FTS index rebuild failed: {type(e).__name__}: {e}")
 
@@ -817,12 +859,13 @@ def _persist_centrality_scores(
     store: GraphStore,
     result: PostprocessResult,
     warnings: list[str],
+    changed_files: list[str] | None = None,
 ) -> None:
     """Persist query-time hub / bridge scores after graph post-processing."""
     try:
         from .analysis import persist_centrality_scores
 
-        counts = persist_centrality_scores(store)
+        counts = persist_centrality_scores(store, changed_files=changed_files)
         result.hub_scores_persisted = counts.get("hub_scores_persisted", 0)
         result.bridge_scores_persisted = counts.get("bridge_scores_persisted", 0)
         result.hub_scores_code_persisted = counts.get("hub_scores_code_persisted", 0)

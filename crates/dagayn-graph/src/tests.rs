@@ -287,6 +287,254 @@ fn remove_files_data_tx_clears_stale_centrality_scores() {
 }
 
 #[test]
+fn remove_files_data_tx_keeps_other_files_centrality_scores() {
+    let path = temp_db("remove-centrality-scoped");
+    let mut store = GraphStore::open(&path).expect("open graph store");
+    let a_caller = NodeInput {
+        kind: "Function".to_string(),
+        name: "a_caller".to_string(),
+        file_path: "a.py".to_string(),
+        line_start: 1,
+        line_end: 2,
+        language: "python".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: Value::Object(Default::default()),
+    };
+    let a_callee = NodeInput {
+        kind: "Function".to_string(),
+        name: "a_callee".to_string(),
+        file_path: "a.py".to_string(),
+        line_start: 3,
+        line_end: 4,
+        language: "python".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: Value::Object(Default::default()),
+    };
+    let b_caller = NodeInput {
+        kind: "Function".to_string(),
+        name: "b_caller".to_string(),
+        file_path: "b.py".to_string(),
+        line_start: 1,
+        line_end: 2,
+        language: "python".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: Value::Object(Default::default()),
+    };
+    let b_callee = NodeInput {
+        kind: "Function".to_string(),
+        name: "b_callee".to_string(),
+        file_path: "b.py".to_string(),
+        line_start: 3,
+        line_end: 4,
+        language: "python".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: Value::Object(Default::default()),
+    };
+    let a_edge = EdgeInput {
+        kind: "CALLS".to_string(),
+        source: "a.py::a_caller".to_string(),
+        target: "a.py::a_callee".to_string(),
+        file_path: "a.py".to_string(),
+        line: 1,
+        extra: Value::Object(Default::default()),
+    };
+    let b_edge = EdgeInput {
+        kind: "CALLS".to_string(),
+        source: "b.py::b_caller".to_string(),
+        target: "b.py::b_callee".to_string(),
+        file_path: "b.py".to_string(),
+        line: 1,
+        extra: Value::Object(Default::default()),
+    };
+    store
+        .store_file_nodes_edges("a.py", &[a_caller, a_callee], &[a_edge], "hash-a", 0)
+        .unwrap();
+    store
+        .store_file_nodes_edges("b.py", &[b_caller, b_callee], &[b_edge], "hash-b", 0)
+        .unwrap();
+    store.persist_centrality_scores().unwrap();
+    store.remove_files_data(&["a.py".to_string()]).unwrap();
+
+    let remaining: i64 = store
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM hub_scores WHERE file_path = 'b.py'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(remaining > 0);
+    let removed: i64 = store
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM hub_scores WHERE file_path = 'a.py'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(removed, 0);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn persist_centrality_batches_community_ids_onto_hub_rows() {
+    let path = temp_db("centrality-community");
+    let mut store = GraphStore::open(&path).expect("open graph store");
+    let file = NodeInput {
+        kind: "File".to_string(),
+        name: "app.py".to_string(),
+        file_path: "app.py".to_string(),
+        line_start: 1,
+        line_end: 1,
+        language: "python".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: Value::Object(Default::default()),
+    };
+    let caller = NodeInput {
+        kind: "Function".to_string(),
+        name: "caller".to_string(),
+        file_path: "app.py".to_string(),
+        line_start: 2,
+        line_end: 3,
+        language: "python".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: Value::Object(Default::default()),
+    };
+    let callee = NodeInput {
+        kind: "Function".to_string(),
+        name: "callee".to_string(),
+        file_path: "app.py".to_string(),
+        line_start: 5,
+        line_end: 6,
+        language: "python".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: Value::Object(Default::default()),
+    };
+    let edge = EdgeInput {
+        kind: "CALLS".to_string(),
+        source: "app.py::caller".to_string(),
+        target: "app.py::callee".to_string(),
+        file_path: "app.py".to_string(),
+        line: 3,
+        extra: Value::Object(Default::default()),
+    };
+    store
+        .store_file_nodes_edges("app.py", &[file, caller, callee], &[edge], "hash", 0)
+        .unwrap();
+    store
+        .conn
+        .execute(
+            "UPDATE nodes SET community_id = 7 WHERE qualified_name = 'app.py::caller'",
+            [],
+        )
+        .unwrap();
+    store.persist_centrality_scores().unwrap();
+
+    let community_id: Option<i64> = store
+        .conn
+        .query_row(
+            "SELECT community_id FROM hub_scores WHERE qualified_name = 'app.py::caller'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(community_id, Some(7));
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn sync_fts_for_file_paths_does_not_drop_other_files() {
+    let path = temp_db("fts-incr");
+    let mut store = GraphStore::open(&path).expect("open graph store");
+    let alpha = NodeInput {
+        kind: "Function".to_string(),
+        name: "alpha_widget".to_string(),
+        file_path: "src/a.py".to_string(),
+        line_start: 1,
+        line_end: 2,
+        language: "python".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: Value::Object(Default::default()),
+    };
+    let beta = NodeInput {
+        kind: "Function".to_string(),
+        name: "beta_gadget".to_string(),
+        file_path: "src/b.py".to_string(),
+        line_start: 1,
+        line_end: 2,
+        language: "python".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: Value::Object(Default::default()),
+    };
+    store
+        .store_file_nodes_edges("src/a.py", &[alpha], &[], "hash-a", 0)
+        .unwrap();
+    store
+        .store_file_nodes_edges("src/b.py", &[beta], &[], "hash-b", 0)
+        .unwrap();
+    let rebuilt = store.rebuild_fts_index().unwrap();
+    assert!(rebuilt >= 2);
+
+    let synced = store
+        .sync_fts_for_file_paths(&["src/a.py".to_string()])
+        .unwrap();
+    assert!(synced >= 1);
+
+    let fts_count: i64 = store
+        .conn
+        .query_row("SELECT COUNT(*) FROM nodes_fts", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(fts_count, rebuilt);
+
+    let beta_hits: i64 = store
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM nodes_fts WHERE name MATCH 'beta_gadget'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(beta_hits, 1);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
 fn deterministic_centrality_sample_is_not_sorted_prefix() {
     let nodes = (0..6000)
         .map(|idx| format!("node_{idx:04}"))
@@ -297,6 +545,16 @@ fn deterministic_centrality_sample_is_not_sorted_prefix() {
     assert_eq!(sample.len(), 500);
     assert_ne!(sample, nodes[..500]);
     assert!(sample.iter().all(|node| nodes.contains(node)));
+}
+
+#[test]
+fn betweenness_sample_size_scales_with_sqrt_v() {
+    assert_eq!(betweenness_sample_size(100), 100);
+    assert_eq!(betweenness_sample_size(5000), 5000);
+    assert_eq!(betweenness_sample_size(10_000), 500);
+    let medium = betweenness_sample_size(6000);
+    assert!(medium < 500);
+    assert!(medium >= BETWEENNESS_SAMPLE_FLOOR);
 }
 
 #[test]
@@ -315,6 +573,24 @@ fn approximate_betweenness_samples_connected_regions() {
     let scores = betweenness_centrality(&graph_nodes, &adjacency);
 
     assert!(scores.values().any(|score| *score > 0.0));
+}
+
+#[test]
+fn betweenness_path_graph_ranks_middle_node_highest() {
+    let graph_nodes = ["a.py::a", "b.py::b", "c.py::c"]
+        .into_iter()
+        .map(str::to_string)
+        .collect::<std::collections::HashSet<_>>();
+    let mut adjacency = std::collections::HashMap::<String, Vec<String>>::new();
+    adjacency.insert("a.py::a".to_string(), vec!["b.py::b".to_string()]);
+    adjacency.insert("b.py::b".to_string(), vec!["c.py::c".to_string()]);
+
+    let scores = betweenness_centrality(&graph_nodes, &adjacency);
+
+    let middle = scores["b.py::b"];
+    assert!(middle > 0.0);
+    assert!(middle > scores["a.py::a"]);
+    assert!(middle > scores["c.py::c"]);
 }
 
 #[test]

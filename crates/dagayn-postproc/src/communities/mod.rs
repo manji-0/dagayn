@@ -22,17 +22,22 @@ pub struct DetectedCommunity {
 }
 
 pub fn detect_communities(store: &GraphStore, min_size: i64) -> Result<Vec<DetectedCommunity>> {
-    let min_size = min_size.max(1) as usize;
-    let all_edges = store.get_all_edges()?;
     let unique_nodes = store.get_all_nodes_filtered(true)?;
+    let all_edges = store.get_all_edges()?;
+    Ok(detect_communities_from(&unique_nodes, &all_edges, min_size))
+}
 
-    let mut results = detect_leiden(&unique_nodes, &all_edges, min_size);
+pub fn detect_communities_from(
+    nodes: &[dagayn_graph::GraphNode],
+    edges: &[dagayn_graph::GraphEdge],
+    min_size: i64,
+) -> Vec<DetectedCommunity> {
+    let min_size = min_size.max(1) as usize;
+    let mut results = detect_leiden(nodes, edges, min_size);
     if results.is_empty() {
-        results = detect_file_based(&unique_nodes, &all_edges, min_size);
+        results = detect_file_based(nodes, edges, min_size);
     }
-
-    results = split_oversized(results, &unique_nodes, &all_edges, 0.25, 10);
-    Ok(results)
+    split_oversized(results, nodes, edges, 0.25, 10)
 }
 
 pub fn detect_communities_json(store: &GraphStore, min_size: i64) -> Result<String> {
@@ -58,9 +63,52 @@ pub fn incremental_detect_communities(
         return Ok(0);
     }
 
-    let communities = detect_communities(store, min_size)?;
-    let payload = serde_json::to_string(&communities).map_err(GraphError::from)?;
-    store.store_communities_json(&payload)
+    let affected_ids = store.affected_community_id_set(changed_files)?;
+    if affected_ids.is_empty() {
+        let communities = detect_communities(store, min_size)?;
+        let payload = serde_json::to_string(&communities).map_err(GraphError::from)?;
+        return store.store_communities_json(&payload);
+    }
+
+    let region_ids = store.expand_neighbor_community_ids(&affected_ids)?;
+    let region_vec: Vec<i64> = region_ids.iter().copied().collect();
+    let region_nodes = store.get_nodes_by_community_ids(&region_vec)?;
+    let total_nodes = store.get_all_nodes_filtered(true)?.len();
+    if region_nodes.is_empty()
+        || total_nodes == 0
+        || (region_nodes.len() as f64) / (total_nodes as f64) > 0.5
+    {
+        let communities = detect_communities(store, min_size)?;
+        let payload = serde_json::to_string(&communities).map_err(GraphError::from)?;
+        return store.store_communities_json(&payload);
+    }
+
+    let region_qns: std::collections::HashSet<String> = region_nodes
+        .iter()
+        .map(|node| node.qualified_name.clone())
+        .collect();
+    let all_edges = store.get_all_edges()?;
+    let region_edges: Vec<_> = all_edges
+        .into_iter()
+        .filter(|edge| {
+            region_qns.contains(&edge.source_qualified)
+                && region_qns.contains(&edge.target_qualified)
+        })
+        .collect();
+    let detected = detect_communities_from(&region_nodes, &region_edges, min_size);
+    let inputs: Vec<dagayn_graph::CommunityInput> = detected
+        .into_iter()
+        .map(|community| dagayn_graph::CommunityInput {
+            name: community.name,
+            level: community.level,
+            cohesion: community.cohesion,
+            size: community.size,
+            dominant_language: community.dominant_language,
+            description: community.description,
+            members: community.members,
+        })
+        .collect();
+    store.replace_communities(&region_vec, &inputs)
 }
 
 pub fn refresh_community_stats_json(store: &mut GraphStore) -> Result<String> {
