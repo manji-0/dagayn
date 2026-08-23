@@ -644,7 +644,7 @@ impl PyGraphStore {
     }
 
     fn refresh_community_stats_json(&self) -> PyResult<String> {
-        self.with_store_mut(|store| native_refresh_community_stats_json(store))
+        self.with_store_mut(native_refresh_community_stats_json)
     }
 
     #[pyo3(signature = (sort_by = "size", min_size = 0))]

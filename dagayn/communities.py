@@ -698,7 +698,7 @@ def detect_communities(store: GraphStore, min_size: int = 2) -> list[CommunityRe
     """
     native = getattr(store, "detect_communities_json", None)
     if callable(native):
-        payload = json.loads(native(min_size))
+        payload = json.loads(cast(str, native(min_size)))
         results: list[CommunityRecord] = []
         for item in payload:
             if not isinstance(item, dict):
@@ -856,7 +856,7 @@ def incremental_detect_communities(
 
     native = getattr(store, "incremental_detect_communities", None)
     if callable(native):
-        return int(native(changed_files, min_size, pre_affected_count))
+        return int(cast(int, native(changed_files, min_size, pre_affected_count)))
 
     affected_count = (
         pre_affected_count
