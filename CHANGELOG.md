@@ -4,6 +4,8 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+## 4.10.4 — 2026-08-23
+
 ### Changed
 
 - Incremental post-process no longer rebuilds the whole FTS index. Changed
