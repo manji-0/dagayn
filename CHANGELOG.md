@@ -4,6 +4,8 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+## 4.10.5 — 2026-08-24
+
 ### Changed
 
 - MCP `get_minimal_context_tool` no longer waits for `session_prepare`. When
