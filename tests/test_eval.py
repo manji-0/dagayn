@@ -322,8 +322,11 @@ def test_markdown_table_escapes_special_cells():
 
 
 @pytest.mark.skipif(not _HAS_YAML, reason="pyyaml not installed")
-def test_runner_with_mock_repo():
+def test_runner_with_mock_repo(monkeypatch: pytest.MonkeyPatch) -> None:
     """Create a tiny git repo with 2 Python files, run benchmarks, verify output."""
+    # Mixing a Python GraphStore connection with the default Rust full_build
+    # tears sqlite_master (no ``metadata`` table) under WAL.
+    monkeypatch.setenv("DAGAYN_BACKEND", "python")
     with tempfile.TemporaryDirectory() as tmpdir:
         repo_path = Path(tmpdir) / "mock_repo"
         repo_path.mkdir()

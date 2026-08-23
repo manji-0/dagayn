@@ -14,6 +14,13 @@ import pytest
 from dagayn.graph import GraphStore
 from dagayn.tools._common import _evict_store_cache, _get_store, recover_corrupt_graph
 
+
+@pytest.fixture(autouse=True)
+def _python_store_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Lease/cache tests target the Python GraphStore (``_leases``, ``_conn``)."""
+    monkeypatch.setenv("DAGAYN_BACKEND", "python")
+
+
 # ---------------------------------------------------------------------------
 # Unit tests: GraphStore.close() state machine
 # ---------------------------------------------------------------------------

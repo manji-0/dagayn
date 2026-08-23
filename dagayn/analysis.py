@@ -478,7 +478,7 @@ def persist_centrality_scores(
 def _ensure_centrality_score_tables(store: GraphStore) -> None:
     with borrowed_sqlite_connection(store) as conn:
         conn.executescript(
-        """
+            """
         CREATE TABLE IF NOT EXISTS hub_scores (
             qualified_name TEXT PRIMARY KEY,
             name TEXT NOT NULL,
@@ -528,7 +528,7 @@ def _ensure_centrality_score_tables(store: GraphStore) -> None:
         CREATE INDEX IF NOT EXISTS idx_bridge_scores_code_betweenness
             ON bridge_scores_code(betweenness DESC);
         """
-    )
+        )
 
 
 def _load_persisted_hub_scores(

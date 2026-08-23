@@ -2735,7 +2735,7 @@ class TestGetMinimalContext:
             from dagayn.graph.core import GraphStore as StoreCls
 
         calls = {"n": 0}
-        original = StoreCls.get_stats
+        original = getattr(StoreCls, "get_stats")
 
         def flaky(self):
             calls["n"] += 1

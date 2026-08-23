@@ -35,7 +35,7 @@ import time
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import IO, Protocol
+from typing import IO, Protocol, cast
 
 logger = logging.getLogger(__name__)
 
@@ -611,8 +611,10 @@ class _ReadLockBoundStore:
         object.__setattr__(self, "_inner", inner)
 
     def close(self, *args: object, **kwargs: object) -> object:
+        inner = object.__getattribute__(self, "_inner")
         try:
-            return self._inner.close(*args, **kwargs)
+            close = getattr(inner, "close")
+            return close(*args, **kwargs)
         finally:
             unbind_store_read_lock(self)
 
@@ -622,7 +624,8 @@ class _ReadLockBoundStore:
             force = getattr(inner, "_force_close", None)
             if callable(force):
                 return force(*args, **kwargs)
-            return inner.close(*args, **kwargs)
+            close = getattr(inner, "close")
+            return close(*args, **kwargs)
         finally:
             drop_store_read_locks(self)
 
@@ -633,7 +636,7 @@ class _ReadLockBoundStore:
         setattr(object.__getattribute__(self, "_inner"), name, value)
 
 
-def wrap_store_close_to_unbind(store: object) -> object:
+def wrap_store_close_to_unbind(store: object) -> _CloseableStore:
     """Ensure ``store.close()`` releases a bound read lock.
 
     Returns *store* when ``close`` can be patched, otherwise a proxy whose
@@ -667,7 +670,7 @@ def wrap_store_close_to_unbind(store: object) -> object:
             store._force_close = _force_close  # type: ignore[method-assign]
         except (AttributeError, TypeError):
             pass
-    return store
+    return cast(_CloseableStore, store)
 
 
 def _reset_for_tests() -> None:
