@@ -221,28 +221,32 @@ impl GraphStore {
         Ok(expanded)
     }
 
-    pub(crate) fn community_region_qualified_names(
-        &self,
-        changed_files: &[String],
-    ) -> Result<Option<HashSet<String>>> {
+    pub fn community_region_ids(&self, changed_files: &[String]) -> Result<Option<Vec<i64>>> {
         let ids = self.affected_community_id_set(changed_files)?;
         if ids.is_empty() {
             return Ok(None);
         }
         let expanded = self.expand_neighbor_community_ids(&ids)?;
         let id_vec: Vec<i64> = expanded.iter().copied().collect();
+        let region_count = self.count_nodes_in_community_ids(&id_vec)?;
+        let total = self.count_non_file_nodes()?;
+        if region_count == 0 || total == 0 || (region_count as f64) / (total as f64) > 0.5 {
+            return Ok(None);
+        }
+        Ok(Some(id_vec))
+    }
+
+    pub(crate) fn community_region_qualified_names(
+        &self,
+        changed_files: &[String],
+    ) -> Result<Option<HashSet<String>>> {
+        let Some(id_vec) = self.community_region_ids(changed_files)? else {
+            return Ok(None);
+        };
         let members = self.get_community_member_qns_by_ids(&id_vec)?;
         let mut qns = HashSet::new();
         for names in members.values() {
             qns.extend(names.iter().cloned());
-        }
-        let total: i64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM nodes WHERE kind != 'File'",
-            [],
-            |row| row.get(0),
-        )?;
-        if total > 0 && (qns.len() as f64) / (total as f64) > 0.5 {
-            return Ok(None);
         }
         Ok(Some(qns))
     }

@@ -259,6 +259,95 @@ impl GraphStore {
         Ok(out)
     }
 
+    pub fn count_non_file_nodes(&self) -> Result<i64> {
+        self.conn
+            .query_row(
+                "SELECT COUNT(*) FROM nodes WHERE kind != 'File'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(Into::into)
+    }
+
+    pub fn count_nodes_in_community_ids(&self, community_ids: &[i64]) -> Result<i64> {
+        if community_ids.is_empty() {
+            return Ok(0);
+        }
+        let mut total = 0_i64;
+        for chunk in community_ids.chunks(450) {
+            if chunk.is_empty() {
+                continue;
+            }
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!(
+                "SELECT COUNT(*) FROM nodes WHERE kind != 'File' AND community_id IN ({placeholders})"
+            );
+            let count: i64 =
+                self.conn
+                    .query_row(&sql, rusqlite::params_from_iter(chunk), |row| row.get(0))?;
+            total += count;
+        }
+        Ok(total)
+    }
+
+    pub fn get_edges_within_community_ids(&self, community_ids: &[i64]) -> Result<Vec<GraphEdge>> {
+        self.community_edges(community_ids, false)
+    }
+
+    pub fn get_edges_incident_to_community_ids(
+        &self,
+        community_ids: &[i64],
+    ) -> Result<Vec<GraphEdge>> {
+        self.community_edges(community_ids, true)
+    }
+
+    fn community_edges(&self, community_ids: &[i64], incident: bool) -> Result<Vec<GraphEdge>> {
+        let mut by_id = HashMap::<i64, GraphEdge>::new();
+        if community_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        for chunk in community_ids.chunks(450) {
+            if chunk.is_empty() {
+                continue;
+            }
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = if incident {
+                format!(
+                    "SELECT e.* FROM edges e \
+                     JOIN nodes n ON n.qualified_name = e.source_qualified \
+                     WHERE n.kind != 'File' AND n.community_id IN ({placeholders}) \
+                     UNION \
+                     SELECT e.* FROM edges e \
+                     JOIN nodes n ON n.qualified_name = e.target_qualified \
+                     WHERE n.kind != 'File' AND n.community_id IN ({placeholders})"
+                )
+            } else {
+                format!(
+                    "SELECT e.* FROM edges e \
+                     JOIN nodes s ON s.qualified_name = e.source_qualified \
+                     JOIN nodes t ON t.qualified_name = e.target_qualified \
+                     WHERE s.kind != 'File' AND t.kind != 'File' \
+                       AND s.community_id IN ({placeholders}) \
+                       AND t.community_id IN ({placeholders})"
+                )
+            };
+            let mut params = Vec::with_capacity(chunk.len() * 2);
+            params.extend_from_slice(chunk);
+            params.extend_from_slice(chunk);
+            let mut stmt = self.conn.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(params), edge_from_row)?;
+            for row in rows {
+                let edge = row?;
+                by_id.insert(edge.id, edge);
+            }
+        }
+        Ok(by_id.into_values().collect())
+    }
+
     pub fn get_all_edges(&self) -> Result<Vec<GraphEdge>> {
         let mut stmt = self.conn.prepare("SELECT * FROM edges")?;
         let rows = stmt.query_map([], edge_from_row)?;

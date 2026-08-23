@@ -148,10 +148,11 @@ Shipped in this wave (do-now items):
 | FTS | Incremental postprocess is `O(nodes in changed files)`, not `O(N)` |
 | Centrality N+1 | One `get_community_ids_by_node_ids` batch instead of per-node SQL |
 | Brandes | `DenseGraph` (`Vec<Vec<usize>>`); generation-stamped `seen`; sample size `min(500, max(64, ceil(5√V)))` when `V > 5000` |
-| Incremental centrality | Recompute Brandes on changed community + neighbors; file deletes drop scores by `file_path` only |
-| Shared snapshot | Full pipeline loads nodes/edges once for Leiden + centrality |
+| Incremental centrality | Recompute Brandes on changed community + neighbors from a SQLite incident-edge subgraph; file deletes drop scores by `file_path` only |
+| Shared snapshot | Full pipeline loads nodes/edges once for Leiden + centrality. Incremental postprocess does not take this snapshot |
 | Leiden `split_oversized` | One edge scan into `edges_by_community` (`O(E)` instead of `O(K×E)`) |
-| Incremental Leiden | Region detect + `replace_communities` when the dirty region is ≤ 50% of nodes |
+| Incremental Leiden | Region detect + `replace_communities` when the dirty region is ≤ 50% of nodes. Nodes and induced edges come from `community_id IN (...)` SQL, not `get_all_nodes_filtered` + `get_all_edges` |
+| Incremental flows | Reverse/forward CALLS (and reportable CROSS_ARTIFACT) hops expand a dirty qualified-name set in SQL, then only those nodes/edges are materialized. Falls back to the full trace graph above 50% of non-file nodes. Criticality refresh reuses that subgraph |
 | Flow criticality | `SELECT ... FROM flows WHERE id IN (...)` when a dirty flow-id set is present |
 | Bare-name | One `name → qualified_name` index instead of a SQL lookup per unresolved edge |
 | Manifest bridges | Skip the repo-wide manifest walk when no `pyproject.toml` / `package.json` / `openapitools.json` changed |

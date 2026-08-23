@@ -65,7 +65,10 @@ impl GraphStore {
         if changed_files.is_empty() {
             return Ok(0);
         }
-        let graph = self.load_trace_graph()?;
+        let graph = match self.load_trace_graph_for_files(changed_files, max_depth)? {
+            Some(graph) => graph,
+            None => self.load_trace_graph()?,
+        };
         let changed_qns = self.changed_qualified_names(changed_files)?;
         let existing = self.existing_flow_entries()?;
         let existing_qns: HashSet<String> = existing
@@ -116,7 +119,7 @@ impl GraphStore {
                 }
             }
         }
-        self.refresh_flow_criticalities(Some(&refresh_ids))?;
+        self.refresh_flow_criticalities_on(&graph, Some(&refresh_ids))?;
         Ok(count)
     }
 
@@ -150,6 +153,164 @@ impl GraphStore {
             nodes_by_id,
             has_tested_by,
         })
+    }
+
+    fn load_trace_graph_for_files(
+        &self,
+        changed_files: &[String],
+        max_depth: i64,
+    ) -> Result<Option<TraceGraph>> {
+        let changed_qns = self.changed_qualified_names(changed_files)?;
+        let total = self.count_non_file_nodes()?;
+        let cap = if total <= 0 {
+            usize::MAX
+        } else {
+            (total as usize / 2).max(1)
+        };
+
+        let Some(mut visited) = self.expand_flow_hops(&changed_qns, true, None, cap)? else {
+            return Ok(None);
+        };
+
+        let existing = self.existing_flow_entries()?;
+        let existing_qns: HashSet<String> = existing
+            .iter()
+            .map(|entry| entry.qualified_name.clone())
+            .collect();
+        let mut relevant: HashSet<String> = visited.intersection(&existing_qns).cloned().collect();
+
+        let called = self.called_targets_among(&changed_qns)?;
+        let changed_list: Vec<String> = changed_qns.iter().cloned().collect();
+        let changed_nodes = self.get_nodes_by_qualified_names(&changed_list)?;
+        for node in changed_nodes.values() {
+            if !is_entry_kind(node) {
+                continue;
+            }
+            if node.is_test || is_test_file(&node.file_path) {
+                continue;
+            }
+            if is_entry_point(node, called.contains(&node.qualified_name)) {
+                relevant.insert(node.qualified_name.clone());
+            }
+        }
+
+        let mut seed_flow_ids = self.get_affected_flow_ids(changed_files)?;
+        seed_flow_ids.extend(self.flow_ids_for_tested_by_files(changed_files)?);
+        visited.extend(self.qualified_names_for_flow_ids(&seed_flow_ids)?);
+        if visited.len() > cap {
+            return Ok(None);
+        }
+
+        let depth_limit = if max_depth <= 0 {
+            DEFAULT_MAX_DEPTH
+        } else {
+            max_depth
+        };
+        let Some(reached) = self.expand_flow_hops(&relevant, false, Some(depth_limit), cap)? else {
+            return Ok(None);
+        };
+        visited.extend(reached);
+        visited.extend(changed_qns);
+        if visited.len() > cap {
+            return Ok(None);
+        }
+        Ok(Some(self.load_trace_graph_from_qns(&visited)?))
+    }
+
+    fn expand_flow_hops(
+        &self,
+        seeds: &HashSet<String>,
+        incoming: bool,
+        max_hops: Option<i64>,
+        cap: usize,
+    ) -> Result<Option<HashSet<String>>> {
+        let mut visited = seeds.clone();
+        let mut frontier: Vec<String> = seeds.iter().cloned().collect();
+        let mut hops = 0_i64;
+        while !frontier.is_empty() {
+            if visited.len() > cap {
+                return Ok(None);
+            }
+            if let Some(limit) = max_hops {
+                if hops >= limit {
+                    break;
+                }
+            }
+            let next = self.flow_neighbor_qualified_names(&frontier, incoming)?;
+            frontier = next
+                .into_iter()
+                .filter(|qn| visited.insert(qn.clone()))
+                .collect();
+            hops += 1;
+        }
+        if visited.len() > cap {
+            return Ok(None);
+        }
+        Ok(Some(visited))
+    }
+
+    fn load_trace_graph_from_qns(&self, qns: &HashSet<String>) -> Result<TraceGraph> {
+        let names: Vec<String> = qns.iter().cloned().collect();
+        let fetched = self.get_nodes_by_qualified_names(&names)?;
+        let mut nodes_by_qn = HashMap::new();
+        let mut nodes_by_id = HashMap::new();
+        for node in fetched.into_values() {
+            nodes_by_qn.insert(node.qualified_name.clone(), node.clone());
+            nodes_by_id.insert(node.id, node);
+        }
+        let loaded_qns: HashSet<String> = nodes_by_qn.keys().cloned().collect();
+        let (calls_out, has_tested_by) = self.get_flow_edge_data_for_qns(&loaded_qns)?;
+        let mut calls_in: HashMap<String, Vec<String>> = HashMap::new();
+        for (source, targets) in &calls_out {
+            for target in targets {
+                calls_in
+                    .entry(target.clone())
+                    .or_default()
+                    .push(source.clone());
+            }
+        }
+        Ok(TraceGraph {
+            calls_out,
+            calls_in,
+            nodes_by_qn,
+            nodes_by_id,
+            has_tested_by,
+        })
+    }
+
+    fn qualified_names_for_flow_ids(&self, flow_ids: &[i64]) -> Result<HashSet<String>> {
+        let mut out = HashSet::new();
+        if flow_ids.is_empty() {
+            return Ok(out);
+        }
+        for chunk in flow_ids.chunks(450) {
+            if chunk.is_empty() {
+                continue;
+            }
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!(
+                "SELECT n.qualified_name FROM flow_memberships fm \
+                 JOIN nodes n ON n.id = fm.node_id \
+                 WHERE fm.flow_id IN ({placeholders}) \
+                 UNION \
+                 SELECT n.qualified_name FROM flows f \
+                 JOIN nodes n ON n.id = f.entry_point_id \
+                 WHERE f.id IN ({placeholders})"
+            );
+            let mut params = Vec::with_capacity(chunk.len() * 2);
+            params.extend_from_slice(chunk);
+            params.extend_from_slice(chunk);
+            let mut stmt = self.conn.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(params), |row| {
+                row.get::<_, String>(0)
+            })?;
+            for row in rows {
+                out.insert(row?);
+            }
+        }
+        Ok(out)
     }
 
     fn changed_qualified_names(&self, changed_files: &[String]) -> Result<HashSet<String>> {
@@ -256,16 +417,19 @@ impl GraphStore {
         Ok(out)
     }
 
-    fn refresh_flow_criticalities(&mut self, flow_ids: Option<&HashSet<i64>>) -> Result<i64> {
+    fn refresh_flow_criticalities_on(
+        &mut self,
+        graph: &TraceGraph,
+        flow_ids: Option<&HashSet<i64>>,
+    ) -> Result<i64> {
         if matches!(flow_ids, Some(ids) if ids.is_empty()) {
             return Ok(0);
         }
-        let graph = self.load_trace_graph()?;
         let rows = self.load_flow_criticality_rows(flow_ids)?;
         let mut updates = Vec::new();
         for (flow_id, depth, path_json, previous) in rows {
             let path: Vec<i64> = serde_json::from_str(&path_json).unwrap_or_default();
-            let recomputed = compute_criticality(&graph, &path, depth);
+            let recomputed = compute_criticality(graph, &path, depth);
             if (recomputed - previous).abs() > 1e-9 {
                 updates.push((flow_id, recomputed));
             }

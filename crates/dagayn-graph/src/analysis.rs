@@ -10,6 +10,16 @@ impl GraphStore {
         &mut self,
         changed_files: Option<&[String]>,
     ) -> Result<HashMap<String, i64>> {
+        match changed_files {
+            Some(files) if !files.is_empty() => {
+                if let Some(region_ids) = self.community_region_ids(files)? {
+                    let nodes = self.get_nodes_by_community_ids(&region_ids)?;
+                    let edges = self.get_edges_incident_to_community_ids(&region_ids)?;
+                    return self.persist_centrality_from_graph(&nodes, &edges, Some(files));
+                }
+            }
+            _ => {}
+        }
         let nodes = self.get_all_nodes_filtered(true)?;
         let edges = self.get_all_edges()?;
         self.persist_centrality_from_graph(&nodes, &edges, changed_files)

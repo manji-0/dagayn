@@ -180,9 +180,14 @@ pub fn run_post_processing_json(
         result.flows_detected = Some(count);
     }
 
-    let loaded = record_step(&mut result.warnings, "Load graph snapshot", || {
-        Ok((store.get_all_nodes_filtered(true)?, store.get_all_edges()?))
-    });
+    let incremental = matches!(changed_files, Some(files) if !files.is_empty());
+    let loaded = if incremental {
+        None
+    } else {
+        record_step(&mut result.warnings, "Load graph snapshot", || {
+            Ok((store.get_all_nodes_filtered(true)?, store.get_all_edges()?))
+        })
+    };
 
     if let Some(community_count) =
         record_step(
@@ -211,11 +216,12 @@ pub fn run_post_processing_json(
         record_step(
             &mut result.warnings,
             "Centrality score persistence",
-            || match &loaded {
-                Some((nodes, edges)) => {
-                    store.persist_centrality_from_graph(nodes, edges, changed_files)
+            || match (incremental, &loaded) {
+                (true, _) => store.persist_centrality_scores_filtered(changed_files),
+                (false, Some((nodes, edges))) => {
+                    store.persist_centrality_from_graph(nodes, edges, None)
                 }
-                None => store.persist_centrality_scores_filtered(changed_files),
+                (false, None) => store.persist_centrality_scores_filtered(None),
             },
         )
     {

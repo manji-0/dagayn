@@ -63,38 +63,20 @@ pub fn incremental_detect_communities(
         return Ok(0);
     }
 
-    let affected_ids = store.affected_community_id_set(changed_files)?;
-    if affected_ids.is_empty() {
+    let Some(region_vec) = store.community_region_ids(changed_files)? else {
         let communities = detect_communities(store, min_size)?;
         let payload = serde_json::to_string(&communities).map_err(GraphError::from)?;
         return store.store_communities_json(&payload);
-    }
+    };
 
-    let region_ids = store.expand_neighbor_community_ids(&affected_ids)?;
-    let region_vec: Vec<i64> = region_ids.iter().copied().collect();
     let region_nodes = store.get_nodes_by_community_ids(&region_vec)?;
-    let total_nodes = store.get_all_nodes_filtered(true)?.len();
-    if region_nodes.is_empty()
-        || total_nodes == 0
-        || (region_nodes.len() as f64) / (total_nodes as f64) > 0.5
-    {
+    if region_nodes.is_empty() {
         let communities = detect_communities(store, min_size)?;
         let payload = serde_json::to_string(&communities).map_err(GraphError::from)?;
         return store.store_communities_json(&payload);
     }
 
-    let region_qns: std::collections::HashSet<String> = region_nodes
-        .iter()
-        .map(|node| node.qualified_name.clone())
-        .collect();
-    let all_edges = store.get_all_edges()?;
-    let region_edges: Vec<_> = all_edges
-        .into_iter()
-        .filter(|edge| {
-            region_qns.contains(&edge.source_qualified)
-                && region_qns.contains(&edge.target_qualified)
-        })
-        .collect();
+    let region_edges = store.get_edges_within_community_ids(&region_vec)?;
     let detected = detect_communities_from(&region_nodes, &region_edges, min_size);
     let inputs: Vec<dagayn_graph::CommunityInput> = detected
         .into_iter()

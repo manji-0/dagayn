@@ -2858,3 +2858,241 @@ fn incremental_trace_flows_uses_reverse_calls_for_new_callee() {
     assert!(members > 0);
     let _ = std::fs::remove_file(path);
 }
+
+#[test]
+fn community_edge_queries_are_region_local() {
+    let path = temp_db("community-subgraph-edges");
+    let mut store = GraphStore::open(&path).expect("open graph store");
+    store
+        .store_file_nodes_edges(
+            "a.py",
+            &[
+                flow_test_node("Function", "a_caller", "a.py"),
+                flow_test_node("Function", "a_callee", "a.py"),
+            ],
+            &[
+                flow_test_call("a.py::a_caller", "a.py::a_callee", "a.py"),
+                flow_test_call("a.py::a_caller", "b.py::b_callee", "a.py"),
+            ],
+            "hash-a",
+            0,
+        )
+        .unwrap();
+    store
+        .store_file_nodes_edges(
+            "b.py",
+            &[
+                flow_test_node("Function", "b_caller", "b.py"),
+                flow_test_node("Function", "b_callee", "b.py"),
+            ],
+            &[flow_test_call("b.py::b_caller", "b.py::b_callee", "b.py")],
+            "hash-b",
+            0,
+        )
+        .unwrap();
+    let payload = serde_json::to_string(&vec![
+        CommunityInput {
+            name: "cluster-a".to_string(),
+            level: 0,
+            cohesion: 1.0,
+            size: 2,
+            dominant_language: "python".to_string(),
+            description: "a".to_string(),
+            members: vec!["a.py::a_caller".to_string(), "a.py::a_callee".to_string()],
+        },
+        CommunityInput {
+            name: "cluster-b".to_string(),
+            level: 0,
+            cohesion: 1.0,
+            size: 2,
+            dominant_language: "python".to_string(),
+            description: "b".to_string(),
+            members: vec!["b.py::b_caller".to_string(), "b.py::b_callee".to_string()],
+        },
+    ])
+    .unwrap();
+    store.store_communities_json(&payload).unwrap();
+    let communities: Vec<Value> =
+        serde_json::from_str(&store.get_communities_json("size", 0).unwrap()).unwrap();
+    let id_a = communities
+        .iter()
+        .find(|community| community["name"] == "cluster-a")
+        .and_then(|community| community["id"].as_i64())
+        .unwrap();
+
+    let within = store.get_edges_within_community_ids(&[id_a]).unwrap();
+    assert!(
+        within.iter().all(|edge| {
+            edge.source_qualified.starts_with("a.py::")
+                && edge.target_qualified.starts_with("a.py::")
+        }),
+        "induced community edges must stay inside the region"
+    );
+    assert!(within.iter().any(|edge| {
+        edge.source_qualified == "a.py::a_caller" && edge.target_qualified == "a.py::a_callee"
+    }));
+    assert!(!within
+        .iter()
+        .any(|edge| edge.target_qualified == "b.py::b_callee"));
+
+    let incident = store.get_edges_incident_to_community_ids(&[id_a]).unwrap();
+    assert!(incident.iter().any(|edge| {
+        edge.source_qualified == "a.py::a_caller" && edge.target_qualified == "b.py::b_callee"
+    }));
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn persist_centrality_scores_filtered_keeps_other_community_hubs() {
+    let path = temp_db("centrality-region-sql");
+    let mut store = GraphStore::open(&path).expect("open graph store");
+    store
+        .store_file_nodes_edges(
+            "a.py",
+            &[
+                flow_test_node("Function", "a_caller", "a.py"),
+                flow_test_node("Function", "a_callee", "a.py"),
+            ],
+            &[flow_test_call("a.py::a_caller", "a.py::a_callee", "a.py")],
+            "hash-a",
+            0,
+        )
+        .unwrap();
+    store
+        .store_file_nodes_edges(
+            "b.py",
+            &[
+                flow_test_node("Function", "b_caller", "b.py"),
+                flow_test_node("Function", "b_callee", "b.py"),
+            ],
+            &[flow_test_call("b.py::b_caller", "b.py::b_callee", "b.py")],
+            "hash-b",
+            0,
+        )
+        .unwrap();
+    let payload = serde_json::to_string(&vec![
+        CommunityInput {
+            name: "cluster-a".to_string(),
+            level: 0,
+            cohesion: 1.0,
+            size: 2,
+            dominant_language: "python".to_string(),
+            description: "a".to_string(),
+            members: vec!["a.py::a_caller".to_string(), "a.py::a_callee".to_string()],
+        },
+        CommunityInput {
+            name: "cluster-b".to_string(),
+            level: 0,
+            cohesion: 1.0,
+            size: 2,
+            dominant_language: "python".to_string(),
+            description: "b".to_string(),
+            members: vec!["b.py::b_caller".to_string(), "b.py::b_callee".to_string()],
+        },
+    ])
+    .unwrap();
+    store.store_communities_json(&payload).unwrap();
+    store.persist_centrality_scores().unwrap();
+    let before_b: i64 = store
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM hub_scores WHERE file_path = 'b.py'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(before_b > 0);
+
+    store
+        .persist_centrality_scores_filtered(Some(&["a.py".to_string()]))
+        .unwrap();
+    let after_b: i64 = store
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM hub_scores WHERE file_path = 'b.py'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(after_b, before_b);
+    let after_a: i64 = store
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM hub_scores WHERE file_path = 'a.py'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(after_a > 0);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn incremental_trace_flows_scoped_load_still_follows_reverse_calls() {
+    let path = temp_db("incremental-scoped-reverse");
+    let mut store = GraphStore::open(&path).expect("open graph store");
+    store
+        .store_file_batch(&[(
+            "a.py".to_string(),
+            vec![
+                flow_test_node("File", "a.py", "a.py"),
+                flow_test_node("Function", "entry", "a.py"),
+                flow_test_node("Function", "local", "a.py"),
+            ],
+            vec![
+                flow_test_call("a.py::entry", "a.py::local", "a.py"),
+                flow_test_call("a.py::entry", "b.py::new_helper", "a.py"),
+            ],
+            "hash-a".to_string(),
+            0,
+        )])
+        .unwrap();
+    let mut unrelated = Vec::new();
+    for index in 0..12 {
+        unrelated.push(flow_test_node(
+            "Function",
+            &format!("unused_{index}"),
+            "c.py",
+        ));
+    }
+    store
+        .store_file_batch(&[(
+            "c.py".to_string(),
+            unrelated,
+            vec![],
+            "hash-c".to_string(),
+            0,
+        )])
+        .unwrap();
+    store.rebuild_flows_json(15, false).unwrap();
+
+    store
+        .store_file_batch(&[(
+            "b.py".to_string(),
+            vec![
+                flow_test_node("File", "b.py", "b.py"),
+                flow_test_node("Function", "new_helper", "b.py"),
+            ],
+            vec![],
+            "hash-b".to_string(),
+            0,
+        )])
+        .unwrap();
+
+    let count = store
+        .incremental_trace_flows(&["b.py".to_string()], 15)
+        .unwrap();
+    assert!(count >= 1);
+    let members: i64 = store
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM flow_memberships fm \
+             JOIN nodes n ON n.id = fm.node_id \
+             WHERE n.qualified_name = 'b.py::new_helper'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(members > 0);
+    let _ = std::fs::remove_file(path);
+}

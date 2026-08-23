@@ -53,6 +53,151 @@ impl GraphStore {
         Ok((calls_out, has_tested_by))
     }
 
+    pub(crate) fn get_flow_edge_data_for_qns(&self, qns: &HashSet<String>) -> Result<FlowEdgeData> {
+        let mut calls_out: HashMap<String, Vec<String>> = HashMap::new();
+        let mut has_tested_by: HashSet<String> = HashSet::new();
+        if qns.is_empty() {
+            return Ok((calls_out, has_tested_by));
+        }
+        let names: Vec<String> = qns.iter().cloned().collect();
+        for chunk in names.chunks(450) {
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!(
+                "SELECT kind, source_qualified, target_qualified, confidence_tier, extra \
+                 FROM edges \
+                 WHERE kind IN ('CALLS', 'TESTED_BY', 'CROSS_ARTIFACT') \
+                   AND (source_qualified IN ({placeholders}) \
+                        OR target_qualified IN ({placeholders}))"
+            );
+            let mut params = Vec::with_capacity(chunk.len() * 2);
+            params.extend(chunk.iter().cloned());
+            params.extend(chunk.iter().cloned());
+            let mut stmt = self.conn.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(params), |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                ))
+            })?;
+            for row in rows {
+                let (kind, source, target, confidence_tier, extra_json) = row?;
+                if kind == "CALLS" {
+                    calls_out.entry(source).or_default().push(target);
+                } else if kind == "TESTED_BY" {
+                    has_tested_by.insert(source);
+                } else if kind == "CROSS_ARTIFACT"
+                    && is_reportable_cross_artifact(
+                        &target,
+                        confidence_tier.as_deref(),
+                        extra_json.as_deref(),
+                    )
+                {
+                    calls_out.entry(source).or_default().push(target);
+                }
+            }
+        }
+        Ok((calls_out, has_tested_by))
+    }
+
+    pub(crate) fn flow_neighbor_qualified_names(
+        &self,
+        seeds: &[String],
+        incoming: bool,
+    ) -> Result<HashSet<String>> {
+        let mut out = HashSet::new();
+        if seeds.is_empty() {
+            return Ok(out);
+        }
+        let column = if incoming {
+            "target_qualified"
+        } else {
+            "source_qualified"
+        };
+        for chunk in seeds.chunks(450) {
+            if chunk.is_empty() {
+                continue;
+            }
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!(
+                "SELECT kind, source_qualified, target_qualified, confidence_tier, extra \
+                 FROM edges \
+                 WHERE kind IN ('CALLS', 'CROSS_ARTIFACT') AND {column} IN ({placeholders})"
+            );
+            let mut stmt = self.conn.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                ))
+            })?;
+            for row in rows {
+                let (kind, source, target, confidence_tier, extra_json) = row?;
+                let include = kind == "CALLS"
+                    || (kind == "CROSS_ARTIFACT"
+                        && is_reportable_cross_artifact(
+                            &target,
+                            confidence_tier.as_deref(),
+                            extra_json.as_deref(),
+                        ));
+                if include {
+                    out.insert(if incoming { source } else { target });
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    pub(crate) fn called_targets_among(&self, qns: &HashSet<String>) -> Result<HashSet<String>> {
+        let mut out = HashSet::new();
+        if qns.is_empty() {
+            return Ok(out);
+        }
+        let names: Vec<String> = qns.iter().cloned().collect();
+        for chunk in names.chunks(450) {
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!(
+                "SELECT kind, target_qualified, confidence_tier, extra FROM edges \
+                 WHERE kind IN ('CALLS', 'CROSS_ARTIFACT') \
+                   AND target_qualified IN ({placeholders})"
+            );
+            let mut stmt = self.conn.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            })?;
+            for row in rows {
+                let (kind, target, confidence_tier, extra_json) = row?;
+                if kind == "CALLS"
+                    || (kind == "CROSS_ARTIFACT"
+                        && is_reportable_cross_artifact(
+                            &target,
+                            confidence_tier.as_deref(),
+                            extra_json.as_deref(),
+                        ))
+                {
+                    out.insert(target);
+                }
+            }
+        }
+        Ok(out)
+    }
+
     pub fn store_flows(&mut self, flows: &[FlowInput]) -> Result<i64> {
         let tx = write_tx(&mut self.conn)?;
         tx.execute("DELETE FROM flow_snapshots", [])?;
@@ -150,7 +295,7 @@ fn extra_confidence_tier(extra_json: Option<&str>) -> Option<String> {
 /// `confidence_tier_of`). Only fall back to `extra.confidence_tier` when the
 /// column is absent or empty — never let extra override a non-reportable
 /// column value such as LOW/MEDIUM.
-fn is_reportable_cross_artifact(
+pub(crate) fn is_reportable_cross_artifact(
     target: &str,
     confidence_tier: Option<&str>,
     extra_json: Option<&str>,

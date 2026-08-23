@@ -15,7 +15,10 @@ All notable changes to `dagayn` are documented here.
   splits partition edges in `O(E)`, incremental Leiden replaces the dirty
   region instead of the whole partition, flow criticality refresh queries only
   dirty flow ids, bare-name resolution uses a name index, and manifest
-  extraction is skipped when no manifest files changed.
+  extraction is skipped when no manifest files changed. Incremental community,
+  centrality, and flow post-process now build those subgraphs in SQLite from
+  the dirty set instead of materializing every node and edge first; a region
+  larger than 50% of non-file nodes still falls back to a full snapshot.
 - Drop unused Python and Rust dependency declarations. The core install no
   longer pins `mcp` (FastMCP already requires `mcp>=1.24,<2`), the empty
   `communities` / `enrichment` / `wiki` extras and `pytest-asyncio` are gone,
