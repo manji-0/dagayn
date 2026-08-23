@@ -48,7 +48,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 #: Task kinds the worker knows how to execute.
-TASK_KINDS = ("update", "embed", "postprocess")
+TASK_KINDS = ("update", "embed", "postprocess", "prepare")
 
 #: Default priority per kind, used when the caller does not pass one. The
 #: worker is a single serial lane (the graph write lock is the real
@@ -56,7 +56,9 @@ TASK_KINDS = ("update", "embed", "postprocess")
 #: ``update`` must not sit behind a minutes-long ``embed`` that was queued
 #: first. This cannot preempt a task that is *already* running — an update
 #: enqueued mid-embed still waits for it, bounded by the embed budget.
-DEFAULT_PRIORITIES = {"update": 10, "embed": 0, "postprocess": 0}
+#: ``prepare`` matches ``update`` so MCP first-tool repair is not starved
+#: behind an embedding backfill.
+DEFAULT_PRIORITIES = {"update": 10, "embed": 0, "postprocess": 0, "prepare": 10}
 
 #: A failing task is retried this many times before it is parked as ``dead``.
 MAX_ATTEMPTS = 3
@@ -81,6 +83,9 @@ DEFAULT_IDLE_SECONDS = 60.0
 DEFAULT_UPDATE_BUDGET_SECONDS = 120
 DEFAULT_EMBED_BUDGET_SECONDS = 600
 DEFAULT_POSTPROCESS_BUDGET_SECONDS = 600
+#: MCP first-tool repair budget stored on the queued prepare (the RPC itself
+#: does not wait). Matches ``ensure_graph_tool`` / serve auto-prepare.
+DEFAULT_PREPARE_BUDGET_SECONDS = 300
 
 #: How much of the embed budget one task may spend embedding. The rest covers
 #: the structural update that precedes it and the orphan prune that follows.
@@ -593,6 +598,29 @@ def enqueue_embed_refresh(
     return action, task_id
 
 
+def enqueue_session_prepare(
+    repo_root: str | Path,
+    *,
+    spawn_worker: bool = True,
+    payload: dict[str, Any] | None = None,
+) -> tuple[str, int]:
+    """Enqueue a ``prepare`` task (session structure + embedding refresh).
+
+    Used by MCP ``get_minimal_context`` so Observe never waits on Repair.
+    ``spawn_worker=False`` is for a worker that is already draining.
+    """
+    root = Path(repo_root)
+    body = dict(payload or {})
+    queue = TaskQueue(queue_db_path(root))
+    try:
+        action, task_id = queue.enqueue("prepare", payload=body)
+    finally:
+        queue.close()
+    if spawn_worker:
+        ensure_worker(root)
+    return action, task_id
+
+
 def _embed_files_from_payload(payload: dict[str, Any]) -> list[str] | None:
     files = payload.get("files")
     if not isinstance(files, list):
@@ -728,6 +756,42 @@ def _requeue_unfinished_embedding(
     return f"embedded {embedded}, {remaining} left; {action} embed task {task_id}"
 
 
+def _execute_prepare(task: dict[str, Any], repo_root: Path) -> str | None:
+    """Run session prepare on the single worker lane.
+
+    Does not set ``DAGAYN_HOOK_UPDATE``: this *is* the repair lane, so it
+    waits on the write lock (with timeout) instead of skip-when-busy.
+    """
+    from .hook_guard import start_budget_watchdog
+    from .tools.session_prepare import prepare_hard_stop_seconds, session_prepare
+
+    payload = task["payload"]
+    raw = payload.get("budget_seconds", DEFAULT_PREPARE_BUDGET_SECONDS)
+    budget = None if raw is None or int(raw) <= 0 else int(raw)
+    watchdog = start_budget_watchdog(
+        prepare_hard_stop_seconds(budget),
+        label="queue prepare",
+    )
+    try:
+        result = session_prepare(
+            repo_root=str(repo_root),
+            local_embedding=str(payload.get("local_embedding") or "none"),
+            keep_local_embedding_server=bool(payload.get("keep_local_embedding_server", True)),
+            budget_seconds=budget,
+            embedding_policy="auto",
+            from_hook=False,
+            seed_worktree=True,
+        )
+        if result.get("status") == "error":
+            raise RuntimeError(result.get("summary") or "session prepare failed")
+        if result.get("action") == "skipped" or result.get("skipped"):
+            return f"skipped: {result.get('reason')}"
+        return result.get("reason")
+    finally:
+        if watchdog is not None:
+            watchdog.cancel()
+
+
 def _execute_postprocess(task: dict[str, Any], repo_root: Path) -> str | None:
     """Run flows/communities/FTS post-processing."""
     from .hook_guard import start_budget_watchdog
@@ -749,6 +813,7 @@ _TASK_EXECUTORS = {
     "update": _execute_update,
     "embed": _execute_embed,
     "postprocess": _execute_postprocess,
+    "prepare": _execute_prepare,
 }
 
 

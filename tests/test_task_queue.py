@@ -99,6 +99,15 @@ class TestEnqueue:
             action, _ = queue.enqueue(kind)
             assert action == "added"
 
+    def test_enqueue_session_prepare_coalesces(self, tmp_path: Path) -> None:
+        from dagayn.task_queue import enqueue_session_prepare
+
+        first, id1 = enqueue_session_prepare(tmp_path, spawn_worker=False)
+        second, id2 = enqueue_session_prepare(tmp_path, spawn_worker=False)
+        assert first == "added"
+        assert second == "coalesced"
+        assert id1 == id2
+
 
 class TestPriorities:
     def test_update_outranks_an_already_queued_embed(self, queue: TaskQueue) -> None:

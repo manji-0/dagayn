@@ -4,6 +4,16 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Changed
+
+- MCP `get_minimal_context_tool` no longer waits for `session_prepare`. When
+  the graph is empty or HEAD-drifted it enqueues a single background prepare
+  and returns the current `sync` plus `repair`/`prepare` queued state. Call
+  `ensure_graph_tool` to wait. Hook `session prepare` now skip-when-busy like
+  `dagayn update`. Shared-to-exclusive flock upgrades release then wait with
+  a timeout instead of blocking forever; native store `close` always unbinds
+  the read lock (via a proxy when PyO3 cannot patch `close`).
+
 ## 4.10.4 — 2026-08-23
 
 ### Changed

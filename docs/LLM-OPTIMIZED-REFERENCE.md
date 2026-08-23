@@ -20,7 +20,7 @@ Use `dagayn` in all user-facing guidance.
 <section name="review-delta">
 Recommended sequence for reviewing a delta:
 
-1. `get_minimal_context_tool(task=...)` — auto-prepares when empty or out of sync (`sync.status`); call `ensure_graph_tool()` only if prepare could not finish
+1. `get_minimal_context_tool(task=...)` — enqueues background prepare when empty or out of sync (`sync.status`) and returns immediately; call `ensure_graph_tool()` if you must wait for the graph to be ready
 2. `review_tool(mode="changes")` and read `analysis_summary` first
 3. Call `review_tool(mode="context")` / `mode="impact"` / `query_graph_tool` only for concrete source, blast-radius, or coverage questions
 4. Read only the files that remain ambiguous after graph queries

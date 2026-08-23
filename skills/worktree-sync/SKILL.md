@@ -41,7 +41,7 @@ checkout.
    - `--no-copy-config` — skip MCP/skill file copy when config is already present
 
 3. Orient with MCP:
-   - `get_minimal_context_tool(task="worktree session")` (auto-prepares when empty/stale)
+   - `get_minimal_context_tool(task="worktree session")` (enqueues prepare when empty/stale; call `ensure_graph_tool` to wait)
    - If `sync.status` / `graph_health.status` is still `empty`, call `ensure_graph_tool()` once
    - Prefer review / explore tools after the graph is healthy
 

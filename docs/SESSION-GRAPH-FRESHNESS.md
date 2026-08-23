@@ -24,10 +24,13 @@ in whether those edits are in the graph yet: session-start / explicit
 `session prepare` indexes the `worktree_behind` ones once
 (`needs_structure_prepare`), and skips `worktree_ahead` entirely because an
 edit hook already indexed them. MCP `get_minimal_context(auto_prepare=True)`
-only bootstraps on `unbuilt` / `commit_drift` (`needs_mcp_auto_prepare`) so a
-dirty tree does not re-prepare on every tool call; ongoing dirty indexing is
-UC-E1 (a structure-only update enqueued by the edit hook and drained by the
-queue worker).
+**enqueues** a background `session_prepare` on `unbuilt` / `commit_drift`
+(`needs_mcp_auto_prepare`) and returns immediately with the current `sync`
+plus `repair`/`prepare` queued state — it does not wait for the repair.
+Call `ensure_graph_tool` (or CLI `session prepare`) when analysis must wait
+for structure. A dirty tree does not re-queue on every tool call; ongoing
+dirty indexing is UC-E1 (a structure-only update enqueued by the edit hook
+and drained by the queue worker).
 
 **Non-repo roots are never bootstrapped (UC-M3).** A root outside any git/svn
 repository (`sync.vcs == "none"`, typically a misdetected root such as `$HOME`
@@ -50,8 +53,9 @@ symmetry with `dagayn worktree sync`; the prepare path currently always builds
 an empty graph when structure prepare runs — do not rely on that flag as a
 gate.
 
-`dagayn serve` only runs `ensure_worktree_graph` (seed). Catch-up still requires
-`session prepare` / `worktree sync` / MCP auto_prepare (UC-A1).
+`dagayn serve` only runs `ensure_worktree_graph` (seed). Catch-up still
+requires `session prepare` / `worktree sync` / MCP auto_prepare enqueue
+(UC-A1). First-tool MCP **starts** repair; it does not finish it.
 
 ## Sync state model
 
@@ -200,15 +204,16 @@ flowchart TD
 | UC-W1 | Worktree create | Cursor `.cursor/worktrees.json` setup / Claude `EnterWorktree` / `worktree sync` / `session prepare` | Seed from main + catch-up to worktree HEAD |
 | UC-W2 | Worktree switch / re-enter | EnterWorktree / `session prepare` in existing worktree | Seed skipped if graph exists; catch-up from stored `git_head_sha` |
 | UC-W3 | Worktree delete | `git worktree remove` (no dagayn hook) | Main checkout graph unchanged; orphaned worktree `.dagayn` discarded with the tree |
-| UC-A1 | Subagent / parallel agent | Worktree create + MCP in that tree | Seed alone is not enough; `get_minimal_context(auto_prepare=True)` or `session prepare` catch-up → structure ready |
-| UC-M1 | MCP first tool | `get_minimal_context_tool` | `auto_prepare` on `unbuilt`/`commit_drift` or an empty/large embedding hole (300s); dirty does not loop. A small missing-embedding tail is queued, not inlined |
+| UC-A1 | Subagent / parallel agent | Worktree create + MCP in that tree | Seed alone is not enough; `get_minimal_context(auto_prepare=True)` **starts** catch-up (queued `session_prepare`); wait with `ensure_graph_tool` or `session prepare` if you need structure ready before analysis |
+| UC-M1 | MCP first tool | `get_minimal_context_tool` | `auto_prepare` **enqueues** `session_prepare` on `unbuilt`/`commit_drift` or an empty/large embedding hole (does not wait); dirty does not loop. A small missing-embedding tail is queued, not inlined. Call `ensure_graph_tool` to wait |
 | UC-M2 | MCP explicit sync | `ensure_graph_tool` | Same prepare path with MCP budget; retry after `partial` until structure ready |
 | UC-M3 | Misdetected root | MCP first tool / `session prepare` on a non-repo root | `vcs == "none"` → never auto-prepare; `session_prepare`/`ensure_graph` refuse with `reason == "not_vcs_repo"` (no `.dagayn/` created) |
 | UC-E1 | File edit (ongoing) | `dagayn queue add update` → detached queue worker (structure-only, `postprocess=minimal`) | Out of bootstrap scope — keeps graph current during a session, not a start gate. Edit bursts coalesce into one pending task; the worker re-runs while new work arrives and exits after the idle window. After a structure update that touched files, the worker enqueues a file-scoped `embed` when the graph already has a managed localhost-sidecar partition (preset inferred from the stored provider) |
 
 Platform notes: Codex installs without the Claude `EnterWorktree` matcher
 (`worktree_hook=False`). Cursor/Claude/OpenCode cover UC-W1 enter hooks;
-Codex relies on MCP auto_prepare / manual `worktree sync` in the worktree.
+Codex relies on MCP auto_prepare (queued) / `ensure_graph_tool` / manual
+`worktree sync` in the worktree.
 
 Automated coverage lives in `tests/test_session_graph_freshness.py` (test names
 carry the UC id), including hook-wiring asserts for Cursor/Claude/OpenCode.

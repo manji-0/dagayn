@@ -891,6 +891,63 @@ class TestInProcessReaderParallelism:
             release.set()
             t.join(timeout=30)
 
+    def test_exclusive_wait_times_out_while_a_reader_holds(self, tmp_path):
+        db = tmp_path / "graph.db"
+        db.touch()
+        holder = (
+            "import sys, time\n"
+            "from dagayn.write_lock import graph_read_lock\n"
+            "with graph_read_lock(sys.argv[1]):\n"
+            "    print('held', flush=True)\n"
+            "    time.sleep(8)\n"
+        )
+        proc = subprocess.Popen(
+            [sys.executable, "-c", holder, str(db)],
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            assert proc.stdout is not None
+            assert proc.stdout.readline().strip() == "held"
+            started = time.monotonic()
+            with pytest.raises(WriteLockUnavailableError):
+                with graph_write_lock(db, timeout=0.3):
+                    pass
+            assert time.monotonic() - started < 2.0
+        finally:
+            proc.kill()
+            proc.wait(timeout=30)
+
+    def test_read_lock_proxy_close_releases_flock(self, tmp_path):
+        from dagayn.write_lock import (
+            acquire_graph_lock,
+            bind_store_read_lock,
+            wrap_store_close_to_unbind,
+        )
+
+        db = tmp_path / "graph.db"
+        db.touch()
+
+        class FrozenClose:
+            def close(self) -> None:
+                return None
+
+            def __setattr__(self, name: str, value: object) -> None:
+                if name == "close":
+                    raise AttributeError(name)
+                super().__setattr__(name, value)
+
+        store = wrap_store_close_to_unbind(FrozenClose())
+        acquire_graph_lock(db, exclusive=False, timeout=1)
+        bind_store_read_lock(store, db)
+        assert graph_lock_is_held(db)
+        store.close()
+        started = time.monotonic()
+        with graph_write_lock(db, timeout=1):
+            waited = time.monotonic() - started
+        assert waited < 0.5
+        assert not graph_lock_is_held(db)
+
 
 class TestLockFairness:
     """Neither side may be starved: waiters are served in arrival order."""
@@ -1024,6 +1081,48 @@ class TestHookUpdateDoesNotWaitBehindWriter:
         assert "Skipped" in completed.stdout, (
             f"hook update should report skipping, got: {completed.stdout!r}"
         )
+
+    def test_hook_session_prepare_skips_immediately_while_a_writer_holds_the_lock(
+        self,
+        tmp_path,
+    ):
+        from dagayn.paths import get_db_path
+        from dagayn.tools.session_prepare import session_prepare
+
+        repo, _existing = self._repo(tmp_path)
+        db = get_db_path(repo)
+        db.parent.mkdir(parents=True, exist_ok=True)
+        db.touch()
+        holder = (
+            "import sys, time\n"
+            "from dagayn.write_lock import graph_write_lock\n"
+            "with graph_write_lock(sys.argv[1]):\n"
+            "    print('held', flush=True)\n"
+            "    time.sleep(8)\n"
+        )
+        proc = subprocess.Popen(
+            [sys.executable, "-c", holder, str(db)],
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            assert proc.stdout is not None
+            assert proc.stdout.readline().strip() == "held"
+            started = time.monotonic()
+            result = session_prepare(
+                repo_root=str(repo),
+                from_hook=True,
+                local_embedding="none",
+                embedding_policy="skip",
+                budget_seconds=30,
+            )
+            elapsed = time.monotonic() - started
+            assert elapsed < 2.0, f"hook prepare waited on the write lock ({elapsed:.2f}s)"
+            assert result["reason"] == "hook_lock_busy"
+            assert result["action"] == "skipped"
+        finally:
+            proc.kill()
+            proc.wait(timeout=30)
 
     def test_manual_update_still_waits_for_the_writer(self, tmp_path):
         repo, db = self._repo(tmp_path)

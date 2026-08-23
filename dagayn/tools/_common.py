@@ -557,9 +557,12 @@ def _get_store(
             release_graph_lock(db_path)
         raise
     if owns_read_lock:
-        bind_store_read_lock(store, db_path)
+        # Bind after wrapping so native stores unbind on the same object
+        # identity ``close()`` sees. Caching the sqlite handle is fine;
+        # the flock itself must not outlive this caller's close().
         if not hasattr(store, "_conn"):
-            wrap_store_close_to_unbind(store)
+            store = wrap_store_close_to_unbind(store)
+        bind_store_read_lock(store, db_path)
     return store, root
 
 

@@ -276,12 +276,12 @@ def get_minimal_context(
         base: Git ref for diff comparison.
         detail_level: Accepted for CLI/MCP interface consistency. This tool is
               intentionally compact, so all detail levels share the same shape.
-        auto_prepare: When True, run ``session_prepare`` if the graph is empty
-              or HEAD-drifted (and finish deferred embeddings when needed).
-              Dirty worktrees are structure-ready and do not auto-prepare on
-              every call; use session-start prepare or edit hooks instead.
+        auto_prepare: When True, enqueue a background ``session_prepare`` if
+              the graph is empty or HEAD-drifted (and queue deferred embeddings
+              when needed). Does not wait for the repair. Dirty worktrees are
+              structure-ready and do not auto-prepare on every call.
         local_embedding: Embedding mode for auto-prepare (serve default via MCP).
-        prepare_budget_seconds: Wall-clock budget for auto-prepare.
+        prepare_budget_seconds: Wall-clock budget stored on the queued prepare.
     """
     _ = detail_level
     attempted_recover = False
@@ -326,8 +326,8 @@ def _get_minimal_context_body(
     prepare_budget_seconds: int | None,
 ) -> ToolPayload:
     prepare_result: ToolPayload | None = None
+    repair_info: dict[str, object] | None = None
     if auto_prepare:
-        from .session_prepare import session_prepare
         from .sync_status import (
             assess_graph_sync,
             embedding_refresh_action,
@@ -342,25 +342,38 @@ def _get_minimal_context_body(
         finally:
             probe_store.close()
 
-        # Bootstrap only on unbuilt/commit_drift (or a hole large enough to
-        # inline-embed). Dirty worktrees are HEAD-aligned; re-preparing on
-        # every tool call loops. A small missing-embedding tail is queued
-        # instead of blocking the first tool. A non-repo root (misdetected,
-        # e.g. $HOME) is never bootstrapped: preparing would scan the whole
-        # non-repo tree.
+        # Observe vs Repair: first-tool never waits on parse/embed. Queue a
+        # single prepare (or embed) lane and return the current sync state.
+        # Dirty worktrees are HEAD-aligned; re-preparing on every tool call
+        # loops. A non-repo root (misdetected, e.g. $HOME) is never queued.
         if (needs_mcp_auto_prepare(sync) or refresh == "inline") and sync.get("vcs") != "none":
-            prepare_result = session_prepare(
-                repo_root=str(probe_root),
-                local_embedding=local_embedding,
-                budget_seconds=prepare_budget_seconds,
-                embedding_policy="auto",
-                seed_worktree=True,
+            from ..task_queue import enqueue_session_prepare
+
+            action, task_id = enqueue_session_prepare(
+                probe_root,
+                spawn_worker=True,
+                payload={
+                    "local_embedding": local_embedding,
+                    "keep_local_embedding_server": True,
+                    "budget_seconds": prepare_budget_seconds,
+                },
             )
+            repair_info = {
+                "state": "queued" if action == "added" else "coalesced",
+                "kind": "prepare",
+                "task_id": task_id,
+                "action": action,
+            }
+            prepare_result = {
+                "status": "queued",
+                "action": "queued",
+                "reason": "enqueued_background_prepare",
+            }
             repo_root = str(probe_root)
         elif refresh == "queue" and sync.get("vcs") != "none":
             from ..task_queue import enqueue_embed_refresh
 
-            enqueue_embed_refresh(
+            action, task_id = enqueue_embed_refresh(
                 probe_root,
                 spawn_worker=True,
                 payload={
@@ -368,6 +381,12 @@ def _get_minimal_context_body(
                     "keep_local_embedding_server": True,
                 },
             )
+            repair_info = {
+                "state": "queued" if action == "added" else "coalesced",
+                "kind": "embed",
+                "task_id": task_id,
+                "action": action,
+            }
 
     # Use a dedicated GraphStore connection for this tool to avoid sharing a
     # cached sqlite handle across concurrent MCP calls.
@@ -515,6 +534,8 @@ def _get_minimal_context_body(
                 "reason": prepare_result.get("reason"),
                 "phases": prepare_result.get("phases"),
             }
+        if repair_info is not None:
+            response["repair"] = repair_info
         if graph_health.get("status") == "empty" or sync_state(sync) == "unbuilt":
             response["recommended_action"] = (
                 "Call ensure_graph_tool first; the graph is empty and analysis "
@@ -548,7 +569,12 @@ def _get_minimal_context_body(
             # worktree_behind / worktree_ahead are HEAD-aligned structure-ready;
             # do not loop on ensure_graph — edit hooks / session prepare handle
             # dirty indexing.
-            response["recommended_action"] = "Call ensure_graph_tool to sync the graph."
+            if repair_info is not None:
+                response["recommended_action"] = (
+                    "Graph repair is queued; call ensure_graph_tool only if you must wait for it."
+                )
+            else:
+                response["recommended_action"] = "Call ensure_graph_tool to sync the graph."
             response["why"] = f"sync.state={sync_state(sync)}"
             response["confidence"] = "high"
             if "ensure_graph_tool" not in response["next_tool_suggestions"]:

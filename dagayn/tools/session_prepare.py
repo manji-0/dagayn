@@ -7,8 +7,10 @@ import time
 from pathlib import Path
 from typing import Literal
 
+from ..hook_guard import running_from_hook
 from ..incremental import detect_vcs
 from ..paths import get_db_path
+from ..write_lock import WriteLockUnavailableError, graph_write_lock
 from . import sync_status as sync_status_mod
 from ._common import (
     ToolPayload,
@@ -261,6 +263,39 @@ def session_prepare(
                 "query_graph_tool",
             ],
         )
+
+    if from_hook or running_from_hook():
+        # Same skip-when-busy contract as ``dagayn update`` under
+        # ``DAGAYN_HOOK_UPDATE=1``: overlapping hook prepares must not convoy
+        # behind a writer (or a leaked shared flock).
+        db_path = get_db_path(root)
+        try:
+            with graph_write_lock(db_path, blocking=False):
+                pass
+        except WriteLockUnavailableError:
+            return make_response(
+                status="ok",
+                summary=(f"session prepare skipped; graph write lock busy ({root})"),
+                action="skipped",
+                reason="hook_lock_busy",
+                total_nodes=0,
+                total_edges=0,
+                files_count=0,
+                last_updated=None,
+                graph_health=None,
+                sync=None,
+                phases=phases,
+                budget_seconds=budget_seconds,
+                elapsed_seconds=round(time.monotonic() - started, 3),
+                local_embedding=local_embedding,
+                embedding_policy=embedding_policy,
+                repo_root=str(root),
+                skipped=True,
+                next_tool_suggestions=[
+                    "get_minimal_context_tool",
+                    "ensure_graph_tool",
+                ],
+            )
 
     if seed_worktree:
         remaining = _remaining_seconds(deadline)

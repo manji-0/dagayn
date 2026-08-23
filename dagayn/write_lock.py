@@ -317,19 +317,46 @@ def _write_pid(handle: IO[str]) -> None:
         pass
 
 
-def _flock_convert_exclusive(handle: IO[str]) -> None:
-    """Replace a shared flock on *handle* with an exclusive one.
+def _flock_release_then_exclusive(
+    handle: IO[str],
+    *,
+    blocking: bool,
+    timeout: float,
+    key: Path,
+) -> None:
+    """Drop this fd's shared flock, then take exclusive with a timeout.
 
-    ``LOCK_EX | LOCK_NB`` EAGAIN's against this fd's own ``LOCK_SH`` on
-    Darwin and Linux, so a nested write during a read would poll until the
-    timeout. A blocking ``LOCK_EX`` on the same fd converts the lock in one
-    call once other holders release.
+    Same-fd ``LOCK_EX | LOCK_NB`` EAGAIN's against our own ``LOCK_SH`` on
+    Darwin and Linux. A blocking ``LOCK_EX`` waits forever for *other*
+    holders, which is what wedged MCP auto-prepare behind leaked readers.
+    Unlocking first lets ``_flock_wait`` poll with the caller's timeout.
     """
     try:
         import fcntl
     except ImportError:  # pragma: no cover - POSIX only in practice
         return
-    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    try:
+        _flock_wait(
+            handle,
+            exclusive=True,
+            blocking=blocking,
+            timeout=timeout,
+            key=key,
+        )
+    except BaseException:
+        try:
+            restore_timeout = timeout if timeout > 0 else DEFAULT_IO_LOCK_TIMEOUT
+            _flock_wait(
+                handle,
+                exclusive=False,
+                blocking=True,
+                timeout=restore_timeout,
+                key=key,
+            )
+        except Exception:
+            logger.warning("Could not restore shared graph lock after a failed exclusive wait")
+        raise
 
 
 def _flock_acquire(
@@ -356,7 +383,12 @@ def _flock_acquire(
         if need_upgrade:
             assert handle is not None
             try:
-                _flock_convert_exclusive(handle)
+                _flock_release_then_exclusive(
+                    handle,
+                    blocking=blocking,
+                    timeout=timeout,
+                    key=key,
+                )
                 _write_pid(handle)
             except BaseException:
                 with _registry_lock:
@@ -560,19 +592,56 @@ def drop_store_read_locks(store: object) -> None:
 
 
 class _CloseableStore(Protocol):
-    """The narrow shape ``wrap_store_close_to_unbind`` needs from a store.
-
-    Both the Python ``GraphStore`` and the PyO3 native store expose ``close``;
-    only the Python one accepts the attribute assignment (the native store
-    raises and the wrapper falls back to a warning).
-    """
+    """The narrow shape ``wrap_store_close_to_unbind`` needs from a store."""
 
     close: Callable[..., object]
 
 
-def wrap_store_close_to_unbind(store: _CloseableStore) -> None:
-    """Ensure a non-Python GraphStore still releases a bound read lock."""
-    inner_close = store.close
+class _ReadLockBoundStore:
+    """Proxy that always unbinds the shared flock on ``close()``.
+
+    PyO3 ``GraphStore.close`` cannot be assigned, so monkey-patching leaked
+    the shared lock for the life of ``dagayn serve``. Bind the lock to this
+    proxy, not the native object.
+    """
+
+    __slots__ = ("_inner",)
+
+    def __init__(self, inner: object) -> None:
+        object.__setattr__(self, "_inner", inner)
+
+    def close(self, *args: object, **kwargs: object) -> object:
+        try:
+            return self._inner.close(*args, **kwargs)
+        finally:
+            unbind_store_read_lock(self)
+
+    def _force_close(self, *args: object, **kwargs: object) -> object:
+        inner = object.__getattribute__(self, "_inner")
+        try:
+            force = getattr(inner, "_force_close", None)
+            if callable(force):
+                return force(*args, **kwargs)
+            return inner.close(*args, **kwargs)
+        finally:
+            drop_store_read_locks(self)
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(object.__getattribute__(self, "_inner"), name)
+
+    def __setattr__(self, name: str, value: object) -> None:
+        setattr(object.__getattribute__(self, "_inner"), name, value)
+
+
+def wrap_store_close_to_unbind(store: object) -> object:
+    """Ensure ``store.close()`` releases a bound read lock.
+
+    Returns *store* when ``close`` can be patched, otherwise a proxy whose
+    ``close`` always unbinds. Callers must bind the lock to the returned object.
+    """
+    inner_close = getattr(store, "close", None)
+    if not callable(inner_close):
+        return _ReadLockBoundStore(store)
 
     def close(*args: object, **kwargs: object) -> object:
         try:
@@ -582,8 +651,23 @@ def wrap_store_close_to_unbind(store: _CloseableStore) -> None:
 
     try:
         store.close = close  # type: ignore[method-assign]
-    except (AttributeError, TypeError):  # pragma: no cover - native store
-        logger.warning("GraphStore.close could not be wrapped; read lock may leak")
+    except (AttributeError, TypeError):
+        return _ReadLockBoundStore(store)
+
+    inner_force = getattr(store, "_force_close", None)
+    if callable(inner_force):
+
+        def _force_close(*args: object, **kwargs: object) -> object:
+            try:
+                return inner_force(*args, **kwargs)
+            finally:
+                drop_store_read_locks(store)
+
+        try:
+            store._force_close = _force_close  # type: ignore[method-assign]
+        except (AttributeError, TypeError):
+            pass
+    return store
 
 
 def _reset_for_tests() -> None:

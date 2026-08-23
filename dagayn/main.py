@@ -412,7 +412,7 @@ async def run_postprocess_tool(
 
 
 @mcp.tool()
-def get_minimal_context_tool(
+async def get_minimal_context_tool(
     task: str = "",
     changed_files: Optional[list[str]] = None,
     repo_root: Optional[str] = None,
@@ -423,8 +423,11 @@ def get_minimal_context_tool(
     Returns graph stats, risk score, top communities/flows, and suggested
     next tools in a single compact response. Use this as the entry point
     before any other graph tool to minimize token usage. When the graph is
-    empty or out of sync with HEAD/worktree, prepares it first (inheriting
-    the serve-time local embedding mode).
+    empty or HEAD-drifted, enqueues a background ``session_prepare``
+    (inheriting the serve-time local embedding mode) and returns immediately
+    with ``sync`` plus ``repair``/``prepare`` queued state. Does not wait for
+    the repair. Call ``ensure_graph_tool`` if you must wait. Offloaded via
+    ``asyncio.to_thread`` so sqlite/flock cannot stall the stdio loop.
 
     Args:
         task: What you are doing (e.g. "review PR #42", "debug login timeout").
@@ -433,7 +436,8 @@ def get_minimal_context_tool(
         base: Git ref for diff comparison. Default: HEAD~1.
     """
     effective_local_embedding = _resolve_local_embedding(None) or "none"
-    return _tool("get_minimal_context")(
+    return await asyncio.to_thread(
+        _tool("get_minimal_context"),
         task=task,
         changed_files=changed_files,
         repo_root=_resolve_repo_root(repo_root),

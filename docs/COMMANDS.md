@@ -419,9 +419,12 @@ incrementally refresh when the graph is `commit_drift` or `worktree_behind`
 (a `worktree_ahead` tree is already indexed and stays a noop). Hooks
 pass `--budget-seconds 45` and optional `--local-embedding` args from
 `dagayn install`. Use `--embedding auto|defer|skip|inline` to control whether
-Phase 2 vector refresh runs inside the budget. MCP `ensure_graph_tool` /
-`get_minimal_context_tool` call the same prepare path with a longer budget and
-inherit `serve --local-embedding`. See
+Phase 2 vector refresh runs inside the budget. MCP `ensure_graph_tool`
+waits on the same prepare path with a longer budget. MCP
+`get_minimal_context_tool` enqueues that prepare on the background queue
+and returns immediately (current `sync` plus `repair`/`prepare` queued
+state); call `ensure_graph_tool` if you must wait. Both inherit
+`serve --local-embedding`. See
 [SESSION-GRAPH-FRESHNESS.md](./SESSION-GRAPH-FRESHNESS.md) for the use-case
 catalog and structure-ready contract.
 

@@ -407,21 +407,13 @@ class TestMinimalContextAutoPrepare:
     def test_uc_m1_auto_prepare_on_git_drift(self, main_repo: Path):
         _seed_store(main_repo, head_sha="0" * 40)
 
-        def _fake_prepare(**kwargs):
-            assert kwargs.get("seed_worktree") is True
-            _seed_store(main_repo, head_sha=_head(main_repo))
-            return {
-                "status": "ok",
-                "action": "incremental",
-                "reason": "git_drift",
-                "phases": {"structure": "done", "embedding": "not_requested"},
-                "sync": {"status": "synced"},
-            }
-
-        with patch(
-            "dagayn.tools.session_prepare.session_prepare",
-            side_effect=_fake_prepare,
-        ) as prepare:
+        with (
+            patch(
+                "dagayn.task_queue.enqueue_session_prepare",
+                return_value=("added", 1),
+            ) as enqueue,
+            patch("dagayn.tools.session_prepare.session_prepare") as prepare,
+        ):
             result = get_minimal_context(
                 task="explore codebase",
                 repo_root=str(main_repo),
@@ -430,20 +422,23 @@ class TestMinimalContextAutoPrepare:
                 prepare_budget_seconds=60,
             )
 
-        prepare.assert_called_once()
-        assert result["prepare"]["action"] == "incremental"
-        assert result["sync"]["status"] == "synced"
+        enqueue.assert_called_once()
+        prepare.assert_not_called()
+        assert result["prepare"]["action"] == "queued"
+        assert result["prepare"]["reason"] == "enqueued_background_prepare"
+        assert result["repair"]["kind"] == "prepare"
+        assert result["sync"]["status"] == "git_drift"
 
     def test_auto_prepare_skipped_when_synced(self, main_repo: Path):
         _seed_store(main_repo, head_sha=_head(main_repo))
-        with patch("dagayn.tools.session_prepare.session_prepare") as prepare:
+        with patch("dagayn.task_queue.enqueue_session_prepare") as enqueue:
             result = get_minimal_context(
                 task="explore codebase",
                 repo_root=str(main_repo),
                 auto_prepare=True,
                 local_embedding="none",
             )
-        prepare.assert_not_called()
+        enqueue.assert_not_called()
         assert "prepare" not in result or result.get("prepare") is None
         assert result["sync"]["status"] == "synced"
 
@@ -454,14 +449,14 @@ class TestMinimalContextAutoPrepare:
             encoding="utf-8",
         )
         assert _assess(main_repo)["status"] == "dirty_worktree"
-        with patch("dagayn.tools.session_prepare.session_prepare") as prepare:
+        with patch("dagayn.task_queue.enqueue_session_prepare") as enqueue:
             result = get_minimal_context(
                 task="explore codebase",
                 repo_root=str(main_repo),
                 auto_prepare=True,
                 local_embedding="none",
             )
-        prepare.assert_not_called()
+        enqueue.assert_not_called()
         assert result["sync"]["status"] == "dirty_worktree"
         assert "ensure_graph_tool" not in result.get("recommended_action", "")
 
@@ -474,7 +469,7 @@ class TestMinimalContextAutoPrepare:
         ``vcs == "none"`` and leaves the graph untouched.
         """
         GraphStore(str(tmp_path / ".dagayn" / "graph.db")).close()
-        with patch("dagayn.tools.session_prepare.session_prepare") as prepare:
+        with patch("dagayn.task_queue.enqueue_session_prepare") as enqueue:
             result = get_minimal_context(
                 task="explore codebase",
                 repo_root=str(tmp_path),
@@ -482,7 +477,7 @@ class TestMinimalContextAutoPrepare:
                 local_embedding="none",
                 prepare_budget_seconds=60,
             )
-        prepare.assert_not_called()
+        enqueue.assert_not_called()
         assert result["sync"]["vcs"] == "none"
         assert result["sync"]["state"] == "unbuilt"
 
@@ -745,16 +740,30 @@ class TestWorktreeFreshnessIntegration:
         assert again.status == "skipped"
         assert _assess(linked_worktree)["status"] == "git_drift"
 
-        result = get_minimal_context(
-            task="implement feature in worktree",
+        with patch(
+            "dagayn.task_queue.enqueue_session_prepare",
+            return_value=("added", 1),
+        ) as enqueue:
+            result = get_minimal_context(
+                task="implement feature in worktree",
+                repo_root=str(linked_worktree),
+                auto_prepare=True,
+                local_embedding="none",
+                prepare_budget_seconds=120,
+            )
+        enqueue.assert_called_once()
+        assert result["prepare"]["action"] == "queued"
+        assert result["repair"]["kind"] == "prepare"
+        assert result["sync"]["status"] == "git_drift"
+        assert not is_structure_ready(_assess(linked_worktree))
+
+        prepared = session_prepare(
             repo_root=str(linked_worktree),
-            auto_prepare=True,
             local_embedding="none",
-            prepare_budget_seconds=120,
+            embedding_policy="skip",
+            budget_seconds=120,
         )
-        assert result.get("prepare") is not None
-        assert is_structure_ready(_assess(linked_worktree))
-        assert result["sync"]["status"] in {"synced", "dirty_worktree"}
+        _assert_structure_ready(prepared, linked_worktree)
 
 
 class TestHookWiringFreshness:
