@@ -186,6 +186,28 @@ class TestQueryGraphBareNameBinding:
         assert names_a == {"ChildA"}
         assert names_b == {"ChildB"}
 
+    def test_callers_of_keeps_unique_bare_name_without_import_edge(self, monkeypatch):
+        """Issue #154: C# ``using`` names namespaces, so no file-to-file import
+        edge exists; a unique method name must still report its caller."""
+        factory = str(self.root / "Factory.cs")
+        broker = str(self.root / "Broker.cs")
+        for path in (factory, broker):
+            self.store.upsert_node(_node("File", path, path))
+        self.store.upsert_node(_node("Function", "CreateCriteria", factory))
+        self.store.upsert_node(_node("Function", "Resolve", broker))
+        self.store.upsert_edge(_edge("IMPORTS_FROM", broker, "System", broker))
+        self.store.upsert_edge(_edge("CALLS", f"{broker}::Resolve", "CreateCriteria", broker))
+        self.store.commit()
+        self._patch_store(monkeypatch)
+
+        result = query_graph(
+            pattern="callers_of",
+            target=f"{factory}::CreateCriteria",
+            repo_root=str(self.root),
+        )
+
+        assert [item["name"] for item in result["results"]] == ["Resolve"]
+
     def test_file_summary_unknown_path_returns_not_found(self, monkeypatch):
         self._patch_store(monkeypatch)
 

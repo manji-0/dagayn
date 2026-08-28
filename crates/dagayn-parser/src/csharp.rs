@@ -201,7 +201,33 @@ fn csharp_emit_type(
 }
 
 fn csharp_type_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    csharp_direct_child_text(node, source, &["identifier"])
+    csharp_declared_name(node, source)
+}
+
+/// Reads the `name` field of a declaration, never a positional identifier.
+///
+/// `method_declaration` exposes its return type as a `returns` field that is
+/// itself an `identifier` for user-defined types, so the first direct
+/// `identifier` child is the return type rather than the declared name.
+fn csharp_declared_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let name = node.child_by_field_name("name")?;
+    let text = node_text(csharp_generic_base(name), source)
+        .trim()
+        .to_string();
+    (!text.is_empty()).then_some(text)
+}
+
+/// Unwraps `generic_name` to the bare identifier, leaving other nodes as-is.
+fn csharp_generic_base(node: tree_sitter::Node<'_>) -> tree_sitter::Node<'_> {
+    if node.kind() != "generic_name" {
+        return node;
+    }
+    let mut cursor = node.walk();
+    let base = node
+        .children(&mut cursor)
+        .find(|child| child.kind() == "identifier")
+        .unwrap_or(node);
+    base
 }
 
 fn csharp_type_role(node: tree_sitter::Node<'_>, source: &[u8]) -> (&'static str, bool, bool) {
@@ -210,8 +236,7 @@ fn csharp_type_role(node: tree_sitter::Node<'_>, source: &[u8]) -> (&'static str
         "enum_declaration" => ("enum", false, false),
         "struct_declaration" => ("struct", false, false),
         _ => {
-            let is_abstract = csharp_direct_child_text(node, source, &["modifier"])
-                .is_some_and(|modifier| modifier == "abstract");
+            let is_abstract = csharp_has_modifier(node, source, "abstract");
             if is_abstract {
                 ("abstract_class", true, false)
             } else {
@@ -243,8 +268,8 @@ fn csharp_emit_function(
         line_end: node.end_position().row as i64 + 1,
         language: "csharp".to_string(),
         parent_name: enclosing_class.map(str::to_string),
-        params: csharp_direct_child_text(node, source, &["parameter_list"]),
-        return_type: None,
+        params: csharp_field_text(node, source, "parameters"),
+        return_type: csharp_field_text(node, source, "returns"),
         modifiers: None,
         is_test: false,
         extra: json!({}),
@@ -262,7 +287,7 @@ fn csharp_emit_function(
 }
 
 fn csharp_function_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    csharp_direct_child_text(node, source, &["identifier"])
+    csharp_declared_name(node, source)
 }
 
 fn csharp_emit_call(
@@ -294,20 +319,28 @@ fn csharp_emit_call(
 }
 
 fn csharp_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    let mut cursor = node.walk();
-    let first = node
-        .children(&mut cursor)
-        .find(|child| child.kind() != "argument_list")?;
-    matches!(first.kind(), "identifier").then(|| node_text(first, source))
+    let callee = csharp_callee(node)?;
+    // `Factory.Create(...)` must resolve to `Create`, not to the receiver.
+    let invoked = match callee.kind() {
+        "member_access_expression" => callee.child_by_field_name("name")?,
+        _ => callee,
+    };
+    let invoked = csharp_generic_base(invoked);
+    matches!(invoked.kind(), "identifier").then(|| node_text(invoked, source))
 }
 
 fn csharp_call_signature(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    let mut cursor = node.walk();
-    let callee = node
-        .children(&mut cursor)
-        .find(|child| child.kind() != "argument_list")?;
+    let callee = csharp_callee(node)?;
     let signature = node_text(callee, source).trim().to_string();
     (!signature.is_empty()).then_some(signature)
+}
+
+fn csharp_callee(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
+    let field = match node.kind() {
+        "object_creation_expression" => "type",
+        _ => "function",
+    };
+    node.child_by_field_name(field)
 }
 
 fn csharp_bridge_edge(
@@ -401,16 +434,18 @@ fn csharp_string_text(node: tree_sitter::Node<'_>, source: &[u8]) -> String {
     strip_matching_quotes(node_text(node, source).trim()).to_string()
 }
 
-fn csharp_direct_child_text(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    kinds: &[&str],
-) -> Option<String> {
+fn csharp_field_text(node: tree_sitter::Node<'_>, source: &[u8], field: &str) -> Option<String> {
+    let child = node.child_by_field_name(field)?;
+    let text = node_text(child, source).trim().to_string();
+    (!text.is_empty()).then_some(text)
+}
+
+/// Scans every `modifier` child, since declarations carry several of them.
+fn csharp_has_modifier(node: tree_sitter::Node<'_>, source: &[u8], modifier: &str) -> bool {
     let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if kinds.contains(&child.kind()) {
-            return Some(node_text(child, source));
-        }
-    }
-    None
+    let found = node
+        .children(&mut cursor)
+        .filter(|child| child.kind() == "modifier")
+        .any(|child| node_text(child, source).trim() == modifier);
+    found
 }

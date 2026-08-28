@@ -66,7 +66,10 @@ fn parses_terraform_json_syntax() {
         .iter()
         .find(|node| node.name == "check.vpc_ready")
         .expect("check node exists");
-    assert!(!check.is_test, "production `check` block must not be a test");
+    assert!(
+        !check.is_test,
+        "production `check` block must not be a test"
+    );
     assert!(edges.iter().any(|edge| {
         edge.kind == "IMPORTS_FROM"
             && edge.source == "main.tf.json::module.network"
@@ -100,14 +103,16 @@ fn compound_terraform_files_survive_incremental_filtering() {
         b"run \"basic\" {\n  command = apply\n}\n",
     )
     .expect("write tftest file");
-    std::fs::write(repo_root.join("main.tf"), b"resource \"a\" \"b\" {}\n")
-        .expect("write tf file");
+    std::fs::write(repo_root.join("main.tf"), b"resource \"a\" \"b\" {}\n").expect("write tf file");
 
     let candidates = vec!["main.tf".to_string(), "main.tftest.hcl".to_string()];
     let (parseable, removed) = filter_incremental_candidates(&repo_root, &candidates, &[]);
     let mut sorted = parseable.clone();
     sorted.sort();
-    assert_eq!(sorted, vec!["main.tf".to_string(), "main.tftest.hcl".to_string()]);
+    assert_eq!(
+        sorted,
+        vec!["main.tf".to_string(), "main.tftest.hcl".to_string()]
+    );
     assert!(removed.is_empty());
 
     let collected = collect_parseable_files(&repo_root, Some(false));
@@ -274,7 +279,10 @@ output "vpc_id" {
         .iter()
         .find(|node| node.name == "check.vpc_ready")
         .expect("check node exists");
-    assert!(!check_node.is_test, "production `check` block must not be a test");
+    assert!(
+        !check_node.is_test,
+        "production `check` block must not be a test"
+    );
     assert_eq!(check_node.kind, "Class");
     assert!(names.contains(&"output.vpc_id"));
     assert!(edges.iter().any(|edge| {
@@ -296,7 +304,6 @@ output "vpc_id" {
             && edge.target == "main.tf::data.aws_caller_identity.current"
     }));
 }
-
 
 #[test]
 fn extracts_terraform_code_bridges() {
@@ -346,8 +353,7 @@ resource "google_cloudfunctions_function" "api" {
         edge.extra["evidence_source"] == "source_directory" && edge.target == "app"
     }));
     assert!(bridges.iter().any(|edge| {
-        edge.extra["evidence_source"] == "entry_point"
-            && edge.target == "<unresolved:serve>"
+        edge.extra["evidence_source"] == "entry_point" && edge.target == "<unresolved:serve>"
     }));
 }
 
@@ -675,6 +681,68 @@ end
 }
 
 #[test]
+fn csharp_methods_keep_declared_names_and_resolve_qualified_calls() {
+    let source = br#"internal static class CertificateCriteriaFactory
+{
+    internal static ClientCertificateInfo CreateAllowedCertificateCriteria(
+        CertificateTypes certificateType)
+    {
+        return new ClientCertificateInfo(certificateType);
+    }
+
+    internal static List<Issuer> GetClientCertificateIssuers<T>(T source)
+    {
+        return null;
+    }
+}
+
+public abstract class CertificateStoreBroker
+{
+    public ClientCertificateInfo Resolve(CertificateTypes certificateType)
+    {
+        return CertificateCriteriaFactory.CreateAllowedCertificateCriteria(certificateType);
+    }
+}
+"#;
+    let (nodes, edges) = parse_csharp("Certificate.cs", source);
+    assert!(nodes.iter().any(|node| {
+        node.kind == "Function"
+            && node.name == "CreateAllowedCertificateCriteria"
+            && node.parent_name.as_deref() == Some("CertificateCriteriaFactory")
+            && node.return_type.as_deref() == Some("ClientCertificateInfo")
+    }));
+    // The generic return type must not leak into the method name either.
+    assert!(nodes.iter().any(|node| {
+        node.kind == "Function"
+            && node.name == "GetClientCertificateIssuers"
+            && node.return_type.as_deref() == Some("List<Issuer>")
+    }));
+    assert!(nodes.iter().all(|node| {
+        node.kind != "Function" || !matches!(node.name.as_str(), "ClientCertificateInfo" | "List")
+    }));
+    assert!(nodes.iter().any(|node| {
+        node.kind == "Class"
+            && node.name == "CertificateStoreBroker"
+            && node.extra["type_role"] == "abstract_class"
+            && node.extra["is_abstract"] == true
+    }));
+    // `Factory.Method(...)` resolves to the method, not the receiver type.
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "CALLS"
+            && edge.source == "Certificate.cs::CertificateStoreBroker.Resolve"
+            && edge.target
+                == "Certificate.cs::CertificateCriteriaFactory.CreateAllowedCertificateCriteria"
+    }));
+    // `new Type(...)` records a call to the constructed type.
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "CALLS"
+            && edge.source
+                == "Certificate.cs::CertificateCriteriaFactory.CreateAllowedCertificateCriteria"
+            && edge.target == "ClientCertificateInfo"
+    }));
+}
+
+#[test]
 fn parses_csharp_types_imports_and_bridges() {
     let source = br#"using System.IO;
 using System.Diagnostics;
@@ -725,10 +793,14 @@ class BridgeSamples : IRepository
     }));
     assert!(nodes.iter().any(|node| {
         node.kind == "Function"
-            && node.name == "User"
+            && node.name == "FindById"
             && node.parent_name.as_deref() == Some("BridgeSamples")
             && node.params.as_deref() == Some("(int id)")
+            && node.return_type.as_deref() == Some("User")
     }));
+    assert!(!nodes
+        .iter()
+        .any(|node| node.kind == "Function" && node.name == "User"));
     assert!(nodes.iter().any(|node| {
         node.kind == "Function"
             && node.name == "Save"

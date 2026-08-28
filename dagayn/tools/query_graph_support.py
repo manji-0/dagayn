@@ -197,8 +197,18 @@ def filter_bare_name_fallback_edges(
     edges: list[Any],
     target_node: Any,
 ) -> list[Any]:
-    """Keep bare-name fallback edges only when import context supports them."""
+    """Keep bare-name fallback edges only when import context supports them.
+
+    A globally unique symbol name is unambiguous on its own, so it needs no
+    import evidence. Languages whose imports name modules rather than files
+    (C# ``using``, Java ``import``) never produce file-to-file IMPORTS_FROM
+    edges, and would otherwise lose every cross-file caller. Dead-code
+    analysis already applies the same unique-name rule.
+    """
     if not edges or target_node is None:
+        return edges
+
+    if _bare_name_is_unique(store, getattr(target_node, "name", "")):
         return edges
 
     native = getattr(store, "import_targets_by_file", None)
@@ -220,6 +230,17 @@ def filter_bare_name_fallback_edges(
             import_targets,
         )
     ]
+
+
+def _bare_name_is_unique(store: Any, name: str) -> bool:
+    """True when exactly one Function/Class in the graph carries *name*."""
+    if not name:
+        return False
+    counter = getattr(store, "count_nodes_by_name", None)
+    if not callable(counter):
+        return False
+    counts = cast(Callable[..., dict[str, int]], counter)(["Function", "Class"])
+    return counts.get(name, 0) == 1
 
 
 def annotate_bare_name_edges(edges_out: list[dict[str, Any]]) -> None:
