@@ -105,20 +105,28 @@ fn is_namespace_candidate(target: &str) -> bool {
     }
 }
 
-/// Namespace-based visibility between files, held as two small maps rather
-/// than an expanded file-to-file product: a single namespace with N files
-/// would otherwise cost N^2 entries.
+type StringListMaps = (
+    HashMap<String, Vec<String>>,
+    HashMap<String, Vec<String>>,
+    HashMap<String, Vec<String>>,
+);
+
+/// Indirect visibility between files: namespaces and declaring classes. Held
+/// as per-file maps rather than an expanded file-to-file product, since a
+/// single namespace with N files would otherwise cost N^2 entries.
 #[derive(Default)]
-pub(crate) struct NamespaceVisibility {
+pub(crate) struct SymbolVisibility {
     /// File -> namespaces it declares.
     declared: HashMap<String, HashSet<String>>,
     /// File -> namespaces its imports name.
     imported: HashMap<String, HashSet<String>>,
+    /// Class name -> files declaring that class.
+    class_files: HashMap<String, HashSet<String>>,
 }
 
-impl NamespaceVisibility {
-    fn is_empty(&self) -> bool {
-        self.declared.is_empty()
+impl SymbolVisibility {
+    fn has_namespaces(&self) -> bool {
+        !self.declared.is_empty()
     }
 
     /// True when *source_file* can reach *target_file* without a file-level
@@ -134,22 +142,36 @@ impl NamespaceVisibility {
         shares(self.declared.get(source_file)) || shares(self.imported.get(source_file))
     }
 
-    pub(crate) fn as_string_lists(
-        &self,
-    ) -> (HashMap<String, Vec<String>>, HashMap<String, Vec<String>>) {
+    /// Files declaring the class that owns *target_qualified*.
+    ///
+    /// A C++ method is defined in a `.cpp` that nobody includes, while its
+    /// class is declared in the header that callers do include -- so the
+    /// header, not the definition file, is what a caller can see.
+    fn declaring_files(&self, target_qualified: &str) -> Option<&HashSet<String>> {
+        let (_, symbol) = target_qualified.split_once("::")?;
+        let (owner, _) = symbol.rsplit_once('.')?;
+        self.class_files.get(owner)
+    }
+
+    pub(crate) fn as_string_lists(&self) -> StringListMaps {
         let flatten = |map: &HashMap<String, HashSet<String>>| {
             map.iter()
-                .map(|(file, namespaces)| (file.clone(), namespaces.iter().cloned().collect()))
+                .map(|(key, values)| (key.clone(), values.iter().cloned().collect()))
                 .collect()
         };
-        (flatten(&self.declared), flatten(&self.imported))
+        (
+            flatten(&self.declared),
+            flatten(&self.imported),
+            flatten(&self.class_files),
+        )
     }
 }
 
-/// Reads declared namespaces from `File` nodes and imported ones from
-/// IMPORTS_FROM targets that name a namespace rather than a file.
-pub(crate) fn namespace_visibility(conn: &rusqlite::Connection) -> Result<NamespaceVisibility> {
-    let mut visibility = NamespaceVisibility::default();
+/// Reads declared namespaces from `File` nodes, imported ones from
+/// IMPORTS_FROM targets that name a namespace rather than a file, and the
+/// files that declare each class.
+pub(crate) fn symbol_visibility(conn: &rusqlite::Connection) -> Result<SymbolVisibility> {
+    let mut visibility = SymbolVisibility::default();
     {
         let mut stmt = conn.prepare(
             "SELECT file_path, extra FROM nodes WHERE kind = 'File' AND extra LIKE '%namespaces%'",
@@ -176,7 +198,21 @@ pub(crate) fn namespace_visibility(conn: &rusqlite::Connection) -> Result<Namesp
             }
         }
     }
-    if visibility.is_empty() {
+    {
+        let mut stmt = conn.prepare("SELECT name, file_path FROM nodes WHERE kind = 'Class'")?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        for row in rows {
+            let (name, file_path) = row?;
+            visibility
+                .class_files
+                .entry(name)
+                .or_default()
+                .insert(file_path);
+        }
+    }
+    if !visibility.has_namespaces() {
         return Ok(visibility);
     }
     {
@@ -233,16 +269,37 @@ fn is_plausible_bare_edge(
     source_file: &str,
     target_file: &str,
     import_targets: &HashMap<String, HashSet<String>>,
-    namespaces: &NamespaceVisibility,
+    visibility: &SymbolVisibility,
+    target_qualified: &str,
 ) -> bool {
     if source_file.is_empty() || target_file.is_empty() {
         return false;
     }
+    if file_is_visible(source_file, target_file, import_targets, visibility) {
+        return true;
+    }
+    // Reaching the class declaration is enough; the definition may live in a
+    // file nobody imports directly.
+    visibility
+        .declaring_files(target_qualified)
+        .is_some_and(|declaring| {
+            declaring
+                .iter()
+                .any(|file| file_is_visible(source_file, file, import_targets, visibility))
+        })
+}
+
+fn file_is_visible(
+    source_file: &str,
+    target_file: &str,
+    import_targets: &HashMap<String, HashSet<String>>,
+    visibility: &SymbolVisibility,
+) -> bool {
     source_file == target_file
         || import_targets
             .get(source_file)
             .is_some_and(|targets| targets.contains(target_file))
-        || namespaces.can_see(source_file, target_file)
+        || visibility.can_see(source_file, target_file)
 }
 
 fn load_bare_name_index(
@@ -272,7 +329,7 @@ fn resolve_via_imports(
     candidates: &[String],
     source_file: &str,
     import_targets: &HashMap<String, HashSet<String>>,
-    namespaces: &NamespaceVisibility,
+    visibility: &SymbolVisibility,
 ) -> Option<String> {
     let imported: Vec<&String> = candidates
         .iter()
@@ -281,7 +338,8 @@ fn resolve_via_imports(
                 source_file,
                 &node_file_from_qualified(qn, ""),
                 import_targets,
-                namespaces,
+                visibility,
+                qn,
             )
         })
         .collect();
@@ -403,18 +461,16 @@ impl GraphStore {
             .collect())
     }
 
-    /// `(declared, imported)` namespaces per file, for query-time resolution.
-    #[allow(clippy::type_complexity)]
-    pub fn namespaces_by_file(
-        &self,
-    ) -> Result<(HashMap<String, Vec<String>>, HashMap<String, Vec<String>>)> {
-        Ok(namespace_visibility(&self.conn)?.as_string_lists())
+    /// `(declared namespaces, imported namespaces, class files)` for
+    /// query-time bare-name resolution.
+    pub fn symbol_visibility_by_file(&self) -> Result<StringListMaps> {
+        Ok(symbol_visibility(&self.conn)?.as_string_lists())
     }
 
     pub fn resolve_bare_call_targets(&mut self) -> Result<i64> {
         let tx = write_tx(&mut self.conn)?;
         let import_targets = import_targets_tx(&tx)?;
-        let namespaces = namespace_visibility(&tx)?;
+        let visibility = symbol_visibility(&tx)?;
         let index = load_bare_name_index(&tx, &["Function", "Test", "Class"])?;
         let edges = {
             let mut stmt = tx.prepare(
@@ -442,7 +498,7 @@ impl GraphStore {
             }
             let src_file = node_file_from_qualified(&source_qualified, &file_path);
             let Some(qualified) =
-                resolve_via_imports(&candidates, &src_file, &import_targets, &namespaces)
+                resolve_via_imports(&candidates, &src_file, &import_targets, &visibility)
             else {
                 continue;
             };
@@ -466,7 +522,7 @@ impl GraphStore {
     pub fn resolve_bare_inheritance_targets(&mut self) -> Result<i64> {
         let tx = write_tx(&mut self.conn)?;
         let import_targets = import_targets_tx(&tx)?;
-        let namespaces = namespace_visibility(&tx)?;
+        let visibility = symbol_visibility(&tx)?;
         let index = load_bare_name_index(&tx, &["Class"])?;
         let edges = {
             let mut stmt = tx.prepare(
@@ -493,7 +549,7 @@ impl GraphStore {
             let candidates = index.get(&target_qualified).cloned().unwrap_or_default();
             let src_file = node_file_from_qualified(&source_qualified, &file_path);
             if let Some(qualified) =
-                resolve_via_imports(&candidates, &src_file, &import_targets, &namespaces)
+                resolve_via_imports(&candidates, &src_file, &import_targets, &visibility)
             {
                 tx.execute(
                     "UPDATE edges SET target_qualified = ?, target_name = ?, \
@@ -764,6 +820,20 @@ mod tests {
         }
     }
 
+    fn class_node(name: &str, file_path: &str) -> NodeInput {
+        NodeInput {
+            kind: "Class".to_string(),
+            ..function_node(name, file_path)
+        }
+    }
+
+    fn method_node(name: &str, file_path: &str, owner: &str) -> NodeInput {
+        NodeInput {
+            parent_name: Some(owner.to_string()),
+            ..function_node(name, file_path)
+        }
+    }
+
     fn file_node(file_path: &str) -> NodeInput {
         NodeInput {
             kind: "File".to_string(),
@@ -983,6 +1053,99 @@ mod tests {
             )
             .unwrap();
         assert_eq!(target, "Broker.php::phpBuild");
+        let _ = std::fs::remove_file(path);
+    }
+
+    /// A C++ definition lives in a `.cpp` nobody includes; only its class
+    /// declaration is reachable from the caller's header.
+    #[test]
+    fn resolves_bare_call_via_declaring_class() {
+        let path = temp_db("bare-call-declaring-class");
+        let mut store = GraphStore::open(&path).expect("open");
+        store
+            .store_file_nodes_edges(
+                "include/factory.hpp",
+                &[
+                    file_node("include/factory.hpp"),
+                    class_node("Factory", "include/factory.hpp"),
+                ],
+                &[],
+                "",
+                0,
+            )
+            .expect("store header");
+        store
+            .store_file_nodes_edges(
+                "src/factory.cpp",
+                &[
+                    file_node("src/factory.cpp"),
+                    method_node("createAllowed", "src/factory.cpp", "Factory"),
+                ],
+                &[EdgeInput {
+                    kind: "IMPORTS_FROM".to_string(),
+                    source: "src/factory.cpp".to_string(),
+                    target: "include/factory.hpp".to_string(),
+                    file_path: "src/factory.cpp".to_string(),
+                    line: 1,
+                    extra: json!({}),
+                }],
+                "",
+                0,
+            )
+            .expect("store definition");
+        // An unrelated class with a same-named method must not win.
+        store
+            .store_file_nodes_edges(
+                "src/other.cpp",
+                &[
+                    file_node("src/other.cpp"),
+                    class_node("Unrelated", "src/other.cpp"),
+                    method_node("createAllowed", "src/other.cpp", "Unrelated"),
+                ],
+                &[],
+                "",
+                0,
+            )
+            .expect("store other");
+        store
+            .store_file_nodes_edges(
+                "src/broker.cpp",
+                &[
+                    file_node("src/broker.cpp"),
+                    function_node("use", "src/broker.cpp"),
+                ],
+                &[
+                    EdgeInput {
+                        kind: "IMPORTS_FROM".to_string(),
+                        source: "src/broker.cpp".to_string(),
+                        target: "include/factory.hpp".to_string(),
+                        file_path: "src/broker.cpp".to_string(),
+                        line: 1,
+                        extra: json!({}),
+                    },
+                    EdgeInput {
+                        kind: "CALLS".to_string(),
+                        source: "src/broker.cpp::use".to_string(),
+                        target: "createAllowed".to_string(),
+                        file_path: "src/broker.cpp".to_string(),
+                        line: 3,
+                        extra: json!({}),
+                    },
+                ],
+                "",
+                0,
+            )
+            .expect("store caller");
+        assert_eq!(store.resolve_bare_call_targets().unwrap(), 1);
+        let target: String = store
+            .conn
+            .query_row(
+                "SELECT target_qualified FROM edges WHERE kind='CALLS'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(target, "src/factory.cpp::Factory.createAllowed");
         let _ = std::fs::remove_file(path);
     }
 

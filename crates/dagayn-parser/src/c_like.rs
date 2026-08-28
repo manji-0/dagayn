@@ -1,33 +1,39 @@
 use std::collections::HashMap;
+use std::path::Path;
 
 use serde_json::json;
 
 use super::types::{ParsedEdge, ParsedNode};
-use super::util::{is_test_file, line_count, node_text, strip_matching_quotes};
+use super::util::{
+    is_test_file, line_count, node_text, resolve_import_path, strip_matching_quotes,
+};
 use super::{add_tested_by_edges, is_test_function, qualify};
 
 pub(super) fn parse_c_with_parser(
     file_path: &str,
     source: &[u8],
     parser: Option<&mut tree_sitter::Parser>,
+    repo_root: Option<&Path>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
-    parse_c_like_with_parser(file_path, source, "c", parser)
+    parse_c_like_with_parser(file_path, source, "c", parser, repo_root)
 }
 
 pub(super) fn parse_cpp_with_parser(
     file_path: &str,
     source: &[u8],
     parser: Option<&mut tree_sitter::Parser>,
+    repo_root: Option<&Path>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
-    parse_c_like_with_parser(file_path, source, "cpp", parser)
+    parse_c_like_with_parser(file_path, source, "cpp", parser, repo_root)
 }
 
 pub(super) fn parse_objc_with_parser(
     file_path: &str,
     source: &[u8],
     parser: Option<&mut tree_sitter::Parser>,
+    repo_root: Option<&Path>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
-    parse_c_like_with_parser(file_path, source, "objc", parser)
+    parse_c_like_with_parser(file_path, source, "objc", parser, repo_root)
 }
 
 fn parse_c_like_with_parser(
@@ -35,6 +41,7 @@ fn parse_c_like_with_parser(
     source: &[u8],
     language: &str,
     parser: Option<&mut tree_sitter::Parser>,
+    repo_root: Option<&Path>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
@@ -56,6 +63,7 @@ fn parse_c_like_with_parser(
         source,
         file_path,
         language,
+        repo_root,
     };
 
     if let Some(parser) = parser {
@@ -81,6 +89,7 @@ struct CParseContext<'a> {
     source: &'a [u8],
     file_path: &'a str,
     language: &'a str,
+    repo_root: Option<&'a Path>,
 }
 
 fn c_walk_children(
@@ -95,7 +104,7 @@ fn c_walk_children(
     for child in node.children(&mut cursor) {
         match child.kind() {
             "preproc_include" if enclosing_func.is_none() => {
-                if let Some(target) = c_include_target(child, context.source) {
+                if let Some(target) = c_include_target(child, context) {
                     edges.push(ParsedEdge {
                         kind: crate::core::types::EdgeKind::ImportsFrom
                             .as_str()
@@ -318,20 +327,33 @@ fn c_call_callee<'a>(node: tree_sitter::Node<'a>) -> Option<tree_sitter::Node<'a
     found
 }
 
-/// The included header path.
+/// The included header, as a repo-relative file path when one exists.
 ///
 /// Objective-C `#import` used to keep the whole directive as the target, so
-/// `#import "Logger.h"` never matched the header it names.
-fn c_include_target(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+/// `#import "Logger.h"` never matched the header it names. An include is also
+/// written relative to the including file or to a compiler search path, so the
+/// literal text alone (`util.h`) matches no file in the graph.
+fn c_include_target(node: tree_sitter::Node<'_>, context: &CParseContext<'_>) -> Option<String> {
     let target = c_direct_child(node, &["system_lib_string", "string_literal"])?;
-    Some(
-        strip_matching_quotes(
-            node_text(target, source)
-                .trim()
-                .trim_matches(['<', '>'].as_ref()),
-        )
-        .to_string(),
+    let literal = strip_matching_quotes(
+        node_text(target, context.source)
+            .trim()
+            .trim_matches(['<', '>'].as_ref()),
     )
+    .trim()
+    .to_string();
+    if literal.is_empty() {
+        return None;
+    }
+    Some(c_resolve_include(&literal, context.file_path, context.repo_root).unwrap_or(literal))
+}
+
+/// Resolves an include against the including directory, then its ancestors,
+/// standing in for the `-I` search paths the graph cannot know. A public
+/// header usually sits in a parallel `include/` tree, so probe that too. A
+/// system header such as `<vector>` matches nothing and keeps its literal name.
+fn c_resolve_include(literal: &str, file_path: &str, repo_root: Option<&Path>) -> Option<String> {
+    resolve_import_path(literal, file_path, repo_root, &["include"], true)
 }
 
 fn c_type_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {

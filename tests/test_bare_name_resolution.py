@@ -5,8 +5,8 @@ from unittest.mock import patch
 import pytest
 
 from dagayn.bare_name_resolution import (
-    NamespaceVisibility,
-    build_namespace_visibility,
+    SymbolVisibility,
+    build_symbol_visibility,
     is_namespace_candidate,
     is_plausible_bare_edge,
     looks_like_file_target,
@@ -61,7 +61,7 @@ class TestBareNameResolutionHelpers:
         assert not is_namespace_candidate("Logger.h")
 
     def test_namespace_visibility_links_same_namespace_and_imports(self):
-        visibility = NamespaceVisibility(
+        visibility = SymbolVisibility(
             declared={
                 "Factory.cs": {"Repro.Infra"},
                 "Broker.cs": {"Repro.Infra"},
@@ -69,6 +69,7 @@ class TestBareNameResolutionHelpers:
                 "Consumer.cs": {"Repro.App"},
             },
             imported={"Consumer.cs": {"Repro.Other"}},
+            class_files={},
         )
         # Same namespace needs no import statement.
         assert visibility.can_see("Broker.cs", "Factory.cs")
@@ -111,7 +112,7 @@ class TestResolveBareCallTargets:
         store.upsert_edge(_edge("CALLS", "Broker.cs::Resolve", "CreateCriteria", "Broker.cs"))
         store.commit()
 
-        visibility = build_namespace_visibility(store._conn)
+        visibility = build_symbol_visibility(store._conn)
         assert visibility.declared["Broker.cs"] == {"Repro.Infra"}
 
         assert resolve_bare_call_targets(store) == 1
@@ -136,6 +137,34 @@ class TestResolveBareCallTargets:
             "SELECT target_qualified FROM edges WHERE kind='CALLS'"
         ).fetchone()
         assert row["target_qualified"] == "Broker.php::phpBuild"
+
+    def test_resolves_via_the_class_declaration_not_the_definition_file(self, tmp_path):
+        """A C++ method is defined in a `.cpp` nobody includes; only its class
+        declaration is reachable from the caller's header."""
+        store = GraphStore(tmp_path / "declaring_class.db")
+        store.upsert_node(_node("File", "factory.hpp", "factory.hpp"))
+        store.upsert_node(_node("Class", "Factory", "factory.hpp", type_role="class"))
+        store.upsert_node(_node("File", "factory.cpp", "factory.cpp"))
+        store.upsert_node(_node("Function", "createAllowed", "factory.cpp"))
+        store.upsert_node(_node("File", "broker.cpp", "broker.cpp"))
+        store.upsert_node(_node("Function", "use", "broker.cpp"))
+        store.upsert_edge(_edge("IMPORTS_FROM", "factory.cpp", "factory.hpp", "factory.cpp"))
+        store.upsert_edge(_edge("IMPORTS_FROM", "broker.cpp", "factory.hpp", "broker.cpp"))
+        store.upsert_edge(_edge("CALLS", "broker.cpp::use", "createAllowed", "broker.cpp"))
+        store.commit()
+        # The definition belongs to the class declared in the header.
+        store._conn.execute(
+            "UPDATE nodes SET parent_name = 'Factory', qualified_name = ? "
+            "WHERE name = 'createAllowed'",
+            ("factory.cpp::Factory.createAllowed",),
+        )
+        store._conn.commit()
+
+        assert resolve_bare_call_targets(store) == 1
+        row = store._conn.execute(
+            "SELECT target_qualified FROM edges WHERE kind='CALLS'"
+        ).fetchone()
+        assert row["target_qualified"] == "factory.cpp::Factory.createAllowed"
 
     def test_resolves_when_import_context_is_unique(self, tmp_path):
         store = GraphStore(tmp_path / "calls_import.db")

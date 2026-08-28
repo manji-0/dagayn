@@ -66,10 +66,10 @@ def normalize_namespace(value: str) -> str:
 
 
 @dataclass(frozen=True)
-class NamespaceVisibility:
-    """Namespace-based visibility between files.
+class SymbolVisibility:
+    """Indirect visibility between files: namespaces and declaring classes.
 
-    Held as two per-file maps rather than an expanded file-to-file product: a
+    Held as per-file maps rather than an expanded file-to-file product: a
     single namespace with N files would otherwise cost N^2 entries.
     """
 
@@ -77,6 +77,8 @@ class NamespaceVisibility:
     """File -> namespaces it declares."""
     imported: dict[str, set[str]]
     """File -> namespaces its imports name."""
+    class_files: dict[str, set[str]]
+    """Class name -> files declaring that class."""
 
     def can_see(self, source_file: str, target_file: str) -> bool:
         """True when *source_file* reaches *target_file* without a file import.
@@ -91,8 +93,21 @@ class NamespaceVisibility:
             return True
         return bool(declared & self.imported.get(source_file, frozenset()))
 
+    def declaring_files(self, target_qualified: str) -> set[str]:
+        """Files declaring the class that owns *target_qualified*.
 
-def build_namespace_visibility(conn: Any) -> NamespaceVisibility:
+        A C++ method is defined in a `.cpp` that nobody includes, while its
+        class is declared in the header that callers do include -- so the
+        header, not the definition file, is what a caller can see.
+        """
+        symbol = target_qualified.partition("::")[2]
+        owner = symbol.rpartition(".")[0]
+        if not owner:
+            return set()
+        return self.class_files.get(owner, set())
+
+
+def build_symbol_visibility(conn: Any) -> SymbolVisibility:
     """Read declared namespaces from File nodes and imported ones from edges.
 
     Parsers record the namespaces a file declares (C# ``namespace``,
@@ -133,7 +148,11 @@ def build_namespace_visibility(conn: Any) -> NamespaceVisibility:
             parent = key.rpartition(".")[0]
             if parent:
                 entry.add(parent)
-    return NamespaceVisibility(declared=declared, imported=imported)
+
+    class_files: dict[str, set[str]] = {}
+    for row in conn.execute("SELECT name, file_path FROM nodes WHERE kind = 'Class'").fetchall():
+        class_files.setdefault(row["name"], set()).add(row["file_path"])
+    return SymbolVisibility(declared=declared, imported=imported, class_files=class_files)
 
 
 def build_import_targets(conn: Any) -> dict[str, set[str]]:
@@ -164,16 +183,35 @@ def is_plausible_bare_edge(
     source_file: str,
     target_file: str,
     import_targets: dict[str, set[str]],
-    namespaces: NamespaceVisibility | None = None,
+    visibility: SymbolVisibility | None = None,
+    target_qualified: str = "",
 ) -> bool:
     """Return True when *source_file* may refer to a symbol in *target_file*."""
     if not source_file or not target_file:
         return False
+    if _file_is_visible(source_file, target_file, import_targets, visibility):
+        return True
+    if visibility is None or not target_qualified:
+        return False
+    # Reaching the class declaration is enough; the definition may live in a
+    # file nobody imports directly.
+    return any(
+        _file_is_visible(source_file, declaring, import_targets, visibility)
+        for declaring in visibility.declaring_files(target_qualified)
+    )
+
+
+def _file_is_visible(
+    source_file: str,
+    target_file: str,
+    import_targets: dict[str, set[str]],
+    visibility: SymbolVisibility | None,
+) -> bool:
     if source_file == target_file:
         return True
     if target_file in import_targets.get(source_file, set()):
         return True
-    return namespaces is not None and namespaces.can_see(source_file, target_file)
+    return visibility is not None and visibility.can_see(source_file, target_file)
 
 
 def _bare_name_candidates(
@@ -194,7 +232,7 @@ def _resolve_via_imports(
     candidates: list[str],
     source_file: str,
     import_targets: dict[str, set[str]],
-    namespaces: NamespaceVisibility | None = None,
+    visibility: SymbolVisibility | None = None,
 ) -> str | None:
     imported = [
         qn
@@ -203,7 +241,8 @@ def _resolve_via_imports(
             source_file,
             node_file_from_qualified(qn),
             import_targets,
-            namespaces,
+            visibility,
+            qn,
         )
     ]
     if len(imported) == 1:
@@ -222,7 +261,7 @@ def resolve_bare_call_targets(store: Any) -> int:
         return 0
 
     import_targets = build_import_targets(conn)
-    namespaces = build_namespace_visibility(conn)
+    visibility = build_symbol_visibility(conn)
     resolved = 0
     for edge in bare_edges:
         bare_name = edge["target_qualified"]
@@ -231,7 +270,7 @@ def resolve_bare_call_targets(store: Any) -> int:
             continue
 
         src_file = node_file_from_qualified(edge["source_qualified"], edge["file_path"])
-        qualified = _resolve_via_imports(candidates, src_file, import_targets, namespaces)
+        qualified = _resolve_via_imports(candidates, src_file, import_targets, visibility)
         if qualified is None:
             continue
 
@@ -266,14 +305,14 @@ def resolve_bare_inheritance_targets(store: Any) -> int:
         return 0
 
     import_targets = build_import_targets(conn)
-    namespaces = build_namespace_visibility(conn)
+    visibility = build_symbol_visibility(conn)
     resolved = 0
     demoted = 0
     for edge in bare_edges:
         bare_name = edge["target_qualified"]
         candidates = _bare_name_candidates(conn, bare_name, kinds=("Class",))
         src_file = node_file_from_qualified(edge["source_qualified"], edge["file_path"])
-        qualified = _resolve_via_imports(candidates, src_file, import_targets, namespaces)
+        qualified = _resolve_via_imports(candidates, src_file, import_targets, visibility)
 
         if qualified is not None:
             conn.execute(

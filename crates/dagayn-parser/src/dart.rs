@@ -1,13 +1,19 @@
+use std::path::Path;
+
 use serde_json::json;
 
 use super::types::{ParsedEdge, ParsedNode};
-use super::util::{is_test_file, line_count, node_text, strip_matching_quotes};
+use super::util::{
+    import_candidate_exists, is_test_file, line_count, node_text, resolve_import_path,
+    strip_matching_quotes,
+};
 use super::{qualify, resolve_rust_call_targets};
 
 pub(super) fn parse_dart_with_parser(
     file_path: &str,
     source: &[u8],
     parser: Option<&mut tree_sitter::Parser>,
+    repo_root: Option<&Path>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
@@ -37,12 +43,78 @@ pub(super) fn parse_dart_with_parser(
                 &mut nodes,
                 &mut edges,
             );
+            dart_resolve_import_targets(&mut edges, file_path, repo_root);
             let edges = resolve_rust_call_targets(&nodes, edges, file_path);
             return (nodes, edges);
         }
     }
 
     (nodes, edges)
+}
+
+/// Rewrites import targets that name a file in this repository.
+///
+/// A Dart import is a URI, so the literal (`../util.dart`,
+/// `package:myapp/util.dart`) matches no file in the graph. `dart:` URIs and
+/// third-party packages have no file here and keep their literal form.
+fn dart_resolve_import_targets(
+    edges: &mut [ParsedEdge],
+    file_path: &str,
+    repo_root: Option<&Path>,
+) {
+    for edge in edges
+        .iter_mut()
+        .filter(|edge| edge.kind == crate::core::types::EdgeKind::ImportsFrom.as_str())
+    {
+        if let Some(resolved) = dart_resolve_import(&edge.target, file_path, repo_root) {
+            edge.target = resolved;
+        }
+    }
+}
+
+fn dart_resolve_import(literal: &str, file_path: &str, repo_root: Option<&Path>) -> Option<String> {
+    if let Some(rest) = literal.strip_prefix("package:") {
+        let (package, path) = rest.split_once('/')?;
+        // Only this repository's own package maps to a path here.
+        let package_root = dart_package_root(package, file_path, repo_root)?;
+        let candidate = format!("{package_root}lib/{path}");
+        return import_candidate_exists(Path::new(&candidate), repo_root).then_some(candidate);
+    }
+    if literal.starts_with("dart:") || literal.contains(':') {
+        return None;
+    }
+    resolve_import_path(literal, file_path, repo_root, &[], false)
+}
+
+/// The nearest ancestor directory whose `pubspec.yaml` declares *package*,
+/// as a prefix ending in `/` (empty at the repository root).
+fn dart_package_root(package: &str, file_path: &str, repo_root: Option<&Path>) -> Option<String> {
+    let mut current = Path::new(file_path).parent()?.to_path_buf();
+    loop {
+        let pubspec = current.join("pubspec.yaml");
+        let full = repo_root
+            .map(|root| root.join(&pubspec))
+            .unwrap_or_else(|| pubspec.clone());
+        if let Ok(text) = std::fs::read_to_string(&full) {
+            if dart_pubspec_name(&text).as_deref() == Some(package) {
+                let prefix = current.to_string_lossy().replace('\\', "/");
+                return Some(if prefix.is_empty() {
+                    String::new()
+                } else {
+                    format!("{prefix}/")
+                });
+            }
+        }
+        if !current.pop() {
+            return None;
+        }
+    }
+}
+
+fn dart_pubspec_name(text: &str) -> Option<String> {
+    text.lines()
+        .find_map(|line| line.strip_prefix("name:"))
+        .map(|name| name.trim().trim_matches(['"', '\''].as_ref()).to_string())
 }
 
 fn dart_walk_children(

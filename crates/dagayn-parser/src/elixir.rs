@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use serde_json::json;
 
 use super::types::{ParsedEdge, ParsedNode};
-use super::util::{is_test_file, line_count, node_text};
+use super::util::{is_test_file, line_count, node_text, set_namespaces_from_type_names};
 use super::{add_tested_by_edges, is_test_function, qualify};
 
 pub(super) fn parse_elixir_with_parser(
@@ -39,6 +39,7 @@ pub(super) fn parse_elixir_with_parser(
                 &mut nodes,
                 &mut edges,
             );
+            set_namespaces_from_type_names(&mut nodes);
             let mut edges = resolve_elixir_call_targets(&nodes, edges, file_path);
             add_tested_by_edges(&nodes, &mut edges);
             return (nodes, edges);

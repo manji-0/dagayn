@@ -3,13 +3,19 @@ use std::collections::HashMap;
 use serde_json::{json, Value};
 
 use super::types::{ParsedEdge, ParsedNode};
-use super::util::{is_test_file, line_count, node_text, strip_matching_quotes};
+use std::path::Path;
+
+use super::util::{
+    is_test_file, line_count, node_text, resolve_import_path, set_namespaces_from_type_names,
+    strip_matching_quotes,
+};
 use super::{add_tested_by_edges, is_test_function, qualify};
 
 pub(super) fn parse_julia_with_parser(
     file_path: &str,
     source: &[u8],
     parser: Option<&mut tree_sitter::Parser>,
+    repo_root: Option<&Path>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
@@ -27,7 +33,11 @@ pub(super) fn parse_julia_with_parser(
         extra: json!({}),
     }];
     let mut edges = Vec::new();
-    let context = JuliaParseContext { source, file_path };
+    let context = JuliaParseContext {
+        source,
+        file_path,
+        repo_root,
+    };
 
     if let Some(parser) = parser {
         if let Some(tree) = parser.parse(source, None) {
@@ -39,6 +49,7 @@ pub(super) fn parse_julia_with_parser(
                 &mut nodes,
                 &mut edges,
             );
+            set_namespaces_from_type_names(&mut nodes);
             let mut edges = resolve_julia_targets(&nodes, edges, file_path);
             add_tested_by_edges(&nodes, &mut edges);
             return (nodes, edges);
@@ -51,6 +62,7 @@ pub(super) fn parse_julia_with_parser(
 struct JuliaParseContext<'a> {
     source: &'a [u8],
     file_path: &'a str,
+    repo_root: Option<&'a Path>,
 }
 
 fn julia_walk_children(
@@ -178,6 +190,15 @@ fn julia_walk_children(
                 if let Some(call_name) = julia_call_name(child, context.source) {
                     if call_name == "include" {
                         if let Some(target) = julia_first_string_arg(child, context.source) {
+                            // `include` is relative to the including file.
+                            let target = resolve_import_path(
+                                &target,
+                                context.file_path,
+                                context.repo_root,
+                                &[],
+                                false,
+                            )
+                            .unwrap_or(target);
                             edges.push(ParsedEdge {
                                 kind: crate::core::types::EdgeKind::ImportsFrom
                                     .as_str()

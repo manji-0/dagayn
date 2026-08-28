@@ -171,6 +171,61 @@ pub(super) fn set_declared_namespaces(nodes: &mut [ParsedNode], namespaces: Vec<
     }
 }
 
+/// Records the type names a file defines as its declared namespaces.
+///
+/// Elixir `defmodule` and Julia `module` names are namespaces rather than
+/// classes: they are exactly what another file's `alias` or `using` refers to.
+pub(super) fn set_namespaces_from_type_names(nodes: &mut [ParsedNode]) {
+    let names: Vec<String> = nodes
+        .iter()
+        .filter(|node| node.kind == crate::core::types::NodeKind::Class.as_str())
+        .map(|node| node.name.clone())
+        .collect();
+    set_declared_namespaces(nodes, names);
+}
+
+/// Resolves an include/import path to a repo-relative file.
+///
+/// The literal alone (`util.h`, `../util.dart`) matches no file in the graph.
+/// `search_subdirs` stands in for directories a build system puts on the
+/// search path (`include/` for C, `lib/` for Dart), and `walk_up` extends the
+/// search to ancestor directories -- which suits a compiler search path but
+/// not a strictly file-relative form such as Julia's `include`.
+pub(super) fn resolve_import_path(
+    literal: &str,
+    file_path: &str,
+    repo_root: Option<&Path>,
+    search_subdirs: &[&str],
+    walk_up: bool,
+) -> Option<String> {
+    if literal.is_empty() || literal.starts_with('/') {
+        return None;
+    }
+    let mut current = Path::new(file_path).parent()?.to_path_buf();
+    loop {
+        let candidate = current.join(literal);
+        if import_candidate_exists(&candidate, repo_root) {
+            return Some(normalize_relative_path(&candidate));
+        }
+        for subdir in search_subdirs {
+            let candidate = current.join(subdir).join(literal);
+            if import_candidate_exists(&candidate, repo_root) {
+                return Some(normalize_relative_path(&candidate));
+            }
+        }
+        if !walk_up || !current.pop() {
+            break;
+        }
+    }
+    None
+}
+
+pub(super) fn import_candidate_exists(candidate: &Path, repo_root: Option<&Path>) -> bool {
+    repo_root
+        .map(|root| root.join(candidate).is_file())
+        .unwrap_or_else(|| candidate.is_file())
+}
+
 /// Collects dotted namespace paths from every `kinds` declaration in the tree.
 ///
 /// The path comes from `name_field` when the grammar exposes one, else from the

@@ -540,13 +540,14 @@ impl PyGraphStore {
     }
 
     #[allow(clippy::type_complexity)]
-    fn namespaces_by_file(
+    fn symbol_visibility_by_file(
         &self,
     ) -> PyResult<(
         std::collections::HashMap<String, Vec<String>>,
         std::collections::HashMap<String, Vec<String>>,
+        std::collections::HashMap<String, Vec<String>>,
     )> {
-        self.with_store(|store| store.namespaces_by_file())
+        self.with_store(|store| store.symbol_visibility_by_file())
     }
 
     fn replace_manifest_bridges_json(

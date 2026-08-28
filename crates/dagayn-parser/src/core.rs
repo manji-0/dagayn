@@ -306,6 +306,7 @@ impl RustOwnedParser {
                 file_path,
                 source,
                 parser_slot(&mut self.dart_parser, new_dart_parser),
+                repo_root,
             ),
             RustOwnedPathKind::Lua => lua::parse_lua_with_parser(
                 file_path,
@@ -321,16 +322,19 @@ impl RustOwnedParser {
                 file_path,
                 source,
                 parser_slot(&mut self.c_parser, new_c_parser),
+                repo_root,
             ),
             RustOwnedPathKind::Cpp => c_like::parse_cpp_with_parser(
                 file_path,
                 source,
                 parser_slot(&mut self.cpp_parser, new_cpp_parser),
+                repo_root,
             ),
             RustOwnedPathKind::ObjC => c_like::parse_objc_with_parser(
                 file_path,
                 source,
                 parser_slot(&mut self.objc_parser, new_objc_parser),
+                repo_root,
             ),
             RustOwnedPathKind::Elixir => elixir::parse_elixir_with_parser(
                 file_path,
@@ -351,6 +355,7 @@ impl RustOwnedParser {
                 file_path,
                 source,
                 parser_slot(&mut self.julia_parser, new_julia_parser),
+                repo_root,
             ),
             RustOwnedPathKind::Perl => perl::parse_perl_with_parser(
                 file_path,
@@ -648,7 +653,7 @@ pub fn parse_solidity(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<P
 
 pub fn parse_dart(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let mut parser = new_dart_parser();
-    dart::parse_dart_with_parser(file_path, source, parser.as_mut())
+    dart::parse_dart_with_parser(file_path, source, parser.as_mut(), None)
 }
 
 pub fn parse_lua(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
@@ -678,7 +683,7 @@ pub fn parse_r(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEd
 
 pub fn parse_julia(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let mut parser = new_julia_parser();
-    julia::parse_julia_with_parser(file_path, source, parser.as_mut())
+    julia::parse_julia_with_parser(file_path, source, parser.as_mut(), None)
 }
 
 pub fn parse_perl(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
@@ -688,17 +693,17 @@ pub fn parse_perl(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<Parse
 
 pub fn parse_c(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let mut parser = new_c_parser();
-    c_like::parse_c_with_parser(file_path, source, parser.as_mut())
+    c_like::parse_c_with_parser(file_path, source, parser.as_mut(), None)
 }
 
 pub fn parse_cpp(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let mut parser = new_cpp_parser();
-    c_like::parse_cpp_with_parser(file_path, source, parser.as_mut())
+    c_like::parse_cpp_with_parser(file_path, source, parser.as_mut(), None)
 }
 
 pub fn parse_objc(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let mut parser = new_objc_parser();
-    c_like::parse_objc_with_parser(file_path, source, parser.as_mut())
+    c_like::parse_objc_with_parser(file_path, source, parser.as_mut(), None)
 }
 
 pub(super) fn resolve_rust_call_targets(

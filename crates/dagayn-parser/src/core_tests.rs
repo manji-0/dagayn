@@ -720,6 +720,122 @@ end
 }
 
 #[test]
+fn resolves_c_includes_to_repo_relative_files() {
+    let mut repo_root = std::env::temp_dir();
+    repo_root.push(format!(
+        "dagayn-parser-include-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    let _ = std::fs::remove_dir_all(&repo_root);
+    std::fs::create_dir_all(repo_root.join("src/net")).unwrap();
+    std::fs::create_dir_all(repo_root.join("include/mylib")).unwrap();
+    std::fs::write(repo_root.join("src/net/socket.h"), b"struct Socket {};\n").unwrap();
+    std::fs::write(repo_root.join("include/mylib/api.h"), b"void api();\n").unwrap();
+
+    let source = br#"#include <vector>
+#include "socket.h"
+#include "mylib/api.h"
+#include "missing.h"
+
+void run() {}
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (_, edges) = parser.parse_file_in_repo(Some(&repo_root), "src/net/client.cpp", source);
+    let includes: Vec<&str> = edges
+        .iter()
+        .filter(|edge| edge.kind == "IMPORTS_FROM")
+        .map(|edge| edge.target.as_str())
+        .collect();
+    assert_eq!(
+        includes,
+        vec![
+            // A system header matches no repo file and keeps its literal name.
+            "vector",
+            // Sibling header, resolved against the including directory.
+            "src/net/socket.h",
+            // Found by walking up to the directory holding `include/`.
+            "include/mylib/api.h",
+            // Unresolvable includes stay as written.
+            "missing.h",
+        ]
+    );
+    let _ = std::fs::remove_dir_all(&repo_root);
+}
+
+#[test]
+fn resolves_dart_and_julia_imports_to_repo_relative_files() {
+    let mut repo_root = std::env::temp_dir();
+    repo_root.push(format!(
+        "dagayn-parser-uri-import-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    let _ = std::fs::remove_dir_all(&repo_root);
+    std::fs::create_dir_all(repo_root.join("app/lib/util")).unwrap();
+    std::fs::create_dir_all(repo_root.join("jl/src")).unwrap();
+    std::fs::write(repo_root.join("app/pubspec.yaml"), b"name: myapp\n").unwrap();
+    std::fs::write(
+        repo_root.join("app/lib/util/text.dart"),
+        b"String t() => '';\n",
+    )
+    .unwrap();
+    std::fs::write(repo_root.join("app/lib/models.dart"), b"class M {}\n").unwrap();
+    std::fs::write(repo_root.join("jl/src/helpers.jl"), b"f() = 1\n").unwrap();
+
+    let mut parser = RustOwnedParser::new();
+    let dart = br#"import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:myapp/util/text.dart';
+import '../models.dart';
+
+class A {}
+"#;
+    let (_, edges) = parser.parse_file_in_repo(Some(&repo_root), "app/lib/util/view.dart", dart);
+    let imports: Vec<&str> = edges
+        .iter()
+        .filter(|edge| edge.kind == "IMPORTS_FROM")
+        .map(|edge| edge.target.as_str())
+        .collect();
+    assert_eq!(
+        imports,
+        vec![
+            // SDK and third-party URIs have no file here.
+            "dart:async",
+            "package:flutter/material.dart",
+            // This repository's own package maps through its pubspec.
+            "app/lib/util/text.dart",
+            // A relative URI resolves against the importing file.
+            "app/lib/models.dart",
+        ]
+    );
+
+    let julia = br#"module Runner
+
+using LinearAlgebra
+
+include("helpers.jl")
+
+end
+"#;
+    let (nodes, edges) = parser.parse_file_in_repo(Some(&repo_root), "jl/src/runner.jl", julia);
+    let imports: Vec<&str> = edges
+        .iter()
+        .filter(|edge| edge.kind == "IMPORTS_FROM")
+        .map(|edge| edge.target.as_str())
+        .collect();
+    assert_eq!(imports, vec!["LinearAlgebra", "jl/src/helpers.jl"]);
+    // A Julia `module` is a namespace, so another file's `using` can find it.
+    assert_eq!(
+        nodes[0].extra["namespaces"],
+        serde_json::json!(["Runner"]),
+        "julia module should be recorded as a namespace"
+    );
+
+    let _ = std::fs::remove_dir_all(&repo_root);
+}
+
+#[test]
 fn records_declared_namespaces_on_the_file_node() {
     fn namespaces(nodes: &[ParsedNode]) -> Vec<String> {
         nodes
