@@ -137,3 +137,123 @@ pub(crate) fn collect_bridge_transitions(edges: &[GraphEdge]) -> (Vec<Value>, Ve
     }
     (transitions, caveats)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn bridge(tier: ConfidenceTier, target: &str, extra: Value) -> GraphEdge {
+        GraphEdge {
+            id: 1,
+            kind: "CROSS_ARTIFACT".to_string(),
+            source_qualified: "README.md".to_string(),
+            target_qualified: target.to_string(),
+            file_path: "README.md".to_string(),
+            line: 3,
+            extra,
+            confidence: 0.9,
+            confidence_tier: tier,
+        }
+    }
+
+    #[test]
+    fn reportable_tiers_are_hard_claims() {
+        for tier in [
+            ConfidenceTier::Exact,
+            ConfidenceTier::High,
+            ConfidenceTier::Extracted,
+        ] {
+            let edge = bridge(tier, "app.py::entry", json!({}));
+            assert!(is_reportable_bridge(&edge), "{tier:?}");
+            assert!(!is_low_confidence_bridge(&edge), "{tier:?}");
+        }
+    }
+
+    #[test]
+    fn low_and_medium_tiers_are_not_hard_claims() {
+        let low = bridge(ConfidenceTier::Low, "app.py::entry", json!({}));
+        assert!(!is_reportable_bridge(&low));
+        assert!(is_low_confidence_bridge(&low));
+
+        // MEDIUM is neither reportable nor, on its own, a caveat: it is outside
+        // the reportable tiers but does not match a low-confidence rule.
+        let medium = bridge(ConfidenceTier::Medium, "app.py::entry", json!({}));
+        assert!(!is_reportable_bridge(&medium));
+        assert!(!is_low_confidence_bridge(&medium));
+    }
+
+    #[test]
+    fn unresolved_target_is_always_a_caveat() {
+        let edge = bridge(
+            ConfidenceTier::High,
+            "<unresolved:missing>",
+            json!({"relationship_role": "maps_entrypoint"}),
+        );
+        assert!(is_unresolved_target(&edge));
+        assert!(!is_reportable_bridge(&edge));
+        assert!(is_low_confidence_bridge(&edge));
+    }
+
+    #[test]
+    fn resolved_implicit_markdown_code_span_is_capped_at_medium() {
+        let extra = json!({
+            "relationship_role": "describes_symbol",
+            "evidence_kind": "markdown_code_span",
+            "evidence_source": "code_span",
+        });
+        let edge = bridge(ConfidenceTier::Medium, "app.py::entry", extra.clone());
+        assert!(is_low_confidence_bridge(&edge));
+
+        // The same shape at HIGH stays a hard claim: only MEDIUM is capped.
+        let promoted = bridge(ConfidenceTier::High, "app.py::entry", extra);
+        assert!(is_reportable_bridge(&promoted));
+    }
+
+    #[test]
+    fn non_cross_artifact_edges_are_ignored() {
+        let mut edge = bridge(ConfidenceTier::High, "app.py::entry", json!({}));
+        edge.kind = "CALLS".to_string();
+        assert!(!is_cross_artifact(&edge));
+        assert!(!is_reportable_bridge(&edge));
+        assert!(!is_low_confidence_bridge(&edge));
+        assert_eq!(cross_artifact_role(&edge), None);
+    }
+
+    #[test]
+    fn transition_payload_records_claim_strength_and_metadata() {
+        let edge = bridge(
+            ConfidenceTier::High,
+            "app.py::entry",
+            json!({
+                "relationship_role": "describes_symbol",
+                "bridge_kind": "doc_to_code",
+                "evidence_kind": "markdown_link",
+            }),
+        );
+        let value = bridge_transition_value(&edge);
+        assert_eq!(value["kind"], "CROSS_ARTIFACT");
+        assert_eq!(value["claim_strength"], "hard");
+        assert_eq!(value["relationship_role"], "describes_symbol");
+        assert_eq!(value["bridge_kind"], "doc_to_code");
+        assert_eq!(value["confidence_tier"], "HIGH");
+        // Absent metadata is null rather than an empty string, matching Python.
+        assert_eq!(value["evidence_source"], Value::Null);
+    }
+
+    #[test]
+    fn collect_splits_transitions_from_caveats() {
+        let edges = vec![
+            bridge(ConfidenceTier::High, "app.py::entry", json!({})),
+            bridge(ConfidenceTier::Low, "app.py::other", json!({})),
+            bridge(ConfidenceTier::Medium, "app.py::third", json!({})),
+        ];
+        let (transitions, caveats) = collect_bridge_transitions(&edges);
+        assert_eq!(transitions.len(), 1);
+        assert_eq!(caveats.len(), 1);
+        assert_eq!(
+            caveats[0]["reason_code"],
+            "low_confidence_cross_artifact_bridge"
+        );
+        assert_eq!(caveats[0]["bridge"]["target"], "app.py::other");
+    }
+}
