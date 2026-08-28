@@ -5,6 +5,8 @@ import threading
 import time
 from pathlib import Path
 
+import pytest
+
 from dagayn.communities import store_communities
 from dagayn.graph import GraphStore
 from dagayn.graph.types import GraphEdge
@@ -1542,7 +1544,7 @@ class TestSuggestRefactorings:
         monkeypatch.setattr(
             refactor_tools,
             "_get_store",
-            lambda repo_root: (self.store, Path("/repo")),
+            lambda repo_root, **kwargs: (self.store, Path("/repo")),
         )
         self.store.close = lambda: None
 
@@ -2665,3 +2667,88 @@ class TestApplyRefactorIdentifierBoundaries:
             target.unlink(missing_ok=True)
             (tmp_dir / ".git").rmdir()
             tmp_dir.rmdir()
+
+
+class TestRefactorToolWithNativeBackend:
+    """The refactor dispatcher must work under the default Rust backend. See: #153
+
+    Every mode reads through Python-only ``GraphStore`` APIs that the native
+    store does not implement (``_conn``, ``get_communities_list``,
+    ``search_nodes``), so each one used to fail with ``AttributeError``.
+    """
+
+    @staticmethod
+    def _build_native_graph(repo: Path):
+        try:
+            from dagayn._core import GraphStore as RustGraphStore
+        except ImportError as exc:
+            pytest.skip(f"Rust extension is not available: {exc}")
+
+        from dagayn.incremental import full_build, get_db_path
+
+        repo.mkdir(parents=True)
+        (repo / ".git").mkdir()
+        (repo / "a.py").write_text(
+            "def used():\n"
+            "    return 1\n"
+            "\n"
+            "\n"
+            "def unused_helper():\n"
+            "    return 2\n"
+            "\n"
+            "\n"
+            "def main():\n"
+            "    return used()\n",
+            encoding="utf-8",
+        )
+        (repo / "b.py").write_text(
+            "from a import used\n\n\ndef caller():\n    return used()\n",
+            encoding="utf-8",
+        )
+
+        store = RustGraphStore(get_db_path(repo))
+        try:
+            full_build(repo, store)
+        finally:
+            store.close()
+
+    def test_dead_code_mode(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("DAGAYN_BACKEND", "rust")
+        repo = tmp_path / "proj"
+        self._build_native_graph(repo)
+
+        from dagayn.tools import refactor_tools
+
+        result = refactor_tools.refactor_func(mode="dead_code", repo_root=str(repo), limit=50)
+
+        assert result["status"] == "ok", result
+        assert "unused_helper" in {entry["name"] for entry in result["dead_code"]}
+
+    def test_suggest_mode(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("DAGAYN_BACKEND", "rust")
+        repo = tmp_path / "proj"
+        self._build_native_graph(repo)
+
+        from dagayn.tools import refactor_tools
+
+        result = refactor_tools.refactor_func(mode="suggest", repo_root=str(repo), limit=50)
+
+        assert result["status"] == "ok", result
+        assert isinstance(result["suggestions"], list)
+
+    def test_rename_mode(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("DAGAYN_BACKEND", "rust")
+        repo = tmp_path / "proj"
+        self._build_native_graph(repo)
+
+        from dagayn.tools import refactor_tools
+
+        result = refactor_tools.refactor_func(
+            mode="rename",
+            old_name="unused_helper",
+            new_name="renamed_helper",
+            repo_root=str(repo),
+        )
+
+        assert result["status"] == "ok", result
+        assert result["edits"]

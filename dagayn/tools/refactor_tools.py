@@ -249,7 +249,13 @@ def refactor_func(
 
     store = None
     try:
-        store, root = _get_store(request.repo_root)
+        # Every refactor mode reads through Python-only store APIs (raw
+        # ``_conn`` SQL in dead-code analysis, ``get_communities_list`` in
+        # suggestions, ``search_nodes`` / ``search_edges_by_target_name`` in
+        # rename preview). The native store implements none of them, so ask
+        # for the Python store explicitly instead of failing with
+        # ``AttributeError`` under the default Rust backend. See: #153
+        store, root = _get_store(request.repo_root, python_api=True)
         answerability = graph_answerability_summary(store)
         missingness = missingness_from_answerability(answerability)
         if request.mode == "rename":

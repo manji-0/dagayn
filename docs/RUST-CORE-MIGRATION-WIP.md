@@ -213,6 +213,26 @@ Backend availability by phase:
 
 During Phase 4, Python implementations are moved to `legacy_py/` (not deleted) for regression comparison.
 
+### Tools that require the Python `GraphStore` API
+
+The native store implements a subset of the Python `GraphStore` surface. A tool
+whose read path uses raw `_conn` SQL, or a query helper that has no native
+counterpart, must opt in explicitly with `_get_store(..., python_api=True)`;
+it then reads the same SQLite graph through the Python store regardless of
+`DAGAYN_BACKEND`. This is a compatibility boundary, not auto-fallback: the
+selection is made by the call site, not by catching an `AttributeError`.
+
+Current opt-in call sites:
+
+| Tool | Python-only APIs used |
+|------|-----------------------|
+| `refactor_tool` (`dead_code`) | `_conn`, `_row_to_edge`, `count_edges_by_target_name_prefix`, `resolve_file_path` |
+| `refactor_tool` (`suggest`) | `get_communities_list`, `resolve_file_path` |
+| `refactor_tool` (`rename`) | `search_nodes`, `search_edges_by_target_name`, `search_import_edges_for_symbol` |
+
+Porting these to the native store lets the corresponding call site drop
+`python_api=True`. See: #153
+
 ## Recommended migration phases
 
 ### Phase 0: freeze contracts and parity fixtures

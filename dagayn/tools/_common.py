@@ -508,8 +508,16 @@ def _get_store(
     repo_root: str | None = None,
     *,
     cached: bool = True,
+    python_api: bool = False,
 ) -> tuple[GraphStore, Path]:
-    """Resolve repo root and return a (possibly cached) graph store."""
+    """Resolve repo root and return a (possibly cached) graph store.
+
+    Pass ``python_api=True`` for callers that need the full Python
+    :class:`~dagayn.graph.GraphStore` surface (raw ``_conn`` access or query
+    helpers the native store does not implement). The native store is a strict
+    subset, so those callers would otherwise fail with ``AttributeError`` under
+    the default Rust backend. See: #153
+    """
     root = _validate_repo_root(Path(repo_root)) if repo_root else find_project_root()
     if not repo_root:
         # Before ``get_db_path``, which would create ``.dagayn`` there.
@@ -551,6 +559,7 @@ def _get_store(
             root,
             db_path,
             cached=cached,
+            python_api=python_api,
         )
     except BaseException:
         if owns_read_lock:
@@ -571,8 +580,9 @@ def _open_store(
     db_path: Path,
     *,
     cached: bool,
+    python_api: bool = False,
 ) -> tuple[GraphStore, Path]:
-    store_cls = _selected_graph_store()
+    store_cls = GraphStore if python_api else _selected_graph_store()
     if store_cls is not GraphStore:
         store = store_cls(db_path)
         register_live_store(store, db_path)
