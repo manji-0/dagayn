@@ -4,6 +4,67 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+## 4.11.0 — 2026-08-28
+
+### Features
+
+- The native `GraphStore` implements the full public method surface of the
+  Python one, so a tool can hold either backend without probing for `_conn` or
+  for a method's existence. The 28 methods that were missing are now in
+  `dagayn-graph` and bound in `dagayn-py`: node and edge lookups, subgraph
+  extraction, FTS5 and LIKE search, impact radius with `CROSS_ARTIFACT` bridge
+  classification, community and flow lookups, single-row upserts, and
+  derived-table maintenance. Two behaviours differ by design and are documented
+  at their definitions: there is no NetworkX arm for `get_impact_radius`
+  (`CRG_BFS_ENGINE=networkx` applies to the Python store only, and both engines
+  agree), and native `fts_query` segments Japanese with the same Rust bigram
+  splitter the Rust index path writes with. See
+  `docs/RUST-CORE-MIGRATION-WIP.md`.
+
+### Fixes
+
+- `refactor_tool` failed outright under the default Rust backend, because every
+  mode read through Python-only store APIs: `dead_code` on `store._conn`,
+  `suggest` on `get_communities_list`, `rename` on `search_nodes`. All three
+  work natively now, so `DAGAYN_BACKEND=python` is no longer needed as a
+  workaround. See #153.
+- `semantic_search_nodes_tool` failed under the Rust backend for the same
+  reason, on `fts_index_health(store._conn)`. FTS index health and the
+  embeddable-node count are store methods on both backends now.
+- The native store's `db_path` returned a `str` where the Python one returns a
+  `Path`, so embedding search could not `stat()` the file and semantic ranking
+  silently contributed nothing.
+- Native `remove_files_data` never deleted `flow_memberships`. Node ids are
+  autoincremented, so every re-parse left rows pointing at ids that never come
+  back, and `prune_orphaned_graph_structures` kept re-doing the cleanup the
+  Python path had already done in place.
+- Native `GraphNode` carried no `signature`, so nodes materialized by the Rust
+  backend always reported `None` regardless of what post-processing had
+  persisted.
+
+### Internal
+
+- `refactor/dead_code.py` no longer issues raw `store._conn` SQL. The queries
+  it needed (`get_edges_by_kind`, `count_nodes_by_name`,
+  `get_edges_by_sources`/`_targets`/`_target_names`,
+  `get_nodes_by_parent_and_name`, `has_edge_to_target`) are store methods
+  present on both backends.
+- `prune_orphaned_graph_structures` is orchestrated from `dagayn-postproc`
+  rather than `dagayn-graph`, because its `communities` step needs the Leiden
+  cohesion code that `dagayn-graph` cannot depend on.
+
+### Testing
+
+- `tests/test_rust_graph_store_parity.py` asserts both halves of the contract:
+  that no public Python `GraphStore` method is missing natively, and that the
+  two backends return equal results for one graph built through each. The three
+  `db_path`/`flow_memberships`/`fts_index_health` fixes above were found by it.
+- Rust unit tests cover `CROSS_ARTIFACT` bridge classification directly, where
+  the rules are subtle: `MEDIUM` is neither a reportable claim nor a caveat on
+  its own, but the same edge *is* a caveat when it carries resolved implicit
+  Markdown code-span evidence. Each expectation was cross-checked against
+  `dagayn.cross_artifact`.
+
 ## 4.10.5 — 2026-08-24
 
 ### Changed
