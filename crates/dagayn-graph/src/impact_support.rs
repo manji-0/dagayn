@@ -25,8 +25,8 @@ impl GraphStore {
             .map_err(Into::into)
     }
 
-    #[allow(dead_code)] // Mirrors Python GraphStore.get_node_ids_by_files for later pyo3 wiring.
-    pub(crate) fn get_node_ids_by_files(&self, file_paths: &[String]) -> Result<HashSet<i64>> {
+    /// Ids of every node belonging to `file_paths`.
+    pub fn get_node_ids_by_files(&self, file_paths: &[String]) -> Result<HashSet<i64>> {
         let mut out = HashSet::new();
         let file_keys = self.expand_file_keys(file_paths)?;
         for chunk in file_keys.chunks(450) {

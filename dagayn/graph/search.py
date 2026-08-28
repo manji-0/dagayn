@@ -4,6 +4,7 @@ import logging
 import re
 import sqlite3
 
+from ._fts_sync import FtsHealthPayload
 from ._fts_tokenize import FTS_SEGMENTER_METADATA_KEY, segment_japanese_fts_text
 from ._mixin_protocol import GraphStoreMixinProtocol
 from .types import FtsQueryResult, GraphEdge, GraphNode
@@ -109,6 +110,22 @@ class GraphStoreSearchMixin(GraphStoreMixinProtocol):
             "SELECT COUNT(*) FROM edges WHERE kind = ? AND target_name LIKE ?",
             (kind, f"{prefix}%"),
         ).fetchone()
+        return int(row[0] if row else 0)
+
+    def fts_index_health(self) -> FtsHealthPayload:
+        """Return FTS sync health metadata for search callers.
+
+        A store method rather than a bare ``fts_index_health(conn)`` call so the
+        native backend can answer it too — semantic search used to reach for
+        ``store._conn`` here and fail outright under the Rust backend.
+        """
+        from ._fts_sync import fts_index_health
+
+        return fts_index_health(self._conn)
+
+    def count_non_file_nodes(self) -> int:
+        """Count nodes that are not ``File`` rows (the embeddable population)."""
+        row = self._conn.execute("SELECT COUNT(*) FROM nodes WHERE kind != 'File'").fetchone()
         return int(row[0] if row else 0)
 
     def get_all_files(self) -> list[str]:

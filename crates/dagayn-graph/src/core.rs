@@ -62,6 +62,21 @@ impl GraphStore {
             .map_err(Into::into)
     }
 
+    /// Absolute path for a stored (repo-relative) `file_path`.
+    ///
+    /// Returned unchanged when it is already absolute or the graph records no
+    /// `repo_root`.
+    pub fn resolve_file_path(&self, file_path: &str) -> Result<PathBuf> {
+        let path = Path::new(file_path);
+        if path.is_absolute() {
+            return Ok(path.to_path_buf());
+        }
+        match self.get_metadata("repo_root")? {
+            Some(repo_root) => Ok(Path::new(&repo_root).join(path)),
+            None => Ok(path.to_path_buf()),
+        }
+    }
+
     pub fn schema_version(&self) -> Result<i64> {
         let version = match self.get_metadata("schema_version")? {
             Some(raw) => raw

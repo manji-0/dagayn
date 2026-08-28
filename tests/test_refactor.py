@@ -1544,7 +1544,7 @@ class TestSuggestRefactorings:
         monkeypatch.setattr(
             refactor_tools,
             "_get_store",
-            lambda repo_root, **kwargs: (self.store, Path("/repo")),
+            lambda repo_root: (self.store, Path("/repo")),
         )
         self.store.close = lambda: None
 

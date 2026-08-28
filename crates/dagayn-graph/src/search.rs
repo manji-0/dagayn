@@ -26,6 +26,29 @@ impl GraphStore {
         Ok(count)
     }
 
+    /// FTS sync health for search callers: `(status, nodes_count, fts_count,
+    /// watermark_count)`.
+    ///
+    /// `stale` when the node count and the indexed count disagree, or when the
+    /// recorded watermark no longer matches the index.
+    pub fn fts_index_health(&self) -> Result<(&'static str, i64, i64, Option<i64>)> {
+        let nodes_count: i64 = self
+            .conn
+            .query_row("SELECT count(*) FROM nodes", [], |row| row.get(0))?;
+        let fts_count: i64 = if table_exists(&self.conn, "nodes_fts")? {
+            self.conn
+                .query_row("SELECT count(*) FROM nodes_fts", [], |row| row.get(0))?
+        } else {
+            0
+        };
+        let watermark = self
+            .get_metadata(FTS_COUNT_KEY)?
+            .and_then(|raw| raw.parse::<i64>().ok());
+        let stale = nodes_count != fts_count || watermark.is_some_and(|value| value != fts_count);
+        let status = if stale { "stale" } else { "synced" };
+        Ok((status, nodes_count, fts_count, watermark))
+    }
+
     pub fn compute_missing_signatures(&mut self) -> Result<i64> {
         let tx = write_tx(&mut self.conn)?;
         tx.execute(

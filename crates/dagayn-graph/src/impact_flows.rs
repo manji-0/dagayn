@@ -236,6 +236,17 @@ impl GraphStore {
         Ok(out)
     }
 
+    /// Qualified names of the nodes in one flow.
+    pub fn get_flow_qualified_names(&self, flow_id: i64) -> Result<HashSet<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT n.qualified_name FROM flow_memberships fm \
+             JOIN nodes n ON fm.node_id = n.id WHERE fm.flow_id = ?",
+        )?;
+        let rows = stmt.query_map([flow_id], |row| row.get::<_, String>(0))?;
+        rows.collect::<std::result::Result<HashSet<_>, _>>()
+            .map_err(Into::into)
+    }
+
     pub fn get_flow_qualified_names_for_flows(
         &self,
         flow_ids: &[i64],

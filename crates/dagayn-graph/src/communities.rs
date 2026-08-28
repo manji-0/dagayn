@@ -112,6 +112,30 @@ impl GraphStore {
         Ok(out)
     }
 
+    /// `(id, name)` for every row in the `communities` table.
+    ///
+    /// Empty when the table does not exist yet (pre-v4 schemas).
+    pub fn get_communities_list(&self) -> Result<Vec<(i64, String)>> {
+        let Ok(mut stmt) = self.conn.prepare("SELECT id, name FROM communities") else {
+            return Ok(Vec::new());
+        };
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    /// Qualified names of the nodes assigned to one community.
+    pub fn get_community_member_qns(&self, community_id: i64) -> Result<Vec<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT qualified_name FROM nodes WHERE community_id = ?")?;
+        let rows = stmt.query_map([community_id], |row| row.get::<_, String>(0))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
     pub fn get_all_community_member_qns(&self) -> Result<HashMap<i64, Vec<String>>> {
         let mut out = HashMap::new();
         let mut stmt = self.conn.prepare(

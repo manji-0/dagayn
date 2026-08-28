@@ -44,14 +44,34 @@ pub(crate) fn edge_target_name(target_qualified: &str) -> String {
         .to_string()
 }
 
+/// Delete rows keyed on `nodes.id` for the nodes matching `node_predicate`.
+///
+/// These have to go before the nodes do: node ids are autoincremented, so once
+/// the file is re-parsed the old rows point at ids that will never come back.
+/// Missing them left orphaned `flow_memberships` behind, which kept
+/// `prune_orphaned_graph_structures` finding work the Python store had already
+/// done here.
+fn delete_node_keyed_rows_tx(
+    tx: &Transaction<'_>,
+    node_predicate: &str,
+    params: &[String],
+) -> Result<()> {
+    for table in ["flow_memberships", "risk_index"] {
+        let sql = format!(
+            "DELETE FROM {table} \
+             WHERE node_id IN (SELECT id FROM nodes WHERE {node_predicate})"
+        );
+        // A table absent on an older schema has nothing to remove.
+        let _ = tx.execute(&sql, rusqlite::params_from_iter(params));
+    }
+    Ok(())
+}
+
 pub(crate) fn remove_file_data_tx(tx: &Transaction<'_>, file_path: &str) -> Result<()> {
     crate::fts_sync::delete_fts_for_file_paths_tx(tx, &[file_path.to_string()])?;
     tx.execute("DELETE FROM hub_scores WHERE file_path = ?", [file_path])?;
     tx.execute("DELETE FROM bridge_scores WHERE file_path = ?", [file_path])?;
-    tx.execute(
-        "DELETE FROM risk_index WHERE node_id IN (SELECT id FROM nodes WHERE file_path = ?)",
-        [file_path],
-    )?;
+    delete_node_keyed_rows_tx(tx, "file_path = ?", &[file_path.to_string()])?;
     tx.execute("DELETE FROM edges WHERE file_path = ?", [file_path])?;
     tx.execute("DELETE FROM nodes WHERE file_path = ?", [file_path])?;
     crate::fts_sync::set_fts_watermark_tx(tx, None)?;
@@ -67,11 +87,7 @@ pub(crate) fn remove_files_data_tx(tx: &Transaction<'_>, file_paths: &[String]) 
         let placeholders = std::iter::repeat_n("?", chunk.len())
             .collect::<Vec<_>>()
             .join(",");
-        let risk_sql = format!(
-            "DELETE FROM risk_index \
-             WHERE node_id IN (SELECT id FROM nodes WHERE file_path IN ({placeholders}))"
-        );
-        tx.execute(&risk_sql, rusqlite::params_from_iter(chunk))?;
+        delete_node_keyed_rows_tx(tx, &format!("file_path IN ({placeholders})"), chunk)?;
         let hub_sql = format!("DELETE FROM hub_scores WHERE file_path IN ({placeholders})");
         tx.execute(&hub_sql, rusqlite::params_from_iter(chunk))?;
         let bridge_sql = format!("DELETE FROM bridge_scores WHERE file_path IN ({placeholders})");
@@ -967,6 +983,13 @@ pub(crate) fn insert_compact_edge_rows(
     Ok(())
 }
 
+/// `"?,?,?"` for an `IN (...)` clause of `count` bound parameters.
+pub(crate) fn placeholder_list(count: usize) -> String {
+    std::iter::repeat_n("?", count)
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
 pub(crate) fn value_placeholders(width: usize, rows: usize) -> String {
     let row = format!(
         "({})",
@@ -998,6 +1021,10 @@ pub(crate) fn node_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<GraphNo
         extra: parse_json_column(extra).map_err(|err| {
             rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(err))
         })?,
+        // Projections that do not select `signature` (and pre-v?? schemas that
+        // lack the column) must not fail the whole row, so an unavailable
+        // column reads as `None` -- the same guard Python's `_row_to_node` has.
+        signature: row.get::<_, Option<String>>("signature").unwrap_or(None),
     })
 }
 

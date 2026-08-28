@@ -254,6 +254,10 @@ pub struct GraphNode {
     pub is_test: bool,
     pub file_hash: Option<String>,
     pub extra: Value,
+    /// Rendered signature persisted by post-processing. `None` when the column
+    /// is absent from the projection or has not been computed yet, matching
+    /// Python's `GraphStore._row_to_node`.
+    pub signature: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -475,8 +479,10 @@ mod analysis;
 mod analysis_question_rows;
 mod analysis_questions;
 mod analysis_stats;
+mod bridges;
 mod communities;
 mod core;
+mod edge_lookups;
 mod edge_queries;
 mod embeddings;
 mod flow_trace;
@@ -485,7 +491,10 @@ mod fts_sync;
 mod helpers;
 mod impact;
 mod impact_flows;
+mod impact_radius;
 mod impact_support;
+mod maintenance;
+mod node_queries;
 mod postprocess_bridges;
 mod query;
 mod relationship_edges;
@@ -495,13 +504,21 @@ mod schema;
 mod schema_migrations;
 mod search;
 mod search_markdown;
+mod search_query;
+mod subgraph;
 mod summaries;
 mod summary_communities;
 mod summary_flows;
 mod summary_risk;
+mod upserts;
 mod write;
 
 pub use embeddings::{embedding_search, embedding_search_prewarm};
+pub use impact_radius::ImpactRadius;
+pub use maintenance::ORPHAN_PRUNE_STEPS;
+pub use node_queries::NodeSignatureRow;
+pub use search_query::FtsQueryResult;
+pub use subgraph::LocalSubgraph;
 
 #[cfg(test)]
 use helpers::*;

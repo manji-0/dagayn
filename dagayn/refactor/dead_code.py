@@ -461,7 +461,7 @@ def _dead_code_record(
 
 
 def _has_callers_via_base_method(
-    conn: Any,
+    store: GraphStore,
     node: Any,
     class_bases: dict[str, list[str]],
 ) -> bool:
@@ -474,17 +474,12 @@ def _has_callers_via_base_method(
 
     class_qn = node.qualified_name[: -len(method_suffix)]
     for base_name in class_bases.get(class_qn, []):
-        rows = conn.execute(
-            "SELECT n.qualified_name FROM nodes n "
-            "WHERE n.parent_name = ? AND n.name = ? "
-            "AND n.kind IN ('Function', 'Test')",
-            (base_name, node.name),
-        ).fetchall()
-        for (base_method_qn,) in rows:
-            if conn.execute(
-                "SELECT 1 FROM edges WHERE target_qualified = ? AND kind = 'CALLS' LIMIT 1",
-                (base_method_qn,),
-            ).fetchone():
+        for base_node in store.get_nodes_by_parent_and_name(
+            base_name,
+            node.name,
+            ["Function", "Test"],
+        ):
+            if store.has_edge_to_target(base_node.qualified_name, "CALLS"):
                 return True
     return False
 
@@ -560,27 +555,17 @@ def _collect_dead_code_context(
 
     class_bases: dict[str, list[str]] = {}
     class_inherits_targets: dict[str, list[str]] = {}
-    conn = store._conn
-    for row in conn.execute(
-        "SELECT source_qualified, target_qualified FROM edges WHERE kind = 'INHERITS'"
-    ).fetchall():
-        base = row[1].rsplit("::", 1)[-1] if "::" in row[1] else row[1]
-        class_bases.setdefault(row[0], []).append(base)
-        class_inherits_targets.setdefault(row[0], []).append(row[1])
+    for edge in store.get_edges_by_kind("INHERITS"):
+        target = edge.target_qualified
+        base = target.rsplit("::", 1)[-1] if "::" in target else target
+        class_bases.setdefault(edge.source_qualified, []).append(base)
+        class_inherits_targets.setdefault(edge.source_qualified, []).append(target)
 
     importer_files: dict[str, set[str]] = {}
-    for row in conn.execute(
-        "SELECT file_path, target_qualified FROM edges WHERE kind = 'IMPORTS_FROM'"
-    ).fetchall():
-        importer_files.setdefault(row[0], set()).add(row[1])
+    for edge in store.get_edges_by_kind("IMPORTS_FROM"):
+        importer_files.setdefault(edge.file_path, set()).add(edge.target_qualified)
 
-    name_counts: dict[str, int] = {}
-    for row in conn.execute(
-        "SELECT name, COUNT(*) FROM nodes "
-        "WHERE kind IN ('Function', 'Class') AND is_test = 0 "
-        "GROUP BY name"
-    ).fetchall():
-        name_counts[row[0]] = row[1]
+    name_counts = store.count_nodes_by_name(["Function", "Class"], include_tests=False)
 
     # ---------------------------------------------------------------------------
     # Pass 1: SQL-free pre-filter using only node data + preloaded dicts.
@@ -595,7 +580,6 @@ def _collect_dead_code_context(
     # ---------------------------------------------------------------------------
     # Batch preloads for the main analysis pass
     # ---------------------------------------------------------------------------
-    batch_size = 450
 
     # Collect all QNs we need incoming edges for (primary + parent::name form)
     incoming_qns: list[str] = []
@@ -606,71 +590,33 @@ def _collect_dead_code_context(
         if node.parent_name:
             incoming_qns.append(f"{node.parent_name}::{node.name}")
 
-    # Incoming edges indexed by target_qualified
-    incoming_by_qn: dict[str, list[GraphEdge]] = {}
-    for i in range(0, len(incoming_qns), batch_size):
-        chunk = incoming_qns[i : i + batch_size]
-        placeholders = ",".join("?" for _ in chunk)
-        for row in conn.execute(  # nosec B608
-            f"SELECT * FROM edges WHERE target_qualified IN ({placeholders})",
-            chunk,
-        ).fetchall():
-            edge = store._row_to_edge(row)
-            incoming_by_qn.setdefault(row["target_qualified"], []).append(edge)
-
+    incoming_by_qn = store.get_edges_by_targets(incoming_qns)
     # TESTED_BY edges are directed from covered production symbol to test symbol.
-    tested_by_source_qn: dict[str, list[GraphEdge]] = {}
-    for i in range(0, len(incoming_qns), batch_size):
-        chunk = incoming_qns[i : i + batch_size]
-        placeholders = ",".join("?" for _ in chunk)
-        for row in conn.execute(  # nosec B608
-            f"SELECT * FROM edges WHERE source_qualified IN ({placeholders}) "
-            "AND kind = 'TESTED_BY'",
-            chunk,
-        ).fetchall():
-            edge = store._row_to_edge(row)
-            tested_by_source_qn.setdefault(row["source_qualified"], []).append(edge)
+    tested_by_source_qn = store.get_edges_by_sources(incoming_qns, ["TESTED_BY"])
 
-    # Bare-name edges for CALLS/TESTED_BY/INHERITS
-    bare_calls_by_name: dict[str, list[GraphEdge]] = {}
-    bare_tested_by_name: dict[str, list[GraphEdge]] = {}
-    bare_inherits_by_name: dict[str, list[GraphEdge]] = {}
+    # Bare-name edges: CALLS/INHERITS edges whose target is an unqualified name,
+    # and TESTED_BY edges whose source is one.
     survivor_names_list = list(survivor_names_set)
-    for i in range(0, len(survivor_names_list), batch_size):
-        chunk = survivor_names_list[i : i + batch_size]
-        placeholders = ",".join("?" for _ in chunk)
-        for row in conn.execute(  # nosec B608
-            f"SELECT * FROM edges WHERE target_qualified IN ({placeholders}) "
-            f"AND kind IN ('CALLS', 'INHERITS')",
-            chunk,
-        ).fetchall():
-            edge = store._row_to_edge(row)
-            kind, tgt = row["kind"], row["target_qualified"]
-            if kind == "CALLS":
-                bare_calls_by_name.setdefault(tgt, []).append(edge)
+    bare_calls_by_name: dict[str, list[GraphEdge]] = {}
+    bare_inherits_by_name: dict[str, list[GraphEdge]] = {}
+    for target_name, edges in store.get_edges_by_targets(
+        survivor_names_list,
+        ["CALLS", "INHERITS"],
+    ).items():
+        for edge in edges:
+            if edge.kind == "CALLS":
+                bare_calls_by_name.setdefault(target_name, []).append(edge)
             else:
-                bare_inherits_by_name.setdefault(tgt, []).append(edge)
-        for row in conn.execute(  # nosec B608
-            f"SELECT * FROM edges WHERE source_qualified IN ({placeholders}) "
-            "AND kind = 'TESTED_BY'",
-            chunk,
-        ).fetchall():
-            edge = store._row_to_edge(row)
-            bare_tested_by_name.setdefault(row["source_qualified"], []).append(edge)
+                bare_inherits_by_name.setdefault(target_name, []).append(edge)
+    bare_tested_by_name = store.get_edges_by_sources(survivor_names_list, ["TESTED_BY"])
 
     # Qualified CALLS edges indexed by normalized target_name. This replaces
     # suffix LIKE scans over target_qualified when matching by bare symbol name.
-    suffix_calls_by_name: dict[str, list[GraphEdge]] = {}
-    for i in range(0, len(survivor_names_list), batch_size):
-        chunk = survivor_names_list[i : i + batch_size]
-        placeholders = ",".join("?" for _ in chunk)
-        for row in conn.execute(  # nosec B608
-            f"SELECT * FROM edges WHERE target_name IN ({placeholders}) "
-            "AND kind = 'CALLS' AND target_qualified != target_name",
-            chunk,
-        ).fetchall():
-            edge = store._row_to_edge(row)
-            suffix_calls_by_name.setdefault(row["target_name"], []).append(edge)
+    suffix_calls_by_name = store.get_edges_by_target_names(
+        survivor_names_list,
+        kind="CALLS",
+        qualified_only=True,
+    )
 
     # Preload base-method nodes for the abstractmethod check (lines ~250-268).
     # Compute all candidate (base_class_qn.method_name) keys from class_inherits_targets.
@@ -687,11 +633,7 @@ def _collect_dead_code_context(
             base_nodes_map[qn] = n
 
     unresolved_entrypoint_by_name: dict[str, list[GraphEdge]] = {}
-    for row in conn.execute(
-        "SELECT * FROM edges "
-        "WHERE kind = 'CROSS_ARTIFACT' AND target_qualified LIKE '<unresolved:%'"
-    ).fetchall():
-        edge = store._row_to_edge(row)
+    for edge in store.get_edges_by_kind("CROSS_ARTIFACT", unresolved_target_only=True):
         if cross_artifact_role(edge) != "maps_entrypoint":
             continue
         sym = _cross_artifact_symbol_name(edge)
@@ -727,10 +669,9 @@ def _node_dead_code_evidence(
 
     Returns the ``_dead_code_record`` kwargs when the node has no reference
     at all, or ``None`` when the node is reachable. Pure decision logic: no
-    SQL is issued here except the Class member-call and base-method checks.
+    graph query is issued here except the Class member-call and base-method
+    checks.
     """
-    conn = store._conn
-
     # Abstractmethod-in-base check: uses class_inherits_targets + preloaded nodes
     if node.kind == "Function" and node.parent_name:
         parent_qn = node.qualified_name.rsplit(".", 1)[0]
@@ -837,7 +778,7 @@ def _node_dead_code_evidence(
         or has_subclasses
         or has_unresolved_entrypoint
     ):
-        if not has_callers and _has_callers_via_base_method(conn, node, lookups.class_bases):
+        if not has_callers and _has_callers_via_base_method(store, node, lookups.class_bases):
             has_callers = True
 
         if not (

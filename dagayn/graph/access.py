@@ -138,15 +138,155 @@ class GraphStoreAccessMixin(GraphStoreMixinProtocol):
                 out.append(self._row_to_edge(row))
         return out
 
-    def get_edges_by_kind(self, kind: str) -> list[GraphEdge]:
+    def get_edges_by_kind(
+        self,
+        kind: str,
+        unresolved_target_only: bool = False,
+    ) -> list[GraphEdge]:
         """Return all edges of one kind.
 
         Used by coverage heuristics that scan candidate import edges without
         re-parsing every edge kind (the kind-filtered query only returns the
         rows the caller needs).
+
+        With *unresolved_target_only*, restricts to edges whose target is an
+        ``<unresolved:...>`` placeholder — the shape entry-point bridges take
+        before a later pass resolves them.
         """
-        rows = self._conn.execute("SELECT * FROM edges WHERE kind = ?", (kind,)).fetchall()
+        if unresolved_target_only:
+            rows = self._conn.execute(
+                "SELECT * FROM edges WHERE kind = ? AND target_qualified LIKE '<unresolved:%'",
+                (kind,),
+            ).fetchall()
+        else:
+            rows = self._conn.execute("SELECT * FROM edges WHERE kind = ?", (kind,)).fetchall()
         return [self._row_to_edge(r) for r in rows]
+
+    def get_edges_by_sources(
+        self,
+        source_qns: list[str],
+        kinds: list[str] | None = None,
+    ) -> dict[str, list[GraphEdge]]:
+        """Batch-fetch edges grouped by ``source_qualified``.
+
+        Unlike :meth:`get_edges_by_endpoints` this does not normalize keys or
+        fetch the incoming side, so callers that already hold graph-native
+        qualified names and only want one direction pay for one query.
+        """
+        return self._edges_by_endpoint_column("source_qualified", source_qns, kinds)
+
+    def get_edges_by_targets(
+        self,
+        target_qns: list[str],
+        kinds: list[str] | None = None,
+    ) -> dict[str, list[GraphEdge]]:
+        """Batch-fetch edges grouped by ``target_qualified``."""
+        return self._edges_by_endpoint_column("target_qualified", target_qns, kinds)
+
+    def _edges_by_endpoint_column(
+        self,
+        column: str,
+        qns: list[str],
+        kinds: list[str] | None,
+    ) -> dict[str, list[GraphEdge]]:
+        result: dict[str, list[GraphEdge]] = {}
+        if not qns:
+            return result
+        unique = list(dict.fromkeys(qns))
+        kind_list = list(kinds or [])
+        batch_size = 450
+        for i in range(0, len(unique), batch_size):
+            batch = unique[i : i + batch_size]
+            placeholders = ",".join("?" for _ in batch)
+            kind_filter = ""
+            if kind_list:
+                kind_placeholders = ",".join("?" for _ in kind_list)
+                kind_filter = f" AND kind IN ({kind_placeholders})"
+            rows = self._conn.execute(  # nosec B608
+                f"SELECT * FROM edges WHERE {column} IN ({placeholders}){kind_filter}",
+                (*batch, *kind_list),
+            ).fetchall()
+            for row in rows:
+                result.setdefault(row[column], []).append(self._row_to_edge(row))
+        return result
+
+    def get_edges_by_target_names(
+        self,
+        names: list[str],
+        kind: str = "CALLS",
+        qualified_only: bool = False,
+    ) -> dict[str, list[GraphEdge]]:
+        """Batch-fetch edges grouped by the normalized ``target_name`` column.
+
+        With *qualified_only*, drops rows whose ``target_qualified`` is just the
+        bare name — those are the unqualified call edges a caller matching by
+        bare name already handles separately.
+        """
+        result: dict[str, list[GraphEdge]] = {}
+        if not names:
+            return result
+        batch_size = 450
+        qualified_filter = " AND target_qualified != target_name" if qualified_only else ""
+        for i in range(0, len(names), batch_size):
+            batch = names[i : i + batch_size]
+            placeholders = ",".join("?" for _ in batch)
+            rows = self._conn.execute(  # nosec B608
+                f"SELECT * FROM edges WHERE target_name IN ({placeholders}) "
+                f"AND kind = ?{qualified_filter}",
+                (*batch, kind),
+            ).fetchall()
+            for row in rows:
+                result.setdefault(row["target_name"], []).append(self._row_to_edge(row))
+        return result
+
+    def has_edge_to_target(self, target_qualified: str, kind: str = "CALLS") -> bool:
+        """True when any *kind* edge points at *target_qualified*."""
+        row = self._conn.execute(
+            "SELECT 1 FROM edges WHERE target_qualified = ? AND kind = ? LIMIT 1",
+            (target_qualified, kind),
+        ).fetchone()
+        return row is not None
+
+    def count_nodes_by_name(
+        self,
+        kinds: list[str],
+        include_tests: bool = False,
+    ) -> dict[str, int]:
+        """Return ``name -> definition count`` over the requested kinds.
+
+        Dead-code analysis uses this to tell an ambiguous bare name (many
+        same-named definitions) from a unique one.
+        """
+        if not kinds:
+            return {}
+        placeholders = ",".join("?" for _ in kinds)
+        test_filter = "" if include_tests else "AND is_test = 0 "
+        rows = self._conn.execute(  # nosec B608
+            f"SELECT name, COUNT(*) FROM nodes WHERE kind IN ({placeholders}) "
+            f"{test_filter}GROUP BY name",
+            tuple(kinds),
+        ).fetchall()
+        return {row[0]: row[1] for row in rows}
+
+    def get_nodes_by_parent_and_name(
+        self,
+        parent_name: str,
+        name: str,
+        kinds: list[str],
+    ) -> list[GraphNode]:
+        """Return nodes declared inside *parent_name* under *name*.
+
+        Used to resolve a method against its declared base class without
+        guessing at qualified-name shapes.
+        """
+        if not kinds:
+            return []
+        placeholders = ",".join("?" for _ in kinds)
+        rows = self._conn.execute(  # nosec B608
+            f"SELECT * FROM nodes WHERE parent_name = ? AND name = ? AND kind IN ({placeholders})",
+            (parent_name, name, *kinds),
+        ).fetchall()
+        return [self._row_to_node(row) for row in rows]
 
     def get_edges_by_target(self, qualified_name: str) -> list[GraphEdge]:
         normalized = self._normalize_qualified_key(qualified_name)

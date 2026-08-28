@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Optional, TypedDict, cast
 
 from .graph import GraphStore, _sanitize_name, store_write_transaction
-from .graph._fts_sync import fts_index_health, rebuild_fts_index_tx
+from .graph._fts_sync import rebuild_fts_index_tx
 
 if TYPE_CHECKING:
     from .embeddings import EmbeddingStore
@@ -630,9 +630,7 @@ def _attach_embedding_coverage(health: SearchPayload, store: Any) -> None:
     indistinguishable from "not semantically relevant".
     """
     try:
-        embeddable = int(
-            store._conn.execute("SELECT COUNT(*) FROM nodes WHERE kind != 'File'").fetchone()[0]
-        )
+        embeddable = int(store.count_non_file_nodes())
     except Exception:  # noqa: BLE001 — disclosure must not break search
         return
     if embeddable <= 0:
@@ -890,7 +888,7 @@ def hybrid_search(
 
     fetch_multiplier = 12 if kind else 3
     max_fetch_multiplier = 48 if kind else 9
-    fts_health = fts_index_health(store._conn)
+    fts_health = store.fts_index_health()
 
     # ------ Phase 1+2: Gather ranked lists (widen when kind filter needs depth) ------
     fts_results: list[tuple[int, float]] = []

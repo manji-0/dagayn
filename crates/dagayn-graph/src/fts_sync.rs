@@ -220,6 +220,94 @@ pub(crate) fn sync_fts_for_file_paths_tx(
     Ok(indexed)
 }
 
+/// Rebuild the FTS rows for specific node ids.
+///
+/// The per-node counterpart of [`sync_fts_for_file_paths_tx`], used by the
+/// single-row upsert path where the file's other nodes must stay untouched.
+pub(crate) fn upsert_fts_for_node_ids_tx(
+    tx: &Transaction<'_>,
+    node_ids: &[i64],
+    repo_root: Option<&Path>,
+) -> Result<i64> {
+    if node_ids.is_empty() {
+        return Ok(0);
+    }
+    if !table_exists(tx, "nodes_fts")? {
+        tx.execute_batch(
+            r#"
+            CREATE VIRTUAL TABLE nodes_fts USING fts5(
+                name, qualified_name, file_path, signature, identifier_tokens, doc_text,
+                tokenize='porter unicode61'
+            );
+            "#,
+        )?;
+    }
+    let mut indexed = 0_i64;
+    for chunk in node_ids.chunks(450) {
+        let placeholders = placeholder_list(chunk.len());
+        let sql = format!(
+            "SELECT rowid AS node_rowid, kind, name, qualified_name, file_path, line_start, \
+             line_end, signature, extra FROM nodes WHERE rowid IN ({placeholders})"
+        );
+        let mut stmt = tx.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
+            Ok((
+                row.get::<_, i64>("node_rowid")?,
+                row.get::<_, String>("kind")?,
+                row.get::<_, String>("name")?,
+                row.get::<_, String>("qualified_name")?,
+                row.get::<_, String>("file_path")?,
+                row.get::<_, Option<i64>>("line_start")?,
+                row.get::<_, Option<i64>>("line_end")?,
+                row.get::<_, Option<String>>("signature")?,
+                row.get::<_, Option<String>>("extra")?,
+            ))
+        })?;
+        for row in rows {
+            let (
+                rowid,
+                kind,
+                name,
+                qualified_name,
+                file_path,
+                line_start,
+                line_end,
+                signature,
+                extra_raw,
+            ) = row?;
+            let extra = parse_json_column(extra_raw)?;
+            let (name, qualified_name, file_path, signature, identifier_tokens, doc_text) =
+                build_node_fts_values(
+                    repo_root,
+                    &kind,
+                    &name,
+                    &qualified_name,
+                    &file_path,
+                    line_start,
+                    line_end,
+                    signature.as_deref(),
+                    &extra,
+                );
+            tx.execute(FTS_DELETE_SQL, params![rowid])?;
+            tx.execute(
+                FTS_INSERT_SQL,
+                params![
+                    rowid,
+                    name,
+                    qualified_name,
+                    file_path,
+                    signature,
+                    identifier_tokens,
+                    doc_text
+                ],
+            )?;
+            indexed += 1;
+        }
+    }
+    set_fts_watermark_tx(tx, None)?;
+    Ok(indexed)
+}
+
 pub(crate) fn structured_code_reference_text(
     kind: &str,
     name: &str,

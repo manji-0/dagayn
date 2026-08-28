@@ -213,25 +213,31 @@ Backend availability by phase:
 
 During Phase 4, Python implementations are moved to `legacy_py/` (not deleted) for regression comparison.
 
-### Tools that require the Python `GraphStore` API
+### `GraphStore` API parity
 
-The native store implements a subset of the Python `GraphStore` surface. A tool
-whose read path uses raw `_conn` SQL, or a query helper that has no native
-counterpart, must opt in explicitly with `_get_store(..., python_api=True)`;
-it then reads the same SQLite graph through the Python store regardless of
-`DAGAYN_BACKEND`. This is a compatibility boundary, not auto-fallback: the
-selection is made by the call site, not by catching an `AttributeError`.
+The native store implements the full public method surface of the Python
+`GraphStore`, so a tool can hold either one without probing for `_conn` or for a
+method's existence. `tests/test_rust_graph_store_parity.py` asserts both halves:
+that no public Python method is missing from the native store, and that the two
+return equal results for the same graph.
 
-Current opt-in call sites:
+Consequences for new code:
 
-| Tool | Python-only APIs used |
-|------|-----------------------|
-| `refactor_tool` (`dead_code`) | `_conn`, `_row_to_edge`, `count_edges_by_target_name_prefix`, `resolve_file_path` |
-| `refactor_tool` (`suggest`) | `get_communities_list`, `resolve_file_path` |
-| `refactor_tool` (`rename`) | `search_nodes`, `search_edges_by_target_name`, `search_import_edges_for_symbol` |
+- **Do not read `store._conn`** outside `dagayn/graph/`. Add a store method to
+  both backends instead — that is what `refactor/dead_code.py` does after #153.
+- Private helpers (`_row_to_node`, `_build_networkx_graph`, `_bulk_insert_*`,
+  …) are deliberately *not* mirrored: they are Python-store internals. The three
+  that call sites outside `dagayn/graph/` do rely on
+  (`_normalize_file_path_key`, `_normalize_qualified_key`, `_invalidate_cache`)
+  are bound on the native store as well.
+- Two behaviours differ by design, both documented at their definitions:
+  `get_impact_radius` has no NetworkX arm natively (`CRG_BFS_ENGINE=networkx`
+  applies to the Python store only, and both engines agree), and native
+  `fts_query` segments Japanese with the Rust bigram splitter — the same one the
+  Rust index path writes with — rather than an optional Python morphological
+  analyzer.
 
-Porting these to the native store lets the corresponding call site drop
-`python_api=True`. See: #153
+See: #153
 
 ## Recommended migration phases
 

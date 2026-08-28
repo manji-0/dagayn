@@ -385,6 +385,7 @@ mod tests {
             is_test: false,
             file_hash: None,
             extra: Value::Null,
+            signature: None,
         }
     }
 

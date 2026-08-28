@@ -3,9 +3,11 @@ use std::sync::Mutex;
 use dagayn_core::{
     detect_communities_json as native_detect_communities_json,
     incremental_detect_communities as native_incremental_detect_communities,
+    prune_orphaned_graph_structures_json as native_prune_orphaned_graph_structures_json,
     refresh_community_stats_json as native_refresh_community_stats_json,
     run_post_processing_json as native_run_post_processing_json, EdgeInput, FileBatchItem,
-    GraphEdge, GraphNode, GraphStats, GraphStore as NativeGraphStore, NodeInput,
+    GraphEdge, GraphNode, GraphStats, GraphStore as NativeGraphStore, ImpactRadius, NodeInput,
+    NodeSignatureRow,
 };
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -67,9 +69,15 @@ impl PyGraphStore {
         })
     }
 
+    /// A `pathlib.Path`, matching `dagayn.graph.GraphStore.db_path`.
+    ///
+    /// Returning the raw string here made callers that use it as a path (the
+    /// embedding store's mtime check, for one) fail with `'str' object has no
+    /// attribute 'stat'`.
     #[getter]
-    fn db_path(&self) -> &str {
-        &self.db_path
+    fn db_path(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let pathlib = PyModule::import(py, "pathlib")?;
+        Ok(pathlib.getattr("Path")?.call1((&self.db_path,))?.unbind())
     }
 
     #[getter(_pinned)]
@@ -680,6 +688,351 @@ impl PyGraphStore {
         self.with_store(|store| store.get_communities_json(sort_by, min_size))
     }
 
+    // -----------------------------------------------------------------------
+    // Python `GraphStore` parity surface
+    //
+    // These mirror the Python mixins one-for-one so tools can hold either store
+    // without probing for `_conn` or a method's existence. See: #153
+    // -----------------------------------------------------------------------
+
+    fn get_node_by_id(&self, py: Python<'_>, node_id: i64) -> PyResult<Option<Py<PyAny>>> {
+        let node = self.with_store(|store| store.get_node_by_id(node_id))?;
+        node.map(|node| graph_node_to_py(py, node)).transpose()
+    }
+
+    #[pyo3(signature = (min_lines = 50, max_lines = None, kind = None, file_path_pattern = None, limit = 50))]
+    fn get_nodes_by_size(
+        &self,
+        py: Python<'_>,
+        min_lines: i64,
+        max_lines: Option<i64>,
+        kind: Option<&str>,
+        file_path_pattern: Option<&str>,
+        limit: i64,
+    ) -> PyResult<Vec<Py<PyAny>>> {
+        let nodes = self.with_store(|store| {
+            store.get_nodes_by_size(min_lines, max_lines, kind, file_path_pattern, limit)
+        })?;
+        graph_nodes_to_py_vec(py, nodes)
+    }
+
+    fn get_node_ids_by_files(
+        &self,
+        file_paths: Vec<String>,
+    ) -> PyResult<std::collections::HashSet<i64>> {
+        self.with_store(|store| store.get_node_ids_by_files(&file_paths))
+    }
+
+    #[pyo3(signature = (kinds, include_tests = false))]
+    fn count_nodes_by_name(
+        &self,
+        kinds: Vec<String>,
+        include_tests: bool,
+    ) -> PyResult<std::collections::HashMap<String, i64>> {
+        self.with_store(|store| store.count_nodes_by_name(&kinds, include_tests))
+    }
+
+    fn get_nodes_by_parent_and_name(
+        &self,
+        py: Python<'_>,
+        parent_name: &str,
+        name: &str,
+        kinds: Vec<String>,
+    ) -> PyResult<Vec<Py<PyAny>>> {
+        let nodes =
+            self.with_store(|store| store.get_nodes_by_parent_and_name(parent_name, name, &kinds))?;
+        graph_nodes_to_py_vec(py, nodes)
+    }
+
+    fn get_nodes_without_signature(&self) -> PyResult<Vec<NodeSignatureRow>> {
+        self.with_store(|store| store.get_nodes_without_signature())
+    }
+
+    fn update_node_signature(&self, node_id: i64, signature: &str) -> PyResult<()> {
+        self.with_store(|store| store.update_node_signature(node_id, signature))
+    }
+
+    #[pyo3(signature = (kind, unresolved_target_only = false))]
+    fn get_edges_by_kind(
+        &self,
+        py: Python<'_>,
+        kind: &str,
+        unresolved_target_only: bool,
+    ) -> PyResult<Vec<Py<PyAny>>> {
+        let edges =
+            self.with_store(|store| store.get_edges_by_kind(kind, unresolved_target_only))?;
+        graph_edges_to_py_vec(py, edges)
+    }
+
+    #[pyo3(signature = (source_qns, kinds = None))]
+    fn get_edges_by_sources(
+        &self,
+        py: Python<'_>,
+        source_qns: Vec<String>,
+        kinds: Option<Vec<String>>,
+    ) -> PyResult<Py<PyAny>> {
+        let kinds = kinds.unwrap_or_default();
+        let edges = self.with_store(|store| store.get_edges_by_sources(&source_qns, &kinds))?;
+        edge_map_to_py(py, edges)
+    }
+
+    #[pyo3(signature = (target_qns, kinds = None))]
+    fn get_edges_by_targets(
+        &self,
+        py: Python<'_>,
+        target_qns: Vec<String>,
+        kinds: Option<Vec<String>>,
+    ) -> PyResult<Py<PyAny>> {
+        let kinds = kinds.unwrap_or_default();
+        let edges = self.with_store(|store| store.get_edges_by_targets(&target_qns, &kinds))?;
+        edge_map_to_py(py, edges)
+    }
+
+    #[pyo3(signature = (names, kind = "CALLS", qualified_only = false))]
+    fn get_edges_by_target_names(
+        &self,
+        py: Python<'_>,
+        names: Vec<String>,
+        kind: &str,
+        qualified_only: bool,
+    ) -> PyResult<Py<PyAny>> {
+        let edges =
+            self.with_store(|store| store.get_edges_by_target_names(&names, kind, qualified_only))?;
+        edge_map_to_py(py, edges)
+    }
+
+    #[pyo3(signature = (prefix, kind = "CALLS"))]
+    fn count_edges_by_target_name_prefix(&self, prefix: &str, kind: &str) -> PyResult<i64> {
+        self.with_store(|store| store.count_edges_by_target_name_prefix(prefix, kind))
+    }
+
+    #[pyo3(signature = (target_qualified, kind = "CALLS"))]
+    fn has_edge_to_target(&self, target_qualified: &str, kind: &str) -> PyResult<bool> {
+        self.with_store(|store| store.has_edge_to_target(target_qualified, kind))
+    }
+
+    #[pyo3(signature = (name, kind = "CALLS"))]
+    fn search_edges_by_target_name(
+        &self,
+        py: Python<'_>,
+        name: &str,
+        kind: &str,
+    ) -> PyResult<Vec<Py<PyAny>>> {
+        let edges = self.with_store(|store| store.search_edges_by_target_name(name, kind))?;
+        graph_edges_to_py_vec(py, edges)
+    }
+
+    /// `_symbol_name` is accepted for call-site symmetry with the Python store,
+    /// which also ignores it: `IMPORTS_FROM` targets are module file paths.
+    #[pyo3(signature = (defining_file, _symbol_name = None))]
+    fn search_import_edges_for_symbol(
+        &self,
+        py: Python<'_>,
+        defining_file: &str,
+        _symbol_name: Option<&str>,
+    ) -> PyResult<Vec<Py<PyAny>>> {
+        let edges = self.with_store(|store| store.search_import_edges_for_symbol(defining_file))?;
+        graph_edges_to_py_vec(py, edges)
+    }
+
+    fn get_outgoing_targets(&self, source_qns: Vec<String>) -> PyResult<Vec<String>> {
+        self.with_store(|store| store.get_outgoing_targets(&source_qns))
+    }
+
+    fn get_incoming_sources(&self, target_qns: Vec<String>) -> PyResult<Vec<String>> {
+        self.with_store(|store| store.get_incoming_sources(&target_qns))
+    }
+
+    fn get_edges_among(
+        &self,
+        py: Python<'_>,
+        qualified_names: std::collections::HashSet<String>,
+    ) -> PyResult<Vec<Py<PyAny>>> {
+        let edges = self.with_store(|store| store.get_edges_among(&qualified_names))?;
+        graph_edges_to_py_vec(py, edges)
+    }
+
+    fn get_subgraph(&self, py: Python<'_>, qualified_names: Vec<String>) -> PyResult<Py<PyAny>> {
+        let (nodes, edges) = self.with_store(|store| store.get_subgraph(&qualified_names))?;
+        let out = PyDict::new(py);
+        out.set_item("nodes", graph_nodes_to_py_vec(py, nodes)?)?;
+        out.set_item("edges", graph_edges_to_py_vec(py, edges)?)?;
+        Ok(out.unbind().into_any())
+    }
+
+    fn get_local_subgraph(
+        &self,
+        py: Python<'_>,
+        start_qn: &str,
+        max_depth: i64,
+    ) -> PyResult<Py<PyAny>> {
+        let (nodes, adjacency) =
+            self.with_store(|store| store.get_local_subgraph(start_qn, max_depth))?;
+        let nodes_map = node_map_by_string_to_py(py, nodes)?;
+        let adjacency_map = PyDict::new(py);
+        for (qualified_name, neighbors) in adjacency {
+            adjacency_map.set_item(qualified_name, neighbors)?;
+        }
+        Ok(
+            PyTuple::new(py, [nodes_map.bind(py).clone(), adjacency_map.into_any()])?
+                .unbind()
+                .into_any(),
+        )
+    }
+
+    fn get_communities_list(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
+        let communities = self.with_store(|store| store.get_communities_list())?;
+        // Python returns `sqlite3.Row`s that callers index as `row["id"]` /
+        // `row["name"]`, so dicts are the faithful stand-in.
+        communities
+            .into_iter()
+            .map(|(id, name)| {
+                let row = PyDict::new(py);
+                row.set_item("id", id)?;
+                row.set_item("name", name)?;
+                Ok(row.unbind().into_any())
+            })
+            .collect()
+    }
+
+    fn get_community_member_qns(&self, community_id: i64) -> PyResult<Vec<String>> {
+        self.with_store(|store| store.get_community_member_qns(community_id))
+    }
+
+    fn get_flow_ids_by_node_ids(
+        &self,
+        node_ids: std::collections::HashSet<i64>,
+    ) -> PyResult<Vec<i64>> {
+        self.with_store(|store| store.get_flow_ids_by_node_ids(&node_ids))
+    }
+
+    fn get_flow_qualified_names(
+        &self,
+        flow_id: i64,
+    ) -> PyResult<std::collections::HashSet<String>> {
+        self.with_store(|store| store.get_flow_qualified_names(flow_id))
+    }
+
+    fn resolve_file_path(&self, py: Python<'_>, file_path: &str) -> PyResult<Py<PyAny>> {
+        let resolved = self.with_store(|store| store.resolve_file_path(file_path))?;
+        let pathlib = PyModule::import(py, "pathlib")?;
+        Ok(pathlib
+            .getattr("Path")?
+            .call1((resolved.to_string_lossy().as_ref(),))?
+            .unbind())
+    }
+
+    #[pyo3(signature = (query, limit = 50))]
+    fn fts_query(&self, py: Python<'_>, query: &str, limit: i64) -> PyResult<Py<PyAny>> {
+        let (hits, match_mode) = self.with_store(|store| store.fts_query(query, limit))?;
+        let types = PyModule::import(py, "dagayn.graph.types")?;
+        Ok(types
+            .getattr("FtsQueryResult")?
+            .call1((hits, match_mode))?
+            .unbind())
+    }
+
+    fn fts_index_health(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let (status, nodes_count, fts_count, watermark) =
+            self.with_store(|store| store.fts_index_health())?;
+        let out = PyDict::new(py);
+        out.set_item("status", status)?;
+        out.set_item("nodes_count", nodes_count)?;
+        out.set_item("fts_count", fts_count)?;
+        out.set_item("watermark_count", watermark)?;
+        Ok(out.unbind().into_any())
+    }
+
+    fn count_non_file_nodes(&self) -> PyResult<i64> {
+        self.with_store(|store| store.count_non_file_nodes())
+    }
+
+    #[pyo3(signature = (query, limit = 50))]
+    fn keyword_query(&self, query: &str, limit: i64) -> PyResult<Vec<(i64, f64)>> {
+        self.with_store(|store| store.keyword_query(query, limit))
+    }
+
+    #[pyo3(signature = (query, limit = 20))]
+    fn search_nodes(&self, py: Python<'_>, query: &str, limit: i64) -> PyResult<Vec<Py<PyAny>>> {
+        let nodes = self.with_store(|store| store.search_nodes(query, limit))?;
+        graph_nodes_to_py_vec(py, nodes)
+    }
+
+    #[pyo3(signature = (changed_files, max_depth = 2, max_nodes = 500))]
+    fn get_impact_radius(
+        &self,
+        py: Python<'_>,
+        changed_files: Vec<String>,
+        max_depth: i64,
+        max_nodes: i64,
+    ) -> PyResult<Py<PyAny>> {
+        let radius =
+            self.with_store(|store| store.get_impact_radius(&changed_files, max_depth, max_nodes))?;
+        impact_radius_to_py(py, radius)
+    }
+
+    /// The SQL engine is the only implementation here; Python keeps a NetworkX
+    /// variant behind `CRG_BFS_ENGINE=networkx` for the same result.
+    #[pyo3(signature = (changed_files, max_depth = 2, max_nodes = 500))]
+    fn get_impact_radius_sql(
+        &self,
+        py: Python<'_>,
+        changed_files: Vec<String>,
+        max_depth: i64,
+        max_nodes: i64,
+    ) -> PyResult<Py<PyAny>> {
+        self.get_impact_radius(py, changed_files, max_depth, max_nodes)
+    }
+
+    fn remove_node_keyed_rows_for_files(&self, file_keys: Vec<String>) -> PyResult<()> {
+        self.with_store(|store| store.remove_node_keyed_rows_for_files(&file_keys))
+    }
+
+    fn prune_orphaned_graph_structures(&self) -> PyResult<std::collections::HashMap<String, i64>> {
+        let raw = self.with_store_mut(native_prune_orphaned_graph_structures_json)?;
+        serde_json::from_str(&raw).map_err(|err| PyValueError::new_err(err.to_string()))
+    }
+
+    #[pyo3(signature = (node, file_hash = "", mtime_ns = 0))]
+    fn upsert_node(
+        &self,
+        py: Python<'_>,
+        node: &Bound<'_, PyAny>,
+        file_hash: &str,
+        mtime_ns: i64,
+    ) -> PyResult<i64> {
+        let node = collect_nodes(py, PyList::new(py, [node])?.as_any())?
+            .pop()
+            .ok_or_else(|| PyValueError::new_err("node is required"))?;
+        self.with_store_mut(|store| store.upsert_node(&node, file_hash, mtime_ns))
+    }
+
+    /// Named with the Python store's underscore because callers outside the
+    /// graph package (`dagayn.flows`) use it as part of the store contract.
+    #[pyo3(name = "_normalize_file_path_key")]
+    fn normalize_file_path_key(&self, file_path: &str) -> PyResult<String> {
+        self.with_store(|store| store.normalize_file_path_key(file_path))
+    }
+
+    /// See [`Self::normalize_file_path_key`]; used by `dagayn.incremental_build`.
+    #[pyo3(name = "_normalize_qualified_key")]
+    fn normalize_qualified_key(&self, qualified_name: &str) -> PyResult<String> {
+        self.with_store(|store| store.normalize_qualified_key(qualified_name))
+    }
+
+    /// No-op: the native store keeps no derived in-memory graph to invalidate.
+    ///
+    /// Present so write paths can call it unconditionally instead of probing.
+    #[pyo3(name = "_invalidate_cache")]
+    fn invalidate_cache(&self) {}
+
+    fn upsert_edge(&self, py: Python<'_>, edge: &Bound<'_, PyAny>) -> PyResult<i64> {
+        let edge = collect_edges(py, PyList::new(py, [edge])?.as_any())?
+            .pop()
+            .ok_or_else(|| PyValueError::new_err("edge is required"))?;
+        self.with_store_mut(|store| store.upsert_edge(&edge))
+    }
+
     /// Release one lease, closing the connection once nothing holds it.
     ///
     /// Idle stores close even when `_pinned` is set: a leftover reader
@@ -1210,6 +1563,40 @@ fn flow_adjacency_to_py(
         .unbind())
 }
 
+/// The `ImpactRadiusResult` TypedDict the Python store returns.
+fn impact_radius_to_py(py: Python<'_>, radius: ImpactRadius) -> PyResult<Py<PyAny>> {
+    let out = PyDict::new(py);
+    out.set_item(
+        "changed_nodes",
+        graph_nodes_to_py_vec(py, radius.changed_nodes)?,
+    )?;
+    out.set_item(
+        "impacted_nodes",
+        graph_nodes_to_py_vec(py, radius.impacted_nodes)?,
+    )?;
+    out.set_item("impacted_files", radius.impacted_files)?;
+    out.set_item("edges", graph_edges_to_py_vec(py, radius.edges)?)?;
+    out.set_item(
+        "bridge_transitions",
+        radius
+            .bridge_transitions
+            .iter()
+            .map(|value| json_value_to_py(py, value))
+            .collect::<PyResult<Vec<_>>>()?,
+    )?;
+    out.set_item(
+        "low_confidence_bridges",
+        radius
+            .low_confidence_bridges
+            .iter()
+            .map(|value| json_value_to_py(py, value))
+            .collect::<PyResult<Vec<_>>>()?,
+    )?;
+    out.set_item("truncated", radius.truncated)?;
+    out.set_item("total_impacted", radius.total_impacted)?;
+    Ok(out.unbind().into_any())
+}
+
 fn graph_node_to_py(py: Python<'_>, node: GraphNode) -> PyResult<Py<PyAny>> {
     let types = PyModule::import(py, "dagayn.graph.types")?;
     let cls = types.getattr("GraphNode")?;
@@ -1239,6 +1626,7 @@ fn graph_node_to_py_with_cls(
             PyBool::new(py, node.is_test).to_owned().into_any(),
             node.file_hash.into_pyobject(py)?.into_any(),
             extra.bind(py).clone().into_any(),
+            node.signature.into_pyobject(py)?.into_any(),
         ],
     )?;
     Ok(cls.call1(args)?.unbind())

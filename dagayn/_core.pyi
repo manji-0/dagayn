@@ -1,11 +1,21 @@
 from __future__ import annotations
 
 from os import PathLike
+from pathlib import Path
 from typing import Any
 
 class GraphStore:
+    """Native graph store.
+
+    Implements the same method surface as :class:`dagayn.graph.GraphStore`, so
+    tools can hold either without probing for `_conn`. `__getattr__` keeps the
+    stub open rather than restating ~90 signatures; the parity contract itself
+    is asserted by ``tests/test_rust_graph_store_parity.py``.
+    """
+
     _pinned: bool
     _leases: int
+    db_path: Path
 
     def __init__(self, db_path: str | PathLike[str]) -> None: ...
     def __getattr__(self, name: str) -> Any: ...

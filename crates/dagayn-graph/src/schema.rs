@@ -75,7 +75,9 @@ impl GraphStore {
         }
     }
 
-    pub(crate) fn normalize_qualified_key(&self, qualified_name: &str) -> Result<String> {
+    /// Repo-relative form of a qualified name, so absolute-path keys match
+    /// the stored rows.
+    pub fn normalize_qualified_key(&self, qualified_name: &str) -> Result<String> {
         if let Some((file_path, rest)) = qualified_name.split_once("::") {
             Ok(format!(
                 "{}::{rest}",
@@ -86,7 +88,9 @@ impl GraphStore {
         }
     }
 
-    pub(crate) fn normalize_file_path_key(&self, file_path: &str) -> Result<String> {
+    /// Repo-relative form of a file path, so absolute-path keys match the
+    /// stored rows.
+    pub fn normalize_file_path_key(&self, file_path: &str) -> Result<String> {
         let path = Path::new(file_path);
         if !path.is_absolute() {
             return Ok(file_path.to_string());

@@ -154,7 +154,7 @@ def test_refactor_dead_code_truncates(monkeypatch) -> None:
 
     monkeypatch.setattr(
         "dagayn.tools.refactor_tools._get_store",
-        lambda repo_root, **kwargs: (_Closable(), None),
+        lambda repo_root: (_Closable(), None),
     )
     monkeypatch.setattr("dagayn.refactor.find_dead_code", lambda store, **kwargs: dead)
 
@@ -179,7 +179,7 @@ def test_refactor_suggest_truncates(monkeypatch) -> None:
 
     monkeypatch.setattr(
         "dagayn.tools.refactor_tools._get_store",
-        lambda repo_root, **kwargs: (_Closable(), None),
+        lambda repo_root: (_Closable(), None),
     )
     monkeypatch.setattr(
         "dagayn.refactor.suggest_refactorings",
