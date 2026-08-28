@@ -6,7 +6,9 @@ from pathlib import Path
 from typing import Any, Callable, cast
 
 from ..bare_name_resolution import (
+    NamespaceVisibility,
     build_import_targets,
+    build_namespace_visibility,
     is_plausible_bare_edge,
     looks_like_file_target,
     node_file_from_qualified,
@@ -215,8 +217,10 @@ def filter_bare_name_fallback_edges(
     if callable(native):
         native_map = cast(Callable[[], dict[str, list[str]]], native)()
         import_targets = {file_path: set(targets) for file_path, targets in native_map.items()}
+        namespaces = _native_namespace_visibility(store)
     elif hasattr(store, "_conn"):
         import_targets = build_import_targets(store._conn)
+        namespaces = build_namespace_visibility(store._conn)
     else:
         return edges
 
@@ -228,8 +232,23 @@ def filter_bare_name_fallback_edges(
             node_file_from_qualified(edge.source_qualified, edge.file_path),
             target_file,
             import_targets,
+            namespaces,
         )
     ]
+
+
+def _native_namespace_visibility(store: Any) -> NamespaceVisibility | None:
+    """Read the namespace index from the Rust backend, if it exposes one."""
+    reader = getattr(store, "namespaces_by_file", None)
+    if not callable(reader):
+        return None
+    declared, imported = cast(
+        Callable[[], tuple[dict[str, list[str]], dict[str, list[str]]]], reader
+    )()
+    return NamespaceVisibility(
+        declared={file_path: set(values) for file_path, values in declared.items()},
+        imported={file_path: set(values) for file_path, values in imported.items()},
+    )
 
 
 def _bare_name_is_unique(store: Any, name: str) -> bool:

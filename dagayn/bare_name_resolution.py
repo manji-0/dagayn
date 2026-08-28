@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 from .graph._sql import _edge_target_name
@@ -58,6 +59,83 @@ def node_file_from_qualified(qualified: str, fallback_file: str = "") -> str:
     return fallback_file
 
 
+def normalize_namespace(value: str) -> str:
+    """Canonicalize a namespace path so `A\\B`, `A::B` and `A.B` compare equal."""
+    normalized = value.replace("\\", ".").replace("::", ".")
+    return ".".join(part for part in normalized.split(".") if part)
+
+
+@dataclass(frozen=True)
+class NamespaceVisibility:
+    """Namespace-based visibility between files.
+
+    Held as two per-file maps rather than an expanded file-to-file product: a
+    single namespace with N files would otherwise cost N^2 entries.
+    """
+
+    declared: dict[str, set[str]]
+    """File -> namespaces it declares."""
+    imported: dict[str, set[str]]
+    """File -> namespaces its imports name."""
+
+    def can_see(self, source_file: str, target_file: str) -> bool:
+        """True when *source_file* reaches *target_file* without a file import.
+
+        Either the two share a namespace -- C# and Java need no import
+        statement then -- or the source imports one the target declares.
+        """
+        declared = self.declared.get(target_file)
+        if not declared:
+            return False
+        if declared & self.declared.get(source_file, frozenset()):
+            return True
+        return bool(declared & self.imported.get(source_file, frozenset()))
+
+
+def build_namespace_visibility(conn: Any) -> NamespaceVisibility:
+    """Read declared namespaces from File nodes and imported ones from edges.
+
+    Parsers record the namespaces a file declares (C# ``namespace``,
+    Java/Kotlin/Scala ``package``, PHP ``namespace``) on the File node.
+    """
+    declared: dict[str, set[str]] = {}
+    for row in conn.execute(
+        "SELECT file_path, extra FROM nodes WHERE kind = 'File' AND extra LIKE '%namespaces%'"
+    ).fetchall():
+        try:
+            extra = json.loads(row["extra"] or "{}")
+        except (json.JSONDecodeError, TypeError):
+            continue
+        namespaces = extra.get("namespaces")
+        if not isinstance(namespaces, list):
+            continue
+        for namespace in namespaces:
+            if not isinstance(namespace, str):
+                continue
+            key = normalize_namespace(namespace)
+            if key:
+                declared.setdefault(row["file_path"], set()).add(key)
+
+    imported: dict[str, set[str]] = {}
+    if declared:
+        for row in conn.execute(
+            "SELECT DISTINCT file_path, target_qualified FROM edges WHERE kind = 'IMPORTS_FROM'"
+        ).fetchall():
+            target = row["target_qualified"]
+            if not is_namespace_candidate(target):
+                continue
+            key = normalize_namespace(target)
+            if not key:
+                continue
+            entry = imported.setdefault(row["file_path"], set())
+            entry.add(key)
+            # `using A.B.Type` / `use A\B\Type` names a symbol inside `A.B`.
+            parent = key.rpartition(".")[0]
+            if parent:
+                entry.add(parent)
+    return NamespaceVisibility(declared=declared, imported=imported)
+
+
 def build_import_targets(conn: Any) -> dict[str, set[str]]:
     """Map source file paths to imported file paths (from IMPORTS_FROM edges)."""
     import_targets: dict[str, set[str]] = {}
@@ -70,17 +148,32 @@ def build_import_targets(conn: Any) -> dict[str, set[str]]:
     return import_targets
 
 
+def is_namespace_candidate(target: str) -> bool:
+    """True when *target* could name a namespace rather than a file.
+
+    ``looks_like_file_target`` is too strict here: it treats a backslash as a
+    directory separator, but PHP writes namespaces as ``App\\Util``.
+    """
+    if "/" in target:
+        return False
+    suffix = target.rpartition(".")[2].lower()
+    return f".{suffix}" not in _FILE_TARGET_SUFFIXES
+
+
 def is_plausible_bare_edge(
     source_file: str,
     target_file: str,
     import_targets: dict[str, set[str]],
+    namespaces: NamespaceVisibility | None = None,
 ) -> bool:
     """Return True when *source_file* may refer to a symbol in *target_file*."""
     if not source_file or not target_file:
         return False
     if source_file == target_file:
         return True
-    return target_file in import_targets.get(source_file, set())
+    if target_file in import_targets.get(source_file, set()):
+        return True
+    return namespaces is not None and namespaces.can_see(source_file, target_file)
 
 
 def _bare_name_candidates(
@@ -101,6 +194,7 @@ def _resolve_via_imports(
     candidates: list[str],
     source_file: str,
     import_targets: dict[str, set[str]],
+    namespaces: NamespaceVisibility | None = None,
 ) -> str | None:
     imported = [
         qn
@@ -109,6 +203,7 @@ def _resolve_via_imports(
             source_file,
             node_file_from_qualified(qn),
             import_targets,
+            namespaces,
         )
     ]
     if len(imported) == 1:
@@ -127,6 +222,7 @@ def resolve_bare_call_targets(store: Any) -> int:
         return 0
 
     import_targets = build_import_targets(conn)
+    namespaces = build_namespace_visibility(conn)
     resolved = 0
     for edge in bare_edges:
         bare_name = edge["target_qualified"]
@@ -135,7 +231,7 @@ def resolve_bare_call_targets(store: Any) -> int:
             continue
 
         src_file = node_file_from_qualified(edge["source_qualified"], edge["file_path"])
-        qualified = _resolve_via_imports(candidates, src_file, import_targets)
+        qualified = _resolve_via_imports(candidates, src_file, import_targets, namespaces)
         if qualified is None:
             continue
 
@@ -170,13 +266,14 @@ def resolve_bare_inheritance_targets(store: Any) -> int:
         return 0
 
     import_targets = build_import_targets(conn)
+    namespaces = build_namespace_visibility(conn)
     resolved = 0
     demoted = 0
     for edge in bare_edges:
         bare_name = edge["target_qualified"]
         candidates = _bare_name_candidates(conn, bare_name, kinds=("Class",))
         src_file = node_file_from_qualified(edge["source_qualified"], edge["file_path"])
-        qualified = _resolve_via_imports(candidates, src_file, import_targets)
+        qualified = _resolve_via_imports(candidates, src_file, import_targets, namespaces)
 
         if qualified is not None:
             conn.execute(

@@ -1,7 +1,10 @@
 use serde_json::json;
 
 use super::types::{ParsedEdge, ParsedNode};
-use super::util::{is_test_file, line_count, node_text, strip_matching_quotes};
+use super::util::{
+    collect_namespace_paths, is_test_file, line_count, node_text, set_declared_namespaces,
+    strip_matching_quotes,
+};
 use super::{qualify, resolve_rust_call_targets};
 
 pub(super) fn parse_kotlin_with_parser(
@@ -36,6 +39,16 @@ pub(super) fn parse_kotlin_with_parser(
                 None,
                 &mut nodes,
                 &mut edges,
+            );
+            set_declared_namespaces(
+                &mut nodes,
+                collect_namespace_paths(
+                    tree.root_node(),
+                    source,
+                    &["package_header"],
+                    None,
+                    &["identifier"],
+                ),
             );
             let edges = resolve_rust_call_targets(&nodes, edges, file_path);
             return (nodes, edges);
@@ -121,16 +134,29 @@ fn kotlin_emit_import(
     file_path: &str,
     edges: &mut Vec<ParsedEdge>,
 ) {
+    let Some(target) = kotlin_import_target(node, source) else {
+        return;
+    };
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::ImportsFrom
             .as_str()
             .to_string(),
         source: file_path.to_string(),
-        target: node_text(node, source).trim().to_string(),
+        target,
         file_path: file_path.to_string(),
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
+}
+
+/// The imported path, without the `import` keyword or an `as` alias.
+///
+/// The whole statement used to be the target, so `import java.util.UUID`
+/// could never match a package index entry.
+fn kotlin_import_target(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let target = kotlin_direct_child_text(node, source, &["identifier"])?;
+    let target = target.trim();
+    (!target.is_empty()).then(|| target.to_string())
 }
 
 fn kotlin_emit_type(

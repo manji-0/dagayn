@@ -61,16 +61,18 @@ fn swift_walk_children(
     for child in node.children(&mut cursor) {
         match child.kind() {
             "import_declaration" if enclosing_class.is_none() && enclosing_func.is_none() => {
-                edges.push(ParsedEdge {
-                    kind: crate::core::types::EdgeKind::ImportsFrom
-                        .as_str()
-                        .to_string(),
-                    source: context.file_path.to_string(),
-                    target: node_text(child, context.source).trim().to_string(),
-                    file_path: context.file_path.to_string(),
-                    line: child.start_position().row as i64 + 1,
-                    extra: json!({}),
-                });
+                if let Some(target) = swift_import_target(child, context.source) {
+                    edges.push(ParsedEdge {
+                        kind: crate::core::types::EdgeKind::ImportsFrom
+                            .as_str()
+                            .to_string(),
+                        source: context.file_path.to_string(),
+                        target,
+                        file_path: context.file_path.to_string(),
+                        line: child.start_position().row as i64 + 1,
+                        extra: json!({}),
+                    });
+                }
                 continue;
             }
             "class_declaration" | "protocol_declaration" => {
@@ -246,6 +248,16 @@ fn swift_type_kind(node: tree_sitter::Node<'_>, source: &[u8]) -> String {
         }
     }
     "class".to_string()
+}
+
+/// The imported module path, without the `import` keyword or a kind specifier.
+///
+/// The whole statement used to be the target, so `import Foundation` could not
+/// be compared against any module or file name.
+fn swift_import_target(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let path = swift_direct_child(node, &["identifier"])?;
+    let target: String = node_text(path, source).split_whitespace().collect();
+    (!target.is_empty()).then_some(target)
 }
 
 fn swift_type_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {

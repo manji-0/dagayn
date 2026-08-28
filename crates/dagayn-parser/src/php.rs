@@ -1,7 +1,10 @@
 use serde_json::json;
 
 use super::types::{ParsedEdge, ParsedNode};
-use super::util::{is_test_file, line_count, node_text, strip_matching_quotes};
+use super::util::{
+    collect_namespace_paths, is_test_file, line_count, node_text, set_declared_namespaces,
+    strip_matching_quotes,
+};
 use super::{qualify, resolve_rust_call_targets};
 
 pub(super) fn parse_php_with_parser(
@@ -36,6 +39,16 @@ pub(super) fn parse_php_with_parser(
                 None,
                 &mut nodes,
                 &mut edges,
+            );
+            set_declared_namespaces(
+                &mut nodes,
+                collect_namespace_paths(
+                    tree.root_node(),
+                    source,
+                    &["namespace_definition"],
+                    Some("name"),
+                    &["namespace_name"],
+                ),
             );
             let edges = resolve_rust_call_targets(&nodes, edges, file_path);
             return (nodes, edges);
@@ -123,16 +136,68 @@ fn php_emit_import(
     file_path: &str,
     edges: &mut Vec<ParsedEdge>,
 ) {
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::ImportsFrom
-            .as_str()
-            .to_string(),
-        source: file_path.to_string(),
-        target: node_text(node, source).trim().to_string(),
-        file_path: file_path.to_string(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
+    for target in php_import_targets(node, source) {
+        edges.push(ParsedEdge {
+            kind: crate::core::types::EdgeKind::ImportsFrom
+                .as_str()
+                .to_string(),
+            source: file_path.to_string(),
+            target,
+            file_path: file_path.to_string(),
+            line: node.start_position().row as i64 + 1,
+            extra: json!({}),
+        });
+    }
+}
+
+/// The imported symbol paths of a `use` declaration.
+///
+/// The whole statement used to be the target (`use Exception;`), which no
+/// namespace or file index could ever match. Group form
+/// (`use App\Util\{One, Two};`) expands to one target per clause, and an
+/// `as` alias is dropped.
+fn php_import_targets(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {
+    let prefix = php_direct_child_text(node, source, &["namespace_name"]);
+    let mut targets = Vec::new();
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        match child.kind() {
+            "namespace_use_clause" => {
+                if let Some(target) = php_use_clause_target(child, source, prefix.as_deref()) {
+                    targets.push(target);
+                }
+            }
+            "namespace_use_group" => {
+                let mut group = child.walk();
+                for clause in child.children(&mut group) {
+                    if clause.kind() != "namespace_use_clause" {
+                        continue;
+                    }
+                    if let Some(target) = php_use_clause_target(clause, source, prefix.as_deref()) {
+                        targets.push(target);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    targets
+}
+
+fn php_use_clause_target(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    prefix: Option<&str>,
+) -> Option<String> {
+    let path = php_direct_child_text(node, source, &["qualified_name", "name"])?;
+    let path = path.trim().trim_start_matches('\\');
+    if path.is_empty() {
+        return None;
+    }
+    Some(match prefix {
+        Some(prefix) => format!("{}\\{path}", prefix.trim().trim_start_matches('\\')),
+        None => path.to_string(),
+    })
 }
 
 fn php_emit_type(

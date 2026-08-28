@@ -5,8 +5,12 @@ from unittest.mock import patch
 import pytest
 
 from dagayn.bare_name_resolution import (
+    NamespaceVisibility,
+    build_namespace_visibility,
+    is_namespace_candidate,
     is_plausible_bare_edge,
     looks_like_file_target,
+    normalize_namespace,
     resolve_bare_call_targets,
     resolve_bare_inheritance_targets,
 )
@@ -44,6 +48,37 @@ class TestBareNameResolutionHelpers:
         assert is_plausible_bare_edge("a.py", "b.py", imports)
         assert not is_plausible_bare_edge("a.py", "c.py", imports)
 
+    def test_normalize_namespace_unifies_separators(self):
+        assert normalize_namespace("App\\Util") == "App.Util"
+        assert normalize_namespace("mycorp::infra") == "mycorp.infra"
+        assert normalize_namespace(".Repro.Infra.") == "Repro.Infra"
+        assert normalize_namespace("") == ""
+
+    def test_is_namespace_candidate_keeps_php_backslash_paths(self):
+        assert is_namespace_candidate("App\\Util\\Helper")
+        assert is_namespace_candidate("System.Collections.Generic")
+        assert not is_namespace_candidate("src/util/helper.cs")
+        assert not is_namespace_candidate("Logger.h")
+
+    def test_namespace_visibility_links_same_namespace_and_imports(self):
+        visibility = NamespaceVisibility(
+            declared={
+                "Factory.cs": {"Repro.Infra"},
+                "Broker.cs": {"Repro.Infra"},
+                "Other.cs": {"Repro.Other"},
+                "Consumer.cs": {"Repro.App"},
+            },
+            imported={"Consumer.cs": {"Repro.Other"}},
+        )
+        # Same namespace needs no import statement.
+        assert visibility.can_see("Broker.cs", "Factory.cs")
+        # A different namespace is only visible when imported.
+        assert not visibility.can_see("Broker.cs", "Other.cs")
+        assert visibility.can_see("Consumer.cs", "Other.cs")
+        assert not visibility.can_see("Consumer.cs", "Factory.cs")
+        # An unknown file declares nothing, so nothing reaches it.
+        assert not visibility.can_see("Broker.cs", "Unknown.cs")
+
 
 class TestResolveBareCallTargets:
     def test_requires_import_context_even_for_unique_name(self, tmp_path):
@@ -60,6 +95,47 @@ class TestResolveBareCallTargets:
             "SELECT target_qualified FROM edges WHERE kind='CALLS'"
         ).fetchone()
         assert row["target_qualified"] == "helper"
+
+    def test_resolves_same_namespace_without_any_import(self, tmp_path):
+        """Issue #154: C# files in one namespace need no `using` between them,
+        so only the namespace index can tell them apart from a same-named
+        symbol elsewhere."""
+        store = GraphStore(tmp_path / "namespace.db")
+        store.upsert_node(_node("File", "Factory.cs", "Factory.cs", namespaces=["Repro.Infra"]))
+        store.upsert_node(_node("Function", "CreateCriteria", "Factory.cs"))
+        store.upsert_node(_node("File", "Broker.cs", "Broker.cs", namespaces=["Repro.Infra"]))
+        store.upsert_node(_node("Function", "Resolve", "Broker.cs"))
+        # Same method name in a different namespace must not win.
+        store.upsert_node(_node("File", "Decoy.cs", "Decoy.cs", namespaces=["Repro.Other"]))
+        store.upsert_node(_node("Function", "CreateCriteria", "Decoy.cs"))
+        store.upsert_edge(_edge("CALLS", "Broker.cs::Resolve", "CreateCriteria", "Broker.cs"))
+        store.commit()
+
+        visibility = build_namespace_visibility(store._conn)
+        assert visibility.declared["Broker.cs"] == {"Repro.Infra"}
+
+        assert resolve_bare_call_targets(store) == 1
+        row = store._conn.execute(
+            "SELECT target_qualified FROM edges WHERE kind='CALLS'"
+        ).fetchone()
+        assert row["target_qualified"] == "Factory.cs::CreateCriteria"
+
+    def test_resolves_imported_namespace(self, tmp_path):
+        store = GraphStore(tmp_path / "namespace_import.db")
+        store.upsert_node(_node("File", "Broker.php", "Broker.php", namespaces=["App\\Util"]))
+        store.upsert_node(_node("Function", "phpBuild", "Broker.php"))
+        store.upsert_node(_node("File", "Factory.php", "Factory.php", namespaces=["App\\Infra"]))
+        store.upsert_node(_node("Function", "make", "Factory.php"))
+        # `use App\Util\Broker` names a symbol inside the namespace.
+        store.upsert_edge(_edge("IMPORTS_FROM", "Factory.php", "App\\Util\\Broker", "Factory.php"))
+        store.upsert_edge(_edge("CALLS", "Factory.php::make", "phpBuild", "Factory.php"))
+        store.commit()
+
+        assert resolve_bare_call_targets(store) == 1
+        row = store._conn.execute(
+            "SELECT target_qualified FROM edges WHERE kind='CALLS'"
+        ).fetchone()
+        assert row["target_qualified"] == "Broker.php::phpBuild"
 
     def test_resolves_when_import_context_is_unique(self, tmp_path):
         store = GraphStore(tmp_path / "calls_import.db")

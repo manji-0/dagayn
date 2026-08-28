@@ -2,7 +2,7 @@ use std::path::Path;
 
 use sha2::{Digest, Sha256};
 
-use super::types::ParsedEdge;
+use super::types::{ParsedEdge, ParsedNode};
 
 pub(super) fn ends_with_ascii_ignore_case(value: &str, suffix: &str) -> bool {
     let bytes = value.as_bytes();
@@ -143,6 +143,76 @@ pub(super) fn is_test_file(file_path: &str) -> bool {
         || ends_with_ascii_ignore_case(file_path, "_test.py")
         || ends_with_ascii_ignore_case(file_path, ".test.py")
         || ends_with_ascii_ignore_case(file_path, ".spec.py")
+}
+
+/// Records the namespaces (or packages) a file declares on its `File` node.
+///
+/// Bare-name call resolution needs a namespace index. Languages whose imports
+/// name a namespace rather than a file (C# `using`, PHP `use`, Kotlin/Scala
+/// `import`) never produce file-to-file IMPORTS_FROM edges, and files in the
+/// same namespace need no import statement at all — so without this the
+/// resolver has no evidence that two files can see each other.
+pub(super) fn set_declared_namespaces(nodes: &mut [ParsedNode], namespaces: Vec<String>) {
+    let mut unique = Vec::<String>::new();
+    for namespace in namespaces {
+        let namespace: String = namespace.split_whitespace().collect();
+        if namespace.is_empty() || unique.contains(&namespace) {
+            continue;
+        }
+        unique.push(namespace);
+    }
+    if unique.is_empty() {
+        return;
+    }
+    if let Some(file) = nodes.first_mut() {
+        if let Some(map) = file.extra.as_object_mut() {
+            map.insert("namespaces".to_string(), serde_json::json!(unique));
+        }
+    }
+}
+
+/// Collects dotted namespace paths from every `kinds` declaration in the tree.
+///
+/// The path comes from `name_field` when the grammar exposes one, else from the
+/// first child matching `name_kinds`.
+pub(super) fn collect_namespace_paths(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    kinds: &[&str],
+    name_field: Option<&str>,
+    name_kinds: &[&str],
+) -> Vec<String> {
+    let mut found = Vec::new();
+    collect_namespace_paths_into(node, source, kinds, name_field, name_kinds, &mut found);
+    found
+}
+
+fn collect_namespace_paths_into(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    kinds: &[&str],
+    name_field: Option<&str>,
+    name_kinds: &[&str],
+    found: &mut Vec<String>,
+) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if kinds.contains(&child.kind()) {
+            let name = name_field
+                .and_then(|field| child.child_by_field_name(field))
+                .or_else(|| {
+                    let mut inner = child.walk();
+                    let candidate = child
+                        .children(&mut inner)
+                        .find(|candidate| name_kinds.contains(&candidate.kind()));
+                    candidate
+                });
+            if let Some(name) = name {
+                found.push(node_text(name, source).trim().to_string());
+            }
+        }
+        collect_namespace_paths_into(child, source, kinds, name_field, name_kinds, found);
+    }
 }
 
 pub(super) fn strip_matching_quotes(value: &str) -> &str {

@@ -75,9 +75,140 @@ fn terraform_module_matches_file(module: &str, file_path: &str) -> bool {
     path.split('/').rev().skip(1).any(|part| part == module)
 }
 
-fn import_targets_tx(tx: &Transaction<'_>) -> Result<HashMap<String, HashSet<String>>> {
+/// Import targets that are not file paths, keyed by the file that can be
+/// reached through them. Mirrors `dagayn.bare_name_resolution`.
+const NAMESPACE_FILE_SUFFIXES: &[&str] = &[
+    ".c", ".cpp", ".cs", ".dart", ".go", ".h", ".hpp", ".java", ".jl", ".js", ".json", ".jsx",
+    ".kt", ".md", ".php", ".py", ".rb", ".rs", ".scala", ".swift", ".tf", ".ts", ".tsx",
+];
+
+fn normalize_namespace(value: &str) -> String {
+    value
+        .replace('\\', ".")
+        .replace("::", ".")
+        .split('.')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(".")
+}
+
+fn is_namespace_candidate(target: &str) -> bool {
+    if target.contains('/') {
+        return false;
+    }
+    let suffix = target
+        .rsplit_once('.')
+        .map(|(_, suffix)| format!(".{}", suffix.to_ascii_lowercase()));
+    match suffix {
+        Some(suffix) => !NAMESPACE_FILE_SUFFIXES.contains(&suffix.as_str()),
+        None => true,
+    }
+}
+
+/// Namespace-based visibility between files, held as two small maps rather
+/// than an expanded file-to-file product: a single namespace with N files
+/// would otherwise cost N^2 entries.
+#[derive(Default)]
+pub(crate) struct NamespaceVisibility {
+    /// File -> namespaces it declares.
+    declared: HashMap<String, HashSet<String>>,
+    /// File -> namespaces its imports name.
+    imported: HashMap<String, HashSet<String>>,
+}
+
+impl NamespaceVisibility {
+    fn is_empty(&self) -> bool {
+        self.declared.is_empty()
+    }
+
+    /// True when *source_file* can reach *target_file* without a file-level
+    /// import: either they share a namespace, or the source imports one the
+    /// target declares.
+    fn can_see(&self, source_file: &str, target_file: &str) -> bool {
+        let Some(declared) = self.declared.get(target_file) else {
+            return false;
+        };
+        let shares = |other: Option<&HashSet<String>>| {
+            other.is_some_and(|other| declared.iter().any(|namespace| other.contains(namespace)))
+        };
+        shares(self.declared.get(source_file)) || shares(self.imported.get(source_file))
+    }
+
+    pub(crate) fn as_string_lists(
+        &self,
+    ) -> (HashMap<String, Vec<String>>, HashMap<String, Vec<String>>) {
+        let flatten = |map: &HashMap<String, HashSet<String>>| {
+            map.iter()
+                .map(|(file, namespaces)| (file.clone(), namespaces.iter().cloned().collect()))
+                .collect()
+        };
+        (flatten(&self.declared), flatten(&self.imported))
+    }
+}
+
+/// Reads declared namespaces from `File` nodes and imported ones from
+/// IMPORTS_FROM targets that name a namespace rather than a file.
+pub(crate) fn namespace_visibility(conn: &rusqlite::Connection) -> Result<NamespaceVisibility> {
+    let mut visibility = NamespaceVisibility::default();
+    {
+        let mut stmt = conn.prepare(
+            "SELECT file_path, extra FROM nodes WHERE kind = 'File' AND extra LIKE '%namespaces%'",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+        })?;
+        for row in rows {
+            let (file_path, extra_raw) = row?;
+            let extra = parse_json_column(extra_raw)?;
+            let Some(declared) = extra.get("namespaces").and_then(Value::as_array) else {
+                continue;
+            };
+            for namespace in declared.iter().filter_map(Value::as_str) {
+                let key = normalize_namespace(namespace);
+                if key.is_empty() {
+                    continue;
+                }
+                visibility
+                    .declared
+                    .entry(file_path.clone())
+                    .or_default()
+                    .insert(key);
+            }
+        }
+    }
+    if visibility.is_empty() {
+        return Ok(visibility);
+    }
+    {
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT file_path, target_qualified FROM edges WHERE kind = 'IMPORTS_FROM'",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        for row in rows {
+            let (file_path, target) = row?;
+            if !is_namespace_candidate(&target) {
+                continue;
+            }
+            let key = normalize_namespace(&target);
+            if key.is_empty() {
+                continue;
+            }
+            let entry = visibility.imported.entry(file_path).or_default();
+            // `using A.B.Type` names a symbol inside namespace `A.B`.
+            if let Some((parent, _)) = key.rsplit_once('.') {
+                entry.insert(parent.to_string());
+            }
+            entry.insert(key);
+        }
+    }
+    Ok(visibility)
+}
+
+fn import_targets_conn(conn: &rusqlite::Connection) -> Result<HashMap<String, HashSet<String>>> {
     let mut import_targets: HashMap<String, HashSet<String>> = HashMap::new();
-    let mut stmt = tx.prepare(
+    let mut stmt = conn.prepare(
         "SELECT DISTINCT file_path, target_qualified FROM edges WHERE kind = 'IMPORTS_FROM'",
     )?;
     let rows = stmt.query_map([], |row| {
@@ -94,10 +225,15 @@ fn import_targets_tx(tx: &Transaction<'_>) -> Result<HashMap<String, HashSet<Str
     Ok(import_targets)
 }
 
+fn import_targets_tx(tx: &Transaction<'_>) -> Result<HashMap<String, HashSet<String>>> {
+    import_targets_conn(tx)
+}
+
 fn is_plausible_bare_edge(
     source_file: &str,
     target_file: &str,
     import_targets: &HashMap<String, HashSet<String>>,
+    namespaces: &NamespaceVisibility,
 ) -> bool {
     if source_file.is_empty() || target_file.is_empty() {
         return false;
@@ -106,6 +242,7 @@ fn is_plausible_bare_edge(
         || import_targets
             .get(source_file)
             .is_some_and(|targets| targets.contains(target_file))
+        || namespaces.can_see(source_file, target_file)
 }
 
 fn load_bare_name_index(
@@ -135,6 +272,7 @@ fn resolve_via_imports(
     candidates: &[String],
     source_file: &str,
     import_targets: &HashMap<String, HashSet<String>>,
+    namespaces: &NamespaceVisibility,
 ) -> Option<String> {
     let imported: Vec<&String> = candidates
         .iter()
@@ -143,6 +281,7 @@ fn resolve_via_imports(
                 source_file,
                 &node_file_from_qualified(qn, ""),
                 import_targets,
+                namespaces,
             )
         })
         .collect();
@@ -258,27 +397,24 @@ impl GraphStore {
     }
 
     pub fn import_targets_by_file(&self) -> Result<HashMap<String, Vec<String>>> {
-        let mut import_targets: HashMap<String, Vec<String>> = HashMap::new();
-        let mut stmt = self.conn.prepare(
-            "SELECT DISTINCT file_path, target_qualified FROM edges WHERE kind = 'IMPORTS_FROM'",
-        )?;
-        let rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?;
-        for row in rows {
-            let (file_path, target) = row?;
-            let target_file = node_file_from_qualified(&target, &target);
-            import_targets
-                .entry(file_path)
-                .or_default()
-                .push(target_file);
-        }
-        Ok(import_targets)
+        Ok(import_targets_conn(&self.conn)?
+            .into_iter()
+            .map(|(file_path, targets)| (file_path, targets.into_iter().collect()))
+            .collect())
+    }
+
+    /// `(declared, imported)` namespaces per file, for query-time resolution.
+    #[allow(clippy::type_complexity)]
+    pub fn namespaces_by_file(
+        &self,
+    ) -> Result<(HashMap<String, Vec<String>>, HashMap<String, Vec<String>>)> {
+        Ok(namespace_visibility(&self.conn)?.as_string_lists())
     }
 
     pub fn resolve_bare_call_targets(&mut self) -> Result<i64> {
         let tx = write_tx(&mut self.conn)?;
         let import_targets = import_targets_tx(&tx)?;
+        let namespaces = namespace_visibility(&tx)?;
         let index = load_bare_name_index(&tx, &["Function", "Test", "Class"])?;
         let edges = {
             let mut stmt = tx.prepare(
@@ -305,7 +441,8 @@ impl GraphStore {
                 continue;
             }
             let src_file = node_file_from_qualified(&source_qualified, &file_path);
-            let Some(qualified) = resolve_via_imports(&candidates, &src_file, &import_targets)
+            let Some(qualified) =
+                resolve_via_imports(&candidates, &src_file, &import_targets, &namespaces)
             else {
                 continue;
             };
@@ -329,6 +466,7 @@ impl GraphStore {
     pub fn resolve_bare_inheritance_targets(&mut self) -> Result<i64> {
         let tx = write_tx(&mut self.conn)?;
         let import_targets = import_targets_tx(&tx)?;
+        let namespaces = namespace_visibility(&tx)?;
         let index = load_bare_name_index(&tx, &["Class"])?;
         let edges = {
             let mut stmt = tx.prepare(
@@ -354,7 +492,9 @@ impl GraphStore {
             }
             let candidates = index.get(&target_qualified).cloned().unwrap_or_default();
             let src_file = node_file_from_qualified(&source_qualified, &file_path);
-            if let Some(qualified) = resolve_via_imports(&candidates, &src_file, &import_targets) {
+            if let Some(qualified) =
+                resolve_via_imports(&candidates, &src_file, &import_targets, &namespaces)
+            {
                 tx.execute(
                     "UPDATE edges SET target_qualified = ?, target_name = ?, \
                      confidence = ?, confidence_tier = ? WHERE id = ?",
@@ -716,6 +856,133 @@ mod tests {
             )
             .unwrap();
         assert_eq!(target, "app/hello.py::main");
+        let _ = std::fs::remove_file(path);
+    }
+
+    fn namespaced_file_node(file_path: &str, namespace: &str) -> NodeInput {
+        let mut node = file_node(file_path);
+        node.extra = json!({"namespaces": [namespace]});
+        node
+    }
+
+    /// Issue #154: C# files in one namespace need no `using` between them.
+    #[test]
+    fn resolves_bare_call_via_shared_namespace() {
+        let path = temp_db("bare-call-namespace");
+        let mut store = GraphStore::open(&path).expect("open");
+        store
+            .store_file_nodes_edges(
+                "Factory.cs",
+                &[
+                    namespaced_file_node("Factory.cs", "Repro.Infra"),
+                    function_node("CreateCriteria", "Factory.cs"),
+                ],
+                &[],
+                "",
+                0,
+            )
+            .expect("store factory");
+        // Same method name in another namespace must not win the resolution.
+        store
+            .store_file_nodes_edges(
+                "Decoy.cs",
+                &[
+                    namespaced_file_node("Decoy.cs", "Repro.Other"),
+                    function_node("CreateCriteria", "Decoy.cs"),
+                ],
+                &[],
+                "",
+                0,
+            )
+            .expect("store decoy");
+        store
+            .store_file_nodes_edges(
+                "Broker.cs",
+                &[
+                    namespaced_file_node("Broker.cs", "Repro.Infra"),
+                    function_node("Resolve", "Broker.cs"),
+                ],
+                &[EdgeInput {
+                    kind: "CALLS".to_string(),
+                    source: "Broker.cs::Resolve".to_string(),
+                    target: "CreateCriteria".to_string(),
+                    file_path: "Broker.cs".to_string(),
+                    line: 2,
+                    extra: json!({}),
+                }],
+                "",
+                0,
+            )
+            .expect("store broker");
+        assert_eq!(store.resolve_bare_call_targets().unwrap(), 1);
+        let target: String = store
+            .conn
+            .query_row(
+                "SELECT target_qualified FROM edges WHERE kind='CALLS'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(target, "Factory.cs::CreateCriteria");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn resolves_bare_call_via_imported_namespace() {
+        let path = temp_db("bare-call-imported-namespace");
+        let mut store = GraphStore::open(&path).expect("open");
+        store
+            .store_file_nodes_edges(
+                "Broker.php",
+                &[
+                    namespaced_file_node("Broker.php", "App\\Util"),
+                    function_node("phpBuild", "Broker.php"),
+                ],
+                &[],
+                "",
+                0,
+            )
+            .expect("store broker");
+        store
+            .store_file_nodes_edges(
+                "Factory.php",
+                &[
+                    namespaced_file_node("Factory.php", "App\\Infra"),
+                    function_node("make", "Factory.php"),
+                ],
+                &[
+                    EdgeInput {
+                        kind: "IMPORTS_FROM".to_string(),
+                        source: "Factory.php".to_string(),
+                        // `use App\Util\Broker` names a symbol in the namespace.
+                        target: "App\\Util\\Broker".to_string(),
+                        file_path: "Factory.php".to_string(),
+                        line: 1,
+                        extra: json!({}),
+                    },
+                    EdgeInput {
+                        kind: "CALLS".to_string(),
+                        source: "Factory.php::make".to_string(),
+                        target: "phpBuild".to_string(),
+                        file_path: "Factory.php".to_string(),
+                        line: 2,
+                        extra: json!({}),
+                    },
+                ],
+                "",
+                0,
+            )
+            .expect("store factory");
+        assert_eq!(store.resolve_bare_call_targets().unwrap(), 1);
+        let target: String = store
+            .conn
+            .query_row(
+                "SELECT target_qualified FROM edges WHERE kind='CALLS'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(target, "Broker.php::phpBuild");
         let _ = std::fs::remove_file(path);
     }
 

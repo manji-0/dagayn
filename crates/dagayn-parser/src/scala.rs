@@ -1,7 +1,10 @@
 use serde_json::json;
 
 use super::types::{ParsedEdge, ParsedNode};
-use super::util::{is_test_file, line_count, node_text, strip_matching_quotes};
+use super::util::{
+    collect_namespace_paths, is_test_file, line_count, node_text, set_declared_namespaces,
+    strip_matching_quotes,
+};
 use super::{qualify, resolve_rust_call_targets};
 
 pub(super) fn parse_scala_with_parser(
@@ -36,6 +39,16 @@ pub(super) fn parse_scala_with_parser(
                 None,
                 &mut nodes,
                 &mut edges,
+            );
+            set_declared_namespaces(
+                &mut nodes,
+                collect_namespace_paths(
+                    tree.root_node(),
+                    source,
+                    &["package_clause"],
+                    Some("name"),
+                    &["package_identifier"],
+                ),
             );
             let edges = resolve_rust_call_targets(&nodes, edges, file_path);
             return (nodes, edges);

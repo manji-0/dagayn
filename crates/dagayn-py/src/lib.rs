@@ -539,6 +539,16 @@ impl PyGraphStore {
         self.with_store(|store| store.import_targets_by_file())
     }
 
+    #[allow(clippy::type_complexity)]
+    fn namespaces_by_file(
+        &self,
+    ) -> PyResult<(
+        std::collections::HashMap<String, Vec<String>>,
+        std::collections::HashMap<String, Vec<String>>,
+    )> {
+        self.with_store(|store| store.namespaces_by_file())
+    }
+
     fn replace_manifest_bridges_json(
         &self,
         extractor_id: &str,

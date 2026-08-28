@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use serde_json::json;
 
 use super::types::{ParsedEdge, ParsedNode};
-use super::util::{is_test_file, line_count, node_text, node_text_bytes, strip_matching_quotes};
+use super::util::{is_test_file, line_count, node_text, strip_matching_quotes};
 use super::{add_tested_by_edges, is_test_function, qualify};
 
 pub(super) fn parse_c_with_parser(
@@ -318,14 +318,11 @@ fn c_call_callee<'a>(node: tree_sitter::Node<'a>) -> Option<tree_sitter::Node<'a
     found
 }
 
+/// The included header path.
+///
+/// Objective-C `#import` used to keep the whole directive as the target, so
+/// `#import "Logger.h"` never matched the header it names.
 fn c_include_target(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    let text = node_text_bytes(node, source);
-    if text.starts_with(b"#import") {
-        return Some(match std::str::from_utf8(text) {
-            Ok(text) => text.trim().to_string(),
-            Err(_) => String::from_utf8_lossy(text).trim().to_string(),
-        });
-    }
     let target = c_direct_child(node, &["system_lib_string", "string_literal"])?;
     Some(
         strip_matching_quotes(
