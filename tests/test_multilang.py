@@ -373,9 +373,10 @@ class TestPHPParsing:
         assert "execute" in target_names
         assert "search" in target_names
 
-        # Scoped/static calls
-        assert "QueryUtils::fetchRecords" in targets
-        assert "EncounterService::create" in targets
+        # Scoped/static calls bind to the method node, not to a
+        # `Class::method` string that no qualified name can ever match.
+        assert any(t.endswith("::QueryUtils.fetchRecords") for t in targets)
+        assert any(t.endswith("::EncounterService.create") for t in targets)
         assert any(t.endswith("__construct") for t in run_queries_targets)
         assert any(t.endswith("factory") for t in run_queries_targets)
 

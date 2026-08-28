@@ -136,9 +136,12 @@ fn c_walk_children(
                 }
             }
             "function_definition" => {
-                if let Some(name) = c_function_name(child, context.source) {
-                    c_emit_function(child, context, &name, enclosing_class, nodes, edges);
-                    c_walk_children(child, context, enclosing_class, Some(&name), nodes, edges);
+                if let Some((name, scope)) = c_function_name(child, context.source) {
+                    // An out-of-line `Widget::draw` belongs to Widget, so it
+                    // qualifies the same way an in-class definition would.
+                    let owner = scope.as_deref().or(enclosing_class);
+                    c_emit_function(child, context, &name, owner, nodes, edges);
+                    c_walk_children(child, context, owner, Some(&name), nodes, edges);
                     continue;
                 }
             }
@@ -338,9 +341,75 @@ fn c_type_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
     c_direct_child_text(node, source, &["type_identifier"])
 }
 
-fn c_function_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    let declarator = c_first_descendant(node, &["function_declarator"])?;
-    c_direct_child_text(declarator, source, &["identifier"])
+/// Resolves a `function_definition` name plus the class it was declared under.
+///
+/// Only free functions name themselves with a plain `identifier`. An in-class
+/// member uses `field_identifier`, and an out-of-line definition
+/// (`void Widget::draw() {}`) uses `qualified_identifier`, whose scope names
+/// the owning class. Matching on `identifier` alone dropped every C++ method.
+fn c_function_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<(String, Option<String>)> {
+    let declarator = node
+        .child_by_field_name("declarator")
+        .or_else(|| c_first_descendant(node, &["function_declarator"]))?;
+    c_declarator_name(declarator, source)
+}
+
+fn c_declarator_name(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> Option<(String, Option<String>)> {
+    match node.kind() {
+        "identifier" | "field_identifier" | "type_identifier" | "destructor_name"
+        | "operator_name" => {
+            let name = node_text(node, source).trim().to_string();
+            (!name.is_empty()).then_some((name, None))
+        }
+        "qualified_identifier" => {
+            // `A::B::method` should belong to `B`, so an inner scope wins.
+            let scope = node
+                .child_by_field_name("scope")
+                .map(|scope| node_text(scope, source).trim().to_string());
+            let (name, inner_scope) = c_declarator_name(node.child_by_field_name("name")?, source)?;
+            Some((name, inner_scope.or(scope)))
+        }
+        "template_function" | "template_method" => {
+            c_declarator_name(node.child_by_field_name("name")?, source)
+        }
+        "function_declarator"
+        | "pointer_declarator"
+        | "reference_declarator"
+        | "parenthesized_declarator"
+        | "array_declarator" => {
+            let inner = node
+                .child_by_field_name("declarator")
+                .or_else(|| c_declarator_child(node))?;
+            c_declarator_name(inner, source)
+        }
+        _ => None,
+    }
+}
+
+/// `reference_declarator` carries no `declarator` field, so fall back to the
+/// first child that can hold a name.
+fn c_declarator_child<'a>(node: tree_sitter::Node<'a>) -> Option<tree_sitter::Node<'a>> {
+    c_direct_child(
+        node,
+        &[
+            "identifier",
+            "field_identifier",
+            "type_identifier",
+            "destructor_name",
+            "operator_name",
+            "qualified_identifier",
+            "template_function",
+            "template_method",
+            "function_declarator",
+            "pointer_declarator",
+            "reference_declarator",
+            "parenthesized_declarator",
+            "array_declarator",
+        ],
+    )
 }
 
 fn c_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
@@ -350,6 +419,10 @@ fn c_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
     let callee = c_call_callee(node)?;
     match callee.kind() {
         "identifier" => Some(node_text(callee, source)),
+        // `Factory::create()` must resolve to `create`, not to the scope.
+        "qualified_identifier" | "template_function" => {
+            c_declarator_name(callee, source).map(|(name, _)| name)
+        }
         "field_expression" => c_last_descendant_text(callee, source, &["field_identifier"]),
         "message_expression" => c_message_selector(callee, source),
         _ => None,

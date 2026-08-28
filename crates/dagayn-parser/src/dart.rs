@@ -33,6 +33,7 @@ pub(super) fn parse_dart_with_parser(
                 source,
                 file_path,
                 None,
+                None,
                 &mut nodes,
                 &mut edges,
             );
@@ -49,11 +50,23 @@ fn dart_walk_children(
     source: &[u8],
     file_path: &str,
     enclosing_class: Option<&str>,
+    enclosing_func: Option<&str>,
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
-    dart_emit_calls_from_children(node, source, file_path, edges);
+    dart_emit_calls_from_children(
+        node,
+        source,
+        file_path,
+        enclosing_class,
+        enclosing_func,
+        edges,
+    );
 
+    // A Dart body is a *sibling* of its signature rather than a child, so the
+    // signature's name has to carry across to the following `function_body`.
+    // Without it every call in the body was attributed to the file.
+    let mut pending_func: Option<(String, usize)> = None;
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         match child.kind() {
@@ -71,14 +84,14 @@ fn dart_walk_children(
                         nodes,
                         edges,
                     );
-                    dart_walk_children(child, source, file_path, Some(&name), nodes, edges);
+                    dart_walk_children(child, source, file_path, Some(&name), None, nodes, edges);
                     continue;
                 }
             }
-            "function_signature" => {
-                if let Some(name) = dart_direct_child_text(child, source, &["identifier"]) {
+            "function_signature" | "method_signature" => {
+                if let Some((signature, name)) = dart_signature_name(child, source) {
                     dart_emit_function(
-                        child,
+                        signature,
                         source,
                         file_path,
                         &name,
@@ -86,13 +99,61 @@ fn dart_walk_children(
                         nodes,
                         edges,
                     );
+                    pending_func = Some((name, nodes.len() - 1));
                     continue;
                 }
             }
+            "function_body" => {
+                let current = pending_func.take();
+                if let Some((_, index)) = current.as_ref() {
+                    // The node spanned the signature line only until now.
+                    nodes[*index].line_end = child.end_position().row as i64 + 1;
+                }
+                let func = current.as_ref().map(|(name, _)| name.as_str());
+                dart_walk_children(
+                    child,
+                    source,
+                    file_path,
+                    enclosing_class,
+                    func.or(enclosing_func),
+                    nodes,
+                    edges,
+                );
+                continue;
+            }
             _ => {}
         }
-        dart_walk_children(child, source, file_path, enclosing_class, nodes, edges);
+        pending_func = None;
+        dart_walk_children(
+            child,
+            source,
+            file_path,
+            enclosing_class,
+            enclosing_func,
+            nodes,
+            edges,
+        );
     }
+}
+
+/// Returns the `function_signature` node and its declared name.
+///
+/// Class members wrap the signature in a `method_signature`; getters, setters
+/// and constructors have no `function_signature` and yield `None`.
+fn dart_signature_name<'tree>(
+    node: tree_sitter::Node<'tree>,
+    source: &[u8],
+) -> Option<(tree_sitter::Node<'tree>, String)> {
+    let signature = if node.kind() == "function_signature" {
+        node
+    } else {
+        dart_direct_child(node, &["function_signature"])?
+    };
+    let name = signature
+        .child_by_field_name("name")
+        .map(|name| node_text(name, source).trim().to_string())
+        .or_else(|| dart_direct_child_text(signature, source, &["identifier"]))?;
+    (!name.is_empty()).then_some((signature, name))
 }
 
 fn dart_emit_import(
@@ -227,8 +288,13 @@ fn dart_emit_calls_from_children(
     node: tree_sitter::Node<'_>,
     source: &[u8],
     file_path: &str,
+    enclosing_class: Option<&str>,
+    enclosing_func: Option<&str>,
     edges: &mut Vec<ParsedEdge>,
 ) {
+    let caller = enclosing_func
+        .map(|func| qualify(file_path, func, enclosing_class))
+        .unwrap_or_else(|| file_path.to_string());
     let mut call_name = None;
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
@@ -244,7 +310,7 @@ fn dart_emit_calls_from_children(
                     if let Some(target) = call_name.take() {
                         edges.push(ParsedEdge {
                             kind: crate::core::types::EdgeKind::Calls.as_str().to_string(),
-                            source: file_path.to_string(),
+                            source: caller.clone(),
                             target,
                             file_path: file_path.to_string(),
                             line: node.start_position().row as i64 + 1,

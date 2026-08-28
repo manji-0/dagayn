@@ -391,7 +391,14 @@ fn java_emit_function(
 }
 
 fn java_function_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    java_direct_child_text(node, source, &["identifier"])
+    java_field_text(node, source, "name")
+        .or_else(|| java_direct_child_text(node, source, &["identifier"]))
+}
+
+fn java_field_text(node: tree_sitter::Node<'_>, source: &[u8], field: &str) -> Option<String> {
+    let child = node.child_by_field_name(field)?;
+    let text = node_text(child, source).trim().to_string();
+    (!text.is_empty()).then_some(text)
 }
 
 fn java_emit_call(
@@ -424,12 +431,13 @@ fn java_emit_call(
     }
 }
 
+/// Reads the invoked method from the `name` field.
+///
+/// `method_invocation` puts the receiver first, so taking the first
+/// non-`argument_list` child made `Broker.build(t)` point at `Broker` — the
+/// class — instead of `build`, losing every qualified call.
 fn java_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    let mut cursor = node.walk();
-    let first = node
-        .children(&mut cursor)
-        .find(|child| child.kind() != "argument_list")?;
-    matches!(first.kind(), "identifier").then(|| node_text(first, source))
+    java_field_text(node, source, "name")
 }
 
 fn java_call_signature(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {

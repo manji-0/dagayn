@@ -225,26 +225,41 @@ fn php_emit_call(
     enclosing_func: Option<&str>,
     edges: &mut Vec<ParsedEdge>,
 ) {
-    let Some(call_name) = php_call_name(node, source) else {
+    let Some(signature) = php_call_signature(node, source) else {
         return;
     };
     let caller = enclosing_func
         .map(|func| qualify(file_path, func, enclosing_class))
         .unwrap_or_else(|| file_path.to_string());
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Calls.as_str().to_string(),
-        source: caller.clone(),
-        target: call_name.clone(),
-        file_path: file_path.to_string(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
-    if let Some(edge) = php_bridge_edge(node, source, file_path, &caller, &call_name) {
+    if let Some(call_name) = php_call_name(node, source) {
+        edges.push(ParsedEdge {
+            kind: crate::core::types::EdgeKind::Calls.as_str().to_string(),
+            source: caller.clone(),
+            target: call_name,
+            file_path: file_path.to_string(),
+            line: node.start_position().row as i64 + 1,
+            extra: json!({}),
+        });
+    }
+    if let Some(edge) = php_bridge_edge(node, source, file_path, &caller, &signature) {
         edges.push(edge);
     }
 }
 
+/// The invoked symbol, used as the CALLS target.
+///
+/// `Broker::build()` resolves to `build`. Emitting `Broker::build` made the
+/// target look already-qualified to bare-name resolution, which only ever
+/// matches `file::Class.method`, so the edge could never bind to a node.
 fn php_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    match node.kind() {
+        "scoped_call_expression" => php_direct_child_texts(node, source, &["name"]).pop(),
+        _ => php_call_signature(node, source),
+    }
+}
+
+/// The call as written, used to match cross-artifact bridges (`FFI::cdef`).
+fn php_call_signature(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
     match node.kind() {
         "function_call_expression" => {
             php_direct_child_text(node, source, &["name", "qualified_name"])

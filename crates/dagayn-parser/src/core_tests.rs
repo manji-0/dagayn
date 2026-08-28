@@ -503,6 +503,45 @@ func runCommand(path string) {
 }
 
 #[test]
+fn java_qualified_calls_resolve_to_the_invoked_method() {
+    let source = br#"class Broker {
+    static CertificateInfo build(CertTypes t) { return null; }
+}
+
+class Factory {
+    CertificateInfo createAllowed(CertTypes t) {
+        return Broker.build(t);
+    }
+
+    List<Issuer> issuers() {
+        return Registry.<Issuer>lookup();
+    }
+}
+"#;
+    let (nodes, edges) = parse_java("F.java", source);
+    assert!(nodes.iter().any(|node| {
+        node.kind == "Function"
+            && node.name == "createAllowed"
+            && node.parent_name.as_deref() == Some("Factory")
+    }));
+    // `Broker.build(t)` targets the method, not the receiver class.
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "CALLS"
+            && edge.source == "F.java::Factory.createAllowed"
+            && edge.target == "F.java::Broker.build"
+    }));
+    assert!(edges.iter().all(|edge| {
+        edge.kind != "CALLS"
+            || edge.source != "F.java::Factory.createAllowed"
+            || edge.target != "F.java::Broker"
+    }));
+    // An explicit type argument sits between receiver and name.
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "CALLS" && edge.source == "F.java::Factory.issuers" && edge.target == "lookup"
+    }));
+}
+
+#[test]
 fn parses_java_types_imports_calls_and_bridges() {
     let mut repo_root = std::env::temp_dir();
     repo_root.push(format!(
@@ -855,10 +894,15 @@ class ExtendedRepo implements Repository {
         parent::__construct();
         FFI::cdef("", "mylib.so");
         file_get_contents($path);
+        Broker::build(1);
     }
 }
 
 function sqlQuery(string $query): array { return []; }
+
+class Broker {
+    public static function build(int $id): User { return new User($id); }
+}
 "#;
     let (nodes, edges) = parse_php("sample.php", source);
     assert!(nodes.iter().any(|node| {
@@ -894,6 +938,13 @@ function sqlQuery(string $query): array { return []; }
         edge.kind == "CALLS"
             && edge.source == "sample.php::ExtendedRepo.run"
             && edge.target == "sample.php::sqlQuery"
+    }));
+    // A static call targets the method so it can bind to a node; the
+    // `Class::method` form is kept only as bridge evidence.
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "CALLS"
+            && edge.source == "sample.php::ExtendedRepo.run"
+            && edge.target == "sample.php::Broker.build"
     }));
     assert!(edges.iter().any(|edge| {
         edge.kind == "CROSS_ARTIFACT"
@@ -1220,13 +1271,29 @@ Dog createDog(String name) {
             && edge.source == "sample.dart::Dog"
             && edge.target == "SwimmingMixin"
     }));
+    // Calls are attributed to the enclosing method, not to the file.
     assert!(edges.iter().any(|edge| {
         edge.kind == "CALLS"
-            && edge.source == "sample.dart"
+            && edge.source == "sample.dart::Dog.fetch"
             && edge.target == "sample.dart::Dog._run"
     }));
     assert!(edges.iter().any(|edge| {
-        edge.kind == "CALLS" && edge.source == "sample.dart" && edge.target == "sample.dart::Dog"
+        edge.kind == "CALLS"
+            && edge.source == "sample.dart::createDog"
+            && edge.target == "sample.dart::Dog"
+    }));
+    // An `=>` body belongs to its signature too.
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "CALLS"
+            && edge.source == "sample.dart::SwimmingMixin.swim"
+            && edge.target == "print"
+    }));
+    assert!(edges
+        .iter()
+        .all(|edge| edge.kind != "CALLS" || edge.source != "sample.dart"));
+    // The function node spans its body, not just the signature line.
+    assert!(nodes.iter().any(|node| {
+        node.kind == "Function" && node.name == "fetch" && node.line_end > node.line_start
     }));
 }
 
@@ -2283,6 +2350,10 @@ int main() {
 void run_command() {
     std::system("git status");
 }
+
+Animal *make_animal(int n) { return nullptr; }
+
+void Dog::extra() { make_animal(1); }
 "#;
     let (nodes, edges) = parse_cpp("sample.cpp", source);
     assert!(nodes.iter().any(|node| {
@@ -2300,8 +2371,31 @@ void run_command() {
     assert!(edges.iter().any(|edge| {
         edge.kind == "INHERITS" && edge.source == "sample.cpp::Dog" && edge.target == "Animal"
     }));
+    // In-class members are indexed under their class, so `d.speak()` resolves.
+    assert!(nodes.iter().any(|node| {
+        node.kind == "Function"
+            && node.name == "speak"
+            && node.parent_name.as_deref() == Some("Dog")
+    }));
     assert!(edges.iter().any(|edge| {
-        edge.kind == "CALLS" && edge.source == "sample.cpp::main" && edge.target == "speak"
+        edge.kind == "CALLS"
+            && edge.source == "sample.cpp::main"
+            && edge.target == "sample.cpp::Dog.speak"
+    }));
+    // A pointer return type wraps the declarator; the name is still the function.
+    assert!(nodes.iter().any(|node| {
+        node.kind == "Function" && node.name == "make_animal" && node.parent_name.is_none()
+    }));
+    // An out-of-line definition belongs to the class named by its scope.
+    assert!(nodes.iter().any(|node| {
+        node.kind == "Function"
+            && node.name == "extra"
+            && node.parent_name.as_deref() == Some("Dog")
+    }));
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "CALLS"
+            && edge.source == "sample.cpp::Dog.extra"
+            && edge.target == "sample.cpp::make_animal"
     }));
     assert!(edges.iter().any(|edge| {
         edge.kind == "CALLS"
