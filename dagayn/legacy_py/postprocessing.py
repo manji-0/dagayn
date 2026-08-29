@@ -27,7 +27,7 @@ from typing import Any, Callable, cast
 from pydantic import ValidationError
 
 from dagayn.graph import GraphStore, store_write_transaction
-from dagayn.graph._sql import _edge_target_name
+from dagayn.legacy_py.graph._sql import _edge_target_name
 from dagayn.state_types import (
     DroppedMarkdownArtifactResolution,
     MarkdownArtifactResolution,
@@ -766,7 +766,7 @@ def _rebuild_fts_index(
                 fts_count = int(cast(int, rust_sync(changed_files)))
             elif hasattr(store, "_conn"):
                 from dagayn.graph import store_write_transaction
-                from dagayn.graph._fts_sync import sync_fts_for_file_paths
+                from dagayn.legacy_py.graph._fts_sync import sync_fts_for_file_paths
 
                 with store_write_transaction(store):
                     fts_count = sync_fts_for_file_paths(

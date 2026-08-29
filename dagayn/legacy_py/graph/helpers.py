@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from typing import Any
 
 from dagayn.state_types import ChangeEdgeRecord, ChangeNodeRecord
+
 from .types import GraphEdge, GraphNode
 
 logger = logging.getLogger(__name__)

@@ -8,6 +8,7 @@ from dagayn.cross_artifact import (
     is_low_confidence_bridge,
     is_reportable_bridge,
 )
+
 from ._mixin_protocol import GraphStoreMixinProtocol
 from ._sql import BFS_ENGINE, MAX_IMPACT_DEPTH, MAX_IMPACT_NODES
 from .types import GraphEdge, ImpactRadiusResult

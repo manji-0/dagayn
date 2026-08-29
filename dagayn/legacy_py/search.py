@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Optional, TypedDict, cast
 
 from dagayn.graph import GraphStore, _sanitize_name, store_write_transaction
-from dagayn.graph._fts_sync import rebuild_fts_index_tx
+from dagayn.legacy_py.graph._fts_sync import rebuild_fts_index_tx
 
 if TYPE_CHECKING:
     from dagayn.embeddings import EmbeddingStore

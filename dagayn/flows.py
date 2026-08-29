@@ -57,9 +57,7 @@ def rebuild_stored_flows(
             return int(payload.get("count") or 0)
         except Exception:  # noqa: BLE001 — native acceleration must be optional
             logger.debug("Native flow rebuild failed; falling back", exc_info=True)
-    return _legacy().rebuild_stored_flows(
-        store, max_depth=max_depth, include_tests=include_tests
-    )
+    return _legacy().rebuild_stored_flows(store, max_depth=max_depth, include_tests=include_tests)
 
 
 def incremental_trace_flows(

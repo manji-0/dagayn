@@ -1,4 +1,5 @@
 """Compatibility shim. Implementation: ``dagayn.legacy_py.graph._fts_sync``."""
+
 from __future__ import annotations
 
 import sys

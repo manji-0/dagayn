@@ -6,6 +6,7 @@ import json
 from typing import TYPE_CHECKING
 
 from dagayn.state_types import ConfidenceTier, normalize_confidence_tier
+
 from ._sql import _edge_target_name
 
 if TYPE_CHECKING:

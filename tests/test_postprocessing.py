@@ -298,7 +298,7 @@ class TestPostProcessingStepIsolation:
 
     def test_flow_failure_does_not_block_communities(self):
         with patch(
-            "dagayn.flows.trace_flows",
+            "dagayn.flows.rebuild_stored_flows",
             side_effect=ImportError("flow boom"),
         ):
             result = run_post_processing(self.store)

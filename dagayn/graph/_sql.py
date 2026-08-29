@@ -1,4 +1,5 @@
 """Compatibility shim. Implementation: ``dagayn.legacy_py.graph._sql``."""
+
 from __future__ import annotations
 
 import sys

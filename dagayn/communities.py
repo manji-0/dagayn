@@ -91,9 +91,7 @@ def store_communities(store: GraphStore, communities: list[Any]) -> int:
     return _legacy().store_communities(store, communities)
 
 
-def get_communities(
-    store: GraphStore, sort_by: str = "size", min_size: int = 0
-) -> list[Any]:
+def get_communities(store: GraphStore, sort_by: str = "size", min_size: int = 0) -> list[Any]:
     """Retrieve stored communities from the database."""
     valid_sorts = {"size", "cohesion", "name"}
     if sort_by not in valid_sorts:

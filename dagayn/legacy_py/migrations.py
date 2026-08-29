@@ -338,7 +338,7 @@ def _migrate_v14(conn: sqlite3.Connection) -> None:
 
 def _migrate_v15(conn: sqlite3.Connection) -> None:
     """v15: Rebuild FTS when v13 left empty generated columns or counts diverge."""
-    from dagayn.graph._fts_sync import fts_index_counts, rebuild_fts_index_tx
+    from dagayn.legacy_py.graph._fts_sync import fts_index_counts, rebuild_fts_index_tx
 
     nodes_count, fts_count = fts_index_counts(conn)
     needs_rebuild = nodes_count != fts_count

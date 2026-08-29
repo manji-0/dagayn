@@ -1369,7 +1369,7 @@ class TestIntentReranking:
                     return_value=FtsQueryResult(hits=[(function_id, 0.5)], match_mode="and"),
                 ),
                 patch(
-                    "dagayn.search._embedding_search_with_health",
+                    "dagayn.legacy_py.search._embedding_search_with_health",
                     return_value=(
                         [(function_id, 0.99), (doc_id, 0.8)],
                         {"status": "available", "resolved_provider": "test"},

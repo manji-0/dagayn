@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dagayn.bridge_types import BridgeTransitionRecord
+
 from ._mixin_protocol import GraphStoreMixinProtocol
 from .types import FlowAdjacency, GraphNode
 

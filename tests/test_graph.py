@@ -609,7 +609,7 @@ class TestGraphStore:
         store = GraphStore.__new__(GraphStore)
         store._conn = conn
 
-        with caplog.at_level(logging.DEBUG, logger="dagayn.graph"):
+        with caplog.at_level(logging.DEBUG, logger="dagayn.legacy_py.graph"):
             result = store.get_all_community_ids()
 
         assert result == {}
@@ -622,7 +622,7 @@ class TestGraphStore:
         store = GraphStore.__new__(GraphStore)
         store._conn = conn
 
-        with caplog.at_level(logging.DEBUG, logger="dagayn.graph"):
+        with caplog.at_level(logging.DEBUG, logger="dagayn.legacy_py.graph"):
             result = store.get_communities_list()
 
         assert result == []

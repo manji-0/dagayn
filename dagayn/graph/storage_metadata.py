@@ -1,4 +1,5 @@
 """Compatibility shim. Implementation: ``dagayn.legacy_py.graph.storage_metadata``."""
+
 from __future__ import annotations
 
 import sys

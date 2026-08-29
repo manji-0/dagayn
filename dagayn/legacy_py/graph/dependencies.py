@@ -8,6 +8,7 @@ from dagayn.bare_name_resolution import (
 from dagayn.bare_name_resolution import (
     resolve_bare_inheritance_targets as _resolve_bare_inheritance_targets,
 )
+
 from ._mixin_protocol import GraphStoreMixinProtocol
 from .types import TransitiveTestRecord
 
