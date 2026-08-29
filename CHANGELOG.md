@@ -4,6 +4,16 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Changed
+
+- Parser nodes and edges carry `NodeKind` / `EdgeKind` instead of heap
+  strings. The closed set now includes `Type`, `DocBody`, and `IMPLEMENTS`,
+  matching the schema. SQLite and the Python store still see the same labels.
+- Frozen collections use `Box<[T]>` (flow paths, community members, language
+  lists, Brandes adjacency). Flow tracing shares each `GraphNode` via `Arc`
+  across the qualified-name and id indexes instead of cloning the record
+  twice.
+
 ## 4.12.0 — 2026-08-29
 
 ### Features

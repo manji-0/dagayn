@@ -37,7 +37,7 @@ pub(super) fn parse_python_with_parser(
 
     let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
-        kind: crate::core::types::NodeKind::File.as_str().to_string(),
+        kind: crate::core::types::NodeKind::File,
         name: file_path.to_string(),
         file_path: file_path.to_string(),
         line_start: 1,
@@ -374,7 +374,7 @@ fn notebook_file_node(
     notebook_format: Option<&str>,
 ) -> ParsedNode {
     ParsedNode {
-        kind: crate::core::types::NodeKind::File.as_str().to_string(),
+        kind: crate::core::types::NodeKind::File,
         name: file_path.to_string(),
         file_path: file_path.to_string(),
         line_start: 1,
@@ -513,7 +513,7 @@ fn parse_databricks_r_cells(
             let line_end = find_r_function_end(&lines, index);
             let qualified = qualify(file_path, name, None);
             nodes.push(ParsedNode {
-                kind: crate::core::types::NodeKind::Function.as_str().to_string(),
+                kind: crate::core::types::NodeKind::Function,
                 name: name.to_string(),
                 file_path: file_path.to_string(),
                 line_start: line_no,
@@ -527,7 +527,7 @@ fn parse_databricks_r_cells(
                 extra: json!({}),
             });
             edges.push(ParsedEdge {
-                kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
+                kind: crate::core::types::EdgeKind::Contains,
                 source: file_path.to_string(),
                 target: qualified.clone(),
                 file_path: file_path.to_string(),
@@ -548,7 +548,7 @@ fn parse_databricks_r_cells(
                 continue;
             }
             edges.push(ParsedEdge {
-                kind: crate::core::types::EdgeKind::Calls.as_str().to_string(),
+                kind: crate::core::types::EdgeKind::Calls,
                 source: caller.clone(),
                 target: name.to_string(),
                 file_path: file_path.to_string(),
@@ -594,9 +594,7 @@ fn extract_databricks_sql_imports(
             continue;
         };
         edges.push(ParsedEdge {
-            kind: crate::core::types::EdgeKind::ImportsFrom
-                .as_str()
-                .to_string(),
+            kind: crate::core::types::EdgeKind::ImportsFrom,
             source: file_path.to_string(),
             target: target.replace('`', ""),
             file_path: file_path.to_string(),
@@ -650,7 +648,7 @@ fn python_walk_children(
                 if let Some(name) = python_identifier_child(child, context.source) {
                     let qualified = qualify(context.file_path, &name, enclosing_class);
                     nodes.push(ParsedNode {
-                        kind: crate::core::types::NodeKind::Class.as_str().to_string(),
+                        kind: crate::core::types::NodeKind::Class,
                         name: name.clone(),
                         file_path: context.file_path.to_string(),
                         line_start: child.start_position().row as i64 + 1,
@@ -664,7 +662,7 @@ fn python_walk_children(
                         extra: json!({"type_role": "class"}),
                     });
                     edges.push(ParsedEdge {
-                        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
+                        kind: crate::core::types::EdgeKind::Contains,
                         source: context.file_path.to_string(),
                         target: qualified.clone(),
                         file_path: context.file_path.to_string(),
@@ -684,7 +682,11 @@ fn python_walk_children(
                     let is_test =
                         python_is_test_function(&name, context.file_path, child, context.source);
                     nodes.push(ParsedNode {
-                        kind: if is_test { "Test" } else { "Function" }.to_string(),
+                        kind: if is_test {
+                            crate::core::types::NodeKind::Test
+                        } else {
+                            crate::core::types::NodeKind::Function
+                        },
                         name: name.clone(),
                         file_path: context.file_path.to_string(),
                         line_start: child.start_position().row as i64 + 1,
@@ -701,7 +703,7 @@ fn python_walk_children(
                         .map(|name| qualify(context.file_path, name, None))
                         .unwrap_or_else(|| context.file_path.to_string());
                     edges.push(ParsedEdge {
-                        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
+                        kind: crate::core::types::EdgeKind::Contains,
                         source: container,
                         target: qualified.clone(),
                         file_path: context.file_path.to_string(),
@@ -727,9 +729,7 @@ fn python_walk_children(
                     context.repo_root,
                 ) {
                     edges.push(ParsedEdge {
-                        kind: crate::core::types::EdgeKind::ImportsFrom
-                            .as_str()
-                            .to_string(),
+                        kind: crate::core::types::EdgeKind::ImportsFrom,
                         source: context.file_path.to_string(),
                         target,
                         file_path: context.file_path.to_string(),
@@ -744,7 +744,7 @@ fn python_walk_children(
                     let target = python_resolve_imported_call_target(&call_name, context)
                         .unwrap_or_else(|| call_name.clone());
                     edges.push(ParsedEdge {
-                        kind: crate::core::types::EdgeKind::Calls.as_str().to_string(),
+                        kind: crate::core::types::EdgeKind::Calls,
                         source: caller.to_string(),
                         target,
                         file_path: context.file_path.to_string(),
@@ -849,9 +849,7 @@ fn python_emit_reference_if_known(
         return;
     };
     edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::References
-            .as_str()
-            .to_string(),
+        kind: crate::core::types::EdgeKind::References,
         source: caller.to_string(),
         target,
         file_path: context.file_path.to_string(),
@@ -1088,7 +1086,7 @@ fn python_emit_bases(
         for arg in child.children(&mut arg_cursor) {
             if matches!(arg.kind(), "identifier" | "attribute") {
                 edges.push(ParsedEdge {
-                    kind: crate::core::types::EdgeKind::Inherits.as_str().to_string(),
+                    kind: crate::core::types::EdgeKind::Inherits,
                     source: qualified.to_string(),
                     target: node_text(arg, source),
                     file_path: file_path.to_string(),
@@ -1218,7 +1216,7 @@ fn add_python_tested_by_edges(
         .iter()
         .filter(|edge| edge.kind == "CALLS" && test_qnames.contains(&edge.source))
         .map(|edge| ParsedEdge {
-            kind: crate::core::types::EdgeKind::TestedBy.as_str().to_string(),
+            kind: crate::core::types::EdgeKind::TestedBy,
             source: edge.target.clone(),
             target: edge.source.clone(),
             file_path: edge.file_path.clone(),
@@ -1317,9 +1315,7 @@ fn python_bridge_edge(
         ),
     };
     Some(ParsedEdge {
-        kind: crate::core::types::EdgeKind::CrossArtifact
-            .as_str()
-            .to_string(),
+        kind: crate::core::types::EdgeKind::CrossArtifact,
         source: caller.to_string(),
         target,
         file_path: file_path.to_string(),

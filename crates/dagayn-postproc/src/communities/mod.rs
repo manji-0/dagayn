@@ -18,7 +18,7 @@ pub struct DetectedCommunity {
     pub cohesion: f64,
     pub dominant_language: String,
     pub description: String,
-    pub members: Vec<String>,
+    pub members: Box<[String]>,
 }
 
 pub fn detect_communities(store: &GraphStore, min_size: i64) -> Result<Vec<DetectedCommunity>> {

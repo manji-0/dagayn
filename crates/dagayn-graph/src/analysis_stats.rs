@@ -37,7 +37,9 @@ impl GraphStore {
             "SELECT DISTINCT language FROM nodes WHERE language IS NOT NULL AND language != ''",
         )?;
         let lang_rows = lang_stmt.query_map([], |row| row.get::<_, String>(0))?;
-        let languages = lang_rows.collect::<std::result::Result<Vec<_>, _>>()?;
+        let languages = lang_rows
+            .collect::<std::result::Result<Vec<_>, _>>()?
+            .into_boxed_slice();
 
         let files_count = self.conn.query_row(
             "SELECT COUNT(*) FROM nodes WHERE kind = 'File'",

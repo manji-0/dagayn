@@ -13,7 +13,7 @@ pub(super) fn parse_gdscript_with_parser(
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
-        kind: crate::core::types::NodeKind::File.as_str().to_string(),
+        kind: crate::core::types::NodeKind::File,
         name: file_path.to_string(),
         file_path: file_path.to_string(),
         line_start: 1,
@@ -67,9 +67,7 @@ fn gdscript_walk_children(
             "extends_statement" if enclosing_func.is_none() => {
                 if let Some(target) = gdscript_extends_target(child, context.source) {
                     edges.push(ParsedEdge {
-                        kind: crate::core::types::EdgeKind::ImportsFrom
-                            .as_str()
-                            .to_string(),
+                        kind: crate::core::types::EdgeKind::ImportsFrom,
                         source: context.file_path.to_string(),
                         target,
                         file_path: context.file_path.to_string(),
@@ -136,7 +134,7 @@ fn gdscript_emit_class(
 ) {
     let qualified = qualify(context.file_path, name, enclosing_class);
     nodes.push(ParsedNode {
-        kind: crate::core::types::NodeKind::Class.as_str().to_string(),
+        kind: crate::core::types::NodeKind::Class,
         name: name.to_string(),
         file_path: context.file_path.to_string(),
         line_start: node.start_position().row as i64 + 1,
@@ -150,7 +148,7 @@ fn gdscript_emit_class(
         extra: json!({"type_role": "class"}),
     });
     edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
+        kind: crate::core::types::EdgeKind::Contains,
         source: enclosing_class
             .map(|class| qualify(context.file_path, class, None))
             .unwrap_or_else(|| context.file_path.to_string()),
@@ -172,7 +170,11 @@ fn gdscript_emit_function(
     let is_test = is_test_function(name, context.file_path, node, context.source);
     let qualified = qualify(context.file_path, name, enclosing_class);
     nodes.push(ParsedNode {
-        kind: if is_test { "Test" } else { "Function" }.to_string(),
+        kind: if is_test {
+            crate::core::types::NodeKind::Test
+        } else {
+            crate::core::types::NodeKind::Function
+        },
         name: name.to_string(),
         file_path: context.file_path.to_string(),
         line_start: node.start_position().row as i64 + 1,
@@ -186,7 +188,7 @@ fn gdscript_emit_function(
         extra: json!({}),
     });
     edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
+        kind: crate::core::types::EdgeKind::Contains,
         source: enclosing_class
             .map(|class| qualify(context.file_path, class, None))
             .unwrap_or_else(|| context.file_path.to_string()),
@@ -211,7 +213,7 @@ fn gdscript_emit_call(
         .map(|func| qualify(context.file_path, func, enclosing_class))
         .unwrap_or_else(|| context.file_path.to_string());
     edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Calls.as_str().to_string(),
+        kind: crate::core::types::EdgeKind::Calls,
         source: caller,
         target,
         file_path: context.file_path.to_string(),

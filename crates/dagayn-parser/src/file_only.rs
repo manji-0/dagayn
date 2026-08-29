@@ -31,7 +31,7 @@ fn parse_tree_sitter_file_only_with_parser(
     let line_end = line_count(source);
     (
         vec![ParsedNode {
-            kind: crate::core::types::NodeKind::File.as_str().to_string(),
+            kind: crate::core::types::NodeKind::File,
             name: file_path.to_string(),
             file_path: file_path.to_string(),
             line_start: 1,

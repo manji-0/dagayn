@@ -33,7 +33,7 @@ fn parse_terraform_json(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec
     };
     let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
-        kind: crate::core::types::NodeKind::File.as_str().to_string(),
+        kind: crate::core::types::NodeKind::File,
         name: file_path.to_string(),
         file_path: file_path.to_string(),
         line_start: 1,
@@ -68,7 +68,7 @@ fn parse_terraform_json(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec
                             &mut nodes,
                             &mut edges,
                             TerraformNodeSpec {
-                                kind: "Class",
+                                kind: crate::core::types::NodeKind::Class,
                                 name: &node_name,
                                 line_start: 1,
                                 line_end,
@@ -87,9 +87,9 @@ fn parse_terraform_json(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec
                         format!("{kind}.{name}")
                     };
                     let node_kind = if kind == "variable" || kind == "output" {
-                        "Function"
+                        crate::core::types::NodeKind::Function
                     } else {
-                        "Class"
+                        crate::core::types::NodeKind::Class
                     };
                     push_terraform_node(
                         file_path,
@@ -115,7 +115,7 @@ fn parse_terraform_json(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec
                         &mut nodes,
                         &mut edges,
                         TerraformNodeSpec {
-                            kind: "Class",
+                            kind: crate::core::types::NodeKind::Class,
                             name: &node_name,
                             line_start: 1,
                             line_end,
@@ -129,9 +129,7 @@ fn parse_terraform_json(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec
                         .and_then(Value::as_str)
                     {
                         edges.push(ParsedEdge {
-                            kind: crate::core::types::EdgeKind::ImportsFrom
-                                .as_str()
-                                .to_string(),
+                            kind: crate::core::types::EdgeKind::ImportsFrom,
                             source: terraform_qualified(file_path, &node_name),
                             target: source.to_string(),
                             file_path: file_path.to_string(),
@@ -149,7 +147,7 @@ fn parse_terraform_json(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec
                         &mut nodes,
                         &mut edges,
                         TerraformNodeSpec {
-                            kind: "Class",
+                            kind: crate::core::types::NodeKind::Class,
                             name: &node_name,
                             line_start: 1,
                             line_end,
@@ -167,7 +165,7 @@ fn parse_terraform_json(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec
                         &mut nodes,
                         &mut edges,
                         TerraformNodeSpec {
-                            kind: "Function",
+                            kind: crate::core::types::NodeKind::Function,
                             name: &node_name,
                             line_start: 1,
                             line_end,
@@ -182,7 +180,7 @@ fn parse_terraform_json(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec
                 &mut nodes,
                 &mut edges,
                 TerraformNodeSpec {
-                    kind: "Class",
+                    kind: crate::core::types::NodeKind::Class,
                     name: "terraform",
                     line_start: 1,
                     line_end,
@@ -216,7 +214,7 @@ fn parse_terraform_hcl(
     }
 
     let mut nodes = vec![ParsedNode {
-        kind: crate::core::types::NodeKind::File.as_str().to_string(),
+        kind: crate::core::types::NodeKind::File,
         name: file_path.to_string(),
         file_path: file_path.to_string(),
         line_start: 1,
@@ -240,7 +238,7 @@ fn parse_terraform_hcl(
                     &mut nodes,
                     &mut edges,
                     TerraformNodeSpec {
-                        kind: "Function",
+                        kind: crate::core::types::NodeKind::Function,
                         name: &node_name,
                         line_start: attr.line_start,
                         line_end: attr.line_end,
@@ -270,13 +268,15 @@ fn parse_terraform_hcl(
         };
         let terraform_kind = terraform_kind_for_block(block);
         let (kind, is_test) = match block.kind.as_str() {
-            "variable" | "output" | "publish_output" | "upstream_input" => ("Function", false),
+            "variable" | "output" | "publish_output" | "upstream_input" => {
+                (crate::core::types::NodeKind::Function, false)
+            }
             // `check` is a top-level production block (Terraform 1.5+ health
             // checks executed during plan/apply), not a .tftest.hcl construct.
-            "check" => ("Class", false),
+            "check" => (crate::core::types::NodeKind::Class, false),
             "run" | "mock_provider" | "variables" | "override_resource" | "override_data"
-            | "override_module" => ("Test", true),
-            _ => ("Class", false),
+            | "override_module" => (crate::core::types::NodeKind::Test, true),
+            _ => (crate::core::types::NodeKind::Class, false),
         };
         push_terraform_node(
             file_path,
@@ -306,9 +306,7 @@ fn parse_terraform_hcl(
                 .find(|attr| attr.name == "source")
             {
                 edges.push(ParsedEdge {
-                    kind: crate::core::types::EdgeKind::ImportsFrom
-                        .as_str()
-                        .to_string(),
+                    kind: crate::core::types::EdgeKind::ImportsFrom,
                     source: terraform_qualified(file_path, &node_name),
                     target: strip_tf_string(&source_attr.value),
                     file_path: file_path.to_string(),
@@ -321,7 +319,7 @@ fn parse_terraform_hcl(
         if block.kind == "terraform" {
             for provider_source in terraform_provider_sources(block).iter() {
                 edges.push(ParsedEdge {
-                    kind: crate::core::types::EdgeKind::DependsOn.as_str().to_string(),
+                    kind: crate::core::types::EdgeKind::DependsOn,
                     source: terraform_qualified(file_path, &node_name),
                     target: provider_source.clone(),
                     file_path: file_path.to_string(),
@@ -396,7 +394,7 @@ fn terraform_kind_for_block(block: &TerraformBlock) -> &str {
 }
 
 struct TerraformNodeSpec<'a> {
-    kind: &'a str,
+    kind: crate::core::types::NodeKind,
     name: &'a str,
     line_start: i64,
     line_end: i64,
@@ -412,7 +410,7 @@ fn push_terraform_node(
 ) {
     let qualified = terraform_qualified(file_path, spec.name);
     nodes.push(ParsedNode {
-        kind: spec.kind.to_string(),
+        kind: spec.kind,
         name: spec.name.to_string(),
         file_path: file_path.to_string(),
         line_start: spec.line_start,
@@ -426,7 +424,7 @@ fn push_terraform_node(
         extra: json!({"terraform_kind": spec.terraform_kind}),
     });
     edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
+        kind: crate::core::types::EdgeKind::Contains,
         source: file_path.to_string(),
         target: qualified,
         file_path: file_path.to_string(),
@@ -452,9 +450,7 @@ fn handle_terraform_meta_block(
         "import" => {
             if let Some(target) = attr_value("id").or_else(|| attr_value("to")) {
                 edges.push(ParsedEdge {
-                    kind: crate::core::types::EdgeKind::ImportsFrom
-                        .as_str()
-                        .to_string(),
+                    kind: crate::core::types::EdgeKind::ImportsFrom,
                     source: file_path.to_string(),
                     target,
                     file_path: file_path.to_string(),
@@ -466,9 +462,7 @@ fn handle_terraform_meta_block(
         "moved" => {
             if let (Some(source), Some(target)) = (attr_value("from"), attr_value("to")) {
                 edges.push(ParsedEdge {
-                    kind: crate::core::types::EdgeKind::References
-                        .as_str()
-                        .to_string(),
+                    kind: crate::core::types::EdgeKind::References,
                     source,
                     target,
                     file_path: file_path.to_string(),
@@ -480,9 +474,7 @@ fn handle_terraform_meta_block(
         "removed" => {
             if let Some(target) = attr_value("from") {
                 edges.push(ParsedEdge {
-                    kind: crate::core::types::EdgeKind::References
-                        .as_str()
-                        .to_string(),
+                    kind: crate::core::types::EdgeKind::References,
                     source: file_path.to_string(),
                     target,
                     file_path: file_path.to_string(),
@@ -575,7 +567,7 @@ fn push_terraform_calls(
             continue;
         }
         edges.push(ParsedEdge {
-            kind: crate::core::types::EdgeKind::Calls.as_str().to_string(),
+            kind: crate::core::types::EdgeKind::Calls,
             source: caller.to_string(),
             target: name.clone(),
             file_path: file_path.to_string(),
@@ -616,9 +608,7 @@ fn push_terraform_references(
             target.clone()
         };
         edges.push(ParsedEdge {
-            kind: crate::core::types::EdgeKind::References
-                .as_str()
-                .to_string(),
+            kind: crate::core::types::EdgeKind::References,
             source: caller.to_string(),
             target: resolved,
             file_path: file_path.to_string(),

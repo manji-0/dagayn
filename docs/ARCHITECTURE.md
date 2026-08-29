@@ -28,6 +28,31 @@ In dagayn-oriented workflows, registered paths are expected to be relative to th
 
 <!-- derived-from #storage-model -->
 
+## In-memory representation
+
+<!-- constrained-by #storage-model -->
+<!-- constrained-by ./SCHEMA.md#nodes -->
+
+SQLite and the Python `GraphStore` API still speak strings and JSON. The Rust
+core keeps a stricter in-memory form so the type says what the value is:
+
+- Closed vocabularies are enums. Parser `NodeKind` / `EdgeKind` cover the
+  schema labels (`File`, `Type`, `DocBody`, `IMPLEMENTS`, …). The store
+  boundary converts with `as_str()`.
+- A sequence that is never grown after construction is `Box<[T]>`, not
+  `Vec<T>`. Flow paths, community member lists, graph-stat language lists, and
+  Brandes adjacency are frozen slices: 16 bytes instead of 24, and no spare
+  capacity pretending the list is still a builder.
+- A value that two indexes need is shared, not cloned. Flow tracing keeps one
+  `Arc<GraphNode>` per node and two maps (`qualified_name`, `id`) that point
+  at it.
+
+`Vec` stays on the write path: parsers still push into growable buffers, and
+SQLite loaders still collect rows. Freeze at the point the collection becomes
+a fact.
+
+<!-- derived-from #in-memory-representation -->
+
 ## GraphStore ownership boundary
 
 The Python `GraphStore` remains the compatibility and orchestration boundary for CLI, MCP tools, tests, and Python-only analysis helpers. It owns the stable SQLite schema, path normalization, transaction semantics, cache invalidation, and the public read/write methods that higher layers call.

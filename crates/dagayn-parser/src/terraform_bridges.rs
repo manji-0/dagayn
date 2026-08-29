@@ -237,7 +237,7 @@ fn push_bridge_edge(
         extra["original_symbol_name"] = json!(symbol);
     }
     edges.push(ParsedEdge {
-        kind: EdgeKind::CrossArtifact.as_str().to_string(),
+        kind: EdgeKind::CrossArtifact,
         source: source.to_string(),
         target: target.to_string(),
         file_path: file_path.to_string(),

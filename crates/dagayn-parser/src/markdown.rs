@@ -145,7 +145,7 @@ pub(super) fn parse_markdown_with_parser(
     let tree_facts = collect_markdown_tree_facts(source, &text, parser);
     let headings = tree_facts.headings;
     let mut nodes = vec![ParsedNode {
-        kind: crate::core::types::NodeKind::File.as_str().to_string(),
+        kind: crate::core::types::NodeKind::File,
         name: file_path.to_string(),
         file_path: file_path.to_string(),
         line_start: 1,
@@ -174,9 +174,7 @@ pub(super) fn parse_markdown_with_parser(
             .map(|(_, qname)| qname.clone())
             .unwrap_or_else(|| file_path.to_string());
         nodes.push(ParsedNode {
-            kind: crate::core::types::NodeKind::DocSection
-                .as_str()
-                .to_string(),
+            kind: crate::core::types::NodeKind::DocSection,
             name: heading.slug.clone(),
             file_path: file_path.to_string(),
             line_start: heading.line,
@@ -194,7 +192,7 @@ pub(super) fn parse_markdown_with_parser(
             }),
         });
         edges.push(ParsedEdge {
-            kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
+            kind: crate::core::types::EdgeKind::Contains,
             source: container,
             target: section_qname.clone(),
             file_path: file_path.to_string(),
@@ -306,7 +304,7 @@ fn flush_markdown_doc_body(
         .collect::<String>();
 
     nodes.push(ParsedNode {
-        kind: "DocBody".to_string(),
+        kind: crate::core::types::NodeKind::DocBody,
         name: name.clone(),
         file_path: file_path.to_string(),
         line_start: start_line,
@@ -324,7 +322,7 @@ fn flush_markdown_doc_body(
         }),
     });
     edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
+        kind: crate::core::types::EdgeKind::Contains,
         source: context.source_for_line(start_line),
         target: qualified_name,
         file_path: file_path.to_string(),
@@ -593,7 +591,7 @@ fn extract_markdown_directives(
             continue;
         };
         edges.push(ParsedEdge {
-            kind: crate::core::types::EdgeKind::DependsOn.as_str().to_string(),
+            kind: crate::core::types::EdgeKind::DependsOn,
             source,
             target: target.clone(),
             file_path: file_path.to_string(),
@@ -606,9 +604,7 @@ fn extract_markdown_directives(
             .unwrap_or(target.as_str());
         if target_file != file_path {
             edges.push(ParsedEdge {
-                kind: crate::core::types::EdgeKind::ImportsFrom
-                    .as_str()
-                    .to_string(),
+                kind: crate::core::types::EdgeKind::ImportsFrom,
                 source: file_path.to_string(),
                 target: target_file.to_string(),
                 file_path: file_path.to_string(),
@@ -715,9 +711,7 @@ fn emit_markdown_link_edges(
     };
     if let Some((target_file, _target_section)) = target.split_once("::") {
         edges.push(ParsedEdge {
-            kind: crate::core::types::EdgeKind::ImportsFrom
-                .as_str()
-                .to_string(),
+            kind: crate::core::types::EdgeKind::ImportsFrom,
             source: file_path.to_string(),
             target: target_file.to_string(),
             file_path: file_path.to_string(),
@@ -725,9 +719,7 @@ fn emit_markdown_link_edges(
             extra: json!({"markdown_import_kind": "link"}),
         });
         edges.push(ParsedEdge {
-            kind: crate::core::types::EdgeKind::References
-                .as_str()
-                .to_string(),
+            kind: crate::core::types::EdgeKind::References,
             source,
             target,
             file_path: file_path.to_string(),
@@ -736,9 +728,7 @@ fn emit_markdown_link_edges(
         });
     } else if target != file_path {
         edges.push(ParsedEdge {
-            kind: crate::core::types::EdgeKind::ImportsFrom
-                .as_str()
-                .to_string(),
+            kind: crate::core::types::EdgeKind::ImportsFrom,
             source: file_path.to_string(),
             target,
             file_path: file_path.to_string(),
@@ -780,9 +770,7 @@ fn extract_markdown_code_spans(
             continue;
         }
         edges.push(ParsedEdge {
-            kind: crate::core::types::EdgeKind::CrossArtifact
-                .as_str()
-                .to_string(),
+            kind: crate::core::types::EdgeKind::CrossArtifact,
             source,
             target: format!("<unresolved:{sym}>"),
             file_path: file_path.to_string(),

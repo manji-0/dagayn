@@ -330,7 +330,7 @@ mod tests {
                     node_count: 1,
                     file_count: 1,
                     criticality: 0.25,
-                    path: vec![auth_id],
+                    path: vec![auth_id].into(),
                     ..Default::default()
                 },
                 FlowInput {
@@ -340,7 +340,7 @@ mod tests {
                     node_count: 1,
                     file_count: 1,
                     criticality: 0.75,
-                    path: vec![helper_id],
+                    path: vec![helper_id].into(),
                     ..Default::default()
                 },
             ])

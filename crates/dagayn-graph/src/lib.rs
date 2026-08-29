@@ -327,7 +327,7 @@ pub struct GraphStats {
     pub total_edges: i64,
     pub nodes_by_kind: HashMap<String, i64>,
     pub edges_by_kind: HashMap<String, i64>,
-    pub languages: Vec<String>,
+    pub languages: Box<[String]>,
     pub files_count: i64,
     pub last_updated: Option<String>,
 }
@@ -345,7 +345,7 @@ pub struct FlowInput {
     pub file_count: i64,
     pub criticality: f64,
     #[serde(default)]
-    pub path: Vec<i64>,
+    pub path: Box<[i64]>,
     #[serde(default = "default_flow_kind")]
     pub kind: String,
     #[serde(default)]
@@ -367,7 +367,7 @@ pub struct CommunityInput {
     #[serde(default)]
     pub description: String,
     #[serde(default)]
-    pub members: Vec<String>,
+    pub members: Box<[String]>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

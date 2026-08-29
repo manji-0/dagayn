@@ -84,7 +84,7 @@ pub use discovery::{
     collect_parseable_files, detect_language, filter_incremental_candidates, filter_parseable_files,
 };
 pub use js_sfc::{parse_svelte, parse_vue};
-pub use types::{ParsedEdge, ParsedNode};
+pub use types::{EdgeKind, NodeKind, ParsedEdge, ParsedNode};
 
 use ownership::{rust_owned_path_kind, rust_owned_path_kind_for_source, RustOwnedPathKind};
 use parsers::*;
@@ -595,7 +595,7 @@ fn add_tested_by_edges(nodes: &[ParsedNode], edges: &mut Vec<ParsedEdge>) {
         .iter()
         .filter(|edge| edge.kind == "CALLS" && test_qnames.contains(&edge.source))
         .map(|edge| ParsedEdge {
-            kind: crate::core::types::EdgeKind::TestedBy.as_str().to_string(),
+            kind: crate::core::types::EdgeKind::TestedBy,
             source: edge.target.clone(),
             target: edge.source.clone(),
             file_path: edge.file_path.clone(),
@@ -715,8 +715,12 @@ pub(super) fn resolve_rust_call_targets(
         .iter()
         .filter(|node| {
             matches!(
-                node.kind.as_str(),
-                "Function" | "Class" | "Type" | "Test" | "DocSection"
+                node.kind,
+                NodeKind::Function
+                    | NodeKind::Class
+                    | NodeKind::Type
+                    | NodeKind::Test
+                    | NodeKind::DocSection
             )
         })
         .fold(HashMap::<String, String>::new(), |mut symbols, node| {
@@ -728,7 +732,9 @@ pub(super) fn resolve_rust_call_targets(
     edges
         .into_iter()
         .map(|mut edge| {
-            if matches!(edge.kind.as_str(), "CALLS" | "REFERENCES") && !edge.target.contains("::") {
+            if matches!(edge.kind, EdgeKind::Calls | EdgeKind::References)
+                && !edge.target.contains("::")
+            {
                 if let Some(target) = symbols.get(&edge.target) {
                     edge.target = target.clone();
                 }

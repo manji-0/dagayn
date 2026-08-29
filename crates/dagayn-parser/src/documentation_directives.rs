@@ -138,7 +138,7 @@ pub(super) fn push_documentation_directive_edge(
         extra["target_language"] = json!("unknown");
     }
     edges.push(ParsedEdge {
-        kind: EdgeKind::CrossArtifact.as_str().to_string(),
+        kind: EdgeKind::CrossArtifact,
         source,
         target: resolved.target().to_string(),
         file_path: source_file.to_string(),

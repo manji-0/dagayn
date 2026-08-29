@@ -17,7 +17,7 @@ pub(super) fn parse_dart_with_parser(
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
-        kind: crate::core::types::NodeKind::File.as_str().to_string(),
+        kind: crate::core::types::NodeKind::File,
         name: file_path.to_string(),
         file_path: file_path.to_string(),
         line_start: 1,
@@ -64,7 +64,7 @@ fn dart_resolve_import_targets(
 ) {
     for edge in edges
         .iter_mut()
-        .filter(|edge| edge.kind == crate::core::types::EdgeKind::ImportsFrom.as_str())
+        .filter(|edge| edge.kind == crate::core::types::EdgeKind::ImportsFrom)
     {
         if let Some(resolved) = dart_resolve_import(&edge.target, file_path, repo_root) {
             edge.target = resolved;
@@ -242,9 +242,7 @@ fn dart_emit_import(
         return;
     }
     edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::ImportsFrom
-            .as_str()
-            .to_string(),
+        kind: crate::core::types::EdgeKind::ImportsFrom,
         source: file_path.to_string(),
         target,
         file_path: file_path.to_string(),
@@ -280,7 +278,7 @@ fn dart_emit_type(
     }
     let qualified = qualify(file_path, name, enclosing_class);
     nodes.push(ParsedNode {
-        kind: crate::core::types::NodeKind::Class.as_str().to_string(),
+        kind: crate::core::types::NodeKind::Class,
         name: name.to_string(),
         file_path: file_path.to_string(),
         line_start: node.start_position().row as i64 + 1,
@@ -294,7 +292,7 @@ fn dart_emit_type(
         extra,
     });
     edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
+        kind: crate::core::types::EdgeKind::Contains,
         source: file_path.to_string(),
         target: qualified.clone(),
         file_path: file_path.to_string(),
@@ -303,7 +301,7 @@ fn dart_emit_type(
     });
     for target in dart_inheritance_targets(node, source) {
         edges.push(ParsedEdge {
-            kind: crate::core::types::EdgeKind::Inherits.as_str().to_string(),
+            kind: crate::core::types::EdgeKind::Inherits,
             source: qualified.clone(),
             target,
             file_path: file_path.to_string(),
@@ -331,7 +329,7 @@ fn dart_emit_function(
 ) {
     let qualified = qualify(file_path, name, enclosing_class);
     nodes.push(ParsedNode {
-        kind: crate::core::types::NodeKind::Function.as_str().to_string(),
+        kind: crate::core::types::NodeKind::Function,
         name: name.to_string(),
         file_path: file_path.to_string(),
         line_start: node.start_position().row as i64 + 1,
@@ -345,7 +343,7 @@ fn dart_emit_function(
         extra: json!({}),
     });
     edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
+        kind: crate::core::types::EdgeKind::Contains,
         source: enclosing_class
             .map(|class| qualify(file_path, class, None))
             .unwrap_or_else(|| file_path.to_string()),
@@ -381,7 +379,7 @@ fn dart_emit_calls_from_children(
                 if dart_selector_has_arguments(child) {
                     if let Some(target) = call_name.take() {
                         edges.push(ParsedEdge {
-                            kind: crate::core::types::EdgeKind::Calls.as_str().to_string(),
+                            kind: crate::core::types::EdgeKind::Calls,
                             source: caller.clone(),
                             target,
                             file_path: file_path.to_string(),

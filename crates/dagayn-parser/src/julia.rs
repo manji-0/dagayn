@@ -19,7 +19,7 @@ pub(super) fn parse_julia_with_parser(
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
-        kind: crate::core::types::NodeKind::File.as_str().to_string(),
+        kind: crate::core::types::NodeKind::File,
         name: file_path.to_string(),
         file_path: file_path.to_string(),
         line_start: 1,
@@ -100,9 +100,7 @@ fn julia_walk_children(
             "using_statement" | "import_statement" => {
                 for target in julia_import_targets(child, context.source) {
                     edges.push(ParsedEdge {
-                        kind: crate::core::types::EdgeKind::ImportsFrom
-                            .as_str()
-                            .to_string(),
+                        kind: crate::core::types::EdgeKind::ImportsFrom,
                         source: context.file_path.to_string(),
                         target,
                         file_path: context.file_path.to_string(),
@@ -200,9 +198,7 @@ fn julia_walk_children(
                             )
                             .unwrap_or(target);
                             edges.push(ParsedEdge {
-                                kind: crate::core::types::EdgeKind::ImportsFrom
-                                    .as_str()
-                                    .to_string(),
+                                kind: crate::core::types::EdgeKind::ImportsFrom,
                                 source: context.file_path.to_string(),
                                 target,
                                 file_path: context.file_path.to_string(),
@@ -328,7 +324,7 @@ fn julia_emit_class(
 ) {
     let qualified = qualify(context.file_path, spec.name, spec.parent_name);
     nodes.push(ParsedNode {
-        kind: crate::core::types::NodeKind::Class.as_str().to_string(),
+        kind: crate::core::types::NodeKind::Class,
         name: spec.name.to_string(),
         file_path: context.file_path.to_string(),
         line_start: node.start_position().row as i64 + 1,
@@ -342,7 +338,7 @@ fn julia_emit_class(
         extra: spec.extra,
     });
     edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
+        kind: crate::core::types::EdgeKind::Contains,
         source: if spec.contains_from_parent {
             spec.parent_name
                 .map(|parent| qualify(context.file_path, parent, None))
@@ -368,7 +364,11 @@ fn julia_emit_function(
     let is_test = is_test_function(name, context.file_path, node, context.source);
     let qualified = qualify(context.file_path, name, parent_name);
     nodes.push(ParsedNode {
-        kind: if is_test { "Test" } else { "Function" }.to_string(),
+        kind: if is_test {
+            crate::core::types::NodeKind::Test
+        } else {
+            crate::core::types::NodeKind::Function
+        },
         name: name.to_string(),
         file_path: context.file_path.to_string(),
         line_start: node.start_position().row as i64 + 1,
@@ -382,7 +382,7 @@ fn julia_emit_function(
         extra: json!({}),
     });
     edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
+        kind: crate::core::types::EdgeKind::Contains,
         source: parent_name
             .map(|parent| qualify(context.file_path, parent, None))
             .unwrap_or_else(|| context.file_path.to_string()),
@@ -405,7 +405,7 @@ fn julia_emit_call(
         .map(|func| qualify(context.file_path, func, enclosing_class))
         .unwrap_or_else(|| context.file_path.to_string());
     edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Calls.as_str().to_string(),
+        kind: crate::core::types::EdgeKind::Calls,
         source: caller.clone(),
         target: call_name.to_string(),
         file_path: context.file_path.to_string(),
@@ -433,7 +433,7 @@ fn julia_emit_enum(
     };
     let qualified_type = qualify(context.file_path, type_name, enclosing_class);
     nodes.push(ParsedNode {
-        kind: crate::core::types::NodeKind::Class.as_str().to_string(),
+        kind: crate::core::types::NodeKind::Class,
         name: type_name.clone(),
         file_path: context.file_path.to_string(),
         line_start: node.start_position().row as i64 + 1,
@@ -447,7 +447,7 @@ fn julia_emit_enum(
         extra: json!({"julia_kind": "enum"}),
     });
     edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
+        kind: crate::core::types::EdgeKind::Contains,
         source: enclosing_class
             .map(|class| qualify(context.file_path, class, None))
             .unwrap_or_else(|| context.file_path.to_string()),
@@ -458,7 +458,7 @@ fn julia_emit_enum(
     });
     for variant in identifiers.iter().skip(1) {
         nodes.push(ParsedNode {
-            kind: crate::core::types::NodeKind::Function.as_str().to_string(),
+            kind: crate::core::types::NodeKind::Function,
             name: variant.clone(),
             file_path: context.file_path.to_string(),
             line_start: node.start_position().row as i64 + 1,
@@ -472,7 +472,7 @@ fn julia_emit_enum(
             extra: json!({"julia_kind": "enum_variant"}),
         });
         edges.push(ParsedEdge {
-            kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
+            kind: crate::core::types::EdgeKind::Contains,
             source: qualified_type.clone(),
             target: qualify(context.file_path, variant, Some(type_name)),
             file_path: context.file_path.to_string(),
@@ -498,7 +498,7 @@ fn julia_emit_testset(
         .unwrap_or_else(|| format!("testset@L{line}"));
     let qualified = qualify(context.file_path, &name, enclosing_class);
     nodes.push(ParsedNode {
-        kind: crate::core::types::NodeKind::Test.as_str().to_string(),
+        kind: crate::core::types::NodeKind::Test,
         name: name.clone(),
         file_path: context.file_path.to_string(),
         line_start: line,
@@ -512,7 +512,7 @@ fn julia_emit_testset(
         extra: json!({}),
     });
     edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
+        kind: crate::core::types::EdgeKind::Contains,
         source: enclosing_func
             .map(|func| qualify(context.file_path, func, enclosing_class))
             .unwrap_or_else(|| context.file_path.to_string()),
@@ -542,9 +542,7 @@ fn julia_emit_symbol_references(
         .unwrap_or_else(|| context.file_path.to_string());
     for target in julia_direct_child_texts(node, context.source, &["identifier"]) {
         edges.push(ParsedEdge {
-            kind: crate::core::types::EdgeKind::References
-                .as_str()
-                .to_string(),
+            kind: crate::core::types::EdgeKind::References,
             source: source.clone(),
             target,
             file_path: context.file_path.to_string(),
@@ -572,7 +570,7 @@ fn julia_emit_inheritance(
         return;
     }
     edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Inherits.as_str().to_string(),
+        kind: crate::core::types::EdgeKind::Inherits,
         source: qualify(context.file_path, name, enclosing_class),
         target: identifiers[1].clone(),
         file_path: context.file_path.to_string(),
@@ -592,9 +590,7 @@ fn julia_emit_owner_reference(
         return;
     };
     edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::References
-            .as_str()
-            .to_string(),
+        kind: crate::core::types::EdgeKind::References,
         source: qualify(context.file_path, name, parent_name),
         target: owner,
         file_path: context.file_path.to_string(),
@@ -628,9 +624,7 @@ fn julia_bridge_edge(
         ),
     };
     Some(ParsedEdge {
-        kind: crate::core::types::EdgeKind::CrossArtifact
-            .as_str()
-            .to_string(),
+        kind: crate::core::types::EdgeKind::CrossArtifact,
         source: caller.to_string(),
         target,
         file_path: context.file_path.to_string(),

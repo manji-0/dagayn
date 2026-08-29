@@ -14,7 +14,7 @@ pub(super) fn parse_scala_with_parser(
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
-        kind: crate::core::types::NodeKind::File.as_str().to_string(),
+        kind: crate::core::types::NodeKind::File,
         name: file_path.to_string(),
         file_path: file_path.to_string(),
         line_start: 1,
@@ -153,9 +153,7 @@ fn scala_emit_imports(
 ) {
     for target in scala_import_targets(node, source) {
         edges.push(ParsedEdge {
-            kind: crate::core::types::EdgeKind::ImportsFrom
-                .as_str()
-                .to_string(),
+            kind: crate::core::types::EdgeKind::ImportsFrom,
             source: file_path.to_string(),
             target,
             file_path: file_path.to_string(),
@@ -217,7 +215,7 @@ fn scala_emit_type(
     }
     let qualified = qualify(file_path, name, enclosing_class);
     nodes.push(ParsedNode {
-        kind: crate::core::types::NodeKind::Class.as_str().to_string(),
+        kind: crate::core::types::NodeKind::Class,
         name: name.to_string(),
         file_path: file_path.to_string(),
         line_start: node.start_position().row as i64 + 1,
@@ -231,7 +229,7 @@ fn scala_emit_type(
         extra,
     });
     edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
+        kind: crate::core::types::EdgeKind::Contains,
         source: file_path.to_string(),
         target: qualified.clone(),
         file_path: file_path.to_string(),
@@ -244,7 +242,11 @@ fn scala_emit_type(
             .enumerate()
         {
             edges.push(ParsedEdge {
-                kind: if idx == 0 { "INHERITS" } else { "IMPLEMENTS" }.to_string(),
+                kind: if idx == 0 {
+                    crate::core::types::EdgeKind::Inherits
+                } else {
+                    crate::core::types::EdgeKind::Implements
+                },
                 source: qualified.clone(),
                 target,
                 file_path: file_path.to_string(),
@@ -281,7 +283,7 @@ fn scala_emit_function(
 ) {
     let qualified = qualify(file_path, name, enclosing_class);
     nodes.push(ParsedNode {
-        kind: crate::core::types::NodeKind::Function.as_str().to_string(),
+        kind: crate::core::types::NodeKind::Function,
         name: name.to_string(),
         file_path: file_path.to_string(),
         line_start: node.start_position().row as i64 + 1,
@@ -295,7 +297,7 @@ fn scala_emit_function(
         extra: json!({}),
     });
     edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
+        kind: crate::core::types::EdgeKind::Contains,
         source: enclosing_class
             .map(|class| qualify(file_path, class, None))
             .unwrap_or_else(|| file_path.to_string()),
@@ -319,7 +321,7 @@ fn scala_emit_call(
         .unwrap_or_else(|| file_path.to_string());
     if let Some(call_name) = scala_call_name(node, source) {
         edges.push(ParsedEdge {
-            kind: crate::core::types::EdgeKind::Calls.as_str().to_string(),
+            kind: crate::core::types::EdgeKind::Calls,
             source: caller.clone(),
             target: call_name,
             file_path: file_path.to_string(),
@@ -349,7 +351,7 @@ fn scala_emit_instance_call(
         .map(|func| qualify(file_path, func, enclosing_class))
         .unwrap_or_else(|| file_path.to_string());
     edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Calls.as_str().to_string(),
+        kind: crate::core::types::EdgeKind::Calls,
         source: caller,
         target,
         file_path: file_path.to_string(),
@@ -418,9 +420,7 @@ fn scala_bridge_edge(
         ),
     };
     Some(ParsedEdge {
-        kind: crate::core::types::EdgeKind::CrossArtifact
-            .as_str()
-            .to_string(),
+        kind: crate::core::types::EdgeKind::CrossArtifact,
         source: caller.to_string(),
         target,
         file_path: file_path.to_string(),
