@@ -25,7 +25,8 @@ def _ca_edges(store: GraphStore) -> list:
     rows = (
         store_conn(store)
         .execute(
-            "SELECT source_qualified, target_qualified, extra FROM edges WHERE kind='CROSS_ARTIFACT'"
+            "SELECT source_qualified, target_qualified, extra "
+            "FROM edges WHERE kind='CROSS_ARTIFACT'"
         )
         .fetchall()
     )
