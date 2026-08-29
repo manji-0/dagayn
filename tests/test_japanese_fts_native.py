@@ -24,7 +24,9 @@ def _seed_japanese_corpus(store, root: Path) -> None:
         "ops.md": "# 運用検索\n\n運用チームがログを検索して障害を切り分ける。\n",
         "auth.py": "def verify_token(token: str) -> bool:\n    return True\n",
         "billing.py": "def run_billing_batch() -> None:\n    pass\n",
-        "prose.md": "# 長い説明\n\nこの文書は自然言語検索の背景を、助詞や接続を含めて長く書いたものです。\n",
+        "prose.md": (
+            "# 長い説明\n\nこの文書は自然言語検索の背景を、助詞や接続を含めて長く書いたものです。\n"
+        ),
     }
     for name, body in files.items():
         (root / name).write_text(body, encoding="utf-8")
