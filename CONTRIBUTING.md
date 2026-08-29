@@ -41,7 +41,7 @@ pinned Tree-sitter grammars. The first build fetches grammars over the network.
 
 ### Rust workspace
 
-Requires a Rust toolchain (1.92+) and a C compiler. `uv sync` is enough for
+Requires a Rust toolchain (1.95+) and a C compiler. `uv sync` is enough for
 the Python test path (maturin). For `cargo test --workspace` or
 `cargo clippy --workspace -- -D warnings`, point PyO3 at uv's interpreter so
 `dagayn-py` can link `libpython`:

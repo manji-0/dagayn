@@ -169,39 +169,50 @@ fn javascript_walk_children(
             | "method_definition"
             | "method_signature"
             | "function_signature"
-            | "arrow_function" => {
-                if javascript_emit_function_node(child, context, enclosing_class, nodes, edges) {
-                    if let Some(name) = javascript_function_name(child, context.source) {
-                        let snapshot = context.bindings.borrow().snapshot();
-                        if let Some(class_name) = enclosing_class {
-                            context
-                                .bindings
-                                .borrow_mut()
-                                .bind_implicit_receivers(class_name);
-                        }
-                        javascript_walk_children(
-                            child,
-                            context,
-                            enclosing_class,
-                            Some(&name),
-                            nodes,
-                            edges,
-                        );
-                        context.bindings.borrow_mut().restore(snapshot);
+            | "arrow_function"
+                if javascript_emit_function_node(child, context, enclosing_class, nodes, edges) =>
+            {
+                if let Some(name) = javascript_function_name(child, context.source) {
+                    let snapshot = context.bindings.borrow().snapshot();
+                    if let Some(class_name) = enclosing_class {
+                        context
+                            .bindings
+                            .borrow_mut()
+                            .bind_implicit_receivers(class_name);
                     }
-                    continue;
+                    javascript_walk_children(
+                        child,
+                        context,
+                        enclosing_class,
+                        Some(&name),
+                        nodes,
+                        edges,
+                    );
+                    context.bindings.borrow_mut().restore(snapshot);
                 }
+                continue;
             }
-            "lexical_declaration" | "variable_declaration" => {
-                if javascript_emit_variable_functions(child, context, enclosing_class, nodes, edges)
-                {
-                    continue;
-                }
+            "lexical_declaration" | "variable_declaration"
+                if javascript_emit_variable_functions(
+                    child,
+                    context,
+                    enclosing_class,
+                    nodes,
+                    edges,
+                ) =>
+            {
+                continue;
             }
-            "public_field_definition" => {
-                if javascript_emit_field_function(child, context, enclosing_class, nodes, edges) {
-                    continue;
-                }
+            "public_field_definition"
+                if javascript_emit_field_function(
+                    child,
+                    context,
+                    enclosing_class,
+                    nodes,
+                    edges,
+                ) =>
+            {
+                continue;
             }
             "import_statement" | "export_statement" => {
                 for target in javascript_import_targets(child, context.source) {
@@ -225,7 +236,7 @@ fn javascript_walk_children(
                     continue;
                 }
             }
-            "call_expression" | "new_expression" => {
+            "call_expression" | "new_expression"
                 if javascript_emit_call(
                     child,
                     context,
@@ -233,9 +244,9 @@ fn javascript_walk_children(
                     enclosing_func,
                     nodes,
                     edges,
-                ) {
-                    continue;
-                }
+                ) =>
+            {
+                continue;
             }
             "jsx_opening_element" | "jsx_self_closing_element" => {
                 javascript_emit_jsx_component_call(

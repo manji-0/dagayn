@@ -90,22 +90,25 @@ fn solidity_walk_children(
                     continue;
                 }
             }
-            "constant_variable_declaration" => {
-                if solidity_emit_constant(child, source, file_path, enclosing_class, nodes, edges) {
-                    continue;
-                }
-            }
-            "state_variable_declaration" if enclosing_class.is_some() => {
-                if solidity_emit_state_variable(
+            "constant_variable_declaration"
+                if solidity_emit_constant(
                     child,
                     source,
                     file_path,
-                    enclosing_class.unwrap_or_default(),
+                    enclosing_class,
                     nodes,
                     edges,
-                ) {
-                    continue;
-                }
+                ) =>
+            {
+                continue;
+            }
+            "state_variable_declaration"
+                if let Some(class) = enclosing_class
+                    && solidity_emit_state_variable(
+                        child, source, file_path, class, nodes, edges,
+                    ) =>
+            {
+                continue;
             }
             "function_definition"
             | "constructor_definition"

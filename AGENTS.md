@@ -87,7 +87,7 @@ Subagent delegation rules are maintained in the global `~/.pi/agent/AGENTS.md`. 
 
 This repo ships two products: the primary `dagayn` CLI/MCP server (Python package
 with a PyO3 Rust core, `dagayn._core`) and the secondary `dagayn-vscode` editor
-extension (Node/pnpm). The Rust toolchain (1.92), Node 22, and pnpm are preinstalled;
+extension (Node/pnpm). The Rust toolchain (1.95), Node 22, and pnpm are preinstalled;
 `uv` is installed to `~/.local/bin` (already on the default login-shell `PATH`).
 
 Standard lint/test/build/run commands are already documented — see `CONTRIBUTING.md`

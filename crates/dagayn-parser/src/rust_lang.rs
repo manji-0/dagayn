@@ -108,24 +108,22 @@ fn rust_walk_children(
                     continue;
                 }
             }
-            "impl_item" => {
-                if let Some(type_name) = rust_impl_type_name(child, context.source) {
-                    if let Some(trait_name) = rust_impl_trait_name(child, context.source) {
-                        edges.push(ParsedEdge {
-                            kind: crate::core::types::EdgeKind::Implements,
-                            source: qualify(&context.file_path, &type_name, None),
-                            target: trait_name,
-                            file_path: context.file_path.clone(),
-                            line: child.start_position().row as i64 + 1,
-                            extra: json!({
-                                "relationship_role": "implements",
-                                "syntax_source": "impl_item",
-                            }),
-                        });
-                    }
-                    rust_walk_children(child, context, Some(&type_name), None, nodes, edges);
-                    continue;
+            "impl_item" if let Some(type_name) = rust_impl_type_name(child, context.source) => {
+                if let Some(trait_name) = rust_impl_trait_name(child, context.source) {
+                    edges.push(ParsedEdge {
+                        kind: crate::core::types::EdgeKind::Implements,
+                        source: qualify(&context.file_path, &type_name, None),
+                        target: trait_name,
+                        file_path: context.file_path.clone(),
+                        line: child.start_position().row as i64 + 1,
+                        extra: json!({
+                            "relationship_role": "implements",
+                            "syntax_source": "impl_item",
+                        }),
+                    });
                 }
+                rust_walk_children(child, context, Some(&type_name), None, nodes, edges);
+                continue;
             }
             "function_item" | "function_signature_item" => {
                 if let Some(name) = rust_identifier_child(child, context.source) {

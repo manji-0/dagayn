@@ -115,7 +115,7 @@ fn julia_walk_children(
                 julia_emit_symbol_references(child, context, enclosing_class, edges);
                 continue;
             }
-            "macrocall_expression" => {
+            "macrocall_expression"
                 if julia_handle_macrocall(
                     child,
                     context,
@@ -123,9 +123,9 @@ fn julia_walk_children(
                     enclosing_func,
                     nodes,
                     edges,
-                ) {
-                    continue;
-                }
+                ) =>
+            {
+                continue;
             }
             "abstract_definition" | "struct_definition" => {
                 if let Some(name) = julia_type_name(child, context.source) {
@@ -170,7 +170,7 @@ fn julia_walk_children(
                     continue;
                 }
             }
-            "assignment" => {
+            "assignment"
                 if julia_handle_short_function(
                     child,
                     context,
@@ -178,9 +178,9 @@ fn julia_walk_children(
                     enclosing_func,
                     nodes,
                     edges,
-                ) {
-                    continue;
-                }
+                ) =>
+            {
+                continue;
             }
             "call_expression" => {
                 if julia_is_signature_call(child) || julia_is_assignment_lhs_call(child) {

@@ -87,7 +87,7 @@ fn lua_walk_children(
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         match child.kind() {
-            "variable_declaration" => {
+            "variable_declaration"
                 if lua_handle_variable_declaration(
                     child,
                     context,
@@ -95,9 +95,9 @@ fn lua_walk_children(
                     enclosing_func,
                     nodes,
                     edges,
-                ) {
-                    continue;
-                }
+                ) =>
+            {
+                continue;
             }
             "function_declaration" => {
                 if let Some((parent, name)) = lua_table_function_name(child, context.source) {
