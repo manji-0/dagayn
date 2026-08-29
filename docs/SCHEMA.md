@@ -5,6 +5,7 @@
 ## Nodes
 
 <!-- derived-from ./ARCHITECTURE.md#storage-model -->
+<!-- constrained-by ./ARCHITECTURE.md#in-memory-representation -->
 
 Core node kinds include:
 
@@ -19,9 +20,16 @@ Core node kinds include:
 
 Nodes store file path, qualified name, language, line range, and an `extra` payload for format-specific metadata.
 
+The Rust parser represents these labels as `NodeKind` and converts to the
+string form only when writing `NodeInput` / SQLite. `Type` and `DocBody` are
+part of that closed set, not ad-hoc strings. In memory, `file_path` is a
+shared `FilePath` (`Arc<str>`); every node and edge from one file clones the
+same handle. Persistence still stores a string.
+
 ## Edges
 
 <!-- derived-from ./ARCHITECTURE.md#parsing-model -->
+<!-- constrained-by ./ARCHITECTURE.md#in-memory-representation -->
 
 Edge kinds include:
 
@@ -34,6 +42,9 @@ Edge kinds include:
 - `TESTED_BY`
 - `DEPENDS_ON`
 - `CROSS_ARTIFACT` — cross-boundary references between artifacts (cross-language process/FFI bridges, Markdown → code symbol references, Terraform → application-code path/entrypoint bridges, manifest-backed native-extension / generated-client links). Carries `bridge_kind`, `relationship_role`, `evidence_kind`, and `confidence_tier` in `extra`. Markdown code-span candidates carry `extra.original_symbol_name` while they are being resolved; post-processing keeps them only when they resolve uniquely to a non-Markdown symbol. Explicit `dagayn:` documentation directives may remain unresolved because they are author-declared dependencies. Terraform `handler` / `entry_point` bridges similarly carry `original_symbol_name` and resolve when a unique Function/Test match exists. Manifest bridges set `extra.extractor=manifest_bridges` and roles such as `builds_artifact`, `generates_code`, and `binds_generated_client`.
+
+The Rust parser represents these labels as `EdgeKind`, including `IMPLEMENTS`.
+The persisted / Python form remains the uppercase string.
 
 `TESTED_BY` edges are directed from the covered production symbol to the test
 symbol that exercises it. For example, `src/auth.py::login -> tests/test_auth.py::test_login`.

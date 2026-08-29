@@ -2,7 +2,7 @@ use std::path::Path;
 
 use serde_json::json;
 
-use super::types::{ParsedEdge, ParsedNode};
+use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{
     collect_namespace_paths, is_test_file, line_count, node_text, normalize_relative_path,
     set_declared_namespaces, strip_matching_quotes,
@@ -11,7 +11,7 @@ use super::{qualify, resolve_rust_call_targets};
 
 struct JavaParseContext<'a> {
     source: &'a [u8],
-    file_path: &'a str,
+    file_path: FilePath,
     repo_root: Option<&'a Path>,
 }
 
@@ -21,11 +21,12 @@ pub(super) fn parse_java_with_parser(
     parser: Option<&mut tree_sitter::Parser>,
     repo_root: Option<&Path>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let file_path = FilePath::new(file_path);
     let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
-        kind: crate::core::types::NodeKind::File.as_str().to_string(),
+        kind: crate::core::types::NodeKind::File,
         name: file_path.to_string(),
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line_start: 1,
         line_end,
         language: "java".to_string(),
@@ -33,7 +34,7 @@ pub(super) fn parse_java_with_parser(
         params: None,
         return_type: None,
         modifiers: None,
-        is_test: is_test_file(file_path),
+        is_test: is_test_file(&file_path),
         extra: json!({}),
     }];
     let mut edges = Vec::new();
@@ -42,7 +43,7 @@ pub(super) fn parse_java_with_parser(
         if let Some(tree) = parser.parse(source, None) {
             let context = JavaParseContext {
                 source,
-                file_path,
+                file_path: file_path.clone(),
                 repo_root,
             };
             java_walk_children(
@@ -63,7 +64,7 @@ pub(super) fn parse_java_with_parser(
                     &["scoped_identifier", "identifier"],
                 ),
             );
-            let edges = resolve_rust_call_targets(&nodes, edges, file_path);
+            let edges = resolve_rust_call_targets(&nodes, edges, &file_path);
             return (nodes, edges);
         }
     }
@@ -86,7 +87,7 @@ fn java_walk_children(
                 java_emit_import(
                     child,
                     context.source,
-                    context.file_path,
+                    &context.file_path,
                     context.repo_root,
                     edges,
                 );
@@ -99,7 +100,7 @@ fn java_walk_children(
                     java_emit_type(
                         child,
                         context.source,
-                        context.file_path,
+                        &context.file_path,
                         &name,
                         enclosing_class,
                         nodes,
@@ -114,7 +115,7 @@ fn java_walk_children(
                     java_emit_function(
                         child,
                         context.source,
-                        context.file_path,
+                        &context.file_path,
                         &name,
                         enclosing_class,
                         nodes,
@@ -128,7 +129,7 @@ fn java_walk_children(
                 java_emit_call(
                     child,
                     context.source,
-                    context.file_path,
+                    &context.file_path,
                     enclosing_class,
                     enclosing_func,
                     edges,
@@ -150,7 +151,7 @@ fn java_walk_children(
 fn java_emit_import(
     node: tree_sitter::Node<'_>,
     source: &[u8],
-    file_path: &str,
+    file_path: &FilePath,
     repo_root: Option<&Path>,
     edges: &mut Vec<ParsedEdge>,
 ) {
@@ -160,12 +161,10 @@ fn java_emit_import(
     let target =
         resolve_java_import_target(&import_target, file_path, repo_root).unwrap_or(import_target);
     edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::ImportsFrom
-            .as_str()
-            .to_string(),
+        kind: crate::core::types::EdgeKind::ImportsFrom,
         source: file_path.to_string(),
         target,
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
@@ -187,7 +186,7 @@ fn java_import_target(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<Stri
 
 fn resolve_java_import_target(
     target: &str,
-    file_path: &str,
+    file_path: &FilePath,
     repo_root: Option<&Path>,
 ) -> Option<String> {
     if target.ends_with(".*") {
@@ -202,7 +201,7 @@ fn resolve_java_import_target(
 
 fn java_resolve_module_to_file(
     module: &str,
-    file_path: &str,
+    file_path: &FilePath,
     repo_root: Option<&Path>,
 ) -> Option<String> {
     let relative = module.replace('.', "/") + ".java";
@@ -242,7 +241,7 @@ fn java_resolve_module_to_file(
 fn java_emit_type(
     node: tree_sitter::Node<'_>,
     source: &[u8],
-    file_path: &str,
+    file_path: &FilePath,
     name: &str,
     enclosing_class: Option<&str>,
     nodes: &mut Vec<ParsedNode>,
@@ -264,9 +263,9 @@ fn java_emit_type(
     }
     let qualified = qualify(file_path, name, enclosing_class);
     nodes.push(ParsedNode {
-        kind: crate::core::types::NodeKind::Class.as_str().to_string(),
+        kind: crate::core::types::NodeKind::Class,
         name: name.to_string(),
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line_start: node.start_position().row as i64 + 1,
         line_end: node.end_position().row as i64 + 1,
         language: "java".to_string(),
@@ -278,25 +277,25 @@ fn java_emit_type(
         extra,
     });
     edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
+        kind: crate::core::types::EdgeKind::Contains,
         source: enclosing_class
             .map(|parent| qualify(file_path, parent, None))
             .unwrap_or_else(|| file_path.to_string()),
         target: qualified.clone(),
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
     for (base, role) in java_bases(node, source) {
         edges.push(ParsedEdge {
             kind: if role == "implements" {
-                "IMPLEMENTS".to_string()
+                crate::core::types::EdgeKind::Implements
             } else {
-                "INHERITS".to_string()
+                crate::core::types::EdgeKind::Inherits
             },
             source: qualified.clone(),
             target: base,
-            file_path: file_path.to_string(),
+            file_path: file_path.clone(),
             line: node.start_position().row as i64 + 1,
             extra: json!({
                 "relationship_role": role,
@@ -368,7 +367,7 @@ fn java_collect_type_names(
 fn java_emit_function(
     node: tree_sitter::Node<'_>,
     source: &[u8],
-    file_path: &str,
+    file_path: &FilePath,
     name: &str,
     enclosing_class: Option<&str>,
     nodes: &mut Vec<ParsedNode>,
@@ -376,9 +375,9 @@ fn java_emit_function(
 ) {
     let qualified = qualify(file_path, name, enclosing_class);
     nodes.push(ParsedNode {
-        kind: crate::core::types::NodeKind::Function.as_str().to_string(),
+        kind: crate::core::types::NodeKind::Function,
         name: name.to_string(),
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line_start: node.start_position().row as i64 + 1,
         line_end: node.end_position().row as i64 + 1,
         language: "java".to_string(),
@@ -390,12 +389,12 @@ fn java_emit_function(
         extra: json!({}),
     });
     edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
+        kind: crate::core::types::EdgeKind::Contains,
         source: enclosing_class
             .map(|class| qualify(file_path, class, None))
             .unwrap_or_else(|| file_path.to_string()),
         target: qualified,
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
@@ -415,7 +414,7 @@ fn java_field_text(node: tree_sitter::Node<'_>, source: &[u8], field: &str) -> O
 fn java_emit_call(
     node: tree_sitter::Node<'_>,
     source: &[u8],
-    file_path: &str,
+    file_path: &FilePath,
     enclosing_class: Option<&str>,
     enclosing_func: Option<&str>,
     edges: &mut Vec<ParsedEdge>,
@@ -426,10 +425,10 @@ fn java_emit_call(
 
     if let Some(call_name) = java_call_name(node, source) {
         edges.push(ParsedEdge {
-            kind: crate::core::types::EdgeKind::Calls.as_str().to_string(),
+            kind: crate::core::types::EdgeKind::Calls,
             source: caller.clone(),
             target: call_name,
-            file_path: file_path.to_string(),
+            file_path: file_path.clone(),
             line: node.start_position().row as i64 + 1,
             extra: json!({}),
         });
@@ -467,7 +466,7 @@ fn java_call_signature(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<Str
 fn java_bridge_edge(
     node: tree_sitter::Node<'_>,
     source: &[u8],
-    file_path: &str,
+    file_path: &FilePath,
     caller: &str,
     signature: &str,
 ) -> Option<ParsedEdge> {
@@ -491,12 +490,10 @@ fn java_bridge_edge(
         ),
     };
     Some(ParsedEdge {
-        kind: crate::core::types::EdgeKind::CrossArtifact
-            .as_str()
-            .to_string(),
+        kind: crate::core::types::EdgeKind::CrossArtifact,
         source: caller.to_string(),
         target,
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line,
         extra: json!({
             "relationship_role": relationship_role,

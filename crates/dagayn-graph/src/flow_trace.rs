@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use regex::Regex;
 use serde_json::{json, Value};
@@ -11,11 +11,46 @@ const DEFAULT_MAX_DEPTH: i64 = 15;
 const DEFAULT_MAX_NODES: i64 = 512;
 
 struct TraceGraph {
-    calls_out: HashMap<String, Vec<String>>,
-    calls_in: HashMap<String, Vec<String>>,
-    nodes_by_qn: HashMap<String, GraphNode>,
-    nodes_by_id: HashMap<i64, GraphNode>,
+    calls_out: HashMap<String, Box<[String]>>,
+    calls_in: HashMap<String, Box<[String]>>,
+    nodes_by_qn: HashMap<String, Arc<GraphNode>>,
+    nodes_by_id: HashMap<i64, Arc<GraphNode>>,
     has_tested_by: HashSet<String>,
+}
+
+fn freeze_adjacency(map: HashMap<String, Vec<String>>) -> HashMap<String, Box<[String]>> {
+    map.into_iter()
+        .map(|(key, values)| (key, values.into_boxed_slice()))
+        .collect()
+}
+
+fn invert_calls(calls_out: &HashMap<String, Box<[String]>>) -> HashMap<String, Box<[String]>> {
+    let mut calls_in: HashMap<String, Vec<String>> = HashMap::new();
+    for (source, targets) in calls_out {
+        for target in targets.iter() {
+            calls_in
+                .entry(target.clone())
+                .or_default()
+                .push(source.clone());
+        }
+    }
+    freeze_adjacency(calls_in)
+}
+
+fn index_nodes(
+    nodes: impl IntoIterator<Item = GraphNode>,
+) -> (
+    HashMap<String, Arc<GraphNode>>,
+    HashMap<i64, Arc<GraphNode>>,
+) {
+    let mut nodes_by_qn = HashMap::new();
+    let mut nodes_by_id = HashMap::new();
+    for node in nodes {
+        let node = Arc::new(node);
+        nodes_by_qn.insert(node.qualified_name.clone(), Arc::clone(&node));
+        nodes_by_id.insert(node.id, node);
+    }
+    (nodes_by_qn, nodes_by_id)
 }
 
 struct ExistingEntry {
@@ -130,22 +165,9 @@ impl GraphStore {
 
     fn load_trace_graph(&self) -> Result<TraceGraph> {
         let (calls_out, has_tested_by) = self.get_flow_edge_data()?;
-        let mut calls_in: HashMap<String, Vec<String>> = HashMap::new();
-        for (source, targets) in &calls_out {
-            for target in targets {
-                calls_in
-                    .entry(target.clone())
-                    .or_default()
-                    .push(source.clone());
-            }
-        }
-        let nodes = self.get_all_nodes_filtered(false)?;
-        let mut nodes_by_qn = HashMap::new();
-        let mut nodes_by_id = HashMap::new();
-        for node in nodes {
-            nodes_by_qn.insert(node.qualified_name.clone(), node.clone());
-            nodes_by_id.insert(node.id, node);
-        }
+        let calls_out = freeze_adjacency(calls_out);
+        let calls_in = invert_calls(&calls_out);
+        let (nodes_by_qn, nodes_by_id) = index_nodes(self.get_all_nodes_filtered(false)?);
         Ok(TraceGraph {
             calls_out,
             calls_in,
@@ -252,23 +274,11 @@ impl GraphStore {
     fn load_trace_graph_from_qns(&self, qns: &HashSet<String>) -> Result<TraceGraph> {
         let names: Vec<String> = qns.iter().cloned().collect();
         let fetched = self.get_nodes_by_qualified_names(&names)?;
-        let mut nodes_by_qn = HashMap::new();
-        let mut nodes_by_id = HashMap::new();
-        for node in fetched.into_values() {
-            nodes_by_qn.insert(node.qualified_name.clone(), node.clone());
-            nodes_by_id.insert(node.id, node);
-        }
+        let (nodes_by_qn, nodes_by_id) = index_nodes(fetched.into_values());
         let loaded_qns: HashSet<String> = nodes_by_qn.keys().cloned().collect();
         let (calls_out, has_tested_by) = self.get_flow_edge_data_for_qns(&loaded_qns)?;
-        let mut calls_in: HashMap<String, Vec<String>> = HashMap::new();
-        for (source, targets) in &calls_out {
-            for target in targets {
-                calls_in
-                    .entry(target.clone())
-                    .or_default()
-                    .push(source.clone());
-            }
-        }
+        let calls_out = freeze_adjacency(calls_out);
+        let calls_in = invert_calls(&calls_out);
         Ok(TraceGraph {
             calls_out,
             calls_in,
@@ -553,7 +563,7 @@ fn detect_entries(graph: &TraceGraph, include_tests: bool) -> Vec<GraphNode> {
         if is_entry_point(node, called.contains(node.qualified_name.as_str()))
             && seen.insert(node.qualified_name.clone())
         {
-            entries.push(node.clone());
+            entries.push((**node).clone());
         }
     }
     entries
@@ -586,7 +596,7 @@ fn detect_entries_in_files(
         if is_entry_point(node, called.contains(node.qualified_name.as_str()))
             && seen.insert(node.qualified_name.clone())
         {
-            entries.push(node.clone());
+            entries.push((**node).clone());
         }
     }
     entries
@@ -701,7 +711,7 @@ fn trace_single_flow(
         node_count: path_ids.len() as i64,
         file_count: files.len() as i64,
         criticality: 0.0,
-        path: path_ids.clone(),
+        path: path_ids.clone().into(),
         kind: "reachable_set".to_string(),
         truncated,
         truncation_reason,
@@ -713,7 +723,7 @@ fn trace_single_flow(
 fn compute_criticality(graph: &TraceGraph, path_ids: &[i64], depth: i64) -> f64 {
     let nodes: Vec<&GraphNode> = path_ids
         .iter()
-        .filter_map(|id| graph.nodes_by_id.get(id))
+        .filter_map(|id| graph.nodes_by_id.get(id).map(Arc::as_ref))
         .collect();
     if nodes.is_empty() {
         return 0.0;

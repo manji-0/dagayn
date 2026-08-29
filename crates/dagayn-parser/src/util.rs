@@ -123,7 +123,7 @@ pub(super) fn dedupe_edges(edges: Vec<ParsedEdge>) -> Vec<ParsedEdge> {
         .into_iter()
         .filter(|edge| {
             seen.insert((
-                edge.kind.clone(),
+                edge.kind,
                 edge.source.clone(),
                 edge.target.clone(),
                 edge.line,
@@ -178,7 +178,7 @@ pub(super) fn set_declared_namespaces(nodes: &mut [ParsedNode], namespaces: Vec<
 pub(super) fn set_namespaces_from_type_names(nodes: &mut [ParsedNode]) {
     let names: Vec<String> = nodes
         .iter()
-        .filter(|node| node.kind == crate::core::types::NodeKind::Class.as_str())
+        .filter(|node| node.kind == crate::core::types::NodeKind::Class)
         .map(|node| node.name.clone())
         .collect();
     set_declared_namespaces(nodes, names);

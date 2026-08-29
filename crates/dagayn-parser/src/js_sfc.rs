@@ -2,12 +2,12 @@ use std::path::Path;
 
 use serde_json::json;
 
-use super::js_like::parse_javascript_like_with_parser;
+use super::js_like::parse_javascript_like_interned;
 use super::js_modules::JavaScriptCaches;
 use super::parsers::{
     new_javascript_parser, new_svelte_parser, new_typescript_parser, new_vue_parser,
 };
-use super::types::{ParsedEdge, ParsedNode};
+use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{is_test_file, line_count, node_text};
 
 pub fn parse_vue(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
@@ -100,11 +100,12 @@ fn parse_sfc_with_parsers(
     source: &[u8],
     mut inputs: SfcParserInputs<'_>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let file_path = FilePath::new(file_path);
     let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
-        kind: crate::core::types::NodeKind::File.as_str().to_string(),
+        kind: crate::core::types::NodeKind::File,
         name: file_path.to_string(),
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line_start: 1,
         line_end,
         language: inputs.language.to_string(),
@@ -112,7 +113,7 @@ fn parse_sfc_with_parsers(
         params: None,
         return_type: None,
         modifiers: None,
-        is_test: is_test_file(file_path),
+        is_test: is_test_file(&file_path),
         extra: json!({}),
     }];
     let mut edges = Vec::new();
@@ -136,8 +137,8 @@ fn parse_sfc_with_parsers(
                 };
                 let script_source = &source[raw_text_node.start_byte()..raw_text_node.end_byte()];
                 let line_offset = raw_text_node.start_position().row as i64;
-                let (script_nodes, script_edges) = parse_javascript_like_with_parser(
-                    file_path,
+                let (script_nodes, script_edges) = parse_javascript_like_interned(
+                    &file_path,
                     script_source,
                     script_language,
                     script_parser,

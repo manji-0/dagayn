@@ -9,7 +9,7 @@ use super::documentation_directives::{
     extract_line_comment_dagayn_directives, nearest_documentation_source,
     push_documentation_directive_edge,
 };
-use super::types::{ParsedEdge, ParsedNode};
+use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{is_test_file, line_count, node_text};
 use super::{qualify, resolve_rust_call_targets};
 
@@ -31,15 +31,16 @@ pub(super) fn parse_python_with_parser(
     parser: Option<&mut tree_sitter::Parser>,
     repo_root: Option<&Path>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let file_path = FilePath::new(file_path);
     if is_databricks_py_source(source) {
-        return parse_databricks_py_with_parser(file_path, source, parser, repo_root);
+        return parse_databricks_py_with_parser(&file_path, source, parser, repo_root);
     }
 
     let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
-        kind: crate::core::types::NodeKind::File.as_str().to_string(),
+        kind: crate::core::types::NodeKind::File,
         name: file_path.to_string(),
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line_start: 1,
         line_end,
         language: "python".to_string(),
@@ -47,7 +48,7 @@ pub(super) fn parse_python_with_parser(
         params: None,
         return_type: None,
         modifiers: None,
-        is_test: is_test_file(file_path),
+        is_test: is_test_file(&file_path),
         extra: json!({}),
     }];
     let mut edges = Vec::new();
@@ -58,15 +59,15 @@ pub(super) fn parse_python_with_parser(
             let (import_map, top_level_defined_names) = collect_python_file_scope(root, source);
             let context = PythonParseContext {
                 source,
-                file_path,
+                file_path: file_path.clone(),
                 repo_root,
                 import_map: &import_map,
                 top_level_defined_names: &top_level_defined_names,
             };
             python_walk_children(root, &context, None, None, &mut nodes, &mut edges);
-            extract_python_documentation_directives(file_path, source, &nodes, &mut edges);
-            let edges = resolve_python_call_targets(&nodes, edges, file_path);
-            let edges = add_python_tested_by_edges(&nodes, edges, file_path);
+            extract_python_documentation_directives(&file_path, source, &nodes, &mut edges);
+            let edges = resolve_python_call_targets(&nodes, edges, &file_path);
+            let edges = add_python_tested_by_edges(&nodes, edges, &file_path);
             return (nodes, edges);
         }
     }
@@ -75,7 +76,7 @@ pub(super) fn parse_python_with_parser(
 }
 
 fn extract_python_documentation_directives(
-    file_path: &str,
+    file_path: &FilePath,
     source: &[u8],
     nodes: &[ParsedNode],
     edges: &mut Vec<ParsedEdge>,
@@ -100,6 +101,7 @@ pub(super) fn parse_notebook_with_parser(
     parser: Option<&mut tree_sitter::Parser>,
     repo_root: Option<&Path>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let file_path = FilePath::new(file_path);
     let Ok(notebook) = serde_json::from_slice::<Value>(source) else {
         return (Vec::new(), Vec::new());
     };
@@ -113,10 +115,10 @@ pub(super) fn parse_notebook_with_parser(
             .unwrap_or("notebook");
         return (
             vec![notebook_file_node(
-                file_path,
+                &file_path,
                 1,
                 kernel,
-                is_test_file(file_path),
+                is_test_file(&file_path),
                 None,
             )],
             Vec::new(),
@@ -126,21 +128,28 @@ pub(super) fn parse_notebook_with_parser(
     if cells.is_empty() {
         return (
             vec![notebook_file_node(
-                file_path,
+                &file_path,
                 1,
                 default_language,
-                is_test_file(file_path),
+                is_test_file(&file_path),
                 None,
             )],
             Vec::new(),
         );
     }
-    parse_notebook_cells_with_parser(file_path, &cells, default_language, None, parser, repo_root)
+    parse_notebook_cells_with_parser(
+        &file_path,
+        &cells,
+        default_language,
+        None,
+        parser,
+        repo_root,
+    )
 }
 
 struct PythonParseContext<'a> {
     source: &'a [u8],
-    file_path: &'a str,
+    file_path: FilePath,
     repo_root: Option<&'a Path>,
     import_map: &'a HashMap<String, String>,
     top_level_defined_names: &'a HashSet<String>,
@@ -162,7 +171,7 @@ fn is_databricks_py_source(source: &[u8]) -> bool {
 }
 
 fn parse_databricks_py_with_parser(
-    file_path: &str,
+    file_path: &FilePath,
     source: &[u8],
     parser: Option<&mut tree_sitter::Parser>,
     repo_root: Option<&Path>,
@@ -186,7 +195,7 @@ fn parse_databricks_py_with_parser(
 }
 
 fn parse_notebook_cells_with_parser(
-    file_path: &str,
+    file_path: &FilePath,
     cells: &[NotebookCell],
     default_language: &'static str,
     notebook_format: Option<&'static str>,
@@ -256,7 +265,7 @@ fn parse_notebook_cells_with_parser(
     (nodes, edges)
 }
 
-fn databricks_file_node(file_path: &str, line_end: i64, is_test: bool) -> ParsedNode {
+fn databricks_file_node(file_path: &FilePath, line_end: i64, is_test: bool) -> ParsedNode {
     notebook_file_node(
         file_path,
         line_end,
@@ -367,16 +376,16 @@ fn split_lines_keepends(text: &str) -> Vec<String> {
 }
 
 fn notebook_file_node(
-    file_path: &str,
+    file_path: &FilePath,
     line_end: i64,
     language: &str,
     is_test: bool,
     notebook_format: Option<&str>,
 ) -> ParsedNode {
     ParsedNode {
-        kind: crate::core::types::NodeKind::File.as_str().to_string(),
+        kind: crate::core::types::NodeKind::File,
         name: file_path.to_string(),
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line_start: 1,
         line_end,
         language: language.to_string(),
@@ -476,7 +485,7 @@ fn is_databricks_command_line(line: &str) -> bool {
 type NotebookOffsets = Vec<(i64, i64, i64)>;
 
 fn parse_databricks_python_cells(
-    file_path: &str,
+    file_path: &FilePath,
     cells: &[NotebookCell],
     parser: Option<&mut tree_sitter::Parser>,
     repo_root: Option<&Path>,
@@ -495,7 +504,7 @@ fn parse_databricks_python_cells(
 }
 
 fn parse_databricks_r_cells(
-    file_path: &str,
+    file_path: &FilePath,
     cells: &[NotebookCell],
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>, NotebookOffsets, i64) {
     let (source, offsets, current_line) = concatenate_notebook_cells(cells);
@@ -513,9 +522,9 @@ fn parse_databricks_r_cells(
             let line_end = find_r_function_end(&lines, index);
             let qualified = qualify(file_path, name, None);
             nodes.push(ParsedNode {
-                kind: crate::core::types::NodeKind::Function.as_str().to_string(),
+                kind: crate::core::types::NodeKind::Function,
                 name: name.to_string(),
-                file_path: file_path.to_string(),
+                file_path: file_path.clone(),
                 line_start: line_no,
                 line_end,
                 language: "r".to_string(),
@@ -527,10 +536,10 @@ fn parse_databricks_r_cells(
                 extra: json!({}),
             });
             edges.push(ParsedEdge {
-                kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
+                kind: crate::core::types::EdgeKind::Contains,
                 source: file_path.to_string(),
                 target: qualified.clone(),
-                file_path: file_path.to_string(),
+                file_path: file_path.clone(),
                 line: line_no,
                 extra: json!({}),
             });
@@ -548,10 +557,10 @@ fn parse_databricks_r_cells(
                 continue;
             }
             edges.push(ParsedEdge {
-                kind: crate::core::types::EdgeKind::Calls.as_str().to_string(),
+                kind: crate::core::types::EdgeKind::Calls,
                 source: caller.clone(),
                 target: name.to_string(),
-                file_path: file_path.to_string(),
+                file_path: file_path.clone(),
                 line: line_no,
                 extra: json!({}),
             });
@@ -585,7 +594,7 @@ fn find_r_function_end(lines: &[&str], start: usize) -> i64 {
 }
 
 fn extract_databricks_sql_imports(
-    file_path: &str,
+    file_path: &FilePath,
     cell: &NotebookCell,
     edges: &mut Vec<ParsedEdge>,
 ) {
@@ -594,12 +603,10 @@ fn extract_databricks_sql_imports(
             continue;
         };
         edges.push(ParsedEdge {
-            kind: crate::core::types::EdgeKind::ImportsFrom
-                .as_str()
-                .to_string(),
+            kind: crate::core::types::EdgeKind::ImportsFrom,
             source: file_path.to_string(),
             target: target.replace('`', ""),
-            file_path: file_path.to_string(),
+            file_path: file_path.clone(),
             line: 1,
             extra: json!({}),
         });
@@ -648,11 +655,11 @@ fn python_walk_children(
         match child.kind() {
             "class_definition" => {
                 if let Some(name) = python_identifier_child(child, context.source) {
-                    let qualified = qualify(context.file_path, &name, enclosing_class);
+                    let qualified = qualify(&context.file_path, &name, enclosing_class);
                     nodes.push(ParsedNode {
-                        kind: crate::core::types::NodeKind::Class.as_str().to_string(),
+                        kind: crate::core::types::NodeKind::Class,
                         name: name.clone(),
-                        file_path: context.file_path.to_string(),
+                        file_path: context.file_path.clone(),
                         line_start: child.start_position().row as i64 + 1,
                         line_end: child.end_position().row as i64 + 1,
                         language: "python".to_string(),
@@ -664,29 +671,33 @@ fn python_walk_children(
                         extra: json!({"type_role": "class"}),
                     });
                     edges.push(ParsedEdge {
-                        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
+                        kind: crate::core::types::EdgeKind::Contains,
                         source: context.file_path.to_string(),
                         target: qualified.clone(),
-                        file_path: context.file_path.to_string(),
+                        file_path: context.file_path.clone(),
                         line: child.start_position().row as i64 + 1,
                         extra: json!({}),
                     });
-                    python_emit_bases(child, context.source, context.file_path, &qualified, edges);
+                    python_emit_bases(child, context.source, &context.file_path, &qualified, edges);
                     python_walk_children(child, context, Some(&name), None, nodes, edges);
                     continue;
                 }
             }
             "function_definition" => {
                 if let Some(name) = python_identifier_child(child, context.source) {
-                    let qualified = qualify(context.file_path, &name, enclosing_class);
+                    let qualified = qualify(&context.file_path, &name, enclosing_class);
                     let params = python_child_text(child, context.source, "parameters");
                     let return_type = python_return_type(child, context.source);
                     let is_test =
-                        python_is_test_function(&name, context.file_path, child, context.source);
+                        python_is_test_function(&name, &context.file_path, child, context.source);
                     nodes.push(ParsedNode {
-                        kind: if is_test { "Test" } else { "Function" }.to_string(),
+                        kind: if is_test {
+                            crate::core::types::NodeKind::Test
+                        } else {
+                            crate::core::types::NodeKind::Function
+                        },
                         name: name.clone(),
-                        file_path: context.file_path.to_string(),
+                        file_path: context.file_path.clone(),
                         line_start: child.start_position().row as i64 + 1,
                         line_end: child.end_position().row as i64 + 1,
                         language: "python".to_string(),
@@ -698,13 +709,13 @@ fn python_walk_children(
                         extra: json!({}),
                     });
                     let container = enclosing_class
-                        .map(|name| qualify(context.file_path, name, None))
+                        .map(|name| qualify(&context.file_path, name, None))
                         .unwrap_or_else(|| context.file_path.to_string());
                     edges.push(ParsedEdge {
-                        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
+                        kind: crate::core::types::EdgeKind::Contains,
                         source: container,
                         target: qualified.clone(),
-                        file_path: context.file_path.to_string(),
+                        file_path: context.file_path.clone(),
                         line: child.start_position().row as i64 + 1,
                         extra: json!({}),
                     });
@@ -723,16 +734,14 @@ fn python_walk_children(
                 for target in python_import_targets(
                     child,
                     context.source,
-                    context.file_path,
+                    &context.file_path,
                     context.repo_root,
                 ) {
                     edges.push(ParsedEdge {
-                        kind: crate::core::types::EdgeKind::ImportsFrom
-                            .as_str()
-                            .to_string(),
+                        kind: crate::core::types::EdgeKind::ImportsFrom,
                         source: context.file_path.to_string(),
                         target,
-                        file_path: context.file_path.to_string(),
+                        file_path: context.file_path.clone(),
                         line: child.start_position().row as i64 + 1,
                         extra: json!({}),
                     });
@@ -740,19 +749,19 @@ fn python_walk_children(
             }
             "call" => {
                 if let Some(call_name) = python_call_name(child, context.source) {
-                    let caller = enclosing_qualified.unwrap_or(context.file_path);
+                    let caller = enclosing_qualified.unwrap_or(&context.file_path);
                     let target = python_resolve_imported_call_target(&call_name, context)
                         .unwrap_or_else(|| call_name.clone());
                     edges.push(ParsedEdge {
-                        kind: crate::core::types::EdgeKind::Calls.as_str().to_string(),
+                        kind: crate::core::types::EdgeKind::Calls,
                         source: caller.to_string(),
                         target,
-                        file_path: context.file_path.to_string(),
+                        file_path: context.file_path.clone(),
                         line: child.start_position().row as i64 + 1,
                         extra: json!({}),
                     });
                     if let Some(edge) =
-                        python_bridge_edge(child, context.source, context.file_path, caller)
+                        python_bridge_edge(child, context.source, &context.file_path, caller)
                     {
                         edges.push(edge);
                     }
@@ -762,7 +771,7 @@ fn python_walk_children(
                 python_emit_value_references(
                     child,
                     context,
-                    enclosing_qualified.unwrap_or(context.file_path),
+                    enclosing_qualified.unwrap_or(&context.file_path),
                     edges,
                 );
             }
@@ -849,12 +858,10 @@ fn python_emit_reference_if_known(
         return;
     };
     edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::References
-            .as_str()
-            .to_string(),
+        kind: crate::core::types::EdgeKind::References,
         source: caller.to_string(),
         target,
-        file_path: context.file_path.to_string(),
+        file_path: context.file_path.clone(),
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
@@ -865,11 +872,11 @@ fn python_resolve_reference_target(name: &str, context: &PythonParseContext<'_>)
         return None;
     }
     if context.top_level_defined_names.contains(name) {
-        return Some(qualify(context.file_path, name, None));
+        return Some(qualify(&context.file_path, name, None));
     }
     let module = context.import_map.get(name)?;
     Some(
-        python_resolve_module_to_file(module, context.file_path, context.repo_root)
+        python_resolve_module_to_file(module, &context.file_path, context.repo_root)
             .map(|resolved| qualify(&resolved, name, None))
             .unwrap_or_else(|| name.to_string()),
     )
@@ -1021,7 +1028,7 @@ fn python_return_type(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<Stri
 
 fn python_is_test_function(
     name: &str,
-    file_path: &str,
+    file_path: &FilePath,
     node: tree_sitter::Node<'_>,
     source: &[u8],
 ) -> bool {
@@ -1075,7 +1082,7 @@ fn python_has_test_annotation(node: tree_sitter::Node<'_>, source: &[u8]) -> boo
 fn python_emit_bases(
     node: tree_sitter::Node<'_>,
     source: &[u8],
-    file_path: &str,
+    file_path: &FilePath,
     qualified: &str,
     edges: &mut Vec<ParsedEdge>,
 ) {
@@ -1088,10 +1095,10 @@ fn python_emit_bases(
         for arg in child.children(&mut arg_cursor) {
             if matches!(arg.kind(), "identifier" | "attribute") {
                 edges.push(ParsedEdge {
-                    kind: crate::core::types::EdgeKind::Inherits.as_str().to_string(),
+                    kind: crate::core::types::EdgeKind::Inherits,
                     source: qualified.to_string(),
                     target: node_text(arg, source),
-                    file_path: file_path.to_string(),
+                    file_path: file_path.clone(),
                     line: node.start_position().row as i64 + 1,
                     extra: json!({
                         "relationship_role": "extends",
@@ -1106,7 +1113,7 @@ fn python_emit_bases(
 fn python_import_targets(
     node: tree_sitter::Node<'_>,
     source: &[u8],
-    file_path: &str,
+    file_path: &FilePath,
     repo_root: Option<&Path>,
 ) -> Vec<String> {
     if node.kind() == "import_statement" {
@@ -1180,7 +1187,7 @@ fn rust_rightmost_identifier(node: tree_sitter::Node<'_>, source: &[u8]) -> Opti
 fn resolve_python_call_targets(
     nodes: &[ParsedNode],
     edges: Vec<ParsedEdge>,
-    file_path: &str,
+    file_path: &FilePath,
 ) -> Vec<ParsedEdge> {
     resolve_rust_call_targets(nodes, edges, file_path)
 }
@@ -1193,14 +1200,14 @@ fn python_resolve_imported_call_target(
         return None;
     }
     let module = context.import_map.get(call_name)?;
-    let resolved = python_resolve_module_to_file(module, context.file_path, context.repo_root)?;
+    let resolved = python_resolve_module_to_file(module, &context.file_path, context.repo_root)?;
     Some(qualify(&resolved, call_name, None))
 }
 
 fn add_python_tested_by_edges(
     nodes: &[ParsedNode],
     edges: Vec<ParsedEdge>,
-    file_path: &str,
+    file_path: &FilePath,
 ) -> Vec<ParsedEdge> {
     if !is_test_file(file_path) {
         return edges;
@@ -1218,7 +1225,7 @@ fn add_python_tested_by_edges(
         .iter()
         .filter(|edge| edge.kind == "CALLS" && test_qnames.contains(&edge.source))
         .map(|edge| ParsedEdge {
-            kind: crate::core::types::EdgeKind::TestedBy.as_str().to_string(),
+            kind: crate::core::types::EdgeKind::TestedBy,
             source: edge.target.clone(),
             target: edge.source.clone(),
             file_path: edge.file_path.clone(),
@@ -1232,7 +1239,7 @@ fn add_python_tested_by_edges(
 
 fn python_resolve_module_to_file(
     module: &str,
-    file_path: &str,
+    file_path: &FilePath,
     repo_root: Option<&Path>,
 ) -> Option<String> {
     let caller_dir = Path::new(file_path)
@@ -1302,7 +1309,7 @@ fn python_module_candidate_path(candidate: PathBuf, repo_root: Option<&Path>) ->
 fn python_bridge_edge(
     node: tree_sitter::Node<'_>,
     source: &[u8],
-    file_path: &str,
+    file_path: &FilePath,
     caller: &str,
 ) -> Option<ParsedEdge> {
     let signature = python_call_signature(node, source)?;
@@ -1317,12 +1324,10 @@ fn python_bridge_edge(
         ),
     };
     Some(ParsedEdge {
-        kind: crate::core::types::EdgeKind::CrossArtifact
-            .as_str()
-            .to_string(),
+        kind: crate::core::types::EdgeKind::CrossArtifact,
         source: caller.to_string(),
         target,
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line,
         extra: json!({
             "relationship_role": relationship_role,

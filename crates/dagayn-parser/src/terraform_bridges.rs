@@ -12,15 +12,17 @@ use regex::Regex;
 use serde_json::json;
 
 use super::terraform_collect::{strip_tf_string, terraform_attrs, TerraformBlock};
-use super::types::{EdgeKind, ParsedEdge};
+use super::types::{EdgeKind, FilePath, ParsedEdge};
 use super::util::normalize_relative_path;
 
 static PROVISIONER_LOCAL_EXEC_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"provisioner\s+"local-exec""#).unwrap());
-static COMMAND_ATTR_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"(?m)\bcommand\s*=\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')"#).unwrap());
+static COMMAND_ATTR_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?m)\bcommand\s*=\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')"#).unwrap()
+});
 static ENTRYPOINT_ATTR_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?m)\b(handler|entry_point)\s*=\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')"#).unwrap()
+    Regex::new(r#"(?m)\b(handler|entry_point)\s*=\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')"#)
+        .unwrap()
 });
 static PATH_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
@@ -35,12 +37,7 @@ static PATH_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
     .unwrap()
 });
 
-const PATH_ATTR_NAMES: &[&str] = &[
-    "filename",
-    "source_dir",
-    "source_file",
-    "source_directory",
-];
+const PATH_ATTR_NAMES: &[&str] = &["filename", "source_dir", "source_file", "source_directory"];
 
 const FILENAME_RESOURCE_TYPES: &[&str] = &[
     "aws_lambda_function",
@@ -53,7 +50,7 @@ const FILENAME_RESOURCE_TYPES: &[&str] = &[
 ];
 
 pub(super) fn extract_terraform_code_bridges(
-    file_path: &str,
+    file_path: &FilePath,
     blocks: &[TerraformBlock],
     edges: &mut Vec<ParsedEdge>,
 ) {
@@ -70,20 +67,14 @@ pub(super) fn extract_terraform_code_bridges(
         let node_name = format!("{}.{}.{}", block.kind, resource_type, resource_name);
         let source = format!("{file_path}::{node_name}");
 
-        extract_path_attr_bridges(
-            file_path,
-            &source,
-            resource_type,
-            block,
-            edges,
-        );
+        extract_path_attr_bridges(file_path, &source, resource_type, block, edges);
         extract_local_exec_bridges(file_path, &source, block, edges);
         extract_entrypoint_bridges(file_path, &source, block, edges);
     }
 }
 
 fn extract_path_attr_bridges(
-    file_path: &str,
+    file_path: &FilePath,
     source: &str,
     resource_type: &str,
     block: &TerraformBlock,
@@ -123,7 +114,7 @@ fn extract_path_attr_bridges(
 }
 
 fn extract_local_exec_bridges(
-    file_path: &str,
+    file_path: &FilePath,
     source: &str,
     block: &TerraformBlock,
     edges: &mut Vec<ParsedEdge>,
@@ -172,7 +163,7 @@ fn extract_local_exec_bridges(
 }
 
 fn extract_entrypoint_bridges(
-    file_path: &str,
+    file_path: &FilePath,
     source: &str,
     block: &TerraformBlock,
     edges: &mut Vec<ParsedEdge>,
@@ -219,7 +210,7 @@ fn push_bridge_edge(
     edges: &mut Vec<ParsedEdge>,
     source: &str,
     target: &str,
-    file_path: &str,
+    file_path: &FilePath,
     line: i64,
     spec: BridgeSpec<'_>,
 ) {
@@ -237,16 +228,16 @@ fn push_bridge_edge(
         extra["original_symbol_name"] = json!(symbol);
     }
     edges.push(ParsedEdge {
-        kind: EdgeKind::CrossArtifact.as_str().to_string(),
+        kind: EdgeKind::CrossArtifact,
         source: source.to_string(),
         target: target.to_string(),
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line,
         extra,
     });
 }
 
-fn concrete_tf_path(raw: &str, file_path: &str) -> Option<String> {
+fn concrete_tf_path(raw: &str, file_path: &FilePath) -> Option<String> {
     let value = strip_tf_string(raw).trim().to_string();
     if value.is_empty() {
         return None;
@@ -288,7 +279,9 @@ fn concrete_tf_path(raw: &str, file_path: &str) -> Option<String> {
         return None;
     }
 
-    let base = Path::new(file_path).parent().unwrap_or_else(|| Path::new(""));
+    let base = Path::new(file_path)
+        .parent()
+        .unwrap_or_else(|| Path::new(""));
     let joined = if Path::new(&normalized).is_absolute() {
         Path::new(&normalized).to_path_buf()
     } else if value.contains("${path.module}")
@@ -309,8 +302,8 @@ fn concrete_tf_path(raw: &str, file_path: &str) -> Option<String> {
 
 fn looks_like_code_path(path: &str) -> bool {
     [
-        ".py", ".sh", ".bash", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".go", ".rs",
-        ".rb", ".php", ".pl", ".R", ".jl", ".lua", ".ex", ".exs", ".zip",
+        ".py", ".sh", ".bash", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".go", ".rs", ".rb",
+        ".php", ".pl", ".R", ".jl", ".lua", ".ex", ".exs", ".zip",
     ]
     .iter()
     .any(|ext| path.ends_with(ext))

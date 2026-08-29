@@ -2045,7 +2045,7 @@ fn stores_flows_and_reads_flow_inputs() {
     assert_eq!(stats.edges_by_kind["CALLS"], 1);
     assert_eq!(stats.edges_by_kind["TESTED_BY"], 1);
     assert_eq!(stats.files_count, 0);
-    assert_eq!(stats.languages, vec!["python".to_string()]);
+    assert_eq!(stats.languages.as_ref(), ["python".to_string()].as_slice());
     let (calls_out, tested_by) = store.get_flow_edge_data().unwrap();
     assert_eq!(calls_out["app.py::entry"], vec!["app.py::callee"]);
     assert_eq!(tested_by, HashSet::from(["app.py::callee".to_string()]));
@@ -2059,7 +2059,7 @@ fn stores_flows_and_reads_flow_inputs() {
         node_count: 2,
         file_count: 1,
         criticality: 0.25,
-        path: vec![entry_id, callee_id],
+        path: vec![entry_id, callee_id].into(),
         ..Default::default()
     }];
     assert_eq!(store.store_flows(&flows).unwrap(), 1);
@@ -2304,7 +2304,7 @@ fn analyze_changes_json_scores_range_limited_untested_security_changes() {
         node_count: 1,
         file_count: 1,
         criticality: 0.25,
-        path: vec![auth_id],
+        path: vec![auth_id].into(),
         ..Default::default()
     }];
     assert_eq!(store.store_flows(&flows).unwrap(), 1);
@@ -2393,7 +2393,7 @@ fn store_flows_json_replaces_existing_flows_from_serialized_input() {
             node_count: 1,
             file_count: 1,
             criticality: 0.1,
-            path: vec![callee_id],
+            path: vec![callee_id].into(),
             ..Default::default()
         }])
         .unwrap();
@@ -2405,7 +2405,7 @@ fn store_flows_json_replaces_existing_flows_from_serialized_input() {
         node_count: 2,
         file_count: 1,
         criticality: 0.75,
-        path: vec![entry_id, callee_id],
+        path: vec![entry_id, callee_id].into(),
         ..Default::default()
     }];
     assert_eq!(
@@ -2481,7 +2481,7 @@ fn update_flow_criticalities_json_rewrites_scores() {
             node_count: 2,
             file_count: 1,
             criticality: 0.25,
-            path: vec![entry_id, callee_id],
+            path: vec![entry_id, callee_id].into(),
             ..Default::default()
         }])
         .unwrap();
@@ -2561,7 +2561,7 @@ fn flow_helpers_store_and_read_flow_rows_with_sanitized_json() {
                 node_count: 2,
                 file_count: 1,
                 criticality: 0.4,
-                path: vec![entry_id, callee_id],
+                path: vec![entry_id, callee_id].into(),
                 ..Default::default()
             }],
         )
@@ -2627,7 +2627,7 @@ fn stores_and_reads_communities() {
         size: 1,
         dominant_language: "python".to_string(),
         description: "Auth functions".to_string(),
-        members: vec!["auth.py::login".to_string()],
+        members: vec!["auth.py::login".to_string()].into(),
     }])
     .unwrap();
 
@@ -2898,7 +2898,7 @@ fn community_edge_queries_are_region_local() {
             size: 2,
             dominant_language: "python".to_string(),
             description: "a".to_string(),
-            members: vec!["a.py::a_caller".to_string(), "a.py::a_callee".to_string()],
+            members: vec!["a.py::a_caller".to_string(), "a.py::a_callee".to_string()].into(),
         },
         CommunityInput {
             name: "cluster-b".to_string(),
@@ -2907,7 +2907,7 @@ fn community_edge_queries_are_region_local() {
             size: 2,
             dominant_language: "python".to_string(),
             description: "b".to_string(),
-            members: vec!["b.py::b_caller".to_string(), "b.py::b_callee".to_string()],
+            members: vec!["b.py::b_caller".to_string(), "b.py::b_callee".to_string()].into(),
         },
     ])
     .unwrap();
@@ -2978,7 +2978,7 @@ fn persist_centrality_scores_filtered_keeps_other_community_hubs() {
             size: 2,
             dominant_language: "python".to_string(),
             description: "a".to_string(),
-            members: vec!["a.py::a_caller".to_string(), "a.py::a_callee".to_string()],
+            members: vec!["a.py::a_caller".to_string(), "a.py::a_callee".to_string()].into(),
         },
         CommunityInput {
             name: "cluster-b".to_string(),
@@ -2987,7 +2987,7 @@ fn persist_centrality_scores_filtered_keeps_other_community_hubs() {
             size: 2,
             dominant_language: "python".to_string(),
             description: "b".to_string(),
-            members: vec!["b.py::b_caller".to_string(), "b.py::b_callee".to_string()],
+            members: vec!["b.py::b_caller".to_string(), "b.py::b_callee".to_string()].into(),
         },
     ])
     .unwrap();

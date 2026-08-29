@@ -1,6 +1,6 @@
 use serde_json::json;
 
-use super::types::{ParsedEdge, ParsedNode};
+use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{
     collect_namespace_paths, is_test_file, line_count, node_text, set_declared_namespaces,
     strip_matching_quotes,
@@ -12,11 +12,12 @@ pub(super) fn parse_php_with_parser(
     source: &[u8],
     parser: Option<&mut tree_sitter::Parser>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let file_path = FilePath::new(file_path);
     let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
-        kind: crate::core::types::NodeKind::File.as_str().to_string(),
+        kind: crate::core::types::NodeKind::File,
         name: file_path.to_string(),
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line_start: 1,
         line_end,
         language: "php".to_string(),
@@ -24,7 +25,7 @@ pub(super) fn parse_php_with_parser(
         params: None,
         return_type: None,
         modifiers: None,
-        is_test: is_test_file(file_path),
+        is_test: is_test_file(&file_path),
         extra: json!({}),
     }];
     let mut edges = Vec::new();
@@ -34,7 +35,7 @@ pub(super) fn parse_php_with_parser(
             php_walk_children(
                 tree.root_node(),
                 source,
-                file_path,
+                &file_path,
                 None,
                 None,
                 &mut nodes,
@@ -50,7 +51,7 @@ pub(super) fn parse_php_with_parser(
                     &["namespace_name"],
                 ),
             );
-            let edges = resolve_rust_call_targets(&nodes, edges, file_path);
+            let edges = resolve_rust_call_targets(&nodes, edges, &file_path);
             return (nodes, edges);
         }
     }
@@ -61,7 +62,7 @@ pub(super) fn parse_php_with_parser(
 fn php_walk_children(
     node: tree_sitter::Node<'_>,
     source: &[u8],
-    file_path: &str,
+    file_path: &FilePath,
     enclosing_class: Option<&str>,
     enclosing_func: Option<&str>,
     nodes: &mut Vec<ParsedNode>,
@@ -133,17 +134,15 @@ fn php_walk_children(
 fn php_emit_import(
     node: tree_sitter::Node<'_>,
     source: &[u8],
-    file_path: &str,
+    file_path: &FilePath,
     edges: &mut Vec<ParsedEdge>,
 ) {
     for target in php_import_targets(node, source) {
         edges.push(ParsedEdge {
-            kind: crate::core::types::EdgeKind::ImportsFrom
-                .as_str()
-                .to_string(),
+            kind: crate::core::types::EdgeKind::ImportsFrom,
             source: file_path.to_string(),
             target,
-            file_path: file_path.to_string(),
+            file_path: file_path.clone(),
             line: node.start_position().row as i64 + 1,
             extra: json!({}),
         });
@@ -202,7 +201,7 @@ fn php_use_clause_target(
 
 fn php_emit_type(
     node: tree_sitter::Node<'_>,
-    file_path: &str,
+    file_path: &FilePath,
     name: &str,
     enclosing_class: Option<&str>,
     nodes: &mut Vec<ParsedNode>,
@@ -223,9 +222,9 @@ fn php_emit_type(
         }
     }
     nodes.push(ParsedNode {
-        kind: crate::core::types::NodeKind::Class.as_str().to_string(),
+        kind: crate::core::types::NodeKind::Class,
         name: name.to_string(),
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line_start: node.start_position().row as i64 + 1,
         line_end: node.end_position().row as i64 + 1,
         language: "php".to_string(),
@@ -237,10 +236,10 @@ fn php_emit_type(
         extra,
     });
     edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
+        kind: crate::core::types::EdgeKind::Contains,
         source: file_path.to_string(),
         target: qualify(file_path, name, enclosing_class),
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
@@ -249,7 +248,7 @@ fn php_emit_type(
 fn php_emit_function(
     node: tree_sitter::Node<'_>,
     source: &[u8],
-    file_path: &str,
+    file_path: &FilePath,
     name: &str,
     enclosing_class: Option<&str>,
     nodes: &mut Vec<ParsedNode>,
@@ -257,9 +256,9 @@ fn php_emit_function(
 ) {
     let qualified = qualify(file_path, name, enclosing_class);
     nodes.push(ParsedNode {
-        kind: crate::core::types::NodeKind::Function.as_str().to_string(),
+        kind: crate::core::types::NodeKind::Function,
         name: name.to_string(),
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line_start: node.start_position().row as i64 + 1,
         line_end: node.end_position().row as i64 + 1,
         language: "php".to_string(),
@@ -271,12 +270,12 @@ fn php_emit_function(
         extra: json!({}),
     });
     edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
+        kind: crate::core::types::EdgeKind::Contains,
         source: enclosing_class
             .map(|class| qualify(file_path, class, None))
             .unwrap_or_else(|| file_path.to_string()),
         target: qualified,
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
@@ -285,7 +284,7 @@ fn php_emit_function(
 fn php_emit_call(
     node: tree_sitter::Node<'_>,
     source: &[u8],
-    file_path: &str,
+    file_path: &FilePath,
     enclosing_class: Option<&str>,
     enclosing_func: Option<&str>,
     edges: &mut Vec<ParsedEdge>,
@@ -298,10 +297,10 @@ fn php_emit_call(
         .unwrap_or_else(|| file_path.to_string());
     if let Some(call_name) = php_call_name(node, source) {
         edges.push(ParsedEdge {
-            kind: crate::core::types::EdgeKind::Calls.as_str().to_string(),
+            kind: crate::core::types::EdgeKind::Calls,
             source: caller.clone(),
             target: call_name,
-            file_path: file_path.to_string(),
+            file_path: file_path.clone(),
             line: node.start_position().row as i64 + 1,
             extra: json!({}),
         });
@@ -352,7 +351,7 @@ fn php_call_signature(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<Stri
 fn php_bridge_edge(
     node: tree_sitter::Node<'_>,
     source: &[u8],
-    file_path: &str,
+    file_path: &FilePath,
     caller: &str,
     signature: &str,
 ) -> Option<ParsedEdge> {
@@ -376,12 +375,10 @@ fn php_bridge_edge(
         ),
     };
     Some(ParsedEdge {
-        kind: crate::core::types::EdgeKind::CrossArtifact
-            .as_str()
-            .to_string(),
+        kind: crate::core::types::EdgeKind::CrossArtifact,
         source: caller.to_string(),
         target,
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line,
         extra: json!({
             "relationship_role": relationship_role,

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde_json::json;
 
-use super::types::{ParsedEdge, ParsedNode};
+use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{is_test_file, line_count, node_text, strip_matching_quotes};
 use super::{add_tested_by_edges, is_test_function, qualify};
 
@@ -11,11 +11,12 @@ pub(super) fn parse_r_with_parser(
     source: &[u8],
     parser: Option<&mut tree_sitter::Parser>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let file_path = FilePath::new(file_path);
     let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
-        kind: crate::core::types::NodeKind::File.as_str().to_string(),
+        kind: crate::core::types::NodeKind::File,
         name: file_path.to_string(),
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line_start: 1,
         line_end,
         language: "r".to_string(),
@@ -23,11 +24,14 @@ pub(super) fn parse_r_with_parser(
         params: None,
         return_type: None,
         modifiers: None,
-        is_test: is_test_file(file_path),
+        is_test: is_test_file(&file_path),
         extra: json!({}),
     }];
     let mut edges = Vec::new();
-    let context = RParseContext { source, file_path };
+    let context = RParseContext {
+        source,
+        file_path: file_path.clone(),
+    };
 
     if let Some(parser) = parser {
         if let Some(tree) = parser.parse(source, None) {
@@ -39,7 +43,7 @@ pub(super) fn parse_r_with_parser(
                 &mut nodes,
                 &mut edges,
             );
-            let mut edges = resolve_r_call_targets(&nodes, edges, file_path);
+            let mut edges = resolve_r_call_targets(&nodes, edges, &file_path);
             add_tested_by_edges(&nodes, &mut edges);
             return (nodes, edges);
         }
@@ -50,7 +54,7 @@ pub(super) fn parse_r_with_parser(
 
 struct RParseContext<'a> {
     source: &'a [u8],
-    file_path: &'a str,
+    file_path: FilePath,
 }
 
 fn r_walk_children(
@@ -142,12 +146,10 @@ fn r_handle_call(
     if matches!(call_name.as_str(), "library" | "require" | "source") {
         if let Some(target) = r_import_target(node, context.source) {
             edges.push(ParsedEdge {
-                kind: crate::core::types::EdgeKind::ImportsFrom
-                    .as_str()
-                    .to_string(),
+                kind: crate::core::types::EdgeKind::ImportsFrom,
                 source: context.file_path.to_string(),
                 target,
-                file_path: context.file_path.to_string(),
+                file_path: context.file_path.clone(),
                 line: node.start_position().row as i64 + 1,
                 extra: json!({}),
             });
@@ -183,12 +185,16 @@ fn r_emit_function(
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
-    let is_test = is_test_function(name, context.file_path, node, context.source);
-    let qualified = qualify(context.file_path, name, enclosing_class);
+    let is_test = is_test_function(name, &context.file_path, node, context.source);
+    let qualified = qualify(&context.file_path, name, enclosing_class);
     nodes.push(ParsedNode {
-        kind: if is_test { "Test" } else { "Function" }.to_string(),
+        kind: if is_test {
+            crate::core::types::NodeKind::Test
+        } else {
+            crate::core::types::NodeKind::Function
+        },
         name: name.to_string(),
-        file_path: context.file_path.to_string(),
+        file_path: context.file_path.clone(),
         line_start: node.start_position().row as i64 + 1,
         line_end: node.end_position().row as i64 + 1,
         language: "r".to_string(),
@@ -200,12 +206,12 @@ fn r_emit_function(
         extra: json!({}),
     });
     edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
+        kind: crate::core::types::EdgeKind::Contains,
         source: enclosing_class
-            .map(|class| qualify(context.file_path, class, None))
+            .map(|class| qualify(&context.file_path, class, None))
             .unwrap_or_else(|| context.file_path.to_string()),
         target: qualified,
-        file_path: context.file_path.to_string(),
+        file_path: context.file_path.clone(),
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
@@ -226,11 +232,11 @@ fn r_emit_class_call(
     }) else {
         return;
     };
-    let qualified = qualify(context.file_path, &class_name, enclosing_class);
+    let qualified = qualify(&context.file_path, &class_name, enclosing_class);
     nodes.push(ParsedNode {
-        kind: crate::core::types::NodeKind::Class.as_str().to_string(),
+        kind: crate::core::types::NodeKind::Class,
         name: class_name.clone(),
-        file_path: context.file_path.to_string(),
+        file_path: context.file_path.clone(),
         line_start: node.start_position().row as i64 + 1,
         line_end: node.end_position().row as i64 + 1,
         language: "r".to_string(),
@@ -242,10 +248,10 @@ fn r_emit_class_call(
         extra: json!({}),
     });
     edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
+        kind: crate::core::types::EdgeKind::Contains,
         source: context.file_path.to_string(),
         target: qualified,
-        file_path: context.file_path.to_string(),
+        file_path: context.file_path.clone(),
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
@@ -289,13 +295,13 @@ fn r_emit_call(
     edges: &mut Vec<ParsedEdge>,
 ) {
     let caller = enclosing_func
-        .map(|func| qualify(context.file_path, func, enclosing_class))
+        .map(|func| qualify(&context.file_path, func, enclosing_class))
         .unwrap_or_else(|| context.file_path.to_string());
     edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Calls.as_str().to_string(),
+        kind: crate::core::types::EdgeKind::Calls,
         source: caller.clone(),
         target: call_name.to_string(),
-        file_path: context.file_path.to_string(),
+        file_path: context.file_path.clone(),
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
@@ -328,12 +334,10 @@ fn r_bridge_edge(
         ),
     };
     Some(ParsedEdge {
-        kind: crate::core::types::EdgeKind::CrossArtifact
-            .as_str()
-            .to_string(),
+        kind: crate::core::types::EdgeKind::CrossArtifact,
         source: caller.to_string(),
         target,
-        file_path: context.file_path.to_string(),
+        file_path: context.file_path.clone(),
         line,
         extra: json!({
             "relationship_role": relationship_role,
@@ -497,7 +501,7 @@ fn r_first_descendant_text(
 fn resolve_r_call_targets(
     nodes: &[ParsedNode],
     edges: Vec<ParsedEdge>,
-    file_path: &str,
+    file_path: &FilePath,
 ) -> Vec<ParsedEdge> {
     let symbols = nodes
         .iter()

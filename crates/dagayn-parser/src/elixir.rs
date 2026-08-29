@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde_json::json;
 
-use super::types::{ParsedEdge, ParsedNode};
+use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{is_test_file, line_count, node_text, set_namespaces_from_type_names};
 use super::{add_tested_by_edges, is_test_function, qualify};
 
@@ -11,11 +11,12 @@ pub(super) fn parse_elixir_with_parser(
     source: &[u8],
     parser: Option<&mut tree_sitter::Parser>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let file_path = FilePath::new(file_path);
     let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
-        kind: crate::core::types::NodeKind::File.as_str().to_string(),
+        kind: crate::core::types::NodeKind::File,
         name: file_path.to_string(),
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line_start: 1,
         line_end,
         language: "elixir".to_string(),
@@ -23,11 +24,14 @@ pub(super) fn parse_elixir_with_parser(
         params: None,
         return_type: None,
         modifiers: None,
-        is_test: is_test_file(file_path),
+        is_test: is_test_file(&file_path),
         extra: json!({}),
     }];
     let mut edges = Vec::new();
-    let context = ElixirParseContext { source, file_path };
+    let context = ElixirParseContext {
+        source,
+        file_path: file_path.clone(),
+    };
 
     if let Some(parser) = parser {
         if let Some(tree) = parser.parse(source, None) {
@@ -40,7 +44,7 @@ pub(super) fn parse_elixir_with_parser(
                 &mut edges,
             );
             set_namespaces_from_type_names(&mut nodes);
-            let mut edges = resolve_elixir_call_targets(&nodes, edges, file_path);
+            let mut edges = resolve_elixir_call_targets(&nodes, edges, &file_path);
             add_tested_by_edges(&nodes, &mut edges);
             return (nodes, edges);
         }
@@ -51,7 +55,7 @@ pub(super) fn parse_elixir_with_parser(
 
 struct ElixirParseContext<'a> {
     source: &'a [u8],
-    file_path: &'a str,
+    file_path: FilePath,
 }
 
 fn elixir_walk_children(
@@ -146,12 +150,10 @@ fn elixir_handle_call(
             if let Some(arguments) = elixir_direct_child(node, &["arguments"]) {
                 if let Some(module_name) = elixir_module_name(arguments, context.source) {
                     edges.push(ParsedEdge {
-                        kind: crate::core::types::EdgeKind::ImportsFrom
-                            .as_str()
-                            .to_string(),
+                        kind: crate::core::types::EdgeKind::ImportsFrom,
                         source: context.file_path.to_string(),
                         target: module_name,
-                        file_path: context.file_path.to_string(),
+                        file_path: context.file_path.clone(),
                         line: node.start_position().row as i64 + 1,
                         extra: json!({}),
                     });
@@ -186,11 +188,11 @@ fn elixir_emit_module(
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
-    let qualified = qualify(context.file_path, name, None);
+    let qualified = qualify(&context.file_path, name, None);
     nodes.push(ParsedNode {
-        kind: crate::core::types::NodeKind::Class.as_str().to_string(),
+        kind: crate::core::types::NodeKind::Class,
         name: name.to_string(),
-        file_path: context.file_path.to_string(),
+        file_path: context.file_path.clone(),
         line_start: node.start_position().row as i64 + 1,
         line_end: node.end_position().row as i64 + 1,
         language: "elixir".to_string(),
@@ -202,10 +204,10 @@ fn elixir_emit_module(
         extra: json!({}),
     });
     edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
+        kind: crate::core::types::EdgeKind::Contains,
         source: context.file_path.to_string(),
         target: qualified,
-        file_path: context.file_path.to_string(),
+        file_path: context.file_path.clone(),
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
@@ -220,12 +222,16 @@ fn elixir_emit_function(
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
-    let is_test = is_test_function(name, context.file_path, node, context.source);
-    let qualified = qualify(context.file_path, name, enclosing_module);
+    let is_test = is_test_function(name, &context.file_path, node, context.source);
+    let qualified = qualify(&context.file_path, name, enclosing_module);
     nodes.push(ParsedNode {
-        kind: if is_test { "Test" } else { "Function" }.to_string(),
+        kind: if is_test {
+            crate::core::types::NodeKind::Test
+        } else {
+            crate::core::types::NodeKind::Function
+        },
         name: name.to_string(),
-        file_path: context.file_path.to_string(),
+        file_path: context.file_path.clone(),
         line_start: node.start_position().row as i64 + 1,
         line_end: node.end_position().row as i64 + 1,
         language: "elixir".to_string(),
@@ -237,12 +243,12 @@ fn elixir_emit_function(
         extra: json!({}),
     });
     edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
+        kind: crate::core::types::EdgeKind::Contains,
         source: enclosing_module
-            .map(|module| qualify(context.file_path, module, None))
+            .map(|module| qualify(&context.file_path, module, None))
             .unwrap_or_else(|| context.file_path.to_string()),
         target: qualified,
-        file_path: context.file_path.to_string(),
+        file_path: context.file_path.clone(),
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
@@ -259,13 +265,13 @@ fn elixir_emit_call(
         return;
     };
     let caller = enclosing_func
-        .map(|func| qualify(context.file_path, func, enclosing_module))
+        .map(|func| qualify(&context.file_path, func, enclosing_module))
         .unwrap_or_else(|| context.file_path.to_string());
     edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Calls.as_str().to_string(),
+        kind: crate::core::types::EdgeKind::Calls,
         source: caller,
         target,
-        file_path: context.file_path.to_string(),
+        file_path: context.file_path.clone(),
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
@@ -363,7 +369,7 @@ fn elixir_last_direct_child_text(
 fn resolve_elixir_call_targets(
     nodes: &[ParsedNode],
     edges: Vec<ParsedEdge>,
-    file_path: &str,
+    file_path: &FilePath,
 ) -> Vec<ParsedEdge> {
     let mut module_functions = HashMap::<(String, String), String>::new();
     let mut dotted_functions = HashMap::<String, String>::new();

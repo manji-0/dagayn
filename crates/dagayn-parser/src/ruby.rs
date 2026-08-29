@@ -1,6 +1,6 @@
 use serde_json::json;
 
-use super::types::{ParsedEdge, ParsedNode};
+use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{is_test_file, line_count, node_text, strip_matching_quotes};
 use super::{qualify, resolve_rust_call_targets};
 
@@ -9,11 +9,12 @@ pub(super) fn parse_ruby_with_parser(
     source: &[u8],
     parser: Option<&mut tree_sitter::Parser>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let file_path = FilePath::new(file_path);
     let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
-        kind: crate::core::types::NodeKind::File.as_str().to_string(),
+        kind: crate::core::types::NodeKind::File,
         name: file_path.to_string(),
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line_start: 1,
         line_end,
         language: "ruby".to_string(),
@@ -21,7 +22,7 @@ pub(super) fn parse_ruby_with_parser(
         params: None,
         return_type: None,
         modifiers: None,
-        is_test: is_test_file(file_path),
+        is_test: is_test_file(&file_path),
         extra: json!({}),
     }];
     let mut edges = Vec::new();
@@ -31,13 +32,13 @@ pub(super) fn parse_ruby_with_parser(
             ruby_walk_children(
                 tree.root_node(),
                 source,
-                file_path,
+                &file_path,
                 None,
                 None,
                 &mut nodes,
                 &mut edges,
             );
-            let edges = resolve_rust_call_targets(&nodes, edges, file_path);
+            let edges = resolve_rust_call_targets(&nodes, edges, &file_path);
             return (nodes, edges);
         }
     }
@@ -48,7 +49,7 @@ pub(super) fn parse_ruby_with_parser(
 fn ruby_walk_children(
     node: tree_sitter::Node<'_>,
     source: &[u8],
-    file_path: &str,
+    file_path: &FilePath,
     enclosing_class: Option<&str>,
     enclosing_func: Option<&str>,
     nodes: &mut Vec<ParsedNode>,
@@ -105,16 +106,16 @@ fn ruby_walk_children(
 
 fn ruby_emit_class(
     node: tree_sitter::Node<'_>,
-    file_path: &str,
+    file_path: &FilePath,
     name: &str,
     enclosing_class: Option<&str>,
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
     nodes.push(ParsedNode {
-        kind: crate::core::types::NodeKind::Class.as_str().to_string(),
+        kind: crate::core::types::NodeKind::Class,
         name: name.to_string(),
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line_start: node.start_position().row as i64 + 1,
         line_end: node.end_position().row as i64 + 1,
         language: "ruby".to_string(),
@@ -126,10 +127,10 @@ fn ruby_emit_class(
         extra: json!({"type_role": "class"}),
     });
     edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
+        kind: crate::core::types::EdgeKind::Contains,
         source: file_path.to_string(),
         target: qualify(file_path, name, enclosing_class),
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
@@ -137,7 +138,7 @@ fn ruby_emit_class(
 
 fn ruby_emit_function(
     node: tree_sitter::Node<'_>,
-    file_path: &str,
+    file_path: &FilePath,
     name: &str,
     enclosing_class: Option<&str>,
     nodes: &mut Vec<ParsedNode>,
@@ -145,9 +146,9 @@ fn ruby_emit_function(
 ) {
     let qualified = qualify(file_path, name, enclosing_class);
     nodes.push(ParsedNode {
-        kind: crate::core::types::NodeKind::Function.as_str().to_string(),
+        kind: crate::core::types::NodeKind::Function,
         name: name.to_string(),
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line_start: node.start_position().row as i64 + 1,
         line_end: node.end_position().row as i64 + 1,
         language: "ruby".to_string(),
@@ -159,12 +160,12 @@ fn ruby_emit_function(
         extra: json!({}),
     });
     edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
+        kind: crate::core::types::EdgeKind::Contains,
         source: enclosing_class
             .map(|class| qualify(file_path, class, None))
             .unwrap_or_else(|| file_path.to_string()),
         target: qualified,
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
@@ -173,7 +174,7 @@ fn ruby_emit_function(
 fn ruby_emit_call(
     node: tree_sitter::Node<'_>,
     source: &[u8],
-    file_path: &str,
+    file_path: &FilePath,
     enclosing_class: Option<&str>,
     enclosing_func: Option<&str>,
     edges: &mut Vec<ParsedEdge>,
@@ -186,22 +187,20 @@ fn ruby_emit_call(
         if call_name == "require" || call_name == "require_relative" {
             if let Some(target) = ruby_first_string_arg(node, source) {
                 edges.push(ParsedEdge {
-                    kind: crate::core::types::EdgeKind::ImportsFrom
-                        .as_str()
-                        .to_string(),
+                    kind: crate::core::types::EdgeKind::ImportsFrom,
                     source: file_path.to_string(),
                     target,
-                    file_path: file_path.to_string(),
+                    file_path: file_path.clone(),
                     line: node.start_position().row as i64 + 1,
                     extra: json!({}),
                 });
             }
         }
         edges.push(ParsedEdge {
-            kind: crate::core::types::EdgeKind::Calls.as_str().to_string(),
+            kind: crate::core::types::EdgeKind::Calls,
             source: caller.clone(),
             target: call_name,
-            file_path: file_path.to_string(),
+            file_path: file_path.clone(),
             line: node.start_position().row as i64 + 1,
             extra: json!({}),
         });
@@ -248,7 +247,7 @@ fn ruby_call_signature(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<Str
 fn ruby_bridge_edge(
     node: tree_sitter::Node<'_>,
     source: &[u8],
-    file_path: &str,
+    file_path: &FilePath,
     caller: &str,
     signature: &str,
 ) -> Option<ParsedEdge> {
@@ -271,12 +270,10 @@ fn ruby_bridge_edge(
         ),
     };
     Some(ParsedEdge {
-        kind: crate::core::types::EdgeKind::CrossArtifact
-            .as_str()
-            .to_string(),
+        kind: crate::core::types::EdgeKind::CrossArtifact,
         source: caller.to_string(),
         target,
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line,
         extra: json!({
             "relationship_role": relationship_role,

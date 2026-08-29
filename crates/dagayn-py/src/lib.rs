@@ -1393,9 +1393,9 @@ fn file_mtime_ns(path: &std::path::Path) -> std::io::Result<i64> {
 
 fn parsed_node_to_input(node: dagayn_core::parser::ParsedNode) -> NodeInput {
     NodeInput {
-        kind: node.kind,
+        kind: node.kind.as_str().to_string(),
         name: node.name,
-        file_path: node.file_path,
+        file_path: node.file_path.to_string(),
         line_start: node.line_start,
         line_end: node.line_end,
         language: node.language,
@@ -1410,10 +1410,10 @@ fn parsed_node_to_input(node: dagayn_core::parser::ParsedNode) -> NodeInput {
 
 fn parsed_edge_to_input(edge: dagayn_core::parser::ParsedEdge) -> EdgeInput {
     EdgeInput {
-        kind: edge.kind,
+        kind: edge.kind.as_str().to_string(),
         source: edge.source,
         target: edge.target,
-        file_path: edge.file_path,
+        file_path: edge.file_path.to_string(),
         line: edge.line,
         extra: edge.extra,
     }
@@ -1759,7 +1759,7 @@ fn graph_stats_to_py(py: Python<'_>, stats: GraphStats) -> PyResult<Py<PyAny>> {
             stats.total_edges,
             nodes_by_kind,
             edges_by_kind,
-            stats.languages,
+            stats.languages.into_vec(),
             stats.files_count,
             stats.last_updated,
         ))?

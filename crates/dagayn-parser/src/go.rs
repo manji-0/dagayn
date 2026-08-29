@@ -1,6 +1,6 @@
 use serde_json::json;
 
-use super::types::{ParsedEdge, ParsedNode};
+use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{is_test_file, line_count, node_text, strip_matching_quotes};
 use super::{qualify, resolve_rust_call_targets};
 
@@ -9,11 +9,12 @@ pub(super) fn parse_go_with_parser(
     source: &[u8],
     parser: Option<&mut tree_sitter::Parser>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let file_path = FilePath::new(file_path);
     let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
-        kind: crate::core::types::NodeKind::File.as_str().to_string(),
+        kind: crate::core::types::NodeKind::File,
         name: file_path.to_string(),
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line_start: 1,
         line_end,
         language: "go".to_string(),
@@ -21,7 +22,7 @@ pub(super) fn parse_go_with_parser(
         params: None,
         return_type: None,
         modifiers: None,
-        is_test: is_test_file(file_path),
+        is_test: is_test_file(&file_path),
         extra: json!({}),
     }];
     let mut edges = Vec::new();
@@ -29,8 +30,8 @@ pub(super) fn parse_go_with_parser(
     if let Some(parser) = parser {
         if let Some(tree) = parser.parse(source, None) {
             let root = tree.root_node();
-            go_walk_children(root, source, file_path, None, &mut nodes, &mut edges);
-            let edges = resolve_rust_call_targets(&nodes, edges, file_path);
+            go_walk_children(root, source, &file_path, None, &mut nodes, &mut edges);
+            let edges = resolve_rust_call_targets(&nodes, edges, &file_path);
             return (nodes, edges);
         }
     }
@@ -41,7 +42,7 @@ pub(super) fn parse_go_with_parser(
 fn go_walk_children(
     node: tree_sitter::Node<'_>,
     source: &[u8],
-    file_path: &str,
+    file_path: &FilePath,
     enclosing_func: Option<&str>,
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
@@ -82,7 +83,7 @@ fn go_walk_children(
 fn go_emit_imports(
     node: tree_sitter::Node<'_>,
     source: &[u8],
-    file_path: &str,
+    file_path: &FilePath,
     edges: &mut Vec<ParsedEdge>,
 ) {
     let mut cursor = node.walk();
@@ -92,12 +93,10 @@ fn go_emit_imports(
             let target = strip_matching_quotes(node_text(child, source).trim()).to_string();
             if !target.is_empty() {
                 edges.push(ParsedEdge {
-                    kind: crate::core::types::EdgeKind::ImportsFrom
-                        .as_str()
-                        .to_string(),
+                    kind: crate::core::types::EdgeKind::ImportsFrom,
                     source: file_path.to_string(),
                     target,
-                    file_path: file_path.to_string(),
+                    file_path: file_path.clone(),
                     line: child.start_position().row as i64 + 1,
                     extra: json!({}),
                 });
@@ -109,7 +108,7 @@ fn go_emit_imports(
 fn go_emit_types(
     node: tree_sitter::Node<'_>,
     source: &[u8],
-    file_path: &str,
+    file_path: &FilePath,
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
@@ -124,9 +123,9 @@ fn go_emit_types(
         let qualified = qualify(file_path, &name, None);
         let extra = go_type_extra(child, source);
         nodes.push(ParsedNode {
-            kind: crate::core::types::NodeKind::Class.as_str().to_string(),
+            kind: crate::core::types::NodeKind::Class,
             name,
-            file_path: file_path.to_string(),
+            file_path: file_path.clone(),
             line_start: child.start_position().row as i64 + 1,
             line_end: child.end_position().row as i64 + 1,
             language: "go".to_string(),
@@ -138,10 +137,10 @@ fn go_emit_types(
             extra,
         });
         edges.push(ParsedEdge {
-            kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
+            kind: crate::core::types::EdgeKind::Contains,
             source: file_path.to_string(),
             target: qualified,
-            file_path: file_path.to_string(),
+            file_path: file_path.clone(),
             line: child.start_position().row as i64 + 1,
             extra: json!({}),
         });
@@ -179,7 +178,7 @@ fn go_type_role(node: tree_sitter::Node<'_>, _source: &[u8]) -> &'static str {
 fn go_emit_function(
     node: tree_sitter::Node<'_>,
     source: &[u8],
-    file_path: &str,
+    file_path: &FilePath,
     name: &str,
     receiver: Option<&str>,
     nodes: &mut Vec<ParsedNode>,
@@ -187,9 +186,9 @@ fn go_emit_function(
 ) {
     let qualified = qualify(file_path, name, receiver);
     nodes.push(ParsedNode {
-        kind: crate::core::types::NodeKind::Function.as_str().to_string(),
+        kind: crate::core::types::NodeKind::Function,
         name: name.to_string(),
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line_start: node.start_position().row as i64 + 1,
         line_end: node.end_position().row as i64 + 1,
         language: "go".to_string(),
@@ -204,10 +203,10 @@ fn go_emit_function(
         .map(|receiver| qualify(file_path, receiver, None))
         .unwrap_or_else(|| file_path.to_string());
     edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains.as_str().to_string(),
+        kind: crate::core::types::EdgeKind::Contains,
         source: container,
         target: qualified,
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
@@ -245,7 +244,7 @@ fn go_first_parameter_list(node: tree_sitter::Node<'_>, source: &[u8]) -> Option
 fn go_emit_call(
     node: tree_sitter::Node<'_>,
     source: &[u8],
-    file_path: &str,
+    file_path: &FilePath,
     enclosing_func: Option<&str>,
     edges: &mut Vec<ParsedEdge>,
 ) {
@@ -256,10 +255,10 @@ fn go_emit_call(
         .map(|func| qualify(file_path, func, None))
         .unwrap_or_else(|| file_path.to_string());
     edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Calls.as_str().to_string(),
+        kind: crate::core::types::EdgeKind::Calls,
         source: caller.clone(),
         target: call_name,
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
@@ -291,7 +290,7 @@ fn go_call_name_and_signature(
 fn go_bridge_edge(
     node: tree_sitter::Node<'_>,
     source: &[u8],
-    file_path: &str,
+    file_path: &FilePath,
     caller: &str,
     signature: &str,
 ) -> Option<ParsedEdge> {
@@ -312,12 +311,10 @@ fn go_bridge_edge(
         ),
     };
     Some(ParsedEdge {
-        kind: crate::core::types::EdgeKind::CrossArtifact
-            .as_str()
-            .to_string(),
+        kind: crate::core::types::EdgeKind::CrossArtifact,
         source: caller.to_string(),
         target,
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line,
         extra: json!({
             "relationship_role": relationship_role,

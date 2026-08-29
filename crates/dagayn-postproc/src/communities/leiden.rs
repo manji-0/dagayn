@@ -323,7 +323,7 @@ fn detect_leiden_subgraph(
                 cohesion: 0.0,
                 dominant_language: dominant_language(&members),
                 description: format!("Split from {}", generate_community_name(&members)),
-                members: member_qns,
+                members: member_qns.into(),
             })
         })
         .collect()
@@ -428,11 +428,12 @@ mod tests {
                 dominant_language: "python".to_string(),
                 description: String::new(),
                 members: vec![
-                    "a.py::a1".into(),
-                    "a.py::a2".into(),
-                    "a.py::a3".into(),
-                    "a.py::a4".into(),
-                ],
+                    "a.py::a1".to_string(),
+                    "a.py::a2".to_string(),
+                    "a.py::a3".to_string(),
+                    "a.py::a4".to_string(),
+                ]
+                .into(),
             },
             DetectedCommunity {
                 name: "tiny".to_string(),
@@ -441,7 +442,7 @@ mod tests {
                 cohesion: 0.0,
                 dominant_language: "python".to_string(),
                 description: String::new(),
-                members: vec!["c.py::only".into()],
+                members: vec!["c.py::only".to_string()].into(),
             },
             DetectedCommunity {
                 name: "small-b".to_string(),
@@ -450,7 +451,7 @@ mod tests {
                 cohesion: 0.0,
                 dominant_language: "python".to_string(),
                 description: String::new(),
-                members: vec!["b.py::b1".into()],
+                members: vec!["b.py::b1".to_string()].into(),
             },
         ];
 

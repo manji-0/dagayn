@@ -5,7 +5,7 @@ use regex::Regex;
 use serde_json::{json, Value};
 
 use super::qualify;
-use super::types::{EdgeKind, ParsedEdge, ParsedNode};
+use super::types::{EdgeKind, FilePath, ParsedEdge, ParsedNode};
 use super::util::normalize_relative_path;
 
 static DAGAYN_DIRECTIVE_RE: LazyLock<Regex> =
@@ -119,7 +119,7 @@ pub(super) fn extract_line_comment_dagayn_directives(
 pub(super) fn push_documentation_directive_edge(
     edges: &mut Vec<ParsedEdge>,
     source: String,
-    source_file: &str,
+    source_file: &FilePath,
     source_language: &str,
     directive: &DocumentationDirective,
     evidence_kind: &str,
@@ -138,17 +138,17 @@ pub(super) fn push_documentation_directive_edge(
         extra["target_language"] = json!("unknown");
     }
     edges.push(ParsedEdge {
-        kind: EdgeKind::CrossArtifact.as_str().to_string(),
+        kind: EdgeKind::CrossArtifact,
         source,
         target: resolved.target().to_string(),
-        file_path: source_file.to_string(),
+        file_path: source_file.clone(),
         line: directive.line,
         extra,
     });
 }
 
 pub(super) fn nearest_documentation_source(
-    file_path: &str,
+    file_path: &FilePath,
     nodes: &[ParsedNode],
     line: i64,
 ) -> String {
@@ -333,7 +333,7 @@ fn documentation_slugify(text: &str) -> String {
     out
 }
 
-fn qualified_node_name(file_path: &str, node: &ParsedNode) -> String {
+fn qualified_node_name(file_path: &FilePath, node: &ParsedNode) -> String {
     if node.kind == "File" {
         file_path.to_string()
     } else {

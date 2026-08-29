@@ -121,8 +121,8 @@ pub(crate) fn betweenness_sample_size(node_count: usize) -> usize {
 /// Integer-indexed directed graph used by Brandes (and reusable by other
 /// postprocess steps that need adjacency without `HashMap<String, …>`).
 pub(crate) struct DenseGraph {
-    pub names: Vec<String>,
-    pub adj: Vec<Vec<usize>>,
+    pub names: Box<[String]>,
+    pub adj: Box<[Box<[usize]>]>,
 }
 
 impl DenseGraph {
@@ -148,7 +148,10 @@ impl DenseGraph {
                 }
             }
         }
-        Self { names, adj }
+        Self {
+            names: names.into_boxed_slice(),
+            adj: adj.into_iter().map(Vec::into_boxed_slice).collect(),
+        }
     }
 
     pub(crate) fn betweenness(&self) -> HashMap<String, f64> {

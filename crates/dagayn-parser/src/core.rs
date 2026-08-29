@@ -84,7 +84,7 @@ pub use discovery::{
     collect_parseable_files, detect_language, filter_incremental_candidates, filter_parseable_files,
 };
 pub use js_sfc::{parse_svelte, parse_vue};
-pub use types::{ParsedEdge, ParsedNode};
+pub use types::{EdgeKind, FilePath, NodeKind, ParsedEdge, ParsedNode};
 
 use ownership::{rust_owned_path_kind, rust_owned_path_kind_for_source, RustOwnedPathKind};
 use parsers::*;
@@ -595,7 +595,7 @@ fn add_tested_by_edges(nodes: &[ParsedNode], edges: &mut Vec<ParsedEdge>) {
         .iter()
         .filter(|edge| edge.kind == "CALLS" && test_qnames.contains(&edge.source))
         .map(|edge| ParsedEdge {
-            kind: crate::core::types::EdgeKind::TestedBy.as_str().to_string(),
+            kind: crate::core::types::EdgeKind::TestedBy,
             source: edge.target.clone(),
             target: edge.source.clone(),
             file_path: edge.file_path.clone(),
@@ -715,8 +715,12 @@ pub(super) fn resolve_rust_call_targets(
         .iter()
         .filter(|node| {
             matches!(
-                node.kind.as_str(),
-                "Function" | "Class" | "Type" | "Test" | "DocSection"
+                node.kind,
+                NodeKind::Function
+                    | NodeKind::Class
+                    | NodeKind::Type
+                    | NodeKind::Test
+                    | NodeKind::DocSection
             )
         })
         .fold(HashMap::<String, String>::new(), |mut symbols, node| {
@@ -728,7 +732,9 @@ pub(super) fn resolve_rust_call_targets(
     edges
         .into_iter()
         .map(|mut edge| {
-            if matches!(edge.kind.as_str(), "CALLS" | "REFERENCES") && !edge.target.contains("::") {
+            if matches!(edge.kind, EdgeKind::Calls | EdgeKind::References)
+                && !edge.target.contains("::")
+            {
                 if let Some(target) = symbols.get(&edge.target) {
                     edge.target = target.clone();
                 }
@@ -891,7 +897,7 @@ pub fn rust_parser_owns_source(file_path: &str, source: &[u8]) -> bool {
 #[cfg(test)]
 mod parser_core_tests {
     use super::{
-        has_rust_test_attribute, new_rust_parser, rust_node_with_leading_attributes,
+        has_rust_test_attribute, new_rust_parser, rust_node_with_leading_attributes, FilePath,
         RustOwnedParser,
     };
     use std::path::Path;
@@ -927,6 +933,42 @@ mod parser_core_tests {
         assert_eq!(candidates[0].kind(), "attribute_item");
         assert_eq!(candidates[1].kind(), "function_item");
         assert!(has_rust_test_attribute(function, source));
+    }
+
+    fn assert_shared_file_path(nodes: &[super::ParsedNode], edges: &[super::ParsedEdge]) {
+        let first = nodes
+            .first()
+            .expect("parse should emit a file node")
+            .file_path
+            .clone();
+        assert!(nodes
+            .iter()
+            .all(|node| FilePath::ptr_eq(&node.file_path, &first)));
+        assert!(edges
+            .iter()
+            .all(|edge| FilePath::ptr_eq(&edge.file_path, &first)));
+    }
+
+    #[test]
+    fn python_nodes_and_edges_share_one_file_path() {
+        let (nodes, edges) = super::parse_python(
+            "pkg/app.py",
+            b"def foo():\n    bar()\n\ndef bar():\n    return 1\n",
+        );
+        assert!(nodes.len() >= 2);
+        assert!(!edges.is_empty());
+        assert_shared_file_path(&nodes, &edges);
+        assert!(nodes[0].file_path == "pkg/app.py");
+    }
+
+    #[test]
+    fn vue_script_nodes_share_the_sfc_file_path() {
+        let (nodes, edges) = super::parse_vue(
+            "src/Widget.vue",
+            b"<script>\nexport function greet() {\n  helper()\n}\nfunction helper() {}\n</script>\n<template><div /></template>\n",
+        );
+        assert!(nodes.iter().any(|node| node.kind == "Function"));
+        assert_shared_file_path(&nodes, &edges);
     }
 }
 
