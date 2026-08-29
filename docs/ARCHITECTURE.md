@@ -100,19 +100,40 @@ keep both `material` and `narrative` vectors for intent-routed hybrid search.
 ### Japanese FTS quality gates
 
 <!-- derived-from #hybrid-search -->
+<!-- derived-from ../tests/fixtures/japanese_search/README.md -->
 
-Measured on a 7-node distractor corpus (NLP doc, UI search, ops search, auth,
-billing, CJK identifier, long prose). Overlapping-bigram-only indexing already
-got exact titles, mixed English+Japanese, and CJK identifiers to hit@1, but
+Public Japanese IR sets (MIRACL-ja, JaQuAD / JSQuAD, mMARCO-ja, Livedoor news)
+are passage retrieval over Wikipedia or news. They do not produce dagayn
+`DocSection` / `Function` / Terraform nodes, so they cannot score the FTS
+path agents actually call. This repository's `README.ja-JP.md` is authentic
+product Japanese, but it is one file: it has no shared-term collisions, no
+inflected `検索する` vs `検索を行う` pair, no CJK identifiers, and no
+Terraform comments.
+
+The corpus of record is the vendored mixed fixture
+`tests/fixtures/japanese_search/` (~65 parsed nodes): Markdown docs where
+`検索` appears in NLP, UI, ops, install, and infra; Python symbols with
+Japanese docstrings and a CJK function name; a Terraform OpenSearch
+resource. Queries live in `queries.json`. The 7-node inline distractor was
+kept only as historical baseline numbers below.
+
+Overlapping-bigram-only indexing on that 7-node set already got exact
+titles, mixed English+Japanese, and CJK identifiers to hit@1, but
 `検索する` against a body that says `検索を行う` returned no hits, and longer
 inflected queries only matched after the OR fallback.
 
-Native Lindera targets, locked in `japanese_fts_quality_gates_hit_inflected_and_identifier_queries`:
+Native Lindera targets, locked in
+`japanese_fts_quality_gates_hit_inflected_and_identifier_queries` against
+the fixture (family match: DocSection, DocBody, or the related symbol):
 
-- Exact title, mixed `GraphStore 自然言語検索`, `検索ボタン`, `display_name` without relying on source, English `verify_token`, distractor `課金バッチ`, and CJK identifiers: **hit@1**
-- Inflected `自然言語検索する` and long particle-heavy prose whose content words are in the document: **hit@1** with **`match_mode=and`**
-- Bare `検索する`: **hit@5** among search-related docs (not required to rank the NLP node first)
-- 7-node FTS rebuild under 200ms; inflected query p95 under 10ms on that corpus
+- Exact title, mixed `GraphStore 自然言語検索`, `検索ボタン`, `トークン検証`,
+  English `verify_token`, `課金バッチ`, CJK `ユーザー取得`, hybrid-search and
+  Terraform headings: **hit@1** on the owning file or name family
+- Inflected `自然言語検索する` and long particle-heavy prose whose content
+  words are in the document: **hit@1** with **`match_mode=and`**
+- Bare `検索する`: **hit@5** among search-related names (NLP/UI/ops/OpenSearch);
+  not required to rank the NLP heading first once `検索` is a shared term
+- Fixture FTS rebuild under 500ms; inflected query p95 under 10ms
 - Synonyms such as `認証` vs `トークン検証` stay out of scope for tokenization
 
 ## Query surfaces

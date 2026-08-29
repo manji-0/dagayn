@@ -1,14 +1,19 @@
-"""Native GraphStore Japanese FTS quality gates (Lindera + covering bigrams)."""
+"""Native GraphStore Japanese FTS quality gates on the mixed search fixture."""
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 
-from dagayn.parser import NodeInfo
+from dagayn.parser import CodeParser
 
 pytest.importorskip("dagayn._core")
+
+FIXTURE = Path(__file__).resolve().parent / "fixtures" / "japanese_search"
+QUERIES = FIXTURE / "queries.json"
+SKIP_FILES = {"README.md", "queries.json"}
 
 
 def _rust_store(tmp_path: Path):
@@ -17,127 +22,58 @@ def _rust_store(tmp_path: Path):
     return RustGraphStore(tmp_path / "graph.db")
 
 
-def _seed_japanese_corpus(store, root: Path) -> None:
-    files = {
-        "nlp.md": "# 自然言語検索\n\nGraphStoreで自然言語検索を行う。\n",
-        "ui.md": "# 検索ボタン\n\n画面上部の検索ボタンを押すと結果一覧を開く。\n",
-        "ops.md": "# 運用検索\n\n運用チームがログを検索して障害を切り分ける。\n",
-        "auth.py": "def verify_token(token: str) -> bool:\n    return True\n",
-        "billing.py": "def run_billing_batch() -> None:\n    pass\n",
-        "prose.md": (
-            "# 長い説明\n\nこの文書は自然言語検索の背景を、助詞や接続を含めて長く書いたものです。\n"
-        ),
-    }
-    for name, body in files.items():
-        (root / name).write_text(body, encoding="utf-8")
+def _index_fixture(store, root: Path) -> int:
+    parser = CodeParser()
     store.set_metadata("repo_root", str(root))
-    nodes = [
-        NodeInfo(
-            kind="DocSection",
-            name="nlp-search",
-            file_path="nlp.md",
-            line_start=1,
-            line_end=1,
-            language="markdown",
-            extra={"display_name": "自然言語検索"},
-        ),
-        NodeInfo(
-            kind="DocSection",
-            name="search-button",
-            file_path="ui.md",
-            line_start=1,
-            line_end=1,
-            language="markdown",
-            extra={"display_name": "検索ボタン"},
-        ),
-        NodeInfo(
-            kind="DocSection",
-            name="ops-search",
-            file_path="ops.md",
-            line_start=1,
-            line_end=1,
-            language="markdown",
-            extra={"display_name": "運用検索"},
-        ),
-        NodeInfo(
-            kind="Function",
-            name="verify_token",
-            file_path="auth.py",
-            line_start=1,
-            line_end=8,
-            language="python",
-            extra={"display_name": "トークン検証"},
-        ),
-        NodeInfo(
-            kind="Function",
-            name="run_billing_batch",
-            file_path="billing.py",
-            line_start=1,
-            line_end=6,
-            language="python",
-            extra={"display_name": "課金バッチ"},
-        ),
-        NodeInfo(
-            kind="Function",
-            name="ユーザー取得",
-            file_path="jp.py",
-            line_start=1,
-            line_end=5,
-            language="python",
-        ),
-        NodeInfo(
-            kind="DocSection",
-            name="long-prose",
-            file_path="prose.md",
-            line_start=1,
-            line_end=1,
-            language="markdown",
-            extra={"display_name": "長い説明"},
-        ),
-    ]
-    for node in nodes:
-        store.upsert_node(node, file_hash="h")
+    for path in sorted(root.rglob("*")):
+        if not path.is_file() or path.name in SKIP_FILES:
+            continue
+        rel = path.relative_to(root).as_posix()
+        nodes, edges = parser.parse_bytes(Path(rel), path.read_bytes())
+        if not nodes:
+            continue
+        store.store_file_nodes_edges(rel, nodes, edges)
     store.commit()
-    store.rebuild_fts_index()
+    return store.rebuild_fts_index()
 
 
-def _names(store, query: str) -> tuple[list[str], str]:
+def _hits(store, query: str) -> tuple[list[tuple[str, str]], str]:
     result = store.fts_query(query, 10)
     ids = [node_id for node_id, _ in result.hits]
     by_id = store.get_nodes_by_ids(ids)
-    return [by_id[node_id].name for node_id in ids if node_id in by_id], result.match_mode
+    records = [
+        (by_id[node_id].name, by_id[node_id].file_path) for node_id in ids if node_id in by_id
+    ]
+    return records, result.match_mode
+
+
+def _gate_matches(records: list[tuple[str, str]], gate: dict) -> bool:
+    k = int(gate["k"])
+    file_contains = gate.get("file_contains")
+    name_any = gate.get("name_any")
+    for name, file_path in records[:k]:
+        file_ok = file_contains is None or file_contains in file_path
+        name_ok = name_any is None or name in name_any
+        if file_ok and name_ok:
+            return True
+    return False
 
 
 def test_native_japanese_fts_quality_gates(tmp_path):
+    spec = json.loads(QUERIES.read_text(encoding="utf-8"))
     store = _rust_store(tmp_path)
     try:
-        _seed_japanese_corpus(store, tmp_path)
+        indexed = _index_fixture(store, FIXTURE)
+        assert indexed >= spec["min_indexed_nodes"]
         assert store.get_metadata("fts_segmenter") == "lindera"
 
-        hit1 = [
-            ("自然言語検索", "nlp-search", None),
-            ("GraphStore 自然言語検索", "nlp-search", None),
-            ("検索ボタン", "search-button", None),
-            ("トークン検証", "verify_token", None),
-            ("verify_token", "verify_token", None),
-            ("課金バッチ", "run_billing_batch", None),
-            ("自然言語検索する", "nlp-search", "and"),
-            (
-                "この文書は自然言語検索の背景を助詞や接続を含めて長く書いた",
-                "long-prose",
-                "and",
-            ),
-            ("ユーザー取得", "ユーザー取得", None),
-            ("ユーザー", "ユーザー取得", None),
-        ]
-        for query, expected, want_mode in hit1:
-            names, mode = _names(store, query)
-            assert names and names[0] == expected, (query, names, mode)
-            if want_mode is not None:
-                assert mode == want_mode, (query, mode, names)
+        for gate in spec["gates"]:
+            records, mode = _hits(store, gate["query"])
+            assert _gate_matches(records, gate), (gate["query"], mode, records)
+            if gate.get("match_mode"):
+                assert mode == gate["match_mode"], (gate["query"], mode, records)
 
-        names, mode = _names(store, "検索する")
-        assert mode != "none"
-        assert any(name in {"nlp-search", "search-button", "ops-search"} for name in names[:5])
+        hits, _ = _hits(store, "ユーザー取得")
+        assert hits and hits[0][0] == "ユーザー取得"
     finally:
         store.close()

@@ -3101,209 +3101,184 @@ fn incremental_trace_flows_scoped_load_still_follows_reverse_calls() {
     let _ = std::fs::remove_file(path);
 }
 
-fn japanese_quality_node(
-    kind: &str,
-    name: &str,
-    file_path: &str,
-    language: &str,
-    extra: Value,
-) -> NodeInput {
+fn japanese_search_fixture_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/japanese_search")
+}
+
+#[derive(Debug, Deserialize)]
+struct JapaneseSearchCorpus {
+    rebuild_budget_ms: f64,
+    query_p95_ms: f64,
+    min_indexed_nodes: i64,
+    gates: Vec<JapaneseSearchGate>,
+}
+
+#[derive(Debug, Deserialize)]
+struct JapaneseSearchGate {
+    query: String,
+    k: usize,
+    #[serde(default)]
+    match_mode: Option<String>,
+    #[serde(default)]
+    file_contains: Option<String>,
+    #[serde(default)]
+    name_any: Option<Vec<String>>,
+}
+
+fn collect_fixture_files(root: &Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    fn visit(dir: &Path, files: &mut Vec<PathBuf>) {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                visit(&path, files);
+            } else {
+                files.push(path);
+            }
+        }
+    }
+    visit(root, &mut files);
+    files.sort();
+    files
+}
+
+fn parsed_to_node_input(node: dagayn_parser::ParsedNode) -> NodeInput {
     NodeInput {
-        kind: kind.to_string(),
-        name: name.to_string(),
-        file_path: file_path.to_string(),
-        line_start: 1,
-        line_end: 8,
-        language: language.to_string(),
-        parent_name: None,
-        params: None,
-        return_type: None,
-        modifiers: None,
-        is_test: false,
-        extra,
+        kind: node.kind.as_str().to_string(),
+        name: node.name,
+        file_path: node.file_path.as_str().to_string(),
+        line_start: node.line_start,
+        line_end: node.line_end,
+        language: node.language,
+        parent_name: node.parent_name,
+        params: node.params,
+        return_type: node.return_type,
+        modifiers: node.modifiers,
+        is_test: node.is_test,
+        extra: node.extra,
     }
 }
 
-fn fts_hit_names(store: &GraphStore, query: &str) -> (Vec<String>, &'static str) {
+fn parsed_to_edge_input(edge: dagayn_parser::ParsedEdge) -> EdgeInput {
+    EdgeInput {
+        kind: edge.kind.as_str().to_string(),
+        source: edge.source,
+        target: edge.target,
+        file_path: edge.file_path.as_str().to_string(),
+        line: edge.line,
+        extra: edge.extra,
+    }
+}
+
+fn fts_hit_records(store: &GraphStore, query: &str) -> (Vec<(String, String)>, &'static str) {
     let (hits, mode) = store.fts_query(query, 10).unwrap();
     let ids = hits.iter().map(|(id, _)| *id).collect::<Vec<_>>();
     let by_id = store.get_nodes_by_ids(&ids).unwrap();
-    let names = ids
+    let records = ids
         .iter()
-        .filter_map(|id| by_id.get(id).map(|node| node.name.clone()))
+        .filter_map(|id| {
+            by_id
+                .get(id)
+                .map(|node| (node.name.clone(), node.file_path.clone()))
+        })
         .collect();
-    (names, mode)
+    (records, mode)
 }
 
-/// Japanese FTS quality gates for the native Lindera + covering-bigram path.
+fn gate_matches(records: &[(String, String)], gate: &JapaneseSearchGate) -> bool {
+    records.iter().take(gate.k).any(|(name, file)| {
+        let file_ok = gate
+            .file_contains
+            .as_ref()
+            .is_none_or(|needle| file.contains(needle));
+        let name_ok = gate
+            .name_any
+            .as_ref()
+            .is_none_or(|allowed| allowed.iter().any(|candidate| candidate == name));
+        file_ok && name_ok
+    })
+}
+
+/// Ranking gates against the mixed Japanese search fixture.
 ///
-/// Baseline (overlapping bigrams at both index and query) on this corpus:
-/// hit@1 10/12, `自然言語検索する` matched only via OR, `検索する` returned no
-/// hits. Synonym `認証` vs `トークン検証` is out of scope for tokenization.
+/// The 7-node inline corpus hid DocBody crowding and shared-term collisions.
+/// This fixture is parsed with the real markdown/Python/Terraform parsers.
 #[test]
 fn japanese_fts_quality_gates_hit_inflected_and_identifier_queries() {
-    let path = temp_db("fts-japanese-quality");
-    let source_root = {
-        let mut root = std::env::temp_dir();
-        root.push(format!("dagayn-rust-fts-ja-quality-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&root).unwrap();
-        root
-    };
-    let files = [
-        (
-            "nlp.md",
-            "# 自然言語検索\n\nGraphStoreで自然言語検索を行う。\n",
-        ),
-        (
-            "ui.md",
-            "# 検索ボタン\n\n画面上部の検索ボタンを押すと結果一覧を開く。\n",
-        ),
-        (
-            "ops.md",
-            "# 運用検索\n\n運用チームがログを検索して障害を切り分ける。\n",
-        ),
-        (
-            "auth.py",
-            "def verify_token(token: str) -> bool:\n    return True\n",
-        ),
-        ("billing.py", "def run_billing_batch() -> None:\n    pass\n"),
-        (
-            "prose.md",
-            "# 長い説明\n\nこの文書は自然言語検索の背景を、助詞や接続を含めて長く書いたものです。\n",
-        ),
-    ];
-    for (name, body) in files {
-        std::fs::write(source_root.join(name), body).unwrap();
-    }
+    let fixture = japanese_search_fixture_root();
+    assert!(
+        fixture.is_dir(),
+        "missing Japanese search fixture at {}",
+        fixture.display()
+    );
+    let spec: JapaneseSearchCorpus = serde_json::from_str(
+        &std::fs::read_to_string(fixture.join("queries.json")).expect("queries.json"),
+    )
+    .expect("corpus spec");
 
+    let path = temp_db("fts-japanese-quality");
     let mut store = GraphStore::open(&path).expect("open graph store");
     store
-        .set_metadata("repo_root", source_root.to_string_lossy().as_ref())
+        .set_metadata("repo_root", fixture.to_string_lossy().as_ref())
         .unwrap();
-    let nodes = [
-        (
-            "nlp.md",
-            japanese_quality_node(
-                "DocSection",
-                "nlp-search",
-                "nlp.md",
-                "markdown",
-                json!({"display_name": "自然言語検索"}),
-            ),
-        ),
-        (
-            "ui.md",
-            japanese_quality_node(
-                "DocSection",
-                "search-button",
-                "ui.md",
-                "markdown",
-                json!({"display_name": "検索ボタン"}),
-            ),
-        ),
-        (
-            "ops.md",
-            japanese_quality_node(
-                "DocSection",
-                "ops-search",
-                "ops.md",
-                "markdown",
-                json!({"display_name": "運用検索"}),
-            ),
-        ),
-        (
-            "auth.py",
-            japanese_quality_node(
-                "Function",
-                "verify_token",
-                "auth.py",
-                "python",
-                json!({"display_name": "トークン検証"}),
-            ),
-        ),
-        (
-            "billing.py",
-            japanese_quality_node(
-                "Function",
-                "run_billing_batch",
-                "billing.py",
-                "python",
-                json!({"display_name": "課金バッチ"}),
-            ),
-        ),
-        (
-            "jp.py",
-            japanese_quality_node(
-                "Function",
-                "ユーザー取得",
-                "jp.py",
-                "python",
-                Value::Object(Default::default()),
-            ),
-        ),
-        (
-            "prose.md",
-            japanese_quality_node(
-                "DocSection",
-                "long-prose",
-                "prose.md",
-                "markdown",
-                json!({"display_name": "長い説明"}),
-            ),
-        ),
-    ];
-    for (file_path, node) in nodes {
+
+    for file in collect_fixture_files(&fixture) {
+        let name = file.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if matches!(name, "README.md" | "queries.json") {
+            continue;
+        }
+        let rel = file
+            .strip_prefix(&fixture)
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/");
+        let source = std::fs::read(&file).unwrap();
+        let (nodes, edges) = dagayn_parser::parse_rust_owned_file(&rel, &source);
+        if nodes.is_empty() {
+            continue;
+        }
+        let node_inputs = nodes
+            .into_iter()
+            .map(parsed_to_node_input)
+            .collect::<Vec<_>>();
+        let edge_inputs = edges
+            .into_iter()
+            .map(parsed_to_edge_input)
+            .collect::<Vec<_>>();
         store
-            .store_file_nodes_edges(file_path, &[node], &[], "hash", 0)
+            .store_file_nodes_edges(&rel, &node_inputs, &edge_inputs, "hash", 0)
             .unwrap();
     }
 
     let rebuild_started = std::time::Instant::now();
-    assert_eq!(store.rebuild_fts_index().unwrap(), 7);
+    let indexed = store.rebuild_fts_index().unwrap();
     let rebuild_ms = rebuild_started.elapsed().as_secs_f64() * 1000.0;
     assert!(
-        rebuild_ms < 200.0,
-        "7-node FTS rebuild took {rebuild_ms:.2}ms; budget is 200ms"
+        indexed >= spec.min_indexed_nodes,
+        "indexed {indexed} nodes, expected at least {}",
+        spec.min_indexed_nodes
+    );
+    assert!(
+        rebuild_ms < spec.rebuild_budget_ms,
+        "FTS rebuild took {rebuild_ms:.2}ms; budget is {}ms",
+        spec.rebuild_budget_ms
     );
 
-    let hit1 = [
-        ("自然言語検索", "nlp-search", None),
-        ("GraphStore 自然言語検索", "nlp-search", None),
-        ("検索ボタン", "search-button", None),
-        ("トークン検証", "verify_token", None),
-        ("verify_token", "verify_token", None),
-        ("課金バッチ", "run_billing_batch", None),
-        ("自然言語検索する", "nlp-search", Some("and")),
-        (
-            "この文書は自然言語検索の背景を助詞や接続を含めて長く書いた",
-            "long-prose",
-            Some("and"),
-        ),
-        ("ユーザー取得", "ユーザー取得", None),
-        ("ユーザー", "ユーザー取得", None),
-    ];
-    for (query, expected, want_mode) in hit1 {
-        let (names, mode) = fts_hit_names(&store, query);
-        assert_eq!(
-            names.first().map(String::as_str),
-            Some(expected),
-            "hit@1 failed for {query:?}: mode={mode} ranking={names:?}"
+    for gate in &spec.gates {
+        let (records, mode) = fts_hit_records(&store, &gate.query);
+        assert!(
+            gate_matches(&records, gate),
+            "gate failed for {:?}: mode={mode} ranking={records:?}",
+            gate.query
         );
-        if let Some(want) = want_mode {
-            assert_eq!(mode, want, "match_mode for {query:?} ranking={names:?}");
+        if let Some(want) = gate.match_mode.as_deref() {
+            assert_eq!(
+                mode, want,
+                "match_mode for {:?}: ranking={records:?}",
+                gate.query
+            );
         }
     }
-
-    let (search_names, search_mode) = fts_hit_names(&store, "検索する");
-    assert_ne!(search_mode, "none", "検索する must not miss the corpus");
-    assert!(
-        search_names
-            .iter()
-            .take(5)
-            .any(|name| { matches!(name.as_str(), "nlp-search" | "search-button" | "ops-search") }),
-        "検索する should hit a search-related doc in the top 5: {search_names:?}"
-    );
 
     let mut query_ms = Vec::new();
     for _ in 0..50 {
@@ -3314,8 +3289,9 @@ fn japanese_fts_quality_gates_hit_inflected_and_identifier_queries() {
     query_ms.sort_by(|left, right| left.partial_cmp(right).unwrap());
     let p95 = query_ms[(query_ms.len() * 95 / 100).min(query_ms.len() - 1)];
     assert!(
-        p95 < 10.0,
-        "inflected Japanese query p95 {p95:.3}ms exceeds 10ms"
+        p95 < spec.query_p95_ms,
+        "inflected Japanese query p95 {p95:.3}ms exceeds {}ms",
+        spec.query_p95_ms
     );
 
     let identifier_tokens: String = store
@@ -3332,5 +3308,4 @@ fn japanese_fts_quality_gates_hit_inflected_and_identifier_queries() {
     );
 
     let _ = std::fs::remove_file(path);
-    let _ = std::fs::remove_dir_all(source_root);
 }

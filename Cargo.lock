@@ -231,6 +231,7 @@ dependencies = [
 name = "dagayn-graph"
 version = "0.1.0"
 dependencies = [
+ "dagayn-parser",
  "lindera",
  "rayon",
  "regex",
