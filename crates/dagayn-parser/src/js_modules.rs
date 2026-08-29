@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
+use super::member_calls::MemberCallBindings;
 use super::parsers::{new_javascript_parser, new_tsx_parser, new_typescript_parser};
 use super::qualify;
 use super::util::{ends_with_ascii_ignore_case, node_text, normalize_relative_path};
@@ -44,6 +45,7 @@ pub(super) struct JavaScriptParseContext<'a> {
     pub(super) import_map: &'a HashMap<String, String>,
     pub(super) repo_root: Option<&'a Path>,
     pub(super) caches: JavaScriptCaches<'a>,
+    pub(super) bindings: RefCell<MemberCallBindings>,
 }
 
 pub(super) fn collect_javascript_defined_names(
@@ -59,7 +61,7 @@ pub(super) fn collect_javascript_defined_names(
                 names.insert(name);
             }
         }
-        "function_declaration" | "method_definition" => {
+        "function_declaration" => {
             if let Some(name) = javascript_function_name(node, source) {
                 names.insert(name);
             }
@@ -81,6 +83,31 @@ pub(super) fn collect_javascript_defined_names(
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         collect_javascript_defined_names(child, source, names);
+    }
+}
+
+pub(super) fn collect_javascript_type_names(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    names: &mut HashSet<String>,
+) {
+    match node.kind() {
+        "class_declaration"
+        | "class"
+        | "interface_declaration"
+        | "type_alias_declaration"
+        | "enum_declaration" => {
+            if let Some(name) =
+                javascript_named_child(node, source, &["identifier", "type_identifier"])
+            {
+                names.insert(name);
+            }
+        }
+        _ => {}
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_javascript_type_names(child, source, names);
     }
 }
 

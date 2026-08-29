@@ -1041,7 +1041,11 @@ class BridgeSamples : IRepository
     assert!(edges.iter().any(|edge| {
         edge.kind == "IMPORTS_FROM" && edge.source == "sample.cs" && edge.target == "System.IO"
     }));
-    assert!(edges.iter().all(|edge| edge.kind != "IMPLEMENTS"));
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "IMPLEMENTS"
+            && edge.source == "sample.cs::BridgeSamples"
+            && edge.target == "IRepository"
+    }));
     assert!(edges.iter().any(|edge| {
         edge.kind == "CROSS_ARTIFACT"
             && edge.target == "git"
@@ -1057,6 +1061,62 @@ class BridgeSamples : IRepository
         edge.kind == "CROSS_ARTIFACT"
             && edge.target == "mylib.dll"
             && edge.extra["evidence_source"] == "Assembly.LoadFile"
+    }));
+}
+
+#[test]
+fn parses_csharp_records_implements_inherits_and_properties() {
+    let source = br#"
+public interface IRepo
+{
+    User Find(int id);
+}
+
+public record Person(string Name);
+
+public class Repo : IRepo
+{
+    public User Find(int id) { return null; }
+}
+
+public class Service : Repo
+{
+    public int Count { get; set; }
+
+    public User Get(int id)
+    {
+        return Find(id);
+    }
+}
+"#;
+    let (nodes, edges) = parse_csharp("sample.cs", source);
+    assert!(nodes.iter().any(|node| {
+        node.kind == "Class"
+            && node.name == "Person"
+            && node.extra["type_role"] == "record"
+            && node.extra["value_semantics"] == true
+    }));
+    assert!(nodes.iter().any(|node| {
+        node.kind == "Function"
+            && node.name == "Count"
+            && node.parent_name.as_deref() == Some("Service")
+            && node.extra["member_role"] == "property"
+    }));
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "IMPLEMENTS" && edge.source == "sample.cs::Repo" && edge.target == "IRepo"
+    }));
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "INHERITS" && edge.source == "sample.cs::Service" && edge.target == "Repo"
+    }));
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "CALLS"
+            && edge.source == "sample.cs::Service.Get"
+            && (edge.target == "sample.cs::IRepo.Find" || edge.target == "sample.cs::Repo.Find")
+    }));
+    assert!(!edges.iter().any(|edge| {
+        edge.kind == "CALLS"
+            && edge.source == "sample.cs::Service.Get"
+            && edge.target == "sample.cs::Find"
     }));
 }
 
@@ -2816,6 +2876,91 @@ def helper(value: str) -> None:
 }
 
 #[test]
+fn parses_python_protocols_type_aliases_and_decorators() {
+    let source = br#"
+from typing import Protocol
+from dataclasses import dataclass
+from abc import ABC, abstractmethod
+
+type UserId = int
+
+class IRepo(Protocol):
+    def find(self, id: UserId) -> str: ...
+
+class Base(ABC):
+    @abstractmethod
+    def load(self) -> str: ...
+
+@dataclass
+class Item:
+    name: str
+
+class Repo(Base, IRepo):
+    def find(self, id: UserId) -> str:
+        return self.load()
+
+    def load(self) -> str:
+        return Item("x").name
+
+def make() -> Repo:
+    repo = Repo()
+    return repo.find(1)
+"#;
+    let (nodes, edges) = parse_python("app.py", source);
+    assert!(nodes.iter().any(|node| {
+        node.kind == "Type" && node.name == "UserId" && node.extra["type_role"] == "alias"
+    }));
+    assert!(nodes.iter().any(|node| {
+        node.kind == "Class"
+            && node.name == "IRepo"
+            && node.extra["type_role"] == "protocol"
+            && node.extra["is_contract"] == true
+            && node.extra["is_abstract"] == true
+    }));
+    assert!(nodes.iter().any(|node| {
+        node.kind == "Class"
+            && node.name == "Base"
+            && node.extra["type_role"] == "abstract_class"
+            && node.extra["is_abstract"] == true
+    }));
+    assert!(nodes.iter().any(|node| {
+        node.kind == "Class"
+            && node.name == "Item"
+            && node.extra["decorators"]
+                .as_array()
+                .is_some_and(|values| values.iter().any(|value| value == "dataclass"))
+    }));
+    assert!(nodes.iter().any(|node| {
+        node.kind == "Function"
+            && node.name == "load"
+            && node.parent_name.as_deref() == Some("Base")
+            && node.extra["is_abstract"] == true
+    }));
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "IMPLEMENTS" && edge.source == "app.py::Repo" && edge.target == "IRepo"
+    }));
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "INHERITS" && edge.source == "app.py::Repo" && edge.target == "Base"
+    }));
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "CALLS"
+            && edge.source == "app.py::Repo.find"
+            && edge.target == "app.py::Repo.load"
+    }));
+    assert!(
+        edges.iter().any(|edge| {
+            edge.kind == "CALLS"
+                && edge.source == "app.py::make"
+                && edge.target == "app.py::Repo.find"
+        }),
+        "{edges:?}"
+    );
+    assert!(!edges.iter().any(|edge| {
+        edge.kind == "CALLS" && edge.source == "app.py::make" && edge.target == "app.py::IRepo.find"
+    }));
+}
+
+#[test]
 fn parses_typescript_items_calls_tests_and_references() {
     let source = br#"import { Thing } from './thing';
 
@@ -2950,6 +3095,63 @@ describe('Service', () => {
         edge.kind == "TESTED_BY"
             && edge.source == "service.test.ts::helper"
             && edge.target.contains("it:runs")
+    }));
+}
+
+#[test]
+fn parses_typescript_constructors_reexports_and_interface_methods() {
+    let source = br#"
+export { Repo } from "./other";
+
+interface Repo {
+  find(): void;
+}
+
+class Store implements Repo {
+  find(): void {}
+}
+
+function make(): Repo {
+  const store = new Store();
+  store.find();
+  return store;
+}
+"#;
+    let (nodes, edges) = parse_javascript_like("service.ts", source, "typescript");
+    assert!(nodes.iter().any(|node| {
+        node.kind == "Function"
+            && node.name == "find"
+            && node.parent_name.as_deref() == Some("Repo")
+            && node.extra["is_abstract"] == true
+    }));
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "IMPORTS_FROM" && edge.source == "service.ts" && edge.target == "./other"
+    }));
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "IMPLEMENTS" && edge.source == "service.ts::Store" && edge.target == "Repo"
+    }));
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "CALLS"
+            && edge.source == "service.ts::make"
+            && edge.target == "service.ts::Store"
+    }));
+    assert!(
+        edges.iter().any(|edge| {
+            edge.kind == "CALLS"
+                && edge.source == "service.ts::make"
+                && edge.target == "service.ts::Store.find"
+        }),
+        "{edges:?}"
+    );
+    assert!(!edges.iter().any(|edge| {
+        edge.kind == "CALLS"
+            && edge.source == "service.ts::make"
+            && edge.target == "service.ts::Repo.find"
+    }));
+    assert!(!edges.iter().any(|edge| {
+        edge.kind == "CALLS"
+            && edge.source == "service.ts::make"
+            && edge.target == "service.ts::find"
     }));
 }
 

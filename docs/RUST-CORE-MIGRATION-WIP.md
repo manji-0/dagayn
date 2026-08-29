@@ -491,6 +491,12 @@ Parser migration progress:
   tsconfig path aliases, JS/TS/TSX barrel re-exports
   (`export { ... } from` and `export * from`), value-reference REFERENCES,
   TESTED_BY, and subprocess/file bridge CROSS_ARTIFACT edges.
+- Tree-sitter TypeScript, Python, and Rust extractors now track constructor and
+  local type bindings (`const store = new Store()`, `repo = Repo()`,
+  `let repo = Repo::new()`) plus `self`/`this` receivers, so member CALLS such
+  as `store.find()` attach to the implementation type (`Store.find`) instead of
+  the first same-named trait, interface, or Protocol method. See
+  `crates/dagayn-parser/src/member_calls.rs`.
 - Bash grammar sources are now pinned through the same provisioning path. The
   Rust-owned parser routes `.sh`, `.bash`, `.zsh`, and `.ksh` files through
   tree-sitter-bash and covers file/function nodes, CONTAINS, CALLS, and

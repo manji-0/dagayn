@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use serde_json::json;
 
 use super::types::{FilePath, ParsedEdge, ParsedNode};
@@ -32,10 +34,13 @@ pub(super) fn parse_csharp_with_parser(
 
     if let Some(parser) = parser {
         if let Some(tree) = parser.parse(source, None) {
+            let mut interface_names = HashSet::new();
+            csharp_collect_interface_names(tree.root_node(), source, &mut interface_names);
             csharp_walk_children(
                 tree.root_node(),
                 source,
                 &file_path,
+                &interface_names,
                 None,
                 None,
                 &mut nodes,
@@ -63,6 +68,7 @@ fn csharp_walk_children(
     node: tree_sitter::Node<'_>,
     source: &[u8],
     file_path: &FilePath,
+    interface_names: &HashSet<String>,
     enclosing_class: Option<&str>,
     enclosing_func: Option<&str>,
     nodes: &mut Vec<ParsedNode>,
@@ -77,22 +83,33 @@ fn csharp_walk_children(
             "class_declaration"
             | "interface_declaration"
             | "enum_declaration"
-            | "struct_declaration" => {
+            | "struct_declaration"
+            | "record_declaration" => {
                 if let Some(name) = csharp_type_name(child, source) {
                     csharp_emit_type(
                         child,
                         source,
                         file_path,
+                        interface_names,
                         &name,
                         enclosing_class,
                         nodes,
                         edges,
                     );
-                    csharp_walk_children(child, source, file_path, Some(&name), None, nodes, edges);
+                    csharp_walk_children(
+                        child,
+                        source,
+                        file_path,
+                        interface_names,
+                        Some(&name),
+                        None,
+                        nodes,
+                        edges,
+                    );
                     continue;
                 }
             }
-            "method_declaration" | "constructor_declaration" => {
+            "method_declaration" | "constructor_declaration" | "property_declaration" => {
                 if let Some(name) = csharp_function_name(child, source) {
                     csharp_emit_function(
                         child,
@@ -107,6 +124,7 @@ fn csharp_walk_children(
                         child,
                         source,
                         file_path,
+                        interface_names,
                         enclosing_class,
                         Some(&name),
                         nodes,
@@ -131,6 +149,7 @@ fn csharp_walk_children(
             child,
             source,
             file_path,
+            interface_names,
             enclosing_class,
             enclosing_func,
             nodes,
@@ -169,6 +188,7 @@ fn csharp_emit_type(
     node: tree_sitter::Node<'_>,
     source: &[u8],
     file_path: &FilePath,
+    interface_names: &HashSet<String>,
     name: &str,
     enclosing_class: Option<&str>,
     nodes: &mut Vec<ParsedNode>,
@@ -188,6 +208,7 @@ fn csharp_emit_type(
             map.insert("value_semantics".to_string(), json!(true));
         }
     }
+    let qualified = qualify(file_path, name, enclosing_class);
     nodes.push(ParsedNode {
         kind: crate::core::types::NodeKind::Class,
         name: name.to_string(),
@@ -205,11 +226,28 @@ fn csharp_emit_type(
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Contains,
         source: file_path.to_string(),
-        target: qualify(file_path, name, enclosing_class),
+        target: qualified.clone(),
         file_path: file_path.clone(),
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
+    for (base, role) in csharp_bases(node, source, interface_names) {
+        edges.push(ParsedEdge {
+            kind: if role == "implements" {
+                crate::core::types::EdgeKind::Implements
+            } else {
+                crate::core::types::EdgeKind::Inherits
+            },
+            source: qualified.clone(),
+            target: base,
+            file_path: file_path.clone(),
+            line: node.start_position().row as i64 + 1,
+            extra: json!({
+                "relationship_role": role,
+                "syntax_source": node.kind(),
+            }),
+        });
+    }
 }
 
 fn csharp_type_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
@@ -247,6 +285,7 @@ fn csharp_type_role(node: tree_sitter::Node<'_>, source: &[u8]) -> (&'static str
         "interface_declaration" => ("interface", true, true),
         "enum_declaration" => ("enum", false, false),
         "struct_declaration" => ("struct", false, false),
+        "record_declaration" => ("record", false, false),
         _ => {
             let is_abstract = csharp_has_modifier(node, source, "abstract");
             if is_abstract {
@@ -259,7 +298,93 @@ fn csharp_type_role(node: tree_sitter::Node<'_>, source: &[u8]) -> (&'static str
 }
 
 fn csharp_is_value_container(type_role: &str) -> bool {
-    matches!(type_role, "struct" | "enum")
+    matches!(type_role, "struct" | "enum" | "record")
+}
+
+fn csharp_collect_interface_names(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    names: &mut HashSet<String>,
+) {
+    if node.kind() == "interface_declaration" {
+        if let Some(name) = csharp_type_name(node, source) {
+            names.insert(name);
+        }
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        csharp_collect_interface_names(child, source, names);
+    }
+}
+
+fn csharp_bases(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    interface_names: &HashSet<String>,
+) -> Vec<(String, &'static str)> {
+    let mut names = Vec::new();
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "base_list" {
+            csharp_collect_base_names(child, source, &mut names);
+        }
+    }
+    let source_is_interface = node.kind() == "interface_declaration";
+    names
+        .into_iter()
+        .map(|name| {
+            let role = if source_is_interface {
+                "extends"
+            } else if interface_names.contains(&name) || csharp_looks_like_interface(&name) {
+                "implements"
+            } else {
+                "extends"
+            };
+            (name, role)
+        })
+        .collect()
+}
+
+fn csharp_collect_base_names(node: tree_sitter::Node<'_>, source: &[u8], names: &mut Vec<String>) {
+    match node.kind() {
+        "identifier" => names.push(node_text(node, source)),
+        "generic_name" => {
+            names.push(node_text(csharp_generic_base(node), source));
+        }
+        "qualified_name" => {
+            if let Some(name) = csharp_rightmost_identifier(node, source) {
+                names.push(name);
+            }
+        }
+        _ => {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if matches!(child.kind(), ":" | "," | "<" | ">" | "[" | "]") {
+                    continue;
+                }
+                csharp_collect_base_names(child, source, names);
+            }
+        }
+    }
+}
+
+fn csharp_rightmost_identifier(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut cursor = node.walk();
+    let children = node.children(&mut cursor).collect::<Vec<_>>();
+    for child in children.into_iter().rev() {
+        if child.kind() == "identifier" {
+            return Some(node_text(child, source));
+        }
+        if let Some(name) = csharp_rightmost_identifier(child, source) {
+            return Some(name);
+        }
+    }
+    None
+}
+
+fn csharp_looks_like_interface(name: &str) -> bool {
+    let mut chars = name.chars();
+    matches!(chars.next(), Some('I')) && chars.next().is_some_and(|c| c.is_ascii_uppercase())
 }
 
 fn csharp_emit_function(
@@ -272,6 +397,11 @@ fn csharp_emit_function(
     edges: &mut Vec<ParsedEdge>,
 ) {
     let qualified = qualify(file_path, name, enclosing_class);
+    let extra = if node.kind() == "property_declaration" {
+        json!({"member_role": "property"})
+    } else {
+        json!({})
+    };
     nodes.push(ParsedNode {
         kind: crate::core::types::NodeKind::Function,
         name: name.to_string(),
@@ -284,7 +414,7 @@ fn csharp_emit_function(
         return_type: csharp_field_text(node, source, "returns"),
         modifiers: None,
         is_test: false,
-        extra: json!({}),
+        extra,
     });
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Contains,

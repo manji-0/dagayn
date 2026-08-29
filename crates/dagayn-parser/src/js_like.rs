@@ -1,15 +1,17 @@
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use serde_json::{json, Value};
 
 use super::js_modules::{
-    collect_javascript_defined_names, collect_javascript_import_map,
+    collect_javascript_defined_names, collect_javascript_import_map, collect_javascript_type_names,
     decode_javascript_string_literal, javascript_child_text, javascript_function_name,
     javascript_import_targets, javascript_named_child, resolve_javascript_call_target,
     resolve_javascript_imported_symbol, resolve_javascript_module, JavaScriptCaches,
     JavaScriptParseContext,
 };
+use super::member_calls::MemberCallBindings;
 use super::parsers::*;
 use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{
@@ -87,6 +89,8 @@ pub(super) fn parse_javascript_like_interned(
             let root = tree.root_node();
             let mut defined_names = HashSet::new();
             collect_javascript_defined_names(root, source, &mut defined_names);
+            let mut type_names = HashSet::new();
+            collect_javascript_type_names(root, source, &mut type_names);
             let mut import_map = HashMap::new();
             collect_javascript_import_map(root, source, &mut import_map);
             let context = JavaScriptParseContext {
@@ -98,6 +102,7 @@ pub(super) fn parse_javascript_like_interned(
                 import_map: &import_map,
                 repo_root,
                 caches,
+                bindings: RefCell::new(MemberCallBindings::with_types(type_names)),
             };
             javascript_walk_children(root, &context, None, None, &mut nodes, &mut edges);
             let mut edges = resolve_rust_call_targets(&nodes, edges, file_path);
@@ -160,9 +165,20 @@ fn javascript_walk_children(
                     continue;
                 }
             }
-            "function_declaration" | "method_definition" | "arrow_function" => {
+            "function_declaration"
+            | "method_definition"
+            | "method_signature"
+            | "function_signature"
+            | "arrow_function" => {
                 if javascript_emit_function_node(child, context, enclosing_class, nodes, edges) {
                     if let Some(name) = javascript_function_name(child, context.source) {
+                        let snapshot = context.bindings.borrow().snapshot();
+                        if let Some(class_name) = enclosing_class {
+                            context
+                                .bindings
+                                .borrow_mut()
+                                .bind_implicit_receivers(class_name);
+                        }
                         javascript_walk_children(
                             child,
                             context,
@@ -171,6 +187,7 @@ fn javascript_walk_children(
                             nodes,
                             edges,
                         );
+                        context.bindings.borrow_mut().restore(snapshot);
                     }
                     continue;
                 }
@@ -186,7 +203,7 @@ fn javascript_walk_children(
                     continue;
                 }
             }
-            "import_statement" => {
+            "import_statement" | "export_statement" => {
                 for target in javascript_import_targets(child, context.source) {
                     let resolved = resolve_javascript_module(
                         &target,
@@ -204,9 +221,11 @@ fn javascript_walk_children(
                         extra: json!({}),
                     });
                 }
-                continue;
+                if child.kind() == "import_statement" {
+                    continue;
+                }
             }
-            "call_expression" => {
+            "call_expression" | "new_expression" => {
                 if javascript_emit_call(
                     child,
                     context,
@@ -250,6 +269,8 @@ fn javascript_walk_children(
             nodes,
             edges,
         );
+        javascript_bind_declarator(child, context);
+        javascript_bind_assignment(child, context);
     }
 }
 
@@ -285,7 +306,11 @@ fn javascript_emit_function_node(
         return_type: javascript_child_text(node, context.source, "type_annotation"),
         modifiers: None,
         is_test,
-        extra: json!({}),
+        extra: if matches!(node.kind(), "method_signature" | "function_signature") {
+            json!({"is_abstract": true})
+        } else {
+            json!({})
+        },
     });
     let container = enclosing_class
         .map(|name| qualify(&context.file_path, name, None))
@@ -358,6 +383,13 @@ fn javascript_emit_variable_functions(
             line: node.start_position().row as i64 + 1,
             extra: json!({}),
         });
+        let snapshot = context.bindings.borrow().snapshot();
+        if let Some(class_name) = enclosing_class {
+            context
+                .bindings
+                .borrow_mut()
+                .bind_implicit_receivers(class_name);
+        }
         javascript_walk_children(
             function_node,
             context,
@@ -366,6 +398,7 @@ fn javascript_emit_variable_functions(
             nodes,
             edges,
         );
+        context.bindings.borrow_mut().restore(snapshot);
         handled = true;
     }
     handled
@@ -422,6 +455,13 @@ fn javascript_emit_field_function(
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
+    let snapshot = context.bindings.borrow().snapshot();
+    if let Some(class_name) = enclosing_class {
+        context
+            .bindings
+            .borrow_mut()
+            .bind_implicit_receivers(class_name);
+    }
     javascript_walk_children(
         function_node,
         context,
@@ -430,6 +470,7 @@ fn javascript_emit_field_function(
         nodes,
         edges,
     );
+    context.bindings.borrow_mut().restore(snapshot);
     true
 }
 
@@ -497,7 +538,8 @@ fn javascript_emit_call(
     let caller = enclosing_func
         .map(|func| qualify(&context.file_path, func, enclosing_class))
         .unwrap_or_else(|| context.file_path.to_string());
-    let target = resolve_javascript_call_target(&call_name, context);
+    let target = javascript_bound_member_target(node, context)
+        .unwrap_or_else(|| resolve_javascript_call_target(&call_name, context));
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Calls,
         source: caller.clone(),
@@ -803,18 +845,119 @@ fn collect_javascript_bases(
 fn javascript_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
     let callee = javascript_callee_node(node)?;
     match callee.kind() {
-        "identifier" | "property_identifier" => Some(node_text(callee, source)),
+        "identifier" | "property_identifier" | "type_identifier" => Some(node_text(callee, source)),
         "member_expression" => javascript_rightmost_identifier(callee, source),
         _ => None,
     }
 }
 
-fn javascript_callee_node(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
+fn javascript_bound_member_target(
+    node: tree_sitter::Node<'_>,
+    context: &JavaScriptParseContext<'_>,
+) -> Option<String> {
+    let callee = javascript_callee_node(node)?;
+    if callee.kind() != "member_expression" {
+        return None;
+    }
+    let method = javascript_rightmost_identifier(callee, context.source)?;
+    let receiver = javascript_leftmost_identifier(callee, context.source)?;
+    context.bindings.borrow().resolve_member(&receiver, &method)
+}
+
+fn javascript_bind_declarator(node: tree_sitter::Node<'_>, context: &JavaScriptParseContext<'_>) {
+    if node.kind() != "variable_declarator" {
+        return;
+    }
+    let mut ident = None;
+    let mut annotated = None;
+    let mut value = None;
     let mut cursor = node.walk();
-    let callee = node
-        .children(&mut cursor)
-        .find(|child| child.kind() != "arguments");
-    callee
+    for child in node.children(&mut cursor) {
+        match child.kind() {
+            "identifier" if ident.is_none() => {
+                ident = Some(node_text(child, context.source));
+            }
+            "type_annotation" => {
+                annotated = javascript_named_child(
+                    child,
+                    context.source,
+                    &["identifier", "type_identifier"],
+                );
+            }
+            "new_expression" | "call_expression" => {
+                value = Some(child);
+            }
+            _ => {}
+        }
+    }
+    let Some(ident) = ident else {
+        return;
+    };
+    if let Some(value) = value {
+        if let Some(type_name) = javascript_inferred_constructor(value, context) {
+            context.bindings.borrow_mut().bind(ident, type_name);
+            return;
+        }
+    }
+    if let Some(type_name) = annotated {
+        context.bindings.borrow_mut().bind(ident, type_name);
+    }
+}
+
+fn javascript_bind_assignment(node: tree_sitter::Node<'_>, context: &JavaScriptParseContext<'_>) {
+    if node.kind() != "assignment_expression" {
+        return;
+    }
+    let mut ident = None;
+    let mut value = None;
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        match child.kind() {
+            "identifier" if ident.is_none() => {
+                ident = Some(node_text(child, context.source));
+            }
+            "new_expression" | "call_expression" => {
+                value = Some(child);
+            }
+            _ => {}
+        }
+    }
+    let (Some(ident), Some(value)) = (ident, value) else {
+        return;
+    };
+    if let Some(type_name) = javascript_inferred_constructor(value, context) {
+        context.bindings.borrow_mut().bind(ident, type_name);
+    }
+}
+
+fn javascript_inferred_constructor(
+    node: tree_sitter::Node<'_>,
+    context: &JavaScriptParseContext<'_>,
+) -> Option<String> {
+    let call_name = javascript_call_name(node, context.source)?;
+    context
+        .bindings
+        .borrow()
+        .constructor_type(&call_name)
+        .map(str::to_string)
+}
+
+fn javascript_callee_node(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
+    if node.kind() == "new_expression" {
+        if let Some(constructor) = node.child_by_field_name("constructor") {
+            return Some(constructor);
+        }
+        let mut cursor = node.walk();
+        let children = node.children(&mut cursor).collect::<Vec<_>>();
+        return children
+            .into_iter()
+            .find(|child| !matches!(child.kind(), "new" | "arguments" | "type_arguments"));
+    }
+    let mut cursor = node.walk();
+    let children = node.children(&mut cursor).collect::<Vec<_>>();
+    children
+        .into_iter()
+        .find(|child| child.kind() != "arguments")
 }
 
 fn javascript_rightmost_identifier(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {

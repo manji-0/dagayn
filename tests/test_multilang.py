@@ -87,6 +87,21 @@ class TestRustParsing:
         names = {c.name for c in classes}
         assert "User" in names
         assert "InMemoryRepo" in names
+        assert "Repository" in names
+        repo = next(c for c in classes if c.name == "Repository")
+        assert repo.extra.get("type_role") == "trait"
+        assert repo.extra.get("is_contract") is True
+        assert not any(c.extra.get("type_role") == "implementation" for c in classes)
+
+    def test_impl_for_attaches_methods_and_implements(self):
+        assert any(
+            n.kind == "Function" and n.name == "find_by_id" and n.parent_name == "InMemoryRepo"
+            for n in self.nodes
+        )
+        implements = [e for e in self.edges if e.kind == "IMPLEMENTS"]
+        assert any(
+            "InMemoryRepo" in e.source and e.target.endswith("Repository") for e in implements
+        )
 
     def test_finds_functions(self):
         funcs = [n for n in self.nodes if n.kind == "Function"]
@@ -312,11 +327,27 @@ class TestCSharpParsing:
         names = {c.name for c in classes}
         assert "User" in names
         assert "InMemoryRepo" in names
+        assert "IRepository" in names
+        interface = next(c for c in classes if c.name == "IRepository")
+        assert interface.extra.get("type_role") == "interface"
+        assert interface.extra.get("is_contract") is True
 
     def test_finds_methods(self):
         funcs = [n for n in self.nodes if n.kind == "Function"]
         names = {f.name for f in funcs}
         assert "FindById" in names or "Save" in names
+
+    def test_implements_and_properties(self):
+        implements = [e for e in self.edges if e.kind == "IMPLEMENTS"]
+        assert any(
+            "InMemoryRepo" in e.source and e.target.endswith("IRepository") for e in implements
+        )
+        props = [
+            n
+            for n in self.nodes
+            if n.kind == "Function" and n.extra.get("member_role") == "property"
+        ]
+        assert {p.name for p in props} >= {"Id", "Name"}
 
 
 class TestRubyParsing:

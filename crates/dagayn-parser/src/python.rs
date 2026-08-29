@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
@@ -9,6 +10,7 @@ use super::documentation_directives::{
     extract_line_comment_dagayn_directives, nearest_documentation_source,
     push_documentation_directive_edge,
 };
+use super::member_calls::MemberCallBindings;
 use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{is_test_file, line_count, node_text};
 use super::{qualify, resolve_rust_call_targets};
@@ -56,13 +58,17 @@ pub(super) fn parse_python_with_parser(
     if let Some(parser) = parser {
         if let Some(tree) = parser.parse(source, None) {
             let root = tree.root_node();
-            let (import_map, top_level_defined_names) = collect_python_file_scope(root, source);
+            let (import_map, top_level_defined_names, protocol_names) =
+                collect_python_file_scope(root, source);
+            let class_names = collect_python_class_names(root, source);
             let context = PythonParseContext {
                 source,
                 file_path: file_path.clone(),
                 repo_root,
                 import_map: &import_map,
                 top_level_defined_names: &top_level_defined_names,
+                protocol_names: &protocol_names,
+                bindings: RefCell::new(MemberCallBindings::with_types(class_names)),
             };
             python_walk_children(root, &context, None, None, &mut nodes, &mut edges);
             extract_python_documentation_directives(&file_path, source, &nodes, &mut edges);
@@ -153,6 +159,8 @@ struct PythonParseContext<'a> {
     repo_root: Option<&'a Path>,
     import_map: &'a HashMap<String, String>,
     top_level_defined_names: &'a HashSet<String>,
+    protocol_names: &'a HashSet<String>,
+    bindings: RefCell<MemberCallBindings>,
 }
 
 #[derive(Clone)]
@@ -656,6 +664,8 @@ fn python_walk_children(
             "class_definition" => {
                 if let Some(name) = python_identifier_child(child, context.source) {
                     let qualified = qualify(&context.file_path, &name, enclosing_class);
+                    let bases = python_class_base_names(child, context.source);
+                    let decorators = python_parent_decorators(child, context.source);
                     nodes.push(ParsedNode {
                         kind: crate::core::types::NodeKind::Class,
                         name: name.clone(),
@@ -668,7 +678,7 @@ fn python_walk_children(
                         return_type: None,
                         modifiers: None,
                         is_test: false,
-                        extra: json!({"type_role": "class"}),
+                        extra: python_class_extra(&bases, &decorators),
                     });
                     edges.push(ParsedEdge {
                         kind: crate::core::types::EdgeKind::Contains,
@@ -678,7 +688,7 @@ fn python_walk_children(
                         line: child.start_position().row as i64 + 1,
                         extra: json!({}),
                     });
-                    python_emit_bases(child, context.source, &context.file_path, &qualified, edges);
+                    python_emit_bases(child, context, &qualified, &bases, edges);
                     python_walk_children(child, context, Some(&name), None, nodes, edges);
                     continue;
                 }
@@ -690,6 +700,17 @@ fn python_walk_children(
                     let return_type = python_return_type(child, context.source);
                     let is_test =
                         python_is_test_function(&name, &context.file_path, child, context.source);
+                    let decorators = python_parent_decorators(child, context.source);
+                    let mut extra = json!({});
+                    if !decorators.is_empty() {
+                        extra["decorators"] = json!(decorators);
+                    }
+                    if decorators
+                        .iter()
+                        .any(|decorator| decorator.rsplit('.').next() == Some("abstractmethod"))
+                    {
+                        extra["is_abstract"] = json!(true);
+                    }
                     nodes.push(ParsedNode {
                         kind: if is_test {
                             crate::core::types::NodeKind::Test
@@ -706,7 +727,7 @@ fn python_walk_children(
                         return_type,
                         modifiers: None,
                         is_test,
-                        extra: json!({}),
+                        extra,
                     });
                     let container = enclosing_class
                         .map(|name| qualify(&context.file_path, name, None))
@@ -719,6 +740,13 @@ fn python_walk_children(
                         line: child.start_position().row as i64 + 1,
                         extra: json!({}),
                     });
+                    let snapshot = context.bindings.borrow().snapshot();
+                    if let Some(class_name) = enclosing_class {
+                        context
+                            .bindings
+                            .borrow_mut()
+                            .bind_implicit_receivers(class_name);
+                    }
                     python_walk_children(
                         child,
                         context,
@@ -727,6 +755,35 @@ fn python_walk_children(
                         nodes,
                         edges,
                     );
+                    context.bindings.borrow_mut().restore(snapshot);
+                    continue;
+                }
+            }
+            "type_alias_statement" => {
+                if let Some(name) = python_type_alias_name(child, context.source) {
+                    let qualified = qualify(&context.file_path, &name, enclosing_class);
+                    nodes.push(ParsedNode {
+                        kind: crate::core::types::NodeKind::Type,
+                        name: name.clone(),
+                        file_path: context.file_path.clone(),
+                        line_start: child.start_position().row as i64 + 1,
+                        line_end: child.end_position().row as i64 + 1,
+                        language: "python".to_string(),
+                        parent_name: enclosing_class.map(str::to_string),
+                        params: None,
+                        return_type: None,
+                        modifiers: None,
+                        is_test: false,
+                        extra: json!({"type_role": "alias"}),
+                    });
+                    edges.push(ParsedEdge {
+                        kind: crate::core::types::EdgeKind::Contains,
+                        source: context.file_path.to_string(),
+                        target: qualified,
+                        file_path: context.file_path.clone(),
+                        line: child.start_position().row as i64 + 1,
+                        extra: json!({}),
+                    });
                     continue;
                 }
             }
@@ -750,8 +807,9 @@ fn python_walk_children(
             "call" => {
                 if let Some(call_name) = python_call_name(child, context.source) {
                     let caller = enclosing_qualified.unwrap_or(&context.file_path);
-                    let target = python_resolve_imported_call_target(&call_name, context)
-                        .unwrap_or_else(|| call_name.clone());
+                    let target = python_bound_member_target(child, context)
+                        .or_else(|| python_resolve_imported_call_target(&call_name, context))
+                        .unwrap_or(call_name);
                     edges.push(ParsedEdge {
                         kind: crate::core::types::EdgeKind::Calls,
                         source: caller.to_string(),
@@ -785,6 +843,7 @@ fn python_walk_children(
             nodes,
             edges,
         );
+        python_bind_assignment(child, context);
     }
 }
 
@@ -905,9 +964,10 @@ fn python_skip_value_reference_name(name: &str) -> bool {
 fn collect_python_file_scope(
     root: tree_sitter::Node<'_>,
     source: &[u8],
-) -> (HashMap<String, String>, HashSet<String>) {
+) -> (HashMap<String, String>, HashSet<String>, HashSet<String>) {
     let mut import_map = HashMap::new();
     let mut defined_names = HashSet::new();
+    let mut protocol_names = HashSet::new();
     let mut cursor = root.walk();
     for child in root.children(&mut cursor) {
         let target = if child.kind() == "decorated_definition" {
@@ -917,8 +977,21 @@ fn collect_python_file_scope(
         };
         if let Some(target) = target {
             match target.kind() {
-                "class_definition" | "function_definition" => {
+                "class_definition" => {
                     if let Some(name) = python_identifier_child(target, source) {
+                        if python_class_base_names(target, source)
+                            .iter()
+                            .any(|base| python_is_protocol_marker(base))
+                        {
+                            protocol_names.insert(name.clone());
+                        }
+                        defined_names.insert(name);
+                    }
+                }
+                "function_definition" | "type_alias_statement" => {
+                    if let Some(name) = python_identifier_child(target, source)
+                        .or_else(|| python_type_alias_name(target, source))
+                    {
                         defined_names.insert(name);
                     }
                 }
@@ -929,7 +1002,7 @@ fn collect_python_file_scope(
             }
         }
     }
-    (import_map, defined_names)
+    (import_map, defined_names, protocol_names)
 }
 
 fn python_decorated_target(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
@@ -1081,11 +1154,38 @@ fn python_has_test_annotation(node: tree_sitter::Node<'_>, source: &[u8]) -> boo
 
 fn python_emit_bases(
     node: tree_sitter::Node<'_>,
-    source: &[u8],
-    file_path: &FilePath,
+    context: &PythonParseContext<'_>,
     qualified: &str,
+    bases: &[String],
     edges: &mut Vec<ParsedEdge>,
 ) {
+    for base in bases {
+        let (kind, role) = if python_is_protocol_marker(base)
+            || python_is_abc_marker(base)
+            || python_is_typed_dict_marker(base)
+        {
+            (crate::core::types::EdgeKind::Inherits, "extends")
+        } else if context.protocol_names.contains(base) {
+            (crate::core::types::EdgeKind::Implements, "implements")
+        } else {
+            (crate::core::types::EdgeKind::Inherits, "extends")
+        };
+        edges.push(ParsedEdge {
+            kind,
+            source: qualified.to_string(),
+            target: base.clone(),
+            file_path: context.file_path.clone(),
+            line: node.start_position().row as i64 + 1,
+            extra: json!({
+                "relationship_role": role,
+                "syntax_source": node.kind(),
+            }),
+        });
+    }
+}
+
+fn python_class_base_names(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {
+    let mut bases = Vec::new();
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         if child.kind() != "argument_list" {
@@ -1093,21 +1193,119 @@ fn python_emit_bases(
         }
         let mut arg_cursor = child.walk();
         for arg in child.children(&mut arg_cursor) {
-            if matches!(arg.kind(), "identifier" | "attribute") {
-                edges.push(ParsedEdge {
-                    kind: crate::core::types::EdgeKind::Inherits,
-                    source: qualified.to_string(),
-                    target: node_text(arg, source),
-                    file_path: file_path.clone(),
-                    line: node.start_position().row as i64 + 1,
-                    extra: json!({
-                        "relationship_role": "extends",
-                        "syntax_source": node.kind(),
-                    }),
-                });
+            if let Some(name) = python_base_name(arg, source) {
+                bases.push(name);
             }
         }
     }
+    bases
+}
+
+fn python_base_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    match node.kind() {
+        "identifier" | "attribute" => Some(node_text(node, source)),
+        "subscript" => {
+            let mut cursor = node.walk();
+            let children = node.children(&mut cursor).collect::<Vec<_>>();
+            children
+                .into_iter()
+                .find_map(|child| python_base_name(child, source))
+        }
+        _ => None,
+    }
+}
+
+fn python_class_extra(bases: &[String], decorators: &[String]) -> Value {
+    let is_protocol = bases.iter().any(|base| python_is_protocol_marker(base));
+    let is_abc = bases.iter().any(|base| python_is_abc_marker(base));
+    let is_typed_dict = bases.iter().any(|base| python_is_typed_dict_marker(base));
+    let type_role = if is_protocol {
+        "protocol"
+    } else if is_abc {
+        "abstract_class"
+    } else if is_typed_dict {
+        "typed_dict"
+    } else {
+        "class"
+    };
+    let mut extra = json!({"type_role": type_role});
+    if let Some(map) = extra.as_object_mut() {
+        if is_protocol || is_abc {
+            map.insert("is_abstract".to_string(), json!(true));
+        }
+        if is_protocol {
+            map.insert("is_contract".to_string(), json!(true));
+        }
+        if !decorators.is_empty() {
+            map.insert("decorators".to_string(), json!(decorators));
+        }
+    }
+    extra
+}
+
+fn python_is_protocol_marker(name: &str) -> bool {
+    name.rsplit('.').next().unwrap_or(name) == "Protocol"
+}
+
+fn python_is_abc_marker(name: &str) -> bool {
+    matches!(name.rsplit('.').next().unwrap_or(name), "ABC" | "ABCMeta")
+}
+
+fn python_is_typed_dict_marker(name: &str) -> bool {
+    name.rsplit('.').next().unwrap_or(name) == "TypedDict"
+}
+
+fn python_parent_decorators(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {
+    let Some(parent) = node.parent() else {
+        return Vec::new();
+    };
+    if parent.kind() != "decorated_definition" {
+        return Vec::new();
+    }
+    python_decorator_names(parent, source)
+}
+
+fn python_decorator_names(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() != "decorator" {
+            continue;
+        }
+        if let Some(name) = python_decorator_name(child, source) {
+            names.push(name);
+        }
+    }
+    names
+}
+
+fn python_decorator_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        match child.kind() {
+            "identifier" | "attribute" => return Some(node_text(child, source)),
+            "call" => {
+                if let Some(callee) = python_first_child(child) {
+                    if matches!(callee.kind(), "identifier" | "attribute") {
+                        return Some(node_text(callee, source));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn python_type_alias_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    if node.kind() != "type_alias_statement" {
+        return None;
+    }
+    node.child_by_field_name("name")
+        .or_else(|| node.child_by_field_name("left"))
+        .map(|child| node_text(child, source))
+        .filter(|name| !name.is_empty())
+        .or_else(|| python_identifier_child(node, source))
 }
 
 fn python_import_targets(
@@ -1164,6 +1362,95 @@ fn python_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String
         "identifier" => Some(node_text(first, source)),
         "attribute" => rust_rightmost_identifier(first, source),
         _ => None,
+    }
+}
+
+fn python_bound_member_target(
+    node: tree_sitter::Node<'_>,
+    context: &PythonParseContext<'_>,
+) -> Option<String> {
+    let mut cursor = node.walk();
+    let first = node.children(&mut cursor).next()?;
+    if first.kind() != "attribute" {
+        return None;
+    }
+    let method = rust_rightmost_identifier(first, context.source)?;
+    let receiver = python_first_child(first)?;
+    if receiver.kind() != "identifier" {
+        return None;
+    }
+    context
+        .bindings
+        .borrow()
+        .resolve_member(&node_text(receiver, context.source), &method)
+}
+
+fn python_bind_assignment(node: tree_sitter::Node<'_>, context: &PythonParseContext<'_>) {
+    if !matches!(node.kind(), "assignment" | "augmented_assignment") {
+        return;
+    }
+    let Some(lhs) = python_first_child(node) else {
+        return;
+    };
+    if lhs.kind() != "identifier" {
+        return;
+    }
+    let var = node_text(lhs, context.source);
+    if let Some(rhs) = python_last_value_child(node) {
+        if rhs.kind() == "call" {
+            if let Some(call_name) = python_call_name(rhs, context.source) {
+                let type_name = context
+                    .bindings
+                    .borrow()
+                    .constructor_type(&call_name)
+                    .map(str::to_string);
+                if let Some(type_name) = type_name {
+                    context.bindings.borrow_mut().bind(var.clone(), type_name);
+                    return;
+                }
+            }
+        }
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if !matches!(child.kind(), "type" | "type_annotation") {
+            continue;
+        }
+        if let Some(type_name) = python_identifier_child(child, context.source)
+            .or_else(|| python_base_name(child, context.source))
+        {
+            context.bindings.borrow_mut().bind(var, type_name);
+            return;
+        }
+    }
+}
+
+fn collect_python_class_names(node: tree_sitter::Node<'_>, source: &[u8]) -> HashSet<String> {
+    let mut names = HashSet::new();
+    collect_python_class_names_into(node, source, &mut names);
+    names
+}
+
+fn collect_python_class_names_into(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    names: &mut HashSet<String>,
+) {
+    let target = if node.kind() == "decorated_definition" {
+        python_decorated_target(node)
+    } else {
+        Some(node)
+    };
+    if let Some(target) = target {
+        if target.kind() == "class_definition" {
+            if let Some(name) = python_identifier_child(target, source) {
+                names.insert(name);
+            }
+        }
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_python_class_names_into(child, source, names);
     }
 }
 

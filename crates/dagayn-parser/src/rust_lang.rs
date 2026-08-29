@@ -1,7 +1,9 @@
+use std::cell::RefCell;
 use std::collections::HashSet;
 
 use serde_json::json;
 
+use super::member_calls::MemberCallBindings;
 use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{is_test_file, line_count, node_text};
 use super::{add_tested_by_edges, is_test_function, qualify, resolve_rust_call_targets};
@@ -34,10 +36,13 @@ pub(super) fn parse_rust_with_parser(
             let root = tree.root_node();
             let mut defined_names = HashSet::new();
             collect_rust_defined_names(root, source, &mut defined_names);
+            let mut type_names = HashSet::new();
+            collect_rust_type_names(root, source, &mut type_names);
             let context = RustParseContext {
                 source,
                 file_path: file_path.clone(),
                 defined_names: &defined_names,
+                bindings: RefCell::new(MemberCallBindings::with_types(type_names)),
             };
             rust_walk_children(root, &context, None, None, &mut nodes, &mut edges);
             let mut edges = resolve_rust_call_targets(&nodes, edges, &file_path);
@@ -60,11 +65,16 @@ fn rust_walk_children(
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         match child.kind() {
-            "struct_item" | "enum_item" | "impl_item" => {
+            "struct_item" | "enum_item" | "trait_item" | "type_item" => {
                 if let Some(name) = rust_type_name(child, context.source) {
                     let qualified = qualify(&context.file_path, &name, enclosing_class);
+                    let kind = if child.kind() == "type_item" {
+                        crate::core::types::NodeKind::Type
+                    } else {
+                        crate::core::types::NodeKind::Class
+                    };
                     nodes.push(ParsedNode {
-                        kind: crate::core::types::NodeKind::Class,
+                        kind,
                         name: name.clone(),
                         file_path: context.file_path.clone(),
                         line_start: child.start_position().row as i64 + 1,
@@ -98,12 +108,36 @@ fn rust_walk_children(
                     continue;
                 }
             }
-            "function_item" => {
+            "impl_item" => {
+                if let Some(type_name) = rust_impl_type_name(child, context.source) {
+                    if let Some(trait_name) = rust_impl_trait_name(child, context.source) {
+                        edges.push(ParsedEdge {
+                            kind: crate::core::types::EdgeKind::Implements,
+                            source: qualify(&context.file_path, &type_name, None),
+                            target: trait_name,
+                            file_path: context.file_path.clone(),
+                            line: child.start_position().row as i64 + 1,
+                            extra: json!({
+                                "relationship_role": "implements",
+                                "syntax_source": "impl_item",
+                            }),
+                        });
+                    }
+                    rust_walk_children(child, context, Some(&type_name), None, nodes, edges);
+                    continue;
+                }
+            }
+            "function_item" | "function_signature_item" => {
                 if let Some(name) = rust_identifier_child(child, context.source) {
                     let qualified = qualify(&context.file_path, &name, enclosing_class);
                     let params = rust_child_text(child, context.source, "parameters");
                     let is_test =
                         is_test_function(&name, &context.file_path, child, context.source);
+                    let extra = if child.kind() == "function_signature_item" {
+                        json!({"is_abstract": true})
+                    } else {
+                        json!({})
+                    };
                     nodes.push(ParsedNode {
                         kind: if is_test {
                             crate::core::types::NodeKind::Test
@@ -120,7 +154,7 @@ fn rust_walk_children(
                         return_type: None,
                         modifiers: None,
                         is_test,
-                        extra: json!({}),
+                        extra,
                     });
                     let container = enclosing_class
                         .map(|name| qualify(&context.file_path, name, None))
@@ -142,7 +176,15 @@ fn rust_walk_children(
                         Some(&name),
                         edges,
                     );
+                    let snapshot = context.bindings.borrow().snapshot();
+                    if let Some(class_name) = enclosing_class {
+                        context
+                            .bindings
+                            .borrow_mut()
+                            .bind_implicit_receivers(class_name);
+                    }
                     rust_walk_children(child, context, enclosing_class, Some(&name), nodes, edges);
+                    context.bindings.borrow_mut().restore(snapshot);
                     continue;
                 }
             }
@@ -159,7 +201,9 @@ fn rust_walk_children(
                 }
             }
             "call_expression" | "macro_invocation" => {
-                if let Some(call_name) = rust_call_name(child, context.source) {
+                if let Some(call_name) = rust_bound_member_target(child, context)
+                    .or_else(|| rust_call_name(child, context.source))
+                {
                     let caller = enclosing_func
                         .map(|name| qualify(&context.file_path, name, enclosing_class))
                         .unwrap_or_else(|| context.file_path.to_string());
@@ -204,6 +248,7 @@ fn rust_walk_children(
             nodes,
             edges,
         );
+        rust_bind_let(child, context);
     }
 }
 
@@ -211,6 +256,7 @@ struct RustParseContext<'a> {
     source: &'a [u8],
     file_path: FilePath,
     defined_names: &'a HashSet<String>,
+    bindings: RefCell<MemberCallBindings>,
 }
 
 fn collect_rust_defined_names(
@@ -219,12 +265,17 @@ fn collect_rust_defined_names(
     names: &mut HashSet<String>,
 ) {
     match node.kind() {
-        "struct_item" | "enum_item" | "impl_item" => {
+        "struct_item" | "enum_item" | "trait_item" | "type_item" => {
             if let Some(name) = rust_type_name(node, source) {
                 names.insert(name);
             }
         }
-        "function_item" => {
+        "impl_item" => {
+            if let Some(name) = rust_impl_type_name(node, source) {
+                names.insert(name);
+            }
+        }
+        "function_item" | "function_signature_item" => {
             if let Some(name) = rust_identifier_child(node, source) {
                 names.insert(name);
             }
@@ -237,17 +288,66 @@ fn collect_rust_defined_names(
     }
 }
 
-fn rust_type_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    if node.kind() == "impl_item" {
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            if child.kind() == "type_identifier" {
-                return Some(node_text(child, source));
+fn collect_rust_type_names(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    names: &mut HashSet<String>,
+) {
+    match node.kind() {
+        "struct_item" | "enum_item" | "trait_item" | "type_item" => {
+            if let Some(name) = rust_type_name(node, source) {
+                names.insert(name);
             }
         }
-        return None;
+        "impl_item" => {
+            if let Some(name) = rust_impl_type_name(node, source) {
+                names.insert(name);
+            }
+        }
+        _ => {}
     }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_rust_type_names(child, source, names);
+    }
+}
+
+fn rust_type_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
     rust_identifier_child(node, source)
+}
+
+fn rust_impl_type_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    node.child_by_field_name("type")
+        .and_then(|ty| rust_type_ident(ty, source))
+}
+
+fn rust_impl_trait_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    node.child_by_field_name("trait")
+        .and_then(|ty| rust_type_ident(ty, source))
+}
+
+fn rust_type_ident(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    match node.kind() {
+        "type_identifier" => Some(node_text(node, source)),
+        "generic_type" | "scoped_type_identifier" | "pointer_type" | "reference_type" => {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if let Some(name) = rust_type_ident(child, source) {
+                    return Some(name);
+                }
+            }
+            None
+        }
+        _ => {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if child.kind() == "type_identifier" {
+                    return Some(node_text(child, source));
+                }
+            }
+            None
+        }
+    }
 }
 
 fn rust_identifier_child(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
@@ -276,7 +376,8 @@ fn rust_child_text(node: tree_sitter::Node<'_>, source: &[u8], kind: &str) -> Op
 fn rust_type_role(kind: &str) -> &'static str {
     match kind {
         "enum_item" => "enum",
-        "impl_item" => "implementation",
+        "trait_item" => "trait",
+        "type_item" => "alias",
         "struct_item" => "struct",
         _ => "class",
     }
@@ -286,6 +387,10 @@ fn rust_type_extra(node: tree_sitter::Node<'_>, source: &[u8]) -> serde_json::Va
     let type_role = rust_type_role(node.kind());
     let mut extra = json!({"type_role": type_role});
     if let Some(map) = extra.as_object_mut() {
+        if type_role == "trait" {
+            map.insert("is_abstract".to_string(), json!(true));
+            map.insert("is_contract".to_string(), json!(true));
+        }
         if rust_is_value_container(type_role, node, source) {
             map.insert("container_role".to_string(), json!("data_container"));
             map.insert("value_semantics".to_string(), json!(true));
@@ -409,6 +514,93 @@ fn rust_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> 
         }
     }
     None
+}
+
+fn rust_bound_member_target(
+    node: tree_sitter::Node<'_>,
+    context: &RustParseContext<'_>,
+) -> Option<String> {
+    let mut cursor = node.walk();
+    let field = node
+        .children(&mut cursor)
+        .find(|child| child.kind() == "field_expression")?;
+    let method = rust_rightmost_identifier(field, context.source)?;
+    let receiver = rust_leftmost_identifier(field, context.source)?;
+    context.bindings.borrow().resolve_member(&receiver, &method)
+}
+
+fn rust_leftmost_identifier(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if matches!(
+            child.kind(),
+            "identifier" | "field_identifier" | "type_identifier"
+        ) {
+            return Some(node_text(child, source));
+        }
+        if let Some(name) = rust_leftmost_identifier(child, source) {
+            return Some(name);
+        }
+    }
+    None
+}
+
+fn rust_bind_let(node: tree_sitter::Node<'_>, context: &RustParseContext<'_>) {
+    if node.kind() != "let_declaration" {
+        return;
+    }
+    let mut ident = node.child_by_field_name("pattern").and_then(|pattern| {
+        if pattern.kind() == "identifier" {
+            Some(node_text(pattern, context.source))
+        } else {
+            rust_identifier_child(pattern, context.source)
+        }
+    });
+    let mut annotated = node
+        .child_by_field_name("type")
+        .and_then(|ty| rust_type_ident(ty, context.source));
+    let mut value = node.child_by_field_name("value");
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        match child.kind() {
+            "identifier" if ident.is_none() => {
+                ident = Some(node_text(child, context.source));
+            }
+            "type_identifier" if annotated.is_none() => {
+                annotated = Some(node_text(child, context.source));
+            }
+            "generic_type" | "scoped_type_identifier" | "reference_type" if annotated.is_none() => {
+                if let Some(name) = rust_type_ident(child, context.source) {
+                    annotated = Some(name);
+                }
+            }
+            "call_expression" | "struct_expression" | "macro_invocation" if value.is_none() => {
+                value = Some(child);
+            }
+            _ => {}
+        }
+    }
+    let Some(ident) = ident else {
+        return;
+    };
+    if let Some(value) = value {
+        if let Some(call_name) =
+            rust_call_name(value, context.source).or_else(|| rust_type_ident(value, context.source))
+        {
+            let type_name = context
+                .bindings
+                .borrow()
+                .constructor_type(&call_name)
+                .map(str::to_string);
+            if let Some(type_name) = type_name {
+                context.bindings.borrow_mut().bind(ident, type_name);
+                return;
+            }
+        }
+    }
+    if let Some(type_name) = annotated {
+        context.bindings.borrow_mut().bind(ident, type_name);
+    }
 }
 
 fn rust_rightmost_identifier(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
@@ -703,6 +895,92 @@ fn create_user(repo: Repository) -> User {
                 && edge.source == "src/lib.rs::create_user"
                 && edge.target == "src/lib.rs::User"
                 && edge.extra["evidence_kind"] == "rust_type_identifier"
+        }));
+    }
+
+    #[test]
+    fn test_parse_rust_traits_and_impl_for_attach_methods() {
+        let source = br#"
+pub trait Repository {
+    fn find(&self);
+}
+
+pub struct Repo;
+
+impl Repo {
+    pub fn new() -> Self { Repo }
+}
+
+impl Repository for Repo {
+    fn find(&self) {}
+}
+
+type UserId = u64;
+
+fn boot() {
+    let repo = Repo::new();
+    repo.find();
+}
+"#;
+        let mut parser = new_rust_parser().expect("rust grammar should load");
+        let (nodes, edges) = parse_rust_with_parser("src/lib.rs", source, Some(&mut parser));
+
+        assert!(nodes.iter().any(|node| {
+            node.kind == "Class"
+                && node.name == "Repository"
+                && node.extra["type_role"] == "trait"
+                && node.extra["is_contract"] == true
+        }));
+        assert!(nodes.iter().any(|node| {
+            node.kind == "Class" && node.name == "Repo" && node.extra["type_role"] == "struct"
+        }));
+        assert!(!nodes
+            .iter()
+            .any(|node| { node.kind == "Class" && node.extra["type_role"] == "implementation" }));
+        assert!(nodes.iter().any(|node| {
+            node.kind == "Function"
+                && node.name == "new"
+                && node.parent_name.as_deref() == Some("Repo")
+        }));
+        assert!(nodes.iter().any(|node| {
+            node.kind == "Function"
+                && node.name == "find"
+                && node.parent_name.as_deref() == Some("Repository")
+                && node.extra["is_abstract"] == true
+        }));
+        assert!(nodes.iter().any(|node| {
+            node.kind == "Function"
+                && node.name == "find"
+                && node.parent_name.as_deref() == Some("Repo")
+        }));
+        assert!(nodes.iter().any(|node| {
+            node.kind == "Type" && node.name == "UserId" && node.extra["type_role"] == "alias"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "IMPLEMENTS"
+                && edge.source == "src/lib.rs::Repo"
+                && edge.target == "Repository"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CALLS"
+                && edge.source == "src/lib.rs::boot"
+                && edge.target == "src/lib.rs::Repo.new"
+        }));
+        assert!(
+            edges.iter().any(|edge| {
+                edge.kind == "CALLS"
+                    && edge.source == "src/lib.rs::boot"
+                    && edge.target == "src/lib.rs::Repo.find"
+            }),
+            "{edges:?}"
+        );
+        assert!(!edges.iter().any(|edge| {
+            edge.kind == "CALLS"
+                && edge.source == "src/lib.rs::boot"
+                && edge.target == "src/lib.rs::Repository.find"
+        }));
+        assert!(!edges.iter().any(|edge| {
+            edge.kind == "CALLS" && edge.source == "src/lib.rs::boot" && edge.target == "Repo::new"
         }));
     }
 }

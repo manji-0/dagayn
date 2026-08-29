@@ -47,6 +47,8 @@ mod kotlin;
 mod lua;
 #[path = "markdown.rs"]
 mod markdown;
+#[path = "member_calls.rs"]
+mod member_calls;
 #[path = "ownership.rs"]
 mod ownership;
 #[path = "parsers.rs"]
@@ -711,37 +713,123 @@ pub(super) fn resolve_rust_call_targets(
     edges: Vec<ParsedEdge>,
     file_path: &str,
 ) -> Vec<ParsedEdge> {
-    let symbols = nodes
-        .iter()
-        .filter(|node| {
-            matches!(
-                node.kind,
-                NodeKind::Function
-                    | NodeKind::Class
-                    | NodeKind::Type
-                    | NodeKind::Test
-                    | NodeKind::DocSection
-            )
-        })
-        .fold(HashMap::<String, String>::new(), |mut symbols, node| {
-            symbols
-                .entry(node.name.clone())
-                .or_insert_with(|| qualify(file_path, &node.name, node.parent_name.as_deref()));
-            symbols
-        });
+    let mut symbols = HashMap::<String, Vec<(Option<String>, String)>>::new();
+    for node in nodes {
+        if !matches!(
+            node.kind,
+            NodeKind::Function
+                | NodeKind::Class
+                | NodeKind::Type
+                | NodeKind::Test
+                | NodeKind::DocSection
+        ) {
+            continue;
+        }
+        symbols.entry(node.name.clone()).or_default().push((
+            node.parent_name.clone(),
+            qualify(file_path, &node.name, node.parent_name.as_deref()),
+        ));
+    }
     edges
         .into_iter()
         .map(|mut edge| {
-            if matches!(edge.kind, EdgeKind::Calls | EdgeKind::References)
-                && !edge.target.contains("::")
-            {
-                if let Some(target) = symbols.get(&edge.target) {
-                    edge.target = target.clone();
+            if matches!(edge.kind, EdgeKind::Calls | EdgeKind::References) {
+                if let Some(target) =
+                    resolve_same_file_call_target(file_path, &edge.source, &edge.target, &symbols)
+                {
+                    edge.target = target;
                 }
             }
             edge
         })
         .collect()
+}
+
+fn resolve_same_file_call_target(
+    file_path: &str,
+    caller: &str,
+    target: &str,
+    symbols: &HashMap<String, Vec<(Option<String>, String)>>,
+) -> Option<String> {
+    if let Some(resolved) = resolve_type_scoped_call(file_path, target, symbols) {
+        return Some(resolved);
+    }
+    let name = same_file_unqualified_name(file_path, target)?;
+    let candidates = symbols.get(name)?;
+    let top_level = candidates.iter().find(|(parent, _)| parent.is_none());
+    let methods = candidates
+        .iter()
+        .filter(|(parent, _)| parent.is_some())
+        .collect::<Vec<_>>();
+    if target.contains("::") {
+        // Keep `file::helper` for a real top-level symbol. Rewrite `file::find`
+        // when `find` is only a method (JS used to qualify methods as top-level).
+        if top_level.is_some() {
+            return None;
+        }
+        return pick_method_for_caller(file_path, caller, &methods);
+    }
+    if let Some((_, qualified)) = top_level {
+        return Some(qualified.clone());
+    }
+    pick_method_for_caller(file_path, caller, &methods)
+}
+
+fn resolve_type_scoped_call(
+    file_path: &str,
+    target: &str,
+    symbols: &HashMap<String, Vec<(Option<String>, String)>>,
+) -> Option<String> {
+    if target.starts_with(file_path) {
+        return None;
+    }
+    let (type_name, method) = target.rsplit_once("::")?;
+    if type_name.is_empty()
+        || method.is_empty()
+        || type_name.contains("::")
+        || type_name.contains('.')
+    {
+        return None;
+    }
+    symbols.get(method).and_then(|candidates| {
+        candidates
+            .iter()
+            .find(|(parent, _)| parent.as_deref() == Some(type_name))
+            .map(|(_, qualified)| qualified.clone())
+    })
+}
+
+fn pick_method_for_caller(
+    file_path: &str,
+    caller: &str,
+    methods: &[&(Option<String>, String)],
+) -> Option<String> {
+    if let Some(parent) = caller_type_name(file_path, caller) {
+        if let Some((_, qualified)) = methods
+            .iter()
+            .find(|(candidate_parent, _)| candidate_parent.as_deref() == Some(parent))
+        {
+            return Some(qualified.clone());
+        }
+    }
+    methods.first().map(|(_, qualified)| qualified.clone())
+}
+
+fn same_file_unqualified_name<'a>(file_path: &str, target: &'a str) -> Option<&'a str> {
+    if !target.contains("::") {
+        return Some(target);
+    }
+    let rest = target.strip_prefix(file_path)?.strip_prefix("::")?;
+    if rest.contains('.') {
+        return None;
+    }
+    Some(rest)
+}
+
+fn caller_type_name<'a>(file_path: &str, caller: &'a str) -> Option<&'a str> {
+    let rest = caller.strip_prefix(file_path)?.strip_prefix("::")?;
+    let (parent, _) = rest.split_once('.')?;
+    (!parent.is_empty()).then_some(parent)
 }
 
 pub(super) fn qualify(file_path: &str, name: &str, parent_name: Option<&str>) -> String {

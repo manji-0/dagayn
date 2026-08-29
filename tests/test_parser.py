@@ -1344,6 +1344,27 @@ class TestTypeRoleAndImplements:
         inh = [e for e in edges if e.kind == "INHERITS"]
         assert any("Dog" in e.source and "Animal" in e.target for e in inh)
 
+    def test_typescript_constructor_and_method_call_resolution(self, tmp_path):
+        src = """
+interface Repo { find(): void; }
+class Store implements Repo { find(): void {} }
+function make() { const s = new Store(); s.find(); }
+"""
+        nodes, edges = self._parse(src, "ts", tmp_path)
+        assert any(
+            n.kind == "Function" and n.name == "find" and n.parent_name == "Repo" for n in nodes
+        )
+        calls = [e for e in edges if e.kind == "CALLS"]
+        assert any(e.target.endswith("::Store") for e in calls)
+        assert any(e.target.endswith(".find") for e in calls)
+        assert not any(e.target.endswith("::find") for e in calls)
+
+    def test_typescript_reexport_import(self, tmp_path):
+        src = 'export { Repo } from "./other";\n'
+        _, edges = self._parse(src, "ts", tmp_path)
+        imports = [e for e in edges if e.kind == "IMPORTS_FROM"]
+        assert any(e.target.endswith("other") or e.target == "./other" for e in imports)
+
     # --- Python ---
 
     def test_python_abc_class_role(self, tmp_path):
@@ -1351,8 +1372,8 @@ class TestTypeRoleAndImplements:
         nodes, _ = self._parse(src, "py", tmp_path)
         abc_node = next((n for n in nodes if n.name == "MyABC"), None)
         assert abc_node is not None
-        assert abc_node.extra.get("type_role") == "class"
-        assert abc_node.extra.get("is_abstract") is None
+        assert abc_node.extra.get("type_role") == "abstract_class"
+        assert abc_node.extra.get("is_abstract") is True
 
     def test_python_plain_class_role(self, tmp_path):
         src = "class Foo: pass\n"
@@ -1360,6 +1381,34 @@ class TestTypeRoleAndImplements:
         cls = next((n for n in nodes if n.name == "Foo"), None)
         assert cls is not None
         assert cls.extra.get("type_role") == "class"
+
+    def test_python_protocol_implements_alias_and_dataclass(self, tmp_path):
+        src = """
+from typing import Protocol
+from dataclasses import dataclass
+
+type UserId = int
+
+class IRepo(Protocol):
+    def find(self) -> str: ...
+
+@dataclass
+class Item:
+    name: str
+
+class Repo(IRepo):
+    def find(self) -> str:
+        return Item().name
+"""
+        nodes, edges = self._parse(src, "py", tmp_path)
+        assert any(n.kind == "Type" and n.name == "UserId" for n in nodes)
+        protocol = next(n for n in nodes if n.name == "IRepo")
+        assert protocol.extra.get("type_role") == "protocol"
+        assert protocol.extra.get("is_contract") is True
+        item = next(n for n in nodes if n.name == "Item")
+        assert "dataclass" in item.extra.get("decorators", [])
+        implements = [e for e in edges if e.kind == "IMPLEMENTS"]
+        assert any("Repo" in e.source and e.target.endswith("IRepo") for e in implements)
 
     # --- Dart ---
 

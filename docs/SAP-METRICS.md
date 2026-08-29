@@ -71,15 +71,18 @@ Normalized `type_role` values:
 - `mixin`
 - `enum`
 - `struct`
+- `record`
 
 Language mapping:
 
 - Java/C#/PHP interfaces → `interface`
+- C# `record` types → `record`
 - Swift `protocol_declaration` → `protocol`
+- Rust `trait` items → `trait`; `impl Trait for Type` emits `IMPLEMENTS`
 - Scala traits → `trait`
 - Julia `abstract_definition` → `abstract_type`
 - Dart abstract classes → `abstract_class`
-- Python abstract bases → inferred from `ABC`, `ABCMeta`, and abstract decorators
+- Python `Protocol` bases → `protocol`; `ABC`/`ABCMeta` → `abstract_class`
 - Go interface declarations → `interface`
 
 ## Edge semantics
