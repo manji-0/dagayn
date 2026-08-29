@@ -131,10 +131,14 @@ def _hydrate_flow_rows(store: GraphStore, rows: list[Any]) -> list[Any]:
             payload["steps"] = [
                 {
                     "id": node.id,
+                    "node_id": node.id,
                     "qualified_name": node.qualified_name,
                     "name": node.name,
+                    "file": node.file_path,
                     "file_path": node.file_path,
                     "kind": node.kind,
+                    "line_start": node.line_start,
+                    "line_end": node.line_end,
                 }
                 for node_id in path_ids
                 if (node := nodes_by_id.get(node_id)) is not None
