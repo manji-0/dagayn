@@ -37,7 +37,7 @@ pub(super) enum JavaScriptExportTarget {
 
 pub(super) struct JavaScriptParseContext<'a> {
     pub(super) source: &'a [u8],
-    pub(super) file_path: &'a str,
+    pub(super) file_path: crate::core::types::FilePath,
     pub(super) language: &'static str,
     pub(super) test_file: bool,
     pub(super) defined_names: &'a HashSet<String>,
@@ -89,7 +89,7 @@ pub(super) fn resolve_javascript_call_target(
     context: &JavaScriptParseContext<'_>,
 ) -> String {
     if context.defined_names.contains(name) {
-        return qualify(context.file_path, name, None);
+        return qualify(&context.file_path, name, None);
     }
     let Some(module) = context.import_map.get(name) else {
         return name.to_string();
@@ -102,8 +102,12 @@ pub(super) fn resolve_javascript_imported_symbol(
     module: &str,
     context: &JavaScriptParseContext<'_>,
 ) -> Option<String> {
-    let module_file =
-        resolve_javascript_module(module, context.file_path, context.repo_root, context.caches)?;
+    let module_file = resolve_javascript_module(
+        module,
+        &context.file_path,
+        context.repo_root,
+        context.caches,
+    )?;
     resolve_javascript_exported_symbol(
         &module_file,
         symbol_name,

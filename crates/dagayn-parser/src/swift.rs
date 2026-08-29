@@ -1,6 +1,6 @@
 use serde_json::json;
 
-use super::types::{ParsedEdge, ParsedNode};
+use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{is_test_file, line_count, node_text, strip_matching_quotes};
 use super::{is_test_function, qualify, resolve_rust_call_targets};
 
@@ -9,11 +9,12 @@ pub(super) fn parse_swift_with_parser(
     source: &[u8],
     parser: Option<&mut tree_sitter::Parser>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let file_path = FilePath::new(file_path);
     let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
         kind: crate::core::types::NodeKind::File,
         name: file_path.to_string(),
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line_start: 1,
         line_end,
         language: "swift".to_string(),
@@ -21,14 +22,17 @@ pub(super) fn parse_swift_with_parser(
         params: None,
         return_type: None,
         modifiers: None,
-        is_test: is_test_file(file_path),
+        is_test: is_test_file(&file_path),
         extra: json!({}),
     }];
     let mut edges = Vec::new();
 
     if let Some(parser) = parser {
         if let Some(tree) = parser.parse(source, None) {
-            let context = SwiftParseContext { source, file_path };
+            let context = SwiftParseContext {
+                source,
+                file_path: file_path.clone(),
+            };
             swift_walk_children(
                 tree.root_node(),
                 &context,
@@ -37,7 +41,7 @@ pub(super) fn parse_swift_with_parser(
                 &mut nodes,
                 &mut edges,
             );
-            let edges = resolve_rust_call_targets(&nodes, edges, file_path);
+            let edges = resolve_rust_call_targets(&nodes, edges, &file_path);
             return (nodes, edges);
         }
     }
@@ -46,7 +50,7 @@ pub(super) fn parse_swift_with_parser(
 
 struct SwiftParseContext<'a> {
     source: &'a [u8],
-    file_path: &'a str,
+    file_path: FilePath,
 }
 
 fn swift_walk_children(
@@ -66,7 +70,7 @@ fn swift_walk_children(
                         kind: crate::core::types::EdgeKind::ImportsFrom,
                         source: context.file_path.to_string(),
                         target,
-                        file_path: context.file_path.to_string(),
+                        file_path: context.file_path.clone(),
                         line: child.start_position().row as i64 + 1,
                         extra: json!({}),
                     });
@@ -135,7 +139,7 @@ fn swift_emit_class(
     nodes.push(ParsedNode {
         kind: crate::core::types::NodeKind::Class,
         name: name.to_string(),
-        file_path: context.file_path.to_string(),
+        file_path: context.file_path.clone(),
         line_start: node.start_position().row as i64 + 1,
         line_end: node.end_position().row as i64 + 1,
         language: "swift".to_string(),
@@ -149,17 +153,17 @@ fn swift_emit_class(
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Contains,
         source: context.file_path.to_string(),
-        target: qualify(context.file_path, name, None),
-        file_path: context.file_path.to_string(),
+        target: qualify(&context.file_path, name, None),
+        file_path: context.file_path.clone(),
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
     for base in swift_inheritance_targets(node, context.source) {
         edges.push(ParsedEdge {
             kind: crate::core::types::EdgeKind::Inherits,
-            source: qualify(context.file_path, name, None),
+            source: qualify(&context.file_path, name, None),
             target: base,
-            file_path: context.file_path.to_string(),
+            file_path: context.file_path.clone(),
             line: node.start_position().row as i64 + 1,
             extra: json!({
                 "relationship_role": "extends",
@@ -177,7 +181,7 @@ fn swift_emit_function(
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
-    let is_test = is_test_function(name, context.file_path, node, context.source);
+    let is_test = is_test_function(name, &context.file_path, node, context.source);
     nodes.push(ParsedNode {
         kind: if is_test {
             crate::core::types::NodeKind::Test
@@ -185,7 +189,7 @@ fn swift_emit_function(
             crate::core::types::NodeKind::Function
         },
         name: name.to_string(),
-        file_path: context.file_path.to_string(),
+        file_path: context.file_path.clone(),
         line_start: node.start_position().row as i64 + 1,
         line_end: node.end_position().row as i64 + 1,
         language: "swift".to_string(),
@@ -199,10 +203,10 @@ fn swift_emit_function(
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Contains,
         source: enclosing_class
-            .map(|class| qualify(context.file_path, class, None))
+            .map(|class| qualify(&context.file_path, class, None))
             .unwrap_or_else(|| context.file_path.to_string()),
-        target: qualify(context.file_path, name, enclosing_class),
-        file_path: context.file_path.to_string(),
+        target: qualify(&context.file_path, name, enclosing_class),
+        file_path: context.file_path.clone(),
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
@@ -216,14 +220,14 @@ fn swift_emit_call(
     edges: &mut Vec<ParsedEdge>,
 ) {
     let caller = enclosing_func
-        .map(|func| qualify(context.file_path, func, enclosing_class))
+        .map(|func| qualify(&context.file_path, func, enclosing_class))
         .unwrap_or_else(|| context.file_path.to_string());
     if let Some(call_name) = swift_call_name(node, context.source) {
         edges.push(ParsedEdge {
             kind: crate::core::types::EdgeKind::Calls,
             source: caller.clone(),
             target: call_name,
-            file_path: context.file_path.to_string(),
+            file_path: context.file_path.clone(),
             line: node.start_position().row as i64 + 1,
             extra: json!({}),
         });
@@ -338,7 +342,7 @@ fn swift_bridge_edge(
         kind: crate::core::types::EdgeKind::CrossArtifact,
         source: caller.to_string(),
         target,
-        file_path: context.file_path.to_string(),
+        file_path: context.file_path.clone(),
         line,
         extra: json!({
             "relationship_role": relationship_role,

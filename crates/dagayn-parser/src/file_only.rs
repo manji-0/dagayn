@@ -1,6 +1,6 @@
 use serde_json::json;
 
-use super::types::{ParsedEdge, ParsedNode};
+use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{is_test_file, line_count};
 
 pub(super) fn parse_zig_with_parser(
@@ -25,6 +25,7 @@ fn parse_tree_sitter_file_only_with_parser(
     language: &str,
     parser: Option<&mut tree_sitter::Parser>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let file_path = FilePath::new(file_path);
     if let Some(parser) = parser {
         let _ = parser.parse(source, None);
     }
@@ -33,7 +34,7 @@ fn parse_tree_sitter_file_only_with_parser(
         vec![ParsedNode {
             kind: crate::core::types::NodeKind::File,
             name: file_path.to_string(),
-            file_path: file_path.to_string(),
+            file_path: file_path.clone(),
             line_start: 1,
             line_end,
             language: language.to_string(),
@@ -41,7 +42,7 @@ fn parse_tree_sitter_file_only_with_parser(
             params: None,
             return_type: None,
             modifiers: None,
-            is_test: is_test_file(file_path),
+            is_test: is_test_file(&file_path),
             extra: json!({}),
         }],
         Vec::new(),

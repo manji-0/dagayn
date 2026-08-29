@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use serde_json::json;
 
-use super::types::{ParsedEdge, ParsedNode};
+use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{is_test_file, line_count, node_text};
 use super::{add_tested_by_edges, is_test_function, qualify, resolve_rust_call_targets};
 
@@ -11,11 +11,12 @@ pub(super) fn parse_rust_with_parser(
     source: &[u8],
     parser: Option<&mut tree_sitter::Parser>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let file_path = FilePath::new(file_path);
     let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
         kind: crate::core::types::NodeKind::File,
         name: file_path.to_string(),
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line_start: 1,
         line_end,
         language: "rust".to_string(),
@@ -23,7 +24,7 @@ pub(super) fn parse_rust_with_parser(
         params: None,
         return_type: None,
         modifiers: None,
-        is_test: is_test_file(file_path),
+        is_test: is_test_file(&file_path),
         extra: json!({}),
     }];
     let mut edges = Vec::new();
@@ -35,11 +36,11 @@ pub(super) fn parse_rust_with_parser(
             collect_rust_defined_names(root, source, &mut defined_names);
             let context = RustParseContext {
                 source,
-                file_path,
+                file_path: file_path.clone(),
                 defined_names: &defined_names,
             };
             rust_walk_children(root, &context, None, None, &mut nodes, &mut edges);
-            let mut edges = resolve_rust_call_targets(&nodes, edges, file_path);
+            let mut edges = resolve_rust_call_targets(&nodes, edges, &file_path);
             add_tested_by_edges(&nodes, &mut edges);
             return (nodes, edges);
         }
@@ -61,11 +62,11 @@ fn rust_walk_children(
         match child.kind() {
             "struct_item" | "enum_item" | "impl_item" => {
                 if let Some(name) = rust_type_name(child, context.source) {
-                    let qualified = qualify(context.file_path, &name, enclosing_class);
+                    let qualified = qualify(&context.file_path, &name, enclosing_class);
                     nodes.push(ParsedNode {
                         kind: crate::core::types::NodeKind::Class,
                         name: name.clone(),
-                        file_path: context.file_path.to_string(),
+                        file_path: context.file_path.clone(),
                         line_start: child.start_position().row as i64 + 1,
                         line_end: child.end_position().row as i64 + 1,
                         language: "rust".to_string(),
@@ -80,15 +81,15 @@ fn rust_walk_children(
                         kind: crate::core::types::EdgeKind::Contains,
                         source: context.file_path.to_string(),
                         target: qualified,
-                        file_path: context.file_path.to_string(),
+                        file_path: context.file_path.clone(),
                         line: child.start_position().row as i64 + 1,
                         extra: json!({}),
                     });
                     rust_emit_type_references(
                         child,
                         context.source,
-                        context.file_path,
-                        &qualify(context.file_path, &name, enclosing_class),
+                        &context.file_path,
+                        &qualify(&context.file_path, &name, enclosing_class),
                         context.defined_names,
                         Some(&name),
                         edges,
@@ -99,9 +100,10 @@ fn rust_walk_children(
             }
             "function_item" => {
                 if let Some(name) = rust_identifier_child(child, context.source) {
-                    let qualified = qualify(context.file_path, &name, enclosing_class);
+                    let qualified = qualify(&context.file_path, &name, enclosing_class);
                     let params = rust_child_text(child, context.source, "parameters");
-                    let is_test = is_test_function(&name, context.file_path, child, context.source);
+                    let is_test =
+                        is_test_function(&name, &context.file_path, child, context.source);
                     nodes.push(ParsedNode {
                         kind: if is_test {
                             crate::core::types::NodeKind::Test
@@ -109,7 +111,7 @@ fn rust_walk_children(
                             crate::core::types::NodeKind::Function
                         },
                         name: name.clone(),
-                        file_path: context.file_path.to_string(),
+                        file_path: context.file_path.clone(),
                         line_start: child.start_position().row as i64 + 1,
                         line_end: child.end_position().row as i64 + 1,
                         language: "rust".to_string(),
@@ -121,21 +123,21 @@ fn rust_walk_children(
                         extra: json!({}),
                     });
                     let container = enclosing_class
-                        .map(|name| qualify(context.file_path, name, None))
+                        .map(|name| qualify(&context.file_path, name, None))
                         .unwrap_or_else(|| context.file_path.to_string());
                     edges.push(ParsedEdge {
                         kind: crate::core::types::EdgeKind::Contains,
                         source: container,
                         target: qualified,
-                        file_path: context.file_path.to_string(),
+                        file_path: context.file_path.clone(),
                         line: child.start_position().row as i64 + 1,
                         extra: json!({}),
                     });
                     rust_emit_type_references(
                         child,
                         context.source,
-                        context.file_path,
-                        &qualify(context.file_path, &name, enclosing_class),
+                        &context.file_path,
+                        &qualify(&context.file_path, &name, enclosing_class),
                         context.defined_names,
                         Some(&name),
                         edges,
@@ -150,7 +152,7 @@ fn rust_walk_children(
                         kind: crate::core::types::EdgeKind::ImportsFrom,
                         source: context.file_path.to_string(),
                         target,
-                        file_path: context.file_path.to_string(),
+                        file_path: context.file_path.clone(),
                         line: child.start_position().row as i64 + 1,
                         extra: json!({}),
                     });
@@ -159,20 +161,20 @@ fn rust_walk_children(
             "call_expression" | "macro_invocation" => {
                 if let Some(call_name) = rust_call_name(child, context.source) {
                     let caller = enclosing_func
-                        .map(|name| qualify(context.file_path, name, enclosing_class))
+                        .map(|name| qualify(&context.file_path, name, enclosing_class))
                         .unwrap_or_else(|| context.file_path.to_string());
                     edges.push(ParsedEdge {
                         kind: crate::core::types::EdgeKind::Calls,
                         source: caller.clone(),
                         target: call_name.clone(),
-                        file_path: context.file_path.to_string(),
+                        file_path: context.file_path.clone(),
                         line: child.start_position().row as i64 + 1,
                         extra: json!({}),
                     });
                     if let Some(edge) = rust_bridge_edge(
                         child,
                         context.source,
-                        context.file_path,
+                        &context.file_path,
                         &caller,
                         &call_name,
                     ) {
@@ -185,7 +187,7 @@ fn rust_walk_children(
                 rust_emit_argument_references(
                     child,
                     context.source,
-                    context.file_path,
+                    &context.file_path,
                     enclosing_class,
                     enclosing_func,
                     context.defined_names,
@@ -207,7 +209,7 @@ fn rust_walk_children(
 
 struct RustParseContext<'a> {
     source: &'a [u8],
-    file_path: &'a str,
+    file_path: FilePath,
     defined_names: &'a HashSet<String>,
 }
 
@@ -429,14 +431,14 @@ fn rust_rightmost_identifier(node: tree_sitter::Node<'_>, source: &[u8]) -> Opti
 fn rust_emit_argument_references(
     node: tree_sitter::Node<'_>,
     source: &[u8],
-    file_path: &str,
+    file_path: &FilePath,
     enclosing_class: Option<&str>,
     enclosing_func: Option<&str>,
     defined_names: &HashSet<String>,
     edges: &mut Vec<ParsedEdge>,
 ) {
     let caller = enclosing_func
-        .map(|name| qualify(file_path, name, enclosing_class))
+        .map(|name| qualify(&file_path, name, enclosing_class))
         .unwrap_or_else(|| file_path.to_string());
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
@@ -450,8 +452,8 @@ fn rust_emit_argument_references(
         edges.push(ParsedEdge {
             kind: crate::core::types::EdgeKind::References,
             source: caller.clone(),
-            target: qualify(file_path, &name, None),
-            file_path: file_path.to_string(),
+            target: qualify(&file_path, &name, None),
+            file_path: file_path.clone(),
             line: child.start_position().row as i64 + 1,
             extra: json!({}),
         });
@@ -461,7 +463,7 @@ fn rust_emit_argument_references(
 fn rust_emit_type_references(
     node: tree_sitter::Node<'_>,
     source: &[u8],
-    file_path: &str,
+    file_path: &FilePath,
     source_qualified: &str,
     defined_names: &HashSet<String>,
     skip_name: Option<&str>,
@@ -470,7 +472,7 @@ fn rust_emit_type_references(
     let mut emitted = HashSet::new();
     let context = RustTypeReferenceContext {
         source,
-        file_path,
+        file_path: file_path.clone(),
         source_qualified,
         defined_names,
         skip_name,
@@ -480,7 +482,7 @@ fn rust_emit_type_references(
 
 struct RustTypeReferenceContext<'a> {
     source: &'a [u8],
-    file_path: &'a str,
+    file_path: FilePath,
     source_qualified: &'a str,
     defined_names: &'a HashSet<String>,
     skip_name: Option<&'a str>,
@@ -501,8 +503,8 @@ fn rust_collect_type_references(
             edges.push(ParsedEdge {
                 kind: crate::core::types::EdgeKind::References,
                 source: context.source_qualified.to_string(),
-                target: qualify(context.file_path, &name, None),
-                file_path: context.file_path.to_string(),
+                target: qualify(&context.file_path, &name, None),
+                file_path: context.file_path.clone(),
                 line: node.start_position().row as i64 + 1,
                 extra: json!({
                     "relationship_role": "type_reference",
@@ -538,7 +540,7 @@ fn rust_should_skip_value_reference(name: &str) -> bool {
 fn rust_bridge_edge(
     node: tree_sitter::Node<'_>,
     source: &[u8],
-    file_path: &str,
+    file_path: &FilePath,
     caller: &str,
     call_name: &str,
 ) -> Option<ParsedEdge> {
@@ -557,7 +559,7 @@ fn rust_bridge_edge(
         kind: crate::core::types::EdgeKind::CrossArtifact,
         source: caller.to_string(),
         target,
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line,
         extra: json!({
             "relationship_role": relationship_role,

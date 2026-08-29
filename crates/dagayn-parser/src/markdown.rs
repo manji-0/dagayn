@@ -6,7 +6,7 @@ use regex::Regex;
 use serde_json::json;
 
 use super::documentation_directives::{parse_dagayn_directive, push_documentation_directive_edge};
-use super::types::{ParsedEdge, ParsedNode};
+use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{dedupe_edges, is_test_file, line_count, node_text, normalize_relative_path};
 
 static MARKDOWN_INLINE_LINK_RE: LazyLock<Regex> =
@@ -30,7 +30,7 @@ struct Heading {
 }
 
 struct MarkdownLineContext<'a> {
-    file_path: &'a str,
+    file_path: FilePath,
     headings: &'a [Heading],
 }
 
@@ -61,7 +61,7 @@ struct MarkdownLink {
 }
 
 impl<'a> MarkdownLineContext<'a> {
-    fn new(file_path: &'a str, headings: &'a [Heading]) -> Self {
+    fn new(file_path: FilePath, headings: &'a [Heading]) -> Self {
         Self {
             file_path,
             headings,
@@ -140,6 +140,7 @@ pub(super) fn parse_markdown_with_parser(
     source: &[u8],
     parser: Option<&mut tree_sitter::Parser>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let file_path = FilePath::new(file_path);
     let text = String::from_utf8_lossy(source);
     let line_end = line_count(source);
     let tree_facts = collect_markdown_tree_facts(source, &text, parser);
@@ -147,7 +148,7 @@ pub(super) fn parse_markdown_with_parser(
     let mut nodes = vec![ParsedNode {
         kind: crate::core::types::NodeKind::File,
         name: file_path.to_string(),
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line_start: 1,
         line_end,
         language: "markdown".to_string(),
@@ -155,7 +156,7 @@ pub(super) fn parse_markdown_with_parser(
         params: None,
         return_type: None,
         modifiers: None,
-        is_test: is_test_file(file_path),
+        is_test: is_test_file(&file_path),
         extra: json!({}),
     }];
     let mut edges = Vec::new();
@@ -176,7 +177,7 @@ pub(super) fn parse_markdown_with_parser(
         nodes.push(ParsedNode {
             kind: crate::core::types::NodeKind::DocSection,
             name: heading.slug.clone(),
-            file_path: file_path.to_string(),
+            file_path: file_path.clone(),
             line_start: heading.line,
             line_end: heading.line,
             language: "markdown".to_string(),
@@ -195,14 +196,14 @@ pub(super) fn parse_markdown_with_parser(
             kind: crate::core::types::EdgeKind::Contains,
             source: container,
             target: section_qname.clone(),
-            file_path: file_path.to_string(),
+            file_path: file_path.clone(),
             line: heading.line,
             extra: json!({}),
         });
         stack.push((heading.level, section_qname));
     }
 
-    extract_markdown_doc_bodies(file_path, &text, &headings, &mut nodes, &mut edges);
+    extract_markdown_doc_bodies(&file_path, &text, &headings, &mut nodes, &mut edges);
 
     let line_context = MarkdownLineContext::new(file_path, &headings);
     if tree_facts.parsed {
@@ -219,13 +220,13 @@ pub(super) fn parse_markdown_with_parser(
 }
 
 fn extract_markdown_doc_bodies(
-    file_path: &str,
+    file_path: &FilePath,
     text: &str,
     headings: &[Heading],
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
-    let context = MarkdownLineContext::new(file_path, headings);
+    let context = MarkdownLineContext::new(file_path.clone(), headings);
     let heading_lines: HashMap<i64, ()> =
         headings.iter().map(|heading| (heading.line, ())).collect();
     let mut body_state = MarkdownDocBodyState::default();
@@ -271,7 +272,7 @@ fn is_markdown_non_body_line(trimmed: &str) -> bool {
 }
 
 fn flush_markdown_doc_body(
-    file_path: &str,
+    file_path: &FilePath,
     context: &MarkdownLineContext<'_>,
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
@@ -306,7 +307,7 @@ fn flush_markdown_doc_body(
     nodes.push(ParsedNode {
         kind: crate::core::types::NodeKind::DocBody,
         name: name.clone(),
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line_start: start_line,
         line_end: block_end.max(start_line),
         language: "markdown".to_string(),
@@ -325,7 +326,7 @@ fn flush_markdown_doc_body(
         kind: crate::core::types::EdgeKind::Contains,
         source: context.source_for_line(start_line),
         target: qualified_name,
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line: start_line,
         extra: json!({}),
     });
@@ -586,15 +587,15 @@ fn extract_markdown_directives(
         let raw_target = directive.target.trim();
         let line = directive.line;
         let source = line_context.source_for_line(line);
-        let file_path = line_context.file_path;
-        let Some(target) = markdown_target(raw_target, file_path) else {
+        let file_path = line_context.file_path.clone();
+        let Some(target) = markdown_target(raw_target, &file_path) else {
             continue;
         };
         edges.push(ParsedEdge {
             kind: crate::core::types::EdgeKind::DependsOn,
             source,
             target: target.clone(),
-            file_path: file_path.to_string(),
+            file_path: file_path.clone(),
             line,
             extra: json!({"markdown_directive_kind": directive.kind}),
         });
@@ -607,7 +608,7 @@ fn extract_markdown_directives(
                 kind: crate::core::types::EdgeKind::ImportsFrom,
                 source: file_path.to_string(),
                 target: target_file.to_string(),
-                file_path: file_path.to_string(),
+                file_path: file_path.clone(),
                 line,
                 extra: json!({
                     "markdown_import_kind": "directive",
@@ -705,8 +706,8 @@ fn emit_markdown_link_edges(
         return;
     }
     let source = line_context.source_for_line(line);
-    let file_path = line_context.file_path;
-    let Some(target) = markdown_target(raw_target, file_path) else {
+    let file_path = line_context.file_path.clone();
+    let Some(target) = markdown_target(raw_target, &file_path) else {
         return;
     };
     if let Some((target_file, _target_section)) = target.split_once("::") {
@@ -714,7 +715,7 @@ fn emit_markdown_link_edges(
             kind: crate::core::types::EdgeKind::ImportsFrom,
             source: file_path.to_string(),
             target: target_file.to_string(),
-            file_path: file_path.to_string(),
+            file_path: file_path.clone(),
             line,
             extra: json!({"markdown_import_kind": "link"}),
         });
@@ -722,7 +723,7 @@ fn emit_markdown_link_edges(
             kind: crate::core::types::EdgeKind::References,
             source,
             target,
-            file_path: file_path.to_string(),
+            file_path: file_path.clone(),
             line,
             extra: json!({"markdown_reference_kind": "link"}),
         });
@@ -731,7 +732,7 @@ fn emit_markdown_link_edges(
             kind: crate::core::types::EdgeKind::ImportsFrom,
             source: file_path.to_string(),
             target,
-            file_path: file_path.to_string(),
+            file_path: file_path.clone(),
             line,
             extra: json!({"markdown_import_kind": "link"}),
         });
@@ -765,7 +766,7 @@ fn extract_markdown_code_spans(
         }
         let line = lines.line_for_offset(matched.start());
         let source = line_context.source_for_line(line);
-        let file_path = line_context.file_path;
+        let file_path = line_context.file_path.clone();
         if !seen.insert((source.clone(), sym.to_string(), line)) {
             continue;
         }
@@ -773,7 +774,7 @@ fn extract_markdown_code_spans(
             kind: crate::core::types::EdgeKind::CrossArtifact,
             source,
             target: format!("<unresolved:{sym}>"),
-            file_path: file_path.to_string(),
+            file_path: file_path.clone(),
             line,
             extra: json!({
                 "relationship_role": "describes_symbol",
@@ -817,7 +818,7 @@ fn extract_markdown_dagayn_directives(
         push_documentation_directive_edge(
             edges,
             line_context.source_for_line(line),
-            line_context.file_path,
+            &line_context.file_path,
             "markdown",
             &directive,
             "markdown_directive",

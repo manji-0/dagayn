@@ -11,7 +11,7 @@ use super::terraform_collect::{
     collect_terraform_blocks, collect_terraform_reference_targets, strip_tf_string,
     terraform_attrs, terraform_provider_sources, TerraformAttr, TerraformBlock, TERRAFORM_CALL_RE,
 };
-use super::types::{ParsedEdge, ParsedNode};
+use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{dedupe_edges, is_test_file, line_count};
 
 pub(super) fn parse_terraform_with_parser(
@@ -28,6 +28,7 @@ pub(super) fn parse_terraform_with_parser(
 /// Parse Terraform JSON syntax (`.tf.json` / `.tfvars.json`) directly from the
 /// JSON document; the tree-sitter grammar only understands HCL.
 fn parse_terraform_json(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let file_path = FilePath::new(file_path);
     let Ok(value) = serde_json::from_slice::<Value>(source) else {
         return (Vec::new(), Vec::new());
     };
@@ -35,7 +36,7 @@ fn parse_terraform_json(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec
     let mut nodes = vec![ParsedNode {
         kind: crate::core::types::NodeKind::File,
         name: file_path.to_string(),
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line_start: 1,
         line_end,
         language: "terraform".to_string(),
@@ -43,7 +44,7 @@ fn parse_terraform_json(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec
         params: None,
         return_type: None,
         modifiers: None,
-        is_test: is_test_file(file_path),
+        is_test: is_test_file(&file_path),
         extra: json!({}),
     }];
     let mut edges = Vec::new();
@@ -64,7 +65,7 @@ fn parse_terraform_json(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec
                     for name in names.keys() {
                         let node_name = format!("{kind}.{block_type}.{name}");
                         push_terraform_node(
-                            file_path,
+                            &file_path,
                             &mut nodes,
                             &mut edges,
                             TerraformNodeSpec {
@@ -92,7 +93,7 @@ fn parse_terraform_json(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec
                         crate::core::types::NodeKind::Class
                     };
                     push_terraform_node(
-                        file_path,
+                        &file_path,
                         &mut nodes,
                         &mut edges,
                         TerraformNodeSpec {
@@ -111,7 +112,7 @@ fn parse_terraform_json(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec
                 for (name, body) in entries {
                     let node_name = format!("module.{name}");
                     push_terraform_node(
-                        file_path,
+                        &file_path,
                         &mut nodes,
                         &mut edges,
                         TerraformNodeSpec {
@@ -130,9 +131,9 @@ fn parse_terraform_json(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec
                     {
                         edges.push(ParsedEdge {
                             kind: crate::core::types::EdgeKind::ImportsFrom,
-                            source: terraform_qualified(file_path, &node_name),
+                            source: terraform_qualified(&file_path, &node_name),
                             target: source.to_string(),
-                            file_path: file_path.to_string(),
+                            file_path: file_path.clone(),
                             line: 1,
                             extra: json!({}),
                         });
@@ -143,7 +144,7 @@ fn parse_terraform_json(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec
                 for name in entries.keys() {
                     let node_name = format!("provider.{name}");
                     push_terraform_node(
-                        file_path,
+                        &file_path,
                         &mut nodes,
                         &mut edges,
                         TerraformNodeSpec {
@@ -161,7 +162,7 @@ fn parse_terraform_json(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec
                 for name in entries.keys() {
                     let node_name = format!("local.{name}");
                     push_terraform_node(
-                        file_path,
+                        &file_path,
                         &mut nodes,
                         &mut edges,
                         TerraformNodeSpec {
@@ -176,7 +177,7 @@ fn parse_terraform_json(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec
                 }
             }
             "terraform" => push_terraform_node(
-                file_path,
+                &file_path,
                 &mut nodes,
                 &mut edges,
                 TerraformNodeSpec {
@@ -199,6 +200,7 @@ fn parse_terraform_hcl(
     source: &[u8],
     parser: Option<&mut tree_sitter::Parser>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let file_path = FilePath::new(file_path);
     let text = String::from_utf8_lossy(source);
     let line_end = line_count(source);
     let blocks = collect_terraform_blocks(source, &text, parser);
@@ -216,7 +218,7 @@ fn parse_terraform_hcl(
     let mut nodes = vec![ParsedNode {
         kind: crate::core::types::NodeKind::File,
         name: file_path.to_string(),
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line_start: 1,
         line_end,
         language: "terraform".to_string(),
@@ -224,7 +226,7 @@ fn parse_terraform_hcl(
         params: None,
         return_type: None,
         modifiers: None,
-        is_test: is_test_file(file_path),
+        is_test: is_test_file(&file_path),
         extra: json!({}),
     }];
     let mut edges = Vec::new();
@@ -234,7 +236,7 @@ fn parse_terraform_hcl(
             for attr in terraform_attrs(block).iter() {
                 let node_name = format!("local.{}", attr.name);
                 push_terraform_node(
-                    file_path,
+                    &file_path,
                     &mut nodes,
                     &mut edges,
                     TerraformNodeSpec {
@@ -249,7 +251,7 @@ fn parse_terraform_hcl(
                 scan_terraform_attr(
                     attr,
                     &node_name,
-                    file_path,
+                    &file_path,
                     attr.line_start,
                     &defined_names,
                     &mut edges,
@@ -259,7 +261,7 @@ fn parse_terraform_hcl(
         }
 
         if matches!(block.kind.as_str(), "import" | "moved" | "removed") {
-            handle_terraform_meta_block(file_path, block, &defined_names, &mut edges);
+            handle_terraform_meta_block(&file_path, block, &defined_names, &mut edges);
             continue;
         }
 
@@ -279,7 +281,7 @@ fn parse_terraform_hcl(
             _ => (crate::core::types::NodeKind::Class, false),
         };
         push_terraform_node(
-            file_path,
+            &file_path,
             &mut nodes,
             &mut edges,
             TerraformNodeSpec {
@@ -294,7 +296,7 @@ fn parse_terraform_hcl(
         scan_terraform_block(
             block,
             &node_name,
-            file_path,
+            &file_path,
             block.line_start,
             &defined_names,
             &mut edges,
@@ -307,9 +309,9 @@ fn parse_terraform_hcl(
             {
                 edges.push(ParsedEdge {
                     kind: crate::core::types::EdgeKind::ImportsFrom,
-                    source: terraform_qualified(file_path, &node_name),
+                    source: terraform_qualified(&file_path, &node_name),
                     target: strip_tf_string(&source_attr.value),
-                    file_path: file_path.to_string(),
+                    file_path: file_path.clone(),
                     line: source_attr.line_start,
                     extra: json!({}),
                 });
@@ -320,9 +322,9 @@ fn parse_terraform_hcl(
             for provider_source in terraform_provider_sources(block).iter() {
                 edges.push(ParsedEdge {
                     kind: crate::core::types::EdgeKind::DependsOn,
-                    source: terraform_qualified(file_path, &node_name),
+                    source: terraform_qualified(&file_path, &node_name),
                     target: provider_source.clone(),
-                    file_path: file_path.to_string(),
+                    file_path: file_path.clone(),
                     line: block.line_start,
                     extra: json!({}),
                 });
@@ -330,14 +332,14 @@ fn parse_terraform_hcl(
         }
     }
 
-    extract_terraform_documentation_directives(file_path, &text, &nodes, &mut edges);
-    extract_terraform_code_bridges(file_path, &blocks, &mut edges);
+    extract_terraform_documentation_directives(&file_path, &text, &nodes, &mut edges);
+    extract_terraform_code_bridges(&file_path, &blocks, &mut edges);
 
     (nodes, dedupe_edges(edges))
 }
 
 fn extract_terraform_documentation_directives(
-    file_path: &str,
+    file_path: &FilePath,
     text: &str,
     nodes: &[ParsedNode],
     edges: &mut Vec<ParsedEdge>,
@@ -403,7 +405,7 @@ struct TerraformNodeSpec<'a> {
 }
 
 fn push_terraform_node(
-    file_path: &str,
+    file_path: &FilePath,
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
     spec: TerraformNodeSpec<'_>,
@@ -412,7 +414,7 @@ fn push_terraform_node(
     nodes.push(ParsedNode {
         kind: spec.kind,
         name: spec.name.to_string(),
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line_start: spec.line_start,
         line_end: spec.line_end,
         language: "terraform".to_string(),
@@ -427,14 +429,14 @@ fn push_terraform_node(
         kind: crate::core::types::EdgeKind::Contains,
         source: file_path.to_string(),
         target: qualified,
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line: spec.line_start,
         extra: json!({}),
     });
 }
 
 fn handle_terraform_meta_block(
-    file_path: &str,
+    file_path: &FilePath,
     block: &TerraformBlock,
     defined_names: &HashSet<String>,
     edges: &mut Vec<ParsedEdge>,
@@ -453,7 +455,7 @@ fn handle_terraform_meta_block(
                     kind: crate::core::types::EdgeKind::ImportsFrom,
                     source: file_path.to_string(),
                     target,
-                    file_path: file_path.to_string(),
+                    file_path: file_path.clone(),
                     line: block.line_start,
                     extra: json!({}),
                 });
@@ -465,7 +467,7 @@ fn handle_terraform_meta_block(
                     kind: crate::core::types::EdgeKind::References,
                     source,
                     target,
-                    file_path: file_path.to_string(),
+                    file_path: file_path.clone(),
                     line: block.line_start,
                     extra: json!({"terraform_kind": "moved"}),
                 });
@@ -477,7 +479,7 @@ fn handle_terraform_meta_block(
                     kind: crate::core::types::EdgeKind::References,
                     source: file_path.to_string(),
                     target,
-                    file_path: file_path.to_string(),
+                    file_path: file_path.clone(),
                     line: block.line_start,
                     extra: json!({"terraform_kind": "removed"}),
                 });
@@ -498,7 +500,7 @@ fn handle_terraform_meta_block(
 fn scan_terraform_body(
     body: &str,
     caller: &str,
-    file_path: &str,
+    file_path: &FilePath,
     line: i64,
     defined_names: &HashSet<String>,
     edges: &mut Vec<ParsedEdge>,
@@ -510,7 +512,7 @@ fn scan_terraform_body(
 fn scan_terraform_block(
     block: &TerraformBlock,
     caller: &str,
-    file_path: &str,
+    file_path: &FilePath,
     line: i64,
     defined_names: &HashSet<String>,
     edges: &mut Vec<ParsedEdge>,
@@ -526,7 +528,7 @@ fn scan_terraform_block(
 fn scan_terraform_attr(
     attr: &TerraformAttr,
     caller: &str,
-    file_path: &str,
+    file_path: &FilePath,
     line: i64,
     defined_names: &HashSet<String>,
     edges: &mut Vec<ParsedEdge>,
@@ -542,7 +544,7 @@ fn scan_terraform_attr(
 fn collect_terraform_calls(
     text: &str,
     caller: &str,
-    file_path: &str,
+    file_path: &FilePath,
     line: i64,
     edges: &mut Vec<ParsedEdge>,
 ) {
@@ -557,7 +559,7 @@ fn collect_terraform_calls(
 fn push_terraform_calls(
     calls: &[String],
     caller: &str,
-    file_path: &str,
+    file_path: &FilePath,
     line: i64,
     edges: &mut Vec<ParsedEdge>,
 ) {
@@ -570,7 +572,7 @@ fn push_terraform_calls(
             kind: crate::core::types::EdgeKind::Calls,
             source: caller.to_string(),
             target: name.clone(),
-            file_path: file_path.to_string(),
+            file_path: file_path.clone(),
             line,
             extra: json!({}),
         });
@@ -580,7 +582,7 @@ fn push_terraform_calls(
 fn collect_terraform_references(
     text: &str,
     caller: &str,
-    file_path: &str,
+    file_path: &FilePath,
     line: i64,
     defined_names: &HashSet<String>,
     edges: &mut Vec<ParsedEdge>,
@@ -592,7 +594,7 @@ fn collect_terraform_references(
 fn push_terraform_references(
     references: &[String],
     caller: &str,
-    file_path: &str,
+    file_path: &FilePath,
     line: i64,
     defined_names: &HashSet<String>,
     edges: &mut Vec<ParsedEdge>,
@@ -611,13 +613,13 @@ fn push_terraform_references(
             kind: crate::core::types::EdgeKind::References,
             source: caller.to_string(),
             target: resolved,
-            file_path: file_path.to_string(),
+            file_path: file_path.clone(),
             line,
             extra: json!({}),
         });
     }
 }
 
-fn terraform_qualified(file_path: &str, name: &str) -> String {
+fn terraform_qualified(file_path: &FilePath, name: &str) -> String {
     format!("{file_path}::{name}")
 }

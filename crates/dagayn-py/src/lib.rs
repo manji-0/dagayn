@@ -1395,7 +1395,7 @@ fn parsed_node_to_input(node: dagayn_core::parser::ParsedNode) -> NodeInput {
     NodeInput {
         kind: node.kind.as_str().to_string(),
         name: node.name,
-        file_path: node.file_path,
+        file_path: node.file_path.to_string(),
         line_start: node.line_start,
         line_end: node.line_end,
         language: node.language,
@@ -1413,7 +1413,7 @@ fn parsed_edge_to_input(edge: dagayn_core::parser::ParsedEdge) -> EdgeInput {
         kind: edge.kind.as_str().to_string(),
         source: edge.source,
         target: edge.target,
-        file_path: edge.file_path,
+        file_path: edge.file_path.to_string(),
         line: edge.line,
         extra: edge.extra,
     }

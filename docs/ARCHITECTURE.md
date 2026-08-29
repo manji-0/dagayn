@@ -45,7 +45,9 @@ core keeps a stricter in-memory form so the type says what the value is:
   capacity pretending the list is still a builder.
 - A value that two indexes need is shared, not cloned. Flow tracing keeps one
   `Arc<GraphNode>` per node and two maps (`qualified_name`, `id`) that point
-  at it.
+  at it. Parser nodes and edges from one file share one `FilePath` (`Arc<str>`);
+  clone is an Arc bump. The SQLite / Python boundary still stores a plain
+  string.
 
 `Vec` stays on the write path: parsers still push into growable buffers, and
 SQLite loaders still collect rows. Freeze at the point the collection becomes

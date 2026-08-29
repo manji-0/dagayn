@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use serde_json::json;
 
-use super::types::{ParsedEdge, ParsedNode};
+use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{is_test_file, line_count, node_text, node_text_is, strip_matching_quotes};
 use super::{add_tested_by_edges, is_test_function, qualify};
 
@@ -28,11 +28,12 @@ fn parse_lua_like_with_parser(
     language: &str,
     parser: Option<&mut tree_sitter::Parser>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let file_path = FilePath::new(file_path);
     let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
         kind: crate::core::types::NodeKind::File,
         name: file_path.to_string(),
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line_start: 1,
         line_end,
         language: language.to_string(),
@@ -40,13 +41,13 @@ fn parse_lua_like_with_parser(
         params: None,
         return_type: None,
         modifiers: None,
-        is_test: is_test_file(file_path),
+        is_test: is_test_file(&file_path),
         extra: json!({}),
     }];
     let mut edges = Vec::new();
     let context = LuaParseContext {
         source,
-        file_path,
+        file_path: file_path.clone(),
         language,
     };
 
@@ -60,7 +61,7 @@ fn parse_lua_like_with_parser(
                 &mut nodes,
                 &mut edges,
             );
-            let mut edges = resolve_lua_call_targets(&nodes, edges, file_path);
+            let mut edges = resolve_lua_call_targets(&nodes, edges, &file_path);
             add_tested_by_edges(&nodes, &mut edges);
             return (nodes, edges);
         }
@@ -71,7 +72,7 @@ fn parse_lua_like_with_parser(
 
 struct LuaParseContext<'a> {
     source: &'a [u8],
-    file_path: &'a str,
+    file_path: FilePath,
     language: &'a str,
 }
 
@@ -117,7 +118,7 @@ fn lua_walk_children(
                             kind: crate::core::types::EdgeKind::ImportsFrom,
                             source: context.file_path.to_string(),
                             target,
-                            file_path: context.file_path.to_string(),
+                            file_path: context.file_path.clone(),
                             line: child.start_position().row as i64 + 1,
                             extra: json!({}),
                         });
@@ -171,7 +172,7 @@ fn lua_handle_variable_declaration(
                     kind: crate::core::types::EdgeKind::ImportsFrom,
                     source: context.file_path.to_string(),
                     target,
-                    file_path: context.file_path.to_string(),
+                    file_path: context.file_path.clone(),
                     line: node.start_position().row as i64 + 1,
                     extra: json!({}),
                 });
@@ -208,8 +209,8 @@ fn lua_emit_function(
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
-    let is_test = is_test_function(name, context.file_path, node, context.source);
-    let qualified = qualify(context.file_path, name, enclosing_class);
+    let is_test = is_test_function(name, &context.file_path, node, context.source);
+    let qualified = qualify(&context.file_path, name, enclosing_class);
     nodes.push(ParsedNode {
         kind: if is_test {
             crate::core::types::NodeKind::Test
@@ -217,7 +218,7 @@ fn lua_emit_function(
             crate::core::types::NodeKind::Function
         },
         name: name.to_string(),
-        file_path: context.file_path.to_string(),
+        file_path: context.file_path.clone(),
         line_start: node.start_position().row as i64 + 1,
         line_end: node.end_position().row as i64 + 1,
         language: context.language.to_string(),
@@ -231,10 +232,10 @@ fn lua_emit_function(
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Contains,
         source: enclosing_class
-            .map(|class| qualify(context.file_path, class, None))
+            .map(|class| qualify(&context.file_path, class, None))
             .unwrap_or_else(|| context.file_path.to_string()),
         target: qualified,
-        file_path: context.file_path.to_string(),
+        file_path: context.file_path.clone(),
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
@@ -247,11 +248,11 @@ fn lua_emit_type(
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
-    let qualified = qualify(context.file_path, name, None);
+    let qualified = qualify(&context.file_path, name, None);
     nodes.push(ParsedNode {
         kind: crate::core::types::NodeKind::Class,
         name: name.to_string(),
-        file_path: context.file_path.to_string(),
+        file_path: context.file_path.clone(),
         line_start: node.start_position().row as i64 + 1,
         line_end: node.end_position().row as i64 + 1,
         language: context.language.to_string(),
@@ -266,7 +267,7 @@ fn lua_emit_type(
         kind: crate::core::types::EdgeKind::Contains,
         source: context.file_path.to_string(),
         target: qualified,
-        file_path: context.file_path.to_string(),
+        file_path: context.file_path.clone(),
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
@@ -283,13 +284,13 @@ fn lua_emit_call(
         return;
     };
     let caller = enclosing_func
-        .map(|func| qualify(context.file_path, func, enclosing_class))
+        .map(|func| qualify(&context.file_path, func, enclosing_class))
         .unwrap_or_else(|| context.file_path.to_string());
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Calls,
         source: caller.clone(),
         target: call_name,
-        file_path: context.file_path.to_string(),
+        file_path: context.file_path.clone(),
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
@@ -359,7 +360,7 @@ fn lua_bridge_edge(
         kind: crate::core::types::EdgeKind::CrossArtifact,
         source: caller.to_string(),
         target,
-        file_path: context.file_path.to_string(),
+        file_path: context.file_path.clone(),
         line,
         extra: json!({
             "relationship_role": relationship_role,
@@ -494,7 +495,7 @@ fn lua_first_descendant_text(
 fn resolve_lua_call_targets(
     nodes: &[ParsedNode],
     edges: Vec<ParsedEdge>,
-    file_path: &str,
+    file_path: &FilePath,
 ) -> Vec<ParsedEdge> {
     let symbols = nodes
         .iter()
@@ -508,7 +509,7 @@ fn resolve_lua_call_targets(
                 && !edge.target.contains("::")
                 && symbols.contains(edge.target.as_str())
             {
-                edge.target = qualify(file_path, &edge.target, None);
+                edge.target = qualify(&file_path, &edge.target, None);
             }
             edge
         })

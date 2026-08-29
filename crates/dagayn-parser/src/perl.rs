@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde_json::json;
 
-use super::types::{ParsedEdge, ParsedNode};
+use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{is_test_file, line_count, node_text, strip_matching_quotes};
 use super::{add_tested_by_edges, is_test_function, qualify};
 
@@ -11,11 +11,12 @@ pub(super) fn parse_perl_with_parser(
     source: &[u8],
     parser: Option<&mut tree_sitter::Parser>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let file_path = FilePath::new(file_path);
     let line_end = line_count(source);
     let mut nodes = vec![ParsedNode {
         kind: crate::core::types::NodeKind::File,
         name: file_path.to_string(),
-        file_path: file_path.to_string(),
+        file_path: file_path.clone(),
         line_start: 1,
         line_end,
         language: "perl".to_string(),
@@ -23,16 +24,19 @@ pub(super) fn parse_perl_with_parser(
         params: None,
         return_type: None,
         modifiers: None,
-        is_test: is_test_file(file_path),
+        is_test: is_test_file(&file_path),
         extra: json!({}),
     }];
     let mut edges = Vec::new();
-    let context = PerlParseContext { source, file_path };
+    let context = PerlParseContext {
+        source,
+        file_path: file_path.clone(),
+    };
 
     if let Some(parser) = parser {
         if let Some(tree) = parser.parse(source, None) {
             perl_walk_children(tree.root_node(), &context, None, &mut nodes, &mut edges);
-            let mut edges = resolve_perl_call_targets(&nodes, edges, file_path);
+            let mut edges = resolve_perl_call_targets(&nodes, edges, &file_path);
             add_tested_by_edges(&nodes, &mut edges);
             return (nodes, edges);
         }
@@ -43,7 +47,7 @@ pub(super) fn parse_perl_with_parser(
 
 struct PerlParseContext<'a> {
     source: &'a [u8],
-    file_path: &'a str,
+    file_path: FilePath,
 }
 
 fn perl_walk_children(
@@ -61,7 +65,7 @@ fn perl_walk_children(
                     kind: crate::core::types::EdgeKind::ImportsFrom,
                     source: context.file_path.to_string(),
                     target: node_text(child, context.source),
-                    file_path: context.file_path.to_string(),
+                    file_path: context.file_path.clone(),
                     line: child.start_position().row as i64 + 1,
                     extra: json!({}),
                 });
@@ -101,11 +105,11 @@ fn perl_emit_class(
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
-    let qualified = qualify(context.file_path, name, None);
+    let qualified = qualify(&context.file_path, name, None);
     nodes.push(ParsedNode {
         kind: crate::core::types::NodeKind::Class,
         name: name.to_string(),
-        file_path: context.file_path.to_string(),
+        file_path: context.file_path.clone(),
         line_start: node.start_position().row as i64 + 1,
         line_end: node.end_position().row as i64 + 1,
         language: "perl".to_string(),
@@ -120,7 +124,7 @@ fn perl_emit_class(
         kind: crate::core::types::EdgeKind::Contains,
         source: context.file_path.to_string(),
         target: qualified,
-        file_path: context.file_path.to_string(),
+        file_path: context.file_path.clone(),
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
@@ -133,8 +137,8 @@ fn perl_emit_function(
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
-    let is_test = is_test_function(name, context.file_path, node, context.source);
-    let qualified = qualify(context.file_path, name, None);
+    let is_test = is_test_function(name, &context.file_path, node, context.source);
+    let qualified = qualify(&context.file_path, name, None);
     nodes.push(ParsedNode {
         kind: if is_test {
             crate::core::types::NodeKind::Test
@@ -142,7 +146,7 @@ fn perl_emit_function(
             crate::core::types::NodeKind::Function
         },
         name: name.to_string(),
-        file_path: context.file_path.to_string(),
+        file_path: context.file_path.clone(),
         line_start: node.start_position().row as i64 + 1,
         line_end: node.end_position().row as i64 + 1,
         language: "perl".to_string(),
@@ -157,7 +161,7 @@ fn perl_emit_function(
         kind: crate::core::types::EdgeKind::Contains,
         source: context.file_path.to_string(),
         target: qualified,
-        file_path: context.file_path.to_string(),
+        file_path: context.file_path.clone(),
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
@@ -171,13 +175,13 @@ fn perl_emit_call(
     edges: &mut Vec<ParsedEdge>,
 ) {
     let caller = enclosing_func
-        .map(|func| qualify(context.file_path, func, None))
+        .map(|func| qualify(&context.file_path, func, None))
         .unwrap_or_else(|| context.file_path.to_string());
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Calls,
         source: caller.clone(),
         target: call_name.to_string(),
-        file_path: context.file_path.to_string(),
+        file_path: context.file_path.clone(),
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
@@ -213,7 +217,7 @@ fn perl_bridge_edge(
         kind: crate::core::types::EdgeKind::CrossArtifact,
         source: caller.to_string(),
         target,
-        file_path: context.file_path.to_string(),
+        file_path: context.file_path.clone(),
         line,
         extra: json!({
             "relationship_role": relationship_role,
@@ -317,7 +321,7 @@ fn perl_first_descendant_text(
 fn resolve_perl_call_targets(
     nodes: &[ParsedNode],
     edges: Vec<ParsedEdge>,
-    file_path: &str,
+    file_path: &FilePath,
 ) -> Vec<ParsedEdge> {
     let symbols = nodes
         .iter()
@@ -325,7 +329,7 @@ fn resolve_perl_call_targets(
         .fold(HashMap::<String, String>::new(), |mut symbols, node| {
             symbols
                 .entry(node.name.clone())
-                .or_insert_with(|| qualify(file_path, &node.name, None));
+                .or_insert_with(|| qualify(&file_path, &node.name, None));
             symbols
         });
     edges

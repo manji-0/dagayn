@@ -13,6 +13,8 @@ All notable changes to `dagayn` are documented here.
   lists, Brandes adjacency). Flow tracing shares each `GraphNode` via `Arc`
   across the qualified-name and id indexes instead of cloning the record
   twice.
+- Parser `file_path` is a shared `FilePath` (`Arc<str>`). Every node and edge
+  from one file clones the same handle; SQLite and Python still see a string.
 
 ## 4.12.0 — 2026-08-29
 

@@ -22,7 +22,9 @@ Nodes store file path, qualified name, language, line range, and an `extra` payl
 
 The Rust parser represents these labels as `NodeKind` and converts to the
 string form only when writing `NodeInput` / SQLite. `Type` and `DocBody` are
-part of that closed set, not ad-hoc strings.
+part of that closed set, not ad-hoc strings. In memory, `file_path` is a
+shared `FilePath` (`Arc<str>`); every node and edge from one file clones the
+same handle. Persistence still stores a string.
 
 ## Edges
 
