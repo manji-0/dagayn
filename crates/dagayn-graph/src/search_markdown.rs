@@ -24,15 +24,24 @@ fn markdown_artifact_resolution(
 ) -> Option<MarkdownArtifactResolution> {
     if matches.len() == 1 {
         let (target, language) = &matches[0];
+        let is_implicit_code_span = extra.as_object().is_some_and(|obj| {
+            obj.get("evidence_kind").and_then(Value::as_str) == Some("markdown_code_span")
+                && obj.get("evidence_source").and_then(Value::as_str) == Some("code_span")
+        });
+        let (confidence, tier) = if is_implicit_code_span {
+            (0.4, ConfidenceTier::Medium)
+        } else {
+            (0.8, ConfidenceTier::High)
+        };
         let extra_obj = extra.as_object_mut()?;
         extra_obj.insert(
             "target_language".to_string(),
             Value::String(language.clone().unwrap_or_else(|| "unknown".to_string())),
         );
-        extra_obj.insert("confidence".to_string(), Value::from(0.8));
+        extra_obj.insert("confidence".to_string(), Value::from(confidence));
         extra_obj.insert(
             "confidence_tier".to_string(),
-            Value::String(ConfidenceTier::High.as_str().to_string()),
+            Value::String(tier.as_str().to_string()),
         );
         return Some(MarkdownArtifactResolution::Resolved {
             target: target.clone(),
@@ -182,11 +191,27 @@ impl GraphStore {
                     if current_target == target && !raw_extra.contains("unresolved_target_name") {
                         continue;
                     }
+                    let confidence = extra
+                        .get("confidence")
+                        .and_then(Value::as_f64)
+                        .unwrap_or(0.8);
+                    let tier = extra
+                        .get("confidence_tier")
+                        .and_then(Value::as_str)
+                        .unwrap_or(ConfidenceTier::High.as_str());
                     tx.execute(
                         "UPDATE edges \
-                         SET target_qualified = ?, extra = ?, confidence = 0.8, confidence_tier = 'HIGH' \
+                         SET target_qualified = ?, target_name = ?, extra = ?, \
+                             confidence = ?, confidence_tier = ? \
                          WHERE id = ?",
-                        params![target, serde_json::to_string(&extra)?, edge_id],
+                        params![
+                            target,
+                            crate::helpers::edge_target_name(&target),
+                            serde_json::to_string(&extra)?,
+                            confidence,
+                            tier,
+                            edge_id
+                        ],
                     )?;
                     if was_previously_resolved {
                         re_resolved += 1;

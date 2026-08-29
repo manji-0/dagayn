@@ -1,21 +1,13 @@
-"""Community/cluster detection for the code knowledge graph.
-
-Detects communities of related code nodes using the Leiden algorithm (via igraph,
-optional) with a file-based grouping fallback when igraph is not installed.
-"""
+"""Community API backed by ``dagayn._core``."""
 
 from __future__ import annotations
 
 import json
-import logging
-import random
 import re
 from collections import Counter, defaultdict
 from typing import Any, Callable, TypedDict, cast
 
-from .graph import GraphEdge, GraphNode, GraphStore, _sanitize_name, store_write_transaction
-
-logger = logging.getLogger(__name__)
+from .graph import GraphStore, _sanitize_name
 
 
 class CommunityRecord(TypedDict, total=False):
@@ -68,642 +60,23 @@ class ArchitectureOverviewResult(TypedDict, total=False):
     cross_community_edges: list[CrossCommunityEdgeRecord]
 
 
-# ---------------------------------------------------------------------------
-# Optional igraph import
-# ---------------------------------------------------------------------------
-
-try:
-    import igraph as ig  # type: ignore[import-untyped]
-
-    IGRAPH_AVAILABLE = True
-except ImportError:
-    ig: Any | None = None
-    IGRAPH_AVAILABLE = False
-
-#: Leiden is randomized. Unseeded, the same graph produced a different partition
-#: on every run, so community ids were not stable identifiers and every derived
-#: artifact keyed on them (wiki pages, architecture coupling, visualization
-#: drill-down, enrich labels) churned on every rebuild, making caching and
-#: diffing useless.
-_LEIDEN_RANDOM_SEED = 20260813
+def _require_native(store: GraphStore, name: str) -> Any:
+    method = getattr(store, name, None)
+    if not callable(method):
+        raise RuntimeError(f"GraphStore.{name} is required (Rust GraphStore).")
+    return method
 
 
-def _seed_leiden_rng() -> None:
-    """Make community detection reproducible for a given graph."""
-    if not IGRAPH_AVAILABLE or ig is None:
-        return
-    try:
-        ig.set_random_number_generator(random.Random(_LEIDEN_RANDOM_SEED))  # nosec B311
-    except (AttributeError, TypeError):  # pragma: no cover - older igraph
-        random.seed(_LEIDEN_RANDOM_SEED)
-
-
-# ---------------------------------------------------------------------------
-# Edge weight mapping
-# ---------------------------------------------------------------------------
-
-EDGE_WEIGHTS: dict[str, float] = {
-    "CALLS": 1.0,
-    "IMPORTS_FROM": 0.5,
-    "INHERITS": 0.8,
-    "IMPLEMENTS": 0.7,
-    "CONTAINS": 0.3,
-    "TESTED_BY": 0.4,
-    "DEPENDS_ON": 0.6,
-    # Cross-artifact bridges matter but are softer than in-language CALLS.
-    "CROSS_ARTIFACT": 0.6,
-}
-
-# Common words to filter when generating community names
-_COMMON_WORDS = frozenset(
-    {
-        "get",
-        "set",
-        "self",
-        "init",
-        "new",
-        "create",
-        "update",
-        "delete",
-        "add",
-        "remove",
-        "make",
-        "build",
-        "from",
-        "to",
-        "for",
-        "with",
-        "the",
-        "and",
-        "test",
-        "main",
-        "run",
-        "do",
-        "is",
-        "has",
-        "on",
-        "of",
-        "in",
-        "at",
-        "by",
-        "my",
-        "this",
-        "that",
-        "all",
-        "none",
-    }
-)
-
-
-# ---------------------------------------------------------------------------
-# Community naming
-# ---------------------------------------------------------------------------
-
-
-def _generate_community_name(members: list[GraphNode]) -> str:
-    """Generate a meaningful name for a community of nodes.
-
-    Algorithm:
-    1. Find most common module/file prefix among members
-    2. If a dominant class exists (>40% of nodes), use its name
-    3. Fallback: most frequent keyword in function/class names
-    4. Format: "{prefix}-{keyword}"
-    """
-    if not members:
-        return "empty"
-
-    # 1. Find common file prefix
-    file_paths = [m.file_path for m in members]
-    prefix = _extract_file_prefix(file_paths)
-
-    # 2. Check for dominant class
-    class_names = [m.name for m in members if m.kind == "Class"]
-    if class_names:
-        class_counts = Counter(class_names)
-        top_class, top_count = class_counts.most_common(1)[0]
-        if top_count > len(members) * 0.4:
-            if prefix:
-                return f"{prefix}-{_to_slug(top_class)}"
-            return _to_slug(top_class)
-
-    # 3. Most frequent keyword from function/class names
-    keywords = _extract_keywords(members)
-    keyword = keywords[0] if keywords else ""
-
-    if prefix and keyword:
-        return f"{prefix}-{keyword}"
-    if prefix:
-        return prefix
-    if keyword:
-        return keyword
-    return "cluster"
-
-
-def _extract_file_prefix(file_paths: list[str]) -> str:
-    """Find the most common short directory or module name from file paths."""
-    if not file_paths:
-        return ""
-    # Extract the parent directory or file stem
-    parts: list[str] = []
-    for fp in file_paths:
-        # Use the last directory component or file stem
-        segments = fp.replace("\\", "/").split("/")
-        # Take the parent dir if it exists, otherwise the file stem
-        if len(segments) >= 2:
-            parts.append(segments[-2])
-        else:
-            stem = segments[-1].rsplit(".", 1)[0]
-            parts.append(stem)
-
-    counts = Counter(parts)
-    top_part, _ = counts.most_common(1)[0]
-    return _to_slug(top_part)
-
-
-def _extract_keywords(members: list[GraphNode]) -> list[str]:
-    """Extract the most frequent meaningful keywords from member names."""
-    word_counts: Counter[str] = Counter()
-    for m in members:
-        if m.kind in ("Function", "Class", "Test", "Type"):
-            words = _split_name(m.name)
-            for w in words:
-                wl = w.lower()
-                if wl not in _COMMON_WORDS and len(wl) > 1:
-                    word_counts[wl] += 1
-
-    if not word_counts:
-        return []
-    return [w for w, _ in word_counts.most_common(5)]
-
-
-def _split_name(name: str) -> list[str]:
-    """Split a camelCase or snake_case name into words."""
-    # Insert boundary before uppercase letters for camelCase
-    s = re.sub(r"([a-z])([A-Z])", r"\1_\2", name)
-    # Split on underscores, hyphens, dots
-    return [p for p in re.split(r"[_\-.\s]+", s) if p]
-
-
-def _to_slug(s: str) -> str:
-    """Convert a string to a short lowercase slug."""
-    return re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")[:30]
-
-
-# ---------------------------------------------------------------------------
-# Cohesion calculation
-# ---------------------------------------------------------------------------
-
-
-def _compute_cohesion_batch(
-    community_member_qns: list[set[str]],
-    all_edges: list[GraphEdge],
-) -> list[float]:
-    """Compute cohesion for multiple communities in a single O(edges) pass.
-
-    Builds a ``qualified_name -> community_index`` reverse map (each node
-    appears in at most one community since all callers produce partitions),
-    then walks every edge exactly once, bucketing it into internal/external
-    counters per community.
-
-    Total work: O(edges + sum(|members|)) instead of
-    O(edges * communities) for naive per-community cohesion.
-
-    Returns a list of cohesion scores aligned with ``community_member_qns``.
-    """
-    qn_to_idx: dict[str, int] = {}
-    for idx, members in enumerate(community_member_qns):
-        for qn in members:
-            qn_to_idx[qn] = idx
-
-    n = len(community_member_qns)
-    internal = [0] * n
-    external = [0] * n
-
-    for e in all_edges:
-        sc = qn_to_idx.get(e.source_qualified)
-        tc = qn_to_idx.get(e.target_qualified)
-        if sc is None and tc is None:
+def detect_communities(store: GraphStore, min_size: int = 2) -> list[Any]:
+    """Detect communities in the code graph."""
+    native = _require_native(store, "detect_communities_json")
+    payload = json.loads(cast(str, native(min_size)))
+    results: list[Any] = []
+    for item in payload:
+        if not isinstance(item, dict):
             continue
-        # CALLS edges whose target is unresolved (no "::" separator, meaning
-        # dagayn could not link it to a specific file-local node) represent
-        # stdlib/builtin invocations. dagayn never parses stdlib, so any bare
-        # name like "append", "len", "decode" is by elimination outside the
-        # codebase. Counting them as external inflates the denominator without
-        # measuring real cross-community coupling. Other edge kinds
-        # (IMPORTS_FROM, INHERITS, TESTED_BY, CROSS_ARTIFACT, …) are kept.
-        # The "::" convention is established at parser/core.py:569.
-        if e.kind == "CALLS" and "::" not in e.target_qualified:
-            continue
-        if sc == tc:
-            # Safe: sc is not None here (sc == tc and not both None).
-            assert sc is not None
-            internal[sc] += 1
-        else:
-            if sc is not None:
-                external[sc] += 1
-            if tc is not None:
-                external[tc] += 1
-
-    results: list[float] = []
-    for i in range(n):
-        total = internal[i] + external[i]
-        results.append(internal[i] / total if total > 0 else 0.0)
-    return results
-
-
-def _build_adjacency(edges: list[GraphEdge]) -> dict[str, list[str]]:
-    """Build adjacency list from edges (one pass over all edges)."""
-    adj: dict[str, list[str]] = defaultdict(list)
-    for e in edges:
-        adj[e.source_qualified].append(e.target_qualified)
-        adj[e.target_qualified].append(e.source_qualified)
-    return adj
-
-
-def _compute_cohesion(
-    member_qns: set[str],
-    all_edges: list[GraphEdge],
-    adj: dict[str, list[str]] | None = None,
-) -> float:
-    """Compute cohesion: internal_edges / (internal_edges + external_edges).
-
-    For multiple communities, prefer :func:`_compute_cohesion_batch`, which
-    runs in O(edges) total instead of O(edges) per community.
-    """
-    return _compute_cohesion_batch([member_qns], all_edges)[0]
-
-
-# ---------------------------------------------------------------------------
-# Leiden-based community detection (igraph)
-# ---------------------------------------------------------------------------
-
-
-def _detect_leiden(
-    nodes: list[GraphNode],
-    edges: list[GraphEdge],
-    min_size: int,
-    adj: dict[str, list[str]] | None = None,
-) -> list[CommunityRecord]:
-    """Detect communities using Leiden algorithm via igraph.
-
-    Caps Leiden at ``n_iterations=2`` (sufficient for code dependency graphs)
-    and skips the recursive sub-community splitting pass that caused
-    exponential blow-up on large repos (>100k nodes).
-    """
-    if ig is None:
-        return []
-
-    qn_to_idx: dict[str, int] = {}
-    idx_to_node: dict[int, GraphNode] = {}
-    for i, node in enumerate(nodes):
-        qn_to_idx[node.qualified_name] = i
-        idx_to_node[i] = node
-
-    if not qn_to_idx:
-        return []
-
-    logger.info("Building igraph with %d nodes...", len(qn_to_idx))
-
-    g = ig.Graph(n=len(qn_to_idx), directed=False)
-    edge_list: list[tuple[int, int]] = []
-    weights: list[float] = []
-    seen_edges: set[tuple[int, int]] = set()
-
-    for e in edges:
-        src_idx = qn_to_idx.get(e.source_qualified)
-        tgt_idx = qn_to_idx.get(e.target_qualified)
-        if src_idx is not None and tgt_idx is not None and src_idx != tgt_idx:
-            pair = (min(src_idx, tgt_idx), max(src_idx, tgt_idx))
-            if pair not in seen_edges:
-                seen_edges.add(pair)
-                edge_list.append(pair)
-                weights.append(EDGE_WEIGHTS.get(e.kind, 0.5))
-
-    if not edge_list:
-        return _detect_file_based(nodes, edges, min_size, adj=adj)
-
-    g.add_edges(edge_list)
-    g.es["weight"] = weights
-
-    # Run Leiden -- scale resolution inversely with graph size to get
-    # coarser clusters on large repos.  Default resolution=1.0 produces
-    # thousands of tiny communities for 30k+ node graphs.
-    import math
-
-    n_nodes = g.vcount()
-    resolution = max(0.05, 1.0 / math.log10(max(n_nodes, 10)))
-
-    logger.info(
-        "Running Leiden on %d nodes, %d edges...",
-        g.vcount(),
-        g.ecount(),
-    )
-
-    _seed_leiden_rng()
-    partition = g.community_leiden(
-        objective_function="modularity",
-        weights="weight",
-        resolution=resolution,
-        n_iterations=2,
-    )
-
-    logger.info(
-        "Leiden complete, found %d partitions. Computing cohesion...",
-        len(partition),
-    )
-
-    pending: list[tuple[list[GraphNode], set[str]]] = []
-    for cluster_ids in partition:
-        if len(cluster_ids) < min_size:
-            continue
-        members = [idx_to_node[i] for i in cluster_ids if i in idx_to_node]
-        if len(members) < min_size:
-            continue
-        member_qns = {m.qualified_name for m in members}
-        pending.append((members, member_qns))
-
-    cohesions = _compute_cohesion_batch([p[1] for p in pending], edges)
-
-    communities: list[CommunityRecord] = []
-    for (members, member_qns), cohesion in zip(pending, cohesions):
-        lang_counts = Counter(m.language for m in members if m.language)
-        dominant_lang = lang_counts.most_common(1)[0][0] if lang_counts else ""
-        name = _generate_community_name(members)
-
-        communities.append(
+        results.append(
             {
-                "name": name,
-                "level": 0,
-                "size": len(members),
-                "cohesion": round(cohesion, 4),
-                "dominant_language": dominant_lang,
-                "description": f"Community of {len(members)} nodes",
-                "members": [m.qualified_name for m in members],
-                "member_qns": member_qns,
-            }
-        )
-
-    logger.info("Community detection complete: %d communities", len(communities))
-    return communities
-
-
-# ---------------------------------------------------------------------------
-# File-based fallback community detection
-# ---------------------------------------------------------------------------
-
-
-def _detect_file_based(
-    nodes: list[GraphNode],
-    edges: list[GraphEdge],
-    min_size: int,
-    adj: dict[str, list[str]] | None = None,
-) -> list[CommunityRecord]:
-    """Group nodes by directory when Leiden is unavailable or over-fragments.
-
-    Strips the longest common directory prefix from all file paths, then
-    adaptively picks a grouping depth that yields 10-200 communities.
-    """
-    # Collect all directory paths (normalized, without filename)
-    all_dir_parts: list[list[str]] = []
-    for n in nodes:
-        parts = n.file_path.replace("\\", "/").split("/")
-        all_dir_parts.append([p for p in parts[:-1] if p])
-
-    # Find the longest common prefix among directory parts
-    prefix_len = 0
-    if all_dir_parts:
-        shortest = min(len(p) for p in all_dir_parts)
-        for i in range(shortest):
-            seg = all_dir_parts[0][i]
-            if all(p[i] == seg for p in all_dir_parts):
-                prefix_len = i + 1
-            else:
-                break
-
-    def _group_at_depth(depth: int) -> dict[str, list[GraphNode]]:
-        groups: dict[str, list[GraphNode]] = defaultdict(list)
-        for n in nodes:
-            parts = n.file_path.replace("\\", "/").split("/")
-            dir_parts = [p for p in parts[:-1] if p]
-            remainder = dir_parts[prefix_len:]
-            if remainder:
-                key = "/".join(remainder[:depth])
-            else:
-                key = parts[-1].rsplit(".", 1)[0] if parts else "root"
-            groups[key].append(n)
-        return groups
-
-    # Try increasing depths until we get 10-200 qualifying groups
-    max_depth = max((len(p) - prefix_len for p in all_dir_parts), default=0)
-    best_groups = _group_at_depth(1)  # depth=1 always works (file stem fallback)
-    for depth in range(1, max_depth + 1):
-        groups = _group_at_depth(depth)
-        qualifying = sum(1 for v in groups.values() if len(v) >= min_size)
-        best_groups = groups
-        if qualifying >= 10:
-            break
-
-    by_dir = best_groups
-
-    # Pre-filter to communities meeting min_size and collect their member
-    # sets so we can batch-compute all cohesions in a single O(edges) pass.
-    # Without this, per-community cohesion is O(edges * files), which makes
-    # community detection effectively hang on large repos.
-    pending: list[tuple[str, list[GraphNode], set[str]]] = []
-    for dir_path, members in by_dir.items():
-        if len(members) < min_size:
-            continue
-        member_qns = {m.qualified_name for m in members}
-        pending.append((dir_path, members, member_qns))
-
-    cohesions = _compute_cohesion_batch([p[2] for p in pending], edges)
-
-    communities: list[CommunityRecord] = []
-    for (dir_path, members, member_qns), cohesion in zip(pending, cohesions):
-        lang_counts = Counter(m.language for m in members if m.language)
-        dominant_lang = lang_counts.most_common(1)[0][0] if lang_counts else ""
-        name = _generate_community_name(members)
-
-        communities.append(
-            {
-                "name": name,
-                "level": 0,
-                "size": len(members),
-                "cohesion": round(cohesion, 4),
-                "dominant_language": dominant_lang,
-                "description": f"Directory-based community: {dir_path}",
-                "members": [m.qualified_name for m in members],
-                "member_qns": member_qns,
-            }
-        )
-
-    return communities
-
-
-# ---------------------------------------------------------------------------
-# Oversized community splitting
-# ---------------------------------------------------------------------------
-
-
-def _split_oversized(
-    communities: list[CommunityRecord],
-    nodes: list[GraphNode],
-    edges: list[GraphEdge],
-    threshold_pct: float = 0.25,
-    min_split_size: int = 10,
-) -> list[CommunityRecord]:
-    """Recursively split communities that exceed threshold_pct of total.
-
-    Uses Leiden on the subgraph of oversized communities. If igraph is
-    not available, returns communities unchanged.
-    """
-    if not IGRAPH_AVAILABLE:
-        return communities
-
-    total = sum(c.get("size", len(c.get("members", []))) for c in communities)
-    if total == 0:
-        return communities
-
-    threshold = max(int(total * threshold_pct), min_split_size)
-    result: list[CommunityRecord] = []
-    next_id = max((c.get("id", 0) for c in communities), default=0) + 1
-
-    for comm in communities:
-        members = set(comm.get("members", []))
-        if len(members) <= threshold:
-            result.append(comm)
-            continue
-
-        # Build subgraph for this community
-        member_nodes = [n for n in nodes if n.qualified_name in members]
-        member_edges = [
-            e for e in edges if (e.source_qualified in members and e.target_qualified in members)
-        ]
-
-        if len(member_nodes) < min_split_size:
-            result.append(comm)
-            continue
-
-        # Run Leiden on subgraph
-        qn_to_idx = {n.qualified_name: i for i, n in enumerate(member_nodes)}
-        ig_edges: list[tuple[int, int]] = []
-        ig_weights: list[float] = []
-        for e in member_edges:
-            si = qn_to_idx.get(e.source_qualified)
-            ti = qn_to_idx.get(e.target_qualified)
-            if si is not None and ti is not None and si != ti:
-                ig_edges.append((si, ti))
-                ig_weights.append(EDGE_WEIGHTS.get(e.kind, 0.5))
-
-        if not ig_edges:
-            result.append(comm)
-            continue
-
-        try:
-            assert ig is not None
-            g = ig.Graph(
-                n=len(member_nodes),
-                edges=ig_edges,
-                directed=False,
-            )
-            g.es["weight"] = ig_weights
-            _seed_leiden_rng()
-            partition = g.community_leiden(
-                objective_function="modularity",
-                weights="weight",
-                resolution=0.5,
-            )
-
-            sub_communities: dict[int, list[str]] = {}
-            for idx, cid in enumerate(partition.membership):
-                sub_communities.setdefault(cid, []).append(member_nodes[idx].qualified_name)
-
-            if len(sub_communities) <= 1:
-                result.append(comm)
-                continue
-
-            parent_id = comm.get("id", 0)
-            comm_name = comm.get("name", "")
-            for sub_members in sub_communities.values():
-                sub_comm: CommunityRecord = {
-                    "id": next_id,
-                    "name": comm_name + f"-sub{next_id}",
-                    "level": comm.get("level", 0) + 1,
-                    "parent_id": parent_id,
-                    "members": sub_members,
-                    "size": len(sub_members),
-                    # Measured by _backfill_split_cohesion before returning.
-                    "cohesion": 0.0,
-                    "_cohesion_unmeasured": True,
-                    "dominant_language": comm.get("dominant_language") or "",
-                    "description": (f"Split from {comm_name}"),
-                }
-                result.append(sub_comm)
-                next_id += 1
-
-            logger.info(
-                "Split oversized community '%s' (%d members) into %d",
-                comm_name,
-                len(members),
-                len(sub_communities),
-            )
-        except Exception:
-            logger.warning(
-                "Failed to split community '%s', keeping as-is",
-                comm.get("name", ""),
-                exc_info=True,
-            )
-            result.append(comm)
-
-    _backfill_split_cohesion(result, edges)
-    return result
-
-
-def _backfill_split_cohesion(communities: list[CommunityRecord], edges: list[GraphEdge]) -> None:
-    """Measure cohesion for sub-communities instead of publishing 0.0.
-
-    ``_split_oversized`` hardcoded ``cohesion: 0.0``, and its output goes
-    straight to callers and to ``store_communities`` — so the largest
-    communities in a graph reported zero internal cohesion as if it had been
-    measured. Only a later ``refresh_community_stats`` at build-prune time
-    corrected it.
-    """
-    pending = [c for c in communities if c.get("cohesion") is None or c.get("_cohesion_unmeasured")]
-    if not pending:
-        return
-    cohesions = _compute_cohesion_batch([set(c.get("members", [])) for c in pending], edges)
-    for community, cohesion in zip(pending, cohesions, strict=True):
-        community["cohesion"] = cohesion
-        community.pop("_cohesion_unmeasured", None)
-
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-
-def detect_communities(store: GraphStore, min_size: int = 2) -> list[CommunityRecord]:
-    """Detect communities in the code graph.
-
-    Uses the Leiden algorithm via igraph if available, otherwise falls back to
-    file-based grouping.
-
-    Args:
-        store: The GraphStore instance.
-        min_size: Minimum number of nodes for a community to be included.
-
-    Returns:
-        List of community dicts with keys: name, level, size, cohesion,
-        dominant_language, description, members, member_qns.
-    """
-    native = getattr(store, "detect_communities_json", None)
-    if callable(native):
-        payload = json.loads(cast(str, native(min_size)))
-        results: list[CommunityRecord] = []
-        for item in payload:
-            if not isinstance(item, dict):
-                continue
-            record: CommunityRecord = {
                 "name": str(item.get("name") or "community"),
                 "level": int(item.get("level") or 0),
                 "size": int(item.get("size") or 0),
@@ -712,121 +85,16 @@ def detect_communities(store: GraphStore, min_size: int = 2) -> list[CommunityRe
                 "description": str(item.get("description") or ""),
                 "members": [str(member) for member in (item.get("members") or [])],
             }
-            results.append(record)
-        return results
-
-    # Gather all nodes (exclude File nodes to focus on code entities)
-    all_edges = store.get_all_edges()
-    unique_nodes = store.get_all_nodes(exclude_files=True)
-
-    # Build adjacency index once for fast cohesion computation
-    adj = _build_adjacency(all_edges)
-
-    logger.info(
-        "Loaded %d unique nodes, %d edges",
-        len(unique_nodes),
-        len(all_edges),
-    )
-
-    if IGRAPH_AVAILABLE:
-        logger.info("Detecting communities with Leiden algorithm (igraph)")
-        results = _detect_leiden(unique_nodes, all_edges, min_size, adj=adj)
-    else:
-        logger.info("igraph not available, using file-based community detection")
-        results = _detect_file_based(unique_nodes, all_edges, min_size, adj=adj)
-
-    # Split oversized communities
-    results = _split_oversized(
-        results,
-        unique_nodes,
-        all_edges,
-    )
-
-    # Convert member_qns (internal set) to a list for serialization safety,
-    # then strip it from the returned dicts to avoid leaking internal state.
-    for comm in results:
-        if "member_qns" in comm:
-            comm["member_qns"] = list(comm["member_qns"])
-            del comm["member_qns"]
-
+        )
     return results
 
 
 def count_affected_communities(store: GraphStore, changed_files: list[str]) -> int:
-    """Return how many communities are affected by *changed_files*.
-
-    Uses assigned nodes when they still exist (pre-re-parse), and falls back
-    to unassigned code nodes in changed files when communities are stored but
-    assignments were cleared by a re-parse.
-    """
+    """Return how many communities are affected by *changed_files*."""
     if not changed_files:
         return 0
-
-    rust_count = getattr(store, "count_affected_communities", None)
-    if callable(rust_count):
-        return cast(Callable[[list[str]], int], rust_count)(changed_files)
-
-    conn = store._conn
-    placeholders = ",".join("?" * len(changed_files))
-
-    assigned = conn.execute(
-        f"SELECT COUNT(DISTINCT community_id) FROM nodes "  # nosec B608
-        f"WHERE community_id IS NOT NULL AND file_path IN ({placeholders})",
-        changed_files,
-    ).fetchone()
-    affected_count = assigned[0] if assigned else 0
-    if affected_count:
-        return int(affected_count)
-
-    community_rows = conn.execute("SELECT COUNT(*) FROM communities").fetchone()
-    if not community_rows or community_rows[0] == 0:
-        return 0
-
-    unassigned = conn.execute(
-        f"SELECT COUNT(*) FROM nodes "  # nosec B608
-        f"WHERE community_id IS NULL AND kind != 'File' "
-        f"AND file_path IN ({placeholders})",
-        changed_files,
-    ).fetchone()
-    if unassigned and unassigned[0] > 0:
-        return 1
-    return 0
-
-
-def refresh_community_stats(store: GraphStore) -> dict[str, int]:
-    """Recompute ``communities.size``/``cohesion`` from live node assignments.
-
-    Communities with zero assigned members are deleted. Returns
-    ``{"updated": n, "deleted": m}``.
-    """
-    members_by_id = store.get_all_community_member_qns()
-    conn = store._conn
-    updated = 0
-    deleted = 0
-
-    if members_by_id:
-        all_edges = store.get_all_edges()
-        community_ids = list(members_by_id.keys())
-        member_sets = [set(members_by_id[cid]) for cid in community_ids]
-        cohesions = _compute_cohesion_batch(member_sets, all_edges)
-        for cid, member_qns, cohesion in zip(community_ids, member_sets, cohesions):
-            size = len(member_qns)
-            if size == 0:
-                conn.execute("DELETE FROM communities WHERE id = ?", (cid,))
-                deleted += 1
-            else:
-                conn.execute(
-                    "UPDATE communities SET size = ?, cohesion = ? WHERE id = ?",
-                    (size, cohesion, cid),
-                )
-                updated += 1
-
-    cursor = conn.execute(
-        "DELETE FROM communities WHERE NOT EXISTS "
-        "(SELECT 1 FROM nodes n WHERE n.community_id = communities.id)"
-    )
-    deleted += cursor.rowcount or 0
-    return {"updated": updated, "deleted": deleted}
+    rust_count = _require_native(store, "count_affected_communities")
+    return cast(Callable[[list[str]], int], rust_count)(changed_files)
 
 
 def incremental_detect_communities(
@@ -835,224 +103,44 @@ def incremental_detect_communities(
     min_size: int = 2,
     pre_affected_count: int | None = None,
 ) -> int:
-    """Re-detect communities only if changed files affect existing communities.
-
-    If no existing communities contain nodes from changed files, skips
-    re-detection entirely (the common case for small changes). Otherwise
-    re-runs full community detection.
-
-    Args:
-        store: The GraphStore instance.
-        changed_files: List of file paths that have changed.
-        min_size: Minimum number of nodes for a community to be included.
-        pre_affected_count: Optional affected-community count captured before
-            nodes were replaced by a re-parse.
-
-    Returns:
-        Number of communities detected, or 0 if skipped.
-    """
+    """Re-detect communities only if changed files affect existing communities."""
     if not changed_files:
         return 0
-
-    native = getattr(store, "incremental_detect_communities", None)
-    if callable(native):
-        return int(cast(int, native(changed_files, min_size, pre_affected_count)))
-
-    affected_count = (
-        pre_affected_count
-        if pre_affected_count is not None
-        else count_affected_communities(store, changed_files)
-    )
-
-    if affected_count == 0:
-        return 0  # No communities affected, skip
-
-    # Re-run full community detection (correct and fast enough)
-    communities = detect_communities(store, min_size=min_size)
-    return store_communities(store, communities)
+    native = _require_native(store, "incremental_detect_communities")
+    return int(cast(int, native(changed_files, min_size, pre_affected_count)))
 
 
-def _disambiguate_community_names(communities: list[CommunityRecord]) -> list[str]:
-    """Return per-community names with duplicates suffixed.
-
-    ``_generate_community_name`` is ``{parent-dir}-{top-keyword}`` and is not
-    unique: two disconnected communities in one directory that share a top
-    keyword produce the same name. Ids are no longer keyed on the name, but
-    consumers that look a community up *by* name would still get an arbitrary
-    one of the two.
-    """
-    seen: dict[str, int] = {}
-    names: list[str] = []
-    for community in communities:
-        base = str(community.get("name") or "community")
-        count = seen.get(base, 0)
-        seen[base] = count + 1
-        names.append(base if count == 0 else f"{base}-{count + 1}")
-    return names
-
-
-def store_communities(store: GraphStore, communities: list[CommunityRecord]) -> int:
-    """Store detected communities in the database.
-
-    Clears existing communities and community_id assignments, then inserts
-    the new communities and updates node community_id references.
-
-    Args:
-        store: The GraphStore instance.
-        communities: List of community dicts from detect_communities().
-
-    Returns:
-        Number of communities stored.
-    """
-    rust_store = getattr(store, "store_communities_json", None)
-    if callable(rust_store):
-        payload = [
-            {
-                "name": comm["name"],
-                "level": comm.get("level", 0),
-                "cohesion": comm.get("cohesion", 0.0),
-                "size": comm["size"],
-                "dominant_language": comm.get("dominant_language", ""),
-                "description": comm.get("description", ""),
-                "members": list(comm.get("members", [])),
-            }
-            for comm in communities
-        ]
-        return cast(Callable[[str], int], rust_store)(json.dumps(payload))
-
-    # NOTE: store_communities uses _conn directly because it performs
-    # multi-statement batch writes (DELETE + INSERT loop + UPDATE loop)
-    # that are tightly coupled to the DB transaction lifecycle.
-    conn = store._conn
-
-    # Wrap in explicit transaction so the DELETE + INSERT + UPDATE
-    # sequence is atomic — no partial community data on crash. The helper holds
-    # the store's write lock instead of rolling back whatever another thread
-    # had open.
-    with store_write_transaction(store):
-        conn.execute("DELETE FROM communities")
-        conn.execute("UPDATE nodes SET community_id = NULL")
-
-        unique_names = _disambiguate_community_names(communities)
-
-        # Insert all communities in one batch
-        conn.executemany(
-            """INSERT INTO communities
-               (name, level, cohesion, size, dominant_language, description)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            [
-                (
-                    name,
-                    c.get("level", 0),
-                    c.get("cohesion", 0.0),
-                    c["size"],
-                    c.get("dominant_language", ""),
-                    c.get("description", ""),
-                )
-                for name, c in zip(unique_names, communities, strict=True)
-            ],
-        )
-        count = len(communities)
-
-        # Map communities to ids by *insertion order*, not by name. Generated
-        # names ({parent-dir}-{top-keyword}) are not unique, so keying on the
-        # name made two disconnected communities collide: the second overwrote
-        # the first, which then had zero members and was deleted by the next
-        # build's refresh_community_stats — permanently merging them.
-        # ``executemany`` does not report per-row ids, so read them back in the
-        # order they were assigned.
-        inserted_ids = [
-            int(row[0]) for row in conn.execute("SELECT id FROM communities ORDER BY id").fetchall()
-        ]
-        if len(inserted_ids) != count:
-            raise RuntimeError(
-                f"community insert accounted for {len(inserted_ids)} rows, expected {count}"
-            )
-
-        # Collect all (community_id, qualified_name) pairs, then assign via a
-        # temp-table JOIN (1 UPDATE) instead of one UPDATE per member.
-        assignments: list[tuple[int, str]] = [
-            (community_id, qn)
-            for community_id, c in zip(inserted_ids, communities, strict=True)
-            for qn in c.get("members", [])
-        ]
-        if assignments:
-            conn.execute("DROP TABLE IF EXISTS _community_assign")
-            conn.execute(
-                "CREATE TEMP TABLE _community_assign ("
-                "community_id INTEGER NOT NULL, "
-                "qualified_name TEXT NOT NULL)"
-            )
-            conn.executemany(
-                "INSERT INTO _community_assign (community_id, qualified_name) VALUES (?, ?)",
-                assignments,
-            )
-            conn.execute(
-                """UPDATE nodes
-                   SET community_id = a.community_id
-                   FROM _community_assign a
-                   WHERE nodes.qualified_name = a.qualified_name"""
-            )
-            conn.execute("DROP TABLE IF EXISTS _community_assign")
-
-    return count
+def store_communities(store: GraphStore, communities: list[Any]) -> int:
+    """Store detected communities in the database."""
+    rust_store = _require_native(store, "store_communities_json")
+    payload = [
+        {
+            "name": comm["name"],
+            "level": comm.get("level", 0),
+            "cohesion": comm.get("cohesion", 0.0),
+            "size": comm["size"],
+            "dominant_language": comm.get("dominant_language", ""),
+            "description": comm.get("description", ""),
+            "members": list(comm.get("members", [])),
+        }
+        for comm in communities
+    ]
+    return cast(Callable[[str], int], rust_store)(json.dumps(payload))
 
 
-def get_communities(
-    store: GraphStore, sort_by: str = "size", min_size: int = 0
-) -> list[CommunityRecord]:
-    """Retrieve stored communities from the database.
-
-    Args:
-        store: The GraphStore instance.
-        sort_by: Column to sort by ("size", "cohesion", "name").
-        min_size: Minimum community size to include.
-
-    Returns:
-        List of community dicts.
-    """
+def get_communities(store: GraphStore, sort_by: str = "size", min_size: int = 0) -> list[Any]:
+    """Retrieve stored communities from the database."""
     valid_sorts = {"size", "cohesion", "name"}
     if sort_by not in valid_sorts:
         sort_by = "size"
+    rust_get = _require_native(store, "get_communities_json")
+    return json.loads(cast(Callable[[str, int], str], rust_get)(sort_by, min_size))
 
-    rust_get = getattr(store, "get_communities_json", None)
-    if callable(rust_get):
-        return json.loads(cast(Callable[[str, int], str], rust_get)(sort_by, min_size))
 
-    order = "DESC" if sort_by in ("size", "cohesion") else "ASC"
-
-    # NOTE: get_communities reads the communities table which has no
-    # dedicated GraphStore method (it's a domain-specific table managed
-    # entirely by the communities module).  We use _conn for this query.
-    rows = store._conn.execute(
-        f"SELECT * FROM communities WHERE size >= ? ORDER BY {sort_by} {order}",  # nosec B608
-        (min_size,),
-    ).fetchall()
-
-    members_by_id = store.get_all_community_member_qns()
-
-    communities: list[CommunityRecord] = []
-    for row in rows:
-        live_member_qns = members_by_id.get(row["id"], [])
-        member_qns = [_sanitize_name(qn) for qn in live_member_qns]
-        assigned_member_count = len(live_member_qns)
-        stored_size = row["size"]
-
-        communities.append(
-            {
-                "id": row["id"],
-                "name": _sanitize_name(row["name"]),
-                "level": row["level"],
-                "cohesion": row["cohesion"],
-                "size": stored_size,
-                "assigned_member_count": assigned_member_count,
-                "dominant_language": row["dominant_language"] or "",
-                "description": _sanitize_name(row["description"] or ""),
-                "members": member_qns,
-            }
-        )
-
-    return communities
+def refresh_community_stats(store: GraphStore) -> dict[str, int]:
+    """Recompute community size/cohesion from live node assignments."""
+    native = _require_native(store, "refresh_community_stats_json")
+    return json.loads(cast(Callable[[], str], native)())
 
 
 _TEST_COMMUNITY_RE = re.compile(
@@ -1071,60 +159,39 @@ def get_architecture_overview(
     detail_level: str = "standard",
     top_n: int = 20,
 ) -> ArchitectureOverviewResult:
-    """Generate an architecture overview based on community structure.
-
-    Builds a node-to-community mapping, counts cross-community edges,
-    and generates warnings for high coupling.
-
-    Args:
-        store: The GraphStore instance.
-        detail_level: "minimal" (compact summary), "standard" (default, no
-                      member lists), or "verbose" (full raw edges + members).
-        top_n: Maximum cross-community pairs to include in standard mode.
-               Ignored for verbose (all pairs returned).
-
-    Returns:
-        Dict with keys: communities, cross_community_coupling, warnings.
-        In verbose mode also includes cross_community_edges (raw per-edge list).
-    """
+    """Generate an architecture overview based on community structure."""
     communities = get_communities(store)
-
-    # Build node -> community_id mapping
     node_to_community: dict[str, int] = {}
     for comm in communities:
         comm_id = comm.get("id", 0)
         for qn in comm.get("members", []):
             node_to_community[qn] = comm_id
 
-    # Count cross-community edges; accumulate per-pair kind breakdown
     all_edges = store.get_all_edges()
     cross_counts: Counter[tuple[int, int]] = Counter()
     kind_counts: dict[tuple[int, int], Counter[str]] = defaultdict(Counter)
-    cross_edges: list[CrossCommunityEdgeRecord] = []
+    cross_edges: list[dict[str, Any]] = []
 
-    for e in all_edges:
-        # TESTED_BY edges are expected cross-community coupling (code → test),
-        # not an architectural smell.
-        if e.kind == "TESTED_BY":
+    for edge in all_edges:
+        if edge.kind == "TESTED_BY":
             continue
-        src_comm = node_to_community.get(e.source_qualified)
-        tgt_comm = node_to_community.get(e.target_qualified)
+        src_comm = node_to_community.get(edge.source_qualified)
+        tgt_comm = node_to_community.get(edge.target_qualified)
         if src_comm is not None and tgt_comm is not None and src_comm != tgt_comm:
             pair = (min(src_comm, tgt_comm), max(src_comm, tgt_comm))
             cross_counts[pair] += 1
-            kind_counts[pair][e.kind] += 1
+            kind_counts[pair][edge.kind] += 1
             if detail_level == "verbose":
                 cross_edges.append(
                     {
                         "source_community": src_comm,
                         "target_community": tgt_comm,
-                        "edge_kind": e.kind,
-                        "source": _sanitize_name(e.source_qualified),
-                        "target": _sanitize_name(e.target_qualified),
+                        "edge_kind": edge.kind,
+                        "source": _sanitize_name(edge.source_qualified),
+                        "target": _sanitize_name(edge.target_qualified),
                     }
                 )
 
-    # Generate warnings for high coupling, skipping test-dominated pairs.
     warnings: list[str] = []
     for comm in communities:
         stored_size = comm.get("size", 0)
@@ -1140,16 +207,13 @@ def get_architecture_overview(
         if count > 10:
             name1 = comm_name_map.get(c1, f"community-{c1}")
             name2 = comm_name_map.get(c2, f"community-{c2}")
-            # Skip pairs where either community is test-dominated — coupling
-            # between test and production code is expected, not architectural.
             if _is_test_community(name1) or _is_test_community(name2):
                 continue
             warnings.append(f"High coupling ({count} edges) between '{name1}' and '{name2}'")
 
-    # Build aggregated coupling list (edge_count desc, top_n in standard mode)
     pair_limit = None if detail_level == "verbose" else (5 if detail_level == "minimal" else top_n)
     sorted_pairs = cross_counts.most_common(pair_limit)
-    cross_community_coupling: list[CommunityCouplingRecord] = [
+    cross_community_coupling = [
         {
             "source_community_id": c1,
             "source_community_name": comm_name_map.get(c1, f"community-{c1}"),
@@ -1161,9 +225,8 @@ def get_architecture_overview(
         for (c1, c2), count in sorted_pairs
     ]
 
-    # Strip members from communities unless verbose
     if detail_level == "minimal":
-        out_communities: list[CommunityRecord] = [
+        out_communities = [
             {
                 "name": c["name"],
                 "size": c["size"],
@@ -1175,16 +238,29 @@ def get_architecture_overview(
     elif detail_level == "verbose":
         out_communities = communities
     else:
-        out_communities = cast(
-            list[CommunityRecord],
-            [{k: v for k, v in c.items() if k != "members"} for c in communities],
-        )
+        out_communities = [{k: v for k, v in c.items() if k != "members"} for c in communities]
 
     result: ArchitectureOverviewResult = {
-        "communities": out_communities,
-        "cross_community_coupling": cross_community_coupling,
+        "communities": cast(list[CommunityRecord], out_communities),
+        "cross_community_coupling": cast(list[CommunityCouplingRecord], cross_community_coupling),
         "warnings": warnings,
     }
     if detail_level == "verbose":
-        result["cross_community_edges"] = cross_edges
+        result["cross_community_edges"] = cast(list[CrossCommunityEdgeRecord], cross_edges)
     return result
+
+
+__all__ = [
+    "ArchitectureOverviewResult",
+    "CommunityCouplingRecord",
+    "CommunityMetricsPayload",
+    "CommunityRecord",
+    "CrossCommunityEdgeRecord",
+    "count_affected_communities",
+    "detect_communities",
+    "get_architecture_overview",
+    "get_communities",
+    "incremental_detect_communities",
+    "refresh_community_stats",
+    "store_communities",
+]

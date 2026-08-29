@@ -28,6 +28,7 @@ from dagayn.incremental import (
     incremental_update,
 )
 from dagayn.wiki import get_wiki_page
+from tests.store_sql import store_conn
 
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -395,7 +396,9 @@ def test_wiki_page_path_traversal_blocked(tmp_path: Path) -> None:
 def _indexed_files(store: GraphStore) -> set[str]:
     return {
         row[0]
-        for row in store._conn.execute("SELECT DISTINCT file_path FROM nodes WHERE file_path != ''")
+        for row in store_conn(store).execute(
+            "SELECT DISTINCT file_path FROM nodes WHERE file_path != ''"
+        )
     }
 
 
@@ -456,7 +459,7 @@ def test_non_ascii_filenames_are_indexed(git_repo: Path) -> None:
         _git(git_repo, "commit", "-m", "edit the non-ascii file")
         result = incremental_update(git_repo, store, base=base)
         assert "日本語.py" in (result.changed_files or []), result.changed_files
-        names = {row[0] for row in store._conn.execute("SELECT name FROM nodes")}
+        names = {row[0] for row in store_conn(store).execute("SELECT name FROM nodes")}
         assert "added" in names
         store.close()
     finally:
@@ -478,7 +481,7 @@ def test_content_change_with_restored_mtime_is_detected(git_repo: Path) -> None:
     try:
         store = GraphStore(db_path)
         full_build(git_repo, store)
-        assert "farewell" in {row[0] for row in store._conn.execute("SELECT name FROM nodes")}
+        assert "farewell" in {row[0] for row in store_conn(store).execute("SELECT name FROM nodes")}
 
         base = _git(git_repo, "rev-parse", "HEAD").stdout.strip()
         target = git_repo / "hello.py"
@@ -494,7 +497,7 @@ def test_content_change_with_restored_mtime_is_detected(git_repo: Path) -> None:
 
         result = incremental_update(git_repo, store, base=base)
         assert (result.files_updated or 0) >= 1, result
-        names = {row[0] for row in store._conn.execute("SELECT name FROM nodes")}
+        names = {row[0] for row in store_conn(store).execute("SELECT name FROM nodes")}
         assert "added_later" in names
         store.close()
     finally:

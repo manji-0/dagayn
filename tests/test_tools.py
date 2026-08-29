@@ -1,8 +1,6 @@
 """Tests for MCP tool functions."""
 
-import json
 import os
-import sys
 import tempfile
 from pathlib import Path
 
@@ -21,6 +19,7 @@ from dagayn.tools import (
     list_flows,
 )
 from dagayn.tools.query import query_graph
+from tests.store_sql import store_conn
 
 
 class TestTools:
@@ -1150,9 +1149,11 @@ class TestFlowTools:
         # All returned flows should have Function entry points
         for f in result["flows"]:
             ep_id = f["entry_point_id"]
-            row = self.store._conn.execute(
-                "SELECT kind FROM nodes WHERE id = ?", (ep_id,)
-            ).fetchone()
+            row = (
+                store_conn(self.store)
+                .execute("SELECT kind FROM nodes WHERE id = ?", (ep_id,))
+                .fetchone()
+            )
             assert row["kind"] == "Function"
 
     def test_list_flows_kind_filter_batches_entry_point_lookup(self, monkeypatch):
@@ -1300,18 +1301,23 @@ class TestFlowTools:
         assert result["flow"]["truncated"] is False
 
     def test_get_flow_degrades_when_stored_steps_are_missing(self, monkeypatch):
+        from dagayn.flows import get_flow_by_id
         from dagayn.tools import flows_tools
 
         flow_id = list_flows(repo_root=str(self.root))["flows"][0]["id"]
-        row = self.store._conn.execute(
-            "SELECT path_json FROM flows WHERE id = ?",
-            (flow_id,),
-        ).fetchone()
-        path_ids = json.loads(row["path_json"])
+        flow = get_flow_by_id(self.store, flow_id)
+        raw_path = (flow or {}).get("path") or []
+        path_ids = [node_id for node_id in raw_path if isinstance(node_id, int)]
         assert len(path_ids) >= 2
 
+        nodes = self.store.get_nodes_by_ids(path_ids)
+        stale_files = []
         for node_id in path_ids[1:]:
-            self.store._conn.execute("DELETE FROM nodes WHERE id = ?", (node_id,))
+            node = nodes.get(node_id)
+            if node is None or not node.file_path or node.file_path in stale_files:
+                continue
+            stale_files.append(node.file_path)
+        self.store.remove_files_data(stale_files)
         self.store.commit()
 
         monkeypatch.setattr(flows_tools, "_get_store", lambda repo_root: (self.store, self.root))
@@ -1331,39 +1337,30 @@ class TestFlowTools:
         assert "missing" in result["summary"]
 
     def test_get_flow_degrades_when_truncated(self, monkeypatch):
+        from dagayn.flows import get_flows, rebuild_stored_flows
         from dagayn.tools import flows_tools
 
-        flow_id = list_flows(repo_root=str(self.root))["flows"][0]["id"]
-        self.store._conn.execute(
-            "UPDATE flows SET truncated = 1, truncation_reason = 'max_nodes' WHERE id = ?",
-            (flow_id,),
-        )
-        self.store.commit()
-
+        rebuild_stored_flows(self.store, max_depth=1)
         monkeypatch.setattr(flows_tools, "_get_store", lambda repo_root: (self.store, self.root))
         self.store.close = lambda: None
 
+        flow_id = get_flows(self.store, limit=1)[0]["id"]
         result = flows_tools.get_flow(flow_id=flow_id, repo_root=str(self.root))
 
         assert result["status"] == "degraded"
         assert result["flow"]["kind"] == "reachable_set"
         assert result["flow"]["truncated"] is True
-        assert result["flow"]["truncation_reason"] == "max_nodes"
+        assert result["flow"]["truncation_reason"] == "max_depth"
         assert result["flow_coverage"]["truncated"] is True
-        assert result["flow_coverage"]["truncation_reason"] == "max_nodes"
+        assert result["flow_coverage"]["truncation_reason"] == "max_depth"
         assert any(item.get("reason_code") == "truncated_flow" for item in result["missingness"])
-        assert "truncated:max_nodes" in result["summary"]
+        assert "truncated:max_depth" in result["summary"]
 
     def test_list_flows_discloses_truncated(self, monkeypatch):
+        from dagayn.flows import rebuild_stored_flows
         from dagayn.tools import flows_tools
 
-        flow_id = list_flows(repo_root=str(self.root))["flows"][0]["id"]
-        self.store._conn.execute(
-            "UPDATE flows SET truncated = 1, truncation_reason = 'max_depth' WHERE id = ?",
-            (flow_id,),
-        )
-        self.store.commit()
-
+        rebuild_stored_flows(self.store, max_depth=1)
         monkeypatch.setattr(flows_tools, "_get_store", lambda repo_root: (self.store, self.root))
         self.store.close = lambda: None
 
@@ -1765,21 +1762,19 @@ class TestBuildPostprocess:
 
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def test_selected_graph_store_requires_rust_extension_by_default(self, monkeypatch):
+    def test_selected_graph_store_is_native(self, monkeypatch):
+        from dagayn.graph import GraphStore
         from dagayn.tools import _common
 
         monkeypatch.delenv("DAGAYN_BACKEND", raising=False)
-        monkeypatch.setitem(sys.modules, "dagayn._core", None)
-
-        with pytest.raises(RuntimeError, match="requires dagayn._core"):
-            _common._selected_graph_store()
+        assert _common._selected_graph_store() is GraphStore
 
     def test_postprocess_none_produces_nodes_no_flows(self, monkeypatch):
         from unittest.mock import patch
 
         from dagayn.tools.build import build_or_update_graph
 
-        monkeypatch.setenv("DAGAYN_BACKEND", "python")
+        monkeypatch.delenv("DAGAYN_BACKEND", raising=False)
         with patch(
             "dagayn.incremental.get_all_tracked_files",
             return_value=["sample.py"],
@@ -1801,7 +1796,7 @@ class TestBuildPostprocess:
 
         from dagayn.tools.build import build_or_update_graph
 
-        monkeypatch.setenv("DAGAYN_BACKEND", "python")
+        monkeypatch.delenv("DAGAYN_BACKEND", raising=False)
         with patch(
             "dagayn.incremental.get_all_tracked_files",
             return_value=["sample.py"],
@@ -1857,7 +1852,7 @@ class TestBuildPostprocess:
         class FakeRustStore:
             pass
 
-        with pytest.raises(RuntimeError, match="Rust post-processing requires"):
+        with pytest.raises(RuntimeError, match="Post-processing requires dagayn._core"):
             _postprocess_store(FakeRustStore(), self.root, "full")
 
     def test_postprocess_full_matches_default(self, monkeypatch):
@@ -1865,7 +1860,7 @@ class TestBuildPostprocess:
 
         from dagayn.tools.build import build_or_update_graph
 
-        monkeypatch.setenv("DAGAYN_BACKEND", "python")
+        monkeypatch.delenv("DAGAYN_BACKEND", raising=False)
         with patch(
             "dagayn.incremental.get_all_tracked_files",
             return_value=["sample.py"],
@@ -1886,7 +1881,7 @@ class TestBuildPostprocess:
 
         from dagayn.tools.build import build_or_update_graph
 
-        monkeypatch.setenv("DAGAYN_BACKEND", "python")
+        monkeypatch.delenv("DAGAYN_BACKEND", raising=False)
         embed_result = {
             "status": "ok",
             "preset": "low",
@@ -1932,7 +1927,7 @@ class TestBuildPostprocess:
 
         from dagayn.tools.build import build_or_update_graph
 
-        monkeypatch.setenv("DAGAYN_BACKEND", "python")
+        monkeypatch.delenv("DAGAYN_BACKEND", raising=False)
         with (
             patch(
                 "dagayn.incremental.get_all_tracked_files",
@@ -1955,7 +1950,7 @@ class TestBuildPostprocess:
 
         from dagayn.tools.build import build_or_update_graph
 
-        monkeypatch.setenv("DAGAYN_BACKEND", "python")
+        monkeypatch.delenv("DAGAYN_BACKEND", raising=False)
         embed_result = {
             "status": "ok",
             "preset": "low",
@@ -1995,7 +1990,7 @@ class TestBuildPostprocess:
 
         from dagayn.tools.build import build_or_update_graph
 
-        monkeypatch.setenv("DAGAYN_BACKEND", "python")
+        monkeypatch.delenv("DAGAYN_BACKEND", raising=False)
         embed_result = {
             "status": "ok",
             "preset": "low",
@@ -2057,7 +2052,7 @@ class TestBuildPostprocess:
 
         from dagayn.tools.build import _get_store, build_or_update_graph
 
-        monkeypatch.setenv("DAGAYN_BACKEND", "python")
+        monkeypatch.delenv("DAGAYN_BACKEND", raising=False)
         embed_result = {
             "status": "ok",
             "preset": "low",
@@ -2075,8 +2070,8 @@ class TestBuildPostprocess:
 
         def fake_embed(*_args, **_kwargs):
             assert stores, "build never opened a graph store"
-            with pytest.raises((sqlite3.ProgrammingError, sqlite3.Error)):
-                stores[0]._conn.execute("SELECT 1")
+            with pytest.raises((sqlite3.ProgrammingError, sqlite3.Error, RuntimeError)):
+                stores[0].get_stats()
             return embed_result
 
         with (
@@ -2102,7 +2097,7 @@ class TestBuildPostprocess:
 
         from dagayn.tools.build import run_postprocess
 
-        monkeypatch.setenv("DAGAYN_BACKEND", "python")
+        monkeypatch.delenv("DAGAYN_BACKEND", raising=False)
         lock = MagicMock()
         lock.__enter__ = MagicMock(return_value=lock)
         lock.__exit__ = MagicMock(return_value=False)
@@ -2471,7 +2466,7 @@ class TestComputeSummaries:
         self.store.commit()
 
         # Create the two communities and stamp community_id on nodes.
-        conn = self.store._conn
+        conn = store_conn(self.store)
         conn.execute(
             "INSERT INTO communities (name, level, cohesion, size, "
             "dominant_language, description) "
@@ -2509,10 +2504,14 @@ class TestComputeSummaries:
 
         _compute_summaries(self.store)
 
-        rows = self.store._conn.execute(
-            "SELECT qualified_name, caller_count, test_coverage, "
-            "security_relevant, risk_score FROM risk_index"
-        ).fetchall()
+        rows = (
+            store_conn(self.store)
+            .execute(
+                "SELECT qualified_name, caller_count, test_coverage, "
+                "security_relevant, risk_score FROM risk_index"
+            )
+            .fetchall()
+        )
         by_qn = {r[0]: r for r in rows}
 
         # login: called once (by db.py::query), tested, security-keyword
@@ -2573,10 +2572,14 @@ class TestComputeSummaries:
 
         _compute_summaries(self.store)
 
-        rows = self.store._conn.execute(
-            "SELECT community_id, name, key_symbols, size, "
-            "dominant_language FROM community_summaries"
-        ).fetchall()
+        rows = (
+            store_conn(self.store)
+            .execute(
+                "SELECT community_id, name, key_symbols, size, "
+                "dominant_language FROM community_summaries"
+            )
+            .fetchall()
+        )
         assert len(rows) == 2
         by_name = {r[1]: r for r in rows}
 
@@ -2628,7 +2631,7 @@ class TestComputeSummaries:
 
         from dagayn.tools.build import _compute_summaries
 
-        conn = self.store._conn
+        conn = store_conn(self.store)
         per_row_selects: list[str] = []
 
         # Match SELECTs whose WHERE filter is a single equality against
@@ -2732,7 +2735,7 @@ class TestGetMinimalContext:
         try:
             from dagayn._core import GraphStore as StoreCls
         except ImportError:
-            from dagayn.graph.core import GraphStore as StoreCls
+            from dagayn.graph import GraphStore as StoreCls
 
         calls = {"n": 0}
         original = getattr(StoreCls, "get_stats")
@@ -2900,7 +2903,8 @@ class TestGetMinimalContext:
     def test_reports_top_flows_separately_from_affected_flows(self):
         from dagayn.tools.context import get_minimal_context
 
-        conn = GraphStore(str(self.root / ".dagayn" / "graph.db"))._conn
+        store = GraphStore(str(self.root / ".dagayn" / "graph.db"))
+        conn = store_conn(store)
         conn.execute("DELETE FROM flows")
         conn.execute(
             """

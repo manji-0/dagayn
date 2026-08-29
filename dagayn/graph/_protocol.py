@@ -22,7 +22,8 @@ from .types import (
 )
 
 if TYPE_CHECKING:
-    from ..parser._base.types import EdgeInfo, NodeInfo
+    from dagayn.parser._base.types import EdgeInfo, NodeInfo
+
     from .types import FtsQueryResult
 
 

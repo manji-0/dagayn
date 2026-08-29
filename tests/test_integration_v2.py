@@ -321,24 +321,8 @@ class TestV2Integration:
         )
 
         s.commit()
-
-        # Set signatures for non-File nodes
-        rows = s._conn.execute("SELECT id, name, kind, params, return_type FROM nodes").fetchall()
-        for row in rows:
-            node_id, name, kind, params, ret = row[0], row[1], row[2], row[3], row[4]
-            if kind in ("Function", "Test"):
-                sig = f"def {name}({params or ''})"
-                if ret:
-                    sig += f" -> {ret}"
-            elif kind == "Class":
-                sig = f"class {name}"
-            else:
-                sig = name
-            s._conn.execute(
-                "UPDATE nodes SET signature = ? WHERE id = ?",
-                (sig[:512], node_id),
-            )
-        s._conn.commit()
+        s.compute_missing_signatures()
+        s.commit()
 
     # -----------------------------------------------------------------
     # Integration test

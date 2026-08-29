@@ -23,7 +23,6 @@ from ..graph.sqlite_errors import (
     register_live_store,
 )
 from ..incremental import (
-    _backend_selection,
     find_project_root,
     get_db_path,
 )
@@ -40,9 +39,9 @@ from ..write_lock import (
     WriteLockUnavailableError,
     acquire_graph_lock,
     bind_store_read_lock,
+    ensure_store_close_unbinds,
     lock_holder_pid,
     release_graph_lock,
-    wrap_store_close_to_unbind,
     write_lock_is_held,
 )
 
@@ -492,13 +491,19 @@ def _data_version(store: Any) -> int | None:
     file mtime does not give: in WAL mode a commit is written to ``-wal`` and
     the main database file's mtime does not move until a checkpoint.
     """
-    conn = getattr(store, "_conn", None)
-    if conn is None:
+    db_path = getattr(store, "db_path", None)
+    if db_path is None:
+        return None
+    try:
+        conn = sqlite3.connect(str(db_path), timeout=5)
+    except sqlite3.Error:
         return None
     try:
         row = conn.execute("PRAGMA data_version").fetchone()
     except sqlite3.Error:
         return None
+    finally:
+        conn.close()
     if row is None:
         return None
     return int(row[0])
@@ -560,8 +565,7 @@ def _get_store(
         # Bind after wrapping so native stores unbind on the same object
         # identity ``close()`` sees. Caching the sqlite handle is fine;
         # the flock itself must not outlive this caller's close().
-        if not hasattr(store, "_conn"):
-            store = wrap_store_close_to_unbind(store)
+        store = ensure_store_close_unbinds(store)
         bind_store_read_lock(store, db_path)
     return store, root
 
@@ -574,12 +578,13 @@ def _open_store(
 ) -> tuple[GraphStore, Path]:
     store_cls = _selected_graph_store()
     if store_cls is not GraphStore:
-        store = store_cls(db_path)
+        store = cast(GraphStore, ensure_store_close_unbinds(store_cls(db_path)))
         register_live_store(store, db_path)
         return store, root
 
     if not cached or _cache_disabled():
-        store = store_cls(db_path)
+        store = cast(GraphStore, ensure_store_close_unbinds(store_cls(db_path)))
+        register_live_store(store, db_path)
         store._leases = 1  # caller holds the only lease; close() will close
         return store, root
 
@@ -589,7 +594,8 @@ def _open_store(
         # First-time use: nothing to cache yet, fall back to a fresh
         # transient store.  The next call will populate the cache once
         # the DB has been created.
-        store = store_cls(db_path)
+        store = cast(GraphStore, ensure_store_close_unbinds(store_cls(db_path)))
+        register_live_store(store, db_path)
         store._leases = 1
         return store, root
 
@@ -605,6 +611,7 @@ def _open_store(
             if (
                 cached_store._leases > 0
                 and cached_mtime == mtime
+                and cached_version is not None
                 and cached_version == current_version
             ):
                 # Acquire a lease atomically while holding the lock so
@@ -622,7 +629,8 @@ def _open_store(
             # else: last close() will _force_close when _leases reaches 0.
             _store_cache.pop(db_path, None)
 
-        store = store_cls(db_path)
+        store = cast(GraphStore, ensure_store_close_unbinds(store_cls(db_path)))
+        register_live_store(store, db_path)
         store._pinned = True
         store._leases = 1  # set inside the lock before inserting into cache
         _store_cache[db_path] = (store, (mtime, _data_version(store)))
@@ -630,21 +638,11 @@ def _open_store(
 
 
 def _selected_graph_store() -> type:
-    """Return the graph store selected by ``DAGAYN_BACKEND``.
+    """Return the native graph store.
 
-    Rust is the default; source checkouts require the native extension.
+    Source checkouts require the ``dagayn._core`` extension.
     """
-    if _backend_selection() != "rust":
-        return GraphStore
-    try:
-        from dagayn._core import GraphStore as RustGraphStore
-
-        return RustGraphStore
-    except ImportError as exc:
-        raise RuntimeError(
-            "DAGAYN_BACKEND=rust requires dagayn._core. "
-            "Install a wheel with the native extension or rebuild from source."
-        ) from exc
+    return GraphStore
 
 
 def _answerability_sqlite_connection(store: Any) -> tuple[sqlite3.Connection | None, bool]:

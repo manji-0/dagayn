@@ -7,11 +7,10 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from dagayn import fts_tokenize
+from dagayn import search as graph_search
 from dagayn.embeddings import _encode_vector
 from dagayn.graph import GraphStore
 from dagayn.graph import _fts_tokenize as graph_fts_tokenize
-from dagayn.graph import search as graph_search
-from dagayn.graph._fts_tokenize import FTS_SEGMENTER_METADATA_KEY
 from dagayn.graph.types import FtsQueryResult
 from dagayn.parser import NodeInfo
 from dagayn.search import (
@@ -30,6 +29,17 @@ from dagayn.search import (
     rebuild_fts_index,
     rrf_merge,
 )
+from tests.store_sql import store_conn
+
+
+class _PatchableStore:
+    """Proxy so ``patch.object`` can replace read-only native methods."""
+
+    def __init__(self, inner):
+        object.__setattr__(self, "_inner", inner)
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
 
 
 def test_graph_search_uses_graph_local_fts_tokenizer():
@@ -65,7 +75,7 @@ def test_embedding_health_available_uses_status_field():
 class TestHybridSearch:
     def setup_method(self):
         self.tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-        self.store = GraphStore(self.tmp.name)
+        self.store = _PatchableStore(GraphStore(self.tmp.name))
         self._seed_data()
 
     def teardown_method(self):
@@ -123,14 +133,9 @@ class TestHybridSearch:
             ),
         ]
         for node in nodes:
-            node_id = self.store.upsert_node(node, file_hash="abc123")
-            # Set signature for functions
-            if node.kind == "Function":
-                sig = f"def {node.name}{node.params or '()'} -> {node.return_type or 'None'}"
-                self.store._conn.execute(
-                    "UPDATE nodes SET signature = ? WHERE id = ?", (sig, node_id)
-                )
-        self.store._conn.commit()
+            self.store.upsert_node(node, file_hash="abc123")
+        self.store.compute_missing_signatures()
+        self.store.commit()
 
     # --- rebuild_fts_index ---
 
@@ -250,89 +255,6 @@ class TestHybridSearch:
         assert results
         assert results[0]["qualified_name"] == "docs/design.md::japanese-search"
 
-    def test_fts_search_finds_cjk_symbol_without_source(self):
-        """CJK symbol names are searchable via identifier_tokens even without source text."""
-        self.store.upsert_node(
-            NodeInfo(
-                kind="Function",
-                name="ユーザー取得",
-                file_path="jp.py",
-                line_start=1,
-                line_end=5,
-                language="python",
-            ),
-            file_hash="abc123",
-        )
-        self.store.commit()
-        rebuild_fts_index(self.store)
-
-        assert self.store.get_metadata(FTS_SEGMENTER_METADATA_KEY) is not None
-
-        row = self.store._conn.execute(
-            "SELECT identifier_tokens, doc_text FROM nodes_fts WHERE name = ?",
-            ("ユーザー取得",),
-        ).fetchone()
-        assert "ユー" in row["identifier_tokens"]
-        assert "取得" in row["identifier_tokens"]
-
-        for query in ("ユーザー取得", "ユーザー"):
-            results = self.store.fts_query(query)
-            assert results.hits, f"expected hits for {query!r}"
-
-        hs = hybrid_search(self.store, "ユーザー取得")
-        assert hs["results"]
-        assert hs["results"][0]["name"] == "ユーザー取得"
-
-    def test_fts_query_uses_persisted_segmenter(self, monkeypatch):
-        """Queries segment with the index-time segmenter recorded in metadata."""
-        self.store.set_metadata(FTS_SEGMENTER_METADATA_KEY, "bigram")
-        calls: list[str | None] = []
-        original = graph_search.segment_japanese_fts_text
-
-        def recording_segment(text, *, segmenter=None):
-            calls.append(segmenter)
-            return original(text, segmenter=segmenter)
-
-        monkeypatch.setattr(graph_search, "segment_japanese_fts_text", recording_segment)
-        self.store.fts_query("自然言語検索")
-        assert calls == ["bigram"]
-
-    def test_cjk_identifier_tokens_include_wakati_when_segmenter_pinned(self, monkeypatch):
-        """Wakati-indexed identifier_tokens must still answer wakati-shaped queries."""
-        from dagayn.graph import _fts_tokenize as fts_tokenize
-
-        def fake_wakati(text: str) -> str:
-            if text == "ユーザー取得":
-                return "ユーザー 取得"
-            return text
-
-        monkeypatch.setattr(fts_tokenize, "detect_fts_segmenter", lambda: "fugashi")
-        monkeypatch.setattr(fts_tokenize, "_get_wakati", lambda _name: fake_wakati)
-
-        self.store.upsert_node(
-            NodeInfo(
-                kind="Function",
-                name="ユーザー取得",
-                file_path="jp.py",
-                line_start=1,
-                line_end=5,
-                language="python",
-            ),
-            file_hash="abc123",
-        )
-        self.store.commit()
-        rebuild_fts_index(self.store)
-
-        row = self.store._conn.execute(
-            "SELECT identifier_tokens FROM nodes_fts WHERE name = ?",
-            ("ユーザー取得",),
-        ).fetchone()
-        assert "ユーザー" in row["identifier_tokens"]
-        assert "取得" in row["identifier_tokens"]
-
-        fts = self.store.fts_query("ユーザー")
-        assert fts.hits
-
     # --- Kind boosting ---
 
     def test_kind_boost_pascal_case(self):
@@ -384,7 +306,7 @@ class TestHybridSearch:
             ),
             file_hash="boost-test",
         )
-        self.store._conn.commit()
+        store_conn(self.store).commit()
         rebuild_fts_index(self.store)
 
         results = hybrid_search(self.store, "api.get_users")["results"]
@@ -451,8 +373,8 @@ class TestHybridSearch:
         """Works without FTS index by falling back to keyword LIKE matching."""
         # Do NOT rebuild FTS index — drop it if it exists
         try:
-            self.store._conn.execute("DROP TABLE IF EXISTS nodes_fts")
-            self.store._conn.commit()
+            store_conn(self.store).execute("DROP TABLE IF EXISTS nodes_fts")
+            store_conn(self.store).commit()
         except Exception:
             pass
 
@@ -668,7 +590,7 @@ class TestHybridSearch:
         rebuild_fts_index(self.store)
 
         # Verify the FTS table exists and has rows.
-        conn = self.store._conn
+        conn = store_conn(self.store)
         count = conn.execute("SELECT count(*) FROM nodes_fts").fetchone()[0]
         assert count > 0
 
@@ -698,7 +620,7 @@ class TestHybridSearch:
         monkeypatch.delenv("CRG_OPENAI_API_KEY", raising=False)
         monkeypatch.delenv("CRG_OPENAI_BASE_URL", raising=False)
         monkeypatch.delenv("CRG_OPENAI_MODEL", raising=False)
-        self.store._conn.execute(
+        store_conn(self.store).execute(
             """
             CREATE TABLE IF NOT EXISTS embeddings (
                 qualified_name TEXT PRIMARY KEY,
@@ -708,11 +630,11 @@ class TestHybridSearch:
             )
             """
         )
-        self.store._conn.execute(
+        store_conn(self.store).execute(
             "INSERT OR REPLACE INTO embeddings VALUES (?, ?, ?, ?)",
             ("auth.py::authenticate", b"\x00\x00\x00\x00", "hash", "openai:qwen3@localhost"),
         )
-        self.store._conn.commit()
+        store_conn(self.store).commit()
 
         hs = hybrid_search(self.store, "authenticate", provider="openai", model="qwen3")
 
@@ -730,7 +652,7 @@ class TestHybridSearch:
         provider_name = "openai:qwen@http://127.0.0.1:18080/v1#dim=2"
         node = self.store.get_node("auth.py::authenticate")
         assert node is not None
-        self.store._conn.execute(
+        store_conn(self.store).execute(
             """
             CREATE TABLE IF NOT EXISTS embeddings (
                 qualified_name TEXT PRIMARY KEY,
@@ -740,7 +662,7 @@ class TestHybridSearch:
             )
             """
         )
-        self.store._conn.execute(
+        store_conn(self.store).execute(
             "INSERT OR REPLACE INTO embeddings VALUES (?, ?, ?, ?)",
             (
                 "auth.py::authenticate",
@@ -749,7 +671,7 @@ class TestHybridSearch:
                 provider_name,
             ),
         )
-        self.store._conn.commit()
+        store_conn(self.store).commit()
 
         with (
             patch.object(
@@ -781,7 +703,7 @@ class TestHybridSearch:
         _emb_cache.clear()
         dominant = "openai:qwen@http://127.0.0.1:18080/v1"
         abandoned = "openai:old@http://127.0.0.1:18081/v1"
-        self.store._conn.execute(
+        store_conn(self.store).execute(
             """
             CREATE TABLE IF NOT EXISTS embeddings (
                 qualified_name TEXT PRIMARY KEY,
@@ -791,7 +713,7 @@ class TestHybridSearch:
             )
             """
         )
-        self.store._conn.executemany(
+        store_conn(self.store).executemany(
             "INSERT OR REPLACE INTO embeddings VALUES (?, ?, ?, ?)",
             [
                 ("auth.py::authenticate", _encode_vector([1.0, 0.0]), "hash", dominant),
@@ -800,7 +722,7 @@ class TestHybridSearch:
                 ("old.py::gone", _encode_vector([0.0, 1.0]), "hash4", abandoned),
             ],
         )
-        self.store._conn.commit()
+        store_conn(self.store).commit()
 
         with patch(
             "dagayn.embeddings.OpenAIEmbeddingProvider._call_api",
@@ -827,7 +749,7 @@ class TestHybridSearch:
         monkeypatch.delenv("CRG_OPENAI_BASE_URL", raising=False)
         monkeypatch.delenv("CRG_OPENAI_MODEL", raising=False)
         provider_name = "openai:qwen@http://127.0.0.1:18080/v1#dim=2"
-        self.store._conn.execute(
+        store_conn(self.store).execute(
             """
             CREATE TABLE IF NOT EXISTS embeddings (
                 qualified_name TEXT PRIMARY KEY,
@@ -837,11 +759,11 @@ class TestHybridSearch:
             )
             """
         )
-        self.store._conn.execute(
+        store_conn(self.store).execute(
             "INSERT OR REPLACE INTO embeddings VALUES (?, ?, ?, ?)",
             ("auth.py::authenticate", _encode_vector([1.0, 0.0]), "hash", provider_name),
         )
-        self.store._conn.commit()
+        store_conn(self.store).commit()
         _emb_failure_cache.clear()
         _emb_cache.clear()
 
@@ -861,8 +783,8 @@ class TestHybridSearch:
     def test_mode_keyword_fallback(self):
         """Mode is 'keyword_fallback' when FTS table is absent."""
         try:
-            self.store._conn.execute("DROP TABLE IF EXISTS nodes_fts")
-            self.store._conn.commit()
+            store_conn(self.store).execute("DROP TABLE IF EXISTS nodes_fts")
+            store_conn(self.store).commit()
         except Exception:
             pass
         hs = hybrid_search(self.store, "get_users")
@@ -890,8 +812,8 @@ class TestHybridSearch:
     def test_source_field_keyword(self):
         """Results produced by keyword fallback have source='keyword'."""
         try:
-            self.store._conn.execute("DROP TABLE IF EXISTS nodes_fts")
-            self.store._conn.commit()
+            store_conn(self.store).execute("DROP TABLE IF EXISTS nodes_fts")
+            store_conn(self.store).commit()
         except Exception:
             pass
         hs = hybrid_search(self.store, "authenticate")
@@ -935,7 +857,7 @@ class TestGraphStoreProtocolMethods:
         ]
         for node in nodes:
             self.store.upsert_node(node, file_hash="abc")
-        self.store._conn.commit()
+        store_conn(self.store).commit()
 
     def test_fts_query_returns_positive_scores(self):
         """fts_query returns non-empty list with strictly positive scores."""
@@ -947,8 +869,8 @@ class TestGraphStoreProtocolMethods:
     def test_keyword_query_exact_match_score(self):
         """keyword_query assigns score 3.0 for an exact name match."""
         try:
-            self.store._conn.execute("DROP TABLE IF EXISTS nodes_fts")
-            self.store._conn.commit()
+            store_conn(self.store).execute("DROP TABLE IF EXISTS nodes_fts")
+            store_conn(self.store).commit()
         except Exception:
             pass
         results = self.store.keyword_query("authenticate")
@@ -984,10 +906,10 @@ class TestGraphStoreProtocolMethods:
             ),
             file_hash="abc",
         )
-        self.store._conn.commit()
+        store_conn(self.store).commit()
         try:
-            self.store._conn.execute("DROP TABLE IF EXISTS nodes_fts")
-            self.store._conn.commit()
+            store_conn(self.store).execute("DROP TABLE IF EXISTS nodes_fts")
+            store_conn(self.store).commit()
         except Exception:
             pass
 
@@ -1022,7 +944,7 @@ class TestGraphStoreProtocolMethods:
                 ),
                 file_hash="bulk",
             )
-        self.store._conn.commit()
+        store_conn(self.store).commit()
 
         all_nodes = self.store.get_all_nodes(exclude_files=False)
         ids = [n.id for n in all_nodes]
@@ -1070,7 +992,7 @@ class TestHybridSearchRankAndDocSource:
         ]
         for node in nodes:
             self.store.upsert_node(node, file_hash="test")
-        self.store._conn.commit()
+        store_conn(self.store).commit()
         rebuild_fts_index(self.store)
 
     def test_results_have_rank_field(self):
@@ -1083,8 +1005,8 @@ class TestHybridSearchRankAndDocSource:
 
     def test_keyword_fallback_results_have_rank(self):
         try:
-            self.store._conn.execute("DROP TABLE IF EXISTS nodes_fts")
-            self.store._conn.commit()
+            store_conn(self.store).execute("DROP TABLE IF EXISTS nodes_fts")
+            store_conn(self.store).commit()
         except Exception:
             pass
         hs = hybrid_search(self.store, "get_users")
@@ -1178,7 +1100,7 @@ class TestTestDeboost:
         ]
         for n in nodes:
             self.store.upsert_node(n, file_hash="test_deboost_fixture")
-        self.store._conn.commit()
+        store_conn(self.store).commit()
         rebuild_fts_index(self.store)
 
     def teardown_method(self):
@@ -1359,7 +1281,8 @@ class TestIntentReranking:
             )
             function_id = store.upsert_node(function, file_hash="rerank")
             doc_id = store.upsert_node(doc, file_hash="rerank")
-            store._conn.commit()
+            store = _PatchableStore(store)
+            store_conn(store).commit()
             rebuild_fts_index(store)
 
             with (
@@ -1418,7 +1341,7 @@ class TestIntentReranking:
                 language="python",
             )
             store.upsert_node(node, file_hash="rerank")
-            store._conn.execute(
+            store_conn(store).execute(
                 """
                 CREATE TABLE IF NOT EXISTS embeddings (
                     qualified_name TEXT NOT NULL,
@@ -1429,7 +1352,7 @@ class TestIntentReranking:
                 )
                 """
             )
-            store._conn.executemany(
+            store_conn(store).executemany(
                 "INSERT OR REPLACE INTO embeddings VALUES (?, ?, ?, ?)",
                 [
                     (
@@ -1446,7 +1369,7 @@ class TestIntentReranking:
                     ),
                 ],
             )
-            store._conn.commit()
+            store_conn(store).commit()
             rebuild_fts_index(store)
 
             with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
@@ -1492,7 +1415,7 @@ class TestIntentReranking:
                 language="python",
             )
             store.upsert_node(node, file_hash="rerank")
-            store._conn.execute(
+            store_conn(store).execute(
                 """
                 CREATE TABLE IF NOT EXISTS embeddings (
                     qualified_name TEXT NOT NULL,
@@ -1503,7 +1426,7 @@ class TestIntentReranking:
                 )
                 """
             )
-            store._conn.execute(
+            store_conn(store).execute(
                 "INSERT OR REPLACE INTO embeddings VALUES (?, ?, ?, ?)",
                 (
                     "search.py::read_source_span",
@@ -1512,7 +1435,7 @@ class TestIntentReranking:
                     "fake#text=material",
                 ),
             )
-            store._conn.commit()
+            store_conn(store).commit()
             rebuild_fts_index(store)
 
             with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):

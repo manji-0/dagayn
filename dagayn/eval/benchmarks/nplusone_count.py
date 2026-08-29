@@ -31,7 +31,7 @@ class SQLCounter:
 
     Usage::
 
-        with SQLCounter(store._conn) as counter:
+        with SQLCounter(store._conn) as counter:  # rust stores have no _conn
             do_work()
         print(counter.count)
     """
@@ -160,6 +160,21 @@ def run(repo_path: Path, store: Any, config: BenchmarkPayload) -> list[Benchmark
     config = {**config, "repo_path": repo_path}
     stats = store.get_stats()
     results: list[BenchmarkPayload] = []
+    if not hasattr(store, "_conn"):
+        for name in _SCENARIOS:
+            results.append(
+                {
+                    "scenario": name,
+                    "sql_count": None,
+                    "baseline": _BASELINES[name],
+                    "status": "skipped",
+                    "error": "SQL tracing requires a Python sqlite3 connection",
+                    "node_count": stats.total_nodes,
+                    "edge_count": stats.total_edges,
+                    "file_count": stats.files_count,
+                }
+            )
+        return results
     for name, fn in _SCENARIOS.items():
         try:
             count = fn(store, config)

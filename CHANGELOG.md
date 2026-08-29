@@ -6,6 +6,14 @@ All notable changes to `dagayn` are documented here.
 
 ### Changed
 
+- Phase 4 of the Rust core migration: the Python graph engine, flow tracer,
+  community detector, FTS rebuild, post-process steps, and schema migrations
+  are gone. `from dagayn.graph import GraphStore` is the native store.
+  `DAGAYN_BACKEND=python` raises. Hybrid search and manifest-bridge extraction
+  stay in Python.
+- `analyze_changes` assembles review guidance in Python on the native store.
+  The coarse `analyze_changes_json` shortcut omitted unmapped files, heuristic
+  test-gap evidence, and `coverage_confidence`.
 - Parser nodes and edges carry `NodeKind` / `EdgeKind` instead of heap
   strings. The closed set now includes `Type`, `DocBody`, and `IMPLEMENTS`,
   matching the schema. SQLite and the Python store still see the same labels.

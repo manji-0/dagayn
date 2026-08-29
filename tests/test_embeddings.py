@@ -26,6 +26,7 @@ from dagayn.embeddings import (
     resolve_active_embedding_provider,
 )
 from dagayn.graph import GraphNode
+from tests.store_sql import store_conn
 
 
 class TestVectorEncoding:
@@ -658,7 +659,7 @@ class TestEmbeddingStore:
 
         with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
             store = EmbeddingStore(db)
-            store._conn.executemany(
+            store_conn(store).executemany(
                 """INSERT INTO embeddings (qualified_name, vector, text_hash, provider)
                    VALUES (?, ?, ?, ?)""",
                 [
@@ -667,13 +668,15 @@ class TestEmbeddingStore:
                     ("file.py::other_orphan", _encode_vector([3.0]), "h3", "other"),
                 ],
             )
-            store._conn.commit()
+            store_conn(store).commit()
 
             assert store.remove_orphans({"file.py::live"}) == 1
 
-            rows = store._conn.execute(
-                "SELECT qualified_name, provider FROM embeddings ORDER BY provider"
-            ).fetchall()
+            rows = (
+                store_conn(store)
+                .execute("SELECT qualified_name, provider FROM embeddings ORDER BY provider")
+                .fetchall()
+            )
             assert [(row["qualified_name"], row["provider"]) for row in rows] == [
                 ("file.py::live", "fake"),
                 ("file.py::other_orphan", "other"),
@@ -699,7 +702,7 @@ class TestEmbeddingStore:
 
         with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
             store = EmbeddingStore(db)
-            store._conn.executemany(
+            store_conn(store).executemany(
                 """INSERT INTO embeddings (qualified_name, vector, text_hash, provider)
                    VALUES (?, ?, ?, ?)""",
                 [
@@ -708,13 +711,15 @@ class TestEmbeddingStore:
                     ("file.py::other_orphan", _encode_vector([3.0]), "h3", "other"),
                 ],
             )
-            store._conn.commit()
+            store_conn(store).commit()
 
             assert store.remove_orphans({"file.py::live"}, all_providers=True) == 2
 
-            rows = store._conn.execute(
-                "SELECT qualified_name, provider FROM embeddings ORDER BY provider"
-            ).fetchall()
+            rows = (
+                store_conn(store)
+                .execute("SELECT qualified_name, provider FROM embeddings ORDER BY provider")
+                .fetchall()
+            )
             assert [(row["qualified_name"], row["provider"]) for row in rows] == [
                 ("file.py::live", "fake"),
             ]
@@ -739,7 +744,7 @@ class TestEmbeddingStore:
 
         with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
             store = EmbeddingStore(db)
-            store._conn.executemany(
+            store_conn(store).executemany(
                 """INSERT INTO embeddings (qualified_name, vector, text_hash, provider)
                    VALUES (?, ?, ?, ?)""",
                 [
@@ -748,13 +753,15 @@ class TestEmbeddingStore:
                     ("file.py::retired", _encode_vector([2.0]), "h2", "other"),
                 ],
             )
-            store._conn.commit()
+            store_conn(store).commit()
 
             assert store.remove_inactive_provider_partitions() == 1
 
-            rows = store._conn.execute(
-                "SELECT qualified_name, provider FROM embeddings ORDER BY qualified_name"
-            ).fetchall()
+            rows = (
+                store_conn(store)
+                .execute("SELECT qualified_name, provider FROM embeddings ORDER BY qualified_name")
+                .fetchall()
+            )
             assert [(row["qualified_name"], row["provider"]) for row in rows] == [
                 ("file.py::live", "fake"),
                 ("file.py::same", "fake#dim=1"),
@@ -788,19 +795,19 @@ class TestEmbeddingStore:
 
         with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
             store = EmbeddingStore(db)
-            store._conn.execute(
+            store_conn(store).execute(
                 """INSERT INTO embeddings (qualified_name, vector, text_hash, provider)
                    VALUES (?, ?, ?, ?)""",
                 ("file.py::orphan", _encode_vector([2.0]), "old", "fake"),
             )
-            store._conn.commit()
+            store_conn(store).commit()
 
             assert embed_all_nodes(FakeGraphStore(), store) == 1
             assert store.last_orphans_removed == 1
 
             names = [
                 row["qualified_name"]
-                for row in store._conn.execute("SELECT qualified_name FROM embeddings")
+                for row in store_conn(store).execute("SELECT qualified_name FROM embeddings")
             ]
             assert names == ["file.py::live"]
             store.close()
@@ -1169,7 +1176,7 @@ class TestEmbeddingStore:
 
         with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
             store = EmbeddingStore(db)
-            store._conn.executemany(
+            store_conn(store).executemany(
                 """INSERT INTO embeddings (qualified_name, vector, text_hash, provider)
                    VALUES (?, ?, ?, ?)""",
                 [
@@ -1177,7 +1184,7 @@ class TestEmbeddingStore:
                     ("file.py::other", _encode_vector([0.0, 1.0]), "h2", "fake"),
                 ],
             )
-            store._conn.commit()
+            store_conn(store).commit()
 
             assert store.search("query", limit=1)[0][0] == "file.py::best"
             store.close()
@@ -1208,7 +1215,7 @@ class TestEmbeddingStore:
 
         with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
             store = EmbeddingStore(db)
-            store._conn.executemany(
+            store_conn(store).executemany(
                 """INSERT INTO embeddings (qualified_name, vector, text_hash, provider)
                    VALUES (?, ?, ?, ?)""",
                 [
@@ -1216,7 +1223,7 @@ class TestEmbeddingStore:
                     ("file.py::other", _encode_vector([0.0, 1.0]), "h2", "fake"),
                 ],
             )
-            store._conn.commit()
+            store_conn(store).commit()
             results = store.search("query", limit=2)
             store.close()
 
@@ -1260,12 +1267,12 @@ class TestEmbeddingStore:
 
         with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
             store = EmbeddingStore(db)
-            store._conn.executemany(
+            store_conn(store).executemany(
                 """INSERT INTO embeddings (qualified_name, vector, text_hash, provider)
                    VALUES (?, ?, ?, ?)""",
                 [(qn, _encode_vector(vec), f"h{i}", "fake") for i, (qn, vec) in enumerate(vectors)],
             )
-            store._conn.commit()
+            store_conn(store).commit()
 
             emb._np_vec_cache.clear()
             numpy_results = store.search("query", limit=5)
@@ -1396,7 +1403,7 @@ class TestEmbeddingStore:
 
         with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
             store = EmbeddingStore(db)
-            store._conn.executemany(
+            store_conn(store).executemany(
                 """INSERT INTO embeddings (qualified_name, vector, text_hash, provider)
                    VALUES (?, ?, ?, ?)""",
                 [
@@ -1404,7 +1411,7 @@ class TestEmbeddingStore:
                     ("file.py::other", _encode_vector([0.0, 1.0]), "h2", "fake"),
                 ],
             )
-            store._conn.commit()
+            store_conn(store).commit()
 
             emb._np_vec_cache.clear()
             load_calls = 0
@@ -1621,12 +1628,12 @@ class TestPersistedProviderResolution:
         store = EmbeddingStore(db_path, provider_instance=provider)
         try:
             vector = _encode_vector([1.0, 0.0])
-            store._conn.execute(
+            store_conn(store).execute(
                 "INSERT INTO embeddings (qualified_name, provider, vector, text_hash) "
                 "VALUES (?, ?, ?, ?)",
                 ("app.py::entry", legacy, vector, "hash"),
             )
-            store._conn.commit()
+            store_conn(store).commit()
 
             assert store._provider_key_for_lookup() == legacy
             assert store.count_provider() == 1
@@ -1665,10 +1672,14 @@ class TestPersistedProviderResolution:
             store = EmbeddingStore(tmp_path / "graph.db", provider_instance=provider)
             try:
                 assert store.embed_nodes([node]) == 1
-                row = store._conn.execute(
-                    "SELECT provider, length(vector) FROM embeddings WHERE qualified_name = ?",
-                    (node.qualified_name,),
-                ).fetchone()
+                row = (
+                    store_conn(store)
+                    .execute(
+                        "SELECT provider, length(vector) FROM embeddings WHERE qualified_name = ?",
+                        (node.qualified_name,),
+                    )
+                    .fetchone()
+                )
                 assert "#dim=1024" in row["provider"]
                 assert row["length(vector)"] == 1024 * 4
             finally:
@@ -2678,10 +2689,14 @@ class TestVectorDimensionIdentity:
             store = EmbeddingStore(db, provider_instance=dim8)
             reembedded = store.embed_nodes([node])
             assert reembedded == 1
-            rows = store._conn.execute(
-                "SELECT provider, length(vector) FROM embeddings WHERE qualified_name = ?",
-                (node.qualified_name,),
-            ).fetchall()
+            rows = (
+                store_conn(store)
+                .execute(
+                    "SELECT provider, length(vector) FROM embeddings WHERE qualified_name = ?",
+                    (node.qualified_name,),
+                )
+                .fetchall()
+            )
             providers = {row["provider"]: row["length(vector)"] for row in rows}
             assert providers["fake#dim=8#text=material"] == 32
             assert providers["fake#dim=4#text=material"] == 16
@@ -2708,7 +2723,7 @@ class TestVectorDimensionIdentity:
                 language="python",
             )
         )
-        store._conn.execute(
+        store_conn(store).execute(
             """
             CREATE TABLE IF NOT EXISTS embeddings (
                 qualified_name TEXT NOT NULL,
@@ -2719,7 +2734,7 @@ class TestVectorDimensionIdentity:
             )
             """
         )
-        store._conn.execute(
+        store_conn(store).execute(
             "INSERT INTO embeddings (qualified_name, vector, text_hash, provider) "
             "VALUES (?, ?, ?, ?)",
             (
@@ -2729,7 +2744,7 @@ class TestVectorDimensionIdentity:
                 "fake#dim=8#text=material",
             ),
         )
-        store._conn.commit()
+        store_conn(store).commit()
 
         class Dim8Provider:
             name = "fake#dim=8"
@@ -2911,7 +2926,8 @@ class TestProviderKeyReuse:
             assert store.embed_nodes(nodes) == 0
             assert restyled.calls == 0
             partitions = [
-                row[0] for row in store._conn.execute("SELECT DISTINCT provider FROM embeddings")
+                row[0]
+                for row in store_conn(store).execute("SELECT DISTINCT provider FROM embeddings")
             ]
             assert len(partitions) == 1, partitions
         finally:
@@ -2941,13 +2957,17 @@ class TestProviderKeyReuse:
         store = EmbeddingStore(db, provider_instance=self._LateDimProvider())
         try:
             assert embed_all_nodes(graph, store) == 1
-            pointer = store._conn.execute(
-                "SELECT value FROM metadata WHERE key = 'embedding_provider'"
-            ).fetchone()
+            pointer = (
+                store_conn(store)
+                .execute("SELECT value FROM metadata WHERE key = 'embedding_provider'")
+                .fetchone()
+            )
             assert pointer is not None, "no active-provider pointer written"
-            rows = store._conn.execute(
-                "SELECT COUNT(*) FROM embeddings WHERE provider = ?", (pointer[0],)
-            ).fetchone()[0]
+            rows = (
+                store_conn(store)
+                .execute("SELECT COUNT(*) FROM embeddings WHERE provider = ?", (pointer[0],))
+                .fetchone()[0]
+            )
             assert rows > 0, f"pointer {pointer[0]!r} names a partition with no rows"
         finally:
             store.close()

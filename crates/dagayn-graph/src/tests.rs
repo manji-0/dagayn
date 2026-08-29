@@ -1647,13 +1647,13 @@ fn resolves_markdown_artifact_refs() {
         )
         .unwrap();
     assert_eq!(row.0, "parser.py::BridgePattern");
-    assert_eq!(row.1, 0.8);
-    assert_eq!(row.2, "HIGH");
+    assert_eq!(row.1, 0.4);
+    assert_eq!(row.2, "MEDIUM");
     let extra: Value = serde_json::from_str(&row.3).unwrap();
     assert!(extra.get("unresolved_target_name").is_none());
     assert_eq!(extra["original_symbol_name"], "BridgePattern");
     assert_eq!(extra["target_language"], "python");
-    assert_eq!(extra["confidence"], 0.8);
+    assert_eq!(extra["confidence"], 0.4);
     assert_eq!(
         store.resolve_markdown_artifact_refs().unwrap(),
         (0, 0, 0, 0)

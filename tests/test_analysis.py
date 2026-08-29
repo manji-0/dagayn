@@ -8,6 +8,7 @@ import pytest
 
 from dagayn.graph import GraphStore
 from dagayn.parser import EdgeInfo, NodeInfo
+from tests.store_sql import store_conn
 
 
 @pytest.fixture
@@ -489,12 +490,14 @@ class TestFindKnowledgeGaps:
         ):
             s.upsert_node(node)
 
-        s._conn.executemany(
+        store_conn(s).executemany(
             "INSERT INTO communities (id, name, size) VALUES (?, ?, ?)",
             [(1, "readme-ja", 3), (2, "service", 3)],
         )
-        s._conn.execute("UPDATE nodes SET community_id = 1 WHERE file_path = 'README.ja.md'")
-        s._conn.execute("UPDATE nodes SET community_id = 2 WHERE file_path = 'src/service.py'")
+        store_conn(s).execute("UPDATE nodes SET community_id = 1 WHERE file_path = 'README.ja.md'")
+        store_conn(s).execute(
+            "UPDATE nodes SET community_id = 2 WHERE file_path = 'src/service.py'"
+        )
         s.commit()
 
         result = find_knowledge_gaps(s, top_n=10)
@@ -536,12 +539,16 @@ class TestFindKnowledgeGaps:
         for idx in range(4):
             s.upsert_node(_node(f"external_{idx}", f"src/external_{idx}.py"))
 
-        s._conn.executemany(
+        store_conn(s).executemany(
             "INSERT INTO communities (id, name, size) VALUES (?, ?, ?)",
             [(1, "component", 12), (2, "external", 4)],
         )
-        s._conn.execute("UPDATE nodes SET community_id = 1 WHERE file_path = 'src/component.py'")
-        s._conn.execute("UPDATE nodes SET community_id = 2 WHERE file_path LIKE 'src/external_%'")
+        store_conn(s).execute(
+            "UPDATE nodes SET community_id = 1 WHERE file_path = 'src/component.py'"
+        )
+        store_conn(s).execute(
+            "UPDATE nodes SET community_id = 2 WHERE file_path LIKE 'src/external_%'"
+        )
         for idx in range(8):
             s.upsert_edge(
                 EdgeInfo(
@@ -598,11 +605,11 @@ class TestFindKnowledgeGaps:
                     extra={},
                 )
             )
-        s._conn.execute(
+        store_conn(s).execute(
             "INSERT INTO communities (id, name, size) VALUES (?, ?, ?)",
             (1, "island", 12),
         )
-        s._conn.execute("UPDATE nodes SET community_id = 1")
+        store_conn(s).execute("UPDATE nodes SET community_id = 1")
         for idx in range(3):
             s.upsert_edge(
                 EdgeInfo(
@@ -849,7 +856,7 @@ class TestFindSurprisingConnections:
             s.upsert_edge(edge)
 
         s.commit()
-        s._conn.execute(
+        store_conn(s).execute(
             """
             UPDATE nodes
             SET community_id = CASE
@@ -914,7 +921,7 @@ class TestFindSurprisingConnections:
             )
         )
         s.commit()
-        s._conn.execute(
+        store_conn(s).execute(
             """
             UPDATE nodes
             SET community_id = CASE
@@ -982,7 +989,7 @@ class TestFindSurprisingConnections:
         ):
             s.upsert_edge(edge)
         s.commit()
-        s._conn.execute("UPDATE nodes SET community_id = 1")
+        store_conn(s).execute("UPDATE nodes SET community_id = 1")
         s.commit()
 
         assert find_surprising_connections(s, top_n=10) == []
@@ -1021,7 +1028,7 @@ class TestFindSurprisingConnections:
             )
         )
         s.commit()
-        s._conn.execute(
+        store_conn(s).execute(
             """
             UPDATE nodes
             SET community_id = CASE

@@ -247,17 +247,8 @@ def _legacy_store_file_batch(
     store: GraphStore,
     batch: list[tuple[str, list[NodeInfo], list[EdgeInfo], str, int]],
 ) -> None:
-    store._conn.execute("BEGIN IMMEDIATE")
-    try:
-        for file_path, nodes, edges, fhash, mtime_ns in batch:
-            store.remove_file_data(file_path)
-            store._bulk_insert_nodes(nodes, fhash, mtime_ns)
-            store._bulk_insert_edges(edges)
-        store._conn.commit()
-    except BaseException:
-        store._conn.rollback()
-        raise
-    store._invalidate_cache()
+    for item in batch:
+        store.store_file_batch([item])
 
 
 def _scenario_batch_remove(config: BenchmarkPayload) -> BenchmarkPayload:
@@ -334,13 +325,40 @@ def _scenario_mcp_latency(
 def run(repo_path: Path, store: Any, config: BenchmarkPayload) -> list[BenchmarkPayload]:
     """Run all recent-change effect measurements."""
     results: list[BenchmarkPayload] = []
+
+    def _diff_cache() -> BenchmarkPayload | list[BenchmarkPayload]:
+        return _scenario_diff_cache(config)
+
+    def _centrality() -> BenchmarkPayload | list[BenchmarkPayload]:
+        return _scenario_centrality(store, config)
+
+    def _dfs() -> BenchmarkPayload | list[BenchmarkPayload]:
+        return _scenario_dfs(store, config)
+
+    def _batch_remove() -> BenchmarkPayload | list[BenchmarkPayload]:
+        return _scenario_batch_remove(config)
+
+    def _store_file_batch() -> BenchmarkPayload | list[BenchmarkPayload]:
+        return _scenario_store_file_batch(config)
+
+    def _mcp_latency() -> BenchmarkPayload | list[BenchmarkPayload]:
+        return _scenario_mcp_latency(repo_path, store, config)
+
+    # Keep scenario names stable even when a helper raises before returning.
+    _diff_cache.__name__ = "parse_diff_ranges_cache"
+    _centrality.__name__ = "bridge_centrality_persisted_read"
+    _dfs.__name__ = "dfs_lazy_fetch"
+    _batch_remove.__name__ = "remove_files_data_batch"
+    _store_file_batch.__name__ = "store_file_batch_bulk_replace"
+    _mcp_latency.__name__ = "mcp_latency"
+
     scenarios: list[Callable[[], BenchmarkPayload | list[BenchmarkPayload]]] = [
-        lambda: _scenario_diff_cache(config),
-        lambda: _scenario_centrality(store, config),
-        lambda: _scenario_dfs(store, config),
-        lambda: _scenario_batch_remove(config),
-        lambda: _scenario_store_file_batch(config),
-        lambda: _scenario_mcp_latency(repo_path, store, config),
+        _diff_cache,
+        _centrality,
+        _dfs,
+        _batch_remove,
+        _store_file_batch,
+        _mcp_latency,
     ]
     for scenario in scenarios:
         try:

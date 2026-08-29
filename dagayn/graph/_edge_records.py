@@ -1,32 +1,16 @@
-"""Helpers for materializing graph edge rows."""
+"""Helpers for serializing graph edge metadata."""
 
 from __future__ import annotations
 
 import json
 from typing import TYPE_CHECKING
 
-from ..state_types import ConfidenceTier, normalize_confidence_tier
-from ._sql import _edge_target_name
+from dagayn.state_types import ConfidenceTier, normalize_confidence_tier
 
 if TYPE_CHECKING:
-    from ..parser._base.types import EdgeInfo
-
+    from dagayn.parser._base.types import EdgeInfo
 
 type EdgeStorageMetadata = tuple[str, float, ConfidenceTier]
-type EdgeInsertValues = tuple[str, str, str, str, str, int, str, float, ConfidenceTier, float]
-type EdgeUpdateValues = tuple[str, int, str, float, ConfidenceTier, float, int]
-type EdgeIdentityUpdateValues = tuple[
-    str,
-    str,
-    float,
-    ConfidenceTier,
-    float,
-    str,
-    str,
-    str,
-    str,
-    int,
-]
 
 
 def edge_storage_metadata(edge: EdgeInfo) -> EdgeStorageMetadata:
@@ -44,55 +28,4 @@ def edge_storage_metadata(edge: EdgeInfo) -> EdgeStorageMetadata:
         json.dumps(extra),
         confidence,
         confidence_tier,
-    )
-
-
-def edge_insert_values(edge: EdgeInfo, updated_at: float) -> EdgeInsertValues:
-    """Return the SQLite values used by edge INSERT statements."""
-    extra, confidence, confidence_tier = edge_storage_metadata(edge)
-    return (
-        edge.kind,
-        edge.source,
-        edge.target,
-        _edge_target_name(edge.target),
-        edge.file_path,
-        edge.line,
-        extra,
-        confidence,
-        confidence_tier,
-        updated_at,
-    )
-
-
-def edge_update_values(edge: EdgeInfo, updated_at: float, edge_id: int) -> EdgeUpdateValues:
-    """Return the SQLite values used by id-keyed edge UPDATE statements."""
-    extra, confidence, confidence_tier = edge_storage_metadata(edge)
-    return (
-        _edge_target_name(edge.target),
-        edge.line,
-        extra,
-        confidence,
-        confidence_tier,
-        updated_at,
-        edge_id,
-    )
-
-
-def edge_identity_update_values(edge: EdgeInfo, updated_at: float) -> EdgeIdentityUpdateValues:
-    """Return SET + WHERE values for identity-keyed UPDATE … RETURNING id.
-
-    Identity key: ``(kind, source_qualified, target_qualified, file_path, line)``.
-    """
-    extra, confidence, confidence_tier = edge_storage_metadata(edge)
-    return (
-        _edge_target_name(edge.target),
-        extra,
-        confidence,
-        confidence_tier,
-        updated_at,
-        edge.kind,
-        edge.source,
-        edge.target,
-        edge.file_path,
-        edge.line,
     )

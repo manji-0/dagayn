@@ -1,12 +1,11 @@
 """Tests for the graph storage and query engine."""
 
-import logging
-import sqlite3
 import tempfile
 from pathlib import Path
 
 from dagayn.graph import GraphStore
 from dagayn.parser import EdgeInfo, NodeInfo
+from tests.store_sql import store_conn
 
 
 class TestGraphStore:
@@ -179,24 +178,6 @@ class TestGraphStore:
         assert edges[0].confidence_tier == "MEDIUM"
         assert edges[0].extra["confidence_tier"] == "medium"
 
-    def test_row_to_edge_defaults_legacy_confidence_columns(self):
-        conn = sqlite3.connect(":memory:")
-        conn.row_factory = sqlite3.Row
-        row = conn.execute(
-            """SELECT 1 AS id, 'CALLS' AS kind,
-                      '/test/file.py::func_a' AS source_qualified,
-                      '/test/file.py::func_b' AS target_qualified,
-                      '/test/file.py' AS file_path,
-                      15 AS line,
-                      '{}' AS extra"""
-        ).fetchone()
-
-        edge = self.store._row_to_edge(row)
-
-        assert edge.confidence == 1.0
-        assert edge.confidence_tier == "EXTRACTED"
-        conn.close()
-
     def test_remove_file_data(self):
         node = self._make_file_node()
         func = self._make_func_node()
@@ -241,58 +222,6 @@ class TestGraphStore:
         assert len(self.store.get_nodes_by_file("/test/a.py")) == 1
         assert len(self.store.get_nodes_by_file("/test/b.py")) == 2
 
-    def test_store_file_batch_removes_files_once_and_bulk_inserts(self, monkeypatch):
-        batch = [
-            ("/test/a.py", [self._make_file_node("/test/a.py")], [], "hash-a", 11),
-            (
-                "/test/b.py",
-                [self._make_file_node("/test/b.py"), self._make_func_node(path="/test/b.py")],
-                [
-                    EdgeInfo(
-                        kind="CONTAINS",
-                        source="/test/b.py",
-                        target="/test/b.py::my_func",
-                        file_path="/test/b.py",
-                    )
-                ],
-                "hash-b",
-                22,
-            ),
-        ]
-        removed: list[list[str]] = []
-        inserted_node_counts: list[int] = []
-        inserted_edge_counts: list[int] = []
-        original_remove = self.store.remove_files_data
-        original_nodes = self.store._bulk_insert_nodes_with_meta
-        original_edges = self.store._bulk_insert_edges
-
-        def counting_remove(file_paths, *, invalidate: bool = True):
-            removed.append(list(file_paths))
-            return original_remove(file_paths, invalidate=invalidate)
-
-        def counting_nodes(nodes):
-            inserted_node_counts.append(len(nodes))
-            return original_nodes(nodes)
-
-        def counting_edges(edges):
-            inserted_edge_counts.append(len(edges))
-            return original_edges(edges)
-
-        monkeypatch.setattr(self.store, "remove_files_data", counting_remove)
-        monkeypatch.setattr(self.store, "_bulk_insert_nodes_with_meta", counting_nodes)
-        monkeypatch.setattr(self.store, "_bulk_insert_edges", counting_edges)
-
-        self.store.store_file_batch(batch)
-
-        assert removed == [["/test/a.py", "/test/b.py"]]
-        assert inserted_node_counts == [3]
-        assert inserted_edge_counts == [1]
-        assert self.store.get_node("/test/a.py").file_hash == "hash-a"
-        assert self.store.get_node("/test/a.py").extra == {}
-        assert self.store.get_node("/test/b.py").file_hash == "hash-b"
-        assert self.store.get_node("/test/b.py").line_start == 1
-        assert len(self.store.get_edges_by_source("/test/b.py")) == 1
-
     def test_remove_files_data_deletes_multiple_files_in_batch(self):
         self.store.store_file_batch(
             [
@@ -325,7 +254,7 @@ class TestGraphStore:
             line=15,
             extra={"confidence": 0.4, "confidence_tier": "low"},
         )
-        conn = self.store._conn
+        conn = store_conn(self.store)
         conn.set_trace_callback(trace)
         try:
             edge_id = self.store.upsert_edge(edge)
@@ -345,128 +274,6 @@ class TestGraphStore:
         assert edge_id > 0
         assert updated_id == edge_id
         assert selects == [], f"unexpected SELECT during upsert_edge: {selects}"
-
-    def test_store_file_batch_reduces_write_statement_count(self):
-        """Mid-size fixture: store_file_batch must beat per-file upsert loops.
-
-        Counts Python-level ``execute`` / ``executemany`` calls (not SQLite
-        trace rows — ``executemany`` expands to one trace event per row).
-        Legacy path issues O(nodes+edges) executes per file; batch path uses
-        ``remove_files_data`` + two ``executemany`` inserts in one transaction.
-        """
-        file_count = 40
-        nodes_per_file = 5
-        edges_per_file = 4
-
-        def make_batch(count: int | None = None):
-            batch = []
-            for idx in range(file_count if count is None else count):
-                path = f"/bench/file_{idx}.py"
-                nodes = [self._make_file_node(path)]
-                edges = []
-                for n_idx in range(nodes_per_file - 1):
-                    name = f"func_{n_idx}"
-                    nodes.append(self._make_func_node(name=name, path=path))
-                    edges.append(
-                        EdgeInfo(
-                            kind="CONTAINS",
-                            source=path,
-                            target=f"{path}::{name}",
-                            file_path=path,
-                            line=10 + n_idx,
-                        )
-                    )
-                while len(edges) < edges_per_file and len(nodes) > 2:
-                    edges.append(
-                        EdgeInfo(
-                            kind="CALLS",
-                            source=f"{path}::func_0",
-                            target=f"{path}::func_1",
-                            file_path=path,
-                            line=50 + len(edges),
-                        )
-                    )
-                batch.append((path, nodes, edges, f"hash-{idx}", idx))
-            return batch
-
-        def count_db_calls(callback) -> dict[str, int]:
-            real_conn = self.store._conn
-            counts = {"execute": 0, "executemany": 0}
-
-            class _CountingConn:
-                def execute(self, *args, **kwargs):
-                    counts["execute"] += 1
-                    return real_conn.execute(*args, **kwargs)
-
-                def executemany(self, *args, **kwargs):
-                    counts["executemany"] += 1
-                    return real_conn.executemany(*args, **kwargs)
-
-                def __getattr__(self, name):
-                    return getattr(real_conn, name)
-
-            self.store._conn = _CountingConn()  # type: ignore[assignment]
-            try:
-                callback()
-            finally:
-                self.store._conn = real_conn
-            return counts
-
-        batch = make_batch()
-
-        def legacy_write() -> None:
-            self.store._conn.execute("BEGIN IMMEDIATE")
-            try:
-                for file_path, nodes, edges, fhash, mtime_ns in batch:
-                    self.store.remove_file_data(file_path)
-                    for node in nodes:
-                        self.store.upsert_node(node, file_hash=fhash, mtime_ns=mtime_ns)
-                    for edge in edges:
-                        self.store.upsert_edge(edge)
-                self.store._conn.commit()
-            except BaseException:
-                self.store._conn.rollback()
-                raise
-            self.store._invalidate_cache()
-
-        legacy = count_db_calls(legacy_write)
-        legacy_total = legacy["execute"] + legacy["executemany"]
-
-        self.store._conn.execute("DELETE FROM edges")
-        self.store._conn.execute("DELETE FROM nodes")
-        self.store._conn.commit()
-        batched = count_db_calls(lambda: self.store.store_file_batch(batch))
-        batch_total = batched["execute"] + batched["executemany"]
-
-        total_nodes = sum(len(item[1]) for item in batch)
-        total_edges = sum(len(item[2]) for item in batch)
-        assert self.store._conn.execute("SELECT COUNT(*) FROM nodes").fetchone()[0] == total_nodes
-        assert self.store._conn.execute("SELECT COUNT(*) FROM edges").fetchone()[0] == total_edges
-
-        # Mid-size fixture: 40 files × 5 nodes × 4 edges → legacy is hundreds of
-        # per-row executes; batch is a handful of DELETE/INSERT statements plus
-        # executemany calls for nodes, edges, and the FTS rows.
-        assert batch_total * 2 < legacy_total, (
-            f"expected store_file_batch DB calls ({batch_total}) to be "
-            f"materially below legacy upsert loop ({legacy_total}); "
-            f"legacy={legacy} batch={batched}"
-        )
-        assert batched["executemany"] >= 2, batched
-        assert batch_total < 40, f"store_file_batch issued unexpectedly many DB calls: {batched}"
-
-        # The invariant that matters is that the statement count does not scale
-        # with the batch size: incremental FTS maintenance adds a fixed handful
-        # (table probe, row fetch, watermark), not one statement per node.
-        self.store._conn.execute("DELETE FROM edges")
-        self.store._conn.execute("DELETE FROM nodes")
-        self.store._conn.commit()
-        double_batch = make_batch(file_count * 2)
-        doubled = count_db_calls(lambda: self.store.store_file_batch(double_batch))
-        doubled_total = doubled["execute"] + doubled["executemany"]
-        assert doubled_total <= batch_total + 2, (
-            "store_file_batch DB calls scale with batch size: "
-            f"{file_count} files={batched}, {file_count * 2} files={doubled}"
-        )
 
     def test_store_after_remove_no_transaction_error(self):
         """Regression test for #135: store_file_nodes_edges after
@@ -601,149 +408,3 @@ class TestGraphStore:
         self.store.set_metadata("test_key", "test_value")
         assert self.store.get_metadata("test_key") == "test_value"
         assert self.store.get_metadata("nonexistent") is None
-
-    def test_get_all_community_ids_logs_when_column_missing(self, caplog):
-        conn = sqlite3.connect(":memory:")
-        conn.row_factory = sqlite3.Row
-        conn.execute("CREATE TABLE nodes (qualified_name TEXT PRIMARY KEY)")
-        store = GraphStore.__new__(GraphStore)
-        store._conn = conn
-
-        with caplog.at_level(logging.DEBUG, logger="dagayn.graph"):
-            result = store.get_all_community_ids()
-
-        assert result == {}
-        assert "Community IDs unavailable" in caplog.text
-        conn.close()
-
-    def test_get_communities_list_logs_when_table_missing(self, caplog):
-        conn = sqlite3.connect(":memory:")
-        conn.row_factory = sqlite3.Row
-        store = GraphStore.__new__(GraphStore)
-        store._conn = conn
-
-        with caplog.at_level(logging.DEBUG, logger="dagayn.graph"):
-            result = store.get_communities_list()
-
-        assert result == []
-        assert "Communities list unavailable" in caplog.text
-        conn.close()
-
-
-class TestImpactRadiusSql:
-    """Tests for get_impact_radius_sql vs NetworkX BFS."""
-
-    def setup_method(self):
-        self.tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-        self.store = GraphStore(self.tmp.name)
-        self._build_chain()
-
-    def teardown_method(self):
-        self.store.close()
-        Path(self.tmp.name).unlink(missing_ok=True)
-
-    def _build_chain(self):
-        """Build A -> B -> C -> D chain for testing."""
-        for name, path in [
-            ("func_a", "/a.py"),
-            ("func_b", "/b.py"),
-            ("func_c", "/c.py"),
-            ("func_d", "/d.py"),
-        ]:
-            self.store.upsert_node(
-                NodeInfo(
-                    kind="File",
-                    name=path,
-                    file_path=path,
-                    line_start=1,
-                    line_end=50,
-                    language="python",
-                )
-            )
-            self.store.upsert_node(
-                NodeInfo(
-                    kind="Function",
-                    name=name,
-                    file_path=path,
-                    line_start=5,
-                    line_end=20,
-                    language="python",
-                )
-            )
-        self.store.upsert_edge(
-            EdgeInfo(
-                kind="CALLS",
-                source="/a.py::func_a",
-                target="/b.py::func_b",
-                file_path="/a.py",
-                line=10,
-            )
-        )
-        self.store.upsert_edge(
-            EdgeInfo(
-                kind="CALLS",
-                source="/b.py::func_b",
-                target="/c.py::func_c",
-                file_path="/b.py",
-                line=10,
-            )
-        )
-        self.store.upsert_edge(
-            EdgeInfo(
-                kind="CALLS",
-                source="/c.py::func_c",
-                target="/d.py::func_d",
-                file_path="/c.py",
-                line=10,
-            )
-        )
-        self.store.commit()
-
-    def test_sql_matches_networkx(self):
-        """SQL and NetworkX BFS produce identical impacted node sets."""
-        sql_result = self.store.get_impact_radius_sql(["/a.py"], max_depth=2)
-        nx_result = self.store._get_impact_radius_networkx(["/a.py"], max_depth=2)
-
-        sql_qns = {n.qualified_name for n in sql_result["impacted_nodes"]}
-        nx_qns = {n.qualified_name for n in nx_result["impacted_nodes"]}
-        assert sql_qns == nx_qns
-
-    def test_max_nodes_truncation(self):
-        """Setting max_nodes=2 should truncate results but report true total."""
-        result = self.store.get_impact_radius_sql(
-            ["/a.py"],
-            max_depth=3,
-            max_nodes=2,
-        )
-        assert result["truncated"] is True
-        assert result["total_impacted"] > 2
-        assert len(result["impacted_nodes"]) == 2
-
-    def test_total_impacted_not_capped_by_max_nodes(self):
-        """total_impacted reflects the full blast radius, not the limited row set."""
-        result = self.store.get_impact_radius_sql(
-            ["/a.py"],
-            max_depth=3,
-            max_nodes=1,
-        )
-        # Chain has func_b, func_c, func_d impacted (3 nodes) from /a.py seed.
-        assert result["total_impacted"] == 3
-        assert result["truncated"] is True
-        assert len(result["impacted_nodes"]) == 1
-        assert result["impacted_nodes"][0].qualified_name == "/b.py::func_b"
-
-    def test_truncation_orders_by_min_depth(self):
-        """Nearest impacted nodes survive truncation."""
-        result = self.store.get_impact_radius_sql(
-            ["/a.py"],
-            max_depth=3,
-            max_nodes=2,
-        )
-        impacted_qns = [n.qualified_name for n in result["impacted_nodes"]]
-        assert impacted_qns == ["/b.py::func_b", "/c.py::func_c"]
-
-    def test_empty_changed_files(self):
-        result = self.store.get_impact_radius_sql([], max_depth=2)
-        assert result["changed_nodes"] == []
-        assert result["impacted_nodes"] == []
-        assert result["total_impacted"] == 0

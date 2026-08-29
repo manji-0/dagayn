@@ -1,46 +1,32 @@
-"""Entry-point reachable-set detection, tracing, and criticality scoring.
+"""Flow API backed by ``dagayn._core``.
 
-Detects entry points in the codebase (functions with no incoming CALLS edges,
-framework-decorated handlers, and conventional name patterns), traces the
-forward CALLS reachable set via BFS, scores each set for criticality, and
-persists results to the ``flows`` / ``flow_memberships`` tables.
-
-A stored flow is a **reachable set**, not an ordered execution path. ``path`` /
-``steps`` are BFS visit order of that set. Truncation at ``max_depth`` or
-``max_nodes`` is recorded on the flow.
+Reachable-set tracing and persistence live in the native store. This module
+shapes those JSON payloads for CLI/MCP callers.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import re
-import sqlite3
-from collections import deque
 from collections.abc import Mapping, Sequence
 from typing import Any, Callable, Optional, TypedDict, cast
 
-from .bridge_types import FlowStepRecord
-from .constants import SECURITY_KEYWORDS as _SECURITY_KEYWORDS
-from .entry_point_heuristics import has_framework_decorator, matches_entry_name
-from .graph import (
-    FlowAdjacency,
-    GraphEdge,
-    GraphNode,
-    GraphStore,
-    _sanitize_name,
-    store_write_transaction,
-)
+from .graph import GraphEdge, GraphNode, GraphStore
 from .state_types import AffectedFlowsResult, ChangeFlowRecord
 
-logger = logging.getLogger(__name__)
 
-
-class FlowCriticalityRecord(TypedDict):
+class FlowStepRecord(TypedDict, total=False):
     id: int
-    depth: int
-    path: list[int]
-    criticality: float
+    node_id: int
+    qualified_name: str
+    name: str
+    file: str
+    file_path: str
+    kind: str
+    line_start: int
+    line_end: int
+    is_bridge_step: bool
+    source: str
 
 
 class FlowRecord(TypedDict, total=False):
@@ -70,203 +56,30 @@ class FlowRecord(TypedDict, total=False):
     updated_at: str | None
 
 
-FLOW_KIND_REACHABLE_SET = "reachable_set"
+logger = logging.getLogger(__name__)
+
 DEFAULT_FLOW_MAX_DEPTH = 15
 DEFAULT_FLOW_MAX_NODES = 512
-
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-
-# Backward-compatible aliases for internal callers/tests.
-_has_framework_decorator = has_framework_decorator
-_matches_entry_name = matches_entry_name
+FLOW_KIND_REACHABLE_SET = "reachable_set"
 
 
-# ---------------------------------------------------------------------------
-# Entry-point detection
-# ---------------------------------------------------------------------------
-
-
-_TEST_FILE_RE = re.compile(
-    r"([\\/]__tests__[\\/]|\.spec\.[jt]sx?$|\.test\.[jt]sx?$|[\\/]test_[^/\\]*\.py$)",
-)
-
-
-def _is_test_file(file_path: str) -> bool:
-    """Return True if *file_path* looks like a test file."""
-    return bool(_TEST_FILE_RE.search(file_path))
+def _require_native(store: GraphStore, name: str) -> Any:
+    method = getattr(store, name, None)
+    if not callable(method):
+        raise RuntimeError(f"GraphStore.{name} is required (Rust GraphStore).")
+    return method
 
 
 def detect_entry_points(
     store: GraphStore,
     include_tests: bool = False,
 ) -> list[GraphNode]:
-    """Find functions that are entry points in the graph.
-
-    An entry point is a Function/Test node that either:
-    1. Has no incoming CALLS edges (true root), or
-    2. Has a framework decorator (e.g. ``@app.get``), or
-    3. Matches a conventional name pattern (``main``, ``test_*``, etc.).
-
-    When *include_tests* is False (the default), Test nodes are excluded so
-    that flow analysis focuses on production entry points.
-    """
-    native = getattr(store, "detect_entry_points_json", None)
-    if callable(native):
-        try:
-            rows = json.loads(cast(Callable[[bool], str], native)(include_tests))
-            ids = [int(row["id"]) for row in rows if isinstance(row, dict) and "id" in row]
-            nodes_by_id = store.get_nodes_by_ids(ids)
-            return [nodes_by_id[node_id] for node_id in ids if node_id in nodes_by_id]
-        except Exception:  # noqa: BLE001 — native acceleration must be optional
-            logger.debug("Native entry-point detection failed; falling back", exc_info=True)
-
-    called_qnames = store.get_all_call_targets(include_file_sources=False)
-    candidate_nodes = store.get_nodes_by_kind(["Function", "Test"])
-    return _select_entry_points(candidate_nodes, called_qnames, include_tests=include_tests)
-
-
-def _select_entry_points(
-    candidate_nodes: list[GraphNode],
-    called_qnames: set[str],
-    *,
-    include_tests: bool,
-) -> list[GraphNode]:
-    entry_points: list[GraphNode] = []
-    seen_qn: set[str] = set()
-    for node in candidate_nodes:
-        if not include_tests and (node.is_test or _is_test_file(node.file_path)):
-            continue
-        is_entry = False
-        if node.qualified_name not in called_qnames:
-            is_entry = True
-        if _has_framework_decorator(node):
-            is_entry = True
-        if _matches_entry_name(node):
-            is_entry = True
-        if is_entry and node.qualified_name not in seen_qn:
-            entry_points.append(node)
-            seen_qn.add(node.qualified_name)
-    return entry_points
-
-
-# ---------------------------------------------------------------------------
-# Flow tracing (BFS)
-# ---------------------------------------------------------------------------
-
-
-def _trace_single_flow(
-    adj: FlowAdjacency,
-    ep: GraphNode,
-    max_depth: int = DEFAULT_FLOW_MAX_DEPTH,
-    max_nodes: int = DEFAULT_FLOW_MAX_NODES,
-) -> Optional[FlowRecord]:
-    """Trace the CALLS reachable set from *ep* via forward BFS.
-
-    Returns a flow dict (see :func:`trace_flows` for the schema) or ``None``
-    if the set is trivial (single-node, no outgoing CALLS that resolve).
-    ``path`` is BFS visit order of the reachable set, not a call sequence.
-    """
-    path_ids: list[int] = [ep.id]
-    path_qnames: list[str] = [ep.qualified_name]
-    visited: set[str] = {ep.qualified_name}
-    queue: deque[tuple[str, int]] = deque([(ep.qualified_name, 0)])
-
-    actual_depth = 0
-    truncated = False
-    truncation_reason: str | None = None
-    nodes_by_qn = adj.nodes_by_qn
-    calls_out = adj.calls_out
-
-    while queue:
-        current_qn, depth = queue.popleft()
-        if depth > actual_depth:
-            actual_depth = depth
-        if depth >= max_depth:
-            if calls_out.get(current_qn):
-                truncated = True
-                if truncation_reason is None:
-                    truncation_reason = "max_depth"
-            continue
-
-        for target_qn in calls_out.get(current_qn, ()):
-            if target_qn in visited:
-                continue
-            target_node = nodes_by_qn.get(target_qn)
-            if target_node is None:
-                continue
-            if len(path_ids) >= max_nodes:
-                truncated = True
-                truncation_reason = "max_nodes"
-                queue.clear()
-                break
-            visited.add(target_qn)
-            path_ids.append(target_node.id)
-            path_qnames.append(target_qn)
-            queue.append((target_qn, depth + 1))
-
-    # Skip trivial single-node flows.
-    if len(path_ids) < 2:
-        return None
-
-    files = list({n.file_path for qn in path_qnames if (n := nodes_by_qn.get(qn)) is not None})
-
-    flow: FlowRecord = {
-        "name": _sanitize_name(ep.name),
-        "entry_point": ep.qualified_name,
-        "entry_point_id": ep.id,
-        "kind": FLOW_KIND_REACHABLE_SET,
-        "path": path_ids,
-        "members": list(path_ids),
-        "depth": actual_depth,
-        "node_count": len(path_ids),
-        "file_count": len(files),
-        "files": files,
-        "truncated": truncated,
-        "truncation_reason": truncation_reason,
-        "criticality": 0.0,
-    }
-    flow["criticality"] = compute_criticality(flow, adj)
-    return flow
-
-
-def trace_flows(
-    store: GraphStore,
-    max_depth: int = DEFAULT_FLOW_MAX_DEPTH,
-    include_tests: bool = False,
-    max_nodes: int = DEFAULT_FLOW_MAX_NODES,
-) -> list[FlowRecord]:
-    """Trace reachable sets from every entry point via forward BFS.
-
-    Returns a list of flow dicts, each containing:
-      - name: human-readable flow name (entry point name)
-      - entry_point: qualified name of the entry point
-      - entry_point_id: node database id of the entry point
-      - kind: ``reachable_set`` (not an ordered execution path)
-      - path / members: BFS visit order of reachable node IDs
-      - depth: maximum BFS depth reached
-      - node_count: number of distinct nodes in the set
-      - file_count: number of distinct files touched
-      - files: list of distinct file paths
-      - truncated / truncation_reason: ``max_depth`` or ``max_nodes`` when capped
-      - criticality: computed criticality score (0.0-1.0)
-    """
-    entry_points = detect_entry_points(store, include_tests=include_tests)
-    if not entry_points:
-        return []
-
-    adj = store.load_flow_adjacency()
-    flows: list[FlowRecord] = []
-
-    for ep in entry_points:
-        flow = _trace_single_flow(adj, ep, max_depth, max_nodes)
-        if flow is not None:
-            flows.append(flow)
-
-    # Sort by criticality descending.
-    flows.sort(key=lambda f: f["criticality"], reverse=True)
-    return flows
+    """Find functions that are entry points in the graph."""
+    native = _require_native(store, "detect_entry_points_json")
+    rows = json.loads(cast(Callable[[bool], str], native)(include_tests))
+    ids = [int(row["id"]) for row in rows if isinstance(row, dict) and "id" in row]
+    nodes_by_id = store.get_nodes_by_ids(ids)
+    return [nodes_by_id[node_id] for node_id in ids if node_id in nodes_by_id]
 
 
 def rebuild_stored_flows(
@@ -275,573 +88,63 @@ def rebuild_stored_flows(
     max_depth: int = DEFAULT_FLOW_MAX_DEPTH,
     include_tests: bool = False,
 ) -> int:
-    """Rebuild stored flows, keeping reachable-set tracing inside Rust when possible.
-
-    Returns the number of flows persisted. Python only materializes
-    ``GraphNode`` objects on the fallback path.
-    """
-    native = getattr(store, "rebuild_flows_json", None)
-    if callable(native):
-        try:
-            payload = json.loads(cast(Callable[[int, bool], str], native)(max_depth, include_tests))
-            return int(payload.get("count") or 0)
-        except Exception:  # noqa: BLE001 — native acceleration must be optional
-            logger.debug("Native flow rebuild failed; falling back", exc_info=True)
-    flows = trace_flows(store, max_depth=max_depth, include_tests=include_tests)
-    return store_flows(store, flows)
+    """Rebuild stored flows in the native store."""
+    native = _require_native(store, "rebuild_flows_json")
+    payload = json.loads(cast(Callable[[int, bool], str], native)(max_depth, include_tests))
+    return int(payload.get("count") or 0)
 
 
-# ---------------------------------------------------------------------------
-# Criticality scoring
-# ---------------------------------------------------------------------------
-
-
-def compute_criticality(flow: FlowRecord, adj: FlowAdjacency) -> float:
-    """Score a flow from 0.0 to 1.0 based on multiple weighted factors.
-
-    Weights:
-      - File spread:         0.30
-      - External calls:      0.20
-      - Security sensitivity: 0.25
-      - Test coverage gap:   0.15
-      - Depth:               0.10
-    """
-    node_ids: list[int] = flow.get("path") or []
-    if not node_ids:
-        return 0.0
-
-    nodes_by_id = adj.nodes_by_id
-    nodes_by_qn = adj.nodes_by_qn
-    calls_out = adj.calls_out
-    has_tested_by = adj.has_tested_by
-
-    nodes: list[GraphNode] = [n for nid in node_ids if (n := nodes_by_id.get(nid)) is not None]
-    if not nodes:
-        return 0.0
-
-    # --- File spread (0.0 - 1.0) ---
-    file_count = len({n.file_path for n in nodes})
-    # Normalize: 1 file => 0.0, 5+ files => 1.0
-    file_spread = min((file_count - 1) / 4.0, 1.0) if file_count > 1 else 0.0
-
-    # --- External calls (0.0 - 1.0) ---
-    # Calls that target nodes NOT in the graph are considered external.
-    external_count = 0
-    for n in nodes:
-        for target_qn in calls_out.get(n.qualified_name, ()):
-            if target_qn not in nodes_by_qn:
-                external_count += 1
-    # Normalize: 0 => 0.0, 5+ => 1.0
-    external_score = min(external_count / 5.0, 1.0)
-
-    # --- Security sensitivity (0.0 - 1.0) ---
-    security_hits = 0
-    for n in nodes:
-        name_lower = n.name.lower()
-        qn_lower = n.qualified_name.lower()
-        for kw in _SECURITY_KEYWORDS:
-            if kw in name_lower or kw in qn_lower:
-                security_hits += 1
-                break  # Count each node at most once.
-    security_score = min(security_hits / max(len(nodes), 1), 1.0)
-
-    # --- Test coverage gap (0.0 - 1.0) ---
-    tested_count = sum(1 for n in nodes if n.qualified_name in has_tested_by)
-    coverage = tested_count / max(len(nodes), 1)
-    test_gap = 1.0 - coverage
-
-    # --- Depth (0.0 - 1.0) ---
-    depth = flow.get("depth") or 0
-    # Normalize: 0 => 0.0, 10+ => 1.0
-    depth_score = min(depth / 10.0, 1.0)
-
-    # --- Weighted sum ---
-    criticality = (
-        file_spread * 0.30
-        + external_score * 0.20
-        + security_score * 0.25
-        + test_gap * 0.15
-        + depth_score * 0.10
-    )
-    return round(min(max(criticality, 0.0), 1.0), 4)
-
-
-def refresh_flow_criticality(
+def trace_flows(
     store: GraphStore,
-    flow_ids: set[int] | None = None,
-) -> int:
-    """Recompute stored flow criticality from current TESTED_BY / CALLS facts.
-
-    Incremental tracing only retraces flows whose CALLS reachability changed.
-    Adding a test file that covers a flow member does not touch those files, so
-    stored criticality would otherwise stay stale. Pass *flow_ids* to refresh
-    only the affected flows. See: #114
-    """
-    if flow_ids is not None and not flow_ids:
-        return 0
-
-    adj = store.load_flow_adjacency()
-    conn = getattr(store, "_conn", None)
-    rust_get = getattr(store, "get_flows_json", None)
-    rust_update = getattr(store, "update_flow_criticalities_json", None)
-
-    flows: list[FlowCriticalityRecord]
-    if conn is not None:
-        rows = conn.execute("SELECT id, depth, path_json, criticality FROM flows").fetchall()
-        flows = [
-            {
-                "id": int(row["id"]),
-                "depth": row["depth"],
-                "path": json.loads(row["path_json"]),
-                "criticality": float(row["criticality"] or 0.0),
-            }
-            for row in rows
-            if flow_ids is None or int(row["id"]) in flow_ids
-        ]
-    elif callable(rust_get):
-        loaded = json.loads(cast(Callable[[str, int], str], rust_get)("criticality", 1_000_000))
-        flows = [
-            cast(FlowCriticalityRecord, row)
-            for row in loaded
-            if flow_ids is None or int(row.get("id") or 0) in flow_ids
-        ]
-    else:
-        return 0
-
-    updates: list[tuple[int, float]] = []
-    for flow in flows:
-        path = flow.get("path") or []
-        recomputed = compute_criticality({"path": path, "depth": flow.get("depth", 0)}, adj)
-        previous = float(flow.get("criticality") or 0.0)
-        if abs(recomputed - previous) > 1e-9:
-            flow_id = flow.get("id")
-            if flow_id is None:
-                continue
-            updates.append((int(flow_id), recomputed))
-
-    if not updates:
-        return 0
-
-    if callable(rust_update):
-        payload = json.dumps([[flow_id, score] for flow_id, score in updates])
-        return cast(Callable[[str], int], rust_update)(payload)
-
-    if conn is None:
-        logger.warning("Cannot refresh flow criticality: store has no SQL connection")
-        return 0
-
-    with store_write_transaction(store):
-        conn.executemany(
-            "UPDATE flows SET criticality = ? WHERE id = ?",
-            [(score, flow_id) for flow_id, score in updates],
-        )
-    return len(updates)
+    max_depth: int = DEFAULT_FLOW_MAX_DEPTH,
+    include_tests: bool = False,
+    max_nodes: int = DEFAULT_FLOW_MAX_NODES,
+) -> list[Any]:
+    """Trace reachable-set flows and persist them, then return the stored rows."""
+    del max_nodes  # native rebuild uses the store's own node cap
+    rebuild_stored_flows(store, max_depth=max_depth, include_tests=include_tests)
+    return get_flows(store, limit=10**9)
 
 
-# ---------------------------------------------------------------------------
-# Persistence
-# ---------------------------------------------------------------------------
-
-_FLOW_INSERT_SQL = """INSERT INTO flows
-               (name, entry_point_id, depth, node_count, file_count,
-                criticality, path_json, kind, truncated, truncation_reason)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
-
-
-def _flow_insert_params(flow: FlowRecord) -> tuple[object, ...]:
-    """Values for :data:`_FLOW_INSERT_SQL`."""
-    return (
-        flow["name"],
-        flow["entry_point_id"],
-        flow["depth"],
-        flow["node_count"],
-        flow["file_count"],
-        flow["criticality"],
-        json.dumps(flow.get("path", [])),
-        flow.get("kind") or FLOW_KIND_REACHABLE_SET,
-        1 if flow.get("truncated") else 0,
-        flow.get("truncation_reason"),
-    )
-
-
-def _flow_disclosure_fields(row: Any, path_ids: list[int]) -> FlowRecord:
-    """Kind / truncation fields stored beside the membership path."""
-    kind = FLOW_KIND_REACHABLE_SET
-    truncated = False
-    truncation_reason = None
-    try:
-        raw_kind = row["kind"]
-        if raw_kind:
-            kind = str(raw_kind)
-        truncated = bool(row["truncated"])
-        reason = row["truncation_reason"]
-        if reason:
-            truncation_reason = str(reason)
-    except (KeyError, IndexError):
-        pass
-    return {
-        "kind": kind,
-        "truncated": truncated,
-        "truncation_reason": truncation_reason,
-        "members": list(path_ids),
-    }
-
-
-def store_flows(store: GraphStore, flows: Sequence[Mapping[str, object]]) -> int:
-    """Clear existing flows and persist new ones.
-
-    Returns the number of flows stored.
-    """
-    rust_store = getattr(store, "store_flows_json", None)
-    typed_flows = [cast(FlowRecord, flow) for flow in flows]
-    if callable(rust_store):
-        return cast(Callable[[str], int], rust_store)(json.dumps(typed_flows))
-
-    # NOTE: store_flows uses _conn directly because it performs
-    # multi-statement batch writes (DELETE + INSERT loop) that are
-    # tightly coupled to the DB transaction lifecycle.
-    conn = store._conn
-
-    # Wrap the full DELETE + INSERT sequence in an explicit transaction
-    # so partial writes cannot occur if an exception interrupts the loop.
-    with store_write_transaction(store):
-        conn.execute("DELETE FROM flow_memberships")
-        conn.execute("DELETE FROM flows")
-
-        # Batch-insert all flows in one executemany call
-        conn.executemany(
-            _FLOW_INSERT_SQL,
-            [_flow_insert_params(f) for f in typed_flows],
-        )
-        count = len(typed_flows)
-
-        # Fetch newly-inserted IDs keyed by entry_point_id (unique per flow)
-        ep_to_flow_id: dict[int, int] = {}
-        for row in conn.execute("SELECT id, entry_point_id FROM flows").fetchall():
-            ep_to_flow_id[row["entry_point_id"]] = row["id"]
-
-        # Build all membership rows and insert in one executemany
-        all_memberships: list[tuple[int, int, int]] = [
-            (ep_to_flow_id[f["entry_point_id"]], node_id, position)
-            for f in typed_flows
-            if f["entry_point_id"] in ep_to_flow_id
-            for position, node_id in enumerate(f.get("path", []))
-        ]
-        if all_memberships:
-            conn.executemany(
-                "INSERT OR IGNORE INTO flow_memberships (flow_id, node_id, position) "
-                "VALUES (?, ?, ?)",
-                all_memberships,
-            )
-
-    return count
-
-
-def _qualified_name_file(qualified_name: str) -> str:
-    if "::" in qualified_name:
-        return qualified_name.rsplit("::", 1)[0]
-    return qualified_name
-
-
-def _entry_reaches_changed_files(
-    adj: FlowAdjacency,
-    entry_qn: str,
-    changed_files: set[str],
-    changed_qnames: set[str],
-    max_depth: int = 15,
-) -> bool:
-    """Return True when a forward trace from *entry_qn* can reach *changed_files*."""
-    if entry_qn in changed_qnames or _qualified_name_file(entry_qn) in changed_files:
-        return True
-
-    visited: set[str] = set()
-    queue: deque[tuple[str, int]] = deque([(entry_qn, 0)])
-    calls_out = adj.calls_out
-    while queue:
-        qn, depth = queue.popleft()
-        if qn in visited:
+def _hydrate_flow_rows(store: GraphStore, rows: list[Any]) -> list[Any]:
+    """Annotate stored flow rows with live steps and bridge markers."""
+    payloads: list[Any] = []
+    for row in rows:
+        if isinstance(row, dict):
+            payload = dict(row)
+        elif hasattr(row, "keys"):
+            payload = {key: row[key] for key in row.keys()}
+        else:
+            payloads.append(row)
             continue
-        visited.add(qn)
-        if qn in changed_qnames or _qualified_name_file(qn) in changed_files:
-            return True
-        if depth >= max_depth:
-            continue
-        for target in calls_out.get(qn, ()):
-            queue.append((target, depth + 1))
-    return False
-
-
-def _resolve_flow_entry_qn(
-    store: GraphStore,
-    flow_id: int,
-    entry_point_id: int,
-    path_ids: list[int],
-) -> str | None:
-    """Best-effort entry qualified name when ``entry_point_id`` may be stale."""
-    nodes = store.get_nodes_by_ids([entry_point_id])
-    if entry_point_id in nodes:
-        return nodes[entry_point_id].qualified_name
-
-    row = store._conn.execute(
-        "SELECT n.qualified_name FROM flow_memberships fm "
-        "JOIN nodes n ON n.id = fm.node_id "
-        "WHERE fm.flow_id = ? ORDER BY fm.position LIMIT 1",
-        (flow_id,),
-    ).fetchone()
-    if row is not None:
-        return row["qualified_name"]
-
-    for node_id in path_ids:
-        node = store.get_nodes_by_ids([node_id]).get(node_id)
-        if node is not None:
-            return node.qualified_name
-    return None
-
-
-def _normalize_changed_file_keys(store: GraphStore, changed_files: list[str]) -> list[str]:
-    keys: set[str] = set()
-    for file_path in changed_files:
-        keys.add(file_path)
-        normalized = store._normalize_file_path_key(file_path)
-        if normalized != file_path:
-            keys.add(normalized)
-    return list(keys)
-
-
-def _get_affected_flow_ids(store: GraphStore, changed_files: list[str]) -> list[int]:
-    """Locate flows that touch *changed_files* even after node ids were replaced."""
-    if not changed_files:
-        return []
-
-    lookup_files = _normalize_changed_file_keys(store, changed_files)
-    changed_file_set = set(lookup_files)
-    conn = store._conn
-    affected: set[int] = set()
-    placeholders = ",".join("?" * len(lookup_files))
-
-    for row in conn.execute(  # nosec B608
-        f"SELECT DISTINCT fm.flow_id FROM flow_memberships fm "
-        f"JOIN nodes n ON n.id = fm.node_id "
-        f"WHERE n.file_path IN ({placeholders})",
-        lookup_files,
-    ):
-        affected.add(int(row[0]))
-
-    for row in conn.execute(  # nosec B608
-        f"SELECT f.id FROM flows f "
-        f"JOIN nodes n ON n.id = f.entry_point_id "
-        f"WHERE n.file_path IN ({placeholders})",
-        lookup_files,
-    ):
-        affected.add(int(row[0]))
-
-    for row in conn.execute(  # nosec B608
-        f"SELECT DISTINCT f.id FROM flows f, json_each(f.path_json) AS je "
-        f"JOIN nodes n ON n.id = CAST(je.value AS INTEGER) "
-        f"WHERE n.file_path IN ({placeholders})",
-        lookup_files,
-    ):
-        affected.add(int(row[0]))
-
-    for row in conn.execute(
-        "SELECT f.id, f.name FROM flows f "
-        "LEFT JOIN nodes n ON n.id = f.entry_point_id "
-        "WHERE n.id IS NULL"
-    ):
-        flow_id = int(row[0])
-        flow_name = row[1]
-        match = conn.execute(  # nosec B608
-            f"SELECT 1 FROM nodes WHERE file_path IN ({placeholders}) AND name = ? LIMIT 1",
-            (*lookup_files, flow_name),
-        ).fetchone()
-        if match is not None:
-            affected.add(flow_id)
-
-    changed_qnames = {
-        row["qualified_name"]
-        for row in conn.execute(  # nosec B608
-            f"SELECT qualified_name FROM nodes WHERE file_path IN ({placeholders})",
-            lookup_files,
-        )
-    }
-
-    stale_rows = conn.execute(
-        "SELECT DISTINCT f.id, f.entry_point_id, f.path_json "
-        "FROM flows f "
-        "WHERE EXISTS ("
-        "  SELECT 1 FROM json_each(f.path_json) AS je "
-        "  LEFT JOIN nodes n ON n.id = CAST(je.value AS INTEGER) "
-        "  WHERE n.id IS NULL"
-        ")"
-    ).fetchall()
-
-    adj: FlowAdjacency | None = None
-    for row in stale_rows:
-        flow_id = int(row["id"])
-        if flow_id in affected:
-            continue
-        path_ids = json.loads(row["path_json"])
-        entry_qn = _resolve_flow_entry_qn(store, flow_id, int(row["entry_point_id"]), path_ids)
-        if entry_qn is None:
-            affected.add(flow_id)
-            continue
-        if adj is None:
-            adj = store.load_flow_adjacency()
-        if _entry_reaches_changed_files(adj, entry_qn, changed_file_set, changed_qnames):
-            affected.add(flow_id)
-
-    return sorted(affected)
-
-
-def _delete_flows_by_ids(store: GraphStore, flow_ids: list[int]) -> set[int]:
-    """Delete flows (and snapshots/memberships) and return their entry-point ids."""
-    if not flow_ids:
-        return set()
-
-    conn = store._conn
-    entry_point_ids: set[int] = set()
-    ep_placeholders = ",".join("?" * len(flow_ids))
-    for row in conn.execute(  # nosec B608
-        f"SELECT entry_point_id FROM flows WHERE id IN ({ep_placeholders})",
-        flow_ids,
-    ):
-        entry_point_ids.add(int(row[0]))
-
-    with store_write_transaction(store):
-        _batch_size = 450
-        for i in range(0, len(flow_ids), _batch_size):
-            chunk = flow_ids[i : i + _batch_size]
-            placeholders = ",".join("?" * len(chunk))
-            conn.execute(  # nosec B608
-                f"DELETE FROM flow_snapshots WHERE flow_id IN ({placeholders})",
-                chunk,
-            )
-            conn.execute(  # nosec B608
-                f"DELETE FROM flow_memberships WHERE flow_id IN ({placeholders})",
-                chunk,
-            )
-            conn.execute(  # nosec B608
-                f"DELETE FROM flows WHERE id IN ({placeholders})",
-                chunk,
-            )
-    return entry_point_ids
-
-
-def _delete_flows_for_entry_qualified_names(
-    store: GraphStore,
-    entry_qualified_names: set[str],
-) -> None:
-    """Remove stale flows that share an entry-point qualified name."""
-    if not entry_qualified_names:
-        return
-
-    conn = store._conn
-    flow_ids: set[int] = set()
-    for qn in entry_qualified_names:
-        for row in conn.execute(
-            "SELECT f.id FROM flows f "
-            "JOIN nodes n ON n.id = f.entry_point_id "
-            "WHERE n.qualified_name = ?",
-            (qn,),
-        ):
-            flow_ids.add(int(row[0]))
-    if flow_ids:
-        _delete_flows_by_ids(store, sorted(flow_ids))
-
-
-def _existing_flow_entries(store: GraphStore) -> dict[str, tuple[int, int]]:
-    """Map entry qualified name to ``(flow_id, entry_point_id)``."""
-    conn = getattr(store, "_conn", None)
-    if conn is None:
-        return {}
-    rows = conn.execute(
-        "SELECT f.id, f.entry_point_id, n.qualified_name "
-        "FROM flows f JOIN nodes n ON n.id = f.entry_point_id"
-    ).fetchall()
-    return {
-        str(row["qualified_name"]): (int(row["id"]), int(row["entry_point_id"])) for row in rows
-    }
-
-
-def _reverse_call_entry_qns(
-    adj: FlowAdjacency,
-    changed_qns: set[str],
-    existing_entry_qns: set[str],
-) -> set[str]:
-    """Walk reverse CALLS from changed nodes to stored flow entry points."""
-    calls_in: dict[str, list[str]] = {}
-    for source, targets in adj.calls_out.items():
-        for target in targets:
-            calls_in.setdefault(target, []).append(source)
-    visited = set(changed_qns)
-    queue = deque(changed_qns)
-    affected: set[str] = set()
-    while queue:
-        qn = queue.popleft()
-        if qn in existing_entry_qns:
-            affected.add(qn)
-        for caller in calls_in.get(qn, ()):
-            if caller not in visited:
-                visited.add(caller)
-                queue.append(caller)
-    return affected
-
-
-def _changed_node_qns(store: GraphStore, changed_files: list[str]) -> set[str]:
-    conn = getattr(store, "_conn", None)
-    if conn is None:
-        nodes: set[str] = set()
-        for file_path in changed_files:
-            for node in store.get_nodes_by_file(file_path):
-                nodes.add(node.qualified_name)
-        return nodes
-    lookup_files = _normalize_changed_file_keys(store, changed_files)
-    if not lookup_files:
-        return set()
-    placeholders = ",".join("?" * len(lookup_files))
-    return {
-        str(row["qualified_name"])
-        for row in conn.execute(  # nosec B608
-            f"SELECT qualified_name FROM nodes WHERE file_path IN ({placeholders})",
-            lookup_files,
-        )
-    }
-
-
-def _entry_points_in_files(
-    store: GraphStore,
-    adj: FlowAdjacency,
-    changed_files: list[str],
-) -> list[GraphNode]:
-    lookup_files = set(_normalize_changed_file_keys(store, changed_files))
-    called = {target for targets in adj.calls_out.values() for target in targets}
-    candidates = [
-        node
-        for node in adj.nodes_by_qn.values()
-        if node.file_path in lookup_files and node.kind in {"Function", "Test"}
-    ]
-    return _select_entry_points(candidates, called, include_tests=False)
-
-
-def _flow_ids_for_tested_by_files(store: GraphStore, changed_files: list[str]) -> set[int]:
-    conn = getattr(store, "_conn", None)
-    if conn is None:
-        return set()
-    lookup_files = _normalize_changed_file_keys(store, changed_files)
-    if not lookup_files:
-        return set()
-    placeholders = ",".join("?" * len(lookup_files))
-    return {
-        int(row[0])
-        for row in conn.execute(  # nosec B608
-            "SELECT DISTINCT fm.flow_id "
-            "FROM edges e "
-            "JOIN nodes n ON n.qualified_name = e.source_qualified "
-            "JOIN flow_memberships fm ON fm.node_id = n.id "
-            f"WHERE e.kind = 'TESTED_BY' AND e.file_path IN ({placeholders})",
-            lookup_files,
-        )
-    }
+        if "path" not in payload and payload.get("path_json") is not None:
+            raw_path = payload["path_json"]
+            payload["path"] = json.loads(raw_path) if isinstance(raw_path, str) else raw_path
+        if not payload.get("steps"):
+            path_ids = [
+                node_id for node_id in (payload.get("path") or []) if isinstance(node_id, int)
+            ]
+            try:
+                nodes_by_id = store.get_nodes_by_ids(path_ids) if path_ids else {}
+            except Exception:  # noqa: BLE001 — annotation must never break a listing
+                nodes_by_id = {}
+            payload["steps"] = [
+                {
+                    "id": node.id,
+                    "node_id": node.id,
+                    "qualified_name": node.qualified_name,
+                    "name": node.name,
+                    "file": node.file_path,
+                    "file_path": node.file_path,
+                    "kind": node.kind,
+                    "line_start": node.line_start,
+                    "line_end": node.line_end,
+                }
+                for node_id in path_ids
+                if (node := nodes_by_id.get(node_id)) is not None
+            ]
+        payloads.append(payload)
+    return [_annotate_flow_dict_bridges(store, row) for row in payloads]
 
 
 def incremental_trace_flows(
@@ -849,186 +152,99 @@ def incremental_trace_flows(
     changed_files: list[str],
     max_depth: int = 15,
 ) -> int:
-    """Re-trace flows whose reachable sets are affected by *changed_files*.
-
-    Affected entry points are the union of:
-
-    - reverse ``CALLS`` from changed nodes to stored flow entries
-    - new entry points discovered only in the changed files
-    - file-membership / stale-path fallbacks from :func:`_get_affected_flow_ids`
-
-    Full-graph :func:`detect_entry_points` is not used. Criticality is refreshed
-    only for retraced flows and flows whose members gained ``TESTED_BY`` edges.
-    """
+    """Re-trace flows whose reachable sets are affected by *changed_files*."""
     if not changed_files:
         return 0
-
-    native = getattr(store, "incremental_trace_flows_json", None)
-    if callable(native):
-        try:
-            payload = json.loads(
-                cast(Callable[[list[str], int], str], native)(changed_files, max_depth)
-            )
-            return int(payload.get("count") or 0)
-        except Exception:  # noqa: BLE001
-            logger.debug("Native incremental flow trace failed; falling back", exc_info=True)
-
-    adj = store.load_flow_adjacency()
-    existing = _existing_flow_entries(store)
-    changed_qns = _changed_node_qns(store, changed_files)
-    relevant_qns = _reverse_call_entry_qns(adj, changed_qns, set(existing))
-    relevant_qns.update(
-        ep.qualified_name for ep in _entry_points_in_files(store, adj, changed_files)
-    )
-
-    affected_ids = set(_get_affected_flow_ids(store, changed_files))
-    for qn, (flow_id, _entry_id) in existing.items():
-        if qn in relevant_qns:
-            affected_ids.add(flow_id)
-
-    _delete_flows_by_ids(store, sorted(affected_ids))
-
-    relevant_eps = [
-        node
-        for qn in relevant_qns
-        if (node := adj.nodes_by_qn.get(qn)) is not None
-        and node.kind in {"Function", "Test"}
-        and not node.is_test
-        and not _is_test_file(node.file_path)
-    ]
-
-    new_flows: list[FlowRecord] = []
-    for ep in relevant_eps:
-        flow = _trace_single_flow(adj, ep, max_depth)
-        if flow is not None:
-            new_flows.append(flow)
-
-    count = len(new_flows)
-    if new_flows:
-        rust_insert = getattr(store, "insert_flows_json", None)
-        if callable(rust_insert):
-            count = cast(Callable[[str], int], rust_insert)(json.dumps(new_flows))
-        else:
-            _delete_flows_for_entry_qualified_names(
-                store,
-                {flow["entry_point"] for flow in new_flows if flow.get("entry_point")},
-            )
-            conn = store._conn
-            conn.executemany(
-                _FLOW_INSERT_SQL,
-                [_flow_insert_params(f) for f in new_flows],
-            )
-            known_ep_ids = {f["entry_point_id"] for f in new_flows}
-            ep_ph = ",".join("?" * len(known_ep_ids))
-            ep_rows = conn.execute(  # nosec B608
-                f"SELECT id, entry_point_id FROM flows WHERE entry_point_id IN ({ep_ph})",
-                list(known_ep_ids),
-            ).fetchall()
-            ep_to_flow_id = {r["entry_point_id"]: r["id"] for r in ep_rows}
-            memberships: list[tuple[int, int, int]] = [
-                (ep_to_flow_id[f["entry_point_id"]], node_id, position)
-                for f in new_flows
-                if f["entry_point_id"] in ep_to_flow_id
-                for position, node_id in enumerate(f.get("path", []))
-            ]
-            if memberships:
-                conn.executemany(
-                    "INSERT OR IGNORE INTO flow_memberships (flow_id, node_id, position) "
-                    "VALUES (?, ?, ?)",
-                    memberships,
-                )
-            conn.commit()
-
-    refresh_ids = _flow_ids_for_tested_by_files(store, changed_files)
-    for qn, (flow_id, _entry_id) in _existing_flow_entries(store).items():
-        if qn in relevant_qns:
-            refresh_ids.add(flow_id)
-    refresh_flow_criticality(store, refresh_ids)
-    return count
+    native = _require_native(store, "incremental_trace_flows_json")
+    payload = json.loads(cast(Callable[[list[str], int], str], native)(changed_files, max_depth))
+    return int(payload.get("count") or 0)
 
 
-# ---------------------------------------------------------------------------
-# Query helpers
-# ---------------------------------------------------------------------------
+def store_flows(store: GraphStore, flows: Sequence[Mapping[str, object]]) -> int:
+    """Persist traced flow dicts through the native store."""
+    native = _require_native(store, "store_flows_json")
+    return int(cast(Callable[[str], int], native)(json.dumps(list(flows))))
 
 
 def get_flows(
     store: GraphStore,
     sort_by: str = "criticality",
     limit: int = 50,
-) -> list[FlowRecord]:
-    """Retrieve stored flows from the database.
-
-    Args:
-        store: The graph store.
-        sort_by: Column to sort by (``criticality``, ``depth``, ``node_count``).
-        limit: Maximum number of flows to return.
-    """
+) -> list[Any]:
+    """Retrieve stored flows from the database."""
     allowed_sort = {"criticality", "depth", "node_count", "file_count", "name"}
     if sort_by not in allowed_sort:
         sort_by = "criticality"
-
-    rust_get = getattr(store, "get_flows_json", None)
-    if callable(rust_get):
-        rows_json = cast(Callable[[str, int], str], rust_get)(sort_by, limit)
-        return _annotate_flow_rows_liveness(store, json.loads(rows_json))
-
-    order = "DESC" if sort_by in ("criticality", "depth", "node_count", "file_count") else "ASC"
-
-    # NOTE: get_flows reads from the flows table which is managed by
-    # the flows module; _conn access is documented coupling.
-    rows = store._conn.execute(
-        f"SELECT * FROM flows ORDER BY {sort_by} {order} LIMIT ?",  # nosec B608
-        (limit,),
-    ).fetchall()
-
-    results: list[FlowRecord] = []
-    for row in rows:
-        results.append(
-            {
-                "id": row["id"],
-                "name": _sanitize_name(row["name"]),
-                "entry_point_id": row["entry_point_id"],
-                "depth": row["depth"],
-                "node_count": row["node_count"],
-                "file_count": row["file_count"],
-                "criticality": row["criticality"],
-                "path": json.loads(row["path_json"]),
-                "created_at": row["created_at"],
-                "updated_at": row["updated_at"],
-            }
-        )
-        results[-1].update(_flow_disclosure_fields(row, results[-1]["path"]))
-    return _annotate_flow_rows_liveness(store, results)
+    rust_get = _require_native(store, "get_flows_json")
+    rows_json = cast(Callable[[str, int], str], rust_get)(sort_by, limit)
+    return _annotate_flow_rows_liveness(store, json.loads(rows_json))
 
 
-def _annotate_flow_rows_liveness(store: GraphStore, flows: list[FlowRecord]) -> list[FlowRecord]:
-    """Add resolved/missing node counts to listed flows.
+def get_flow_by_id(store: GraphStore, flow_id: int) -> Optional[Any]:
+    """Retrieve a single flow with reachable-set membership details."""
+    rust_get = _require_native(store, "get_flow_by_id_json")
+    raw = cast(Callable[[int], str | None], rust_get)(flow_id)
+    if not raw:
+        return None
+    payload = json.loads(raw)
+    # Re-resolve steps from live nodes so SQL-deleted members become missing.
+    payload.pop("steps", None)
+    hydrated = _hydrate_flow_rows(store, [payload])
+    return hydrated[0] if hydrated else None
 
-    ``node_count``/``file_count`` are the values recorded when the flow was
-    traced. A flow whose nodes have since been deleted kept reporting them, so
-    the list API used by the wiki, the visualization payload and flow listings
-    presented stale counts as current -- ``_hydrate_flow_rows`` annotates this,
-    but nothing on this path did.
-    """
+
+def get_affected_flows(
+    store: GraphStore,
+    changed_files: list[str],
+) -> AffectedFlowsResult:
+    """Find flows that include nodes from the given changed files."""
+    if not changed_files:
+        return {"affected_flows": [], "total": 0}
+    rust_get = _require_native(store, "get_affected_flows_json")
+    affected_json = cast(Callable[[list[str]], str], rust_get)(changed_files)
+    affected = cast(
+        list[ChangeFlowRecord],
+        [_annotate_flow_dict_bridges(store, flow) for flow in json.loads(affected_json)],
+    )
+    return {"affected_flows": affected, "total": len(affected)}
+
+
+def _annotate_flow_rows_liveness(store: GraphStore, flows: list[Any]) -> list[Any]:
+    """Add entry_point names and resolved/missing node counts to listed flows."""
     all_ids = {
         node_id
         for flow in flows
-        for node_id in (flow.get("path") or [])
+        for node_id in (*(flow.get("path") or []), flow.get("entry_point_id"))
         if isinstance(node_id, int)
     }
     if not all_ids:
         return flows
     try:
-        live_ids = set(store.get_nodes_by_ids(sorted(all_ids)).keys())
+        nodes_by_id = store.get_nodes_by_ids(sorted(all_ids))
     except Exception:  # noqa: BLE001 — annotation must never break a listing
         logger.debug("Could not resolve flow node liveness", exc_info=True)
         return flows
+    live_ids = set(nodes_by_id.keys())
     for flow in flows:
+        entry_id = flow.get("entry_point_id")
+        if "entry_point" not in flow and isinstance(entry_id, int):
+            node = nodes_by_id.get(entry_id)
+            if node is not None:
+                flow["entry_point"] = node.qualified_name
         path_ids = [node_id for node_id in (flow.get("path") or []) if isinstance(node_id, int)]
         resolved = sum(1 for node_id in path_ids if node_id in live_ids)
         flow["resolved_node_count"] = resolved
         flow["missing_node_count"] = len(path_ids) - resolved
+        if "files" not in flow:
+            files: list[str] = []
+            seen: set[str] = set()
+            for node_id in path_ids:
+                node = nodes_by_id.get(node_id)
+                if node is None or not node.file_path or node.file_path in seen:
+                    continue
+                seen.add(node.file_path)
+                files.append(node.file_path)
+            flow["files"] = files
     return flows
 
 
@@ -1064,7 +280,7 @@ def _collect_cross_artifact_edges_among(
         return []
 
 
-def _annotate_flow_step_resolution(flow: FlowRecord) -> FlowRecord:
+def _annotate_flow_step_resolution(flow: Any) -> Any:
     """Add resolved/missing step counts for stored flow paths."""
     path_ids = flow.get("path") or []
     steps = flow.get("steps") or []
@@ -1074,14 +290,14 @@ def _annotate_flow_step_resolution(flow: FlowRecord) -> FlowRecord:
     else:
         stored_node_count = int(flow.get("node_count") or resolved_step_count)
         missing_step_count = max(0, stored_node_count - resolved_step_count)
-    annotated = cast(FlowRecord, dict(flow))
+    annotated = dict(flow)
     annotated["resolved_step_count"] = resolved_step_count
     annotated["missing_step_count"] = missing_step_count
     return annotated
 
 
-def _annotate_flow_dict_bridges(store: GraphStore, flow: FlowRecord) -> FlowRecord:
-    """Mark bridge arrivals on a flow dict (shared by Rust and Python paths)."""
+def _annotate_flow_dict_bridges(store: GraphStore, flow: Any) -> Any:
+    """Mark bridge arrivals on a flow dict returned by the native store."""
     from .cross_artifact import annotate_flow_steps_with_bridges
 
     steps = list(flow.get("steps") or [])
@@ -1091,7 +307,7 @@ def _annotate_flow_dict_bridges(store: GraphStore, flow: FlowRecord) -> FlowReco
         if isinstance(step.get("qualified_name"), str)
     }
     bridge_edges = _collect_cross_artifact_edges_among(store, path_qns)
-    annotated = cast(FlowRecord, dict(flow))
+    annotated = dict(flow)
     annotated["steps"] = annotate_flow_steps_with_bridges(steps, bridge_edges)
     annotated["bridge_step_count"] = sum(
         1 for step in annotated["steps"] if step.get("is_bridge_step")
@@ -1099,165 +315,18 @@ def _annotate_flow_dict_bridges(store: GraphStore, flow: FlowRecord) -> FlowReco
     return _annotate_flow_step_resolution(annotated)
 
 
-def get_flow_by_id(store: GraphStore, flow_id: int) -> Optional[FlowRecord]:
-    """Retrieve a single flow with reachable-set membership details.
-
-    Returns a dict with the flow metadata plus a ``steps`` list containing
-    each member node's name, kind, file, and line info in BFS visit order.
-    That list is not a call sequence. Bridge arrivals among members are
-    marked with ``step_kind="bridge"``.
-    """
-    rust_get = getattr(store, "get_flow_by_id_json", None)
-    if callable(rust_get):
-        raw = cast(Callable[[int], str | None], rust_get)(flow_id)
-        if not raw:
-            return None
-        return _annotate_flow_dict_bridges(store, json.loads(raw))
-
-    # NOTE: get_flow_by_id reads from the flows table; see store_flows note.
-    row = store._conn.execute("SELECT * FROM flows WHERE id = ?", (flow_id,)).fetchone()
-    if row is None:
-        return None
-    return _hydrate_flow_rows(store, [row])[0]
-
-
-def _hydrate_flow_rows(
-    store: GraphStore,
-    rows: list[sqlite3.Row],
-) -> list[FlowRecord]:
-    """Build full flow dicts (with ``steps``) for a list of flow rows.
-
-    Issues two batched queries total instead of one per flow + one per
-    step: a single ``WHERE id IN (...)`` over all node ids referenced by
-    any flow's path, then a per-flow Python join.
-
-    Bridge steps are marked distinctly when a reportable ``CROSS_ARTIFACT``
-    edge connects two nodes in the same flow path.
-    """
-    from .cross_artifact import annotate_flow_steps_with_bridges
-
-    if not rows:
-        return []
-
-    paths_by_flow: dict[int, list[int]] = {}
-    all_node_ids: list[int] = []
-    for row in rows:
-        path_ids: list[int] = json.loads(row["path_json"])
-        paths_by_flow[row["id"]] = path_ids
-        all_node_ids.extend(path_ids)
-
-    nodes_by_id = store.get_nodes_by_ids(all_node_ids)
-
-    out: list[FlowRecord] = []
-    for row in rows:
-        path_ids = paths_by_flow[row["id"]]
-        steps: list[FlowStepRecord] = []
-        path_qns: list[str] = []
-        missing_step_count = 0
-        for nid in path_ids:
-            node = nodes_by_id.get(nid)
-            if node is None:
-                missing_step_count += 1
-                continue
-            path_qns.append(node.qualified_name)
-            steps.append(
-                {
-                    "node_id": node.id,
-                    "name": _sanitize_name(node.name),
-                    "kind": node.kind,
-                    "file": node.file_path,
-                    "line_start": node.line_start,
-                    "line_end": node.line_end,
-                    "qualified_name": _sanitize_name(node.qualified_name),
-                }
-            )
-        resolved_step_count = len(steps)
-
-        bridge_edges: list[GraphEdge] = []
-        if path_qns:
-            try:
-                bridge_edges = [
-                    edge
-                    for edge in store.get_edges_among(set(path_qns))
-                    if getattr(edge, "kind", None) == "CROSS_ARTIFACT"
-                ]
-            except Exception:  # pragma: no cover - backend parity drift
-                bridge_edges = []
-        steps = annotate_flow_steps_with_bridges(steps, bridge_edges)
-        bridge_step_count = sum(1 for step in steps if step.get("is_bridge_step"))
-
-        payload: FlowRecord = {
-            "id": row["id"],
-            "name": _sanitize_name(row["name"]),
-            "entry_point_id": row["entry_point_id"],
-            "depth": row["depth"],
-            "node_count": row["node_count"],
-            "file_count": row["file_count"],
-            "criticality": row["criticality"],
-            "path": path_ids,
-            "steps": steps,
-            "resolved_step_count": resolved_step_count,
-            "missing_step_count": missing_step_count,
-            "bridge_step_count": bridge_step_count,
-            "created_at": row["created_at"],
-            "updated_at": row["updated_at"],
-        }
-        payload.update(_flow_disclosure_fields(row, path_ids))
-        out.append(payload)
-    return out
-
-
-def get_affected_flows(
-    store: GraphStore,
-    changed_files: list[str],
-) -> AffectedFlowsResult:
-    """Find flows that include nodes from the given changed files.
-
-    Returns::
-
-        {
-            "affected_flows": [<flow dicts>],
-            "total": <int>,
-        }
-    """
-    if not changed_files:
-        return {"affected_flows": [], "total": 0}
-
-    rust_get = getattr(store, "get_affected_flows_json", None)
-    if callable(rust_get):
-        affected_json = cast(Callable[[list[str]], str], rust_get)(changed_files)
-        affected = cast(
-            list[ChangeFlowRecord],
-            [_annotate_flow_dict_bridges(store, flow) for flow in json.loads(affected_json)],
-        )
-        return {"affected_flows": affected, "total": len(affected)}
-
-    # Find flow IDs that touch changed files (including stale path_json).
-    flow_ids = _get_affected_flow_ids(store, changed_files)
-
-    if not flow_ids:
-        return {"affected_flows": [], "total": 0}
-
-    # Batch-fetch all matching flow rows in one query (chunked to stay
-    # within SQLite's IN(...) variable limit).
-    rows: list[sqlite3.Row] = []
-    batch_size = 450
-    for i in range(0, len(flow_ids), batch_size):
-        batch = flow_ids[i : i + batch_size]
-        placeholders = ",".join("?" for _ in batch)
-        rows.extend(
-            store._conn.execute(  # nosec B608
-                f"SELECT * FROM flows WHERE id IN ({placeholders})",
-                batch,
-            ).fetchall()
-        )
-
-    affected = cast(list[ChangeFlowRecord], _hydrate_flow_rows(store, rows))
-
-    # Sort by criticality descending.
-    affected.sort(key=lambda f: f.get("criticality", 0), reverse=True)
-
-    return {
-        "affected_flows": affected,
-        "total": len(affected),
-    }
+__all__ = [
+    "DEFAULT_FLOW_MAX_DEPTH",
+    "DEFAULT_FLOW_MAX_NODES",
+    "FLOW_KIND_REACHABLE_SET",
+    "FlowRecord",
+    "FlowStepRecord",
+    "detect_entry_points",
+    "get_affected_flows",
+    "get_flow_by_id",
+    "get_flows",
+    "incremental_trace_flows",
+    "rebuild_stored_flows",
+    "store_flows",
+    "trace_flows",
+]

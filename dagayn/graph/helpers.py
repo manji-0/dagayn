@@ -2,53 +2,9 @@
 
 from __future__ import annotations
 
-import logging
-import threading
-from collections.abc import Generator
-from contextlib import contextmanager
-from typing import Any
+from dagayn.state_types import ChangeEdgeRecord, ChangeNodeRecord
 
-from ..state_types import ChangeEdgeRecord, ChangeNodeRecord
 from .types import GraphEdge, GraphNode
-
-logger = logging.getLogger(__name__)
-
-_FALLBACK_WRITE_LOCK = threading.RLock()
-
-
-@contextmanager
-def store_write_transaction(store: Any) -> Generator[Any, None, None]:
-    """Run an explicit ``BEGIN IMMEDIATE`` region on *store*'s connection.
-
-    Holds the store's write lock for the whole region. Several call sites used
-    to open one of these after rolling back "whatever transaction is open",
-    which silently destroyed another thread's in-flight work -- and two
-    ``BEGIN IMMEDIATE`` on one connection is an error outright. The connection
-    is shared across threads (``check_same_thread=False``), so the region needs
-    real mutual exclusion, not a recovery heuristic.
-
-    Yields the connection. Commits on success, rolls back on any exception.
-    """
-    conn = store._conn
-    lock = getattr(store, "_write_lock", None) or _FALLBACK_WRITE_LOCK
-    with lock:
-        if conn.in_transaction:
-            # Already inside a transaction on this connection. Holding the lock
-            # means it is *ours* (the lock is reentrant per thread), so join it:
-            # nesting BEGIN IMMEDIATE is an error, and committing it early --
-            # what one caller used to do -- would publish a half-finished write.
-            yield conn
-            return
-        conn.execute("BEGIN IMMEDIATE")
-        try:
-            yield conn
-        except BaseException:
-            try:
-                conn.rollback()
-            except Exception:  # noqa: BLE001 - nothing useful to do here
-                logger.debug("Rollback failed", exc_info=True)
-            raise
-        conn.commit()
 
 
 def _sanitize_name(s: str, max_len: int = 256) -> str:

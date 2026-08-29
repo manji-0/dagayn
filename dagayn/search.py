@@ -16,11 +16,14 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Optional, TypedDict, cast
 
-from .graph import GraphStore, _sanitize_name, store_write_transaction
-from .graph._fts_sync import rebuild_fts_index_tx
+from dagayn.graph import GraphStore, _sanitize_name
+from dagayn.graph._fts_tokenize import (  # noqa: F401 — re-export for ``dagayn.search``
+    contains_japanese,
+    segment_japanese_fts_text,
+)
 
 if TYPE_CHECKING:
-    from .embeddings import EmbeddingStore
+    from dagayn.embeddings import EmbeddingStore
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +76,7 @@ def _get_cached_emb_store(
 ) -> "EmbeddingStore | None":
     """Return a pinned EmbeddingStore, creating or replacing it when the DB mtime changes."""
     try:
-        from .embeddings import (
+        from dagayn.embeddings import (
             EmbeddingStore,
             embedding_provider_base_name,
             provider_from_persisted_name,
@@ -141,24 +144,9 @@ def rebuild_fts_index(store: GraphStore) -> int:
         Number of rows indexed.
     """
     rust_rebuild = getattr(store, "rebuild_fts_index", None)
-    if callable(rust_rebuild):
-        count = cast(Callable[[], int], rust_rebuild)()
-        logger.info("FTS index rebuilt: %d rows indexed", count)
-        return count
-
-    # NOTE: rebuild_fts_index uses store._conn directly because it manages
-    # the FTS5 virtual table DDL, which is tightly coupled to SQLite internals.
-    # Future Rust-backed stores should expose rebuild_fts_index() natively.
-    conn = store._conn
-
-    # Wrap the full DROP + CREATE + INSERT sequence in an explicit transaction
-    # so a crash mid-rebuild cannot leave the DB without an FTS table at all
-    # (DROP succeeded but CREATE/INSERT didn't).  See #259.
-    with store_write_transaction(store):
-        repo_root_value = getattr(store, "get_metadata", lambda _key: None)("repo_root")
-        repo_root = Path(repo_root_value) if repo_root_value else None
-        count = rebuild_fts_index_tx(conn, repo_root)
-
+    if not callable(rust_rebuild):
+        raise RuntimeError("GraphStore.rebuild_fts_index is required (Rust GraphStore).")
+    count = cast(Callable[[], int], rust_rebuild)()
     logger.info("FTS index rebuilt: %d rows indexed", count)
     return count
 
@@ -575,7 +563,7 @@ def _embedding_search(
 
 
 def _embedding_provider_counts(db_path: Path) -> dict[str, int]:
-    from .embeddings_store import get_embedding_provider_counts
+    from dagayn.embeddings_store import get_embedding_provider_counts
 
     return get_embedding_provider_counts(db_path)
 
@@ -586,7 +574,7 @@ def _resolve_auto_provider_name(
     text_mode: str | None = None,
     preferred_provider: str | None = None,
 ) -> str | None:
-    from .embeddings_store import resolve_active_embedding_provider
+    from dagayn.embeddings_store import resolve_active_embedding_provider
 
     return resolve_active_embedding_provider(
         provider_counts,
@@ -596,7 +584,7 @@ def _resolve_auto_provider_name(
 
 
 def _read_auto_provider_metadata(db_path: Path) -> str | None:
-    from .embeddings_store import read_active_embedding_provider_metadata
+    from dagayn.embeddings_store import read_active_embedding_provider_metadata
 
     return read_active_embedding_provider_metadata(db_path)
 
@@ -607,7 +595,7 @@ def _largest_populated_text_mode_partition(
     base_provider: str | None = None,
 ) -> tuple[str, int] | None:
     """Return the largest populated ``#text=`` partition, optionally scoped to one provider."""
-    from .embeddings import embedding_provider_base_name
+    from dagayn.embeddings import embedding_provider_base_name
 
     candidates: list[tuple[str, int]] = []
     for provider_key, count in provider_counts.items():
@@ -694,7 +682,7 @@ def _embedding_search_with_health(
         provider_dim = emb_store.provider.dimension
         total_count = emb_store.count_provider()
         matching_count = emb_store.count_provider(dimension=provider_dim)
-        from .embeddings_providers import _openai_provider_names_match
+        from dagayn.embeddings_providers import _openai_provider_names_match
 
         if (
             matching_count == 0
@@ -731,7 +719,7 @@ def _embedding_search_with_health(
         health["query_dimension"] = provider_dim
 
         if matching_count == 0 and text_mode:
-            from .embeddings import embedding_provider_text_mode
+            from dagayn.embeddings import embedding_provider_text_mode
 
             fallback = _largest_populated_text_mode_partition(
                 provider_counts,
@@ -778,7 +766,7 @@ def _embedding_search_with_health(
             health["status"] = "provider_mismatch" if provider_counts else "missing_vectors"
             return [], health
 
-        from .embeddings import embedding_provider_text_mode
+        from dagayn.embeddings import embedding_provider_text_mode
 
         if "resolved_text_mode" not in health:
             health["resolved_text_mode"] = embedding_provider_text_mode(provider_key) or text_mode

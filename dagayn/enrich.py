@@ -276,7 +276,7 @@ def enrich_search(pattern: str, repo_root: str) -> str:
     with graph_read_lock(db_path):
         store = GraphStore(db_path)
         try:
-            conn = store._conn
+            from .graph.sqlite_errors import borrowed_sqlite_connection
 
             fts_results = store.fts_query(pattern, limit=8)
             if not fts_results.hits:
@@ -294,7 +294,8 @@ def enrich_search(pattern: str, repo_root: str) -> str:
             if not selected:
                 return ""
 
-            context = _prepare_context_for_nodes(selected, store, conn)
+            with borrowed_sqlite_connection(store) as conn:
+                context = _prepare_context_for_nodes(selected, store, conn)
             all_lines: list[str] = []
             for node in selected:
                 node_lines = _format_node_context(node, context, repo_root)
@@ -323,7 +324,8 @@ def enrich_file_read(file_path: str, repo_root: str) -> str:
     with graph_read_lock(db_path):
         store = GraphStore(db_path)
         try:
-            conn = store._conn
+            from .graph.sqlite_errors import borrowed_sqlite_connection
+
             nodes = store.get_nodes_by_file(file_path)
             if not nodes:
                 # Try with resolved path
@@ -342,7 +344,8 @@ def enrich_file_read(file_path: str, repo_root: str) -> str:
                 return ""
 
             all_lines: list[str] = []
-            context = _prepare_context_for_nodes(interesting, store, conn)
+            with borrowed_sqlite_connection(store) as conn:
+                context = _prepare_context_for_nodes(interesting, store, conn)
             for node in interesting:
                 node_lines = _format_node_context(node, context, repo_root)
                 all_lines.extend(node_lines)

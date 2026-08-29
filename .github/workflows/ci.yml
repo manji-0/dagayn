@@ -61,13 +61,7 @@ jobs:
       - uses: actions/checkout@v6
       - name: Check Python/VSCode schema versions match
         run: |
-          PY_VER=$(grep -oP 'LATEST_VERSION\s*=\s*max\(MIGRATIONS\.keys\(\)\)' dagayn/migrations.py > /dev/null && python3 -c "
-          import re, ast
-          src = open('dagayn/migrations.py').read()
-          m = re.search(r'MIGRATIONS:\s*dict\[.*?\]\s*=\s*\{([^}]+)\}', src)
-          keys = [int(k.strip().rstrip(':')) for k in re.findall(r'(\d+):', m.group(1))]
-          print(max(keys))
-          ")
+          PY_VER=$(grep -oP 'LATEST_VERSION\s*=\s*\K\d+' dagayn/migrations.py)
           TS_VER=$(grep -oP 'SUPPORTED_SCHEMA_VERSION\s*=\s*\K\d+' dagayn-vscode/src/backend/sqlite.ts)
           echo "Python LATEST_VERSION: $PY_VER"
           echo "VSCode SUPPORTED_SCHEMA_VERSION: $TS_VER"

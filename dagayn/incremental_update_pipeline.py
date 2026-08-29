@@ -286,11 +286,8 @@ def apply_incremental_graph_mutations(state: IncrementalUpdateState) -> BuildRes
             elif hasattr(state.store, "update_file_mtime"):
                 for mtime_ns, file_path in state.mtime_only_updates:
                     state.store.update_file_mtime(file_path, mtime_ns)
-            elif hasattr(state.store, "_conn"):
-                state.store._conn.executemany(
-                    "UPDATE nodes SET mtime_ns=? WHERE file_path=?",
-                    state.mtime_only_updates,
-                )
+            else:
+                raise RuntimeError("GraphStore.update_file_mtimes is required (Rust GraphStore).")
         state.store.commit()
 
     if (

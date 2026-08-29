@@ -17,6 +17,7 @@ from dagayn.bare_name_resolution import (
 from dagayn.graph import GraphStore
 from dagayn.parser import EdgeInfo, NodeInfo
 from dagayn.tools.query import query_graph
+from tests.store_sql import store_conn
 
 
 def _node(kind: str, name: str, file_path: str, **extra) -> NodeInfo:
@@ -92,9 +93,11 @@ class TestResolveBareCallTargets:
         store.commit()
 
         assert resolve_bare_call_targets(store) == 0
-        row = store._conn.execute(
-            "SELECT target_qualified FROM edges WHERE kind='CALLS'"
-        ).fetchone()
+        row = (
+            store_conn(store)
+            .execute("SELECT target_qualified FROM edges WHERE kind='CALLS'")
+            .fetchone()
+        )
         assert row["target_qualified"] == "helper"
 
     def test_resolves_same_namespace_without_any_import(self, tmp_path):
@@ -112,13 +115,15 @@ class TestResolveBareCallTargets:
         store.upsert_edge(_edge("CALLS", "Broker.cs::Resolve", "CreateCriteria", "Broker.cs"))
         store.commit()
 
-        visibility = build_symbol_visibility(store._conn)
+        visibility = build_symbol_visibility(store_conn(store))
         assert visibility.declared["Broker.cs"] == {"Repro.Infra"}
 
         assert resolve_bare_call_targets(store) == 1
-        row = store._conn.execute(
-            "SELECT target_qualified FROM edges WHERE kind='CALLS'"
-        ).fetchone()
+        row = (
+            store_conn(store)
+            .execute("SELECT target_qualified FROM edges WHERE kind='CALLS'")
+            .fetchone()
+        )
         assert row["target_qualified"] == "Factory.cs::CreateCriteria"
 
     def test_resolves_imported_namespace(self, tmp_path):
@@ -133,9 +138,11 @@ class TestResolveBareCallTargets:
         store.commit()
 
         assert resolve_bare_call_targets(store) == 1
-        row = store._conn.execute(
-            "SELECT target_qualified FROM edges WHERE kind='CALLS'"
-        ).fetchone()
+        row = (
+            store_conn(store)
+            .execute("SELECT target_qualified FROM edges WHERE kind='CALLS'")
+            .fetchone()
+        )
         assert row["target_qualified"] == "Broker.php::phpBuild"
 
     def test_resolves_via_the_class_declaration_not_the_definition_file(self, tmp_path):
@@ -145,25 +152,30 @@ class TestResolveBareCallTargets:
         store.upsert_node(_node("File", "factory.hpp", "factory.hpp"))
         store.upsert_node(_node("Class", "Factory", "factory.hpp", type_role="class"))
         store.upsert_node(_node("File", "factory.cpp", "factory.cpp"))
-        store.upsert_node(_node("Function", "createAllowed", "factory.cpp"))
+        store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="createAllowed",
+                file_path="factory.cpp",
+                line_start=1,
+                line_end=10,
+                language="python",
+                parent_name="Factory",
+            )
+        )
         store.upsert_node(_node("File", "broker.cpp", "broker.cpp"))
         store.upsert_node(_node("Function", "use", "broker.cpp"))
         store.upsert_edge(_edge("IMPORTS_FROM", "factory.cpp", "factory.hpp", "factory.cpp"))
         store.upsert_edge(_edge("IMPORTS_FROM", "broker.cpp", "factory.hpp", "broker.cpp"))
         store.upsert_edge(_edge("CALLS", "broker.cpp::use", "createAllowed", "broker.cpp"))
         store.commit()
-        # The definition belongs to the class declared in the header.
-        store._conn.execute(
-            "UPDATE nodes SET parent_name = 'Factory', qualified_name = ? "
-            "WHERE name = 'createAllowed'",
-            ("factory.cpp::Factory.createAllowed",),
-        )
-        store._conn.commit()
 
         assert resolve_bare_call_targets(store) == 1
-        row = store._conn.execute(
-            "SELECT target_qualified FROM edges WHERE kind='CALLS'"
-        ).fetchone()
+        row = (
+            store_conn(store)
+            .execute("SELECT target_qualified FROM edges WHERE kind='CALLS'")
+            .fetchone()
+        )
         assert row["target_qualified"] == "factory.cpp::Factory.createAllowed"
 
     def test_resolves_when_import_context_is_unique(self, tmp_path):
@@ -177,9 +189,11 @@ class TestResolveBareCallTargets:
         store.commit()
 
         assert resolve_bare_call_targets(store) == 1
-        row = store._conn.execute(
-            "SELECT target_qualified, confidence_tier FROM edges WHERE kind='CALLS'"
-        ).fetchone()
+        row = (
+            store_conn(store)
+            .execute("SELECT target_qualified, confidence_tier FROM edges WHERE kind='CALLS'")
+            .fetchone()
+        )
         assert row["target_qualified"] == "a.py::helper"
         assert row["confidence_tier"] == "MEDIUM"
 
@@ -196,9 +210,11 @@ class TestResolveBareInheritanceTargets:
         store.commit()
 
         assert resolve_bare_inheritance_targets(store) == 1
-        row = store._conn.execute(
-            "SELECT target_qualified, confidence_tier FROM edges WHERE kind='INHERITS'"
-        ).fetchone()
+        row = (
+            store_conn(store)
+            .execute("SELECT target_qualified, confidence_tier FROM edges WHERE kind='INHERITS'")
+            .fetchone()
+        )
         assert row["target_qualified"] == "base.py::Base"
         assert row["confidence_tier"] == "MEDIUM"
 
@@ -213,9 +229,13 @@ class TestResolveBareInheritanceTargets:
         store.commit()
 
         assert resolve_bare_inheritance_targets(store) == 0
-        row = store._conn.execute(
-            "SELECT target_qualified, confidence_tier, extra FROM edges WHERE kind='INHERITS'"
-        ).fetchone()
+        row = (
+            store_conn(store)
+            .execute(
+                "SELECT target_qualified, confidence_tier, extra FROM edges WHERE kind='INHERITS'"
+            )
+            .fetchone()
+        )
         assert row["target_qualified"] == "Base"
         assert row["confidence_tier"] == "LOW"
 
@@ -232,12 +252,22 @@ class TestQueryGraphBareNameBinding:
     def _patch_store(self, monkeypatch):
         from dagayn.tools import query as query_module
 
+        class _NoClose:
+            def __init__(self, inner):
+                object.__setattr__(self, "_inner", inner)
+
+            def close(self) -> None:
+                return None
+
+            def __getattr__(self, name):
+                return getattr(self._inner, name)
+
+        self.store = _NoClose(self.store)
         monkeypatch.setattr(
             query_module,
             "_get_store",
             lambda repo_root: (self.store, self.root),
         )
-        self.store.close = lambda: None
 
     def test_fuzzy_resolution_reports_non_exact_match(self, monkeypatch):
         self.store.upsert_node(_node("File", "other.py", str(self.root / "other.py")))

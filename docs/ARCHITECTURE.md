@@ -57,13 +57,20 @@ a fact.
 
 ## GraphStore ownership boundary
 
-The Python `GraphStore` remains the compatibility and orchestration boundary for CLI, MCP tools, tests, and Python-only analysis helpers. It owns the stable SQLite schema, path normalization, transaction semantics, cache invalidation, and the public read/write methods that higher layers call.
+<!-- constrained-by ./RUST-CORE-MIGRATION-WIP.md#phase-4-python-compatibility-shell -->
 
-The Rust graph backend owns hot-path storage and analysis implementations as they become available through PyO3 bindings. Python code may call Rust methods when the bound method exists, but it should preserve the Python `GraphStore` API as the migration contract. New callers should depend on `GraphStore` methods rather than importing Rust bindings directly.
+The public Python modules (`dagayn.graph`, `dagayn.flows`, `dagayn.communities`,
+`dagayn.search`, `dagayn.postprocessing`) are thin facades over `dagayn._core`.
+They keep the stable import paths. The graph engine is Rust-only:
+`from dagayn.graph import GraphStore` is `dagayn._core.GraphStore`.
 
-During the migration, duplicated behavior is allowed only as an adapter layer: Python keeps the canonical user-facing API and fallback semantics, while Rust implementations are treated as accelerated implementations behind that API. When a Rust path becomes the only supported implementation, the matching Python docs and tests should be updated in the same change.
+`DAGAYN_BACKEND=python` is rejected. Hybrid search ranking and manifest-bridge
+extraction stay in Python; FTS rebuild, flows, communities, and post-process
+steps run in the native store.
 
-Current Rust-owned GraphStore responsibilities include batch file storage, Rust-owned parse/store paths, flow and community JSON persistence, Markdown artifact reference resolution, and persisted centrality score computation for `hub_scores` / `bridge_scores`. Python keeps fallback implementations for source checkouts or environments without `dagayn._core`.
+The Rust graph backend owns storage, parse/store, post-processing, and query
+primitives. New callers should depend on `GraphStore` methods rather than
+importing Rust bindings directly or reading a SQLite handle.
 
 ## Post-processing
 

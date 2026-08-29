@@ -11,6 +11,7 @@ from dagayn.enrich import (
 from dagayn.graph import GraphStore
 from dagayn.parser import EdgeInfo, NodeInfo
 from dagayn.search import rebuild_fts_index
+from tests.store_sql import store_conn
 
 
 class TestExtractPattern:
@@ -203,7 +204,7 @@ class TestEnrichFileRead:
         ]
         for e in edges:
             self.store.upsert_edge(e)
-        self.store._conn.commit()
+        store_conn(self.store).commit()
 
     def test_returns_file_symbols(self):
         result = enrich_file_read(self.file_path, self.tmpdir)

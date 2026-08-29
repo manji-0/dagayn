@@ -5,9 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any
-
-from .graph._sql import _edge_target_name
+from typing import Any, cast
 
 logger = logging.getLogger(__name__)
 
@@ -37,10 +35,6 @@ _FILE_TARGET_SUFFIXES = (
     ".dart",
     ".ipynb",
 )
-
-_INFERRED_CONFIDENCE = 0.6
-_INFERRED_TIER = "MEDIUM"
-_UNRESOLVED_TIER = "LOW"
 
 
 def looks_like_file_target(target: str) -> bool:
@@ -252,107 +246,23 @@ def _resolve_via_imports(
 
 def resolve_bare_call_targets(store: Any) -> int:
     """Resolve bare-name CALLS targets using import-aware disambiguation."""
-    conn = store._conn
-    bare_edges = conn.execute(
-        "SELECT id, source_qualified, target_qualified, file_path "
-        "FROM edges WHERE kind = 'CALLS' AND target_qualified NOT LIKE '%::%'"
-    ).fetchall()
-    if not bare_edges:
-        return 0
-
-    import_targets = build_import_targets(conn)
-    visibility = build_symbol_visibility(conn)
-    resolved = 0
-    for edge in bare_edges:
-        bare_name = edge["target_qualified"]
-        candidates = _bare_name_candidates(conn, bare_name)
-        if not candidates:
-            continue
-
-        src_file = node_file_from_qualified(edge["source_qualified"], edge["file_path"])
-        qualified = _resolve_via_imports(candidates, src_file, import_targets, visibility)
-        if qualified is None:
-            continue
-
-        conn.execute(
-            "UPDATE edges SET target_qualified = ?, target_name = ?, "
-            "confidence = ?, confidence_tier = ? WHERE id = ?",
-            (
-                qualified,
-                _edge_target_name(qualified),
-                _INFERRED_CONFIDENCE,
-                _INFERRED_TIER,
-                edge["id"],
-            ),
-        )
-        resolved += 1
-
+    native = getattr(store, "resolve_bare_call_targets", None)
+    if not callable(native):
+        raise RuntimeError("GraphStore.resolve_bare_call_targets is required (Rust GraphStore).")
+    resolved = int(cast(int, native()))
     if resolved:
-        conn.commit()
         logger.info("Resolved %d bare-name CALLS targets", resolved)
     return resolved
 
 
 def resolve_bare_inheritance_targets(store: Any) -> int:
     """Resolve bare-name INHERITS/IMPLEMENTS targets using import context."""
-    conn = store._conn
-    bare_edges = conn.execute(
-        "SELECT id, source_qualified, target_qualified, file_path, extra "
-        "FROM edges WHERE kind IN ('INHERITS', 'IMPLEMENTS') "
-        "AND target_qualified NOT LIKE '%::%'"
-    ).fetchall()
-    if not bare_edges:
-        return 0
-
-    import_targets = build_import_targets(conn)
-    visibility = build_symbol_visibility(conn)
-    resolved = 0
-    demoted = 0
-    for edge in bare_edges:
-        bare_name = edge["target_qualified"]
-        candidates = _bare_name_candidates(conn, bare_name, kinds=("Class",))
-        src_file = node_file_from_qualified(edge["source_qualified"], edge["file_path"])
-        qualified = _resolve_via_imports(candidates, src_file, import_targets, visibility)
-
-        if qualified is not None:
-            conn.execute(
-                "UPDATE edges SET target_qualified = ?, target_name = ?, "
-                "confidence = ?, confidence_tier = ? WHERE id = ?",
-                (
-                    qualified,
-                    _edge_target_name(qualified),
-                    _INFERRED_CONFIDENCE,
-                    _INFERRED_TIER,
-                    edge["id"],
-                ),
-            )
-            resolved += 1
-            continue
-
-        try:
-            extra = json.loads(edge["extra"] or "{}")
-        except (json.JSONDecodeError, TypeError):
-            extra = {}
-        if extra.get("bare_name_unresolved"):
-            continue
-
-        extra["bare_name_unresolved"] = True
-        conn.execute(
-            "UPDATE edges SET extra = ?, confidence = ?, confidence_tier = ? WHERE id = ?",
-            (
-                json.dumps(extra),
-                0.3,
-                _UNRESOLVED_TIER,
-                edge["id"],
-            ),
+    native = getattr(store, "resolve_bare_inheritance_targets", None)
+    if not callable(native):
+        raise RuntimeError(
+            "GraphStore.resolve_bare_inheritance_targets is required (Rust GraphStore)."
         )
-        demoted += 1
-
-    if resolved or demoted:
-        conn.commit()
-        logger.info(
-            "Resolved %d bare-name inheritance targets; demoted %d unresolved",
-            resolved,
-            demoted,
-        )
+    resolved = int(cast(int, native()))
+    if resolved:
+        logger.info("Resolved %d bare-name inheritance targets", resolved)
     return resolved

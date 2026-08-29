@@ -71,7 +71,7 @@ def _run_python(code: str, *, backend: str, cwd: Path) -> dict:
 
 def run_e2e(source: Path, postprocess: str, repeats: int) -> list[dict]:
     results: list[dict] = []
-    for backend in ("python", "rust"):
+    for backend in ("rust",):
         for iteration in range(1, repeats + 1):
             with tempfile.TemporaryDirectory(prefix="dagayn-backend-bench-") as tmp:
                 repo = Path(tmp) / "repo"
@@ -113,7 +113,7 @@ def run_writer(source: Path, repeats: int) -> list[dict]:
     with tempfile.TemporaryDirectory(prefix="dagayn-writer-bench-") as tmp:
         repo = Path(tmp) / "repo"
         _copy_repo(source, repo)
-        for backend in ("python", "rust"):
+        for backend in ("rust",):
             code = f"""
 import hashlib
 import json

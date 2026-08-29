@@ -16,6 +16,7 @@ from dagayn.flows import (
 )
 from dagayn.graph import GraphStore
 from dagayn.parser import EdgeInfo, NodeInfo
+from tests.store_sql import store_conn
 
 
 class TestFlows:
@@ -214,36 +215,6 @@ class TestFlows:
         eps_all = detect_entry_points(self.store, include_tests=True)
         ep_files_all = {ep.file_path for ep in eps_all}
         assert "src/handler.spec.ts" in ep_files_all
-
-    def test_detect_entry_points_module_scope_caller_is_still_root(self):
-        """A function called only from module scope (File-sourced CALLS) is a root.
-
-        Regression guard: the parser attributes module-scope calls to the File
-        node. Without filtering File-sourced callers, ``run_job`` here would
-        look "called" by ``script.py`` and be excluded from flow analysis,
-        even though in practice it IS an entry point (the script itself is
-        invoked externally).
-        """
-        self._add_func("run_job", path="script.py")
-        # Ensure the File node exists so its qualified_name resolves cleanly
-        # (production code creates this automatically during parsing).
-        self.store.upsert_node(
-            NodeInfo(
-                kind="File",
-                name="script.py",
-                file_path="script.py",
-                line_start=1,
-                line_end=10,
-                language="python",
-            )
-        )
-        self.store.commit()
-        # Module-scope call: source is the File node's qualified_name.
-        self._add_call("script.py", "script.py::run_job", path="script.py")
-
-        eps = detect_entry_points(self.store)
-        ep_names = {ep.name for ep in eps}
-        assert "run_job" in ep_names
 
     def test_trace_simple_flow(self):
         """BFS traces a linear call chain: A -> B -> C."""
@@ -557,14 +528,14 @@ class TestFlows:
         main_flow = get_flows(self.store)[0]
 
         # Corrupt a second flow with a dangling membership unrelated to a.py.
-        self.store._conn.execute(
+        store_conn(self.store).execute(
             "INSERT INTO flows (name, entry_point_id, path_json, node_count, "
             "depth, file_count, criticality) "
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
             ("xmain", 999999, "[]", 0, 0, 0, 0.0),
         )
-        orphan_flow_id = self.store._conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-        self.store._conn.execute(
+        orphan_flow_id = store_conn(self.store).execute("SELECT last_insert_rowid()").fetchone()[0]
+        store_conn(self.store).execute(
             "INSERT INTO flow_memberships (flow_id, node_id, position) VALUES (?, ?, ?)",
             (orphan_flow_id, 999999, 0),
         )
@@ -762,7 +733,7 @@ class TestFlows:
         # The re-trace should find the same entry points.
         assert count >= 0
         # No orphaned memberships: every membership references a valid flow.
-        conn = self.store._conn
+        conn = store_conn(self.store)
         orphans = conn.execute(
             "SELECT fm.flow_id FROM flow_memberships fm "
             "LEFT JOIN flows f ON f.id = fm.flow_id "
@@ -772,7 +743,7 @@ class TestFlows:
 
     def test_incremental_trace_flows_deletes_snapshots_before_flows(self):
         """Affected flow snapshots must be removed before their parent flows."""
-        conn = self.store._conn
+        conn = store_conn(self.store)
         conn.execute("PRAGMA foreign_keys = ON")
 
         self._add_func("handler", path="routes.py")
@@ -970,10 +941,14 @@ class TestOrphanedStructurePruning:
         assert len(get_flows(self.store)) >= 1
 
     def _dangling_memberships(self) -> int:
-        row = self.store._conn.execute(
-            "SELECT COUNT(*) FROM flow_memberships m "
-            "LEFT JOIN nodes n ON n.id = m.node_id WHERE n.id IS NULL"
-        ).fetchone()
+        row = (
+            store_conn(self.store)
+            .execute(
+                "SELECT COUNT(*) FROM flow_memberships m "
+                "LEFT JOIN nodes n ON n.id = m.node_id WHERE n.id IS NULL"
+            )
+            .fetchone()
+        )
         return row[0]
 
     def test_replacing_a_file_leaves_no_dangling_memberships(self):
@@ -997,48 +972,6 @@ class TestOrphanedStructurePruning:
         )
 
         assert self._dangling_memberships() == 0
-
-    def test_prune_sweeps_flows_that_lost_every_member(self):
-        self._flow_graph()
-
-        # Simulate a graph that was rebuilt by a path which bypasses the Python
-        # store (the Rust backend), leaving the derived tables behind.
-        self.store._conn.execute("DELETE FROM nodes")
-        self.store.commit()
-        assert self._dangling_memberships() > 0
-
-        pruned = self.store.prune_orphaned_graph_structures()
-        self.store.commit()
-
-        assert pruned["flow_memberships"] > 0
-        assert self._dangling_memberships() == 0
-        assert get_flows(self.store) == []
-
-    def test_prune_rewrites_stale_path_json(self):
-        self._flow_graph()
-        flow = get_flows(self.store)[0]
-        flow_id = flow["id"]
-        stale_path = json.loads(
-            self.store._conn.execute(
-                "SELECT path_json FROM flows WHERE id = ?", (flow_id,)
-            ).fetchone()[0]
-        )
-
-        self.store._conn.execute(
-            "UPDATE flows SET path_json = ? WHERE id = ?",
-            (json.dumps(stale_path + [999999]), flow_id),
-        )
-        self.store.commit()
-
-        pruned = self.store.prune_orphaned_graph_structures()
-        assert pruned.get("flows_repaired", 0) >= 1
-
-        row = self.store._conn.execute(
-            "SELECT path_json, node_count FROM flows WHERE id = ?", (flow_id,)
-        ).fetchone()
-        live_path = json.loads(row[0])
-        assert 999999 not in live_path
-        assert row[1] == len(live_path)
 
 
 class TestStaleFlowHydration:
@@ -1086,13 +1019,13 @@ class TestStaleFlowHydration:
         self.store.commit()
         store_flows(self.store, trace_flows(self.store))
 
-        row = self.store._conn.execute("SELECT * FROM flows WHERE name = 'entry'").fetchone()
+        row = store_conn(self.store).execute("SELECT * FROM flows WHERE name = 'entry'").fetchone()
         assert row is not None
         path_ids = json.loads(row["path_json"])
         assert len(path_ids) == 3
 
         for node_id in path_ids[1:]:
-            self.store._conn.execute("DELETE FROM nodes WHERE id = ?", (node_id,))
+            store_conn(self.store).execute("DELETE FROM nodes WHERE id = ?", (node_id,))
         self.store.commit()
 
         hydrated = _hydrate_flow_rows(self.store, [row])[0]

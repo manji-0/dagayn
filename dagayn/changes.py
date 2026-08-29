@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import functools
 import hashlib
-import json
 import logging
 import os
 import re
@@ -685,7 +684,10 @@ def _get_nodes_for_files_boundary_aware(
     file_paths: list[str],
 ) -> dict[str, list[GraphNode]]:
     rust_batch = getattr(store, "get_nodes_by_files", None)
-    if callable(rust_batch) and type(store).__module__.startswith("dagayn._core"):
+    store_module = type(store).__module__
+    if callable(rust_batch) and (
+        store_module.startswith("dagayn._core") or store_module.startswith("dagayn.graph._native")
+    ):
         batch = cast(Callable[[list[str]], dict[str, list[GraphNode]]], rust_batch)
         return batch(file_paths)
     return {file_path: store.get_nodes_by_file(file_path) for file_path in file_paths}
@@ -933,18 +935,6 @@ def analyze_changes(
         diff_parse_status = diff_parse_status or "ok"
 
     base_unresolved = diff_parse_status == "base_unresolved"
-
-    rust_analyze = getattr(store, "analyze_changes_json", None)
-    if callable(rust_analyze) and include_heuristic_test_gap_evidence and repo_root is None:
-        try:
-            analyze = cast(Callable[[list[str], str], str], rust_analyze)
-            return _annotate_review_priority_semantics(
-                ChangeAnalysisResult.model_validate(
-                    json.loads(analyze(changed_files, json.dumps(changed_ranges or {})))
-                )
-            )
-        except (RuntimeError, ValueError, TypeError, json.JSONDecodeError) as exc:
-            raise RuntimeError("Rust change analysis failed") from exc
 
     attribution_reason_codes: list[str] = []
     mapping = ChangeMappingResult()

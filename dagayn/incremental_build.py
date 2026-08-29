@@ -104,55 +104,10 @@ def _batch_hop_dependents(store: GraphStore, frontier: set[str]) -> set[str]:
         return set()
 
     rust_get = getattr(store, "get_direct_dependents", None)
-    if callable(rust_get):
-        direct = cast(Callable[[list[str]], list[str]], rust_get)(list(frontier))
-        return set(direct) - frontier
-
-    dependents: set[str] = set()
-    # Include normalized path forms to match get_edges_by_target behavior.
-    fp_keys: list[str] = []
-    for fp in frontier:
-        fp_keys.append(fp)
-        norm = store._normalize_qualified_key(fp)
-        if norm != fp:
-            fp_keys.append(norm)
-
-    batch_size = 450
-
-    # 1. File-level IMPORTS_FROM: edges where target_qualified is a frontier file path.
-    for i in range(0, len(fp_keys), batch_size):
-        chunk = fp_keys[i : i + batch_size]
-        placeholders = ",".join("?" for _ in chunk)
-        rows = store._conn.execute(  # nosec B608
-            f"SELECT file_path FROM edges"
-            f" WHERE target_qualified IN ({placeholders}) AND kind = 'IMPORTS_FROM'",
-            chunk,
-        ).fetchall()
-        for row in rows:
-            dependents.add(row["file_path"])
-
-    # 2. Node-level: collect QNs for all frontier files in one query.
-    fp_list = list(frontier)
-    all_node_qns: list[str] = []
-    for i in range(0, len(fp_list), batch_size):
-        chunk = fp_list[i : i + batch_size]
-        placeholders = ",".join("?" for _ in chunk)
-        rows = store._conn.execute(  # nosec B608
-            f"SELECT qualified_name FROM nodes WHERE file_path IN ({placeholders})",
-            chunk,
-        ).fetchall()
-        all_node_qns.extend(row["qualified_name"] for row in rows)
-
-    # 3. Batch incoming edges for all node QNs in one call.
-    if all_node_qns:
-        _, incoming = store.get_edges_by_endpoints(all_node_qns)
-        for node_edges in incoming.values():
-            for e in node_edges:
-                if e.kind in ("CALLS", "IMPORTS_FROM", "INHERITS", "IMPLEMENTS"):
-                    dependents.add(e.file_path)
-
-    dependents -= frontier
-    return dependents
+    if not callable(rust_get):
+        raise RuntimeError("GraphStore.get_direct_dependents is required (Rust GraphStore).")
+    direct = cast(Callable[[list[str]], list[str]], rust_get)(list(frontier))
+    return set(direct) - frontier
 
 
 class DependentList(list[str]):
@@ -243,10 +198,6 @@ def _parse_single_file(
         mtime_ns = abs_path.stat().st_mtime_ns
         raw = abs_path.read_bytes()
         fhash = hashlib.sha256(raw).hexdigest()
-        rust_parsed = _parse_with_rust_if_enabled(rel_path, raw)
-        if rust_parsed is not None:
-            nodes, edges = rust_parsed
-            return (rel_path, nodes, edges, None, fhash, mtime_ns)
         parser = _worker_parser if _worker_parser is not None else CodeParser()
         nodes, edges = parser.parse_bytes(abs_path, raw)
         return (rel_path, nodes, edges, None, fhash, mtime_ns)
@@ -814,43 +765,6 @@ def _store_rust_parse_batches(
         total_nodes += sum(len(item[1]) for item in batch)
         total_edges += sum(len(item[2]) for item in batch)
     return total_nodes, total_edges, errors
-
-
-def _parse_with_rust_if_enabled(
-    rel_path: str,
-    source: bytes,
-) -> tuple[list[list[Any]], list[list[Any]]] | None:
-    if not _rust_backend_enabled():
-        return None
-    lowered = rel_path.lower()
-    parser_name: str
-    parser_fn_name: str
-    if lowered.endswith((".md", ".markdown")):
-        parser_name = "Markdown"
-        parser_fn_name = "parse_markdown_compact_json"
-    elif lowered.endswith((".tf", ".tfvars")):
-        parser_name = "Terraform"
-        parser_fn_name = "parse_terraform_compact_json"
-    elif lowered.endswith(".rs"):
-        parser_name = "Rust"
-        parser_fn_name = "parse_rust_compact_json"
-    else:
-        return None
-    try:
-        import dagayn._core as rust_core
-
-        parser_fn = getattr(rust_core, parser_fn_name)
-        nodes, edges = json.loads(parser_fn(rel_path, source))
-        return nodes, edges
-    except (
-        AttributeError,
-        ImportError,
-        RuntimeError,
-        TypeError,
-        ValueError,
-        json.JSONDecodeError,
-    ) as exc:
-        raise RuntimeError(f"Rust {parser_name} parser unavailable for {rel_path}: {exc}") from exc
 
 
 def _queue_store_file(
