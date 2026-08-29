@@ -26,13 +26,14 @@ def __getattr__(name: str) -> Any:
     if name == "GraphStore":
         from dagayn._core import GraphStore as RustGraphStore
 
+        from ._native import NativeGraphStore
         from .sqlite_errors import register_live_store
 
         class GraphStore:
             """Construct a native store and register it for corrupt recovery."""
 
             def __new__(cls, db_path: Any) -> Any:
-                store = RustGraphStore(db_path)
+                store = NativeGraphStore(RustGraphStore(db_path))
                 register_live_store(store, store.db_path)
                 return store
 

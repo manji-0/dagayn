@@ -611,6 +611,7 @@ def _open_store(
             if (
                 cached_store._leases > 0
                 and cached_mtime == mtime
+                and cached_version is not None
                 and cached_version == current_version
             ):
                 # Acquire a lease atomically while holding the lock so

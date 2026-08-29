@@ -4,8 +4,8 @@ The native store does not expose ``_conn``. Tests that need SQL open a
 second connection to the same file. WAL commits from either side are
 visible after ``commit()``.
 
-Rust ``GraphStore`` is not weak-referenceable, so connections are cached
-by ``id(store)`` for the life of the process.
+Connections are cached by database path. Keying by ``id(store)`` reused a
+stale handle when a later store object recycled the same id.
 """
 
 from __future__ import annotations
@@ -15,19 +15,19 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
-_cached: dict[int, sqlite3.Connection] = {}
+_cached: dict[str, sqlite3.Connection] = {}
 
 
 def store_conn(store: Any) -> sqlite3.Connection:
     """Return a cached sqlite3 connection for *store*'s database file."""
-    key = id(store)
-    conn = _cached.get(key)
-    if conn is not None:
-        return conn
     db_path = getattr(store, "db_path", None)
     if db_path is None:
         raise AttributeError(f"{type(store).__name__} has no db_path")
-    conn = sqlite3.connect(str(db_path), timeout=30, isolation_level=None)
+    key = str(db_path)
+    conn = _cached.get(key)
+    if conn is not None:
+        return conn
+    conn = sqlite3.connect(key, timeout=30, isolation_level=None)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA busy_timeout=5000")
     _cached[key] = conn

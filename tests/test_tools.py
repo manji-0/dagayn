@@ -1861,7 +1861,7 @@ class TestBuildPostprocess:
         class FakeRustStore:
             pass
 
-        with pytest.raises(RuntimeError, match="Rust post-processing requires"):
+        with pytest.raises(RuntimeError, match="Post-processing requires dagayn._core"):
             _postprocess_store(FakeRustStore(), self.root, "full")
 
     def test_postprocess_full_matches_default(self, monkeypatch):
