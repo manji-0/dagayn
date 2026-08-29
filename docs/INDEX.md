@@ -37,7 +37,7 @@ This directory documents the fork as `dagayn`.
 - [GRAPH-EFFICIENCY-PLAN.md](./GRAPH-EFFICIENCY-PLAN.md) — scale/query measurement, reverse-CALLS incremental flows, and Rust coarse JSON postprocess
 - [SAP-METRICS.md](./SAP-METRICS.md) — Stable Abstractions Principle metrics (implemented)
 - [CROSS-ARTIFACT-EDGES-WIP.md](./CROSS-ARTIFACT-EDGES-WIP.md) — cross-artifact edge extraction for cross-language bridges, Markdown↔code, manifest/codegen bridges, Terraform↔code, etc. (Phase 1–3 Layer-2 shipped; Terraform and analysis integration WIP)
-- [RUST-CORE-MIGRATION-WIP.md](./RUST-CORE-MIGRATION-WIP.md) — spec for replacing the graph engine, post-processing, and parser core with Rust (decisions frozen 2026-04-26; implementation on a separate branch, not yet merged)
+- [RUST-CORE-MIGRATION-WIP.md](./RUST-CORE-MIGRATION-WIP.md) — spec for replacing the graph engine, post-processing, and parser core with Rust (Phase 4 compatibility shell landed; Python implementations live in `dagayn.legacy_py`)
 
 ## Case studies and direction
 

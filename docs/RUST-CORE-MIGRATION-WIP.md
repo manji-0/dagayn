@@ -211,7 +211,12 @@ Backend availability by phase:
 | 3     | Rust    | Rust       | Rust     | no                            |
 | 4+    | Rust    | Rust       | Rust     | yes                           |
 
-During Phase 4, Python implementations are moved to `legacy_py/` (not deleted) for regression comparison.
+Phase 4 is landed: Python graph, flow, community, search, post-processing, and
+migration implementations live in `dagayn/legacy_py/`. Public `dagayn.graph` /
+`dagayn.flows` / `dagayn.communities` / `dagayn.search` /
+`dagayn.postprocessing` modules are compatibility shells that prefer native
+store methods and lazy-import the legacy package only on the Python backend
+or when a native method is missing.
 
 ### `GraphStore` API parity
 
@@ -701,13 +706,18 @@ Parity acceptance: canonical JSON for all fixtures matches Python output exactly
 
 ### Phase 4: Python compatibility shell
 
-Refit `dagayn/cli.py`, `dagayn/main.py`, and `dagayn/tools/` to call `dagayn._core` directly.
+Delivered. `dagayn/cli.py`, `dagayn/main.py`, and `dagayn/tools/` keep calling
+the public `GraphStore` / flow / community / search / post-process APIs; those
+modules now prefer `dagayn._core` and only load `dagayn.legacy_py` when the
+Python backend is selected or a native method is missing.
 
-`DAGAYN_BACKEND=python` must remain functional. Both backends must build at Phase 4 release.
+`DAGAYN_BACKEND=python` remains functional. Both backends still build.
 
-Python parser, graph, and post-processing implementations are moved to `legacy_py/` (not deleted). The legacy path is used for ongoing regression comparison.
+Python graph, post-processing, flow, community, search, and migration
+implementations live in `dagayn/legacy_py/` (not deleted). The parser was
+already a Rust wrapper and stayed at `dagayn.parser`.
 
-`DAGAYN_BACKEND=rust` becomes the default.
+`DAGAYN_BACKEND=rust` is the default.
 
 ### Phase 5: optional outer-surface migration
 

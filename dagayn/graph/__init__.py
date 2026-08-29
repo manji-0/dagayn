@@ -1,4 +1,9 @@
-"""dagayn graph package public API."""
+"""dagayn graph package public API.
+
+The Python ``GraphStore`` implementation lives in ``dagayn.legacy_py.graph``.
+Production MCP/CLI callers select the native store through
+``dagayn.tools._common._selected_graph_store``.
+"""
 
 from __future__ import annotations
 

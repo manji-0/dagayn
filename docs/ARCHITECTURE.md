@@ -57,13 +57,22 @@ a fact.
 
 ## GraphStore ownership boundary
 
-The Python `GraphStore` remains the compatibility and orchestration boundary for CLI, MCP tools, tests, and Python-only analysis helpers. It owns the stable SQLite schema, path normalization, transaction semantics, cache invalidation, and the public read/write methods that higher layers call.
+<!-- constrained-by ./RUST-CORE-MIGRATION-WIP.md#phase-4-python-compatibility-shell -->
 
-The Rust graph backend owns hot-path storage and analysis implementations as they become available through PyO3 bindings. Python code may call Rust methods when the bound method exists, but it should preserve the Python `GraphStore` API as the migration contract. New callers should depend on `GraphStore` methods rather than importing Rust bindings directly.
+The public Python modules (`dagayn.graph`, `dagayn.flows`, `dagayn.communities`,
+`dagayn.search`, `dagayn.postprocessing`) are compatibility shells. They keep
+the stable import paths and, on a native store, call `dagayn._core` first.
+The Python graph engine, flow tracer, community detector, FTS rebuild, and
+step-by-step post-process pipeline live in `dagayn.legacy_py/` for
+`DAGAYN_BACKEND=python` and regression comparison.
 
-During the migration, duplicated behavior is allowed only as an adapter layer: Python keeps the canonical user-facing API and fallback semantics, while Rust implementations are treated as accelerated implementations behind that API. When a Rust path becomes the only supported implementation, the matching Python docs and tests should be updated in the same change.
+`from dagayn.graph import GraphStore` still resolves the Python store so tests
+and explicit Python-backend construction keep working. MCP/CLI production
+callers select the native store through `_selected_graph_store()`.
 
-Current Rust-owned GraphStore responsibilities include batch file storage, Rust-owned parse/store paths, flow and community JSON persistence, Markdown artifact reference resolution, and persisted centrality score computation for `hub_scores` / `bridge_scores`. Python keeps fallback implementations for source checkouts or environments without `dagayn._core`.
+The Rust graph backend owns hot-path storage, parse/store, post-processing,
+and query primitives. New callers should depend on `GraphStore` methods rather
+than importing Rust bindings directly or reading `store._conn`.
 
 ## Post-processing
 

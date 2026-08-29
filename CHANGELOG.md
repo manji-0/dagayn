@@ -6,6 +6,10 @@ All notable changes to `dagayn` are documented here.
 
 ### Changed
 
+- Phase 4 of the Rust core migration: Python graph, flow, community, search,
+  post-processing, and migration implementations moved to `dagayn.legacy_py`.
+  Public modules stay import-compatible and call `dagayn._core` first.
+  `DAGAYN_BACKEND=python` still selects the legacy store.
 - Parser nodes and edges carry `NodeKind` / `EdgeKind` instead of heap
   strings. The closed set now includes `Type`, `DocBody`, and `IMPLEMENTS`,
   matching the schema. SQLite and the Python store still see the same labels.

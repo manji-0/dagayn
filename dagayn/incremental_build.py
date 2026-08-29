@@ -243,10 +243,6 @@ def _parse_single_file(
         mtime_ns = abs_path.stat().st_mtime_ns
         raw = abs_path.read_bytes()
         fhash = hashlib.sha256(raw).hexdigest()
-        rust_parsed = _parse_with_rust_if_enabled(rel_path, raw)
-        if rust_parsed is not None:
-            nodes, edges = rust_parsed
-            return (rel_path, nodes, edges, None, fhash, mtime_ns)
         parser = _worker_parser if _worker_parser is not None else CodeParser()
         nodes, edges = parser.parse_bytes(abs_path, raw)
         return (rel_path, nodes, edges, None, fhash, mtime_ns)
@@ -814,43 +810,6 @@ def _store_rust_parse_batches(
         total_nodes += sum(len(item[1]) for item in batch)
         total_edges += sum(len(item[2]) for item in batch)
     return total_nodes, total_edges, errors
-
-
-def _parse_with_rust_if_enabled(
-    rel_path: str,
-    source: bytes,
-) -> tuple[list[list[Any]], list[list[Any]]] | None:
-    if not _rust_backend_enabled():
-        return None
-    lowered = rel_path.lower()
-    parser_name: str
-    parser_fn_name: str
-    if lowered.endswith((".md", ".markdown")):
-        parser_name = "Markdown"
-        parser_fn_name = "parse_markdown_compact_json"
-    elif lowered.endswith((".tf", ".tfvars")):
-        parser_name = "Terraform"
-        parser_fn_name = "parse_terraform_compact_json"
-    elif lowered.endswith(".rs"):
-        parser_name = "Rust"
-        parser_fn_name = "parse_rust_compact_json"
-    else:
-        return None
-    try:
-        import dagayn._core as rust_core
-
-        parser_fn = getattr(rust_core, parser_fn_name)
-        nodes, edges = json.loads(parser_fn(rel_path, source))
-        return nodes, edges
-    except (
-        AttributeError,
-        ImportError,
-        RuntimeError,
-        TypeError,
-        ValueError,
-        json.JSONDecodeError,
-    ) as exc:
-        raise RuntimeError(f"Rust {parser_name} parser unavailable for {rel_path}: {exc}") from exc
 
 
 def _queue_store_file(
