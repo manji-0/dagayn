@@ -340,9 +340,13 @@ def large_store(tmp_path):
         "VALUES (2, 'Utils', 0, 0.5, 4, 'python', 'Utility functions')"
     )
     # Insert community_members so get_communities works
-    for row in store_conn(store).execute(
-        "SELECT id, qualified_name, community_id FROM nodes WHERE community_id IS NOT NULL"
-    ).fetchall():
+    for row in (
+        store_conn(store)
+        .execute(
+            "SELECT id, qualified_name, community_id FROM nodes WHERE community_id IS NOT NULL"
+        )
+        .fetchall()
+    ):
         store_conn(store).execute(
             "INSERT INTO community_members (community_id, node_id) VALUES (?, ?)",
             (row["community_id"], row["id"]),

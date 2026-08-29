@@ -238,18 +238,16 @@ def get_flow(
         # Optionally include source snippets for each step
         if include_source and "steps" in flow:
             for step in flow["steps"]:
-                fp = Path(step["file"]) if step.get("file") else None
+                raw_file = step.get("file") or step.get("file_path")
+                fp = Path(str(raw_file)) if raw_file else None
                 if fp is not None and not fp.is_absolute():
                     fp = root / fp
                 file_path = fp
                 if file_path and file_path.is_file():
                     try:
                         lines = file_path.read_text(errors="replace").splitlines()
-                        start = max(0, (step.get("line_start") or 1) - 1)
-                        end = min(
-                            len(lines),
-                            step.get("line_end") or len(lines),
-                        )
+                        start = max(0, int(step.get("line_start") or 1) - 1)
+                        end = min(len(lines), int(step.get("line_end") or len(lines)))
                         src = "\n".join(f"{i + 1}: {lines[i]}" for i in range(start, end))
                         if len(src) > _source_max_chars:
                             src = src[:_source_max_chars] + "\n... (truncated)"

@@ -305,8 +305,6 @@ class TestSharedConnectionThreadSafety:
             store.close()
 
 
-
-
 class TestStoreFailureIsNotSilent:
     """#94: a dropped chunk must not leave the graph claiming to describe HEAD."""
 

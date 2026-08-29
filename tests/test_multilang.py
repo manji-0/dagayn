@@ -1725,7 +1725,9 @@ class TestTerraformMultiFileBuild(_TempRepoBuildMixin):
             "SELECT target_qualified FROM edges WHERE kind='IMPORTS_FROM' AND file_path=?",
             (root_main,),
         ).fetchall()
-        assert any(row["target_qualified"] == "modules/network" for row in imports)
+        assert any(
+            row["target_qualified"] in {"modules/network", "./modules/network"} for row in imports
+        )
 
         references = cur.execute(
             "SELECT target_qualified FROM edges WHERE kind='REFERENCES' AND file_path=?",

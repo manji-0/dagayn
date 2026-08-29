@@ -985,9 +985,7 @@ def _get_svn_all_tracked_files(repo_root: Path) -> list[str]:
 def _backend_selection() -> str:
     selected = os.environ.get("DAGAYN_BACKEND", _DEFAULT_BACKEND).strip().lower()
     if selected == "python":
-        raise RuntimeError(
-            "DAGAYN_BACKEND=python was removed. The graph engine is Rust-only."
-        )
+        raise RuntimeError("DAGAYN_BACKEND=python was removed. The graph engine is Rust-only.")
     return selected or _DEFAULT_BACKEND
 
 

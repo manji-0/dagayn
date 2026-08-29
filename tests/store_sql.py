@@ -15,6 +15,8 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
+from dagayn.sqlite_tuning import apply_wal_size_limit
+
 _cached: dict[str, sqlite3.Connection] = {}
 
 
@@ -30,6 +32,7 @@ def store_conn(store: Any) -> sqlite3.Connection:
     conn = sqlite3.connect(key, timeout=30, isolation_level=None)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA busy_timeout=5000")
+    apply_wal_size_limit(conn)
     _cached[key] = conn
     return conn
 

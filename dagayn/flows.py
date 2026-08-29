@@ -17,11 +17,16 @@ from .state_types import AffectedFlowsResult, ChangeFlowRecord
 
 class FlowStepRecord(TypedDict, total=False):
     id: int
+    node_id: int
     qualified_name: str
     name: str
+    file: str
     file_path: str
     kind: str
+    line_start: int
+    line_end: int
     is_bridge_step: bool
+    source: str
 
 
 class FlowRecord(TypedDict, total=False):
@@ -177,7 +182,11 @@ def get_flow_by_id(store: GraphStore, flow_id: int) -> Optional[Any]:
     raw = cast(Callable[[int], str | None], rust_get)(flow_id)
     if not raw:
         return None
-    return _annotate_flow_dict_bridges(store, json.loads(raw))
+    payload = json.loads(raw)
+    # Re-resolve steps from live nodes so SQL-deleted members become missing.
+    payload.pop("steps", None)
+    hydrated = _hydrate_flow_rows(store, [payload])
+    return hydrated[0] if hydrated else None
 
 
 def get_affected_flows(

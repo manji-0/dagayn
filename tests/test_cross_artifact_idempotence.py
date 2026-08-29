@@ -112,9 +112,11 @@ class TestResolveToDemote:
         _resolve_markdown_artifact_refs(self.store, result2, [])
         assert result2.markdown_artifact_refs_dropped == 1
 
-        count = store_conn(self.store).execute(
-            "SELECT COUNT(*) FROM edges WHERE kind='CROSS_ARTIFACT'"
-        ).fetchone()[0]
+        count = (
+            store_conn(self.store)
+            .execute("SELECT COUNT(*) FROM edges WHERE kind='CROSS_ARTIFACT'")
+            .fetchone()[0]
+        )
         assert count == 0
 
 
@@ -138,9 +140,11 @@ class TestUnresolvedToResolved:
         assert result1.markdown_artifact_refs_still_unresolved == 0
         assert result1.markdown_artifact_refs_dropped == 1
 
-        count = store_conn(self.store).execute(
-            "SELECT COUNT(*) FROM edges WHERE kind='CROSS_ARTIFACT'"
-        ).fetchone()[0]
+        count = (
+            store_conn(self.store)
+            .execute("SELECT COUNT(*) FROM edges WHERE kind='CROSS_ARTIFACT'")
+            .fetchone()[0]
+        )
         assert count == 0
 
 
@@ -166,9 +170,11 @@ class TestAmbiguousToUnique:
         assert result1.markdown_artifact_refs_still_unresolved == 0
         assert result1.markdown_artifact_refs_dropped == 1
 
-        count = store_conn(self.store).execute(
-            "SELECT COUNT(*) FROM edges WHERE kind='CROSS_ARTIFACT'"
-        ).fetchone()[0]
+        count = (
+            store_conn(self.store)
+            .execute("SELECT COUNT(*) FROM edges WHERE kind='CROSS_ARTIFACT'")
+            .fetchone()[0]
+        )
         assert count == 0
 
 
@@ -199,9 +205,11 @@ class TestUniqueToAmbiguous:
         _resolve_markdown_artifact_refs(self.store, result2, [])
         assert result2.markdown_artifact_refs_dropped == 1
 
-        count = store_conn(self.store).execute(
-            "SELECT COUNT(*) FROM edges WHERE kind='CROSS_ARTIFACT'"
-        ).fetchone()[0]
+        count = (
+            store_conn(self.store)
+            .execute("SELECT COUNT(*) FROM edges WHERE kind='CROSS_ARTIFACT'")
+            .fetchone()[0]
+        )
         assert count == 0
 
 

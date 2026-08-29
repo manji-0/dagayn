@@ -322,7 +322,7 @@ class TestCrossArtifactFlows:
 
 
 class TestCrossArtifactImpactNetworkX:
-    def test_networkx_impact_skips_low_confidence_bridges(self, bridge_store, monkeypatch):
+    def test_networkx_impact_skips_low_confidence_bridges(self, bridge_store):
         store, paths = bridge_store
         # Only reachable via the LOW bridge — must not expand.
         orphan = _add_func(store, "orphan_cli", str(paths["root"] / "orphan.py"))
@@ -337,12 +337,6 @@ class TestCrossArtifactImpactNetworkX:
         )
         store.commit()
         store._nxg_cache = None
-
-        import dagayn.graph._sql as sql_mod
-        import dagayn.graph.analysis_impact as impact_mod
-
-        monkeypatch.setattr(sql_mod, "BFS_ENGINE", "networkx")
-        monkeypatch.setattr(impact_mod, "BFS_ENGINE", "networkx")
 
         result = store.get_impact_radius([paths["wrapper"]], max_depth=2)
         impacted_qns = {n.qualified_name for n in result["impacted_nodes"]}

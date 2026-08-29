@@ -128,9 +128,7 @@ def store_communities(store: GraphStore, communities: list[Any]) -> int:
     return cast(Callable[[str], int], rust_store)(json.dumps(payload))
 
 
-def get_communities(
-    store: GraphStore, sort_by: str = "size", min_size: int = 0
-) -> list[Any]:
+def get_communities(store: GraphStore, sort_by: str = "size", min_size: int = 0) -> list[Any]:
     """Retrieve stored communities from the database."""
     valid_sorts = {"size", "cohesion", "name"}
     if sort_by not in valid_sorts:
@@ -160,7 +158,7 @@ def get_architecture_overview(
     store: GraphStore,
     detail_level: str = "standard",
     top_n: int = 20,
-) -> dict[str, Any]:
+) -> ArchitectureOverviewResult:
     """Generate an architecture overview based on community structure."""
     communities = get_communities(store)
     node_to_community: dict[str, int] = {}
@@ -242,13 +240,13 @@ def get_architecture_overview(
     else:
         out_communities = [{k: v for k, v in c.items() if k != "members"} for c in communities]
 
-    result: dict[str, Any] = {
-        "communities": out_communities,
-        "cross_community_coupling": cross_community_coupling,
+    result: ArchitectureOverviewResult = {
+        "communities": cast(list[CommunityRecord], out_communities),
+        "cross_community_coupling": cast(list[CommunityCouplingRecord], cross_community_coupling),
         "warnings": warnings,
     }
     if detail_level == "verbose":
-        result["cross_community_edges"] = cross_edges
+        result["cross_community_edges"] = cast(list[CrossCommunityEdgeRecord], cross_edges)
     return result
 
 

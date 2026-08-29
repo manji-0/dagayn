@@ -36,6 +36,7 @@ _FILE_TARGET_SUFFIXES = (
     ".ipynb",
 )
 
+
 def looks_like_file_target(target: str) -> bool:
     """Return True when *target* looks like a file path rather than a symbol name."""
     path = target.split("::", 1)[0]

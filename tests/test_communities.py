@@ -9,7 +9,6 @@ from dagayn.communities import (
     get_architecture_overview,
     get_communities,
     incremental_detect_communities,
-    refresh_community_stats,
     store_communities,
 )
 from dagayn.graph import GraphStore
@@ -449,7 +448,6 @@ class TestCommunities:
         result = incremental_detect_communities(self.store, ["auth.py"])
         assert result > 0
 
-
     def test_count_affected_communities_uses_pre_parse_snapshot(self):
         """Pre-parse affected count still triggers detection after assignments clear."""
         self._seed_two_clusters()
@@ -472,9 +470,6 @@ class TestCommunities:
             pre_affected_count=pre_affected,
         )
         assert result > 0
-
-
-
 
 
 class TestDuplicateCommunityNames:
@@ -507,5 +502,3 @@ class TestDuplicateCommunityNames:
                 language="python",
             )
         )
-
-

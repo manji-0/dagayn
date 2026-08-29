@@ -22,9 +22,13 @@ FIXTURES = Path(__file__).parent / "fixtures" / "cross_artifact_manifest"
 
 
 def _ca_edges(store: GraphStore) -> list:
-    rows = store_conn(store).execute(
-        "SELECT source_qualified, target_qualified, extra FROM edges WHERE kind='CROSS_ARTIFACT'"
-    ).fetchall()
+    rows = (
+        store_conn(store)
+        .execute(
+            "SELECT source_qualified, target_qualified, extra FROM edges WHERE kind='CROSS_ARTIFACT'"
+        )
+        .fetchall()
+    )
     out = []
     for row in rows:
         extra = json.loads(row["extra"] or "{}")
@@ -152,10 +156,10 @@ class TestApplyManifestBridges:
         assert len(_manifest_edges(self.store)) == 1
         prior = _manifest_edges(self.store)
 
-        def boom(_edge):
+        def boom(*_args, **_kwargs):
             raise RuntimeError("simulated upsert failure")
 
-        monkeypatch.setattr(self.store, "upsert_edge", boom)
+        monkeypatch.setattr(self.store, "replace_manifest_bridges_json", boom)
         warnings: list[str] = []
         result = PostprocessResult()
         _apply_manifest_bridges(self.store, result, warnings)
@@ -184,10 +188,14 @@ class TestApplyManifestBridges:
 
         _apply_manifest_bridges(self.store, PostprocessResult(), [])
 
-        row = store_conn(self.store).execute(
-            "SELECT file_hash, mtime_ns, extra FROM nodes WHERE qualified_name=?",
-            ("pyproject.toml",),
-        ).fetchone()
+        row = (
+            store_conn(self.store)
+            .execute(
+                "SELECT file_hash, mtime_ns, extra FROM nodes WHERE qualified_name=?",
+                ("pyproject.toml",),
+            )
+            .fetchone()
+        )
         assert row is not None
         assert row["file_hash"] == "parser-hash-abc"
         assert row["mtime_ns"] == 1_700_000_000_000_000_000

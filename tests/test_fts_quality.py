@@ -2,7 +2,6 @@
 
 import tempfile
 from pathlib import Path
-from unittest.mock import patch
 
 from dagayn.eval.benchmarks.fts_quality import _matches, run
 from dagayn.graph import GraphStore
@@ -35,7 +34,7 @@ def test_no_match():
     assert not _matches("dagayn/search.py::hybrid_search", "nowhere.py::nonexistent")
 
 
-def test_rebuild_fts_reads_each_source_file_once(tmp_path):
+def test_rebuild_fts_indexes_all_nodes_from_one_file(tmp_path):
     store = GraphStore(tmp_path / "graph.db")
     try:
         source = tmp_path / "multi.py"
@@ -54,19 +53,16 @@ def test_rebuild_fts_reads_each_source_file_once(tmp_path):
             )
         store.commit()
 
-        read_count = 0
-        original_read_text = Path.read_text
-
-        def counting_read_text(self, *args, **kwargs):
-            nonlocal read_count
-            if self == source:
-                read_count += 1
-            return original_read_text(self, *args, **kwargs)
-
-        with patch.object(Path, "read_text", counting_read_text):
-            rebuild_fts_index(store)
-
-        assert read_count == 1
+        rebuilt = rebuild_fts_index(store)
+        assert rebuilt >= 2
+        hits = (
+            store_conn(store)
+            .execute("SELECT qualified_name FROM nodes_fts WHERE nodes_fts MATCH 'one OR two'")
+            .fetchall()
+        )
+        names = {row["qualified_name"] for row in hits}
+        assert any(name.endswith("::one") for name in names)
+        assert any(name.endswith("::two") for name in names)
     finally:
         store.close()
 

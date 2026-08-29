@@ -1,6 +1,5 @@
 """Tests for the graph storage and query engine."""
 
-import sqlite3
 import tempfile
 from pathlib import Path
 
@@ -179,7 +178,6 @@ class TestGraphStore:
         assert edges[0].confidence_tier == "MEDIUM"
         assert edges[0].extra["confidence_tier"] == "medium"
 
-
     def test_remove_file_data(self):
         node = self._make_file_node()
         func = self._make_func_node()
@@ -276,7 +274,6 @@ class TestGraphStore:
         assert edge_id > 0
         assert updated_id == edge_id
         assert selects == [], f"unexpected SELECT during upsert_edge: {selects}"
-
 
     def test_store_after_remove_no_transaction_error(self):
         """Regression test for #135: store_file_nodes_edges after
@@ -411,5 +408,3 @@ class TestGraphStore:
         self.store.set_metadata("test_key", "test_value")
         assert self.store.get_metadata("test_key") == "test_value"
         assert self.store.get_metadata("nonexistent") is None
-
-

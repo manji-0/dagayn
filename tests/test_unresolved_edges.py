@@ -6,9 +6,9 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from dagayn.graph._edge_records import edge_storage_metadata
 
 from dagayn.graph import GraphStore
+from dagayn.graph._edge_records import edge_storage_metadata
 from dagayn.parser import EdgeInfo, NodeInfo
 from dagayn.postprocessing import run_post_processing
 from dagayn.tools import query as query_module

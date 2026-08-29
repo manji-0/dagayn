@@ -10,9 +10,11 @@ from tests.store_sql import store_conn
 
 
 def _schema_version(store) -> int:
-    row = store_conn(store).execute(
-        "SELECT value FROM metadata WHERE key = 'schema_version'"
-    ).fetchone()
+    row = (
+        store_conn(store)
+        .execute("SELECT value FROM metadata WHERE key = 'schema_version'")
+        .fetchone()
+    )
     return int(row[0]) if row else 0
 
 
@@ -83,7 +85,6 @@ class TestMigrations:
         assert "kind" in columns
         assert "truncated" in columns
         assert "truncation_reason" in columns
-
 
     def test_flows_table_exists_after_migration(self):
         """The flows and flow_memberships tables should exist after migration."""
