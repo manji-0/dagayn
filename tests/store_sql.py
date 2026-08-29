@@ -1,33 +1,36 @@
-"""Ephemeral SQLite access for tests that inspect a Rust GraphStore.
+"""SQLite access for tests that inspect a Rust GraphStore.
 
-The native store does not expose ``_conn``. Tests that need SQL can open a
-second connection to the same file. WAL commits from either side are visible
-after ``commit()``.
+The native store does not expose ``_conn``. Tests that need SQL open a
+second connection to the same file. WAL commits from either side are
+visible after ``commit()``.
+
+Rust ``GraphStore`` is not weak-referenceable, so connections are cached
+by ``id(store)`` for the life of the process.
 """
 
 from __future__ import annotations
 
 import sqlite3
-import weakref
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
-_cached: weakref.WeakKeyDictionary[Any, sqlite3.Connection] = weakref.WeakKeyDictionary()
+_cached: dict[int, sqlite3.Connection] = {}
 
 
 def store_conn(store: Any) -> sqlite3.Connection:
     """Return a cached sqlite3 connection for *store*'s database file."""
-    conn = _cached.get(store)
+    key = id(store)
+    conn = _cached.get(key)
     if conn is not None:
         return conn
     db_path = getattr(store, "db_path", None)
     if db_path is None:
         raise AttributeError(f"{type(store).__name__} has no db_path")
-    conn = sqlite3.connect(str(db_path), timeout=30)
+    conn = sqlite3.connect(str(db_path), timeout=30, isolation_level=None)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA busy_timeout=5000")
-    _cached[store] = conn
+    _cached[key] = conn
     return conn
 
 

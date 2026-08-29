@@ -233,12 +233,21 @@ class TestQueryGraphBareNameBinding:
     def _patch_store(self, monkeypatch):
         from dagayn.tools import query as query_module
 
+        class _NoClose:
+            def __init__(self, inner):
+                object.__setattr__(self, "_inner", inner)
+
+            def close(self) -> None:
+                return None
+
+            def __getattr__(self, name):
+                return getattr(self._inner, name)
+
         monkeypatch.setattr(
             query_module,
             "_get_store",
-            lambda repo_root: (self.store, self.root),
+            lambda repo_root: (_NoClose(self.store), self.root),
         )
-        self.store.close = lambda: None
 
     def test_fuzzy_resolution_reports_non_exact_match(self, monkeypatch):
         self.store.upsert_node(_node("File", "other.py", str(self.root / "other.py")))

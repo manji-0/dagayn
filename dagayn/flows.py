@@ -102,7 +102,15 @@ def trace_flows(
 
 def _hydrate_flow_rows(store: GraphStore, rows: list[Any]) -> list[Any]:
     """Annotate stored flow rows with live steps and bridge markers."""
-    return [_annotate_flow_dict_bridges(store, row) for row in rows]
+    payloads: list[Any] = []
+    for row in rows:
+        if isinstance(row, dict):
+            payloads.append(row)
+        elif hasattr(row, "keys"):
+            payloads.append({key: row[key] for key in row.keys()})
+        else:
+            payloads.append(row)
+    return [_annotate_flow_dict_bridges(store, row) for row in payloads]
 
 
 def incremental_trace_flows(
@@ -164,25 +172,41 @@ def get_affected_flows(
 
 
 def _annotate_flow_rows_liveness(store: GraphStore, flows: list[Any]) -> list[Any]:
-    """Add resolved/missing node counts to listed flows."""
+    """Add entry_point names and resolved/missing node counts to listed flows."""
     all_ids = {
         node_id
         for flow in flows
-        for node_id in (flow.get("path") or [])
+        for node_id in (*(flow.get("path") or []), flow.get("entry_point_id"))
         if isinstance(node_id, int)
     }
     if not all_ids:
         return flows
     try:
-        live_ids = set(store.get_nodes_by_ids(sorted(all_ids)).keys())
+        nodes_by_id = store.get_nodes_by_ids(sorted(all_ids))
     except Exception:  # noqa: BLE001 — annotation must never break a listing
         logger.debug("Could not resolve flow node liveness", exc_info=True)
         return flows
+    live_ids = set(nodes_by_id.keys())
     for flow in flows:
+        entry_id = flow.get("entry_point_id")
+        if "entry_point" not in flow and isinstance(entry_id, int):
+            node = nodes_by_id.get(entry_id)
+            if node is not None:
+                flow["entry_point"] = node.qualified_name
         path_ids = [node_id for node_id in (flow.get("path") or []) if isinstance(node_id, int)]
         resolved = sum(1 for node_id in path_ids if node_id in live_ids)
         flow["resolved_node_count"] = resolved
         flow["missing_node_count"] = len(path_ids) - resolved
+        if "files" not in flow:
+            files: list[str] = []
+            seen: set[str] = set()
+            for node_id in path_ids:
+                node = nodes_by_id.get(node_id)
+                if node is None or not node.file_path or node.file_path in seen:
+                    continue
+                seen.add(node.file_path)
+                files.append(node.file_path)
+            flow["files"] = files
     return flows
 
 

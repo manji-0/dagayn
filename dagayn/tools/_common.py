@@ -39,9 +39,9 @@ from ..write_lock import (
     WriteLockUnavailableError,
     acquire_graph_lock,
     bind_store_read_lock,
+    ensure_store_close_unbinds,
     lock_holder_pid,
     release_graph_lock,
-    wrap_store_close_to_unbind,
     write_lock_is_held,
 )
 
@@ -565,8 +565,7 @@ def _get_store(
         # Bind after wrapping so native stores unbind on the same object
         # identity ``close()`` sees. Caching the sqlite handle is fine;
         # the flock itself must not outlive this caller's close().
-        if not hasattr(store, "_conn"):
-            store = wrap_store_close_to_unbind(store)
+        store = ensure_store_close_unbinds(store)
         bind_store_read_lock(store, db_path)
     return store, root
 
@@ -579,12 +578,12 @@ def _open_store(
 ) -> tuple[GraphStore, Path]:
     store_cls = _selected_graph_store()
     if store_cls is not GraphStore:
-        store = store_cls(db_path)
+        store = ensure_store_close_unbinds(store_cls(db_path))
         register_live_store(store, db_path)
         return store, root
 
     if not cached or _cache_disabled():
-        store = store_cls(db_path)
+        store = ensure_store_close_unbinds(store_cls(db_path))
         store._leases = 1  # caller holds the only lease; close() will close
         return store, root
 
@@ -594,7 +593,7 @@ def _open_store(
         # First-time use: nothing to cache yet, fall back to a fresh
         # transient store.  The next call will populate the cache once
         # the DB has been created.
-        store = store_cls(db_path)
+        store = ensure_store_close_unbinds(store_cls(db_path))
         store._leases = 1
         return store, root
 
@@ -627,7 +626,7 @@ def _open_store(
             # else: last close() will _force_close when _leases reaches 0.
             _store_cache.pop(db_path, None)
 
-        store = store_cls(db_path)
+        store = ensure_store_close_unbinds(store_cls(db_path))
         store._pinned = True
         store._leases = 1  # set inside the lock before inserting into cache
         _store_cache[db_path] = (store, (mtime, _data_version(store)))

@@ -124,14 +124,9 @@ class TestHybridSearch:
             ),
         ]
         for node in nodes:
-            node_id = self.store.upsert_node(node, file_hash="abc123")
-            # Set signature for functions
-            if node.kind == "Function":
-                sig = f"def {node.name}{node.params or '()'} -> {node.return_type or 'None'}"
-                store_conn(self.store).execute(
-                    "UPDATE nodes SET signature = ? WHERE id = ?", (sig, node_id)
-                )
-        store_conn(self.store).commit()
+            self.store.upsert_node(node, file_hash="abc123")
+        self.store.compute_missing_signatures()
+        self.store.commit()
 
     # --- rebuild_fts_index ---
 

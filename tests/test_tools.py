@@ -2073,8 +2073,8 @@ class TestBuildPostprocess:
 
         def fake_embed(*_args, **_kwargs):
             assert stores, "build never opened a graph store"
-            with pytest.raises((sqlite3.ProgrammingError, sqlite3.Error)):
-                stores[0]._conn.execute("SELECT 1")
+            with pytest.raises((sqlite3.ProgrammingError, sqlite3.Error, RuntimeError)):
+                stores[0].get_stats()
             return embed_result
 
         with (
@@ -2898,7 +2898,8 @@ class TestGetMinimalContext:
     def test_reports_top_flows_separately_from_affected_flows(self):
         from dagayn.tools.context import get_minimal_context
 
-        conn = GraphStore(str(self.root / ".dagayn" / "graph.db"))._conn
+        store = GraphStore(str(self.root / ".dagayn" / "graph.db"))
+        conn = store_conn(store)
         conn.execute("DELETE FROM flows")
         conn.execute(
             """

@@ -636,12 +636,25 @@ class _ReadLockBoundStore:
         setattr(object.__getattribute__(self, "_inner"), name, value)
 
 
+def ensure_store_close_unbinds(store: object) -> _CloseableStore:
+    """Wrap *store* at most once so ``close()`` can release a bound read lock.
+
+    Native ``GraphStore.close`` cannot be assigned. Wrapping on every
+    ``_get_store`` call made the process cache return a new proxy each time.
+    """
+    if type(store) is _ReadLockBoundStore:
+        return cast(_CloseableStore, store)
+    return wrap_store_close_to_unbind(store)
+
+
 def wrap_store_close_to_unbind(store: object) -> _CloseableStore:
     """Ensure ``store.close()`` releases a bound read lock.
 
     Returns *store* when ``close`` can be patched, otherwise a proxy whose
     ``close`` always unbinds. Callers must bind the lock to the returned object.
     """
+    if type(store) is _ReadLockBoundStore:
+        return cast(_CloseableStore, store)
     inner_close = getattr(store, "close", None)
     if not callable(inner_close):
         return _ReadLockBoundStore(store)
@@ -698,6 +711,7 @@ __all__ = [
     "graph_write_lock",
     "release_graph_lock",
     "unbind_store_read_lock",
+    "ensure_store_close_unbinds",
     "wrap_store_close_to_unbind",
     "write_lock_is_held",
 ]

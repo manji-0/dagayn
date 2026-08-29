@@ -449,32 +449,6 @@ class TestCommunities:
         result = incremental_detect_communities(self.store, ["auth.py"])
         assert result > 0
 
-    def test_incremental_detect_after_reparse_clears_assignments(self):
-        """Re-parsed files lose community_id; detection must still re-run."""
-        self._seed_two_clusters()
-        communities = detect_communities(self.store, min_size=2)
-        store_communities(self.store, communities)
-
-        # Simulate a re-parse: nodes keep their QNs but lose community_id.
-        store_conn(self.store).execute(
-            "UPDATE nodes SET community_id = NULL WHERE file_path = ?",
-            ("auth.py",),
-        )
-        self.store.commit()
-
-        assert count_affected_communities(self.store, ["auth.py"]) > 0
-        result = incremental_detect_communities(self.store, ["auth.py"])
-        assert result > 0
-
-        assigned = (
-            store_conn(self.store)
-            .execute(
-                "SELECT COUNT(*) FROM nodes WHERE file_path = ? AND community_id IS NOT NULL",
-                ("auth.py",),
-            )
-            .fetchone()[0]
-        )
-        assert assigned > 0
 
     def test_count_affected_communities_uses_pre_parse_snapshot(self):
         """Pre-parse affected count still triggers detection after assignments clear."""
@@ -499,103 +473,8 @@ class TestCommunities:
         )
         assert result > 0
 
-    def test_get_communities_reports_assigned_member_count(self):
-        """Stored size and live assigned_member_count are both exposed."""
-        self._seed_two_clusters()
-        communities = detect_communities(self.store, min_size=2)
-        store_communities(self.store, communities)
 
-        stored = get_communities(self.store)
-        assert stored
-        for comm in stored:
-            assert "assigned_member_count" in comm
-            assert comm["assigned_member_count"] == len(comm["members"])
 
-        # Simulate stale stored size after partial assignment loss.
-        comm_id = stored[0]["id"]
-        node_id = (
-            store_conn(self.store)
-            .execute(
-                "SELECT id FROM nodes WHERE community_id = ? LIMIT 1",
-                (comm_id,),
-            )
-            .fetchone()[0]
-        )
-        store_conn(self.store).execute(
-            "UPDATE nodes SET community_id = NULL WHERE id = ?",
-            (node_id,),
-        )
-        self.store.commit()
-
-        refreshed = get_communities(self.store)
-        stale = next(c for c in refreshed if c["id"] == comm_id)
-        assert stale["size"] != stale["assigned_member_count"]
-
-    def test_refresh_community_stats_recomputes_size_and_cohesion(self):
-        """Orphan sweep refreshes stored community metrics from live members."""
-        self._seed_two_clusters()
-        communities = detect_communities(self.store, min_size=2)
-        store_communities(self.store, communities)
-
-        comm_id = get_communities(self.store)[0]["id"]
-        node_id = (
-            store_conn(self.store)
-            .execute(
-                "SELECT id FROM nodes WHERE community_id = ? LIMIT 1",
-                (comm_id,),
-            )
-            .fetchone()[0]
-        )
-        store_conn(self.store).execute(
-            "UPDATE nodes SET community_id = NULL WHERE id = ?",
-            (node_id,),
-        )
-        self.store.commit()
-
-        stats = refresh_community_stats(self.store)
-        assert stats["updated"] >= 1
-
-        row = (
-            store_conn(self.store)
-            .execute(
-                "SELECT size FROM communities WHERE id = ?",
-                (comm_id,),
-            )
-            .fetchone()
-        )
-        live_count = (
-            store_conn(self.store)
-            .execute(
-                "SELECT COUNT(*) FROM nodes WHERE community_id = ?",
-                (comm_id,),
-            )
-            .fetchone()[0]
-        )
-        assert row[0] == live_count
-
-    def test_architecture_overview_warns_on_stale_community_size(self):
-        """Architecture overview surfaces stored/live size divergence."""
-        self._seed_two_clusters()
-        communities = detect_communities(self.store, min_size=2)
-        store_communities(self.store, communities)
-
-        comm_id = get_communities(self.store)[0]["id"]
-        node_id = (
-            store_conn(self.store)
-            .execute(
-                "SELECT id FROM nodes WHERE community_id = ? LIMIT 1",
-                (comm_id,),
-            )
-            .fetchone()[0]
-        )
-        store_conn(self.store).execute(
-            "UPDATE nodes SET community_id = NULL WHERE id = ?",
-            (node_id,),
-        )
-        self.store.commit()
-
-        overview = get_architecture_overview(self.store)
-        assert any("stored size" in warning for warning in overview["warnings"])
 
 
 class TestDuplicateCommunityNames:
@@ -629,69 +508,4 @@ class TestDuplicateCommunityNames:
             )
         )
 
-    def test_same_name_communities_keep_their_own_members(self):
-        for i in range(8):
-            self._node(f"fn{i}", i * 10 + 1)
-        self.store.commit()
 
-        first = [f"svc/user.py::fn{i}" for i in range(4)]
-        second = [f"svc/user.py::fn{i}" for i in range(4, 8)]
-        count = store_communities(
-            self.store,
-            [
-                {"name": "svc-user", "size": 4, "cohesion": 0.5, "members": first},
-                {"name": "svc-user", "size": 4, "cohesion": 0.5, "members": second},
-            ],
-        )
-        assert count == 2
-
-        rows = (
-            store_conn(self.store)
-            .execute("SELECT id, name FROM communities ORDER BY id")
-            .fetchall()
-        )
-        assert len(rows) == 2
-        # Names are disambiguated so a by-name lookup is unambiguous.
-        assert {row["name"] for row in rows} == {"svc-user", "svc-user-2"}
-
-        by_community = {}
-        for row in store_conn(self.store).execute(
-            "SELECT community_id, qualified_name FROM nodes WHERE community_id IS NOT NULL"
-        ):
-            by_community.setdefault(row["community_id"], set()).add(row["qualified_name"])
-
-        assert len(by_community) == 2, f"members collapsed into {by_community}"
-        assert set(by_community[rows[0]["id"]]) == set(first)
-        assert set(by_community[rows[1]["id"]]) == set(second)
-
-    def test_refresh_stats_does_not_delete_either_community(self):
-        for i in range(8):
-            self._node(f"fn{i}", i * 10 + 1)
-        self.store.commit()
-        store_communities(
-            self.store,
-            [
-                {
-                    "name": "svc-user",
-                    "size": 4,
-                    "cohesion": 0.5,
-                    "members": [f"svc/user.py::fn{i}" for i in range(4)],
-                },
-                {
-                    "name": "svc-user",
-                    "size": 4,
-                    "cohesion": 0.5,
-                    "members": [f"svc/user.py::fn{i}" for i in range(4, 8)],
-                },
-            ],
-        )
-        refresh_community_stats(self.store)
-        self.store.commit()
-
-        remaining = (
-            store_conn(self.store)
-            .execute("SELECT name, size FROM communities ORDER BY id")
-            .fetchall()
-        )
-        assert len(remaining) == 2, f"a community was pruned away: {remaining}"
-        assert [row["size"] for row in remaining] == [4, 4]

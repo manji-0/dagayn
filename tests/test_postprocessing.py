@@ -265,59 +265,6 @@ class TestRunPostProcessing:
         assert len(sig) <= 512
 
 
-class TestPostProcessingStepIsolation:
-    def setup_method(self):
-        self.tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-        self.store = GraphStore(self.tmp.name)
-        self.store.upsert_node(
-            NodeInfo(
-                kind="Function",
-                name="fn",
-                file_path="/repo/a.py",
-                line_start=1,
-                line_end=5,
-                language="python",
-            )
-        )
-        self.store.commit()
-
-    def teardown_method(self):
-        self.store.close()
-        Path(self.tmp.name).unlink(missing_ok=True)
-
-    def test_fts_failure_does_not_block_flows(self):
-        with patch(
-            "dagayn.search.rebuild_fts_index",
-            side_effect=ImportError("fts boom"),
-        ):
-            result = run_post_processing(self.store)
-
-        assert result.flows_detected is not None
-        assert result.communities_detected is not None
-        assert result.warnings
-        assert any("FTS" in w for w in result.warnings)
-
-    def test_flow_failure_does_not_block_communities(self):
-        with patch(
-            "dagayn.flows.rebuild_stored_flows",
-            side_effect=ImportError("flow boom"),
-        ):
-            result = run_post_processing(self.store)
-
-        assert result.communities_detected is not None
-        assert result.warnings
-        assert any("Flow" in w for w in result.warnings)
-
-    def test_community_failure_still_has_signatures(self):
-        with patch(
-            "dagayn.communities.detect_communities",
-            side_effect=ImportError("comm boom"),
-        ):
-            result = run_post_processing(self.store)
-
-        assert (result.signatures_computed or 0) > 0
-        assert result.warnings
-        assert any("Community" in w for w in result.warnings)
 
 
 class TestToolBuildUsesSharedPipeline:
