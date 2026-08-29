@@ -461,35 +461,21 @@ def _get_minimal_context_body(
         # 3. Top 3 communities
         communities: list[str] = []
         try:
-            conn = getattr(store, "_conn", None)
-            if conn is not None:
-                rows = conn.execute(
-                    "SELECT name FROM communities ORDER BY size DESC LIMIT 3"
-                ).fetchall()
-                communities = _names_from_rows(rows, limit=3)
-            else:
-                from ..communities import get_communities
+            from ..communities import get_communities
 
-                communities = _names_from_items(
-                    get_communities(store, sort_by="size")[:3],
-                    limit=3,
-                )
+            communities = _names_from_items(
+                get_communities(store, sort_by="size")[:3],
+                limit=3,
+            )
         except (sqlite3.OperationalError, RuntimeError, ImportError, KeyError, TypeError):  # nosec B110
             logger.debug("communities table not yet populated")
 
         # 4. Top 3 critical flows
         top_flows: list[str] = []
         try:
-            conn = getattr(store, "_conn", None)
-            if conn is not None:
-                rows = conn.execute(
-                    "SELECT name FROM flows ORDER BY criticality DESC LIMIT 3"
-                ).fetchall()
-                top_flows = _names_from_rows(rows, limit=3)
-            else:
-                from ..flows import get_flows
+            from ..flows import get_flows
 
-                top_flows = _names_from_items(get_flows(store, limit=3), limit=3)
+            top_flows = _names_from_items(get_flows(store, limit=3), limit=3)
         except (sqlite3.OperationalError, RuntimeError, ImportError, KeyError, TypeError):  # nosec B110
             logger.debug("flows table not yet populated")
 

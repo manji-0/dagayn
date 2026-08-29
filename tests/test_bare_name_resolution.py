@@ -17,6 +17,7 @@ from dagayn.bare_name_resolution import (
 from dagayn.graph import GraphStore
 from dagayn.parser import EdgeInfo, NodeInfo
 from dagayn.tools.query import query_graph
+from tests.store_sql import store_conn
 
 
 def _node(kind: str, name: str, file_path: str, **extra) -> NodeInfo:
@@ -92,7 +93,7 @@ class TestResolveBareCallTargets:
         store.commit()
 
         assert resolve_bare_call_targets(store) == 0
-        row = store._conn.execute(
+        row = store_conn(store).execute(
             "SELECT target_qualified FROM edges WHERE kind='CALLS'"
         ).fetchone()
         assert row["target_qualified"] == "helper"
@@ -112,11 +113,11 @@ class TestResolveBareCallTargets:
         store.upsert_edge(_edge("CALLS", "Broker.cs::Resolve", "CreateCriteria", "Broker.cs"))
         store.commit()
 
-        visibility = build_symbol_visibility(store._conn)
+        visibility = build_symbol_visibility(store_conn(store))
         assert visibility.declared["Broker.cs"] == {"Repro.Infra"}
 
         assert resolve_bare_call_targets(store) == 1
-        row = store._conn.execute(
+        row = store_conn(store).execute(
             "SELECT target_qualified FROM edges WHERE kind='CALLS'"
         ).fetchone()
         assert row["target_qualified"] == "Factory.cs::CreateCriteria"
@@ -133,7 +134,7 @@ class TestResolveBareCallTargets:
         store.commit()
 
         assert resolve_bare_call_targets(store) == 1
-        row = store._conn.execute(
+        row = store_conn(store).execute(
             "SELECT target_qualified FROM edges WHERE kind='CALLS'"
         ).fetchone()
         assert row["target_qualified"] == "Broker.php::phpBuild"
@@ -153,15 +154,15 @@ class TestResolveBareCallTargets:
         store.upsert_edge(_edge("CALLS", "broker.cpp::use", "createAllowed", "broker.cpp"))
         store.commit()
         # The definition belongs to the class declared in the header.
-        store._conn.execute(
+        store_conn(store).execute(
             "UPDATE nodes SET parent_name = 'Factory', qualified_name = ? "
             "WHERE name = 'createAllowed'",
             ("factory.cpp::Factory.createAllowed",),
         )
-        store._conn.commit()
+        store_conn(store).commit()
 
         assert resolve_bare_call_targets(store) == 1
-        row = store._conn.execute(
+        row = store_conn(store).execute(
             "SELECT target_qualified FROM edges WHERE kind='CALLS'"
         ).fetchone()
         assert row["target_qualified"] == "factory.cpp::Factory.createAllowed"
@@ -177,7 +178,7 @@ class TestResolveBareCallTargets:
         store.commit()
 
         assert resolve_bare_call_targets(store) == 1
-        row = store._conn.execute(
+        row = store_conn(store).execute(
             "SELECT target_qualified, confidence_tier FROM edges WHERE kind='CALLS'"
         ).fetchone()
         assert row["target_qualified"] == "a.py::helper"
@@ -196,7 +197,7 @@ class TestResolveBareInheritanceTargets:
         store.commit()
 
         assert resolve_bare_inheritance_targets(store) == 1
-        row = store._conn.execute(
+        row = store_conn(store).execute(
             "SELECT target_qualified, confidence_tier FROM edges WHERE kind='INHERITS'"
         ).fetchone()
         assert row["target_qualified"] == "base.py::Base"
@@ -213,7 +214,7 @@ class TestResolveBareInheritanceTargets:
         store.commit()
 
         assert resolve_bare_inheritance_targets(store) == 0
-        row = store._conn.execute(
+        row = store_conn(store).execute(
             "SELECT target_qualified, confidence_tier, extra FROM edges WHERE kind='INHERITS'"
         ).fetchone()
         assert row["target_qualified"] == "Base"

@@ -139,11 +139,11 @@ def test_rust_incremental_candidates_keep_compound_terraform_extensions(tmp_path
     assert removed == []
 
 
-def test_python_backend_can_be_forced(monkeypatch):
+def test_python_backend_is_rejected(monkeypatch):
     monkeypatch.setenv("DAGAYN_BACKEND", "python")
-    monkeypatch.setattr("dagayn.incremental._rust_backend_available", lambda: True)
 
-    assert _rust_backend_enabled() is False
+    with pytest.raises(RuntimeError, match="removed"):
+        _rust_backend_enabled()
 
 
 def test_python_store_uses_python_parser_when_rust_is_default(tmp_path, monkeypatch):

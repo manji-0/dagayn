@@ -1,17 +1,54 @@
-"""Thin flow API. Algorithms live in ``dagayn.legacy_py.flows``.
+"""Flow API backed by ``dagayn._core``.
 
-Rust-backed stores keep rebuild/query on ``dagayn._core``. The Python
-implementation is imported only when a native method is missing or fails.
+Reachable-set tracing and persistence live in the native store. This module
+shapes those JSON payloads for CLI/MCP callers.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Callable, Optional, cast
+from collections.abc import Mapping, Sequence
+from typing import Any, Callable, Optional, TypedDict, cast
 
-from .graph import GraphNode, GraphStore
+from .graph import GraphEdge, GraphNode, GraphStore
 from .state_types import AffectedFlowsResult, ChangeFlowRecord
+
+
+class FlowStepRecord(TypedDict, total=False):
+    id: int
+    qualified_name: str
+    name: str
+    file_path: str
+    kind: str
+    is_bridge_step: bool
+
+
+class FlowRecord(TypedDict, total=False):
+    """Reachable-set flow payload shared by tracing and query helpers."""
+
+    id: int
+    name: str
+    entry_point: str
+    entry_point_id: int
+    kind: str
+    path: list[int]
+    members: list[int]
+    depth: int
+    node_count: int
+    file_count: int
+    files: list[str]
+    truncated: bool
+    truncation_reason: str | None
+    criticality: float
+    steps: list[FlowStepRecord]
+    resolved_step_count: int
+    missing_step_count: int
+    bridge_step_count: int
+    resolved_node_count: int
+    missing_node_count: int
+    created_at: str | None
+    updated_at: str | None
 
 logger = logging.getLogger(__name__)
 
@@ -20,10 +57,11 @@ DEFAULT_FLOW_MAX_NODES = 512
 FLOW_KIND_REACHABLE_SET = "reachable_set"
 
 
-def _legacy() -> Any:
-    from dagayn.legacy_py import flows as impl
-
-    return impl
+def _require_native(store: GraphStore, name: str) -> Any:
+    method = getattr(store, name, None)
+    if not callable(method):
+        raise RuntimeError(f"GraphStore.{name} is required (Rust GraphStore).")
+    return method
 
 
 def detect_entry_points(
@@ -31,16 +69,11 @@ def detect_entry_points(
     include_tests: bool = False,
 ) -> list[GraphNode]:
     """Find functions that are entry points in the graph."""
-    native = getattr(store, "detect_entry_points_json", None)
-    if callable(native):
-        try:
-            rows = json.loads(cast(Callable[[bool], str], native)(include_tests))
-            ids = [int(row["id"]) for row in rows if isinstance(row, dict) and "id" in row]
-            nodes_by_id = store.get_nodes_by_ids(ids)
-            return [nodes_by_id[node_id] for node_id in ids if node_id in nodes_by_id]
-        except Exception:  # noqa: BLE001 — native acceleration must be optional
-            logger.debug("Native entry-point detection failed; falling back", exc_info=True)
-    return _legacy().detect_entry_points(store, include_tests=include_tests)
+    native = _require_native(store, "detect_entry_points_json")
+    rows = json.loads(cast(Callable[[bool], str], native)(include_tests))
+    ids = [int(row["id"]) for row in rows if isinstance(row, dict) and "id" in row]
+    nodes_by_id = store.get_nodes_by_ids(ids)
+    return [nodes_by_id[node_id] for node_id in ids if node_id in nodes_by_id]
 
 
 def rebuild_stored_flows(
@@ -49,15 +82,27 @@ def rebuild_stored_flows(
     max_depth: int = DEFAULT_FLOW_MAX_DEPTH,
     include_tests: bool = False,
 ) -> int:
-    """Rebuild stored flows, keeping reachable-set tracing inside Rust when possible."""
-    native = getattr(store, "rebuild_flows_json", None)
-    if callable(native):
-        try:
-            payload = json.loads(cast(Callable[[int, bool], str], native)(max_depth, include_tests))
-            return int(payload.get("count") or 0)
-        except Exception:  # noqa: BLE001 — native acceleration must be optional
-            logger.debug("Native flow rebuild failed; falling back", exc_info=True)
-    return _legacy().rebuild_stored_flows(store, max_depth=max_depth, include_tests=include_tests)
+    """Rebuild stored flows in the native store."""
+    native = _require_native(store, "rebuild_flows_json")
+    payload = json.loads(cast(Callable[[int, bool], str], native)(max_depth, include_tests))
+    return int(payload.get("count") or 0)
+
+
+def trace_flows(
+    store: GraphStore,
+    max_depth: int = DEFAULT_FLOW_MAX_DEPTH,
+    include_tests: bool = False,
+    max_nodes: int = DEFAULT_FLOW_MAX_NODES,
+) -> list[Any]:
+    """Trace reachable-set flows and persist them, then return the stored rows."""
+    del max_nodes  # native rebuild uses the store's own node cap
+    rebuild_stored_flows(store, max_depth=max_depth, include_tests=include_tests)
+    return get_flows(store, limit=10**9)
+
+
+def _hydrate_flow_rows(store: GraphStore, rows: list[Any]) -> list[Any]:
+    """Annotate stored flow rows with live steps and bridge markers."""
+    return [_annotate_flow_dict_bridges(store, row) for row in rows]
 
 
 def incremental_trace_flows(
@@ -68,16 +113,15 @@ def incremental_trace_flows(
     """Re-trace flows whose reachable sets are affected by *changed_files*."""
     if not changed_files:
         return 0
-    native = getattr(store, "incremental_trace_flows_json", None)
-    if callable(native):
-        try:
-            payload = json.loads(
-                cast(Callable[[list[str], int], str], native)(changed_files, max_depth)
-            )
-            return int(payload.get("count") or 0)
-        except Exception:  # noqa: BLE001
-            logger.debug("Native incremental flow trace failed; falling back", exc_info=True)
-    return _legacy().incremental_trace_flows(store, changed_files, max_depth=max_depth)
+    native = _require_native(store, "incremental_trace_flows_json")
+    payload = json.loads(cast(Callable[[list[str], int], str], native)(changed_files, max_depth))
+    return int(payload.get("count") or 0)
+
+
+def store_flows(store: GraphStore, flows: Sequence[Mapping[str, object]]) -> int:
+    """Persist traced flow dicts through the native store."""
+    native = _require_native(store, "store_flows_json")
+    return int(cast(Callable[[str], int], native)(json.dumps(list(flows))))
 
 
 def get_flows(
@@ -89,22 +133,18 @@ def get_flows(
     allowed_sort = {"criticality", "depth", "node_count", "file_count", "name"}
     if sort_by not in allowed_sort:
         sort_by = "criticality"
-    rust_get = getattr(store, "get_flows_json", None)
-    if callable(rust_get):
-        rows_json = cast(Callable[[str, int], str], rust_get)(sort_by, limit)
-        return _legacy()._annotate_flow_rows_liveness(store, json.loads(rows_json))
-    return _legacy().get_flows(store, sort_by=sort_by, limit=limit)
+    rust_get = _require_native(store, "get_flows_json")
+    rows_json = cast(Callable[[str, int], str], rust_get)(sort_by, limit)
+    return _annotate_flow_rows_liveness(store, json.loads(rows_json))
 
 
 def get_flow_by_id(store: GraphStore, flow_id: int) -> Optional[Any]:
     """Retrieve a single flow with reachable-set membership details."""
-    rust_get = getattr(store, "get_flow_by_id_json", None)
-    if callable(rust_get):
-        raw = cast(Callable[[int], str | None], rust_get)(flow_id)
-        if not raw:
-            return None
-        return _legacy()._annotate_flow_dict_bridges(store, json.loads(raw))
-    return _legacy().get_flow_by_id(store, flow_id)
+    rust_get = _require_native(store, "get_flow_by_id_json")
+    raw = cast(Callable[[int], str | None], rust_get)(flow_id)
+    if not raw:
+        return None
+    return _annotate_flow_dict_bridges(store, json.loads(raw))
 
 
 def get_affected_flows(
@@ -114,32 +154,117 @@ def get_affected_flows(
     """Find flows that include nodes from the given changed files."""
     if not changed_files:
         return {"affected_flows": [], "total": 0}
-    rust_get = getattr(store, "get_affected_flows_json", None)
-    if callable(rust_get):
-        affected_json = cast(Callable[[list[str]], str], rust_get)(changed_files)
-        impl = _legacy()
-        affected = cast(
-            list[ChangeFlowRecord],
-            [impl._annotate_flow_dict_bridges(store, flow) for flow in json.loads(affected_json)],
-        )
-        return {"affected_flows": affected, "total": len(affected)}
-    return _legacy().get_affected_flows(store, changed_files)
+    rust_get = _require_native(store, "get_affected_flows_json")
+    affected_json = cast(Callable[[list[str]], str], rust_get)(changed_files)
+    affected = cast(
+        list[ChangeFlowRecord],
+        [_annotate_flow_dict_bridges(store, flow) for flow in json.loads(affected_json)],
+    )
+    return {"affected_flows": affected, "total": len(affected)}
 
 
-def __getattr__(name: str) -> Any:
-    value = getattr(_legacy(), name)
-    globals()[name] = value
-    return value
+def _annotate_flow_rows_liveness(store: GraphStore, flows: list[Any]) -> list[Any]:
+    """Add resolved/missing node counts to listed flows."""
+    all_ids = {
+        node_id
+        for flow in flows
+        for node_id in (flow.get("path") or [])
+        if isinstance(node_id, int)
+    }
+    if not all_ids:
+        return flows
+    try:
+        live_ids = set(store.get_nodes_by_ids(sorted(all_ids)).keys())
+    except Exception:  # noqa: BLE001 — annotation must never break a listing
+        logger.debug("Could not resolve flow node liveness", exc_info=True)
+        return flows
+    for flow in flows:
+        path_ids = [node_id for node_id in (flow.get("path") or []) if isinstance(node_id, int)]
+        resolved = sum(1 for node_id in path_ids if node_id in live_ids)
+        flow["resolved_node_count"] = resolved
+        flow["missing_node_count"] = len(path_ids) - resolved
+    return flows
+
+
+def _collect_cross_artifact_edges_among(
+    store: GraphStore,
+    path_qns: set[str],
+) -> list[GraphEdge]:
+    """Fetch CROSS_ARTIFACT edges whose endpoints are both in ``path_qns``."""
+    if not path_qns:
+        return []
+    try:
+        get_among = getattr(store, "get_edges_among", None)
+        if callable(get_among):
+            edges = cast(Callable[[set[str]], list[GraphEdge]], get_among)(path_qns)
+            return [edge for edge in edges if getattr(edge, "kind", None) == "CROSS_ARTIFACT"]
+        outgoing, incoming = store.get_edges_by_endpoints(list(path_qns))
+        bridge_edges: list[GraphEdge] = []
+        seen: set[int] = set()
+        for edge_list in (*outgoing.values(), *incoming.values()):
+            for edge in edge_list:
+                edge_id = getattr(edge, "id", None)
+                if edge_id in seen:
+                    continue
+                if edge_id is not None:
+                    seen.add(edge_id)
+                if getattr(edge, "kind", None) == "CROSS_ARTIFACT":
+                    src = str(getattr(edge, "source_qualified", "") or "")
+                    tgt = str(getattr(edge, "target_qualified", "") or "")
+                    if src in path_qns and tgt in path_qns:
+                        bridge_edges.append(edge)
+        return bridge_edges
+    except Exception:  # pragma: no cover - backend parity drift
+        return []
+
+
+def _annotate_flow_step_resolution(flow: Any) -> Any:
+    """Add resolved/missing step counts for stored flow paths."""
+    path_ids = flow.get("path") or []
+    steps = flow.get("steps") or []
+    resolved_step_count = len(steps)
+    if path_ids:
+        missing_step_count = len(path_ids) - resolved_step_count
+    else:
+        stored_node_count = int(flow.get("node_count") or resolved_step_count)
+        missing_step_count = max(0, stored_node_count - resolved_step_count)
+    annotated = dict(flow)
+    annotated["resolved_step_count"] = resolved_step_count
+    annotated["missing_step_count"] = missing_step_count
+    return annotated
+
+
+def _annotate_flow_dict_bridges(store: GraphStore, flow: Any) -> Any:
+    """Mark bridge arrivals on a flow dict returned by the native store."""
+    from .cross_artifact import annotate_flow_steps_with_bridges
+
+    steps = list(flow.get("steps") or [])
+    path_qns = {
+        str(step.get("qualified_name"))
+        for step in steps
+        if isinstance(step.get("qualified_name"), str)
+    }
+    bridge_edges = _collect_cross_artifact_edges_among(store, path_qns)
+    annotated = dict(flow)
+    annotated["steps"] = annotate_flow_steps_with_bridges(steps, bridge_edges)
+    annotated["bridge_step_count"] = sum(
+        1 for step in annotated["steps"] if step.get("is_bridge_step")
+    )
+    return _annotate_flow_step_resolution(annotated)
 
 
 __all__ = [
     "DEFAULT_FLOW_MAX_DEPTH",
     "DEFAULT_FLOW_MAX_NODES",
     "FLOW_KIND_REACHABLE_SET",
+    "FlowRecord",
+    "FlowStepRecord",
     "detect_entry_points",
     "get_affected_flows",
     "get_flow_by_id",
     "get_flows",
     "incremental_trace_flows",
     "rebuild_stored_flows",
+    "store_flows",
+    "trace_flows",
 ]

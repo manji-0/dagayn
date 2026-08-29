@@ -14,6 +14,7 @@ from dagayn.graph import GraphStore
 from dagayn.parser.types import EdgeInfo, NodeInfo
 from dagayn.postprocessing import _resolve_markdown_artifact_refs
 from dagayn.state_types import PostprocessResult
+from tests.store_sql import store_conn
 
 
 def _make_store() -> tuple[GraphStore, Path]:
@@ -104,14 +105,14 @@ class TestResolveToDemote:
         assert result.markdown_artifact_refs_dropped == 0
 
         # Now remove the symbol (simulate rename/delete in Python)
-        self.store._conn.execute("DELETE FROM nodes WHERE name='compute_foo'")
+        store_conn(self.store).execute("DELETE FROM nodes WHERE name='compute_foo'")
         self.store.commit()
 
         result2 = PostprocessResult()
         _resolve_markdown_artifact_refs(self.store, result2, [])
         assert result2.markdown_artifact_refs_dropped == 1
 
-        count = self.store._conn.execute(
+        count = store_conn(self.store).execute(
             "SELECT COUNT(*) FROM edges WHERE kind='CROSS_ARTIFACT'"
         ).fetchone()[0]
         assert count == 0
@@ -137,7 +138,7 @@ class TestUnresolvedToResolved:
         assert result1.markdown_artifact_refs_still_unresolved == 0
         assert result1.markdown_artifact_refs_dropped == 1
 
-        count = self.store._conn.execute(
+        count = store_conn(self.store).execute(
             "SELECT COUNT(*) FROM edges WHERE kind='CROSS_ARTIFACT'"
         ).fetchone()[0]
         assert count == 0
@@ -165,7 +166,7 @@ class TestAmbiguousToUnique:
         assert result1.markdown_artifact_refs_still_unresolved == 0
         assert result1.markdown_artifact_refs_dropped == 1
 
-        count = self.store._conn.execute(
+        count = store_conn(self.store).execute(
             "SELECT COUNT(*) FROM edges WHERE kind='CROSS_ARTIFACT'"
         ).fetchone()[0]
         assert count == 0
@@ -198,7 +199,7 @@ class TestUniqueToAmbiguous:
         _resolve_markdown_artifact_refs(self.store, result2, [])
         assert result2.markdown_artifact_refs_dropped == 1
 
-        count = self.store._conn.execute(
+        count = store_conn(self.store).execute(
             "SELECT COUNT(*) FROM edges WHERE kind='CROSS_ARTIFACT'"
         ).fetchone()[0]
         assert count == 0

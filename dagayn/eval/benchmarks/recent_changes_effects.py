@@ -247,17 +247,8 @@ def _legacy_store_file_batch(
     store: GraphStore,
     batch: list[tuple[str, list[NodeInfo], list[EdgeInfo], str, int]],
 ) -> None:
-    store._conn.execute("BEGIN IMMEDIATE")
-    try:
-        for file_path, nodes, edges, fhash, mtime_ns in batch:
-            store.remove_file_data(file_path)
-            store._bulk_insert_nodes(nodes, fhash, mtime_ns)
-            store._bulk_insert_edges(edges)
-        store._conn.commit()
-    except BaseException:
-        store._conn.rollback()
-        raise
-    store._invalidate_cache()
+    for item in batch:
+        store.store_file_batch([item])
 
 
 def _scenario_batch_remove(config: BenchmarkPayload) -> BenchmarkPayload:

@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from dagayn.parser import CodeParser
+from tests.store_sql import store_conn
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -1639,7 +1640,7 @@ class TestMarkdownMultiFileBuild(_TempRepoBuildMixin):
         store, _ = self._build(tmp_path)
         spec_path = "docs/spec.md"
         impl_path = "docs/impl.md"
-        cur = store._conn.cursor()
+        cur = store_conn(store).cursor()
 
         depends = cur.execute(
             "SELECT source_qualified, target_qualified, extra FROM edges "
@@ -1718,7 +1719,7 @@ class TestTerraformMultiFileBuild(_TempRepoBuildMixin):
         store, _ = self._build(tmp_path)
         root_main = "infra/main.tf"
         root_outputs = "infra/outputs.tf"
-        cur = store._conn.cursor()
+        cur = store_conn(store).cursor()
 
         imports = cur.execute(
             "SELECT target_qualified FROM edges WHERE kind='IMPORTS_FROM' AND file_path=?",
@@ -1772,7 +1773,7 @@ class TestMixedMonorepoBuild(_TempRepoBuildMixin):
         docs_runbook = "docs/runbook.md"
         svc_app = "services/api/app.py"
         infra_main = "infra/main.tf"
-        cur = store._conn.cursor()
+        cur = store_conn(store).cursor()
 
         langs = {
             row["language"]
@@ -1804,7 +1805,7 @@ class TestMixedMonorepoBuild(_TempRepoBuildMixin):
         store, _ = self._build(tmp_path)
         docs_runbook = "docs/runbook.md"
         docs_spec = "docs/spec.md"
-        cur = store._conn.cursor()
+        cur = store_conn(store).cursor()
 
         depends = cur.execute(
             "SELECT source_qualified, target_qualified, extra FROM edges "

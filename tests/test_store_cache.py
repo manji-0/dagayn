@@ -13,13 +13,7 @@ import pytest
 
 from dagayn.graph import GraphStore
 from dagayn.tools._common import _evict_store_cache, _get_store, recover_corrupt_graph
-
-
-@pytest.fixture(autouse=True)
-def _python_store_backend(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Lease/cache tests target the Python GraphStore (``_leases``, ``_conn``)."""
-    monkeypatch.setenv("DAGAYN_BACKEND", "python")
-
+from tests.store_sql import store_conn
 
 # ---------------------------------------------------------------------------
 # Unit tests: GraphStore.close() state machine
@@ -34,8 +28,8 @@ class TestGraphStoreLease:
         assert store._leases == 0
         assert not store._pinned
         store.close()
-        with pytest.raises(Exception):  # closed connection raises on use
-            store._conn.execute("SELECT 1")
+        with pytest.raises(Exception):  # closed store raises on use
+            store.get_stats()
 
     def test_pinned_store_closes_when_idle(self, tmp_path):
         """Idle cached stores close so a writer does not overlap a leftover reader."""
@@ -44,8 +38,8 @@ class TestGraphStoreLease:
         store._pinned = True
         store._leases = 1
         store.close()  # lease 1→0; connection must close even though pinned
-        with pytest.raises(Exception):  # closed connection raises on use
-            store._conn.execute("SELECT 1")
+        with pytest.raises(Exception):  # closed store raises on use
+            store.get_stats()
 
     def test_evicted_store_with_lease_survives_close(self, tmp_path):
         """After eviction (pinned=False) a store with leases>0 stays open."""
@@ -55,11 +49,11 @@ class TestGraphStoreLease:
         store._leases = 2
 
         store.close()  # leases 2→1; not yet zero
-        store._conn.execute("SELECT 1")  # still open
+        store.get_stats()  # still open
 
         store.close()  # leases 1→0; now closes
         with pytest.raises(Exception):
-            store._conn.execute("SELECT 1")
+            store.get_stats()
 
     def test_evicted_store_zero_leases_closes(self, tmp_path):
         """After eviction with leases=0 the next close() closes the connection."""
@@ -69,7 +63,7 @@ class TestGraphStoreLease:
         store._leases = 1
         store.close()  # 1→0, pinned=False → _conn.close()
         with pytest.raises(Exception):
-            store._conn.execute("SELECT 1")
+            store.get_stats()
 
 
 # ---------------------------------------------------------------------------
@@ -120,7 +114,7 @@ class TestGetStoreLease:
         assert not store._pinned
         store.close()
         with pytest.raises(Exception):
-            store._conn.execute("SELECT 1")
+            store.get_stats()
 
 
 # ---------------------------------------------------------------------------
@@ -143,7 +137,7 @@ class TestEvictionSafety:
         assert store._leases == 0
         _evict_store_cache(db)
         with pytest.raises(Exception):
-            store._conn.execute("SELECT 1")
+            store.get_stats()
 
     def test_evict_with_inflight_keeps_connection_open(self, tmp_path):
         """Evicting a store with active leases must NOT close the connection."""
@@ -159,12 +153,12 @@ class TestEvictionSafety:
         _evict_store_cache(db)
 
         # Connection must still be usable.
-        store._conn.execute("SELECT 1")
+        store.get_stats()
 
         # Releasing the lease now closes the connection.
         store.close()
         with pytest.raises(Exception):
-            store._conn.execute("SELECT 1")
+            store.get_stats()
 
     def test_evict_full_cache_with_inflight(self, tmp_path):
         """Full-cache evict (db_path=None) also respects in-flight leases."""
@@ -176,11 +170,11 @@ class TestEvictionSafety:
         store, _ = _get_store(str(tmp_path))
 
         _evict_store_cache()  # no db_path → clears all
-        store._conn.execute("SELECT 1")  # still open
+        store.get_stats()  # still open
 
         store.close()
         with pytest.raises(Exception):
-            store._conn.execute("SELECT 1")
+            store.get_stats()
 
     def test_concurrent_evict_does_not_break_inflight_reader(self, tmp_path):
         """Race regression: eviction during an active read must not crash the reader.
@@ -206,7 +200,7 @@ class TestEvictionSafety:
                 store, _ = _get_store(str(tmp_path))
                 read_acquired.set()  # signal: store acquired, mid-read
                 evict_done.wait(timeout=5)  # wait for eviction
-                store._conn.execute("SELECT 1")  # must not raise
+                store.get_stats()  # must not raise
                 store.close()
             except Exception as exc:
                 errors.append(exc)
@@ -364,7 +358,7 @@ class TestSqliteMmapDisabled:
     def test_python_graph_store_disables_mmap(self, tmp_path):
         store = GraphStore(tmp_path / "g.db")
         try:
-            mmap_size = store._conn.execute("PRAGMA mmap_size").fetchone()[0]
+            mmap_size = store_conn(store).execute("PRAGMA mmap_size").fetchone()[0]
             assert mmap_size == 0
         finally:
             store.close()
@@ -430,16 +424,16 @@ class TestCorruptRecovery:
         db = tmp_path / ".dagayn" / "graph.db"
         db.parent.mkdir()
         leaked = GraphStore(db)
-        leaked._conn.execute("SELECT 1")
+        leaked.get_stats()
 
         assert recover_corrupt_graph(db) is True
 
         with pytest.raises(Exception):
-            leaked._conn.execute("SELECT 1")
+            leaked.get_stats()
 
         fresh = GraphStore(db)
         try:
-            fresh._conn.execute("SELECT 1")
+            fresh.get_stats()
         finally:
             fresh.close()
         _evict_store_cache()
@@ -450,4 +444,4 @@ class TestCorruptRecovery:
         store._leases = 1
         store.close()
         with pytest.raises(Exception):
-            store._conn.execute("SELECT 1")
+            store.get_stats()

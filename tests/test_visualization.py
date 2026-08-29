@@ -6,6 +6,7 @@ import pytest
 
 from dagayn.graph import GraphStore
 from dagayn.parser import EdgeInfo, NodeInfo
+from tests.store_sql import store_conn
 
 
 @pytest.fixture
@@ -300,16 +301,16 @@ def large_store(tmp_path):
     )
 
     # Set community_id on nodes (simulate community detection)
-    store._conn.execute(
+    store_conn(store).execute(
         "UPDATE nodes SET community_id = 0 WHERE file_path IN ('src/mod0.py', 'src/mod1.py')"
     )
-    store._conn.execute(
+    store_conn(store).execute(
         "UPDATE nodes SET community_id = 1 WHERE file_path IN ('src/mod2.py', 'src/mod3.py')"
     )
-    store._conn.execute("UPDATE nodes SET community_id = 2 WHERE file_path = 'src/mod4.py'")
+    store_conn(store).execute("UPDATE nodes SET community_id = 2 WHERE file_path = 'src/mod4.py'")
 
     # Create communities table and insert communities
-    store._conn.execute("""
+    store_conn(store).execute("""
         CREATE TABLE IF NOT EXISTS communities (
             id INTEGER PRIMARY KEY,
             name TEXT NOT NULL,
@@ -320,29 +321,29 @@ def large_store(tmp_path):
             description TEXT DEFAULT ''
         )
     """)
-    store._conn.execute("""
+    store_conn(store).execute("""
         CREATE TABLE IF NOT EXISTS community_members (
             community_id INTEGER, node_id INTEGER,
             FOREIGN KEY (community_id) REFERENCES communities(id)
         )
     """)
-    store._conn.execute(
+    store_conn(store).execute(
         "INSERT INTO communities (id, name, level, cohesion, size, dominant_language, description) "
         "VALUES (0, 'Core Module', 0, 0.8, 8, 'python', 'Core functionality')"
     )
-    store._conn.execute(
+    store_conn(store).execute(
         "INSERT INTO communities (id, name, level, cohesion, size, dominant_language, description) "
         "VALUES (1, 'Data Module', 0, 0.7, 8, 'python', 'Data processing')"
     )
-    store._conn.execute(
+    store_conn(store).execute(
         "INSERT INTO communities (id, name, level, cohesion, size, dominant_language, description) "
         "VALUES (2, 'Utils', 0, 0.5, 4, 'python', 'Utility functions')"
     )
     # Insert community_members so get_communities works
-    for row in store._conn.execute(
+    for row in store_conn(store).execute(
         "SELECT id, qualified_name, community_id FROM nodes WHERE community_id IS NOT NULL"
     ).fetchall():
-        store._conn.execute(
+        store_conn(store).execute(
             "INSERT INTO community_members (community_id, node_id) VALUES (?, ?)",
             (row["community_id"], row["id"]),
         )

@@ -7,7 +7,6 @@ is left incomplete, or where two writers corrupt each other instead of queuing.
 from __future__ import annotations
 
 import collections
-import sqlite3
 import subprocess
 import sys
 import threading
@@ -25,6 +24,7 @@ from dagayn.write_lock import (
     graph_write_lock,
     write_lock_is_held,
 )
+from tests.store_sql import store_conn
 
 
 def _node(name: str, file_path: str = "f.py") -> NodeInfo:
@@ -274,7 +274,7 @@ class TestSharedConnectionThreadSafety:
             assert not errors, dict(errors)
             assert succeeded == 80
             # Last write per file wins; four files, one node each.
-            indexed = store._conn.execute("SELECT COUNT(*) FROM nodes").fetchone()[0]
+            indexed = store_conn(store).execute("SELECT COUNT(*) FROM nodes").fetchone()[0]
             assert indexed == 4
         finally:
             store.close()
@@ -300,63 +300,11 @@ class TestSharedConnectionThreadSafety:
             thread.join()
         try:
             assert not errors, errors
-            assert store._conn.execute("SELECT COUNT(*) FROM nodes").fetchone()[0] == 20
+            assert store_conn(store).execute("SELECT COUNT(*) FROM nodes").fetchone()[0] == 20
         finally:
             store.close()
 
 
-class TestMigrationAtomicity:
-    """#99: rollback() was a no-op under isolation_level=None."""
-
-    def _bare_db(self, tmp_path: Path) -> sqlite3.Connection:
-        conn = sqlite3.connect(tmp_path / "m.db", isolation_level=None)
-        conn.execute("CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT)")
-        conn.execute("INSERT INTO metadata VALUES ('schema_version', '1')")
-        conn.execute("CREATE TABLE nodes (id INTEGER PRIMARY KEY)")
-        return conn
-
-    def test_failed_migration_leaves_no_trace(self, tmp_path, monkeypatch):
-        import dagayn.migrations as migrations
-
-        conn = self._bare_db(tmp_path)
-
-        def half_applies_then_fails(target: sqlite3.Connection) -> None:
-            target.execute("ALTER TABLE nodes ADD COLUMN partial TEXT")
-            target.execute("INSERT INTO metadata VALUES ('side_effect', 'yes')")
-            raise sqlite3.OperationalError("boom")
-
-        monkeypatch.setattr(migrations, "MIGRATIONS", {2: half_applies_then_fails})
-        with pytest.raises(sqlite3.OperationalError):
-            migrations._apply_pending_migrations(conn, 1)
-
-        columns = {row[1] for row in conn.execute("PRAGMA table_info(nodes)")}
-        assert "partial" not in columns, "DDL survived a failed migration"
-        assert (
-            conn.execute("SELECT value FROM metadata WHERE key='side_effect'").fetchone() is None
-        ), "DML survived a failed migration"
-        assert (
-            conn.execute("SELECT value FROM metadata WHERE key='schema_version'").fetchone()[0]
-            == "1"
-        )
-        conn.close()
-
-    def test_migration_that_commits_internally_still_advances(self, tmp_path, monkeypatch):
-        """``ensure_edge_target_name_column`` commits on its own."""
-        import dagayn.migrations as migrations
-
-        conn = self._bare_db(tmp_path)
-
-        def commits_internally(target: sqlite3.Connection) -> None:
-            target.execute("ALTER TABLE nodes ADD COLUMN added TEXT")
-            target.commit()
-
-        monkeypatch.setattr(migrations, "MIGRATIONS", {2: commits_internally})
-        migrations._apply_pending_migrations(conn, 1)
-        assert (
-            conn.execute("SELECT value FROM metadata WHERE key='schema_version'").fetchone()[0]
-            == "2"
-        )
-        conn.close()
 
 
 class TestStoreFailureIsNotSilent:

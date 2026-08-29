@@ -60,19 +60,17 @@ a fact.
 <!-- constrained-by ./RUST-CORE-MIGRATION-WIP.md#phase-4-python-compatibility-shell -->
 
 The public Python modules (`dagayn.graph`, `dagayn.flows`, `dagayn.communities`,
-`dagayn.search`, `dagayn.postprocessing`) are compatibility shells. They keep
-the stable import paths and, on a native store, call `dagayn._core` first.
-The Python graph engine, flow tracer, community detector, FTS rebuild, and
-step-by-step post-process pipeline live in `dagayn.legacy_py/` for
-`DAGAYN_BACKEND=python` and regression comparison.
+`dagayn.search`, `dagayn.postprocessing`) are thin facades over `dagayn._core`.
+They keep the stable import paths. The graph engine is Rust-only:
+`from dagayn.graph import GraphStore` is `dagayn._core.GraphStore`.
 
-`from dagayn.graph import GraphStore` still resolves the Python store so tests
-and explicit Python-backend construction keep working. MCP/CLI production
-callers select the native store through `_selected_graph_store()`.
+`DAGAYN_BACKEND=python` is rejected. Hybrid search ranking and manifest-bridge
+extraction stay in Python; FTS rebuild, flows, communities, and post-process
+steps run in the native store.
 
-The Rust graph backend owns hot-path storage, parse/store, post-processing,
-and query primitives. New callers should depend on `GraphStore` methods rather
-than importing Rust bindings directly or reading `store._conn`.
+The Rust graph backend owns storage, parse/store, post-processing, and query
+primitives. New callers should depend on `GraphStore` methods rather than
+importing Rust bindings directly or reading a SQLite handle.
 
 ## Post-processing
 

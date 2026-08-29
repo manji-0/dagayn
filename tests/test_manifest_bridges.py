@@ -16,12 +16,13 @@ from dagayn.parser.manifest_bridges import (
 )
 from dagayn.postprocessing import _apply_manifest_bridges, run_post_processing
 from dagayn.state_types import PostprocessResult
+from tests.store_sql import store_conn
 
 FIXTURES = Path(__file__).parent / "fixtures" / "cross_artifact_manifest"
 
 
 def _ca_edges(store: GraphStore) -> list:
-    rows = store._conn.execute(
+    rows = store_conn(store).execute(
         "SELECT source_qualified, target_qualified, extra FROM edges WHERE kind='CROSS_ARTIFACT'"
     ).fetchall()
     out = []
@@ -183,7 +184,7 @@ class TestApplyManifestBridges:
 
         _apply_manifest_bridges(self.store, PostprocessResult(), [])
 
-        row = self.store._conn.execute(
+        row = store_conn(self.store).execute(
             "SELECT file_hash, mtime_ns, extra FROM nodes WHERE qualified_name=?",
             ("pyproject.toml",),
         ).fetchone()

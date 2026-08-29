@@ -14,7 +14,7 @@ The following design choices are settled and must not be reopened without explic
 |---|---|
 | Python ↔ Rust binding | PyO3 / maturin Python extension (`dagayn._core`) |
 | Migration order | Graph engine → Post-processing → Parser |
-| Parallel operation | `DAGAYN_BACKEND={python,rust}` env switch; no auto-fallback |
+| Parallel operation | Rust-only after Phase 4; `DAGAYN_BACKEND=python` is rejected |
 | Acceptance criteria | Correctness parity **and** explicit numeric performance targets |
 | ipynb / Markdown | Rust-only: `serde_json` for notebook cells, `cc`-built `tree-sitter-md` for Markdown |
 | Distribution targets | macOS arm64, macOS x86_64, Linux x86_64, Linux aarch64 (4 wheels) |
@@ -195,7 +195,7 @@ That includes:
 
 The env variable `DAGAYN_BACKEND` controls which backend handles each pipeline stage.
 
-Valid values: `python` (default during Phase 1–3), `rust` (default from Phase 4 onward).
+Valid values: `rust` (default). `python` was removed after Phase 4.
 
 Scope: resolved once at process startup. Per-subcommand override is supported by setting the env before each invocation.
 
@@ -211,30 +211,21 @@ Backend availability by phase:
 | 3     | Rust    | Rust       | Rust     | no                            |
 | 4+    | Rust    | Rust       | Rust     | yes                           |
 
-Phase 4 is landed: Python graph, flow, community, search, post-processing, and
-migration implementations live in `dagayn/legacy_py/`. Public `dagayn.graph` /
-`dagayn.flows` / `dagayn.communities` / `dagayn.search` /
-`dagayn.postprocessing` modules are compatibility shells that prefer native
-store methods and lazy-import the legacy package only on the Python backend
-or when a native method is missing.
+Phase 4 is landed: the Python graph engine was deleted. Public
+`dagayn.graph` / `dagayn.flows` / `dagayn.communities` / `dagayn.search` /
+`dagayn.postprocessing` modules are thin facades over `dagayn._core`.
+`DAGAYN_BACKEND=python` raises.
 
 ### `GraphStore` API parity
 
-The native store implements the full public method surface of the Python
-`GraphStore`, so a tool can hold either one without probing for `_conn` or for a
-method's existence. `tests/test_rust_graph_store_parity.py` asserts both halves:
-that no public Python method is missing from the native store, and that the two
-return equal results for the same graph.
+The native store is the only `GraphStore`. Tools should call store methods
+rather than probing for `_conn`.
 
 Consequences for new code:
 
-- **Do not read `store._conn`** outside `dagayn/graph/`. Add a store method to
-  both backends instead — that is what `refactor/dead_code.py` does after #153.
-- Private helpers (`_row_to_node`, `_build_networkx_graph`, `_bulk_insert_*`,
-  …) are deliberately *not* mirrored: they are Python-store internals. The three
-  that call sites outside `dagayn/graph/` do rely on
-  (`_normalize_file_path_key`, `_normalize_qualified_key`, `_invalidate_cache`)
-  are bound on the native store as well.
+- **Do not read `store._conn`.** Add a store method when SQL is required.
+- Private Python helpers (`_row_to_node`, `_build_networkx_graph`,
+  `_bulk_insert_*`, …) were deleted with the Python engine.
 - Two behaviours differ by design, both documented at their definitions:
   `get_impact_radius` has no NetworkX arm natively (`CRG_BFS_ENGINE=networkx`
   applies to the Python store only, and both engines agree), and native
@@ -706,18 +697,16 @@ Parity acceptance: canonical JSON for all fixtures matches Python output exactly
 
 ### Phase 4: Python compatibility shell
 
-Delivered. `dagayn/cli.py`, `dagayn/main.py`, and `dagayn/tools/` keep calling
-the public `GraphStore` / flow / community / search / post-process APIs; those
-modules now prefer `dagayn._core` and only load `dagayn.legacy_py` when the
-Python backend is selected or a native method is missing.
+Delivered, then the leftover Python engine was deleted. `dagayn/cli.py`,
+`dagayn/main.py`, and `dagayn/tools/` still call the public `GraphStore` /
+flow / community / search / post-process APIs; those modules require
+`dagayn._core`.
 
-`DAGAYN_BACKEND=python` remains functional. Both backends still build.
+`DAGAYN_BACKEND=python` is rejected. Hybrid search ranking and manifest-bridge
+extraction remain in Python. The parser was already a Rust wrapper at
+`dagayn.parser`.
 
-Python graph, post-processing, flow, community, search, and migration
-implementations live in `dagayn/legacy_py/` (not deleted). The parser was
-already a Rust wrapper and stayed at `dagayn.parser`.
-
-`DAGAYN_BACKEND=rust` is the default.
+`DAGAYN_BACKEND=rust` is the only backend.
 
 ### Phase 5: optional outer-surface migration
 

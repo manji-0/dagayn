@@ -14,10 +14,11 @@ from dagayn.postprocessing import (
     run_post_processing,
 )
 from dagayn.state_types import BuildResult, PostprocessResult
+from tests.store_sql import store_conn
 
 
 def _get_signature(store, qualified_name):
-    row = store._conn.execute(
+    row = store_conn(store).execute(
         "SELECT signature FROM nodes WHERE qualified_name = ?",
         (qualified_name,),
     ).fetchone()
@@ -449,7 +450,7 @@ class TestMarkdownArtifactResolver:
         assert result.markdown_artifact_refs_resolved == 1
         assert result.markdown_artifact_refs_dropped == 0
 
-        row = self.store._conn.execute(
+        row = store_conn(self.store).execute(
             "SELECT target_qualified, target_name, confidence_tier, extra FROM edges "
             "WHERE kind='CROSS_ARTIFACT'"
         ).fetchone()
@@ -479,7 +480,7 @@ class TestMarkdownArtifactResolver:
         _resolve_markdown_artifact_refs(self.store, result, [])
 
         assert result.markdown_artifact_refs_resolved == 1
-        row = self.store._conn.execute(
+        row = store_conn(self.store).execute(
             "SELECT target_qualified, target_name, confidence_tier, extra FROM edges "
             "WHERE kind='CROSS_ARTIFACT'"
         ).fetchone()
@@ -511,7 +512,7 @@ class TestMarkdownArtifactResolver:
         assert result.markdown_artifact_refs_resolved == 0
         assert result.markdown_artifact_refs_dropped == 1
         assert result.markdown_artifact_refs_still_unresolved == 0
-        count = self.store._conn.execute(
+        count = store_conn(self.store).execute(
             "SELECT COUNT(*) FROM edges WHERE kind='CROSS_ARTIFACT'"
         ).fetchone()[0]
         assert count == 0
@@ -527,7 +528,7 @@ class TestMarkdownArtifactResolver:
         assert result.markdown_artifact_refs_resolved == 0
         assert result.markdown_artifact_refs_dropped == 1
         assert result.markdown_artifact_refs_still_unresolved == 0
-        count = self.store._conn.execute(
+        count = store_conn(self.store).execute(
             "SELECT COUNT(*) FROM edges WHERE kind='CROSS_ARTIFACT'"
         ).fetchone()[0]
         assert count == 0
@@ -543,7 +544,7 @@ class TestMarkdownArtifactResolver:
         assert result.markdown_artifact_refs_resolved == 0
         assert result.markdown_artifact_refs_dropped == 0
         assert result.markdown_artifact_refs_still_unresolved == 1
-        count = self.store._conn.execute(
+        count = store_conn(self.store).execute(
             "SELECT COUNT(*) FROM edges WHERE kind='CROSS_ARTIFACT'"
         ).fetchone()[0]
         assert count == 1
@@ -610,7 +611,7 @@ class TestMarkdownArtifactResolver:
         result = run_post_processing(self.store)
 
         assert result.markdown_artifact_refs_resolved == 1
-        row = self.store._conn.execute(
+        row = store_conn(self.store).execute(
             "SELECT target_qualified FROM edges WHERE kind='CROSS_ARTIFACT'"
         ).fetchone()
         assert row["target_qualified"] == "/repo/ui.py::Widget"
@@ -669,7 +670,7 @@ class TestTerraformArtifactResolver:
         assert warnings == []
         assert result.terraform_artifact_refs_resolved == 1
 
-        row = self.store._conn.execute(
+        row = store_conn(self.store).execute(
             "SELECT target_qualified, target_name, confidence_tier, extra FROM edges "
             "WHERE kind='CROSS_ARTIFACT'"
         ).fetchone()
@@ -709,7 +710,7 @@ class TestTerraformArtifactResolver:
             result = run_post_processing(store)
             assert not result.warnings
 
-            rows = store._conn.execute(
+            rows = store_conn(store).execute(
                 "SELECT source_qualified, target_qualified, extra FROM edges "
                 "WHERE kind='CROSS_ARTIFACT' AND extra LIKE '%\"source_language\": \"terraform\"%'"
             ).fetchall()
@@ -772,7 +773,7 @@ class TestTerraformArtifactResolver:
         assert (result.markdown_artifact_refs_resolved or 0) == 0
         assert result.terraform_artifact_refs_resolved == 1
 
-        row = self.store._conn.execute(
+        row = store_conn(self.store).execute(
             "SELECT target_qualified, target_name, confidence_tier, extra FROM edges "
             "WHERE kind='CROSS_ARTIFACT'"
         ).fetchone()
@@ -824,7 +825,7 @@ class TestTerraformArtifactResolver:
         assert (result.terraform_artifact_refs_resolved or 0) == 0
         assert result.terraform_artifact_refs_still_unresolved == 1
 
-        row = self.store._conn.execute(
+        row = store_conn(self.store).execute(
             "SELECT target_qualified, confidence_tier FROM edges WHERE kind='CROSS_ARTIFACT'"
         ).fetchone()
         assert row["target_qualified"] == "<unresolved:serve>"
@@ -851,7 +852,7 @@ class TestTerraformArtifactResolver:
         assert warnings == []
         assert build_result.postprocess.terraform_artifact_refs_resolved == 1
 
-        row = self.store._conn.execute(
+        row = store_conn(self.store).execute(
             "SELECT target_qualified, target_name, confidence_tier FROM edges "
             "WHERE kind='CROSS_ARTIFACT'"
         ).fetchone()
@@ -892,26 +893,14 @@ class TestNativeStoreStaysOnOneConnection:
 
             pytest.skip("native extension not built")  # ty: ignore[too-many-positional-arguments]
 
-        from dagayn.graph.core import GraphStore as PyGraphStore
         from dagayn.postprocessing import run_post_processing
-
-        constructed: list[str | Path] = []
-        original_init = PyGraphStore.__init__
-
-        def tracking_init(self, *args: object, **kwargs: object) -> None:
-            db_path = args[0] if args else kwargs.get("db_path")
-            if isinstance(db_path, (str, Path)):
-                constructed.append(db_path)
-                original_init(self, db_path)
 
         db = tmp_path / "graph.db"
         store = NativeGraphStore(db)
         store.set_metadata("repo_root", str(tmp_path))
-        monkeypatch.setattr(PyGraphStore, "__init__", tracking_init)
         try:
             result = run_post_processing(store)
         finally:
             store.close()
 
-        assert constructed == []
         assert not result.warnings or result.warnings == []

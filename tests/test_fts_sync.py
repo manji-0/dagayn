@@ -7,9 +7,9 @@ from pathlib import Path
 import pytest
 
 from dagayn.graph import GraphStore
-from dagayn.graph._fts_content import build_node_fts_values
 from dagayn.parser import NodeInfo
 from dagayn.search import hybrid_search, rebuild_fts_index
+from tests.store_sql import store_conn
 
 
 @pytest.fixture
@@ -47,7 +47,7 @@ class TestFTSSync:
         count = rebuild_fts_index(store)
         assert count == 2
 
-        fts_rows = store._conn.execute(
+        fts_rows = store_conn(store).execute(
             "SELECT name FROM nodes_fts WHERE name MATCH 'calculate*'"
         ).fetchall()
         assert len(fts_rows) == 1
@@ -81,7 +81,7 @@ class TestFTSSync:
 
         rebuild_fts_index(store)
 
-        fts_rows = store._conn.execute("SELECT name FROM nodes_fts").fetchall()
+        fts_rows = store_conn(store).execute("SELECT name FROM nodes_fts").fetchall()
         assert len(fts_rows) == 1
         assert fts_rows[0]["name"] == "new_func"
 
@@ -118,10 +118,10 @@ class TestFTSSync:
         )
         store.store_file_nodes_edges("src/c.py", [gamma], [])
 
-        node_rows = store._conn.execute(
+        node_rows = store_conn(store).execute(
             "SELECT id, file_path, name FROM nodes ORDER BY id"
         ).fetchall()
-        fts_rows = store._conn.execute(
+        fts_rows = store_conn(store).execute(
             "SELECT rowid, file_path, name FROM nodes_fts ORDER BY rowid"
         ).fetchall()
 
@@ -161,14 +161,11 @@ class TestFTSSync:
         rebuild_fts_index(store)
 
         rust_sync = getattr(store, "sync_fts_for_file_paths", None)
-        if callable(rust_sync):
-            rust_sync(["src/a.py"])
-        else:
-            from dagayn.graph._fts_sync import sync_fts_for_file_paths
+        if not callable(rust_sync):
+            pytest.skip("GraphStore.sync_fts_for_file_paths is required")
+        rust_sync(["src/a.py"])
 
-            sync_fts_for_file_paths(store._conn, ["src/a.py"], None)
-
-        names = {row["name"] for row in store._conn.execute("SELECT name FROM nodes_fts")}
+        names = {row["name"] for row in store_conn(store).execute("SELECT name FROM nodes_fts")}
         assert names >= {"alpha_widget", "beta_gadget"}
 
     def test_v13_migration_rebuilds_empty_generated_columns(self, tmp_path):
@@ -222,10 +219,10 @@ class TestFTSSync:
 
         store = GraphStore(db_path)
         try:
-            doc_text = store._conn.execute(
+            doc_text = store_conn(store).execute(
                 "SELECT doc_text FROM nodes_fts WHERE name = 'user_info'"
             ).fetchone()["doc_text"]
-            identifier_tokens = store._conn.execute(
+            identifier_tokens = store_conn(store).execute(
                 "SELECT identifier_tokens FROM nodes_fts WHERE name = 'user_info'"
             ).fetchone()["identifier_tokens"]
             assert doc_text
@@ -234,72 +231,5 @@ class TestFTSSync:
         finally:
             store.close()
 
-    def test_doc_text_builder_matches_rust_shape(self):
-        """Cross-backend golden test for structured doc_text content."""
-        values = build_node_fts_values(
-            kind="Function",
-            name="handle_failure",
-            qualified_name="service.py::handle_failure",
-            file_path="service.py",
-            line_start=1,
-            line_end=3,
-            signature="def handle_failure(retry_budget) -> bool",
-            extra={"display_name": "Retry failure handler"},
-            repo_root=None,
-        )
-        _name, _qualified, _path, _signature, identifier_tokens, doc_text = values
-        assert "kind: Function" in doc_text
-        assert "qualified: service.py::handle_failure" in doc_text
-        assert "signature: def handle_failure" in doc_text
-        assert "Retry failure handler" in doc_text
-        assert "handle" in identifier_tokens
-        assert "failure" in identifier_tokens
 
 
-def test_rust_doc_text_builder_matches_python_shape(tmp_path):
-    pytest.importorskip("dagayn._core")
-    from dagayn._core import GraphStore as RustGraphStore
-    from dagayn.parser import NodeInfo
-
-    db_path = tmp_path / "rust-fts-golden.db"
-    store = RustGraphStore(db_path)
-    node = NodeInfo(
-        kind="Function",
-        name="handle_failure",
-        file_path="service.py",
-        line_start=1,
-        line_end=3,
-        language="python",
-        params="(retry_budget)",
-        return_type="bool",
-        extra={"display_name": "Retry failure handler"},
-    )
-    store.store_file_nodes_edges("service.py", [node], [], "hash", 0)
-    conn = sqlite3.connect(db_path)
-    conn.execute(
-        "UPDATE nodes SET signature = ? WHERE qualified_name = ?",
-        (
-            "def handle_failure(retry_budget) -> bool",
-            "service.py::handle_failure",
-        ),
-    )
-    conn.commit()
-    store.rebuild_fts_index()
-    doc_text = conn.execute(
-        "SELECT doc_text FROM nodes_fts WHERE name = 'handle_failure'"
-    ).fetchone()[0]
-    conn.close()
-    store.close()
-
-    python_values = build_node_fts_values(
-        kind="Function",
-        name="handle_failure",
-        qualified_name="service.py::handle_failure",
-        file_path="service.py",
-        line_start=1,
-        line_end=3,
-        signature="def handle_failure(retry_budget) -> bool",
-        extra={"display_name": "Retry failure handler"},
-        repo_root=None,
-    )
-    assert python_values[5] == doc_text

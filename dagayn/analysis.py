@@ -358,8 +358,6 @@ def persist_centrality_scores(
                 scores = cast(Callable[..., dict[str, int]], rust_persist)()
             return {key: int(value) for key, value in scores.items()}
         except Exception:  # noqa: BLE001 — native acceleration must be optional
-            if not hasattr(store, "_conn"):
-                raise
             logger.debug("Native centrality persist failed; falling back", exc_info=True)
 
     _ensure_centrality_score_tables(store)

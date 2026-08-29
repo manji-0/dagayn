@@ -21,6 +21,7 @@ from dagayn.tools.review_helpers import (
     _cross_artifact_proximity,
     _review_guidance_items,
 )
+from tests.store_sql import store_conn
 
 
 def _add_func(store: GraphStore, name: str, path: str, *, line: int = 1) -> str:
@@ -221,7 +222,7 @@ class TestCrossArtifactFlows:
         count = store_flows(store, flows)
         assert count >= 1
 
-        rows = store._conn.execute("SELECT * FROM flows").fetchall()
+        rows = store_conn(store).execute("SELECT * FROM flows").fetchall()
         hydrated = _hydrate_flow_rows(store, rows)
         bridge_flows = [
             flow
@@ -268,7 +269,7 @@ class TestCrossArtifactFlows:
         # Simulate native store: JSON without bridge annotations.
         import json
 
-        rows = store._conn.execute("SELECT * FROM flows").fetchall()
+        rows = store_conn(store).execute("SELECT * FROM flows").fetchall()
         bare = _hydrate_flow_rows(store, rows)
         for flow in bare:
             for step in flow["steps"]:
@@ -325,7 +326,7 @@ class TestCrossArtifactImpactNetworkX:
         store, paths = bridge_store
         # Only reachable via the LOW bridge — must not expand.
         orphan = _add_func(store, "orphan_cli", str(paths["root"] / "orphan.py"))
-        store._conn.execute(
+        store_conn(store).execute(
             """
             UPDATE edges
             SET target_qualified = ?, confidence_tier = 'LOW'
@@ -503,7 +504,7 @@ class TestCrossArtifactHelpers:
             )
         )
         store.commit()
-        store._conn.execute(
+        store_conn(store).execute(
             """
             UPDATE nodes
             SET community_id = CASE

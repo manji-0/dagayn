@@ -13,6 +13,7 @@ from dagayn.connection_pool import ConnectionPool
 from dagayn.embeddings_store import EmbeddingStore
 from dagayn.graph import GraphStore
 from dagayn.sqlite_tuning import WAL_SIZE_LIMIT_BYTES, apply_wal_size_limit
+from tests.store_sql import store_conn
 
 
 def _journal_size_limit(conn: sqlite3.Connection) -> int:
@@ -39,14 +40,14 @@ class TestConnectionsAreBounded:
     def test_graph_store(self, tmp_path) -> None:
         store = GraphStore(tmp_path / "graph.db")
         try:
-            assert _journal_size_limit(store._conn) == WAL_SIZE_LIMIT_BYTES
+            assert _journal_size_limit(store_conn(store)) == WAL_SIZE_LIMIT_BYTES
         finally:
             store.close()
 
     def test_embedding_store(self, tmp_path) -> None:
         store = EmbeddingStore(tmp_path / "graph.db")
         try:
-            assert _journal_size_limit(store._conn) == WAL_SIZE_LIMIT_BYTES
+            assert _journal_size_limit(store_conn(store)) == WAL_SIZE_LIMIT_BYTES
         finally:
             store.close()
 
@@ -64,11 +65,11 @@ def test_wal_truncates_back_to_the_limit(tmp_path) -> None:
     db = tmp_path / "graph.db"
     store = GraphStore(db)
     try:
-        store._conn.execute("CREATE TABLE bulk (id INTEGER PRIMARY KEY, blob BLOB)")
+        store_conn(store).execute("CREATE TABLE bulk (id INTEGER PRIMARY KEY, blob BLOB)")
         payload = b"x" * 64_000
         for i in range(200):
-            store._conn.execute("INSERT INTO bulk (id, blob) VALUES (?, ?)", (i, payload))
-        store._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            store_conn(store).execute("INSERT INTO bulk (id, blob) VALUES (?, ?)", (i, payload))
+        store_conn(store).execute("PRAGMA wal_checkpoint(TRUNCATE)")
     finally:
         store.close()
 

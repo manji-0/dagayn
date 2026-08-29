@@ -95,7 +95,6 @@ def graph_fixture():
 
 
 def build_store(store, repo_root: Path) -> None:
-    from dagayn.postprocessing import PostprocessResult, _compute_signatures
     from dagayn.search import rebuild_fts_index
 
     nodes, edges = graph_fixture()
@@ -110,7 +109,7 @@ def build_store(store, repo_root: Path) -> None:
     store.commit()
     # Signatures and the FTS index are what `fts_query` / `search_nodes` read,
     # so both must exist before the search parity checks run.
-    _compute_signatures(store, PostprocessResult(), [])
+    store.compute_missing_signatures()
     rebuild_fts_index(store)
     store.commit()
 
@@ -625,7 +624,7 @@ class TestAttributeParity:
 
 
 def test_semantic_search_works_under_native_backend(tmp_path, monkeypatch):
-    """`semantic_search_nodes` used to die on `store._conn`. See: #153"""
+    """`semantic_search_nodes` used to die on `store_conn(store)`. See: #153"""
     rust_graph_store()
     monkeypatch.setenv("DAGAYN_BACKEND", "rust")
 

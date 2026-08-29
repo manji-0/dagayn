@@ -1,9 +1,11 @@
-"""Compatibility shim. Implementation: ``dagayn.legacy_py.migrations``."""
+"""Schema version of the native graph store.
+
+Migrations run inside ``dagayn._core.GraphStore`` on open. This module only
+exposes the current version so tools can compare against a built database.
+"""
 
 from __future__ import annotations
 
-import sys
+LATEST_VERSION = 16
 
-from dagayn.legacy_py import migrations as _impl
-
-sys.modules[__name__] = _impl
+__all__ = ["LATEST_VERSION"]

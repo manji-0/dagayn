@@ -29,6 +29,7 @@ from dagayn.graph import GraphStore
 from dagayn.graph.types import ImpactRadiusResult
 from dagayn.parser import EdgeInfo, NodeInfo
 from dagayn.state_types import ChangeAnalysisResult
+from tests.store_sql import store_conn
 
 
 class TestChanges:
@@ -260,7 +261,7 @@ class TestChanges:
 
         self._add_func("alpha", path="src/app.py", line_start=1, line_end=2)
         self._add_func("beta", path="src/app.py", line_start=4, line_end=5)
-        self.store._conn.execute(
+        store_conn(self.store).execute(
             "UPDATE nodes SET file_hash=? WHERE file_path=?",
             (indexed_hash, "src/app.py"),
         )
@@ -290,7 +291,7 @@ class TestChanges:
 
         self._add_func("alpha", path="app.py", line_start=1, line_end=2)
         self._add_func("beta", path="app.py", line_start=4, line_end=5)
-        self.store._conn.execute(
+        store_conn(self.store).execute(
             "UPDATE nodes SET file_hash=? WHERE file_path=?",
             (file_hash, "app.py"),
         )
@@ -669,8 +670,8 @@ class TestChanges:
         store_flows(self.store, flows)
 
         # Manually set different criticality values
-        self.store._conn.execute("UPDATE flows SET criticality = 0.9 WHERE name = 'hi_entry'")
-        self.store._conn.execute("UPDATE flows SET criticality = 0.1 WHERE name = 'lo_entry'")
+        store_conn(self.store).execute("UPDATE flows SET criticality = 0.9 WHERE name = 'hi_entry'")
+        store_conn(self.store).execute("UPDATE flows SET criticality = 0.1 WHERE name = 'lo_entry'")
         self.store.commit()
 
         hi = self.store.get_node("hi.py::hi_func")

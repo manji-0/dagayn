@@ -8,6 +8,7 @@ from dagayn.eval.benchmarks.fts_quality import _matches, run
 from dagayn.graph import GraphStore
 from dagayn.parser import NodeInfo
 from dagayn.search import rebuild_fts_index
+from tests.store_sql import store_conn
 
 # ---------------------------------------------------------------------------
 # _matches helper
@@ -158,10 +159,10 @@ class _FtsFixture:
             node_id = self.store.upsert_node(node, file_hash="fts_eval_fixture")
             if node.kind == "Function" and node.params:
                 sig = f"def {node.name}{node.params} -> {node.return_type or 'None'}"
-                self.store._conn.execute(
+                store_conn(self.store).execute(
                     "UPDATE nodes SET signature = ? WHERE id = ?", (sig, node_id)
                 )
-        self.store._conn.commit()
+        store_conn(self.store).commit()
         rebuild_fts_index(self.store)
 
     def _config(self, queries: list[dict]) -> dict:

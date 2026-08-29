@@ -7,8 +7,6 @@ from typing import Any, Callable, cast
 
 from ..bare_name_resolution import (
     SymbolVisibility,
-    build_import_targets,
-    build_symbol_visibility,
     is_plausible_bare_edge,
     looks_like_file_target,
     node_file_from_qualified,
@@ -214,15 +212,11 @@ def filter_bare_name_fallback_edges(
         return edges
 
     native = getattr(store, "import_targets_by_file", None)
-    if callable(native):
-        native_map = cast(Callable[[], dict[str, list[str]]], native)()
-        import_targets = {file_path: set(targets) for file_path, targets in native_map.items()}
-        visibility = _native_symbol_visibility(store)
-    elif hasattr(store, "_conn"):
-        import_targets = build_import_targets(store._conn)
-        visibility = build_symbol_visibility(store._conn)
-    else:
+    if not callable(native):
         return edges
+    native_map = cast(Callable[[], dict[str, list[str]]], native)()
+    import_targets = {file_path: set(targets) for file_path, targets in native_map.items()}
+    visibility = _native_symbol_visibility(store)
 
     target_file = target_node.file_path
     target_qualified = getattr(target_node, "qualified_name", "") or ""
