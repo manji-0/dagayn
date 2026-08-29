@@ -4,6 +4,67 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+## 4.12.0 — 2026-08-29
+
+### Features
+
+- Bare-name call resolution understands namespaces. A C# `using` or a PHP `use`
+  names a namespace rather than a file, so no file-to-file `IMPORTS_FROM` edge
+  ever exists, and two files in one namespace need no import statement at all —
+  the resolver had no evidence they could see each other. Parsers now record the
+  namespaces a file declares (C# `namespace` including the file-scoped form,
+  Java/Kotlin/Scala `package`, PHP `namespace`, Elixir `defmodule`, Julia
+  `module`) on its `File` node, and a file is visible when it shares a declared
+  namespace or declares one the caller imports. Held as per-file maps rather
+  than an expanded file-to-file product, since a namespace with N files would
+  otherwise cost N² entries. Both backends implement the same rule.
+- A symbol is also visible through the file that declares its class. A C++
+  method is defined in a `.cpp` nobody includes, while callers include only the
+  header declaring the class, so file-level visibility alone could never resolve
+  it.
+- Include and URI imports resolve to repo-relative files. C/C++/Objective-C
+  `#include` searches the including directory and its ancestors plus a parallel
+  `include/` tree, resolving only to files that exist — `<vector>` keeps its
+  literal name. Dart resolves relative URIs, and `package:X/...` only when the
+  nearest `pubspec.yaml` declares `X`. Julia resolves `include("f.jl")` relative
+  to the including file.
+
+### Fixes
+
+- C# methods whose return type is a user-defined type were indexed under the
+  return type instead of the declared method name, because the name came from
+  the first direct `identifier` child and tree-sitter-c-sharp represents such a
+  return type as a plain `identifier`. `callers_of` then reported no callers and
+  dead-code analysis produced false positives. Declaration names now come from
+  the `name` field. See #154.
+- C# `Factory.Method(...)` and `new Type(...)` produced no `CALLS` edge at all,
+  so those relationships were absent rather than merely mis-targeted.
+- C++ class and struct member functions were missing from the graph entirely: a
+  member's declarator name is a `field_identifier`, and an out-of-line
+  definition's is a `qualified_identifier`, neither of which is an `identifier`.
+  Names now follow the `declarator` field chain, and an out-of-line definition
+  is attributed to the class its scope names.
+- Java `Broker.build(t)` targeted the receiver class rather than `build`, since
+  `method_invocation` puts the receiver first.
+- Dart attributed every call in a method body to the file, because a Dart body
+  is a sibling of its signature rather than a child. Function nodes also spanned
+  only the signature line and now cover the body.
+- PHP static calls carried a `Class::method` target, which bare-name resolution
+  treats as already-qualified and could never bind to a node. The
+  `Class::method` form is kept only as cross-artifact bridge evidence.
+- Import targets that kept the whole statement, matching nothing: Kotlin
+  `import java.util.UUID`, Swift `import Foundation`, Objective-C
+  `#import "Logger.h"`, PHP `use Exception;`. PHP group form
+  (`use A\B\{One, Two};`) expands per clause and drops an `as` alias.
+- C# `abstract` was only detected when it was the first modifier, so
+  `public abstract class` was recorded as a plain class.
+
+### Internal
+
+- `NamespaceVisibility` became `SymbolVisibility`, carrying the class-name to
+  declaring-file index alongside the namespace maps. The Rust store exposes it
+  as `symbol_visibility_by_file` for query-time resolution.
+
 ## 4.11.0 — 2026-08-28
 
 ### Features
