@@ -2045,7 +2045,7 @@ fn stores_flows_and_reads_flow_inputs() {
     assert_eq!(stats.edges_by_kind["CALLS"], 1);
     assert_eq!(stats.edges_by_kind["TESTED_BY"], 1);
     assert_eq!(stats.files_count, 0);
-    assert_eq!(stats.languages, vec!["python".to_string()]);
+    assert_eq!(stats.languages.as_ref(), ["python".to_string()].as_slice());
     let (calls_out, tested_by) = store.get_flow_edge_data().unwrap();
     assert_eq!(calls_out["app.py::entry"], vec!["app.py::callee"]);
     assert_eq!(tested_by, HashSet::from(["app.py::callee".to_string()]));
