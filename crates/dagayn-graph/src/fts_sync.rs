@@ -3,6 +3,8 @@ use crate::*;
 
 pub(crate) const FTS_COUNT_KEY: &str = "fts_indexed_node_count";
 pub(crate) const FTS_BUILT_AT_KEY: &str = "fts_indexed_at";
+pub(crate) const FTS_SEGMENTER_KEY: &str = "fts_segmenter";
+pub(crate) const FTS_SEGMENTER_LINDERA: &str = "lindera";
 
 const FTS_DELETE_SQL: &str = "DELETE FROM nodes_fts WHERE rowid = ?";
 const FTS_INSERT_SQL: &str =
@@ -28,6 +30,10 @@ pub(crate) fn set_fts_watermark_tx(tx: &Transaction<'_>, node_count: Option<i64>
     tx.execute(
         "INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)",
         params![FTS_BUILT_AT_KEY, built_at],
+    )?;
+    tx.execute(
+        "INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)",
+        params![FTS_SEGMENTER_KEY, FTS_SEGMENTER_LINDERA],
     )?;
     Ok(())
 }
@@ -120,7 +126,7 @@ pub(crate) fn build_node_fts_values(
     .filter(|part| !part.is_empty())
     .collect::<Vec<_>>()
     .join(" ");
-    let doc_text = segment_japanese_fts_text(&doc_text);
+    let doc_text = segment_japanese_fts_index(&doc_text);
     (
         name.to_string(),
         qualified_name.to_string(),

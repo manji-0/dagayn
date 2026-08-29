@@ -12,6 +12,7 @@
 - repo-root-relative graph registration for dagayn workflows
 - local SQLite storage
 - graph queries for callers, callees, imports, tests, and file summaries
+- native Japanese FTS (Lindera IPADIC morphemes + CJK bigrams) so inflected queries still AND-match
 - review context generation and change-impact analysis
 - communities, flows, hub nodes, bridge nodes, and knowledge-gap analysis
 - refactor previews and dead-code inspection

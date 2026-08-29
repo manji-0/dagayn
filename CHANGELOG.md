@@ -4,6 +4,15 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Features
+
+- Native FTS indexes Japanese with Lindera IPADIC morphemes (plus base forms)
+  and overlapping CJK bigrams, then queries with content morphemes only. Inflected
+  queries such as `検索する` AND-match `検索を行う` instead of missing or falling
+  through to OR. CJK symbol names also land in `identifier_tokens`. Quality
+  gates run on the mixed fixture `tests/fixtures/japanese_search/` (Markdown +
+  Python + Terraform), not a 7-node inline corpus.
+
 ### Changed
 
 - Phase 4 of the Rust core migration: the Python graph engine, flow tracer,

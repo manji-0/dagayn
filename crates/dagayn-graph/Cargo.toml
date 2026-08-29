@@ -6,10 +6,14 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+lindera = { version = "6", default-features = false, features = ["embed-ipadic"] }
 rayon = "1.10"
 rusqlite.workspace = true
 regex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+dagayn-parser = { path = "../dagayn-parser" }
 

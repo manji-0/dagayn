@@ -71,7 +71,7 @@ impl GraphStore {
     ///
     /// Returns no hits when the FTS index is unavailable.
     pub fn fts_query(&self, query: &str, limit: i64) -> Result<FtsQueryResult> {
-        let fts_query = segment_japanese_fts_text(query);
+        let fts_query = segment_japanese_fts_query(query);
         let (safe_query, fallback_query, fallback_mode) = build_fts_match_queries(&fts_query);
 
         let run = |match_query: &str| -> rusqlite::Result<Vec<(i64, f64)>> {

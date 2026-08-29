@@ -1,0 +1,100 @@
+{
+  "rebuild_budget_ms": 500,
+  "query_p95_ms": 10,
+  "min_indexed_nodes": 50,
+  "gates": [
+    {
+      "query": "自然言語検索",
+      "k": 1,
+      "file_contains": "docs/search.md",
+      "name_any": ["自然言語検索", "自然言語検索--body-1"]
+    },
+    {
+      "query": "GraphStore 自然言語検索",
+      "k": 1,
+      "file_contains": "docs/search.md"
+    },
+    {
+      "query": "検索ボタン",
+      "k": 1,
+      "file_contains": "docs/ui.md",
+      "name_any": ["検索ボタン", "検索ボタン--body-1", "render_search_button"]
+    },
+    {
+      "query": "トークン検証",
+      "k": 1,
+      "file_contains": "docs/auth.md",
+      "name_any": ["トークン検証", "トークン検証--body-1", "verify_token"]
+    },
+    {
+      "query": "verify_token",
+      "k": 1,
+      "name_any": ["verify_token"]
+    },
+    {
+      "query": "課金バッチ",
+      "k": 1,
+      "file_contains": "docs/billing.md",
+      "name_any": ["課金バッチ", "課金バッチ--body-1", "run_billing_batch"]
+    },
+    {
+      "query": "自然言語検索する",
+      "k": 1,
+      "match_mode": "and",
+      "file_contains": "docs/search.md"
+    },
+    {
+      "query": "この文書は自然言語検索の背景を助詞や接続を含めて長く書いた",
+      "k": 1,
+      "match_mode": "and",
+      "name_any": ["背景の長い説明", "背景の長い説明--body-1"]
+    },
+    {
+      "query": "ユーザー取得",
+      "k": 1,
+      "name_any": ["ユーザー取得"]
+    },
+    {
+      "query": "ユーザー",
+      "k": 1,
+      "name_any": ["ユーザー取得"]
+    },
+    {
+      "query": "ハイブリッド検索",
+      "k": 1,
+      "file_contains": "docs/search.md",
+      "name_any": ["ハイブリッド検索", "ハイブリッド検索--body-1"]
+    },
+    {
+      "query": "クロスモジュール解析",
+      "k": 1,
+      "file_contains": "docs/terraform.md",
+      "name_any": ["クロスモジュール解析", "クロスモジュール解析--body-1"]
+    },
+    {
+      "query": "tfvars の変数代入",
+      "k": 1,
+      "name_any": ["tfvars-の変数代入", "tfvars-の変数代入--body-1"]
+    },
+    {
+      "query": "rebuild_fts_index",
+      "k": 1,
+      "name_any": ["rebuild_fts_index"]
+    },
+    {
+      "query": "検索する",
+      "k": 5,
+      "name_any": [
+        "自然言語検索",
+        "自然言語検索--body-1",
+        "ハイブリッド検索",
+        "ハイブリッド検索--body-1",
+        "検索ボタン",
+        "検索ボタン--body-1",
+        "運用検索",
+        "運用検索--body-1",
+        "opensearch-ドメイン検索"
+      ]
+    }
+  ]
+}
