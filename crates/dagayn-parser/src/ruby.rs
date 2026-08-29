@@ -129,7 +129,7 @@ fn ruby_emit_class(
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Contains,
         source: file_path.to_string(),
-        target: qualify(&file_path, name, enclosing_class),
+        target: qualify(file_path, name, enclosing_class),
         file_path: file_path.clone(),
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
@@ -144,7 +144,7 @@ fn ruby_emit_function(
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
-    let qualified = qualify(&file_path, name, enclosing_class);
+    let qualified = qualify(file_path, name, enclosing_class);
     nodes.push(ParsedNode {
         kind: crate::core::types::NodeKind::Function,
         name: name.to_string(),
@@ -162,7 +162,7 @@ fn ruby_emit_function(
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Contains,
         source: enclosing_class
-            .map(|class| qualify(&file_path, class, None))
+            .map(|class| qualify(file_path, class, None))
             .unwrap_or_else(|| file_path.to_string()),
         target: qualified,
         file_path: file_path.clone(),
@@ -181,7 +181,7 @@ fn ruby_emit_call(
 ) {
     let call_name = ruby_call_name(node, source);
     let caller = enclosing_func
-        .map(|func| qualify(&file_path, func, enclosing_class))
+        .map(|func| qualify(file_path, func, enclosing_class))
         .unwrap_or_else(|| file_path.to_string());
     if let Some(call_name) = call_name {
         if call_name == "require" || call_name == "require_relative" {

@@ -337,6 +337,6 @@ fn qualified_node_name(file_path: &FilePath, node: &ParsedNode) -> String {
     if node.kind == "File" {
         file_path.to_string()
     } else {
-        qualify(&file_path, &node.name, node.parent_name.as_deref())
+        qualify(file_path, &node.name, node.parent_name.as_deref())
     }
 }

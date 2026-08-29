@@ -126,7 +126,7 @@ fn solidity_walk_children(
                         child,
                         source,
                         file_path,
-                        &qualify(&file_path, &name, enclosing_class),
+                        &qualify(file_path, &name, enclosing_class),
                         edges,
                     );
                     solidity_walk_children(
@@ -227,7 +227,7 @@ fn solidity_emit_type(
             map.insert("is_contract".to_string(), json!(true));
         }
     }
-    let qualified = qualify(&file_path, name, enclosing_class);
+    let qualified = qualify(file_path, name, enclosing_class);
     nodes.push(ParsedNode {
         kind: crate::core::types::NodeKind::Class,
         name: name.to_string(),
@@ -276,7 +276,7 @@ fn solidity_emit_constant(
     let Some(name) = solidity_direct_child_text(node, source, &["identifier"]) else {
         return false;
     };
-    let qualified = qualify(&file_path, &name, enclosing_class);
+    let qualified = qualify(file_path, &name, enclosing_class);
     nodes.push(ParsedNode {
         kind: crate::core::types::NodeKind::Function,
         name: name.clone(),
@@ -294,7 +294,7 @@ fn solidity_emit_constant(
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Contains,
         source: enclosing_class
-            .map(|class| qualify(&file_path, class, None))
+            .map(|class| qualify(file_path, class, None))
             .unwrap_or_else(|| file_path.to_string()),
         target: qualified,
         file_path: file_path.clone(),
@@ -315,7 +315,7 @@ fn solidity_emit_state_variable(
     let Some(name) = solidity_direct_child_text(node, source, &["identifier"]) else {
         return false;
     };
-    let qualified = qualify(&file_path, &name, Some(enclosing_class));
+    let qualified = qualify(file_path, &name, Some(enclosing_class));
     nodes.push(ParsedNode {
         kind: crate::core::types::NodeKind::Function,
         name: name.clone(),
@@ -335,7 +335,7 @@ fn solidity_emit_state_variable(
     });
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Contains,
-        source: qualify(&file_path, enclosing_class, None),
+        source: qualify(file_path, enclosing_class, None),
         target: qualified,
         file_path: file_path.clone(),
         line: node.start_position().row as i64 + 1,
@@ -353,7 +353,7 @@ fn solidity_emit_function(
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
-    let qualified = qualify(&file_path, name, enclosing_class);
+    let qualified = qualify(file_path, name, enclosing_class);
     nodes.push(ParsedNode {
         kind: crate::core::types::NodeKind::Function,
         name: name.to_string(),
@@ -371,7 +371,7 @@ fn solidity_emit_function(
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Contains,
         source: enclosing_class
-            .map(|class| qualify(&file_path, class, None))
+            .map(|class| qualify(file_path, class, None))
             .unwrap_or_else(|| file_path.to_string()),
         target: qualified,
         file_path: file_path.clone(),
@@ -392,7 +392,7 @@ fn solidity_emit_call(
         return;
     };
     let caller = enclosing_func
-        .map(|func| qualify(&file_path, func, enclosing_class))
+        .map(|func| qualify(file_path, func, enclosing_class))
         .unwrap_or_else(|| file_path.to_string());
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Calls,
@@ -440,7 +440,7 @@ fn solidity_emit_emit_call(
         return;
     };
     let caller = enclosing_func
-        .map(|func| qualify(&file_path, func, enclosing_class))
+        .map(|func| qualify(file_path, func, enclosing_class))
         .unwrap_or_else(|| file_path.to_string());
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Calls,
@@ -463,7 +463,7 @@ fn solidity_emit_using(
         return;
     };
     let source_name = enclosing_class
-        .map(|class| qualify(&file_path, class, None))
+        .map(|class| qualify(file_path, class, None))
         .unwrap_or_else(|| file_path.to_string());
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::DependsOn,

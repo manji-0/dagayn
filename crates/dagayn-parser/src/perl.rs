@@ -329,7 +329,7 @@ fn resolve_perl_call_targets(
         .fold(HashMap::<String, String>::new(), |mut symbols, node| {
             symbols
                 .entry(node.name.clone())
-                .or_insert_with(|| qualify(&file_path, &node.name, None));
+                .or_insert_with(|| qualify(file_path, &node.name, None));
             symbols
         });
     edges

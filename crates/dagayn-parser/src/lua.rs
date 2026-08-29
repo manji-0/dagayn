@@ -509,7 +509,7 @@ fn resolve_lua_call_targets(
                 && !edge.target.contains("::")
                 && symbols.contains(edge.target.as_str())
             {
-                edge.target = qualify(&file_path, &edge.target, None);
+                edge.target = qualify(file_path, &edge.target, None);
             }
             edge
         })

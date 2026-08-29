@@ -60,7 +60,7 @@ fn bash_walk_children(
         match child.kind() {
             "function_definition" => {
                 if let Some(name) = bash_function_name(child, source) {
-                    let qualified = qualify(&file_path, &name, None);
+                    let qualified = qualify(file_path, &name, None);
                     nodes.push(ParsedNode {
                         kind: crate::core::types::NodeKind::Function,
                         name: name.clone(),
@@ -147,7 +147,7 @@ fn bash_emit_command(
     }
 
     let caller = enclosing_func
-        .map(|func| qualify(&file_path, func, None))
+        .map(|func| qualify(file_path, func, None))
         .unwrap_or_else(|| file_path.to_string());
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Calls,

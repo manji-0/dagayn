@@ -120,7 +120,7 @@ fn go_emit_types(
         let Some(name) = go_direct_child_text(child, source, "type_identifier") else {
             continue;
         };
-        let qualified = qualify(&file_path, &name, None);
+        let qualified = qualify(file_path, &name, None);
         let extra = go_type_extra(child, source);
         nodes.push(ParsedNode {
             kind: crate::core::types::NodeKind::Class,
@@ -184,7 +184,7 @@ fn go_emit_function(
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
-    let qualified = qualify(&file_path, name, receiver);
+    let qualified = qualify(file_path, name, receiver);
     nodes.push(ParsedNode {
         kind: crate::core::types::NodeKind::Function,
         name: name.to_string(),
@@ -200,7 +200,7 @@ fn go_emit_function(
         extra: json!({}),
     });
     let container = receiver
-        .map(|receiver| qualify(&file_path, receiver, None))
+        .map(|receiver| qualify(file_path, receiver, None))
         .unwrap_or_else(|| file_path.to_string());
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Contains,
@@ -252,7 +252,7 @@ fn go_emit_call(
         return;
     };
     let caller = enclosing_func
-        .map(|func| qualify(&file_path, func, None))
+        .map(|func| qualify(file_path, func, None))
         .unwrap_or_else(|| file_path.to_string());
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Calls,

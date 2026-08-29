@@ -438,7 +438,7 @@ fn rust_emit_argument_references(
     edges: &mut Vec<ParsedEdge>,
 ) {
     let caller = enclosing_func
-        .map(|name| qualify(&file_path, name, enclosing_class))
+        .map(|name| qualify(file_path, name, enclosing_class))
         .unwrap_or_else(|| file_path.to_string());
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
@@ -452,7 +452,7 @@ fn rust_emit_argument_references(
         edges.push(ParsedEdge {
             kind: crate::core::types::EdgeKind::References,
             source: caller.clone(),
-            target: qualify(&file_path, &name, None),
+            target: qualify(file_path, &name, None),
             file_path: file_path.clone(),
             line: child.start_position().row as i64 + 1,
             extra: json!({}),

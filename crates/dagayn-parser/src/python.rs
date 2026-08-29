@@ -180,7 +180,7 @@ fn parse_databricks_py_with_parser(
     let cells = collect_databricks_py_cells(&text);
     if cells.is_empty() {
         return (
-            vec![databricks_file_node(file_path, 1, is_test_file(&file_path))],
+            vec![databricks_file_node(file_path, 1, is_test_file(file_path))],
             Vec::new(),
         );
     }
@@ -255,13 +255,13 @@ fn parse_notebook_cells_with_parser(
         file_path,
         max_line,
         default_language,
-        is_test_file(&file_path),
+        is_test_file(file_path),
         notebook_format,
     );
     nodes.insert(0, file_node);
     tag_notebook_cell_indices(&mut nodes, &cell_offsets);
-    let edges = resolve_python_call_targets(&nodes, edges, &file_path);
-    let edges = add_python_tested_by_edges(&nodes, edges, &file_path);
+    let edges = resolve_python_call_targets(&nodes, edges, file_path);
+    let edges = add_python_tested_by_edges(&nodes, edges, file_path);
     (nodes, edges)
 }
 
@@ -520,7 +520,7 @@ fn parse_databricks_r_cells(
             };
             let params = captures.get(2).map(|capture| capture.as_str().to_string());
             let line_end = find_r_function_end(&lines, index);
-            let qualified = qualify(&file_path, name, None);
+            let qualified = qualify(file_path, name, None);
             nodes.push(ParsedNode {
                 kind: crate::core::types::NodeKind::Function,
                 name: name.to_string(),
@@ -1033,7 +1033,7 @@ fn python_is_test_function(
     source: &[u8],
 ) -> bool {
     python_name_matches_test_pattern(name)
-        || (is_test_file(&file_path) && python_is_test_runner_name(name))
+        || (is_test_file(file_path) && python_is_test_runner_name(name))
         || python_has_test_annotation(node, source)
 }
 
@@ -1209,13 +1209,13 @@ fn add_python_tested_by_edges(
     edges: Vec<ParsedEdge>,
     file_path: &FilePath,
 ) -> Vec<ParsedEdge> {
-    if !is_test_file(&file_path) {
+    if !is_test_file(file_path) {
         return edges;
     }
     let test_qnames = nodes
         .iter()
         .filter(|node| node.is_test)
-        .map(|node| qualify(&file_path, &node.name, node.parent_name.as_deref()))
+        .map(|node| qualify(file_path, &node.name, node.parent_name.as_deref()))
         .collect::<HashSet<_>>();
     if test_qnames.is_empty() {
         return edges;

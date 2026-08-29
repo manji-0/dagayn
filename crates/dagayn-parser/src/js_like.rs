@@ -65,7 +65,7 @@ pub(super) fn parse_javascript_like_interned(
     caches: JavaScriptCaches<'_>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let line_end = line_count(source);
-    let test_file = is_javascript_test_file(&file_path);
+    let test_file = is_javascript_test_file(file_path);
     let mut nodes = vec![ParsedNode {
         kind: crate::core::types::NodeKind::File,
         name: file_path.to_string(),
@@ -100,7 +100,7 @@ pub(super) fn parse_javascript_like_interned(
                 caches,
             };
             javascript_walk_children(root, &context, None, None, &mut nodes, &mut edges);
-            let mut edges = resolve_rust_call_targets(&nodes, edges, &file_path);
+            let mut edges = resolve_rust_call_targets(&nodes, edges, file_path);
             if test_file {
                 add_tested_by_edges(&nodes, &mut edges);
             }
@@ -996,11 +996,11 @@ fn is_javascript_test_function(name: &str, file_path: &FilePath) -> bool {
         || name.starts_with("Test")
         || name.ends_with("_test")
         || name.ends_with("_spec")
-        || (is_javascript_test_file(&file_path) && is_test_runner_name(name))
+        || (is_javascript_test_file(file_path) && is_test_runner_name(name))
 }
 
 fn is_javascript_test_file(file_path: &FilePath) -> bool {
-    is_test_file(&file_path)
+    is_test_file(file_path)
         || ends_with_ascii_ignore_case(file_path, ".test.ts")
         || ends_with_ascii_ignore_case(file_path, ".spec.ts")
         || ends_with_ascii_ignore_case(file_path, ".test.js")

@@ -378,7 +378,7 @@ fn resolve_elixir_call_targets(
         .iter()
         .filter(|node| matches!(node.kind.as_str(), "Function" | "Test"))
     {
-        let qualified = qualify(&file_path, &node.name, node.parent_name.as_deref());
+        let qualified = qualify(file_path, &node.name, node.parent_name.as_deref());
         bare_functions
             .entry(node.name.clone())
             .or_insert_with(|| qualified.clone());

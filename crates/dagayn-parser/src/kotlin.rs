@@ -167,7 +167,7 @@ fn kotlin_emit_type(
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
-    let qualified = qualify(&file_path, name, enclosing_class);
+    let qualified = qualify(file_path, name, enclosing_class);
     let extra = kotlin_type_extra(node, source);
     nodes.push(ParsedNode {
         kind: crate::core::types::NodeKind::Class,
@@ -236,7 +236,7 @@ fn kotlin_emit_function(
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
-    let qualified = qualify(&file_path, name, enclosing_class);
+    let qualified = qualify(file_path, name, enclosing_class);
     nodes.push(ParsedNode {
         kind: crate::core::types::NodeKind::Function,
         name: name.to_string(),
@@ -254,7 +254,7 @@ fn kotlin_emit_function(
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Contains,
         source: enclosing_class
-            .map(|class| qualify(&file_path, class, None))
+            .map(|class| qualify(file_path, class, None))
             .unwrap_or_else(|| file_path.to_string()),
         target: qualified,
         file_path: file_path.clone(),
@@ -272,7 +272,7 @@ fn kotlin_emit_call(
     edges: &mut Vec<ParsedEdge>,
 ) {
     let caller = enclosing_func
-        .map(|func| qualify(&file_path, func, enclosing_class))
+        .map(|func| qualify(file_path, func, enclosing_class))
         .unwrap_or_else(|| file_path.to_string());
     if let Some(call_name) = kotlin_call_name(node, source) {
         edges.push(ParsedEdge {
