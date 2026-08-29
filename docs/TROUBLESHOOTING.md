@@ -96,10 +96,20 @@ Ensure `docs/LLM-OPTIMIZED-REFERENCE.md` exists in the repo or installed package
 
 ## `dagayn._core` is missing
 
-<!-- derived-from ./USAGE.md#use-the-rust-backend -->
+<!-- derived-from ./USAGE.md#native-graph-store -->
 
 Install a wheel that includes the Rust extension, or rebuild from source with a
 Rust toolchain and C compiler available:
+
+```bash
+pip install dagayn
+```
+
+```bash
+uv tool install dagayn
+```
+
+When no prebuilt wheel is available:
 
 ```bash
 pip install git+https://github.com/manji-0/dagayn.git
@@ -111,12 +121,6 @@ uv tool install --from git+https://github.com/manji-0/dagayn.git dagayn
 
 For a source checkout without the native extension, rebuild the editable
 extension. The old Python parser implementation is no longer shipped.
-
-```bash
-uvx --from git+https://github.com/manji-0/dagayn.git dagayn --help
-```
-
-For a checkout, rebuild the editable extension:
 
 ```bash
 uvx maturin develop --release

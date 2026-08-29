@@ -28,18 +28,18 @@ Install **Dagayn** from the VS Code Marketplace.
 
 ### 2. Install the Backend
 
-The extension requires the `dagayn` Python CLI to parse your codebase.
+The extension requires the `dagayn` CLI to parse your codebase.
 
 ```bash
 # Recommended
-uv pip install git+https://github.com/manji-0/dagayn.git
+uv tool install dagayn
 
 # Alternatives
-pipx install git+https://github.com/manji-0/dagayn.git
-pip install git+https://github.com/manji-0/dagayn.git
+pipx install dagayn
+pip install dagayn
 ```
 
-Requires Python 3.12+.
+Requires Python 3.12+. Published wheels include the compiled native extension.
 
 ### 3. Build Your Graph
 

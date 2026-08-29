@@ -19,7 +19,7 @@ Do not file sensitive vulnerabilities as public issues. Follow `SECURITY.md`.
 <!-- constrained-by ./prek.toml -->
 
 ```bash
-uv sync
+uv sync --extra dev
 uv tool install prek
 prek install
 ```
@@ -36,9 +36,23 @@ Pydantic model semantics — `BaseModel`, `Field`, `ConfigDict`, and
 `pydantic_settings.BaseSettings` — statically, so schema violations in
 `dagayn/state_types.py` and the tool dispatchers surface as type errors.
 
+`uv sync --extra dev` builds the PyO3 extension (`dagayn._core`) and vendors
+pinned Tree-sitter grammars. The first build fetches grammars over the network.
+
+### Rust workspace
+
+Requires a Rust toolchain (1.92+) and a C compiler. `uv sync` is enough for
+the Python test path (maturin). For `cargo test --workspace` or
+`cargo clippy --workspace -- -D warnings`, point PyO3 at uv's interpreter so
+`dagayn-py` can link `libpython`:
+
+```bash
+export PYO3_PYTHON="$(uv run python -c 'import sys; print(sys.executable)')"
+```
+
 ### VS Code extension (`dagayn-vscode/`)
 
-Requires Node 20+ and npm.
+Requires Node 22+ and pnpm.
 
 ```bash
 cd dagayn-vscode

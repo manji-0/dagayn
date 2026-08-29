@@ -21,7 +21,13 @@ Use `dagayn:` directives when the document intentionally creates a reviewable
 obligation between prose and another artifact:
 
 ```markdown
-# dagayn: implemented-by dagayn/tools/query.py::traverse_graph_func
+<!-- dagayn: implemented-by dagayn/tools/query.py::traverse_graph_func -->
+```
+
+In Python or Terraform, point the other way from the implementation:
+
+```python
+# dagayn: implements docs/auth-spec.md#Token Refresh
 ```
 
 Use ordinary backticks for display text, command names, file names, and short

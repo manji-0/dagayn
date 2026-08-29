@@ -117,7 +117,7 @@ The fork supports mainstream app languages plus Markdown, notebooks, and Terrafo
 
 Jupyter and Databricks notebooks are parsed as graph inputs rather than report output formats.
 
-Terraform and Markdown are notable differentiators for this fork's review workflows.
+Terraform and Markdown are notable differentiators for this fork's review workflows. Native FTS indexes Japanese with Lindera IPADIC morphemes and overlapping CJK bigrams.
 </section>
 
 <section name="troubleshooting">
@@ -125,5 +125,5 @@ If results look stale, call `ensure_graph_tool(force=True)` or run `dagayn updat
 
 If integrations are missing, re-run `dagayn install --dry-run` first.
 
-If local type checks disagree with CI, use the repository's `ty` command line with the documented excludes.
+If local type checks disagree with CI, use `uv run pyrefly check` (see `[tool.pyrefly]` in `pyproject.toml`).
 </section>

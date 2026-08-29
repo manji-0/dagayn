@@ -29,11 +29,13 @@ See [NOTICE](NOTICE) for upstream attribution and original author information.
 ## Highlights
 
 - first-class Terraform parsing for `.tf` and `.tfvars`
-- Markdown structure and dependency extraction, including directive comments
+- Markdown structure and dependency extraction, including directive comments and `dagayn:` documentation links
 - notebook parsing for `.ipynb`
-- incremental graph updates and watch mode
+- native Japanese FTS (Lindera IPADIC morphemes plus CJK bigrams), so inflected queries still AND-match
+- incremental graph updates, watch mode, worktree sync, and session prepare
 - MCP server for AI coding tools
 - graph queries for impact radius, review context, communities, flows, and refactors
+- native Rust graph store, parsers, FTS, flows, and post-processing (`dagayn._core`)
 - multi-repo registry and daemon workflows
 - GraphML, Mermaid C4, SVG, Cypher, and Obsidian graph exports
 
@@ -43,7 +45,7 @@ See [NOTICE](NOTICE) for upstream attribution and original author information.
 
 Highlights include:
 
-- Python, JavaScript, TypeScript, TSX, Go, Rust, Java, C#, Ruby, PHP, Kotlin, Swift, Scala, Solidity, Dart, Lua, Luau, Objective-C, Bash, Elixir, Zig, PowerShell, Julia, GDScript, Vue, Svelte, Astro
+- Python, JavaScript, TypeScript, TSX, Go, Rust, Java, C, C++, C#, Ruby, PHP, Kotlin, Swift, Scala, Solidity, Dart, Lua, Luau, Objective-C, Bash, Elixir, Zig, PowerShell, Julia, Perl, R, GDScript, Vue, Svelte, Astro
 - Markdown
 - Jupyter notebooks and Databricks notebook sources/exports as graph inputs
 - Terraform
@@ -132,6 +134,14 @@ Supported directive kinds:
 
 Each directive becomes a **DEPENDS_ON** edge. The `markdown_directive_kind` edge attribute records the specific directive type for downstream filtering.
 
+### Documentation directives (`dagayn:`)
+
+<!-- derived-from ./docs/MARKDOWN-AUTHORING.md -->
+
+HTML comments of the form `<!-- dagayn: implemented-by path::symbol -->` create `CROSS_ARTIFACT` edges from a Markdown section to a code (or other artifact) target. Supported kinds include `implemented-by`, `discusses-artifact`, and `raises-issue-for`. Code can point the other way with line comments such as `# dagayn: implements docs/spec.md#Section`.
+
+See [`docs/MARKDOWN-AUTHORING.md`](docs/MARKDOWN-AUTHORING.md) for the full contract.
+
 ### Link resolution
 
 The parser handles:
@@ -203,21 +213,27 @@ dagayn install --mode remote-embedding --provider minimax
 
 For `--mode remote-embedding`, set the provider's environment variables in the shell that launches your AI coding tool (e.g. `CRG_OPENAI_API_KEY`, `CRG_OPENAI_BASE_URL`, `CRG_OPENAI_MODEL` for `openai`); the MCP server inherits those at launch time and the generated `dagayn serve --remote-embedding <provider>` entry makes MCP search use that provider automatically.  The exact env-var list is printed at install time.  Legacy install shortcuts such as `--mode fts`, `--mode local`, `--mode local --preset low`, `--mode llama-qwen3`, `--mode remote`, and `--local-embedding low` still work as aliases for the new explicit mode names.
 
-### Rust backend
+### Native graph store
 
-<!-- derived-from ./docs/USAGE.md#use-the-rust-backend -->
+<!-- derived-from ./docs/USAGE.md#native-graph-store -->
 
-The Rust-backed graph store and Rust-owned parser paths are the default for
-Markdown, Terraform, Rust, Python/notebooks, and
-Bash/Go/Java/Ruby/C#/PHP/Kotlin/Swift/Scala/Solidity/Dart/Lua/Luau/C/C headers/Perl XS/C++/Objective-C/Elixir/GDScript/R/Julia/Perl/Vue/Svelte/Zig/PowerShell, extensionless shebang scripts for supported scripting languages, plus core JavaScript/JSX/TypeScript/TSX and Astro files:
+The graph store, parsers, FTS, flows, and post-processing run in the native
+Rust extension (`dagayn._core`). There is no Python graph engine to fall back
+to: `DAGAYN_BACKEND=python` is rejected. Hybrid search ranking and
+manifest-bridge extraction stay in Python.
+
+Parsers cover Markdown, Terraform, Rust, Python/notebooks, Bash, Go, Java,
+Ruby, C#, PHP, Kotlin, Swift, Scala, Solidity, Dart, Lua, Luau, C / C headers /
+Perl XS, C++, Objective-C, Elixir, GDScript, R, Julia, Perl, Vue, Svelte, Zig,
+PowerShell, extensionless shebang scripts for supported scripting languages,
+and core JavaScript / JSX / TypeScript / TSX / Astro files:
 
 ```bash
 dagayn build
 dagayn update
 ```
 
-Source checkouts without the native extension now fail clearly instead of
-falling back to the removed Python parser implementation.
+Source checkouts without the native extension fail clearly.
 
 ## Common CLI flows
 
@@ -225,6 +241,7 @@ falling back to the removed Python parser implementation.
 dagayn build
 dagayn update
 dagayn watch
+dagayn worktree sync
 dagayn detect-changes --base HEAD~1
 dagayn visualize --format graphml
 dagayn serve
@@ -326,7 +343,9 @@ The graph is stored locally under `.dagayn/` by default. No external database is
 `semantic_search_nodes` combines exact/name search with embedding-backed fuzzy
 search when embeddings are available, and falls back to FTS-only search when
 they are not. It reports which search path contributed through `search_mode`
-and per-result `source` fields.
+and per-result `source` fields. Native FTS segments Japanese with Lindera
+IPADIC morphemes (plus dictionary base forms) and overlapping CJK bigrams, so
+an inflected query such as `検索する` AND-matches `検索を行う`.
 
 For implementation details such as FTS indexing, RRF merge, reranking, text
 modes, and provider setup, see
@@ -409,6 +428,8 @@ llama-server endpoint. No Python ML stack or PyTorch dependency is required.
 - `docs/FEATURES.md` — what the fork emphasizes and where it differs
 - `docs/ARCHITECTURE.md` — parser, storage, and post-processing pipeline
 - `docs/SCHEMA.md` — node, edge, and metadata model
+- `docs/MARKDOWN-AUTHORING.md` — graph-aware Markdown directives and `dagayn:` links
+- `docs/SESSION-GRAPH-FRESHNESS.md` — session prepare, worktrees, and MCP first-tool readiness
 - `docs/EVALUATION-SEMANTICS.md` — metric roles, profile summaries, gates,
   costs, and semantic report outputs
 - `docs/LOCAL-EMBEDDINGS.md` — managed sidecar and local embedding setup

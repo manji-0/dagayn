@@ -4,7 +4,11 @@
 <!-- constrained-by ./GRAMMAR-PROVISIONING.md -->
 <!-- constrained-by ./CROSS-ARTIFACT-EDGES-WIP.md -->
 
-> **Status:** Work in progress — core decisions frozen as of 2026-04-26. Phase 0 complete as of 2026-04-27. Phase 1 (Rust graph engine) started with the initial Rust workspace and PyO3 graph-store scaffold.
+> **Status:** Phase 4 landed. The Python graph engine, flow tracer, community
+> detector, FTS rebuild, post-process steps, and schema migrations were deleted;
+> Rust is the only backend. `DAGAYN_BACKEND=python` is rejected. Hybrid search
+> ranking and manifest-bridge extraction remain in Python. Core decisions frozen
+> as of 2026-04-26.
 
 ## Frozen decisions
 

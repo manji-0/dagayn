@@ -7,6 +7,7 @@
 <!-- constrained-by ./SCHEMA.md -->
 <!-- constrained-by ./FEATURES.md -->
 <!-- constrained-by ./EVALUATION-SEMANTICS.md -->
+<!-- constrained-by ./SESSION-GRAPH-FRESHNESS.md -->
 
 This directory documents the fork as `dagayn`.
 
@@ -24,6 +25,7 @@ This directory documents the fork as `dagayn`.
 ## Operation
 
 - [RECIPES.md](./RECIPES.md) — copy-paste recipes for watch, registry/daemon, and optional embeddings
+- [SESSION-GRAPH-FRESHNESS.md](./SESSION-GRAPH-FRESHNESS.md) — session prepare, worktrees, and MCP first-tool readiness
 - [DAEMON-CONFIG.md](./DAEMON-CONFIG.md) — registry and watch daemon file formats
 - [LOCAL-EMBEDDINGS.md](./LOCAL-EMBEDDINGS.md) — managed sidecar and local embedding setup
 - [GRAMMAR-PROVISIONING.md](./GRAMMAR-PROVISIONING.md) — pinned Tree-sitter grammar provisioning contract

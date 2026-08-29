@@ -16,7 +16,7 @@ If you find a vulnerability, report it privately to the maintainers before openi
 Current CI checks include:
 
 - `ruff` linting and format validation
-- `ty` type checking
+- `pyrefly` type checking
 - Bandit scanning
 - full pytest coverage checks used by the repository workflow
 

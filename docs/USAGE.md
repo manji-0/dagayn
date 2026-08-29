@@ -126,21 +126,27 @@ Session start/resume, worktree create/switch/delete, Subagent launch, and MCP
 first-tool readiness are defined in
 [SESSION-GRAPH-FRESHNESS.md](./SESSION-GRAPH-FRESHNESS.md).
 
-## Use the Rust backend
+## Native graph store
 
 <!-- constrained-by ./RUST-CORE-MIGRATION-WIP.md -->
 
-The Rust backend is the default. It uses the Rust-backed graph store and
-Rust-owned parser paths for Markdown, Terraform,
-Rust, Python/notebooks, Bash/Go/Java/Ruby/C#/PHP/Kotlin/Swift/Scala/Solidity/Dart/Lua/Luau/C/C headers/Perl XS/C++/Objective-C/Elixir/GDScript/R/Julia/Perl/Vue/Svelte/Zig/PowerShell, extensionless shebang scripts for supported scripting languages, and core JavaScript/JSX/TypeScript/TSX/Astro files:
+The graph store, parsers, FTS, flows, and post-processing run in the native
+Rust extension (`dagayn._core`). There is no Python graph engine to fall back
+to: `DAGAYN_BACKEND=python` is rejected. Hybrid search ranking and
+manifest-bridge extraction stay in Python.
+
+Parsers cover Markdown, Terraform, Rust, Python/notebooks, Bash, Go, Java,
+Ruby, C#, PHP, Kotlin, Swift, Scala, Solidity, Dart, Lua, Luau, C / C headers /
+Perl XS, C++, Objective-C, Elixir, GDScript, R, Julia, Perl, Vue, Svelte, Zig,
+PowerShell, extensionless shebang scripts for supported scripting languages,
+and core JavaScript / JSX / TypeScript / TSX / Astro files:
 
 ```bash
 dagayn build
 dagayn update
 ```
 
-Source checkouts without `dagayn._core` fail clearly instead of falling back
-to the removed Python parser implementation.
+Source checkouts without `dagayn._core` fail clearly.
 
 ## Review changes
 

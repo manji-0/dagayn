@@ -22,7 +22,7 @@
 
 <!-- derived-from ./ARCHITECTURE.md#parsing-model -->
 
-- application languages such as Python, TypeScript, JavaScript, Go, Rust, Java, C#, Ruby, PHP, Kotlin, Swift, Scala, Dart, and more
+- application languages such as Python, TypeScript, JavaScript, Go, Rust, Java, C, C++, C#, Ruby, PHP, Kotlin, Swift, Scala, Dart, Perl, R, and more
 - repo-adjacent assets such as Markdown, Jupyter notebooks, and Databricks notebook sources/exports
 - Terraform as a first-class graph source
 
@@ -30,12 +30,14 @@
 
 <!-- derived-from ./ARCHITECTURE.md#parsing-model -->
 
+- native Rust graph store (`dagayn._core`); the Python graph engine was removed
 - commit-pinned Terraform grammar support fetched from the fork at build/test/runtime
 - Terraform → application-code `CROSS_ARTIFACT` bridges (local-exec, Lambda/function
   source paths, `handler` / `entry_point`) with confidence/evidence metadata
-- Markdown heading, body, reference, and directive extraction
+- Markdown heading, body, reference, directive, and `dagayn:` documentation-link extraction
+- namespace-aware call resolution (shared packages/namespaces, class-declaring files, include/URI imports)
 - stronger mixed-monorepo testing across docs, app code, and infra
-- updated CI stack using `ruff` and `ty`
+- updated CI stack using `ruff` and `pyrefly`
 
 ## Operational strengths
 
