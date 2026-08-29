@@ -26,8 +26,18 @@ def __getattr__(name: str) -> Any:
     if name == "GraphStore":
         from dagayn._core import GraphStore as RustGraphStore
 
-        globals()[name] = RustGraphStore
-        return RustGraphStore
+        from .sqlite_errors import register_live_store
+
+        class GraphStore:
+            """Construct a native store and register it for corrupt recovery."""
+
+            def __new__(cls, db_path: Any) -> Any:
+                store = RustGraphStore(db_path)
+                register_live_store(store, store.db_path)
+                return store
+
+        globals()[name] = GraphStore
+        return GraphStore
     if name not in _LAZY_EXPORTS:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
     module_name, attr_name = _LAZY_EXPORTS[name]

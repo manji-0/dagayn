@@ -1150,9 +1150,11 @@ class TestFlowTools:
         # All returned flows should have Function entry points
         for f in result["flows"]:
             ep_id = f["entry_point_id"]
-            row = store_conn(self.store).execute(
-                "SELECT kind FROM nodes WHERE id = ?", (ep_id,)
-            ).fetchone()
+            row = (
+                store_conn(self.store)
+                .execute("SELECT kind FROM nodes WHERE id = ?", (ep_id,))
+                .fetchone()
+            )
             assert row["kind"] == "Function"
 
     def test_list_flows_kind_filter_batches_entry_point_lookup(self, monkeypatch):
@@ -1303,10 +1305,14 @@ class TestFlowTools:
         from dagayn.tools import flows_tools
 
         flow_id = list_flows(repo_root=str(self.root))["flows"][0]["id"]
-        row = store_conn(self.store).execute(
-            "SELECT path_json FROM flows WHERE id = ?",
-            (flow_id,),
-        ).fetchone()
+        row = (
+            store_conn(self.store)
+            .execute(
+                "SELECT path_json FROM flows WHERE id = ?",
+                (flow_id,),
+            )
+            .fetchone()
+        )
         path_ids = json.loads(row["path_json"])
         assert len(path_ids) >= 2
 
@@ -2507,10 +2513,14 @@ class TestComputeSummaries:
 
         _compute_summaries(self.store)
 
-        rows = store_conn(self.store).execute(
-            "SELECT qualified_name, caller_count, test_coverage, "
-            "security_relevant, risk_score FROM risk_index"
-        ).fetchall()
+        rows = (
+            store_conn(self.store)
+            .execute(
+                "SELECT qualified_name, caller_count, test_coverage, "
+                "security_relevant, risk_score FROM risk_index"
+            )
+            .fetchall()
+        )
         by_qn = {r[0]: r for r in rows}
 
         # login: called once (by db.py::query), tested, security-keyword
@@ -2571,10 +2581,14 @@ class TestComputeSummaries:
 
         _compute_summaries(self.store)
 
-        rows = store_conn(self.store).execute(
-            "SELECT community_id, name, key_symbols, size, "
-            "dominant_language FROM community_summaries"
-        ).fetchall()
+        rows = (
+            store_conn(self.store)
+            .execute(
+                "SELECT community_id, name, key_symbols, size, "
+                "dominant_language FROM community_summaries"
+            )
+            .fetchall()
+        )
         assert len(rows) == 2
         by_name = {r[1]: r for r in rows}
 

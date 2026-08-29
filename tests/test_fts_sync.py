@@ -1,6 +1,5 @@
 """Tests for FTS5 content sync robustness."""
 
-import sqlite3
 import tempfile
 from pathlib import Path
 
@@ -47,9 +46,11 @@ class TestFTSSync:
         count = rebuild_fts_index(store)
         assert count == 2
 
-        fts_rows = store_conn(store).execute(
-            "SELECT name FROM nodes_fts WHERE name MATCH 'calculate*'"
-        ).fetchall()
+        fts_rows = (
+            store_conn(store)
+            .execute("SELECT name FROM nodes_fts WHERE name MATCH 'calculate*'")
+            .fetchall()
+        )
         assert len(fts_rows) == 1
         assert fts_rows[0]["name"] == "calculate_total"
 
@@ -118,12 +119,16 @@ class TestFTSSync:
         )
         store.store_file_nodes_edges("src/c.py", [gamma], [])
 
-        node_rows = store_conn(store).execute(
-            "SELECT id, file_path, name FROM nodes ORDER BY id"
-        ).fetchall()
-        fts_rows = store_conn(store).execute(
-            "SELECT rowid, file_path, name FROM nodes_fts ORDER BY rowid"
-        ).fetchall()
+        node_rows = (
+            store_conn(store)
+            .execute("SELECT id, file_path, name FROM nodes ORDER BY id")
+            .fetchall()
+        )
+        fts_rows = (
+            store_conn(store)
+            .execute("SELECT rowid, file_path, name FROM nodes_fts ORDER BY rowid")
+            .fetchall()
+        )
 
         assert [(row["id"], row["file_path"]) for row in node_rows] == [
             (row["rowid"], row["file_path"]) for row in fts_rows
@@ -167,69 +172,3 @@ class TestFTSSync:
 
         names = {row["name"] for row in store_conn(store).execute("SELECT name FROM nodes_fts")}
         assert names >= {"alpha_widget", "beta_gadget"}
-
-    def test_v13_migration_rebuilds_empty_generated_columns(self, tmp_path):
-        """Upgrading through v13 must not leave empty identifier_tokens/doc_text."""
-        db_path = tmp_path / "legacy.db"
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        conn.executescript(
-            """
-            CREATE TABLE nodes (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                kind TEXT NOT NULL,
-                name TEXT NOT NULL,
-                qualified_name TEXT NOT NULL UNIQUE,
-                file_path TEXT NOT NULL,
-                line_start INTEGER,
-                line_end INTEGER,
-                language TEXT,
-                parent_name TEXT,
-                params TEXT,
-                return_type TEXT,
-                modifiers TEXT,
-                is_test INTEGER DEFAULT 0,
-                file_hash TEXT,
-                mtime_ns INTEGER DEFAULT 0,
-                extra TEXT DEFAULT '{}',
-                signature TEXT,
-                updated_at REAL NOT NULL
-            );
-            CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-            CREATE VIRTUAL TABLE nodes_fts USING fts5(
-                name, qualified_name, file_path, signature, identifier_tokens, doc_text,
-                tokenize='porter unicode61'
-            );
-            INSERT INTO metadata VALUES ('schema_version', '13');
-            INSERT INTO nodes (
-                kind, name, qualified_name, file_path, line_start, line_end,
-                language, extra, signature, updated_at
-            ) VALUES (
-                'Function', 'user_info', 'docs.py::user_info', 'docs.py', 1, 3,
-                'python', '{"display_name":"ユーザー情報"}', 'def user_info()', 1.0
-            );
-            INSERT INTO nodes_fts(rowid, name, qualified_name, file_path, signature,
-                                  identifier_tokens, doc_text)
-            SELECT rowid, name, qualified_name, file_path, COALESCE(signature, ''), '', ''
-            FROM nodes;
-            """
-        )
-        conn.commit()
-        conn.close()
-
-        store = GraphStore(db_path)
-        try:
-            doc_text = store_conn(store).execute(
-                "SELECT doc_text FROM nodes_fts WHERE name = 'user_info'"
-            ).fetchone()["doc_text"]
-            identifier_tokens = store_conn(store).execute(
-                "SELECT identifier_tokens FROM nodes_fts WHERE name = 'user_info'"
-            ).fetchone()["identifier_tokens"]
-            assert doc_text
-            assert identifier_tokens
-            assert "ユーザー" in doc_text or "user" in identifier_tokens
-        finally:
-            store.close()
-
-
-

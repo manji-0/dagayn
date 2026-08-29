@@ -50,6 +50,7 @@ class FlowRecord(TypedDict, total=False):
     created_at: str | None
     updated_at: str | None
 
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_FLOW_MAX_DEPTH = 15
@@ -105,11 +106,35 @@ def _hydrate_flow_rows(store: GraphStore, rows: list[Any]) -> list[Any]:
     payloads: list[Any] = []
     for row in rows:
         if isinstance(row, dict):
-            payloads.append(row)
+            payload = dict(row)
         elif hasattr(row, "keys"):
-            payloads.append({key: row[key] for key in row.keys()})
+            payload = {key: row[key] for key in row.keys()}
         else:
             payloads.append(row)
+            continue
+        if "path" not in payload and payload.get("path_json") is not None:
+            raw_path = payload["path_json"]
+            payload["path"] = json.loads(raw_path) if isinstance(raw_path, str) else raw_path
+        if not payload.get("steps"):
+            path_ids = [
+                node_id for node_id in (payload.get("path") or []) if isinstance(node_id, int)
+            ]
+            try:
+                nodes_by_id = store.get_nodes_by_ids(path_ids) if path_ids else {}
+            except Exception:  # noqa: BLE001 — annotation must never break a listing
+                nodes_by_id = {}
+            payload["steps"] = [
+                {
+                    "id": node.id,
+                    "qualified_name": node.qualified_name,
+                    "name": node.name,
+                    "file_path": node.file_path,
+                    "kind": node.kind,
+                }
+                for node_id in path_ids
+                if (node := nodes_by_id.get(node_id)) is not None
+            ]
+        payloads.append(payload)
     return [_annotate_flow_dict_bridges(store, row) for row in payloads]
 
 

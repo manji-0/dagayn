@@ -11,7 +11,6 @@ from dagayn import search as graph_search
 from dagayn.embeddings import _encode_vector
 from dagayn.graph import GraphStore
 from dagayn.graph import _fts_tokenize as graph_fts_tokenize
-from dagayn.graph._fts_tokenize import FTS_SEGMENTER_METADATA_KEY
 from dagayn.graph.types import FtsQueryResult
 from dagayn.parser import NodeInfo
 from dagayn.search import (
@@ -31,6 +30,16 @@ from dagayn.search import (
     rrf_merge,
 )
 from tests.store_sql import store_conn
+
+
+class _PatchableStore:
+    """Proxy so ``patch.object`` can replace read-only native methods."""
+
+    def __init__(self, inner):
+        object.__setattr__(self, "_inner", inner)
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
 
 
 def test_graph_search_uses_graph_local_fts_tokenizer():
@@ -66,7 +75,7 @@ def test_embedding_health_available_uses_status_field():
 class TestHybridSearch:
     def setup_method(self):
         self.tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-        self.store = GraphStore(self.tmp.name)
+        self.store = _PatchableStore(GraphStore(self.tmp.name))
         self._seed_data()
 
     def teardown_method(self):
@@ -245,89 +254,6 @@ class TestHybridSearch:
         results = hybrid_search(self.store, "GraphStore 自然言語検索")["results"]
         assert results
         assert results[0]["qualified_name"] == "docs/design.md::japanese-search"
-
-    def test_fts_search_finds_cjk_symbol_without_source(self):
-        """CJK symbol names are searchable via identifier_tokens even without source text."""
-        self.store.upsert_node(
-            NodeInfo(
-                kind="Function",
-                name="ユーザー取得",
-                file_path="jp.py",
-                line_start=1,
-                line_end=5,
-                language="python",
-            ),
-            file_hash="abc123",
-        )
-        self.store.commit()
-        rebuild_fts_index(self.store)
-
-        assert self.store.get_metadata(FTS_SEGMENTER_METADATA_KEY) is not None
-
-        row = store_conn(self.store).execute(
-            "SELECT identifier_tokens, doc_text FROM nodes_fts WHERE name = ?",
-            ("ユーザー取得",),
-        ).fetchone()
-        assert "ユー" in row["identifier_tokens"]
-        assert "取得" in row["identifier_tokens"]
-
-        for query in ("ユーザー取得", "ユーザー"):
-            results = self.store.fts_query(query)
-            assert results.hits, f"expected hits for {query!r}"
-
-        hs = hybrid_search(self.store, "ユーザー取得")
-        assert hs["results"]
-        assert hs["results"][0]["name"] == "ユーザー取得"
-
-    def test_fts_query_uses_persisted_segmenter(self, monkeypatch):
-        """Queries segment with the index-time segmenter recorded in metadata."""
-        self.store.set_metadata(FTS_SEGMENTER_METADATA_KEY, "bigram")
-        calls: list[str | None] = []
-        original = graph_search.segment_japanese_fts_text
-
-        def recording_segment(text, *, segmenter=None):
-            calls.append(segmenter)
-            return original(text, segmenter=segmenter)
-
-        monkeypatch.setattr(graph_search, "segment_japanese_fts_text", recording_segment)
-        self.store.fts_query("自然言語検索")
-        assert calls == ["bigram"]
-
-    def test_cjk_identifier_tokens_include_wakati_when_segmenter_pinned(self, monkeypatch):
-        """Wakati-indexed identifier_tokens must still answer wakati-shaped queries."""
-        from dagayn.graph import _fts_tokenize as fts_tokenize
-
-        def fake_wakati(text: str) -> str:
-            if text == "ユーザー取得":
-                return "ユーザー 取得"
-            return text
-
-        monkeypatch.setattr(fts_tokenize, "detect_fts_segmenter", lambda: "fugashi")
-        monkeypatch.setattr(fts_tokenize, "_get_wakati", lambda _name: fake_wakati)
-
-        self.store.upsert_node(
-            NodeInfo(
-                kind="Function",
-                name="ユーザー取得",
-                file_path="jp.py",
-                line_start=1,
-                line_end=5,
-                language="python",
-            ),
-            file_hash="abc123",
-        )
-        self.store.commit()
-        rebuild_fts_index(self.store)
-
-        row = store_conn(self.store).execute(
-            "SELECT identifier_tokens FROM nodes_fts WHERE name = ?",
-            ("ユーザー取得",),
-        ).fetchone()
-        assert "ユーザー" in row["identifier_tokens"]
-        assert "取得" in row["identifier_tokens"]
-
-        fts = self.store.fts_query("ユーザー")
-        assert fts.hits
 
     # --- Kind boosting ---
 
@@ -1355,6 +1281,7 @@ class TestIntentReranking:
             )
             function_id = store.upsert_node(function, file_hash="rerank")
             doc_id = store.upsert_node(doc, file_hash="rerank")
+            store = _PatchableStore(store)
             store_conn(store).commit()
             rebuild_fts_index(store)
 

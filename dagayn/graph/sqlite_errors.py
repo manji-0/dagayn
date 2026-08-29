@@ -33,6 +33,9 @@ _CORRUPT_MESSAGE_MARKERS = (
 )
 
 _live_stores: weakref.WeakKeyDictionary[Any, Path] = weakref.WeakKeyDictionary()
+#: Native ``GraphStore`` is not weak-referenceable. Keep a strong fallback so
+#: corrupt recovery can still force-close leaked rust handles.
+_live_stores_strong: dict[int, tuple[Any, Path]] = {}
 
 
 @contextmanager
@@ -75,7 +78,7 @@ def register_live_store(store: Any, db_path: str | Path) -> None:
     try:
         _live_stores[store] = resolved
     except TypeError:
-        logger.debug("store is not weak-referenceable; corrupt recovery cannot track it")
+        _live_stores_strong[id(store)] = (store, resolved)
 
 
 def close_live_stores_for(db_path: str | Path | None = None) -> int:
@@ -92,7 +95,10 @@ def close_live_stores_for(db_path: str | Path | None = None) -> int:
             target = Path(db_path)
 
     closed = 0
-    for store, stored_path in list(_live_stores.items()):
+    tracked = list(_live_stores.items()) + [
+        (store, stored_path) for store, stored_path in _live_stores_strong.values()
+    ]
+    for store, stored_path in tracked:
         if target is not None and stored_path != target:
             continue
         closer = getattr(store, "_force_close", None) or getattr(store, "close", None)
@@ -102,6 +108,7 @@ def close_live_stores_for(db_path: str | Path | None = None) -> int:
             closer()
         except Exception:  # noqa: BLE001 — recovery must not raise
             logger.debug("force-close during corrupt recovery failed", exc_info=True)
+        _live_stores_strong.pop(id(store), None)
         closed += 1
     return closed
 

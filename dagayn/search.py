@@ -17,7 +17,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Optional, TypedDict, cast
 
 from dagayn.graph import GraphStore, _sanitize_name
-from dagayn.graph._fts_tokenize import contains_japanese, segment_japanese_fts_text
+from dagayn.graph._fts_tokenize import (  # noqa: F401 — re-export for ``dagayn.search``
+    contains_japanese,
+    segment_japanese_fts_text,
+)
 
 if TYPE_CHECKING:
     from dagayn.embeddings import EmbeddingStore

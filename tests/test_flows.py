@@ -216,7 +216,6 @@ class TestFlows:
         ep_files_all = {ep.file_path for ep in eps_all}
         assert "src/handler.spec.ts" in ep_files_all
 
-
     def test_trace_simple_flow(self):
         """BFS traces a linear call chain: A -> B -> C."""
         self._add_func("entry")
@@ -942,10 +941,14 @@ class TestOrphanedStructurePruning:
         assert len(get_flows(self.store)) >= 1
 
     def _dangling_memberships(self) -> int:
-        row = store_conn(self.store).execute(
-            "SELECT COUNT(*) FROM flow_memberships m "
-            "LEFT JOIN nodes n ON n.id = m.node_id WHERE n.id IS NULL"
-        ).fetchone()
+        row = (
+            store_conn(self.store)
+            .execute(
+                "SELECT COUNT(*) FROM flow_memberships m "
+                "LEFT JOIN nodes n ON n.id = m.node_id WHERE n.id IS NULL"
+            )
+            .fetchone()
+        )
         return row[0]
 
     def test_replacing_a_file_leaves_no_dangling_memberships(self):
@@ -969,8 +972,6 @@ class TestOrphanedStructurePruning:
         )
 
         assert self._dangling_memberships() == 0
-
-
 
 
 class TestStaleFlowHydration:

@@ -201,9 +201,17 @@ impl GraphStore {
                         .unwrap_or(ConfidenceTier::High.as_str());
                     tx.execute(
                         "UPDATE edges \
-                         SET target_qualified = ?, extra = ?, confidence = ?, confidence_tier = ? \
+                         SET target_qualified = ?, target_name = ?, extra = ?, \
+                             confidence = ?, confidence_tier = ? \
                          WHERE id = ?",
-                        params![target, serde_json::to_string(&extra)?, confidence, tier, edge_id],
+                        params![
+                            target,
+                            crate::helpers::edge_target_name(&target),
+                            serde_json::to_string(&extra)?,
+                            confidence,
+                            tier,
+                            edge_id
+                        ],
                     )?;
                     if was_previously_resolved {
                         re_resolved += 1;
