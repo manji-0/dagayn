@@ -493,6 +493,7 @@ mod impact;
 mod impact_flows;
 mod impact_radius;
 mod impact_support;
+mod japanese_fts;
 mod maintenance;
 mod node_queries;
 mod postprocess_bridges;

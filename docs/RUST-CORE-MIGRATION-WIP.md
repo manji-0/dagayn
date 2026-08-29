@@ -232,10 +232,11 @@ Consequences for new code:
   are bound on the native store as well.
 - Two behaviours differ by design, both documented at their definitions:
   `get_impact_radius` has no NetworkX arm natively (`CRG_BFS_ENGINE=networkx`
-  applies to the Python store only, and both engines agree), and native
-  `fts_query` segments Japanese with the Rust bigram splitter — the same one the
-  Rust index path writes with — rather than an optional Python morphological
-  analyzer.
+  applies to the Python store only, and both engines agree). Native `fts_query`
+  segments Japanese with embedded Lindera IPADIC plus overlapping CJK bigrams
+  (content morphemes at query time). The Python store still uses optional
+  fugashi/MeCab/janome wakati when those packages are installed, otherwise
+  overlapping bigrams at both index and query.
 
 See: #153
 

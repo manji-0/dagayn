@@ -79,7 +79,7 @@ Optional post-processing layers add:
 
 `semantic_search_nodes` runs two ranked retrieval arms in parallel and merges them with Reciprocal Rank Fusion (RRF, k=10):
 
-1. **FTS5 BM25** — full-text search over the `nodes_fts` virtual table (porter + unicode61 tokenizer, with Japanese source/document text pre-segmented before insertion). Always available. The index stores symbol names, qualified names, paths, signatures, generated identifier tokens (for example `OpenAIEmbeddingProvider` → `open ai embedding provider`), structured code-reference text, and bounded source/document text such as docstrings and Markdown section bodies. Source/document text containing Japanese kana or CJK ideographs is passed through an optional MeCab-compatible tokenizer when available, with an ASCII-preserving fallback so embedded English words remain searchable. The query is fired once as a whole, then re-fired once per identifier-shaped token (snake_case / PascalCase / camelCase) extracted from natural-language phrasing so a query like `"tests for embed_graph"` still hits the `embed_graph` symbol directly.
+1. **FTS5 BM25** — full-text search over the `nodes_fts` virtual table (porter + unicode61 tokenizer, with Japanese source/document text pre-segmented before insertion). Always available. The index stores symbol names, qualified names, paths, signatures, generated identifier tokens (for example `OpenAIEmbeddingProvider` → `open ai embedding provider`), structured code-reference text, and bounded source/document text such as docstrings and Markdown section bodies. On the native store, Japanese kana / CJK / Hangul is indexed as Lindera IPADIC morphemes (plus dictionary base forms) *and* overlapping CJK bigrams; queries keep content morphemes and drop particles, auxiliaries, and light verbs such as `する`, so an inflected query like `検索する` AND-matches `検索を行う` instead of falling through to OR or missing entirely. ASCII spans stay intact so mixed queries such as `GraphStoreで自然言語検索` still hit. If dictionary load fails at runtime, covering (non-overlapping) bigrams with the same stop list still run. CJK identifier names also land in `identifier_tokens` (BM25 weight 5), not only `doc_text`. The Python store still uses optional MeCab-compatible wakati when those packages are installed, with the same ASCII-preserving bigram fallback. The query is fired once as a whole, then re-fired once per identifier-shaped token (snake_case / PascalCase / camelCase) extracted from natural-language phrasing so a query like `"tests for embed_graph"` still hits the `embed_graph` symbol directly.
 2. **Cosine similarity** — vector search over the embedding store. Available only when embeddings have been built.
 
 The RRF constant is 10 (rather than the textbook 60) so the resulting `score` field spreads over ~0.05-0.2 instead of being compressed into 0.015-0.016. The constant is a calibration knob for how strongly top ranks dominate. A positive `k` preserves the order of a single ranked list, but multi-list fusion can reorder items when another arm contributes additional evidence.
@@ -96,6 +96,24 @@ The `search_mode` field in the response reports which path ran: `"hybrid"`, `"ft
 
 Embedding rows are partitioned by provider and text mode, so the same node can
 keep both `material` and `narrative` vectors for intent-routed hybrid search.
+
+### Japanese FTS quality gates
+
+<!-- derived-from #hybrid-search -->
+
+Measured on a 7-node distractor corpus (NLP doc, UI search, ops search, auth,
+billing, CJK identifier, long prose). Overlapping-bigram-only indexing already
+got exact titles, mixed English+Japanese, and CJK identifiers to hit@1, but
+`検索する` against a body that says `検索を行う` returned no hits, and longer
+inflected queries only matched after the OR fallback.
+
+Native Lindera targets, locked in `japanese_fts_quality_gates_hit_inflected_and_identifier_queries`:
+
+- Exact title, mixed `GraphStore 自然言語検索`, `検索ボタン`, `display_name` without relying on source, English `verify_token`, distractor `課金バッチ`, and CJK identifiers: **hit@1**
+- Inflected `自然言語検索する` and long particle-heavy prose whose content words are in the document: **hit@1** with **`match_mode=and`**
+- Bare `検索する`: **hit@5** among search-related docs (not required to rank the NLP node first)
+- 7-node FTS rebuild under 200ms; inflected query p95 under 10ms on that corpus
+- Synonyms such as `認証` vs `トークン検証` stay out of scope for tokenization
 
 ## Query surfaces
 

@@ -6,6 +6,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+lindera = { version = "6", default-features = false, features = ["embed-ipadic"] }
 rayon = "1.10"
 rusqlite.workspace = true
 regex.workspace = true

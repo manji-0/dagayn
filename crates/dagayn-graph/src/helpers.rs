@@ -1,6 +1,8 @@
 use crate::*;
 use serde::Serialize;
 
+pub(crate) use crate::japanese_fts::{segment_japanese_fts_index, segment_japanese_fts_query};
+
 /// Begin a write transaction that takes the write lock up front.
 ///
 /// rusqlite's `transaction()` is `BEGIN DEFERRED`, which acquires a *read*
@@ -1087,82 +1089,15 @@ pub(crate) fn identifier_search_text<'a>(values: impl IntoIterator<Item = &'a st
         if !chunk.is_empty() {
             push_identifier_parts(&chunk, &mut tokens);
         }
-    }
-    tokens.join(" ")
-}
-
-pub(crate) fn contains_japanese(text: &str) -> bool {
-    text.chars().any(is_japanese_char)
-}
-
-pub(crate) fn segment_japanese_fts_text(text: &str) -> String {
-    if text.is_empty() || !contains_japanese(text) {
-        return text.to_string();
-    }
-
-    let mut tokens = Vec::new();
-    let mut chunk = String::new();
-    let mut chunk_kind = ChunkKind::Other;
-    for ch in text.chars() {
-        let next_kind = chunk_kind_for(ch);
-        if next_kind == ChunkKind::Other {
-            flush_fts_chunk(&mut chunk, chunk_kind, &mut tokens);
-            chunk_kind = ChunkKind::Other;
-            continue;
-        }
-        if chunk_kind != ChunkKind::Other && next_kind != chunk_kind {
-            flush_fts_chunk(&mut chunk, chunk_kind, &mut tokens);
-        }
-        chunk.push(ch);
-        chunk_kind = next_kind;
-    }
-    flush_fts_chunk(&mut chunk, chunk_kind, &mut tokens);
-    tokens.join(" ")
-}
-
-#[derive(Clone, Copy, Eq, PartialEq)]
-enum ChunkKind {
-    Ascii,
-    Japanese,
-    Other,
-}
-
-fn chunk_kind_for(ch: char) -> ChunkKind {
-    if ch.is_ascii_alphanumeric() || ch == '_' {
-        ChunkKind::Ascii
-    } else if is_japanese_char(ch) {
-        ChunkKind::Japanese
-    } else {
-        ChunkKind::Other
-    }
-}
-
-fn is_japanese_char(ch: char) -> bool {
-    matches!(
-        ch,
-        '\u{3040}'..='\u{30ff}' | '\u{3400}'..='\u{9fff}' | '\u{f900}'..='\u{faff}'
-    )
-}
-
-fn flush_fts_chunk(chunk: &mut String, kind: ChunkKind, tokens: &mut Vec<String>) {
-    if chunk.is_empty() {
-        return;
-    }
-    match kind {
-        ChunkKind::Ascii => tokens.push(std::mem::take(chunk)),
-        ChunkKind::Japanese => {
-            let chars = chunk.chars().collect::<Vec<_>>();
-            if chars.len() <= 2 {
-                tokens.push(std::mem::take(chunk));
-            } else {
-                for idx in 0..chars.len() - 1 {
-                    tokens.push(chars[idx..idx + 2].iter().collect());
+        if crate::japanese_fts::contains_japanese(value) {
+            for token in crate::japanese_fts::segment_japanese_fts_index(value).split_whitespace() {
+                if !tokens.iter().any(|existing| existing == token) {
+                    tokens.push(token.to_string());
                 }
-                chunk.clear();
             }
         }
-        ChunkKind::Other => chunk.clear(),
     }
+    tokens.join(" ")
 }
 
 pub(crate) fn push_identifier_parts(chunk: &str, tokens: &mut Vec<String>) {

@@ -83,8 +83,10 @@ parsers keep the compact tuple-array `store_file_batch_json` wire format.
 Full postprocess on a Rust store prefers `run_post_processing_json`
 (`dagayn-postproc`): signatures, FTS, bridges, `rebuild_flows_json`, Leiden
 communities, then centrality — without shipping flow lists back to Python.
-Taken from the construction half of PR #151; FTS Lindera/wakati and hybrid
-search from that PR stay out of this wave. Reverse-CALLS stays in
+Taken from the construction half of PR #151; hybrid search from that PR stays
+out of this wave. Native FTS Lindera/wakati landed separately on the graph
+store (`crates/dagayn-graph/src/japanese_fts.rs`) rather than in postproc.
+Reverse-CALLS stays in
 `crates/dagayn-graph/src/flow_trace.rs`, not a second BFS in postproc.
 
 ## Wave 2 — reverse-CALLS incremental flows

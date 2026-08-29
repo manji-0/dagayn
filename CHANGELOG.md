@@ -4,6 +4,13 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Features
+
+- Native FTS indexes Japanese with Lindera IPADIC morphemes (plus base forms)
+  and overlapping CJK bigrams, then queries with content morphemes only. Inflected
+  queries such as `検索する` AND-match `検索を行う` instead of missing or falling
+  through to OR. CJK symbol names also land in `identifier_tokens`.
+
 ### Changed
 
 - Parser nodes and edges carry `NodeKind` / `EdgeKind` instead of heap

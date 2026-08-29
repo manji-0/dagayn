@@ -1442,6 +1442,10 @@ fn rebuilds_fts_index_segments_japanese_source() {
     assert!(doc_text.contains("GraphStore"));
     assert!(doc_text.contains("自然"));
     assert!(doc_text.contains("言語"));
+    assert_eq!(
+        store.get_metadata("fts_segmenter").unwrap().as_deref(),
+        Some("lindera")
+    );
 
     let _ = std::fs::remove_file(path);
     let _ = std::fs::remove_dir_all(source_root);
@@ -3095,4 +3099,238 @@ fn incremental_trace_flows_scoped_load_still_follows_reverse_calls() {
         .unwrap();
     assert!(members > 0);
     let _ = std::fs::remove_file(path);
+}
+
+fn japanese_quality_node(
+    kind: &str,
+    name: &str,
+    file_path: &str,
+    language: &str,
+    extra: Value,
+) -> NodeInput {
+    NodeInput {
+        kind: kind.to_string(),
+        name: name.to_string(),
+        file_path: file_path.to_string(),
+        line_start: 1,
+        line_end: 8,
+        language: language.to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra,
+    }
+}
+
+fn fts_hit_names(store: &GraphStore, query: &str) -> (Vec<String>, &'static str) {
+    let (hits, mode) = store.fts_query(query, 10).unwrap();
+    let ids = hits.iter().map(|(id, _)| *id).collect::<Vec<_>>();
+    let by_id = store.get_nodes_by_ids(&ids).unwrap();
+    let names = ids
+        .iter()
+        .filter_map(|id| by_id.get(id).map(|node| node.name.clone()))
+        .collect();
+    (names, mode)
+}
+
+/// Japanese FTS quality gates for the native Lindera + covering-bigram path.
+///
+/// Baseline (overlapping bigrams at both index and query) on this corpus:
+/// hit@1 10/12, `自然言語検索する` matched only via OR, `検索する` returned no
+/// hits. Synonym `認証` vs `トークン検証` is out of scope for tokenization.
+#[test]
+fn japanese_fts_quality_gates_hit_inflected_and_identifier_queries() {
+    let path = temp_db("fts-japanese-quality");
+    let source_root = {
+        let mut root = std::env::temp_dir();
+        root.push(format!("dagayn-rust-fts-ja-quality-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    };
+    let files = [
+        (
+            "nlp.md",
+            "# 自然言語検索\n\nGraphStoreで自然言語検索を行う。\n",
+        ),
+        (
+            "ui.md",
+            "# 検索ボタン\n\n画面上部の検索ボタンを押すと結果一覧を開く。\n",
+        ),
+        (
+            "ops.md",
+            "# 運用検索\n\n運用チームがログを検索して障害を切り分ける。\n",
+        ),
+        (
+            "auth.py",
+            "def verify_token(token: str) -> bool:\n    return True\n",
+        ),
+        ("billing.py", "def run_billing_batch() -> None:\n    pass\n"),
+        (
+            "prose.md",
+            "# 長い説明\n\nこの文書は自然言語検索の背景を、助詞や接続を含めて長く書いたものです。\n",
+        ),
+    ];
+    for (name, body) in files {
+        std::fs::write(source_root.join(name), body).unwrap();
+    }
+
+    let mut store = GraphStore::open(&path).expect("open graph store");
+    store
+        .set_metadata("repo_root", source_root.to_string_lossy().as_ref())
+        .unwrap();
+    let nodes = [
+        (
+            "nlp.md",
+            japanese_quality_node(
+                "DocSection",
+                "nlp-search",
+                "nlp.md",
+                "markdown",
+                json!({"display_name": "自然言語検索"}),
+            ),
+        ),
+        (
+            "ui.md",
+            japanese_quality_node(
+                "DocSection",
+                "search-button",
+                "ui.md",
+                "markdown",
+                json!({"display_name": "検索ボタン"}),
+            ),
+        ),
+        (
+            "ops.md",
+            japanese_quality_node(
+                "DocSection",
+                "ops-search",
+                "ops.md",
+                "markdown",
+                json!({"display_name": "運用検索"}),
+            ),
+        ),
+        (
+            "auth.py",
+            japanese_quality_node(
+                "Function",
+                "verify_token",
+                "auth.py",
+                "python",
+                json!({"display_name": "トークン検証"}),
+            ),
+        ),
+        (
+            "billing.py",
+            japanese_quality_node(
+                "Function",
+                "run_billing_batch",
+                "billing.py",
+                "python",
+                json!({"display_name": "課金バッチ"}),
+            ),
+        ),
+        (
+            "jp.py",
+            japanese_quality_node(
+                "Function",
+                "ユーザー取得",
+                "jp.py",
+                "python",
+                Value::Object(Default::default()),
+            ),
+        ),
+        (
+            "prose.md",
+            japanese_quality_node(
+                "DocSection",
+                "long-prose",
+                "prose.md",
+                "markdown",
+                json!({"display_name": "長い説明"}),
+            ),
+        ),
+    ];
+    for (file_path, node) in nodes {
+        store
+            .store_file_nodes_edges(file_path, &[node], &[], "hash", 0)
+            .unwrap();
+    }
+
+    let rebuild_started = std::time::Instant::now();
+    assert_eq!(store.rebuild_fts_index().unwrap(), 7);
+    let rebuild_ms = rebuild_started.elapsed().as_secs_f64() * 1000.0;
+    assert!(
+        rebuild_ms < 200.0,
+        "7-node FTS rebuild took {rebuild_ms:.2}ms; budget is 200ms"
+    );
+
+    let hit1 = [
+        ("自然言語検索", "nlp-search", None),
+        ("GraphStore 自然言語検索", "nlp-search", None),
+        ("検索ボタン", "search-button", None),
+        ("トークン検証", "verify_token", None),
+        ("verify_token", "verify_token", None),
+        ("課金バッチ", "run_billing_batch", None),
+        ("自然言語検索する", "nlp-search", Some("and")),
+        (
+            "この文書は自然言語検索の背景を助詞や接続を含めて長く書いた",
+            "long-prose",
+            Some("and"),
+        ),
+        ("ユーザー取得", "ユーザー取得", None),
+        ("ユーザー", "ユーザー取得", None),
+    ];
+    for (query, expected, want_mode) in hit1 {
+        let (names, mode) = fts_hit_names(&store, query);
+        assert_eq!(
+            names.first().map(String::as_str),
+            Some(expected),
+            "hit@1 failed for {query:?}: mode={mode} ranking={names:?}"
+        );
+        if let Some(want) = want_mode {
+            assert_eq!(mode, want, "match_mode for {query:?} ranking={names:?}");
+        }
+    }
+
+    let (search_names, search_mode) = fts_hit_names(&store, "検索する");
+    assert_ne!(search_mode, "none", "検索する must not miss the corpus");
+    assert!(
+        search_names
+            .iter()
+            .take(5)
+            .any(|name| { matches!(name.as_str(), "nlp-search" | "search-button" | "ops-search") }),
+        "検索する should hit a search-related doc in the top 5: {search_names:?}"
+    );
+
+    let mut query_ms = Vec::new();
+    for _ in 0..50 {
+        let started = std::time::Instant::now();
+        let _ = store.fts_query("自然言語検索する", 10).unwrap();
+        query_ms.push(started.elapsed().as_secs_f64() * 1000.0);
+    }
+    query_ms.sort_by(|left, right| left.partial_cmp(right).unwrap());
+    let p95 = query_ms[(query_ms.len() * 95 / 100).min(query_ms.len() - 1)];
+    assert!(
+        p95 < 10.0,
+        "inflected Japanese query p95 {p95:.3}ms exceeds 10ms"
+    );
+
+    let identifier_tokens: String = store
+        .conn
+        .query_row(
+            "SELECT identifier_tokens FROM nodes_fts WHERE name = 'ユーザー取得'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(
+        identifier_tokens.contains("ユーザー") || identifier_tokens.contains("ユー"),
+        "CJK identifiers should land in identifier_tokens: {identifier_tokens}"
+    );
+
+    let _ = std::fs::remove_file(path);
+    let _ = std::fs::remove_dir_all(source_root);
 }
