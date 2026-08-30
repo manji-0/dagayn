@@ -20,6 +20,7 @@ with app.setup:
 @app.cell
 def _():
     import marimo as mo
+
     return (mo,)
 
 
