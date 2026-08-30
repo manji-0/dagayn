@@ -292,7 +292,7 @@ Notes:
 - `--format` is required
 - built-in export formats are `graphml`, `mermaid-c4`, `svg`, `cypher`, and `obsidian`
 - `mermaid-c4` emits Mermaid `C4Component` code using files as components
-- Jupyter / Databricks / marimo notebooks are graph inputs, not report outputs
+- Jupyter / Databricks / marimo notebooks (Python `.py` and Markdown `.md`) are graph inputs, not report outputs
 - `svg` export requires matplotlib, available via `dagayn[eval]`
 
 ## Multi-repo workflows

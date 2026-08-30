@@ -18,7 +18,7 @@ Important fork-specific parser work includes:
 
 - commit-pinned Terraform grammar support fetched from the fork
 - commit-pinned Markdown grammar support for directive-style comments
-- notebook parsing that preserves per-cell attribution for Jupyter, Databricks, and marimo
+- notebook parsing that preserves per-cell attribution for Jupyter, Databricks, and marimo (Python `.py` and Markdown `.md`)
 
 ## Storage model
 

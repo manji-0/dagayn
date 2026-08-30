@@ -26,6 +26,18 @@ static NOTEBOOK_R_FUNCTION_RE: LazyLock<Regex> = LazyLock::new(|| {
 });
 static NOTEBOOK_R_CALL_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b([A-Za-z_.][A-Za-z0-9_.]*)\s*\(").unwrap());
+static MARIMO_MD_PYTHON_TAG_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\{.*python.*\}").unwrap());
+static MARIMO_MD_SQL_TAG_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\{.*sql.*\}").unwrap());
+static MARIMO_MD_MARIMO_TAG_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\{.*marimo.*\}").unwrap());
+static MARIMO_MD_ATTR_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"(\w+)="([^"]*)""#).unwrap());
+static MARIMO_MD_ATTR_SQL_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?:^|[.\s])sql(?:[.\s]|$)").unwrap());
+static MARIMO_MD_ATTR_MARKDOWN_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?:^|[.\s])markdown(?:[.\s]|$)").unwrap());
 
 pub(super) fn parse_python_with_parser(
     file_path: &str,
@@ -180,6 +192,22 @@ struct NotebookCell {
     cell_index: i64,
     language: &'static str,
     source: String,
+    name: Option<String>,
+    refs: Vec<String>,
+    defs: Vec<String>,
+}
+
+impl NotebookCell {
+    fn new(cell_index: i64, language: &'static str, source: String) -> Self {
+        Self {
+            cell_index,
+            language,
+            source,
+            name: None,
+            refs: Vec::new(),
+            defs: Vec::new(),
+        }
+    }
 }
 
 fn is_databricks_py_source(source: &[u8]) -> bool {
@@ -203,6 +231,215 @@ fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
         && haystack
             .windows(needle.len())
             .any(|window| window == needle)
+}
+
+pub(super) fn looks_like_marimo_md(source: &[u8]) -> bool {
+    let text = String::from_utf8_lossy(source);
+    has_marimo_version_frontmatter(&text) || !collect_marimo_md_cells(&text).is_empty()
+}
+
+pub(super) fn parse_marimo_md_with_parser(
+    file_path: &str,
+    source: &[u8],
+    markdown_parser: Option<&mut tree_sitter::Parser>,
+    python_parser: Option<&mut tree_sitter::Parser>,
+    repo_root: Option<&Path>,
+) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let (mut nodes, mut edges) =
+        super::markdown::parse_markdown_with_parser(file_path, source, markdown_parser);
+    if let Some(file) = nodes
+        .iter_mut()
+        .find(|node| node.kind == crate::core::types::NodeKind::File)
+    {
+        set_node_extra_str(file, "notebook_format", "marimo");
+    }
+    let file_path = FilePath::new(file_path);
+    let text = String::from_utf8_lossy(source);
+    let cells = collect_marimo_md_cells(&text);
+    if cells.is_empty() {
+        return (nodes, edges);
+    }
+    let (cell_nodes, mut cell_edges) = parse_notebook_cells_with_parser(
+        &file_path,
+        &cells,
+        "python",
+        Some("marimo"),
+        python_parser,
+        repo_root,
+    );
+    nodes.extend(
+        cell_nodes
+            .into_iter()
+            .filter(|node| node.kind != crate::core::types::NodeKind::File),
+    );
+    edges.append(&mut cell_edges);
+    (nodes, edges)
+}
+
+fn has_marimo_version_frontmatter(text: &str) -> bool {
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let Some(rest) = text.strip_prefix("---") else {
+        return false;
+    };
+    let rest = rest.strip_prefix('\r').unwrap_or(rest);
+    let rest = rest.strip_prefix('\n').unwrap_or(rest);
+    let Some(end) = rest.find("\n---") else {
+        return false;
+    };
+    rest[..end].lines().any(|line| {
+        let line = line.trim();
+        line == "marimo-version" || line.starts_with("marimo-version:")
+    })
+}
+
+fn collect_marimo_md_cells(text: &str) -> Vec<NotebookCell> {
+    let lines = text.lines().collect::<Vec<_>>();
+    let mut cells = Vec::new();
+    let mut cell_index = 0_i64;
+    scan_markdown_fences(&lines, |opener, body_lines| {
+        if !is_marimo_md_code_tag(&opener.info) {
+            return;
+        }
+        let language = marimo_md_fence_language(&opener.info);
+        if language == "markdown" {
+            return;
+        }
+        let attrs = marimo_md_fence_attrs(&opener.info);
+        let name = attrs
+            .get("name")
+            .cloned()
+            .filter(|name| !is_default_marimo_cell_name(name));
+        let defs = attrs.get("query").cloned().into_iter().collect::<Vec<_>>();
+        let body = body_lines.join("\n");
+        if !body.trim().is_empty() {
+            cells.push(NotebookCell {
+                cell_index,
+                language,
+                source: with_trailing_newline(body),
+                name,
+                refs: Vec::new(),
+                defs,
+            });
+        }
+        cell_index += 1;
+    });
+    cells
+}
+
+struct MdFenceOpener {
+    marker: u8,
+    len: usize,
+    indent: usize,
+    info: String,
+}
+
+fn scan_markdown_fences(lines: &[&str], mut on_fence: impl FnMut(&MdFenceOpener, &[&str])) {
+    let mut index = 0;
+    while index < lines.len() {
+        let Some(opener) = parse_md_fence_opener(lines[index]) else {
+            index += 1;
+            continue;
+        };
+        let mut end = index + 1;
+        let mut closed = false;
+        while end < lines.len() {
+            if is_md_fence_closer(lines[end], &opener) {
+                closed = true;
+                break;
+            }
+            end += 1;
+        }
+        if closed {
+            on_fence(&opener, &lines[index + 1..end]);
+            index = end + 1;
+        } else {
+            index += 1;
+        }
+    }
+}
+
+fn parse_md_fence_opener(line: &str) -> Option<MdFenceOpener> {
+    let indent = leading_ws_len(line);
+    let rest = &line[indent..];
+    let bytes = rest.as_bytes();
+    let marker = *bytes.first()?;
+    if marker != b'`' && marker != b'~' {
+        return None;
+    }
+    let len = bytes.iter().take_while(|byte| **byte == marker).count();
+    if len < 3 {
+        return None;
+    }
+    let info = rest[len..].trim();
+    if marker == b'`' && info.contains('`') {
+        return None;
+    }
+    Some(MdFenceOpener {
+        marker,
+        len,
+        indent,
+        info: info.to_string(),
+    })
+}
+
+fn is_md_fence_closer(line: &str, opener: &MdFenceOpener) -> bool {
+    let indent = leading_ws_len(line);
+    if indent > opener.indent + 3 {
+        return false;
+    }
+    let rest = line[indent..].trim_end();
+    let bytes = rest.as_bytes();
+    let fence_len = bytes
+        .iter()
+        .take_while(|byte| **byte == opener.marker)
+        .count();
+    fence_len >= opener.len && bytes[fence_len..].iter().all(u8::is_ascii_whitespace)
+}
+
+fn is_marimo_md_code_tag(info: &str) -> bool {
+    MARIMO_MD_PYTHON_TAG_RE.is_match(info)
+        || MARIMO_MD_SQL_TAG_RE.is_match(info)
+        || MARIMO_MD_MARIMO_TAG_RE.is_match(info)
+}
+
+fn marimo_md_fence_language(info: &str) -> &'static str {
+    let trimmed = info.trim();
+    let lang = trimmed
+        .split_once('{')
+        .map(|(lang, _)| lang.trim())
+        .unwrap_or(trimmed);
+    if lang.eq_ignore_ascii_case("sql") {
+        return "sql";
+    }
+    if lang.eq_ignore_ascii_case("markdown") || lang.eq_ignore_ascii_case("md") {
+        return "markdown";
+    }
+    if let Some((_, attrs)) = trimmed.split_once('{') {
+        let attrs = attrs.trim_end_matches('}').trim();
+        if MARIMO_MD_ATTR_SQL_RE.is_match(attrs) {
+            return "sql";
+        }
+        if MARIMO_MD_ATTR_MARKDOWN_RE.is_match(attrs) {
+            return "markdown";
+        }
+    }
+    "python"
+}
+
+fn marimo_md_fence_attrs(info: &str) -> HashMap<String, String> {
+    MARIMO_MD_ATTR_RE
+        .captures_iter(info)
+        .filter_map(|captures| {
+            Some((
+                captures.get(1)?.as_str().to_string(),
+                captures.get(2)?.as_str().to_string(),
+            ))
+        })
+        .collect()
+}
+
+fn is_default_marimo_cell_name(name: &str) -> bool {
+    name.is_empty() || name == "_" || name == "__"
 }
 
 fn parse_marimo_py_with_parser(
@@ -327,11 +564,63 @@ fn is_marimo_setup_with(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
 }
 
 fn is_marimo_unparsable_cell(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
-    let Some(call) = expression_statement_call(node) else {
-        return false;
-    };
-    python_first_child(call)
-        .is_some_and(|callee| node_text(callee, source) == "app._unparsable_cell")
+    marimo_unparsable_call(node, source).is_some()
+}
+
+fn marimo_unparsable_call<'tree>(
+    node: tree_sitter::Node<'tree>,
+    source: &[u8],
+) -> Option<tree_sitter::Node<'tree>> {
+    match node.kind() {
+        "call" if is_marimo_unparsable_callee(node, source) => Some(node),
+        "expression_statement" => {
+            let call = expression_statement_call(node)?;
+            is_marimo_unparsable_callee(call, source).then_some(call)
+        }
+        _ => None,
+    }
+}
+
+fn is_marimo_unparsable_callee(call: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+    python_first_child(call).is_some_and(|callee| {
+        let text = node_text(callee, source);
+        text == "app._unparsable_cell" || text.ends_with("._unparsable_cell")
+    }) || python_call_name(call, source).as_deref() == Some("_unparsable_cell")
+}
+
+fn marimo_unparsable_source(call: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut strings = Vec::new();
+    collect_call_string_args(call, source, &mut strings);
+    strings
+        .into_iter()
+        .next()
+        .filter(|text| !text.trim().is_empty())
+}
+
+fn marimo_unparsable_name(call: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut cursor = call.walk();
+    let args = call
+        .children(&mut cursor)
+        .find(|child| child.kind() == "argument_list")?;
+    let mut cursor = args.walk();
+    for child in args.children(&mut cursor) {
+        if child.kind() != "keyword_argument" {
+            continue;
+        }
+        if python_identifier_child(child, source).as_deref() != Some("name") {
+            continue;
+        }
+        let mut strings = Vec::new();
+        collect_string_literals(child, source, &mut strings);
+        if let Some(name) = strings
+            .into_iter()
+            .next()
+            .filter(|name| !is_default_marimo_cell_name(name))
+        {
+            return Some(name);
+        }
+    }
+    None
 }
 
 fn expression_statement_call(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
@@ -352,15 +641,21 @@ fn collect_marimo_cells(
     let mut sql_edges = Vec::new();
     let mut cell_index = 0_i64;
     for child in collect_named_children(root) {
-        let kind = marimo_cell_kind(child, source);
-        if kind.is_none() && !is_marimo_unparsable_cell(child, source) {
-            continue;
-        }
-        if is_marimo_unparsable_cell(child, source) {
+        if let Some(call) = marimo_unparsable_call(child, source) {
+            if let Some(cell_source) = marimo_unparsable_source(call, source) {
+                cells.push(NotebookCell {
+                    cell_index,
+                    language: "python",
+                    source: with_trailing_newline(cell_source),
+                    name: marimo_unparsable_name(call, source),
+                    refs: Vec::new(),
+                    defs: Vec::new(),
+                });
+            }
             cell_index += 1;
             continue;
         }
-        let Some(kind) = kind else {
+        let Some(kind) = marimo_cell_kind(child, source) else {
             continue;
         };
         if kind == MarimoCellKind::Cell && is_marimo_markdown_only(child, source) {
@@ -371,10 +666,29 @@ fn collect_marimo_cells(
             && !cell_source.trim().is_empty()
         {
             collect_marimo_sql_imports(file_path, child, source, &mut sql_edges);
+            let name = if kind == MarimoCellKind::Cell {
+                marimo_cell_function_name(child, source)
+                    .filter(|name| !is_default_marimo_cell_name(name))
+            } else {
+                None
+            };
+            let (refs, defs) = match kind {
+                MarimoCellKind::Cell => marimo_cell_refs_defs(child, source),
+                MarimoCellKind::Function | MarimoCellKind::Class => (
+                    Vec::new(),
+                    marimo_cell_symbol_name(child, kind, source)
+                        .into_iter()
+                        .collect(),
+                ),
+                MarimoCellKind::Setup => (Vec::new(), Vec::new()),
+            };
             cells.push(NotebookCell {
                 cell_index,
                 language: "python",
                 source: with_trailing_newline(cell_source),
+                name,
+                refs,
+                defs,
             });
         }
         cell_index += 1;
@@ -419,6 +733,105 @@ fn marimo_cell_source(
             let class = decorated_definition_target(node, "class_definition")?;
             Some(node_text(class, source))
         }
+    }
+}
+
+fn marimo_cell_function_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let function = decorated_definition_target(node, "function_definition")?;
+    python_identifier_child(function, source)
+}
+
+fn marimo_cell_symbol_name(
+    node: tree_sitter::Node<'_>,
+    kind: MarimoCellKind,
+    source: &[u8],
+) -> Option<String> {
+    match kind {
+        MarimoCellKind::Cell | MarimoCellKind::Function => marimo_cell_function_name(node, source),
+        MarimoCellKind::Class => {
+            let class = decorated_definition_target(node, "class_definition")?;
+            python_identifier_child(class, source)
+        }
+        MarimoCellKind::Setup => None,
+    }
+}
+
+fn marimo_cell_refs_defs(node: tree_sitter::Node<'_>, source: &[u8]) -> (Vec<String>, Vec<String>) {
+    let Some(function) = decorated_definition_target(node, "function_definition") else {
+        return (Vec::new(), Vec::new());
+    };
+    (
+        python_function_param_names(function, source),
+        python_function_return_names(function, source),
+    )
+}
+
+fn python_function_param_names(function: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {
+    let Some(params) = function.child_by_field_name("parameters") else {
+        return Vec::new();
+    };
+    let mut names = Vec::new();
+    let mut cursor = params.walk();
+    for child in params.children(&mut cursor) {
+        match child.kind() {
+            "identifier" => names.push(node_text(child, source)),
+            "typed_parameter"
+            | "default_parameter"
+            | "typed_default_parameter"
+            | "list_splat_pattern"
+            | "dictionary_splat_pattern" => {
+                if let Some(name) = python_identifier_child(child, source) {
+                    names.push(name);
+                }
+            }
+            _ => {}
+        }
+    }
+    names.retain(|name| !is_default_marimo_cell_name(name) && name != "self" && name != "cls");
+    names
+}
+
+fn python_function_return_names(function: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {
+    let Some(body) = function.child_by_field_name("body") else {
+        return Vec::new();
+    };
+    let statements = named_block_statements(body);
+    let Some(ret) = statements
+        .last()
+        .copied()
+        .filter(|statement| statement.kind() == "return_statement")
+    else {
+        return Vec::new();
+    };
+    let mut names = Vec::new();
+    python_collect_export_identifiers(ret, source, &mut names);
+    names.retain(|name| !is_default_marimo_cell_name(name));
+    names
+}
+
+fn python_collect_export_identifiers(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    out: &mut Vec<String>,
+) {
+    match node.kind() {
+        "identifier" => out.push(node_text(node, source)),
+        "call" | "attribute" | "subscript" => {}
+        "return_statement"
+        | "tuple"
+        | "list"
+        | "set"
+        | "parenthesized_expression"
+        | "expression_list"
+        | "pattern_list" => {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if child.is_named() {
+                    python_collect_export_identifiers(child, source, out);
+                }
+            }
+        }
+        _ => {}
     }
 }
 
@@ -729,8 +1142,11 @@ fn parse_notebook_cells_with_parser(
     );
     nodes.insert(0, file_node);
     tag_notebook_cell_indices(&mut nodes, &cell_offsets);
+    tag_notebook_cell_names(&mut nodes, cells);
+    synthesize_named_notebook_cells(file_path, cells, &cell_offsets, &mut nodes, &mut edges);
     let edges = resolve_python_call_targets(&nodes, edges, file_path);
-    let edges = add_python_tested_by_edges(&nodes, edges, file_path);
+    let mut edges = add_python_tested_by_edges(&nodes, edges, file_path);
+    add_marimo_cell_dataflow_edges(file_path, cells, &nodes, &mut edges);
     (nodes, edges)
 }
 
@@ -812,11 +1228,11 @@ fn collect_notebook_cells(notebook: &Value, default_language: &'static str) -> V
         if filtered.is_empty() {
             continue;
         }
-        out.push(NotebookCell {
-            cell_index: cell_index as i64,
-            language: cell_language,
-            source: filtered.join(""),
-        });
+        out.push(NotebookCell::new(
+            cell_index as i64,
+            cell_language,
+            filtered.join(""),
+        ));
     }
     out
 }
@@ -919,11 +1335,11 @@ fn collect_databricks_py_cells(text: &str) -> Vec<NotebookCell> {
             {
                 stripped.retain(|line| line != &first_directive);
             }
-            cells.push(NotebookCell {
-                cell_index: cell_index as i64,
+            cells.push(NotebookCell::new(
+                cell_index as i64,
                 language,
-                source: stripped.join("\n"),
-            });
+                stripped.join("\n"),
+            ));
             continue;
         }
         if all_magic
@@ -937,11 +1353,7 @@ fn collect_databricks_py_cells(text: &str) -> Vec<NotebookCell> {
             .filter(|line| !line.starts_with("# MAGIC "))
             .collect::<Vec<_>>()
             .join("\n");
-        cells.push(NotebookCell {
-            cell_index: cell_index as i64,
-            language: "python",
-            source,
-        });
+        cells.push(NotebookCell::new(cell_index as i64, "python", source));
     }
     cells
 }
@@ -1109,6 +1521,172 @@ fn set_node_extra_i64(node: &mut ParsedNode, key: &str, value: i64) {
     }
     if let Some(map) = node.extra.as_object_mut() {
         map.insert(key.to_string(), json!(value));
+    }
+}
+
+fn set_node_extra_str(node: &mut ParsedNode, key: &str, value: &str) {
+    if !node.extra.is_object() {
+        node.extra = json!({});
+    }
+    if let Some(map) = node.extra.as_object_mut() {
+        map.insert(key.to_string(), json!(value));
+    }
+}
+
+fn node_cell_index(node: &ParsedNode) -> Option<i64> {
+    node.extra
+        .get("cell_index")
+        .and_then(serde_json::Value::as_i64)
+}
+
+fn tag_notebook_cell_names(nodes: &mut [ParsedNode], cells: &[NotebookCell]) {
+    for node in nodes {
+        if node.kind == crate::core::types::NodeKind::File {
+            continue;
+        }
+        let Some(cell_index) = node_cell_index(node) else {
+            continue;
+        };
+        let Some(name) = cells
+            .iter()
+            .find(|cell| cell.cell_index == cell_index)
+            .and_then(|cell| cell.name.as_deref())
+        else {
+            continue;
+        };
+        set_node_extra_str(node, "cell_name", name);
+    }
+}
+
+fn synthesize_named_notebook_cells(
+    file_path: &FilePath,
+    cells: &[NotebookCell],
+    offsets: &[(i64, i64, i64)],
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    for cell in cells {
+        let Some(name) = cell.name.as_deref() else {
+            continue;
+        };
+        if is_default_marimo_cell_name(name) {
+            continue;
+        }
+        let already_present = nodes.iter().any(|node| {
+            node.kind != crate::core::types::NodeKind::File
+                && node_cell_index(node) == Some(cell.cell_index)
+                && node.name == name
+        });
+        if already_present {
+            continue;
+        }
+        let (line_start, line_end) = offsets
+            .iter()
+            .find(|(index, _, _)| *index == cell.cell_index)
+            .map(|(_, start, end)| (*start, *end))
+            .unwrap_or((1, 1));
+        let is_test = python_name_matches_test_pattern(name);
+        let qualified = qualify(file_path, name, None);
+        let extra = json!({
+            "cell_index": cell.cell_index,
+            "cell_name": name,
+            "synthesized_from": "marimo_cell_name",
+        });
+        nodes.push(ParsedNode {
+            kind: if is_test {
+                crate::core::types::NodeKind::Test
+            } else {
+                crate::core::types::NodeKind::Function
+            },
+            name: name.to_string(),
+            file_path: file_path.clone(),
+            line_start,
+            line_end,
+            language: cell.language.to_string(),
+            parent_name: None,
+            params: if cell.refs.is_empty() {
+                None
+            } else {
+                Some(format!("({})", cell.refs.join(", ")))
+            },
+            return_type: None,
+            modifiers: None,
+            is_test,
+            extra,
+        });
+        edges.push(ParsedEdge {
+            kind: crate::core::types::EdgeKind::Contains,
+            source: file_path.to_string(),
+            target: qualified,
+            file_path: file_path.clone(),
+            line: line_start,
+            extra: json!({}),
+        });
+    }
+}
+
+fn add_marimo_cell_dataflow_edges(
+    file_path: &FilePath,
+    cells: &[NotebookCell],
+    nodes: &[ParsedNode],
+    edges: &mut Vec<ParsedEdge>,
+) {
+    if cells
+        .iter()
+        .all(|cell| cell.refs.is_empty() && cell.defs.is_empty())
+    {
+        return;
+    }
+    let mut def_targets = HashMap::new();
+    for cell in cells {
+        for def in &cell.defs {
+            if let Some(node) = nodes.iter().find(|node| {
+                node.kind != crate::core::types::NodeKind::File
+                    && node.parent_name.is_none()
+                    && node_cell_index(node) == Some(cell.cell_index)
+                    && node.name == *def
+            }) {
+                def_targets.insert(
+                    def.clone(),
+                    qualify(file_path, &node.name, node.parent_name.as_deref()),
+                );
+            }
+        }
+    }
+    for cell in cells {
+        if cell.refs.is_empty() {
+            continue;
+        }
+        let sources = nodes
+            .iter()
+            .filter(|node| {
+                node.kind != crate::core::types::NodeKind::File
+                    && node.parent_name.is_none()
+                    && node_cell_index(node) == Some(cell.cell_index)
+            })
+            .map(|node| qualify(file_path, &node.name, node.parent_name.as_deref()))
+            .collect::<Vec<_>>();
+        if sources.is_empty() {
+            continue;
+        }
+        for ref_name in &cell.refs {
+            let Some(target) = def_targets.get(ref_name) else {
+                continue;
+            };
+            for source in &sources {
+                if source == target {
+                    continue;
+                }
+                edges.push(ParsedEdge {
+                    kind: crate::core::types::EdgeKind::DependsOn,
+                    source: source.clone(),
+                    target: target.clone(),
+                    file_path: file_path.clone(),
+                    line: 1,
+                    extra: json!({"reason": "marimo_cell_ref"}),
+                });
+            }
+        }
     }
 }
 

@@ -194,11 +194,25 @@ impl RustOwnedParser {
         source: &[u8],
     ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
         match rust_owned_path_kind_for_source(file_path, source) {
-            RustOwnedPathKind::Markdown => markdown::parse_markdown_with_parser(
-                file_path,
-                source,
-                parser_slot(&mut self.markdown_parser, new_markdown_parser),
-            ),
+            RustOwnedPathKind::Markdown => {
+                if python::looks_like_marimo_md(source) {
+                    ensure_parser(&mut self.markdown_parser, new_markdown_parser);
+                    ensure_parser(&mut self.python_parser, new_python_parser);
+                    python::parse_marimo_md_with_parser(
+                        file_path,
+                        source,
+                        self.markdown_parser.as_mut(),
+                        self.python_parser.as_mut(),
+                        repo_root,
+                    )
+                } else {
+                    markdown::parse_markdown_with_parser(
+                        file_path,
+                        source,
+                        parser_slot(&mut self.markdown_parser, new_markdown_parser),
+                    )
+                }
+            }
             RustOwnedPathKind::Terraform => terraform::parse_terraform_with_parser(
                 file_path,
                 source,
@@ -445,6 +459,17 @@ fn parser_slot(
 }
 
 pub fn parse_markdown(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    if python::looks_like_marimo_md(source) {
+        let mut markdown_parser = new_markdown_parser();
+        let mut python_parser = new_python_parser();
+        return python::parse_marimo_md_with_parser(
+            file_path,
+            source,
+            markdown_parser.as_mut(),
+            python_parser.as_mut(),
+            None,
+        );
+    }
     let mut parser = new_markdown_parser();
     markdown::parse_markdown_with_parser(file_path, source, parser.as_mut())
 }

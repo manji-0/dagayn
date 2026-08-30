@@ -135,7 +135,7 @@ impl<'a> LineCursor<'a> {
     }
 }
 
-pub(super) fn parse_markdown_with_parser(
+pub(crate) fn parse_markdown_with_parser(
     file_path: &str,
     source: &[u8],
     parser: Option<&mut tree_sitter::Parser>,

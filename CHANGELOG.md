@@ -6,12 +6,16 @@ All notable changes to `dagayn` are documented here.
 
 ### Features
 
-- Marimo `.py` notebooks are detected from `import marimo` plus `@app.cell` /
-  `@app.function` / `@app.class_definition` / `with app.setup`, then parsed as
-  notebook cells (unwrapped bodies, skipped `mo.md` cells, `mo.sql` table
-  imports) with `notebook_format: "marimo"`. `import foo as bar` also records
-  an `IMPORTS_FROM` edge to `foo`, so the usual `import marimo as mo` cell is
-  visible in the graph.
+- Marimo notebooks are graph inputs. Python `.py` notebooks are detected from
+  `import marimo` plus `@app.cell` / `@app.function` / `@app.class_definition` /
+  `with app.setup`. Markdown `.md` notebooks are detected from `marimo-version`
+  frontmatter or fenced cells whose info string contains `python`, `sql`, or
+  `marimo` in braces (`python {.marimo}`, `sql {.marimo}`). Cells are unwrapped
+  (`mo.md` skipped, `mo.sql` and markdown SQL fences yield table imports) with
+  `notebook_format: "marimo"`. Named cells keep `cell_name`; unparsable
+  `app._unparsable_cell` bodies are recovered; cell refs/defs become
+  `DEPENDS_ON`. `import foo as bar` also records an `IMPORTS_FROM` edge to
+  `foo`, so the usual `import marimo as mo` cell is visible in the graph.
 
 ## 4.13.0 — 2026-08-30
 

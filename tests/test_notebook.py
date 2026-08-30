@@ -434,6 +434,146 @@ class TestMarimoNotebook:
         funcs = [n for n in nodes if n.kind == "Function"]
         assert [f.name for f in funcs] == ["real"]
 
+    def test_named_assignment_cell_is_searchable(self):
+        source = (
+            b"import marimo\n"
+            b"app = marimo.App()\n\n"
+            b"@app.cell\n"
+            b"def load_data():\n"
+            b"    data = [1, 2, 3]\n"
+            b"    return (data,)\n"
+        )
+        nodes, _edges = self.parser.parse_bytes(Path("named.py"), source)
+        funcs = [n for n in nodes if n.kind == "Function"]
+        assert [f.name for f in funcs] == ["load_data"]
+        assert funcs[0].extra.get("cell_name") == "load_data"
+        assert funcs[0].extra.get("synthesized_from") == "marimo_cell_name"
+
+    def test_named_cell_extra_on_inner_function(self):
+        source = (
+            b"import marimo\n"
+            b"app = marimo.App()\n\n"
+            b"@app.cell\n"
+            b"def load_data():\n"
+            b"    def parse():\n"
+            b"        return 1\n"
+            b"    return (parse,)\n"
+        )
+        nodes, _edges = self.parser.parse_bytes(Path("named_inner.py"), source)
+        funcs = {n.name: n for n in nodes if n.kind == "Function"}
+        assert "parse" in funcs
+        assert funcs["parse"].extra.get("cell_name") == "load_data"
+        assert "load_data" in funcs
+
+    def test_unparsable_cell_extracts_body_and_reserves_index(self):
+        source = (
+            b"import marimo\n"
+            b"app = marimo.App()\n\n"
+            b"@app.cell\n"
+            b"def _():\n"
+            b"    x = 1\n"
+            b"    return (x,)\n\n"
+            b"app._unparsable_cell(\n"
+            b'    r"""\n'
+            b"    def broken():\n"
+            b"        return 1\n"
+            b'    """,\n'
+            b'    name="broken",\n'
+            b")\n\n"
+            b"@app.cell\n"
+            b"def _(x):\n"
+            b"    def after():\n"
+            b"        return x\n"
+            b"    return (after,)\n"
+        )
+        nodes, _edges = self.parser.parse_bytes(Path("unparsable.py"), source)
+        funcs = {n.name: n for n in nodes if n.kind == "Function"}
+        assert "broken" in funcs
+        assert funcs["broken"].extra.get("cell_index") == 1
+        assert funcs["after"].extra.get("cell_index") == 2
+
+    def test_cell_ref_defs_depend_on_exported_functions(self):
+        depends = [
+            e
+            for e in self.edges
+            if e.kind == "DEPENDS_ON" and e.extra.get("reason") == "marimo_cell_ref"
+        ]
+        targets = {e.target.split("::")[-1] for e in depends}
+        sources = {e.source.split("::")[-1] for e in depends}
+        assert "helper" in sources
+        assert "add" in targets
+        assert "multiply" in targets
+        assert "DataProcessor" in targets
+
+
+class TestMarimoMarkdownNotebook:
+    def setup_method(self):
+        self.parser = CodeParser()
+        self.nodes, self.edges = self.parser.parse_file(
+            FIXTURES / "sample_marimo_notebook.md",
+        )
+
+    def test_detects_marimo_markdown_notebook(self):
+        file_node = [n for n in self.nodes if n.kind == "File"][0]
+        assert file_node.extra.get("notebook_format") == "marimo"
+        assert file_node.language == "markdown"
+
+    def test_keeps_markdown_headings(self):
+        sections = {n.name for n in self.nodes if n.kind == "DocSection"}
+        assert "sample-analysis" in sections
+
+    def test_parses_python_fences(self):
+        funcs = {n.name: n for n in self.nodes if n.kind == "Function"}
+        assert "add" in funcs
+        assert "multiply" in funcs
+        assert "ignored" not in funcs
+        assert funcs["multiply"].extra.get("cell_name") == "scale"
+
+    def test_extracts_sql_tables(self):
+        imports = [e for e in self.edges if e.kind == "IMPORTS_FROM"]
+        targets = {e.target for e in imports}
+        assert "bronze.events" in targets
+        assert "silver.users" in targets
+
+    def test_plain_python_fence_is_not_a_notebook(self):
+        source = b"# Guide\n\n```python\ndef helper():\n    return 1\n```\n"
+        nodes, _edges = self.parser.parse_bytes(Path("guide.md"), source)
+        file_node = [n for n in nodes if n.kind == "File"][0]
+        assert "notebook_format" not in file_node.extra
+        assert [n.name for n in nodes if n.kind == "Function"] == []
+
+    def test_nested_example_fence_not_extracted(self):
+        source = (
+            b"# Doc\n\n"
+            b"````markdown\n"
+            b"```python {.marimo}\n"
+            b"def should_not_parse():\n"
+            b"    return 1\n"
+            b"```\n"
+            b"````\n"
+        )
+        nodes, _edges = self.parser.parse_bytes(Path("docs.md"), source)
+        file_node = [n for n in nodes if n.kind == "File"][0]
+        assert "notebook_format" not in file_node.extra
+        assert [n.name for n in nodes if n.kind == "Function"] == []
+
+    def test_brace_python_fence_without_lang(self):
+        source = (
+            b"---\nmarimo-version: 0.13.0\n---\n\n```{.marimo}\ndef ping():\n    return 1\n```\n"
+        )
+        nodes, _edges = self.parser.parse_bytes(Path("legacy.md"), source)
+        file_node = [n for n in nodes if n.kind == "File"][0]
+        assert file_node.extra.get("notebook_format") == "marimo"
+        assert [n.name for n in nodes if n.kind == "Function"] == ["ping"]
+
+    def test_frontmatter_only_is_still_marimo(self):
+        source = b"---\nmarimo-version: 0.13.0\n---\n\n# Empty\n"
+        nodes, _edges = self.parser.parse_bytes(Path("empty.md"), source)
+        file_node = [n for n in nodes if n.kind == "File"][0]
+        assert file_node.extra.get("notebook_format") == "marimo"
+        sections = {n.name for n in nodes if n.kind == "DocSection"}
+        assert "empty" in sections
+
 
 class TestRKernelNotebook:
     def setup_method(self):

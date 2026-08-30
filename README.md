@@ -30,7 +30,7 @@ See [NOTICE](NOTICE) for upstream attribution and original author information.
 
 - first-class Terraform parsing for `.tf` and `.tfvars`
 - Markdown structure and dependency extraction, including directive comments and `dagayn:` documentation links
-- notebook parsing for `.ipynb` and marimo `.py` notebooks
+- notebook parsing for `.ipynb` and marimo `.py` / `.md` notebooks
 - native Japanese FTS (Lindera IPADIC morphemes plus CJK bigrams), so inflected queries still AND-match
 - incremental graph updates, watch mode, worktree sync, and session prepare
 - MCP server for AI coding tools
@@ -47,7 +47,7 @@ Highlights include:
 
 - Python, JavaScript, TypeScript, TSX, Go, Rust, Java, C, C++, C#, Ruby, PHP, Kotlin, Swift, Scala, Solidity, Dart, Lua, Luau, Objective-C, Bash, Elixir, Zig, PowerShell, Julia, Perl, R, GDScript, Vue, Svelte, Astro
 - Markdown
-- Jupyter notebooks, Databricks notebook sources/exports, and marimo `.py` notebooks as graph inputs
+- Jupyter notebooks, Databricks notebook sources/exports, and marimo `.py` / `.md` notebooks as graph inputs
 - Terraform
 
 See `docs/FEATURES.md` and `docs/LLM-OPTIMIZED-REFERENCE.md` for the current coverage summary.
